@@ -5,15 +5,20 @@ from typing import Optional
 from pydantic import BaseModel
 
 class LLMConfigDTO(BaseModel):
+    # 全局默认提供商 (为了兼容老逻辑)
     provider: str = "openai"
-    openai_api_key: Optional[str] = None
-    openai_base_url: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
-    anthropic_base_url: Optional[str] = None
+    
+    # 创作主力模型 (Default Model) 配置
+    default_model_provider: str = "openai"
+    default_model_api_key: Optional[str] = None
+    default_model_base_url: Optional[str] = None
     default_model: str = ""
+
+    # 分析经济模型 (Cheap Model) 配置
+    cheap_model_provider: str = "openai"
+    cheap_model_api_key: Optional[str] = None
+    cheap_model_base_url: Optional[str] = None
     cheap_model: str = ""
-    default_model_provider: str = "openai"  # 新增：主力模型供应商
-    cheap_model_provider: str = "openai"    # 新增：经济模型供应商
 
 class DynamicSettingsManager:
     def __init__(self, config_path: Optional[Path] = None):

@@ -2,14 +2,15 @@ import { apiClient } from './config'
 
 export interface LLMConfig {
   provider: string
-  openai_api_key?: string
-  openai_base_url?: string
-  anthropic_api_key?: string
-  anthropic_base_url?: string
-  default_model: string
-  cheap_model: string
   default_model_provider: string
+  default_model_api_key?: string
+  default_model_base_url?: string
+  default_model: string
+  
   cheap_model_provider: string
+  cheap_model_api_key?: string
+  cheap_model_base_url?: string
+  cheap_model: string
 }
 
 export function getLLMConfig() {

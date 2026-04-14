@@ -79,28 +79,10 @@ def _anthropic_base_url() -> Optional[str]:
 
 def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
     """构建 Anthropic Settings；require_key=False 时无密钥返回 None。"""
-    dyn_config = DynamicSettingsManager().load_config()
-    
-    # 动态构建：如果提供商为 anthropic，并且提供了 key，优先使用动态配置
-    if dyn_config and dyn_config.provider == "anthropic" and dyn_config.anthropic_api_key:
-        # 如果模型指定的是其他供应商的模型，则降级为使用环境变量或默认值
-        default_model = dyn_config.default_model if dyn_config.default_model_provider == "anthropic" else "claude-sonnet-4-6"
-        cheap_model = dyn_config.cheap_model if dyn_config.cheap_model_provider == "anthropic" else "claude-3-5-haiku-20241022"
-        return Settings(
-            api_key=dyn_config.anthropic_api_key,
-            base_url=dyn_config.anthropic_base_url or _anthropic_base_url(),
-            default_model=default_model,
-            cheap_model=cheap_model
-        )
-
-    key = _anthropic_api_key()
-    if not key:
-        if require_key:
-            raise ValueError(
-                "Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN (optional: ANTHROPIC_BASE_URL)"
-            )
-        return None
-    return Settings(api_key=key, base_url=_anthropic_base_url(), default_model="claude-sonnet-4-6", cheap_model="claude-3-5-haiku-20241022")
+    # 由于系统现在需要解耦，为了保持向后兼容和单一实例复用，我们需要通过传入 model_role 来决定读取哪一套 Key。
+    # 这里我们采用简化方案：直接使用 default_model 的配置作为全局 Settings。如果需要 cheap_model，由后续路由器支持。
+    # 为了完全支持用户诉求，我们将让 get_llm_service() 变得更加智能，但在这里先保持 Settings 结构
+    pass
 
 
 def _openai_api_key() -> Optional[str]:
@@ -338,23 +320,102 @@ def get_hosted_write_service() -> HostedWriteService:
     )
 
 
+class MultiModelRouter(LLMService):
+    """一个能够同时持有多个 Provider 实例并根据模型配置进行路由的门面（Facade）。
+    这个 Router 是为了满足 '创作主力模型' 和 '分析经济模型' 可能使用不同 BaseURL 甚至不同 Provider 类型的需求。
+    """
+    def __init__(self, default_provider: LLMService, cheap_provider: LLMService, dyn_config):
+        self.default_provider = default_provider
+        self.cheap_provider = cheap_provider
+        self.dyn_config = dyn_config
+        
+        self.default_model_name = dyn_config.default_model if dyn_config else ""
+        self.cheap_model_name = dyn_config.cheap_model if dyn_config else ""
+
+    async def generate(self, prompt: Prompt, config: GenerationConfig, **kwargs) -> str:
+        # 路由逻辑：如果请求明确要求 cheap_model，路由给 cheap_provider
+        if config.model and self.cheap_model_name and config.model == self.cheap_model_name:
+            return await self.cheap_provider.generate(prompt, config, **kwargs)
+        # 否则默认路由给 default_provider
+        return await self.default_provider.generate(prompt, config, **kwargs)
+
+    async def stream_generate(self, prompt: Prompt, config: GenerationConfig, **kwargs):
+        if config.model and self.cheap_model_name and config.model == self.cheap_model_name:
+            async for chunk in self.cheap_provider.stream_generate(prompt, config, **kwargs):
+                yield chunk
+        else:
+            async for chunk in self.default_provider.stream_generate(prompt, config, **kwargs):
+                yield chunk
+
+
+def _build_provider_for_role(dyn_config, role: str) -> Optional[LLMService]:
+    """为 specific role ('default' or 'cheap') 动态构建一个 LLMService"""
+    if role == "default":
+        provider_type = dyn_config.default_model_provider if dyn_config else "openai"
+        api_key = dyn_config.default_model_api_key if dyn_config else None
+        base_url = dyn_config.default_model_base_url if dyn_config else None
+        model_name = dyn_config.default_model if dyn_config else ""
+    else:
+        provider_type = dyn_config.cheap_model_provider if dyn_config else "openai"
+        api_key = dyn_config.cheap_model_api_key if dyn_config else None
+        base_url = dyn_config.cheap_model_base_url if dyn_config else None
+        model_name = dyn_config.cheap_model if dyn_config else ""
+        
+    if not api_key:
+        return None
+        
+    settings = Settings(
+        api_key=api_key,
+        base_url=base_url,
+        default_model=model_name,
+        cheap_model=model_name
+    )
+    
+    if provider_type == "openai":
+        from infrastructure.ai.providers.openai_provider import OpenAIProvider
+        if not settings.base_url:
+            settings.base_url = "https://api.openai.com/v1"
+        return OpenAIProvider(settings)
+    elif provider_type == "anthropic":
+        from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+        return AnthropicProvider(settings)
+        
+    return None
+
 def get_llm_service():
     """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
     dyn_config = DynamicSettingsManager().load_config()
-    provider = dyn_config.provider if dyn_config else os.getenv("LLM_PROVIDER", "anthropic").lower()
     
-    if provider == "openai":
-        settings = _openai_settings(require_key=False)
-        if settings:
-            from infrastructure.ai.providers.openai_provider import OpenAIProvider
-            return OpenAIProvider(settings)
-    else:
-        settings = _anthropic_settings(require_key=False)
-        if settings:
-            return AnthropicProvider(settings)
-            
     from infrastructure.ai.providers.mock_provider import MockProvider
-    return MockProvider()
+    
+    # 构建 Default Provider
+    default_provider = _build_provider_for_role(dyn_config, "default")
+    
+    # 构建 Cheap Provider
+    cheap_provider = _build_provider_for_role(dyn_config, "cheap")
+    
+    if default_provider and cheap_provider:
+        # 如果两个都配置了，返回路由门面
+        return MultiModelRouter(default_provider, cheap_provider, dyn_config)
+    elif default_provider:
+        return default_provider
+    elif cheap_provider:
+        return cheap_provider
+    else:
+        # 如果动态配置里都没配，尝试使用老环境变量 fallback
+        provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+        if provider == "openai":
+            key = _openai_api_key()
+            if key:
+                from infrastructure.ai.providers.openai_provider import OpenAIProvider
+                return OpenAIProvider(Settings(api_key=key, base_url=_openai_base_url(), default_model=os.getenv("OPENAI_MODEL", "gpt-4o"), cheap_model=os.getenv("OPENAI_CHEAP_MODEL", "gpt-4o-mini")))
+        else:
+            key = _anthropic_api_key()
+            if key:
+                from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+                return AnthropicProvider(Settings(api_key=key, base_url=_anthropic_base_url(), default_model="claude-sonnet-4-6", cheap_model="claude-3-5-haiku-20241022"))
+                
+        return MockProvider()
 
 
 def get_setup_main_plot_suggestion_service():

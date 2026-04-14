@@ -19,25 +19,23 @@ class VerifyResponse(BaseModel):
 async def get_config():
     config = manager.load_config()
     if not config:
-        # Return a blank default config if none exists
         return LLMConfigDTO()
-    # Mask API keys for security when returning to frontend
+        
     masked_config = config.model_copy()
-    if masked_config.openai_api_key:
-        masked_config.openai_api_key = "sk-..." + masked_config.openai_api_key[-4:] if len(masked_config.openai_api_key) > 4 else "***"
-    if masked_config.anthropic_api_key:
-        masked_config.anthropic_api_key = "sk-ant-..." + masked_config.anthropic_api_key[-4:] if len(masked_config.anthropic_api_key) > 4 else "***"
+    if masked_config.default_model_api_key:
+        masked_config.default_model_api_key = "sk-..." + masked_config.default_model_api_key[-4:] if len(masked_config.default_model_api_key) > 4 else "***"
+    if masked_config.cheap_model_api_key:
+        masked_config.cheap_model_api_key = "sk-..." + masked_config.cheap_model_api_key[-4:] if len(masked_config.cheap_model_api_key) > 4 else "***"
     return masked_config
 
 @router.post("/config")
 async def save_config(config: LLMConfigDTO):
-    # If the user sends masked keys, we should preserve the old keys
     old_config = manager.load_config()
     if old_config:
-        if config.openai_api_key and config.openai_api_key.startswith("sk-..."):
-            config.openai_api_key = old_config.openai_api_key
-        if config.anthropic_api_key and config.anthropic_api_key.startswith("sk-ant-..."):
-            config.anthropic_api_key = old_config.anthropic_api_key
+        if config.default_model_api_key and config.default_model_api_key.startswith("sk-..."):
+            config.default_model_api_key = old_config.default_model_api_key
+        if config.cheap_model_api_key and config.cheap_model_api_key.startswith("sk-..."):
+            config.cheap_model_api_key = old_config.cheap_model_api_key
             
     manager.save_config(config)
     return {"status": "success"}

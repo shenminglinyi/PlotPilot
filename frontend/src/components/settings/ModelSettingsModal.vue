@@ -1,60 +1,66 @@
 <template>
-  <n-modal v-model:show="visible" preset="card" title="核心引擎配置 (Model Matrix)" style="width: 600px">
+  <n-modal v-model:show="visible" preset="card" title="核心引擎配置 (Model Matrix)" style="width: 700px">
     <n-form :model="formData" label-placement="top">
-      <n-form-item label="服务商 (Provider)">
-        <n-radio-group v-model:value="formData.provider">
-          <n-radio-button value="openai">OpenAI (兼容 API)</n-radio-button>
-          <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
-        </n-radio-group>
-      </n-form-item>
+      
+      <!-- 创作主力模型配置区 -->
+      <n-card size="small" class="mb-4" title="✨ 创作主力模型 (Default Model)">
+        <template #header-extra>
+          <n-text depth="3" class="text-xs">用于正文连写与复杂逻辑推理</n-text>
+        </template>
+        
+        <n-form-item label="服务商 (Provider)">
+          <n-radio-group v-model:value="formData.default_model_provider" @update:value="() => formData.default_model = ''">
+            <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
+            <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
+          </n-radio-group>
+        </n-form-item>
 
-      <div v-if="formData.provider === 'openai'">
         <n-form-item label="API Key">
-          <n-input v-model:value="formData.openai_api_key" type="password" show-password-on="click" placeholder="sk-..." />
+          <n-input v-model:value="formData.default_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
         </n-form-item>
-        <n-form-item label="Base URL (可选，留空则使用官方地址)">
-          <n-input v-model:value="formData.openai_base_url" placeholder="https://api.openai.com/v1" />
-        </n-form-item>
-      </div>
 
-      <div v-if="formData.provider === 'anthropic'">
+        <n-form-item label="Base URL (留空则使用官方地址)">
+          <n-input v-model:value="formData.default_model_base_url" placeholder="如 https://api.deepseek.com/v1" />
+        </n-form-item>
+
+        <n-button type="info" dashed block @click="handleVerify('default')" :loading="verifyingDefault" class="mb-4">
+          🔗 测试主力端点并获取模型
+        </n-button>
+
+        <n-form-item label="选择主力模型">
+          <n-select v-model:value="formData.default_model" :options="defaultModelOptions" tag filterable />
+        </n-form-item>
+      </n-card>
+
+      <!-- 分析经济模型配置区 -->
+      <n-card size="small" class="mb-4" title="⚡ 分析经济模型 (Cheap Model)">
+        <template #header-extra>
+          <n-text depth="3" class="text-xs">用于后台数据提取、打分与摘要</n-text>
+        </template>
+        
+        <n-form-item label="服务商 (Provider)">
+          <n-radio-group v-model:value="formData.cheap_model_provider" @update:value="() => formData.cheap_model = ''">
+            <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
+            <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
+          </n-radio-group>
+        </n-form-item>
+
         <n-form-item label="API Key">
-          <n-input v-model:value="formData.anthropic_api_key" type="password" show-password-on="click" placeholder="sk-ant-..." />
+          <n-input v-model:value="formData.cheap_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
         </n-form-item>
-        <n-form-item label="Base URL (可选，留空则使用官方地址)">
-          <n-input v-model:value="formData.anthropic_base_url" placeholder="https://api.anthropic.com" />
+
+        <n-form-item label="Base URL (留空则使用官方地址)">
+          <n-input v-model:value="formData.cheap_model_base_url" placeholder="如 https://api.openai.com/v1" />
         </n-form-item>
-      </div>
 
-      <n-button type="info" dashed block @click="handleVerify" :loading="verifying" class="mb-4">
-        🔗 测试连接并获取模型
-      </n-button>
+        <n-button type="info" dashed block @click="handleVerify('cheap')" :loading="verifyingCheap" class="mb-4">
+          🔗 测试经济端点并获取模型
+        </n-button>
 
-      <n-divider />
-
-      <n-form-item label="创作主力模型 (Default Model)">
-        <n-input-group>
-          <n-select v-model:value="formData.default_model_provider" :options="providerOptions" style="width: 40%" />
-          <n-select 
-            v-model:value="formData.default_model" 
-            :options="formData.default_model_provider === 'openai' ? openaiModelOptions : anthropicModelOptions" 
-            tag filterable style="width: 60%" 
-          />
-        </n-input-group>
-        <template #feedback>用于正文生成与大纲推理，建议选择智商最高的模型，如 gpt-4o</template>
-      </n-form-item>
-
-      <n-form-item label="分析经济模型 (Cheap Model)">
-        <n-input-group>
-          <n-select v-model:value="formData.cheap_model_provider" :options="providerOptions" style="width: 40%" />
-          <n-select 
-            v-model:value="formData.cheap_model" 
-            :options="formData.cheap_model_provider === 'openai' ? openaiModelOptions : anthropicModelOptions" 
-            tag filterable style="width: 60%" 
-          />
-        </n-input-group>
-        <template #feedback>用于后台状态提取与审核，建议选择速度最快、最便宜的模型，如 gpt-4o-mini</template>
-      </n-form-item>
+        <n-form-item label="选择经济模型">
+          <n-select v-model:value="formData.cheap_model" :options="cheapModelOptions" tag filterable />
+        </n-form-item>
+      </n-card>
 
       <n-space justify="end" class="mt-4">
         <n-button @click="visible = false">取消</n-button>
@@ -71,29 +77,24 @@ import { getLLMConfig, saveLLMConfig, verifyAndFetchModels, type LLMConfig } fro
 
 const visible = ref(false)
 const message = useMessage()
-const verifying = ref(false)
+const verifyingDefault = ref(false)
+const verifyingCheap = ref(false)
 const saving = ref(false)
-const availableModels = ref<string[]>([])
 
 const formData = ref<LLMConfig>({
   provider: 'openai',
-  openai_api_key: '',
-  openai_base_url: '',
-  anthropic_api_key: '',
-  anthropic_base_url: '',
-  default_model: '',
-  cheap_model: '',
   default_model_provider: 'openai',
-  cheap_model_provider: 'openai'
+  default_model_api_key: '',
+  default_model_base_url: '',
+  default_model: '',
+  cheap_model_provider: 'openai',
+  cheap_model_api_key: '',
+  cheap_model_base_url: '',
+  cheap_model: ''
 })
 
-const providerOptions = [
-  { label: 'OpenAI 标准', value: 'openai' },
-  { label: 'Anthropic', value: 'anthropic' }
-]
-
-const openaiModelOptions = ref<{label: string, value: string}[]>([])
-const anthropicModelOptions = ref<{label: string, value: string}[]>([])
+const defaultModelOptions = ref<{label: string, value: string}[]>([])
+const cheapModelOptions = ref<{label: string, value: string}[]>([])
 
 const loadData = async () => {
   try {
@@ -101,25 +102,12 @@ const loadData = async () => {
     if (res && res.data) {
       formData.value = { ...formData.value, ...res.data }
       
-      // Populate existing values into options so they display correctly initially
+      // 初始化下拉框展示
       if (formData.value.default_model) {
-        if (formData.value.default_model_provider === 'openai') {
-          openaiModelOptions.value.push({ label: formData.value.default_model, value: formData.value.default_model })
-        } else {
-          anthropicModelOptions.value.push({ label: formData.value.default_model, value: formData.value.default_model })
-        }
+        defaultModelOptions.value = [{ label: formData.value.default_model, value: formData.value.default_model }]
       }
-      
       if (formData.value.cheap_model) {
-        if (formData.value.cheap_model_provider === 'openai') {
-          if (!openaiModelOptions.value.find(o => o.value === formData.value.cheap_model)) {
-             openaiModelOptions.value.push({ label: formData.value.cheap_model, value: formData.value.cheap_model })
-          }
-        } else {
-          if (!anthropicModelOptions.value.find(o => o.value === formData.value.cheap_model)) {
-             anthropicModelOptions.value.push({ label: formData.value.cheap_model, value: formData.value.cheap_model })
-          }
-        }
+        cheapModelOptions.value = [{ label: formData.value.cheap_model, value: formData.value.cheap_model }]
       }
     }
   } catch (e) {
@@ -127,33 +115,35 @@ const loadData = async () => {
   }
 }
 
-const handleVerify = async () => {
-  const p = formData.value.provider
-  const key = p === 'openai' ? formData.value.openai_api_key : formData.value.anthropic_api_key
-  const base = p === 'openai' ? formData.value.openai_base_url : formData.value.anthropic_base_url
+const handleVerify = async (role: 'default' | 'cheap') => {
+  const p = role === 'default' ? formData.value.default_model_provider : formData.value.cheap_model_provider
+  const key = role === 'default' ? formData.value.default_model_api_key : formData.value.cheap_model_api_key
+  const base = role === 'default' ? formData.value.default_model_base_url : formData.value.cheap_model_base_url
   
   if (!key || key.includes('***')) {
     message.warning('请先输入完整且有效的 API Key')
     return
   }
 
-  verifying.value = true
+  if (role === 'default') verifyingDefault.value = true
+  else verifyingCheap.value = true
+
   try {
     const res = await verifyAndFetchModels(p, key, base)
     if (res && res.data && res.data.models) {
-      availableModels.value = res.data.models
-      const opts = availableModels.value.map(m => ({ label: m, value: m }))
-      if (p === 'openai') {
-        openaiModelOptions.value = opts
+      const opts = res.data.models.map((m: string) => ({ label: m, value: m }))
+      if (role === 'default') {
+        defaultModelOptions.value = opts
       } else {
-        anthropicModelOptions.value = opts
+        cheapModelOptions.value = opts
       }
-      message.success(`成功获取 ${availableModels.value.length} 个模型`)
+      message.success(`成功获取 ${res.data.models.length} 个模型`)
     }
   } catch (e: any) {
     message.error(e.response?.data?.detail || '连接失败，请检查端点和秘钥')
   } finally {
-    verifying.value = false
+    if (role === 'default') verifyingDefault.value = false
+    else verifyingCheap.value = false
   }
 }
 
@@ -161,7 +151,7 @@ const handleSave = async () => {
   saving.value = true
   try {
     await saveLLMConfig(formData.value)
-    message.success('配置保存成功，系统将使用新配置')
+    message.success('配置保存成功，系统已切换路由通道')
     visible.value = false
   } catch (e) {
     message.error('保存失败')
@@ -181,4 +171,5 @@ defineExpose({ open })
 <style scoped>
 .mb-4 { margin-bottom: 16px; }
 .mt-4 { margin-top: 16px; }
+.text-xs { font-size: 12px; }
 </style>
