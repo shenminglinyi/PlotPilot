@@ -112,7 +112,7 @@ const structureEmptyDescription = computed(() => {
   }
   return '暂无叙事结构'
 })
-const treeData = ref<StoryNode[]>([])
+const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
 
@@ -260,7 +260,7 @@ const loadTree = async () => {
   loading.value = true
   try {
     const res = await structureApi.getTree(props.slug)
-    const nodes = res.tree?.nodes || []
+    const nodes = Array.isArray(res.tree) ? res.tree : (res.tree?.nodes ?? [])
     treeData.value = nodes.length > 0 ? nodes.map(convertToTreeNode) : []
 
     // 自动展开所有非章节节点
@@ -404,7 +404,7 @@ const doAddChild = async () => {
 }
 
 // 渲染节点标签
-const renderLabel = ({ option }: { option: StoryNode }) => {
+const renderLabel = ({ option }: { option: any }) => {
   const elements: any[] = [
     h('span', { class: 'node-icon' }, option.icon),
     h('span', { class: 'node-title' }, option.display_name),
@@ -426,7 +426,7 @@ const renderLabel = ({ option }: { option: StoryNode }) => {
 }
 
 // 渲染节点后缀
-const renderSuffix = ({ option }: { option: StoryNode }) => {
+const renderSuffix = ({ option }: { option: any }) => {
   const elements: any[] = []
   if (option.description && ['part', 'volume', 'act'].includes(option.node_type)) {
     elements.push(
@@ -448,7 +448,7 @@ const renderSuffix = ({ option }: { option: StoryNode }) => {
 }
 
 // 节点属性（右键绑定）
-const nodeProps = ({ option }: { option: StoryNode }) => ({
+const nodeProps = ({ option }: { option: any }) => ({
   class: `node-level-${option.level}`,
   onContextmenu: (e: MouseEvent) => handleContextMenu(e, option),
 })

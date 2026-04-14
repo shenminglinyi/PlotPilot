@@ -335,7 +335,8 @@ const saveStatusText = computed(() => {
 const contentDirty = computed(() => saveStatus.value === 'unsaved')
 
 const currentChapterIndex = computed(() => {
-  return chapterIds.value.indexOf(chapterId.value)
+  const cid = chapterId.value
+  return cid == null ? -1 : chapterIds.value.indexOf(cid)
 })
 
 const canPrev = computed(() => {
@@ -380,12 +381,13 @@ const onInput = () => {
 }
 
 const saveContent = async () => {
-  if (saving.value) return
+  const cid = chapterId.value
+  if (cid == null || saving.value) return
   saving.value = true
   saveStatus.value = 'saving'
 
   try {
-    await chapterApi.updateChapter(slug, chapterId.value, {
+    await chapterApi.updateChapter(slug, cid, {
       content: content.value
     })
     saveStatus.value = 'saved'
@@ -393,7 +395,7 @@ const saveContent = async () => {
     updateTime.value = new Date().toLocaleString('zh-CN', { hour12: false })
     message.success('已保存')
     // Refresh book stats after successful save
-    statsStore.onChapterSaved(slug, chapterId.value)
+    statsStore.onChapterSaved(slug, cid)
   } catch (error) {
     console.error('Failed to save content:', error)
     saveStatus.value = 'unsaved'
@@ -404,13 +406,15 @@ const saveContent = async () => {
 }
 
 const saveReview = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
   savingReview.value = true
   try {
     const newStatus = statusToNew(reviewStatus.value)
-    await chapterApi.saveChapterReview(slug, chapterId.value, newStatus, reviewMemo.value)
+    await chapterApi.saveChapterReview(slug, cid, newStatus, reviewMemo.value)
     message.success('审定已保存')
     // Refresh book stats after successful save
-    statsStore.onChapterSaved(slug, chapterId.value)
+    statsStore.onChapterSaved(slug, cid)
   } catch (error) {
     console.error('Failed to save review:', error)
     message.error('保存失败，请稍后重试')
@@ -420,9 +424,11 @@ const saveReview = async () => {
 }
 
 const runAiReview = async (save: boolean) => {
+  const cid = chapterId.value
+  if (cid == null) return
   savingAiReview.value = true
   try {
-    const r = await chapterApi.reviewChapterAi(slug, chapterId.value, save)
+    const r = await chapterApi.reviewChapterAi(slug, cid, save)
     reviewStatus.value = statusToOld(r.status)
     reviewMemo.value = r.memo
     message.success(save ? '已写入审定意见' : '已填入审读意见')
@@ -443,7 +449,8 @@ const goBack = () => {
 }
 
 const goCastGraph = () => {
-  router.push({ path: `/book/${slug}/cast`, query: { chapter: String(chapterId.value) } })
+  const cid = chapterId.value
+  router.push({ path: `/book/${slug}/cast`, query: cid == null ? {} : { chapter: String(cid) } })
 }
 
 const prevChapter = () => {

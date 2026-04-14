@@ -140,7 +140,7 @@
               <n-list-item v-for="loc in bibleData.locations" :key="loc.id || loc.name">
                 <n-thing :title="loc.name" :description="loc.description">
                   <template #header-extra>
-                    <n-tag size="small" type="info">{{ loc.location_type || loc.type || '地点' }}</n-tag>
+                    <n-tag size="small" type="info">{{ loc.location_type || '地点' }}</n-tag>
                   </template>
                 </n-thing>
               </n-list-item>
@@ -309,6 +309,18 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
   }
 }
 
+function createEmptyBible(): BibleDTO {
+  return {
+    id: '',
+    novel_id: '',
+    characters: [],
+    world_settings: [],
+    locations: [],
+    timeline_notes: [],
+    style_notes: [],
+  }
+}
+
 /** 从 Bible.world_settings 名如 core_rules.power_system 还原为五维对象 */
 function worldbuildingFromWorldSettings(
   settings: { name: string; description?: string }[] | undefined
@@ -351,7 +363,7 @@ function mergeWorldbuildingDisplay(
   return out
 }
 
-function styleConventionFromBible(bible: BibleDTO | Record<string, unknown>): string {
+function styleConventionFromBible(bible: BibleDTO): string {
   const b = bible as BibleDTO & { style?: string }
   if (b.style && String(b.style).trim()) return String(b.style).trim()
   const notes: StyleNoteDTO[] = b.style_notes || []
@@ -454,10 +466,10 @@ const generatingBible = ref(false)
 const bibleGenerated = ref(false)
 const bibleStatusText = ref('正在生成世界观...')
 const bibleError = ref('')
-const bibleData = ref<BibleDTO | Record<string, unknown>>({ style_notes: [] } as BibleDTO)
+const bibleData = ref<BibleDTO>(createEmptyBible())
 const worldbuildingData = ref<ReturnType<typeof emptyWorldbuildingShape>>(emptyWorldbuildingShape())
 
-const styleConventionDisplay = computed(() => styleConventionFromBible(bibleData.value as BibleDTO))
+const styleConventionDisplay = computed(() => styleConventionFromBible(bibleData.value))
 
 // 第2步：生成人物和地点
 const generatingCharacters = ref(false)

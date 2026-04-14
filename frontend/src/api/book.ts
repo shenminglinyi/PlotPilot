@@ -57,56 +57,56 @@ const request = axios.create({
 request.interceptors.response.use(response => response.data)
 
 export const bookApi = {
-  getList: () => request.get<BookListItem[]>('/books') as Promise<BookListItem[]>,
-  create: (data: unknown) => request.post<SlugResponse>('/jobs/create-book', data) as Promise<SlugResponse>,
-  deleteBook: (slug: string) => request.delete<SimpleResponse>(`/book/${slug}`) as Promise<SimpleResponse>,
-  getCast: (slug: string) => request.get<CastGraph>(`/book/${slug}/cast`) as Promise<CastGraph>,
+  getList: () => request.get<BookListItem[]>('/books') as unknown as Promise<BookListItem[]>,
+  create: (data: unknown) => request.post<SlugResponse>('/jobs/create-book', data) as unknown as Promise<SlugResponse>,
+  deleteBook: (slug: string) => request.delete<SimpleResponse>(`/book/${slug}`) as unknown as Promise<SimpleResponse>,
+  getCast: (slug: string) => request.get<CastGraph>(`/book/${slug}/cast`) as unknown as Promise<CastGraph>,
   putCast: (slug: string, data: unknown) => request.put(`/book/${slug}/cast`, data),
   searchCast: (slug: string, q: string) =>
-    request.get<CastSearchResponse>(`/book/${slug}/cast/search`, { params: { q } }) as Promise<CastSearchResponse>,
+    request.get<CastSearchResponse>(`/book/${slug}/cast/search`, { params: { q } }) as unknown as Promise<CastSearchResponse>,
   /** 正文与关系图对照：章节出现、设定未入库、书名号未匹配等 */
   getCastCoverage: (slug: string) =>
-    request.get<CastCoverage>(`/book/${slug}/cast/coverage`) as Promise<CastCoverage>,
+    request.get<CastCoverage>(`/book/${slug}/cast/coverage`) as unknown as Promise<CastCoverage>,
   getKnowledge: (slug: string) =>
-    request.get<StoryKnowledge>(`/book/${slug}/knowledge`) as Promise<StoryKnowledge>,
+    request.get<StoryKnowledge>(`/book/${slug}/knowledge`) as unknown as Promise<StoryKnowledge>,
   putKnowledge: (slug: string, data: unknown) => request.put(`/book/${slug}/knowledge`, data),
   knowledgeSearch: (slug: string, q: string, k = 6) =>
-    request.get<KnowledgeSearchResponse>(`/book/${slug}/knowledge/search`, { params: { q, k } }) as Promise<KnowledgeSearchResponse>,
+    request.get<KnowledgeSearchResponse>(`/book/${slug}/knowledge/search`, { params: { q, k } }) as unknown as Promise<KnowledgeSearchResponse>,
   getDesk: (slug: string) =>
-    request.get<BookDeskResponse>(`/book/${slug}/desk`) as Promise<BookDeskResponse>,
+    request.get<BookDeskResponse>(`/book/${slug}/desk`) as unknown as Promise<BookDeskResponse>,
   /** @deprecated Use bibleApi.getBible() - Note: New API has different structure, needs bulk update endpoint */
-  getBible: (slug: string) => request.get<Bible>(`/book/${slug}/bible`) as Promise<Bible>,
+  getBible: (slug: string) => request.get<Bible>(`/book/${slug}/bible`) as unknown as Promise<Bible>,
   /** @deprecated Use bibleApi - Note: New API has different structure, needs bulk update endpoint */
   saveBible: (slug: string, data: unknown) => request.put(`/book/${slug}/bible`, data),
   /** @deprecated Use chapterApi.getChapter() instead */
   getChapterBody: (slug: string, chapterId: number) =>
-    request.get<ChapterBody>(`/book/${slug}/chapter/${chapterId}/body`) as Promise<ChapterBody>,
+    request.get<ChapterBody>(`/book/${slug}/chapter/${chapterId}/body`) as unknown as Promise<ChapterBody>,
   /** @deprecated Use chapterApi.updateChapter() instead */
   saveChapterBody: (slug: string, chapterId: number, content: string) =>
     request.put(`/book/${slug}/chapter/${chapterId}/body`, { content }),
   /** @deprecated Use chapterApi.getChapterReview() instead */
   getChapterReview: (slug: string, chapterId: number) =>
-    request.get<ChapterReview>(`/book/${slug}/chapter/${chapterId}/review`) as Promise<ChapterReview>,
+    request.get<ChapterReview>(`/book/${slug}/chapter/${chapterId}/review`) as unknown as Promise<ChapterReview>,
   /** @deprecated Use chapterApi.saveChapterReview() instead */
   saveChapterReview: (slug: string, chapterId: number, status: string, memo: string) =>
     request.put(`/book/${slug}/chapter/${chapterId}/review`, { status, memo }),
   /** @deprecated Use chapterApi.reviewChapterAi() instead - 自动审读：返回 status/memo；save=true 时写入 editorial */
   reviewChapterAi: (slug: string, chapterId: number, save = false) =>
-    request.post<ChapterReviewAiResponse>(`/book/${slug}/chapter/${chapterId}/review-ai`, { save }) as Promise<ChapterReviewAiResponse>,
+    request.post<ChapterReviewAiResponse>(`/book/${slug}/chapter/${chapterId}/review-ai`, { save }) as unknown as Promise<ChapterReviewAiResponse>,
   /** @deprecated Use chapterApi.getChapterStructure() instead */
   getChapterStructure: (slug: string, chapterId: number) =>
-    request.get<ChapterStructure>(`/book/${slug}/chapter/${chapterId}/structure`) as Promise<ChapterStructure>,
+    request.get<ChapterStructure>(`/book/${slug}/chapter/${chapterId}/structure`) as unknown as Promise<ChapterStructure>,
 }
 
 export const jobApi = {
   startPlan: (slug: string, dryRun = false, mode: 'initial' | 'revise' = 'initial') =>
-    request.post<JobCreateResponse>(`/jobs/${slug}/plan`, { dry_run: dryRun, mode }) as Promise<JobCreateResponse>,
+    request.post<JobCreateResponse>(`/jobs/${slug}/plan`, { dry_run: dryRun, mode }) as unknown as Promise<JobCreateResponse>,
   startWrite: (slug: string, from: number, to?: number, dryRun = false, continuity = false) =>
-    request.post<JobCreateResponse>(`/jobs/${slug}/write`, { from_chapter: from, to_chapter: to, dry_run: dryRun, continuity }) as Promise<JobCreateResponse>,
+    request.post<JobCreateResponse>(`/jobs/${slug}/write`, { from_chapter: from, to_chapter: to, dry_run: dryRun, continuity }) as unknown as Promise<JobCreateResponse>,
   startRun: (slug: string, dryRun = false, continuity = false) =>
-    request.post<JobCreateResponse>(`/jobs/${slug}/run`, { dry_run: dryRun, continuity }) as Promise<JobCreateResponse>,
+    request.post<JobCreateResponse>(`/jobs/${slug}/run`, { dry_run: dryRun, continuity }) as unknown as Promise<JobCreateResponse>,
   startExport: (slug: string) => request.post(`/jobs/${slug}/export`, {}),
-  cancelJob: (jobId: string) => request.post<SimpleResponse>(`/jobs/${jobId}/cancel`, {}) as Promise<SimpleResponse>,
+  cancelJob: (jobId: string) => request.post<SimpleResponse>(`/jobs/${jobId}/cancel`, {}) as unknown as Promise<SimpleResponse>,
   getStatus: (jobId: string) =>
-    request.get<JobStatusResponse>(`/jobs/${jobId}`) as Promise<JobStatusResponse>,
+    request.get<JobStatusResponse>(`/jobs/${jobId}`) as unknown as Promise<JobStatusResponse>,
 }
