@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 - 自动驾驶模式：后台守护进程持续生成章节，支持 SSE 实时流式推送
 - Story Bible：人物、地点、世界设定的结构化管理
