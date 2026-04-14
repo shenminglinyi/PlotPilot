@@ -299,6 +299,10 @@ app.include_router(novels.router, prefix="/api/v1")
 app.include_router(chapters.router, prefix="/api/v1/novels")
 app.include_router(scene_generation_routes.router)
 
+# LLM Settings route
+from interfaces.api.v1.core import llm_settings
+app.include_router(llm_settings.router, prefix="/api/v1")
+
 # World module routes
 app.include_router(bible.router, prefix="/api/v1")
 app.include_router(cast.router, prefix="/api/v1")

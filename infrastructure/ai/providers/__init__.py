@@ -1,6 +1,6 @@
 """Infrastructure AI providers module"""
 from .base import BaseProvider
 from .anthropic_provider import AnthropicProvider
-from .openai_provider import OpenAIProvider
+from .ark_provider import ArkProvider
 
-__all__ = ["BaseProvider", "AnthropicProvider", "OpenAIProvider"]
+__all__ = ["BaseProvider", "AnthropicProvider", "ArkProvider"]

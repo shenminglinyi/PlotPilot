@@ -88,6 +88,20 @@
       </div>
     </section>
 
+    <!-- Settings -->
+    <section class="quick-actions">
+      <h3 class="actions-title">
+        <span class="title-icon">⚙️</span>
+        设置
+      </h3>
+      <div class="actions-grid">
+        <button class="action-btn" @click="goToLLMSettings">
+          <span class="action-icon">🤖</span>
+          <span>LLM 模型</span>
+        </button>
+      </div>
+    </section>
+
     <!-- Footer -->
     <footer class="sidebar-footer">
       <div class="footer-info">
@@ -106,14 +120,21 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
+
+const router = useRouter()
 
 defineEmits<{
   (e: 'create-book'): void
   (e: 'refresh-list'): void
 }>()
+
+function goToLLMSettings() {
+  router.push('/settings/llm')
+}
 
 const statsStore = useStatsStore()
 const { globalStats, loading } = storeToRefs(statsStore)

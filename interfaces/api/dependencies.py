@@ -30,6 +30,7 @@ from infrastructure.persistence.database.sqlite_cast_repository import SqliteCas
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
 from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+from infrastructure.ai.providers.ark_provider import ArkProvider
 from infrastructure.ai.config.settings import Settings
 
 from application.core.services.novel_service import NovelService
@@ -88,29 +89,31 @@ def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
     return Settings(api_key=key, base_url=_anthropic_base_url())
 
 
-def _openai_api_key() -> Optional[str]:
-    raw = os.getenv("OPENAI_API_KEY")
+def _ark_api_key() -> Optional[str]:
+    """Get Ark/DashScope API key from environment."""
+    raw = os.getenv("ARK_API_KEY")
     if raw is None:
         return None
     key = raw.strip()
     return key or None
 
 
-def _openai_base_url() -> Optional[str]:
-    u = os.getenv("OPENAI_BASE_URL")
+def _ark_base_url() -> Optional[str]:
+    """Get Ark/DashScope base URL from environment."""
+    u = os.getenv("ARK_BASE_URL")
     return u.strip() if u and u.strip() else None
 
 
-def _openai_settings(require_key: bool = True) -> Optional[Settings]:
-    """构建 OpenAI Settings；require_key=False 时无密钥返回 None。"""
-    key = _openai_api_key()
+def _ark_settings(require_key: bool = True) -> Optional[Settings]:
+    """Build Ark Settings; returns None if no key and require_key=False."""
+    key = _ark_api_key()
     if not key:
         if require_key:
             raise ValueError(
-                "Set OPENAI_API_KEY (optional: OPENAI_BASE_URL)"
+                "Set ARK_API_KEY (optional: ARK_BASE_URL, ARK_MODEL)"
             )
         return None
-    return Settings(api_key=key, base_url=_openai_base_url())
+    return Settings(api_key=key, base_url=_ark_base_url())
 
 
 def get_storage() -> FileStorage:
@@ -310,22 +313,43 @@ def get_hosted_write_service() -> HostedWriteService:
     )
 
 
-def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
-    
-    if provider == "openai":
-        settings = _openai_settings(require_key=False)
-        if settings:
-            from infrastructure.ai.providers.openai_provider import OpenAIProvider
-            return OpenAIProvider(settings)
-    else:
-        settings = _anthropic_settings(require_key=False)
-        if settings:
-            return AnthropicProvider(settings)
-            
+def _create_llm_provider(require_key: bool = False):
+    """Create LLM provider based on environment (Anthropic > Ark > Mock).
+
+    Args:
+        require_key: If True, raises error when no API key found
+
+    Returns:
+        LLM provider instance
+    """
+    # Try Anthropic first
+    anthropic_settings = _anthropic_settings(require_key=False)
+    if anthropic_settings:
+        return AnthropicProvider(anthropic_settings), "AnthropicProvider"
+
+    # Try Ark/DashScope second
+    ark_settings = _ark_settings(require_key=False)
+    if ark_settings:
+        return ArkProvider(ark_settings), "ArkProvider"
+
+    if require_key:
+        raise ValueError(
+            "No LLM API key found. Set ANTHROPIC_API_KEY or ARK_API_KEY"
+        )
+
+    # Fallback to Mock
     from infrastructure.ai.providers.mock_provider import MockProvider
-    return MockProvider()
+    return MockProvider(), "MockProvider"
+
+
+def get_llm_service():
+    """Get LLM service instance (Anthropic > Ark > Mock). For multi-module reuse."""
+    provider, name = _create_llm_provider(require_key=False)
+    if name == "MockProvider":
+        logger.warning("No API key found, using MockProvider")
+    else:
+        logger.info(f"Using {name} for LLM service")
+    return provider
 
 
 def get_setup_main_plot_suggestion_service():
@@ -558,12 +582,8 @@ def get_auto_workflow() -> AutoNovelGenerationWorkflow:
     Returns:
         AutoNovelGenerationWorkflow 实例
     """
-    llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
-        logger.warning("No API key found, using MockProvider for workflow")
-    else:
-        logger.info(f"Using {llm_service.__class__.__name__} for workflow")
+    llm_service, name = _create_llm_provider(require_key=False)
+    logger.info(f"Using {name} for workflow")
 
     return build_auto_workflow(llm_service)
 
@@ -574,12 +594,8 @@ def get_auto_bible_generator() -> AutoBibleGenerator:
     Returns:
         AutoBibleGenerator 实例
     """
-    llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
-        logger.warning("No API key found, using MockProvider for Bible generation")
-    else:
-        logger.info(f"Using {llm_service.__class__.__name__} for Bible generation")
+    llm_service, name = _create_llm_provider(require_key=False)
+    logger.info(f"Using {name} for Bible generation")
 
     # 导入 WorldbuildingService 和 TripleRepository
     from application.world.services.worldbuilding_service import WorldbuildingService
@@ -606,7 +622,8 @@ def get_state_extractor() -> StateExtractor:
     Returns:
         StateExtractor 实例
     """
-    return StateExtractor(llm_service=get_llm_service())
+    llm_service, _ = _create_llm_provider(require_key=False)
+    return StateExtractor(llm_service=llm_service)
 
 
 def get_auto_knowledge_generator() -> AutoKnowledgeGenerator:
@@ -615,8 +632,9 @@ def get_auto_knowledge_generator() -> AutoKnowledgeGenerator:
     Returns:
         AutoKnowledgeGenerator 实例
     """
+    llm_service, _ = _create_llm_provider(require_key=False)
     return AutoKnowledgeGenerator(
-        llm_service=get_llm_service(),
+        llm_service=llm_service,
         knowledge_service=get_knowledge_service()
     )
 
@@ -644,12 +662,8 @@ def get_beat_sheet_service():
     """
     from application.blueprint.services.beat_sheet_service import BeatSheetService
 
-    llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
-        logger.warning("No API key found, using MockProvider for beat sheet generation")
-    else:
-        logger.info(f"Using {llm_service.__class__.__name__} for beat sheet generation")
+    llm_service, name = _create_llm_provider(require_key=False)
+    logger.info(f"Using {name} for beat sheet generation")
 
     return BeatSheetService(
         beat_sheet_repo=get_beat_sheet_repository(),
@@ -669,12 +683,8 @@ def get_scene_generation_service():
     """
     from application.core.services.scene_generation_service import SceneGenerationService
 
-    llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
-        logger.warning("No API key found, using MockProvider for scene generation")
-    else:
-        logger.info(f"Using {llm_service.__class__.__name__} for scene generation")
+    llm_service, name = _create_llm_provider(require_key=False)
+    logger.info(f"Using {name} for scene generation")
 
     return SceneGenerationService(
         llm_service=llm_service,
@@ -692,13 +702,8 @@ def get_scene_director_service() -> "SceneDirectorService":
     """
     from application.engine.services.scene_director_service import SceneDirectorService
 
-    llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
-        logger.warning("No API key found, using MockProvider for scene director")
-    else:
-        logger.info(f"Using {llm_service.__class__.__name__} for scene director")
-        
+    llm_service, name = _create_llm_provider(require_key=False)
+    logger.info(f"Using {name} for scene director")
     return SceneDirectorService(llm_service=llm_service)
 
 
@@ -790,12 +795,14 @@ def get_macro_refactor_proposal_service():
     """
     from application.audit.services.macro_refactor_proposal_service import MacroRefactorProposalService
 
-    llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
-        logger.warning("No API key found, using MockProvider for macro refactor proposals")
+    settings = _anthropic_settings(require_key=False)
+    if settings:
+        llm_service, name = _create_llm_provider(require_key=False)
+        logger.info(f"Using {name} for macro refactor proposals")
     else:
-        logger.info(f"Using {llm_service.__class__.__name__} for macro refactor proposals")
+        from infrastructure.ai.providers.mock_provider import MockProvider
+        llm_service = MockProvider()
+        logger.warning("No API key found, using MockProvider for macro refactor proposals")
 
     return MacroRefactorProposalService(llm_service)
 
@@ -839,12 +846,8 @@ def get_tension_analyzer():
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
     from infrastructure.ai.llm_client import LLMClient
 
-    llm_provider = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_provider, MockProvider):
-        logger.warning("No API key found, using MockProvider for tension analyzer")
-    else:
-        logger.info(f"Using {llm_provider.__class__.__name__} for tension analyzer")
+    llm_provider, name = _create_llm_provider(require_key=False)
+    logger.info(f"Using {name} for tension analyzer")
 
     llm_client = LLMClient(provider=llm_provider)
     narrative_event_repo = SqliteNarrativeEventRepository(get_database())

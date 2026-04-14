@@ -19,7 +19,7 @@ STATUS_CODE_MAP: Dict[int, str] = {
     status.HTTP_403_FORBIDDEN: "FORBIDDEN",
     status.HTTP_404_NOT_FOUND: "NOT_FOUND",
     status.HTTP_409_CONFLICT: "CONFLICT",
-    status.HTTP_422_UNPROCESSABLE_CONTENT: "UNPROCESSABLE_ENTITY",
+    status.HTTP_422_UNPROCESSABLE_ENTITY: "UNPROCESSABLE_ENTITY",
     status.HTTP_500_INTERNAL_SERVER_ERROR: "INTERNAL_ERROR",
 }
 
@@ -90,7 +90,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         logger.debug(f"  - {field_error['field']}: {field_error['message']}")
 
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content=error_response.model_dump()
     )
 
