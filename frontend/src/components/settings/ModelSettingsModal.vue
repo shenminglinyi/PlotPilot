@@ -2,65 +2,115 @@
   <n-modal v-model:show="visible" preset="card" title="核心引擎配置 (Model Matrix)" style="width: 700px">
     <n-form :model="formData" label-placement="top">
       
-      <!-- 创作主力模型配置区 -->
-      <n-card size="small" class="mb-4" title="✨ 创作主力模型 (Default Model)">
-        <template #header-extra>
-          <n-text depth="3" class="text-xs">用于正文连写与复杂逻辑推理</n-text>
-        </template>
-        
-        <n-form-item label="服务商 (Provider)">
-          <n-radio-group v-model:value="formData.default_model_provider" @update:value="() => formData.default_model = ''">
-            <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
-            <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
-          </n-radio-group>
-        </n-form-item>
+      <div class="mode-switch mb-4">
+        <n-switch v-model:value="isUnifiedMode" size="large">
+          <template #checked>统一端点配置</template>
+          <template #unchecked>独立端点配置</template>
+        </n-switch>
+        <n-text depth="3" class="text-xs ml-2">
+          {{ isUnifiedMode ? '使用同一个 API Key 驱动两个模型' : '为两个模型分别配置不同的服务商和 Key' }}
+        </n-text>
+      </div>
 
-        <n-form-item label="API Key">
-          <n-input v-model:value="formData.default_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
-        </n-form-item>
+      <!-- 统一端点配置区 -->
+      <template v-if="isUnifiedMode">
+        <n-card size="small" class="mb-4" title="🌐 全局服务端点">
+          <n-form-item label="服务商 (Provider)">
+            <n-radio-group v-model:value="formData.default_model_provider" @update:value="syncProviders">
+              <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
+              <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
 
-        <n-form-item label="Base URL (留空则使用官方地址)">
-          <n-input v-model:value="formData.default_model_base_url" placeholder="如 https://api.deepseek.com/v1" />
-        </n-form-item>
+          <n-form-item label="API Key">
+            <n-input v-model:value="formData.default_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
+          </n-form-item>
 
-        <n-button type="info" dashed block @click="handleVerify('default')" :loading="verifyingDefault" class="mb-4">
-          🔗 测试主力端点并获取模型
-        </n-button>
+          <n-form-item label="Base URL (留空则使用官方地址)">
+            <n-input v-model:value="formData.default_model_base_url" placeholder="如 https://api.deepseek.com/v1" />
+          </n-form-item>
 
-        <n-form-item label="选择主力模型">
-          <n-select v-model:value="formData.default_model" :options="defaultModelOptions" tag filterable />
-        </n-form-item>
-      </n-card>
+          <n-button type="info" dashed block @click="handleVerify('default')" :loading="verifyingDefault" class="mb-4">
+            🔗 测试端点并获取模型
+          </n-button>
+        </n-card>
 
-      <!-- 分析经济模型配置区 -->
-      <n-card size="small" class="mb-4" title="⚡ 分析经济模型 (Cheap Model)">
-        <template #header-extra>
-          <n-text depth="3" class="text-xs">用于后台数据提取、打分与摘要</n-text>
-        </template>
-        
-        <n-form-item label="服务商 (Provider)">
-          <n-radio-group v-model:value="formData.cheap_model_provider" @update:value="() => formData.cheap_model = ''">
-            <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
-            <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
-          </n-radio-group>
-        </n-form-item>
+        <!-- 统一模式下的模型分配 -->
+        <n-card size="small" class="mb-4" title="🎯 模型任务分配">
+          <n-form-item label="✨ 创作主力模型 (Default Model)">
+            <n-select v-model:value="formData.default_model" :options="defaultModelOptions" tag filterable />
+            <template #feedback>用于正文连写与复杂逻辑推理，建议选择智商最高的模型</template>
+          </n-form-item>
 
-        <n-form-item label="API Key">
-          <n-input v-model:value="formData.cheap_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
-        </n-form-item>
+          <n-form-item label="⚡ 分析经济模型 (Cheap Model)">
+            <n-select v-model:value="formData.cheap_model" :options="cheapModelOptions" tag filterable />
+            <template #feedback>用于后台数据提取、打分与摘要，建议选择速度最快、最便宜的模型</template>
+          </n-form-item>
+        </n-card>
+      </template>
 
-        <n-form-item label="Base URL (留空则使用官方地址)">
-          <n-input v-model:value="formData.cheap_model_base_url" placeholder="如 https://api.openai.com/v1" />
-        </n-form-item>
+      <!-- 独立端点配置区 (原逻辑) -->
+      <template v-else>
+        <!-- 创作主力模型配置区 -->
+        <n-card size="small" class="mb-4" title="✨ 创作主力模型 (Default Model)">
+          <template #header-extra>
+            <n-text depth="3" class="text-xs">用于正文连写与复杂逻辑推理</n-text>
+          </template>
+          
+          <n-form-item label="服务商 (Provider)">
+            <n-radio-group v-model:value="formData.default_model_provider" @update:value="() => formData.default_model = ''">
+              <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
+              <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
 
-        <n-button type="info" dashed block @click="handleVerify('cheap')" :loading="verifyingCheap" class="mb-4">
-          🔗 测试经济端点并获取模型
-        </n-button>
+          <n-form-item label="API Key">
+            <n-input v-model:value="formData.default_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
+          </n-form-item>
 
-        <n-form-item label="选择经济模型">
-          <n-select v-model:value="formData.cheap_model" :options="cheapModelOptions" tag filterable />
-        </n-form-item>
-      </n-card>
+          <n-form-item label="Base URL (留空则使用官方地址)">
+            <n-input v-model:value="formData.default_model_base_url" placeholder="如 https://api.deepseek.com/v1" />
+          </n-form-item>
+
+          <n-button type="info" dashed block @click="handleVerify('default')" :loading="verifyingDefault" class="mb-4">
+            🔗 测试主力端点并获取模型
+          </n-button>
+
+          <n-form-item label="选择主力模型">
+            <n-select v-model:value="formData.default_model" :options="defaultModelOptions" tag filterable />
+          </n-form-item>
+        </n-card>
+
+        <!-- 分析经济模型配置区 -->
+        <n-card size="small" class="mb-4" title="⚡ 分析经济模型 (Cheap Model)">
+          <template #header-extra>
+            <n-text depth="3" class="text-xs">用于后台数据提取、打分与摘要</n-text>
+          </template>
+          
+          <n-form-item label="服务商 (Provider)">
+            <n-radio-group v-model:value="formData.cheap_model_provider" @update:value="() => formData.cheap_model = ''">
+              <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
+              <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
+
+          <n-form-item label="API Key">
+            <n-input v-model:value="formData.cheap_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
+          </n-form-item>
+
+          <n-form-item label="Base URL (留空则使用官方地址)">
+            <n-input v-model:value="formData.cheap_model_base_url" placeholder="如 https://api.openai.com/v1" />
+          </n-form-item>
+
+          <n-button type="info" dashed block @click="handleVerify('cheap')" :loading="verifyingCheap" class="mb-4">
+            🔗 测试经济端点并获取模型
+          </n-button>
+
+          <n-form-item label="选择经济模型">
+            <n-select v-model:value="formData.cheap_model" :options="cheapModelOptions" tag filterable />
+          </n-form-item>
+        </n-card>
+      </template>
 
       <n-space justify="end" class="mt-4">
         <n-button @click="visible = false">取消</n-button>
@@ -80,6 +130,7 @@ const message = useMessage()
 const verifyingDefault = ref(false)
 const verifyingCheap = ref(false)
 const saving = ref(false)
+const isUnifiedMode = ref(true)
 
 const formData = ref<LLMConfig>({
   provider: 'openai',
@@ -96,6 +147,11 @@ const formData = ref<LLMConfig>({
 const defaultModelOptions = ref<{label: string, value: string}[]>([])
 const cheapModelOptions = ref<{label: string, value: string}[]>([])
 
+const syncProviders = () => {
+  formData.value.default_model = ''
+  formData.value.cheap_model = ''
+}
+
 const loadData = async () => {
   try {
     const res = await getLLMConfig()
@@ -109,6 +165,17 @@ const loadData = async () => {
       if (formData.value.cheap_model) {
         cheapModelOptions.value = [{ label: formData.value.cheap_model, value: formData.value.cheap_model }]
       }
+
+      // 推断是否属于统一模式（两个配置的值完全一样）
+      if (
+        formData.value.default_model_provider === formData.value.cheap_model_provider &&
+        formData.value.default_model_api_key === formData.value.cheap_model_api_key &&
+        formData.value.default_model_base_url === formData.value.cheap_model_base_url
+      ) {
+        isUnifiedMode.value = true
+      } else {
+        isUnifiedMode.value = false
+      }
     }
   } catch (e) {
     console.error('Failed to load LLM config', e)
@@ -116,11 +183,16 @@ const loadData = async () => {
 }
 
 const handleVerify = async (role: 'default' | 'cheap') => {
-  const p = role === 'default' ? formData.value.default_model_provider : formData.value.cheap_model_provider
-  const key = role === 'default' ? formData.value.default_model_api_key : formData.value.cheap_model_api_key
-  const base = role === 'default' ? formData.value.default_model_base_url : formData.value.cheap_model_base_url
+  const p = formData.value.default_model_provider
+  const key = formData.value.default_model_api_key
+  const base = formData.value.default_model_base_url
+
+  const p_cheap = role === 'cheap' ? formData.value.cheap_model_provider : p
+  const key_cheap = role === 'cheap' ? formData.value.cheap_model_api_key : key
+  const base_cheap = role === 'cheap' ? formData.value.cheap_model_base_url : base
   
-  if (!key || key.includes('***')) {
+  const targetKey = role === 'default' ? key : key_cheap
+  if (!targetKey || targetKey.includes('***')) {
     message.warning('请先输入完整且有效的 API Key')
     return
   }
@@ -129,14 +201,22 @@ const handleVerify = async (role: 'default' | 'cheap') => {
   else verifyingCheap.value = true
 
   try {
-    const res = await verifyAndFetchModels(p, key, base)
+    const targetProvider = role === 'default' ? p : p_cheap
+    const targetBase = role === 'default' ? base : base_cheap
+    
+    const res = await verifyAndFetchModels(targetProvider, targetKey, targetBase)
     if (res && res.data && res.data.models) {
       const opts = res.data.models.map((m: string) => ({ label: m, value: m }))
-      if (role === 'default') {
+      
+      if (isUnifiedMode.value) {
+        // 统一模式下，一次请求更新两个下拉框
         defaultModelOptions.value = opts
-      } else {
         cheapModelOptions.value = opts
+      } else {
+        if (role === 'default') defaultModelOptions.value = opts
+        else cheapModelOptions.value = opts
       }
+      
       message.success(`成功获取 ${res.data.models.length} 个模型`)
     }
   } catch (e: any) {
@@ -149,6 +229,14 @@ const handleVerify = async (role: 'default' | 'cheap') => {
 
 const handleSave = async () => {
   saving.value = true
+  
+  // 如果是统一模式，保存前把 default 的配置强行复制给 cheap
+  if (isUnifiedMode.value) {
+    formData.value.cheap_model_provider = formData.value.default_model_provider
+    formData.value.cheap_model_api_key = formData.value.default_model_api_key
+    formData.value.cheap_model_base_url = formData.value.default_model_base_url
+  }
+  
   try {
     await saveLLMConfig(formData.value)
     message.success('配置保存成功，系统已切换路由通道')
