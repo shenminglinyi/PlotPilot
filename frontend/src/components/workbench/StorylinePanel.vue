@@ -74,7 +74,7 @@
                 </n-tag>
                 <n-text class="collapse-title" strong>
                   {{ (storyline.name || '').trim() || `故事线 ${storyline.id.slice(0, 8)}` }}
-                </n-tag>
+                </n-text>
                 <n-tag :type="getStatusColor(storyline.status)" size="small" round :bordered="false">
                   {{ getStatusLabel(storyline.status) }}
                 </n-tag>

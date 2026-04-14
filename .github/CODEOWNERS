@@ -1,0 +1,17 @@
+## CODEOWNERS
+#
+# 配合 GitHub Branch protection 的 "Require review from Code Owners" 使用：
+# - 当有人修改匹配路径的文件时，PR 必须得到对应 Owner 的审批才能合并
+#
+# 说明：这里先用仓库所有者作为默认审批人；如果你后续创建了组织/团队，
+# 可以把 @shenminglinyi 替换为 @org/team-name。
+
+* @shenminglinyi
+
+# 关键区域可按需细分（示例：更严格的 owner 约束）
+/domain/ @shenminglinyi
+/application/ @shenminglinyi
+/infrastructure/ @shenminglinyi
+/interfaces/ @shenminglinyi
+/frontend/ @shenminglinyi
+
