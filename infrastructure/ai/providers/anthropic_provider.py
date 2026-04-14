@@ -76,14 +76,20 @@ class AnthropicProvider(BaseProvider):
             RuntimeError: 当 API 调用失败或返回空内容时
         """
         try:
+            # 构建请求参数
+            create_kwargs = {
+                "model": config.model or DEFAULT_MODEL,
+                "temperature": config.temperature,
+                "max_tokens": config.max_tokens,
+                "system": prompt.system,
+                "messages": prompt.to_messages(),
+            }
+            # 如果指定了 response_format，传递给 API 强制 JSON 输出
+            if config.response_format:
+                create_kwargs["response_format"] = config.response_format
+
             # 使用 async_client 避免阻塞 asyncio 事件循环
-            response = await self.async_client.messages.create(
-                model=config.model or DEFAULT_MODEL,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-                system=prompt.system,
-                messages=prompt.to_messages()
-            )
+            response = await self.async_client.messages.create(**create_kwargs)
 
             # 防御性检查：验证 content 列表非空
             if not response.content:

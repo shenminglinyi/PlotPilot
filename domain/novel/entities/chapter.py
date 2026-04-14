@@ -26,7 +26,10 @@ class Chapter(BaseEntity):
         content: str = "",
         outline: str = "",
         status: ChapterStatus = ChapterStatus.DRAFT,
-        tension_score: float = 50.0
+        tension_score: float = 50.0,
+        plot_tension: float = 50.0,
+        emotional_tension: float = 50.0,
+        pacing_tension: float = 50.0,
     ):
         super().__init__(id)
         self.novel_id = novel_id
@@ -35,7 +38,10 @@ class Chapter(BaseEntity):
         self._content_text = content  # 直接存储文本，允许空内容
         self.outline = outline  # 章节大纲
         self.status = status
-        self.tension_score = tension_score  # 章节张力值 0-100
+        self.tension_score = tension_score  # 章节综合张力值 0-100
+        self.plot_tension = plot_tension  # 情节张力 0-100
+        self.emotional_tension = emotional_tension  # 情绪张力 0-100
+        self.pacing_tension = pacing_tension  # 节奏张力 0-100
 
     @property
     def content(self) -> str:
@@ -58,4 +64,12 @@ class Chapter(BaseEntity):
         if not 0 <= score <= 100:
             raise ValueError(f"Tension score must be between 0 and 100, got {score}")
         self.tension_score = score
+        self.updated_at = datetime.utcnow()
+
+    def update_tension_dimensions(self, dimensions: "TensionDimensions") -> None:
+        """从 TensionDimensions 值对象更新全部张力字段。"""
+        self.plot_tension = dimensions.plot_tension
+        self.emotional_tension = dimensions.emotional_tension
+        self.pacing_tension = dimensions.pacing_tension
+        self.tension_score = dimensions.composite_score
         self.updated_at = datetime.utcnow()
