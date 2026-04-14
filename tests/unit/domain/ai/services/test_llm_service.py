@@ -14,7 +14,7 @@ class TestGenerationConfig:
             max_tokens=4096,
             temperature=1.0
         )
-        assert config.model == "claude-3-5-sonnet-20241022"
+        assert config.model is None
         assert config.max_tokens == 4096
         assert config.temperature == 1.0
 

@@ -21,6 +21,7 @@ from domain.novel.repositories.timeline_repository import TimelineRepository
 from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
+from infrastructure.ai.model_defaults import get_review_model
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
@@ -97,7 +98,7 @@ class ChapterReviewService:
         foreshadowing_repo: ForeshadowingRepository,
         vector_store: ChromaDBVectorStore,
         llm_service: LLMService,
-        model: str = "claude-3-5-haiku-20241022"
+        model: Optional[str] = None
     ):
         self.chapter_repo = chapter_repo
         self.cast_repo = cast_repo
@@ -106,7 +107,7 @@ class ChapterReviewService:
         self.foreshadowing_repo = foreshadowing_repo
         self.vector_store = vector_store
         self.llm_service = llm_service
-        self.model = model
+        self.model = model or get_review_model()
 
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
         """审稿章节"""

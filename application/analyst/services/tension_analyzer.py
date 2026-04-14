@@ -3,6 +3,7 @@ import json
 from typing import Dict, List
 from application.workbench.dtos.writer_block_dto import TensionSlingshotRequest, TensionDiagnosis
 from domain.novel.repositories.narrative_event_repository import NarrativeEventRepository
+from infrastructure.ai.model_defaults import get_fast_model
 
 
 class TensionAnalyzer:
@@ -40,7 +41,7 @@ class TensionAnalyzer:
         prompt = self._build_prompt(events, stats, request)
 
         # 4. 调用 LLM
-        response = await self.llm_client.generate(prompt, model="claude-3-5-haiku-20241022")
+        response = await self.llm_client.generate(prompt, model=get_fast_model())
 
         # 5. 解析响应
         diagnosis = self._parse_response(response)

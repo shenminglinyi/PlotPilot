@@ -8,6 +8,7 @@ from application.ai.llm_json_extract import parse_llm_json_to_dict
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
+from infrastructure.ai.model_defaults import get_scene_director_model
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,9 @@ class SceneDirectorService:
     _DEFAULT_MAX_TOKENS = 1024
     _DEFAULT_TEMPERATURE = 0.2
 
-    def __init__(self, llm_service: LLMService, *, model: str = "claude-3-5-haiku-20241022"):
+    def __init__(self, llm_service: LLMService, *, model: Optional[str] = None):
         self._llm = llm_service
-        self._model = model
+        self._model = model or get_scene_director_model()
 
     async def analyze(self, chapter_number: int, outline: str) -> SceneDirectorAnalysis:
         """分析章节大纲，提取场景信息

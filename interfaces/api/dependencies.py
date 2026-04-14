@@ -31,6 +31,7 @@ from infrastructure.persistence.database.sqlite_foreshadowing_repository import 
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
 from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.runtime_settings import load_llm_settings
 
 from application.core.services.novel_service import NovelService
 from application.core.services.chapter_service import ChapterService
@@ -111,6 +112,27 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
             )
         return None
     return Settings(api_key=key, base_url=_openai_base_url())
+
+
+def build_llm_service_from_runtime_settings(runtime_settings: Optional[dict] = None):
+    """Build an LLM service from persisted runtime settings, falling back to Mock."""
+    settings_payload = runtime_settings or load_llm_settings()
+    api_format = (settings_payload.get("api_format") or "").strip().lower()
+    api_key = (settings_payload.get("api_key") or "").strip()
+    base_url = (settings_payload.get("base_url") or "").strip() or None
+
+    provider_settings = Settings(api_key=api_key or None, base_url=base_url)
+
+    if api_format == "anthropic_messages":
+        if api_key:
+            return AnthropicProvider(provider_settings)
+    else:
+        if api_key:
+            from infrastructure.ai.providers.openai_provider import OpenAIProvider
+            return OpenAIProvider(provider_settings)
+
+    from infrastructure.ai.providers.mock_provider import MockProvider
+    return MockProvider()
 
 
 def get_storage() -> FileStorage:
@@ -311,21 +333,8 @@ def get_hosted_write_service() -> HostedWriteService:
 
 
 def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
-    
-    if provider == "openai":
-        settings = _openai_settings(require_key=False)
-        if settings:
-            from infrastructure.ai.providers.openai_provider import OpenAIProvider
-            return OpenAIProvider(settings)
-    else:
-        settings = _anthropic_settings(require_key=False)
-        if settings:
-            return AnthropicProvider(settings)
-            
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    return MockProvider()
+    """Return the shared LLM service resolved from runtime settings."""
+    return build_llm_service_from_runtime_settings()
 
 
 def get_setup_main_plot_suggestion_service():

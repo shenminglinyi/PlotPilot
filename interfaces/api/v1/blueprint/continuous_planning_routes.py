@@ -14,7 +14,7 @@ from infrastructure.persistence.database.chapter_element_repository import Chapt
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
 from domain.ai.services.llm_service import LLMService
 from application.paths import get_db_path
-from interfaces.api.dependencies import get_database
+from interfaces.api.dependencies import get_database, get_bible_repository, get_llm_service
 
 
 router = APIRouter(prefix="/api/v1/planning", tags=["continuous-planning"])
@@ -58,31 +58,14 @@ class ContinuePlanningRequest(BaseModel):
 # ==================== 依赖注入 ====================
 
 def get_service() -> ContinuousPlanningService:
-    """获取规划服务"""
+    """Build the planning service with the shared runtime-selected LLM."""
     db_path = get_db_path()
     story_node_repo = StoryNodeRepository(db_path)
     chapter_element_repo = ChapterElementRepository(db_path)
 
-    # 获取 LLM 服务
-    import os
-    from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-    from infrastructure.ai.config.settings import Settings
-
-    llm_service = None
-    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if api_key:
-        settings = Settings(
-            api_key=api_key.strip(),
-            base_url=os.getenv("ANTHROPIC_BASE_URL")
-        )
-        try:
-            llm_service = AnthropicProvider(settings)
-        except Exception:
-            pass
-
     from application.world.services.bible_service import BibleService
-    from interfaces.api.dependencies import get_bible_repository
 
+    llm_service = get_llm_service()
     bible_service = BibleService(get_bible_repository())
 
     return ContinuousPlanningService(
@@ -92,6 +75,7 @@ def get_service() -> ContinuousPlanningService:
         bible_service,
         chapter_repository=SqliteChapterRepository(get_database()),
     )
+
 
 
 # ==================== 宏观规划 API ====================

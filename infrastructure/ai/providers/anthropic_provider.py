@@ -9,14 +9,12 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.model_defaults import get_anthropic_default_model
 from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
 # 从环境变量读取模型配置，默认使用 claude-sonnet-4-6
-DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-
-
 class AnthropicProvider(BaseProvider):
     """Anthropic LLM 提供商实现
 
@@ -78,7 +76,7 @@ class AnthropicProvider(BaseProvider):
         try:
             # 使用 async_client 避免阻塞 asyncio 事件循环
             response = await self.async_client.messages.create(
-                model=config.model or DEFAULT_MODEL,
+                model=config.model or get_anthropic_default_model(),
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
                 system=prompt.system,
@@ -130,7 +128,7 @@ class AnthropicProvider(BaseProvider):
         }
 
         payload = {
-            "model": config.model or DEFAULT_MODEL,
+            "model": config.model or get_anthropic_default_model(),
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "system": prompt.system,

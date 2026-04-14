@@ -1,6 +1,6 @@
 # domain/ai/services/llm_service.py
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 
@@ -9,7 +9,7 @@ class GenerationConfig:
     """生成配置"""
     def __init__(
         self,
-        model: str = "claude-sonnet-4-6",
+        model: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 1.0
     ):

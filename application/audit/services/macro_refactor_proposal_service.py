@@ -5,6 +5,7 @@ from application.audit.dtos.macro_refactor_dto import RefactorProposalRequest, R
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from infrastructure.ai.model_defaults import get_fast_model
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class MacroRefactorProposalService:
 
             # 配置使用 claude-3-5-haiku（快速且经济）
             config = GenerationConfig(
-                model="claude-3-5-haiku-20241022",
+                model=get_fast_model(),
                 max_tokens=2048,
                 temperature=0.7
             )
