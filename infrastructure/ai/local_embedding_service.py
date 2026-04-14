@@ -1,12 +1,14 @@
 # infrastructure/ai/local_embedding_service.py
 
-# 必须在任何 HuggingFace/SentenceTransformer 导入前设置离线模式
 import os
 os.environ['HF_HUB_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 os.environ['HF_DATASETS_OFFLINE'] = '1'
-os.environ['CURL_CA_BUNDLE'] = ''  # 禁用 SSL 证书验证
-os.environ['REQUESTS_CA_BUNDLE'] = ''  # 禁用 requests 证书验证
+if os.getenv('DISABLE_SSL_VERIFY', 'false').lower() == 'true':
+    os.environ['CURL_CA_BUNDLE'] = ''
+    os.environ['REQUESTS_CA_BUNDLE'] = ''
+    import logging as _l
+    _l.getLogger(__name__).warning("SSL certificate verification is DISABLED via DISABLE_SSL_VERIFY=true")
 
 from typing import List
 import logging

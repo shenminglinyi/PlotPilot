@@ -94,14 +94,6 @@ class NovelService:
         return NovelDTO.from_domain(novel)
 
     def get_novel(self, novel_id: str) -> Optional[NovelDTO]:
-        """获取小说
-
-        Args:
-            novel_id: 小说 ID
-
-        Returns:
-            NovelDTO 或 None
-        """
         novel = self.novel_repository.get_by_id(NovelId(novel_id))
 
         if novel is None:
@@ -109,11 +101,30 @@ class NovelService:
 
         dto = NovelDTO.from_domain(novel)
 
-        # TODO: Implement bible and outline checks for SQLite
-        dto.has_bible = False
-        dto.has_outline = False
+        dto.has_bible = self._check_has_bible(novel_id)
+        dto.has_outline = self._check_has_outline(novel_id)
 
         return dto
+
+    def _check_has_bible(self, novel_id: str) -> bool:
+        try:
+            from infrastructure.persistence.database.sqlite_bible_repository import SqliteBibleRepository
+            from infrastructure.persistence.database.connection import get_database
+            bible_repo = SqliteBibleRepository(get_database())
+            bible = bible_repo.get_by_novel_id(NovelId(novel_id))
+            return bible is not None
+        except Exception:
+            return False
+
+    def _check_has_outline(self, novel_id: str) -> bool:
+        if not self.story_node_repository:
+            return False
+        try:
+            tree = self.story_node_repository.get_tree_sync(novel_id)
+            act_nodes = [n for n in tree.nodes if n.node_type == NodeType.ACT]
+            return len(act_nodes) > 0
+        except Exception:
+            return False
 
     def list_novels(self) -> List[NovelDTO]:
         """列出所有小说
