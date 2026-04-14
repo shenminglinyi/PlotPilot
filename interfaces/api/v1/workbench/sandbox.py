@@ -1,9 +1,10 @@
 """Sandbox API endpoints for dialogue whitelist and simulation."""
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from domain.ai.services.llm_service import GenerationConfig
 from application.workbench.services.sandbox_dialogue_service import SandboxDialogueService
 from application.workbench.dtos.sandbox_dto import DialogueWhitelistResponse
 from interfaces.api.dependencies import get_sandbox_dialogue_service, get_bible_service, get_llm_service
@@ -163,12 +164,13 @@ async def patch_character_anchor(
 async def generate_dialogue(
     request: GenerateDialogueRequest,
     bible_service = Depends(get_bible_service),
-    llm_service = Depends(get_llm_service)
+    llm_service = Depends(get_llm_service),
+    sandbox_service: SandboxDialogueService = Depends(get_sandbox_dialogue_service),
 ):
     """
     AI 生成对话
 
-    根据角色锚点和场景描述，生成符合角色特征的对话
+    根据角色锚点、Bible 关系和历史对白样本，生成更贴近角色的对话
     """
     try:
         bible = bible_service.get_bible_by_novel(request.novel_id)
@@ -194,26 +196,26 @@ async def generate_dialogue(
             else (getattr(ch, "idle_behavior", None) or "")
         )
 
-        prompt = f"""你是一位专业的对话编剧。请根据以下信息生成一段对话：
+        recent_dialogues = sandbox_service.get_recent_character_dialogues(
+            request.novel_id,
+            speaker=character_name,
+            limit=4,
+        )
+        prompt = sandbox_service.build_dialogue_generation_prompt(
+            character=ch,
+            scene_prompt=request.scene_prompt,
+            mental_state=mental_state,
+            verbal_tic=verbal_tic,
+            idle_behavior=idle_behavior,
+            all_characters=bible.characters,
+            recent_dialogues=recent_dialogues,
+        )
+        config = GenerationConfig(max_tokens=240, temperature=0.85)
 
-角色：{character_name}
-心理状态：{mental_state}
-口头禅：{verbal_tic}
-待机动作/小动作：{idle_behavior}
-场景：{request.scene_prompt}
-
-要求：
-1. 对话要符合角色的心理状态和性格特征
-2. 自然融入口头禅（如果有）
-3. 必要时可描写待机动作/肢体语言（若有）
-4. 对话长度控制在 2-4 句话
-5. 只返回对话内容，不要加任何说明
-
-对话："""
-
-        # 调用 LLM 生成
-        response = await llm_service.generate(prompt, max_tokens=200)
-        dialogue = response.strip()
+        result = await llm_service.generate(prompt, config)
+        dialogue = sandbox_service.clean_generated_dialogue(result.content, character_name)
+        if not dialogue:
+            raise RuntimeError("LLM returned empty dialogue content")
 
         return GenerateDialogueResponse(
             dialogue=dialogue,
