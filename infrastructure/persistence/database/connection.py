@@ -1,6 +1,7 @@
 """SQLite 数据库连接管理"""
 import sqlite3
 import logging
+import threading
 from pathlib import Path
 from typing import Optional
 from contextlib import contextmanager
@@ -288,28 +289,20 @@ def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
 
 
 class DatabaseConnection:
-    """SQLite 数据库连接管理器"""
+    """SQLite 数据库连接管理器（线程本地存储，每线程独立连接）"""
 
     def __init__(self, db_path: str):
-        """初始化数据库连接
-
-        Args:
-            db_path: 数据库文件路径
-        """
         self.db_path = db_path
-        self._connection: Optional[sqlite3.Connection] = None
+        self._local = threading.local()
         self._ensure_database_exists()
 
     def _ensure_database_exists(self) -> None:
-        """确保数据库文件和表结构存在"""
         db_file = Path(self.db_path)
         db_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # 创建数据库和表结构
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # 返回字典格式
+        conn.row_factory = sqlite3.Row
 
-        # 读取 schema.sql 并执行
         schema_path = Path(__file__).parent / "schema.sql"
         if schema_path.exists():
             _migrate_novels_columns_before_schema_script(conn)
@@ -331,16 +324,13 @@ class DatabaseConnection:
         conn.close()
 
     def get_connection(self) -> sqlite3.Connection:
-        """获取数据库连接（单例模式）"""
-        if self._connection is None:
-            self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
-            self._connection.row_factory = sqlite3.Row
-            # 启用外键约束
-            self._connection.execute("PRAGMA foreign_keys = ON")
-            # 守护进程写章节时 API 仍可读，减少「整库锁」体感阻塞
-            self._connection.execute("PRAGMA journal_mode=WAL")
-            self._connection.execute("PRAGMA busy_timeout=5000")
-        return self._connection
+        if not hasattr(self._local, 'connection') or self._local.connection is None:
+            self._local.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._local.connection.row_factory = sqlite3.Row
+            self._local.connection.execute("PRAGMA foreign_keys = ON")
+            self._local.connection.execute("PRAGMA journal_mode=WAL")
+            self._local.connection.execute("PRAGMA busy_timeout=5000")
+        return self._local.connection
 
     @contextmanager
     def transaction(self):
@@ -413,11 +403,10 @@ class DatabaseConnection:
         return [dict(row) for row in rows]
 
     def close(self) -> None:
-        """关闭数据库连接"""
-        if self._connection:
-            self._connection.close()
-            self._connection = None
-            logger.info("Database connection closed")
+        if hasattr(self._local, 'connection') and self._local.connection is not None:
+            self._local.connection.close()
+            self._local.connection = None
+            logger.info("Database connection closed (thread-local)")
 
 
 # 全局数据库实例
