@@ -111,11 +111,25 @@ class StreamingBus:
             try:
                 queue.put_nowait(message)
             except Full:
+                # 队列满时，只清除同一 novel_id 的旧消息，保留其他小说的消息
+                keep = []
+                removed = 0
                 for _ in range(100):
                     try:
-                        queue.get_nowait()
+                        old_msg = queue.get_nowait()
                     except Empty:
                         break
+                    if isinstance(old_msg, dict) and old_msg.get("novel_id") == novel_id:
+                        removed += 1
+                    else:
+                        keep.append(old_msg)
+                for msg in keep:
+                    try:
+                        queue.put_nowait(msg)
+                    except Full:
+                        break
+                if removed > 0:
+                    logger.debug(f"[StreamingBus] 清除 {novel_id} 的 {removed} 条旧消息以腾出空间")
                 try:
                     queue.put_nowait(message)
                 except Full:

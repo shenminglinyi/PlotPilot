@@ -142,13 +142,15 @@ class ContextBudgetAllocator:
         chapter_element_repository = None,
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
+        triple_repository = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
         self.bible_repo = bible_repository
         self.story_node_repo = story_node_repository
         self.chapter_element_repo = chapter_element_repository
-        
+        self.triple_repo = triple_repository
+
         # 向量检索门面
         self.vector_facade = None
         if vector_store and embedding_service:

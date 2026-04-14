@@ -707,7 +707,7 @@ class AutopilotDaemon:
         if not self._is_still_running(novel):
             return
 
-        chapter_num = novel.current_act * 10 + novel.current_chapter_in_act  # 刚写完的章节
+        chapter_num = novel.current_auto_chapters or 1  # 刚写完的章节（在 _handle_writing 末尾已递增）
 
         from domain.novel.value_objects.novel_id import NovelId
         from domain.novel.value_objects.chapter_id import ChapterId
