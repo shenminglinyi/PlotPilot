@@ -69,6 +69,9 @@ from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapt
 # Analyst module
 from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger
 
+# System module
+from interfaces.api.v1.system import llm as system_llm
+
 # Workbench module
 from interfaces.api.v1.workbench import sandbox, writer_block, monitor
 from interfaces.api.stats.routers.stats import create_stats_router
@@ -330,6 +333,9 @@ app.include_router(chapter_element_routes.router)
 app.include_router(voice.router, prefix="/api/v1")
 app.include_router(narrative_state.router, prefix="/api/v1")
 app.include_router(foreshadow_ledger.router, prefix="/api/v1")
+
+# System module routes
+app.include_router(system_llm.router, prefix="/api/v1")
 
 # Workbench module routes
 app.include_router(writer_block.router, prefix="/api/v1")
