@@ -96,11 +96,20 @@
           {{ updateTimeText }}
         </span>
       </div>
+      
+      <button class="footer-btn" @click="modelSettingsRef?.open()">
+        <span class="btn-icon">🧠</span>
+        AI 引擎设置
+      </button>
+
       <a href="/architecture.html" target="_blank" class="footer-link">
         <span class="link-icon">📖</span>
         架构文档
       </a>
     </footer>
+
+    <!-- Settings Modal -->
+    <ModelSettingsModal ref="modelSettingsRef" />
   </aside>
 </template>
 
@@ -109,6 +118,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
+import ModelSettingsModal from '../settings/ModelSettingsModal.vue'
 
 defineEmits<{
   (e: 'create-book'): void
@@ -120,6 +130,7 @@ const { globalStats, loading } = storeToRefs(statsStore)
 
 const lastUpdateTime = ref<Date | null>(null)
 let updateInterval: number | null = null
+const modelSettingsRef = ref<InstanceType<typeof ModelSettingsModal> | null>(null)
 
 onMounted(async () => {
   try {
@@ -491,6 +502,32 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .link-icon {
+  font-size: 14px;
+}
+
+.footer-btn {
+  font-size: 12px;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.footer-btn:hover {
+  color: #4f46e5;
+  background: #f8fafc;
+}
+
+.btn-icon {
   font-size: 14px;
 }
 </style>
