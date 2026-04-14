@@ -6,7 +6,7 @@
 import uuid
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 from datetime import datetime
 
 from domain.novel.entities.beat_sheet import BeatSheet
@@ -16,7 +16,9 @@ from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
-from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
+
+if TYPE_CHECKING:
+    from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ class BeatSheetService:
         chapter_repo: ChapterRepository,
         storyline_repo: StorylineRepository,
         llm_service: LLMService,
-        vector_store: ChromaDBVectorStore,
+        vector_store: "ChromaDBVectorStore",
         bible_service=None,
     ):
         self.beat_sheet_repo = beat_sheet_repo

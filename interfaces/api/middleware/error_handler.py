@@ -12,6 +12,16 @@ from ..responses import ErrorResponse
 logger = logging.getLogger("aitext.interfaces.api.middleware.error_handler")
 
 
+# Starlette/FastAPI 版本兼容：
+# - 旧版本常量名为 HTTP_422_UNPROCESSABLE_ENTITY
+# - 部分实现/文档会使用 HTTP_422_UNPROCESSABLE_CONTENT
+HTTP_422_STATUS = getattr(
+    status,
+    "HTTP_422_UNPROCESSABLE_CONTENT",
+    status.HTTP_422_UNPROCESSABLE_ENTITY,
+)
+
+
 # Status code to error code mapping
 STATUS_CODE_MAP: Dict[int, str] = {
     status.HTTP_400_BAD_REQUEST: "BAD_REQUEST",
@@ -19,7 +29,7 @@ STATUS_CODE_MAP: Dict[int, str] = {
     status.HTTP_403_FORBIDDEN: "FORBIDDEN",
     status.HTTP_404_NOT_FOUND: "NOT_FOUND",
     status.HTTP_409_CONFLICT: "CONFLICT",
-    status.HTTP_422_UNPROCESSABLE_CONTENT: "UNPROCESSABLE_ENTITY",
+    HTTP_422_STATUS: "UNPROCESSABLE_ENTITY",
     status.HTTP_500_INTERNAL_SERVER_ERROR: "INTERNAL_ERROR",
 }
 
@@ -90,7 +100,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         logger.debug(f"  - {field_error['field']}: {field_error['message']}")
 
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        status_code=HTTP_422_STATUS,
         content=error_response.model_dump()
     )
 

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Any
 
 
@@ -14,9 +14,9 @@ class ChapterState:
     foreshadowing_planted: List[Dict[str, Any]]  # List[{description, chapter}]
     foreshadowing_resolved: List[Dict[str, Any]]  # List[{foreshadowing_id, chapter}]
     events: List[Dict[str, Any]]  # List[{type, description, involved_characters, chapter}]
-    timeline_events: List[Dict[str, Any]]  # List[{event, timestamp, timestamp_type}]
-    advanced_storylines: List[Dict[str, Any]]  # List[{storyline_id, progress_summary}]
-    new_storylines: List[Dict[str, Any]]  # List[{name, type, description}]
+    timeline_events: List[Dict[str, Any]] = field(default_factory=list)  # List[{event, timestamp, timestamp_type}]
+    advanced_storylines: List[Dict[str, Any]] = field(default_factory=list)  # List[{storyline_id, progress_summary}]
+    new_storylines: List[Dict[str, Any]] = field(default_factory=list)  # List[{name, type, description}]
 
     def has_new_characters(self) -> bool:
         """检查是否有新角色"""

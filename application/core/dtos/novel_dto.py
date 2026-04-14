@@ -8,6 +8,31 @@ if TYPE_CHECKING:
     from domain.novel.entities.chapter import Chapter
 
 
+def _public_stage(novel: 'Novel') -> str:
+    """内部 current_stage -> 前端/旧接口粗粒度 stage。"""
+    current_stage = getattr(novel, 'current_stage', None)
+    current_value = current_stage.value if hasattr(current_stage, 'value') else str(current_stage or '')
+
+    explicit_stage = getattr(novel, 'stage', None)
+    explicit_value = explicit_stage.value if hasattr(explicit_stage, 'value') else str(explicit_stage or '')
+
+    # 兼容旧 update_novel_stage：仅显式 stage 被改动时优先保留。
+    if explicit_value and explicit_value != 'planning' and current_value in ('', 'planning'):
+        return explicit_value
+
+    stage_map = {
+        'planning': 'planning',
+        'macro_planning': 'planning',
+        'act_planning': 'planning',
+        'writing': 'writing',
+        'auditing': 'reviewing',
+        'reviewing': 'reviewing',
+        'paused_for_review': 'reviewing',
+        'completed': 'completed',
+    }
+    return stage_map.get(current_value, explicit_value or 'planning')
+
+
 @dataclass
 class ChapterDTO:
     """章节 DTO"""
@@ -75,7 +100,7 @@ class NovelDTO:
             title=novel.title,
             author=novel.author,
             target_chapters=novel.target_chapters,
-            stage=novel.stage.value,
+            stage=_public_stage(novel),
             premise=getattr(novel, 'premise', ''),  # 兼容旧数据
             chapters=chapters,
             total_word_count=novel.get_total_word_count().value,
