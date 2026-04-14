@@ -80,12 +80,17 @@ def _anthropic_base_url() -> Optional[str]:
 def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
     """构建 Anthropic Settings；require_key=False 时无密钥返回 None。"""
     dyn_config = DynamicSettingsManager().load_config()
+    
+    # 动态构建：如果提供商为 anthropic，并且提供了 key，优先使用动态配置
     if dyn_config and dyn_config.provider == "anthropic" and dyn_config.anthropic_api_key:
+        # 如果模型指定的是其他供应商的模型，则降级为使用环境变量或默认值
+        default_model = dyn_config.default_model if dyn_config.default_model_provider == "anthropic" else "claude-sonnet-4-6"
+        cheap_model = dyn_config.cheap_model if dyn_config.cheap_model_provider == "anthropic" else "claude-3-5-haiku-20241022"
         return Settings(
             api_key=dyn_config.anthropic_api_key,
             base_url=dyn_config.anthropic_base_url or _anthropic_base_url(),
-            default_model=dyn_config.default_model or "claude-sonnet-4-6",
-            cheap_model=dyn_config.cheap_model or "claude-3-5-haiku-20241022"
+            default_model=default_model,
+            cheap_model=cheap_model
         )
 
     key = _anthropic_api_key()
@@ -115,11 +120,13 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
     """构建 OpenAI Settings；require_key=False 时无密钥返回 None。"""
     dyn_config = DynamicSettingsManager().load_config()
     if dyn_config and dyn_config.provider == "openai" and dyn_config.openai_api_key:
+        default_model = dyn_config.default_model if dyn_config.default_model_provider == "openai" else os.getenv("OPENAI_MODEL", "gpt-4o")
+        cheap_model = dyn_config.cheap_model if dyn_config.cheap_model_provider == "openai" else os.getenv("OPENAI_CHEAP_MODEL", "gpt-4o-mini")
         return Settings(
             api_key=dyn_config.openai_api_key,
             base_url=dyn_config.openai_base_url or _openai_base_url(),
-            default_model=dyn_config.default_model or os.getenv("OPENAI_MODEL", "gpt-4o"),
-            cheap_model=dyn_config.cheap_model or os.getenv("OPENAI_CHEAP_MODEL", "gpt-4o-mini")
+            default_model=default_model,
+            cheap_model=cheap_model
         )
 
     key = _openai_api_key()

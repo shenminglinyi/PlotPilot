@@ -8,6 +8,8 @@ export interface LLMConfig {
   anthropic_base_url?: string
   default_model: string
   cheap_model: string
+  default_model_provider: string
+  cheap_model_provider: string
 }
 
 export function getLLMConfig() {

@@ -33,12 +33,26 @@
       <n-divider />
 
       <n-form-item label="创作主力模型 (Default Model)">
-        <n-select v-model:value="formData.default_model" :options="modelOptions" tag filterable />
+        <n-input-group>
+          <n-select v-model:value="formData.default_model_provider" :options="providerOptions" style="width: 40%" />
+          <n-select 
+            v-model:value="formData.default_model" 
+            :options="formData.default_model_provider === 'openai' ? openaiModelOptions : anthropicModelOptions" 
+            tag filterable style="width: 60%" 
+          />
+        </n-input-group>
         <template #feedback>用于正文生成与大纲推理，建议选择智商最高的模型，如 gpt-4o</template>
       </n-form-item>
 
       <n-form-item label="分析经济模型 (Cheap Model)">
-        <n-select v-model:value="formData.cheap_model" :options="modelOptions" tag filterable />
+        <n-input-group>
+          <n-select v-model:value="formData.cheap_model_provider" :options="providerOptions" style="width: 40%" />
+          <n-select 
+            v-model:value="formData.cheap_model" 
+            :options="formData.cheap_model_provider === 'openai' ? openaiModelOptions : anthropicModelOptions" 
+            tag filterable style="width: 60%" 
+          />
+        </n-input-group>
         <template #feedback>用于后台状态提取与审核，建议选择速度最快、最便宜的模型，如 gpt-4o-mini</template>
       </n-form-item>
 
@@ -68,21 +82,44 @@ const formData = ref<LLMConfig>({
   anthropic_api_key: '',
   anthropic_base_url: '',
   default_model: '',
-  cheap_model: ''
+  cheap_model: '',
+  default_model_provider: 'openai',
+  cheap_model_provider: 'openai'
 })
 
-const modelOptions = ref<{label: string, value: string}[]>([])
+const providerOptions = [
+  { label: 'OpenAI 标准', value: 'openai' },
+  { label: 'Anthropic', value: 'anthropic' }
+]
+
+const openaiModelOptions = ref<{label: string, value: string}[]>([])
+const anthropicModelOptions = ref<{label: string, value: string}[]>([])
 
 const loadData = async () => {
   try {
     const res = await getLLMConfig()
-    if (res) {
-      formData.value = { ...formData.value, ...res }
+    if (res && res.data) {
+      formData.value = { ...formData.value, ...res.data }
+      
+      // Populate existing values into options so they display correctly initially
       if (formData.value.default_model) {
-        modelOptions.value = [
-          { label: formData.value.default_model, value: formData.value.default_model },
-          { label: formData.value.cheap_model, value: formData.value.cheap_model }
-        ]
+        if (formData.value.default_model_provider === 'openai') {
+          openaiModelOptions.value.push({ label: formData.value.default_model, value: formData.value.default_model })
+        } else {
+          anthropicModelOptions.value.push({ label: formData.value.default_model, value: formData.value.default_model })
+        }
+      }
+      
+      if (formData.value.cheap_model) {
+        if (formData.value.cheap_model_provider === 'openai') {
+          if (!openaiModelOptions.value.find(o => o.value === formData.value.cheap_model)) {
+             openaiModelOptions.value.push({ label: formData.value.cheap_model, value: formData.value.cheap_model })
+          }
+        } else {
+          if (!anthropicModelOptions.value.find(o => o.value === formData.value.cheap_model)) {
+             anthropicModelOptions.value.push({ label: formData.value.cheap_model, value: formData.value.cheap_model })
+          }
+        }
       }
     }
   } catch (e) {
@@ -103,9 +140,14 @@ const handleVerify = async () => {
   verifying.value = true
   try {
     const res = await verifyAndFetchModels(p, key, base)
-    if (res && res.models) {
-      availableModels.value = res.models
-      modelOptions.value = availableModels.value.map(m => ({ label: m, value: m }))
+    if (res && res.data && res.data.models) {
+      availableModels.value = res.data.models
+      const opts = availableModels.value.map(m => ({ label: m, value: m }))
+      if (p === 'openai') {
+        openaiModelOptions.value = opts
+      } else {
+        anthropicModelOptions.value = opts
+      }
       message.success(`成功获取 ${availableModels.value.length} 个模型`)
     }
   } catch (e: any) {

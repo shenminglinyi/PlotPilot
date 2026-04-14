@@ -12,6 +12,8 @@ class LLMConfigDTO(BaseModel):
     anthropic_base_url: Optional[str] = None
     default_model: str = ""
     cheap_model: str = ""
+    default_model_provider: str = "openai"  # 新增：主力模型供应商
+    cheap_model_provider: str = "openai"    # 新增：经济模型供应商
 
 class DynamicSettingsManager:
     def __init__(self, config_path: Optional[Path] = None):
