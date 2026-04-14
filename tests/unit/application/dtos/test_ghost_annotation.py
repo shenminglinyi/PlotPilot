@@ -1,6 +1,6 @@
 """GhostAnnotation DTO 单元测试"""
 import pytest
-from application.dtos.ghost_annotation import GhostAnnotation
+from application.audit.dtos.ghost_annotation import GhostAnnotation
 
 
 class TestGhostAnnotation:

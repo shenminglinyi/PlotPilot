@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from domain.bible.entities.character import Character
 from domain.bible.value_objects.character_id import CharacterId
-from application.services.character_indexer import CharacterIndexer
+from application.analyst.services.character_indexer import CharacterIndexer
 
 
 @pytest.fixture

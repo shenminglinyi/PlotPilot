@@ -26,9 +26,10 @@ class SceneDirectorService:
     _DEFAULT_MAX_TOKENS = 1024
     _DEFAULT_TEMPERATURE = 0.2
 
-    def __init__(self, llm_service: LLMService, *, model: str = "claude-3-5-haiku-20241022"):
+    def __init__(self, llm_service: LLMService, *, model: str = ""):
+        from infrastructure.ai.config.settings import Settings
         self._llm = llm_service
-        self._model = model
+        self._model = model or Settings().cheap_model
 
     async def analyze(self, chapter_number: int, outline: str) -> SceneDirectorAnalysis:
         """分析章节大纲，提取场景信息

@@ -1,8 +1,8 @@
 """TensionAnalyzer 单元测试"""
 import pytest
 from unittest.mock import Mock, AsyncMock
-from application.services.tension_analyzer import TensionAnalyzer
-from application.dtos.writer_block_dto import TensionSlingshotRequest, TensionDiagnosis
+from application.analyst.services.tension_analyzer import TensionAnalyzer
+from application.workbench.dtos.writer_block_dto import TensionSlingshotRequest, TensionDiagnosis
 
 
 class TestTensionAnalyzer:

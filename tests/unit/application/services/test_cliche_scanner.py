@@ -1,7 +1,7 @@
 # tests/unit/application/services/test_cliche_scanner.py
 import pytest
 
-from application.services.cliche_scanner import ClicheScanner, ClicheHit
+from application.audit.services.cliche_scanner import ClicheScanner, ClicheHit
 
 
 class TestClicheScanner:

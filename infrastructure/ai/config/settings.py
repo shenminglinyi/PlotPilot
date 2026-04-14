@@ -11,6 +11,7 @@ class Settings:
     """
 
     default_model: str = "claude-3-5-sonnet-20241022"
+    cheap_model: str = "claude-3-5-haiku-20241022"
     default_temperature: float = 0.7
     default_max_tokens: int = 4096
     api_key: Optional[str] = None

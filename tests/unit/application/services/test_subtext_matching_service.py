@@ -2,7 +2,7 @@
 import pytest
 from datetime import datetime
 
-from application.services.subtext_matching_service import SubtextMatchingService
+from application.analyst.services.subtext_matching_service import SubtextMatchingService
 from domain.novel.entities.subtext_ledger_entry import SubtextLedgerEntry
 
 

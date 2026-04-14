@@ -2,7 +2,7 @@
 import json
 import pytest
 from unittest.mock import Mock, MagicMock
-from application.services.voice_sample_service import VoiceSampleService
+from application.analyst.services.voice_sample_service import VoiceSampleService
 
 
 class TestVoiceSampleService:

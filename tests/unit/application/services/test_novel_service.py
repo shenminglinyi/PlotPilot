@@ -8,8 +8,8 @@ from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.word_count import WordCount
 from domain.novel.value_objects.chapter_content import ChapterContent
 from domain.shared.exceptions import EntityNotFoundError
-from application.services.novel_service import NovelService
-from application.dtos.novel_dto import NovelDTO
+from application.core.services.novel_service import NovelService
+from application.core.dtos.novel_dto import NovelDTO
 
 
 class TestNovelService:
@@ -22,6 +22,10 @@ class TestNovelService:
 
     @pytest.fixture
     def mock_chapter_repository(self):
+        mock = Mock()
+        mock.list_by_novel.return_value = []
+        return mock
+        """创建 mock 章节仓储"""
         return Mock()
 
     @pytest.fixture

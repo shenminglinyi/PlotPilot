@@ -5,7 +5,7 @@ from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.novel_id import NovelId
 from domain.shared.exceptions import EntityNotFoundError
-from application.services.chapter_service import ChapterService
+from application.core.services.chapter_service import ChapterService
 
 
 class TestChapterService:

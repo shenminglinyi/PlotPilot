@@ -61,8 +61,9 @@ class LLMClient:
         )
 
         # 创建 GenerationConfig 对象
+        settings = Settings()
         config = GenerationConfig(
-            model=kwargs.get("model", "claude-sonnet-4-6"),
+            model=kwargs.get("model", settings.default_model),
             max_tokens=kwargs.get("max_tokens", 4096),
             temperature=kwargs.get("temperature", 1.0)
         )

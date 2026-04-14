@@ -11,7 +11,7 @@ from domain.ai.services.llm_service import GenerationResult, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from domain.shared.exceptions import EntityNotFoundError
-from application.services.ai_generation_service import AIGenerationService
+from application.engine.services.ai_generation_service import AIGenerationService
 
 
 class TestAIGenerationService:

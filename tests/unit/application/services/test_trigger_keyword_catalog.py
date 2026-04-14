@@ -1,6 +1,6 @@
 """触发词目录单元测试"""
 import pytest
-from application.services.trigger_keyword_catalog import expand_triggers
+from application.engine.services.trigger_keyword_catalog import expand_triggers
 
 
 def test_combat_maps_to_weapon_and_skill():

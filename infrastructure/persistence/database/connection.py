@@ -302,12 +302,12 @@ class DatabaseConnection:
 
     def _ensure_database_exists(self) -> None:
         """确保数据库文件和表结构存在"""
-        db_file = Path(self.db_path)
-        db_file.parent.mkdir(parents=True, exist_ok=True)
+        if self.db_path != ":memory:":
+            db_file = Path(self.db_path)
+            db_file.parent.mkdir(parents=True, exist_ok=True)
 
         # 创建数据库和表结构
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # 返回字典格式
+        conn = self.get_connection()
 
         # 读取 schema.sql 并执行
         schema_path = Path(__file__).parent / "schema.sql"
@@ -328,7 +328,10 @@ class DatabaseConnection:
         _apply_chapter_summaries_enhancements(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
-        conn.close()
+        
+        # 不要关闭连接，如果是 :memory: 会导致数据丢失
+        if self.db_path != ":memory:":
+            pass # 也可以选择不关闭，统一由 get_connection 维护
 
     def get_connection(self) -> sqlite3.Connection:
         """获取数据库连接（单例模式）"""

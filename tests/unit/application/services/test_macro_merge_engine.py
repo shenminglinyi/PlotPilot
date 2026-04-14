@@ -3,7 +3,7 @@
 """
 
 import pytest
-from application.services.macro_merge_engine import MacroMergeEngine, MergePlan
+from application.audit.services.macro_merge_engine import MacroMergeEngine, MergePlan
 
 
 class TestMacroMergeEngine:

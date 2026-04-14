@@ -1,7 +1,7 @@
 """Mutation Applier 单元测试"""
 import pytest
 from unittest.mock import Mock, MagicMock
-from application.services.mutation_applier import MutationApplier
+from application.audit.services.mutation_applier import MutationApplier
 from domain.novel.repositories.narrative_event_repository import NarrativeEventRepository
 
 

@@ -1,7 +1,7 @@
 """Integration tests for IndexingService"""
 import pytest
 from unittest.mock import AsyncMock, Mock
-from application.services.indexing_service import IndexingService
+from application.analyst.services.indexing_service import IndexingService
 
 
 @pytest.fixture

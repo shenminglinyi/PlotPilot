@@ -1,8 +1,8 @@
 """ConflictDetectionService 单元测试"""
 import pytest
-from application.services.conflict_detection_service import ConflictDetectionService
-from application.dtos.ghost_annotation import GhostAnnotation
-from application.dtos.scene_director_dto import SceneDirectorAnalysis
+from application.audit.services.conflict_detection_service import ConflictDetectionService
+from application.audit.dtos.ghost_annotation import GhostAnnotation
+from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 
 
 class TestConflictDetectionService:

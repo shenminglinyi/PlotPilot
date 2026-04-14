@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import Mock
 
-from application.services.voice_fingerprint_service import VoiceFingerprintService
+from application.analyst.services.voice_fingerprint_service import VoiceFingerprintService
 
 
 class TestVoiceFingerprintService:

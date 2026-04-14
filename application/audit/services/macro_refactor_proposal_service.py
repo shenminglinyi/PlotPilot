@@ -33,9 +33,10 @@ class MacroRefactorProposalService:
             # 构建 LLM prompt
             prompt = self._build_prompt(request)
 
-            # 配置使用 claude-3-5-haiku（快速且经济）
+            # 配置使用配置中的 cheap 模型（快速且经济）
+            from infrastructure.ai.config.settings import Settings
             config = GenerationConfig(
-                model="claude-3-5-haiku-20241022",
+                model=Settings().cheap_model,
                 max_tokens=2048,
                 temperature=0.7
             )

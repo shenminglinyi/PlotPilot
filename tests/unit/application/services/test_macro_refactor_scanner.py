@@ -1,8 +1,8 @@
 """Macro Refactor Scanner 单元测试"""
 import pytest
 from unittest.mock import Mock
-from application.services.macro_refactor_scanner import MacroRefactorScanner
-from application.dtos.macro_refactor_dto import LogicBreakpoint
+from application.audit.services.macro_refactor_scanner import MacroRefactorScanner
+from application.audit.dtos.macro_refactor_dto import LogicBreakpoint
 
 
 class TestMacroRefactorScanner:

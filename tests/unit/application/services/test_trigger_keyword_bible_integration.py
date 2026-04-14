@@ -35,7 +35,7 @@ def _make_bible_dto(world_settings):
 
 def _make_context_builder():
     """创建最小化 ContextBuilder（跳过真实依赖）"""
-    from application.services.context_builder import ContextBuilder
+    from application.engine.services.context_builder import ContextBuilder
     cb = ContextBuilder.__new__(ContextBuilder)
     cb.bible_service = MagicMock()
     cb.storyline_manager = MagicMock()

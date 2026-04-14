@@ -107,6 +107,7 @@ class NovelService:
         if novel is None:
             return None
 
+        novel.chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
         dto = NovelDTO.from_domain(novel)
 
         # TODO: Implement bible and outline checks for SQLite
@@ -227,6 +228,10 @@ class NovelService:
 
         # 重新加载Novel以返回最新状态
         novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        
+        # Update chapters for the returned DTO
+        novel.chapters = existing_chapters + [chapter]
+        
         return NovelDTO.from_domain(novel)
 
     def update_novel(self, novel_id: str, title: Optional[str] = None, author: Optional[str] = None, 

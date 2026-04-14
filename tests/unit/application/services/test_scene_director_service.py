@@ -2,8 +2,8 @@
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from application.dtos.scene_director_dto import SceneDirectorAnalysis
-from application.services.scene_director_service import SceneDirectorService
+from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
+from application.engine.services.scene_director_service import SceneDirectorService
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage

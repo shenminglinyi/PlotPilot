@@ -9,8 +9,8 @@ from infrastructure.persistence.database.sqlite_novel_repository import SqliteNo
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
 from infrastructure.persistence.database.sqlite_bible_repository import SqliteBibleRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
-from application.services.novel_service import NovelService
-from application.services.bible_service import BibleService
+from application.core.services.novel_service import NovelService
+from application.world.services.bible_service import BibleService
 from interfaces.api.dependencies import get_novel_service, get_bible_service
 from interfaces.main import app
 

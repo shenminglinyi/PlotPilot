@@ -10,18 +10,18 @@ class TestGenerationConfig:
     def test_generation_config_creation(self):
         """测试创建 GenerationConfig"""
         config = GenerationConfig(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             max_tokens=4096,
             temperature=1.0
         )
-        assert config.model == "claude-3-5-sonnet-20241022"
+        assert config.model == "claude-sonnet-4-6"
         assert config.max_tokens == 4096
         assert config.temperature == 1.0
 
     def test_generation_config_default_values(self):
         """测试默认值"""
         config = GenerationConfig()
-        assert config.model == "claude-3-5-sonnet-20241022"
+        assert config.model == ""
         assert config.max_tokens == 4096
         assert config.temperature == 1.0
 

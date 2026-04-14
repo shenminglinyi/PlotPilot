@@ -2,7 +2,7 @@
 
 import pytest
 from unittest.mock import Mock
-from application.services.narrative_entity_state_service import NarrativeEntityStateService
+from application.analyst.services.narrative_entity_state_service import NarrativeEntityStateService
 
 
 class TestNarrativeEntityStateService:

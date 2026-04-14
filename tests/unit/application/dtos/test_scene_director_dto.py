@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from application.dtos.scene_director_dto import (
+from application.engine.dtos.scene_director_dto import (
     SceneDirectorAnalysis,
     SceneDirectorAnalyzeRequest,
     SceneDirectorAnalyzeResponse,

@@ -1,8 +1,8 @@
 """ContextBuilder 集成测试（与 Bible DTO / 故事线 协作）。"""
 from unittest.mock import Mock
 
-from application.dtos.bible_dto import BibleDTO, CharacterDTO
-from application.services.context_builder import ContextBuilder
+from application.world.dtos.bible_dto import BibleDTO, CharacterDTO
+from application.engine.services.context_builder import ContextBuilder
 from domain.bible.entities.character import Character
 from domain.bible.value_objects.character_id import CharacterId
 from domain.bible.value_objects.character_importance import CharacterImportance

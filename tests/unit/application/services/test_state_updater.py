@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock
-from application.services.state_updater import StateUpdater
+from application.analyst.services.state_updater import StateUpdater
 from domain.novel.value_objects.chapter_state import ChapterState
 from domain.bible.entities.bible import Bible
 from domain.bible.entities.character import Character
@@ -37,7 +37,7 @@ class TestStateUpdater:
 
     def test_update_from_chapter_empty_state(self):
         """测试从空状态更新"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -62,7 +62,7 @@ class TestStateUpdater:
 
     def test_update_from_chapter_with_new_characters(self):
         """测试更新包含新角色的状态"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[
                 {
                     "name": "张三",
@@ -95,7 +95,7 @@ class TestStateUpdater:
 
     def test_update_from_chapter_with_foreshadowing_planted(self):
         """测试更新包含新伏笔的状态"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -137,7 +137,7 @@ class TestStateUpdater:
         )
         self.foreshadowing_registry.register(foreshadowing)
 
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -170,7 +170,7 @@ class TestStateUpdater:
 
     def test_update_from_chapter_with_multiple_updates(self):
         """测试更新包含多种变化的状态"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[
                 {
                     "name": "张三",
@@ -206,7 +206,7 @@ class TestStateUpdater:
 
     def test_update_from_chapter_bible_not_found(self):
         """测试 Bible 不存在时的处理"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[
                 {
                     "name": "张三",
@@ -234,7 +234,7 @@ class TestStateUpdater:
 
     def test_update_from_chapter_foreshadowing_registry_not_found(self):
         """测试 ForeshadowingRegistry 不存在时的处理"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],

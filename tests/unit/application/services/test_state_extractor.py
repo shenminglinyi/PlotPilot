@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, AsyncMock
-from application.services.state_extractor import StateExtractor
+from application.analyst.services.state_extractor import StateExtractor
 from domain.ai.services.llm_service import LLMService, GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage

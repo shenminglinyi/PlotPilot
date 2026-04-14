@@ -1,7 +1,7 @@
 """ChapterIndexingService 单元测试"""
 import pytest
 from unittest.mock import Mock, AsyncMock
-from application.services.chapter_indexing_service import ChapterIndexingService
+from application.analyst.services.chapter_indexing_service import ChapterIndexingService
 
 
 class TestChapterIndexingService:

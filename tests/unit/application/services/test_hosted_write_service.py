@@ -2,9 +2,9 @@
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from application.services.hosted_write_service import HostedWriteService
+from application.engine.services.hosted_write_service import HostedWriteService
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
-from application.services.chapter_service import ChapterService
+from application.core.services.chapter_service import ChapterService
 
 
 @pytest.fixture

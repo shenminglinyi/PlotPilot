@@ -13,8 +13,10 @@ from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
-# 从环境变量读取模型配置，默认使用 claude-sonnet-4-6
-DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+# 从配置读取默认模型
+def _get_default_model():
+    from infrastructure.ai.config.settings import Settings
+    return os.getenv("ANTHROPIC_MODEL", Settings().default_model)
 
 
 class AnthropicProvider(BaseProvider):
@@ -78,7 +80,7 @@ class AnthropicProvider(BaseProvider):
         try:
             # 使用 async_client 避免阻塞 asyncio 事件循环
             response = await self.async_client.messages.create(
-                model=config.model or DEFAULT_MODEL,
+                model=config.model or _get_default_model(),
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
                 system=prompt.system,
@@ -130,7 +132,7 @@ class AnthropicProvider(BaseProvider):
         }
 
         payload = {
-            "model": config.model or DEFAULT_MODEL,
+            "model": config.model or _get_default_model(),
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "system": prompt.system,

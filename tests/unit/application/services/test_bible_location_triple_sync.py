@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from application.services.bible_location_triple_sync import BibleLocationTripleSyncService
+from application.world.services.bible_location_triple_sync import BibleLocationTripleSyncService
 from infrastructure.persistence.database.triple_repository import TripleRepository
 
 SCHEMA_PATH = (

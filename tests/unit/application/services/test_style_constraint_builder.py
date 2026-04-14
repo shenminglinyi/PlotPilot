@@ -1,6 +1,6 @@
 """Style constraint builder unit tests."""
 import pytest
-from application.services.style_constraint_builder import build_style_summary
+from application.engine.services.style_constraint_builder import build_style_summary
 
 
 class TestBuildStyleSummary:

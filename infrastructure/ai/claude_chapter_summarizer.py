@@ -63,8 +63,9 @@ Requirements:
             prompt = Prompt(system=system_prompt, user=user_prompt)
 
             # 配置生成参数
+            from infrastructure.ai.config.settings import Settings
             config = GenerationConfig(
-                model="claude-3-5-sonnet-20241022",
+                model=Settings().default_model,
                 max_tokens=1024,
                 temperature=0.7
             )

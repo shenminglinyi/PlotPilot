@@ -37,8 +37,9 @@ class StateExtractor:
         prompt = Prompt(system=system_prompt, user=user_prompt)
 
         # 配置 LLM
+        from infrastructure.ai.config.settings import Settings
         config = GenerationConfig(
-            model="claude-3-5-sonnet-20241022",
+            model=Settings().default_model,
             max_tokens=4096,
             temperature=0.3
         )

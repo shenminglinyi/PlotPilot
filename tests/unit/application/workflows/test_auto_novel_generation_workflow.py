@@ -284,8 +284,8 @@ class TestConflictDetectionIntegration:
         mock_llm_service
     ):
         """测试生成章节时包含幽灵批注"""
-        from application.services.conflict_detection_service import ConflictDetectionService
-        from application.dtos.ghost_annotation import GhostAnnotation
+        from application.audit.services.conflict_detection_service import ConflictDetectionService
+        from application.audit.dtos.ghost_annotation import GhostAnnotation
         from domain.bible.repositories.bible_repository import BibleRepository
         from domain.bible.entities.bible import Bible
         from domain.bible.entities.character import Character
@@ -353,7 +353,7 @@ class TestConflictDetectionIntegration:
         mock_llm_service
     ):
         """测试无冲突时返回空批注列表"""
-        from application.services.conflict_detection_service import ConflictDetectionService
+        from application.audit.services.conflict_detection_service import ConflictDetectionService
 
         # Mock ConflictDetectionService 返回空列表
         mock_conflict_service = Mock(spec=ConflictDetectionService)
@@ -405,8 +405,8 @@ class TestConflictDetectionIntegration:
         mock_llm_service
     ):
         """测试流式生成时包含幽灵批注"""
-        from application.services.conflict_detection_service import ConflictDetectionService
-        from application.dtos.ghost_annotation import GhostAnnotation
+        from application.audit.services.conflict_detection_service import ConflictDetectionService
+        from application.audit.dtos.ghost_annotation import GhostAnnotation
 
         # Mock ConflictDetectionService
         mock_conflict_service = Mock(spec=ConflictDetectionService)
@@ -459,7 +459,7 @@ class TestStyleIntegration:
         mock_llm_service
     ):
         """测试生成章节时包含风格警告"""
-        from application.services.cliche_scanner import ClicheScanner, ClicheHit
+        from application.audit.services.cliche_scanner import ClicheScanner, ClicheHit
 
         # Mock ClicheScanner
         mock_scanner = Mock(spec=ClicheScanner)
@@ -516,7 +516,7 @@ class TestStyleIntegration:
         mock_llm_service
     ):
         """测试生成章节时注入风格指纹摘要"""
-        from application.services.voice_fingerprint_service import VoiceFingerprintService
+        from application.analyst.services.voice_fingerprint_service import VoiceFingerprintService
         from domain.novel.repositories.voice_fingerprint_repository import VoiceFingerprintRepository
 
         # Mock VoiceFingerprintService
@@ -589,7 +589,7 @@ class TestStyleIntegration:
         mock_llm_service
     ):
         """测试流式生成时包含风格警告"""
-        from application.services.cliche_scanner import ClicheScanner, ClicheHit
+        from application.audit.services.cliche_scanner import ClicheScanner, ClicheHit
 
         # Mock ClicheScanner
         mock_scanner = Mock(spec=ClicheScanner)

@@ -1,8 +1,8 @@
 """Tests for MacroRefactorProposalService"""
 import pytest
 from unittest.mock import AsyncMock, Mock
-from application.services.macro_refactor_proposal_service import MacroRefactorProposalService
-from application.dtos.macro_refactor_dto import RefactorProposalRequest, RefactorProposal
+from application.audit.services.macro_refactor_proposal_service import MacroRefactorProposalService
+from application.audit.dtos.macro_refactor_dto import RefactorProposalRequest, RefactorProposal
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.services.llm_service import GenerationResult, GenerationConfig
 from domain.ai.value_objects.token_usage import TokenUsage

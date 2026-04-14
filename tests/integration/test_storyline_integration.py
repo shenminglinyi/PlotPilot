@@ -7,7 +7,7 @@ from domain.novel.value_objects.storyline_type import StorylineType
 from domain.novel.value_objects.storyline_status import StorylineStatus
 from domain.novel.value_objects.storyline_milestone import StorylineMilestone
 from domain.novel.services.storyline_manager import StorylineManager
-from infrastructure.persistence.repositories.file_storyline_repository import FileStorylineRepository
+from infrastructure.persistence.database.sqlite_storyline_repository import SqliteStorylineRepository as FileStorylineRepository
 from infrastructure.persistence.storage.file_storage import FileStorage
 
 

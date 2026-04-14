@@ -97,8 +97,9 @@ class ChapterReviewService:
         foreshadowing_repo: ForeshadowingRepository,
         vector_store: ChromaDBVectorStore,
         llm_service: LLMService,
-        model: str = "claude-3-5-haiku-20241022"
+        model: str = ""
     ):
+        from infrastructure.ai.config.settings import Settings
         self.chapter_repo = chapter_repo
         self.cast_repo = cast_repo
         self.timeline_repo = timeline_repo
@@ -106,7 +107,7 @@ class ChapterReviewService:
         self.foreshadowing_repo = foreshadowing_repo
         self.vector_store = vector_store
         self.llm_service = llm_service
-        self.model = model
+        self.model = model or Settings().cheap_model
 
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
         """审稿章节"""

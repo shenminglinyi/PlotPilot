@@ -7,7 +7,7 @@ from domain.bible.entities.world_setting import WorldSetting
 from domain.bible.value_objects.character_id import CharacterId
 from domain.novel.value_objects.novel_id import NovelId
 from domain.shared.exceptions import EntityNotFoundError
-from application.services.bible_service import BibleService
+from application.world.services.bible_service import BibleService
 
 
 class TestBibleService:

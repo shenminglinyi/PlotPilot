@@ -85,7 +85,7 @@ def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
                 "Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN (optional: ANTHROPIC_BASE_URL)"
             )
         return None
-    return Settings(api_key=key, base_url=_anthropic_base_url())
+    return Settings(api_key=key, base_url=_anthropic_base_url(), default_model="claude-sonnet-4-6", cheap_model="claude-3-5-haiku-20241022")
 
 
 def _openai_api_key() -> Optional[str]:
@@ -110,7 +110,9 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
                 "Set OPENAI_API_KEY (optional: OPENAI_BASE_URL)"
             )
         return None
-    return Settings(api_key=key, base_url=_openai_base_url())
+    default_model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    cheap_model = os.getenv("OPENAI_CHEAP_MODEL", "gpt-4o-mini")
+    return Settings(api_key=key, base_url=_openai_base_url(), default_model=default_model, cheap_model=cheap_model)
 
 
 def get_storage() -> FileStorage:

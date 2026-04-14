@@ -7,7 +7,7 @@ class TestChapterState:
 
     def test_create_empty_state(self):
         """测试创建空状态"""
-        state = ChapterState(
+        state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -25,7 +25,7 @@ class TestChapterState:
 
     def test_create_state_with_new_characters(self):
         """测试创建包含新角色的状态"""
-        state = ChapterState(
+        state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[
                 {
                     "name": "张三",
@@ -47,7 +47,7 @@ class TestChapterState:
 
     def test_create_state_with_character_actions(self):
         """测试创建包含角色行为的状态"""
-        state = ChapterState(
+        state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[
                 {
@@ -68,7 +68,7 @@ class TestChapterState:
 
     def test_create_state_with_relationship_changes(self):
         """测试创建包含关系变化的状态"""
-        state = ChapterState(
+        state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[
@@ -93,7 +93,7 @@ class TestChapterState:
 
     def test_create_state_with_foreshadowing(self):
         """测试创建包含伏笔的状态"""
-        state = ChapterState(
+        state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -119,7 +119,7 @@ class TestChapterState:
 
     def test_create_state_with_events(self):
         """测试创建包含事件的状态"""
-        state = ChapterState(
+        state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -142,7 +142,7 @@ class TestChapterState:
 
     def test_state_immutable(self):
         """测试状态对象不可变"""
-        state = ChapterState(
+        state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -156,7 +156,7 @@ class TestChapterState:
 
     def test_has_new_characters(self):
         """测试检查是否有新角色"""
-        state_with_chars = ChapterState(
+        state_with_chars = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[{"name": "张三", "description": "测试", "first_appearance": 1}],
             character_actions=[],
             relationship_changes=[],
@@ -165,7 +165,7 @@ class TestChapterState:
             events=[]
         )
 
-        state_without_chars = ChapterState(
+        state_without_chars = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -179,7 +179,7 @@ class TestChapterState:
 
     def test_has_relationship_changes(self):
         """测试检查是否有关系变化"""
-        state_with_changes = ChapterState(
+        state_with_changes = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[
@@ -190,7 +190,7 @@ class TestChapterState:
             events=[]
         )
 
-        state_without_changes = ChapterState(
+        state_without_changes = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -204,7 +204,7 @@ class TestChapterState:
 
     def test_has_foreshadowing_activity(self):
         """测试检查是否有伏笔活动"""
-        state_with_planted = ChapterState(
+        state_with_planted = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -213,7 +213,7 @@ class TestChapterState:
             events=[]
         )
 
-        state_with_resolved = ChapterState(
+        state_with_resolved = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -222,7 +222,7 @@ class TestChapterState:
             events=[]
         )
 
-        state_without = ChapterState(
+        state_without = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],

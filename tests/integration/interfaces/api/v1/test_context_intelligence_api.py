@@ -78,7 +78,7 @@ def test_scene_director_analyze_whitespace_only_outline():
 def test_scene_director_analyze_service_error_returns_generic_message():
     """Test that 500 error returns generic message, not internal details"""
     from unittest.mock import patch
-    from application.services.scene_director_service import SceneDirectorService
+    from application.engine.services.scene_director_service import SceneDirectorService
 
     client = TestClient(app)
 

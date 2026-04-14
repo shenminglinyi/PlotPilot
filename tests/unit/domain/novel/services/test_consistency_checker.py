@@ -184,7 +184,7 @@ class TestConsistencyChecker:
 
     def test_check_all_empty_state(self):
         """测试完整检查 - 空状态"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[],
             relationship_changes=[],
@@ -207,7 +207,7 @@ class TestConsistencyChecker:
         character = Character(id=char_id, name="张三", description="主角")
         self.bible.add_character(character)
 
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[
                 {
@@ -231,7 +231,7 @@ class TestConsistencyChecker:
 
     def test_check_all_with_issues(self):
         """测试完整检查 - 包含问题"""
-        chapter_state = ChapterState(
+        chapter_state = ChapterState(timeline_events=[], advanced_storylines=[], new_storylines=[], 
             new_characters=[],
             character_actions=[
                 {

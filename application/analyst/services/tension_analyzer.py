@@ -40,7 +40,8 @@ class TensionAnalyzer:
         prompt = self._build_prompt(events, stats, request)
 
         # 4. 调用 LLM
-        response = await self.llm_client.generate(prompt, model="claude-3-5-haiku-20241022")
+        from infrastructure.ai.config.settings import Settings
+        response = await self.llm_client.generate(prompt, model=Settings().cheap_model)
 
         # 5. 解析响应
         diagnosis = self._parse_response(response)

@@ -1,6 +1,6 @@
 """VoiceDriftService 单元测试"""
 from unittest.mock import MagicMock
-from application.services.voice_drift_service import VoiceDriftService, DRIFT_ALERT_CONSECUTIVE
+from application.analyst.services.voice_drift_service import VoiceDriftService, DRIFT_ALERT_CONSECUTIVE
 
 
 def _make_service(scores=None, fingerprint=None):

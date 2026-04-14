@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock
-from application.services.state_extractor import StateExtractor
-from application.services.state_updater import StateUpdater
+from application.analyst.services.state_extractor import StateExtractor
+from application.analyst.services.state_updater import StateUpdater
 from domain.novel.services.consistency_checker import ConsistencyChecker
 from domain.novel.value_objects.consistency_context import ConsistencyContext
 from domain.ai.services.llm_service import LLMService, GenerationResult

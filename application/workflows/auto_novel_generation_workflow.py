@@ -23,6 +23,8 @@ from domain.novel.value_objects.consistency_context import ConsistencyContext
 from domain.novel.value_objects.novel_id import NovelId
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from application.analyst.services.voice_fingerprint_service import VoiceFingerprintService
+from application.audit.services.cliche_scanner import ClicheScanner, ClicheHit
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +247,7 @@ class AutoNovelGenerationWorkflow:
             logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍")
         
         # 根据是否使用节拍选择不同的生成策略
+        config = GenerationConfig()
         if enable_beats and beats:
             # 按节拍生成
             content_parts = []
@@ -382,6 +385,7 @@ class AutoNovelGenerationWorkflow:
                 }
             
             # 根据是否使用节拍选择不同的生成策略
+            config = GenerationConfig()
             if enable_beats and beats:
                 # 按节拍生成
                 content_parts = []
@@ -427,7 +431,6 @@ class AutoNovelGenerationWorkflow:
                     voice_anchors=bundle.get("voice_anchors") or "",
                 )
                 
-                config = GenerationConfig()
                 logger.info(f"  → 发送流式请求到 LLM")
                 parts: list[str] = []
                 chunk_count = 0

@@ -13,14 +13,18 @@ from domain.structure.story_node import StoryNode, NodeType, StoryTree, Planning
 class StoryNodeRepository:
     """故事结构节点仓储"""
 
-    def __init__(self, db_path: str):
-        self.db_path = db_path
+    def __init__(self, db):
+        from infrastructure.persistence.database.connection import DatabaseConnection
+        if isinstance(db, DatabaseConnection):
+            self.db = db
+            self.db_path = db.db_path
+        else:
+            self.db = DatabaseConnection(db)
+            self.db_path = db
 
     def _get_connection(self) -> sqlite3.Connection:
         """获取数据库连接"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return self.db.get_connection()
 
     def save_sync(self, node: StoryNode) -> StoryNode:
         """同步保存（供 NovelService 等非 async 调用链使用）。"""
@@ -70,7 +74,7 @@ class StoryNodeRepository:
             conn.commit()
             return node
         finally:
-            conn.close()
+            pass
 
     async def save(self, node: StoryNode) -> StoryNode:
         """保存节点"""
@@ -141,7 +145,7 @@ class StoryNodeRepository:
             conn.commit()
             return node
         finally:
-            conn.close()
+            pass
 
     async def save_batch(self, nodes: List[StoryNode]) -> List[StoryNode]:
         """批量保存节点"""
@@ -192,7 +196,7 @@ class StoryNodeRepository:
             conn.commit()
             return nodes
         finally:
-            conn.close()
+            pass
 
     async def get_by_id(self, node_id: str) -> Optional[StoryNode]:
         """根据 ID 获取节点"""
@@ -203,7 +207,7 @@ class StoryNodeRepository:
             row = cursor.fetchone()
             return self._row_to_entity(row) if row else None
         finally:
-            conn.close()
+            pass
 
     def get_by_novel_sync(self, novel_id: str) -> List[StoryNode]:
         """同步列出某小说的全部结构节点。"""
@@ -218,7 +222,7 @@ class StoryNodeRepository:
             rows = cursor.fetchall()
             return [self._row_to_entity(row) for row in rows]
         finally:
-            conn.close()
+            pass
 
     async def get_by_novel(self, novel_id: str) -> List[StoryNode]:
         """获取小说的所有节点"""
@@ -245,7 +249,7 @@ class StoryNodeRepository:
             rows = cursor.fetchall()
             return [self._row_to_entity(row) for row in rows]
         finally:
-            conn.close()
+            pass
 
     async def get_children(self, parent_id: str) -> List[StoryNode]:
         """获取子节点"""
@@ -264,7 +268,7 @@ class StoryNodeRepository:
             rows = cursor.fetchall()
             return [self._row_to_entity(row) for row in rows]
         finally:
-            conn.close()
+            pass
 
     async def delete(self, node_id: str) -> bool:
         """删除节点（级联删除子节点）"""
@@ -275,7 +279,7 @@ class StoryNodeRepository:
             conn.commit()
             return cursor.rowcount > 0
         finally:
-            conn.close()
+            pass
 
     async def delete_by_novel(self, novel_id: str) -> int:
         """删除小说的所有节点"""
@@ -286,7 +290,7 @@ class StoryNodeRepository:
             conn.commit()
             return cursor.rowcount
         finally:
-            conn.close()
+            pass
 
     async def apply_merge_plan(self, creates: List[dict], updates: List[dict], deletes: List[str]) -> None:
         """应用宏观规划合并计划（原子性事务）
@@ -372,7 +376,7 @@ class StoryNodeRepository:
             conn.rollback()
             raise e
         finally:
-            conn.close()
+            pass
 
     def _row_to_entity(self, row: sqlite3.Row) -> StoryNode:
         """将数据库行转换为实体"""
