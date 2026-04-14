@@ -14,6 +14,39 @@ VALID_LOGGING_LEVELS = [
 ]
 
 
+class SafeConsoleHandler(logging.StreamHandler):
+    """Console handler that degrades gracefully on encoding errors.
+
+    Windows terminals commonly default to legacy encodings such as GBK.
+    When log messages contain emoji or other non-representable characters,
+    the standard StreamHandler can trigger UnicodeEncodeError while writing
+    to stderr/stdout. This handler falls back to an ASCII-safe escaped
+    representation instead of crashing the log emission path.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit a record, escaping unsupported characters when needed."""
+        try:
+            msg = self.format(record)
+            stream = self.stream
+            try:
+                stream.write(msg + self.terminator)
+            except UnicodeEncodeError:
+                safe_msg = self._escape_for_stream(msg + self.terminator, stream)
+                stream.write(safe_msg)
+            self.flush()
+        except RecursionError:
+            raise
+        except Exception:
+            self.handleError(record)
+
+    @staticmethod
+    def _escape_for_stream(text: str, stream) -> str:
+        """Convert text to a stream-safe escaped representation."""
+        encoding = getattr(stream, "encoding", None) or "utf-8"
+        return text.encode(encoding, errors="backslashreplace").decode(encoding)
+
+
 def _validate_logging_level(level: int) -> None:
     """Validate that the logging level is a valid Python logging level.
 
@@ -46,7 +79,6 @@ def _validate_log_file(log_file: str) -> None:
     if not log_file or not log_file.strip():
         raise ValueError("log_file cannot be empty or whitespace")
 
-    # Try to create parent directories if they don't exist
     try:
         log_dir = os.path.dirname(log_file)
         if log_dir and not os.path.exists(log_dir):
@@ -54,10 +86,7 @@ def _validate_log_file(log_file: str) -> None:
     except (OSError, IOError) as e:
         raise ValueError(f"Cannot create log directory: {e}")
 
-    # Check if we can write to the location
     try:
-        # Try to open the file in append mode to check writability
-        # This will fail if the path is invalid or not writable
         test_handle = open(log_file, 'a')
         test_handle.close()
     except (OSError, IOError, PermissionError) as e:
@@ -80,52 +109,41 @@ def setup_logging(
         ValueError: If logging level or log file path is invalid
         TypeError: If log_file parameter is not a string when provided
     """
-    # Validate logging level
     _validate_logging_level(level)
 
-    # Clear any existing handlers
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    # Set the root logging level
     root_logger.setLevel(level)
 
-    # Create formatters with different date formats for console and file
     console_formatter = logging.Formatter(
         format_string,
         datefmt="%H:%M:%S"
     )
 
-    # Console handler
-    console_handler = logging.StreamHandler()
+    console_handler = SafeConsoleHandler()
     console_handler.setLevel(level)
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
-    # File handler (optional) with error handling
     if log_file is not None:
-        # Validate log file path BEFORE trying to create handler
-        # Validation errors should be raised immediately
         _validate_log_file(log_file)
 
-        # Only catch file creation errors, not validation errors
         try:
             file_formatter = logging.Formatter(
                 format_string,
                 datefmt="%Y-%m-%d %H:%M:%S"
             )
-            file_handler = logging.FileHandler(log_file)
+            file_handler = logging.FileHandler(log_file, encoding="utf-8")
             file_handler.setLevel(level)
             file_handler.setFormatter(file_formatter)
             root_logger.addHandler(file_handler)
 
         except (OSError, IOError, PermissionError) as e:
-            # Log a warning if file handler creation fails, but continue with console only
             print(f"WARNING: Failed to setup file logging: {e}")
             print("Logging will continue with console output only.")
 
-    # Uvicorn：保留默认访问日志格式（INFO: 127.0.0.1:port - "GET ..." 200 OK）
     logging.getLogger("uvicorn").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
     logging.getLogger("fastapi").setLevel(logging.WARNING)
