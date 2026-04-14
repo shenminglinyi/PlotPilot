@@ -31,6 +31,7 @@ from infrastructure.persistence.database.sqlite_foreshadowing_repository import 
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
 from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.config.dynamic_settings import DynamicSettingsManager
 
 from application.core.services.novel_service import NovelService
 from application.core.services.chapter_service import ChapterService
@@ -78,6 +79,15 @@ def _anthropic_base_url() -> Optional[str]:
 
 def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
     """构建 Anthropic Settings；require_key=False 时无密钥返回 None。"""
+    dyn_config = DynamicSettingsManager().load_config()
+    if dyn_config and dyn_config.provider == "anthropic" and dyn_config.anthropic_api_key:
+        return Settings(
+            api_key=dyn_config.anthropic_api_key,
+            base_url=dyn_config.anthropic_base_url or _anthropic_base_url(),
+            default_model=dyn_config.default_model or "claude-sonnet-4-6",
+            cheap_model=dyn_config.cheap_model or "claude-3-5-haiku-20241022"
+        )
+
     key = _anthropic_api_key()
     if not key:
         if require_key:
@@ -103,6 +113,15 @@ def _openai_base_url() -> Optional[str]:
 
 def _openai_settings(require_key: bool = True) -> Optional[Settings]:
     """构建 OpenAI Settings；require_key=False 时无密钥返回 None。"""
+    dyn_config = DynamicSettingsManager().load_config()
+    if dyn_config and dyn_config.provider == "openai" and dyn_config.openai_api_key:
+        return Settings(
+            api_key=dyn_config.openai_api_key,
+            base_url=dyn_config.openai_base_url or _openai_base_url(),
+            default_model=dyn_config.default_model or os.getenv("OPENAI_MODEL", "gpt-4o"),
+            cheap_model=dyn_config.cheap_model or os.getenv("OPENAI_CHEAP_MODEL", "gpt-4o-mini")
+        )
+
     key = _openai_api_key()
     if not key:
         if require_key:
@@ -314,7 +333,8 @@ def get_hosted_write_service() -> HostedWriteService:
 
 def get_llm_service():
     """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+    dyn_config = DynamicSettingsManager().load_config()
+    provider = dyn_config.provider if dyn_config else os.getenv("LLM_PROVIDER", "anthropic").lower()
     
     if provider == "openai":
         settings = _openai_settings(require_key=False)
