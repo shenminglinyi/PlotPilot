@@ -3,13 +3,13 @@
 日志：默认与 API 共用 ``logs/aitext.log``（环境变量 LOG_FILE），便于在「主日志」里查看
 规划/写作/节拍；另可设 LOG_FILE 仅写文件。
 """
-# 必须在任何 HuggingFace/Transformers 导入前设置离线模式
 import os
 os.environ['HF_HUB_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 os.environ['HF_DATASETS_OFFLINE'] = '1'
-os.environ['CURL_CA_BUNDLE'] = ''
-os.environ['REQUESTS_CA_BUNDLE'] = ''
+if os.getenv('DISABLE_SSL_VERIFY', 'false').lower() == 'true':
+    os.environ['CURL_CA_BUNDLE'] = ''
+    os.environ['REQUESTS_CA_BUNDLE'] = ''
 
 import sys
 import logging
