@@ -1,6 +1,13 @@
 <template>
-  <div class="llm-fab-wrap">
-    <n-button class="llm-fab" circle type="primary" size="large" @click="showModal = true">
+  <div class="llm-fab-wrap" :style="fabStyle">
+    <n-button
+      class="llm-fab"
+      circle
+      type="primary"
+      size="large"
+      @pointerdown="handlePointerDown"
+      @click="handleFabClick"
+    >
       <template #icon>
         <n-icon><SettingsOutline /></n-icon>
       </template>
@@ -87,21 +94,6 @@
           </button>
         </div>
 
-        <n-card size="small" :bordered="false" class="llm-section-card">
-          <template #header>
-            <n-space justify="space-between" align="center" style="width: 100%">
-              <span>模型列表</span>
-              <n-button type="primary" secondary :loading="modelsLoading" @click="handleLoadModels">
-                拉取模型列表
-              </n-button>
-            </n-space>
-          </template>
-
-          <n-text depth="3" style="font-size: 12px">
-            拉取后，主模型和高级模型都可以直接下拉选择；不在列表里的模型也可以手动填入。
-          </n-text>
-        </n-card>
-
         <n-grid :cols="24" :x-gap="12">
           <n-form label-placement="top" class="llm-form">
             <n-gi :span="12">
@@ -121,13 +113,27 @@
                 </n-space>
               </n-form-item>
             </n-gi>
-            <n-gi :span="24">
-              <n-form-item label="Base URL">
-                <n-input v-model:value="form.base_url" placeholder="例如 https://api.jucode.cn/v1" />
-              </n-form-item>
-            </n-gi>
           </n-form>
         </n-grid>
+
+        <n-card size="small" :bordered="false" class="llm-section-card endpoint-card">
+          <template #header>
+            <span>自定义 API 地址</span>
+          </template>
+
+          <n-space vertical :size="10">
+            <n-text depth="3" style="font-size: 12px">
+              {{ baseUrlHelpText }}
+            </n-text>
+            <n-input
+              v-model:value="form.base_url"
+              :placeholder="baseUrlPlaceholder"
+            />
+            <n-tag size="small" round type="info" :bordered="false">
+              当前协议：{{ formatLabel }}
+            </n-tag>
+          </n-space>
+        </n-card>
 
         <n-card size="small" :bordered="false" class="llm-section-card api-key-card">
           <template #header>
@@ -149,6 +155,14 @@
               show-password-on="click"
               :placeholder="apiKeyPlaceholder"
             />
+            <n-space justify="space-between" align="center" style="width: 100%">
+              <n-text depth="3" style="font-size: 12px">
+                先确认地址和 Key 正确，再拉取可用模型；拉取后主模型和高级模型都可直接下拉选择。
+              </n-text>
+              <n-button type="primary" secondary :loading="modelsLoading" @click="handleLoadModels">
+                拉取模型列表
+              </n-button>
+            </n-space>
           </n-space>
         </n-card>
 
@@ -240,7 +254,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { NIcon, useDialog, useMessage } from 'naive-ui'
 import { SettingsOutline } from '@vicons/ionicons5'
 import {
@@ -267,6 +281,20 @@ const presets = ref<LLMPreset[]>([])
 const selectedPresetId = ref<string | null>(null)
 const activePresetId = ref<string | null>(null)
 const presetName = ref('')
+const FAB_SIZE = 56
+const FAB_MARGIN = 22
+const FAB_STORAGE_KEY = 'plotpilot.llm-settings-fab-position'
+const fabPosition = reactive({ x: 0, y: 0 })
+const dragState = reactive({
+  active: false,
+  pointerId: -1,
+  startX: 0,
+  startY: 0,
+  originX: 0,
+  originY: 0,
+  moved: false,
+})
+const suppressNextClick = ref(false)
 
 const vendorPresets = [
   { id: 'claude', label: 'Claude', description: 'Anthropic 原生 Messages 格式' },
@@ -314,9 +342,26 @@ const formatLabel = computed(() => (
   form.api_format === 'anthropic_messages' ? 'Anthropic' : 'OpenAI Compatible'
 ))
 
+const baseUrlPlaceholder = computed(() => (
+  form.api_format === 'anthropic_messages'
+    ? '例如 https://your-anthropic-endpoint'
+    : '例如 https://your-openai-compatible-endpoint/v1'
+))
+
+const baseUrlHelpText = computed(() => (
+  form.api_format === 'anthropic_messages'
+    ? '这里可以填写自定义的 Anthropic 兼容地址。通常填写根地址即可，不需要手动补 /v1/messages。'
+    : '这里可以填写你自己的 OpenAI 兼容 API 地址。多数第三方网关建议填写到 /v1。'
+))
+
 const apiKeyPlaceholder = computed(() => (
   maskedApiKey.value ? `当前已保存：${maskedApiKey.value}；留空则不覆盖` : '输入 API Key'
 ))
+
+const fabStyle = computed(() => ({
+  left: `${fabPosition.x}px`,
+  top: `${fabPosition.y}px`,
+}))
 
 function mergeModelOptions(base: ModelOption[], values: Array<string | undefined>): ModelOption[] {
   const map = new Map<string, ModelOption>()
@@ -375,13 +420,128 @@ function applyVendorPreset(vendor: string) {
   form.vendor = vendor
   if (vendor === 'claude') {
     form.api_format = 'anthropic_messages'
-    if (!form.base_url) form.base_url = 'https://api.anthropic.com'
     return
   }
 
   form.api_format = 'openai_chat_completions'
-  if (vendor === 'openai' && !form.base_url) form.base_url = 'https://api.openai.com/v1'
   if (vendor === 'codex' && !form.model) form.model = 'gpt-5.2-codex'
+}
+
+function getViewportBounds() {
+  const maxX = Math.max(FAB_MARGIN, window.innerWidth - FAB_SIZE - FAB_MARGIN)
+  const maxY = Math.max(FAB_MARGIN, window.innerHeight - FAB_SIZE - FAB_MARGIN)
+  return {
+    minX: FAB_MARGIN,
+    minY: FAB_MARGIN,
+    maxX,
+    maxY,
+  }
+}
+
+function clampFabPosition(x: number, y: number) {
+  const bounds = getViewportBounds()
+  return {
+    x: Math.min(bounds.maxX, Math.max(bounds.minX, x)),
+    y: Math.min(bounds.maxY, Math.max(bounds.minY, y)),
+  }
+}
+
+function defaultFabPosition() {
+  const bounds = getViewportBounds()
+  return {
+    x: bounds.maxX,
+    y: bounds.maxY,
+  }
+}
+
+function saveFabPosition() {
+  try {
+    window.localStorage.setItem(FAB_STORAGE_KEY, JSON.stringify({
+      x: fabPosition.x,
+      y: fabPosition.y,
+    }))
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyFabPosition(x: number, y: number, persist = true) {
+  const next = clampFabPosition(x, y)
+  fabPosition.x = next.x
+  fabPosition.y = next.y
+  if (persist) saveFabPosition()
+}
+
+function loadFabPosition() {
+  const fallback = defaultFabPosition()
+  try {
+    const raw = window.localStorage.getItem(FAB_STORAGE_KEY)
+    if (!raw) {
+      applyFabPosition(fallback.x, fallback.y, false)
+      return
+    }
+    const parsed = JSON.parse(raw) as { x?: number; y?: number }
+    const x = Number(parsed?.x)
+    const y = Number(parsed?.y)
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      applyFabPosition(x, y, false)
+      return
+    }
+  } catch {
+    /* ignore */
+  }
+  applyFabPosition(fallback.x, fallback.y, false)
+}
+
+function handlePointerMove(event: PointerEvent) {
+  if (!dragState.active || event.pointerId !== dragState.pointerId) return
+
+  const deltaX = event.clientX - dragState.startX
+  const deltaY = event.clientY - dragState.startY
+  if (!dragState.moved && Math.hypot(deltaX, deltaY) >= 6) {
+    dragState.moved = true
+  }
+  if (!dragState.moved) return
+
+  applyFabPosition(dragState.originX + deltaX, dragState.originY + deltaY)
+}
+
+function stopDragging() {
+  dragState.active = false
+  dragState.pointerId = -1
+  dragState.startX = 0
+  dragState.startY = 0
+  dragState.originX = 0
+  dragState.originY = 0
+}
+
+function handlePointerUp(event: PointerEvent) {
+  if (!dragState.active || event.pointerId !== dragState.pointerId) return
+  suppressNextClick.value = dragState.moved
+  stopDragging()
+}
+
+function handlePointerDown(event: PointerEvent) {
+  if (event.button !== 0) return
+  dragState.active = true
+  dragState.pointerId = event.pointerId
+  dragState.startX = event.clientX
+  dragState.startY = event.clientY
+  dragState.originX = fabPosition.x
+  dragState.originY = fabPosition.y
+  dragState.moved = false
+}
+
+function handleFabClick() {
+  if (suppressNextClick.value) {
+    suppressNextClick.value = false
+    return
+  }
+  showModal.value = true
+}
+
+function handleWindowResize() {
+  applyFabPosition(fabPosition.x, fabPosition.y, false)
 }
 
 async function loadSettings() {
@@ -518,13 +678,26 @@ async function handleLoadModels() {
     modelsLoading.value = false
   }
 }
+
+onMounted(() => {
+  loadFabPosition()
+  window.addEventListener('pointermove', handlePointerMove)
+  window.addEventListener('pointerup', handlePointerUp)
+  window.addEventListener('pointercancel', handlePointerUp)
+  window.addEventListener('resize', handleWindowResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', handlePointerMove)
+  window.removeEventListener('pointerup', handlePointerUp)
+  window.removeEventListener('pointercancel', handlePointerUp)
+  window.removeEventListener('resize', handleWindowResize)
+})
 </script>
 
 <style scoped>
 .llm-fab-wrap {
   position: fixed;
-  right: 22px;
-  bottom: 22px;
   z-index: 1200;
 }
 
@@ -533,6 +706,13 @@ async function handleLoadModels() {
   height: 56px;
   border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 14px 32px rgba(79, 70, 229, 0.28), 0 4px 12px rgba(15, 23, 42, 0.16);
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.llm-fab:active {
+  cursor: grabbing;
 }
 
 .llm-fab:hover {
@@ -615,11 +795,6 @@ async function handleLoadModels() {
 @media (max-width: 900px) {
   .preset-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .llm-fab-wrap {
-    right: 16px;
-    bottom: 16px;
   }
 }
 </style>

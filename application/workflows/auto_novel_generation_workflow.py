@@ -385,6 +385,7 @@ class AutoNovelGenerationWorkflow:
             if enable_beats and beats:
                 # 按节拍生成
                 content_parts = []
+                chunk_count = 0
                 for i, beat in enumerate(beats):
                     beat_prompt_text = self.context_builder.build_beat_prompt(beat, i, len(beats))
                     logger.info(f"生成节拍 {i+1}/{len(beats)}: {beat.focus} - {beat.description[:50]}...")
@@ -401,10 +402,15 @@ class AutoNovelGenerationWorkflow:
                         beat_target_words=beat.target_words,
                         voice_anchors=bundle.get("voice_anchors") or "",
                     )
-                    
+
+                    config = GenerationConfig(
+                        max_tokens=max(int(beat.target_words * 1.5), 512),
+                        temperature=0.85,
+                    )
                     beat_content = ""
                     async for piece in self.llm_service.stream_generate(prompt, config):
                         beat_content += piece
+                        chunk_count += 1
                         yield {
                             "type": "chunk", 
                             "text": piece,

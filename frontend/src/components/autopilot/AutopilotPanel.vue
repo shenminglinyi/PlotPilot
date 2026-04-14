@@ -7,6 +7,28 @@
       <span class="ap-stage-tag" :class="stageTagClass">{{ stageLabel }}</span>
     </div>
 
+    <div v-if="isRunning || needsReview" class="ap-top-actions">
+      <n-button
+        v-if="needsReview"
+        type="warning"
+        size="small"
+        :loading="toggling"
+        @click="resume"
+      >
+        确认大纲，继续写作
+      </n-button>
+      <n-button
+        v-if="isRunning"
+        type="error"
+        ghost
+        size="small"
+        :loading="toggling"
+        @click="stop"
+      >
+        立即停止托管
+      </n-button>
+    </div>
+
     <!-- 进度条 -->
     <n-progress
       type="line"
@@ -68,9 +90,21 @@
 
     <!-- 审阅等待：宏观规划完成后、或某一幕「首次」生成章节规划后各需确认一次；确认后同幕不会反复要求审批 -->
     <n-alert v-if="needsReview" type="warning" :show-icon="true" style="margin: 4px 0; font-size: 12px">
-      <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲/结构，确认后点
-      <strong>「确认大纲，继续写作」</strong>。
-      宏观规划完成后会停一次；之后每一幕<strong>仅在首次生成该幕章节规划</strong>时再停一次，不会无限循环。
+      <div class="review-hint">
+        <p>
+          <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲/结构，确认后点
+          <strong>「确认大纲，继续写作」</strong>。
+          宏观规划完成后会停一次；之后每一幕<strong>仅在首次生成该幕章节规划</strong>时再停一次，不会无限循环。
+        </p>
+        <n-space size="small" wrap>
+          <n-button type="warning" size="small" :loading="toggling" @click="resume">
+            确认大纲，继续写作
+          </n-button>
+          <n-button ghost size="small" :loading="toggling" @click="stop">
+            停止本次全托管
+          </n-button>
+        </n-space>
+      </div>
     </n-alert>
 
     <!-- 实时日志流 -->
@@ -84,11 +118,8 @@
     />
 
     <!-- 操作按钮 -->
-    <n-space justify="end" size="small">
-      <n-button v-if="needsReview" type="warning" size="small" :loading="toggling" @click="resume">
-        确认大纲，继续写作
-      </n-button>
-      <n-button v-if="!isRunning && !needsReview" type="primary" size="small" :loading="toggling" @click="openStartModal">
+    <n-space v-if="!needsReview" justify="end" size="small">
+      <n-button v-if="!isRunning" type="primary" size="small" :loading="toggling" @click="openStartModal">
         🚀 启动全托管
       </n-button>
       <n-button v-if="isRunning" type="error" ghost size="small" :loading="toggling" @click="stop">
@@ -502,6 +533,13 @@ onUnmounted(() => {
   gap: 10px;
 }
 
+.ap-top-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .ap-dot {
   width: 10px;
   height: 10px;
@@ -622,5 +660,16 @@ onUnmounted(() => {
   font-size: 11px;
   opacity: 0.95;
   margin-bottom: 8px !important;
+}
+
+.review-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.review-hint p {
+  margin: 0;
+  line-height: 1.55;
 }
 </style>
