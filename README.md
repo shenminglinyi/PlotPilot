@@ -2,7 +2,10 @@
 
 > AI 驱动的长篇小说创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
 
-## 特性
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
+[![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)](https://vuejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 - 自动驾驶模式：后台守护进程持续生成章节，支持 SSE 实时流式推送
 - Story Bible：人物、地点、世界设定的结构化管理
@@ -108,9 +111,9 @@ npm run dev
 | `LOG_LEVEL` | 否 | 日志级别，默认 `INFO` |
 | `LOG_FILE` | 否 | 日志文件路径，默认 `logs/aitext.log` |
 
-## 架构
+## 系统架构
 
-采用 DDD（领域驱动设计）四层架构：
+### DDD 四层架构
 
 ```
 PlotPilot/
@@ -139,6 +142,8 @@ PlotPilot/
 
 ## 测试
 
+### 运行测试
+
 ```bash
 # 运行单元测试和集成测试
 pytest tests/unit/ tests/integration/ -v
@@ -156,6 +161,8 @@ pytest tests/ -v
 2. 创建特性分支：`git checkout -b feat/your-feature`
 3. 提交更改：遵循 [Conventional Commits](https://www.conventionalcommits.org/)
 4. 推送并创建 Pull Request
+
+---
 
 ## 许可证
 
