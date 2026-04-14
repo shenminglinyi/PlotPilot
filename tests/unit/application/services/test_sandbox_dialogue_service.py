@@ -88,3 +88,11 @@ def test_build_dialogue_generation_prompt_includes_relationships_history_and_sce
     assert "场景点名的相关角色" in prompt.user
     assert "柳月" in prompt.user
     assert "少废话" in prompt.user
+
+
+def test_clean_generated_dialogue_strips_prefix_and_wrapping_quotes():
+    service = SandboxDialogueService(FakeNarrativeEventRepository([]))
+
+    cleaned = service.clean_generated_dialogue("沈霁：“少废话，退后。”", "沈霁")
+
+    assert cleaned == "少废话，退后。"

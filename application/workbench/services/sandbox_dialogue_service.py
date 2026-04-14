@@ -162,6 +162,12 @@ class SandboxDialogueService:
                 text = text[len(prefix):].strip()
                 break
 
+        if len(text) >= 2:
+            for left, right in (("“", "”"), ('"', '"'), ("「", "」")):
+                if text.startswith(left) and text.endswith(right):
+                    text = text[1:-1].strip()
+                    break
+
         return text
 
     def _event_to_dialogue_entry(self, event: dict) -> Optional[DialogueEntry]:
@@ -179,7 +185,7 @@ class SandboxDialogueService:
 
         summary = self._stringify(event.get("event_summary", ""))
         content = self._strip_speaker_prefix(summary, speaker) or summary
-        context = self._extract_scene_context(tags) or summary
+        context = self._extract_scene_context(tags)
 
         return DialogueEntry(
             dialogue_id=self._stringify(event.get("event_id", "")),
@@ -277,6 +283,7 @@ class SandboxDialogueService:
     def _find_relationship_to_name(self, other_name: str, relationships: list[Any]) -> str:
         for relationship in relationships:
             if isinstance(relationship, dict):
+                relation_label = self._relationship_label(relationship)
                 haystack = " ".join(
                     self._stringify(item)
                     for item in (
@@ -295,13 +302,22 @@ class SandboxDialogueService:
                     if self._stringify(item)
                 )
                 if other_name in haystack:
-                    return self._render_relationship(relationship)
+                    return relation_label or self._render_relationship(relationship)
             else:
                 text = self._stringify(relationship)
                 if other_name in text:
                     return text
 
         return ""
+
+    def _relationship_label(self, relationship: dict[str, Any]) -> str:
+        return self._first_non_empty(
+            relationship.get("relation"),
+            relationship.get("type"),
+            relationship.get("label"),
+            relationship.get("status"),
+            relationship.get("description"),
+        )
 
     def _format_scene_related_characters(self, related_characters: list[dict[str, str]]) -> str:
         if not related_characters:
@@ -324,8 +340,10 @@ class SandboxDialogueService:
 
         lines: list[str] = []
         for entry in dialogues[:4]:
-            context = f" / {entry.context}" if entry.context else ""
-            lines.append(f"- 第{entry.chapter}章{context}：{entry.content}")
+            if entry.context:
+                lines.append(f"- 第{entry.chapter}章 / {entry.context}：{entry.content}")
+            else:
+                lines.append(f"- 第{entry.chapter}章：{entry.content}")
         return "\n".join(lines)
 
     @staticmethod
