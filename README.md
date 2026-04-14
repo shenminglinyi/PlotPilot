@@ -1,260 +1,164 @@
-# aitext - AI 驱动的小说创作系统
+# PlotPilot（墨枢）
 
-基于 DDD（领域驱动设计）架构的 AI 小说创作平台，使用 Claude AI 生成高质量小说内容。
+> AI 驱动的长篇小说创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
 
 ## 特性
 
-- 🎯 完整的 DDD 四层架构
-- 📚 小说创作和管理
-- 🤖 AI 驱动的内容生成
-- 📖 Bible 系统（人物、世界设定管理）
-- 🔄 工作流编排
-- ✅ 完整的测试覆盖（211+ 测试）
-- 🚀 RESTful API
-- 📊 实时统计和进度跟踪
+- 自动驾驶模式：后台守护进程持续生成章节，支持 SSE 实时流式推送
+- Story Bible：人物、地点、世界设定的结构化管理
+- 知识图谱：自动提取故事三元组，语义检索历史内容
+- 伏笔台账：追踪并自动闭合叙事钩子
+- 风格分析：作者声音漂移检测与文体指纹
+- 节拍表 & 故事结构：三幕式、章节节拍规划
+- DDD 四层架构：domain / application / infrastructure / interfaces
+
+## 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 后端框架 | FastAPI + uvicorn |
+| AI 模型 | Anthropic Claude（主）、ByteDance Ark/Doubao（备） |
+| 向量数据库 | Qdrant（可选 ChromaDB） |
+| 嵌入模型 | BAAI/bge-small-zh-v1.5（本地） / OpenAI Embedding（可选） |
+| 主数据库 | SQLite |
+| 前端 | Vue 3 + TypeScript + Vite + Naive UI |
+| 状态管理 | Pinia |
+| 可视化 | ECharts |
 
 ## 快速开始
 
 ### 环境要求
 
 - Python 3.9+
-- Node.js 16+ (前端)
-- Anthropic API Key
+- Node.js 18+
+- （可选）Docker — 用于启动 Qdrant 向量数据库
 
-### 后端安装
+### 1. 克隆仓库
 
 ```bash
-# 克隆仓库
-git clone <repository-url>
-cd aitext
+git clone https://github.com/shenminglinyi/PlotPilot.git
+cd PlotPilot
+```
+
+### 2. 后端配置
+
+```bash
+# 创建虚拟环境（推荐）
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # 安装依赖
 pip install -r requirements.txt
 
-# 设置环境变量
+# 配置环境变量
 cp .env.example .env
-# 编辑 .env 文件，添加你的 ANTHROPIC_API_KEY
+# 编辑 .env，至少填写以下任一 LLM 凭证：
+#   ANTHROPIC_API_KEY   — 使用 Claude 模型
+#   ARK_API_KEY         — 使用 ByteDance Doubao 模型
 ```
 
-### 运行后端服务器
+### 3. 启动向量数据库（可选）
+
+语义检索功能依赖 Qdrant，若不需要可跳过此步骤。
 
 ```bash
-# 方式 1: 使用 Python 模块
-python -m interfaces.main
-
-# 方式 2: 使用 uvicorn
-uvicorn interfaces.main:app --reload --port 8000
-
-# 方式 3: 使用运行脚本
-python run_server.py
+docker compose up -d
+# Qdrant 将运行在 http://localhost:6333
 ```
 
-服务器将在 http://localhost:8000 启动
+### 4. 下载嵌入模型
 
-### 前端安装和运行
+首次运行需下载本地嵌入模型（约 100 MB）：
 
 ```bash
-cd web-app
+python scripts/utils/download_embedding_model.py
+# 或通过 ModelScope 镜像下载（国内推荐）：
+python scripts/utils/download_model_via_modelscope.py
+```
+
+### 5. 启动后端
+
+```bash
+uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
+```
+
+后端 API：http://localhost:8005  
+交互文档：http://localhost:8005/docs
+
+### 6. 启动前端
+
+```bash
+cd frontend
 npm install
 npm run dev
+# 前端运行在 http://localhost:3000
 ```
 
-前端将在 http://localhost:5173 启动
+## 环境变量参考
 
-### API 文档
-
-启动服务器后访问：
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+| 变量 | 必填 | 说明 |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | 二选一 | Anthropic Claude API 密钥 |
+| `ARK_API_KEY` | 二选一 | ByteDance Ark/Doubao API 密钥 |
+| `ARK_BASE_URL` | 否 | Ark API 地址，默认北京节点 |
+| `ARK_MODEL` | 否 | Doubao 模型 ID，默认 `doubao-seed-2-0-mini-260215` |
+| `ANTHROPIC_BASE_URL` | 否 | 自建网关或代理地址 |
+| `CORS_ORIGINS` | 否 | 生产环境允许的前端域名，逗号分隔；未设置时仅允许 localhost |
+| `DISABLE_AUTO_DAEMON` | 否 | 设为 `1` 禁止自动驾驶守护进程在启动时自动运行 |
+| `LOG_LEVEL` | 否 | 日志级别，默认 `INFO` |
+| `LOG_FILE` | 否 | 日志文件路径，默认 `logs/aitext.log` |
 
 ## 架构
 
 采用 DDD（领域驱动设计）四层架构：
 
 ```
-aitext/
-├── domain/                 # 领域层 - 核心业务逻辑
-│   ├── novel/             # 小说聚合
-│   ├── bible/             # Bible 聚合
-│   ├── ai/                # AI 领域服务
-│   └── shared/            # 共享内核
+PlotPilot/
+├── domain/          # 领域层：实体、值对象、仓储接口
+│   ├── novel/       # 小说、章节、情节弧
+│   ├── bible/       # 人物、地点、世界设定
+│   ├── cast/        # 角色关系图
+│   ├── knowledge/   # 知识三元组
+│   └── shared/      # 基础实体、异常、领域事件
 │
-├── infrastructure/        # 基础设施层 - 技术实现
-│   ├── persistence/       # 持久化（文件存储）
-│   └── ai/                # AI 提供商（Anthropic）
+├── application/     # 应用层：用例编排、工作流、DTO
+│   ├── engine/      # 生成引擎、自动驾驶守护进程
+│   ├── analyst/     # 声音分析、张力分析、状态机
+│   ├── audit/       # 章节审查、宏观重构
+│   └── blueprint/   # 节拍表、故事结构规划
 │
-├── application/           # 应用层 - 用例编排
-│   ├── services/          # 应用服务
-│   ├── workflows/         # 工作流
-│   └── dtos/              # 数据传输对象
+├── infrastructure/  # 基础设施层：技术实现
+│   ├── ai/          # Anthropic / Ark 提供商、ChromaDB、Qdrant
+│   └── persistence/ # SQLite 仓储、Schema 迁移
 │
-└── interfaces/            # 接口层 - 外部接口
-    ├── api/               # REST API
-    └── main.py            # FastAPI 应用
+├── interfaces/      # 接口层：FastAPI 路由
+│   └── api/v1/      # REST API（core / world / engine / audit / analyst）
+│
+└── frontend/        # Vue 3 前端
 ```
-
-### 核心概念
-
-- **Novel**: 小说聚合根，管理章节和元数据
-- **Bible**: 小说设定聚合根，管理人物和世界设定
-- **Chapter**: 章节实体
-- **AIGenerationService**: AI 内容生成服务
-- **NovelGenerationWorkflow**: 小说生成工作流
-
-## API 端点
-
-### Novels API
-
-```
-POST   /api/v1/novels/                      创建小说
-GET    /api/v1/novels/{novel_id}            获取小说详情
-GET    /api/v1/novels/                      列出所有小说
-PUT    /api/v1/novels/{novel_id}/stage      更新小说阶段
-DELETE /api/v1/novels/{novel_id}            删除小说
-GET    /api/v1/novels/{novel_id}/statistics 获取统计信息
-```
-
-### Chapters API
-
-```
-GET    /api/v1/chapters/{chapter_id}                    获取章节
-PUT    /api/v1/chapters/{chapter_id}/content            更新章节内容
-DELETE /api/v1/chapters/{chapter_id}                    删除章节
-GET    /api/v1/chapters/novels/{novel_id}/chapters      列出小说章节
-```
-
-### Bible API
-
-```
-POST   /api/v1/bible/novels/{novel_id}/bible              创建 Bible
-GET    /api/v1/bible/novels/{novel_id}/bible              获取 Bible
-POST   /api/v1/bible/novels/{novel_id}/bible/characters   添加人物
-POST   /api/v1/bible/novels/{novel_id}/bible/world-settings 添加世界设定
-```
-
-### 章节生成（工作流）
-
-见 `interfaces/api/v1/engine/generation.py`：`POST /api/v1/novels/{novel_id}/generate-chapter-stream`、`hosted-write-stream` 等。
 
 ## 测试
 
 ```bash
-# 运行所有测试
+# 运行单元测试和集成测试
 pytest tests/unit/ tests/integration/ -v
 
-# 运行特定测试
-pytest tests/unit/domain/ -v
-pytest tests/integration/test_api_endpoints.py -v
+# 带覆盖率报告
+pytest tests/unit/ tests/integration/ --cov=. --cov-report=term-missing
 
-# 查看测试统计
-pytest tests/unit/ tests/integration/ --tb=short
+# 竞态检测（需安装 pytest-race 或使用 go test -race 类似工具）
+pytest tests/ -v
 ```
-
-### 测试覆盖
-
-- 总测试数: 211+
-- 通过率: 100%
-- 代码覆盖率: > 85%
-
-## 开发
-
-### 项目结构
-
-```
-aitext/
-├── application/           # 应用层
-├── domain/               # 领域层
-├── infrastructure/       # 基础设施层
-├── interfaces/           # 接口层
-├── tests/                # 测试
-│   ├── unit/            # 单元测试
-│   └── integration/     # 集成测试
-├── docs/                 # 文档
-├── web-app/             # 前端应用
-└── output/              # 输出目录（小说文件）
-```
-
-### 添加新功能
-
-1. 在 `domain/` 中定义领域模型
-2. 在 `infrastructure/` 中实现技术细节
-3. 在 `application/` 中编排用例
-4. 在 `interfaces/` 中暴露 API
-5. 编写测试
-
-### 代码风格
-
-- 遵循 PEP 8
-- 使用类型注解
-- 编写文档字符串
-- 保持函数简洁
-
-## 配置
-
-### 环境变量
-
-```bash
-# .env 文件
-ANTHROPIC_API_KEY=your_api_key_here
-OUTPUT_DIR=./output
-```
-
-### AI 配置
-
-在 `infrastructure/ai/config/settings.py` 中配置：
-
-```python
-model: str = "claude-3-5-sonnet-20241022"
-temperature: float = 0.7
-max_tokens: int = 4000
-```
-
-## 部署
-
-### 生产环境
-
-```bash
-# 使用 gunicorn
-gunicorn interfaces.main:app -w 4 -k uvicorn.workers.UvicornWorker
-
-# 使用 Docker
-docker build -t aitext .
-docker run -p 8000:8000 aitext
-```
-
-## 文档
-
-- [架构文档](docs/ARCHITECTURE.md)
-- [Week 1 总结](docs/week1-summary.md)
-- [Week 2-3 总结](docs/week2-3-summary.md)
-
-## 技术栈
-
-### 后端
-- FastAPI - Web 框架
-- Anthropic Claude - AI 模型
-- Pydantic - 数据验证
-- Pytest - 测试框架
-
-### 前端
-- React - UI 框架
-- TypeScript - 类型安全
-- Vite - 构建工具
 
 ## 贡献
 
-欢迎贡献！请遵循以下步骤：
-
 1. Fork 项目
-2. 创建特性分支
-3. 提交更改
-4. 推送到分支
-5. 创建 Pull Request
+2. 创建特性分支：`git checkout -b feat/your-feature`
+3. 提交更改：遵循 [Conventional Commits](https://www.conventionalcommits.org/)
+4. 推送并创建 Pull Request
 
 ## 许可证
 
-MIT License
+本项目采用 [GNU Affero General Public License v3.0](LICENSE) 开源协议。
 
-## 联系方式
-
-如有问题或建议，请创建 Issue。
+> AGPL-3.0 要求：任何基于本项目的修改版本，若以网络服务形式对外提供，必须同样开放源代码。

@@ -274,10 +274,20 @@ def _stop_autopilot_daemon_thread():
 
 
 # 配置 CORS
+# 生产环境请将 CORS_ORIGINS 环境变量设置为允许的域名列表，逗号分隔
+# 例如：CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
+# 未设置时默认仅允许 localhost（开发模式）
+_cors_origins_env = os.getenv("CORS_ORIGINS", "")
+if _cors_origins_env:
+    _allowed_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+else:
+    _allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000",
+                        "http://localhost:5173", "http://127.0.0.1:5173"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有来源（开发环境）
-    allow_credentials=False,  # 使用 * 时必须设为 False
+    allow_origins=_allowed_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

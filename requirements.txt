@@ -1,5 +1,6 @@
 pytest>=7.0,<9.0
 volcengine-python-sdk[ark]>=1.0.0
+anthropic>=0.40.0
 pydantic>=2.0.0
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
