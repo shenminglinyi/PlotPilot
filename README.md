@@ -1,5 +1,8 @@
 # PlotPilot（墨枢）
 
+<img width="1609" height="1288" alt="微信图片_20260415003740_893_102" src="https://github.com/user-attachments/assets/71f083b8-a787-4eaf-a927-b15185a4f317" />
+
+
 > AI 驱动的长篇小说创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
