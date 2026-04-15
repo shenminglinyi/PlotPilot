@@ -759,11 +759,8 @@ JSON 格式：
 
             content = content.strip()
 
-            # 尝试找到第一个 { 和最后一个 }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
+            # 提取完整的最外层 JSON 对象
+            content = self._extract_outermost_json(content)
 
             # 修复常见的 JSON 格式问题
             content = self._repair_json(content)
@@ -775,10 +772,50 @@ JSON 格式：
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Content length: {len(content)}")
+            # 打印出错位置附近的内容
+            if e.pos is not None:
+                start = max(0, e.pos - 100)
+                end = min(len(content), e.pos + 100)
+                logger.error(f"Error context (pos {e.pos}): ...{content[start:e.pos]}<--ERROR-->{content[e.pos:end]}...")
             logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
             logger.error(f"Raw content (last 500 chars): {content[-500:]}")
             print(f"[DEBUG] JSON parse failed, returning empty dict", file=sys.stderr, flush=True)
             return {}
+
+    def _extract_outermost_json(self, content: str) -> str:
+        """提取最外层的 JSON 对象"""
+        start = content.find('{')
+        if start == -1:
+            return content
+        
+        # 使用栈来匹配最外层的 }
+        depth = 0
+        in_string = False
+        escape_next = False
+        end = start
+        
+        for i, char in enumerate(content[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        
+        
+        return content[start:end+1]
 
     def _repair_json(self, content: str) -> str:
         """尝试修复常见的 JSON 格式问题"""
