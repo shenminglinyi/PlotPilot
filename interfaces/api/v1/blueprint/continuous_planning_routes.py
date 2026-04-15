@@ -63,22 +63,13 @@ def get_service() -> ContinuousPlanningService:
     story_node_repo = StoryNodeRepository(db_path)
     chapter_element_repo = ChapterElementRepository(db_path)
 
-    # 获取 LLM 服务
-    import os
-    from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-    from infrastructure.ai.config.settings import Settings
+    from infrastructure.ai.config.dynamic_settings import DynamicSettingsManager
+    from interfaces.api.dependencies import _build_provider_for_role
 
-    llm_service = None
-    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if api_key:
-        settings = Settings(
-            api_key=api_key.strip(),
-            base_url=os.getenv("ANTHROPIC_BASE_URL")
-        )
-        try:
-            llm_service = AnthropicProvider(settings)
-        except Exception:
-            pass
+    dyn_config = DynamicSettingsManager().load_config()
+    llm_service = _build_provider_for_role(dyn_config, "default") or _build_provider_for_role(dyn_config, "cheap")
+    if llm_service is None:
+        raise HTTPException(status_code=400, detail="未配置模型端点/API Key，请先在「核心引擎配置」里设置 Default（或 Cheap）模型")
 
     from application.world.services.bible_service import BibleService
     from interfaces.api.dependencies import get_bible_repository

@@ -6,6 +6,7 @@
 import json
 import uuid
 import logging
+import asyncio
 from typing import Dict, List, Optional
 from datetime import datetime
 
@@ -41,7 +42,7 @@ class ContinuousPlanningService:
         self,
         story_node_repo: StoryNodeRepository,
         chapter_element_repo: ChapterElementRepository,
-        llm_service: LLMService,
+        llm_service: Optional[LLMService],
         bible_service=None,
         chapter_repository: Optional[ChapterRepository] = None,
     ):
@@ -50,6 +51,29 @@ class ContinuousPlanningService:
         self.llm_service = llm_service
         self.bible_service = bible_service
         self.chapter_repository = chapter_repository
+
+    async def _generate_with_retry(self, prompt: Prompt, config: GenerationConfig):
+        if self.llm_service is None:
+            raise RuntimeError("LLM 未配置：请先在「核心引擎配置」里设置模型端点与 API Key")
+
+        last = None
+        for i in range(3):
+            try:
+                return await self.llm_service.generate(prompt, config)
+            except Exception as e:
+                last = e
+                msg = str(e)
+                retryable = (
+                    "unexpected EOF" in msg
+                    or "EOF" in msg
+                    or "timeout" in msg.lower()
+                    or "connection reset" in msg.lower()
+                )
+                if (i < 2) and retryable:
+                    await asyncio.sleep(0.5 * (2**i))
+                    continue
+                raise
+        raise last  # type: ignore[misc]
 
     # ==================== 宏观规划 ====================
 
@@ -82,8 +106,8 @@ class ContinuousPlanningService:
 
         # 调用 LLM 生成规划
         print(f"[DEBUG] 调用 LLM...")
-        config = GenerationConfig(max_tokens=4096, temperature=0.7)
-        response = await self.llm_service.generate(prompt, config)
+        config = GenerationConfig(max_tokens=8192, temperature=0.7)
+        response = await self._generate_with_retry(prompt, config)
         print(f"[DEBUG] LLM 响应类型: {type(response)}")
         print(f"[DEBUG] LLM 响应内容: {response}")
         structure = self._parse_llm_response(response)
