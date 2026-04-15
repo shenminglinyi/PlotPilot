@@ -63,29 +63,21 @@ class ContinuousPlanningService:
         import time
         start_time = time.time()
 
-        print(f"[DEBUG] 开始生成宏观规划: novel_id={novel_id}, target_chapters={target_chapters}")
         logger.info(f"Generating macro plan for novel {novel_id}")
 
         # 获取 Bible 信息
-        print(f"[DEBUG] 获取 Bible 上下文...")
         bible_context = self._get_bible_context(novel_id)
-        print(f"[DEBUG] Bible 上下文: {bible_context}")
 
         # 构建提示词
-        print(f"[DEBUG] 构建提示词...")
         prompt = self._build_macro_planning_prompt(
             bible_context=bible_context,
             target_chapters=target_chapters,
             structure_preference=structure_preference
         )
-        print(f"[DEBUG] 提示词: system={prompt.system[:100]}..., user={prompt.user[:100]}...")
 
         # 调用 LLM 生成规划
-        print(f"[DEBUG] 调用 LLM...")
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
         response = await self.llm_service.generate(prompt, config)
-        print(f"[DEBUG] LLM 响应类型: {type(response)}")
-        print(f"[DEBUG] LLM 响应内容: {response}")
         structure = self._parse_llm_response(response)
 
         # 评估规划质量
@@ -741,9 +733,6 @@ class ContinuousPlanningService:
         else:
             content = response.strip()
 
-        # 调试日志
-        print(f"[DEBUG] LLM 原始响应: {content[:200]}...")
-
         # 查找 JSON 代码块
         if "```json" in content:
             # 提取 ```json 和 ``` 之间的内容
@@ -767,8 +756,6 @@ class ContinuousPlanningService:
             )
             if json_start < len(content):
                 content = content[json_start:]
-
-        print(f"[DEBUG] 清理后的内容: {content[:200]}...")
 
         return json.loads(content)
 

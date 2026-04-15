@@ -109,9 +109,8 @@ class ContextBudgetAllocator:
     # 获取组装好的上下文
     context = allocation.get_final_context()
     
-    # 查看分配详情
-    print(f"T0 保留: {allocation.t0_reserved} tokens")
-    print(f"压缩情况: {allocation.compression_log}")
+    # 查看分配详情（通过 logger 或返回值获取）
+    # allocation.t0_reserved, allocation.compression_log
     ```
     """
     
