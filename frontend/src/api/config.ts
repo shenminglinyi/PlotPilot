@@ -11,6 +11,17 @@ const axiosInstance = axios.create({
   },
 })
 
+axiosInstance.interceptors.request.use(config => {
+  const baseURL = typeof config.baseURL === 'string' ? config.baseURL : ''
+  const url = typeof config.url === 'string' ? config.url : ''
+
+  if (baseURL.endsWith('/api/v1') && url.startsWith('/api/v1/')) {
+    config.url = url.slice('/api/v1'.length)
+  }
+
+  return config
+})
+
 // Add response interceptor to extract data
 axiosInstance.interceptors.response.use(response => response.data)
 
