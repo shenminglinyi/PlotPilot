@@ -113,13 +113,16 @@ class LLMConfigManager:
                 updated_at=now,
             )
             store.configs.append(profile)
-            if store.active_id is None:
+            became_active = store.active_id is None
+            if became_active:
                 store.active_id = profile.id
                 self._save(store)
                 self._apply_to_env(profile)
             else:
                 self._save(store)
-            return asdict(profile)
+        if became_active:
+            self._invalidate_caches()
+        return asdict(profile)
 
     def update_config(self, config_id: str, data: dict) -> dict:
         with self._lock:
@@ -131,10 +134,16 @@ class LLMConfigManager:
                             setattr(cfg, k, data[k])
                     cfg.updated_at = _now_iso()
                     self._save(store)
-                    if store.active_id == config_id:
+                    is_active = store.active_id == config_id
+                    if is_active:
                         self._apply_to_env(cfg)
-                    return asdict(cfg)
-            raise KeyError(f"Config {config_id} not found")
+                    result = asdict(cfg)
+                    break
+            else:
+                raise KeyError(f"Config {config_id} not found")
+        if is_active:
+            self._invalidate_caches()
+        return result
 
     def delete_config(self, config_id: str) -> None:
         with self._lock:
