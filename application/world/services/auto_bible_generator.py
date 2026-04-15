@@ -740,15 +740,23 @@ JSON 格式：
     async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         """调用 LLM 并解析 JSON"""
         print(f"[DEBUG] _call_llm_and_parse: Creating prompt", file=sys.stderr, flush=True)
+        
+        # 强制增加约束，禁止输出思考过程，避免 DeepSeek-R1 等模型输出乱码
+        system_prompt += "\n\n【严格约束】绝对不要输出 <think> 标签或任何思考过程！请直接返回合法的 JSON，不要附加任何 Markdown 标记或多余的文字说明。"
+        
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
         print(f"[DEBUG] _call_llm_and_parse: Calling LLM service", file=sys.stderr, flush=True)
         result = await self.llm_service.generate(prompt, config)
         print(f"[DEBUG] _call_llm_and_parse: LLM returned result", file=sys.stderr, flush=True)
 
         try:
+            import re
             content = result.content.strip()
             print(f"[DEBUG] Raw LLM content length: {len(content)}", file=sys.stderr, flush=True)
+
+            # 移除所有 <think>...</think> 块，无论里面有什么
+            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
 
             # 移除可能的 markdown 代码块标记
             if "```json" in content:
