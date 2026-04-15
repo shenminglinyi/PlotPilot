@@ -509,3 +509,82 @@ CREATE TABLE IF NOT EXISTS novel_snapshots (
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_novel ON novel_snapshots(novel_id);
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_branch ON novel_snapshots(novel_id, branch_name);
 
+
+-- ========== 提示词广场系统（Prompt Plaza）==========
+-- 模板包：一组相关提示词的集合（如"内置"、"自定义工作流"）
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'user',  -- builtin / user / workflow
+    version TEXT NOT NULL DEFAULT '1.0.0',
+    author TEXT DEFAULT '',
+    icon TEXT DEFAULT '📦',
+    color TEXT DEFAULT '#6b7280',
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 提示词节点：单个提示词（有版本历史）
+CREATE TABLE IF NOT EXISTS prompt_nodes (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    node_key TEXT NOT NULL,           -- 唯一标识，如 "chapter-generation-main"
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'generation',  -- generation/extraction/review/planning/world/creative
+    source TEXT DEFAULT '',            -- 来源代码位置
+    output_format TEXT DEFAULT 'text',  -- text / json
+    contract_module TEXT,              -- Pydantic 合约模块
+    contract_model TEXT,               -- Pydantic 合约模型名
+    tags TEXT NOT NULL DEFAULT '[]',   -- JSON 数组
+    variables TEXT NOT NULL DEFAULT '[]',  -- JSON: 变量定义列表
+    system_file TEXT,                  -- 引用的 .txt 文件名
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    active_version_id TEXT,            -- 当前激活版本 ID
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (template_id) REFERENCES prompt_templates(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prompt_nodes_node_key ON prompt_nodes(node_key);
+CREATE INDEX IF NOT EXISTS idx_prompt_nodes_template ON prompt_nodes(template_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_nodes_category ON prompt_nodes(category);
+
+-- 提示词版本：每个节点的版本历史（支持回滚）
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    version_number INTEGER NOT NULL,
+    system_prompt TEXT NOT NULL DEFAULT '',     -- System 角色提示词
+    user_template TEXT NOT NULL DEFAULT '',      -- User 模板
+    change_summary TEXT DEFAULT '',             -- 版本变更说明
+    created_by TEXT DEFAULT 'system',           -- system / user
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES prompt_nodes(id) ON DELETE CASCADE,
+    UNIQUE(node_id, version_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_node ON prompt_versions(node_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_node_ver ON prompt_versions(node_id, version_number DESC);
+
+
+-- ========== 嵌入模型配置（Embedding Config）==========
+-- 全局唯一的嵌入服务配置（本地模型 / OpenAI 云端）
+CREATE TABLE IF NOT EXISTS embedding_config (
+    id TEXT PRIMARY KEY DEFAULT 'default',
+    mode TEXT NOT NULL DEFAULT 'local' CHECK(mode IN ('local', 'openai')),
+    api_key TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT 'text-embedding-3-small',
+    use_gpu INTEGER NOT NULL DEFAULT 1,
+    model_path TEXT NOT NULL DEFAULT 'BAAI/bge-small-zh-v1.5',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
