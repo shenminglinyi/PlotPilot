@@ -84,19 +84,10 @@ def activate_config(config_id: str):
     return {"ok": True}
 
 
-_ANTHROPIC_MODELS = [
-    "claude-sonnet-4-6",
-    "claude-3-5-sonnet-20241022",
-    "claude-3-opus-20240229",
-    "claude-3-5-haiku-20241022",
-    "claude-3-haiku-20240307",
-]
-
-
 @router.post("/fetch-models")
 async def fetch_models(body: FetchModelsRequest):
     if body.provider == "anthropic":
-        return body.base_url and await _fetch_openai_models(body.api_key, body.base_url) or _ANTHROPIC_MODELS
+        return await _fetch_anthropic_models(body.api_key, body.base_url)
 
     if not body.base_url:
         return []
@@ -151,3 +142,30 @@ async def _fetch_openai_models(api_key: str, base_url: str) -> List[str]:
     except Exception as exc:
         logger.warning("fetch-models failed: %s", exc)
         raise HTTPException(502, f"Failed to fetch models: {exc}")
+
+
+async def _fetch_anthropic_models(api_key: str, base_url: str) -> List[str]:
+    base = (base_url or "https://api.anthropic.com").rstrip("/")
+    if base.endswith("/v1"):
+        url = f"{base}/models"
+    else:
+        url = f"{base}/v1/models"
+    headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, headers=headers, params={"limit": 1000})
+            resp.raise_for_status()
+            data = resp.json()
+            models = data.get("data", [])
+            return sorted(m["id"] for m in models if "id" in m)
+    except Exception as exc:
+        if not base_url:
+            raise HTTPException(502, f"Failed to fetch Anthropic models: {exc}")
+        logger.info("Anthropic-style fetch failed, trying OpenAI-style: %s", exc)
+        try:
+            fallback_base = base_url.rstrip("/")
+            if not fallback_base.endswith("/v1"):
+                fallback_base += "/v1"
+            return await _fetch_openai_models(api_key, fallback_base)
+        except Exception:
+            raise HTTPException(502, f"Failed to fetch models (tried both Anthropic and OpenAI format): {exc}")

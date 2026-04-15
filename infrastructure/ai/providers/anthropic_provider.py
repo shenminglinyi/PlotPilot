@@ -41,22 +41,26 @@ class AnthropicProvider(BaseProvider):
         if not settings.api_key:
             raise ValueError("API key is required for AnthropicProvider")
 
-        # 官方 SDK 客户端 - 不设置 base_url，直接走官方 API (HTTPS)
-        # 用于 generate() (规划/分析等场景)
+        # 归一化 base_url：去掉尾部 /v1（SDK 内部会自动拼 /v1/messages）
+        base = settings.base_url.rstrip("/") if settings.base_url else None
+        if base and base.endswith("/v1"):
+            base = base[:-3]
+
         official_client_kw = {
             "api_key": settings.api_key,
-            "timeout": 300.0,  # 5分钟超时
-            "max_retries": 5,  # 增加重试次数
+            "timeout": 300.0,
+            "max_retries": 5,
             "default_headers": {
                 "User-Agent": "claude-cli/2.1.87 (external, cli)",
             },
         }
+        if base:
+            official_client_kw["base_url"] = base
         self.client = Anthropic(**official_client_kw)
         self.async_client = AsyncAnthropic(**official_client_kw)
 
-        # 代理地址 - 用于 stream_generate() (正文生成)
-        # 如果设置了 base_url，则使用代理；否则回退到官方 API
-        self.proxy_base_url = settings.base_url
+        # 归一化后的 base_url，供 stream_generate() httpx 使用
+        self.proxy_base_url = base
 
     async def generate(
         self,
@@ -78,11 +82,11 @@ class AnthropicProvider(BaseProvider):
         try:
             # 构建请求参数
             create_kwargs = {
-                "model": config.model or DEFAULT_MODEL,
+                "model": config.model or self.settings.default_model or DEFAULT_MODEL,
                 "temperature": config.temperature,
                 "max_tokens": config.max_tokens,
                 "system": prompt.system,
-                "messages": prompt.to_messages(),
+                "messages": [{"role": "user", "content": prompt.user}],
             }
             # 如果指定了 response_format，传递给 API 强制 JSON 输出
             if config.response_format:
@@ -95,8 +99,13 @@ class AnthropicProvider(BaseProvider):
             if not response.content:
                 raise RuntimeError("API returned empty content")
 
-            # 提取响应内容
-            content = response.content[0].text
+            content = ""
+            for block in response.content:
+                if getattr(block, "type", None) == "text":
+                    content = block.text
+                    break
+            if not content:
+                raise RuntimeError("API returned no text content")
 
             # 创建 token 使用统计
             token_usage = TokenUsage(
@@ -136,7 +145,7 @@ class AnthropicProvider(BaseProvider):
         }
 
         payload = {
-            "model": config.model or DEFAULT_MODEL,
+            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "system": prompt.system,
