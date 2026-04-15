@@ -1,52 +1,56 @@
 <template>
   <div class="bible-panel">
     <header class="bible-hero">
-      <div class="bible-hero-main">
-        <div class="bible-title-row">
-          <h3 class="bible-title">作品设定</h3>
-          <n-tag size="small" round :bordered="false" class="bible-badge">Story Bible</n-tag>
-        </div>
-        <p class="bible-lead">
-          <strong>梗概锁定</strong>（主线与不可违背设定）与<strong>写作公约</strong>（人称、时态、叙事距离、基调与禁区）——全书的「写什么」与「怎么写」。
-        </p>
-        <div class="bible-roles" aria-label="资料分工">
-          <div class="bible-role-item bible-role-here">
-            <span class="bible-role-k">梗概锁定</span>
-            <span class="bible-role-v">此处 · 主线与不可违背设定（全书上下文）</span>
-          </div>
-          <div class="bible-role-item">
-            <span class="bible-role-k">世界观构建</span>
-            <span class="bible-role-v">世界观 Tab · 5维度框架</span>
-          </div>
-          <div class="bible-role-item bible-role-here">
-            <span class="bible-role-k">写作风格</span>
-            <span class="bible-role-v">此处 · 文风公约</span>
-          </div>
-          <div class="bible-role-item">
-            <span class="bible-role-k">角色与地点</span>
-            <span class="bible-role-v">知识库 · 三元组关系</span>
-          </div>
-          <div class="bible-role-item">
-            <span class="bible-role-k">叙事线索</span>
-            <span class="bible-role-v">故事线/情节弧/时间线</span>
-          </div>
-        </div>
-        <div class="bible-stats" aria-live="polite">
-          <span class="bible-stat bible-stat-premise" :class="{ 'is-done': stats.premiseOk }">
-            梗概锁定 {{ stats.premiseOk ? '已填' : '待补充' }}
-          </span>
-          <span class="bible-stat-dot" aria-hidden="true" />
-          <span class="bible-stat bible-stat-style" :class="{ 'is-done': stats.styleOk }">
-            文风公约 {{ stats.styleOk ? '已填' : '待补充' }}
-          </span>
+      <!-- 标题行：title + badge + 按钮同行 -->
+      <div class="bible-title-row">
+        <h3 class="bible-title">作品设定</h3>
+        <n-tag size="small" round :bordered="false" class="bible-badge">Story Bible</n-tag>
+        <div class="bible-hero-actions">
+          <n-button size="small" secondary :loading="generating" @click="generateBible" title="用 AI 根据小说标题重新生成设定">
+            ✦ AI 生成
+          </n-button>
+          <n-button size="small" type="primary" :loading="saving" @click="save">保存设定</n-button>
         </div>
       </div>
-      <n-space class="bible-hero-actions" :size="8" align="center">
-        <n-button size="small" secondary :loading="generating" @click="generateBible" title="用 AI 根据小说标题重新生成设定">
-          ✦ AI 生成
-        </n-button>
-        <n-button size="small" type="primary" :loading="saving" @click="save">保存设定</n-button>
-      </n-space>
+
+      <!-- 说明文字 -->
+      <p class="bible-lead">
+        <strong>梗概锁定</strong>（主线与不可违背设定）与<strong>写作公约</strong>（人称、时态、叙事距离、基调与禁区）——全书的「写什么」与「怎么写」。
+      </p>
+
+      <!-- 色块：每行两个，自适应宽度 -->
+      <div class="bible-roles" aria-label="资料分工">
+        <div class="bible-role-item bible-role-here">
+          <span class="bible-role-k">梗概锁定</span>
+          <span class="bible-role-v">此处 · 主线与不可违背设定（全书上下文）</span>
+        </div>
+        <div class="bible-role-item">
+          <span class="bible-role-k">世界观构建</span>
+          <span class="bible-role-v">世界观 Tab · 5维度框架</span>
+        </div>
+        <div class="bible-role-item bible-role-here">
+          <span class="bible-role-k">写作风格</span>
+          <span class="bible-role-v">此处 · 文风公约</span>
+        </div>
+        <div class="bible-role-item">
+          <span class="bible-role-k">角色与地点</span>
+          <span class="bible-role-v">知识库 · 三元组关系</span>
+        </div>
+        <div class="bible-role-item">
+          <span class="bible-role-k">叙事线索</span>
+          <span class="bible-role-v">故事线/情节弧/时间线</span>
+        </div>
+      </div>
+
+      <div class="bible-stats" aria-live="polite">
+        <span class="bible-stat bible-stat-premise" :class="{ 'is-done': stats.premiseOk }">
+          梗概锁定 {{ stats.premiseOk ? '已填' : '待补充' }}
+        </span>
+        <span class="bible-stat-dot" aria-hidden="true" />
+        <span class="bible-stat bible-stat-style" :class="{ 'is-done': stats.styleOk }">
+          文风公约 {{ stats.styleOk ? '已填' : '待补充' }}
+        </span>
+      </div>
     </header>
 
     <n-scrollbar class="bible-scroll">
@@ -482,25 +486,23 @@ onMounted(() => {
 
 .bible-hero {
   flex-shrink: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 14px 2px 12px;
+  padding: 12px 2px 12px;
   border-bottom: 1px solid rgba(15, 23, 42, 0.07);
-}
-
-.bible-hero-main {
-  min-width: 0;
-  flex: 1;
 }
 
 .bible-title-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 8px;
+}
+
+.bible-hero-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .bible-title {
@@ -521,11 +523,10 @@ onMounted(() => {
 }
 
 .bible-lead {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   font-size: 12px;
   line-height: 1.65;
   color: #475569;
-  max-width: 52em;
 }
 
 .bible-lead strong {
@@ -535,12 +536,12 @@ onMounted(() => {
 
 .bible-roles {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 320px) {
   .bible-roles {
     grid-template-columns: 1fr;
   }
@@ -601,11 +602,6 @@ onMounted(() => {
 .bible-stat-premise.is-done,
 .bible-stat-style.is-done {
   color: #15803d;
-}
-
-.bible-hero-actions {
-  flex-shrink: 0;
-  padding-top: 2px;
 }
 
 .bible-scroll {
