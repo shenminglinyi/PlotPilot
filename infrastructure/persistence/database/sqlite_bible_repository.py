@@ -309,6 +309,38 @@ class SqliteBibleRepository(BibleRepository):
         r = self.db.fetch_one("SELECT 1 AS o FROM bibles WHERE id = ?", (bible_id,))
         return r is not None
 
+    def exists_by_novel_id(self, novel_id: str) -> bool:
+        r = self.db.fetch_one("SELECT 1 AS o FROM bibles WHERE novel_id = ?", (novel_id,))
+        return r is not None
+
+    def get_ready_flags_by_novel_id(self, novel_id: str) -> Dict[str, Any]:
+        if not self.exists_by_novel_id(novel_id):
+            return {"exists": False, "ready": False}
+
+        style_row = self.db.fetch_one(
+            "SELECT COUNT(1) AS c FROM bible_style_notes WHERE novel_id = ?",
+            (novel_id,),
+        )
+        world_row = self.db.fetch_one(
+            "SELECT COUNT(1) AS c FROM bible_world_settings WHERE novel_id = ?",
+            (novel_id,),
+        )
+        char_row = self.db.fetch_one(
+            "SELECT COUNT(1) AS c FROM bible_characters WHERE novel_id = ?",
+            (novel_id,),
+        )
+        style_c = int((style_row or {}).get("c") or 0)
+        world_c = int((world_row or {}).get("c") or 0)
+        char_c = int((char_row or {}).get("c") or 0)
+        ready = (style_c > 0) or (world_c > 0) or (char_c > 0)
+        return {
+            "exists": True,
+            "ready": ready,
+            "style_notes": style_c,
+            "world_settings": world_c,
+            "characters": char_c,
+        }
+
     def update_character_anchors(
         self,
         novel_id: str,

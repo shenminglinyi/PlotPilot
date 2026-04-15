@@ -184,6 +184,14 @@ async def generate_bible(
             # 使用 premise（故事梗概）生成 Bible，如果没有则使用 title
             premise = novel.premise if novel.premise else novel.title
 
+            try:
+                bible_generator.bible_service.update_extensions(
+                    novel_id,
+                    {"generation": {"status": "running", "stage": stage}},
+                )
+            except Exception:
+                pass
+
             # 生成 Bible（支持分阶段）
             bible_data = await bible_generator.generate_and_save(
                 novel_id,
@@ -206,6 +214,13 @@ async def generate_bible(
                 bible_summary
             )
             logger.info(f"Bible and Knowledge generated successfully for {novel_id}")
+            try:
+                bible_generator.bible_service.update_extensions(
+                    novel_id,
+                    {"generation": {"status": "done", "stage": stage}},
+                )
+            except Exception:
+                pass
         except Exception as e:
             import sys
             import traceback
@@ -213,8 +228,20 @@ async def generate_bible(
             traceback.print_exc(file=sys.stderr)
             logger.error(f"Failed to generate Bible/Knowledge for {novel_id}: {e}")
             logger.error(traceback.format_exc())
+            try:
+                bible_generator.bible_service.update_extensions(
+                    novel_id,
+                    {"generation": {"status": "error", "stage": stage, "error": str(e)}},
+                )
+            except Exception:
+                pass
 
-    background_tasks.add_task(_generate_task)
+    def _generate_task_sync():
+        import asyncio
+        asyncio.run(_generate_task())
+
+    import threading
+    threading.Thread(target=_generate_task_sync, daemon=True).start()
 
     return {
         "message": "Bible generation started",
@@ -257,17 +284,26 @@ async def get_bible_status(
     Returns:
         状态信息：{ "exists": bool, "ready": bool }
     """
-    try:
-        bible = service.get_bible_by_novel(novel_id)
-        exists = bible is not None
-        # 修改ready逻辑：只要有文风公约或世界观就算ready（支持分阶段生成）
-        ready = exists and (len(bible.style_notes) > 0 or len(bible.world_settings) > 0 or len(bible.characters) > 0)
+    import asyncio
 
+    def _read_status():
+        flags = service.get_ready_flags(novel_id)
+        ext = service.get_extensions(novel_id) or {}
+        gen = ext.get("generation") if isinstance(ext.get("generation"), dict) else {}
         return {
-            "exists": exists,
-            "ready": ready,
-            "novel_id": novel_id
+            "exists": bool(flags.get("exists")),
+            "ready": bool(flags.get("ready")),
+            "novel_id": novel_id,
+            "counts": {
+                "style_notes": flags.get("style_notes"),
+                "world_settings": flags.get("world_settings"),
+                "characters": flags.get("characters"),
+            },
+            "generation": gen,
         }
+
+    try:
+        return await asyncio.to_thread(_read_status)
     except Exception as e:
         logger.exception("get_bible_status failed for novel_id=%s", novel_id)
         raise HTTPException(status_code=500, detail=f"检查 Bible 状态失败: {e}") from e

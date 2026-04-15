@@ -112,6 +112,15 @@ class BibleService:
             raise NotImplementedError("仓储不支持 extensions 更新")
         return repo.update_extensions(novel_id, patch or {})
 
+    def get_ready_flags(self, novel_id: str) -> dict:
+        repo = self.bible_repository
+        if not hasattr(repo, "get_ready_flags_by_novel_id"):
+            bible = self.get_bible_by_novel(novel_id)
+            exists = bible is not None
+            ready = exists and (len(bible.style_notes) > 0 or len(bible.world_settings) > 0 or len(bible.characters) > 0)
+            return {"exists": exists, "ready": ready}
+        return repo.get_ready_flags_by_novel_id(novel_id)
+
     def add_character(
         self,
         novel_id: str,
