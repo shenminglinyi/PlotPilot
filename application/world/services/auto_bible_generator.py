@@ -1,6 +1,7 @@
 """自动 Bible 生成器 - 从小说标题生成完整的人物、地点、风格设定和世界观"""
 import logging
 import json
+import re
 import uuid
 import sys
 from typing import Dict, Any
@@ -764,6 +765,9 @@ JSON 格式：
             if start != -1 and end != -1:
                 content = content[start:end+1]
 
+            # 修复常见的 JSON 格式问题
+            content = self._repair_json(content)
+
             print(f"[DEBUG] Cleaned content length: {len(content)}", file=sys.stderr, flush=True)
             parsed = json.loads(content)
             print(f"[DEBUG] Successfully parsed JSON with keys: {list(parsed.keys())}", file=sys.stderr, flush=True)
@@ -775,6 +779,72 @@ JSON 格式：
             logger.error(f"Raw content (last 500 chars): {content[-500:]}")
             print(f"[DEBUG] JSON parse failed, returning empty dict", file=sys.stderr, flush=True)
             return {}
+
+    def _repair_json(self, content: str) -> str:
+        """尝试修复常见的 JSON 格式问题"""
+        if not content:
+            return content
+
+        # 1. 移除尾部的逗号
+        content = re.sub(r',\s*}', '}', content)
+        content = re.sub(r',\s*]', ']', content)
+
+        # 2. 修复未闭合的字符串
+        lines = content.split('\n')
+        repaired_lines = []
+        
+        for line in lines:
+            quote_positions = []
+            i = 0
+            while i < len(line):
+                if line[i] == '\\' and i + 1 < len(line) and line[i+1] == '"':
+                    i += 2
+                    continue
+                if line[i] == '"':
+                    quote_positions.append(i)
+                i += 1
+            
+            if len(quote_positions) % 2 != 0:
+                last_quote_pos = quote_positions[-1]
+                line = line[:last_quote_pos+1] + '"' + line[last_quote_pos+1:]
+            
+            repaired_lines.append(line)
+        
+        content = '\n'.join(repaired_lines)
+
+        # 3. 确保 JSON 完整闭合
+        stack = []
+        in_string = False
+        escape_next = False
+        
+        for i, char in enumerate(content):
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char in '{[':
+                stack.append(char)
+            elif char in '}]':
+                if stack:
+                    open_char = stack.pop()
+                    if (open_char == '{' and char != '}') or (open_char == '[' and char != ']'):
+                        break
+        
+        if stack:
+            logger.warning(f"JSON has {len(stack)} unclosed brackets, attempting repair")
+            closing_map = {'{': '}', '[': ']'}
+            content = content.rstrip()
+            for open_char in reversed(stack):
+                content += closing_map[open_char]
+
+        return content
 
     async def _generate_character_triples(self, novel_id: str, character_ids: list):
         """从人物关系生成三元组"""
