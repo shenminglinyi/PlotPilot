@@ -477,7 +477,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   padding: 0 12px 10px;
-  background: linear-gradient(165deg, #f8fafc 0%, #f1f5f9 55%, #eef2f7 100%);
+  background: linear-gradient(165deg, var(--app-surface-subtle) 0%, var(--app-border) 55%, var(--app-page-bg) 100%);
 }
 
 .bible-hero {
@@ -508,7 +508,7 @@ onMounted(() => {
   font-size: 17px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 .bible-badge {
@@ -529,7 +529,7 @@ onMounted(() => {
 }
 
 .bible-lead strong {
-  color: #334155;
+  color: var(--app-text-secondary);
   font-weight: 600;
 }
 
@@ -552,8 +552,8 @@ onMounted(() => {
   gap: 2px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
 }
 
 .bible-role-item.bible-role-here {
@@ -570,7 +570,7 @@ onMounted(() => {
 
 .bible-role-v {
   font-size: 11px;
-  color: #334155;
+  color: var(--app-text-secondary);
   line-height: 1.4;
 }
 
@@ -586,7 +586,7 @@ onMounted(() => {
 .bible-stat em {
   font-style: normal;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--app-text-primary);
   margin-right: 2px;
 }
 
@@ -594,7 +594,7 @@ onMounted(() => {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #cbd5e1;
+  background: var(--app-text-secondary, #cbd5e1);
   margin: 0 2px;
 }
 
@@ -629,7 +629,7 @@ onMounted(() => {
   flex-shrink: 0;
   padding: 12px 16px;
   border-top: 1px solid rgba(15, 23, 42, 0.06);
-  background: #fafbfc;
+  background: var(--app-surface-subtle);
 }
 
 .bible-form {
@@ -649,7 +649,7 @@ onMounted(() => {
   border-radius: 12px !important;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   border: 1px solid rgba(15, 23, 42, 0.06) !important;
-  background: #fff !important;
+  background: var(--app-surface) !important;
 }
 
 .bible-card :deep(.n-card-header) {
@@ -742,7 +742,7 @@ onMounted(() => {
 .bcard-title {
   font-size: 14px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--app-text-primary);
   letter-spacing: 0.02em;
   margin-bottom: 4px;
 }

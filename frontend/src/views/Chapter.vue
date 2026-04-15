@@ -677,7 +677,7 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  background: var(--app-surface, #fff);
+  background: var(--app-surface);
 }
 
 .chapter-heading {
@@ -739,7 +739,7 @@ onUnmounted(() => {
   margin-top: 8px;
   padding: 12px 14px;
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--app-surface-subtle);
   border: 1px solid var(--app-border);
   max-height: 42vh;
   overflow: auto;
@@ -753,7 +753,7 @@ onUnmounted(() => {
   height: 100%;
   min-height: 0;
   padding: 12px 14px;
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, rgba(99, 102, 241, 0.06) 100%);
   border-left: 1px solid var(--app-border);
 }
 

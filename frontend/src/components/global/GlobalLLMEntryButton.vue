@@ -22,7 +22,7 @@
             <span class="global-llm-status"></span>
           </span>
           <span v-if="appearance !== 'sidebar'" class="global-llm-subtitle">
-            LLM Gateway · OpenAI / Claude / Gemini
+            {{ drawerTab === 'embedding' ? '嵌入模型 · 向量检索配置' : 'LLM Gateway · OpenAI / Claude / Gemini' }}
           </span>
         </span>
       </span>
@@ -45,12 +45,29 @@
         >
           <template #header>
             <div class="global-llm-drawer-header">
-              <div class="global-llm-drawer-title-wrap">
-                <div class="global-llm-drawer-title">全局 LLM 设置</div>
-                <div class="global-llm-drawer-subtitle">统一控制当前项目的模型网关、协议与激活配置</div>
+              <!-- 顶部 Tab 切换 -->
+              <div class="drawer-tab-switch">
+                <div class="drawer-tab-track" :style="{ transform: `translateX(${drawerTab === 'embedding' ? 0 : '100%'})` }"></div>
+                <button
+                  type="button"
+                  class="drawer-tab-btn"
+                  :class="{ active: drawerTab === 'embedding' }"
+                  @click="drawerTab = 'embedding'"
+                >
+                  嵌入模型
+                </button>
+                <button
+                  type="button"
+                  class="drawer-tab-btn"
+                  :class="{ active: drawerTab === 'llm' }"
+                  @click="drawerTab = 'llm'"
+                >
+                  LLM 设置
+                </button>
               </div>
 
-              <div class="global-llm-runtime-bar" :class="{ 'is-mock': runtimeSummary?.using_mock }">
+              <!-- 运行时状态栏（仅 LLM 标签页显示） -->
+              <div v-if="drawerTab === 'llm'" class="global-llm-runtime-bar" :class="{ 'is-mock': runtimeSummary?.using_mock }">
                 <div class="global-llm-runtime-main">
                   <span class="global-llm-runtime-label">当前激活模型</span>
                   <span class="global-llm-runtime-model">
@@ -69,14 +86,114 @@
                   </span>
                 </div>
               </div>
+
+              <!-- 嵌入模型标题（仅嵌入标签页显示） -->
+              <div v-else class="embedding-header-info">
+                <div class="embedding-header-title">向量检索使用的嵌入模型配置</div>
+                <div class="embedding-header-desc">每本书的向量索引与嵌入模型绑定，一旦开始写作后切换模型将导致已有索引不可用。如需更换，请先删除对应书籍的向量数据（data/chromadb/）再重新生成。</div>
+              </div>
             </div>
           </template>
 
           <div class="global-llm-drawer-body">
-            <LLMControlPanel
-              scroll-state-key="global-drawer"
-              @panel-updated="handlePanelUpdated"
-            />
+            <div class="drawer-scroll-content">
+              <!-- ══════════════════════════════════
+                   LLM 设置面板
+                   ══════════════════════════════════ -->
+              <div v-show="drawerTab === 'llm'">
+                <LLMControlPanel
+                  scroll-state-key="global-drawer"
+                  @panel-updated="handlePanelUpdated"
+                />
+              </div>
+
+              <!-- ══════════════════════════════════
+                   嵌入模型面板
+                   ══════════════════════════════════ -->
+              <div v-show="drawerTab === 'embedding'" class="embedding-config-section">
+                <div v-if="embeddingLoading" style="display: flex; justify-content: center; padding: 32px 0">
+                  <n-spin size="medium" />
+                </div>
+
+                <template v-else>
+                  <!-- 本地 / 云端 切换 -->
+                  <div class="embedding-mode-switch">
+                    <span class="emb-mode-label" :class="{ active: embeddingForm.mode === 'local' }">本地模型</span>
+                    <n-switch
+                      :value="embeddingForm.mode === 'openai'"
+                      @update:value="embeddingForm.mode = $event ? 'openai' : 'local'"
+                    />
+                    <span class="emb-mode-label" :class="{ active: embeddingForm.mode === 'openai' }">云端模型</span>
+                  </div>
+
+                  <!-- Local mode -->
+                  <div v-if="embeddingForm.mode === 'local'" class="emb-local-info">
+                    <div class="emb-local-card">
+                      <div class="emb-local-name">BAAI/bge-small-zh-v1.5</div>
+                      <div class="emb-local-desc">本地中文嵌入模型，无需网络连接</div>
+                    </div>
+                    <n-form label-placement="left" label-width="100" style="margin-top: 14px">
+                      <n-form-item label="模型路径">
+                        <n-input v-model:value="embeddingForm.model_path" placeholder="BAAI/bge-small-zh-v1.5" />
+                      </n-form-item>
+                      <n-form-item label="GPU 加速">
+                        <n-switch v-model:value="embeddingForm.use_gpu" />
+                      </n-form-item>
+                    </n-form>
+                  </div>
+
+                  <!-- Cloud mode -->
+                  <div v-else class="emb-cloud-form">
+                    <n-form label-placement="left" label-width="100">
+                      <n-form-item label="API Key">
+                        <n-input
+                          v-model:value="embeddingForm.api_key"
+                          type="password"
+                          show-password-on="click"
+                          placeholder="sk-..."
+                        />
+                      </n-form-item>
+                      <n-form-item label="Base URL">
+                        <n-input
+                          v-model:value="embeddingForm.base_url"
+                          placeholder="https://api.openai.com/v1"
+                        />
+                      </n-form-item>
+                      <n-form-item label="模型">
+                        <div class="model-row">
+                          <n-select
+                            v-model:value="embeddingForm.model"
+                            filterable
+                            tag
+                            :options="embeddingModelOptions"
+                            placeholder="选择或输入模型名称"
+                            style="flex: 1"
+                          />
+                          <n-button
+                            size="small"
+                            :loading="fetchingEmbeddingModels"
+                            :disabled="!embeddingForm.api_key || !embeddingForm.base_url"
+                            @click="handleFetchEmbeddingModels"
+                          >
+                            获取列表
+                          </n-button>
+                        </div>
+                      </n-form-item>
+                    </n-form>
+                  </div>
+
+                  <div style="display: flex; justify-content: flex-end; margin-top: 16px">
+                    <n-button
+                      type="primary"
+                      :loading="embeddingSaving"
+                      @click="handleSaveEmbedding"
+                    >
+                      保存嵌入配置
+                    </n-button>
+                  </div>
+                </template>
+              </div>
+            </div>
           </div>
         </n-drawer-content>
       </n-drawer>
@@ -89,16 +206,18 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NDrawer, NDrawerContent, NButton } from 'naive-ui'
+import { NDrawer, NDrawerContent, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin } from 'naive-ui'
 import {
   llmControlApi,
   type LLMControlPanelData,
   type LLMRuntimeSummary,
 } from '../../api/llmControl'
+import { settingsApi, type EmbeddingConfig } from '../../api/settings'
 import LLMControlPanel from '../workbench/LLMControlPanel.vue'
 import ModelSettingsModal from '../settings/ModelSettingsModal.vue'
 
 type Appearance = 'sidebar' | 'topbar'
+type DrawerTab = 'embedding' | 'llm'
 
 const props = withDefaults(defineProps<{
   appearance?: Appearance
@@ -109,6 +228,7 @@ const props = withDefaults(defineProps<{
 })
 
 const showPanel = ref(false)
+const drawerTab = ref<DrawerTab>('llm')
 const runtimeLoading = ref(false)
 const runtimeSummary = ref<LLMRuntimeSummary | null>(null)
 const modelSettingsModalRef = ref<InstanceType<typeof ModelSettingsModal> | null>(null)
@@ -136,11 +256,6 @@ const drawerHeaderStyle = computed(() => {
   }
 })
 
-function openPanel() {
-  void refreshRuntimeSummary()
-  showPanel.value = true
-}
-
 async function refreshRuntimeSummary() {
   runtimeLoading.value = true
   try {
@@ -163,6 +278,70 @@ function handleDrawerShowChange(value: boolean) {
 }
 
 const appearance = computed(() => props.appearance)
+
+// ── Embedding state ────────────────────────────────────────
+const embeddingLoading = ref(false)
+const embeddingSaving = ref(false)
+const fetchingEmbeddingModels = ref(false)
+const embeddingModelOptions = ref<Array<{ label: string; value: string }>>([])
+
+const embeddingForm = ref<EmbeddingConfig>({
+  mode: 'local',
+  api_key: '',
+  base_url: '',
+  model: 'text-embedding-3-small',
+  use_gpu: true,
+  model_path: 'BAAI/bge-small-zh-v1.5',
+})
+
+async function loadEmbeddingConfig() {
+  embeddingLoading.value = true
+  try {
+    const cfg = await settingsApi.getEmbeddingConfig()
+    embeddingForm.value = cfg
+    if (cfg.model) {
+      embeddingModelOptions.value = [{ label: cfg.model, value: cfg.model }]
+    }
+  } catch {
+    // 静默失败，使用默认值
+  } finally {
+    embeddingLoading.value = false
+  }
+}
+
+async function handleSaveEmbedding() {
+  embeddingSaving.value = true
+  try {
+    const result = await settingsApi.updateEmbeddingConfig({ ...embeddingForm.value })
+    embeddingForm.value = result
+  } catch {
+    // 由 naive-ui form 处理错误提示
+  } finally {
+    embeddingSaving.value = false
+  }
+}
+
+async function handleFetchEmbeddingModels() {
+  fetchingEmbeddingModels.value = true
+  try {
+    const models = await settingsApi.fetchEmbeddingModels({
+      provider: 'openai',
+      api_key: embeddingForm.value.api_key,
+      base_url: embeddingForm.value.base_url,
+    })
+    embeddingModelOptions.value = models.map((m: string) => ({ label: m, value: m }))
+  } catch {
+    // 静默失败
+  } finally {
+    fetchingEmbeddingModels.value = false
+  }
+}
+
+function openPanel() {
+  void refreshRuntimeSummary()
+  void loadEmbeddingConfig()
+  showPanel.value = true
+}
 </script>
 
 <style scoped>
@@ -172,19 +351,17 @@ const appearance = computed(() => props.appearance)
   width: 100%;
 }
 
-/* 顶部入口：复用原悬浮按钮的视觉，但不再 fixed/拖拽 */
+/* ── 入口按钮 ──────────────────────────────────────── */
 .global-llm-main {
   position: relative;
   display: block;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid var(--app-border);
   background:
     radial-gradient(circle at 18% 18%, rgba(129, 140, 248, 0.32), transparent 28%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(49, 46, 129, 0.95) 55%, rgba(37, 99, 235, 0.9));
-  color: #fff;
-  box-shadow:
-    0 12px 30px rgba(30, 41, 59, 0.2),
-    0 10px 26px rgba(79, 70, 229, 0.22);
+    linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  color: var(--app-text-inverse);
+  box-shadow: var(--app-shadow-md), 0 10px 26px rgba(79, 70, 229, 0.22);
   backdrop-filter: blur(12px);
   cursor: pointer;
   transition:
@@ -198,25 +375,21 @@ const appearance = computed(() => props.appearance)
   width: 248px;
   min-height: 68px;
   padding: 12px 14px;
-  border-radius: 20px;
+  border-radius: var(--app-radius-xl);
 }
 
 .global-llm-main.variant-sidebar {
   width: 100%;
   min-height: 0;
   padding: 12px 10px;
-  border-radius: 12px;
-  box-shadow:
-    0 10px 22px rgba(30, 41, 59, 0.14),
-    0 8px 18px rgba(79, 70, 229, 0.14);
+  border-radius: var(--app-radius-md);
+  box-shadow: var(--app-shadow-sm), 0 8px 18px rgba(79, 70, 229, 0.14);
 }
 
 .global-llm-main:hover {
   transform: translateY(-1px);
-  border-color: rgba(191, 219, 254, 0.45);
-  box-shadow:
-    0 14px 34px rgba(30, 41, 59, 0.24),
-    0 14px 32px rgba(79, 70, 229, 0.28);
+  border-color: var(--color-brand-border);
+  box-shadow: var(--app-shadow-lg), 0 14px 32px rgba(79, 70, 229, 0.28);
 }
 
 .global-llm-glow {
@@ -235,10 +408,7 @@ const appearance = computed(() => props.appearance)
   align-items: center;
   gap: 12px;
 }
-
-.global-llm-main.variant-sidebar .global-llm-main-content {
-  gap: 10px;
-}
+.global-llm-main.variant-sidebar .global-llm-main-content { gap: 10px; }
 
 .global-llm-icon-core {
   position: relative;
@@ -253,6 +423,7 @@ const appearance = computed(() => props.appearance)
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
+.global-llm-main.variant-sidebar .global-llm-icon-core { width: 34px; height: 34px; border-radius: 12px; }
 
 .global-llm-icon-grid {
   position: absolute;
@@ -264,6 +435,7 @@ const appearance = computed(() => props.appearance)
     linear-gradient(90deg, rgba(191, 219, 254, 0.12) 1px, transparent 1px);
   background-size: 7px 7px;
 }
+.global-llm-main.variant-sidebar .global-llm-icon-grid { inset: 7px; }
 
 .global-llm-icon-chip {
   position: relative;
@@ -277,25 +449,10 @@ const appearance = computed(() => props.appearance)
   top: 4px;
   right: 4px;
   font-size: 12px;
-  color: #fef08a;
-  filter: drop-shadow(0 0 6px rgba(253, 224, 71, 0.4));
+  color: var(--color-gold);
+  filter: drop-shadow(0 0 6px var(--color-gold-glow));
 }
-
-.global-llm-main.variant-sidebar .global-llm-icon-core {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-}
-
-.global-llm-main.variant-sidebar .global-llm-icon-grid {
-  inset: 7px;
-}
-
-.global-llm-main.variant-sidebar .global-llm-icon-spark {
-  top: 3px;
-  right: 3px;
-  font-size: 11px;
-}
+.global-llm-main.variant-sidebar .global-llm-icon-spark { top: 3px; right: 3px; font-size: 11px; }
 
 .global-llm-copy {
   min-width: 0;
@@ -303,10 +460,7 @@ const appearance = computed(() => props.appearance)
   flex-direction: column;
   gap: 5px;
 }
-
-.global-llm-main.variant-sidebar .global-llm-copy {
-  gap: 0;
-}
+.global-llm-main.variant-sidebar .global-llm-copy { gap: 0; }
 
 .global-llm-title-row {
   display: flex;
@@ -338,48 +492,101 @@ const appearance = computed(() => props.appearance)
   text-overflow: ellipsis;
 }
 
-/* Drawer header/body styles copied for visual consistency */
+/* ── Drawer Header ─────────────────────────────────── */
 .global-llm-drawer-header {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.global-llm-drawer-title-wrap {
+/* ── Tab Switch（切换嵌入/LLM）── */
+.drawer-tab-switch {
+  position: relative;
+  display: inline-flex;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-lg);
+  padding: 4px;
+  gap: 0;
+}
+
+.drawer-tab-track {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  height: calc(100% - 8px);
+  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  border-radius: calc(var(--app-radius-lg) - 5px);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow:
+    0 2px 10px rgba(79, 70, 229, 0.25),
+    0 1px 3px rgba(79, 70, 229, 0.15);
+}
+
+.drawer-tab-btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 24px;
+  border: none;
+  background: transparent;
+  color: var(--app-text-secondary);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: calc(var(--app-radius-lg) - 5px);
+  cursor: pointer;
+  transition: color 0.22s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.drawer-tab-btn.active {
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.drawer-tab-btn:hover:not(.active) {
+  color: var(--app-text-primary);
+}
+
+/* ── 嵌入模型头部信息 ─────────────────────────────── */
+.embedding-header-info {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.global-llm-drawer-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #0f172a;
+.embedding-header-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-primary);
 }
 
-.global-llm-drawer-subtitle {
-  font-size: 12px;
-  color: #64748b;
+.embedding-header-desc {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--app-text-muted);
 }
 
+/* ── Runtime Bar ───────────────────────────────────── */
 .global-llm-runtime-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border-radius: 14px;
-  background:
-    linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(59, 130, 246, 0.08)),
-    #f8fafc;
-  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: var(--app-radius-lg);
+  background: linear-gradient(135deg, var(--color-brand-light), rgba(99, 102, 241, 0.05)), var(--app-surface);
+  border: 1px solid var(--color-brand-border);
 }
 
 .global-llm-runtime-bar.is-mock {
-  background:
-    linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(249, 115, 22, 0.1)),
-    #fffaf0;
-  border-color: rgba(245, 158, 11, 0.18);
+  background: linear-gradient(135deg, var(--color-gold-dim), rgba(245, 158, 11, 0.06)), var(--app-surface);
+  border-color: var(--color-gold-border);
 }
 
 .global-llm-runtime-main {
@@ -392,14 +599,14 @@ const appearance = computed(() => props.appearance)
 .global-llm-runtime-label {
   font-size: 11px;
   line-height: 1;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .global-llm-runtime-model {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.25;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 .global-llm-runtime-meta {
@@ -413,8 +620,8 @@ const appearance = computed(() => props.appearance)
   flex-shrink: 0;
   padding: 4px 9px;
   border-radius: 999px;
-  background: rgba(79, 70, 229, 0.1);
-  color: #4338ca;
+  background: var(--color-brand-light);
+  color: var(--color-brand);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -425,14 +632,81 @@ const appearance = computed(() => props.appearance)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #475569;
+  color: var(--app-text-secondary);
   font-size: 12px;
 }
 
+/* ── Drawer Body ───────────────────────────────────── */
 .global-llm-drawer-body {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.drawer-scroll-content {
+  height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* ── 嵌入模型区域 ─────────────────────────────────── */
+.embedding-config-section {
+  margin-top: 8px;
+}
+
+.embedding-mode-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 0 8px;
+}
+
+.emb-mode-label {
+  font-size: 13px;
+  color: var(--app-text-muted);
+  transition: color 0.2s;
+  font-weight: 500;
+}
+
+.emb-mode-label.active {
+  color: var(--app-text-primary);
+  font-weight: 600;
+}
+
+.emb-local-info { padding: 0 4px; }
+
+.emb-local-card {
+  background: var(--color-success-light);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--app-radius-md);
+  padding: 14px 18px;
+}
+
+[data-theme='dark'] .emb-local-card {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.15);
+}
+
+.emb-local-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-success);
+  margin-bottom: 3px;
+}
+
+.emb-local-desc {
+  font-size: 12.5px;
+  color: var(--color-success);
+  opacity: 0.75;
+}
+
+.emb-cloud-form { padding: 0 4px; }
+
+.model-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
 }
 
 @media (max-width: 768px) {
@@ -440,16 +714,13 @@ const appearance = computed(() => props.appearance)
     flex-direction: column;
     align-items: flex-start;
   }
-
   .global-llm-runtime-meta {
     width: 100%;
     flex-wrap: wrap;
   }
-
   .global-llm-runtime-name {
     max-width: 100%;
     white-space: normal;
   }
 }
 </style>
-

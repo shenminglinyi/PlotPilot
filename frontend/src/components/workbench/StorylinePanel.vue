@@ -454,7 +454,7 @@ onMounted(() => {
 .sl-collapse :deep(.n-collapse-item) {
   border-radius: 10px;
   margin-bottom: 8px;
-  background: var(--app-surface, #fff);
+  background: var(--app-surface);
   border: 1px solid var(--aitext-split-border, rgba(0,0,0,0.06));
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
   overflow: hidden;
@@ -509,7 +509,7 @@ onMounted(() => {
 
 .info-label {
   font-size: 12px;
-  color: var(--text-color-3, #94a3b8);
+  color: var(--app-text-muted, var(--text-color-3, #94a3b8));
   flex-shrink: 0;
   min-width: 64px;
 }
@@ -570,7 +570,7 @@ onMounted(() => {
 
 .ms-range {
   font-size: 10.5px;
-  color: var(--text-color-3, #94a3b8);
+  color: var(--app-text-muted, var(--text-color-3, #94a3b8));
   font-family: monospace;
   flex-shrink: 0;
 }

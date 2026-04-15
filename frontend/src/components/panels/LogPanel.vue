@@ -135,7 +135,7 @@ defineExpose({
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--app-text-primary, #e2e8f0);
   letter-spacing: 0.02em;
 }
 
@@ -203,6 +203,6 @@ defineExpose({
 .log-message {
   flex: 1;
   word-break: break-all;
-  color: #cbd5e1;
+  color: var(--app-text-secondary, #cbd5e1);
 }
 </style>
