@@ -137,6 +137,91 @@ class TripleRepository:
         self._db.get_connection().commit()
         return cur.rowcount > 0
 
+    def get_by_novel_sync(self, novel_id: str) -> List[Triple]:
+        """同步：获取小说所有三元组。"""
+        more, tags, attrs = self._kr.get_triple_side_data_for_novel(novel_id)
+        rows = self._db.fetch_all(
+            "SELECT * FROM triples WHERE novel_id = ? ORDER BY created_at DESC",
+            (novel_id,),
+        )
+        return [self._row_to_triple(r, more, tags, attrs) for r in rows]
+
+    def get_by_entity_ids_sync(self, novel_id: str, entity_ids: List[str]) -> List[Triple]:
+        """同步：按实体名称列表召回关联三元组（subject 或 object 命中）。"""
+        if not entity_ids:
+            return []
+        placeholders = ",".join("?" * len(entity_ids))
+        rows = self._db.fetch_all(
+            f"""
+            SELECT * FROM triples
+            WHERE novel_id = ?
+              AND (
+                COALESCE(subject_entity_id, subject) IN ({placeholders})
+                OR COALESCE(object_entity_id, object) IN ({placeholders})
+              )
+            ORDER BY confidence DESC, created_at DESC
+            """,
+            (novel_id, *entity_ids, *entity_ids),
+        )
+        more, tags, attrs = self._kr.get_triple_side_data_for_novel(novel_id)
+        return [self._row_to_triple(r, more, tags, attrs) for r in rows]
+
+    def search_by_predicate_sync(
+        self,
+        novel_id: str,
+        predicates: List[str],
+        subject_ids: Optional[List[str]] = None,
+        limit: int = 50,
+    ) -> List[Triple]:
+        """同步：按谓词列表（可选 subject 过滤）召回三元组。"""
+        if not predicates:
+            return []
+        pred_placeholders = ",".join("?" * len(predicates))
+        params: list = [novel_id, *predicates]
+        subj_clause = ""
+        if subject_ids:
+            s_placeholders = ",".join("?" * len(subject_ids))
+            subj_clause = f"AND COALESCE(subject_entity_id, subject) IN ({s_placeholders})"
+            params.extend(subject_ids)
+        params.append(limit)
+        rows = self._db.fetch_all(
+            f"""
+            SELECT * FROM triples
+            WHERE novel_id = ?
+              AND predicate IN ({pred_placeholders})
+              {subj_clause}
+            ORDER BY confidence DESC, created_at DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        )
+        more, tags, attrs = self._kr.get_triple_side_data_for_novel(novel_id)
+        return [self._row_to_triple(r, more, tags, attrs) for r in rows]
+
+    def get_recent_triples_sync(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        chapter_range: int = 5,
+        limit: int = 20,
+    ) -> List[Triple]:
+        """同步：获取最近 chapter_range 章内的三元组。"""
+        min_chapter = max(1, chapter_number - chapter_range)
+        rows = self._db.fetch_all(
+            """
+            SELECT * FROM triples
+            WHERE novel_id = ?
+              AND chapter_number IS NOT NULL
+              AND CAST(chapter_number AS INTEGER) >= ?
+              AND CAST(chapter_number AS INTEGER) <= ?
+            ORDER BY chapter_number DESC, created_at DESC
+            LIMIT ?
+            """,
+            (novel_id, min_chapter, chapter_number, limit),
+        )
+        more, tags, attrs = self._kr.get_triple_side_data_for_novel(novel_id)
+        return [self._row_to_triple(r, more, tags, attrs) for r in rows]
+
     def get_containment_meta_by_bible_location_id(
         self, novel_id: str, bible_location_id: str
     ) -> Optional[dict]:

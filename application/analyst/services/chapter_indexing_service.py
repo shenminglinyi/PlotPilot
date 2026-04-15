@@ -8,6 +8,7 @@ Collection 命名约定：
   * kind: str - "chapter_summary" | "bible_snippet"
   * novel_id: str - 小说 ID（冗余但便于跨 collection 查询）
 """
+import uuid
 from typing import Optional
 from domain.ai.services.embedding_service import EmbeddingService
 from domain.ai.services.vector_store import VectorStore
@@ -61,15 +62,12 @@ class ChapterIndexingService:
         """
         collection_name = self._get_collection_name(novel_id)
 
-        # 检查 collection 是否已存在
-        existing_collections = await self._vector_store.list_collections()
-
-        if collection_name not in existing_collections:
-            # 创建新 collection，使用动态维度
-            await self._vector_store.create_collection(
-                collection=collection_name,
-                dimension=self._embedding_dimension
-            )
+        # 始终调用 create_collection：内部会检查维度是否匹配，
+        # 匹配则跳过，不匹配则自动重建（嵌入模型切换时必要）
+        await self._vector_store.create_collection(
+            collection=collection_name,
+            dimension=self._embedding_dimension
+        )
 
     async def index_chapter_summary(
         self,
@@ -109,8 +107,8 @@ class ChapterIndexingService:
             "novel_id": novel_id
         }
 
-        # 构造唯一 ID
-        point_id = f"{novel_id}_ch{chapter_number}_summary"
+        # 构造唯一 ID（Qdrant 要求 UUID 或 uint64，用 uuid5 生成确定性 UUID）
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{novel_id}_ch{chapter_number}_summary"))
 
         # 写入向量存储
         collection_name = self._get_collection_name(novel_id)
@@ -161,11 +159,9 @@ class ChapterIndexingService:
             "novel_id": novel_id
         }
 
-        # 构造唯一 ID
-        if snippet_id:
-            point_id = f"{novel_id}_ch{chapter_number}_bible_{snippet_id}"
-        else:
-            point_id = f"{novel_id}_ch{chapter_number}_bible"
+        # 构造唯一 ID（Qdrant 要求 UUID 或 uint64，用 uuid5 生成确定性 UUID）
+        raw_id = f"{novel_id}_ch{chapter_number}_bible_{snippet_id}" if snippet_id else f"{novel_id}_ch{chapter_number}_bible"
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, raw_id))
 
         # 写入向量存储
         collection_name = self._get_collection_name(novel_id)

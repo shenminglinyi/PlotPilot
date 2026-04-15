@@ -107,8 +107,8 @@ class VoiceDriftService:
             adjective_density=metrics["adjective_density"],
             avg_sentence_length=metrics["avg_sentence_length"],
             sentence_count=metrics["sentence_count"],
-            # 存 None 而非 0.0，避免漂移检测误判
-            similarity_score=similarity,
+            # 无指纹基准时存 0.0（NOT NULL 约束），业务层通过 fingerprint 是否存在来区分
+            similarity_score=similarity if similarity is not None else 0.0,
         )
 
         drift_alert = self._check_drift_alert(novel_id)
@@ -163,7 +163,8 @@ class VoiceDriftService:
             adjective_density=metrics["adjective_density"],
             avg_sentence_length=metrics["avg_sentence_length"],
             sentence_count=metrics["sentence_count"],
-            similarity_score=similarity,
+            # 无基准时存 0.0（NOT NULL 约束），业务层通过 fingerprint 是否存在来区分
+            similarity_score=similarity if similarity is not None else 0.0,
         )
 
         drift_alert = self._check_drift_alert(novel_id)

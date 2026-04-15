@@ -730,13 +730,13 @@ def _auto_adjust_storyline_range(
             elif is_start:
                 # 创建新故事线
                 storyline_type_map = {
-                    "主线": StorylineType.MAIN,
-                    "支线": StorylineType.SIDE,
+                    "主线": StorylineType.MAIN_PLOT,
+                    "支线": StorylineType.GROWTH,
                     "感情线": StorylineType.ROMANCE,
-                    "暗线": StorylineType.HIDDEN,
+                    "暗线": StorylineType.GROWTH,
                 }
 
-                new_type = StorylineType.SIDE  # 默认支线
+                new_type = StorylineType.GROWTH  # 默认支线
                 for key, stype in storyline_type_map.items():
                     if key in line_type:
                         new_type = stype
@@ -913,10 +913,10 @@ def persist_bundle_extras(
                 if not event:
                     continue
 
-                # 写入 timeline_notes 表
+                # 写入 bible_timeline_notes 表
                 note_id = f"tl-{uuid.uuid4()}"
                 cursor.execute("""
-                    INSERT INTO timeline_notes (id, novel_id, time_point, event, description)
+                    INSERT INTO bible_timeline_notes (id, novel_id, time_point, event, description)
                     VALUES (?, ?, ?, ?, ?)
                 """, (note_id, novel_id, time_point or f"第{chapter_number}章", event, description))
 
@@ -1150,7 +1150,7 @@ async def sync_chapter_narrative_after_save(
         await indexing_svc.index_chapter_summary(novel_id, chapter_number, text_for_vector)
         logger.debug("章节向量索引完成 novel=%s ch=%s", novel_id, chapter_number)
     except Exception as e:
-        logger.warning("章节向量索引失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+        logger.warning("章节向量索引失败 novel=%s ch=%s: [%s] %s", novel_id, chapter_number, type(e).__name__, e, exc_info=True)
 
 
 def sync_chapter_narrative_after_save_blocking(
