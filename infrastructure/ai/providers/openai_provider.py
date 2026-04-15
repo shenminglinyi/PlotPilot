@@ -75,11 +75,24 @@ class OpenAIProvider(BaseProvider):
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
             )
-            
-            if not response.choices or not response.choices[0].message.content:
+
+            if not response.choices:
                 raise RuntimeError("API returned empty content")
-                
-            content = response.choices[0].message.content
+
+            message = response.choices[0].message
+            content = getattr(message, "content", None) or ""
+            if not content:
+                content = getattr(message, "reasoning_content", None) or ""
+            if not content:
+                content = getattr(message, "reasoning", None) or ""
+
+            if isinstance(content, list):
+                content = "\n".join(str(x) for x in content if x)
+            else:
+                content = str(content)
+
+            if not content.strip():
+                raise RuntimeError("API returned empty content")
             
             input_tokens = response.usage.prompt_tokens if response.usage else 0
             output_tokens = response.usage.completion_tokens if response.usage else 0
