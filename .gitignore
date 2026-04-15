@@ -76,3 +76,6 @@ scripts/evaluation/results/
 data/chromadb/
 data/logs/
 data/llm_configs.json
+
+
+PlotPilot-master
