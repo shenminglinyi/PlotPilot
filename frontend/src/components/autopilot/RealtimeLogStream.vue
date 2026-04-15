@@ -307,7 +307,6 @@ function connectSSE() {
       // 3秒后尝试重连
       if (!reconnectTimer) {
         reconnectTimer = window.setTimeout(() => {
-          console.log('Attempting to reconnect SSE...')
           connectSSE()
         }, 3000)
       }

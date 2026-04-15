@@ -6,9 +6,10 @@
     <span>{{ error }}</span>
   </div>
   <div v-else class="stats-top-bar">
-    <!-- 左侧：AI 控制台（不再 absolute 遮挡） -->
+    <!-- 左侧：AI 控制台 + 提示词广场 -->
     <div class="topbar-left">
       <GlobalLLMEntryButton appearance="topbar" />
+      <PromptPlazaEntryButton appearance="topbar" />
     </div>
 
     <!-- 中间：统计数据 -->
@@ -64,6 +65,7 @@ import { NTooltip, NSpin, NDropdown, useMessage } from 'naive-ui'
 import { useStatsStore } from '@/stores/statsStore'
 import { novelApi } from '@/api/novel'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
+import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 
 const props = defineProps<{
   slug: string
@@ -254,6 +256,13 @@ onMounted(async () => {
   border-radius: var(--app-radius-lg);
 }
 
+.topbar-left :deep(.plaza-main.variant-topbar) {
+  width: auto;
+  min-height: 46px;
+  padding: 8px 14px;
+  border-radius: var(--app-radius-lg);
+}
+
 /* 中间：统计数据 */
 .topbar-center {
   flex: 1;
@@ -396,11 +405,19 @@ onMounted(async () => {
     width: 100%;
     display: flex;
     justify-content: center;
+    gap: 8px;
   }
 
   .topbar-left :deep(.global-llm-main.variant-topbar) {
-    width: 100%;
-    max-width: 320px;
+    width: auto;
+    flex: 1;
+    max-width: 240px;
+  }
+
+  .topbar-left :deep(.plaza-main.variant-topbar) {
+    width: auto;
+    flex: 1;
+    max-width: 200px;
   }
 
   .topbar-center {

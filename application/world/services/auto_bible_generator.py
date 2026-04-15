@@ -554,9 +554,8 @@ JSON 格式（不要有其他文字）：
                             description=value,
                             setting_type="rule"  # 统一使用'rule'类型
                         )
-            print(f"[DEBUG] Worldbuilding saved to Bible.world_settings successfully", file=sys.stderr, flush=True)
+            logger.info("Worldbuilding saved to Bible.world_settings successfully")
         except Exception as e:
-            print(f"[DEBUG] Failed to save to Bible.world_settings: {e}", file=sys.stderr, flush=True)
             logger.error(f"Failed to save to Bible.world_settings: {e}")
 
     def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
@@ -739,16 +738,12 @@ JSON 格式：
 
     async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         """调用 LLM 并解析 JSON"""
-        print(f"[DEBUG] _call_llm_and_parse: Creating prompt", file=sys.stderr, flush=True)
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=2048, temperature=0.7)
-        print(f"[DEBUG] _call_llm_and_parse: Calling LLM service", file=sys.stderr, flush=True)
         result = await self.llm_service.generate(prompt, config)
-        print(f"[DEBUG] _call_llm_and_parse: LLM returned result", file=sys.stderr, flush=True)
 
         try:
             content = result.content.strip()
-            print(f"[DEBUG] Raw LLM content length: {len(content)}", file=sys.stderr, flush=True)
 
             # 移除可能的 markdown 代码块标记
             if "```json" in content:
@@ -764,16 +759,13 @@ JSON 格式：
             if start != -1 and end != -1:
                 content = content[start:end+1]
 
-            print(f"[DEBUG] Cleaned content length: {len(content)}", file=sys.stderr, flush=True)
             parsed = json.loads(content)
-            print(f"[DEBUG] Successfully parsed JSON with keys: {list(parsed.keys())}", file=sys.stderr, flush=True)
             return parsed
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Content length: {len(content)}")
             logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
             logger.error(f"Raw content (last 500 chars): {content[-500:]}")
-            print(f"[DEBUG] JSON parse failed, returning empty dict", file=sys.stderr, flush=True)
             return {}
 
     async def _generate_character_triples(self, novel_id: str, character_ids: list):

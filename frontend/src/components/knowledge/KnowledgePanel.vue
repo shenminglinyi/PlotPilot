@@ -494,7 +494,6 @@ const inferAll = async () => {
   try {
     const res = await knowledgeGraphApi.inferNovel(props.slug)
     message.success('全书推断完成')
-    console.log('推断结果:', res.data)
     await loadTriples()
   } catch {
     message.error('推断失败')

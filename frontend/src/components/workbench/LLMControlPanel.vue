@@ -818,9 +818,9 @@ onBeforeUnmount(() => {
 
 .llm-profile-item {
   width: 100%;
-  border: 1px solid var(--aitext-split-border);
+  border: 1px solid var(--profile-item-border, var(--aitext-split-border));
   border-radius: 10px;
-  background: var(--app-surface);
+  background: var(--profile-item-bg, var(--app-surface));
   padding: 10px 12px;
   text-align: left;
   cursor: pointer;
@@ -829,12 +829,14 @@ onBeforeUnmount(() => {
 
 .llm-profile-item:hover,
 .llm-profile-item.is-selected {
-  border-color: var(--n-primary-color);
+  border-color: var(--profile-selected-border, var(--color-brand));
   transform: translateY(-1px);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .llm-profile-item.is-active {
-  background: var(--color-success-light, rgba(24, 160, 88, 0.06));
+  background: var(--profile-active-bg, var(--color-brand-light));
+  border-color: var(--profile-selected-border, var(--color-brand-hover));
 }
 
 .llm-profile-name-row {
@@ -846,14 +848,14 @@ onBeforeUnmount(() => {
 
 .llm-profile-name {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--n-text-color-1);
+  font-weight: 700;
+  color: var(--profile-name-color, var(--app-text-primary));
 }
 
 .llm-profile-meta {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--n-text-color-3);
+  color: var(--profile-meta-color, var(--app-text-muted));
 }
 
 .llm-editor {

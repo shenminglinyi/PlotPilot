@@ -405,3 +405,162 @@ async def render_prompt(
     if result is None:
         raise HTTPException(status_code=404, detail=f"Prompt '{node_key}' not found")
     return result
+
+
+# ------------------------------------------------------------------
+# 导出 / 导入
+# ------------------------------------------------------------------
+
+
+class ImportPayload(BaseModel):
+    """导入请求体：接受 prompts_defaults.json 格式或导出格式。"""
+    _meta: Optional[Dict[str, Any]] = None
+    categories: Optional[List[Dict[str, Any]]] = None
+    prompts: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+@router.get('/prompts/export')
+async def export_prompts() -> Dict[str, Any]:
+    """导出所有提示词为 JSON（兼容 prompts_defaults.json 格式）。
+
+    导出的 JSON 可通过 /import 端点重新导入，实现备份/迁移。
+    """
+    from datetime import datetime
+    mgr = get_prompt_manager()
+    mgr.ensure_seeded()
+
+    # 收集分类定义
+    categories = mgr.get_categories_info()
+
+    # 收集所有节点（含激活版本内容）
+    nodes = mgr.list_nodes(include_versions=True)
+    prompts_export = []
+    for node in nodes:
+        detail = node.to_detail_dict()
+        prompts_export.append({
+            "id": detail.get("node_key", detail["id"]),
+            "name": detail["name"],
+            "description": detail.get("description", ""),
+            "category": detail.get("category", "generation"),
+            "source": detail.get("source", ""),
+            "builtin": detail.get("is_builtin", False),
+            "tags": detail.get("tags", []),
+            "variables": detail.get("variables", []),
+            "output_format": detail.get("output_format", "text"),
+            "system": detail.get("system", ""),
+            "user_template": detail.get("user_template", ""),
+        })
+
+    return {
+        "_meta": {
+            "version": "1.0.0",
+            "description": "PlotPilot 提示词导出",
+            "exported_at": datetime.now().isoformat(),
+            "source": "prompt_plaza_export",
+        },
+        "categories": [
+            {"key": c["key"], "name": c["name"], "icon": c["icon"],
+             "description": c.get("description", ""), "color": c.get("color", "")}
+            for c in categories
+        ],
+        "prompts": prompts_export,
+    }
+
+
+@router.post('/prompts/import')
+async def import_prompts(payload: ImportPayload) -> Dict[str, Any]:
+    """导入提示词 JSON（覆盖或新增节点）。
+
+    支持：
+    - 完整的 prompts_defaults.json 格式（含 _meta/categories/prompts）
+    - 仅 prompts 数组的简化格式
+
+    匹配逻辑：按 node_key 匹配已存在节点 → 更新；不存在的 → 新建。
+    """
+    from datetime import datetime
+    mgr = get_prompt_manager()
+    mgr.ensure_seeded()
+
+    raw_prompts = payload.prompts
+    if not raw_prompts:
+        raise HTTPException(status_code=400, detail="导入数据为空：缺少 prompts 数组")
+
+    now = datetime.now().isoformat()
+    created_count = 0
+    updated_count = 0
+    skipped_count = 0
+    errors: List[str] = []
+
+    # 获取或创建目标模板包（优先使用内置模板包）
+    templates = mgr.list_templates()
+    builtin_tmpl = next((t for t in templates if t.is_builtin), None)
+    target_template_id = builtin_tmpl.id if builtin_tmpl else (
+        templates[0].id if templates else ""
+    )
+    if not target_template_id:
+        # 兜底：创建一个
+        tmpl = mgr.create_template(name="导入模板", description="从 JSON 导入")
+        target_template_id = tmpl.id
+
+    for idx, p in enumerate(raw_prompts):
+        try:
+            node_key = p.get("id", "") or p.get("node_key", "")
+            name = p.get("name", f"导入提示词-{idx + 1}")
+            system_content = p.get("system", "")
+            user_content = p.get("user_template", "")
+
+            if not node_key:
+                # 无 key 的跳过
+                skipped_count += 1
+                continue
+
+            # 尝试按 key 查找已有节点
+            existing = mgr.get_node(node_key, by_key=True)
+
+            tags_json = json.dumps(p.get("tags", []), ensure_ascii=False)
+            vars_json = json.dumps(p.get("variables", []), ensure_ascii=False)
+
+            if existing:
+                # 已存在 → 更新（创建新版本）
+                mgr.update_node(
+                    existing.id,
+                    system_prompt=system_content or None,
+                    user_template=user_content or None,
+                    change_summary=f"导入更新 ({now})",
+                    name=name or None,
+                    description=p.get("description"),
+                    tags=p.get("tags"),
+                )
+                updated_count += 1
+            else:
+                # 不存在 → 新建节点
+                mgr.create_node(
+                    template_id=target_template_id,
+                    node_key=node_key,
+                    name=name,
+                    system_prompt=system_content,
+                    user_template=user_content,
+                    description=p.get("description", ""),
+                    category=p.get("category", "generation"),
+                )
+                created_count += 1
+
+        except Exception as exc:
+            key_hint = p.get("id", "") or p.get("name", f"index-{idx}")
+            errors.append(f"{key_hint}: {exc}")
+            skipped_count += 1
+
+    return {
+        "status": "ok",
+        "summary": {
+            "created": created_count,
+            "updated": updated_count,
+            "skipped": skipped_count,
+            "total": len(raw_prompts),
+        },
+        "errors": errors[:20],  # 最多返回前 20 条错误
+        "message": (
+            f"导入完成：新建 {created_count}，更新 {updated_count}"
+            + (f"，跳过 {skipped_count}" if skipped_count else "")
+        ),
+    }
