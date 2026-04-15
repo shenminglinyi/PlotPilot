@@ -143,7 +143,7 @@ class LLMControlService:
                 protocol='openai',
                 default_base_url='https://api.openai.com/v1',
                 default_model=self._DEFAULT_OPENAI_MODEL,
-                description='OpenAI 官方 Chat Completions 接口。',
+                description='OpenAI 官方接口（自动兼容底层 Responses API 与 Chat Completions）。',
                 tags=['official'],
             ),
             LLMPreset(
