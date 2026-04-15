@@ -3,15 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
-from application.paths import DATA_DIR
-from domain.ai.services.llm_service import GenerationConfig, LLMService
-from domain.ai.value_objects.prompt import Prompt
+from infrastructure.persistence.database.connection import get_database
 from infrastructure.ai.url_utils import (
     normalize_anthropic_base_url,
     normalize_gemini_base_url,
@@ -117,14 +114,67 @@ class LLMTestResult(BaseModel):
 
 
 class LLMControlService:
+    """LLM 控制面板服务 —— 配置全部持久化到 SQLite（llm_profiles + llm_config_meta 表）。"""
+
     _DEFAULT_OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')
     _DEFAULT_ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
     _DEFAULT_GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
     _DEFAULT_ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-0-mini-260215')
 
-    def __init__(self, config_path: Optional[Path] = None):
-        self.config_path = config_path or (DATA_DIR / 'llm_profiles.json')
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+    # ---- 内部 DB 辅助 ------------------------------------------------
+
+    def _db(self):
+        return get_database()
+
+    def _get_meta(self, key: str, default: str = '') -> str:
+        row = self._db().fetch_one(
+            "SELECT value FROM llm_config_meta WHERE key = ?", (key,)
+        )
+        return row['value'] if row else default
+
+    def _set_meta(self, key: str, value: str) -> None:
+        self._db().execute(
+            "INSERT OR REPLACE INTO llm_config_meta (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+
+    def _row_to_profile(self, row: dict) -> LLMProfile:
+        return LLMProfile(
+            id=row['id'],
+            name=row['name'],
+            preset_key=row['preset_key'],
+            protocol=row['protocol'],
+            base_url=row['base_url'] or '',
+            api_key=row['api_key'] or '',
+            model=row['model'] or '',
+            temperature=row['temperature'],
+            max_tokens=row['max_tokens'],
+            timeout_seconds=row['timeout_seconds'],
+            extra_headers=json.loads(row.get('extra_headers') or '{}'),
+            extra_query=json.loads(row.get('extra_query') or '{}'),
+            extra_body=json.loads(row.get('extra_body') or '{}'),
+            notes=row['notes'] or '',
+        )
+
+    def _profile_to_row(self, p: LLMProfile) -> dict:
+        return dict(
+            id=p.id,
+            name=p.name,
+            preset_key=p.preset_key,
+            protocol=p.protocol,
+            base_url=p.base_url,
+            api_key=p.api_key,
+            model=p.model,
+            temperature=p.temperature,
+            max_tokens=p.max_tokens,
+            timeout_seconds=p.timeout_seconds,
+            extra_headers=json.dumps(p.extra_headers, ensure_ascii=False),
+            extra_query=json.dumps(p.extra_query, ensure_ascii=False),
+            extra_body=json.dumps(p.extra_body, ensure_ascii=False),
+            notes=p.notes,
+        )
+
+    # ---- 公共接口（保持与原文件版一致）----------------------------------
 
     def get_presets(self) -> List[LLMPreset]:
         return [
@@ -223,30 +273,68 @@ class LLMControlService:
         )
 
     def get_config(self) -> LLMControlConfig:
-        if not self.config_path.exists():
-            config = self._build_initial_config()
-            self._write_config(config)
-            return config
-
+        """从数据库读取完整配置；空库时自动写入初始默认值。"""
         try:
-            raw = json.loads(self.config_path.read_text(encoding='utf-8'))
-            config = LLMControlConfig.model_validate(raw)
+            rows = self._db().fetch_all(
+                "SELECT * FROM llm_profiles ORDER BY sort_order, created_at"
+            )
         except Exception as exc:
-            logger.warning('加载 LLM 配置失败，回退默认配置: %s', exc)
+            logger.warning('读取 LLM profiles 失败，回退默认配置: %s', exc)
+            rows = []
+
+        profiles = [self._row_to_profile(r) for r in rows]
+
+        if not profiles:
             config = self._build_initial_config()
-            self._write_config(config)
+            self.save_config(config)
             return config
 
-        if not config.profiles:
-            config = self._build_initial_config()
-            self._write_config(config)
-            return config
+        active_id = self._get_meta('active_profile_id')
+        # 校验 active_id 是否在当前 profiles 中
+        valid_ids = {p.id for p in profiles}
+        if not active_id or active_id not in valid_ids:
+            active_id = profiles[0].id
 
-        return config
+        return LLMControlConfig(version=1, active_profile_id=active_id, profiles=profiles)
 
     def save_config(self, config: LLMControlConfig) -> LLMControlConfig:
+        """将配置全量写入数据库（先清后写）。"""
         sanitized = self._sanitize_config(config)
-        self._write_config(sanitized)
+        db = self._db()
+
+        # 清空旧数据
+        db.execute("DELETE FROM llm_profiles")
+        db.execute("DELETE FROM llm_config_meta")
+
+        # 写入 meta
+        db.execute(
+            "INSERT OR REPLACE INTO llm_config_meta (key, value) VALUES (?, ?)",
+            ('active_profile_id', sanitized.active_profile_id or ''),
+        )
+
+        # 批量写入 profiles
+        params_list = []
+        for idx, profile in enumerate(sanitized.profiles):
+            row = self._profile_to_row(profile)
+            row['sort_order'] = idx
+            params_list.append((
+                row['id'], row['name'], row['preset_key'], row['protocol'],
+                row['base_url'], row['api_key'], row['model'],
+                row['temperature'], row['max_tokens'], row['timeout_seconds'],
+                row['extra_headers'], row['extra_query'], row['extra_body'],
+                row['notes'], row['sort_order'],
+            ))
+
+        db.execute_many(
+            """INSERT INTO llm_profiles (
+                id, name, preset_key, protocol, base_url, api_key, model,
+                temperature, max_tokens, timeout_seconds,
+                extra_headers, extra_query, extra_body, notes, sort_order
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            params_list,
+        )
+
+        logger.info("LLM 配置已保存到数据库 (%d 个 profiles)", len(sanitized.profiles))
         return sanitized
 
     def get_active_profile(self, config: Optional[LLMControlConfig] = None) -> Optional[LLMProfile]:
@@ -309,7 +397,7 @@ class LLMControlService:
             active_profile_name=profile.name,
             protocol=profile.protocol,
             model=profile.model,
-            base_url=profile.base_url or None,
+            base_url=profile.base_url,
             using_mock=False,
         )
 
@@ -330,9 +418,11 @@ class LLMControlService:
         started = perf_counter()
         try:
             llm_service = llm_service_factory(resolved)
+            from domain.ai.value_objects.prompt import Prompt
+            from domain.ai.services.llm_service import GenerationConfig
             prompt = Prompt(
                 system='你是连通性测试助手。',
-                user='请只回复“连接成功”。',
+                user='请只回复"连接成功"。',
             )
             config = GenerationConfig(
                 model=resolved.model or None,
@@ -393,14 +483,6 @@ class LLMControlService:
         if protocol == 'gemini':
             return normalize_gemini_base_url(base_url) or ''
         return normalize_openai_base_url(base_url) or ''
-
-    def _write_config(self, config: LLMControlConfig) -> None:
-        tmp_path = self.config_path.with_suffix('.json.tmp')
-        tmp_path.write_text(
-            json.dumps(config.model_dump(mode='json'), ensure_ascii=False, indent=2),
-            encoding='utf-8',
-        )
-        tmp_path.replace(self.config_path)
 
     def _build_initial_config(self) -> LLMControlConfig:
         profiles = [

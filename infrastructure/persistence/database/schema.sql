@@ -587,4 +587,36 @@ CREATE TABLE IF NOT EXISTS embedding_config (
 );
 
 
+-- ========== LLM 控制面板配置（LLM Profiles）==========
+-- 替代原 llm_profiles.json 本地文件存储，持久化到 SQLite。
+-- active_profile_id 存储在 llm_config_meta 行中。
+
+CREATE TABLE IF NOT EXISTS llm_config_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS llm_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    preset_key TEXT NOT NULL DEFAULT 'custom-openai-compatible',
+    protocol TEXT NOT NULL DEFAULT 'openai' CHECK(protocol IN ('openai', 'anthropic', 'gemini')),
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    temperature REAL NOT NULL DEFAULT 0.7,
+    max_tokens INTEGER NOT NULL DEFAULT 4096,
+    timeout_seconds INTEGER NOT NULL DEFAULT 300,
+    extra_headers TEXT NOT NULL DEFAULT '{}',
+    extra_query TEXT NOT NULL DEFAULT '{}',
+    extra_body TEXT NOT NULL DEFAULT '{}',
+    notes TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
+
+
 
