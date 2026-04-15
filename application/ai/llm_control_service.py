@@ -5,7 +5,7 @@ import logging
 import os
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
@@ -30,7 +30,7 @@ class LLMPreset(BaseModel):
     default_base_url: str = ''
     default_model: str = ''
     description: str = ''
-    tags: list[str] = Field(default_factory=list)
+    tags: List[str] = Field(default_factory=list)
 
 
 class LLMProfile(BaseModel):
@@ -46,9 +46,9 @@ class LLMProfile(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout_seconds: int = 300
-    extra_headers: dict[str, str] = Field(default_factory=dict)
-    extra_query: dict[str, Any] = Field(default_factory=dict)
-    extra_body: dict[str, Any] = Field(default_factory=dict)
+    extra_headers: Dict[str, str] = Field(default_factory=dict)
+    extra_query: Dict[str, Any] = Field(default_factory=dict)
+    extra_body: Dict[str, Any] = Field(default_factory=dict)
     notes: str = ''
 
     @field_validator('temperature')
@@ -67,7 +67,7 @@ class LLMProfile(BaseModel):
 
     @field_validator('extra_headers')
     @classmethod
-    def _normalize_headers(cls, value: dict[str, str]) -> dict[str, str]:
+    def _normalize_headers(cls, value: Dict[str, str]) -> Dict[str, str]:
         return {
             str(k).strip(): str(v).strip()
             for k, v in (value or {}).items()
@@ -77,8 +77,8 @@ class LLMProfile(BaseModel):
 
 class LLMControlConfig(BaseModel):
     version: int = 1
-    active_profile_id: str | None = None
-    profiles: list[LLMProfile] = Field(default_factory=list)
+    active_profile_id: Optional[str] = None
+    profiles: List[LLMProfile] = Field(default_factory=list)
 
     @model_validator(mode='after')
     def _validate_active_profile(self) -> 'LLMControlConfig':
@@ -92,18 +92,18 @@ class LLMControlConfig(BaseModel):
 
 class LLMRuntimeSummary(BaseModel):
     source: Literal['profile', 'mock']
-    active_profile_id: str | None = None
-    active_profile_name: str | None = None
-    protocol: LLMProtocol | None = None
-    model: str | None = None
-    base_url: str | None = None
+    active_profile_id: Optional[str] = None
+    active_profile_name: Optional[str] = None
+    protocol: Optional[LLMProtocol] = None
+    model: Optional[str] = None
+    base_url: Optional[str] = None
     using_mock: bool = False
-    reason: str | None = None
+    reason: Optional[str] = None
 
 
 class LLMControlPanelData(BaseModel):
     config: LLMControlConfig
-    presets: list[LLMPreset]
+    presets: List[LLMPreset]
     runtime: LLMRuntimeSummary
 
 
@@ -113,7 +113,7 @@ class LLMTestResult(BaseModel):
     model: str
     latency_ms: int
     preview: str = ''
-    error: str | None = None
+    error: Optional[str] = None
 
 
 class LLMControlService:
@@ -122,11 +122,11 @@ class LLMControlService:
     _DEFAULT_GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
     _DEFAULT_ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-0-mini-260215')
 
-    def __init__(self, config_path: Path | None = None):
+    def __init__(self, config_path: Optional[Path] = None):
         self.config_path = config_path or (DATA_DIR / 'llm_profiles.json')
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def get_presets(self) -> list[LLMPreset]:
+    def get_presets(self) -> List[LLMPreset]:
         return [
             LLMPreset(
                 key='custom-openai-compatible',
@@ -211,7 +211,7 @@ class LLMControlService:
             ),
         ]
 
-    def get_preset_map(self) -> dict[str, LLMPreset]:
+    def get_preset_map(self) -> Dict[str, LLMPreset]:
         return {preset.key: preset for preset in self.get_presets()}
 
     def get_control_panel_data(self) -> LLMControlPanelData:
@@ -249,7 +249,7 @@ class LLMControlService:
         self._write_config(sanitized)
         return sanitized
 
-    def get_active_profile(self, config: LLMControlConfig | None = None) -> LLMProfile | None:
+    def get_active_profile(self, config: Optional[LLMControlConfig] = None) -> Optional[LLMProfile]:
         cfg = config or self.get_config()
         if not cfg.profiles:
             return None
@@ -276,13 +276,13 @@ class LLMControlService:
             }
         )
 
-    def resolve_active_profile(self, config: LLMControlConfig | None = None) -> LLMProfile | None:
+    def resolve_active_profile(self, config: Optional[LLMControlConfig] = None) -> Optional[LLMProfile]:
         active = self.get_active_profile(config)
         if active is None:
             return None
         return self.resolve_profile(active)
 
-    def get_runtime_summary(self, config: LLMControlConfig | None = None) -> LLMRuntimeSummary:
+    def get_runtime_summary(self, config: Optional[LLMControlConfig] = None) -> LLMRuntimeSummary:
         profile = self.resolve_active_profile(config)
         if profile is None:
             return LLMRuntimeSummary(
@@ -360,8 +360,8 @@ class LLMControlService:
             )
 
     def _sanitize_config(self, config: LLMControlConfig) -> LLMControlConfig:
-        profiles: list[LLMProfile] = []
-        seen_ids: set[str] = set()
+        profiles: List[LLMProfile] = []
+        seen_ids: set = set()
         for index, profile in enumerate(config.profiles):
             candidate_id = profile.id.strip() or f'profile-{index + 1}'
             if candidate_id in seen_ids:

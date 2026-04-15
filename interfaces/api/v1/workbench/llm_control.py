@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -41,13 +41,13 @@ class ModelItem(BaseModel):
 
 class ModelListResponse(BaseModel):
     success: bool = True
-    items: list[ModelItem] = Field(default_factory=list)
+    items: List[ModelItem] = Field(default_factory=list)
     count: int = 0
 
 
-def _normalize_model_items(data: dict[str, Any]) -> list[ModelItem]:
+def _normalize_model_items(data: Dict[str, Any]) -> List[ModelItem]:
     """将不同网关的 /models 响应统一为 ModelItem 列表。"""
-    items: list[ModelItem] = []
+    items: List[ModelItem] = []
     raw_list = data.get('data', [])
     if not isinstance(raw_list, list):
         return items
