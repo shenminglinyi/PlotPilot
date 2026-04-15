@@ -53,7 +53,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useMessage } from 'naive-ui'
-import { knowledgeApi, type ChapterSummary } from '../../api/knowledge'
+import { knowledgeApi, type ChapterSummary, type KnowledgeTriple } from '../../api/knowledge'
 import GraphChart from '../charts/GraphChart.vue'
 import KnowledgeTriplesTableEditor from './KnowledgeTriplesTableEditor.vue'
 import { convertGraph, type VisNode, type VisEdge, type EChartsGraphData } from '../../utils/visToEcharts'
@@ -63,21 +63,11 @@ const message = useMessage()
 
 const drawerWidth = 920
 
-interface Fact {
-  id: string
-  subject: string
-  predicate: string
-  object: string
-  chapter_id?: number | null
-  note?: string
-  entity_type?: 'character' | 'location' | null
-}
-
 const viewMode = ref<'graph' | 'json'>('graph')
 const tableDrawerOpen = ref(false)
 const loading = ref(false)
 const saving = ref(false)
-const facts = ref<Fact[]>([])
+const facts = ref<KnowledgeTriple[]>([])
 const storyVersion = ref(1)
 const premiseLock = ref('')
 const chaptersSnapshot = ref<ChapterSummary[]>([])

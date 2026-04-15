@@ -4,7 +4,7 @@
 
 import { apiClient } from './config'
 
-export type NodeType = 'part' | 'volume' | 'act'
+export type NodeType = 'part' | 'volume' | 'act' | 'chapter'
 
 export interface StoryNode {
   id: string
@@ -24,12 +24,14 @@ export interface StoryNode {
   level: number
   icon: string
   display_name: string
+  word_count?: number
+  status?: string
   children?: StoryNode[]
 }
 
 export interface StoryTree {
   novel_id: string
-  tree: StoryNode[]
+  tree: StoryNode[] | { nodes: StoryNode[] }
 }
 
 export interface CreateNodeRequest {

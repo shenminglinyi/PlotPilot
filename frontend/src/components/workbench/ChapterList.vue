@@ -51,9 +51,9 @@
           :slug="slug"
           :current-chapter-id="currentChapterId"
           @select-chapter="handleChapterClick"
-          @plan-act="(id, title) => emit('planAct', id, title)"
+          @plan-act="handlePlanAct"
           @open-plan-modal="showMacroPlan = true"
-          @tree-loaded="(hasData) => hasStructure = hasData"
+          @tree-loaded="handleTreeLoaded"
         />
       </div>
     </n-scrollbar>
@@ -132,6 +132,14 @@ const handleChapterClick = (id: number, title = '') => {
 
 const handleBack = () => {
   emit('back')
+}
+
+const handlePlanAct = (id: string, title: string) => {
+  emit('planAct', id, title)
+}
+
+const handleTreeLoaded = (hasData: boolean) => {
+  hasStructure.value = hasData
 }
 
 </script>

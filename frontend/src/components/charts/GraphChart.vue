@@ -19,9 +19,9 @@ interface GraphLink {
   value?: number
 }
 
-interface EChartsEventParams {
-  dataType: 'node' | 'edge'
-  data: GraphNode | GraphLink
+interface GraphEventParams {
+  dataType?: 'node' | 'edge'
+  data?: GraphNode | GraphLink
 }
 
 const props = withDefaults(defineProps<{
@@ -39,14 +39,25 @@ const emit = defineEmits<{
   edgeClick: [link: GraphLink]
 }>()
 
-const chartOption = computed<EChartsOption>(() => ({
+const tooltip = {
+  formatter: (params: any) => {
+    const eventParams = params as unknown as GraphEventParams
+    if (eventParams.dataType === 'node') {
+      return `${(eventParams.data as GraphNode)?.name ?? ''}`
+    }
+    const link = eventParams.data as GraphLink | undefined
+    return `${link?.source ?? ''} → ${link?.target ?? ''}`
+  }
+}
+
+const chartOption = computed(() => ({
   series: [
     {
       type: 'graph',
       layout: 'force',
       data: props.nodes,
       links: props.links,
-      categories: props.categories.map((name, index) => ({ name })),
+      categories: props.categories.map(name => ({ name })),
       roam: true,
       label: {
         show: true,
@@ -64,17 +75,10 @@ const chartOption = computed<EChartsOption>(() => ({
       }
     }
   ],
-  tooltip: {
-    formatter: (params: EChartsEventParams) => {
-      if (params.dataType === 'node') {
-        return `${(params.data as GraphNode).name}`
-      }
-      return `${(params.data as GraphLink).source} → ${(params.data as GraphLink).target}`
-    }
-  }
-}))
+  tooltip
+}) as EChartsOption)
 
-const handleNodeClick = (params: EChartsEventParams) => {
+const handleNodeClick = (params: GraphEventParams) => {
   if (params.dataType === 'node') {
     emit('nodeClick', params.data as GraphNode)
   } else if (params.dataType === 'edge') {
