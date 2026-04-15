@@ -651,7 +651,7 @@ async function startBibleGeneration() {
       clearGenerationTimers()
       generatingBible.value = false
       bibleError.value = '生成超时，请稍后在工作台手动重试'
-    }, 120000)
+    }, 300000)
 
     schedulePoll(0)
   } catch (error: unknown) {

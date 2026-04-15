@@ -344,7 +344,7 @@ JSON 格式（不要有其他文字）：
 只输出 JSON，不要有任何解释文字。"""
 
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
 
         result = await self.llm_service.generate(prompt, config)
 
@@ -742,7 +742,7 @@ JSON 格式：
         """调用 LLM 并解析 JSON"""
         print(f"[DEBUG] _call_llm_and_parse: Creating prompt", file=sys.stderr, flush=True)
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
         print(f"[DEBUG] _call_llm_and_parse: Calling LLM service", file=sys.stderr, flush=True)
         result = await self.llm_service.generate(prompt, config)
         print(f"[DEBUG] _call_llm_and_parse: LLM returned result", file=sys.stderr, flush=True)
