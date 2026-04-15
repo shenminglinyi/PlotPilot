@@ -21,14 +21,19 @@ class SqliteChapterRepository(ChapterRepository):
     def save(self, chapter: Chapter) -> None:
         """保存章节"""
         sql = """
-            INSERT INTO chapters (id, novel_id, number, title, content, outline, status, tension_score, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chapters (id, novel_id, number, title, content, outline, status,
+                                  tension_score, plot_tension, emotional_tension, pacing_tension,
+                                  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 content = excluded.content,
                 outline = excluded.outline,
                 status = excluded.status,
                 tension_score = excluded.tension_score,
+                plot_tension = excluded.plot_tension,
+                emotional_tension = excluded.emotional_tension,
+                pacing_tension = excluded.pacing_tension,
                 updated_at = excluded.updated_at
         """
         now = datetime.utcnow().isoformat()
@@ -44,6 +49,9 @@ class SqliteChapterRepository(ChapterRepository):
             chapter.outline,  # 使用实体的 outline 字段
             status,
             chapter.tension_score,
+            chapter.plot_tension,
+            chapter.emotional_tension,
+            chapter.pacing_tension,
             now,
             now
         ))
@@ -157,5 +165,8 @@ class SqliteChapterRepository(ChapterRepository):
             content=row['content'],
             outline=row.get('outline', ''),
             status=status,
-            tension_score=row.get('tension_score', 50.0)
+            tension_score=row.get('tension_score', 50.0),
+            plot_tension=row.get('plot_tension', 50.0),
+            emotional_tension=row.get('emotional_tension', 50.0),
+            pacing_tension=row.get('pacing_tension', 50.0),
         )

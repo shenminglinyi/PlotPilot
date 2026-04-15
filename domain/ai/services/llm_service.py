@@ -1,6 +1,6 @@
 # domain/ai/services/llm_service.py
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
+from typing import AsyncIterator, Dict, Optional
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 
@@ -11,11 +11,13 @@ class GenerationConfig:
         self,
         model: str = "claude-sonnet-4-6",
         max_tokens: int = 4096,
-        temperature: float = 1.0
+        temperature: float = 1.0,
+        response_format: Optional[Dict] = None,
     ):
         self.model = model
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.response_format = response_format
         self.__post_init__()
 
     def __post_init__(self):

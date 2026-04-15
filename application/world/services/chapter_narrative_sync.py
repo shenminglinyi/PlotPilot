@@ -133,7 +133,6 @@ async def llm_chapter_extract_bundle(
   }} ],
   "consumed_foreshadows": [ "被回收的伏笔描述1", "被回收的伏笔描述2" ],
   "storyline_progress": [ {{"type": "主线|支线|感情线", "description": "本章该线进展"}} ],
-  "tension_score": 50,
   "dialogues": [ {{"speaker": "角色名", "content": "对话内容", "context": "对话场景"}} ],
   "timeline_events": [ {{"time_point": "时间描述", "event": "事件摘要", "description": "详细说明"}} ]
 }}
@@ -145,7 +144,6 @@ async def llm_chapter_extract_bundle(
   - resolve_hint：简短描述预期回收的场景或剧情点（可选，如"下一幕高潮"）
 - consumed_foreshadows：本章回收/呼应的伏笔，从待回收清单中匹配，输出原描述；最多 5 条；无则 []。
 - storyline_progress：本章推进的故事线，最多 5 条；无则 []。
-- tension_score：章节张力值 0-100（冲突/悬念/情绪强度），平淡=20-40，正常=40-60，高潮=60-80，巅峰=80-100。
 - dialogues：重要对话（推动剧情/展现性格），最多 10 条；无则 []。
 - timeline_events：本章发生的时间线事件（世界内历法/相对时间），最多 5 条；无则 []。
 - 不要编造 beat 列表；summary/key_events/open_threads 用中文；严格合法 JSON。{foreshadow_context}"""
@@ -178,13 +176,6 @@ async def llm_chapter_extract_bundle(
     if not isinstance(timeline_raw, list):
         timeline_raw = []
 
-    tension_score = data.get("tension_score", 50)
-    try:
-        tension_score = float(tension_score)
-        tension_score = max(0.0, min(100.0, tension_score))
-    except (ValueError, TypeError):
-        tension_score = 50.0
-
     return {
         "summary": str(data.get("summary", "")).strip(),
         "key_events": str(data.get("key_events", "")).strip(),
@@ -193,7 +184,6 @@ async def llm_chapter_extract_bundle(
         "foreshadow_hints": hints_raw[:4],
         "consumed_foreshadows": [str(c).strip() for c in consumed_raw[:5] if str(c).strip()],
         "storyline_progress": storyline_raw[:5],
-        "tension_score": tension_score,
         "dialogues": dialogues_raw[:10],
         "timeline_events": timeline_raw[:5],
     }
@@ -782,16 +772,34 @@ def persist_bundle_extras(
     """将 bundle 中的故事线进展、张力值、对话写入表，并自动生成剧情点、推进里程碑、调整故事线范围。"""
     # 1. 张力值写入 chapters 表
     tension_score = bundle.get("tension_score")
-    if chapter_repository and tension_score is not None:
+    tension_dims = bundle.get("tension_dimensions")
+    if chapter_repository and (tension_score is not None or tension_dims):
         try:
             from domain.novel.value_objects.novel_id import NovelId
             chapters = chapter_repository.list_by_novel(NovelId(novel_id))
             target_ch = next((ch for ch in chapters if ch.number == chapter_number), None)
             if target_ch:
-                # 更新章节的 tension_score 属性
-                target_ch.tension_score = float(tension_score)
+                if tension_dims:
+                    from domain.novel.value_objects.tension_dimensions import TensionDimensions
+                    dims = TensionDimensions(
+                        plot_tension=tension_dims["plot_tension"],
+                        emotional_tension=tension_dims["emotional_tension"],
+                        pacing_tension=tension_dims["pacing_tension"],
+                        composite_score=tension_dims["composite_score"],
+                    )
+                    target_ch.update_tension_dimensions(dims)
+                    logger.debug(
+                        "张力维度已落库 novel=%s ch=%s composite=%.1f plot=%.0f emotional=%.0f pacing=%.0f",
+                        novel_id, chapter_number,
+                        dims.composite_score,
+                        dims.plot_tension,
+                        dims.emotional_tension,
+                        dims.pacing_tension,
+                    )
+                elif tension_score is not None:
+                    target_ch.tension_score = float(tension_score)
+                    logger.debug("张力值已落库 novel=%s ch=%s tension=%.1f", novel_id, chapter_number, tension_score)
                 chapter_repository.save(target_ch)
-                logger.debug("张力值已落库 novel=%s ch=%s tension=%.1f", novel_id, chapter_number, tension_score)
         except Exception as e:
             logger.warning("张力值落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
@@ -984,6 +992,51 @@ async def sync_chapter_narrative_after_save(
         logger.warning("LLM 章末 bundle 失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
         summary, key_events, open_threads = "", "", ""
         bundle = {"relation_triples": [], "foreshadow_hints": []}
+
+    # --- 独立多维张力评分 ---
+    from application.analyst.services.tension_scoring_service import TensionScoringService
+    from domain.novel.value_objects.tension_dimensions import TensionDimensions
+
+    tension_dimensions: Optional[TensionDimensions] = None
+    try:
+        prev_tension = 50.0
+        if chapter_repository:
+            try:
+                chapters = chapter_repository.list_by_novel(NovelId(novel_id))
+                prev_ch = next((ch for ch in chapters if ch.number == chapter_number - 1), None)
+                if prev_ch:
+                    prev_tension = prev_ch.tension_score
+            except Exception:
+                pass
+
+        tension_svc = TensionScoringService(llm_service)
+        tension_dimensions = await tension_svc.score_chapter(
+            chapter_content=content,
+            chapter_number=chapter_number,
+            prev_chapter_tension=prev_tension,
+        )
+        logger.info(
+            "独立张力评分完成 novel=%s ch=%s composite=%.1f plot=%.0f emotional=%.0f pacing=%.0f",
+            novel_id, chapter_number,
+            tension_dimensions.composite_score,
+            tension_dimensions.plot_tension,
+            tension_dimensions.emotional_tension,
+            tension_dimensions.pacing_tension,
+        )
+    except Exception as e:
+        logger.warning("独立张力评分失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+    # 将张力结果注入 bundle，供 persist_bundle_extras 使用
+    if tension_dimensions is not None:
+        bundle["tension_score"] = tension_dimensions.composite_score
+        bundle["tension_dimensions"] = {
+            "plot_tension": tension_dimensions.plot_tension,
+            "emotional_tension": tension_dimensions.emotional_tension,
+            "pacing_tension": tension_dimensions.pacing_tension,
+            "composite_score": tension_dimensions.composite_score,
+        }
+    else:
+        bundle["tension_score"] = 50.0
 
     consistency_note = ""
     if existing:
