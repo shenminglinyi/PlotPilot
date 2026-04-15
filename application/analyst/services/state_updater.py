@@ -62,6 +62,7 @@ class StateUpdater:
             chapter_number: 章节号
             chapter_state: 章节状态
         """
+        chapter_number = int(chapter_number)
         novel_id_obj = NovelId(novel_id)
         logger.info(
             f"StateUpdater.update_from_chapter: novel={novel_id}, chapter={chapter_number}, "
@@ -111,7 +112,7 @@ class StateUpdater:
             for foreshadow_data in chapter_state.foreshadowing_planted:
                 foreshadowing = Foreshadowing(
                     id=str(uuid.uuid4()),
-                    planted_in_chapter=foreshadow_data.get("chapter", chapter_number),
+                    planted_in_chapter=int(foreshadow_data.get("chapter", chapter_number)),
                     description=foreshadow_data.get("description", ""),
                     importance=ImportanceLevel.MEDIUM,
                     status=ForeshadowingStatus.PLANTED
@@ -122,7 +123,7 @@ class StateUpdater:
             # 解决伏笔
             for resolved_data in chapter_state.foreshadowing_resolved:
                 fid = resolved_data.get("foreshadowing_id", "")
-                resolved_ch = resolved_data.get("chapter", chapter_number)
+                resolved_ch = int(resolved_data.get("chapter", chapter_number))
                 try:
                     foreshadowing_registry.mark_resolved(
                         foreshadowing_id=fid,

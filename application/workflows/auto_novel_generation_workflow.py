@@ -817,10 +817,10 @@ class AutoNovelGenerationWorkflow:
 
             context = ConsistencyContext(
                 bible=bible or Bible(id="temp", novel_id=novel_id_obj),
-                character_registry=CharacterRegistry(id="temp"),
+                character_registry=CharacterRegistry(id="temp", novel_id=novel_id),
                 foreshadowing_registry=foreshadowing_registry or ForeshadowingRegistry(id="temp", novel_id=novel_id_obj),
                 plot_arc=PlotArc(id="temp", novel_id=novel_id_obj),
-                event_timeline=EventTimeline(events=[]),
+                event_timeline=EventTimeline(),
                 relationship_graph=RelationshipGraph()
             )
 

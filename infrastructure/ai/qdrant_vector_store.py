@@ -38,7 +38,7 @@ class QdrantVectorStore(VectorStore):
                 points=[point]
             )
         except Exception as e:
-            raise Exception(f"Failed to insert vector: {str(e)}")
+            raise Exception(f"Failed to insert vector: [{type(e).__name__}] {str(e).splitlines()[0] if str(e) else repr(type(e))}")
 
     async def search(
         self,
@@ -63,7 +63,7 @@ class QdrantVectorStore(VectorStore):
                 for result in results
             ]
         except Exception as e:
-            raise Exception(f"Failed to search vectors: {str(e)}")
+            raise Exception(f"Failed to search vectors: {repr(e)}")
 
     async def delete(
         self,
@@ -77,7 +77,7 @@ class QdrantVectorStore(VectorStore):
                 points_selector=[id]
             )
         except Exception as e:
-            raise Exception(f"Failed to delete vector: {str(e)}")
+            raise Exception(f"Failed to delete vector: {repr(e)}")
 
     async def create_collection(
         self,
@@ -94,7 +94,7 @@ class QdrantVectorStore(VectorStore):
                 )
             )
         except Exception as e:
-            raise Exception(f"Failed to create collection: {str(e)}")
+            raise Exception(f"Failed to create collection: {repr(e)}")
 
     async def delete_collection(
         self,
@@ -104,7 +104,7 @@ class QdrantVectorStore(VectorStore):
         try:
             self.client.delete_collection(collection_name=collection)
         except Exception as e:
-            raise Exception(f"Failed to delete collection: {str(e)}")
+            raise Exception(f"Failed to delete collection: {repr(e)}")
 
     async def list_collections(self) -> List[str]:
         """列出所有集合"""
@@ -112,4 +112,4 @@ class QdrantVectorStore(VectorStore):
             collections = self.client.get_collections()
             return [col.name for col in collections.collections]
         except Exception as e:
-            raise Exception(f"Failed to list collections: {str(e)}")
+            raise Exception(f"Failed to list collections: {repr(e)}")
