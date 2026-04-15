@@ -343,7 +343,7 @@ JSON 格式（不要有其他文字）：
 只输出 JSON，不要有任何解释文字。"""
 
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        config = GenerationConfig(max_tokens=8192, temperature=0.7)
 
         result = await self.llm_service.generate(prompt, config)
 
@@ -743,9 +743,9 @@ JSON 格式：
         
         # 强制增加约束，禁止输出思考过程，避免 DeepSeek-R1 等模型输出乱码
         system_prompt += "\n\n【严格约束】绝对不要输出 <think> 标签或任何思考过程！请直接返回合法的 JSON，不要附加任何 Markdown 标记或多余的文字说明。"
-        
+
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=4096, temperature=0.7)
+        config = GenerationConfig(max_tokens=8192, temperature=0.7)
         print(f"[DEBUG] _call_llm_and_parse: Calling LLM service", file=sys.stderr, flush=True)
         result = await self.llm_service.generate(prompt, config)
         print(f"[DEBUG] _call_llm_and_parse: LLM returned result", file=sys.stderr, flush=True)
@@ -771,6 +771,17 @@ JSON 格式：
             end = content.rfind('}')
             if start != -1 and end != -1:
                 content = content[start:end+1]
+
+            # 容错机制：如果大模型生成的内容被强制截断（尾部没有 '}' 闭合）
+            if content.strip() and not content.strip().endswith('}'):
+                # 尝试补全 JSON 结构
+                if content.strip().endswith('"'):
+                    content += '}]}'
+                elif content.strip().endswith(']'):
+                    content += '}'
+                else:
+                    # 粗暴截断，补全双引号、括号
+                    content += '\"}]}'
 
             print(f"[DEBUG] Cleaned content length: {len(content)}", file=sys.stderr, flush=True)
             parsed = json.loads(content)
