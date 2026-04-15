@@ -36,7 +36,8 @@ class TestAnthropicProvider:
             max_tokens=4096
         )
 
-        with patch.object(provider.client.messages, 'create') as mock_create:
+        from unittest.mock import AsyncMock
+        with patch.object(provider.async_client.messages, 'create', new_callable=AsyncMock) as mock_create:
             mock_create.return_value = Mock(
                 content=[Mock(text="Hi there!")],
                 usage=Mock(input_tokens=10, output_tokens=5)
@@ -64,7 +65,8 @@ class TestAnthropicProvider:
             max_tokens=2048
         )
 
-        with patch.object(provider.client.messages, 'create') as mock_create:
+        from unittest.mock import AsyncMock
+        with patch.object(provider.async_client.messages, 'create', new_callable=AsyncMock) as mock_create:
             mock_create.return_value = Mock(
                 content=[Mock(text="Response")],
                 usage=Mock(input_tokens=20, output_tokens=10)
@@ -83,7 +85,8 @@ class TestAnthropicProvider:
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig()
 
-        with patch.object(provider.client.messages, 'create') as mock_create:
+        from unittest.mock import AsyncMock
+        with patch.object(provider.async_client.messages, 'create', new_callable=AsyncMock) as mock_create:
             mock_create.return_value = Mock(
                 content=[],
                 usage=Mock(input_tokens=10, output_tokens=5)
@@ -98,7 +101,8 @@ class TestAnthropicProvider:
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig()
 
-        with patch.object(provider.client.messages, 'create') as mock_create:
+        from unittest.mock import AsyncMock
+        with patch.object(provider.async_client.messages, 'create', new_callable=AsyncMock) as mock_create:
             mock_create.side_effect = Exception("Anthropic API Error")
 
             with pytest.raises(RuntimeError, match="Failed to generate text"):
@@ -110,7 +114,8 @@ class TestAnthropicProvider:
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig()
 
-        with patch.object(provider.client.messages, 'create') as mock_create:
+        from unittest.mock import AsyncMock
+        with patch.object(provider.async_client.messages, 'create', new_callable=AsyncMock) as mock_create:
             mock_create.side_effect = ConnectionError("Network unreachable")
 
             with pytest.raises(RuntimeError, match="Failed to generate text"):
