@@ -1,7 +1,0 @@
-- [x] 成功创建 `infrastructure/ai/providers/openai_provider.py` 并实现 `OpenAIProvider` 类。
-- [x] `OpenAIProvider.generate` 方法可以正确组装 Prompt 并返回 `GenerationResult`，且带 `TokenUsage` 统计。
-- [x] `OpenAIProvider.stream_generate` 能够异步产生文本块 (SSE event handling 或使用 `AsyncOpenAI` 的 stream 模式)。
-- [x] `interfaces/api/dependencies.py` 内部引入了获取 OpenAI Settings 的辅助函数。
-- [x] 所有 `interfaces/api/dependencies.py` 内原来硬编码 `AnthropicProvider` 的逻辑（如 `get_auto_workflow`、`get_auto_knowledge_generator` 等）全部改为统一获取当前生效的 Provider（根据环境变量 `LLM_PROVIDER`）。
-- [x] 项目中已引入必要的依赖（如 `openai` 库）并在 `requirements.txt` 中。
-- [x] 测试运行应用（或者模拟调用 `dependencies.get_llm_service()`），确认能根据配置实例化 `OpenAIProvider` 或 `AnthropicProvider` 并且无语法错误。
