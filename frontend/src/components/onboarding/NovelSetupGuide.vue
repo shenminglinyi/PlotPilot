@@ -3,7 +3,7 @@
     v-model:show="modalOpen"
     :mask-closable="false"
     :close-on-esc="false"
-    :closable="false"
+    :closable="true"
     preset="card"
     title="新书设置向导"
     style="width: 90%; max-width: 600px; max-height: 90vh"
@@ -455,7 +455,13 @@ const emit = defineEmits<{
 /** 与父组件 show 单一数据源，避免本地 visible 与 props 打架导致误 emit(false) 把向导关掉 */
 const modalOpen = computed({
   get: () => props.show,
-  set: (v: boolean) => emit('update:show', v),
+  set: (v: boolean) => {
+    if (v) {
+      emit('update:show', true)
+      return
+    }
+    requestClose()
+  },
 })
 
 const currentStep = ref(1)
@@ -752,7 +758,13 @@ const handleNext = async () => {
 }
 
 const handleSkip = () => {
+  if (!confirm('确认退出向导？当前修改将不会保存。')) return
   emit('skip')
+  emit('update:show', false)
+}
+
+const requestClose = () => {
+  if (!confirm('确认退出向导？当前修改将不会保存。')) return
   emit('update:show', false)
 }
 
