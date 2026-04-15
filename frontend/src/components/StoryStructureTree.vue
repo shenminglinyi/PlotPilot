@@ -1,5 +1,5 @@
 <template>
-  <div class="story-structure" @click="closeMenu">
+  <div class="story-structure" :class="{ narrow: isNarrow }" @click="closeMenu" ref="rootEl">
     <div class="structure-body" v-if="treeData.length > 0">
       <n-tree
         :data="treeData"
@@ -62,6 +62,17 @@
       negative-text="取消"
       @positive-click="doRename"
     >
+      <!-- 节点信息摘要（只读） -->
+      <div v-if="menuTargetNode" class="rename-info">
+        <div v-if="menuTargetNode.chapter_start && menuTargetNode.chapter_end" class="rename-info-row">
+          <span class="rename-info-label">章节范围</span>
+          <span>第 {{ menuTargetNode.chapter_start }}～{{ menuTargetNode.chapter_end }} 章（共 {{ menuTargetNode.chapter_count }} 章）</span>
+        </div>
+        <div v-if="menuTargetNode.description" class="rename-info-row rename-info-desc">
+          <span class="rename-info-label">摘要</span>
+          <span>{{ menuTargetNode.description }}</span>
+        </div>
+      </div>
       <n-input v-model:value="renameValue" placeholder="输入新标题" @keydown.enter="doRename" />
     </n-modal>
 
@@ -80,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, watch } from 'vue'
+import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTree, NEmpty, NSpin, NTag, NButton, NSpace, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
@@ -100,8 +111,28 @@ const emit = defineEmits<{
 const message = useMessage()
 const dialog = useDialog()
 
+// 宽度监测：面板过窄时隐藏后缀文字
+const rootEl = ref<HTMLElement | null>(null)
+const isNarrow = ref(false)
+const NARROW_THRESHOLD = 280
+let ro: ResizeObserver | null = null
+
+onMounted(() => {
+  loadTree()
+  if (rootEl.value) {
+    ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect.width ?? rootEl.value?.offsetWidth ?? 999
+      isNarrow.value = w < NARROW_THRESHOLD
+    })
+    ro.observe(rootEl.value)
+  }
+})
+
+onUnmounted(() => {
+  ro?.disconnect()
+})
+
 const loading = ref(false)
-/** 全托管时空侧栏提示：避免与「启动结构规划」主按钮混淆 */
 const autopilotEmptyMode = ref<null | 'planning' | 'review'>(null)
 const structureEmptyDescription = computed(() => {
   if (autopilotEmptyMode.value === 'planning') {
@@ -403,8 +434,14 @@ const doAddChild = async () => {
   }
 }
 
+/** 构建节点的悬浮提示文本（仅摘要） */
+const buildTooltip = (option: StoryNode): string => {
+  return option.description ? `摘要：${option.description}` : ''
+}
+
 // 渲染节点标签
 const renderLabel = ({ option }: { option: StoryNode }) => {
+  const tooltip = buildTooltip(option)
   const elements: any[] = [
     h('span', { class: 'node-icon' }, option.icon),
     h('span', { class: 'node-title' }, option.display_name),
@@ -422,29 +459,19 @@ const renderLabel = ({ option }: { option: StoryNode }) => {
       }, () => (hasContent ? '已收稿' : '未收稿'))
     )
   }
-  return h('span', { class: 'node-label' }, elements)
+  return h('span', { class: 'node-label', title: tooltip || undefined }, elements)
 }
 
-// 渲染节点后缀
+// 渲染节点后缀（章节范围 / 字数常态显示）
 const renderSuffix = ({ option }: { option: StoryNode }) => {
-  const elements: any[] = []
-  if (option.description && ['part', 'volume', 'act'].includes(option.node_type)) {
-    elements.push(
-      h('span', {
-        class: 'node-description',
-        style: { color: '#999', fontSize: '12px', marginLeft: '8px' },
-      }, option.description)
-    )
+  if (option.chapter_start && option.chapter_end) {
+    return h('span', { class: 'node-range' },
+      `第 ${option.chapter_start}～${option.chapter_end} 章（${option.chapter_count} 章）`)
   }
   if (option.node_type === 'chapter' && option.word_count) {
-    elements.push(h('span', { class: 'node-range' }, `${option.word_count}字`))
+    return h('span', { class: 'node-range' }, `${option.word_count} 字`)
   }
-  if (option.chapter_start && option.chapter_end) {
-    elements.push(
-      h('span', { class: 'node-range' }, `${option.chapter_start}-${option.chapter_end}章 (${option.chapter_count})`)
-    )
-  }
-  return elements.length > 0 ? h('span', {}, elements) : null
+  return null
 }
 
 // 节点属性（右键绑定）
@@ -453,8 +480,7 @@ const nodeProps = ({ option }: { option: StoryNode }) => ({
   onContextmenu: (e: MouseEvent) => handleContextMenu(e, option),
 })
 
-onMounted(() => { loadTree() })
-
+// loadTree 已在顶部 onMounted 中调用
 defineExpose({ loadTree })
 </script>
 
@@ -480,17 +506,50 @@ defineExpose({ loadTree })
 .node-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  cursor: default;
 }
 .node-icon { font-size: 16px; }
 .node-title { font-size: 13px; }
 .node-range {
   font-size: 12px;
   color: #999;
-  margin-left: 8px;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+
+/* 面板过窄时隐藏后缀，避免节点标题换行 */
+.narrow :deep(.node-range) {
+  display: none;
 }
 .node-level-1 { font-weight: 600; }
 .node-level-2 { font-weight: 500; }
 .node-level-3 { font-weight: normal; }
 .node-level-4 { font-weight: normal; font-size: 13px; }
+
+/* 重命名弹窗信息区 */
+.rename-info {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: var(--n-color-embedded, rgba(128,128,128,0.06));
+  border-radius: 6px;
+  font-size: 12px;
+  color: #888;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rename-info-row {
+  display: flex;
+  gap: 8px;
+}
+.rename-info-label {
+  color: #aaa;
+  white-space: nowrap;
+  min-width: 48px;
+}
+.rename-info-desc span:last-child {
+  line-height: 1.6;
+  word-break: break-all;
+}
 </style>
