@@ -1,7 +1,6 @@
 """OpenAI LLM 提供商实现"""
 import logging
-import os
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
 
@@ -13,8 +12,7 @@ from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
-# 从环境变量读取模型配置，默认使用 gpt-4o
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+DEFAULT_MODEL = "gpt-4o"
 
 
 class OpenAIProvider(BaseProvider):
@@ -40,6 +38,9 @@ class OpenAIProvider(BaseProvider):
         # 初始化 AsyncOpenAI 客户端
         client_kwargs = {
             "api_key": settings.api_key,
+            "timeout": settings.timeout_seconds,
+            "default_headers": settings.extra_headers or None,
+            "default_query": settings.extra_query or None,
         }
         if settings.base_url:
             client_kwargs["base_url"] = settings.base_url
@@ -64,23 +65,20 @@ class OpenAIProvider(BaseProvider):
             RuntimeError: 当 API 调用失败或返回空内容时
         """
         try:
-            messages = [
-                {"role": "system", "content": prompt.system},
-                {"role": "user", "content": prompt.user}
-            ]
-            
-            response = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
-                messages=messages,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-            )
-            
-            if not response.choices or not response.choices[0].message.content:
-                raise RuntimeError("API returned empty content")
-                
-            content = response.choices[0].message.content
-            
+            messages = self._build_messages(prompt)
+            request_kwargs = self._build_chat_request_kwargs(messages, config)
+
+            response = await self.async_client.chat.completions.create(**request_kwargs)
+            content = self._extract_text_from_response(response)
+
+            if not content:
+                logger.warning(
+                    "OpenAI-compatible response returned empty non-stream content; "
+                    "falling back to streaming aggregation"
+                )
+                content, token_usage = await self._generate_via_stream(request_kwargs)
+                return GenerationResult(content=content, token_usage=token_usage)
+
             input_tokens = response.usage.prompt_tokens if response.usage else 0
             output_tokens = response.usage.completion_tokens if response.usage else 0
             token_usage = TokenUsage(
@@ -113,23 +111,93 @@ class OpenAIProvider(BaseProvider):
             RuntimeError: 当流式生成失败时
         """
         try:
-            messages = [
-                {"role": "system", "content": prompt.system},
-                {"role": "user", "content": prompt.user}
-            ]
-            
-            stream = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
-                messages=messages,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-                stream=True,
-            )
+            messages = self._build_messages(prompt)
+            request_kwargs = self._build_chat_request_kwargs(messages, config, stream=True)
+            stream = await self.async_client.chat.completions.create(**request_kwargs)
             
             async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+                content = self._extract_text_from_stream_chunk(chunk)
+                if content:
+                    yield content
                     
         except Exception as e:
             logger.error(f"[Stream] Failed: {e}")
             raise RuntimeError(f"Failed to stream text: {str(e)}") from e
+
+    @staticmethod
+    def _build_messages(prompt: Prompt) -> list[dict[str, str]]:
+        return [
+            {"role": "system", "content": prompt.system},
+            {"role": "user", "content": prompt.user}
+        ]
+
+    def _build_chat_request_kwargs(
+        self,
+        messages: list[dict[str, str]],
+        config: GenerationConfig,
+        *,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+            "messages": messages,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+            "extra_headers": self.settings.extra_headers or None,
+            "extra_query": self.settings.extra_query or None,
+            "extra_body": self.settings.extra_body or None,
+            "timeout": self.settings.timeout_seconds,
+        }
+        if stream:
+            kwargs["stream"] = True
+        return kwargs
+
+    @staticmethod
+    def _extract_text_from_response(response: Any) -> str:
+        if not getattr(response, "choices", None):
+            return ""
+
+        message = getattr(response.choices[0], "message", None)
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return content.strip()
+        return ""
+
+    @staticmethod
+    def _extract_text_from_stream_chunk(chunk: Any) -> str:
+        if not getattr(chunk, "choices", None):
+            return ""
+
+        delta = getattr(chunk.choices[0], "delta", None)
+        content = getattr(delta, "content", None)
+        if isinstance(content, str):
+            return content
+        return ""
+
+    async def _generate_via_stream(self, request_kwargs: dict[str, Any]) -> tuple[str, TokenUsage]:
+        stream = await self.async_client.chat.completions.create(
+            **{**request_kwargs, "stream": True}
+        )
+
+        parts: list[str] = []
+        input_tokens = 0
+        output_tokens = 0
+
+        async for chunk in stream:
+            content = self._extract_text_from_stream_chunk(chunk)
+            if content:
+                parts.append(content)
+
+            usage = getattr(chunk, "usage", None)
+            if usage is not None:
+                input_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                output_tokens = getattr(usage, "completion_tokens", 0) or 0
+
+        content = "".join(parts).strip()
+        if not content:
+            raise RuntimeError("API returned empty content")
+
+        return content, TokenUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )

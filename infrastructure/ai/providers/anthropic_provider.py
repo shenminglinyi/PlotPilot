@@ -1,20 +1,20 @@
 """Anthropic LLM 提供商实现"""
 import json
 import logging
-import os
 from typing import AsyncIterator
+
 import httpx
 from anthropic import Anthropic, AsyncAnthropic
+
+from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
-from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from infrastructure.ai.config.settings import Settings
 from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
-# 从环境变量读取模型配置，默认使用 claude-sonnet-4-6
-DEFAULT_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class AnthropicProvider(BaseProvider):
@@ -41,22 +41,19 @@ class AnthropicProvider(BaseProvider):
         if not settings.api_key:
             raise ValueError("API key is required for AnthropicProvider")
 
-        # 官方 SDK 客户端 - 不设置 base_url，直接走官方 API (HTTPS)
-        # 用于 generate() (规划/分析等场景)
         official_client_kw = {
             "api_key": settings.api_key,
+            "base_url": settings.base_url,
             "timeout": 300.0,  # 5分钟超时
             "max_retries": 5,  # 增加重试次数
             "default_headers": {
                 "User-Agent": "claude-cli/2.1.87 (external, cli)",
+                **(settings.extra_headers or {}),
             },
+            "default_query": settings.extra_query or None,
         }
         self.client = Anthropic(**official_client_kw)
         self.async_client = AsyncAnthropic(**official_client_kw)
-
-        # 代理地址 - 用于 stream_generate() (正文生成)
-        # 如果设置了 base_url，则使用代理；否则回退到官方 API
-        self.proxy_base_url = settings.base_url
 
     async def generate(
         self,
@@ -121,8 +118,7 @@ class AnthropicProvider(BaseProvider):
         直接使用 httpx 解析 SSE 流，走代理服务器（如果配置了 base_url）。
         用于正文生成场景，支持 HTTP 代理。
         """
-        # 使用代理地址（如果有配置），否则回退官方 API
-        base_url = self.proxy_base_url or "https://api.anthropic.com"
+        base_url = self.settings.base_url or "https://api.anthropic.com"
         url = f"{base_url}/v1/messages"
         logger.debug(f"[Stream] Using endpoint: {url}")
 
@@ -133,22 +129,30 @@ class AnthropicProvider(BaseProvider):
             "Accept": "text/event-stream",
             # 伪造 User-Agent 模拟 claude-cli
             "User-Agent": "claude-cli/2.1.87 (external, cli)",
+            **(self.settings.extra_headers or {}),
         }
 
         payload = {
-            "model": config.model or DEFAULT_MODEL,
+            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "system": prompt.system,
             "messages": [{"role": "user", "content": prompt.user}],
             "stream": True,
         }
+        payload.update(self.settings.extra_body or {})
 
         logger.debug(f"[Stream] Calling {url}")
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                async with client.stream("POST", url, headers=headers, json=payload) as response:
+            async with httpx.AsyncClient(timeout=self.settings.timeout_seconds) as client:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers=headers,
+                    params=self.settings.extra_query or None,
+                    json=payload,
+                ) as response:
                     if response.status_code != 200:
                         error_body = await response.aread()
                         raise RuntimeError(f"API error {response.status_code}: {error_body.decode()}")

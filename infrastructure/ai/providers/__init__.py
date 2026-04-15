@@ -18,3 +18,9 @@ try:
     __all__.append("OpenAIProvider")
 except ModuleNotFoundError:
     OpenAIProvider = None
+
+try:
+    from .gemini_provider import GeminiProvider
+    __all__.append("GeminiProvider")
+except ModuleNotFoundError:
+    GeminiProvider = None
