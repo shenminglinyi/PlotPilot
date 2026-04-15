@@ -342,72 +342,25 @@ JSON 格式（不要有其他文字）：
 
 只输出 JSON，不要有任何解释文字。"""
 
-        prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=8192, temperature=0.7)
-
-        result = await self.llm_service.generate(prompt, config)
-
-        # 解析 JSON
-        try:
-            content = result.content.strip()
-
-            # 移除可能的 markdown 代码块标记
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            content = content.strip()
-
-            # 尝试找到第一个 { 和最后一个 }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-
-            logger.info(f"Attempting to parse Bible JSON (length: {len(content)})")
-
-            # 尝试直接解析
-            try:
-                bible_data = json.loads(content)
-                logger.info(f"Successfully parsed Bible JSON")
-                return bible_data
-            except json.JSONDecodeError as e:
-                # 如果失败，尝试修复常见问题
-                logger.warning(f"First parse attempt failed: {e}, trying to repair JSON...")
-
-                # 使用 json.loads 的 strict=False 模式
-                import re
-                # 移除字符串中的控制字符和多余的空白
-                content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
-
-                bible_data = json.loads(content, strict=False)
-                logger.info(f"Successfully parsed Bible JSON after repair")
-                return bible_data
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Bible JSON: {e}")
-            logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
-            # 返回默认结构
-            return {
-                "characters": [
-                    {
-                        "name": "主角",
-                        "role": "主角",
-                        "description": "待补充"
-                    }
-                ],
-                "locations": [
-                    {
-                        "id": "loc-default-1",
-                        "name": "主要场景",
-                        "type": "城市",
-                        "description": "待补充",
-                        "parent_id": None,
-                    }
-                ],
-                "style": "第三人称有限视角，轻松幽默"
+        parsed = await self._call_llm_and_parse(system_prompt, user_prompt)
+        
+        # 兼容处理：确保字段存在
+        if "characters" not in parsed:
+            parsed["characters"] = []
+        if "locations" not in parsed:
+            parsed["locations"] = []
+        if "style" not in parsed:
+            parsed["style"] = "第三人称视角，节奏紧凑。"
+        if "worldbuilding" not in parsed:
+            parsed["worldbuilding"] = {
+                "core_rules": {},
+                "geography": {},
+                "society": {},
+                "culture": {},
+                "daily_life": {}
             }
+            
+        return parsed
 
     async def _save_to_bible(self, novel_id: str, bible_data: Dict[str, Any]) -> None:
         """保存到 Bible"""
@@ -742,7 +695,12 @@ JSON 格式：
         print(f"[DEBUG] _call_llm_and_parse: Creating prompt", file=sys.stderr, flush=True)
         
         # 强制增加约束，禁止输出思考过程，避免 DeepSeek-R1 等模型输出乱码
-        system_prompt += "\n\n【严格约束】绝对不要输出 <think> 标签或任何思考过程！请直接返回合法的 JSON，不要附加任何 Markdown 标记或多余的文字说明。"
+        system_prompt += (
+            "\n\n【极其严格的 JSON 格式约束】"
+            "\n1. 绝对不要输出 <think> 标签或任何思考过程！"
+            "\n2. 绝对不要在 JSON 的字符串值内部使用双引号（\"）！如果需要强调或引用，请务必使用单引号（'），例如 '中关村'。"
+            "\n3. 请直接返回合法的 JSON，不要附加任何 Markdown 标记或多余的文字说明。"
+        )
 
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=8192, temperature=0.7)
@@ -766,22 +724,73 @@ JSON 格式：
 
             content = content.strip()
 
-            # 尝试找到第一个 { 和最后一个 }
+            # 提取 JSON 起点并进行自愈修复
             start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-
-            # 容错机制：如果大模型生成的内容被强制截断（尾部没有 '}' 闭合）
-            if content.strip() and not content.strip().endswith('}'):
-                # 尝试补全 JSON 结构
-                if content.strip().endswith('"'):
-                    content += '}]}'
-                elif content.strip().endswith(']'):
-                    content += '}'
+            if start != -1:
+                # 1. 先尝试正常的截取（容忍前后废话）
+                end = content.rfind("}")
+                if end != -1 and end > start:
+                    candidate = content[start:end+1]
+                    try:
+                        json.loads(candidate)
+                        content = candidate  # 完美闭合且合法
+                    except json.JSONDecodeError:
+                        content = content[start:] # 可能是被截断了，保留到结尾进入自愈
                 else:
-                    # 粗暴截断，补全双引号、括号
-                    content += '\"}]}'
+                    content = content[start:]
+
+            # 智能容错修复：处理 max_tokens 截断导致的 JSON 不完整
+            def repair_json(s: str) -> str:
+                s = s.strip()
+                if not s: return "{}"
+                try:
+                    json.loads(s)
+                    return s
+                except json.JSONDecodeError:
+                    pass
+                    
+                def _do_repair(partial_s: str) -> str:
+                    stack = []
+                    in_string = False
+                    escape = False
+                    for c in partial_s:
+                        if in_string:
+                            if escape: escape = False
+                            elif c == '\\': escape = True
+                            elif c == '"': in_string = False
+                        else:
+                            if c == '"': in_string = True
+                            elif c == '{': stack.append('}')
+                            elif c == '[': stack.append(']')
+                            elif c == '}': 
+                                if stack and stack[-1] == '}': stack.pop()
+                            elif c == ']':
+                                if stack and stack[-1] == ']': stack.pop()
+                    res = partial_s
+                    if in_string: res += '"'
+                    res = res.strip()
+                    while res.endswith(','): res = res[:-1].strip()
+                    while stack:
+                        res = res.strip()
+                        if res.endswith(','): res = res[:-1].strip()
+                        res += stack.pop()
+                    return res
+
+                current_s = s
+                max_retries = 15
+                while max_retries > 0 and current_s:
+                    repaired = _do_repair(current_s)
+                    try:
+                        json.loads(repaired)
+                        return repaired
+                    except json.JSONDecodeError:
+                        idx = current_s.rfind(',')
+                        if idx == -1: break
+                        current_s = current_s[:idx]
+                    max_retries -= 1
+                return _do_repair(s)
+            
+            content = repair_json(content)
 
             print(f"[DEBUG] Cleaned content length: {len(content)}", file=sys.stderr, flush=True)
             parsed = json.loads(content)
