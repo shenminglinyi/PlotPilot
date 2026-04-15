@@ -75,6 +75,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 
 let chartInstance: echarts.ECharts | null = null
+let resizeObserver: ResizeObserver | null = null
 
 // 张力警戒线
 const tensionThreshold = computed(() => props.threshold ?? 5.0)
@@ -105,6 +106,12 @@ const maxTension = computed(() => {
 
 // ==================== 加载 ====================
 async function loadTensionData() {
+  // 销毁旧实例，避免 loading 期间 chartRef DOM 被卸载后实例失效
+  if (chartInstance) {
+    detachResizeObserver()
+    chartInstance.dispose()
+    chartInstance = null
+  }
   loading.value = true
   error.value = null
   try {
@@ -147,6 +154,7 @@ function renderChart() {
 
   if (!chartInstance) {
     chartInstance = echarts.init(chartRef.value)
+    attachResizeObserver()
   }
 
   const chapterNumbers = tensionData.value.map((d) => d.chapter_number)
@@ -285,6 +293,19 @@ function handleResize() {
   chartInstance?.resize()
 }
 
+function attachResizeObserver() {
+  if (!chartRef.value || resizeObserver) return
+  resizeObserver = new ResizeObserver(() => {
+    chartInstance?.resize()
+  })
+  resizeObserver.observe(chartRef.value)
+}
+
+function detachResizeObserver() {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+}
+
 // ==================== 监听 ====================
 watch(() => props.novelId, () => void loadTensionData())
 
@@ -307,6 +328,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   if (resizeTimer) clearTimeout(resizeTimer)
+  detachResizeObserver()
   chartInstance?.dispose()
   chartInstance = null
 })

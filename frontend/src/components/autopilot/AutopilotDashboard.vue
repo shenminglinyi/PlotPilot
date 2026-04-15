@@ -74,8 +74,7 @@ function handleBreakerReset() {
 
 <style scoped>
 .autopilot-dashboard {
-  height: 100%;
-  overflow-y: auto;
+  /* 高度由内容自然撑开，由父容器 .managed-stack 统一负责滚动 */
 }
 
 .monitor-copy-hint {
