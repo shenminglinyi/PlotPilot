@@ -85,6 +85,7 @@
           <span class="action-icon">🔄</span>
           <span>刷新列表</span>
         </button>
+        <GlobalLLMEntryButton appearance="sidebar" />
       </div>
     </section>
 
@@ -109,6 +110,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
+import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 
 defineEmits<{
   (e: 'create-book'): void
