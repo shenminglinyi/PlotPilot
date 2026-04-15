@@ -1,4 +1,5 @@
 import logging
+import os
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from domain.novel.value_objects.chapter_state import ChapterState
@@ -38,7 +39,7 @@ class StateExtractor:
 
         # 配置 LLM
         config = GenerationConfig(
-            model="claude-3-5-sonnet-20241022",
+            model=os.getenv("WRITING_MODEL", ""),
             max_tokens=4096,
             temperature=0.3
         )

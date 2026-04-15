@@ -9,7 +9,7 @@ class GenerationConfig:
     """生成配置"""
     def __init__(
         self,
-        model: str = "claude-sonnet-4-6",
+        model: str = "",
         max_tokens: int = 4096,
         temperature: float = 1.0,
         response_format: Optional[Dict] = None,

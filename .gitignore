@@ -75,3 +75,4 @@ scripts/evaluation/results/
 # Data directory (keep structure, ignore content)
 data/chromadb/
 data/logs/
+data/llm_configs.json

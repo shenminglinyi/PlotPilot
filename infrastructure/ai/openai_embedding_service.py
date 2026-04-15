@@ -15,23 +15,25 @@ class OpenAIEmbeddingService(EmbeddingService):
         """初始化 OpenAI 嵌入服务
 
         Raises:
-            ValueError: 如果 OPENAI_API_KEY 环境变量未设置
+            ValueError: 如果 API Key 环境变量未设置
         """
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
+            raise ValueError("EMBEDDING_API_KEY or OPENAI_API_KEY environment variable is required")
 
-        self.client = AsyncOpenAI(api_key=api_key)
-        self.model = "text-embedding-3-small"
-        self._dimension = 1536
+        base_url = os.getenv("EMBEDDING_BASE_URL") or None
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self.model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        self._dimension: int = 0
 
     def get_dimension(self) -> int:
-        """获取嵌入向量的维度
-
-        Returns:
-            1536 (text-embedding-3-small 模型的维度)
-        """
         return self._dimension
+
+    async def _probe_dimension(self) -> None:
+        if self._dimension > 0:
+            return
+        response = await self.client.embeddings.create(model=self.model, input="dim_probe")
+        self._dimension = len(response.data[0].embedding)
 
     async def embed(self, text: str) -> List[float]:
         """生成单个文本的嵌入向量
@@ -54,7 +56,10 @@ class OpenAIEmbeddingService(EmbeddingService):
                 model=self.model,
                 input=text
             )
-            return response.data[0].embedding
+            vec = response.data[0].embedding
+            if self._dimension == 0:
+                self._dimension = len(vec)
+            return vec
         except Exception as e:
             raise RuntimeError(f"Failed to generate embedding: {str(e)}") from e
 
@@ -82,6 +87,9 @@ class OpenAIEmbeddingService(EmbeddingService):
                 model=self.model,
                 input=texts
             )
-            return [item.embedding for item in response.data]
+            result = [item.embedding for item in response.data]
+            if self._dimension == 0 and result:
+                self._dimension = len(result[0])
+            return result
         except Exception as e:
             raise RuntimeError(f"Failed to generate embeddings: {str(e)}") from e
