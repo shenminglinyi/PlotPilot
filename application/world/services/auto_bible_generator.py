@@ -291,9 +291,13 @@ class AutoBibleGenerator:
             user=f"创意：{premise}\n请输出2个最需要考据的搜索关键词："
         )
         config = GenerationConfig(model=target_model, max_tokens=100, temperature=0.3)
-        keyword_result = await actual_llm_service.generate(extract_prompt, config)
+        try:
+            keyword_result = await actual_llm_service.generate(extract_prompt, config)
+        except Exception as e:
+            logger.error(f"Keyword extraction failed, fallback to heuristic keywords: {e}")
+            keyword_result = None
         
-        content = (keyword_result.content or "").strip()
+        content = ((keyword_result.content if keyword_result else "") or "").strip()
         if "{" in content or "[" in content:
             keywords = ["1990年代 中国经济", "90年代 创业"]
         else:
@@ -342,9 +346,15 @@ class AutoBibleGenerator:
             user=f"用户创意：{premise}\n\n【真实网络资料】\n{combined_materials}\n\n请不要输出任何 JSON 代码块！只输出纯 Markdown 格式的《背景考据白皮书》："
         )
         report_config = GenerationConfig(model=target_model, max_tokens=2048, temperature=0.5)
-        report_result = await actual_llm_service.generate(report_prompt, report_config)
+        try:
+            report_result = await actual_llm_service.generate(report_prompt, report_config)
+        except Exception as e:
+            logger.error(f"Research report generation failed, fallback to minimal report: {e}")
+            report_result = None
         
-        content = report_result.content.strip()
+        content = ((report_result.content if report_result else "") or "").strip()
+        if not content:
+            content = f"### 背景考据\n\n**核心元素**：{premise}\n\n*（考据服务暂时不可用或返回空内容，已跳过联网考据。）*"
         # 终极兜底：如果它还是脑抽输出了 JSON 格式的假结果
         if content.startswith('{') and ('"characters"' in content or '"locations"' in content or '"worldbuilding"' in content):
             content = f"### 背景考据\n\n**核心元素**：{premise}\n\n*由于网络资料获取限制，请依靠自身常识构建该背景下的详细设定。*"
