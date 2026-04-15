@@ -454,10 +454,20 @@ const generatingBible = ref(false)
 const bibleGenerated = ref(false)
 const bibleStatusText = ref('正在生成世界观...')
 const bibleError = ref('')
-const bibleData = ref<BibleDTO | Record<string, unknown>>({ style_notes: [] } as BibleDTO)
+const emptyBibleData = (): BibleDTO => ({
+  id: '',
+  novel_id: props.novelId,
+  characters: [],
+  world_settings: [],
+  locations: [],
+  timeline_notes: [],
+  style_notes: [],
+})
+
+const bibleData = ref<BibleDTO>(emptyBibleData())
 const worldbuildingData = ref<ReturnType<typeof emptyWorldbuildingShape>>(emptyWorldbuildingShape())
 
-const styleConventionDisplay = computed(() => styleConventionFromBible(bibleData.value as BibleDTO))
+const styleConventionDisplay = computed(() => styleConventionFromBible(bibleData.value))
 
 // 第2步：生成人物和地点
 const generatingCharacters = ref(false)
@@ -673,6 +683,7 @@ watch(
       customMode.value = false
       customLogline.value = ''
       plotSuggestError.value = ''
+      bibleData.value = emptyBibleData()
       void startBibleGeneration()
     } else {
       biblePollEpoch.value += 1

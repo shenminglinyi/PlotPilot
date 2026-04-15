@@ -20,7 +20,7 @@ interface GraphLink {
 }
 
 interface EChartsEventParams {
-  dataType: 'node' | 'edge'
+  dataType?: 'node' | 'edge'
   data: GraphNode | GraphLink
 }
 
@@ -65,11 +65,12 @@ const chartOption = computed<EChartsOption>(() => ({
     }
   ],
   tooltip: {
-    formatter: (params: EChartsEventParams) => {
-      if (params.dataType === 'node') {
-        return `${(params.data as GraphNode).name}`
+    formatter: (params: unknown) => {
+      const item = params as EChartsEventParams
+      if (item.dataType === 'node') {
+        return `${(item.data as GraphNode).name}`
       }
-      return `${(params.data as GraphLink).source} → ${(params.data as GraphLink).target}`
+      return `${(item.data as GraphLink).source} → ${(item.data as GraphLink).target}`
     }
   }
 }))

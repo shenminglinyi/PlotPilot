@@ -2,6 +2,8 @@
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 def check_python_version():
     """检查 Python 版本"""
     version = sys.version_info
@@ -37,12 +39,12 @@ def check_dependencies():
 
 def check_env_file():
     """检查 .env 文件"""
-    env_file = Path(__file__).parent.parent / ".env"
+    env_file = PROJECT_ROOT / ".env"
     if env_file.exists():
         print(f"✅ .env 文件存在")
 
         # 检查是否有 API key
-        with open(env_file, 'r') as f:
+        with open(env_file, 'r', encoding='utf-8') as f:
             content = f.read()
             if "ANTHROPIC_API_KEY" in content:
                 print("✅ ANTHROPIC_API_KEY 已配置")
@@ -56,7 +58,7 @@ def check_env_file():
 
 def check_output_dir():
     """检查输出目录"""
-    output_dir = Path(__file__).parent.parent / "data" / "prototype_results"
+    output_dir = PROJECT_ROOT / "data" / "prototype_results"
     if not output_dir.exists():
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"✅ 创建输出目录: {output_dir}")

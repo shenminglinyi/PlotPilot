@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { type AxiosRequestConfig } from 'axios'
 import type {
   BookListItem,
   BookDeskResponse,
@@ -48,65 +48,74 @@ import type {
 //
 // TODO: Migrate existing components to new API clients before removing this file.
 
-const request = axios.create({
+interface LegacyApiClient {
+  get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+  post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+  delete<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+}
+
+const axiosInstance = axios.create({
   baseURL: '/api',
   timeout: 30000,
 })
 
 // 添加响应拦截器，直接返回数据
-request.interceptors.response.use(response => response.data)
+axiosInstance.interceptors.response.use(response => response.data)
+
+const request = axiosInstance as unknown as LegacyApiClient
 
 export const bookApi = {
-  getList: () => request.get<BookListItem[]>('/books') as Promise<BookListItem[]>,
-  create: (data: unknown) => request.post<SlugResponse>('/jobs/create-book', data) as Promise<SlugResponse>,
-  deleteBook: (slug: string) => request.delete<SimpleResponse>(`/book/${slug}`) as Promise<SimpleResponse>,
-  getCast: (slug: string) => request.get<CastGraph>(`/book/${slug}/cast`) as Promise<CastGraph>,
+  getList: () => request.get<BookListItem[]>('/books'),
+  create: (data: unknown) => request.post<SlugResponse>('/jobs/create-book', data),
+  deleteBook: (slug: string) => request.delete<SimpleResponse>(`/book/${slug}`),
+  getCast: (slug: string) => request.get<CastGraph>(`/book/${slug}/cast`),
   putCast: (slug: string, data: unknown) => request.put(`/book/${slug}/cast`, data),
   searchCast: (slug: string, q: string) =>
-    request.get<CastSearchResponse>(`/book/${slug}/cast/search`, { params: { q } }) as Promise<CastSearchResponse>,
+    request.get<CastSearchResponse>(`/book/${slug}/cast/search`, { params: { q } }),
   /** 正文与关系图对照：章节出现、设定未入库、书名号未匹配等 */
   getCastCoverage: (slug: string) =>
-    request.get<CastCoverage>(`/book/${slug}/cast/coverage`) as Promise<CastCoverage>,
+    request.get<CastCoverage>(`/book/${slug}/cast/coverage`),
   getKnowledge: (slug: string) =>
-    request.get<StoryKnowledge>(`/book/${slug}/knowledge`) as Promise<StoryKnowledge>,
+    request.get<StoryKnowledge>(`/book/${slug}/knowledge`),
   putKnowledge: (slug: string, data: unknown) => request.put(`/book/${slug}/knowledge`, data),
   knowledgeSearch: (slug: string, q: string, k = 6) =>
-    request.get<KnowledgeSearchResponse>(`/book/${slug}/knowledge/search`, { params: { q, k } }) as Promise<KnowledgeSearchResponse>,
+    request.get<KnowledgeSearchResponse>(`/book/${slug}/knowledge/search`, { params: { q, k } }),
   getDesk: (slug: string) =>
-    request.get<BookDeskResponse>(`/book/${slug}/desk`) as Promise<BookDeskResponse>,
+    request.get<BookDeskResponse>(`/book/${slug}/desk`),
   /** @deprecated Use bibleApi.getBible() - Note: New API has different structure, needs bulk update endpoint */
-  getBible: (slug: string) => request.get<Bible>(`/book/${slug}/bible`) as Promise<Bible>,
+  getBible: (slug: string) => request.get<Bible>(`/book/${slug}/bible`),
   /** @deprecated Use bibleApi - Note: New API has different structure, needs bulk update endpoint */
   saveBible: (slug: string, data: unknown) => request.put(`/book/${slug}/bible`, data),
   /** @deprecated Use chapterApi.getChapter() instead */
   getChapterBody: (slug: string, chapterId: number) =>
-    request.get<ChapterBody>(`/book/${slug}/chapter/${chapterId}/body`) as Promise<ChapterBody>,
+    request.get<ChapterBody>(`/book/${slug}/chapter/${chapterId}/body`),
   /** @deprecated Use chapterApi.updateChapter() instead */
   saveChapterBody: (slug: string, chapterId: number, content: string) =>
     request.put(`/book/${slug}/chapter/${chapterId}/body`, { content }),
   /** @deprecated Use chapterApi.getChapterReview() instead */
   getChapterReview: (slug: string, chapterId: number) =>
-    request.get<ChapterReview>(`/book/${slug}/chapter/${chapterId}/review`) as Promise<ChapterReview>,
+    request.get<ChapterReview>(`/book/${slug}/chapter/${chapterId}/review`),
   /** @deprecated Use chapterApi.saveChapterReview() instead */
   saveChapterReview: (slug: string, chapterId: number, status: string, memo: string) =>
     request.put(`/book/${slug}/chapter/${chapterId}/review`, { status, memo }),
   /** @deprecated Use chapterApi.reviewChapterAi() instead - 自动审读：返回 status/memo；save=true 时写入 editorial */
   reviewChapterAi: (slug: string, chapterId: number, save = false) =>
-    request.post<ChapterReviewAiResponse>(`/book/${slug}/chapter/${chapterId}/review-ai`, { save }) as Promise<ChapterReviewAiResponse>,
+    request.post<ChapterReviewAiResponse>(`/book/${slug}/chapter/${chapterId}/review-ai`, { save }),
   /** @deprecated Use chapterApi.getChapterStructure() instead */
   getChapterStructure: (slug: string, chapterId: number) =>
-    request.get<ChapterStructure>(`/book/${slug}/chapter/${chapterId}/structure`) as Promise<ChapterStructure>,
+    request.get<ChapterStructure>(`/book/${slug}/chapter/${chapterId}/structure`),
 }
 
 export const jobApi = {
   startPlan: (slug: string, dryRun = false, mode: 'initial' | 'revise' = 'initial') =>
-    request.post<JobCreateResponse>(`/jobs/${slug}/plan`, { dry_run: dryRun, mode }) as Promise<JobCreateResponse>,
+    request.post<JobCreateResponse>(`/jobs/${slug}/plan`, { dry_run: dryRun, mode }),
   startWrite: (slug: string, from: number, to?: number, dryRun = false, continuity = false) =>
-    request.post<JobCreateResponse>(`/jobs/${slug}/write`, { from_chapter: from, to_chapter: to, dry_run: dryRun, continuity }) as Promise<JobCreateResponse>,
+    request.post<JobCreateResponse>(`/jobs/${slug}/write`, { from_chapter: from, to_chapter: to, dry_run: dryRun, continuity }),
   startRun: (slug: string, dryRun = false, continuity = false) =>
-    request.post<JobCreateResponse>(`/jobs/${slug}/run`, { dry_run: dryRun, continuity }) as Promise<JobCreateResponse>,
+    request.post<JobCreateResponse>(`/jobs/${slug}/run`, { dry_run: dryRun, continuity }),
   startExport: (slug: string) => request.post(`/jobs/${slug}/export`, {}),
-  cancelJob: (jobId: string) => request.post<SimpleResponse>(`/jobs/${jobId}/cancel`, {}) as Promise<SimpleResponse>,
+  cancelJob: (jobId: string) => request.post<SimpleResponse>(`/jobs/${jobId}/cancel`, {}),
   getStatus: (jobId: string) =>
-    request.get<JobStatusResponse>(`/jobs/${jobId}`) as Promise<JobStatusResponse>,
+    request.get<JobStatusResponse>(`/jobs/${jobId}`),
 }

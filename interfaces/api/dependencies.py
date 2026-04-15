@@ -113,6 +113,43 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
     return Settings(api_key=key, base_url=_openai_base_url())
 
 
+def _normalize_openai_base_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    normalized = url.strip().rstrip("/")
+    suffix = "/chat/completions"
+    if normalized.endswith(suffix):
+        normalized = normalized[: -len(suffix)]
+    return normalized or None
+
+
+def _ark_api_key() -> Optional[str]:
+    raw = os.getenv("ARK_API_KEY")
+    if raw is None:
+        return None
+    key = raw.strip()
+    return key or None
+
+
+def _ark_base_url() -> Optional[str]:
+    return _normalize_openai_base_url(
+        os.getenv("ARK_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3"
+    )
+
+
+def _ark_model() -> str:
+    return (os.getenv("ARK_MODEL") or "doubao-seed-2-0-mini-260215").strip()
+
+
+def _ark_settings(require_key: bool = True) -> Optional[Settings]:
+    key = _ark_api_key()
+    if not key:
+        if require_key:
+            raise ValueError("Set ARK_API_KEY (optional: ARK_BASE_URL, ARK_MODEL)")
+        return None
+    return Settings(api_key=key, base_url=_ark_base_url())
+
+
 def get_storage() -> FileStorage:
     """获取存储后端实例
 
@@ -311,15 +348,29 @@ def get_hosted_write_service() -> HostedWriteService:
 
 
 def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+    """获取 LLM 服务实例（Anthropic / OpenAI / Ark；无配置用 Mock）。供多模块复用。"""
+    provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+    if not provider:
+        if _anthropic_api_key():
+            provider = "anthropic"
+        elif _ark_api_key():
+            provider = "ark"
+        elif _openai_api_key():
+            provider = "openai"
+        else:
+            provider = "mock"
     
     if provider == "openai":
         settings = _openai_settings(require_key=False)
         if settings:
             from infrastructure.ai.providers.openai_provider import OpenAIProvider
-            return OpenAIProvider(settings)
-    else:
+            return OpenAIProvider(settings, default_model=os.getenv("OPENAI_MODEL") or "gpt-4o")
+    elif provider == "ark":
+        settings = _ark_settings(require_key=False)
+        if settings:
+            from infrastructure.ai.providers.openai_provider import OpenAIProvider
+            return OpenAIProvider(settings, default_model=_ark_model())
+    elif provider == "anthropic":
         settings = _anthropic_settings(require_key=False)
         if settings:
             return AnthropicProvider(settings)
@@ -905,4 +956,3 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
-

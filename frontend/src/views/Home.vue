@@ -10,6 +10,9 @@
             <h1 class="title">书稿工作台</h1>
             <p class="subtitle">从一句梗概到完整书稿，结构规划与校阅一站完成</p>
           </div>
+          <n-button secondary class="ai-settings-link" @click="router.push('/settings/ai')">
+            AI 设置
+          </n-button>
         </header>
 
         <!-- Create Card -->
@@ -564,9 +567,19 @@ onMounted(() => {
 }
 
 .header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
   text-align: center;
   margin-bottom: 40px;
   animation: fade-up 0.55s ease both;
+  position: relative;
+}
+
+.ai-settings-link {
+  position: absolute;
+  right: 0;
+  top: 4px;
 }
 
 .title {
@@ -850,6 +863,16 @@ onMounted(() => {
   .home-content {
     margin-left: 0;
     padding: 16px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .ai-settings-link {
+    position: static;
   }
   
   .section-header {

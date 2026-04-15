@@ -44,7 +44,7 @@ import threading
 import multiprocessing
 
 # Core module
-from interfaces.api.v1.core import novels, chapters, scene_generation_routes
+from interfaces.api.v1.core import novels, chapters, scene_generation_routes, ai_settings
 
 # World module
 from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_routes, worldbuilding_routes
@@ -299,6 +299,7 @@ app.add_middleware(
 app.include_router(novels.router, prefix="/api/v1")
 app.include_router(chapters.router, prefix="/api/v1/novels")
 app.include_router(scene_generation_routes.router)
+app.include_router(ai_settings.router, prefix="/api/v1")
 
 # World module routes
 app.include_router(bible.router, prefix="/api/v1")

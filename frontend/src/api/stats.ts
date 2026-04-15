@@ -1,14 +1,18 @@
-import axios from 'axios'
+import axios, { type AxiosRequestConfig } from 'axios'
 import type { GlobalStats, ChapterStats, WritingProgress } from '../types/api'
 import { novelApi } from './novel'
 
-const request = axios.create({
+interface StatsApiClient {
+  get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+}
+
+const axiosInstance = axios.create({
   baseURL: '/api',
   timeout: 30000,
 })
 
 // FastAPI returns SuccessResponse<T> as { success, data, message? }
-request.interceptors.response.use(response => {
+axiosInstance.interceptors.response.use(response => {
   const body = response.data
   if (
     body &&
@@ -22,6 +26,8 @@ request.interceptors.response.use(response => {
   return body
 })
 
+const request = axiosInstance as unknown as StatsApiClient
+
 function enc(slug: string): string {
   return encodeURIComponent(slug)
 }
@@ -31,14 +37,14 @@ export const statsApi = {
    * Get global statistics across all books
    * GET /stats/global
    */
-  getGlobal: () => request.get<GlobalStats>('/stats/global') as Promise<GlobalStats>,
+  getGlobal: () => request.get<GlobalStats>('/stats/global'),
 
   /**
    * Get statistics for a specific chapter
    * GET /stats/book/{slug}/chapter/{chapterId}
    */
   getChapter: (slug: string, chapterId: number) =>
-    request.get<ChapterStats>(`/stats/book/${enc(slug)}/chapter/${chapterId}`) as Promise<ChapterStats>,
+    request.get<ChapterStats>(`/stats/book/${enc(slug)}/chapter/${chapterId}`),
 
   /**
    * Get writing progress over time
@@ -47,7 +53,7 @@ export const statsApi = {
   getProgress: (slug: string, days = 30) =>
     request.get<WritingProgress[]>(`/stats/book/${enc(slug)}/progress`, {
       params: { days },
-    }) as Promise<WritingProgress[]>,
+    }),
 
   /**
    * 书目统计（v1 novel statistics）+ 写作进度（legacy /api/stats）

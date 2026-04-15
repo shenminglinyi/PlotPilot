@@ -86,7 +86,7 @@
 import { ref, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { sandboxApi, type CharacterAnchor } from '@/api/sandbox'
-import { bibleApi } from '@/api/bible'
+import { bibleApi, type CharacterDTO } from '@/api/bible'
 
 const props = defineProps<{
   novelId: string
@@ -102,13 +102,13 @@ const scenePrompt = ref('')
 const generating = ref(false)
 const generatedDialogue = ref('')
 const loadingCharacters = ref(false)
-const characters = ref<any[]>([])
+const characters = ref<CharacterDTO[]>([])
 
 // 角色选项
 const characterOptions = computed(() => {
   return characters.value.map(char => ({
-    label: char.name || char.character_id,
-    value: char.character_id
+    label: char.name || char.id,
+    value: char.id
   }))
 })
 
@@ -118,8 +118,7 @@ async function loadCharacters() {
 
   loadingCharacters.value = true
   try {
-    const cast = await bibleApi.getCast(props.novelId)
-    characters.value = cast.characters || []
+    characters.value = await bibleApi.listCharacters(props.novelId)
   } catch (error) {
     console.error('Failed to load characters:', error)
     message.error('加载角色列表失败')

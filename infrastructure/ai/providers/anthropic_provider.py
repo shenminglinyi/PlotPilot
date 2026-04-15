@@ -82,7 +82,7 @@ class AnthropicProvider(BaseProvider):
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
                 system=prompt.system,
-                messages=prompt.to_messages()
+                messages=[m for m in prompt.to_messages() if m.get("role") != "system"]
             )
 
             # 防御性检查：验证 content 列表非空

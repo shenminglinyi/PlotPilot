@@ -1,11 +1,19 @@
-import axios from 'axios'
+import axios, { type AxiosRequestConfig } from 'axios'
 
-const request = axios.create({
+interface KnowledgeApiClient {
+  get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+  post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+  put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+}
+
+const axiosInstance = axios.create({
   baseURL: '/api/v1',
   timeout: 30000,
 })
 
-request.interceptors.response.use(response => response.data)
+axiosInstance.interceptors.response.use(response => response.data)
+
+const request = axiosInstance as unknown as KnowledgeApiClient
 
 // TypeScript interfaces
 export interface ChapterSummary {
@@ -15,6 +23,11 @@ export interface ChapterSummary {
   open_threads: string
   consistency_note: string
   beat_sections: string[]
+  micro_beats?: Array<{
+    description: string
+    target_words: number
+    focus: string
+  }>
   sync_status: string
 }
 
@@ -23,9 +36,9 @@ export interface KnowledgeTriple {
   subject: string
   predicate: string
   object: string
-  chapter_id: number | null
-  note: string
-  entity_type?: 'character' | 'location'
+  chapter_id?: number | null
+  note?: string
+  entity_type?: 'character' | 'location' | null
   importance?: 'primary' | 'secondary' | 'minor' | 'core' | 'important' | 'normal'
   location_type?: 'city' | 'region' | 'building' | 'faction' | 'realm'
   description?: string
@@ -72,25 +85,25 @@ export const knowledgeApi = {
    * Get knowledge graph for a novel
    */
   getKnowledge: (novelId: string) =>
-    request.get(`/novels/${novelId}/knowledge`) as Promise<StoryKnowledge>,
+    request.get<StoryKnowledge>(`/novels/${novelId}/knowledge`),
 
   /**
    * Update knowledge graph for a novel
    */
   updateKnowledge: (novelId: string, data: StoryKnowledge) =>
-    request.put(`/novels/${novelId}/knowledge`, data) as Promise<StoryKnowledge>,
+    request.put<StoryKnowledge>(`/novels/${novelId}/knowledge`, data),
 
   /** 与 updateKnowledge 相同（兼容旧组件名） */
   putKnowledge: (novelId: string, data: StoryKnowledge) =>
-    request.put(`/novels/${novelId}/knowledge`, data) as Promise<StoryKnowledge>,
+    request.put<StoryKnowledge>(`/novels/${novelId}/knowledge`, data),
 
   /**
    * Search knowledge graph
    */
   searchKnowledge: (novelId: string, query: string, k = 6) =>
-    request.get(`/novels/${novelId}/knowledge/search`, {
+    request.get<KnowledgeSearchResponse>(`/novels/${novelId}/knowledge/search`, {
       params: { q: query, k }
-    }) as Promise<KnowledgeSearchResponse>,
+    }),
 
   /**
    * AI generate (or regenerate) initial Knowledge for a novel
@@ -101,5 +114,5 @@ export const knowledgeApi = {
       `/novels/${novelId}/knowledge/generate`,
       {},
       { timeout: 120_000 }
-    ) as Promise<{ success: boolean; message: string; facts_count: number; premise_lock: string }>,
+    ),
 }

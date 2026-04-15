@@ -29,6 +29,7 @@ export interface LocationDTO {
   name: string
   description: string
   location_type: string
+  type?: string
 }
 
 export interface TimelineNoteDTO {

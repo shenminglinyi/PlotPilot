@@ -82,8 +82,13 @@
 <script setup lang="ts">
 import { ref, computed, h, onMounted, watch } from 'vue'
 import { NTree, NEmpty, NSpin, NTag, NButton, NSpace, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
+import type { TreeOption } from 'naive-ui'
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
+
+type StructureTreeOption = StoryNode & TreeOption & {
+  children?: StructureTreeOption[]
+}
 
 const props = defineProps<{
   slug: string
@@ -112,7 +117,7 @@ const structureEmptyDescription = computed(() => {
   }
   return '暂无叙事结构'
 })
-const treeData = ref<StoryNode[]>([])
+const treeData = ref<StructureTreeOption[]>([])
 const selectedKeys = ref<string[]>([])
 const expandedKeys = ref<string[]>([])
 
@@ -166,7 +171,7 @@ const menuOptions = computed(() => {
 })
 
 /** 在结构树中按章节号查找节点 id（兼容 chapter-{slug}-{n} 与 chapter-{slug}-chapter-{n} 等后端约定） */
-function findChapterNodeId(nodes: StoryNode[], chapterNum: number): string | null {
+function findChapterNodeId(nodes: StructureTreeOption[], chapterNum: number): string | null {
   for (const node of nodes) {
     if (node.node_type === 'chapter' && node.number === chapterNum) {
       return node.id
@@ -193,7 +198,7 @@ watch(
   { immediate: true, deep: true }
 )
 
-const convertToTreeNode = (node: StoryNode): any => {
+const convertToTreeNode = (node: StoryNode): StructureTreeOption => {
   const iconMap: Record<string, string> = {
     part: '📚',
     volume: '📖',
@@ -216,9 +221,9 @@ const convertToTreeNode = (node: StoryNode): any => {
 }
 
 /** 收集所有非章节节点的 key，用于自动展开 */
-const collectNonChapterKeys = (nodes: StoryNode[]): string[] => {
+const collectNonChapterKeys = (nodes: StructureTreeOption[]): string[] => {
   const keys: string[] = []
-  const traverse = (node: StoryNode) => {
+  const traverse = (node: StructureTreeOption) => {
     if (node.node_type !== 'chapter') {
       keys.push(node.id)
     }
@@ -260,7 +265,7 @@ const loadTree = async () => {
   loading.value = true
   try {
     const res = await structureApi.getTree(props.slug)
-    const nodes = res.tree?.nodes || []
+    const nodes = Array.isArray(res.tree) ? res.tree : (res.tree?.nodes || [])
     treeData.value = nodes.length > 0 ? nodes.map(convertToTreeNode) : []
 
     // 自动展开所有非章节节点
@@ -295,7 +300,7 @@ function resolveBookChapterNumber(node: StoryNode): number | null {
 
 const handleSelect = (keys: string[]) => {
   if (!keys.length) return
-  const findNode = (nodes: StoryNode[], id: string): StoryNode | null => {
+  const findNode = (nodes: StructureTreeOption[], id: string): StructureTreeOption | null => {
     for (const node of nodes) {
       if (node.id === id) return node
       if (node.children) {
@@ -403,16 +408,21 @@ const doAddChild = async () => {
   }
 }
 
+function asStructureNode(option: TreeOption): StructureTreeOption {
+  return option as StructureTreeOption
+}
+
 // 渲染节点标签
-const renderLabel = ({ option }: { option: StoryNode }) => {
+const renderLabel = ({ option }: { option: TreeOption }) => {
+  const node = asStructureNode(option)
   const elements: any[] = [
-    h('span', { class: 'node-icon' }, option.icon),
-    h('span', { class: 'node-title' }, option.display_name),
+    h('span', { class: 'node-icon' }, node.icon),
+    h('span', { class: 'node-title' }, node.display_name),
   ]
-  if (option.node_type === 'chapter') {
-    const st = (option as StoryNode & { status?: string }).status
+  if (node.node_type === 'chapter') {
+    const st = node.status
     const hasContent =
-      (option.word_count && option.word_count > 0) || st === 'completed'
+      (node.word_count && node.word_count > 0) || st === 'completed'
     elements.push(
       h(NTag, {
         size: 'small',
@@ -426,32 +436,36 @@ const renderLabel = ({ option }: { option: StoryNode }) => {
 }
 
 // 渲染节点后缀
-const renderSuffix = ({ option }: { option: StoryNode }) => {
+const renderSuffix = ({ option }: { option: TreeOption }) => {
+  const node = asStructureNode(option)
   const elements: any[] = []
-  if (option.description && ['part', 'volume', 'act'].includes(option.node_type)) {
+  if (node.description && ['part', 'volume', 'act'].includes(node.node_type)) {
     elements.push(
       h('span', {
         class: 'node-description',
         style: { color: '#999', fontSize: '12px', marginLeft: '8px' },
-      }, option.description)
+      }, node.description)
     )
   }
-  if (option.node_type === 'chapter' && option.word_count) {
-    elements.push(h('span', { class: 'node-range' }, `${option.word_count}字`))
+  if (node.node_type === 'chapter' && node.word_count) {
+    elements.push(h('span', { class: 'node-range' }, `${node.word_count}字`))
   }
-  if (option.chapter_start && option.chapter_end) {
+  if (node.chapter_start && node.chapter_end) {
     elements.push(
-      h('span', { class: 'node-range' }, `${option.chapter_start}-${option.chapter_end}章 (${option.chapter_count})`)
+      h('span', { class: 'node-range' }, `${node.chapter_start}-${node.chapter_end}章 (${node.chapter_count})`)
     )
   }
   return elements.length > 0 ? h('span', {}, elements) : null
 }
 
 // 节点属性（右键绑定）
-const nodeProps = ({ option }: { option: StoryNode }) => ({
-  class: `node-level-${option.level}`,
-  onContextmenu: (e: MouseEvent) => handleContextMenu(e, option),
-})
+const nodeProps = ({ option }: { option: TreeOption }) => {
+  const node = asStructureNode(option)
+  return {
+    class: `node-level-${node.level}`,
+    onContextmenu: (e: MouseEvent) => handleContextMenu(e, node),
+  }
+}
 
 onMounted(() => { loadTree() })
 

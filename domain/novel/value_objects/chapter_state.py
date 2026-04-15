@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Any
 
 
@@ -8,15 +8,15 @@ class ChapterState:
 
     包含从章节内容中提取的所有结构化信息
     """
-    new_characters: List[Dict[str, Any]]  # List[{name, description, first_appearance}]
-    character_actions: List[Dict[str, Any]]  # List[{character_id, action, chapter}]
-    relationship_changes: List[Dict[str, Any]]  # List[{char1, char2, old_type, new_type, chapter}]
-    foreshadowing_planted: List[Dict[str, Any]]  # List[{description, chapter}]
-    foreshadowing_resolved: List[Dict[str, Any]]  # List[{foreshadowing_id, chapter}]
-    events: List[Dict[str, Any]]  # List[{type, description, involved_characters, chapter}]
-    timeline_events: List[Dict[str, Any]]  # List[{event, timestamp, timestamp_type}]
-    advanced_storylines: List[Dict[str, Any]]  # List[{storyline_id, progress_summary}]
-    new_storylines: List[Dict[str, Any]]  # List[{name, type, description}]
+    new_characters: List[Dict[str, Any]] = field(default_factory=list)  # List[{name, description, first_appearance}]
+    character_actions: List[Dict[str, Any]] = field(default_factory=list)  # List[{character_id, action, chapter}]
+    relationship_changes: List[Dict[str, Any]] = field(default_factory=list)  # List[{char1, char2, old_type, new_type, chapter}]
+    foreshadowing_planted: List[Dict[str, Any]] = field(default_factory=list)  # List[{description, chapter}]
+    foreshadowing_resolved: List[Dict[str, Any]] = field(default_factory=list)  # List[{foreshadowing_id, chapter}]
+    events: List[Dict[str, Any]] = field(default_factory=list)  # List[{type, description, involved_characters, chapter}]
+    timeline_events: List[Dict[str, Any]] = field(default_factory=list)  # List[{event, timestamp, timestamp_type}]
+    advanced_storylines: List[Dict[str, Any]] = field(default_factory=list)  # List[{storyline_id, progress_summary}]
+    new_storylines: List[Dict[str, Any]] = field(default_factory=list)  # List[{name, type, description}]
 
     def has_new_characters(self) -> bool:
         """检查是否有新角色"""

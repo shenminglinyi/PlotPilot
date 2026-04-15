@@ -1,7 +1,7 @@
 """OpenAI LLM 提供商实现"""
 import logging
 import os
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
 from openai import AsyncOpenAI
 
@@ -23,7 +23,7 @@ class OpenAIProvider(BaseProvider):
     使用 OpenAI API 实现 LLM 服务。
     """
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, default_model: Optional[str] = None):
         """初始化 OpenAI 提供商
         
         Args:
@@ -37,6 +37,8 @@ class OpenAIProvider(BaseProvider):
         if not settings.api_key:
             raise ValueError("API key is required for OpenAIProvider")
             
+        self.default_model = default_model or DEFAULT_MODEL
+
         # 初始化 AsyncOpenAI 客户端
         client_kwargs = {
             "api_key": settings.api_key,
@@ -45,6 +47,12 @@ class OpenAIProvider(BaseProvider):
             client_kwargs["base_url"] = settings.base_url
             
         self.async_client = AsyncOpenAI(**client_kwargs)
+
+    def _resolve_model(self, config: GenerationConfig) -> str:
+        model = (config.model or "").strip()
+        if not model or model == "claude-sonnet-4-6":
+            return self.default_model
+        return model
 
     async def generate(
         self,
@@ -70,7 +78,7 @@ class OpenAIProvider(BaseProvider):
             ]
             
             response = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
+                model=self._resolve_model(config),
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
@@ -119,7 +127,7 @@ class OpenAIProvider(BaseProvider):
             ]
             
             stream = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
+                model=self._resolve_model(config),
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,

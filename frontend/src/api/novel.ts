@@ -1,7 +1,7 @@
 import { apiClient } from './config'
 import type { BookStats } from '../types/api'
 
-export interface ChapterDTO {
+export interface NovelChapterDTO {
   id: string
   number: number
   title: string
@@ -15,7 +15,7 @@ export interface NovelDTO {
   author: string
   target_chapters: number
   stage: string
-  chapters: ChapterDTO[]
+  chapters: NovelChapterDTO[]
   total_word_count: number
   has_bible?: boolean
   has_outline?: boolean

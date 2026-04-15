@@ -24,7 +24,7 @@ import { useRouter } from 'vue-router'
 import { knowledgeApi } from '../../api/knowledge'
 import GraphChart from '../charts/GraphChart.vue'
 import { convertGraph, type VisNode, type VisEdge } from '../../utils/visToEcharts'
-import type { EChartsNode, EChartsLink } from '../../utils/visToEcharts'
+import type { EChartsNode } from '../../utils/visToEcharts'
 import {
   tripleStringAttrs,
   locationImportanceZh,
@@ -39,9 +39,9 @@ interface KnowledgeTriple {
   subject: string
   predicate: string
   object: string
-  chapter_id?: number
+  chapter_id?: number | null
   note?: string
-  entity_type?: string
+  entity_type?: string | null
   importance?: string
   location_type?: string
   description?: string
