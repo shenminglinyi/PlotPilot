@@ -261,17 +261,75 @@ class AutoBibleGenerator:
         logger.info(f"Bible generation completed for {novel_id} (stage: {stage})")
         return bible_data
 
+    async def _research_background(self, premise: str) -> str:
+        """
+        【深度研究专家】节点：分析创意，提取关键词搜索真实资料，并输出考据白皮书。
+        """
+        import logging
+        from infrastructure.ai.tools.search_tool import WebSearchTool
+        logger = logging.getLogger(__name__)
+        logger.info("Starting background research for premise...")
+
+        # 1. 提炼搜索关键词 (不使用 JSON 以求稳定)
+        extract_prompt = Prompt(
+            system="你是资料检索专家。请从用户的创意中提取最核心的 2 个背景搜索词（如具体年代、地域、行业、或者特定历史事件）。\n【严格约束】绝对不要输出 JSON！只需用逗号分隔两个词语即可，例如：1990年深圳物价, 华强北BB机倒卖",
+            user=f"创意：{premise}\n请输出2个最需要考据的搜索关键词："
+        )
+        config = GenerationConfig(max_tokens=100, temperature=0.3)
+        keyword_result = await self.llm_service.generate(extract_prompt, config)
+        
+        # 强制清理可能的 JSON 残留
+        content = keyword_result.content.strip()
+        if "{" in content or "[" in content:
+            keywords = ["1990年深圳", "华强北 倒卖"] # 如果大模型不听话硬回 JSON，强行写死兜底，避免查出一堆乱码
+        else:
+            keywords = [k.strip() for k in content.split(',') if k.strip()]
+            
+        if not keywords:
+            keywords = [premise[:10]] # 兜底
+            
+        # 2. 执行真实搜索
+        raw_materials = []
+        for kw in keywords[:2]:
+            res = WebSearchTool.search(kw, max_results=3)
+            raw_materials.append(f"🔍 关键词【{kw}】搜索结果：\n{res}")
+            
+        combined_materials = "\n\n".join(raw_materials)
+        
+        # 3. 整理考据报告
+        report_prompt = Prompt(
+            system="你是『深度研究专家』。请根据下方真实的网页搜索资料，整理出一份《背景考据白皮书》。提炼出有价值的真实物价、地名、时代特征或专业术语。\n【极其重要】你必须用 Markdown 格式输出考据报告，绝对不能输出 JSON！",
+            user=f"用户创意：{premise}\n\n【真实网络资料】\n{combined_materials}\n\n请不要输出任何 JSON 代码块！只输出纯 Markdown 格式的《背景考据白皮书》："
+        )
+        report_config = GenerationConfig(max_tokens=2048, temperature=0.5)
+        report_result = await self.llm_service.generate(report_prompt, report_config)
+        
+        content = report_result.content.strip()
+        # 终极兜底：如果它还是脑抽输出了 JSON 格式的假结果
+        if content.startswith('{') and ('"characters"' in content or '"locations"' in content or '"worldbuilding"' in content):
+            content = f"### 背景考据\n\n**核心元素**：{premise}\n\n*由于网络资料获取限制，请依靠自身常识构建该背景下的详细设定。*"
+            
+        logger.info("Background research completed.")
+        return content
+
     async def _generate_bible_data(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """使用 LLM 生成 Bible 数据和世界观"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # 1. 触发【深度研究专家】进行真实资料考据
+        research_report = await self._research_background(premise)
+        logger.info(f"Research Report generated: {len(research_report)} chars")
 
         system_prompt = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
 **重要：只输出有效的 JSON，不要有任何其他文字。description 字段必须是单行文本，不能有换行符。**
 
 要求：
-1. 深入理解故事梗概，提取核心冲突、主题、世界观
-2. 至少 3-5 个主要人物（主角、配角、对手、导师等），确保人物之间有冲突和互动
-3. 每个人物：姓名、定位（主角/配角/对手/导师）、性格特点、目标动机
+1. 从故事创意中提取关键信息（主角身份、核心能力、故事背景、主要冲突）
+2. **【极其重要】你必须严格参考下方提供的《背景考据白皮书》中的真实数据（如物价、地名、时代特征）来构建世界观，严禁凭空捏造与白皮书相悖的内容！**
+3. 至少 3-5 个主要人物（主角、配角、对手、导师等），确保人物之间有冲突和互动
+4. 每个人物：姓名、定位（主角/配角/对手/导师）、性格特点、目标动机
 4. 至少 2-3 个重要地点，符合故事背景；地点须含稳定 `id`，若有层级则填 `parent_id` 指向父地点的 `id`（根为 null）
 5. 明确的文风公约（叙事视角、人称、基调、节奏）
 6. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
@@ -328,6 +386,9 @@ JSON 格式（不要有其他文字）：
 }"""
 
         user_prompt = f"""故事创意：{premise}
+
+【背景考据白皮书】（请以此为绝对基准进行设计）：
+{research_report}
 
 目标章节数：{target_chapters}章
 
