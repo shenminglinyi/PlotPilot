@@ -1071,7 +1071,30 @@ defineExpose({ ensureAssistedMode })
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s;
+}
+
+.managed-stack:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+/* Webkit */
+.managed-stack::-webkit-scrollbar {
+  width: 6px;
+}
+.managed-stack::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+.managed-stack:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+}
+.managed-stack::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .managed-daemon-hint {
@@ -1093,18 +1116,12 @@ defineExpose({ ensureAssistedMode })
 }
 
 .managed-monitor {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  flex-shrink: 0;
   background: var(--app-surface);
 }
 
 .managed-monitor :deep(.autopilot-dashboard) {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  /* 不再独立滚动，随父容器整体滚动 */
 }
 
 .work-header {
