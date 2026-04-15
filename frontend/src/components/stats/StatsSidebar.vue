@@ -204,8 +204,8 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   top: 0;
   width: 300px;
   height: 100vh;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-  border-right: 1px solid rgba(15, 23, 42, 0.06);
+  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  border-right: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -288,7 +288,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .section-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--app-text-primary);
   margin: 0;
   display: flex;
   align-items: center;
@@ -303,7 +303,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   width: 32px;
   height: 32px;
   border: none;
-  background: white;
+  background: var(--app-surface);
   border-radius: 8px;
   cursor: pointer;
   display: flex;
@@ -315,7 +315,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: #f8fafc;
+  background: var(--app-surface-subtle);
   color: #4f46e5;
 }
 
@@ -346,7 +346,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 /* Stage Distribution */
 .stage-distribution {
-  background: white;
+  background: var(--app-surface);
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -387,14 +387,14 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .stage-name {
   flex: 1;
   font-size: 13px;
-  color: #475569;
+  color: var(--app-text-secondary);
 }
 
 .stage-count {
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
-  background: #f1f5f9;
+  color: var(--app-text-primary);
+  background: var(--app-surface-subtle);
   padding: 2px 10px;
   border-radius: 12px;
 }
@@ -407,7 +407,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .actions-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--app-text-primary);
   margin: 0 0 14px;
   display: flex;
   align-items: center;
@@ -426,7 +426,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   align-items: center;
   gap: 6px;
   padding: 14px 12px;
-  background: white;
+  background: var(--app-surface);
   border: 1px solid rgba(15, 23, 42, 0.06);
   border-radius: 12px;
   cursor: pointer;
@@ -436,7 +436,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .action-btn:hover {
-  background: #f8fafc;
+  background: var(--app-surface-subtle);
   border-color: #4f46e5;
   color: #4f46e5;
   transform: translateY(-1px);
@@ -482,14 +482,14 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: white;
+  background: var(--app-surface);
   border-radius: 8px;
   transition: all 0.2s ease;
 }
 
 .footer-link:hover {
   color: #4f46e5;
-  background: #f8fafc;
+  background: var(--app-surface-subtle);
 }
 
 .link-icon {

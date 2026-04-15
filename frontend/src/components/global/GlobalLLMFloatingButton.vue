@@ -699,14 +699,14 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   background:
     linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(59, 130, 246, 0.08)),
-    #f8fafc;
+    var(--app-surface-subtle);
   border: 1px solid rgba(99, 102, 241, 0.1);
 }
 
 .global-llm-runtime-bar.is-mock {
   background:
     linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(249, 115, 22, 0.1)),
-    #fffaf0;
+    var(--color-gold-dim);
   border-color: rgba(245, 158, 11, 0.18);
 }
 

@@ -1152,7 +1152,7 @@ onMounted(() => void loadData())
 
 .gg-tip-label {
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--app-surface-subtle);
   font-size: 12px;
 }
 

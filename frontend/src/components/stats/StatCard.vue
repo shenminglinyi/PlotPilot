@@ -52,7 +52,7 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 
 <style scoped>
 .stat-card {
-  background: white;
+  background: var(--app-surface);
   border-radius: 12px;
   padding: 16px;
   display: flex;
@@ -92,7 +92,7 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 .stat-icon-wrap {
   width: 40px;
   height: 40px;
-  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
   border-radius: 10px;
   display: flex;
   align-items: center;

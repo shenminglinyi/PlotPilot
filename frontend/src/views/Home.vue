@@ -614,7 +614,7 @@ onMounted(() => {
 }
 
 .settings-btn:hover {
-  background: #fff;
+  background: var(--app-surface);
   color: #4f46e5;
   box-shadow: 0 2px 10px rgba(79, 70, 229, 0.15);
 }
@@ -665,7 +665,7 @@ onMounted(() => {
 }
 
 .books-section {
-  background: var(--app-surface, #fff);
+  background: var(--app-surface);
   border-radius: 16px;
   padding: 28px;
   box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
@@ -691,13 +691,13 @@ onMounted(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 .book-count {
   font-size: 13px;
   color: #64748b;
-  background: #f1f5f9;
+  background: var(--app-surface-subtle);
   padding: 4px 10px;
   border-radius: 12px;
 }
@@ -717,7 +717,7 @@ onMounted(() => {
   align-items: center;
   gap: 16px;
   padding: 12px 16px;
-  background: #f8fafc;
+  background: var(--app-surface-subtle);
   border-radius: 10px;
   margin-bottom: 20px;
 }
@@ -750,7 +750,7 @@ onMounted(() => {
 .empty-illustration {
   width: 100px;
   height: 100px;
-  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -765,7 +765,7 @@ onMounted(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--app-text-primary);
 }
 
 .empty-desc {
