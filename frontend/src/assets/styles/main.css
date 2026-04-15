@@ -55,6 +55,13 @@ body {
   --color-gold-border: rgba(212, 168, 83, 0.25);
   --color-gold-glow: rgba(212, 168, 83, 0.35);
 
+  /* ── 黑金主播限定色（主播品牌标识）── */
+  --color-anchor: #c9a227;
+  --color-anchor-light: #f5d77e;
+  --color-anchor-dim: rgba(201, 162, 39, 0.12);
+  --color-anchor-border: rgba(201, 162, 39, 0.28);
+  --color-anchor-glow: rgba(201, 162, 39, 0.45);
+
   /* ── 语义色 ── */
   --color-success: #22c55e;
   --color-success-light: #dcfce7;
@@ -129,6 +136,13 @@ body {
   --color-gold-dim: rgba(229, 184, 110, 0.12);
   --color-gold-border: rgba(229, 184, 110, 0.2);
   --color-gold-glow: rgba(229, 184, 110, 0.4);
+
+  /* ── 黑金主播限定色（暗模式：更温暖的金铜色调）── */
+  --color-anchor: #e8b84a;
+  --color-anchor-light: #f5dba0;
+  --color-anchor-dim: rgba(232, 184, 74, 0.1);
+  --color-anchor-border: rgba(232, 184, 74, 0.2);
+  --color-anchor-glow: rgba(232, 184, 74, 0.45);
 
   /* ── 文字色 ── */
   --app-text-primary: #e2e8f0;

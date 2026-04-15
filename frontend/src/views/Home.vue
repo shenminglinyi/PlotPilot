@@ -261,6 +261,18 @@
 
     <!-- LLM Settings Modal -->
     <LLMSettingsModal v-model:show="showLLMSettings" />
+
+    <!-- 底部版权 -->
+    <footer class="home-footer">
+      <span class="footer-brand">PlotPilot</span>
+      <span class="footer-sep">·</span>
+      <span class="footer-sub">墨枢</span>
+      <span class="footer-text">由 PlotPilot（墨枢）团队倾力开发</span>
+      <a class="footer-link" href="https://www.douyin.com/user/MS4wLjABAAAA91472902104" target="_blank" rel="noopener noreferrer">
+        抖音：林亦 91472902104
+      </a>
+      <span class="footer-text">每晚 9 点随缘直播</span>
+    </footer>
   </div>
 </template>
 
@@ -559,10 +571,10 @@ onMounted(() => {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 110% 80% at 50% -30%, rgba(99, 102, 241, 0.3), transparent 55%),
-    radial-gradient(ellipse 60% 50% at 100% 20%, rgba(14, 165, 233, 0.15), transparent 45%),
-    radial-gradient(ellipse 50% 40% at 0% 60%, rgba(167, 139, 250, 0.18), transparent 50%),
-    linear-gradient(180deg, #e8ecf8 0%, #f0f2f8 45%, #eef1f7 100%);
+    radial-gradient(ellipse 110% 80% at 50% -30%, var(--color-brand-light), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 100% 20%, rgba(14, 165, 233, 0.12), transparent 45%),
+    radial-gradient(ellipse 50% 40% at 0% 60%, var(--color-gold-dim), transparent 50%),
+    linear-gradient(180deg, var(--app-page-bg) 0%, var(--app-surface-subtle) 45%, var(--app-page-bg) 100%);
   z-index: 0;
 }
 
@@ -585,12 +597,12 @@ onMounted(() => {
   font-weight: 700;
   margin: 0 0 12px;
   letter-spacing: -0.03em;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 .subtitle {
   font-size: 1.05rem;
-  color: #475569;
+  color: var(--app-text-secondary);
   margin: 0;
   font-weight: 400;
 }
@@ -602,7 +614,8 @@ onMounted(() => {
   width: 40px;
   height: 40px;
   border: none;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   border-radius: 10px;
   cursor: pointer;
   display: flex;
@@ -696,7 +709,7 @@ onMounted(() => {
 
 .book-count {
   font-size: 13px;
-  color: #64748b;
+  color: var(--app-text-muted);
   background: var(--app-surface-subtle);
   padding: 4px 10px;
   border-radius: 12px;
@@ -724,7 +737,7 @@ onMounted(() => {
 
 .selection-hint {
   font-size: 13px;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .loading-state,
@@ -735,7 +748,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 72px 20px;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .loading-state p {
@@ -771,7 +784,7 @@ onMounted(() => {
 .empty-desc {
   margin: 0;
   font-size: 14px;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .no-results-state {
@@ -840,7 +853,7 @@ onMounted(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   line-height: 1.4;
-  color: #1e293b;
+  color: var(--app-text-primary);
 }
 
 .book-actions {
@@ -860,7 +873,7 @@ onMounted(() => {
 .book-chapters,
 .book-words {
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 @keyframes fade-up {
@@ -881,12 +894,72 @@ onMounted(() => {
   }
 }
 
+/* ── 底部版权 ──────────────────────────────── */
+.home-footer {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 28px 20px 32px;
+  margin-top: 40px;
+  border-top: 1px solid var(--app-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--app-text-muted);
+  line-height: 1.6;
+}
+
+.footer-brand {
+  font-weight: 700;
+  color: var(--color-gold);
+  letter-spacing: 0.03em;
+}
+
+.footer-sep {
+  opacity: 0.4;
+}
+
+.footer-sub {
+  font-weight: 600;
+  color: var(--color-gold-light);
+  opacity: 0.8;
+}
+
+.footer-text {
+  color: var(--app-text-muted);
+}
+
+.footer-link {
+  color: var(--color-gold);
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px dashed var(--color-gold-border);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.footer-link:hover {
+  color: var(--color-gold-light);
+  border-bottom-style: solid;
+  box-shadow: 0 0 8px var(--color-glow-gold);
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .home-content {
+    padding: 24px;
+  }
+}
+
 @media (max-width: 768px) {
   .home-content {
     margin-left: 0;
     padding: 16px;
   }
-  
+
   .section-header {
     flex-direction: column;
     align-items: stretch;
