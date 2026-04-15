@@ -312,10 +312,18 @@ class AutoBibleGenerator:
                 candidate_line = lines[-1]
             candidate_line = candidate_line.replace("，", ",")
 
-            quoted = re.findall(r"\"([^\"]+)\"", candidate_line)
-            tokens = quoted if quoted else re.split(r"[,/]| and | AND ", candidate_line)
+            m = re.search(r"(?is)(?:two\s+keywords|关键词)\s*[:：]\s*(.+)$", cleaned)
+            if m:
+                tail = m.group(1)
+                tail = tail.replace("，", ",")
+                quoted = re.findall(r"\"([^\"]+)\"", tail)
+                tokens = quoted if quoted else re.split(r"[,/]| and | AND ", tail)
+            else:
+                quoted = re.findall(r"\"([^\"]+)\"", candidate_line)
+                tokens = quoted if quoted else re.split(r"[,/]| and | AND ", candidate_line)
+
             tokens = [t.strip().strip("\"'“”") for t in tokens if t and t.strip()]
-            tokens = [t for t in tokens if len(t) <= 40]
+            tokens = [t for t in tokens if 2 < len(t) <= 40 and any(ch >= "\u4e00" and ch <= "\u9fff" for ch in t)]
             keywords = tokens[:2]
 
         if len(keywords) < 2:
