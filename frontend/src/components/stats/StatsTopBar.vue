@@ -17,7 +17,7 @@
         <template #trigger>
           <div class="stat-content">
             <span class="stat-label">{{ stat.label }}</span>
-            <span class="stat-value">{{ stat.value }}</span>
+            <span class="stat-value" :class="{ 'stat-value-date': stat.key === 'updated' }">{{ stat.value }}</span>
           </div>
         </template>
         <span>{{ stat.tooltip }}</span>
@@ -39,8 +39,6 @@ const statsStore = useStatsStore()
 
 // Constants
 const DECIMAL_PRECISION = 1
-const MS_PER_DAY = 1000 * 60 * 60 * 24
-const DAYS_THRESHOLD = 7
 
 // State
 const loading = ref(false)
@@ -117,19 +115,9 @@ function formatDate(dateStr: string | undefined): string {
   if (!dateStr) return '—'
   try {
     const date = new Date(dateStr)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffDays = Math.floor(diffMs / MS_PER_DAY)
-
-    if (diffDays === 0) {
-      return '今天'
-    } else if (diffDays === 1) {
-      return '昨天'
-    } else if (diffDays < DAYS_THRESHOLD) {
-      return `${diffDays}天前`
-    } else {
-      return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
-    }
+    if (isNaN(date.getTime())) return dateStr
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
   } catch {
     return dateStr
   }
@@ -190,6 +178,12 @@ onMounted(async () => {
 .stat-value {
   font-size: 24px;
   font-weight: 600;
+}
+
+.stat-value-date {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .stat-item:hover .stat-value {
