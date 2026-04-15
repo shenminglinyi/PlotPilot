@@ -4,13 +4,15 @@
 <img width="400" height="300" alt="微信图片_20260415003740_893_102" src="https://github.com/user-attachments/assets/71f083b8-a787-4eaf-a927-b15185a4f317" />
 
 
-> AI 驱动的长篇小说创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
+> AI 驱动的长篇创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+- 顶层架构：上下文管理，知识体系，消费组件，状态感知等，超过20余个prompt接点，支持定制。
+- 通用设计：通过提示词定制，支持短篇小说，超长篇小说，剧本，标书，转录等多种任务类型。
 - 自动驾驶模式：后台守护进程持续生成章节，支持 SSE 实时流式推送
 - Story Bible：人物、地点、世界设定的结构化管理
 - 知识图谱：自动提取故事三元组，语义检索历史内容
