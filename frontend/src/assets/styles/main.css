@@ -172,8 +172,8 @@ body {
   --aitext-split-border: rgba(51, 65, 85, 0.45);
   --aitext-panel-muted: #0f172a;
 
-  /* ── StatsTopBar 渐变（暗色版）── */
-  --stats-bar-gradient: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #1e1b4b 70%, #0f172a 100%);
+  /* ── StatsTopBar 渐变（暗色版：深靛蓝+微光）── */
+  --stats-bar-gradient: linear-gradient(135deg, #1e293b 0%, #334155 35%, #1e3a5f 65%, #172554 100%);
 
   color-scheme: dark;
 }
@@ -233,8 +233,12 @@ body {
   --aitext-split-border: rgba(201, 162, 39, 0.1);
   --aitext-panel-muted: #0d1018;
 
-  /* ── StatsTopBar 渐变（黑金版：深金渐变）── */
-  --stats-bar-gradient: linear-gradient(135deg, #1a1510 0%, #2d2418 30%, #1f1a10 60%, #0a0c10 100%);
+  /* ── StatsTopBar 渐变（黑金版：墨黑金边）── */
+  --stats-bar-gradient: linear-gradient(135deg, #141210 0%, #1c1812 25%, #201a12 50%, #161310 75%, #0e0c09 100%),
+    linear-gradient(90deg, transparent 95%, rgba(212, 168, 67, 0.08) 100%);
+
+  /* 黑金模式顶部栏额外装饰：金色底边线 */
+  --stats-bar-border-bottom: 1px solid rgba(212, 168, 67, 0.18);
 
   color-scheme: dark;
 }
@@ -345,10 +349,11 @@ ruby { ruby-align: center; }
 rt { font-size: 0.6em; color: var(--app-text-muted); }
 
 /* ═══════════════════════════════════════════════════
-   StatsTopBar — 使用变量渐变
+   StatsTopBar — 使用变量渐变 + 主题装饰边框
    ═══════════════════════════════════════════════════ */
 .stats-top-bar {
   background: var(--stats-bar-gradient);
+  border-bottom: var(--stats-bar-border-bottom, 1px solid rgba(255, 255, 255, 0.08));
 }
 
 /* ═══════════════════════════════════════════════════

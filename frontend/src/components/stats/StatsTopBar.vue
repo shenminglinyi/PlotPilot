@@ -184,10 +184,10 @@ onMounted(async () => {
   color: var(--app-text-inverse);
   position: relative;
   gap: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.08),
-    0 4px 16px rgba(79, 70, 229, 0.08);
+    var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08)),
+    0 4px 16px var(--color-brand-border, rgba(79, 70, 229, 0.08));
 }
 
 /* 左侧：AI 控制台入口 */
@@ -235,7 +235,7 @@ onMounted(async () => {
 }
 
 .stat-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--app-text-inverse, rgba(255, 255, 255, 0.1));
 }
 
 .stat-content {
@@ -246,18 +246,21 @@ onMounted(async () => {
 }
 
 .stat-label {
-  font-size: 11px;
-  opacity: 0.75;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  font-size: 11.5px;
+  opacity: 0.8;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   white-space: nowrap;
+  color: inherit;
 }
 
 .stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   line-height: 1.2;
+  color: inherit;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
 .stat-item:hover .stat-value {
@@ -268,13 +271,13 @@ onMounted(async () => {
 /* 右侧：设置触发器 */
 .settings-trigger {
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0.65;
+  opacity: 0.9;
   transition: all 0.18s ease;
   border-radius: var(--app-radius-sm);
   color: inherit;
@@ -282,19 +285,19 @@ onMounted(async () => {
 
 .settings-trigger:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--app-text-inverse, rgba(255, 255, 255, 0.15));
   transform: rotate(45deg);
 }
 
 /* Accessibility: Focus styles */
 .stat-item:focus-within {
-  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline: 2px solid var(--app-text-inverse, rgba(255, 255, 255, 0.5));
   outline-offset: 4px;
   border-radius: 4px;
 }
 
 .settings-trigger:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline: 2px solid var(--app-text-inverse, rgba(255, 255, 255, 0.5));
   outline-offset: 2px;
 }
 
