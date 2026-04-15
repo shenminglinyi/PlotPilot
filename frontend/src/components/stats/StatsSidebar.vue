@@ -85,6 +85,8 @@
           <span class="action-icon">🔄</span>
           <span>刷新列表</span>
         </button>
+        <GlobalLLMEntryButton appearance="sidebar" />
+        <PromptPlazaEntryButton appearance="sidebar" />
       </div>
     </section>
 
@@ -109,6 +111,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
+import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
+import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 
 defineEmits<{
   (e: 'create-book'): void
@@ -202,8 +206,8 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   top: 0;
   width: 300px;
   height: 100vh;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-  border-right: 1px solid rgba(15, 23, 42, 0.06);
+  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  border-right: 1px solid var(--app-border);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -213,7 +217,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 /* Brand Header */
 .sidebar-brand {
   padding: 28px 24px 24px;
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-pressed, #7c3aed) 100%);
   position: relative;
   overflow: hidden;
 }
@@ -225,7 +229,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   right: -30%;
   width: 200px;
   height: 200px;
-  background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, var(--app-text-inverse, rgba(255,255,255,0.15)) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -238,15 +242,15 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .logo-icon {
   width: 44px;
   height: 44px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-brand-light, rgba(255, 255, 255, 0.2));
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.2));
 }
 
 .brand-text {
@@ -258,14 +262,14 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .brand-name {
   font-size: 22px;
   font-weight: 700;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   margin: 0;
   letter-spacing: -0.02em;
 }
 
 .brand-slogan {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--app-text-secondary, rgba(255, 255, 255, 0.85));
   margin: 0;
   font-weight: 400;
 }
@@ -286,7 +290,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .section-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--app-text-primary);
   margin: 0;
   display: flex;
   align-items: center;
@@ -301,20 +305,20 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   width: 32px;
   height: 32px;
   border: none;
-  background: white;
+  background: var(--app-surface);
   border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   transition: all 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: #f8fafc;
-  color: #4f46e5;
+  background: var(--app-surface-subtle);
+  color: var(--color-brand, #4f46e5);
 }
 
 .refresh-btn:disabled {
@@ -344,7 +348,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 /* Stage Distribution */
 .stage-distribution {
-  background: white;
+  background: var(--app-surface);
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -353,7 +357,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .stage-title {
   font-size: 13px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   margin: 0 0 12px;
 }
 
@@ -385,14 +389,14 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .stage-name {
   flex: 1;
   font-size: 13px;
-  color: #475569;
+  color: var(--app-text-secondary);
 }
 
 .stage-count {
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
-  background: #f1f5f9;
+  color: var(--app-text-primary);
+  background: var(--app-surface-subtle);
   padding: 2px 10px;
   border-radius: 12px;
 }
@@ -405,7 +409,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .actions-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--app-text-primary);
   margin: 0 0 14px;
   display: flex;
   align-items: center;
@@ -424,19 +428,19 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   align-items: center;
   gap: 6px;
   padding: 14px 12px;
-  background: white;
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border, rgba(15, 23, 42, 0.06));
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 12px;
-  color: #475569;
+  color: var(--app-text-secondary, #475569);
 }
 
 .action-btn:hover {
-  background: #f8fafc;
-  border-color: #4f46e5;
-  color: #4f46e5;
+  background: var(--app-surface-subtle);
+  border-color: var(--color-brand, #4f46e5);
+  color: var(--color-brand, #4f46e5);
   transform: translateY(-1px);
 }
 
@@ -447,11 +451,11 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 /* Footer */
 .sidebar-footer {
   padding: 20px 24px;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-top: 1px solid var(--app-divider, rgba(15, 23, 42, 0.06));
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: rgba(248, 250, 252, 0.8);
+  background: var(--app-surface-subtle, rgba(248, 250, 252, 0.8));
 }
 
 .footer-info {
@@ -462,7 +466,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .update-time {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -474,20 +478,20 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .footer-link {
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   text-decoration: none;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: white;
+  background: var(--app-surface);
   border-radius: 8px;
   transition: all 0.2s ease;
 }
 
 .footer-link:hover {
-  color: #4f46e5;
-  background: #f8fafc;
+  color: var(--color-brand, #4f46e5);
+  background: var(--app-surface-subtle);
 }
 
 .link-icon {

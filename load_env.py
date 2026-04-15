@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Optional
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent
 _ENV_PATH = _PACKAGE_ROOT / ".env"
 
 
-def load_env(path: Path | None = None) -> Path | None:
+def load_env(path: Optional[Path] = None) -> Optional[Path]:
     """
     读取 KEY=VALUE 行并写入环境变量（覆盖已有键）。
     支持 # 行内注释和 # 整行注释。

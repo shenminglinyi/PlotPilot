@@ -30,6 +30,8 @@ from infrastructure.persistence.database.sqlite_cast_repository import SqliteCas
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.provider_factory import DynamicLLMService, LLMProviderFactory
+from application.ai.llm_control_service import LLMControlService
 
 from application.core.services.novel_service import NovelService
 from application.core.services.chapter_service import ChapterService
@@ -118,6 +120,21 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
         base_url=_openai_base_url(),
         default_model=os.getenv("WRITING_MODEL") or os.getenv("ARK_MODEL", ""),
     )
+
+
+@lru_cache
+def get_llm_control_service() -> LLMControlService:
+    return LLMControlService()
+
+
+@lru_cache
+def get_llm_provider_factory() -> LLMProviderFactory:
+    return LLMProviderFactory(get_llm_control_service())
+
+
+def llm_runtime_is_mock(llm_service: Optional[LLMService] = None) -> bool:
+    runtime = get_llm_control_service().get_runtime_summary()
+    return runtime.using_mock
 
 
 def get_storage() -> FileStorage:
@@ -317,29 +334,14 @@ def get_hosted_write_service() -> HostedWriteService:
     )
 
 
+@lru_cache
 def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
-    
-    if provider == "openai":
-        settings = _openai_settings(require_key=False)
-        if settings:
-            try:
-                from infrastructure.ai.providers.openai_provider import OpenAIProvider
-                return OpenAIProvider(settings)
-            except ModuleNotFoundError as e:
-                logger.warning("OpenAI provider dependency missing, fallback to MockProvider: %s", e)
-    else:
-        settings = _anthropic_settings(require_key=False)
-        if settings:
-            try:
-                from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-                return AnthropicProvider(settings)
-            except ModuleNotFoundError as e:
-                logger.warning("Anthropic provider dependency missing, fallback to MockProvider: %s", e)
-            
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    return MockProvider()
+    """获取动态 LLM 服务实例。
+
+    返回长生命周期包装器：每次 generate/stream_generate 时重新读取当前激活配置，
+    因此前台控制面板修改后无需重启 API / 守护进程即可生效。
+    """
+    return DynamicLLMService(get_llm_provider_factory())
 
 
 def get_setup_main_plot_suggestion_service():
@@ -413,37 +415,67 @@ def get_consistency_checker() -> ConsistencyChecker:
 
 
 def get_embedding_service():
-    """获取 Embedding 服务
+    """获取 Embedding 服务（优先从数据库读取配置，环境变量作为 fallback）。
 
-    根据环境变量选择服务类型：
-    - EMBEDDING_SERVICE=local: 使用本地模型（BAAI/bge-small-zh-v1.5）
-    - EMBEDDING_SERVICE=openai: 使用 OpenAI API（需要 OPENAI_API_KEY）
-    - 默认: local
+    配置优先级：
+    1. 数据库 embedding_config 表中的 mode / api_key / base_url / model / model_path / use_gpu
+    2. 环境变量 EMBEDDING_SERVICE / EMBEDDING_MODEL_PATH 等
+    3. 默认值：本地 BAAI/bge-small-zh-v1.5
 
     如果 VECTOR_STORE_ENABLED=false，返回 None。
     """
     if os.getenv("VECTOR_STORE_ENABLED", "true").lower() != "true":
         return None
 
-    service_type = os.getenv("EMBEDDING_SERVICE", "local").lower()
+    # 尝试从数据库读取配置
+    _mode = "local"
+    _api_key = ""
+    _base_url = ""
+    _model = "text-embedding-3-small"
+    _model_path = "BAAI/bge-small-zh-v1.5"
+    _use_gpu = True
 
     try:
-        if service_type == "local":
-            from infrastructure.ai.local_embedding_service import LocalEmbeddingService
-            model_path = os.getenv("EMBEDDING_MODEL_PATH", "BAAI/bge-small-zh-v1.5")
-            use_gpu = os.getenv("EMBEDDING_USE_GPU", "true").lower() == "true"
-            logger.info(f"Using local embedding service: {model_path}, GPU: {use_gpu}")
-            return LocalEmbeddingService(model_name=model_path, use_gpu=use_gpu)
-        elif service_type == "openai":
-            if not (os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY")):
-                logger.warning("EMBEDDING_SERVICE=openai 但 EMBEDDING_API_KEY/OPENAI_API_KEY 未设置，向量检索已禁用")
+        from application.ai.embedding_config_service import get_embedding_config_service
+        cfg_svc = get_embedding_config_service()
+        cfg = cfg_svc.get_config()
+        _mode = cfg.mode
+        _api_key = cfg.api_key
+        _base_url = cfg.base_url
+        _model = cfg.model or "text-embedding-3-small"
+        _model_path = cfg.model_path or "BAAI/bge-small-zh-v1.5"
+        _use_gpu = cfg.use_gpu
+        logger.info(
+            "Embedding 配置来源: 数据库 | mode=%s, model=%s, path=%s",
+            _mode, _model, _model_path,
+        )
+    except Exception as exc:
+        # 数据库不可用时回退到环境变量
+        _mode = os.getenv("EMBEDDING_SERVICE", "local").lower()
+        _api_key = os.getenv("EMBEDDING_API_KEY") or ""
+        _base_url = os.getenv("EMBEDDING_BASE_URL") or ""
+        _model_path = os.getenv("EMBEDDING_MODEL_PATH", "BAAI/bge-small-zh-v1.5")
+        _use_gpu = os.getenv("EMBEDDING_USE_GPU", "true").lower() == "true"
+        logger.warning("读取嵌入配置失败，回退到环境变量: %s", exc)
+
+    try:
+        if _mode == "openai":
+            key = _api_key or os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+            if not key:
+                logger.warning("embedding mode=openai 但未配置 API Key，向量检索已禁用")
                 return None
             from infrastructure.ai.openai_embedding_service import OpenAIEmbeddingService
-            logger.info("Using OpenAI embedding service")
-            return OpenAIEmbeddingService()
+            logger.info("使用 OpenAI 嵌入服务 (DB配置): base_url=%s, model=%s", _base_url, _model)
+            return OpenAIEmbeddingService(
+                api_key=key,
+                base_url=_base_url or None,
+                model=_model,
+            )
         else:
-            logger.warning(f"Unknown EMBEDDING_SERVICE: {service_type}, 向量检索已禁用")
-            return None
+            # 默认 local 模式
+            from infrastructure.ai.local_embedding_service import LocalEmbeddingService
+            logger.info("使用本地嵌入服务 (DB配置): path=%s, gpu=%s", _model_path, _use_gpu)
+            return LocalEmbeddingService(model_name=_model_path, use_gpu=_use_gpu)
     except Exception as e:
         logger.warning("EmbeddingService 初始化失败: %s", e)
         return None
@@ -472,8 +504,11 @@ def get_triple_indexing_service():
     return TripleIndexingService(vs, es)
 
 
+_vector_store_singleton: Optional[VectorStore] = None
+
+
 def get_vector_store() -> Optional[VectorStore]:
-    """获取向量存储
+    """获取向量存储（单例，整个进程共享同一实例）
 
     根据环境变量返回 ChromaDB 或 Qdrant 实例。
 
@@ -488,6 +523,10 @@ def get_vector_store() -> Optional[VectorStore]:
     Returns:
         VectorStore 实例或 None
     """
+    global _vector_store_singleton
+    if _vector_store_singleton is not None:
+        return _vector_store_singleton
+
     # 检查是否启用（默认启用）
     enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
     if not enabled:
@@ -500,16 +539,17 @@ def get_vector_store() -> Optional[VectorStore]:
         if store_type == "chromadb":
             from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
             persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
-            return ChromaDBVectorStore(persist_directory=persist_dir)
+            _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
         elif store_type == "qdrant":
             from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
             host = os.getenv("QDRANT_HOST", "localhost")
             port = int(os.getenv("QDRANT_PORT", "6333"))
             api_key = os.getenv("QDRANT_API_KEY")
-            return QdrantVectorStore(host=host, port=port, api_key=api_key)
+            _vector_store_singleton = QdrantVectorStore(host=host, port=port, api_key=api_key)
         else:
             logger.warning(f"Unknown VECTOR_STORE_TYPE: {store_type}, vector store disabled")
             return None
+        return _vector_store_singleton
     except Exception as e:
         logger.warning(f"Failed to initialize vector store: {e}")
         return None
@@ -531,6 +571,7 @@ def get_context_builder() -> ContextBuilder:
     Returns:
         ContextBuilder 实例
     """
+    from infrastructure.persistence.database.triple_repository import TripleRepository
     return ContextBuilder(
         bible_service=get_bible_service(),
         storyline_manager=get_storyline_manager(),
@@ -542,6 +583,7 @@ def get_context_builder() -> ContextBuilder:
         embedding_service=get_embedding_service(),
         foreshadowing_repository=get_foreshadowing_repository(),
         chapter_element_repository=get_chapter_element_repository(),
+        triple_repository=TripleRepository(),
     )
 
 
@@ -573,8 +615,7 @@ def get_auto_workflow() -> AutoNovelGenerationWorkflow:
         AutoNovelGenerationWorkflow 实例
     """
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for workflow")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for workflow")
@@ -589,8 +630,7 @@ def get_auto_bible_generator() -> AutoBibleGenerator:
         AutoBibleGenerator 实例
     """
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for Bible generation")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for Bible generation")
@@ -659,8 +699,7 @@ def get_beat_sheet_service():
     from application.blueprint.services.beat_sheet_service import BeatSheetService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for beat sheet generation")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for beat sheet generation")
@@ -684,8 +723,7 @@ def get_scene_generation_service():
     from application.core.services.scene_generation_service import SceneGenerationService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for scene generation")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for scene generation")
@@ -707,8 +745,7 @@ def get_scene_director_service() -> "SceneDirectorService":
     from application.engine.services.scene_director_service import SceneDirectorService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for scene director")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for scene director")
@@ -805,8 +842,7 @@ def get_macro_refactor_proposal_service():
     from application.audit.services.macro_refactor_proposal_service import MacroRefactorProposalService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for macro refactor proposals")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for macro refactor proposals")
@@ -854,8 +890,7 @@ def get_tension_analyzer():
     from infrastructure.ai.llm_client import LLMClient
 
     llm_provider = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_provider, MockProvider):
+    if llm_runtime_is_mock(llm_provider):
         logger.warning("No API key found, using MockProvider for tension analyzer")
     else:
         logger.info(f"Using {llm_provider.__class__.__name__} for tension analyzer")

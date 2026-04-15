@@ -1,5 +1,6 @@
 // New RESTful API exports (v1)
 export * from './config'
+export * from './llmControl'
 export * from './novel'
 export { chapterApi } from './chapter'
 export type {

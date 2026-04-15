@@ -13,5 +13,5 @@ faiss-cpu>=1.7.4
 numpy>=1.21.0
 sentence-transformers>=2.2.0
 qdrant-client>=1.7.0,<2.0.0
-openai>=1.12.0,<2.0.0
+openai>=1.65.0,<2.0.0
 json-repair>=0.30.0

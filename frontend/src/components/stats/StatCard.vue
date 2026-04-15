@@ -52,16 +52,17 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 
 <style scoped>
 .stat-card {
-  background: white;
+  background: var(--app-surface);
   border-radius: 12px;
   padding: 16px;
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
   transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
+  border: 1px solid var(--app-border, transparent);
 }
 
 .stat-card::before {
@@ -71,13 +72,13 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
   left: 0;
   width: 3px;
   height: 100%;
-  background: linear-gradient(180deg, #4f46e5 0%, #7c3aed 100%);
+  background: linear-gradient(180deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-pressed, #7c3aed) 100%);
   opacity: 0;
   transition: opacity 0.2s ease;
 }
 
 .stat-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--app-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.06));
   transform: translateY(-1px);
 }
 
@@ -92,7 +93,7 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 .stat-icon-wrap {
   width: 40px;
   height: 40px;
-  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -115,7 +116,7 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 
 .stat-title {
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   font-weight: 500;
   letter-spacing: 0.01em;
 }
@@ -127,16 +128,16 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 }
 
 .stat-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #1e293b;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--app-text-primary, #1e293b);
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
 
 .stat-unit {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
   font-weight: 500;
 }
 
@@ -154,13 +155,13 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 }
 
 .stat-trend.trend-up {
-  background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  background: var(--color-success-light, rgba(16, 185, 129, 0.1));
+  color: var(--color-success, #10b981);
 }
 
 .stat-trend.trend-down {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background: var(--color-danger-light, rgba(239, 68, 68, 0.1));
+  color: var(--color-danger, #ef4444);
 }
 
 .trend-arrow {

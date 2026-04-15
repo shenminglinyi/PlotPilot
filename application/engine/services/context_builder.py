@@ -59,6 +59,7 @@ class ContextBuilder:
         story_node_repository=None,
         bible_repository=None,
         chapter_element_repository=None,
+        triple_repository=None,
     ):
         self.bible_service = bible_service
         self.storyline_manager = storyline_manager
@@ -72,6 +73,7 @@ class ContextBuilder:
         self.story_node_repository = story_node_repository
         self.bible_repository = bible_repository
         self.chapter_element_repository = chapter_element_repository
+        self.triple_repository = triple_repository
 
         # 预算分配器（核心组件）
         self.budget_allocator = ContextBudgetAllocator(
@@ -80,6 +82,7 @@ class ContextBuilder:
             bible_repository=bible_repository,
             story_node_repository=story_node_repository,
             chapter_element_repository=chapter_element_repository,
+            triple_repository=triple_repository,
             vector_store=vector_store,
             embedding_service=embedding_service,
         )

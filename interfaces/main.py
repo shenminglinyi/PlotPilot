@@ -70,12 +70,11 @@ from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapt
 from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger
 
 # Workbench module
-from interfaces.api.v1.workbench import sandbox, writer_block, monitor
+from interfaces.api.v1.workbench import sandbox, writer_block, monitor, llm_control
 from interfaces.api.stats.routers.stats import create_stats_router
 from interfaces.api.stats.services.stats_service import StatsService
 from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import SqliteStatsRepositoryAdapter
 from infrastructure.persistence.database.connection import get_database
-from application.paths import DATA_DIR
 
 # 后端版本号（每次重启递增）
 BACKEND_VERSION = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -129,13 +128,6 @@ async def startup_event():
     logger.info("📦 Loading modules and routes...")
     logger.info("✅ FastAPI application started successfully")
     logger.info(f"📊 Registered {len(app.routes)} routes")
-    
-    # 从 JSON 文件恢复上次激活的 LLM 配置
-    try:
-        from application.settings.llm_config_manager import LLMConfigManager
-        LLMConfigManager(DATA_DIR / "llm_configs.json").apply_active_on_startup()
-    except Exception as exc:
-        logger.warning("LLM config restore skipped: %s", exc)
 
     # 重启时将所有运行中的小说设置为停止状态
     _stop_all_running_novels()
@@ -158,6 +150,20 @@ async def shutdown_event():
 # 守护进程进程管理（使用独立进程避免阻塞主事件循环）
 _daemon_process = None
 _daemon_stop_event = None
+
+
+def _is_expected_daemon_shutdown_exception(exc: BaseException) -> bool:
+    """热重载/停止时的中断视为正常退出，避免子进程打印长栈。"""
+    import asyncio
+
+    current = exc
+    visited = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, (KeyboardInterrupt, asyncio.CancelledError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _stop_all_running_novels():
@@ -244,12 +250,18 @@ def _run_daemon_in_process(
                 # 轮询间隔（使用 wait 而非 sleep，以便快速响应停止信号）
                 stop_event.wait(timeout=daemon.poll_interval)
                 
-            except Exception as e:
+            except BaseException as e:
+                if stop_event.is_set() or _is_expected_daemon_shutdown_exception(e):
+                    logger.info("ℹ️ 守护进程在停止/热重载期间中断，正常退出")
+                    break
                 logger.error(f"❌ 守护进程异常: {e}", exc_info=True)
                 stop_event.wait(timeout=10)  # 异常后等待10秒
                 
-    except Exception as e:
-        logger.error(f"❌ 守护进程初始化失败: {e}", exc_info=True)
+    except BaseException as e:
+        if stop_event.is_set() or _is_expected_daemon_shutdown_exception(e):
+            logger.info("ℹ️ 守护进程收到停止信号，正常退出")
+        else:
+            logger.error(f"❌ 守护进程初始化失败: {e}", exc_info=True)
     finally:
         logger.info("🛑 守护进程已停止")
 
@@ -378,6 +390,7 @@ app.include_router(foreshadow_ledger.router, prefix="/api/v1")
 app.include_router(writer_block.router, prefix="/api/v1")
 app.include_router(sandbox.router, prefix="/api/v1")
 app.include_router(monitor.router, prefix="/api/v1")
+app.include_router(llm_control.router, prefix="/api/v1")
 
 # 注册统计路由（使用 SQLite 适配器）
 stats_repository = SqliteStatsRepositoryAdapter(get_database())

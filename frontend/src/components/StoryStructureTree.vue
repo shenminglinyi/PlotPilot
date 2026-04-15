@@ -428,30 +428,34 @@ const renderLabel = ({ option }: { option: any }) => {
 // 渲染节点后缀
 const renderSuffix = ({ option }: { option: any }) => {
   const elements: any[] = []
-  if (option.description && ['part', 'volume', 'act'].includes(option.node_type)) {
+  const node = option as StoryNode
+  if (node.description && ['part', 'volume', 'act'].includes(node.node_type)) {
     elements.push(
       h('span', {
         class: 'node-description',
         style: { color: '#999', fontSize: '12px', marginLeft: '8px' },
-      }, option.description)
+      }, node.description)
     )
   }
-  if (option.node_type === 'chapter' && option.word_count) {
-    elements.push(h('span', { class: 'node-range' }, `${option.word_count}字`))
+  if (node.node_type === 'chapter' && node.word_count) {
+    elements.push(h('span', { class: 'node-range' }, `${node.word_count}字`))
   }
-  if (option.chapter_start && option.chapter_end) {
+  if (node.chapter_start && node.chapter_end) {
     elements.push(
-      h('span', { class: 'node-range' }, `${option.chapter_start}-${option.chapter_end}章 (${option.chapter_count})`)
+      h('span', { class: 'node-range' }, `${node.chapter_start}-${node.chapter_end}章 (${node.chapter_count})`)
     )
   }
   return elements.length > 0 ? h('span', {}, elements) : null
 }
 
 // 节点属性（右键绑定）
-const nodeProps = ({ option }: { option: any }) => ({
-  class: `node-level-${option.level}`,
-  onContextmenu: (e: MouseEvent) => handleContextMenu(e, option),
-})
+const nodeProps = ({ option }: { option: any }) => {
+  const node = option as StoryNode
+  return {
+    class: `node-level-${node.level}`,
+    onContextmenu: (e: MouseEvent) => handleContextMenu(e, node),
+  }
+}
 
 onMounted(() => { loadTree() })
 
