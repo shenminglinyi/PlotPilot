@@ -97,6 +97,32 @@ app = FastAPI(
     description="AI 小说创作平台 API"
 )
 
+# 修复反向代理场景下 trailing slash 重定向使用后端本地地址的 bug
+# 当 FastAPI 的 trailing slash 重定向指向 127.0.0.1 时，
+# 从 X-Forwarded-Host / Host / Referer 获取真实地址并改写 Location header
+@app.middleware("http")
+async def fix_redirect_host(request, call_next):
+    response = await call_next(request)
+    if response.status_code in (301, 307, 308):
+        location = response.headers.get("location", "")
+        if location and ("127.0.0.1" in location or "localhost" in location):
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(location)
+            original_host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+            if not original_host or "127.0.0.1" in original_host or "localhost" in original_host:
+                referer = request.headers.get("referer", "")
+                if referer:
+                    from urllib.parse import urlparse as _urlparse
+                    ref_host = _urlparse(referer).netloc
+                    if ref_host and "127.0.0.1" not in ref_host and "localhost" not in ref_host:
+                        original_host = ref_host
+            if original_host and "127.0.0.1" not in original_host and "localhost" not in original_host:
+                scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+                new_location = urlunparse((scheme, original_host, parsed.path, parsed.params, parsed.query, parsed.fragment))
+                response.headers["location"] = new_location
+    return response
+
+
 @app.on_event("startup")
 async def startup_event():
     """应用启动事件"""
