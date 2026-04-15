@@ -166,10 +166,66 @@ const lastWordCount = ref(0)
 const lastTimestamp = ref(0)
 const writingSpeed = ref(0)
 
-// 滚动流式显示：只显示最近的增量文字
+// 打字机效果
 const lastContentLength = ref(0)
-const streamingText = ref('')
+const streamingText = ref('')          // 当前显示的文字（固定最后 N 行）
 const scrollContainer2 = ref<HTMLElement | null>(null)
+
+const TYPEWRITER_INTERVAL = 28         // ms / 字，约 35字/秒视觉速度
+const MAX_DISPLAY_LINES = 6            // 最多保留行数
+const CHARS_PER_LINE = 42              // 估算每行字数（用于裁行）
+
+let typewriterQueue: string[] = []     // 待打印字符队列
+let typewriterTimer: number | null = null
+
+/** 把显示文本裁剪到最后 MAX_DISPLAY_LINES 行 */
+function trimToMaxLines(text: string): string {
+  const lines = text.split('\n')
+  if (lines.length <= MAX_DISPLAY_LINES) return text
+
+  // 按视觉折行估算：每段文字超过 CHARS_PER_LINE 算多行
+  let totalVisualLines = 0
+  const kept: string[] = []
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const visualLines = Math.max(1, Math.ceil(lines[i].length / CHARS_PER_LINE))
+    totalVisualLines += visualLines
+    if (totalVisualLines > MAX_DISPLAY_LINES + 2) break
+    kept.unshift(lines[i])
+  }
+  return kept.join('\n')
+}
+
+/** 启动打字机循环 */
+function startTypewriter() {
+  if (typewriterTimer !== null) return
+  typewriterTimer = window.setInterval(() => {
+    if (typewriterQueue.length === 0) {
+      clearInterval(typewriterTimer!)
+      typewriterTimer = null
+      return
+    }
+    // 每帧打 1~3 个字（中英文均算 1 字）
+    const batch = typewriterQueue.splice(0, 2).join('')
+    streamingText.value = trimToMaxLines(streamingText.value + batch)
+
+    nextTick(() => {
+      if (scrollContainer2.value) {
+        scrollContainer2.value.scrollTop = scrollContainer2.value.scrollHeight
+      }
+    })
+  }, TYPEWRITER_INTERVAL)
+}
+
+/** 清空打字机 */
+function resetTypewriter() {
+  if (typewriterTimer !== null) {
+    clearInterval(typewriterTimer)
+    typewriterTimer = null
+  }
+  typewriterQueue = []
+  streamingText.value = ''
+  lastContentLength.value = 0
+}
 
 const isWritingContent = computed(() => props.writingContent && props.writingContent.length > 0 && (props.writingChapterNumber || 0) > 0)
 const writingWordCount = computed(() => props.writingContent?.length || 0)
@@ -458,8 +514,7 @@ watch(
       lastWordCount.value = 0
       lastTimestamp.value = 0
       writingSpeed.value = 0
-      lastContentLength.value = 0
-      streamingText.value = ''
+      resetTypewriter()
       return
     }
     const now = Date.now()
@@ -474,23 +529,12 @@ watch(
       }
     }
 
-    // 流式滚动显示：只显示最近的文字（避免内容无限累积导致重复显示）
+    // 把新增字符推入打字机队列
     if (currentCount > lastContentLength.value) {
-      // 只保留最后 500 个字符，避免内容过长
-      const displayLimit = 500
-      if (currentCount > displayLimit) {
-        streamingText.value = content.slice(-displayLimit)
-      } else {
-        streamingText.value = content
-      }
+      const newChars = content.slice(lastContentLength.value)
+      typewriterQueue.push(...newChars.split(''))
       lastContentLength.value = currentCount
-
-      // 自动滚动到底部
-      nextTick(() => {
-        if (scrollContainer2.value) {
-          scrollContainer2.value.scrollTop = scrollContainer2.value.scrollHeight
-        }
-      })
+      startTypewriter()
     }
 
     lastWordCount.value = currentCount
@@ -501,10 +545,7 @@ watch(
 // 监听章节变化，清空滚动文本
 watch(
   () => props.writingChapterNumber,
-  () => {
-    streamingText.value = ''
-    lastContentLength.value = 0
-  }
+  () => { resetTypewriter() }
 )
 
 onUnmounted(() => {
@@ -516,6 +557,7 @@ onUnmounted(() => {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
+  resetTypewriter()
 })
 </script>
 
@@ -617,11 +659,14 @@ onUnmounted(() => {
 }
 
 .writing-stream-bar .stream-content-preview {
-  max-height: 120px;
-  overflow-y: auto;
+  height: 128px;           /* 约 6行 × line-height 1.7 × 12px ≈ 122px，留少量余量 */
+  overflow: hidden;
   padding: 6px 10px;
   border-top: 1px solid rgba(24, 160, 88, 0.1);
   background: rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;  /* 内容始终贴底，新行从底部入场 */
 }
 
 .writing-stream-bar .content-text {
