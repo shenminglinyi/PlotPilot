@@ -358,10 +358,10 @@ function openPanel() {
   overflow: hidden;
   border: 1px solid var(--app-border);
   background:
-    radial-gradient(circle at 18% 18%, rgba(129, 140, 248, 0.32), transparent 28%),
+    radial-gradient(circle at 18% 18%, var(--color-brand-light, rgba(129, 140, 248, 0.32)), transparent 28%),
     linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
   color: var(--app-text-inverse);
-  box-shadow: var(--app-shadow-md), 0 10px 26px rgba(79, 70, 229, 0.22);
+  box-shadow: var(--app-shadow-md), 0 10px 26px var(--color-brand-border, rgba(79, 70, 229, 0.22));
   backdrop-filter: blur(12px);
   cursor: pointer;
   transition:
@@ -383,21 +383,21 @@ function openPanel() {
   min-height: 0;
   padding: 12px 10px;
   border-radius: var(--app-radius-md);
-  box-shadow: var(--app-shadow-sm), 0 8px 18px rgba(79, 70, 229, 0.14);
+  box-shadow: var(--app-shadow-sm), 0 8px 18px var(--color-brand-border, rgba(79, 70, 229, 0.14));
 }
 
 .global-llm-main:hover {
   transform: translateY(-1px);
   border-color: var(--color-brand-border);
-  box-shadow: var(--app-shadow-lg), 0 14px 32px rgba(79, 70, 229, 0.28);
+  box-shadow: var(--app-shadow-lg), 0 14px 32px var(--color-brand-border, rgba(79, 70, 229, 0.28));
 }
 
 .global-llm-glow {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.18), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 45%);
+    radial-gradient(circle at 80% 20%, var(--app-text-inverse, rgba(255, 255, 255, 0.18)), transparent 24%),
+    linear-gradient(180deg, var(--app-text-inverse, rgba(255, 255, 255, 0.06)), transparent 45%);
   pointer-events: none;
 }
 
@@ -419,9 +419,9 @@ function openPanel() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.16));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, var(--app-text-inverse, rgba(15, 23, 42, 0.5)), var(--app-text-inverse, rgba(15, 23, 42, 0.16)));
+  border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.12));
+  box-shadow: inset 0 1px 0 var(--app-text-inverse, rgba(255, 255, 255, 0.08));
 }
 .global-llm-main.variant-sidebar .global-llm-icon-core { width: 34px; height: 34px; border-radius: 12px; }
 
@@ -431,8 +431,8 @@ function openPanel() {
   border-radius: inherit;
   opacity: 0.35;
   background-image:
-    linear-gradient(rgba(191, 219, 254, 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(191, 219, 254, 0.12) 1px, transparent 1px);
+    linear-gradient(var(--color-brand-suppl, rgba(191, 219, 254, 0.12)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-brand-suppl, rgba(191, 219, 254, 0.12)) 1px, transparent 1px);
   background-size: 7px 7px;
 }
 .global-llm-main.variant-sidebar .global-llm-icon-grid { inset: 7px; }
@@ -478,13 +478,13 @@ function openPanel() {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #86efac, #22c55e);
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+  background: linear-gradient(180deg, var(--color-success-light, #86efac), var(--color-success, #22c55e));
+  box-shadow: 0 0 0 4px var(--color-success-light, rgba(34, 197, 94, 0.14));
 }
 
 .global-llm-subtitle {
   max-width: 170px;
-  color: rgba(226, 232, 240, 0.82);
+  color: var(--app-text-secondary, rgba(226, 232, 240, 0.82));
   font-size: 11px;
   line-height: 1.35;
   white-space: nowrap;
@@ -520,8 +520,8 @@ function openPanel() {
   border-radius: calc(var(--app-radius-lg) - 5px);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow:
-    0 2px 10px rgba(79, 70, 229, 0.25),
-    0 1px 3px rgba(79, 70, 229, 0.15);
+    0 2px 10px var(--color-brand-border, rgba(79, 70, 229, 0.25)),
+    0 1px 3px var(--color-brand-border, rgba(79, 70, 229, 0.15));
 }
 
 .drawer-tab-btn {
@@ -545,7 +545,7 @@ function openPanel() {
 }
 
 .drawer-tab-btn.active {
-  color: #ffffff;
+  color: var(--app-text-inverse, #ffffff);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
@@ -580,12 +580,12 @@ function openPanel() {
   gap: 12px;
   padding: 12px 14px;
   border-radius: var(--app-radius-lg);
-  background: linear-gradient(135deg, var(--color-brand-light), rgba(99, 102, 241, 0.05)), var(--app-surface);
+  background: linear-gradient(135deg, var(--color-brand-light), var(--color-brand-light)), var(--app-surface);
   border: 1px solid var(--color-brand-border);
 }
 
 .global-llm-runtime-bar.is-mock {
-  background: linear-gradient(135deg, var(--color-gold-dim), rgba(245, 158, 11, 0.06)), var(--app-surface);
+  background: linear-gradient(135deg, var(--color-gold-dim), var(--color-gold-dim)), var(--app-surface);
   border-color: var(--color-gold-border);
 }
 
@@ -683,7 +683,8 @@ function openPanel() {
   padding: 14px 18px;
 }
 
-[data-theme='dark'] .emb-local-card {
+[data-theme='dark'] .emb-local-card,
+[data-theme='anchor'] .emb-local-card {
   background: rgba(34, 197, 94, 0.08);
   border-color: rgba(34, 197, 94, 0.15);
 }
