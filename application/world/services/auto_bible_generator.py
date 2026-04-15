@@ -123,14 +123,79 @@ class AutoBibleGenerator:
                 self.bible_service.create_bible(bible_id, novel_id)
                 logger.info(f"Created Bible record: {bible_id}")
 
-            print(f"[DEBUG] Calling _generate_worldbuilding_and_style", file=sys.stderr, flush=True)
-            # 只生成世界观和文风
-            bible_data = await self._generate_worldbuilding_and_style(novel_id, premise, target_chapters)
-            print(f"[DEBUG] _generate_worldbuilding_and_style completed", file=sys.stderr, flush=True)
-            print(f"[DEBUG] bible_data keys: {bible_data.keys()}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] Has 'worldbuilding' key: {'worldbuilding' in bible_data}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] worldbuilding_service is None: {self.worldbuilding_service is None}", file=sys.stderr, flush=True)
-            # 保存文风
+            from application.world.services.worldbuilding_review_committee import aggregate_reviews, run_reviewer
+            from infrastructure.ai.config.dynamic_settings import DynamicSettingsManager
+            from interfaces.api.dependencies import _build_provider_for_role
+
+            max_rounds = 3
+            round_idx = 0
+            last_bundle = None
+
+            while round_idx < max_rounds:
+                print(f"[DEBUG] Calling _generate_worldbuilding_and_style", file=sys.stderr, flush=True)
+                bible_data = await self._generate_worldbuilding_and_style(novel_id, premise, target_chapters)
+                print(f"[DEBUG] _generate_worldbuilding_and_style completed", file=sys.stderr, flush=True)
+                print(f"[DEBUG] bible_data keys: {bible_data.keys()}", file=sys.stderr, flush=True)
+                print(f"[DEBUG] Has 'worldbuilding' key: {'worldbuilding' in bible_data}", file=sys.stderr, flush=True)
+                print(f"[DEBUG] worldbuilding_service is None: {self.worldbuilding_service is None}", file=sys.stderr, flush=True)
+
+                try:
+                    self.bible_service.update_extensions(novel_id, {"worldbuilding_draft": bible_data})
+                except Exception as e:
+                    logger.error(f"Failed to persist worldbuilding_draft: {e}")
+
+                dyn_config = DynamicSettingsManager().load_config()
+                report = await self._ensure_research_report(novel_id, premise)
+                injection = self._build_research_injection(report)
+
+                fact_service = _build_provider_for_role(dyn_config, "fact_review") or self.llm_service
+                genre_service = _build_provider_for_role(dyn_config, "genre_review") or self.llm_service
+                reader_service = _build_provider_for_role(dyn_config, "reader_review") or self.llm_service
+
+                fact_model = dyn_config.fact_review_model if dyn_config else ""
+                genre_model = dyn_config.genre_review_model if dyn_config else ""
+                reader_model = dyn_config.reader_review_model if dyn_config else ""
+
+                reviews = []
+                try:
+                    reviews.append(await run_reviewer(fact_service, "fact", premise, injection, bible_data, model=fact_model))
+                except Exception as e:
+                    logger.error(f"Fact reviewer failed: {e}")
+                    reviews.append({"reviewer_role": "fact", "verdict": "rework", "score": 0, "redlines_triggered": ["format_invalid"], "needs_research_rework": True, "issues": [], "fix_instructions": [str(e)]})
+
+                try:
+                    reviews.append(await run_reviewer(genre_service, "genre", premise, injection, bible_data, model=genre_model))
+                except Exception as e:
+                    logger.error(f"Genre reviewer failed: {e}")
+                    reviews.append({"reviewer_role": "genre", "verdict": "rework", "score": 0, "redlines_triggered": ["format_invalid"], "needs_research_rework": False, "issues": [], "fix_instructions": [str(e)]})
+
+                try:
+                    reviews.append(await run_reviewer(reader_service, "reader", premise, injection, bible_data, model=reader_model))
+                except Exception as e:
+                    logger.error(f"Reader reviewer failed: {e}")
+                    reviews.append({"reviewer_role": "reader", "verdict": "rework", "score": 0, "redlines_triggered": ["format_invalid"], "needs_research_rework": False, "issues": [], "fix_instructions": [str(e)]})
+
+                bundle = aggregate_reviews(reviews)
+                last_bundle = bundle
+                try:
+                    self.bible_service.update_extensions(novel_id, {"review": {"worldbuilding": bundle}})
+                except Exception as e:
+                    logger.error(f"Failed to persist review bundle: {e}")
+
+                if bundle.get("final_verdict") == "approve":
+                    break
+
+                if bundle.get("needs_research_rework"):
+                    try:
+                        self.bible_service.update_extensions(novel_id, {"research": None})
+                    except Exception as e:
+                        logger.error(f"Failed to invalidate research report: {e}")
+
+                round_idx += 1
+
+            if last_bundle and last_bundle.get("final_verdict") != "approve":
+                logger.info(f"Worldbuilding not approved after {max_rounds} rounds, using latest draft")
+
             if "style" in bible_data:
                 style_id = f"{novel_id}-style-1"
                 try:
@@ -147,7 +212,7 @@ class AutoBibleGenerator:
                     else:
                         logger.error(f"Failed to save style note: {e}")
                         raise
-            # 保存世界观
+
             if self.worldbuilding_service and "worldbuilding" in bible_data:
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
 
