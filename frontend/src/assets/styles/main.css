@@ -115,6 +115,16 @@ body {
   /* ── StatsTopBar 渐变 ── */
   --stats-bar-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
 
+  /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
+  --tab-track-bg: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  --tab-track-shadow: 0 2px 10px var(--color-brand-border), 0 1px 3px var(--color-brand-border);
+  --tab-active-color: var(--app-text-inverse, #ffffff);
+  --tab-inactive-color: var(--app-text-secondary, #475569);
+  --tab-inactive-hover-color: var(--app-text-primary, #0f172a);
+  --profile-active-bg: var(--color-brand-light, rgba(79, 70, 229, 0.08));
+  --runtime-model-color: var(--color-brand, #4f46e5);
+  --runtime-mock-model-color: var(--color-gold, #d4a853);
+
   color-scheme: light;
 }
 
@@ -149,6 +159,13 @@ body {
   --app-text-secondary: #94a3b8;
   --app-text-muted: #64748b;
   --app-text-inverse: #0f172a;
+
+  /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
+  --tab-track-bg: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  --tab-track-shadow: 0 2px 10px var(--color-brand-border), 0 1px 3px var(--color-brand-border);
+  --tab-active-color: var(--app-text-inverse, #ffffff);
+  --tab-inactive-color: var(--app-text-secondary, #94a3b8);
+  --tab-inactive-hover-color: var(--app-text-primary, #e2e8f0);
 
   /* ── 背景色（深色系，禁止纯白）── */
   --app-page-bg: #0b1121;
@@ -405,20 +422,27 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 }
 
 /* ═══════════════════════════════════════════════════
-   GlobalLLMEntryButton Drawer — 使用变量
+   GlobalLLMEntryButton Drawer — 使用统一变量
    ═══════════════════════════════════════════════════ */
 .global-llm-drawer-title { color: var(--app-text-primary); }
 .global-llm-drawer-subtitle { color: var(--app-text-muted); }
 .global-llm-runtime-bar {
-  background: linear-gradient(135deg, var(--color-brand-light), rgba(99, 102, 241, 0.05)), var(--app-surface);
-  border-color: var(--color-brand-border);
+  background: var(--runtime-bar-bg);
+  border-color: var(--runtime-bar-border);
 }
-.global-llm-runtime-model { color: var(--app-text-primary); }
+.global-llm-runtime-model { color: var(--runtime-model-color); font-weight: 800; }
 .global-llm-runtime-label { color: var(--app-text-muted); }
 .global-llm-runtime-name { color: var(--app-text-secondary); }
 .global-llm-runtime-chip {
   background: var(--color-brand-light);
   color: var(--color-brand);
+}
+.global-llm-runtime-bar.is-mock {
+  background: var(--runtime-mock-bg);
+  border-color: var(--runtime-mock-border);
+}
+.global-llm-runtime-bar.is-mock .global-llm-runtime-model {
+  color: var(--runtime-mock-model-color);
 }
 
 /* 嵌入模型区域 */

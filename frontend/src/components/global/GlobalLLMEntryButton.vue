@@ -381,15 +381,19 @@ function openPanel() {
 .global-llm-main.variant-sidebar {
   width: 100%;
   min-height: 0;
-  padding: 12px 10px;
-  border-radius: var(--app-radius-md);
-  box-shadow: var(--app-shadow-sm), 0 8px 18px var(--color-brand-border, rgba(79, 70, 229, 0.14));
+  padding: 14px 12px;
+  border-radius: 12px;
+  box-shadow: var(--app-shadow-sm), 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .global-llm-main:hover {
   transform: translateY(-1px);
   border-color: var(--color-brand-border);
   box-shadow: var(--app-shadow-lg), 0 14px 32px var(--color-brand-border, rgba(79, 70, 229, 0.28));
+}
+
+.global-llm-main.variant-sidebar:hover {
+  box-shadow: var(--app-shadow-sm), 0 2px 8px var(--color-brand-border, rgba(79, 70, 229, 0.18));
 }
 
 .global-llm-glow {
@@ -408,7 +412,10 @@ function openPanel() {
   align-items: center;
   gap: 12px;
 }
-.global-llm-main.variant-sidebar .global-llm-main-content { gap: 10px; }
+.global-llm-main.variant-sidebar .global-llm-main-content {
+  flex-direction: column;
+  gap: 6px;
+}
 
 .global-llm-icon-core {
   position: relative;
@@ -423,7 +430,11 @@ function openPanel() {
   border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.12));
   box-shadow: inset 0 1px 0 var(--app-text-inverse, rgba(255, 255, 255, 0.08));
 }
-.global-llm-main.variant-sidebar .global-llm-icon-core { width: 34px; height: 34px; border-radius: 12px; }
+.global-llm-main.variant-sidebar .global-llm-icon-core { 
+  width: 24px; 
+  height: 24px; 
+  border-radius: 8px; 
+}
 
 .global-llm-icon-grid {
   position: absolute;
@@ -435,7 +446,10 @@ function openPanel() {
     linear-gradient(90deg, var(--color-brand-suppl, rgba(191, 219, 254, 0.12)) 1px, transparent 1px);
   background-size: 7px 7px;
 }
-.global-llm-main.variant-sidebar .global-llm-icon-grid { inset: 7px; }
+.global-llm-main.variant-sidebar .global-llm-icon-grid { 
+  inset: 4px; 
+  background-size: 4px 4px; 
+}
 
 .global-llm-icon-chip {
   position: relative;
@@ -443,6 +457,7 @@ function openPanel() {
   font-size: 16px;
   line-height: 1;
 }
+.global-llm-main.variant-sidebar .global-llm-icon-chip { font-size: 11px; }
 
 .global-llm-icon-spark {
   position: absolute;
@@ -452,7 +467,16 @@ function openPanel() {
   color: var(--color-gold);
   filter: drop-shadow(0 0 6px var(--color-gold-glow));
 }
-.global-llm-main.variant-sidebar .global-llm-icon-spark { top: 3px; right: 3px; font-size: 11px; }
+.global-llm-main.variant-sidebar .global-llm-icon-spark { 
+  top: 1px; 
+  right: 1px; 
+  font-size: 7px; 
+  width: 5px; 
+  height: 5px; 
+  border-radius: 50%; 
+  background: var(--color-gold); 
+  box-shadow: 0 0 4px var(--color-gold-glow); 
+}
 
 .global-llm-copy {
   min-width: 0;
@@ -460,7 +484,10 @@ function openPanel() {
   flex-direction: column;
   gap: 5px;
 }
-.global-llm-main.variant-sidebar .global-llm-copy { gap: 0; }
+.global-llm-main.variant-sidebar .global-llm-copy { 
+  gap: 0; 
+  align-items: center; 
+}
 
 .global-llm-title-row {
   display: flex;
@@ -473,6 +500,9 @@ function openPanel() {
   font-weight: 700;
   letter-spacing: 0.02em;
 }
+.global-llm-main.variant-sidebar .global-llm-title { 
+  font-size: 12px; 
+}
 
 .global-llm-status {
   width: 8px;
@@ -480,6 +510,10 @@ function openPanel() {
   border-radius: 50%;
   background: linear-gradient(180deg, var(--color-success-light, #86efac), var(--color-success, #22c55e));
   box-shadow: 0 0 0 4px var(--color-success-light, rgba(34, 197, 94, 0.14));
+}
+.global-llm-main.variant-sidebar .global-llm-status { 
+  width: 6px; 
+  height: 6px; 
 }
 
 .global-llm-subtitle {
@@ -502,12 +536,13 @@ function openPanel() {
 /* ── Tab Switch（切换嵌入/LLM）── */
 .drawer-tab-switch {
   position: relative;
-  display: inline-flex;
+  display: flex;
   background: var(--app-surface-subtle);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-lg);
   padding: 4px;
   gap: 0;
+  width: 100%;
 }
 
 .drawer-tab-track {
@@ -516,41 +551,47 @@ function openPanel() {
   left: 4px;
   width: calc(50% - 4px);
   height: calc(100% - 8px);
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  background: var(--tab-track-bg);
   border-radius: calc(var(--app-radius-lg) - 5px);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow:
-    0 2px 10px var(--color-brand-border, rgba(79, 70, 229, 0.25)),
-    0 1px 3px var(--color-brand-border, rgba(79, 70, 229, 0.15));
+  box-shadow: var(--tab-track-shadow);
+  z-index: 0;
+  pointer-events: none;
 }
 
 .drawer-tab-btn {
   position: relative;
-  z-index: 1;
-  display: inline-flex;
+  z-index: 2;
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 9px 24px;
+  flex: 1;
+  padding: 9px 16px;
   border: none;
   background: transparent;
-  color: var(--app-text-secondary);
+  color: var(--tab-inactive-color, var(--app-text-secondary));
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.02em;
   border-radius: calc(var(--app-radius-lg) - 5px);
   cursor: pointer;
-  transition: color 0.22s ease;
+  transition: color 0.22s ease, background 0.22s ease;
   white-space: nowrap;
   user-select: none;
 }
 
 .drawer-tab-btn.active {
-  color: var(--app-text-inverse, #ffffff);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  color: var(--tab-active-color, var(--app-text-inverse, #ffffff));
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.drawer-tab-btn:not(.active) {
+  opacity: 0.8;
 }
 
 .drawer-tab-btn:hover:not(.active) {
-  color: var(--app-text-primary);
+  color: var(--tab-inactive-hover-color);
+  opacity: 1;
 }
 
 /* ── 嵌入模型头部信息 ─────────────────────────────── */
@@ -580,13 +621,17 @@ function openPanel() {
   gap: 12px;
   padding: 12px 14px;
   border-radius: var(--app-radius-lg);
-  background: linear-gradient(135deg, var(--color-brand-light), var(--color-brand-light)), var(--app-surface);
-  border: 1px solid var(--color-brand-border);
+  background: var(--runtime-bar-bg, linear-gradient(135deg, var(--color-brand-light), var(--app-surface)));
+  border: 1px solid var(--runtime-bar-border, var(--color-brand-border));
 }
 
 .global-llm-runtime-bar.is-mock {
-  background: linear-gradient(135deg, var(--color-gold-dim), var(--color-gold-dim)), var(--app-surface);
-  border-color: var(--color-gold-border);
+  background: var(--runtime-mock-bg, linear-gradient(135deg, var(--color-gold-dim), var(--app-surface)));
+  border-color: var(--runtime-mock-border, var(--color-gold-border));
+}
+
+.global-llm-runtime-bar.is-mock .global-llm-runtime-model {
+  color: var(--runtime-mock-model-color, var(--color-gold));
 }
 
 .global-llm-runtime-main {
@@ -604,9 +649,9 @@ function openPanel() {
 
 .global-llm-runtime-model {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.25;
-  color: var(--app-text-primary);
+  color: var(--runtime-model-color, var(--color-brand));
 }
 
 .global-llm-runtime-meta {

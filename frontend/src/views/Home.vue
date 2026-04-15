@@ -150,8 +150,8 @@
 
           <!-- Books Grid -->
           <template v-else>
-            <!-- Selection Bar -->
-            <div class="selection-bar" v-if="filteredBooks.length > 0">
+            <!-- Selection Bar (仅搜索模式下显示) -->
+            <div class="selection-bar" v-if="filteredBooks.length > 0 && searchQuery">
               <n-checkbox
                 :checked="isAllSelected"
                 :indeterminate="isPartialSelected"
@@ -164,70 +164,73 @@
               </span>
             </div>
 
-            <n-grid :cols="3" :x-gap="20" :y-gap="20" responsive="screen">
-              <n-gi v-for="(book, idx) in filteredBooks" :key="book.slug">
-                <n-card
+            <!-- 书目卡片网格（限制展示数量，不滚动） -->
+            <div class="books-list-wrap">
+              <div class="books-grid">
+                <div
+                  v-for="(book, idx) in displayBooks"
+                  :key="book.slug"
                   class="book-card"
-                  :class="{ selected: selectedBooks.includes(book.slug) }"
-                  hoverable
+                  :class="{ 'is-selected': selectedBooks.includes(book.slug) }"
                   :style="{ animationDelay: `${idx * 0.04}s` }"
+                  @click="navigateToBook(book.slug)"
                 >
-                  <div class="book-content">
-                    <!-- Selection Checkbox -->
-                    <div class="book-select" @click.stop>
-                      <n-checkbox
-                        :checked="selectedBooks.includes(book.slug)"
-                        @update:checked="(val: boolean) => toggleBookSelection(book.slug, val)"
-                      />
-                    </div>
-                    
-                    <!-- Book Info -->
-                    <div class="book-main" @click="navigateToBook(book.slug)">
-                      <div class="book-header">
-                        <h3 class="book-title">{{ book.title }}</h3>
-                        <div class="book-actions" @click.stop>
-                          <n-tag :type="getStageType(book.stage)" size="small" round>
-                            {{ book.stage_label }}
-                          </n-tag>
-                          <n-popconfirm
-                            positive-text="删除"
-                            negative-text="取消"
-                            @positive-click="() => handleDeleteBook(book.slug)"
-                          >
-                            <template #trigger>
-                              <n-button
-                                quaternary
-                                circle
-                                size="small"
-                                type="error"
-                                :loading="deletingSlug === book.slug"
-                                aria-label="删除书目"
-                              >
-                                <template #icon>
-                                  <n-icon><IconTrash /></n-icon>
-                                </template>
-                              </n-button>
-                            </template>
-                            将删除「{{ book.title }}」及本地全部章节与设定，且不可恢复。确定删除吗？
-                          </n-popconfirm>
-                        </div>
-                      </div>
-                      <div class="book-meta">
-                        <n-tag size="small" :bordered="false" round>
-                          {{ book.genre || '未分类' }}
-                        </n-tag>
-                        <span class="book-chapters" v-if="book.chapter_count">
-                          {{ book.chapter_count }} 章
-                        </span>
-                        <span class="book-words" v-if="book.word_count">
-                          {{ formatWordCount(book.word_count) }}
-                        </span>
-                      </div>
-                    </div>
+                  <div class="card-top">
+                    <span class="book-dot" :class="`dot-${book.stage}`"></span>
+                    <span class="book-card-title">{{ book.title }}</span>
                   </div>
-                </n-card>
-              </n-gi>
-            </n-grid>
+                  <div class="card-meta">
+                    <n-tag :type="getStageType(book.stage)" size="small" round borderable>
+                      {{ book.stage_label }}
+                    </n-tag>
+                    <span class="meta-genre">{{ book.genre || '未分类' }}</span>
+                  </div>
+                  <div class="card-stats" v-if="book.chapter_count || book.word_count">
+                    <template v-if="book.chapter_count">
+                      <span>{{ book.chapter_count }} 章</span>
+                    </template>
+                    <template v-if="book.word_count">
+                      <span>{{ formatWordCount(book.word_count) }}</span>
+                    </template>
+                  </div>
+                  <div class="card-actions" @click.stop>
+                    <n-checkbox
+                      :checked="selectedBooks.includes(book.slug)"
+                      @update:checked="(val: boolean) => toggleBookSelection(book.slug, val)"
+                    />
+                    <n-popconfirm
+                      positive-text="删除"
+                      negative-text="取消"
+                      @positive-click="() => handleDeleteBook(book.slug)"
+                    >
+                      <template #trigger>
+                        <n-button
+                          quaternary
+                          circle
+                          size="tiny"
+                          type="error"
+                          :loading="deletingSlug === book.slug"
+                          aria-label="删除书目"
+                        >
+                          <template #icon>
+                            <n-icon><IconTrash /></n-icon>
+                          </template>
+                        </n-button>
+                      </template>
+                      将删除「{{ book.title }}」及本地全部章节与设定，且不可恢复。确定删除吗？
+                    </n-popconfirm>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 折叠提示 + 查看全部按钮 -->
+              <div v-if="hiddenCount > 0 && !searchQuery" class="books-fold-bar">
+                <span class="fold-hint">还有 {{ hiddenCount }} 本书未展示</span>
+                <n-button size="small" type="primary" secondary round @click="showAllModal = true">
+                  查看全部 {{ filteredBooks.length }} 本
+                </n-button>
+              </div>
+            </div>
           </template>
         </section>
 
@@ -273,6 +276,91 @@
 
     <!-- LLM Settings Modal -->
     <LLMSettingsModal v-model:show="showLLMSettings" />
+
+    <!-- 查看全部书目弹窗 -->
+    <n-modal
+      v-model:show="showAllModal"
+      preset="card"
+      title=""
+      :style="{ width: '92vw', maxWidth: '960px', height: '80vh', marginTop: '8vh' }"
+      :bordered="true"
+      :segmented="{ content: true, footer: 'soft' }"
+      :mask-closable="true"
+      :close-on-esc="true"
+    >
+      <template #header>
+        <div class="all-books-header">
+          <span class="all-books-header-title">全部书目</span>
+          <n-tag size="small" type="info" :bordered="false">
+            {{ filteredBooks.length }} 本
+          </n-tag>
+        </div>
+      </template>
+
+      <div class="all-books-body">
+        <n-input
+          v-model:value="modalSearchQuery"
+          placeholder="搜索书目…"
+          clearable
+          size="small"
+          style="max-width: 280px; margin-bottom: 16px"
+        >
+          <template #prefix>
+            <n-icon><IconSearch /></n-icon>
+          </template>
+        </n-input>
+        <div class="all-books-grid">
+          <div
+            v-for="book in modalFilteredBooks"
+            :key="book.slug"
+            class="book-card"
+            @click="navigateToBook(book.slug); showAllModal = false"
+          >
+            <div class="card-top">
+              <span class="book-dot" :class="`dot-${book.stage}`"></span>
+              <span class="book-card-title">{{ book.title }}</span>
+            </div>
+            <div class="card-meta">
+              <n-tag :type="getStageType(book.stage)" size="small" round borderable>
+                {{ book.stage_label }}
+              </n-tag>
+              <span class="meta-genre">{{ book.genre || '未分类' }}</span>
+            </div>
+            <div class="card-stats" v-if="book.chapter_count || book.word_count">
+              <template v-if="book.chapter_count">
+                <span>{{ book.chapter_count }} 章</span>
+              </template>
+              <template v-if="book.word_count">
+                <span>{{ formatWordCount(book.word_count) }}</span>
+              </template>
+            </div>
+            <div class="card-actions" @click.stop>
+              <n-popconfirm
+                positive-text="删除"
+                negative-text="取消"
+                @positive-click="() => handleDeleteBook(book.slug)"
+              >
+                <template #trigger>
+                  <n-button
+                    quaternary
+                    circle
+                    size="tiny"
+                    type="error"
+                    :loading="deletingSlug === book.slug"
+                    aria-label="删除书目"
+                  >
+                    <template #icon>
+                      <n-icon><IconTrash /></n-icon>
+                    </template>
+                  </n-button>
+                </template>
+                将删除「{{ book.title }}」及本地全部章节与设定，且不可恢复。确定删除吗？
+              </n-popconfirm>
+            </div>
+          </div>
+        </div>
+      </div>
+    </n-modal>
   </div>
 </template>
 
@@ -330,6 +418,8 @@ const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
 const showSetupGuide = ref(false)
 const showLLMSettings = ref(false)
+const showAllModal = ref(false)
+const modalSearchQuery = ref('')
 const newNovelId = ref('')
 const newNovelTargetChapters = ref(10)
 
@@ -368,6 +458,32 @@ const filteredBooks = computed(() => {
     book =>
       book.title.toLowerCase().includes(query) ||
       (book.genre && book.genre.toLowerCase().includes(query))
+  )
+})
+
+/** 页面主区域最多展示的书目数量 */
+const MAX_VISIBLE_BOOKS = 6
+
+/** 页面实际展示的书目（截断，不滚动） */
+const displayBooks = computed(() => {
+  if (searchQuery.value.trim()) return filteredBooks.value
+  return filteredBooks.value.slice(0, MAX_VISIBLE_BOOKS)
+})
+
+/** 被隐藏的数量 */
+const hiddenCount = computed(() => {
+  if (searchQuery.value.trim()) return 0
+  return Math.max(0, filteredBooks.value.length - MAX_VISIBLE_BOOKS)
+})
+
+/** 弹窗内的过滤 */
+const modalFilteredBooks = computed(() => {
+  if (!modalSearchQuery.value.trim()) return filteredBooks.value
+  const q = modalSearchQuery.value.toLowerCase()
+  return filteredBooks.value.filter(
+    book =>
+      book.title.toLowerCase().includes(q) ||
+      (book.genre && book.genre.toLowerCase().includes(q))
   )
 })
 
@@ -421,11 +537,6 @@ const handleCreate = async () => {
     message.warning('请输入故事创意')
     return
   }
-
-/** 打开提示词广场 */
-function openPromptPlaza() {
-  promptPlazaRef.value?.open()
-}
 
   creating.value = true
   try {
@@ -831,80 +942,132 @@ onMounted(() => {
   font-size: 14px;
 }
 
+/* ── 书目卡片网格（块展示，不滚动）── */
+.books-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.books-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+/* 卡片 */
 .book-card {
-  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   border-radius: 14px;
-  height: 100%;
+  cursor: pointer;
   transition: all 0.2s ease;
-  animation: fade-up 0.45s ease both;
-  border: 2px solid transparent;
+  animation: fade-up 0.35s ease both;
+  overflow: hidden;
 }
 
 .book-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  border-color: var(--color-brand, #4f46e5);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.1);
+  transform: translateY(-2px);
 }
 
-.book-card.selected {
-  border-color: #4f46e5;
-  background: rgba(79, 70, 229, 0.02);
+.book-card.is-selected {
+  border-color: var(--color-brand, #4f46e5);
+  background: var(--color-brand-light, rgba(79, 70, 229, 0.04));
 }
 
-.book-content {
-  display: flex;
-  gap: 12px;
-}
-
-.book-select {
+/* 阶段状态小圆点 */
+.book-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
   flex-shrink: 0;
-  padding-top: 4px;
+  display: inline-block;
 }
 
-.book-main {
-  flex: 1;
-  min-width: 0;
-}
+.book-dot.dot-planning { background: #3b82f6; }
+.book-dot.dot-writing { background: #f59e0b; }
+.book-dot.dot-reviewing { background: #8b5cf6; }
+.book-dot.dot-completed { background: #10b981; }
 
-.book-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.book-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 1.4;
-  color: var(--app-text-primary);
-}
-
-.book-actions {
+/* 卡片顶部：标题 + 圆点 */
+.card-top {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  margin-bottom: 12px;
 }
 
-.book-meta {
+.book-card-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+/* 卡片元信息行：标签 + 类型 */
+.card-meta {
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
 }
 
-.book-chapters,
-.book-words {
+.meta-genre {
   font-size: 12px;
   color: var(--app-text-muted);
+}
+
+/* 卡片统计信息 */
+.card-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin-bottom: 12px;
+  flex: 1;
+}
+
+/* 卡片操作按钮 */
+.card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  padding-top: 4px;
+  border-top: 1px solid transparent;
+}
+
+.book-card:hover .card-actions {
+  opacity: 1;
+}
+
+/* 折叠提示栏 */
+.books-fold-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--color-brand-light, rgba(79, 70, 229, 0.05));
+  border: 1px dashed var(--color-brand-border, rgba(79, 70, 229, 0.2));
+  border-radius: 10px;
+}
+
+.fold-hint {
+  font-size: 13px;
+  color: var(--app-text-secondary);
 }
 
 @keyframes fade-up {
@@ -1003,5 +1166,35 @@ onMounted(() => {
   .search-input {
     width: 100%;
   }
+
+  .card-actions {
+    opacity: 1; /* 移动端始终显示操作按钮 */
+  }
+}
+
+/* ── 查看全部书目弹窗样式 ── */
+.all-books-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.all-books-header-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.all-books-body {
+  height: calc(80vh - 100px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.all-books-grid {
+  max-height: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
 }
 </style>
