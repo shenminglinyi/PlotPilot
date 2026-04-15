@@ -70,7 +70,7 @@ class OpenAIProvider(BaseProvider):
             ]
             
             response = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
+                model=config.model or self.settings.default_model,
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
@@ -119,7 +119,7 @@ class OpenAIProvider(BaseProvider):
             ]
             
             stream = await self.async_client.chat.completions.create(
-                model=config.model or DEFAULT_MODEL,
+                model=config.model or self.settings.default_model,
                 messages=messages,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,

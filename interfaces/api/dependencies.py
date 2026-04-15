@@ -84,7 +84,11 @@ def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
                 "Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN (optional: ANTHROPIC_BASE_URL)"
             )
         return None
-    return Settings(api_key=key, base_url=_anthropic_base_url())
+    return Settings(
+        api_key=key,
+        base_url=_anthropic_base_url(),
+        default_model=os.getenv("WRITING_MODEL", ""),
+    )
 
 
 def _openai_api_key() -> Optional[str]:
@@ -109,7 +113,11 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
                 "Set OPENAI_API_KEY (optional: OPENAI_BASE_URL)"
             )
         return None
-    return Settings(api_key=key, base_url=_openai_base_url())
+    return Settings(
+        api_key=key,
+        base_url=_openai_base_url(),
+        default_model=os.getenv("WRITING_MODEL") or os.getenv("ARK_MODEL", ""),
+    )
 
 
 def get_storage() -> FileStorage:
@@ -427,8 +435,8 @@ def get_embedding_service():
             logger.info(f"Using local embedding service: {model_path}, GPU: {use_gpu}")
             return LocalEmbeddingService(model_name=model_path, use_gpu=use_gpu)
         elif service_type == "openai":
-            if not os.getenv("OPENAI_API_KEY"):
-                logger.warning("EMBEDDING_SERVICE=openai 但 OPENAI_API_KEY 未设置，向量检索已禁用")
+            if not (os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY")):
+                logger.warning("EMBEDDING_SERVICE=openai 但 EMBEDDING_API_KEY/OPENAI_API_KEY 未设置，向量检索已禁用")
                 return None
             from infrastructure.ai.openai_embedding_service import OpenAIEmbeddingService
             logger.info("Using OpenAI embedding service")

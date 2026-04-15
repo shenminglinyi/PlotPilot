@@ -1,6 +1,6 @@
 <template>
   <div class="workbench">
-    <StatsTopBar :slug="slug" />
+    <StatsTopBar :slug="slug" @open-settings="showLLMSettings = true" />
 
     <n-spin :show="pageLoading" class="workbench-spin" description="加载工作台…">
       <div class="workbench-inner">
@@ -56,6 +56,9 @@
       :act-title="actPlanningTitle"
       @confirmed="handleChapterUpdated"
     />
+
+    <!-- LLM Settings Modal -->
+    <LLMSettingsModal v-model:show="showLLMSettings" />
   </div>
 </template>
 
@@ -71,6 +74,7 @@ import ChapterList from '../components/workbench/ChapterList.vue'
 import WorkArea from '../components/workbench/WorkArea.vue'
 import SettingsPanel from '../components/workbench/SettingsPanel.vue'
 import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
+import LLMSettingsModal from '../components/LLMSettingsModal.vue'
 
 const route = useRoute()
 const message = useMessage()
@@ -97,6 +101,7 @@ const handleChapterUpdated = async () => {
 
 // 幕→章 规划弹层
 const showActPlanning = ref(false)
+const showLLMSettings = ref(false)
 const actPlanningId = ref('')
 const actPlanningTitle = ref('')
 

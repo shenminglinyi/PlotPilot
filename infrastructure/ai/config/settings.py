@@ -10,7 +10,7 @@ class Settings:
     管理 LLM 提供商的配置参数。
     """
 
-    default_model: str = "claude-3-5-sonnet-20241022"
+    default_model: str = ""
     default_temperature: float = 0.7
     default_max_tokens: int = 4096
     api_key: Optional[str] = None

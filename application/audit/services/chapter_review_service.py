@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
 import json
 import logging
+import os
 
 from domain.novel.entities.chapter import Chapter
 from domain.novel.repositories.chapter_repository import ChapterRepository
@@ -99,7 +100,7 @@ class ChapterReviewService:
         foreshadowing_repo: ForeshadowingRepository,
         vector_store: "ChromaDBVectorStore",
         llm_service: LLMService,
-        model: str = "claude-3-5-haiku-20241022"
+        model: str = ""
     ):
         self.chapter_repo = chapter_repo
         self.cast_repo = cast_repo
@@ -108,7 +109,7 @@ class ChapterReviewService:
         self.foreshadowing_repo = foreshadowing_repo
         self.vector_store = vector_store
         self.llm_service = llm_service
-        self.model = model
+        self.model = model or os.getenv("SYSTEM_MODEL", "")
 
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
         """审稿章节"""

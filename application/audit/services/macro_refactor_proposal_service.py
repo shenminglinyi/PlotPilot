@@ -1,5 +1,6 @@
 """Macro Refactor Proposal Service - 使用 LLM 生成重构建议"""
 import logging
+import os
 from typing import Dict, Any
 from application.audit.dtos.macro_refactor_dto import RefactorProposalRequest, RefactorProposal
 from application.ai.llm_json_extract import parse_llm_json_to_dict
@@ -33,9 +34,8 @@ class MacroRefactorProposalService:
             # 构建 LLM prompt
             prompt = self._build_prompt(request)
 
-            # 配置使用 claude-3-5-haiku（快速且经济）
             config = GenerationConfig(
-                model="claude-3-5-haiku-20241022",
+                model=os.getenv("SYSTEM_MODEL", ""),
                 max_tokens=2048,
                 temperature=0.7
             )

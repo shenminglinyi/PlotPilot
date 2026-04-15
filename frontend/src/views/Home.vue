@@ -10,6 +10,11 @@
             <h1 class="title">书稿工作台</h1>
             <p class="subtitle">从一句梗概到完整书稿，结构规划与校阅一站完成</p>
           </div>
+          <button class="settings-btn" @click="showLLMSettings = true" aria-label="LLM 设置">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22">
+              <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+            </svg>
+          </button>
         </header>
 
         <!-- Create Card -->
@@ -253,6 +258,9 @@
       @complete="handleSetupComplete"
       @skip="handleSetupSkip"
     />
+
+    <!-- LLM Settings Modal -->
+    <LLMSettingsModal v-model:show="showLLMSettings" />
   </div>
 </template>
 
@@ -263,6 +271,7 @@ import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
+import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
 import { useStatsStore } from '@/stores/statsStore'
 
 // Icons
@@ -308,6 +317,7 @@ const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
 const showSetupGuide = ref(false)
+const showLLMSettings = ref(false)
 const newNovelId = ref('')
 const newNovelTargetChapters = ref(10)
 
@@ -567,6 +577,7 @@ onMounted(() => {
   text-align: center;
   margin-bottom: 40px;
   animation: fade-up 0.55s ease both;
+  position: relative;
 }
 
 .title {
@@ -582,6 +593,30 @@ onMounted(() => {
   color: #475569;
   margin: 0;
   font-weight: 400;
+}
+
+.settings-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  transition: all 0.18s ease;
+  backdrop-filter: blur(8px);
+}
+
+.settings-btn:hover {
+  background: #fff;
+  color: #4f46e5;
+  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.15);
 }
 
 .create-card {

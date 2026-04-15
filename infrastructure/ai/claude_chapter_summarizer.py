@@ -64,7 +64,7 @@ Requirements:
 
             # 配置生成参数
             config = GenerationConfig(
-                model="claude-3-5-sonnet-20241022",
+                model=os.getenv("WRITING_MODEL", ""),
                 max_tokens=1024,
                 temperature=0.7
             )

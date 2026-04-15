@@ -2,6 +2,7 @@
 import os
 from typing import Optional, AsyncIterator
 from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+from infrastructure.ai.providers.openai_provider import OpenAIProvider
 from infrastructure.ai.providers.mock_provider import MockProvider
 from infrastructure.ai.config.settings import Settings
 from domain.ai.value_objects.prompt import Prompt
@@ -20,11 +21,20 @@ class LLMClient:
         if provider:
             self.provider = provider
         else:
-            # 自动检测 API key 并选择提供者
-            api_key = self._get_api_key()
-            if api_key:
+            # 优先 ARK (OpenAI 兼容)，其次 Anthropic，最后 Mock
+            ark_key = os.getenv("ARK_API_KEY", "").strip()
+            anthropic_key = (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN") or "").strip()
+
+            if ark_key:
                 settings = Settings(
-                    api_key=api_key,
+                    api_key=ark_key,
+                    base_url=os.getenv("ARK_BASE_URL", "").strip() or None,
+                    default_model=os.getenv("ARK_MODEL", ""),
+                )
+                self.provider = OpenAIProvider(settings)
+            elif anthropic_key:
+                settings = Settings(
+                    api_key=anthropic_key,
                     base_url=self._get_base_url()
                 )
                 self.provider = AnthropicProvider(settings)
@@ -62,7 +72,7 @@ class LLMClient:
 
         # 创建 GenerationConfig 对象
         config = GenerationConfig(
-            model=kwargs.get("model", "claude-sonnet-4-6"),
+            model=kwargs.get("model") or os.getenv("WRITING_MODEL", ""),
             max_tokens=kwargs.get("max_tokens", 4096),
             temperature=kwargs.get("temperature", 1.0)
         )

@@ -44,7 +44,7 @@ import threading
 import multiprocessing
 
 # Core module
-from interfaces.api.v1.core import novels, chapters, scene_generation_routes
+from interfaces.api.v1.core import novels, chapters, scene_generation_routes, settings as llm_settings
 
 # World module
 from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_routes, worldbuilding_routes
@@ -130,6 +130,13 @@ async def startup_event():
     logger.info("✅ FastAPI application started successfully")
     logger.info(f"📊 Registered {len(app.routes)} routes")
     
+    # 从 JSON 文件恢复上次激活的 LLM 配置
+    try:
+        from application.settings.llm_config_manager import LLMConfigManager
+        LLMConfigManager(DATA_DIR / "llm_configs.json").apply_active_on_startup()
+    except Exception as exc:
+        logger.warning("LLM config restore skipped: %s", exc)
+
     # 重启时将所有运行中的小说设置为停止状态
     _stop_all_running_novels()
     
@@ -325,6 +332,8 @@ app.add_middleware(
 app.include_router(novels.router, prefix="/api/v1")
 app.include_router(chapters.router, prefix="/api/v1/novels")
 app.include_router(scene_generation_routes.router)
+app.include_router(llm_settings.router, prefix="/api/v1")
+app.include_router(llm_settings.embedding_router, prefix="/api/v1")
 
 # World module routes
 app.include_router(bible.router, prefix="/api/v1")
