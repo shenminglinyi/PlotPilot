@@ -4,48 +4,79 @@
 
     <n-spin :show="pageLoading" class="workbench-spin" description="加载工作台…">
       <div class="workbench-inner">
-        <n-split direction="horizontal" :min="0.12" :max="0.30" :default-size="0.18">
-          <template #1>
-            <ChapterList
-              ref="chapterListRef"
-              :slug="slug"
-              :chapters="chapters"
-              :current-chapter-id="currentChapterId"
-              @select="onSidebarChapterSelect"
-              @back="goHome"
-              @refresh="handleChapterUpdated"
-              @plan-act="handlePlanAct"
-            />
-          </template>
 
-          <template #2>
-            <n-split direction="horizontal" :min="0.40" :max="0.75" :default-size="0.60">
-              <template #1>
-                <WorkArea
-                  ref="workAreaRef"
-                  :slug="slug"
-                  :book-title="bookTitle"
-                  :chapters="chapters"
-                  :current-chapter-id="currentChapterId"
-                  :chapter-content="chapterContent"
-                  :chapter-loading="chapterLoading"
-                  @set-right-panel="setRightPanel"
-                  @chapter-updated="handleChapterUpdated"
-                />
-              </template>
+        <!-- 左侧面板 -->
+        <div
+          class="side-pane left-pane"
+          :style="{ width: leftCollapsed ? '0px' : leftWidth + 'px' }"
+        >
+          <ChapterList
+            ref="chapterListRef"
+            :slug="slug"
+            :chapters="chapters"
+            :current-chapter-id="currentChapterId"
+            @select="onSidebarChapterSelect"
+            @back="goHome"
+            @refresh="handleChapterUpdated"
+            @plan-act="handlePlanAct"
+          />
+        </div>
 
-              <template #2>
-                <SettingsPanel
-                  :slug="slug"
-                  :current-panel="rightPanel"
-                  :bible-key="biblePanelKey"
-                  :current-chapter="currentChapter"
-                  @update:current-panel="onSettingsPanelChange"
-                />
-              </template>
-            </n-split>
-          </template>
-        </n-split>
+        <!-- 左侧分割线 + 折叠按钮 -->
+        <div
+          class="divider left-divider"
+          @mousedown="startDragLeft"
+        >
+          <button
+            class="collapse-btn"
+            @mousedown.stop
+            @click="leftCollapsed = !leftCollapsed"
+            :title="leftCollapsed ? '展开左侧' : '收起左侧'"
+          >{{ leftCollapsed ? '›' : '‹' }}</button>
+        </div>
+
+        <!-- 中间主区域 -->
+        <div class="main-pane">
+          <WorkArea
+            ref="workAreaRef"
+            :slug="slug"
+            :book-title="bookTitle"
+            :chapters="chapters"
+            :current-chapter-id="currentChapterId"
+            :chapter-content="chapterContent"
+            :chapter-loading="chapterLoading"
+            @set-right-panel="setRightPanel"
+            @chapter-updated="handleChapterUpdated"
+          />
+        </div>
+
+        <!-- 右侧分割线 + 折叠按钮 -->
+        <div
+          class="divider right-divider"
+          @mousedown="startDragRight"
+        >
+          <button
+            class="collapse-btn"
+            @mousedown.stop
+            @click="rightCollapsed = !rightCollapsed"
+            :title="rightCollapsed ? '展开右侧' : '收起右侧'"
+          >{{ rightCollapsed ? '‹' : '›' }}</button>
+        </div>
+
+        <!-- 右侧面板 -->
+        <div
+          class="side-pane right-pane"
+          :style="{ width: rightCollapsed ? '0px' : rightWidth + 'px' }"
+        >
+          <SettingsPanel
+            :slug="slug"
+            :current-panel="rightPanel"
+            :bible-key="biblePanelKey"
+            :current-chapter="currentChapter"
+            @update:current-panel="onSettingsPanelChange"
+          />
+        </div>
+
       </div>
     </n-spin>
 
@@ -60,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed, ref, watch, type ComponentPublicInstance } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useWorkbench } from '../composables/useWorkbench'
@@ -82,6 +113,61 @@ const slug = route.params.slug as string
 const chapterListRef = ref<ComponentPublicInstance<{ refreshStoryTree: () => void }> | null>(null)
 const workAreaRef = ref<ComponentPublicInstance<{ ensureAssistedMode: () => void }> | null>(null)
 
+// ── 侧栏宽度 & 折叠 ──────────────────────────────────
+const LEFT_MIN = 140
+const LEFT_MAX = 800
+const RIGHT_MIN = 368
+const RIGHT_MAX = 800
+
+const leftWidth = ref(388)
+const rightWidth = ref(558)
+const leftCollapsed = ref(false)
+const rightCollapsed = ref(false)
+
+// 拖拽左侧分割线
+let dragging: 'left' | 'right' | null = null
+let dragStartX = 0
+let dragStartWidth = 0
+
+function startDragLeft(e: MouseEvent) {
+  dragging = 'left'
+  dragStartX = e.clientX
+  dragStartWidth = leftWidth.value
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+}
+
+function startDragRight(e: MouseEvent) {
+  dragging = 'right'
+  dragStartX = e.clientX
+  dragStartWidth = rightWidth.value
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+}
+
+function onDrag(e: MouseEvent) {
+  if (dragging === 'left') {
+    const delta = e.clientX - dragStartX
+    const next = Math.min(LEFT_MAX, Math.max(LEFT_MIN, dragStartWidth + delta))
+    leftWidth.value = next
+    if (leftCollapsed.value) leftCollapsed.value = false
+  } else if (dragging === 'right') {
+    const delta = dragStartX - e.clientX   // 右侧：向左拖变大
+    const next = Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, dragStartWidth + delta))
+    rightWidth.value = next
+    if (rightCollapsed.value) rightCollapsed.value = false
+  }
+}
+
+function stopDrag() {
+  dragging = null
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+}
+
+onUnmounted(stopDrag)
+
+// ── Workbench 逻辑 ────────────────────────────────────
 async function onSidebarChapterSelect(chapterId: number, title = '') {
   await handleChapterSelect(chapterId, title)
   workAreaRef.value?.ensureAssistedMode?.()
@@ -95,7 +181,6 @@ const handleChapterUpdated = async () => {
   workbenchRefresh.bumpAfterChapterDeskChange()
 }
 
-// 幕→章 规划弹层
 const showActPlanning = ref(false)
 const actPlanningId = ref('')
 const actPlanningTitle = ref('')
@@ -161,9 +246,7 @@ onMounted(async () => {
 
 watch(
   () => route.query.chapter,
-  () => {
-    void syncChapterFromRoute()
-  }
+  () => { void syncChapterFromRoute() }
 )
 </script>
 
@@ -182,21 +265,94 @@ watch(
 }
 
 .workbench-spin :deep(.n-spin-content) {
-  min-height: 100%;
   height: 100%;
+  min-height: 100%;
 }
 
 .workbench-inner {
   height: 100%;
   min-height: 0;
-}
-
-.workbench-inner :deep(.n-split) {
-  height: 100%;
-}
-
-.workbench-inner :deep(.n-split-pane-1) {
-  min-height: 0;
+  display: flex;
+  flex-direction: row;
   overflow: hidden;
+}
+
+/* ── 侧面板 ── */
+.side-pane {
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.2s ease;
+  min-width: 0;
+}
+
+.left-pane  { border-right: 1px solid var(--aitext-split-border, #e4e4e4); }
+.right-pane { border-left:  1px solid var(--aitext-split-border, #e4e4e4); }
+
+/* 折叠时去掉边框避免 1px 残留 */
+.left-pane[style*="width: 0"]  { border-right: none; }
+.right-pane[style*="width: 0"] { border-left: none; }
+
+/* ── 中间区 ── */
+.main-pane {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── 分割线 ── */
+.divider {
+  position: relative;
+  flex-shrink: 0;
+  width: 5px;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.divider::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.divider:hover::after {
+  background: var(--n-primary-color, #18a058);
+}
+
+/* ── 折叠按钮 ── */
+.collapse-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  width: 16px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--aitext-split-border, #ddd);
+  border-radius: 4px;
+  background: var(--app-surface, #fff);
+  cursor: pointer;
+  font-size: 12px;
+  color: #aaa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+  transition: color 0.15s, background 0.15s;
+  user-select: none;
+  line-height: 1;
+}
+
+.collapse-btn:hover {
+  color: var(--n-primary-color, #18a058);
+  background: #f0faf5;
+  border-color: var(--n-primary-color, #18a058);
 }
 </style>
