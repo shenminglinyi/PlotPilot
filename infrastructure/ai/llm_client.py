@@ -2,6 +2,7 @@
 import os
 from typing import Optional, AsyncIterator
 from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+from infrastructure.ai.providers.openai_provider import OpenAIProvider
 from infrastructure.ai.providers.mock_provider import MockProvider
 from infrastructure.ai.config.settings import Settings
 from domain.ai.value_objects.prompt import Prompt
@@ -9,40 +10,76 @@ from domain.ai.services.llm_service import GenerationConfig
 
 
 class LLMClient:
-    """LLM 客户端包装器，自动选择 Anthropic 或 Mock 提供者"""
+    """LLM 客户端包装器，根据 LLM_PROVIDER 自动选择提供者"""
 
     def __init__(self, provider=None):
         """初始化 LLM 客户端
 
         Args:
-            provider: 可选的 LLM 提供者实例。如果未提供，将自动创建。
+            provider: 可选的 LLM 提供者实例。如果未提供，将根据 LLM_PROVIDER 环境变量自动创建。
         """
         if provider:
             self.provider = provider
         else:
-            # 自动检测 API key 并选择提供者
-            api_key = self._get_api_key()
+            self.provider = self._create_provider()
+
+    def _create_provider(self):
+        """根据环境变量创建合适的提供者"""
+        provider_type = os.getenv("LLM_PROVIDER", "anthropic").lower()
+        
+        if provider_type == "openai":
+            api_key = self._get_openai_api_key()
             if api_key:
                 settings = Settings(
                     api_key=api_key,
-                    base_url=self._get_base_url()
+                    base_url=self._get_openai_base_url()
                 )
-                self.provider = AnthropicProvider(settings)
-            else:
-                self.provider = MockProvider()
+                return OpenAIProvider(settings)
+        else:
+            api_key = self._get_anthropic_api_key()
+            if api_key:
+                settings = Settings(
+                    api_key=api_key,
+                    base_url=self._get_anthropic_base_url()
+                )
+                return AnthropicProvider(settings)
+        
+        return MockProvider()
 
-    def _get_api_key(self) -> Optional[str]:
-        """获取 API key"""
+    def _get_openai_api_key(self) -> Optional[str]:
+        """获取 OpenAI API key"""
+        raw = os.getenv("OPENAI_API_KEY")
+        if raw is None:
+            return None
+        key = raw.strip()
+        return key or None
+
+    def _get_openai_base_url(self) -> Optional[str]:
+        """获取 OpenAI base URL"""
+        u = os.getenv("OPENAI_BASE_URL")
+        return u.strip() if u and u.strip() else None
+
+    def _get_anthropic_api_key(self) -> Optional[str]:
+        """获取 Anthropic API key"""
         raw = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
         if raw is None:
             return None
         key = raw.strip()
         return key or None
 
-    def _get_base_url(self) -> Optional[str]:
-        """获取 base URL"""
+    def _get_anthropic_base_url(self) -> Optional[str]:
+        """获取 Anthropic base URL"""
         u = os.getenv("ANTHROPIC_BASE_URL")
         return u.strip() if u and u.strip() else None
+
+    # 向后兼容方法
+    def _get_api_key(self) -> Optional[str]:
+        """获取 API key（向后兼容，使用 Anthropic）"""
+        return self._get_anthropic_api_key()
+
+    def _get_base_url(self) -> Optional[str]:
+        """获取 base URL（向后兼容，使用 Anthropic）"""
+        return self._get_anthropic_base_url()
 
     async def generate(self, prompt: str, **kwargs) -> str:
         """生成文本
