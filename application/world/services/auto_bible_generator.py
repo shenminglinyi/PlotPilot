@@ -266,6 +266,8 @@ class AutoBibleGenerator:
         【深度研究专家】节点：分析创意，提取关键词搜索真实资料，并输出考据白皮书。
         """
         import logging
+        import asyncio
+        import re
         from infrastructure.ai.tools.search_tool import WebSearchTool
         logger = logging.getLogger(__name__)
         logger.info("Starting background research for premise...")
@@ -291,20 +293,45 @@ class AutoBibleGenerator:
         config = GenerationConfig(model=target_model, max_tokens=100, temperature=0.3)
         keyword_result = await actual_llm_service.generate(extract_prompt, config)
         
-        # 强制清理可能的 JSON 残留
-        content = keyword_result.content.strip()
+        content = (keyword_result.content or "").strip()
         if "{" in content or "[" in content:
-            keywords = ["1990年深圳", "华强北 倒卖"] # 如果大模型不听话硬回 JSON，强行写死兜底，避免查出一堆乱码
+            keywords = ["1990年代 中国经济", "90年代 创业"]
         else:
-            keywords = [k.strip() for k in content.split(',') if k.strip()]
-            
-        if not keywords:
-            keywords = [premise[:10]] # 兜底
-            
-        # 2. 执行真实搜索
+            cleaned = re.sub(r"(?is)reasoning_content\s*:\s*|reasoning\s*:\s*", "", content).strip()
+            lines = [l.strip() for l in cleaned.splitlines() if l.strip()]
+            candidate_line = ""
+            for l in reversed(lines):
+                if "," in l or "，" in l:
+                    candidate_line = l
+                    break
+            if not candidate_line and lines:
+                candidate_line = lines[-1]
+            candidate_line = candidate_line.replace("，", ",")
+
+            quoted = re.findall(r"\"([^\"]+)\"", candidate_line)
+            tokens = quoted if quoted else re.split(r"[,/]| and | AND ", candidate_line)
+            tokens = [t.strip().strip("\"'“”") for t in tokens if t and t.strip()]
+            tokens = [t for t in tokens if len(t) <= 40]
+            keywords = tokens[:2]
+
+        if len(keywords) < 2:
+            keywords = (keywords + [premise[:10], premise[-10:]])[:2]
+
+        logger.info(f"Research keywords: {keywords}")
+
+        async def _search_one(kw: str) -> str:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.to_thread(WebSearchTool.search, kw, 3),
+                    timeout=25,
+                )
+            except Exception as e:
+                logger.error(f"Web search failed for keyword '{kw}': {e}")
+                return f"搜索失败（{e}）。"
+
         raw_materials = []
-        for kw in keywords[:2]:
-            res = WebSearchTool.search(kw, max_results=3)
+        results = await asyncio.gather(*[_search_one(kw) for kw in keywords[:2]])
+        for kw, res in zip(keywords[:2], results):
             raw_materials.append(f"🔍 关键词【{kw}】搜索结果：\n{res}")
             
         combined_materials = "\n\n".join(raw_materials)
@@ -1050,4 +1077,3 @@ JSON 格式：
                         logger.info(f"Created triple: {loc_data['name']} -{predicate}-> {target_name}")
                     except Exception as e:
                         logger.error(f"Failed to save triple: {e}")
-
