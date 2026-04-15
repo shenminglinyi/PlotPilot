@@ -289,11 +289,11 @@ def _start_autopilot_daemon_thread():
 def _stop_autopilot_daemon_thread():
     """停止守护进程"""
     global _daemon_process, _daemon_stop_event
-    
+
     if _daemon_stop_event:
         logger.info("🛑 正在停止守护进程...")
         _daemon_stop_event.set()
-        
+
     if _daemon_process and _daemon_process.is_alive():
         _daemon_process.join(timeout=5)  # 等待最多5秒
         if _daemon_process.is_alive():
@@ -302,9 +302,16 @@ def _stop_autopilot_daemon_thread():
             _daemon_process.join(timeout=2)
         else:
             logger.info("✅ 守护进程已成功停止")
-    
+
     _daemon_process = None
     _daemon_stop_event = None
+
+
+def restart_autopilot_daemon():
+    """重启守护进程以拾取新的 LLM / 嵌入配置（跨进程 env 不可共享，必须重启）。"""
+    _stop_autopilot_daemon_thread()
+    _start_autopilot_daemon_thread()
+    logger.info("🔄 守护进程已因配置变更重启")
 
 
 # 配置 CORS
