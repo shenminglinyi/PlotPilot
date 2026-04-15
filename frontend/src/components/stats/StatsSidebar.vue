@@ -86,6 +86,7 @@
           <span>刷新列表</span>
         </button>
         <GlobalLLMEntryButton appearance="sidebar" />
+        <PromptPlazaEntryButton appearance="sidebar" />
       </div>
     </section>
 
@@ -111,6 +112,7 @@ import { storeToRefs } from 'pinia'
 import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
+import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 
 defineEmits<{
   (e: 'create-book'): void
@@ -215,7 +217,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 /* Brand Header */
 .sidebar-brand {
   padding: 28px 24px 24px;
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-pressed, #7c3aed) 100%);
   position: relative;
   overflow: hidden;
 }
@@ -227,7 +229,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   right: -30%;
   width: 200px;
   height: 200px;
-  background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, var(--app-text-inverse, rgba(255,255,255,0.15)) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -248,7 +250,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   font-size: 22px;
   color: var(--app-text-inverse, #fff);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.2));
 }
 
 .brand-text {
@@ -309,14 +311,14 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   transition: all 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .refresh-btn:hover:not(:disabled) {
   background: var(--app-surface-subtle);
-  color: #4f46e5;
+  color: var(--color-brand, #4f46e5);
 }
 
 .refresh-btn:disabled {
@@ -355,7 +357,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .stage-title {
   font-size: 13px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   margin: 0 0 12px;
 }
 
@@ -427,18 +429,18 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   gap: 6px;
   padding: 14px 12px;
   background: var(--app-surface);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--app-border, rgba(15, 23, 42, 0.06));
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 12px;
-  color: #475569;
+  color: var(--app-text-secondary, #475569);
 }
 
 .action-btn:hover {
   background: var(--app-surface-subtle);
-  border-color: #4f46e5;
-  color: #4f46e5;
+  border-color: var(--color-brand, #4f46e5);
+  color: var(--color-brand, #4f46e5);
   transform: translateY(-1px);
 }
 
@@ -449,11 +451,11 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 /* Footer */
 .sidebar-footer {
   padding: 20px 24px;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  border-top: 1px solid var(--app-divider, rgba(15, 23, 42, 0.06));
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: rgba(248, 250, 252, 0.8);
+  background: var(--app-surface-subtle, rgba(248, 250, 252, 0.8));
 }
 
 .footer-info {
@@ -476,7 +478,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .footer-link {
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   text-decoration: none;
   display: flex;
   align-items: center;
@@ -488,7 +490,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .footer-link:hover {
-  color: #4f46e5;
+  color: var(--color-brand, #4f46e5);
   background: var(--app-surface-subtle);
 }
 
