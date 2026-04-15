@@ -472,8 +472,11 @@ def get_triple_indexing_service():
     return TripleIndexingService(vs, es)
 
 
+_vector_store_singleton: Optional[VectorStore] = None
+
+
 def get_vector_store() -> Optional[VectorStore]:
-    """获取向量存储
+    """获取向量存储（单例，整个进程共享同一实例）
 
     根据环境变量返回 ChromaDB 或 Qdrant 实例。
 
@@ -488,6 +491,10 @@ def get_vector_store() -> Optional[VectorStore]:
     Returns:
         VectorStore 实例或 None
     """
+    global _vector_store_singleton
+    if _vector_store_singleton is not None:
+        return _vector_store_singleton
+
     # 检查是否启用（默认启用）
     enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
     if not enabled:
@@ -500,16 +507,17 @@ def get_vector_store() -> Optional[VectorStore]:
         if store_type == "chromadb":
             from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
             persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
-            return ChromaDBVectorStore(persist_directory=persist_dir)
+            _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
         elif store_type == "qdrant":
             from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
             host = os.getenv("QDRANT_HOST", "localhost")
             port = int(os.getenv("QDRANT_PORT", "6333"))
             api_key = os.getenv("QDRANT_API_KEY")
-            return QdrantVectorStore(host=host, port=port, api_key=api_key)
+            _vector_store_singleton = QdrantVectorStore(host=host, port=port, api_key=api_key)
         else:
             logger.warning(f"Unknown VECTOR_STORE_TYPE: {store_type}, vector store disabled")
             return None
+        return _vector_store_singleton
     except Exception as e:
         logger.warning(f"Failed to initialize vector store: {e}")
         return None
@@ -531,6 +539,7 @@ def get_context_builder() -> ContextBuilder:
     Returns:
         ContextBuilder 实例
     """
+    from infrastructure.persistence.database.triple_repository import TripleRepository
     return ContextBuilder(
         bible_service=get_bible_service(),
         storyline_manager=get_storyline_manager(),
@@ -542,6 +551,7 @@ def get_context_builder() -> ContextBuilder:
         embedding_service=get_embedding_service(),
         foreshadowing_repository=get_foreshadowing_repository(),
         chapter_element_repository=get_chapter_element_repository(),
+        triple_repository=TripleRepository(),
     )
 
 

@@ -74,6 +74,18 @@ class ChromaDBVectorStore(VectorStore):
 
             coll = self.collections[collection]
             vec_array = np.array([vector], dtype=np.float32)
+            actual_dim = int(vec_array.shape[1])
+
+            # 用实际向量维度检测 FAISS 索引维度，不匹配则重建
+            if coll["index"].d != actual_dim:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "FAISS索引维度不匹配，自动重建 collection=%s old_dim=%d actual_dim=%d",
+                    collection, coll["index"].d, actual_dim
+                )
+                await self.delete_collection(collection)
+                await self.create_collection(collection, actual_dim)
+                coll = self.collections[collection]
 
             # 如果 ID 已存在，先删除旧的
             if id in coll["metadata"]:
@@ -156,10 +168,19 @@ class ChromaDBVectorStore(VectorStore):
         collection: str,
         dimension: int
     ) -> None:
-        """创建集合"""
+        """创建集合（若已存在且维度匹配则跳过；维度不匹配时删除后重建）"""
         try:
             if collection in self.collections:
-                return  # 已存在，跳过
+                existing_dim = self.collections[collection]["index"].d
+                if dimension == 0 or existing_dim == dimension:
+                    return  # 未知维度(0)或维度匹配，跳过重建
+                # 嵌入模型已更换，旧索引不兼容，重建
+                import logging
+                logging.getLogger(__name__).warning(
+                    "向量集合维度不匹配，重建索引 collection=%s old_dim=%d new_dim=%d",
+                    collection, existing_dim, dimension
+                )
+                await self.delete_collection(collection)
 
             # 创建 FAISS 索引（使用 L2 距离）
             index = faiss.IndexFlatL2(dimension)
@@ -169,7 +190,7 @@ class ChromaDBVectorStore(VectorStore):
             }
             self._save_collection(collection)
         except Exception as e:
-            raise Exception(f"Failed to create collection: {str(e)}")
+            raise Exception(f"Failed to create collection: {repr(e)}")
 
     async def delete_collection(
         self,

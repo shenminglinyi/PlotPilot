@@ -140,6 +140,7 @@ class ContextBudgetAllocator:
         bible_repository: Optional[BibleRepository] = None,
         story_node_repository: Optional[StoryNodeRepository] = None,
         chapter_element_repository = None,
+        triple_repository = None,
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
     ):
@@ -148,6 +149,7 @@ class ContextBudgetAllocator:
         self.bible_repo = bible_repository
         self.story_node_repo = story_node_repository
         self.chapter_element_repo = chapter_element_repository
+        self.triple_repo = triple_repository
         
         # 向量检索门面
         self.vector_facade = None
