@@ -21,6 +21,21 @@ export interface LLMConfig {
   research_model_api_key?: string
   research_model_base_url?: string
   research_model: string
+
+  fact_review_model_provider: string
+  fact_review_model_api_key?: string
+  fact_review_model_base_url?: string
+  fact_review_model: string
+
+  genre_review_model_provider: string
+  genre_review_model_api_key?: string
+  genre_review_model_base_url?: string
+  genre_review_model: string
+
+  reader_review_model_provider: string
+  reader_review_model_api_key?: string
+  reader_review_model_base_url?: string
+  reader_review_model: string
 }
 
 export function getLLMConfig() {
@@ -37,4 +52,8 @@ export function verifyAndFetchModels(provider: string, api_key: string, base_url
     api_key,
     base_url
   })
+}
+
+export function fetchModelsByRole(role: string) {
+  return apiClient.post<{ models: string[] }>('/api/v1/system/llm/models', { role })
 }
