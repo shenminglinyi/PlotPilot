@@ -48,9 +48,10 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   // 同步 <html> class 以支持全局 CSS 变量切换
-  watch(isDark, (dark) => {
+  // 监听 mode 而非 isDark，因为 dark<->anchor 切换时 isDark 不变，需要同步更新 data-theme
+  watch(mode, () => {
     const root = document.documentElement
-    if (dark) {
+    if (isDark.value) {
       root.classList.add('dark')
       root.setAttribute('data-theme', isAnchor.value ? 'anchor' : 'dark')
     } else {

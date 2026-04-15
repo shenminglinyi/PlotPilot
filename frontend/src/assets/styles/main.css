@@ -363,7 +363,7 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 .subtitle { color: var(--app-text-secondary); }
 .settings-btn {
   background: var(--app-surface);
-  color: var(--app-text-muted);
+  color: var(--app-text-secondary, #94a3b8);
   border: 1px solid var(--app-border);
 }
 .settings-btn:hover {
