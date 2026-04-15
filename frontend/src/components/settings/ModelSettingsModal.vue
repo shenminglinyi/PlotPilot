@@ -155,8 +155,9 @@ const syncProviders = () => {
 const loadData = async () => {
   try {
     const res = await getLLMConfig()
-    if (res && res.data) {
-      formData.value = { ...formData.value, ...res.data }
+    if (res) {
+      // res is already the data object returned by axios interceptor
+      formData.value = { ...formData.value, ...res }
       
       // 初始化下拉框展示
       if (formData.value.default_model) {
@@ -205,8 +206,9 @@ const handleVerify = async (role: 'default' | 'cheap') => {
     const targetBase = role === 'default' ? base : base_cheap
     
     const res = await verifyAndFetchModels(targetProvider, targetKey, targetBase)
-    if (res && res.data && res.data.models) {
-      const opts = res.data.models.map((m: string) => ({ label: m, value: m }))
+    // res is already the data object returned by axios interceptor
+    if (res && res.models) {
+      const opts = res.models.map((m: string) => ({ label: m, value: m }))
       
       if (isUnifiedMode.value) {
         // 统一模式下，一次请求更新两个下拉框
@@ -217,7 +219,7 @@ const handleVerify = async (role: 'default' | 'cheap') => {
         else cheapModelOptions.value = opts
       }
       
-      message.success(`成功获取 ${res.data.models.length} 个模型`)
+      message.success(`成功获取 ${res.models.length} 个模型`)
     }
   } catch (e: any) {
     message.error(e.response?.data?.detail || '连接失败，请检查端点和秘钥')
