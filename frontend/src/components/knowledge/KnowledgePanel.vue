@@ -859,7 +859,7 @@ onUnmounted(() => {
 }
 
 .kp-section-icon {
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
   font-size: 12px;
 }
 

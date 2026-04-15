@@ -418,7 +418,7 @@ const estimatedTokens = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 /* 控制面板 */
@@ -465,7 +465,7 @@ const estimatedTokens = computed(() => {
 .toggle-slider {
   width: 22px;
   height: 22px;
-  background: #fff;
+  background: var(--app-text-inverse, #fff);
   border-radius: 50%;
   position: absolute;
   top: 3px;
@@ -550,7 +550,7 @@ const estimatedTokens = computed(() => {
 .char-name {
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 .char-importance {
@@ -562,7 +562,7 @@ const estimatedTokens = computed(() => {
 
 .importance-protagonist {
   background: #e17055;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 .importance-major {
@@ -572,7 +572,7 @@ const estimatedTokens = computed(() => {
 
 .importance-minor {
   background: #636e72;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 .char-stats {
@@ -634,12 +634,12 @@ const estimatedTokens = computed(() => {
 
 .badge-selected {
   background: #00cec9;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 .badge-excluded {
   background: #636e72;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 /* 调度队列 */
@@ -680,7 +680,7 @@ const estimatedTokens = computed(() => {
   height: 32px;
   border-radius: 50%;
   background: #636e72;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -700,7 +700,7 @@ const estimatedTokens = computed(() => {
   display: block;
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   margin-bottom: 4px;
 }
 
@@ -785,7 +785,7 @@ const estimatedTokens = computed(() => {
   height: 36px;
   border-radius: 50%;
   background: #00cec9;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -797,7 +797,7 @@ const estimatedTokens = computed(() => {
 .step-content strong {
   display: block;
   margin-bottom: 6px;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   font-size: 14px;
 }
 

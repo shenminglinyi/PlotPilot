@@ -12,13 +12,25 @@ const naiveTheme = computed(() =>
 
 const themeOverrides = computed<GlobalThemeOverrides>(() => {
   const isDark = themeStore.isDark
+  const isAnchor = themeStore.isAnchor
+
+  // 黑金模式专属色值
+  const anchorPrimary = '#c9a227'
+  const anchorPrimaryHover = '#ddb930'
+  const anchorPrimaryPressed = '#a88a1f'
+  const anchorText = '#f0ead6'
+  const anchorText2 = '#c4b99a'
+  const anchorText3 = '#8a8070'
+  const anchorSurface = '#111620'
+  const anchorBg = '#0a0c10'
+  const anchorInput = '#0d1018'
 
   return {
     common: {
-      primaryColor: isDark ? '#818cf8' : '#4f46e5',
-      primaryColorHover: isDark ? '#a5b4fc' : '#6366f1',
-      primaryColorPressed: isDark ? '#6366f1' : '#4338ca',
-      primaryColorSuppl: isDark ? '#c7d2fe' : '#818cf8',
+      primaryColor: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
+      primaryColorHover: isAnchor ? anchorPrimaryHover : (isDark ? '#a5b4fc' : '#6366f1'),
+      primaryColorPressed: isAnchor ? anchorPrimaryPressed : (isDark ? '#6366f1' : '#4338ca'),
+      primaryColorSuppl: isAnchor ? '#e8c84a' : (isDark ? '#c7d2fe' : '#818cf8'),
       borderRadius: '10px',
       borderRadiusSmall: '8px',
       fontSize: '14px',
@@ -27,23 +39,23 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
       heightMedium: '38px',
 
       /* 文字 — 使用变量体系 */
-      bodyColor: isDark ? '#e2e8f0' : '#0f172a',
-      textColor1: isDark ? '#e2e8f0' : '#0f172a',
-      textColor2: isDark ? '#94a3b8' : '#475569',
-      textColor3: isDark ? '#64748b' : '#64748b',
+      bodyColor: isAnchor ? anchorText : (isDark ? '#e2e8f0' : '#0f172a'),
+      textColor1: isAnchor ? anchorText : (isDark ? '#e2e8f0' : '#0f172a'),
+      textColor2: isAnchor ? anchorText2 : (isDark ? '#94a3b8' : '#475569'),
+      textColor3: isAnchor ? anchorText3 : (isDark ? '#64748b' : '#64748b'),
 
       /* 边框 */
-      borderColor: isDark ? '#334155' : 'rgba(15, 23, 42, 0.09)',
-      dividerColor: isDark ? '#1e293b' : 'rgba(15, 23, 42, 0.06)',
+      borderColor: isAnchor ? 'rgba(201, 162, 39, 0.14)' : (isDark ? '#334155' : 'rgba(15, 23, 42, 0.09)'),
+      dividerColor: isAnchor ? 'rgba(201, 162, 39, 0.06)' : (isDark ? '#1e293b' : 'rgba(15, 23, 42, 0.06)'),
 
       /* 背景（暗色禁止纯白）*/
-      cardColor: isDark ? '#131c31' : '#ffffff',
-      modalColor: isDark ? '#131c31' : '#ffffff',
-      popoverColor: isDark ? '#131c31' : '#ffffff',
-      tableColor: isDark ? '#131c31' : '#ffffff',
-      tableColorStriped: isDark ? '#0f172a' : '#f8fafc',
-      tableColorHover: isDark ? '#1a2436' : '#f8fafc',
-      tableHeaderColor: isDark ? '#131c31' : '#ffffff',
+      cardColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
+      modalColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
+      popoverColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
+      tableColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
+      tableColorStriped: isAnchor ? anchorInput : (isDark ? '#0f172a' : '#f8fafc'),
+      tableColorHover: isAnchor ? '#181f2e' : (isDark ? '#1a2436' : '#f8fafc'),
+      tableHeaderColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
     },
     Card: {
       borderRadius: '14px',
@@ -58,30 +70,30 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
     Select: {
       peers: {
         InternalSelection: {
-          color: isDark ? '#0f172a' : '#ffffff',
-          borderActive: isDark ? '#818cf8' : '#4f46e5',
-          borderFocus: isDark ? '#818cf8' : '#4f46e5',
+          color: isAnchor ? anchorInput : (isDark ? '#0f172a' : '#ffffff'),
+          borderActive: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
+          borderFocus: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
         },
       },
     },
     Drawer: {
-      color: isDark ? '#0b1121' : '#eef1f6',
+      color: isAnchor ? anchorBg : (isDark ? '#0b1121' : '#eef1f6'),
       bodyPadding: '0',
     },
     Tabs: {
-      tabTextColorActiveLine: isDark ? '#818cf8' : '#4f46e5',
-      tabTextColorHoverLine: isDark ? '#94a3b8' : '#475569',
-      barColor: isDark ? '#818cf8' : '#4f46e5',
+      tabTextColorActiveLine: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
+      tabTextColorHoverLine: isAnchor ? anchorText2 : (isDark ? '#94a3b8' : '#475569'),
+      barColor: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
     },
     Switch: {
-      railColorActive: isDark ? '#818cf8' : '#4f46e5',
+      railColorActive: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
     },
     Alert: {
-      color: isDark ? '#131c31' : '#ffffff',
+      color: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
       border: 'none',
     },
     Form: {
-      labelTextColorTop: isDark ? '#94a3b8' : '#475569',
+      labelTextColorTop: isAnchor ? anchorText2 : (isDark ? '#94a3b8' : '#475569'),
     },
     Scrollbar: {
       width: '8px',

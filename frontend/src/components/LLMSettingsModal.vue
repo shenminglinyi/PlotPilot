@@ -10,7 +10,7 @@
     <!-- ═══ 主题选择 ═══ -->
     <div class="theme-section">
       <div class="theme-preview-bar">
-        <div class="theme-preview-card" :class="{ 'is-dark': themeStore.isDark }">
+        <div class="theme-preview-card" :class="{ 'is-dark': themeStore.isDark, 'is-anchor': themeStore.isAnchor }">
           <div class="preview-header">
             <span class="preview-dot"></span>
             <span class="preview-dot"></span>
@@ -30,6 +30,7 @@
           :key="option.value"
           class="theme-mode-card"
           :class="{ active: themeStore.mode === option.value }"
+          :data-mode="option.value"
           @click="handleThemeChange(option.value)"
         >
           <div class="mode-card-icon" v-html="option.icon"></div>
@@ -71,6 +72,12 @@ const themeOptions = computed(() => [
     label: '深色',
     desc: '护眼暗色主题，适合夜间写作',
     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36A7 7 0 0112 3z" fill="#818cf8"/></svg>',
+  },
+  {
+    value: 'anchor' as ThemeMode,
+    label: '黑金',
+    desc: '主播限定色，奢华暗金风格',
+    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26"><defs><linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#d4a843"/><stop offset="100%" stop-color="#f5d485"/></linearGradient></defs><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="url(#ag)"/></svg>',
   },
   {
     value: 'auto' as ThemeMode,
@@ -117,6 +124,17 @@ function handleThemeChange(newMode: ThemeMode) {
   box-shadow:
     0 4px 24px rgba(0, 0, 0, 0.35),
     0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 黑金模式预览卡片：金色边框 + 微金底 */
+[data-theme='anchor'] .theme-preview-card.is-dark,
+.theme-preview-card.is-anchor {
+  background: linear-gradient(145deg, #0d0e14, #12141c);
+  border-color: rgba(201, 162, 39, 0.2);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.4),
+    0 2px 8px rgba(201, 162, 39, 0.08),
+    inset 0 1px 0 rgba(212, 168, 67, 0.05);
 }
 
 .preview-header {
@@ -204,6 +222,15 @@ function handleThemeChange(newMode: ThemeMode) {
     0 2px 8px rgba(79, 70, 229, 0.1);
 }
 
+/* 黑金模式激活态：金色光晕 */
+.theme-mode-card.active[data-mode="anchor"] {
+  border-color: var(--color-gold, #d4a843);
+  background: linear-gradient(135deg, rgba(212, 168, 67, 0.06), rgba(245, 212, 133, 0.03));
+  box-shadow:
+    0 0 0 3px rgba(212, 168, 67, 0.12),
+    0 2px 12px rgba(212, 168, 67, 0.15);
+}
+
 .mode-card-icon {
   flex-shrink: 0;
   width: 46px;
@@ -220,6 +247,11 @@ function handleThemeChange(newMode: ThemeMode) {
 .theme-mode-card.active .mode-card-icon {
   background: rgba(79, 70, 229, 0.1);
   border-color: rgba(79, 70, 229, 0.2);
+}
+
+.theme-mode-card.active[data-mode="anchor"] .mode-card-icon {
+  background: rgba(212, 168, 67, 0.1);
+  border-color: rgba(212, 168, 67, 0.25);
 }
 
 .mode-card-info {
@@ -244,5 +276,9 @@ function handleThemeChange(newMode: ThemeMode) {
   color: #4f46e5;
   display: flex;
   align-items: center;
+}
+
+.theme-mode-card.active[data-mode="anchor"] .mode-card-check {
+  color: var(--color-gold, #d4a843);
 }
 </style>

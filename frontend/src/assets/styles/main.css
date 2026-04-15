@@ -179,7 +179,68 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════
-   通用组件样式（使用变量，自动适配亮/暗）
+   黑金模式（主播限定色）— 奢华暗金风格
+   基于 dark 深色基底 + 金铜色调强调
+   ═══════════════════════════════════════════════════ */
+[data-theme='anchor'] {
+  /* ── 品牌色：金紫融合 ── */
+  --color-brand: #c9a227;
+  --color-brand-hover: #ddb930;
+  --color-brand-pressed: #a88a1f;
+  --color-brand-suppl: #e8c84a;
+  --color-brand-light: rgba(201, 162, 39, 0.12);
+  --color-brand-border: rgba(201, 162, 39, 0.2);
+
+  /* ── 黑金装饰色（更浓郁）── */
+  --color-gold: #f0c866;
+  --color-gold-light: #f5ddb5;
+  --color-gold-dim: rgba(240, 200, 102, 0.1);
+  --color-gold-border: rgba(240, 200, 102, 0.18);
+  --color-gold-glow: rgba(240, 200, 102, 0.35);
+
+  /* ── 主播限定色（核心品牌金）── */
+  --color-anchor: #d4a843;
+  --color-anchor-light: #f5d77e;
+  --color-anchor-dim: rgba(212, 168, 67, 0.1);
+  --color-anchor-border: rgba(212, 168, 67, 0.22);
+  --color-anchor-glow: rgba(212, 168, 67, 0.4);
+
+  /* ── 文字色（暖调暗色文字，更高对比度）── */
+  --app-text-primary: #f0ead6;
+  --app-text-secondary: #c4b99a;
+  --app-text-muted: #8a8070;
+  --app-text-inverse: #0a0c10;
+
+  /* ── 背景色（墨黑+微金底纹）── */
+  --app-page-bg: #0a0c10;
+  --app-surface: #111620;
+  --app-surface-raised: #181f2e;
+  --app-surface-subtle: #0d1018;
+  --app-input-bg: #0d1018;
+
+  /* ── 边框（金色调边框）── */
+  --app-border: rgba(201, 162, 39, 0.08);
+  --app-border-strong: rgba(201, 162, 39, 0.14);
+  --app-divider: rgba(201, 162, 39, 0.06);
+
+  /* ── 阴影（带金色光晕）── */
+  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 20px rgba(201, 162, 39, 0.04);
+  --app-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.4), 0 0 40px rgba(201, 162, 39, 0.06);
+  --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 30px rgba(201, 162, 39, 0.08);
+
+  /* ── 面板专用 ── */
+  --aitext-split-border: rgba(201, 162, 39, 0.1);
+  --aitext-panel-muted: #0d1018;
+
+  /* ── StatsTopBar 渐变（黑金版：深金渐变）── */
+  --stats-bar-gradient: linear-gradient(135deg, #1a1510 0%, #2d2418 30%, #1f1a10 60%, #0a0c10 100%);
+
+  color-scheme: dark;
+}
+
+/* ═══════════════════════════════════════════════════
+   通用组件样式（使用变量，自动适配亮/暗/黑金）
    ═══════════════════════════════════════════════════ */
 
 /* 工作台 / 侧栏共用 */

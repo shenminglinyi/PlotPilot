@@ -129,14 +129,14 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 .stat-value {
   font-size: 24px;
   font-weight: 700;
-  color: #1e293b;
+  color: var(--app-text-primary, #1e293b);
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
 
 .stat-unit {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
   font-weight: 500;
 }
 

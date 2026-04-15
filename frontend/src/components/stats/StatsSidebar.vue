@@ -240,13 +240,13 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .logo-icon {
   width: 44px;
   height: 44px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-brand-light, rgba(255, 255, 255, 0.2));
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
@@ -260,14 +260,14 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .brand-name {
   font-size: 22px;
   font-weight: 700;
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   margin: 0;
   letter-spacing: -0.02em;
 }
 
 .brand-slogan {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--app-text-secondary, rgba(255, 255, 255, 0.85));
   margin: 0;
   font-weight: 400;
 }
@@ -464,7 +464,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 
 .update-time {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
   display: flex;
   align-items: center;
   gap: 6px;

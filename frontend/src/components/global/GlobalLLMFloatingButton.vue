@@ -459,7 +459,7 @@ onBeforeUnmount(() => {
   background:
     radial-gradient(circle at 18% 18%, rgba(129, 140, 248, 0.32), transparent 28%),
     linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(49, 46, 129, 0.95) 55%, rgba(37, 99, 235, 0.9));
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   box-shadow:
     0 12px 30px rgba(30, 41, 59, 0.2),
     0 10px 26px rgba(79, 70, 229, 0.22);
@@ -664,7 +664,7 @@ onBeforeUnmount(() => {
 .global-llm-action:hover {
   transform: translateY(-1px);
   background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 .global-llm-drawer-header {

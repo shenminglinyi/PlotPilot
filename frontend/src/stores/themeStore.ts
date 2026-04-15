@@ -1,14 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 
-export type ThemeMode = 'light' | 'dark' | 'auto'
+export type ThemeMode = 'light' | 'dark' | 'anchor' | 'auto'
 
 const STORAGE_KEY = 'aitext-theme-mode'
 
 function getStoredTheme(): ThemeMode {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark' || stored === 'auto') return stored
+    if (stored === 'light' || stored === 'dark' || stored === 'anchor' || stored === 'auto') return stored
   } catch { /* ignore */ }
   return 'light'
 }
@@ -22,8 +22,11 @@ export const useThemeStore = defineStore('theme', () => {
 
   const isDark = computed(() => {
     if (mode.value === 'auto') return getSystemDark()
-    return mode.value === 'dark'
+    return mode.value === 'dark' || mode.value === 'anchor'
   })
+
+  /** 是否为黑金（主播限定色）模式 */
+  const isAnchor = computed(() => mode.value === 'anchor')
 
   /** 实际生效的主题名，供 naive-ui / CSS 使用 */
   const effectiveTheme = computed<'light' | 'dark'>(() =>
@@ -49,12 +52,12 @@ export const useThemeStore = defineStore('theme', () => {
     const root = document.documentElement
     if (dark) {
       root.classList.add('dark')
-      root.setAttribute('data-theme', 'dark')
+      root.setAttribute('data-theme', isAnchor.value ? 'anchor' : 'dark')
     } else {
       root.classList.remove('dark')
       root.setAttribute('data-theme', 'light')
     }
   }, { immediate: true })
 
-  return { mode, isDark, effectiveTheme, setTheme }
+  return { mode, isDark, isAnchor, effectiveTheme, setTheme }
 })

@@ -594,7 +594,7 @@ onMounted(() => {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: #cbd5e1;
+  background: var(--app-text-secondary, #cbd5e1);
   margin: 0 2px;
 }
 

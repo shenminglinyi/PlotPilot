@@ -509,7 +509,7 @@ onMounted(() => {
 
 .info-label {
   font-size: 12px;
-  color: var(--text-color-3, #94a3b8);
+  color: var(--app-text-muted, var(--text-color-3, #94a3b8));
   flex-shrink: 0;
   min-width: 64px;
 }
@@ -570,7 +570,7 @@ onMounted(() => {
 
 .ms-range {
   font-size: 10.5px;
-  color: var(--text-color-3, #94a3b8);
+  color: var(--app-text-muted, var(--text-color-3, #94a3b8));
   font-family: monospace;
   flex-shrink: 0;
 }

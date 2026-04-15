@@ -119,7 +119,7 @@
                   :cy="tensionY(p.tension)"
                   r="6"
                   fill="#2080f0"
-                  stroke="#fff"
+                  stroke="var(--app-text-inverse, #fff)"
                   stroke-width="2"
                 />
                 <text
