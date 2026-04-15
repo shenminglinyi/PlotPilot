@@ -1,3 +1,7 @@
+/* ═══════════════════════════════════════════════════
+   PlotPilot 全局样式 — 颜色架构（亮色 / 暗色 / 黑金）
+   ═══════════════════════════════════════════════════ */
+
 * {
   margin: 0;
   padding: 0;
@@ -6,7 +10,6 @@
 
 html {
   scroll-behavior: smooth;
-  /* 优化文本渲染 */
   text-rendering: optimizeLegibility;
 }
 
@@ -20,37 +23,150 @@ body {
     'Source Han Sans CN',
     system-ui,
     -apple-system,
-    BlinkMacSystemFont,
+    BlinkMacFont,
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: var(--app-page-bg, #f4f6fb);
-  color: #1e293b;
+  background: var(--app-page-bg);
+  color: var(--app-text-primary);
   min-height: 100vh;
-  /* 优化中文排版 */
   font-variant-ligatures: common-ligatures;
   text-size-adjust: 100%;
   line-height: 1.6;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+/* ═══════════════════════════════════════════════════
+   亮色模式 (默认)
+   ═══════════════════════════════════════════════════ */
 :root {
+  /* ── 品牌色 ── */
+  --color-brand: #4f46e5;
+  --color-brand-hover: #6366f1;
+  --color-brand-pressed: #4338ca;
+  --color-brand-suppl: #818cf8;
+  --color-brand-light: rgba(79, 70, 229, 0.08);
+  --color-brand-border: rgba(79, 70, 229, 0.15);
+
+  /* ── 黑金装饰色 ── */
+  --color-gold: #d4a853;
+  --color-gold-light: #f5deb3;
+  --color-gold-dim: rgba(212, 168, 83, 0.15);
+  --color-gold-border: rgba(212, 168, 83, 0.25);
+  --color-gold-glow: rgba(212, 168, 83, 0.35);
+
+  /* ── 语义色 ── */
+  --color-success: #22c55e;
+  --color-success-light: #dcfce7;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef3c7;
+  --color-danger: #ef4444;
+  --color-danger-light: #fee2e2;
+  --color-info: #3b82f6;
+  --color-info-light: #dbeafe;
+
+  /* ── 文字色（全部使用变量，禁止硬编码）── */
+  --app-text-primary: #0f172a;
+  --app-text-secondary: #475569;
+  --app-text-muted: #64748b;
+  --app-text-inverse: #ffffff;
+
+  /* ── 背景色 ── */
   --app-page-bg: #eef1f6;
   --app-surface: #ffffff;
-  --app-muted: #64748b;
+  --app-surface-raised: #ffffff;
+  --app-surface-subtle: #f8fafc;
+  --app-input-bg: #ffffff;
+
+  /* ── 边框 ── */
   --app-border: rgba(15, 23, 42, 0.09);
-  --app-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
-  --app-shadow-hover: 0 8px 28px rgba(15, 23, 42, 0.08);
-  --app-radius-lg: 14px;
+  --app-border-strong: rgba(15, 23, 42, 0.15);
+  --app-divider: rgba(15, 23, 42, 0.06);
+
+  /* ── 阴影 ── */
+  --app-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --app-shadow-md: 0 4px 16px rgba(15, 23, 42, 0.06);
+  --app-shadow-lg: 0 8px 28px rgba(15, 23, 42, 0.08);
+  --app-shadow-hover: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+  /* ── 布局 ── */
+  --app-radius-sm: 8px;
   --app-radius-md: 10px;
+  --app-radius-lg: 14px;
+  --app-radius-xl: 20px;
   --app-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── 面板专用 ── */
   --aitext-split-border: rgba(15, 23, 42, 0.07);
   --aitext-panel-muted: #f8fafc;
-  
-  /* 字体变量 */
+
+  /* ── 字体 ── */
   --font-sans: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
   --font-serif: 'Noto Serif SC', 'Source Han Serif CN', 'Songti SC', Georgia, serif;
+
+  /* ── StatsTopBar 渐变 ── */
+  --stats-bar-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
+
+  color-scheme: light;
 }
+
+/* ═══════════════════════════════════════════════════
+   暗色模式
+   ═══════════════════════════════════════════════════ */
+[data-theme='dark'] {
+  /* ── 品牌色（暗模式下略提亮）── */
+  --color-brand: #818cf8;
+  --color-brand-hover: #a5b4fc;
+  --color-brand-pressed: #6366f1;
+  --color-brand-suppl: #c7d2fe;
+  --color-brand-light: rgba(129, 140, 248, 0.12);
+  --color-brand-border: rgba(129, 140, 248, 0.2);
+
+  /* ── 黑金装饰色（暗模式下更耀眼）── */
+  --color-gold: #e5b86e;
+  --color-gold-light: #f5ddb5;
+  --color-gold-dim: rgba(229, 184, 110, 0.12);
+  --color-gold-border: rgba(229, 184, 110, 0.2);
+  --color-gold-glow: rgba(229, 184, 110, 0.4);
+
+  /* ── 文字色 ── */
+  --app-text-primary: #e2e8f0;
+  --app-text-secondary: #94a3b8;
+  --app-text-muted: #64748b;
+  --app-text-inverse: #0f172a;
+
+  /* ── 背景色（深色系，禁止纯白）── */
+  --app-page-bg: #0b1121;
+  --app-surface: #131c31;
+  --app-surface-raised: #1a2436;
+  --app-surface-subtle: #0f172a;
+  --app-input-bg: #0f172a;
+
+  /* ── 边框 ── */
+  --app-border: rgba(148, 163, 184, 0.1);
+  --app-border-strong: rgba(148, 163, 184, 0.16);
+  --app-divider: rgba(51, 65, 85, 0.4);
+
+  /* ── 阴影 ── */
+  --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --app-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --app-shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+  /* ── 面板专用 ── */
+  --aitext-split-border: rgba(51, 65, 85, 0.45);
+  --aitext-panel-muted: #0f172a;
+
+  /* ── StatsTopBar 渐变（暗色版）── */
+  --stats-bar-gradient: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #1e1b4b 70%, #0f172a 100%);
+
+  color-scheme: dark;
+}
+
+/* ═══════════════════════════════════════════════════
+   通用组件样式（使用变量，自动适配亮/暗）
+   ═══════════════════════════════════════════════════ */
 
 /* 工作台 / 侧栏共用 */
 .aitext-panel-surface {
@@ -62,24 +178,24 @@ body {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #0f172a;
+  color: var(--app-text-primary);
   margin: 0 0 8px;
 }
 
 .aitext-panel-desc {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--app-muted);
+  color: var(--app-text-muted);
   margin-bottom: 12px;
 }
 
 .aitext-composer-hint {
   font-size: 12px;
   line-height: 1.45;
-  color: var(--app-muted);
+  color: var(--app-text-muted);
 }
 
-/* Markdown 正文（工作台气泡内） */
+/* Markdown 正文 */
 .md-body {
   font-family: var(--font-sans);
   font-size: 14px;
@@ -88,50 +204,36 @@ body {
   word-break: break-word;
   overflow-wrap: break-word;
 }
-.md-body p {
-  margin: 0 0 0.65em;
-}
-.md-body p:last-child {
-  margin-bottom: 0;
-}
-.md-body pre,
-.md-body code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-}
+.md-body p { margin: 0 0 0.65em; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body pre, .md-body code { font-family: var(--font-mono); font-size: 0.92em; }
 .md-body pre {
   padding: 12px 14px;
   border-radius: 8px;
   overflow-x: auto;
-  background: rgba(15, 23, 42, 0.06);
+  background: var(--color-brand-light);
   margin: 0.5em 0;
 }
 .md-body code {
   padding: 0.15em 0.4em;
   border-radius: 4px;
-  background: rgba(79, 70, 229, 0.08);
+  background: var(--color-brand-light);
 }
-.md-body pre code {
-  padding: 0;
-  background: none;
-}
-.md-body ul,
-.md-body ol {
-  margin: 0.4em 0 0.6em 1.25em;
-}
+.md-body pre code { padding: 0; background: none; }
+.md-body ul, .md-body ol { margin: 0.4em 0 0.6em 1.25em; }
 .md-body blockquote {
   margin: 0.5em 0;
   padding-left: 12px;
-  border-left: 3px solid rgba(79, 70, 229, 0.35);
-  color: var(--app-muted);
+  border-left: 3px solid var(--color-brand);
+  color: var(--app-text-muted);
 }
 
-/* 标题优化 */
+/* 标题 */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-sans);
   font-weight: 600;
   line-height: 1.4;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 /* 小说正文阅读模式 */
@@ -142,51 +244,126 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: 0.02em;
   text-align: justify;
 }
+.novel-content p { text-indent: 2em; margin-bottom: 0.8em; }
+.novel-content p:first-child { text-indent: 0; }
 
-.novel-content p {
-  text-indent: 2em;
-  margin-bottom: 0.8em;
-}
-
-.novel-content p:first-child {
-  text-indent: 0;
-}
-
-/* 代码块优化 */
-.code-block,
-pre[class*="language-"] {
+/* 代码块 */
+.code-block, pre[class*='language-'] {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
   tab-size: 2;
 }
 
-/* 输入框优化 */
-input,
-textarea,
-select {
-  font-family: inherit;
-  font-size: inherit;
-}
-
-/* 按钮优化 */
-button {
-  font-family: inherit;
-}
+/* 表单元素 */
+input, textarea, select { font-family: inherit; font-size: inherit; }
+button { font-family: inherit; }
 
 /* 数字/数据展示 */
-.numeric,
-.data-value {
+.numeric, .data-value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* 拼音/注音支持 */
-ruby {
-  ruby-align: center;
+/* 拼音注音 */
+ruby { ruby-align: center; }
+rt { font-size: 0.6em; color: var(--app-text-muted); }
+
+/* ═══════════════════════════════════════════════════
+   StatsTopBar — 使用变量渐变
+   ═══════════════════════════════════════════════════ */
+.stats-top-bar {
+  background: var(--stats-bar-gradient);
 }
 
-rt {
-  font-size: 0.6em;
-  color: var(--app-muted);
+/* ═══════════════════════════════════════════════════
+   Home 页面 — 使用变量
+   ═══════════════════════════════════════════════════ */
+.home-bg {
+  background:
+    radial-gradient(ellipse 110% 80% at 50% -30%, var(--color-brand-light), transparent 55%),
+    linear-gradient(180deg, var(--app-page-bg) 0%, var(--app-surface-subtle) 100%);
+}
+.title { color: var(--app-text-primary); }
+.subtitle { color: var(--app-text-secondary); }
+.settings-btn {
+  background: var(--app-surface);
+  color: var(--app-text-muted);
+  border: 1px solid var(--app-border);
+}
+.settings-btn:hover {
+  background: var(--color-brand-light);
+  color: var(--color-brand);
+  box-shadow: var(--app-shadow-md);
+}
+.create-card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-md);
+}
+.books-section {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-md);
+}
+.section-title { color: var(--app-text-primary); }
+.book-count {
+  background: var(--app-surface-subtle);
+  color: var(--app-text-muted);
+}
+.selection-bar { background: var(--app-surface-subtle); }
+.empty-illustration {
+  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+}
+.empty-title { color: var(--app-text-primary); }
+.empty-desc { color: var(--app-text-muted); }
+.book-title { color: var(--app-text-primary); }
+.book-card:hover { box-shadow: var(--app-shadow-hover); }
+.advanced-settings {
+  background: var(--color-brand-light);
+  border-color: var(--color-brand-border);
+}
+
+/* ═══════════════════════════════════════════════════
+   GlobalLLMEntryButton Drawer — 使用变量
+   ═══════════════════════════════════════════════════ */
+.global-llm-drawer-title { color: var(--app-text-primary); }
+.global-llm-drawer-subtitle { color: var(--app-text-muted); }
+.global-llm-runtime-bar {
+  background: linear-gradient(135deg, var(--color-brand-light), rgba(99, 102, 241, 0.05)), var(--app-surface);
+  border-color: var(--color-brand-border);
+}
+.global-llm-runtime-model { color: var(--app-text-primary); }
+.global-llm-runtime-label { color: var(--app-text-muted); }
+.global-llm-runtime-name { color: var(--app-text-secondary); }
+.global-llm-runtime-chip {
+  background: var(--color-brand-light);
+  color: var(--color-brand);
+}
+
+/* 嵌入模型区域 */
+.embedding-section-title { color: var(--app-text-primary); }
+.embedding-section-desc { color: var(--app-text-muted); }
+.emb-mode-label { color: var(--app-text-muted); }
+.emb-mode-label.active { color: var(--app-text-primary); font-weight: 600; }
+.emb-local-name { color: var(--color-success); }
+.emb-local-desc { color: var(--color-success); }
+
+/* ═══════════════════════════════════════════════════
+   SettingsPanel 右侧面板
+   ═══════════════════════════════════════════════════ */
+.right-panel { background: var(--aitext-panel-muted); }
+
+/* ═══════════════════════════════════════════════════
+   全局过渡动画（主题切换时平滑过渡）
+   ═══════════════════════════════════════════════════ */
+.theme-transitioning,
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease !important;
 }
