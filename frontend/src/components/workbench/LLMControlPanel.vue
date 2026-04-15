@@ -679,7 +679,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--aitext-split-border);
   border-radius: 14px;
   background:
-    linear-gradient(180deg, rgba(79, 70, 229, 0.04), rgba(255, 255, 255, 0.9)),
+    linear-gradient(180deg, var(--color-brand-light), var(--app-surface)),
     var(--app-surface);
   flex-shrink: 0;
 }
@@ -711,9 +711,9 @@ onBeforeUnmount(() => {
 }
 
 .llm-preset-card {
-  border: 1px solid rgba(99, 102, 241, 0.12);
+  border: 1px solid var(--color-brand-border, rgba(99, 102, 241, 0.12));
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--app-surface-raised, var(--app-surface));
   padding: 12px;
   text-align: left;
   display: flex;
@@ -725,8 +725,8 @@ onBeforeUnmount(() => {
 
 .llm-preset-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(79, 70, 229, 0.28);
-  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.08);
+  border-color: var(--color-brand-hover, rgba(79, 70, 229, 0.28));
+  box-shadow: var(--app-shadow-md), 0 10px 22px var(--color-brand-border, rgba(79, 70, 229, 0.08));
 }
 
 .llm-preset-card-head {
@@ -745,8 +745,8 @@ onBeforeUnmount(() => {
 .llm-preset-card-protocol {
   flex-shrink: 0;
   font-size: 11px;
-  color: #4f46e5;
-  background: rgba(79, 70, 229, 0.08);
+  color: var(--color-brand, #4f46e5);
+  background: var(--color-brand-light, rgba(79, 70, 229, 0.08));
   border-radius: 999px;
   padding: 2px 8px;
 }
@@ -834,7 +834,7 @@ onBeforeUnmount(() => {
 }
 
 .llm-profile-item.is-active {
-  background: rgba(24, 160, 88, 0.06);
+  background: var(--color-success-light, rgba(24, 160, 88, 0.06));
 }
 
 .llm-profile-name-row {
