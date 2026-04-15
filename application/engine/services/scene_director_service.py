@@ -91,7 +91,7 @@ class SceneDirectorService:
                 return [str(x) for x in v if x is not None]
             return [str(v)]
 
-        def as_optional_str_list(key: str) -> list | None:
+        def as_optional_str_list(key: str) -> Optional[list]:
             """Convert field to optional list of strings, preserving None for missing fields."""
             v = data.get(key)
             if v is None:

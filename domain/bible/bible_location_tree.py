@@ -25,7 +25,7 @@ def validate_location_forest(locations: List[Dict[str, Any]]) -> None:
         if p not in ids:
             raise ValueError(f"orphan parent_id references missing id: {p}")
 
-    id_to_parent: Dict[str, str | None] = {}
+    id_to_parent: Dict[str, Optional[str]] = {}
     for loc in locations:
         lid = str(loc["id"]).strip()
         raw = loc.get("parent_id")
@@ -37,7 +37,7 @@ def validate_location_forest(locations: List[Dict[str, Any]]) -> None:
 
     for start in ids:
         seen_path: Set[str] = set()
-        cur: str | None = start
+        cur: Optional[str] = start
         steps = 0
         while cur is not None:
             if cur in seen_path:

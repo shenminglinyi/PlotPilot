@@ -20,10 +20,10 @@ _DEFAULT_CONFIG = GenerationConfig()
 
 
 class LLMProviderFactory:
-    def __init__(self, control_service: LLMControlService | None = None):
+    def __init__(self, control_service: Optional[LLMControlService] = None):
         self.control_service = control_service or LLMControlService()
 
-    def create_from_profile(self, profile: LLMProfile | None) -> LLMService:
+    def create_from_profile(self, profile: Optional[LLMProfile]) -> LLMService:
         if profile is None:
             return MockProvider()
 
@@ -67,7 +67,7 @@ class LLMProviderFactory:
 class DynamicLLMService(LLMService):
     """动态读取当前激活配置，适配长生命周期服务/守护进程。"""
 
-    def __init__(self, factory: LLMProviderFactory | None = None):
+    def __init__(self, factory: Optional[LLMProviderFactory] = None):
         self.factory = factory or LLMProviderFactory()
 
     def _resolve_provider(self) -> LLMService:

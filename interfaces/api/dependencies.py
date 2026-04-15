@@ -132,7 +132,7 @@ def get_llm_provider_factory() -> LLMProviderFactory:
     return LLMProviderFactory(get_llm_control_service())
 
 
-def llm_runtime_is_mock(llm_service: LLMService | None = None) -> bool:
+def llm_runtime_is_mock(llm_service: Optional[LLMService] = None) -> bool:
     runtime = get_llm_control_service().get_runtime_summary()
     return runtime.using_mock
 
