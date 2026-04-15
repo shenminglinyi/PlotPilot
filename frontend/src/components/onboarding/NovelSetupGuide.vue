@@ -697,7 +697,15 @@ const handleNext = async () => {
     try {
       await bibleApi.generateBible(props.novelId, 'characters')
       // 轮询检查人物生成状态
+      let characterCheckCount = 0
+      const maxCharacterChecks = 60 // 最多检查60次，每次2秒，共2分钟
       const checkCharacters = async () => {
+        characterCheckCount++
+        if (characterCheckCount > maxCharacterChecks) {
+          console.warn('Character generation timeout')
+          generatingCharacters.value = false
+          return
+        }
         const bible = await bibleApi.getBible(props.novelId)
         bibleData.value = bible
         if (bible.characters && bible.characters.length > 0) {
@@ -719,14 +727,28 @@ const handleNext = async () => {
     try {
       await bibleApi.generateBible(props.novelId, 'locations')
       // 轮询检查地点生成状态
+      let locationCheckCount = 0
+      const maxLocationChecks = 60 // 最多检查60次，每次2秒，共2分钟
       const checkLocations = async () => {
-        const bible = await bibleApi.getBible(props.novelId)
-        bibleData.value = bible
-        if (bible.locations && bible.locations.length > 0) {
+        locationCheckCount++
+        if (locationCheckCount > maxLocationChecks) {
+          console.warn('Location generation timeout')
           generatingLocations.value = false
-          locationsGenerated.value = true
-        } else {
-          window.setTimeout(checkLocations, 2000)
+          return
+        }
+        try {
+          const bible = await bibleApi.getBible(props.novelId)
+          bibleData.value = bible
+          if (bible.locations && bible.locations.length > 0) {
+            generatingLocations.value = false
+            locationsGenerated.value = true
+          } else {
+            window.setTimeout(checkLocations, 2000)
+          }
+        } catch (pollError) {
+          console.warn('Poll getBible failed, retrying...', pollError)
+          // 请求失败时仍然继续轮询，但间隔延长到4秒
+          window.setTimeout(checkLocations, 4000)
         }
       }
       await checkLocations()

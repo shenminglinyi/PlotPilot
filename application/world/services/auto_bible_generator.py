@@ -1,7 +1,6 @@
 """自动 Bible 生成器 - 从小说标题生成完整的人物、地点、风格设定和世界观"""
 import logging
 import json
-import re
 import uuid
 import sys
 from typing import Dict, Any
@@ -132,14 +131,15 @@ class AutoBibleGenerator:
             print(f"[DEBUG] Has 'worldbuilding' key: {'worldbuilding' in bible_data}", file=sys.stderr, flush=True)
             print(f"[DEBUG] worldbuilding_service is None: {self.worldbuilding_service is None}", file=sys.stderr, flush=True)
             # 保存文风
-            if "style" in bible_data:
+            style_content = bible_data.get("style", "")
+            if style_content and style_content.strip():
                 style_id = f"{novel_id}-style-1"
                 try:
                     self.bible_service.add_style_note(
                         novel_id=novel_id,
                         note_id=style_id,
                         category="文风公约",
-                        content=bible_data["style"]
+                        content=style_content
                     )
                     logger.info(f"Style note saved: {style_id}")
                 except Exception as e:
@@ -344,7 +344,7 @@ JSON 格式（不要有其他文字）：
 只输出 JSON，不要有任何解释文字。"""
 
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=4096, temperature=0.7)
+        config = GenerationConfig(max_tokens=2048, temperature=0.7)
 
         result = await self.llm_service.generate(prompt, config)
 
@@ -634,7 +634,30 @@ JSON 格式：
 
 请生成世界观和文风公约。只输出 JSON，不要有任何解释文字。"""
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+        result = await self._call_llm_and_parse(system_prompt, user_prompt)
+
+        # 修复：LLM 可能直接返回世界观维度而不是包装在 worldbuilding 键下
+        # 检查是否存在世界观的5个维度键但没有 worldbuilding 包装
+        worldbuilding_keys = {"core_rules", "geography", "society", "culture", "daily_life"}
+        if worldbuilding_keys.issubset(result.keys()) and "worldbuilding" not in result:
+            logger.info("LLM returned unwrapped worldbuilding data, re-wrapping...")
+            wrapped = {
+                "worldbuilding": {
+                    "core_rules": result.get("core_rules", {}),
+                    "geography": result.get("geography", {}),
+                    "society": result.get("society", {}),
+                    "culture": result.get("culture", {}),
+                    "daily_life": result.get("daily_life", {})
+                }
+            }
+            # 只有当 style 有内容时才添加
+            style_content = result.get("style", "")
+            if style_content and style_content.strip():
+                wrapped["style"] = style_content
+            result = wrapped
+            print(f"[DEBUG] Re-wrapped worldbuilding data", file=sys.stderr, flush=True)
+
+        return result
 
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
@@ -676,7 +699,19 @@ JSON 格式：
 
 请基于这个世界观生成主要人物。只输出 JSON，不要有任何解释文字。"""
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+        result = await self._call_llm_and_parse(system_prompt, user_prompt)
+
+        # 兼容处理：LLM 可能直接返回数组而不是包装在 characters 键下
+        if isinstance(result, list):
+            logger.info("LLM returned unwrapped characters array, re-wrapping...")
+            result = {"characters": result}
+        elif isinstance(result, dict) and "characters" not in result:
+            # 检查是否包含人物字段（name, role）
+            if "name" in result and "role" in result:
+                logger.info("LLM returned single character object, wrapping in list...")
+                result = {"characters": [result]}
+
+        return result
 
     async def _generate_locations(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any], characters: list) -> Dict[str, Any]:
         """基于世界观和人物生成地点"""
@@ -724,7 +759,19 @@ JSON 格式：
 
 请基于世界观和人物生成完整地图。只输出 JSON，不要有任何解释文字。"""
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+        result = await self._call_llm_and_parse(system_prompt, user_prompt)
+
+        # 兼容处理：LLM 可能直接返回数组而不是包装在 locations 键下
+        if isinstance(result, list):
+            logger.info("LLM returned unwrapped locations array, re-wrapping...")
+            result = {"locations": result}
+        elif isinstance(result, dict) and "locations" not in result:
+            # 检查是否包含地点字段（name, type/description）
+            if "name" in result and ("type" in result or "description" in result):
+                logger.info("LLM returned single location object, wrapping in list...")
+                result = {"locations": [result]}
+
+        return result
 
     def _summarize_worldbuilding(self, wb: Dict[str, Any]) -> str:
         """总结世界观为文本"""
@@ -738,11 +785,11 @@ JSON 格式：
                 parts.append(f"{key}: {items}")
         return "\n".join(parts)
 
-    async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str, max_tokens: int = 4096) -> Dict[str, Any]:
         """调用 LLM 并解析 JSON"""
         print(f"[DEBUG] _call_llm_and_parse: Creating prompt", file=sys.stderr, flush=True)
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=4096, temperature=0.7)
+        config = GenerationConfig(max_tokens=max_tokens, temperature=0.7)
         print(f"[DEBUG] _call_llm_and_parse: Calling LLM service", file=sys.stderr, flush=True)
         result = await self.llm_service.generate(prompt, config)
         print(f"[DEBUG] _call_llm_and_parse: LLM returned result", file=sys.stderr, flush=True)
@@ -751,23 +798,51 @@ JSON 格式：
             content = result.content.strip()
             print(f"[DEBUG] Raw LLM content length: {len(content)}", file=sys.stderr, flush=True)
 
-            # 移除可能的 markdown 代码块标记
+            # 移除可能的 markdown 代码块标记（取最长的一段）
             if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
+                # 找到所有 ```json ... ``` 块，取内容最长的那个
+                import re
+                blocks = re.findall(r'```json\s*([\s\S]*?)```', content)
+                if blocks:
+                    content = max(blocks, key=len).strip()
+                else:
+                    content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
+                blocks = re.findall(r'```\s*([\s\S]*?)```', content)
+                if blocks:
+                    content = max(blocks, key=len).strip()
+                else:
+                    content = content.split("```")[1].split("```")[0]
 
             content = content.strip()
+            print(f"[DEBUG] After markdown strip length: {len(content)}", file=sys.stderr, flush=True)
+            print(f"[DEBUG] After markdown strip first 100 chars: {content[:100]!r}", file=sys.stderr, flush=True)
 
-            # 提取完整的最外层 JSON 对象
+            # 修复：LLM 有时输出不完整的 JSON（缺少最外层 {}），如 '"locations": [...]'
+            # 检测是否以引号开头（说明缺少最外层 {）
+            if content and content[0] == '"':
+                content = '{' + content + '}'
+                print(f"[DEBUG] Wrapped missing outer braces, new length: {len(content)}", file=sys.stderr, flush=True)
+
+            # 使用栈来正确提取最外层 JSON 对象（处理嵌套情况）
             content = self._extract_outermost_json(content)
 
-            # 修复常见的 JSON 格式问题
-            content = self._repair_json(content)
-
             print(f"[DEBUG] Cleaned content length: {len(content)}", file=sys.stderr, flush=True)
-            parsed = json.loads(content)
-            print(f"[DEBUG] Successfully parsed JSON with keys: {list(parsed.keys())}", file=sys.stderr, flush=True)
+
+            # 先尝试直接解析
+            try:
+                parsed = json.loads(content)
+            except json.JSONDecodeError:
+                # 失败则尝试补全缺失的闭合括号（LLM 输出被 max_tokens 截断时常见）
+                repaired = self._close_truncated_json(content)
+                print(f"[DEBUG] Attempting repair, repaired length: {len(repaired)}", file=sys.stderr, flush=True)
+                parsed = json.loads(repaired)
+                logger.info("Parsed JSON after truncation repair")
+
+            if isinstance(parsed, dict):
+                print(f"[DEBUG] Successfully parsed JSON with keys: {list(parsed.keys())}", file=sys.stderr, flush=True)
+            else:
+                print(f"[DEBUG] Successfully parsed JSON as list, length: {len(parsed)}", file=sys.stderr, flush=True)
             return parsed
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON: {e}")
@@ -783,39 +858,135 @@ JSON 格式：
             return {}
 
     def _extract_outermost_json(self, content: str) -> str:
-        """提取最外层的 JSON 对象"""
-        start = content.find('{')
-        if start == -1:
+        """提取最外层的 JSON 对象或数组"""
+        # 找到第一个 { 或 [ 的位置，取最先出现的
+        obj_start = content.find('{')
+        arr_start = content.find('[')
+
+        if obj_start == -1 and arr_start == -1:
             return content
-        
-        # 使用栈来匹配最外层的 }
+
+        if obj_start == -1:
+            start = arr_start
+        elif arr_start == -1:
+            start = obj_start
+        else:
+            start = min(obj_start, arr_start)
+
+        # 使用栈来匹配最外层的闭合符
         depth = 0
         in_string = False
+        i = start
+
+        while i < len(content):
+            char = content[i]
+
+            if in_string:
+                if char == '\\':
+                    i += 2  # 跳过转义字符及其后一个字符
+                    continue
+                if char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char in ('{', '['):
+                    depth += 1
+                elif char in ('}', ']'):
+                    depth -= 1
+                    if depth == 0:
+                        return content[start:i + 1]
+
+            i += 1
+
+        # 如果没找到完整闭合，返回从 start 开始的全部内容
+        return content[start:]
+
+    def _close_truncated_json(self, content: str) -> str:
+        """修复被截断的 JSON：移除末尾不完整的 token，然后补全缺失的闭合括号"""
+        if not content:
+            return content
+
+        # 第一步：移除末尾不完整的字符串（未闭合的 "...）
+        # 从末尾向前扫描，找到最后一个完整的值结束位置
+        truncated = content.rstrip()
+
+        # 移除末尾不完整的 token：逐步回退到最后一个 } 或 ] 或 " 或数字
+        # 先移除末尾可能不完整的字符串字面量
+        in_string = False
         escape_next = False
-        end = start
-        
-        for i, char in enumerate(content[start:], start):
+        last_safe_pos = len(truncated)
+
+        i = 0
+        string_start = -1
+        while i < len(truncated):
+            char = truncated[i]
             if escape_next:
                 escape_next = False
+                i += 1
                 continue
-            if char == '\\':
+            if char == '\\' and in_string:
                 escape_next = True
+                i += 1
                 continue
-            if char == '"' and not escape_next:
+            if char == '"':
+                if in_string:
+                    in_string = False
+                    last_safe_pos = i + 1
+                    string_start = -1
+                else:
+                    in_string = True
+                    string_start = i
+            elif not in_string and char in ('}', ']', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'):
+                last_safe_pos = i + 1
+            i += 1
+
+        # 如果末尾有未闭合的字符串，截断到最后一个安全位置
+        if in_string and string_start != -1:
+            truncated = truncated[:string_start]
+            logger.info(f"Removed incomplete string literal at pos {string_start}")
+
+        # 移除末尾多余的逗号
+        import re
+        truncated = re.sub(r',\s*$', '', truncated.rstrip())
+
+        # 第二步：用栈统计未闭合的括号，从后向前补全
+        stack = []
+        in_string = False
+        escape_next = False
+        i = 0
+        while i < len(truncated):
+            char = truncated[i]
+            if escape_next:
+                escape_next = False
+                i += 1
+                continue
+            if char == '\\' and in_string:
+                escape_next = True
+                i += 1
+                continue
+            if char == '"':
                 in_string = not in_string
+                i += 1
                 continue
             if in_string:
+                i += 1
                 continue
-            if char == '{':
-                depth += 1
-            elif char == '}':
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-        
-        
-        return content[start:end+1]
+            if char in ('{', '['):
+                stack.append(char)
+            elif char in ('}', ']'):
+                if stack:
+                    stack.pop()
+            i += 1
+
+        # 补全缺失的闭合符
+        close_map = {'{': '}', '[': ']'}
+        suffix = ''.join(close_map[c] for c in reversed(stack))
+        if suffix:
+            logger.info(f"Closing truncated JSON with: {suffix!r}")
+            truncated = truncated + suffix
+
+        return truncated
 
     def _repair_json(self, content: str) -> str:
         """尝试修复常见的 JSON 格式问题"""
