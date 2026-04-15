@@ -61,10 +61,31 @@ export interface LLMTestResult {
   error: string | null
 }
 
+export interface ModelItem {
+  id: string
+  name: string
+  owned_by: string
+}
+
+export interface ModelListResponse {
+  success: boolean
+  items: ModelItem[]
+  count: number
+}
+
+export interface FetchModelsPayload {
+  protocol: string
+  base_url: string
+  api_key: string
+  timeout_ms?: number
+}
+
 export const llmControlApi = {
   getPanel: () => apiClient.get<LLMControlPanelData>('/llm-control') as Promise<LLMControlPanelData>,
   saveConfig: (config: LLMControlConfig) =>
     apiClient.put<LLMControlPanelData>('/llm-control', config) as Promise<LLMControlPanelData>,
   testProfile: (profile: LLMProfile) =>
     apiClient.post<LLMTestResult>('/llm-control/test', profile, { timeout: 120_000 }) as Promise<LLMTestResult>,
+  fetchModels: (payload: FetchModelsPayload) =>
+    apiClient.post<ModelListResponse>('/llm-control/models', payload, { timeout: 30_000 }) as Promise<ModelListResponse>,
 }

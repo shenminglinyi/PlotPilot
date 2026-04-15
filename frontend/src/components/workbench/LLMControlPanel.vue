@@ -161,7 +161,27 @@
 
             <div class="llm-field span-2">
               <label class="llm-label">模型名</label>
-              <n-input v-model:value="selectedProfile.model" placeholder="例如：gpt-4o / claude-sonnet-4-6 / gemini-2.0-flash / deepseek-chat" />
+              <div class="llm-model-row">
+                <n-auto-complete
+                  v-model:value="selectedProfile.model"
+                  :options="fetchedModelOptions"
+                  placeholder="例如：gpt-4o / claude-sonnet-4-6 / gemini-2.0-flash / deepseek-chat"
+                  clearable
+                  style="flex: 1"
+                />
+                <n-button
+                  secondary
+                  size="small"
+                  :loading="fetchingModels"
+                  :disabled="!selectedProfile.api_key"
+                  @click="handleFetchModels"
+                >
+                  拉取模型
+                </n-button>
+              </div>
+              <n-text v-if="fetchedModels.length > 0" depth="3" style="font-size: 11px">
+                已拉取 {{ fetchedModels.length }} 个模型，可输入过滤或直接选择
+              </n-text>
             </div>
 
             <div class="llm-field">
@@ -223,6 +243,7 @@ import {
   type LLMPreset,
   type LLMProfile,
   type LLMProtocol,
+  type ModelItem,
 } from '../../api/llmControl'
 
 interface Props {
@@ -249,6 +270,8 @@ const panelData = ref<LLMControlPanelData | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const testing = ref(false)
+const fetchingModels = ref(false)
+const fetchedModels = ref<ModelItem[]>([])
 const selectedProfileId = ref('')
 const extraHeadersText = ref('{}')
 const extraQueryText = ref('{}')
@@ -288,6 +311,37 @@ const runtimeLabel = computed(() => {
   if (runtime.using_mock) return 'MockProvider'
   return runtime.active_profile_name || '已配置'
 })
+
+const fetchedModelOptions = computed(() =>
+  fetchedModels.value.map((m) => ({
+    label: m.id,
+    value: m.id,
+  }))
+)
+
+async function handleFetchModels() {
+  if (!selectedProfile.value) return
+  fetchingModels.value = true
+  fetchedModels.value = []
+  try {
+    const result = await llmControlApi.fetchModels({
+      protocol: selectedProfile.value.protocol,
+      base_url: selectedProfile.value.base_url,
+      api_key: selectedProfile.value.api_key,
+    })
+    if (result.success && result.items.length > 0) {
+      fetchedModels.value = result.items
+      message.success(`成功拉取 ${result.count} 个模型`)
+    } else {
+      message.warning('未获取到可用模型列表')
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : '拉取失败'
+    message.error(`模型列表拉取失败：${detail}`)
+  } finally {
+    fetchingModels.value = false
+  }
+}
 
 function getUiStateStorageKey(): string {
   return props.scrollStateKey ? `plotpilot.llm-panel.ui.${props.scrollStateKey}` : ''
@@ -854,6 +908,13 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--n-text-color-2);
+}
+
+.llm-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
 }
 
 .llm-advanced {
