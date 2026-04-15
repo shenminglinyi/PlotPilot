@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -336,3 +337,39 @@ class SqliteBibleRepository(BibleRepository):
             (mental_state, verbal_tic, idle_behavior, now, novel_id, character_id),
         )
         self.db.get_connection().commit()
+
+    def get_extensions(self, novel_id: str) -> Dict[str, Any]:
+        row = self.db.fetch_one(
+            "SELECT extensions FROM bibles WHERE novel_id = ?",
+            (novel_id,),
+        )
+        if not row:
+            return {}
+        raw = row.get("extensions") or "{}"
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+    def update_extensions(self, novel_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+        row = self.db.fetch_one("SELECT id FROM bibles WHERE novel_id = ?", (novel_id,))
+        if not row:
+            raise ValueError(f"Bible not found for novel_id={novel_id}")
+
+        current = self.get_extensions(novel_id)
+        for k, v in (patch or {}).items():
+            if isinstance(v, dict) and isinstance(current.get(k), dict):
+                merged = dict(current.get(k) or {})
+                merged.update(v)
+                current[k] = merged
+            else:
+                current[k] = v
+
+        now = self._now()
+        self.db.execute(
+            "UPDATE bibles SET extensions = ?, updated_at = ? WHERE novel_id = ?",
+            (json.dumps(current, ensure_ascii=False), now, novel_id),
+        )
+        self.db.get_connection().commit()
+        return current

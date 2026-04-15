@@ -107,7 +107,7 @@ class AutoBibleGenerator:
         # 2. 根据阶段生成不同内容
         if stage == "all":
             # 一次性生成所有内容（向后兼容）
-            bible_data = await self._generate_bible_data(premise, target_chapters)
+            bible_data = await self._generate_bible_data(novel_id, premise, target_chapters)
             await self._save_to_bible(novel_id, bible_data)
             if self.worldbuilding_service and "worldbuilding" in bible_data:
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
@@ -125,7 +125,7 @@ class AutoBibleGenerator:
 
             print(f"[DEBUG] Calling _generate_worldbuilding_and_style", file=sys.stderr, flush=True)
             # 只生成世界观和文风
-            bible_data = await self._generate_worldbuilding_and_style(premise, target_chapters)
+            bible_data = await self._generate_worldbuilding_and_style(novel_id, premise, target_chapters)
             print(f"[DEBUG] _generate_worldbuilding_and_style completed", file=sys.stderr, flush=True)
             print(f"[DEBUG] bible_data keys: {bible_data.keys()}", file=sys.stderr, flush=True)
             print(f"[DEBUG] Has 'worldbuilding' key: {'worldbuilding' in bible_data}", file=sys.stderr, flush=True)
@@ -261,13 +261,78 @@ class AutoBibleGenerator:
         logger.info(f"Bible generation completed for {novel_id} (stage: {stage})")
         return bible_data
 
-    async def _research_background(self, premise: str) -> str:
+    async def _ensure_research_report(self, novel_id: str, premise: str) -> Dict[str, Any]:
+        existing = self.bible_service.get_extensions(novel_id).get("research")
+        if isinstance(existing, dict) and existing.get("version") == 1 and isinstance(existing.get("facts"), list) and existing.get("facts"):
+            return existing
+
+        report = await self._research_background(premise)
+        try:
+            self.bible_service.update_extensions(novel_id, {"research": report})
+        except Exception as e:
+            logger.error(f"Failed to persist research report for novel {novel_id}: {e}")
+        return report
+
+    def _parse_research_markdown(self, markdown: str) -> Dict[str, Any]:
+        facts: list[str] = []
+        open_questions: list[str] = []
+        section = ""
+        for raw in (markdown or "").splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                header = line.lstrip("#").strip().lower()
+                if "事实" in header or header.startswith("facts"):
+                    section = "facts"
+                elif "疑问" in header or "待确认" in header or header.startswith("open"):
+                    section = "open_questions"
+                else:
+                    section = ""
+                continue
+            if section in ("facts", "open_questions"):
+                if line.startswith(("-", "*")):
+                    item = line[1:].strip()
+                else:
+                    item = line
+                if item and len(item) <= 200:
+                    if section == "facts":
+                        facts.append(item)
+                    else:
+                        open_questions.append(item)
+        return {"facts": facts[:15], "open_questions": open_questions[:10]}
+
+    def _build_research_injection(self, report: Dict[str, Any]) -> str:
+        facts = report.get("facts") or []
+        sources = report.get("sources") or []
+        if not isinstance(facts, list):
+            facts = []
+        if not isinstance(sources, list):
+            sources = []
+
+        facts_lines = "\n".join([f"{i+1}. {str(f).strip()}" for i, f in enumerate(facts[:15]) if str(f).strip()])
+        src_lines = "\n".join(
+            [
+                f"- {s.get('title','').strip()} {s.get('url','').strip()}".strip()
+                for s in sources[:8]
+                if isinstance(s, dict) and (s.get("title") or s.get("url"))
+            ]
+        )
+        parts: list[str] = []
+        if facts_lines:
+            parts.append("【硬约束事实（必须遵守）】\n" + facts_lines)
+        if src_lines:
+            parts.append("【证据来源（用于考据一致性）】\n" + src_lines)
+        return "\n\n".join(parts).strip()
+
+    async def _research_background(self, premise: str) -> Dict[str, Any]:
         """
         【深度研究专家】节点：分析创意，提取关键词搜索真实资料，并输出考据白皮书。
         """
         import logging
         import asyncio
         import re
+        from datetime import datetime
         from infrastructure.ai.tools.search_tool import WebSearchTool
         logger = logging.getLogger(__name__)
         logger.info("Starting background research for premise...")
@@ -342,24 +407,49 @@ class AutoBibleGenerator:
         async def _search_one(kw: str) -> str:
             try:
                 return await asyncio.wait_for(
-                    asyncio.to_thread(WebSearchTool.search, kw, 3),
+                    asyncio.to_thread(WebSearchTool.search_raw, kw, 3),
                     timeout=25,
                 )
             except Exception as e:
                 logger.error(f"Web search failed for keyword '{kw}': {e}")
-                return f"搜索失败（{e}）。"
+                return []
 
         raw_materials = []
+        sources: list[dict] = []
         results = await asyncio.gather(*[_search_one(kw) for kw in keywords[:2]])
         for kw, res in zip(keywords[:2], results):
-            raw_materials.append(f"🔍 关键词【{kw}】搜索结果：\n{res}")
+            if isinstance(res, list):
+                for item in res[:3]:
+                    if isinstance(item, dict):
+                        sources.append(
+                            {
+                                "title": (item.get("title") or "").strip(),
+                                "url": (item.get("href") or "").strip(),
+                                "quote": (item.get("body") or "").strip()[:200],
+                                "keyword": kw,
+                            }
+                        )
+                blocks = []
+                for item in res[:3]:
+                    if not isinstance(item, dict):
+                        continue
+                    title = (item.get("title") or "").strip()
+                    url = (item.get("href") or "").strip()
+                    body = (item.get("body") or "").strip()
+                    if url:
+                        blocks.append(f"【{title}】\nURL: {url}\n{body}")
+                    else:
+                        blocks.append(f"【{title}】\n{body}")
+                raw_materials.append(f"🔍 关键词【{kw}】搜索结果：\n" + "\n\n".join(blocks))
+            else:
+                raw_materials.append(f"🔍 关键词【{kw}】搜索结果：\n{res}")
             
         combined_materials = "\n\n".join(raw_materials)
         
         # 3. 整理考据报告
         report_prompt = Prompt(
-            system="你是『深度研究专家』。请根据下方真实的网页搜索资料，整理出一份《背景考据白皮书》。提炼出有价值的真实物价、地名、时代特征或专业术语。\n【极其重要】你必须用 Markdown 格式输出考据报告，绝对不能输出 JSON！",
-            user=f"用户创意：{premise}\n\n【真实网络资料】\n{combined_materials}\n\n请不要输出任何 JSON 代码块！只输出纯 Markdown 格式的《背景考据白皮书》："
+            system="你是『深度研究专家』。请根据下方真实的网页搜索资料，输出一份可直接用于小说设定的《背景考据白皮书》。\n【极其重要】必须使用 Markdown，绝对不能输出 JSON。\n请严格按以下结构输出：\n\n## 事实清单（用于硬约束）\n- 事实1\n- 事实2\n\n## 时代/行业术语\n- 术语1：解释\n\n## 待确认问题\n- 问题1\n",
+            user=f"用户创意：{premise}\n\n【真实网络资料】\n{combined_materials}\n\n请不要输出任何 JSON 代码块！按模板输出《背景考据白皮书》："
         )
         report_config = GenerationConfig(model=target_model, max_tokens=2048, temperature=0.5)
         try:
@@ -376,16 +466,26 @@ class AutoBibleGenerator:
             content = f"### 背景考据\n\n**核心元素**：{premise}\n\n*由于网络资料获取限制，请依靠自身常识构建该背景下的详细设定。*"
             
         logger.info("Background research completed.")
-        return content
+        parsed = self._parse_research_markdown(content)
+        report: Dict[str, Any] = {
+            "version": 1,
+            "created_at": datetime.utcnow().isoformat(),
+            "keywords": keywords[:5],
+            "sources": sources[:10],
+            "facts": parsed.get("facts") or [],
+            "open_questions": parsed.get("open_questions") or [],
+            "markdown": content,
+        }
+        return report
 
-    async def _generate_bible_data(self, premise: str, target_chapters: int) -> Dict[str, Any]:
+    async def _generate_bible_data(self, novel_id: str, premise: str, target_chapters: int) -> Dict[str, Any]:
         """使用 LLM 生成 Bible 数据和世界观"""
         import logging
         logger = logging.getLogger(__name__)
         
-        # 1. 触发【深度研究专家】进行真实资料考据
-        research_report = await self._research_background(premise)
-        logger.info(f"Research Report generated: {len(research_report)} chars")
+        report = await self._ensure_research_report(novel_id, premise)
+        injection = self._build_research_injection(report)
+        logger.info(f"Research injection size: {len(injection)} chars")
 
         system_prompt = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
@@ -453,8 +553,7 @@ JSON 格式（不要有其他文字）：
 
         user_prompt = f"""故事创意：{premise}
 
-【背景考据白皮书】（请以此为绝对基准进行设计）：
-{research_report}
+{injection}
 
 目标章节数：{target_chapters}章
 
@@ -663,14 +762,14 @@ JSON 格式（不要有其他文字）：
         except:
             return []
 
-    async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
+    async def _generate_worldbuilding_and_style(self, novel_id: str, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风"""
         import logging
         logger = logging.getLogger(__name__)
         
-        # 1. 触发【深度研究专家】进行真实资料考据
-        research_report = await self._research_background(premise)
-        logger.info(f"Research Report generated for worldbuilding stage: {len(research_report)} chars")
+        report = await self._ensure_research_report(novel_id, premise)
+        injection = self._build_research_injection(report)
+        logger.info(f"Research injection size for worldbuilding stage: {len(injection)} chars")
 
         system_prompt = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
 
@@ -717,8 +816,7 @@ JSON 格式：
 
         user_prompt = f"""故事创意：{premise}
 
-【背景考据白皮书】（请以此为绝对基准进行设计）：
-{research_report}
+{injection}
 
 目标章节数：{target_chapters}章
 

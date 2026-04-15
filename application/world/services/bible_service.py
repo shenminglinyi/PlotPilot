@@ -97,6 +97,21 @@ class BibleService:
         self.bible_repository.save(bible)
         return BibleDTO.from_domain(bible)
 
+    def get_extensions(self, novel_id: str) -> dict:
+        repo = self.bible_repository
+        if not hasattr(repo, "get_extensions"):
+            return {}
+        try:
+            return repo.get_extensions(novel_id) or {}
+        except Exception:
+            return {}
+
+    def update_extensions(self, novel_id: str, patch: dict) -> dict:
+        repo = self.bible_repository
+        if not hasattr(repo, "update_extensions"):
+            raise NotImplementedError("仓储不支持 extensions 更新")
+        return repo.update_extensions(novel_id, patch or {})
+
     def add_character(
         self,
         novel_id: str,
