@@ -66,31 +66,31 @@ export const bibleApi = {
    * POST /api/v1/bible/novels/{novelId}/bible
    */
   createBible: (novelId: string, bibleId: string) =>
-    apiClient.post<BibleDTO>(`/bible/novels/${novelId}/bible`, {
+    apiClient.post<BibleDTO>(`/api/v1/bible/novels/${novelId}/bible`, {
       bible_id: bibleId,
       novel_id: novelId,
-    }) as Promise<BibleDTO>,
+    }) as unknown as Promise<BibleDTO>,
 
   /**
    * Get bible by novel ID
    * GET /api/v1/bible/novels/{novelId}/bible
    */
   getBible: (novelId: string) =>
-    apiClient.get<BibleDTO>(`/bible/novels/${novelId}/bible`) as Promise<BibleDTO>,
+    apiClient.get<BibleDTO>(`/api/v1/bible/novels/${novelId}/bible`) as unknown as Promise<BibleDTO>,
 
   /**
    * List all characters in a bible
    * GET /api/v1/bible/novels/{novelId}/bible/characters
    */
   listCharacters: (novelId: string) =>
-    apiClient.get<CharacterDTO[]>(`/bible/novels/${novelId}/bible/characters`) as Promise<CharacterDTO[]>,
+    apiClient.get<CharacterDTO[]>(`/api/v1/bible/novels/${novelId}/bible/characters`) as unknown as Promise<CharacterDTO[]>,
 
   /**
    * Add character to bible
    * POST /api/v1/bible/novels/{novelId}/bible/characters
    */
   addCharacter: (novelId: string, data: AddCharacterRequest) =>
-    apiClient.post<BibleDTO>(`/bible/novels/${novelId}/bible/characters`, data) as Promise<BibleDTO>,
+    apiClient.post<BibleDTO>(`/api/v1/bible/novels/${novelId}/bible/characters`, data) as unknown as Promise<BibleDTO>,
 
   /**
    * Add world setting to bible
@@ -100,7 +100,7 @@ export const bibleApi = {
     novelId: string,
     data: { setting_id: string; name: string; description: string; setting_type: string }
   ) =>
-    apiClient.post<BibleDTO>(`/bible/novels/${novelId}/bible/world-settings`, data) as Promise<BibleDTO>,
+    apiClient.post<BibleDTO>(`/api/v1/bible/novels/${novelId}/bible/world-settings`, data) as unknown as Promise<BibleDTO>,
 
   /**
    * Bulk update entire bible
@@ -116,7 +116,7 @@ export const bibleApi = {
       style_notes: StyleNoteDTO[]
     }
   ) =>
-    apiClient.put<BibleDTO>(`/bible/novels/${novelId}/bible`, data) as Promise<BibleDTO>,
+    apiClient.put<BibleDTO>(`/api/v1/bible/novels/${novelId}/bible`, data) as unknown as Promise<BibleDTO>,
 
   /**
    * AI generate (or regenerate) Bible for a novel
@@ -125,10 +125,10 @@ export const bibleApi = {
   /** 后端 202 即返回，但冷启动/代理连后端较慢时默认 30s 不够，易报 timeout of 30000ms exceeded */
   generateBible: (novelId: string, stage: string = 'all') =>
     apiClient.post<{ message: string; novel_id: string; status_url: string }>(
-      `/bible/novels/${novelId}/generate?stage=${stage}`,
+      `/api/v1/bible/novels/${novelId}/generate?stage=${stage}`,
       {},
       { timeout: 120_000 }
-    ) as Promise<{ message: string; novel_id: string; status_url: string }>,
+    ) as unknown as Promise<{ message: string; novel_id: string; status_url: string }>,
 
   /**
    * Check Bible generation status
@@ -136,7 +136,7 @@ export const bibleApi = {
    */
   getBibleStatus: (novelId: string) =>
     apiClient.get<{ exists: boolean; ready: boolean; novel_id: string }>(
-      `/bible/novels/${novelId}/bible/status`,
+      `/api/v1/bible/novels/${novelId}/bible/status`,
       { timeout: 60_000 }
-    ) as Promise<{ exists: boolean; ready: boolean; novel_id: string }>,
+    ) as unknown as Promise<{ exists: boolean; ready: boolean; novel_id: string }>,
 }

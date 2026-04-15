@@ -75,37 +75,37 @@ export const planningApi = {
   // ==================== 宏观规划 ====================
 
   generateMacro: (novelId: string, data: MacroPlanRequest) =>
-    apiClient.post(`/planning/novels/${novelId}/macro/generate`, data),
+    apiClient.post(`/api/v1/planning/novels/${novelId}/macro/generate`, data),
 
   confirmMacro: (novelId: string, data: { structure: Record<string, unknown>[] }) =>
-    apiClient.post(`/planning/novels/${novelId}/macro/confirm`, data),
+    apiClient.post(`/api/v1/planning/novels/${novelId}/macro/confirm`, data),
 
   // ==================== 幕级规划 ====================
 
   generateActChapters: (actId: string, data: ActChaptersRequest) =>
-    apiClient.post(`/planning/acts/${actId}/chapters/generate`, data),
+    apiClient.post(`/api/v1/planning/acts/${actId}/chapters/generate`, data),
 
   confirmActChapters: (actId: string, data: { chapters: Record<string, unknown>[] }) =>
-    apiClient.post(`/planning/acts/${actId}/chapters/confirm`, data),
+    apiClient.post(`/api/v1/planning/acts/${actId}/chapters/confirm`, data),
 
   // ==================== AI 续规划 ====================
 
   continuePlanning: (novelId: string, data: ContinuePlanningRequest) =>
-    apiClient.post<ContinuePlanResult>(`/planning/novels/${novelId}/continue`, data) as unknown as Promise<ContinuePlanResult>,
+    apiClient.post<ContinuePlanResult>(`/api/v1/planning/novels/${novelId}/continue`, data) as unknown as Promise<ContinuePlanResult>,
 
   createNextAct: (actId: string) =>
-    apiClient.post<Record<string, unknown>>(`/planning/acts/${actId}/create-next`) as unknown as Promise<Record<string, unknown>>,
+    apiClient.post<Record<string, unknown>>(`/api/v1/planning/acts/${actId}/create-next`) as unknown as Promise<Record<string, unknown>>,
 
   // ==================== 查询 ====================
 
   getStructure: (novelId: string) =>
     apiClient.get<{ success: boolean; data: PlanningStructurePayload }>(
-      `/planning/novels/${novelId}/structure`
+      `/api/v1/planning/novels/${novelId}/structure`
     ) as unknown as Promise<{ success: boolean; data: PlanningStructurePayload }>,
 
   getActDetail: (actId: string) =>
-    apiClient.get<{ success: boolean; data: StoryNode }>(`/planning/acts/${actId}`) as unknown as Promise<{ success: boolean; data: StoryNode }>,
+    apiClient.get<{ success: boolean; data: StoryNode }>(`/api/v1/planning/acts/${actId}`) as unknown as Promise<{ success: boolean; data: StoryNode }>,
 
   getChapterDetail: (chapterId: string) =>
-    apiClient.get<{ success: boolean; data: { chapter: StoryNode; elements: unknown[] } }>(`/planning/chapters/${chapterId}`) as unknown as Promise<{ success: boolean; data: { chapter: StoryNode; elements: unknown[] } }>,
+    apiClient.get<{ success: boolean; data: { chapter: StoryNode; elements: unknown[] } }>(`/api/v1/planning/chapters/${chapterId}`) as unknown as Promise<{ success: boolean; data: { chapter: StoryNode; elements: unknown[] } }>,
 }

@@ -90,7 +90,7 @@ export async function analyzeScene(
   outline: string
 ): Promise<SceneDirectorAnalysis> {
   return apiClient.post<SceneDirectorAnalysis>(
-    `/novels/${novelId}/scene-director/analyze`,
+    `/api/v1/novels/${novelId}/scene-director/analyze`,
     { chapter_number: chapterNumber, outline }
   ) as unknown as Promise<SceneDirectorAnalysis>
 }
@@ -308,16 +308,16 @@ export async function consumeHostedWriteStream(
 export const workflowApi = {
   /** GET /api/v1/novels/{novel_id}/storylines */
   getStorylines: (novelId: string) =>
-    apiClient.get<StorylineDTO[]>(`/novels/${novelId}/storylines`) as unknown as Promise<StorylineDTO[]>,
+    apiClient.get<StorylineDTO[]>(`/api/v1/novels/${novelId}/storylines`) as unknown as Promise<StorylineDTO[]>,
 
   /** GET /api/v1/novels/{novel_id}/storylines/graph-data (Git Graph 全量数据) */
   getStorylineGraphData: (novelId: string) =>
-    apiClient.get<StorylineGraphDataDTO>(`/novels/${novelId}/storylines/graph-data`) as unknown as Promise<StorylineGraphDataDTO>,
+    apiClient.get<StorylineGraphDataDTO>(`/api/v1/novels/${novelId}/storylines/graph-data`) as unknown as Promise<StorylineGraphDataDTO>,
 
   /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options */
   suggestMainPlotOptions: (novelId: string) =>
     apiClient.post<{ plot_options: MainPlotOptionDTO[] }>(
-      `/novels/${novelId}/setup/suggest-main-plot-options`,
+      `/api/v1/novels/${novelId}/setup/suggest-main-plot-options`,
       {}
     ) as unknown as Promise<{ plot_options: MainPlotOptionDTO[] }>,
 
@@ -331,31 +331,31 @@ export const workflowApi = {
       name?: string
       description?: string
     }
-  ) => apiClient.post<StorylineDTO>(`/novels/${novelId}/storylines`, data) as unknown as Promise<StorylineDTO>,
+  ) => apiClient.post<StorylineDTO>(`/api/v1/novels/${novelId}/storylines`, data) as unknown as Promise<StorylineDTO>,
 
   /** PUT /api/v1/novels/{novel_id}/storylines/{storyline_id} */
   updateStoryline: (novelId: string, storylineId: string, data: Partial<{ storyline_type: string; estimated_chapter_start: number; estimated_chapter_end: number; status: string }>) =>
-    apiClient.put<StorylineDTO>(`/novels/${novelId}/storylines/${storylineId}`, data) as unknown as Promise<StorylineDTO>,
+    apiClient.put<StorylineDTO>(`/api/v1/novels/${novelId}/storylines/${storylineId}`, data) as unknown as Promise<StorylineDTO>,
 
   /** DELETE /api/v1/novels/{novel_id}/storylines/{storyline_id} */
   deleteStoryline: (novelId: string, storylineId: string) =>
-    apiClient.delete(`/novels/${novelId}/storylines/${storylineId}`) as unknown as Promise<void>,
+    apiClient.delete(`/api/v1/novels/${novelId}/storylines/${storylineId}`) as unknown as Promise<void>,
 
   /** GET /api/v1/novels/{novel_id}/plot-arc */
   getPlotArc: (novelId: string) =>
-    apiClient.get<PlotArcDTO>(`/novels/${novelId}/plot-arc`) as unknown as Promise<PlotArcDTO>,
+    apiClient.get<PlotArcDTO>(`/api/v1/novels/${novelId}/plot-arc`) as unknown as Promise<PlotArcDTO>,
 
   /** POST /api/v1/novels/{novel_id}/plot-arc（body 含 key_points 等，见后端 CreatePlotArcRequest） */
   createPlotArc: (novelId: string, data: { key_points: PlotPointDTO[] }) =>
-    apiClient.post<PlotArcDTO>(`/novels/${novelId}/plot-arc`, data) as unknown as Promise<PlotArcDTO>,
+    apiClient.post<PlotArcDTO>(`/api/v1/novels/${novelId}/plot-arc`, data) as unknown as Promise<PlotArcDTO>,
 
   /** GET /api/v1/jobs/{job_id} — JobStatusIndicator 使用 */
   getJobStatus: (jobId: string) =>
-    apiClient.get<JobStatusResponse>(`/jobs/${jobId}`) as unknown as Promise<JobStatusResponse>,
+    apiClient.get<JobStatusResponse>(`/api/v1/jobs/${jobId}`) as unknown as Promise<JobStatusResponse>,
 
   /** POST /api/v1/jobs/{job_id}/cancel — JobStatusIndicator 使用 */
   cancelJob: (jobId: string) =>
-    apiClient.post<{ ok: boolean }>(`/jobs/${jobId}/cancel`, {}) as unknown as Promise<{ ok: boolean }>,
+    apiClient.post<{ ok: boolean }>(`/api/v1/jobs/${jobId}/cancel`, {}) as unknown as Promise<{ ok: boolean }>,
 
   // ============================================================================
   // 新增：大纲规划、章节审稿、续写大纲
@@ -369,7 +369,7 @@ export const workflowApi = {
       bible_updated: boolean
       outline_updated: boolean
       chapters_planned: number
-    }>(`/novels/${novelId}/plan`, { mode, dry_run: dryRun }),
+    }>(`/api/v1/novels/${novelId}/plan`, { mode, dry_run: dryRun }),
 
   /** POST /api/v1/novels/{novel_id}/chapters/{chapter_number}/review */
   reviewChapter: (novelId: string, chapterNumber: number) =>
@@ -377,7 +377,7 @@ export const workflowApi = {
       chapter_number: number
       suggestions: string[]
       score: number
-    }>(`/novels/${novelId}/chapters/${chapterNumber}/review`, {}) as unknown as Promise<{
+    }>(`/api/v1/novels/${novelId}/chapters/${chapterNumber}/review`, {}) as unknown as Promise<{
       chapter_number: number
       suggestions: string[]
       score: number
@@ -389,7 +389,7 @@ export const workflowApi = {
       success: boolean
       chapters_added: number
       outlines: string[]
-    }>(`/novels/${novelId}/outline/extend`, { from_chapter: fromChapter, count }),
+    }>(`/api/v1/novels/${novelId}/outline/extend`, { from_chapter: fromChapter, count }),
 }
 
 // ── 上下文预览 ──────────────────────────────────────────────
@@ -421,7 +421,7 @@ export async function retrieveContext(
   sceneDirectorResult?: Record<string, unknown>,
 ): Promise<ContextPreviewResult> {
   return apiClient.post<ContextPreviewResult>(
-    `/novels/${novelId}/context/retrieve`,
+    `/api/v1/novels/${novelId}/context/retrieve`,
     {
       chapter_number: chapterNumber,
       outline,

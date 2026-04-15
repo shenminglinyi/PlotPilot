@@ -30,7 +30,7 @@ export const voiceDriftApi = {
     payload: { chapter_number: number; content: string; pov_character_id?: string }
   ): Promise<ScoreChapterResponse> {
     return apiClient.post(
-      `/novels/${novelId}/voice/drift/score`,
+      `/api/v1/novels/${novelId}/voice/drift/score`,
       payload
     ) as unknown as Promise<ScoreChapterResponse>
   },
@@ -38,7 +38,7 @@ export const voiceDriftApi = {
   /** 获取漂移报告 */
   getDriftReport(novelId: string): Promise<DriftReportResponse> {
     return apiClient.get(
-      `/novels/${novelId}/voice/drift`
+      `/api/v1/novels/${novelId}/voice/drift`
     ) as unknown as Promise<DriftReportResponse>
   },
 }

@@ -23,7 +23,7 @@ export const tensionApi = {
   /** POST /api/v1/novels/{novel_id}/writer-block/tension-slingshot */
   slingshot: (novelId: string, payload: TensionSlingshotPayload) =>
     apiClient.post<TensionDiagnosis>(
-      `/novels/${novelId}/writer-block/tension-slingshot`,
+      `/api/v1/novels/${novelId}/writer-block/tension-slingshot`,
       payload
     ) as unknown as Promise<TensionDiagnosis>,
 }
@@ -84,41 +84,41 @@ export const macroRefactorApi = {
   /** GET /api/v1/novels/{novel_id}/macro-refactor/breakpoints */
   scanBreakpoints: (novelId: string, trait: string, conflictTags?: string) =>
     apiClient.get<LogicBreakpoint[]>(
-      `/novels/${novelId}/macro-refactor/breakpoints`,
+      `/api/v1/novels/${novelId}/macro-refactor/breakpoints`,
       { params: { trait, ...(conflictTags ? { conflict_tags: conflictTags } : {}) } }
     ) as unknown as Promise<LogicBreakpoint[]>,
 
   /** POST /api/v1/novels/{novel_id}/macro-refactor/proposals */
   generateProposal: (novelId: string, payload: RefactorProposalPayload) =>
     apiClient.post<RefactorProposal>(
-      `/novels/${novelId}/macro-refactor/proposals`,
+      `/api/v1/novels/${novelId}/macro-refactor/proposals`,
       payload
     ) as unknown as Promise<RefactorProposal>,
 
   /** POST /api/v1/novels/{novel_id}/macro-refactor/apply */
   applyMutations: (novelId: string, payload: ApplyMutationPayload) =>
     apiClient.post<ApplyMutationResponse>(
-      `/novels/${novelId}/macro-refactor/apply`,
+      `/api/v1/novels/${novelId}/macro-refactor/apply`,
       payload
     ) as unknown as Promise<ApplyMutationResponse>,
 
   /** GET /api/v1/novels/{novel_id}/macro-refactor/diagnosis/latest */
   getLatestDiagnosis: (novelId: string) =>
     apiClient.get<MacroDiagnosisResult | null>(
-      `/novels/${novelId}/macro-refactor/diagnosis/latest`
+      `/api/v1/novels/${novelId}/macro-refactor/diagnosis/latest`
     ) as unknown as Promise<MacroDiagnosisResult | null>,
 
   /** GET /api/v1/novels/{novel_id}/macro-refactor/diagnosis/history */
   getDiagnosisHistory: (novelId: string, limit = 10) =>
     apiClient.get<MacroDiagnosisResult[]>(
-      `/novels/${novelId}/macro-refactor/diagnosis/history`,
+      `/api/v1/novels/${novelId}/macro-refactor/diagnosis/history`,
       { params: { limit } }
     ) as unknown as Promise<MacroDiagnosisResult[]>,
 
   /** POST /api/v1/novels/{novel_id}/macro-refactor/diagnosis/run */
   runDiagnosis: (novelId: string, traits?: string) =>
     apiClient.post<MacroDiagnosisResult>(
-      `/novels/${novelId}/macro-refactor/diagnosis/run`,
+      `/api/v1/novels/${novelId}/macro-refactor/diagnosis/run`,
       null,
       { params: traits ? { traits } : {} }
     ) as unknown as Promise<MacroDiagnosisResult>,
@@ -126,7 +126,7 @@ export const macroRefactorApi = {
   /** POST /api/v1/novels/{novel_id}/macro-refactor/diagnosis/{diagnosis_id}/resolve */
   resolveDiagnosis: (novelId: string, diagnosisId: string) =>
     apiClient.post<{ success: boolean; message: string }>(
-      `/novels/${novelId}/macro-refactor/diagnosis/${diagnosisId}/resolve`
+      `/api/v1/novels/${novelId}/macro-refactor/diagnosis/${diagnosisId}/resolve`
     ) as unknown as Promise<{ success: boolean; message: string }>,
 }
 
@@ -141,7 +141,7 @@ export const narrativeStateApi = {
   /** GET /api/v1/novels/{novel_id}/entities/{entity_id}/state?chapter= */
   getState: (novelId: string, entityId: string, chapter: number) =>
     apiClient.get<EntityState>(
-      `/novels/${novelId}/entities/${entityId}/state`,
+      `/api/v1/novels/${novelId}/entities/${entityId}/state`,
       { params: { chapter } }
     ) as unknown as Promise<EntityState>,
 }

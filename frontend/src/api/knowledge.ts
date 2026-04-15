@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const request = axios.create({
-  baseURL: '/api/v1',
+  baseURL: '/',
   timeout: 30000,
 })
 
@@ -72,25 +72,25 @@ export const knowledgeApi = {
    * Get knowledge graph for a novel
    */
   getKnowledge: (novelId: string) =>
-    request.get(`/novels/${novelId}/knowledge`) as Promise<StoryKnowledge>,
+    request.get(`/api/v1/novels/${novelId}/knowledge`) as unknown as Promise<StoryKnowledge>,
 
   /**
    * Update knowledge graph for a novel
    */
   updateKnowledge: (novelId: string, data: StoryKnowledge) =>
-    request.put(`/novels/${novelId}/knowledge`, data) as Promise<StoryKnowledge>,
+    request.put(`/api/v1/novels/${novelId}/knowledge`, data) as unknown as Promise<StoryKnowledge>,
 
   /** 与 updateKnowledge 相同（兼容旧组件名） */
   putKnowledge: (novelId: string, data: StoryKnowledge) =>
-    request.put(`/novels/${novelId}/knowledge`, data) as Promise<StoryKnowledge>,
+    request.put(`/api/v1/novels/${novelId}/knowledge`, data) as unknown as Promise<StoryKnowledge>,
 
   /**
    * Search knowledge graph
    */
   searchKnowledge: (novelId: string, query: string, k = 6) =>
-    request.get(`/novels/${novelId}/knowledge/search`, {
+    request.get(`/api/v1/novels/${novelId}/knowledge/search`, {
       params: { q: query, k }
-    }) as Promise<KnowledgeSearchResponse>,
+    }) as unknown as Promise<KnowledgeSearchResponse>,
 
   /**
    * AI generate (or regenerate) initial Knowledge for a novel
@@ -98,8 +98,8 @@ export const knowledgeApi = {
    */
   generateKnowledge: (novelId: string) =>
     request.post<{ success: boolean; message: string; facts_count: number; premise_lock: string }>(
-      `/novels/${novelId}/knowledge/generate`,
+      `/api/v1/novels/${novelId}/knowledge/generate`,
       {},
       { timeout: 120_000 }
-    ) as Promise<{ success: boolean; message: string; facts_count: number; premise_lock: string }>,
+    ) as unknown as Promise<{ success: boolean; message: string; facts_count: number; premise_lock: string }>,
 }

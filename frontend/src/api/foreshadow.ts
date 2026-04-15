@@ -66,33 +66,33 @@ export const foreshadowApi = {
   /** GET /api/v1/novels/{novel_id}/foreshadow-ledger */
   list: (novelId: string, status?: 'pending' | 'consumed') =>
     apiClient.get<ForeshadowEntry[]>(
-      `/novels/${novelId}/foreshadow-ledger`,
+      `/api/v1/novels/${novelId}/foreshadow-ledger`,
       { params: status ? { status } : {} }
-    ) as Promise<ForeshadowEntry[]>,
+    ) as unknown as Promise<ForeshadowEntry[]>,
 
   /** GET /api/v1/novels/{novel_id}/foreshadow-ledger/{entry_id} */
   get: (novelId: string, entryId: string) =>
     apiClient.get<ForeshadowEntry>(
-      `/novels/${novelId}/foreshadow-ledger/${entryId}`
-    ) as Promise<ForeshadowEntry>,
+      `/api/v1/novels/${novelId}/foreshadow-ledger/${entryId}`
+    ) as unknown as Promise<ForeshadowEntry>,
 
   /** POST /api/v1/novels/{novel_id}/foreshadow-ledger */
   create: (novelId: string, payload: CreateForeshadowPayload) =>
     apiClient.post<ForeshadowEntry>(
-      `/novels/${novelId}/foreshadow-ledger`,
+      `/api/v1/novels/${novelId}/foreshadow-ledger`,
       payload
-    ) as Promise<ForeshadowEntry>,
+    ) as unknown as Promise<ForeshadowEntry>,
 
   /** PUT /api/v1/novels/{novel_id}/foreshadow-ledger/{entry_id} */
   update: (novelId: string, entryId: string, patch: UpdateForeshadowPayload) =>
     apiClient.put<ForeshadowEntry>(
-      `/novels/${novelId}/foreshadow-ledger/${entryId}`,
+      `/api/v1/novels/${novelId}/foreshadow-ledger/${entryId}`,
       patch
-    ) as Promise<ForeshadowEntry>,
+    ) as unknown as Promise<ForeshadowEntry>,
 
   /** DELETE /api/v1/novels/{novel_id}/foreshadow-ledger/{entry_id} */
   remove: (novelId: string, entryId: string) =>
-    apiClient.delete(`/novels/${novelId}/foreshadow-ledger/${entryId}`),
+    apiClient.delete(`/api/v1/novels/${novelId}/foreshadow-ledger/${entryId}`),
 
   /**
    * POST /api/v1/novels/{novel_id}/foreshadow-ledger/match
@@ -100,9 +100,9 @@ export const foreshadowApi = {
    */
   match: (novelId: string, currentAnchors: Record<string, string>) =>
     apiClient.post<MatchForeshadowResponse>(
-      `/novels/${novelId}/foreshadow-ledger/match`,
+      `/api/v1/novels/${novelId}/foreshadow-ledger/match`,
       { current_anchors: currentAnchors }
-    ) as Promise<MatchForeshadowResponse>,
+    ) as unknown as Promise<MatchForeshadowResponse>,
 
   /**
    * 快捷方法：将一条伏笔标记为已消费。
@@ -124,7 +124,7 @@ export const foreshadowApi = {
     params?: { min_score?: number; limit?: number }
   ) =>
     apiClient.get<ChapterForeshadowSuggestionsResponse>(
-      `/novels/${novelId}/foreshadow-ledger/chapter-suggestions`,
+      `/api/v1/novels/${novelId}/foreshadow-ledger/chapter-suggestions`,
       {
         params: {
           chapter_number: chapterNumber,
@@ -133,5 +133,5 @@ export const foreshadowApi = {
           limit: params?.limit,
         },
       }
-    ) as Promise<ChapterForeshadowSuggestionsResponse>,
+    ) as unknown as Promise<ChapterForeshadowSuggestionsResponse>,
 }

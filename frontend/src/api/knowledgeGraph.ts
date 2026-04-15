@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const request = axios.create({
-  baseURL: '/api/v1',
+  baseURL: '/',
   timeout: 60000,
 })
 
@@ -65,8 +65,8 @@ export const knowledgeGraphApi = {
     chapterNumber: number
   ): Promise<{ success: boolean; data: ChapterInferenceEvidenceData }> {
     return request.get(
-      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/chapters/by-number/${chapterNumber}/inference-evidence`
-    ) as Promise<{ success: boolean; data: ChapterInferenceEvidenceData }>
+      `/api/v1/knowledge-graph/novels/${encodeURIComponent(novelId)}/chapters/by-number/${chapterNumber}/inference-evidence`
+    ) as unknown as Promise<{ success: boolean; data: ChapterInferenceEvidenceData }>
   },
 
   revokeChapterInference(
@@ -74,8 +74,8 @@ export const knowledgeGraphApi = {
     chapterNumber: number
   ): Promise<{ success: boolean; data: { removed_provenance_triples: number; deleted_inferred_facts: number } }> {
     return request.delete(
-      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/chapters/by-number/${chapterNumber}/inference`
-    ) as Promise<{ success: boolean; data: { removed_provenance_triples: number; deleted_inferred_facts: number } }>
+      `/api/v1/knowledge-graph/novels/${encodeURIComponent(novelId)}/chapters/by-number/${chapterNumber}/inference`
+    ) as unknown as Promise<{ success: boolean; data: { removed_provenance_triples: number; deleted_inferred_facts: number } }>
   },
 
   revokeInferredTriple(
@@ -83,8 +83,8 @@ export const knowledgeGraphApi = {
     tripleId: string
   ): Promise<{ success: boolean; message: string }> {
     return request.delete(
-      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/inferred-triples/${encodeURIComponent(tripleId)}`
-    ) as Promise<{ success: boolean; message: string }>
+      `/api/v1/knowledge-graph/novels/${encodeURIComponent(novelId)}/inferred-triples/${encodeURIComponent(tripleId)}`
+    ) as unknown as Promise<{ success: boolean; message: string }>
   },
 
   // ── 新增：全书推断 ──────────────────────────────────────
@@ -92,8 +92,8 @@ export const knowledgeGraphApi = {
   /** POST /api/v1/knowledge-graph/novels/{id}/infer */
   inferNovel(novelId: string): Promise<{ success: boolean; data: Record<string, unknown> }> {
     return request.post(
-      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/infer`
-    ) as Promise<{ success: boolean; data: Record<string, unknown> }>
+      `/api/v1/knowledge-graph/novels/${encodeURIComponent(novelId)}/infer`
+    ) as unknown as Promise<{ success: boolean; data: Record<string, unknown> }>
   },
 
   // ── 三元组查询 ──────────────────────────────────────────
@@ -105,23 +105,23 @@ export const knowledgeGraphApi = {
     minConfidence = 0
   ): Promise<{ success: boolean; data: { total: number; triples: TripleDTO[] } }> {
     return request.get(
-      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/triples`,
+      `/api/v1/knowledge-graph/novels/${encodeURIComponent(novelId)}/triples`,
       { params: { ...(sourceType ? { source_type: sourceType } : {}), min_confidence: minConfidence } }
-    ) as Promise<{ success: boolean; data: { total: number; triples: TripleDTO[] } }>
+    ) as unknown as Promise<{ success: boolean; data: { total: number; triples: TripleDTO[] } }>
   },
 
   /** POST /api/v1/knowledge-graph/triples/{id}/confirm */
   confirmTriple(tripleId: string): Promise<{ success: boolean; data: TripleDTO }> {
     return request.post(
-      `/knowledge-graph/triples/${encodeURIComponent(tripleId)}/confirm`
-    ) as Promise<{ success: boolean; data: TripleDTO }>
+      `/api/v1/knowledge-graph/triples/${encodeURIComponent(tripleId)}/confirm`
+    ) as unknown as Promise<{ success: boolean; data: TripleDTO }>
   },
 
   /** DELETE /api/v1/knowledge-graph/triples/{id} */
   deleteTriple(tripleId: string): Promise<{ success: boolean; message: string }> {
     return request.delete(
-      `/knowledge-graph/triples/${encodeURIComponent(tripleId)}`
-    ) as Promise<{ success: boolean; message: string }>
+      `/api/v1/knowledge-graph/triples/${encodeURIComponent(tripleId)}`
+    ) as unknown as Promise<{ success: boolean; message: string }>
   },
 
   // ── 统计 ────────────────────────────────────────────────
@@ -129,7 +129,7 @@ export const knowledgeGraphApi = {
   /** GET /api/v1/knowledge-graph/novels/{id}/statistics */
   getStatistics(novelId: string): Promise<{ success: boolean; data: KGStatistics }> {
     return request.get(
-      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/statistics`
-    ) as Promise<{ success: boolean; data: KGStatistics }>
+      `/api/v1/knowledge-graph/novels/${encodeURIComponent(novelId)}/statistics`
+    ) as unknown as Promise<{ success: boolean; data: KGStatistics }>
   },
 }

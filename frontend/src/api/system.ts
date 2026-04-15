@@ -14,15 +14,15 @@ export interface LLMConfig {
 }
 
 export function getLLMConfig() {
-  return apiClient.get<LLMConfig>('/system/llm/config')
+  return apiClient.get<LLMConfig>('/api/v1/system/llm/config')
 }
 
 export function saveLLMConfig(data: LLMConfig) {
-  return apiClient.post<{ status: string }>('/system/llm/config', data)
+  return apiClient.post<{ status: string }>('/api/v1/system/llm/config', data)
 }
 
 export function verifyAndFetchModels(provider: string, api_key: string, base_url?: string) {
-  return apiClient.post<{ models: string[] }>('/system/llm/verify', {
+  return apiClient.post<{ models: string[] }>('/api/v1/system/llm/verify', {
     provider,
     api_key,
     base_url

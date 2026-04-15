@@ -52,14 +52,14 @@ export const structureApi = {
    * 获取小说的完整结构树
    */
   getTree: (novelId: string) =>
-    apiClient.get<StoryTree>(`/novels/${novelId}/structure`),
+    apiClient.get<StoryTree>(`/api/v1/novels/${novelId}/structure`),
 
   /**
    * 获取子节点（用于渐进式加载）
    */
   getChildren: (novelId: string, parentId?: string) =>
     apiClient.get<{ parent_id: string | null; children: StoryNode[] }>(
-      `/novels/${novelId}/structure/children`,
+      `/api/v1/novels/${novelId}/structure/children`,
       { params: { parent_id: parentId } }
     ),
 
@@ -68,7 +68,7 @@ export const structureApi = {
    */
   createNode: (novelId: string, data: CreateNodeRequest) =>
     apiClient.post<{ success: boolean; node: StoryNode }>(
-      `/novels/${novelId}/structure/nodes`,
+      `/api/v1/novels/${novelId}/structure/nodes`,
       data
     ),
 
@@ -77,7 +77,7 @@ export const structureApi = {
    */
   updateNode: (novelId: string, nodeId: string, data: UpdateNodeRequest) =>
     apiClient.put<{ success: boolean; node: StoryNode }>(
-      `/novels/${novelId}/structure/nodes/${nodeId}`,
+      `/api/v1/novels/${novelId}/structure/nodes/${nodeId}`,
       data
     ),
 
@@ -86,7 +86,7 @@ export const structureApi = {
    */
   deleteNode: (novelId: string, nodeId: string) =>
     apiClient.delete<{ success: boolean }>(
-      `/novels/${novelId}/structure/nodes/${nodeId}`
+      `/api/v1/novels/${novelId}/structure/nodes/${nodeId}`
     ),
 
   /**
@@ -94,7 +94,7 @@ export const structureApi = {
    */
   reorderNodes: (novelId: string, nodeIds: string[]) =>
     apiClient.post<{ success: boolean; nodes: StoryNode[] }>(
-      `/novels/${novelId}/structure/reorder`,
+      `/api/v1/novels/${novelId}/structure/reorder`,
       { node_ids: nodeIds }
     ),
 
@@ -103,6 +103,6 @@ export const structureApi = {
    */
   updateChapterRanges: (novelId: string) =>
     apiClient.post<{ success: boolean }>(
-      `/novels/${novelId}/structure/update-ranges`
+      `/api/v1/novels/${novelId}/structure/update-ranges`
     )
 }

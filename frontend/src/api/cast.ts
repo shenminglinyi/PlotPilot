@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const request = axios.create({
-  baseURL: '/api/v1',
+  baseURL: '/',
   timeout: 30000,
 })
 
@@ -78,25 +78,25 @@ export const castApi = {
    * Get cast graph for a novel
    */
   getCast: (novelId: string) =>
-    request.get(`/novels/${novelId}/cast`) as Promise<CastGraph>,
+    request.get(`/api/v1/novels/${novelId}/cast`) as unknown as Promise<CastGraph>,
 
   /**
    * Update cast graph for a novel
    */
   putCast: (novelId: string, data: CastGraph) =>
-    request.put(`/novels/${novelId}/cast`, data) as Promise<CastGraph>,
+    request.put(`/api/v1/novels/${novelId}/cast`, data) as unknown as Promise<CastGraph>,
 
   /**
    * Search characters and relationships
    */
   searchCast: (novelId: string, query: string) =>
-    request.get(`/novels/${novelId}/cast/search`, {
+    request.get(`/api/v1/novels/${novelId}/cast/search`, {
       params: { q: query }
-    }) as Promise<CastSearchResult>,
+    }) as unknown as Promise<CastSearchResult>,
 
   /**
    * Get cast coverage analysis
    */
   getCastCoverage: (novelId: string) =>
-    request.get(`/novels/${novelId}/cast/coverage`) as Promise<CastCoverage>,
+    request.get(`/api/v1/novels/${novelId}/cast/coverage`) as unknown as Promise<CastCoverage>,
 }

@@ -41,10 +41,10 @@ export interface SnapshotRollbackResponse {
 
 export const chroniclesApi = {
   get: (novelId: string) =>
-    apiClient.get<ChroniclesResponse>(`/novels/${novelId}/chronicles`) as Promise<ChroniclesResponse>,
+    apiClient.get<ChroniclesResponse>(`/api/v1/novels/${novelId}/chronicles`) as unknown as Promise<ChroniclesResponse>,
 
   rollbackToSnapshot: (novelId: string, snapshotId: string) =>
     apiClient.post<SnapshotRollbackResponse>(
-      `/novels/${novelId}/snapshots/${snapshotId}/rollback`,
-    ) as Promise<SnapshotRollbackResponse>,
+      `/api/v1/novels/${novelId}/snapshots/${snapshotId}/rollback`,
+    ) as unknown as Promise<SnapshotRollbackResponse>,
 }
