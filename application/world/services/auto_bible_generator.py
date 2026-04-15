@@ -270,12 +270,19 @@ class AutoBibleGenerator:
         logger = logging.getLogger(__name__)
         logger.info("Starting background research for premise...")
 
+        # 获取专门用于数据提取和摘要的便宜模型 (Cheap Model)
+        target_model = ""
+        from infrastructure.ai.config.dynamic_settings import DynamicSettingsManager
+        dyn_config = DynamicSettingsManager().load_config()
+        if dyn_config and dyn_config.cheap_model:
+            target_model = dyn_config.cheap_model
+
         # 1. 提炼搜索关键词 (不使用 JSON 以求稳定)
         extract_prompt = Prompt(
             system="你是资料检索专家。请从用户的创意中提取最核心的 2 个背景搜索词（如具体年代、地域、行业、或者特定历史事件）。\n【严格约束】绝对不要输出 JSON！只需用逗号分隔两个词语即可，例如：1990年深圳物价, 华强北BB机倒卖",
             user=f"创意：{premise}\n请输出2个最需要考据的搜索关键词："
         )
-        config = GenerationConfig(max_tokens=100, temperature=0.3)
+        config = GenerationConfig(model=target_model, max_tokens=100, temperature=0.3)
         keyword_result = await self.llm_service.generate(extract_prompt, config)
         
         # 强制清理可能的 JSON 残留
@@ -301,7 +308,7 @@ class AutoBibleGenerator:
             system="你是『深度研究专家』。请根据下方真实的网页搜索资料，整理出一份《背景考据白皮书》。提炼出有价值的真实物价、地名、时代特征或专业术语。\n【极其重要】你必须用 Markdown 格式输出考据报告，绝对不能输出 JSON！",
             user=f"用户创意：{premise}\n\n【真实网络资料】\n{combined_materials}\n\n请不要输出任何 JSON 代码块！只输出纯 Markdown 格式的《背景考据白皮书》："
         )
-        report_config = GenerationConfig(max_tokens=2048, temperature=0.5)
+        report_config = GenerationConfig(model=target_model, max_tokens=2048, temperature=0.5)
         report_result = await self.llm_service.generate(report_prompt, report_config)
         
         content = report_result.content.strip()
