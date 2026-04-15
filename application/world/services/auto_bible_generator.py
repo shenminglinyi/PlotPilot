@@ -298,38 +298,46 @@ class AutoBibleGenerator:
             keyword_result = None
         
         content = ((keyword_result.content if keyword_result else "") or "").strip()
-        if "{" in content or "[" in content:
-            keywords = ["1990年代 中国经济", "90年代 创业"]
-        else:
-            cleaned = re.sub(r"(?is)reasoning_content\s*:\s*|reasoning\s*:\s*", "", content).strip()
-            lines = [l.strip() for l in cleaned.splitlines() if l.strip()]
-            candidate_line = ""
-            for l in reversed(lines):
-                if "," in l or "，" in l:
-                    candidate_line = l
-                    break
-            if not candidate_line and lines:
-                candidate_line = lines[-1]
-            candidate_line = candidate_line.replace("，", ",")
-
-            m = re.search(r"(?is)(?:two\s+keywords|关键词)\s*[:：]\s*(.+)$", cleaned)
-            if m:
-                tail = m.group(1)
-                tail = tail.replace("，", ",")
-                quoted = re.findall(r"\"([^\"]+)\"", tail)
-                tokens = quoted if quoted else re.split(r"[,/]| and | AND ", tail)
+        if not content:
+            lowered = premise.lower()
+            if "90" in lowered or "九十" in premise or "199" in lowered:
+                keywords = ["1990年代中国经济改革", "90年代创业致富案例"]
             else:
-                quoted = re.findall(r"\"([^\"]+)\"", candidate_line)
-                tokens = quoted if quoted else re.split(r"[,/]| and | AND ", candidate_line)
+                keywords = ["时代背景 调研", "行业 真实案例"]
+            logger.info(f"Research keywords: {keywords}")
+        else:
+            if "{" in content or "[" in content:
+                keywords = ["1990年代中国经济改革", "90年代创业致富案例"]
+            else:
+                cleaned = re.sub(r"(?is)reasoning_content\s*:\s*|reasoning\s*:\s*", "", content).strip()
+                lines = [l.strip() for l in cleaned.splitlines() if l.strip()]
+                candidate_line = ""
+                for l in reversed(lines):
+                    if "," in l or "，" in l:
+                        candidate_line = l
+                        break
+                if not candidate_line and lines:
+                    candidate_line = lines[-1]
+                candidate_line = candidate_line.replace("，", ",")
 
-            tokens = [t.strip().strip("\"'“”") for t in tokens if t and t.strip()]
-            tokens = [t for t in tokens if 2 < len(t) <= 40 and any(ch >= "\u4e00" and ch <= "\u9fff" for ch in t)]
-            keywords = tokens[:2]
+                m = re.search(r"(?is)(?:two\s+keywords|关键词)\s*[:：]\s*(.+)$", cleaned)
+                if m:
+                    tail = m.group(1)
+                    tail = tail.replace("，", ",")
+                    quoted = re.findall(r"\"([^\"]+)\"", tail)
+                    tokens = quoted if quoted else re.split(r"[,/]| and | AND ", tail)
+                else:
+                    quoted = re.findall(r"\"([^\"]+)\"", candidate_line)
+                    tokens = quoted if quoted else re.split(r"[,/]| and | AND ", candidate_line)
 
-        if len(keywords) < 2:
-            keywords = (keywords + [premise[:10], premise[-10:]])[:2]
+                tokens = [t.strip().strip("\"'“”") for t in tokens if t and t.strip()]
+                tokens = [t for t in tokens if 2 < len(t) <= 40 and any(ch >= "\u4e00" and ch <= "\u9fff" for ch in t)]
+                keywords = tokens[:2]
 
-        logger.info(f"Research keywords: {keywords}")
+            if len(keywords) < 2:
+                keywords = (keywords + ["1990年代中国经济改革", "90年代创业致富案例"])[:2]
+
+            logger.info(f"Research keywords: {keywords}")
 
         async def _search_one(kw: str) -> str:
             try:

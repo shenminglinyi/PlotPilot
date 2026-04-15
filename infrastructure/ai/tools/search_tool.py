@@ -1,5 +1,6 @@
 import logging
-from ddgs import DDGS
+from ddgs.ddgs import DDGS
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +13,11 @@ class WebSearchTool:
         搜索指定关键词并返回组合后的文本结果。
         失败时返回友好的错误提示而非崩溃。
         """
+        start = time.time()
         logger.info(f"Executing web search for: '{query}'")
         try:
             results = []
-            with DDGS() as ddgs:
+            with DDGS(timeout=8) as ddgs:
                 # 默认搜索中文网页
                 for r in ddgs.text(query, region='wt-wt', max_results=max_results):
                     title = r.get("title", "")
@@ -25,7 +27,8 @@ class WebSearchTool:
             if not results:
                 return "未能搜索到相关资料。"
                 
+            logger.info(f"Web search done for: '{query}', results={len(results)}, elapsed={time.time() - start:.2f}s")
             return "\n\n".join(results)
         except Exception as e:
-            logger.error(f"Web search failed for query '{query}': {e}")
+            logger.error(f"Web search failed for query '{query}' (elapsed={time.time() - start:.2f}s): {e}")
             return f"搜索失败（{e}）。"
