@@ -30,6 +30,8 @@ from infrastructure.persistence.database.sqlite_cast_repository import SqliteCas
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.provider_factory import DynamicLLMService, LLMProviderFactory
+from application.ai.llm_control_service import LLMControlService
 
 from application.core.services.novel_service import NovelService
 from application.core.services.chapter_service import ChapterService
@@ -118,6 +120,21 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
         base_url=_openai_base_url(),
         default_model=os.getenv("WRITING_MODEL") or os.getenv("ARK_MODEL", ""),
     )
+
+
+@lru_cache
+def get_llm_control_service() -> LLMControlService:
+    return LLMControlService()
+
+
+@lru_cache
+def get_llm_provider_factory() -> LLMProviderFactory:
+    return LLMProviderFactory(get_llm_control_service())
+
+
+def llm_runtime_is_mock(llm_service: LLMService | None = None) -> bool:
+    runtime = get_llm_control_service().get_runtime_summary()
+    return runtime.using_mock
 
 
 def get_storage() -> FileStorage:
@@ -317,29 +334,14 @@ def get_hosted_write_service() -> HostedWriteService:
     )
 
 
+@lru_cache
 def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
-    provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
-    
-    if provider == "openai":
-        settings = _openai_settings(require_key=False)
-        if settings:
-            try:
-                from infrastructure.ai.providers.openai_provider import OpenAIProvider
-                return OpenAIProvider(settings)
-            except ModuleNotFoundError as e:
-                logger.warning("OpenAI provider dependency missing, fallback to MockProvider: %s", e)
-    else:
-        settings = _anthropic_settings(require_key=False)
-        if settings:
-            try:
-                from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-                return AnthropicProvider(settings)
-            except ModuleNotFoundError as e:
-                logger.warning("Anthropic provider dependency missing, fallback to MockProvider: %s", e)
-            
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    return MockProvider()
+    """获取动态 LLM 服务实例。
+
+    返回长生命周期包装器：每次 generate/stream_generate 时重新读取当前激活配置，
+    因此前台控制面板修改后无需重启 API / 守护进程即可生效。
+    """
+    return DynamicLLMService(get_llm_provider_factory())
 
 
 def get_setup_main_plot_suggestion_service():
@@ -412,6 +414,7 @@ def get_consistency_checker() -> ConsistencyChecker:
     return ConsistencyChecker()
 
 
+@lru_cache
 def get_embedding_service():
     """获取 Embedding 服务
 
@@ -472,6 +475,7 @@ def get_triple_indexing_service():
     return TripleIndexingService(vs, es)
 
 
+@lru_cache
 def get_vector_store() -> Optional[VectorStore]:
     """获取向量存储
 
@@ -573,8 +577,7 @@ def get_auto_workflow() -> AutoNovelGenerationWorkflow:
         AutoNovelGenerationWorkflow 实例
     """
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for workflow")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for workflow")
@@ -589,8 +592,7 @@ def get_auto_bible_generator() -> AutoBibleGenerator:
         AutoBibleGenerator 实例
     """
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for Bible generation")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for Bible generation")
@@ -659,8 +661,7 @@ def get_beat_sheet_service():
     from application.blueprint.services.beat_sheet_service import BeatSheetService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for beat sheet generation")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for beat sheet generation")
@@ -684,8 +685,7 @@ def get_scene_generation_service():
     from application.core.services.scene_generation_service import SceneGenerationService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for scene generation")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for scene generation")
@@ -707,8 +707,7 @@ def get_scene_director_service() -> "SceneDirectorService":
     from application.engine.services.scene_director_service import SceneDirectorService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for scene director")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for scene director")
@@ -805,8 +804,7 @@ def get_macro_refactor_proposal_service():
     from application.audit.services.macro_refactor_proposal_service import MacroRefactorProposalService
 
     llm_service = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_service, MockProvider):
+    if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for macro refactor proposals")
     else:
         logger.info(f"Using {llm_service.__class__.__name__} for macro refactor proposals")
@@ -854,8 +852,7 @@ def get_tension_analyzer():
     from infrastructure.ai.llm_client import LLMClient
 
     llm_provider = get_llm_service()
-    from infrastructure.ai.providers.mock_provider import MockProvider
-    if isinstance(llm_provider, MockProvider):
+    if llm_runtime_is_mock(llm_provider):
         logger.warning("No API key found, using MockProvider for tension analyzer")
     else:
         logger.info(f"Using {llm_provider.__class__.__name__} for tension analyzer")

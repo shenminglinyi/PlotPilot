@@ -6,6 +6,9 @@
     <span>{{ error }}</span>
   </div>
   <div v-else class="stats-top-bar">
+    <div class="topbar-center">
+      <GlobalLLMEntryButton appearance="topbar" />
+    </div>
     <div
       v-for="stat in stats"
       :key="stat.key"
@@ -36,6 +39,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { NTooltip, NSpin } from 'naive-ui'
 import { useStatsStore } from '@/stores/statsStore'
+import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 
 const props = defineProps<{
   slug: string
@@ -168,6 +172,16 @@ onMounted(async () => {
   justify-content: space-around;
   padding: 0 24px;
   color: white;
+  position: relative;
+}
+
+.topbar-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  pointer-events: auto;
 }
 
 .stats-top-bar.loading,
