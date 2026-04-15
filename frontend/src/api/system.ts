@@ -11,6 +11,11 @@ export interface LLMConfig {
   cheap_model_api_key?: string
   cheap_model_base_url?: string
   cheap_model: string
+
+  knowledge_model_provider: string
+  knowledge_model_api_key?: string
+  knowledge_model_base_url?: string
+  knowledge_model: string
 }
 
 export function getLLMConfig() {

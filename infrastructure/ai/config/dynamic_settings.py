@@ -20,6 +20,12 @@ class LLMConfigDTO(BaseModel):
     cheap_model_base_url: Optional[str] = None
     cheap_model: str = ""
 
+    # 知识图谱模型 (Knowledge Model) 配置
+    knowledge_model_provider: str = "openai"
+    knowledge_model_api_key: Optional[str] = None
+    knowledge_model_base_url: Optional[str] = None
+    knowledge_model: str = ""
+
 class DynamicSettingsManager:
     def __init__(self, config_path: Optional[Path] = None):
         if config_path is None:

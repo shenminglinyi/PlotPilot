@@ -46,6 +46,11 @@
             <n-select v-model:value="formData.cheap_model" :options="cheapModelOptions" tag filterable />
             <template #feedback>用于后台数据提取、打分与摘要，建议选择速度最快、最便宜的模型</template>
           </n-form-item>
+
+          <n-form-item label="🧠 知识图谱模型 (Knowledge Model)">
+            <n-select v-model:value="formData.knowledge_model" :options="knowledgeModelOptions" tag filterable />
+            <template #feedback>专门用于从设定中提取复杂的知识图谱关系，建议选择逻辑推理能力较强的模型</template>
+          </n-form-item>
         </n-card>
       </template>
 
@@ -110,6 +115,36 @@
             <n-select v-model:value="formData.cheap_model" :options="cheapModelOptions" tag filterable />
           </n-form-item>
         </n-card>
+
+        <!-- 知识图谱模型配置区 -->
+        <n-card size="small" class="mb-4" title="🧠 知识图谱模型 (Knowledge Model)">
+          <template #header-extra>
+            <n-text depth="3" class="text-xs">专门用于复杂设定逻辑推理和关系提取</n-text>
+          </template>
+
+          <n-form-item label="服务商 (Provider)">
+            <n-radio-group v-model:value="formData.knowledge_model_provider" @update:value="() => formData.knowledge_model = ''">
+              <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
+              <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
+
+          <n-form-item label="API Key">
+            <n-input v-model:value="formData.knowledge_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
+          </n-form-item>
+
+          <n-form-item label="Base URL (留空则使用官方地址)">
+            <n-input v-model:value="formData.knowledge_model_base_url" placeholder="如 https://api.openai.com/v1" />
+          </n-form-item>
+
+          <n-button type="info" dashed block @click="handleVerify('knowledge')" :loading="verifyingKnowledge" class="mb-4">
+            🔗 测试知识端点并获取模型
+          </n-button>
+
+          <n-form-item label="选择知识图谱模型">
+            <n-select v-model:value="formData.knowledge_model" :options="knowledgeModelOptions" tag filterable />
+          </n-form-item>
+        </n-card>
       </template>
 
       <n-space justify="end" class="mt-4">
@@ -129,6 +164,7 @@ const visible = ref(false)
 const message = useMessage()
 const verifyingDefault = ref(false)
 const verifyingCheap = ref(false)
+const verifyingKnowledge = ref(false)
 const saving = ref(false)
 const isUnifiedMode = ref(true)
 
@@ -141,15 +177,21 @@ const formData = ref<LLMConfig>({
   cheap_model_provider: 'openai',
   cheap_model_api_key: '',
   cheap_model_base_url: '',
-  cheap_model: ''
+  cheap_model: '',
+  knowledge_model_provider: 'openai',
+  knowledge_model_api_key: '',
+  knowledge_model_base_url: '',
+  knowledge_model: ''
 })
 
 const defaultModelOptions = ref<{label: string, value: string}[]>([])
 const cheapModelOptions = ref<{label: string, value: string}[]>([])
+const knowledgeModelOptions = ref<{label: string, value: string}[]>([])
 
 const syncProviders = () => {
   formData.value.default_model = ''
   formData.value.cheap_model = ''
+  formData.value.knowledge_model = ''
 }
 
 const loadData = async () => {
@@ -166,12 +208,18 @@ const loadData = async () => {
       if (formData.value.cheap_model) {
         cheapModelOptions.value = [{ label: formData.value.cheap_model, value: formData.value.cheap_model }]
       }
+      if (formData.value.knowledge_model) {
+        knowledgeModelOptions.value = [{ label: formData.value.knowledge_model, value: formData.value.knowledge_model }]
+      }
 
-      // 推断是否属于统一模式（两个配置的值完全一样）
+      // 推断是否属于统一模式（三个配置的值完全一样）
       if (
         formData.value.default_model_provider === formData.value.cheap_model_provider &&
         formData.value.default_model_api_key === formData.value.cheap_model_api_key &&
-        formData.value.default_model_base_url === formData.value.cheap_model_base_url
+        formData.value.default_model_base_url === formData.value.cheap_model_base_url &&
+        formData.value.default_model_provider === formData.value.knowledge_model_provider &&
+        formData.value.default_model_api_key === formData.value.knowledge_model_api_key &&
+        formData.value.default_model_base_url === formData.value.knowledge_model_base_url
       ) {
         isUnifiedMode.value = true
       } else {
@@ -183,60 +231,78 @@ const loadData = async () => {
   }
 }
 
-const handleVerify = async (role: 'default' | 'cheap') => {
+const handleVerify = async (role: 'default' | 'cheap' | 'knowledge') => {
   const p = formData.value.default_model_provider
   const key = formData.value.default_model_api_key
   const base = formData.value.default_model_base_url
 
-  const p_cheap = role === 'cheap' ? formData.value.cheap_model_provider : p
-  const key_cheap = role === 'cheap' ? formData.value.cheap_model_api_key : key
-  const base_cheap = role === 'cheap' ? formData.value.cheap_model_base_url : base
-  
-  const targetKey = role === 'default' ? key : key_cheap
+  let p_target = p
+  let key_target = key
+  let base_target = base
+
+  if (role === 'cheap') {
+    p_target = formData.value.cheap_model_provider
+    key_target = formData.value.cheap_model_api_key
+    base_target = formData.value.cheap_model_base_url
+  } else if (role === 'knowledge') {
+    p_target = formData.value.knowledge_model_provider
+    key_target = formData.value.knowledge_model_api_key
+    base_target = formData.value.knowledge_model_base_url
+  }
+
+  const targetKey = key_target
   if (!targetKey || targetKey.includes('***')) {
     message.warning('请先输入完整且有效的 API Key')
     return
   }
 
   if (role === 'default') verifyingDefault.value = true
-  else verifyingCheap.value = true
+  else if (role === 'cheap') verifyingCheap.value = true
+  else verifyingKnowledge.value = true
 
   try {
-    const targetProvider = role === 'default' ? p : p_cheap
-    const targetBase = role === 'default' ? base : base_cheap
-    
+    const targetProvider = p_target
+    const targetBase = base_target
+
     const res = await verifyAndFetchModels(targetProvider, targetKey, targetBase)
     // res is already the data object returned by axios interceptor
     if (res && res.models) {
       const opts = res.models.map((m: string) => ({ label: m, value: m }))
-      
+
       if (isUnifiedMode.value) {
-        // 统一模式下，一次请求更新两个下拉框
+        // 统一模式下，一次请求更新三个下拉框
         defaultModelOptions.value = opts
         cheapModelOptions.value = opts
+        knowledgeModelOptions.value = opts
       } else {
         if (role === 'default') defaultModelOptions.value = opts
-        else cheapModelOptions.value = opts
+        else if (role === 'cheap') cheapModelOptions.value = opts
+        else knowledgeModelOptions.value = opts
       }
-      
+
       message.success(`成功获取 ${res.models.length} 个模型`)
     }
   } catch (e: any) {
     message.error(e.response?.data?.detail || '连接失败，请检查端点和秘钥')
   } finally {
     if (role === 'default') verifyingDefault.value = false
-    else verifyingCheap.value = false
+    else if (role === 'cheap') verifyingCheap.value = false
+    else verifyingKnowledge.value = false
   }
 }
 
 const handleSave = async () => {
   saving.value = true
-  
-  // 如果是统一模式，保存前把 default 的配置强行复制给 cheap
+
+  // 如果是统一模式，保存前把 default 的配置强行复制给 cheap 和 knowledge
   if (isUnifiedMode.value) {
     formData.value.cheap_model_provider = formData.value.default_model_provider
     formData.value.cheap_model_api_key = formData.value.default_model_api_key
     formData.value.cheap_model_base_url = formData.value.default_model_base_url
+    
+    formData.value.knowledge_model_provider = formData.value.default_model_provider
+    formData.value.knowledge_model_api_key = formData.value.default_model_api_key
+    formData.value.knowledge_model_base_url = formData.value.default_model_base_url
   }
   
   try {

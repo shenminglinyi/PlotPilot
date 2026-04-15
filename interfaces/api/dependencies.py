@@ -349,17 +349,22 @@ class MultiModelRouter(LLMService):
 
 
 def _build_provider_for_role(dyn_config, role: str) -> Optional[LLMService]:
-    """为 specific role ('default' or 'cheap') 动态构建一个 LLMService"""
+    """为 specific role ('default', 'cheap', 'knowledge') 动态构建一个 LLMService"""
     if role == "default":
         provider_type = dyn_config.default_model_provider if dyn_config else "openai"
         api_key = dyn_config.default_model_api_key if dyn_config else None
         base_url = dyn_config.default_model_base_url if dyn_config else None
         model_name = dyn_config.default_model if dyn_config else ""
-    else:
+    elif role == "cheap":
         provider_type = dyn_config.cheap_model_provider if dyn_config else "openai"
         api_key = dyn_config.cheap_model_api_key if dyn_config else None
         base_url = dyn_config.cheap_model_base_url if dyn_config else None
         model_name = dyn_config.cheap_model if dyn_config else ""
+    else:  # role == "knowledge"
+        provider_type = dyn_config.knowledge_model_provider if dyn_config else "openai"
+        api_key = dyn_config.knowledge_model_api_key if dyn_config else None
+        base_url = dyn_config.knowledge_model_base_url if dyn_config else None
+        model_name = dyn_config.knowledge_model if dyn_config else ""
         
     if not api_key:
         return None
@@ -705,8 +710,14 @@ def get_auto_knowledge_generator() -> AutoKnowledgeGenerator:
     Returns:
         AutoKnowledgeGenerator 实例
     """
+    dyn_config = DynamicSettingsManager().load_config()
+    knowledge_provider = _build_provider_for_role(dyn_config, "knowledge")
+    
+    if not knowledge_provider:
+        knowledge_provider = get_llm_service()
+        
     return AutoKnowledgeGenerator(
-        llm_service=get_llm_service(),
+        llm_service=knowledge_provider,
         knowledge_service=get_knowledge_service()
     )
 

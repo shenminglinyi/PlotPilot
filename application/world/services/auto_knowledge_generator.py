@@ -61,8 +61,14 @@ class AutoKnowledgeGenerator:
         system_prompt = build_initial_knowledge_system_prompt()
         user_prompt = f"小说标题：《{title}》{context_section}\n\n请生成初始知识图谱。只输出 JSON。"
 
+        target_model = ""
+        from infrastructure.ai.config.dynamic_settings import DynamicSettingsManager
+        dyn_config = DynamicSettingsManager().load_config()
+        if dyn_config and dyn_config.knowledge_model:
+            target_model = dyn_config.knowledge_model
+
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.4)
+        config = GenerationConfig(model=target_model, max_tokens=2048, temperature=0.4)
 
         result = await self.llm_service.generate(prompt, config)
 
