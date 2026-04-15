@@ -209,9 +209,9 @@ onMounted(async () => {
   flex-shrink: 0;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
   background: #fff;
 }
@@ -219,7 +219,9 @@ onMounted(async () => {
 .cgc-hint {
   font-size: 11px;
   line-height: 1.45;
-  max-width: min(100%, 380px);
+  flex: 1;
+  min-width: 0;
+  /* 提示文字可折叠，但不会把按钮挤出行外 */
 }
 
 .cgc-hint code {
