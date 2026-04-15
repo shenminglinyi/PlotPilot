@@ -32,6 +32,21 @@ class LLMConfigDTO(BaseModel):
     research_model_base_url: Optional[str] = None
     research_model: str = ""
 
+    fact_review_model_provider: str = "openai"
+    fact_review_model_api_key: Optional[str] = None
+    fact_review_model_base_url: Optional[str] = None
+    fact_review_model: str = ""
+
+    genre_review_model_provider: str = "openai"
+    genre_review_model_api_key: Optional[str] = None
+    genre_review_model_base_url: Optional[str] = None
+    genre_review_model: str = ""
+
+    reader_review_model_provider: str = "openai"
+    reader_review_model_api_key: Optional[str] = None
+    reader_review_model_base_url: Optional[str] = None
+    reader_review_model: str = ""
+
 class DynamicSettingsManager:
     def __init__(self, config_path: Optional[Path] = None):
         if config_path is None:

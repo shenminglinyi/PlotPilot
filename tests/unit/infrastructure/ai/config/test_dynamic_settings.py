@@ -14,10 +14,18 @@ def test_dynamic_settings_read_write(tmp_path):
     # Test write
     new_config = LLMConfigDTO(
         provider="openai",
-        openai_api_key="sk-test",
-        openai_base_url="https://api.test.com",
+        default_model_provider="openai",
+        default_model_api_key="sk-test",
+        default_model_base_url="https://api.test.com/v1",
         default_model="gpt-4o",
-        cheap_model="gpt-4o-mini"
+        cheap_model_provider="openai",
+        cheap_model_api_key="sk-test",
+        cheap_model_base_url="https://api.test.com/v1",
+        cheap_model="gpt-4o-mini",
+        fact_review_model_provider="openai",
+        fact_review_model_api_key="sk-test",
+        fact_review_model_base_url="https://api.test.com/v1",
+        fact_review_model="gpt-4o-mini",
     )
     manager.save_config(new_config)
     
@@ -26,3 +34,14 @@ def test_dynamic_settings_read_write(tmp_path):
     assert loaded is not None
     assert loaded.provider == "openai"
     assert loaded.default_model == "gpt-4o"
+
+
+def test_llm_config_dto_includes_reviewer_models():
+    cfg = LLMConfigDTO(
+        fact_review_model_provider="openai",
+        fact_review_model_api_key="sk-test",
+        fact_review_model_base_url="http://localhost:1234/v1",
+        fact_review_model="gpt-4o-mini",
+    )
+    dumped = cfg.model_dump()
+    assert dumped["fact_review_model"] == "gpt-4o-mini"
