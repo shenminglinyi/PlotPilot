@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS novels (
     premise TEXT DEFAULT '',
     autopilot_status TEXT DEFAULT 'stopped',
     auto_approve_mode INTEGER NOT NULL DEFAULT 0,
+    hermes_mode INTEGER NOT NULL DEFAULT 0,
     current_stage TEXT DEFAULT 'planning',
     current_act INTEGER DEFAULT 0,
     current_chapter_in_act INTEGER DEFAULT 0,

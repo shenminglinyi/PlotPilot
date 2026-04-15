@@ -60,6 +60,8 @@ class Novel(BaseEntity):
         last_audit_issues: Optional[List[Dict[str, str]]] = None,
         # 目标字数控制
         target_words_per_chapter: int = 3500,
+        # Hermes 自优化
+        hermes_mode: bool = False,
     ):
         super().__init__(id.value)
         self.novel_id = id
@@ -72,7 +74,8 @@ class Novel(BaseEntity):
 
         # 自动驾驶状态
         self.autopilot_status = autopilot_status
-        self.auto_approve_mode = auto_approve_mode  # 全自动模式：跳过所有人工审阅
+        self.auto_approve_mode = auto_approve_mode
+        self.hermes_mode = hermes_mode
         self.current_stage = current_stage
         self.current_act = current_act
         self.current_chapter_in_act = current_chapter_in_act

@@ -72,6 +72,12 @@ class AutopilotDaemon:
                 chapter_repository=chapter_repository,
                 foreshadowing_repository=foreshadowing_repository,
             )
+        
+        # Hermes 自优化模块（惰性初始化）
+        self._hermes_extractor = None
+        self._hermes_storage = None
+        self._hermes_prompt_builder = None
+        self._hermes_monitor = None
 
     def run_forever(self):
         """守护进程主循环（事务最小化原则）"""
@@ -1167,4 +1173,75 @@ class AutopilotDaemon:
         
         except Exception as e:
             logger.warning(f"[{novel.novel_id}] 摘要生成失败: {e}")
+
+    def _init_hermes(self):
+        if self._hermes_storage is not None:
+            return
+        try:
+            from application.engine.services.skill_extractor import SkillExtractor
+            from application.engine.services.skill_storage import SkillStorage
+            from application.engine.services.skill_prompt_builder import SkillDrivenPromptBuilder
+            from application.engine.services.self_improvement_monitor import SelfImprovementMonitor
+            from application.paths import AITEXT_ROOT
+
+            skills_dir = str(AITEXT_ROOT / ".plotpilot" / "skills")
+            self._hermes_extractor = SkillExtractor()
+            self._hermes_storage = SkillStorage(base_dir=skills_dir)
+            self._hermes_prompt_builder = SkillDrivenPromptBuilder(self._hermes_storage)
+            self._hermes_monitor = SelfImprovementMonitor(self._hermes_storage)
+            logger.info("[Hermes] 自优化模块初始化完成")
+        except Exception as e:
+            logger.error(f"[Hermes] 初始化失败: {e}", exc_info=True)
+            self._hermes_storage = None
+
+    def _hermes_build_prompt(self, novel, base_prompt: str, scene_type: str = "") -> str:
+        hermes_mode = getattr(novel, 'hermes_mode', False)
+        if not hermes_mode:
+            return base_prompt
+
+        self._init_hermes()
+        if self._hermes_prompt_builder is None:
+            return base_prompt
+
+        try:
+            novel_id_str = novel.novel_id.value if hasattr(novel.novel_id, 'value') else str(novel.novel_id)
+            next_chapter = getattr(novel, 'current_auto_chapters', 0) + 1
+            prev_tension = getattr(novel, 'last_chapter_tension', 0)
+            act_number = getattr(novel, 'current_act', 0)
+
+            result = self._hermes_prompt_builder.build(
+                novel_id=novel_id_str,
+                novel_title=novel.title,
+                next_chapter=next_chapter,
+                scene_type=scene_type,
+                prev_tension=prev_tension,
+                act_number=act_number,
+                base_prompt=base_prompt,
+            )
+            if result != base_prompt:
+                logger.info(f"[Hermes] novel={novel_id_str}, prompt enhanced with skills")
+            return result
+        except Exception as e:
+            logger.error(f"[Hermes] Prompt 构建失败，回退到默认: {e}")
+            return base_prompt
+
+    def _hermes_extract_skill(self, novel, chapter_num: int, content: str, scene_type: str = ""):
+        self._init_hermes()
+        if self._hermes_extractor is None or self._hermes_storage is None:
+            return
+        try:
+            novel_id_str = novel.novel_id.value if hasattr(novel.novel_id, 'value') else str(novel.novel_id)
+            skill = self._hermes_extractor.extract(
+                novel_id=novel_id_str,
+                chapter=chapter_num,
+                content=content,
+                scene_type=scene_type,
+                prev_tension=getattr(novel, 'last_chapter_tension', 0),
+                act_number=getattr(novel, 'current_act', 0),
+            )
+            if skill:
+                self._hermes_storage.save_to_l1(skill)
+                logger.info(f"[Hermes] Skill extracted: novel={novel_id_str}, chapter={chapter_num}, scene={scene_type}")
+        except Exception as e:
+            logger.error(f"[Hermes] Skill extraction failed: {e}")
 

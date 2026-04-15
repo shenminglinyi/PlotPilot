@@ -149,6 +149,27 @@
               达到 <strong>{{ startConfig.target_chapters }} 章</strong> 目标时自动完成全书；保护上限已自动设置为 <strong>目标 + 20</strong>。
             </template>
           </n-alert>
+
+          <!-- Hermes 自优化开关（仅全自动模式开启时显示） -->
+          <n-form-item v-if="startConfig.auto_approve_mode" label="Hermes 自优化" style="margin-top: 8px">
+            <n-space align="center" justify="space-between" style="width: 100%">
+              <n-tooltip trigger="hover">
+                <template #trigger>
+                  <n-switch 
+                    v-model:value="startConfig.hermes_mode"
+                    :round="false"
+                  >
+                    <template #checked>开启</template>
+                    <template #unchecked>关闭</template>
+                  </n-switch>
+                </template>
+                参考 Hermes 模式，让 AI 每写完一章就自动分析成功模式并优化下一章的写作策略，减少 AI 跑偏。系统会提取本章的成功写作模式（结构、文风、伏笔处理等），并在写下一章时自动应用这些模式，实现越写越好。
+              </n-tooltip>
+              <n-text depth="3" style="font-size: 12px">
+                越写越好
+              </n-text>
+            </n-space>
+          </n-form-item>
         </n-form>
       </n-space>
     </n-modal>
@@ -171,7 +192,8 @@ const showStartModal = ref(false)
 const startConfig = ref({ 
   target_chapters: 100,
   max_auto_chapters: 120,
-  auto_approve_mode: false
+  auto_approve_mode: false,
+  hermes_mode: false
 })
 
 // 目标章数（从 status 获取）
@@ -300,10 +322,12 @@ function openStartModal() {
   // 打开弹窗时，从当前状态初始化设置
   const target = status.value?.target_chapters || 100
   const autoApprove = status.value?.auto_approve_mode ?? false
+  const hermesMode = status.value?.hermes_mode ?? false
   startConfig.value = {
     target_chapters: target,
     max_auto_chapters: target + 20,
-    auto_approve_mode: autoApprove
+    auto_approve_mode: autoApprove,
+    hermes_mode: hermesMode
   }
   showStartModal.value = true
 }
@@ -359,7 +383,9 @@ async function start() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        max_auto_chapters: startConfig.value.max_auto_chapters
+        max_auto_chapters: startConfig.value.max_auto_chapters,
+        auto_approve_mode: startConfig.value.auto_approve_mode,
+        hermes_mode: startConfig.value.hermes_mode
       })
     })
     if (res.ok) {
