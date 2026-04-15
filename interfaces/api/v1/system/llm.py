@@ -49,12 +49,20 @@ async def verify_and_fetch_models(req: VerifyRequest):
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             if req.provider == "openai":
-                base = req.base_url.rstrip('/') if req.base_url else "https://api.openai.com/v1"
-                headers = {"Authorization": f"Bearer {req.api_key}"}
+                base = req.base_url.strip().rstrip('/') if req.base_url and req.base_url.strip() else "https://api.openai.com/v1"
+                headers = {"Authorization": f"Bearer {req.api_key.strip()}"}
                 resp = await client.get(f"{base}/models", headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
-                models = [m["id"] for m in data.get("data", [])]
+                
+                # OLM (Ollama, DeepSeek, etc) compatible extraction
+                if "data" in data:
+                    models = [m["id"] for m in data["data"]]
+                elif isinstance(data, list):
+                    models = [m.get("id", m) for m in data]
+                else:
+                    models = []
+                    
             elif req.provider == "anthropic":
                 # Anthropic doesn't have a standard public /v1/models endpoint that lists all models for all accounts reliably in standard format.
                 # We return standard hardcoded models for Anthropic to let the UI populate.
