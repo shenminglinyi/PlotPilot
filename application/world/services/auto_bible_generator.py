@@ -612,14 +612,22 @@ JSON 格式（不要有其他文字）：
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # 1. 触发【深度研究专家】进行真实资料考据
+        research_report = await self._research_background(premise)
+        logger.info(f"Research Report generated for worldbuilding stage: {len(research_report)} chars")
+
         system_prompt = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
 
 **重要：只输出有效的 JSON，不要有任何其他文字。**
 
 要求：
-1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
-2. 明确的文风公约（叙事视角、人称、基调、节奏）
-3. 符合故事类型（现代都市/古代/玄幻/科幻等）
+1. **【极其重要】你必须严格参考下方提供的《背景考据白皮书》中的真实数据（如物价、地名、时代特征）来构建世界观，严禁凭空捏造与白皮书相悖的内容！**
+2. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
+3. 明确的文风公约（叙事视角、人称、基调、节奏）
+4. 符合故事类型（现代都市/古代/玄幻/科幻等）
 
 JSON 格式：
 {
@@ -655,6 +663,9 @@ JSON 格式：
 }"""
 
         user_prompt = f"""故事创意：{premise}
+
+【背景考据白皮书】（请以此为绝对基准进行设计）：
+{research_report}
 
 目标章节数：{target_chapters}章
 
