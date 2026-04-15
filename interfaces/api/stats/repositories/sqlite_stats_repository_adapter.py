@@ -13,6 +13,27 @@ from infrastructure.persistence.database.connection import DatabaseConnection
 logger = logging.getLogger(__name__)
 
 
+def _public_stage_from_row(row: Dict) -> str:
+    """数据库 current_stage -> 兼容旧统计接口 stage。"""
+    current_stage = row.get("current_stage") or "planning"
+    explicit_stage = row.get("stage")
+
+    if explicit_stage and explicit_stage != "planning" and current_stage == "planning":
+        return explicit_stage
+
+    stage_map = {
+        "planning": "planning",
+        "macro_planning": "planning",
+        "act_planning": "planning",
+        "writing": "writing",
+        "auditing": "reviewing",
+        "reviewing": "reviewing",
+        "paused_for_review": "reviewing",
+        "completed": "completed",
+    }
+    return stage_map.get(current_stage, explicit_stage or "planning")
+
+
 class SqliteStatsRepositoryAdapter:
     """Adapter to read statistics from SQLite database.
 
@@ -69,7 +90,7 @@ class SqliteStatsRepositoryAdapter:
                 "title": row.get("title", ""),
                 "author": row.get("author", "未知作者"),
                 "slug": slug,
-                "stage": row.get("stage", "planning"),
+                "stage": _public_stage_from_row(row),
                 "target_chapters": row.get("target_chapters", 0),
             }
 

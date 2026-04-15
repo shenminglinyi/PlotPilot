@@ -4,13 +4,15 @@
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from domain.novel.value_objects.scene import Scene
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.engine.services.scene_director_service import SceneDirectorService
-from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
+
+if TYPE_CHECKING:
+    from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ class SceneGenerationService:
         self,
         llm_service: LLMService,
         scene_director: SceneDirectorService,
-        vector_store: Optional[ChromaDBVectorStore] = None,
+        vector_store: Optional["ChromaDBVectorStore"] = None,
         embedding_service=None,
     ):
         self.llm_service = llm_service

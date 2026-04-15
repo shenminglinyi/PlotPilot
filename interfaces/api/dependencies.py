@@ -29,7 +29,6 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from infrastructure.persistence.database.sqlite_cast_repository import SqliteCastRepository
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
-from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
 from infrastructure.ai.config.settings import Settings
 
 from application.core.services.novel_service import NovelService
@@ -317,12 +316,19 @@ def get_llm_service():
     if provider == "openai":
         settings = _openai_settings(require_key=False)
         if settings:
-            from infrastructure.ai.providers.openai_provider import OpenAIProvider
-            return OpenAIProvider(settings)
+            try:
+                from infrastructure.ai.providers.openai_provider import OpenAIProvider
+                return OpenAIProvider(settings)
+            except ModuleNotFoundError as e:
+                logger.warning("OpenAI provider dependency missing, fallback to MockProvider: %s", e)
     else:
         settings = _anthropic_settings(require_key=False)
         if settings:
-            return AnthropicProvider(settings)
+            try:
+                from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+                return AnthropicProvider(settings)
+            except ModuleNotFoundError as e:
+                logger.warning("Anthropic provider dependency missing, fallback to MockProvider: %s", e)
             
     from infrastructure.ai.providers.mock_provider import MockProvider
     return MockProvider()

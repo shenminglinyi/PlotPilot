@@ -1,6 +1,8 @@
-"""Infrastructure AI module"""
-from .config import Settings
-from .providers import BaseProvider, AnthropicProvider
-from .openai_embedding_service import OpenAIEmbeddingService
+"""Infrastructure AI module.
 
-__all__ = ["Settings", "BaseProvider", "AnthropicProvider", "OpenAIEmbeddingService"]
+避免包导入时强制拉起可选第三方 SDK（anthropic/openai 等）。
+"""
+
+from .config import Settings
+
+__all__ = ["Settings"]
