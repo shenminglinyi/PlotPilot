@@ -60,9 +60,9 @@ class LLMClient:
             user=prompt
         )
 
-        # 创建 GenerationConfig 对象
+        # 创建 GenerationConfig 对象（model 留空则由当前 Provider 按环境变量解析）
         config = GenerationConfig(
-            model=kwargs.get("model", "claude-sonnet-4-6"),
+            model=kwargs.get("model"),
             max_tokens=kwargs.get("max_tokens", 4096),
             temperature=kwargs.get("temperature", 1.0)
         )

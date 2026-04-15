@@ -4,6 +4,7 @@
 """
 
 import json
+import re
 import uuid
 import logging
 from typing import Dict, List, Optional
@@ -735,14 +736,14 @@ class ContinuousPlanningService:
 
     def _parse_llm_response(self, response) -> Dict:
         """解析 LLM 响应"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # 如果是 GenerationResult 对象，提取 content 属性
         if hasattr(response, 'content'):
             content = response.content.strip()
         else:
             content = response.strip()
-
-        # 调试日志
-        print(f"[DEBUG] LLM 原始响应: {content[:200]}...")
 
         # 查找 JSON 代码块
         if "```json" in content:
@@ -768,9 +769,91 @@ class ContinuousPlanningService:
             if json_start < len(content):
                 content = content[json_start:]
 
-        print(f"[DEBUG] 清理后的内容: {content[:200]}...")
+        # 尝试修复常见的 JSON 格式问题
+        content = self._repair_json(content)
 
-        return json.loads(content)
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON 解析失败: {e}")
+            logger.error(f"JSON 内容（前 500 字符）: {content[:500]}")
+            logger.error(f"JSON 内容（后 200 字符）: {content[-200:]}")
+            raise ValueError(f"LLM 返回的 JSON 格式错误: {e}")
+
+    def _repair_json(self, content: str) -> str:
+        """尝试修复常见的 JSON 格式问题"""
+        if not content:
+            return content
+
+        # 1. 移除尾部的逗号（在数组或对象结束前）
+        content = re.sub(r',\s*}', '}', content)
+        content = re.sub(r',\s*]', ']', content)
+
+        # 2. 修复未闭合的字符串 - 查找未闭合的引号
+        # 这种情况通常是因为 LLM 输出被截断
+        lines = content.split('\n')
+        repaired_lines = []
+        
+        for line in lines:
+            # 更准确地计算引号：排除转义的引号
+            # 从后往前检查，找到最后一个未配对的引号
+            quote_positions = []
+            i = 0
+            while i < len(line):
+                if line[i] == '\\' and i + 1 < len(line) and line[i+1] == '"':
+                    i += 2  # 跳过转义引号
+                    continue
+                if line[i] == '"':
+                    quote_positions.append(i)
+                i += 1
+            
+            # 如果引号数量是奇数，需要修复
+            if len(quote_positions) % 2 != 0:
+                # 在最后一个引号位置后添加闭合引号
+                last_quote_pos = quote_positions[-1]
+                line = line[:last_quote_pos+1] + '"' + line[last_quote_pos+1:]
+            
+            repaired_lines.append(line)
+        
+        content = '\n'.join(repaired_lines)
+
+        # 3. 确保 JSON 完整闭合
+        # 计算括号和方括号的匹配
+        stack = []
+        in_string = False
+        escape_next = False
+        
+        for i, char in enumerate(content):
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char in '{[':
+                stack.append(char)
+            elif char in '}]':
+                if stack:
+                    open_char = stack.pop()
+                    if (open_char == '{' and char != '}') or (open_char == '[' and char != ']'):
+                        # 不匹配，停止修复
+                        break
+        
+        # 如果还有未闭合的括号，尝试添加闭合符号
+        if stack:
+            logger.warning(f"JSON 有 {len(stack)} 个未闭合的括号，尝试修复")
+            closing_map = {'{': '}', '[': ']'}
+            # 从最后一个有效字符后添加闭合符号
+            content = content.rstrip()
+            for open_char in reversed(stack):
+                content += closing_map[open_char]
+
+        return content
 
     def _calculate_chapter_distribution(self, total_chapters: int, parts: int) -> Dict[str, List[int]]:
         """计算黄金比例的章数分配

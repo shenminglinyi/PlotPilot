@@ -20,6 +20,7 @@ from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepo
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.bible.repositories.bible_repository import BibleRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.ai.vector_retrieval_facade import VectorRetrievalFacade
@@ -140,6 +141,7 @@ class ContextBudgetAllocator:
         bible_repository: Optional[BibleRepository] = None,
         story_node_repository: Optional[StoryNodeRepository] = None,
         chapter_element_repository = None,
+        triple_repository: Optional[TripleRepository] = None,
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
     ):
@@ -148,6 +150,7 @@ class ContextBudgetAllocator:
         self.bible_repo = bible_repository
         self.story_node_repo = story_node_repository
         self.chapter_element_repo = chapter_element_repository
+        self.triple_repo = triple_repository
         
         # 向量检索门面
         self.vector_facade = None

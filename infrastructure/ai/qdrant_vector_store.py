@@ -1,5 +1,6 @@
 # infrastructure/ai/qdrant_vector_store.py
-from typing import List
+from typing import List, Optional, Any
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from domain.ai.services.vector_store import VectorStore
@@ -8,16 +9,39 @@ from domain.ai.services.vector_store import VectorStore
 class QdrantVectorStore(VectorStore):
     """Qdrant 向量存储实现"""
 
-    def __init__(self, host: str = "localhost", port: int = 6333, api_key: str = None):
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 6333,
+        api_key: Optional[str] = None,
+        url: Optional[str] = None,
+        timeout: Optional[float] = None,
+        https: Optional[bool] = None,
+    ):
         """
         初始化 Qdrant 客户端
 
         Args:
-            host: Qdrant 服务器地址
-            port: Qdrant 服务器端口
-            api_key: Qdrant API 密钥（可选）
+            host: Qdrant 服务器地址（与 port 连用；若提供 url 则忽略）
+            port: Qdrant REST 端口（默认 6333）
+            api_key: Qdrant API 密钥（可选，云端常为必填）
+            url: 完整服务 URL（可选，例如 https://xxx.cloud.qdrant.io:6333；优先于 host/port）
+            timeout: 请求超时秒数（可选）
+            https: 是否使用 HTTPS（仅 host/port 模式；为 None 时由客户端默认）
         """
-        self.client = QdrantClient(host=host, port=port, api_key=api_key)
+        client_kwargs: dict[str, Any] = {}
+        if url:
+            client_kwargs["url"] = url.rstrip("/")
+        else:
+            client_kwargs["host"] = host
+            client_kwargs["port"] = port
+        if api_key:
+            client_kwargs["api_key"] = api_key
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
+        if https is not None:
+            client_kwargs["https"] = https
+        self.client = QdrantClient(**client_kwargs)
 
     async def insert(
         self,

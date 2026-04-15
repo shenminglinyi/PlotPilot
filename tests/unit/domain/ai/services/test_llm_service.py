@@ -19,9 +19,9 @@ class TestGenerationConfig:
         assert config.temperature == 1.0
 
     def test_generation_config_default_values(self):
-        """测试默认值"""
+        """测试默认值（model 由具体 Provider 结合环境变量解析）"""
         config = GenerationConfig()
-        assert config.model == "claude-3-5-sonnet-20241022"
+        assert config.model is None
         assert config.max_tokens == 4096
         assert config.temperature == 1.0
 

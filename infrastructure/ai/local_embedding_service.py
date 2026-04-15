@@ -1,5 +1,6 @@
 # infrastructure/ai/local_embedding_service.py
 
+# 必须在任何 HuggingFace/SentenceTransformer 导入前设置离线模式
 import os
 os.environ['HF_HUB_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
@@ -27,30 +28,26 @@ class LocalEmbeddingService(EmbeddingService):
     优先使用本地模型路径，避免从 HuggingFace 下载。
     """
 
-    def __init__(self, model_name: str = None, use_gpu: bool = True):
+    def __init__(self, model_name: str = None, use_gpu: bool = True, allow_remote: bool = False):
         """
         初始化本地 Embedding 服务
 
         Args:
             model_name: 模型名称或本地路径（如果为 None，从环境变量读取）
             use_gpu: 是否使用 GPU 加速（默认 True，自动检测）
+            allow_remote: 当本地不存在时是否允许联网拉取远端模型（默认 False）
         """
         try:
             from sentence_transformers import SentenceTransformer
             
-            # 优先使用环境变量配置的本地路径
+            # 优先使用显式参数；其次使用环境变量
             if model_name is None:
-                model_path = os.getenv("EMBEDDING_MODEL_PATH", "./.models/bge-small-zh-v1.5")
-                # 转换为绝对路径
-                model_path = str(Path(model_path).resolve())
-
-                # 检查本地路径是否存在
-                if os.path.exists(model_path):
-                    model_name = model_path
-                    logger.info(f"Using local model path: {model_path}")
-                else:
-                    # 如果本地路径不存在，报错而不是尝试下载
-                    raise FileNotFoundError(f"Local model not found at {model_path}. Please download the model first.")
+                # 兼容历史变量 EMBEDDING_MODEL_PATH，同时支持更语义化的 EMBEDDING_LOCAL_MODEL
+                model_name = (
+                    os.getenv("EMBEDDING_MODEL_PATH")
+                    or os.getenv("EMBEDDING_LOCAL_MODEL")
+                    or "./.models/bge-small-zh-v1.5"
+                )
 
             # 检测设备
             if use_gpu and torch.cuda.is_available():
@@ -60,6 +57,21 @@ class LocalEmbeddingService(EmbeddingService):
                 device = 'cpu'
                 logger.info("Using CPU")
 
+            # 路径存在则视为本地目录；否则按模型名处理（是否允许联网由 allow_remote 控制）
+            local_files_only = True
+            path_candidate = Path(model_name).resolve()
+            if path_candidate.exists():
+                model_name = str(path_candidate)
+                logger.info(f"Using local model path: {model_name}")
+            else:
+                local_files_only = not allow_remote
+                if local_files_only:
+                    logger.info(
+                        "Using model id in local-only mode: %s (set EMBEDDING_ALLOW_REMOTE=true to allow download)",
+                        model_name,
+                    )
+                else:
+                    logger.info(f"Using remote-capable model id: {model_name}")
             # 加载模型 - 使用 trust_remote_code=False 避免执行远程代码
             # 使用 local_files_only=True 确保只从本地加载
             self.model = SentenceTransformer(
@@ -68,7 +80,11 @@ class LocalEmbeddingService(EmbeddingService):
                 trust_remote_code=False,
                 local_files_only=True,
             )
-            self._dimension = self.model.get_sentence_embedding_dimension()
+            _dim_fn = getattr(self.model, "get_embedding_dimension", None)
+            if callable(_dim_fn):
+                self._dimension = _dim_fn()
+            else:
+                self._dimension = self.model.get_sentence_embedding_dimension()
             self.device = device
 
             logger.info(f"Loaded local embedding model: {model_name}, dimension: {self._dimension}, device: {device}")

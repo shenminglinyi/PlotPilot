@@ -1,6 +1,7 @@
 """OpenAI 嵌入服务实现"""
 import os
 from typing import List
+import httpx
 from openai import AsyncOpenAI
 from domain.ai.services.embedding_service import EmbeddingService
 
@@ -11,19 +12,34 @@ class OpenAIEmbeddingService(EmbeddingService):
     使用 OpenAI 的 text-embedding-3-small 模型生成文本嵌入向量。
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        dimension: int | None = None,
+    ):
         """初始化 OpenAI 嵌入服务
 
         Raises:
             ValueError: 如果 OPENAI_API_KEY 环境变量未设置
         """
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = api_key or os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is required")
+            raise ValueError("EMBEDDING_API_KEY or OPENAI_API_KEY environment variable is required")
 
-        self.client = AsyncOpenAI(api_key=api_key)
-        self.model = "text-embedding-3-small"
-        self._dimension = 1536
+        base_url = base_url or os.getenv("EMBEDDING_API_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+        client_kwargs = {
+            "api_key": api_key,
+            # 与 LLM Provider 一致：显式提供 http_client，规避 openai/httpx 的 proxies 参数兼容问题
+            "http_client": httpx.AsyncClient(timeout=300.0),
+        }
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self.client = AsyncOpenAI(**client_kwargs)
+        self.model = model or os.getenv("EMBEDDING_API_MODEL", "text-embedding-3-small")
+        dim_raw = str(dimension) if dimension is not None else os.getenv("EMBEDDING_API_DIMENSION")
+        self._dimension = int(dim_raw) if dim_raw else 1536
 
     def get_dimension(self) -> int:
         """获取嵌入向量的维度

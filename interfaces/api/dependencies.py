@@ -311,7 +311,14 @@ def get_hosted_write_service() -> HostedWriteService:
 
 
 def get_llm_service():
-    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。"""
+    """获取 LLM 服务实例（根据 LLM_PROVIDER 决定使用 OpenAI 或 Anthropic，无配置用 Mock）。供多模块复用。
+
+    环境变量：
+    - LLM_PROVIDER: ``openai`` | ``anthropic``（默认 ``anthropic``）
+    - OpenAI 兼容：``OPENAI_API_KEY``、可选 ``OPENAI_BASE_URL``、``OPENAI_MODEL``（未在请求里指定或仍为 claude-* 时使用）
+    - 关闭思考/推理（OpenAI 兼容、利于 JSON 契约）：``LLM_DISABLE_REASONING=true``（在配置了 ``OPENAI_BASE_URL`` 时附加 ``chat_template_kwargs.enable_thinking=false``、Qwen assistant 预填与 ``continue_assistant_turn`` 等；解析时剥离常见思考标签）。无 base_url 时可设 ``LLM_FORCE_COMPAT_NO_THINK_EXTRAS=true``。``LLM_QWEN_ASSISTANT_PREFILL=false`` 可关闭预填。
+    - Anthropic：``ANTHROPIC_API_KEY`` 或 ``ANTHROPIC_AUTH_TOKEN``、可选 ``ANTHROPIC_BASE_URL``、``ANTHROPIC_MODEL``
+    """
     provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
     
     if provider == "openai":
@@ -402,8 +409,8 @@ def get_embedding_service():
     """获取 Embedding 服务
 
     根据环境变量选择服务类型：
-    - EMBEDDING_SERVICE=local: 使用本地模型（BAAI/bge-small-zh-v1.5）
-    - EMBEDDING_SERVICE=openai: 使用 OpenAI API（需要 OPENAI_API_KEY）
+    - EMBEDDING_SERVICE=local: 使用本地模型（默认读取 EMBEDDING_MODEL_PATH，本地路径优先；可用 EMBEDDING_LOCAL_MODEL 指定模型 ID）
+    - EMBEDDING_SERVICE=openai/external/openai_compatible: 使用 OpenAI 兼容 Embedding API
     - 默认: local
 
     如果 VECTOR_STORE_ENABLED=false，返回 None。
@@ -416,17 +423,37 @@ def get_embedding_service():
     try:
         if service_type == "local":
             from infrastructure.ai.local_embedding_service import LocalEmbeddingService
-            model_path = os.getenv("EMBEDDING_MODEL_PATH", "BAAI/bge-small-zh-v1.5")
+            model_name = (
+                os.getenv("EMBEDDING_MODEL_PATH")
+                or os.getenv("EMBEDDING_LOCAL_MODEL")
+                or "./.models/bge-small-zh-v1.5"
+            )
             use_gpu = os.getenv("EMBEDDING_USE_GPU", "true").lower() == "true"
-            logger.info(f"Using local embedding service: {model_path}, GPU: {use_gpu}")
-            return LocalEmbeddingService(model_name=model_path, use_gpu=use_gpu)
-        elif service_type == "openai":
-            if not os.getenv("OPENAI_API_KEY"):
-                logger.warning("EMBEDDING_SERVICE=openai 但 OPENAI_API_KEY 未设置，向量检索已禁用")
+            allow_remote = os.getenv("EMBEDDING_ALLOW_REMOTE", "false").lower() in ("1", "true", "yes")
+            logger.info(
+                "Using local embedding service: model=%s, GPU=%s, allow_remote=%s",
+                model_name,
+                use_gpu,
+                allow_remote,
+            )
+            return LocalEmbeddingService(model_name=model_name, use_gpu=use_gpu, allow_remote=allow_remote)
+        elif service_type in ("openai", "external", "openai_compatible"):
+            api_key = os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                logger.warning("EMBEDDING_SERVICE=%s 但 EMBEDDING_API_KEY/OPENAI_API_KEY 未设置，向量检索已禁用", service_type)
                 return None
             from infrastructure.ai.openai_embedding_service import OpenAIEmbeddingService
-            logger.info("Using OpenAI embedding service")
-            return OpenAIEmbeddingService()
+            model = os.getenv("EMBEDDING_API_MODEL", "text-embedding-3-small")
+            base_url = os.getenv("EMBEDDING_API_BASE_URL") or os.getenv("OPENAI_BASE_URL")
+            dimension_raw = (os.getenv("EMBEDDING_API_DIMENSION") or "").strip()
+            dimension = int(dimension_raw) if dimension_raw else None
+            logger.info("Using external embedding service: model=%s, base_url=%s", model, base_url or "<default>")
+            return OpenAIEmbeddingService(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                dimension=dimension,
+            )
         else:
             logger.warning(f"Unknown EMBEDDING_SERVICE: {service_type}, 向量检索已禁用")
             return None
@@ -458,6 +485,39 @@ def get_triple_indexing_service():
     return TripleIndexingService(vs, es)
 
 
+@lru_cache
+def get_triple_repository():
+    """获取三元组仓储
+    
+    Returns:
+        TripleRepository 实例
+    """
+    from infrastructure.persistence.database.triple_repository import TripleRepository
+    return TripleRepository()
+
+
+def _optional_float_env(name: str) -> Optional[float]:
+    """读取可选浮点环境变量；非法值时记录警告并返回 None。"""
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("Invalid %s=%r, ignored", name, raw)
+        return None
+
+
+def _optional_bool_tri_env(name: str) -> Optional[bool]:
+    """读取 true/false 三态：未设置返回 None；非法值返回 None。"""
+    raw = (os.getenv(name) or "").strip().lower()
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    return None
+
+
 def get_vector_store() -> Optional[VectorStore]:
     """获取向量存储
 
@@ -467,9 +527,12 @@ def get_vector_store() -> Optional[VectorStore]:
     - VECTOR_STORE_ENABLED: 是否启用向量存储（"true" 启用，默认 "true"）
     - VECTOR_STORE_TYPE: 向量存储类型（"chromadb" 或 "qdrant"，默认 "chromadb"）
     - VECTOR_STORE_PATH: ChromaDB 本地存储路径（默认 "./data/chromadb"）
-    - QDRANT_HOST: Qdrant 服务器地址（默认 "localhost"，仅 qdrant 类型）
-    - QDRANT_PORT: Qdrant 服务器端口（默认 6333，仅 qdrant 类型）
-    - QDRANT_API_KEY: Qdrant API 密钥（可选，仅 qdrant 类型）
+    - QDRANT_URL: Qdrant 完整 URL（可选；若设置则优先于 HOST+PORT，适合云端，如 https://xxx.cloud.qdrant.io:6333）
+    - QDRANT_HOST: Qdrant 服务器地址（默认 "localhost"；在 QDRANT_URL 未设置时使用）
+    - QDRANT_PORT: Qdrant REST 端口（默认 6333）
+    - QDRANT_API_KEY: Qdrant API 密钥（可选；云端通常必填）
+    - QDRANT_TIMEOUT: 客户端超时秒数（可选）
+    - QDRANT_HTTPS: 是否 HTTPS（可选，true/false；仅 host+port 模式；未设置则交给客户端默认）
 
     Returns:
         VectorStore 实例或 None
@@ -489,10 +552,25 @@ def get_vector_store() -> Optional[VectorStore]:
             return ChromaDBVectorStore(persist_directory=persist_dir)
         elif store_type == "qdrant":
             from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
+            url = (os.getenv("QDRANT_URL") or "").strip() or None
             host = os.getenv("QDRANT_HOST", "localhost")
             port = int(os.getenv("QDRANT_PORT", "6333"))
-            api_key = os.getenv("QDRANT_API_KEY")
-            return QdrantVectorStore(host=host, port=port, api_key=api_key)
+            api_key_raw = os.getenv("QDRANT_API_KEY")
+            api_key = (
+                api_key_raw.strip()
+                if api_key_raw and api_key_raw.strip()
+                else None
+            )
+            timeout = _optional_float_env("QDRANT_TIMEOUT")
+            https = _optional_bool_tri_env("QDRANT_HTTPS")
+            return QdrantVectorStore(
+                host=host,
+                port=port,
+                api_key=api_key,
+                url=url,
+                timeout=timeout,
+                https=https,
+            )
         else:
             logger.warning(f"Unknown VECTOR_STORE_TYPE: {store_type}, vector store disabled")
             return None
@@ -528,6 +606,7 @@ def get_context_builder() -> ContextBuilder:
         embedding_service=get_embedding_service(),
         foreshadowing_repository=get_foreshadowing_repository(),
         chapter_element_repository=get_chapter_element_repository(),
+        triple_repository=get_triple_repository(),
     )
 
 
