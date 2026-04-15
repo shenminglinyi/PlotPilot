@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
+import LLMSettingsFab from './components/workbench/LLMSettingsFab.vue'
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -42,6 +43,7 @@ const themeOverrides: GlobalThemeOverrides = {
             <component :is="Component" />
           </transition>
         </router-view>
+        <LLMSettingsFab />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>
