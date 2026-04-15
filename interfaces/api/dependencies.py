@@ -349,7 +349,7 @@ class MultiModelRouter(LLMService):
 
 
 def _build_provider_for_role(dyn_config, role: str) -> Optional[LLMService]:
-    """为 specific role ('default', 'cheap', 'knowledge', 'research') 动态构建一个 LLMService"""
+    """为 specific role ('default', 'cheap', 'knowledge', 'research', 'fact_review', 'genre_review', 'reader_review') 动态构建一个 LLMService"""
     if role == "default":
         provider_type = dyn_config.default_model_provider if dyn_config else "openai"
         api_key = dyn_config.default_model_api_key if dyn_config else None
@@ -365,11 +365,26 @@ def _build_provider_for_role(dyn_config, role: str) -> Optional[LLMService]:
         api_key = dyn_config.knowledge_model_api_key if dyn_config else None
         base_url = dyn_config.knowledge_model_base_url if dyn_config else None
         model_name = dyn_config.knowledge_model if dyn_config else ""
-    else:  # role == "research"
+    elif role == "research":
         provider_type = dyn_config.research_model_provider if dyn_config else "openai"
         api_key = dyn_config.research_model_api_key if dyn_config else None
         base_url = dyn_config.research_model_base_url if dyn_config else None
         model_name = dyn_config.research_model if dyn_config else ""
+    elif role == "fact_review":
+        provider_type = dyn_config.fact_review_model_provider if dyn_config else "openai"
+        api_key = dyn_config.fact_review_model_api_key if dyn_config else None
+        base_url = dyn_config.fact_review_model_base_url if dyn_config else None
+        model_name = dyn_config.fact_review_model if dyn_config else ""
+    elif role == "genre_review":
+        provider_type = dyn_config.genre_review_model_provider if dyn_config else "openai"
+        api_key = dyn_config.genre_review_model_api_key if dyn_config else None
+        base_url = dyn_config.genre_review_model_base_url if dyn_config else None
+        model_name = dyn_config.genre_review_model if dyn_config else ""
+    else:  # role == "reader_review"
+        provider_type = dyn_config.reader_review_model_provider if dyn_config else "openai"
+        api_key = dyn_config.reader_review_model_api_key if dyn_config else None
+        base_url = dyn_config.reader_review_model_base_url if dyn_config else None
+        model_name = dyn_config.reader_review_model if dyn_config else ""
         
     if not api_key:
         return None
@@ -1011,4 +1026,3 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
-
