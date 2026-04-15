@@ -127,16 +127,24 @@ export const bibleApi = {
     apiClient.post<{ message: string; novel_id: string; status_url: string }>(
       `/api/v1/bible/novels/${novelId}/generate?stage=${stage}`,
       {},
-      { timeout: 120_000 }
+      { timeout: 300_000 }
     ) as unknown as Promise<{ message: string; novel_id: string; status_url: string }>,
 
   /**
-   * Check Bible generation status
-   * GET /api/v1/bible/novels/{novelId}/bible/status
+   * generation.status: running|done|error
    */
   getBibleStatus: (novelId: string) =>
-    apiClient.get<{ exists: boolean; ready: boolean; novel_id: string }>(
-      `/api/v1/bible/novels/${novelId}/bible/status`,
-      { timeout: 60_000 }
-    ) as unknown as Promise<{ exists: boolean; ready: boolean; novel_id: string }>,
+    apiClient.get<{
+      exists: boolean
+      ready: boolean
+      novel_id: string
+      counts?: { style_notes?: number; world_settings?: number; characters?: number }
+      generation?: { status?: string; stage?: string; error?: string; step?: string; message?: string }
+    }>(`/api/v1/bible/novels/${novelId}/bible/status`, { timeout: 60_000 }) as unknown as Promise<{
+      exists: boolean
+      ready: boolean
+      novel_id: string
+      counts?: { style_notes?: number; world_settings?: number; characters?: number }
+      generation?: { status?: string; stage?: string; error?: string; step?: string; message?: string }
+    }>,
 }

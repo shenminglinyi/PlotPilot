@@ -590,11 +590,6 @@ async function startBibleGeneration() {
   bibleError.value = ''
 
   try {
-    // 第1步：只生成世界观和文风
-    await bibleApi.generateBible(props.novelId, 'worldbuilding')
-    if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-    bibleStatusText.value = '正在生成世界观和文风...'
-
     const schedulePoll = (delayMs: number) => {
       clearPollTimer()
       pollTimerRef.value = window.setTimeout(() => {
@@ -607,12 +602,19 @@ async function startBibleGeneration() {
       try {
         const status = await bibleApi.getBibleStatus(props.novelId)
         if (biblePollEpoch.value !== epoch || !generatingBible.value) return
+
+        if (status.generation?.status === 'error') {
+          clearGenerationTimers()
+          generatingBible.value = false
+          bibleError.value = status.generation?.error || '生成失败'
+          return
+        }
+
         if (status.ready) {
           clearGenerationTimers()
           generatingBible.value = false
           bibleStatusText.value = '世界观生成完成！'
 
-          // 加载 Bible + 世界观：世界观接口失败时从 Bible.world_settings 回退
           try {
             const bible = await bibleApi.getBible(props.novelId)
             bibleData.value = bible
@@ -621,7 +623,6 @@ async function startBibleGeneration() {
               const w = await worldbuildingApi.getWorldbuilding(props.novelId)
               fromApi = normalizeWorldbuildingFromApi(w as unknown as Record<string, unknown>)
             } catch {
-              /* 404 或未落库：仅用 Bible 五维扁平条目 */
             }
             const fromWs = worldbuildingFromWorldSettings(bible.world_settings)
             worldbuildingData.value = mergeWorldbuildingDisplay(fromApi, fromWs)
@@ -632,26 +633,49 @@ async function startBibleGeneration() {
           }
           return
         }
+
+        const genStatus = status.generation?.status
+        if (genStatus === 'running') {
+          bibleStatusText.value = '正在搜集资料与评审世界观...'
+        } else {
+          bibleStatusText.value = '正在准备生成...'
+        }
       } catch (error: unknown) {
         if (biblePollEpoch.value !== epoch) return
-        clearGenerationTimers()
-        generatingBible.value = false
-        const detail = formatApiError(error)
-        bibleError.value =
-          detail || '检查状态失败（网络或后端不可用），请确认本机已启动 API 并刷新重试'
+        schedulePoll(5000)
         return
       }
+
       if (biblePollEpoch.value !== epoch || !generatingBible.value) return
       schedulePoll(2000)
     }
 
-    timeoutTimerRef.value = window.setTimeout(() => {
-      if (biblePollEpoch.value !== epoch) return
-      biblePollEpoch.value += 1
-      clearGenerationTimers()
-      generatingBible.value = false
-      bibleError.value = '生成超时，请稍后在工作台手动重试'
-    }, 120000)
+    let status0: Awaited<ReturnType<typeof bibleApi.getBibleStatus>> | null = null
+    try {
+      status0 = await bibleApi.getBibleStatus(props.novelId)
+    } catch {
+      status0 = null
+    }
+
+    if (status0?.ready) {
+      bibleStatusText.value = '世界观已生成，正在加载...'
+      schedulePoll(0)
+      return
+    }
+
+    if (status0?.generation?.status === 'running' && status0?.generation?.stage === 'worldbuilding') {
+      bibleStatusText.value = '检测到后台正在生成，继续等待...'
+      schedulePoll(0)
+      return
+    }
+
+    bibleStatusText.value = '正在启动生成任务...'
+    try {
+      await bibleApi.generateBible(props.novelId, 'worldbuilding')
+    } catch {
+      bibleStatusText.value = '请求已发送，等待后台生成...'
+    }
+    if (biblePollEpoch.value !== epoch || !generatingBible.value) return
 
     schedulePoll(0)
   } catch (error: unknown) {

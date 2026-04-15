@@ -144,6 +144,7 @@ async def generate_bible(
     novel_id: str,
     background_tasks: BackgroundTasks,
     stage: str = "all",  # all / worldbuilding / characters / locations
+    force: bool = False,
     bible_generator: AutoBibleGenerator = Depends(get_auto_bible_generator),
     knowledge_generator: AutoKnowledgeGenerator = Depends(get_auto_knowledge_generator)
 ):
@@ -168,6 +169,27 @@ async def generate_bible(
     Returns:
         202 Accepted，表示生成任务已启动
     """
+    try:
+        ext = bible_generator.bible_service.get_extensions(novel_id) or {}
+        gen = ext.get("generation") if isinstance(ext.get("generation"), dict) else {}
+        if not force and isinstance(gen, dict) and gen.get("status") == "running" and gen.get("stage") == stage:
+            return {
+                "message": "Bible generation already running",
+                "novel_id": novel_id,
+                "status_url": f"/api/v1/bible/novels/{novel_id}/bible/status",
+            }
+
+        if not force and stage == "worldbuilding":
+            flags = bible_generator.bible_service.get_ready_flags(novel_id)
+            if flags.get("ready"):
+                return {
+                    "message": "Bible worldbuilding already ready",
+                    "novel_id": novel_id,
+                    "status_url": f"/api/v1/bible/novels/{novel_id}/bible/status",
+                }
+    except Exception:
+        pass
+
     async def _generate_task():
         import sys
         print(f"[TASK START] Bible generation for {novel_id}, stage={stage}", file=sys.stderr, flush=True)
@@ -208,11 +230,12 @@ async def generate_bible(
             bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{bible_data.get('style', '')}。"
 
             # 生成初始 Knowledge
-            await knowledge_generator.generate_and_save(
-                novel_id,
-                novel.title,
-                bible_summary
-            )
+            if stage != "worldbuilding":
+                await knowledge_generator.generate_and_save(
+                    novel_id,
+                    novel.title,
+                    bible_summary
+                )
             logger.info(f"Bible and Knowledge generated successfully for {novel_id}")
             try:
                 bible_generator.bible_service.update_extensions(
