@@ -26,6 +26,12 @@ class LLMConfigDTO(BaseModel):
     knowledge_model_base_url: Optional[str] = None
     knowledge_model: str = ""
 
+    # 深度研究模型 (Research Model) 配置
+    research_model_provider: str = "openai"
+    research_model_api_key: Optional[str] = None
+    research_model_base_url: Optional[str] = None
+    research_model: str = ""
+
 class DynamicSettingsManager:
     def __init__(self, config_path: Optional[Path] = None):
         if config_path is None:

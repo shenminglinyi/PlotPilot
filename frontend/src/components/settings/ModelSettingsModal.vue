@@ -51,6 +51,40 @@
             <n-select v-model:value="formData.knowledge_model" :options="knowledgeModelOptions" tag filterable />
             <template #feedback>专门用于从设定中提取复杂的知识图谱关系，建议选择逻辑推理能力较强的模型</template>
           </n-form-item>
+
+          <n-form-item label="🔍 深度研究模型 (Research Model)">
+            <n-select v-model:value="formData.research_model" :options="researchModelOptions" tag filterable />
+            <template #feedback>专门负责考据资料、提取关键词，建议选择速度较快的模型</template>
+          </n-form-item>
+        </n-card>
+        <!-- 深度研究模型配置区 -->
+        <n-card size="small" class="mb-4" title="🔍 深度研究模型 (Research Model)">
+          <template #header-extra>
+            <n-text depth="3" class="text-xs">负责考据资料、提取关键词、分析创意</n-text>
+          </template>
+
+          <n-form-item label="服务商 (Provider)">
+            <n-radio-group v-model:value="formData.research_model_provider" @update:value="() => formData.research_model = ''">
+              <n-radio-button value="openai">OpenAI 兼容 API</n-radio-button>
+              <n-radio-button value="anthropic">Anthropic (Claude)</n-radio-button>
+            </n-radio-group>
+          </n-form-item>
+
+          <n-form-item label="API Key">
+            <n-input v-model:value="formData.research_model_api_key" type="password" show-password-on="click" placeholder="sk-..." />
+          </n-form-item>
+
+          <n-form-item label="Base URL (留空则使用官方地址)">
+            <n-input v-model:value="formData.research_model_base_url" placeholder="如 https://api.openai.com/v1" />
+          </n-form-item>
+
+          <n-button type="info" dashed block @click="handleVerify('research')" :loading="verifyingResearch" class="mb-4">
+            🔗 测试研究端点并获取模型
+          </n-button>
+
+          <n-form-item label="选择研究模型">
+            <n-select v-model:value="formData.research_model" :options="researchModelOptions" tag filterable />
+          </n-form-item>
         </n-card>
       </template>
 
@@ -165,6 +199,7 @@ const message = useMessage()
 const verifyingDefault = ref(false)
 const verifyingCheap = ref(false)
 const verifyingKnowledge = ref(false)
+const verifyingResearch = ref(false)
 const saving = ref(false)
 const isUnifiedMode = ref(true)
 
@@ -181,17 +216,23 @@ const formData = ref<LLMConfig>({
   knowledge_model_provider: 'openai',
   knowledge_model_api_key: '',
   knowledge_model_base_url: '',
-  knowledge_model: ''
+  knowledge_model: '',
+  research_model_provider: 'openai',
+  research_model_api_key: '',
+  research_model_base_url: '',
+  research_model: ''
 })
 
 const defaultModelOptions = ref<{label: string, value: string}[]>([])
 const cheapModelOptions = ref<{label: string, value: string}[]>([])
 const knowledgeModelOptions = ref<{label: string, value: string}[]>([])
+const researchModelOptions = ref<{label: string, value: string}[]>([])
 
 const syncProviders = () => {
   formData.value.default_model = ''
   formData.value.cheap_model = ''
   formData.value.knowledge_model = ''
+  formData.value.research_model = ''
 }
 
 const loadData = async () => {
@@ -211,15 +252,21 @@ const loadData = async () => {
       if (formData.value.knowledge_model) {
         knowledgeModelOptions.value = [{ label: formData.value.knowledge_model, value: formData.value.knowledge_model }]
       }
+      if (formData.value.research_model) {
+        researchModelOptions.value = [{ label: formData.value.research_model, value: formData.value.research_model }]
+      }
 
-      // 推断是否属于统一模式（三个配置的值完全一样）
+      // 推断是否属于统一模式（四个配置的值完全一样）
       if (
         formData.value.default_model_provider === formData.value.cheap_model_provider &&
         formData.value.default_model_api_key === formData.value.cheap_model_api_key &&
         formData.value.default_model_base_url === formData.value.cheap_model_base_url &&
         formData.value.default_model_provider === formData.value.knowledge_model_provider &&
         formData.value.default_model_api_key === formData.value.knowledge_model_api_key &&
-        formData.value.default_model_base_url === formData.value.knowledge_model_base_url
+        formData.value.default_model_base_url === formData.value.knowledge_model_base_url &&
+        formData.value.default_model_provider === formData.value.research_model_provider &&
+        formData.value.default_model_api_key === formData.value.research_model_api_key &&
+        formData.value.default_model_base_url === formData.value.research_model_base_url
       ) {
         isUnifiedMode.value = true
       } else {
@@ -231,7 +278,7 @@ const loadData = async () => {
   }
 }
 
-const handleVerify = async (role: 'default' | 'cheap' | 'knowledge') => {
+const handleVerify = async (role: 'default' | 'cheap' | 'knowledge' | 'research') => {
   const p = formData.value.default_model_provider
   const key = formData.value.default_model_api_key
   const base = formData.value.default_model_base_url
@@ -248,6 +295,10 @@ const handleVerify = async (role: 'default' | 'cheap' | 'knowledge') => {
     p_target = formData.value.knowledge_model_provider
     key_target = formData.value.knowledge_model_api_key
     base_target = formData.value.knowledge_model_base_url
+  } else if (role === 'research') {
+    p_target = formData.value.research_model_provider
+    key_target = formData.value.research_model_api_key
+    base_target = formData.value.research_model_base_url
   }
 
   const targetKey = key_target
@@ -258,7 +309,8 @@ const handleVerify = async (role: 'default' | 'cheap' | 'knowledge') => {
 
   if (role === 'default') verifyingDefault.value = true
   else if (role === 'cheap') verifyingCheap.value = true
-  else verifyingKnowledge.value = true
+  else if (role === 'knowledge') verifyingKnowledge.value = true
+  else verifyingResearch.value = true
 
   try {
     const targetProvider = p_target
@@ -270,14 +322,16 @@ const handleVerify = async (role: 'default' | 'cheap' | 'knowledge') => {
       const opts = res.models.map((m: string) => ({ label: m, value: m }))
 
       if (isUnifiedMode.value) {
-        // 统一模式下，一次请求更新三个下拉框
+        // 统一模式下，一次请求更新四个下拉框
         defaultModelOptions.value = opts
         cheapModelOptions.value = opts
         knowledgeModelOptions.value = opts
+        researchModelOptions.value = opts
       } else {
         if (role === 'default') defaultModelOptions.value = opts
         else if (role === 'cheap') cheapModelOptions.value = opts
-        else knowledgeModelOptions.value = opts
+        else if (role === 'knowledge') knowledgeModelOptions.value = opts
+        else researchModelOptions.value = opts
       }
 
       message.success(`成功获取 ${res.models.length} 个模型`)
@@ -287,14 +341,15 @@ const handleVerify = async (role: 'default' | 'cheap' | 'knowledge') => {
   } finally {
     if (role === 'default') verifyingDefault.value = false
     else if (role === 'cheap') verifyingCheap.value = false
-    else verifyingKnowledge.value = false
+    else if (role === 'knowledge') verifyingKnowledge.value = false
+    else verifyingResearch.value = false
   }
 }
 
 const handleSave = async () => {
   saving.value = true
 
-  // 如果是统一模式，保存前把 default 的配置强行复制给 cheap 和 knowledge
+  // 如果是统一模式，保存前把 default 的配置强行复制给其他三个
   if (isUnifiedMode.value) {
     formData.value.cheap_model_provider = formData.value.default_model_provider
     formData.value.cheap_model_api_key = formData.value.default_model_api_key
@@ -303,6 +358,10 @@ const handleSave = async () => {
     formData.value.knowledge_model_provider = formData.value.default_model_provider
     formData.value.knowledge_model_api_key = formData.value.default_model_api_key
     formData.value.knowledge_model_base_url = formData.value.default_model_base_url
+
+    formData.value.research_model_provider = formData.value.default_model_provider
+    formData.value.research_model_api_key = formData.value.default_model_api_key
+    formData.value.research_model_base_url = formData.value.default_model_base_url
   }
   
   try {

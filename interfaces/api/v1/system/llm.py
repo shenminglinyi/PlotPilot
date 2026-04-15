@@ -28,6 +28,8 @@ async def get_config():
         masked_config.cheap_model_api_key = "sk-..." + masked_config.cheap_model_api_key[-4:] if len(masked_config.cheap_model_api_key) > 4 else "***"
     if masked_config.knowledge_model_api_key:
         masked_config.knowledge_model_api_key = "sk-..." + masked_config.knowledge_model_api_key[-4:] if len(masked_config.knowledge_model_api_key) > 4 else "***"
+    if masked_config.research_model_api_key:
+        masked_config.research_model_api_key = "sk-..." + masked_config.research_model_api_key[-4:] if len(masked_config.research_model_api_key) > 4 else "***"
     return masked_config
 
 @router.post("/config")
@@ -40,6 +42,8 @@ async def save_config(config: LLMConfigDTO):
             config.cheap_model_api_key = old_config.cheap_model_api_key
         if config.knowledge_model_api_key and config.knowledge_model_api_key.startswith("sk-..."):
             config.knowledge_model_api_key = old_config.knowledge_model_api_key
+        if config.research_model_api_key and config.research_model_api_key.startswith("sk-..."):
+            config.research_model_api_key = old_config.research_model_api_key
 
     manager.save_config(config)
     return {"status": "success"}

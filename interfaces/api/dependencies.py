@@ -349,7 +349,7 @@ class MultiModelRouter(LLMService):
 
 
 def _build_provider_for_role(dyn_config, role: str) -> Optional[LLMService]:
-    """为 specific role ('default', 'cheap', 'knowledge') 动态构建一个 LLMService"""
+    """为 specific role ('default', 'cheap', 'knowledge', 'research') 动态构建一个 LLMService"""
     if role == "default":
         provider_type = dyn_config.default_model_provider if dyn_config else "openai"
         api_key = dyn_config.default_model_api_key if dyn_config else None
@@ -360,11 +360,16 @@ def _build_provider_for_role(dyn_config, role: str) -> Optional[LLMService]:
         api_key = dyn_config.cheap_model_api_key if dyn_config else None
         base_url = dyn_config.cheap_model_base_url if dyn_config else None
         model_name = dyn_config.cheap_model if dyn_config else ""
-    else:  # role == "knowledge"
+    elif role == "knowledge":
         provider_type = dyn_config.knowledge_model_provider if dyn_config else "openai"
         api_key = dyn_config.knowledge_model_api_key if dyn_config else None
         base_url = dyn_config.knowledge_model_base_url if dyn_config else None
         model_name = dyn_config.knowledge_model if dyn_config else ""
+    else:  # role == "research"
+        provider_type = dyn_config.research_model_provider if dyn_config else "openai"
+        api_key = dyn_config.research_model_api_key if dyn_config else None
+        base_url = dyn_config.research_model_base_url if dyn_config else None
+        model_name = dyn_config.research_model if dyn_config else ""
         
     if not api_key:
         return None

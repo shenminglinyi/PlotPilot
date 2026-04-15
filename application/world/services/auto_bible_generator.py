@@ -270,12 +270,18 @@ class AutoBibleGenerator:
         logger = logging.getLogger(__name__)
         logger.info("Starting background research for premise...")
 
-        # 获取专门用于数据提取和摘要的便宜模型 (Cheap Model)
+        # 获取专门用于深度研究的模型 (Research Model)
         target_model = ""
         from infrastructure.ai.config.dynamic_settings import DynamicSettingsManager
+        from interfaces.api.dependencies import _build_provider_for_role
+        
         dyn_config = DynamicSettingsManager().load_config()
-        if dyn_config and dyn_config.cheap_model:
-            target_model = dyn_config.cheap_model
+        research_provider = _build_provider_for_role(dyn_config, "research")
+        
+        # 如果单独配置了 research_model，则使用 research_provider，否则回退到主 llm_service
+        actual_llm_service = research_provider if research_provider else self.llm_service
+        if dyn_config and dyn_config.research_model:
+            target_model = dyn_config.research_model
 
         # 1. 提炼搜索关键词 (不使用 JSON 以求稳定)
         extract_prompt = Prompt(
@@ -283,7 +289,7 @@ class AutoBibleGenerator:
             user=f"创意：{premise}\n请输出2个最需要考据的搜索关键词："
         )
         config = GenerationConfig(model=target_model, max_tokens=100, temperature=0.3)
-        keyword_result = await self.llm_service.generate(extract_prompt, config)
+        keyword_result = await actual_llm_service.generate(extract_prompt, config)
         
         # 强制清理可能的 JSON 残留
         content = keyword_result.content.strip()
@@ -309,7 +315,7 @@ class AutoBibleGenerator:
             user=f"用户创意：{premise}\n\n【真实网络资料】\n{combined_materials}\n\n请不要输出任何 JSON 代码块！只输出纯 Markdown 格式的《背景考据白皮书》："
         )
         report_config = GenerationConfig(model=target_model, max_tokens=2048, temperature=0.5)
-        report_result = await self.llm_service.generate(report_prompt, report_config)
+        report_result = await actual_llm_service.generate(report_prompt, report_config)
         
         content = report_result.content.strip()
         # 终极兜底：如果它还是脑抽输出了 JSON 格式的假结果

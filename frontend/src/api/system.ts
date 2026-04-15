@@ -16,6 +16,11 @@ export interface LLMConfig {
   knowledge_model_api_key?: string
   knowledge_model_base_url?: string
   knowledge_model: string
+
+  research_model_provider: string
+  research_model_api_key?: string
+  research_model_base_url?: string
+  research_model: string
 }
 
 export function getLLMConfig() {
