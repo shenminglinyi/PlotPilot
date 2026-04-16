@@ -78,7 +78,9 @@ class OpenAIProvider(BaseProvider):
                 except openai.NotFoundError as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
-                    # 往下执行降级到 Chat Completions
+                except self.EmptyResponseError as e:
+                    logger.warning(f"Responses API returned empty content for {base_url}, falling back to chat completions: {str(e)}")
+                    self.__class__._fallback_to_chat_cache.add(base_url)
                 except Exception as e:
                     # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
                     if "404" in str(e) or "Not Found" in str(e):
@@ -150,6 +152,9 @@ class OpenAIProvider(BaseProvider):
                 except openai.NotFoundError:
                     self.__class__._fallback_to_chat_cache.add(base_url)
                     logger.info(f"Stream: Responses API unsupported for {base_url}, falling back.")
+                except self.EmptyResponseError:
+                    self.__class__._fallback_to_chat_cache.add(base_url)
+                    logger.warning(f"Stream: Responses API returned empty for {base_url}, falling back.")
                 except Exception as e:
                     if "404" in str(e) or "Not Found" in str(e):
                         self.__class__._fallback_to_chat_cache.add(base_url)
@@ -220,6 +225,10 @@ class OpenAIProvider(BaseProvider):
             kwargs["stream"] = True
         return kwargs
 
+    class EmptyResponseError(RuntimeError):
+        """Responses API 返回空内容时的异常"""
+        pass
+
     async def _generate_via_responses(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
         """原生 Responses API 生成调用封装"""
         request_kwargs = self._build_responses_request_kwargs(prompt, config)
@@ -235,7 +244,7 @@ class OpenAIProvider(BaseProvider):
                             content = str(getattr(part, "text", "")).strip()
                             break
         if not content:
-            raise RuntimeError("Responses API returned empty content")
+            raise self.EmptyResponseError("Responses API returned empty content")
             
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
@@ -313,3 +322,5 @@ class OpenAIProvider(BaseProvider):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
+
+		
