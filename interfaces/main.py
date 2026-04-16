@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
+from starlette.requests import Request
 import threading
 import multiprocessing
 
@@ -95,7 +96,8 @@ logger.info("=" * 80)
 app = FastAPI(
     title="PlotPilot API",
     version="2.0.0",
-    description="PlotPilot（墨枢）AI 小说创作平台 API"
+    description="PlotPilot（墨枢）AI 小说创作平台 API",
+    redirect_slashes=True,  # 自动将 /api/v1/novels 重定向到 /api/v1/novels/
 )
 
 # ── 前端静态文件托管 ──
@@ -443,11 +445,21 @@ async def health_check():
 # ── SPA fallback：前端路由兜底（必须在 API 路由之后注册）──
 if _FRONTEND_DIR.exists() and _INDEX_HTML.exists():
     @app.get("/{full_path:path}", include_in_schema=False)
-    async def spa_fallback(full_path: str):
+    @app.post("/{full_path:path}", include_in_schema=False)
+    @app.put("/{full_path:path}", include_in_schema=False)
+    @app.patch("/{full_path:path}", include_in_schema=False)
+    @app.delete("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str, req: Request):
         """SPA fallback — 所有未匹配的路径返回 index.html"""
-        # 排除 API 路径和静态资源
-        if full_path.startswith("api/") or full_path.startswith("assets/") or full_path.startswith("_"):
-            from fastapi.responses import JSONResponse
+        # 排除 API 路径、统计路由和静态资源
+        if (full_path.startswith("api/") or full_path.startswith("stats/")
+                or full_path.startswith("assets/") or full_path.startswith("_")):
+            # 对无尾部斜杠的 API 路径做 307 重定向到带斜杠版本
+            if not full_path.endswith('/'):
+                redirect_url = req.url.path + '/'
+                if req.url.query:
+                    redirect_url += '?' + req.url.query
+                return RedirectResponse(url=redirect_url, status_code=307)
             return JSONResponse({"error": "Not Found"}, status_code=404)
         return FileResponse(str(_INDEX_HTML), media_type="text/html")
 
