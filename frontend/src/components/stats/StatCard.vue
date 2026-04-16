@@ -1,7 +1,18 @@
 <template>
   <article class="stat-card" :class="{ loading: loading }">
-    <div class="stat-icon-wrap">
-      <span v-if="icon" class="stat-icon">{{ icon }}</span>
+    <div v-if="icon" class="stat-icon-wrap" aria-hidden="true">
+      <svg v-if="icon === 'books'" class="stat-icon-svg" viewBox="0 0 24 24" fill="none">
+        <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H17a3 3 0 0 1 3 3v11a1 1 0 0 1-1.45.9A4 4 0 0 0 16.8 18H6a2 2 0 0 1-2-2V5.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M8 8h8M8 11h8M8 14h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+      <svg v-else-if="icon === 'chapters'" class="stat-icon-svg" viewBox="0 0 24 24" fill="none">
+        <path d="M7 3.8h7.6L19 8.2V20H7V3.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M14.5 3.8v4.4H19" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+        <path d="M10 11h6M10 14h6M10 17h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+      <svg v-else-if="icon === 'words'" class="stat-icon-svg" viewBox="0 0 24 24" fill="none">
+        <path d="M4 18.5h16M7 16l2.4-8 2.6 6 2.4-6 2.6 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
     </div>
     <div class="stat-content">
       <span class="stat-title">{{ title }}</span>
@@ -32,7 +43,7 @@ interface TrendData {
 interface Props {
   title: string
   value: number | string
-  icon?: string
+  icon?: 'books' | 'chapters' | 'words'
   trend?: TrendData
   loading?: boolean
   unit?: string
@@ -53,11 +64,11 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 <style scoped>
 .stat-card {
   background: var(--app-surface);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 10px;
+  padding: 12px;
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 10px;
   box-shadow: var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
   transition: all 0.2s ease;
   position: relative;
@@ -91,26 +102,25 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 }
 
 .stat-icon-wrap {
-  width: 40px;
-  height: 40px;
-  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
-  border-radius: 10px;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: var(--app-text-secondary, #64748b);
 }
 
-.stat-icon {
-  font-size: 20px;
-  line-height: 1;
+.stat-icon-svg {
+  width: 22px;
+  height: 22px;
 }
 
 .stat-content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -128,7 +138,7 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
 }
 
 .stat-value {
-  font-size: 26px;
+  font-size: 22px;
   font-weight: 800;
   color: var(--app-text-primary, #1e293b);
   line-height: 1.1;

@@ -611,6 +611,7 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
     extra_query TEXT NOT NULL DEFAULT '{}',
     extra_body TEXT NOT NULL DEFAULT '{}',
     notes TEXT NOT NULL DEFAULT '',
+    use_legacy_chat_completions INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

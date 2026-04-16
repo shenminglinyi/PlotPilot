@@ -10,21 +10,32 @@
       <span class="global-llm-glow"></span>
 
       <span class="global-llm-main-content">
-        <span class="global-llm-icon-core">
-          <span class="global-llm-icon-grid"></span>
-          <span class="global-llm-icon-chip">⚙️</span>
-          <span class="global-llm-icon-spark">✦</span>
-        </span>
+        <template v-if="appearance === 'sidebar'">
+          <span class="global-llm-plain-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="global-llm-title">AI 控制台</span>
+        </template>
+        <template v-else>
+          <span class="global-llm-icon-core">
+            <span class="global-llm-icon-grid"></span>
+            <span class="global-llm-icon-chip">⚙️</span>
+            <span class="global-llm-icon-spark">✦</span>
+          </span>
 
-        <span class="global-llm-copy">
-          <span class="global-llm-title-row">
-            <span class="global-llm-title">AI 控制台</span>
-            <span class="global-llm-status"></span>
+          <span class="global-llm-copy">
+            <span class="global-llm-title-row">
+              <span class="global-llm-title">AI 控制台</span>
+              <span class="global-llm-status"></span>
+            </span>
+            <span class="global-llm-subtitle">
+              {{ drawerTab === 'embedding' ? '嵌入模型 · 向量检索配置' : 'LLM Gateway · OpenAI / Claude / Gemini' }}
+            </span>
           </span>
-          <span v-if="appearance !== 'sidebar'" class="global-llm-subtitle">
-            {{ drawerTab === 'embedding' ? '嵌入模型 · 向量检索配置' : 'LLM Gateway · OpenAI / Claude / Gemini' }}
-          </span>
-        </span>
+        </template>
       </span>
     </button>
 
@@ -380,10 +391,14 @@ function openPanel() {
 
 .global-llm-main.variant-sidebar {
   width: 100%;
-  min-height: 0;
-  padding: 14px 12px;
-  border-radius: 12px;
-  box-shadow: var(--app-shadow-sm), 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
+  min-height: 58px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  color: var(--app-text-inverse, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
+  box-shadow: none;
 }
 
 .global-llm-main:hover {
@@ -393,7 +408,10 @@ function openPanel() {
 }
 
 .global-llm-main.variant-sidebar:hover {
-  box-shadow: var(--app-shadow-sm), 0 2px 8px var(--color-brand-border, rgba(79, 70, 229, 0.18));
+  filter: none;
+  transform: none;
+  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  box-shadow: none;
 }
 
 .global-llm-glow {
@@ -413,8 +431,40 @@ function openPanel() {
   gap: 12px;
 }
 .global-llm-main.variant-sidebar .global-llm-main-content {
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  justify-content: center;
+  gap: 8px;
+}
+
+.global-llm-main.variant-sidebar .global-llm-glow {
+  display: none;
+}
+
+.global-llm-plain-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-inverse, #ffffff);
+}
+
+.global-llm-plain-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+[data-theme='anchor'] .global-llm-main.variant-sidebar {
+  background: linear-gradient(135deg, var(--color-brand-hover, #ddb930) 0%, var(--color-brand, #c9a227) 55%, var(--color-brand-pressed, #a88a1f) 100%);
+  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 62%, transparent);
+  box-shadow: none;
+}
+
+[data-theme='anchor'] .global-llm-main.variant-sidebar:hover {
+  transform: none;
+  filter: none;
+  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 74%, transparent);
+  box-shadow: none;
 }
 
 .global-llm-icon-core {
@@ -501,7 +551,10 @@ function openPanel() {
   letter-spacing: 0.02em;
 }
 .global-llm-main.variant-sidebar .global-llm-title { 
-  font-size: 12px; 
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .global-llm-status {

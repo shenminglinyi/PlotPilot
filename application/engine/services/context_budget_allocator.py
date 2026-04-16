@@ -69,6 +69,7 @@ class BudgetAllocation:
     # 压缩标记
     compression_applied: bool = False
     compression_log: List[str] = field(default_factory=list)
+    expired_foreshadows: List[str] = field(default_factory=list)
     
     def get_final_context(self) -> str:
         """组装最终上下文"""
@@ -83,6 +84,13 @@ class BudgetAllocation:
             for name, slot in tier_slots:
                 if slot.content.strip():
                     parts.append(f"\n=== {slot.name.upper()} ===\n{slot.content}")
+        
+        # 追加强制收束指令
+        if self.expired_foreshadows:
+            parts.append("\n=== 🚨强制剧情收束令🚨 ===\n" + 
+                         "以下伏笔已超出预期揭晓章节，必须在本章或本节拍的行文中，通过回忆、对话、意外发展或直接揭露等方式去解答或明显推进悬念：\n" + 
+                         "\n".join(f"- {f}" for f in self.expired_foreshadows) + 
+                         "\n【如果你无视此指令，长篇小说的情节网将陷入崩溃】")
         
         return "\n".join(parts)
 
@@ -204,6 +212,14 @@ class ContextBudgetAllocator:
         
         # ========== 第一步：收集所有内容 ==========
         slots = self._collect_all_slots(novel_id, chapter_number, outline, scene_director)
+        
+        # 提取过期伏笔用于终端强制约束
+        pending_fs_slot = slots.get("pending_foreshadowings")
+        if pending_fs_slot and pending_fs_slot.content:
+            for line in pending_fs_slot.content.split('\n'):
+                if "🔴已过期" in line:
+                    desc = line.split(":", 1)[-1].strip() if ":" in line else line.strip()
+                    allocation.expired_foreshadows.append(desc)
         
         # ========== 第二步：计算 T0 强制保留量 ==========
         t0_slots = {name: slot for name, slot in slots.items() if slot.tier == PriorityTier.T0_CRITICAL}

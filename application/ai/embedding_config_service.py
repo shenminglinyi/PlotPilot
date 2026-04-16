@@ -108,7 +108,7 @@ class EmbeddingConfigService:
             "default", "local", "", "", "text-embedding-3-small",
             1, "BAAI/bge-small-zh-v1.5", now, now,
         ))
-        db.commit()
+        db.get_connection().commit()
         logger.info("EmbeddingConfigService: 已初始化默认嵌入配置")
 
     def get_config(self) -> EmbeddingConfigModel:
@@ -158,7 +158,7 @@ class EmbeddingConfigService:
 
         sql = f"UPDATE embedding_config SET {', '.join(set_clauses)} WHERE id = ?"
         db.execute(sql, params)
-        db.commit()
+        db.get_connection().commit()
 
         logger.info("EmbeddingConfigService: 配置已更新，字段: %s", list(kwargs.keys()))
         return self.get_config()
