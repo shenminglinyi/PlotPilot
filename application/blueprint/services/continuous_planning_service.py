@@ -39,10 +39,14 @@ def _sanitize_llm_json_output(raw: str) -> str:
 
 
 def _extract_outer_json_value(text: str) -> str:
-    starts = [idx for idx in (text.find("{"), text.find("[")) if idx != -1]
-    if not starts:
+    obj_start = text.find("{")
+    arr_start = text.find("[")
+    if obj_start != -1:
+        start = obj_start
+    elif arr_start != -1:
+        start = arr_start
+    else:
         return text
-    start = min(starts)
 
     root_char = text[start]
     root_close = "}" if root_char == "{" else "]"

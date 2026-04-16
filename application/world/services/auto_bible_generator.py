@@ -455,54 +455,12 @@ JSON 格式（不要有其他文字）：
 
 只输出 JSON，不要有任何解释文字。"""
 
-        prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        bible_data = await self._call_llm_and_parse(system_prompt, user_prompt)
+        if bible_data:
+            return bible_data
 
-        result = await self.llm_service.generate(prompt, config)
-
-        # 解析 JSON
-        try:
-            content = result.content.strip()
-
-            # 移除可能的 markdown 代码块标记
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            content = content.strip()
-
-            # 尝试找到第一个 { 和最后一个 }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-
-            logger.info(f"Attempting to parse Bible JSON (length: {len(content)})")
-
-            # 尝试直接解析
-            try:
-                bible_data = json.loads(content)
-                logger.info(f"Successfully parsed Bible JSON")
-                return bible_data
-            except json.JSONDecodeError as e:
-                # 如果失败，尝试修复常见问题
-                logger.warning(f"First parse attempt failed: {e}, trying to repair JSON...")
-
-                # 使用 json.loads 的 strict=False 模式
-                import re
-                # 移除字符串中的控制字符和多余的空白
-                content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
-
-                bible_data = json.loads(content, strict=False)
-                logger.info(f"Successfully parsed Bible JSON after repair")
-                return bible_data
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Bible JSON: {e}")
-            logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
-            # 返回默认结构
-            return {
+        logger.error("Failed to generate Bible data, falling back to default structure")
+        return {
                 "characters": [
                     {
                         "name": "主角",

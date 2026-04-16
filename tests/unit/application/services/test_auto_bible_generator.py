@@ -57,3 +57,21 @@ async def test_call_llm_and_parse_returns_empty_dict_when_content_is_unrecoverab
     result = await svc._call_llm_and_parse("system", "user")
 
     assert result == {}
+
+
+@pytest.mark.asyncio
+async def test_generate_bible_data_uses_hardened_parser_path():
+    llm = Mock()
+    llm.generate = AsyncMock(
+        return_value=GenerationResult(
+            content='{"characters":[],"locations":[],"style":"s","worldbuilding":{}}',
+            token_usage=TokenUsage(input_tokens=1, output_tokens=1),
+        )
+    )
+    svc = AutoBibleGenerator(llm_service=llm, bible_service=Mock())
+
+    result = await svc._generate_bible_data("premise", 10)
+
+    assert result["style"] == "s"
+    _, config = llm.generate.await_args.args
+    assert config.max_tokens == 4096

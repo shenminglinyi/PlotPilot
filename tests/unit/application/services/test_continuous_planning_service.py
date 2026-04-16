@@ -1,6 +1,9 @@
 from unittest.mock import Mock
 
-from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
+from application.blueprint.services.continuous_planning_service import (
+    ContinuousPlanningService,
+    _extract_outer_json_value,
+)
 
 
 def _make_service() -> ContinuousPlanningService:
@@ -94,3 +97,11 @@ def test_parse_llm_response_repairs_missing_comma_between_fields():
     assert result["theme"] == "权谋成长"
     assert result["parts"][0]["title"] == "第一部"
     assert result["parts"][0]["volumes"][0]["title"] == "卷一"
+
+
+def test_extract_outer_json_value_prefers_object_root_over_leading_array():
+    text = '["noise"] {"parts": [], "theme": "x"}'
+
+    result = _extract_outer_json_value(text)
+
+    assert result == '{"parts": [], "theme": "x"}'
