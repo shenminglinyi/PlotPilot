@@ -1076,7 +1076,7 @@ async def sync_chapter_narrative_after_save(
                 try:
                     from application.engine.services.context_builder import ContextBuilder
                     # 使用静态启发式生成节拍（无需实例化）
-                    beats = ContextBuilder(None, None, None, None, None, None).magnify_outline_to_beats(outline_text)
+                    beats = ContextBuilder(None, None, None, None, None, None).magnify_outline_to_beats(chapter_number, outline_text)
                     micro_beats = [
                         {
                             "description": beat.description,
