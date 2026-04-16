@@ -1,0 +1,11 @@
+仿生记忆算法空间
+显著性衰减算法 (Salience Decay)
+公式： S_now = S_initial * (1 - decay_rate) ^ ΔChapter
+当一个实体（如龙套 A）在 20 章内未被提及，其 S 分值降至阈值（50）以下，在下一次生成时将被排除出上下文。主角和核心主线实体的 decay_rate 被设定为 0。
+时间感知图谱 (Temporal Graph)
+图数据库中的关系必须携带时间维。Cypher 检索逻辑：
+
+MATCH (p:Person {name: "亚瑟"})-[r:HOLDS]->(i:Item {name: "圣剑"})
+WHERE r.from_chapter <= $current_chapter 
+  AND (r.to_chapter IS NULL OR r.to_chapter >= $current_chapter)
+RETURN i.state
