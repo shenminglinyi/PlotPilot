@@ -1,5 +1,6 @@
 """OpenAI LLM 提供商实现"""
 import logging
+import openai
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -19,9 +20,12 @@ class OpenAIProvider(BaseProvider):
     """OpenAI LLM 提供商实现
 
     通过 use_legacy_chat_completions 显式选择协议：
-    - False（默认）：走 Responses API
+    - False（默认）：走 Responses API，失败时自动降级到 Chat Completions
     - True：走 Chat Completions API
     """
+
+    # 静态类级别缓存：记录哪些 base_url 不支持 Responses API，从而避免重复降级带来的延迟开销
+    _fallback_to_chat_cache: set[str] = set()
 
     def __init__(self, settings: Settings):
         super().__init__(settings)
@@ -48,9 +52,25 @@ class OpenAIProvider(BaseProvider):
         config: GenerationConfig
     ) -> GenerationResult:
         try:
-            if self._use_legacy:
-                return await self._generate_via_chat(prompt, config)
-            return await self._generate_via_responses(prompt, config)
+            base_url = self.settings.base_url or "https://api.openai.com/v1"
+            use_responses = not self._use_legacy and base_url not in self.__class__._fallback_to_chat_cache
+
+            if use_responses:
+                try:
+                    return await self._generate_via_responses(prompt, config)
+                except (openai.NotFoundError, openai.BadRequestError, RuntimeError) as e:
+                    logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
+                    self.__class__._fallback_to_chat_cache.add(base_url)
+                except Exception as e:
+                    # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
+                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
+                        logger.info(f"Gateway returned error for Responses API ({base_url}), falling back: {str(e)}")
+                        self.__class__._fallback_to_chat_cache.add(base_url)
+                    else:
+                        raise
+
+            # 使用降级的 Chat Completions API
+            return await self._generate_via_chat(prompt, config)
         except RuntimeError:
             raise
         except Exception as e:
@@ -85,21 +105,38 @@ class OpenAIProvider(BaseProvider):
         config: GenerationConfig
     ) -> AsyncIterator[str]:
         try:
-            if self._use_legacy:
-                messages = self._build_messages(prompt)
-                request_kwargs = self._build_chat_request_kwargs(messages, config, stream=True)
-                stream = await self.async_client.chat.completions.create(**request_kwargs)
-                async for chunk in stream:
-                    content = self._extract_text_from_stream_chunk(chunk)
-                    if content:
-                        yield content
-            else:
-                request_kwargs = self._build_responses_request_kwargs(prompt, config, stream=True)
-                stream = await self.async_client.responses.create(**request_kwargs)
-                async for chunk in stream:
-                    content = self._extract_text_from_responses_chunk(chunk)
-                    if content:
-                        yield content
+            base_url = self.settings.base_url or "https://api.openai.com/v1"
+            use_responses = not self._use_legacy and base_url not in self.__class__._fallback_to_chat_cache
+
+            if use_responses:
+                try:
+                    # 尝试走 Responses 流式 API
+                    request_kwargs = self._build_responses_request_kwargs(prompt, config, stream=True)
+                    stream = await self.async_client.responses.create(**request_kwargs)
+                    async for chunk in stream:
+                        content = self._extract_text_from_responses_chunk(chunk)
+                        if content:
+                            yield content
+                    return  # 正常完成则结束 generator
+                except (openai.NotFoundError, openai.BadRequestError):
+                    self.__class__._fallback_to_chat_cache.add(base_url)
+                    logger.info(f"Stream: Responses API unsupported for {base_url}, falling back.")
+                except Exception as e:
+                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
+                        self.__class__._fallback_to_chat_cache.add(base_url)
+                        logger.info(f"Stream: Gateway returned error for Responses API ({base_url}), falling back.")
+                    else:
+                        logger.error(f"[Responses Stream] Failed: {e}")
+                        raise
+
+            # 降级：走原来的 Chat Completions 流式 API
+            messages = self._build_messages(prompt)
+            request_kwargs = self._build_chat_request_kwargs(messages, config, stream=True)
+            stream = await self.async_client.chat.completions.create(**request_kwargs)
+            async for chunk in stream:
+                content = self._extract_text_from_stream_chunk(chunk)
+                if content:
+                    yield content
         except Exception as e:
             logger.error(f"[Stream] Failed: {e}")
             raise RuntimeError(f"Failed to stream text: {str(e)}") from e
@@ -148,7 +185,7 @@ class OpenAIProvider(BaseProvider):
         }
         if self.settings.extra_body:
              kwargs.update(self.settings.extra_body)
-             
+
         if stream:
             kwargs["stream"] = True
         return kwargs
@@ -169,12 +206,12 @@ class OpenAIProvider(BaseProvider):
                             break
         if not content:
             raise RuntimeError("Responses API returned empty content")
-            
+
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
-        
+
         return GenerationResult(
-            content=content, 
+            content=content,
             token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
         )
 
@@ -246,5 +283,3 @@ class OpenAIProvider(BaseProvider):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
-
-		

@@ -10,6 +10,7 @@ from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.core.services.novel_service import NovelService
+from application.ai.knowledge_llm_contract import parse_json_from_response
 
 logger = logging.getLogger(__name__)
 
@@ -112,18 +113,7 @@ class SetupMainPlotSuggestionService:
 
     @staticmethod
     def _parse_plot_json(raw: str) -> List[Dict[str, Any]]:
-        content = raw.strip()
-        if "```json" in content:
-            content = content.split("```json", 1)[1].split("```", 1)[0]
-        elif "```" in content:
-            content = content.split("```", 1)[1].split("```", 1)[0]
-        content = content.strip()
-        start = content.find("{")
-        end = content.rfind("}")
-        if start != -1 and end != -1:
-            content = content[start : end + 1]
-        content = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", content)
-        data = json.loads(content, strict=False)
+        data = parse_json_from_response(raw)
         opts = data.get("plot_options")
         if not isinstance(opts, list):
             raise ValueError("plot_options must be a list")
@@ -190,7 +180,6 @@ class SetupMainPlotSuggestionService:
    - 选项 C：异类/变数觉醒（主角具备颠覆当前世界规则的异常属性或认知）。
 2. 张力前置：每个方案必须写清核心冲突（谁对抗谁、赌注/代价是什么）。
 3. 结合输入中的世界观、主角与地点，避免空泛套路句，要有具体钩子。
-4. 输出必须是合法 JSON，不要 Markdown、不要代码围栏、不要解释文字。
 
 JSON Schema：
 {
@@ -205,7 +194,14 @@ JSON Schema：
     }
   ]
 }
-必须恰好包含 3 个元素，顺序对应 A/B/C 三类切入点。"""
+必须恰好包含 3 个元素，顺序对应 A/B/C 三类切入点。
+
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{
+  "plot_options": []
+}
+```"""
 
         user_prompt = f"""{SETUP_TASK_MARKER}
 

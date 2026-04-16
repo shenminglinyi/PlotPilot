@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingConfigModel(BaseModel):
     """嵌入配置数据模型。"""
+    model_config = {"protected_namespaces": ()}
     id: str = "default"
     mode: str = "openai"  # local | openai（默认云端，轻量）
     api_key: str = ""
