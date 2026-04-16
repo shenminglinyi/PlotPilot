@@ -3,6 +3,7 @@ import logging
 import json
 import uuid
 import sys
+import re
 from typing import Dict, Any
 from datetime import datetime
 from domain.ai.services.llm_service import LLMService, GenerationConfig
@@ -14,6 +15,118 @@ from infrastructure.persistence.database.triple_repository import TripleReposito
 from domain.shared.exceptions import EntityNotFoundError
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_llm_json_output(raw: str) -> str:
+    content = (raw or "").strip()
+    content = re.sub(r"\x1b\[[0-9;]*m", "", content)
+    content = re.sub(r"<think\|?>.*?</think\|?>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<thinking>.*?</thinking>", "", content, flags=re.DOTALL)
+    if "```json" in content:
+        content = content.split("```json", 1)[1].split("```", 1)[0]
+    elif "```" in content:
+        content = content.split("```", 1)[1].split("```", 1)[0]
+    return content.strip()
+
+
+def _extract_outer_json_object(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1:
+        return text
+    if end != -1 and end > start:
+        return text[start : end + 1]
+    return text[start:]
+
+
+def _repair_json_string(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return text
+
+    try:
+        json.loads(text)
+        return text
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    def _close_json(s: str) -> str:
+        s = s.strip()
+        if not s:
+            return "{}"
+
+        in_string = False
+        escape = False
+        stack = []
+        result = []
+
+        for ch in s:
+            if escape:
+                result.append(ch)
+                escape = False
+                continue
+            if ch == "\\" and in_string:
+                result.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                result.append(ch)
+                continue
+            if in_string:
+                result.append(ch)
+                continue
+            if ch == "{":
+                stack.append("}")
+                result.append(ch)
+                continue
+            if ch == "[":
+                stack.append("]")
+                result.append(ch)
+                continue
+            if ch in "}]":
+                if stack and stack[-1] == ch:
+                    stack.pop()
+                result.append(ch)
+                continue
+            result.append(ch)
+
+        if in_string:
+            result.append('"')
+
+        repaired = "".join(result).rstrip()
+        while repaired.endswith(","):
+            repaired = repaired[:-1].rstrip()
+        while stack:
+            while repaired.endswith(","):
+                repaired = repaired[:-1].rstrip()
+            repaired += stack.pop()
+        return repaired
+
+    candidate = text
+    retries = 15
+    while retries > 0 and candidate:
+        repaired = _close_json(candidate)
+        try:
+            json.loads(repaired)
+            return repaired
+        except json.JSONDecodeError:
+            last_comma = candidate.rfind(",")
+            if last_comma == -1:
+                break
+            candidate = candidate[:last_comma]
+        retries -= 1
+    return _close_json(text)
+
+
+def _parse_llm_json_to_dict(raw: str) -> Dict[str, Any]:
+    cleaned = _sanitize_llm_json_output(raw)
+    cleaned = _extract_outer_json_object(cleaned)
+    cleaned = _repair_json_string(cleaned)
+    data = json.loads(cleaned)
+    if not isinstance(data, dict):
+        raise json.JSONDecodeError("Root node is not a JSON object", cleaned, 0)
+    return data
 
 
 def _infer_character_importance(char_data: Dict[str, Any]) -> str:
@@ -342,54 +455,12 @@ JSON 格式（不要有其他文字）：
 
 只输出 JSON，不要有任何解释文字。"""
 
-        prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        bible_data = await self._call_llm_and_parse(system_prompt, user_prompt)
+        if bible_data:
+            return bible_data
 
-        result = await self.llm_service.generate(prompt, config)
-
-        # 解析 JSON
-        try:
-            content = result.content.strip()
-
-            # 移除可能的 markdown 代码块标记
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            content = content.strip()
-
-            # 尝试找到第一个 { 和最后一个 }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-
-            logger.info(f"Attempting to parse Bible JSON (length: {len(content)})")
-
-            # 尝试直接解析
-            try:
-                bible_data = json.loads(content)
-                logger.info(f"Successfully parsed Bible JSON")
-                return bible_data
-            except json.JSONDecodeError as e:
-                # 如果失败，尝试修复常见问题
-                logger.warning(f"First parse attempt failed: {e}, trying to repair JSON...")
-
-                # 使用 json.loads 的 strict=False 模式
-                import re
-                # 移除字符串中的控制字符和多余的空白
-                content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
-
-                bible_data = json.loads(content, strict=False)
-                logger.info(f"Successfully parsed Bible JSON after repair")
-                return bible_data
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Bible JSON: {e}")
-            logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
-            # 返回默认结构
-            return {
+        logger.error("Failed to generate Bible data, falling back to default structure")
+        return {
                 "characters": [
                     {
                         "name": "主角",
@@ -739,31 +810,16 @@ JSON 格式：
     async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         """调用 LLM 并解析 JSON"""
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
         result = await self.llm_service.generate(prompt, config)
 
+        content = ""
         try:
-            content = result.content.strip()
-
-            # 移除可能的 markdown 代码块标记
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            content = content.strip()
-
-            # 尝试找到第一个 { 和最后一个 }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-
-            parsed = json.loads(content)
-            return parsed
+            content = _sanitize_llm_json_output(result.content)
+            return _parse_llm_json_to_dict(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Content length: {len(content)}")
+            logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
             logger.error(f"Raw content (last 500 chars): {content[-500:]}")
             return {}
