@@ -187,7 +187,7 @@ class ContextBuilder:
             },
         }
 
-    def magnify_outline_to_beats(self, outline: str, target_chapter_words: int = 3500) -> List[Beat]:
+    def magnify_outline_to_beats(self, chapter_number: int, outline: str, target_chapter_words: int = 3500) -> List[Beat]:
         """节拍放大器：将章节大纲拆分为微观节拍
         
         核心策略：
@@ -197,8 +197,30 @@ class ContextBuilder:
         """
         beats = []
 
-        # 简单启发式：检测大纲中的关键词
-        if "争吵" in outline or "冲突" in outline or "质问" in outline:
+        # 开篇黄金法则前三章特殊拦截
+        if chapter_number == 1:
+            beats = [
+                Beat(description="开篇黄金法则：展现核心冲突，介绍主角出场，建立情感冲击（前300字内必须抓住读者）", target_words=500, focus="hook"),
+                Beat(description="剧情引入及人物初步互动：展现主角特质并暗示即将发生的事件", target_words=1000, focus="character_intro"),
+                Beat(description="世界观或当前场景细节：通过具体行动展现，不用抽象叙述", target_words=800, focus="sensory"),
+                Beat(description="埋下后续剧情伏笔或抛出首个悬念：铺垫第二章", target_words=700, focus="suspense"),
+            ]
+        elif chapter_number == 2:
+            beats = [
+                Beat(description="承接首章悬念：深化关键人物关系，展现性格差异", target_words=800, focus="dialogue"),
+                Beat(description="推进主要情节线：引入新的次要冲突或阻碍", target_words=1200, focus="action"),
+                Beat(description="情绪细节及内心活动：展示人物面对变故的真实反映", target_words=600, focus="emotion"),
+                Beat(description="为第三章冲突高潮做气氛铺垫", target_words=400, focus="suspense"),
+            ]
+        elif chapter_number == 3:
+            beats = [
+                Beat(description="前三章的剧情小结或高潮前奏：紧张气氛描写", target_words=600, focus="sensory"),
+                Beat(description="冲突爆发/悬念高潮：激烈的动作或对峙", target_words=1200, focus="action"),
+                Beat(description="暴露深层问题或引出更高层面人物背景", target_words=800, focus="emotion"),
+                Beat(description="建立长线悬念结局：为整卷后续发展铺设巨大好奇心", target_words=400, focus="suspense"),
+            ]
+        # 根据常规关键词回退
+        elif "争吵" in outline or "冲突" in outline or "质问" in outline:
             beats = [
                 Beat(description="场景氛围描写：压抑的环境、紧张的气氛、人物的微表情", target_words=500, focus="sensory"),
                 Beat(description="冲突爆发：主角的质问、对方的反应、情绪的升级", target_words=800, focus="dialogue"),
@@ -244,6 +266,9 @@ class ContextBuilder:
             "dialogue": "重点描写对话：人物的语气、表情、肢体语言、对话中的潜台词。对话要推动剧情，展现人物性格。",
             "action": "重点描写动作：具体的动作细节、力度、速度、节奏。避免抽象描述，要让读者看到画面。",
             "emotion": "重点描写情绪：内心独白、情绪的起伏、回忆闪回、心理挣扎。深入人物内心世界。",
+            "hook": "开篇核心【黄金法则】：必须包含一个强烈的情感冲击点。通过具体行动展现主角的核心特质，暗示重大冲突即将发生。切勿平铺直叙或使用大段背景介绍。",
+            "character_intro": "人物引入【塑造技巧】：通过动作或对话来展现人物，不要平铺直叙。对白要能立刻区分出不同角色的性格特点，建立他们的记忆点。",
+            "suspense": "悬念铺垫【文学指导】：留下剧情钩子！不要一次性把答案抖露。在结尾营造紧张或神秘气氛，埋下让人欲罢不能的伏笔，保持读者的强烈好奇心。",
         }
 
         instruction = focus_instructions.get(beat.focus, "")

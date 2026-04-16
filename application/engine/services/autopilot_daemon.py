@@ -592,7 +592,7 @@ class AutopilotDaemon:
         # 5. 节拍放大
         beats = []
         if self.context_builder:
-            beats = self.context_builder.magnify_outline_to_beats(outline, target_chapter_words=3500)
+            beats = self.context_builder.magnify_outline_to_beats(chapter_num, outline, target_chapter_words=3500)
 
         if not self._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 用户已停止（节拍拆分后）")
