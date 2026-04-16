@@ -12,7 +12,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: '127.0.0.1',
+    host: '0.0.0.0',
     proxy: {
       // 代理到后端服务器（默认 8005 端口）
       '/api': {
