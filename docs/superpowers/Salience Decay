@@ -1,7 +1,10 @@
 仿生记忆算法空间
 显著性衰减算法 (Salience Decay)
-公式： S_now = S_initial * (1 - decay_rate) ^ ΔChapter
-当一个实体（如龙套 A）在 20 章内未被提及，其 S 分值降至阈值（50）以下，在下一次生成时将被排除出上下文。主角和核心主线实体的 decay_rate 被设定为 0。
+公式：S_now = S_initial * (1 - decay_rate) ^ ΔChapter
+阈值规则：当 S_now < S_threshold 时，在下一次生成时排除出上下文。
+默认参数（示例）：S_initial=100，S_threshold=50，decay_rate=0.04。
+由参数推导阈值章数：ΔChapter_threshold = ceil( ln(S_threshold / S_initial) / ln(1 - decay_rate) )。
+主角和核心主线实体的 decay_rate = 0（即不衰减）。
 时间感知图谱 (Temporal Graph)
 图数据库中的关系必须携带时间维。Cypher 检索逻辑：
 
