@@ -78,7 +78,8 @@ class NovelService:
         title: str,
         author: str,
         target_chapters: int,
-        premise: str = ""
+        premise: str = "",
+        genre: str = "",
     ) -> NovelDTO:
         """创建新小说
 
@@ -88,6 +89,7 @@ class NovelService:
             author: 作者
             target_chapters: 目标章节数
             premise: 故事梗概/创意
+            genre: 题材类型（可选）
 
         Returns:
             NovelDTO
@@ -98,7 +100,8 @@ class NovelService:
             author=author,
             target_chapters=target_chapters,
             premise=premise,
-            stage=NovelStage.PLANNING
+            stage=NovelStage.PLANNING,
+            genre=genre,
         )
 
         self.novel_repository.save(novel)
@@ -264,8 +267,9 @@ class NovelService:
         novel = self.novel_repository.get_by_id(NovelId(novel_id)) or novel
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 
-    def update_novel(self, novel_id: str, title: Optional[str] = None, author: Optional[str] = None, 
-                     target_chapters: Optional[int] = None, premise: Optional[str] = None) -> NovelDTO:
+    def update_novel(self, novel_id: str, title: Optional[str] = None, author: Optional[str] = None,
+                     target_chapters: Optional[int] = None, premise: Optional[str] = None,
+                     genre: Optional[str] = None) -> NovelDTO:
         """更新小说基本信息
 
         Args:
@@ -274,6 +278,7 @@ class NovelService:
             author: 作者（可选）
             target_chapters: 目标章节数（可选）
             premise: 故事梗概/创意（可选）
+            genre: 题材类型（可选）
 
         Returns:
             更新后的 NovelDTO
@@ -294,6 +299,8 @@ class NovelService:
             novel.target_chapters = target_chapters
         if premise is not None:
             novel.premise = premise
+        if genre is not None:
+            novel.genre = genre
 
         self.novel_repository.save(novel)
         return NovelDTO.from_domain(self._hydrate_chapters(novel))

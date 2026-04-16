@@ -67,6 +67,7 @@ class AutopilotDaemon:
         self.aftermath_pipeline = aftermath_pipeline
         self.volume_summary_service = volume_summary_service
         self.foreshadowing_repository = foreshadowing_repository
+        self.theme_agent = None  # ThemeAgent 插槽，由外部注入
         
         # 惰性初始化 VolumeSummaryService
         if not self.volume_summary_service and llm_service and story_node_repo:
@@ -179,12 +180,55 @@ class AutopilotDaemon:
         self._merge_autopilot_status_from_db(novel)
         self.novel_repository.save(novel)
 
+    def _load_theme_agent_for_novel(self, novel: Novel) -> None:
+        """根据 novel.genre 动态加载题材 Agent 到管线各组件
+
+        每轮 _process_novel 调用一次，确保 genre 变更能实时生效。
+        如果 genre 为空或无对应 Agent，则清除已有的 theme_agent（退化为通用模式）。
+        """
+        genre = getattr(novel, 'genre', '') or ''
+        agent = None
+
+        if genre and self._theme_registry:
+            agent = self._theme_registry.get(genre)
+            if agent:
+                logger.debug(f"[{novel.novel_id}] 已加载题材 Agent：{agent}")
+
+        # 注入到管线各组件（幂等设置，无 agent 时清 None）
+        self.theme_agent = agent
+        if self.chapter_workflow:
+            self.chapter_workflow.theme_agent = agent
+        if self.context_builder:
+            self.context_builder.theme_agent = agent
+            if hasattr(self.context_builder, 'budget_allocator') and self.context_builder.budget_allocator:
+                self.context_builder.budget_allocator.theme_agent = agent
+
+    @property
+    def _theme_registry(self):
+        """惰性获取 ThemeAgentRegistry（首次调用时初始化）"""
+        if not hasattr(self, '_registry_instance'):
+            try:
+                from application.engine.theme.theme_registry import ThemeAgentRegistry
+                registry = ThemeAgentRegistry()
+                registry.auto_discover()
+                self._registry_instance = registry
+                logger.info(f"ThemeAgentRegistry 初始化完成：{registry}")
+            except Exception as e:
+                logger.warning(f"ThemeAgentRegistry 初始化失败（题材功能不可用）：{e}")
+                self._registry_instance = None
+        return self._registry_instance
+        self._merge_autopilot_status_from_db(novel)
+        self.novel_repository.save(novel)
+
     async def _process_novel(self, novel: Novel):
         """处理单个小说（全流程）"""
         try:
             if not self._is_still_running(novel):
                 logger.info(f"[{novel.novel_id}] 用户已停止自动驾驶，跳过本轮")
                 return
+
+            # 根据 novel.genre 动态加载题材 Agent
+            self._load_theme_agent_for_novel(novel)
 
             stage_name = novel.current_stage.value
             logger.debug(f"[{novel.novel_id}] 当前阶段: {stage_name}")
@@ -538,7 +582,17 @@ class AutopilotDaemon:
         outline = next_chapter_node.outline or next_chapter_node.description or next_chapter_node.title
 
         if needs_buffer:
-            outline = f"【缓冲章：日常过渡】{outline}。主角战后休整，与配角闲聊，展示收获，节奏轻松。"
+            # 优先使用题材专项缓冲章模板
+            buffer_outline = ""
+            if self.theme_agent:
+                try:
+                    buffer_outline = self.theme_agent.get_buffer_chapter_template(outline)
+                except Exception as e:
+                    logger.warning(f"ThemeAgent.get_buffer_chapter_template 失败（降级默认）：{e}")
+            if buffer_outline:
+                outline = buffer_outline
+            else:
+                outline = f"【缓冲章：日常过渡】{outline}。主角战后休整，与配角闲聊，展示收获，节奏轻松。"
 
         logger.info(f"[{novel.novel_id}] 📖 开始写第 {chapter_num} 章：{outline[:60]}...")
         logger.info(f"[{novel.novel_id}]    进度: {current_chapters}/{target_chapters} 章（目标）")

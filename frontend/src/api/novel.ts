@@ -21,6 +21,7 @@ export interface NovelDTO {
   has_outline?: boolean
   autopilot_status?: string
   auto_approve_mode?: boolean
+  genre?: string
 }
 
 export const novelApi = {
@@ -45,6 +46,8 @@ export const novelApi = {
     title: string
     author: string
     target_chapters: number
+    premise?: string
+    genre?: string
   }) => apiClient.post<NovelDTO>('/novels', data) as Promise<NovelDTO>,
 
   /**
@@ -64,11 +67,12 @@ export const novelApi = {
    * Update novel basic information
    * PUT /api/v1/novels/{novelId}
    */
-  updateNovel: (novelId: string, data: { 
+  updateNovel: (novelId: string, data: {
     title?: string
     author?: string
     target_chapters?: number
     premise?: string
+    genre?: string
   }) => apiClient.put<NovelDTO>(`/novels/${novelId}`, data) as Promise<NovelDTO>,
 
   /**

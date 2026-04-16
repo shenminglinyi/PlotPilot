@@ -60,6 +60,8 @@ class Novel(BaseEntity):
         last_audit_issues: Optional[List[Dict[str, str]]] = None,
         # 目标字数控制
         target_words_per_chapter: int = 3500,
+        # 题材类型（可选，用于加载专项题材 Agent）
+        genre: str = "",
     ):
         super().__init__(id.value)
         self.novel_id = id
@@ -98,6 +100,8 @@ class Novel(BaseEntity):
         self.last_audit_issues = last_audit_issues or []
         # 目标字数控制
         self.target_words_per_chapter = target_words_per_chapter
+        # 题材类型
+        self.genre = genre
 
     def add_chapter(self, chapter: Chapter) -> None:
         """添加章节（必须连续）"""

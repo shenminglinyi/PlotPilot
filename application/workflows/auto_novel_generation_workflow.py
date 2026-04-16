@@ -125,6 +125,7 @@ class AutoNovelGenerationWorkflow:
         self.conflict_detection_service = conflict_detection_service
         self.voice_fingerprint_service = voice_fingerprint_service
         self.cliche_scanner = cliche_scanner
+        self.theme_agent = None  # ThemeAgent 插槽，由外部注入
 
     def prepare_chapter_generation(
         self,
@@ -692,6 +693,17 @@ class AutoNovelGenerationWorkflow:
                 + "\n\n以上约束须与本章大纲及后文 Bible/摘要一致；不得与之矛盾。\n"
             )
 
+        # 题材专项指导（ThemeAgent 插槽）
+        theme_section = ""
+        if self.theme_agent:
+            try:
+                theme_directives = self.theme_agent.get_context_directives("", 0, outline)
+                theme_text = theme_directives.to_context_text() if theme_directives else ""
+                if theme_text:
+                    theme_section = f"\n【题材专项指导】\n{theme_text}\n\n"
+            except Exception as e:
+                logger.warning(f"ThemeAgent.get_context_directives 失败（降级跳过）：{e}")
+
         voice_block = ""
         if va:
             voice_block = (
@@ -712,9 +724,34 @@ class AutoNovelGenerationWorkflow:
                 "不要重复已写内容。\n"
             )
 
-        system_message = f"""你是一位专业的网络小说作家。根据以下上下文撰写章节内容。
+        # 题材人设：如有 ThemeAgent 且提供了专项人设，替换默认人设
+        persona = "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。"
+        if self.theme_agent:
+            try:
+                custom_persona = self.theme_agent.get_system_persona()
+                if custom_persona:
+                    persona = f"{custom_persona}根据以下上下文撰写章节内容。"
+            except Exception as e:
+                logger.warning(f"ThemeAgent.get_system_persona 失败（使用默认人设）：{e}")
 
-{planning_section}{voice_block}{context}
+        # 题材专项写作规则
+        theme_rules_text = ""
+        if self.theme_agent:
+            try:
+                theme_rules = self.theme_agent.get_writing_rules()
+                if theme_rules:
+                    # 从第 9 条开始编号（默认规则 1-8 + beat_extra 可能占 9）
+                    start_num = 10 if beat_extra else 9
+                    theme_rules_lines = "\n".join(
+                        f"{start_num + i}. {rule}" for i, rule in enumerate(theme_rules)
+                    )
+                    theme_rules_text = f"\n{theme_rules_lines}"
+            except Exception as e:
+                logger.warning(f"ThemeAgent.get_writing_rules 失败（降级跳过）：{e}")
+
+        system_message = f"""{persona}
+
+{planning_section}{theme_section}{voice_block}{context}
 
 写作要求：
 1. 必须有多个人物互动（至少2-3个角色出场）
@@ -724,7 +761,7 @@ class AutoNovelGenerationWorkflow:
 5. 推进情节发展
 6. 使用生动的场景描写和细节
 {length_rule}
-8. 用中文写作，使用第三人称叙事{beat_extra}"""
+8. 用中文写作，使用第三人称叙事{beat_extra}{theme_rules_text}"""
 
         user_message = f"""请根据以下大纲撰写本章内容：
 

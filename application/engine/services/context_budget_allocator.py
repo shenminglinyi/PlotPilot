@@ -139,6 +139,7 @@ class ContextBudgetAllocator:
     MAX_ACT_SUMMARIES_TOKENS = 1500
     MAX_RECENT_CHAPTERS_TOKENS = 5000
     MAX_VECTOR_RECALL_TOKENS = 5000
+    MAX_THEME_DIRECTIVES_TOKENS = 1500
     
     def __init__(
         self,
@@ -150,6 +151,7 @@ class ContextBudgetAllocator:
         triple_repository = None,
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
+        theme_agent = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -157,6 +159,7 @@ class ContextBudgetAllocator:
         self.story_node_repo = story_node_repository
         self.chapter_element_repo = chapter_element_repository
         self.triple_repo = triple_repository
+        self.theme_agent = theme_agent  # ThemeAgent 插槽
         
         # 向量检索门面
         self.vector_facade = None
@@ -327,6 +330,23 @@ class ContextBudgetAllocator:
             max_tokens=1500,  # 最大 1500 tokens
             priority=85,  # 介于角色锚点和伏笔之间
         )
+
+        # 5. 题材指导（ThemeAgent 插槽）
+        if self.theme_agent:
+            try:
+                directives = self.theme_agent.get_context_directives(novel_id, chapter_number, outline)
+                theme_text = directives.to_context_text() if directives else ""
+                if theme_text:
+                    slots["theme_directives"] = ContextSlot(
+                        name="题材指导",
+                        tier=PriorityTier.T0_CRITICAL,
+                        content=theme_text,
+                        tokens=self.estimate_tokens(theme_text),
+                        max_tokens=self.MAX_THEME_DIRECTIVES_TOKENS,
+                        priority=75,  # 低于人设冲突和伏笔，高于图谱
+                    )
+            except Exception as e:
+                logger.warning(f"ThemeAgent.get_context_directives 失败（降级跳过）：{e}")
         
         # ==================== T1: 可压缩内容 ====================
         

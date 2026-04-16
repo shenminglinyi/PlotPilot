@@ -79,6 +79,7 @@ class NovelDTO:
     has_outline: bool = False
     autopilot_status: str = "stopped"
     auto_approve_mode: bool = False
+    genre: str = ""
 
     @classmethod
     def from_domain(cls, novel: 'Novel') -> 'NovelDTO':
@@ -106,4 +107,5 @@ class NovelDTO:
             total_word_count=novel.get_total_word_count().value,
             autopilot_status=autopilot_status,
             auto_approve_mode=getattr(novel, 'auto_approve_mode', False),
+            genre=getattr(novel, 'genre', ''),
         )

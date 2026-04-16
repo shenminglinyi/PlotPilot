@@ -28,6 +28,7 @@ class CreateNovelRequest(BaseModel):
     author: str = Field(..., description="作者")
     target_chapters: int = Field(..., gt=0, description="目标章节数")
     premise: str = Field(default="", description="故事梗概/创意")
+    genre: str = Field(default="", description="题材类型（可选，如 xuanhuan/suspense/romance）")
 
 
 class UpdateStageRequest(BaseModel):
@@ -41,6 +42,7 @@ class UpdateNovelRequest(BaseModel):
     author: str = Field(None, description="作者")
     target_chapters: int = Field(None, gt=0, description="目标章节数")
     premise: str = Field(None, description="故事梗概/创意")
+    genre: str = Field(None, description="题材类型（可选）")
 
 
 class UpdateAutoApproveRequest(BaseModel):
@@ -108,7 +110,8 @@ async def create_novel(
         title=request.title,
         author=request.author,
         target_chapters=request.target_chapters,
-        premise=request.premise
+        premise=request.premise,
+        genre=request.genre,
     )
 
     return novel_dto
@@ -170,7 +173,7 @@ async def update_novel(
         HTTPException: 如果小说不存在
     """
     try:
-        return service.update_novel(novel_id, request.title, request.author, request.target_chapters, request.premise)
+        return service.update_novel(novel_id, request.title, request.author, request.target_chapters, request.premise, request.genre)
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
