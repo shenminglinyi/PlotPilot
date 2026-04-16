@@ -177,6 +177,88 @@ class AutoBibleGenerator:
         self.worldbuilding_service = worldbuilding_service
         self.triple_repository = triple_repository
 
+    def _prepare_locations_for_save(self, novel_id: str, locations: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        """规范化地点列表，确保父节点优先、缺失父节点降级为根节点。"""
+        prepared: list[Dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        raw_to_final: dict[str, str] = {}
+
+        for idx, loc_data in enumerate(locations or []):
+            raw_id = loc_data.get("id")
+            normalized_raw_id = (
+                str(raw_id).strip()
+                if isinstance(raw_id, str) and str(raw_id).strip()
+                else ""
+            )
+            location_id = normalized_raw_id or f"{novel_id}-loc-{idx+1}"
+            if location_id in seen_ids:
+                logger.info("Location ID %s already exists in generated payload, generating fallback ID", location_id)
+                location_id = f"{novel_id}-loc-{idx+1}-{len(seen_ids)}"
+            seen_ids.add(location_id)
+            if normalized_raw_id and normalized_raw_id not in raw_to_final:
+                raw_to_final[normalized_raw_id] = location_id
+
+            prepared.append(
+                {
+                    "location_id": location_id,
+                    "name": loc_data["name"],
+                    "description": loc_data["description"],
+                    "location_type": loc_data.get("type", "场景"),
+                    "connections": loc_data.get("connections", []),
+                    "raw_parent_id": loc_data.get("parent_id"),
+                }
+            )
+
+        valid_ids = {item["location_id"] for item in prepared}
+        for item in prepared:
+            p_raw = item.pop("raw_parent_id", None)
+            parent_id = (
+                str(p_raw).strip()
+                if isinstance(p_raw, str) and str(p_raw).strip()
+                else None
+            )
+            if parent_id:
+                parent_id = raw_to_final.get(parent_id, parent_id)
+            if parent_id and parent_id not in valid_ids:
+                logger.warning(
+                    "Generated location %s references missing parent_id=%s, degrading to root node",
+                    item["location_id"],
+                    parent_id,
+                )
+                parent_id = None
+            item["parent_id"] = parent_id
+
+        ordered: list[Dict[str, Any]] = []
+        remaining = prepared[:]
+        saved_ids: set[str] = set()
+        while remaining:
+            progressed = False
+            next_remaining: list[Dict[str, Any]] = []
+            for item in remaining:
+                parent_id = item["parent_id"]
+                if parent_id is None or parent_id in saved_ids:
+                    ordered.append(item)
+                    saved_ids.add(item["location_id"])
+                    progressed = True
+                else:
+                    next_remaining.append(item)
+
+            if not progressed:
+                for item in next_remaining:
+                    logger.warning(
+                        "Location %s still has unresolved parent %s after ordering, degrading to root node",
+                        item["location_id"],
+                        item["parent_id"],
+                    )
+                    item["parent_id"] = None
+                    ordered.append(item)
+                    saved_ids.add(item["location_id"])
+                break
+
+            remaining = next_remaining
+
+        return ordered
+
     async def generate_and_save(
         self,
         novel_id: str,
@@ -324,42 +406,22 @@ class AutoBibleGenerator:
             bible_data = await self._generate_locations(premise, target_chapters, existing_worldbuilding, existing_characters)
             # 保存地点
             location_ids = []
-            used_ids = set()  # 用于跟踪已使用的ID，防止重复
-            for idx, loc_data in enumerate(bible_data.get("locations", [])):
-                raw_id = loc_data.get("id")
-                location_id = (
-                    str(raw_id).strip()
-                    if isinstance(raw_id, str) and str(raw_id).strip()
-                    else f"{novel_id}-loc-{idx+1}"
-                )
-                
-                # 检查并处理重复ID
-                if location_id in used_ids:
-                    logger.info(f"Location ID {location_id} already exists, generating new ID")
-                    location_id = f"{novel_id}-loc-{idx+1}-{len(used_ids)}"
-                
-                used_ids.add(location_id)
-                p_raw = loc_data.get("parent_id")
-                parent_id = (
-                    str(p_raw).strip()
-                    if isinstance(p_raw, str) and str(p_raw).strip()
-                    else None
-                )
+            for loc_data in self._prepare_locations_for_save(novel_id, bible_data.get("locations", [])):
                 try:
                     self.bible_service.add_location(
                         novel_id=novel_id,
-                        location_id=location_id,
+                        location_id=loc_data["location_id"],
                         name=loc_data["name"],
                         description=loc_data["description"],
-                        location_type=loc_data.get("type", "场景"),
-                        connections=loc_data.get("connections", []),
-                        parent_id=parent_id,
+                        location_type=loc_data["location_type"],
+                        connections=loc_data["connections"],
+                        parent_id=loc_data["parent_id"],
                     )
-                    location_ids.append((location_id, loc_data))
-                    logger.info(f"Location saved: {location_id}")
+                    location_ids.append((loc_data["location_id"], loc_data))
+                    logger.info(f"Location saved: {loc_data['location_id']}")
                 except Exception as e:
                     if "already exists" in str(e):
-                        logger.info(f"Location {location_id} already exists, skipping")
+                        logger.info(f"Location {loc_data['location_id']} already exists, skipping")
                     else:
                         logger.error(f"Failed to save location: {e}")
                         raise
@@ -523,40 +585,20 @@ JSON 格式（不要有其他文字）：
                     raise
 
         # 添加地点
-        used_location_ids = set()  # 用于跟踪已使用的位置ID
-        for idx, loc_data in enumerate(bible_data.get("locations", [])):
-            raw_id = loc_data.get("id")
-            location_id = (
-                str(raw_id).strip()
-                if isinstance(raw_id, str) and str(raw_id).strip()
-                else f"{novel_id}-loc-{idx+1}"
-            )
-            
-            # 检查并处理重复ID
-            if location_id in used_location_ids:
-                logger.info(f"Location ID {location_id} already exists, generating new ID")
-                location_id = f"{novel_id}-loc-{idx+1}-{len(used_location_ids)}"
-            
-            used_location_ids.add(location_id)
-            p_raw = loc_data.get("parent_id")
-            parent_id = (
-                str(p_raw).strip()
-                if isinstance(p_raw, str) and str(p_raw).strip()
-                else None
-            )
+        for loc_data in self._prepare_locations_for_save(novel_id, bible_data.get("locations", [])):
             try:
                 self.bible_service.add_location(
                     novel_id=novel_id,
-                    location_id=location_id,
+                    location_id=loc_data["location_id"],
                     name=loc_data["name"],
                     description=loc_data["description"],
-                    location_type=loc_data.get("type", "场景"),
-                    parent_id=parent_id,
+                    location_type=loc_data["location_type"],
+                    parent_id=loc_data["parent_id"],
                 )
-                logger.info(f"Location saved: {location_id}")
+                logger.info(f"Location saved: {loc_data['location_id']}")
             except Exception as e:
                 if "already exists" in str(e):
-                    logger.info(f"Location {location_id} already exists, skipping")
+                    logger.info(f"Location {loc_data['location_id']} already exists, skipping")
                 else:
                     logger.error(f"Failed to save location: {e}")
                     raise

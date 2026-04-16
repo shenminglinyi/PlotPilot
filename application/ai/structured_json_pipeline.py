@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -26,6 +27,28 @@ T = TypeVar("T", bound=BaseModel)
 
 # 默认最大重试次数
 DEFAULT_MAX_RETRIES = 2
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    """识别上游临时性故障，避免 529/429/5xx 直接短路。"""
+    message = str(exc).lower()
+    retryable_markers = (
+        "overloaded_error",
+        "rate limit",
+        "timeout",
+        "temporar",
+        "connection reset",
+        "service unavailable",
+    )
+    retryable_statuses = (" 429", " 500", " 502", " 503", " 504", " 529")
+    return any(marker in message for marker in retryable_markers) or any(
+        status in message for status in retryable_statuses
+    )
+
+
+def _retry_delay_seconds(attempt: int) -> float:
+    """简单指数退避，保持总等待可控。"""
+    return min(1.5 * (2 ** attempt), 8.0)
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +230,17 @@ async def structured_json_generate(
             raw = result.content if hasattr(result, "content") else str(result)
         except Exception as e:
             logger.warning("结构化 JSON 管线 LLM 调用失败 (attempt=%d): %s", attempt, e)
+            last_errors = [str(e)]
+            if attempt < max_retries and _is_retryable_llm_error(e):
+                delay = _retry_delay_seconds(attempt)
+                logger.info(
+                    "结构化 JSON 管线遇到可重试错误，%.1f 秒后重试 (attempt=%d/%d)",
+                    delay,
+                    attempt + 1,
+                    max_retries,
+                )
+                await asyncio.sleep(delay)
+                continue
             return None
 
         # --- 清洗 → 修复 → 校验 ---
