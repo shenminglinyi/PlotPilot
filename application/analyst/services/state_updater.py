@@ -269,7 +269,7 @@ class StateUpdater:
 
         normalized = _normalize_text(description)
         exact_match = None
-        fuzzy_match = None
+        fuzzy_matches = []
         for foreshadowing in registry.foreshadowings:
             candidate = _normalize_text(foreshadowing.description)
             if not candidate:
@@ -278,9 +278,20 @@ class StateUpdater:
                 exact_match = foreshadowing.id
                 break
             if normalized in candidate or candidate in normalized:
-                fuzzy_match = fuzzy_match or foreshadowing.id
+                fuzzy_matches.append(foreshadowing.id)
 
-        return exact_match or fuzzy_match or fid
+        if exact_match:
+            return exact_match
+        if len(fuzzy_matches) == 1:
+            return fuzzy_matches[0]
+        if len(fuzzy_matches) > 1:
+            logger.warning(
+                "Ambiguous foreshadowing resolution for %r, candidates=%s",
+                description,
+                fuzzy_matches,
+            )
+            return ""
+        return fid
 
     def _update_knowledge(
         self,

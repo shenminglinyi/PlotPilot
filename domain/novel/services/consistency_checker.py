@@ -175,7 +175,7 @@ class ConsistencyChecker:
             return fid
 
         exact_match = None
-        fuzzy_match = None
+        fuzzy_matches = []
         for foreshadowing in context.foreshadowing_registry.foreshadowings:
             candidate = (foreshadowing.description or "").strip().lower()
             if not candidate:
@@ -184,9 +184,15 @@ class ConsistencyChecker:
                 exact_match = foreshadowing.id
                 break
             if description in candidate or candidate in description:
-                fuzzy_match = fuzzy_match or foreshadowing.id
+                fuzzy_matches.append(foreshadowing.id)
 
-        return exact_match or fuzzy_match or fid
+        if exact_match:
+            return exact_match
+        if len(fuzzy_matches) == 1:
+            return fuzzy_matches[0]
+        if len(fuzzy_matches) > 1:
+            return ""
+        return fid
 
     def check_all(
         self,
