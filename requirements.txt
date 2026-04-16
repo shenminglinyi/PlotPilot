@@ -1,17 +1,40 @@
-pytest>=7.0,<9.0
-pytest-asyncio>=0.23,<1.0
-volcengine-python-sdk[ark]>=1.0.0
-anthropic>=0.40.0
-pydantic>=2.0.0
+# ════════════════════════════════════════════
+# aitext — 核心依赖（轻量级，秒级安装）
+# ════════════════════════════════════════════
+#
+# 用法: pip install -r requirements.txt
+#
+# 仅包含运行核心功能所需的最小依赖集。
+# 本地向量模型（sentence-transformers / torch / faiss）
+# 已拆分到 requirements-local.txt，按需安装。
+#
+# 安装完本文件后即可启动服务，使用 OpenAI API 模式。
+# ════════════════════════════════════════════
+
+# ── Web 框架 ──
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 jinja2>=3.1.0
 python-multipart>=0.0.6
-python-dotenv>=1.0.0
+
+# ── 数据验证 ──
+pydantic>=2.0.0
+
+# ── HTTP 客户端 ──
 httpx==0.27.0
-faiss-cpu>=1.7.4
-numpy>=1.21.0
-sentence-transformers>=2.2.0
-qdrant-client>=1.7.0,<2.0.0
+
+# ── AI / LLM SDK ──
 openai>=1.65.0,<2.0.0
+anthropic>=0.40.0
+volcengine-python-sdk[ark]>=1.0.0
+
+# ── 向量数据库（轻量客户端） ──
+qdrant-client>=1.7.0,<2.0.0
+
+# ── 工具库 ──
+python-dotenv>=1.0.0
 json-repair>=0.30.0
+
+# ── 测试（开发用） ──
+pytest>=7.0,<9.0
+pytest-asyncio>=0.23,<1.0
