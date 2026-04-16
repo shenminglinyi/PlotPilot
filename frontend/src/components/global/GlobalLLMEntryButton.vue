@@ -10,21 +10,32 @@
       <span class="global-llm-glow"></span>
 
       <span class="global-llm-main-content">
-        <span class="global-llm-icon-core">
-          <span class="global-llm-icon-grid"></span>
-          <span class="global-llm-icon-chip">⚙️</span>
-          <span class="global-llm-icon-spark">✦</span>
-        </span>
+        <template v-if="appearance === 'sidebar'">
+          <span class="global-llm-plain-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="global-llm-title">AI 控制台</span>
+        </template>
+        <template v-else>
+          <span class="global-llm-icon-core">
+            <span class="global-llm-icon-grid"></span>
+            <span class="global-llm-icon-chip">⚙️</span>
+            <span class="global-llm-icon-spark">✦</span>
+          </span>
 
-        <span class="global-llm-copy">
-          <span class="global-llm-title-row">
-            <span class="global-llm-title">AI 控制台</span>
-            <span class="global-llm-status"></span>
+          <span class="global-llm-copy">
+            <span class="global-llm-title-row">
+              <span class="global-llm-title">AI 控制台</span>
+              <span class="global-llm-status"></span>
+            </span>
+            <span class="global-llm-subtitle">
+              {{ drawerTab === 'embedding' ? '嵌入模型 · 向量检索配置' : 'LLM Gateway · OpenAI / Claude / Gemini' }}
+            </span>
           </span>
-          <span v-if="appearance !== 'sidebar'" class="global-llm-subtitle">
-            {{ drawerTab === 'embedding' ? '嵌入模型 · 向量检索配置' : 'LLM Gateway · OpenAI / Claude / Gemini' }}
-          </span>
-        </span>
+        </template>
       </span>
     </button>
 
@@ -358,10 +369,10 @@ function openPanel() {
   overflow: hidden;
   border: 1px solid var(--app-border);
   background:
-    radial-gradient(circle at 18% 18%, rgba(129, 140, 248, 0.32), transparent 28%),
+    radial-gradient(circle at 18% 18%, var(--color-brand-light, rgba(129, 140, 248, 0.32)), transparent 28%),
     linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
   color: var(--app-text-inverse);
-  box-shadow: var(--app-shadow-md), 0 10px 26px rgba(79, 70, 229, 0.22);
+  box-shadow: var(--app-shadow-md), 0 10px 26px var(--color-brand-border, rgba(79, 70, 229, 0.22));
   backdrop-filter: blur(12px);
   cursor: pointer;
   transition:
@@ -380,24 +391,35 @@ function openPanel() {
 
 .global-llm-main.variant-sidebar {
   width: 100%;
-  min-height: 0;
-  padding: 12px 10px;
-  border-radius: var(--app-radius-md);
-  box-shadow: var(--app-shadow-sm), 0 8px 18px rgba(79, 70, 229, 0.14);
+  box-sizing: border-box;
+  min-height: 58px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  color: var(--app-text-inverse, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
+  box-shadow: none;
 }
 
 .global-llm-main:hover {
   transform: translateY(-1px);
   border-color: var(--color-brand-border);
-  box-shadow: var(--app-shadow-lg), 0 14px 32px rgba(79, 70, 229, 0.28);
+  box-shadow: var(--app-shadow-lg), 0 14px 32px var(--color-brand-border, rgba(79, 70, 229, 0.28));
+}
+
+.global-llm-main.variant-sidebar:hover {
+  filter: none;
+  transform: none;
+  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  box-shadow: none;
 }
 
 .global-llm-glow {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.18), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 45%);
+    radial-gradient(circle at 80% 20%, var(--app-text-inverse, rgba(255, 255, 255, 0.18)), transparent 24%),
+    linear-gradient(180deg, var(--app-text-inverse, rgba(255, 255, 255, 0.06)), transparent 45%);
   pointer-events: none;
 }
 
@@ -408,7 +430,42 @@ function openPanel() {
   align-items: center;
   gap: 12px;
 }
-.global-llm-main.variant-sidebar .global-llm-main-content { gap: 10px; }
+.global-llm-main.variant-sidebar .global-llm-main-content {
+  flex-direction: row;
+  justify-content: center;
+  gap: 8px;
+}
+
+.global-llm-main.variant-sidebar .global-llm-glow {
+  display: none;
+}
+
+.global-llm-plain-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-inverse, #ffffff);
+}
+
+.global-llm-plain-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+[data-theme='anchor'] .global-llm-main.variant-sidebar {
+  background: linear-gradient(135deg, var(--color-brand-hover, #ddb930) 0%, var(--color-brand, #c9a227) 55%, var(--color-brand-pressed, #a88a1f) 100%);
+  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 62%, transparent);
+  box-shadow: none;
+}
+
+[data-theme='anchor'] .global-llm-main.variant-sidebar:hover {
+  transform: none;
+  filter: none;
+  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 74%, transparent);
+  box-shadow: none;
+}
 
 .global-llm-icon-core {
   position: relative;
@@ -419,11 +476,15 @@ function openPanel() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.16));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, var(--app-text-inverse, rgba(15, 23, 42, 0.5)), var(--app-text-inverse, rgba(15, 23, 42, 0.16)));
+  border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.12));
+  box-shadow: inset 0 1px 0 var(--app-text-inverse, rgba(255, 255, 255, 0.08));
 }
-.global-llm-main.variant-sidebar .global-llm-icon-core { width: 34px; height: 34px; border-radius: 12px; }
+.global-llm-main.variant-sidebar .global-llm-icon-core { 
+  width: 24px; 
+  height: 24px; 
+  border-radius: 8px; 
+}
 
 .global-llm-icon-grid {
   position: absolute;
@@ -431,11 +492,14 @@ function openPanel() {
   border-radius: inherit;
   opacity: 0.35;
   background-image:
-    linear-gradient(rgba(191, 219, 254, 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(191, 219, 254, 0.12) 1px, transparent 1px);
+    linear-gradient(var(--color-brand-suppl, rgba(191, 219, 254, 0.12)) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-brand-suppl, rgba(191, 219, 254, 0.12)) 1px, transparent 1px);
   background-size: 7px 7px;
 }
-.global-llm-main.variant-sidebar .global-llm-icon-grid { inset: 7px; }
+.global-llm-main.variant-sidebar .global-llm-icon-grid { 
+  inset: 4px; 
+  background-size: 4px 4px; 
+}
 
 .global-llm-icon-chip {
   position: relative;
@@ -443,6 +507,7 @@ function openPanel() {
   font-size: 16px;
   line-height: 1;
 }
+.global-llm-main.variant-sidebar .global-llm-icon-chip { font-size: 11px; }
 
 .global-llm-icon-spark {
   position: absolute;
@@ -452,7 +517,16 @@ function openPanel() {
   color: var(--color-gold);
   filter: drop-shadow(0 0 6px var(--color-gold-glow));
 }
-.global-llm-main.variant-sidebar .global-llm-icon-spark { top: 3px; right: 3px; font-size: 11px; }
+.global-llm-main.variant-sidebar .global-llm-icon-spark { 
+  top: 1px; 
+  right: 1px; 
+  font-size: 7px; 
+  width: 5px; 
+  height: 5px; 
+  border-radius: 50%; 
+  background: var(--color-gold); 
+  box-shadow: 0 0 4px var(--color-gold-glow); 
+}
 
 .global-llm-copy {
   min-width: 0;
@@ -460,7 +534,10 @@ function openPanel() {
   flex-direction: column;
   gap: 5px;
 }
-.global-llm-main.variant-sidebar .global-llm-copy { gap: 0; }
+.global-llm-main.variant-sidebar .global-llm-copy { 
+  gap: 0; 
+  align-items: center; 
+}
 
 .global-llm-title-row {
   display: flex;
@@ -473,18 +550,28 @@ function openPanel() {
   font-weight: 700;
   letter-spacing: 0.02em;
 }
+.global-llm-main.variant-sidebar .global-llm-title { 
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
 
 .global-llm-status {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #86efac, #22c55e);
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+  background: linear-gradient(180deg, var(--color-success-light, #86efac), var(--color-success, #22c55e));
+  box-shadow: 0 0 0 4px var(--color-success-light, rgba(34, 197, 94, 0.14));
+}
+.global-llm-main.variant-sidebar .global-llm-status { 
+  width: 6px; 
+  height: 6px; 
 }
 
 .global-llm-subtitle {
   max-width: 170px;
-  color: rgba(226, 232, 240, 0.82);
+  color: var(--app-text-secondary, rgba(226, 232, 240, 0.82));
   font-size: 11px;
   line-height: 1.35;
   white-space: nowrap;
@@ -502,12 +589,13 @@ function openPanel() {
 /* ── Tab Switch（切换嵌入/LLM）── */
 .drawer-tab-switch {
   position: relative;
-  display: inline-flex;
+  display: flex;
   background: var(--app-surface-subtle);
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-lg);
   padding: 4px;
   gap: 0;
+  width: 100%;
 }
 
 .drawer-tab-track {
@@ -516,41 +604,47 @@ function openPanel() {
   left: 4px;
   width: calc(50% - 4px);
   height: calc(100% - 8px);
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  background: var(--tab-track-bg);
   border-radius: calc(var(--app-radius-lg) - 5px);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow:
-    0 2px 10px rgba(79, 70, 229, 0.25),
-    0 1px 3px rgba(79, 70, 229, 0.15);
+  box-shadow: var(--tab-track-shadow);
+  z-index: 0;
+  pointer-events: none;
 }
 
 .drawer-tab-btn {
   position: relative;
-  z-index: 1;
-  display: inline-flex;
+  z-index: 2;
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 9px 24px;
+  flex: 1;
+  padding: 9px 16px;
   border: none;
   background: transparent;
-  color: var(--app-text-secondary);
+  color: var(--tab-inactive-color, var(--app-text-secondary));
   font-size: 13.5px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.02em;
   border-radius: calc(var(--app-radius-lg) - 5px);
   cursor: pointer;
-  transition: color 0.22s ease;
+  transition: color 0.22s ease, background 0.22s ease;
   white-space: nowrap;
   user-select: none;
 }
 
 .drawer-tab-btn.active {
-  color: #ffffff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  color: var(--tab-active-color, var(--app-text-inverse, #ffffff));
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.drawer-tab-btn:not(.active) {
+  opacity: 0.8;
 }
 
 .drawer-tab-btn:hover:not(.active) {
-  color: var(--app-text-primary);
+  color: var(--tab-inactive-hover-color);
+  opacity: 1;
 }
 
 /* ── 嵌入模型头部信息 ─────────────────────────────── */
@@ -580,13 +674,17 @@ function openPanel() {
   gap: 12px;
   padding: 12px 14px;
   border-radius: var(--app-radius-lg);
-  background: linear-gradient(135deg, var(--color-brand-light), rgba(99, 102, 241, 0.05)), var(--app-surface);
-  border: 1px solid var(--color-brand-border);
+  background: var(--runtime-bar-bg, linear-gradient(135deg, var(--color-brand-light), var(--app-surface)));
+  border: 1px solid var(--runtime-bar-border, var(--color-brand-border));
 }
 
 .global-llm-runtime-bar.is-mock {
-  background: linear-gradient(135deg, var(--color-gold-dim), rgba(245, 158, 11, 0.06)), var(--app-surface);
-  border-color: var(--color-gold-border);
+  background: var(--runtime-mock-bg, linear-gradient(135deg, var(--color-gold-dim), var(--app-surface)));
+  border-color: var(--runtime-mock-border, var(--color-gold-border));
+}
+
+.global-llm-runtime-bar.is-mock .global-llm-runtime-model {
+  color: var(--runtime-mock-model-color, var(--color-gold));
 }
 
 .global-llm-runtime-main {
@@ -604,9 +702,9 @@ function openPanel() {
 
 .global-llm-runtime-model {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.25;
-  color: var(--app-text-primary);
+  color: var(--runtime-model-color, var(--color-brand));
 }
 
 .global-llm-runtime-meta {
@@ -683,7 +781,8 @@ function openPanel() {
   padding: 14px 18px;
 }
 
-[data-theme='dark'] .emb-local-card {
+[data-theme='dark'] .emb-local-card,
+[data-theme='anchor'] .emb-local-card {
   background: rgba(34, 197, 94, 0.08);
   border-color: rgba(34, 197, 94, 0.15);
 }

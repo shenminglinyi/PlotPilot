@@ -15,6 +15,21 @@ class ForeshadowingMapper:
     """ForeshadowingRegistry 实体与字典数据之间的映射器"""
 
     @staticmethod
+    def _to_int(value: Any, field_name: str) -> int:
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} must be an integer")
+        try:
+            return int(value)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"{field_name} must be an integer, got {value!r}") from e
+
+    @staticmethod
+    def _to_optional_int(value: Any, field_name: str) -> Any:
+        if value in (None, ""):
+            return None
+        return ForeshadowingMapper._to_int(value, field_name)
+
+    @staticmethod
     def to_dict(registry: ForeshadowingRegistry) -> Dict[str, Any]:
         """将 ForeshadowingRegistry 实体转换为字典
 
@@ -84,12 +99,18 @@ class ForeshadowingMapper:
             for f_data in data["foreshadowings"]:
                 foreshadowing = Foreshadowing(
                     id=f_data["id"],
-                    planted_in_chapter=f_data["planted_in_chapter"],
+                    planted_in_chapter=ForeshadowingMapper._to_int(
+                        f_data["planted_in_chapter"], "planted_in_chapter"
+                    ),
                     description=f_data["description"],
                     importance=ImportanceLevel(f_data["importance"]),
                     status=ForeshadowingStatus(f_data["status"]),
-                    suggested_resolve_chapter=f_data.get("suggested_resolve_chapter"),
-                    resolved_in_chapter=f_data.get("resolved_in_chapter")
+                    suggested_resolve_chapter=ForeshadowingMapper._to_optional_int(
+                        f_data.get("suggested_resolve_chapter"), "suggested_resolve_chapter"
+                    ),
+                    resolved_in_chapter=ForeshadowingMapper._to_optional_int(
+                        f_data.get("resolved_in_chapter"), "resolved_in_chapter"
+                    ),
                 )
                 registry.register(foreshadowing)
 
@@ -98,12 +119,21 @@ class ForeshadowingMapper:
                 for e_data in data["subtext_entries"]:
                     entry = SubtextLedgerEntry(
                         id=e_data["id"],
-                        chapter=e_data["chapter"],
+                        chapter=ForeshadowingMapper._to_int(e_data["chapter"], "chapter"),
                         character_id=e_data["character_id"],
                         hidden_clue=e_data["hidden_clue"],
                         sensory_anchors=e_data["sensory_anchors"],
                         status=e_data["status"],
-                        consumed_at_chapter=e_data.get("consumed_at_chapter"),
+                        consumed_at_chapter=ForeshadowingMapper._to_optional_int(
+                            e_data.get("consumed_at_chapter"), "consumed_at_chapter"
+                        ),
+                        suggested_resolve_chapter=ForeshadowingMapper._to_optional_int(
+                            e_data.get("suggested_resolve_chapter"), "suggested_resolve_chapter"
+                        ),
+                        resolve_chapter_window=ForeshadowingMapper._to_optional_int(
+                            e_data.get("resolve_chapter_window"), "resolve_chapter_window"
+                        ),
+                        importance=e_data.get("importance", "medium"),
                         created_at=datetime.fromisoformat(e_data["created_at"])
                     )
                     registry.add_subtext_entry(entry)

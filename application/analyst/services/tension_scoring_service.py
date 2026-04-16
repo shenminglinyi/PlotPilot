@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _MAX_CONTENT_LENGTH = 24000
 
 # Prompt 模板文件路径（可独立修改，无需改代码）
-_PROMPT_FILE = Path(__file__).resolve().parent.parent.parent / "infrastructure" / "ai" / "prompts" / "tension_scoring.txt"
+_PROMPT_FILE = Path(__file__).resolve().parent.parent.parent.parent / "infrastructure" / "ai" / "prompts" / "tension_scoring.txt"
 
 # 模板缓存
 _cached_template: Optional[str] = None

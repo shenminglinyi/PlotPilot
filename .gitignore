@@ -25,6 +25,7 @@ build/
 # Local agent / MCP caches (do not commit)
 .playwright-mcp/
 .claude/
+.trae/
 
 # Coverage / test artifacts
 .coverage

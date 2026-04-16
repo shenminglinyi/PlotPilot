@@ -17,6 +17,55 @@ export interface MacroPlanRequest {
   structure: StructurePreference
 }
 
+export interface MacroActNode {
+  title: string
+  description?: string
+  [key: string]: unknown
+}
+
+export interface MacroVolumeNode {
+  title: string
+  description?: string
+  acts?: MacroActNode[]
+  [key: string]: unknown
+}
+
+export interface MacroPartNode {
+  title: string
+  description?: string
+  volumes?: MacroVolumeNode[]
+  [key: string]: unknown
+}
+
+export interface MacroPlanGenerateResponse {
+  success: boolean
+  task_started: boolean
+  novel_id: string
+  [key: string]: unknown
+}
+
+export interface MacroPlanProgress {
+  status: 'idle' | 'running' | 'completed' | 'failed'
+  current: number
+  total: number
+  percent: number
+  message: string
+}
+
+export interface MacroPlanResultPayload {
+  success: boolean
+  structure: MacroPartNode[]
+  quality_metrics?: Record<string, unknown>
+  generation_time?: number
+  [key: string]: unknown
+}
+
+export interface MacroPlanResultResponse {
+  ready: boolean
+  result: MacroPlanResultPayload | null
+  error: string | null
+}
+
 export interface ActChaptersRequest {
   chapter_count?: number
 }
@@ -75,7 +124,21 @@ export const planningApi = {
   // ==================== 宏观规划 ====================
 
   generateMacro: (novelId: string, data: MacroPlanRequest) =>
-    apiClient.post(`/planning/novels/${novelId}/macro/generate`, data),
+    apiClient.post<MacroPlanGenerateResponse>(
+      `/planning/novels/${novelId}/macro/generate`,
+      data,
+      { timeout: 300000 }
+    ) as unknown as Promise<MacroPlanGenerateResponse>,
+
+  getMacroProgress: (novelId: string) =>
+    apiClient.get<{ success: boolean; data: MacroPlanProgress }>(
+      `/planning/novels/${novelId}/macro/progress`
+    ) as unknown as Promise<{ success: boolean; data: MacroPlanProgress }>,
+
+  getMacroResult: (novelId: string) =>
+    apiClient.get<{ success: boolean; data: MacroPlanResultResponse }>(
+      `/planning/novels/${novelId}/macro/result`
+    ) as unknown as Promise<{ success: boolean; data: MacroPlanResultResponse }>,
 
   confirmMacro: (novelId: string, data: { structure: Record<string, unknown>[] }) =>
     apiClient.post(`/planning/novels/${novelId}/macro/confirm`, data),

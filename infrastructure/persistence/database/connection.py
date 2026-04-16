@@ -221,6 +221,7 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
         "add_micro_beats_to_chapter_summaries.sql",
         "add_tension_dimensions.sql",
         "add_hermes_mode.sql",
+        "add_use_legacy_chat_completions.sql",
     ]
     
     for migration_file in migration_files:

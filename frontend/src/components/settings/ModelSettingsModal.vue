@@ -246,6 +246,7 @@ async function handleSave() {
       extra_body: {},
       notes: '',
       preset_key: 'custom-openai-compatible',
+      use_legacy_chat_completions: profiles[0]?.use_legacy_chat_completions ?? false,
     }
 
     if (profiles.length > 0 && profiles[0].id === mainProfile.id) {
@@ -273,6 +274,7 @@ async function handleSave() {
           extra_body: {},
           notes: '',
           preset_key: 'custom-openai-compatible',
+          use_legacy_chat_completions: existing >= 0 ? (profiles[existing].use_legacy_chat_completions ?? false) : false,
         }
         if (existing >= 0) {
           profiles[existing] = roleProfile

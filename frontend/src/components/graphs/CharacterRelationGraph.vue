@@ -165,7 +165,6 @@ const reload = async () => {
 
 const handleNodeClick = (node: EChartsNode) => {
   // 可以跳转到人物详情页
-  console.log('Clicked character:', node.name)
 }
 
 const goToKnowledge = () => {

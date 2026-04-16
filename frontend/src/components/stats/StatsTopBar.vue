@@ -6,9 +6,10 @@
     <span>{{ error }}</span>
   </div>
   <div v-else class="stats-top-bar">
-    <!-- 左侧：AI 控制台（不再 absolute 遮挡） -->
+    <!-- 左侧：AI 控制台 + 提示词广场 -->
     <div class="topbar-left">
       <GlobalLLMEntryButton appearance="topbar" />
+      <PromptPlazaEntryButton appearance="topbar" />
     </div>
 
     <!-- 中间：统计数据 -->
@@ -32,20 +33,39 @@
       </div>
     </div>
 
-    <!-- 右侧：设置按钮 -->
-    <div class="settings-trigger" @click="$emit('open-settings')" role="button" aria-label="打开设置">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18">
-        <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
-      </svg>
+    <!-- 右侧：操作按钮 -->
+    <div class="top-bar-actions">
+      <!-- 导出按钮 -->
+      <n-dropdown 
+        trigger="click" 
+        placement="bottom-end"
+        :options="exportOptions"
+        @select="handleExport"
+      >
+        <div class="action-trigger" role="button" aria-label="导出">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20">
+            <path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+          </svg>
+        </div>
+      </n-dropdown>
+
+      <!-- 设置按钮 -->
+      <div class="settings-trigger" @click="$emit('open-settings')" role="button" aria-label="打开设置">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18">
+          <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+        </svg>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { NTooltip, NSpin } from 'naive-ui'
+import { NTooltip, NSpin, NDropdown, useMessage } from 'naive-ui'
 import { useStatsStore } from '@/stores/statsStore'
+import { novelApi } from '@/api/novel'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
+import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 
 const props = defineProps<{
   slug: string
@@ -54,6 +74,38 @@ const props = defineProps<{
 defineEmits<{
   'open-settings': []
 }>()
+
+const message = useMessage()
+
+// 导出选项
+const exportOptions = [
+  { label: '📱 EPUB (电子书)', key: 'epub' },
+  { label: '📄 PDF (打印)', key: 'pdf' },
+  { label: '📝 DOCX (Word)', key: 'docx' },
+  { label: '📋 Markdown', key: 'markdown' }
+]
+
+async function handleExport(format: string) {
+  try {
+    message.info(`开始导出为 ${format} 格式...`)
+    const blob = await novelApi.exportNovel(props.slug, format)
+    
+    // 创建下载链接
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `novel-${props.slug}.${format}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    
+    message.success(`导出 ${format} 格式成功！`)
+  } catch (error) {
+    console.error('导出失败:', error)
+    message.error('导出失败，请稍后重试')
+  }
+}
 
 const statsStore = useStatsStore()
 
@@ -184,10 +236,10 @@ onMounted(async () => {
   color: var(--app-text-inverse);
   position: relative;
   gap: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.08),
-    0 4px 16px rgba(79, 70, 229, 0.08);
+    var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08)),
+    0 4px 16px var(--color-brand-border, rgba(79, 70, 229, 0.08));
 }
 
 /* 左侧：AI 控制台入口 */
@@ -198,6 +250,13 @@ onMounted(async () => {
 
 /* 覆盖 topbar 模式下的按钮尺寸以适应导航栏 */
 .topbar-left :deep(.global-llm-main.variant-topbar) {
+  width: auto;
+  min-height: 46px;
+  padding: 8px 14px;
+  border-radius: var(--app-radius-lg);
+}
+
+.topbar-left :deep(.plaza-main.variant-topbar) {
   width: auto;
   min-height: 46px;
   padding: 8px 14px;
@@ -235,7 +294,7 @@ onMounted(async () => {
 }
 
 .stat-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--app-text-inverse, rgba(255, 255, 255, 0.1));
 }
 
 .stat-content {
@@ -246,18 +305,21 @@ onMounted(async () => {
 }
 
 .stat-label {
-  font-size: 11px;
-  opacity: 0.75;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  font-size: 11.5px;
+  opacity: 0.8;
+  font-weight: 600;
+  letter-spacing: 0.03em;
   white-space: nowrap;
+  color: inherit;
 }
 
 .stat-value {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
   line-height: 1.2;
+  color: inherit;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
 .stat-item:hover .stat-value {
@@ -265,16 +327,42 @@ onMounted(async () => {
   transition: transform 0.2s ease;
 }
 
-/* 右侧：设置触发器 */
-.settings-trigger {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+/* 右侧：操作按钮 */
+.top-bar-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.action-trigger {
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0.65;
+  opacity: 0.9;
+  transition: all 0.18s ease;
+  border-radius: var(--app-radius-sm);
+  color: inherit;
+}
+
+.action-trigger:hover {
+  opacity: 1;
+  background: var(--app-text-inverse, rgba(255, 255, 255, 0.15));
+  transform: rotate(45deg);
+}
+
+/* 右侧：设置触发器 */
+.settings-trigger {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.9;
   transition: all 0.18s ease;
   border-radius: var(--app-radius-sm);
   color: inherit;
@@ -282,19 +370,24 @@ onMounted(async () => {
 
 .settings-trigger:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--app-text-inverse, rgba(255, 255, 255, 0.15));
   transform: rotate(45deg);
+}
+
+.dropdown-item-icon {
+  margin-right: 8px;
+  font-size: 16px;
 }
 
 /* Accessibility: Focus styles */
 .stat-item:focus-within {
-  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline: 2px solid var(--app-text-inverse, rgba(255, 255, 255, 0.5));
   outline-offset: 4px;
   border-radius: 4px;
 }
 
 .settings-trigger:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline: 2px solid var(--app-text-inverse, rgba(255, 255, 255, 0.5));
   outline-offset: 2px;
 }
 
@@ -312,11 +405,19 @@ onMounted(async () => {
     width: 100%;
     display: flex;
     justify-content: center;
+    gap: 8px;
   }
 
   .topbar-left :deep(.global-llm-main.variant-topbar) {
-    width: 100%;
-    max-width: 320px;
+    width: auto;
+    flex: 1;
+    max-width: 240px;
+  }
+
+  .topbar-left :deep(.plaza-main.variant-topbar) {
+    width: auto;
+    flex: 1;
+    max-width: 200px;
   }
 
   .topbar-center {

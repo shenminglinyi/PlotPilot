@@ -199,6 +199,14 @@
               <n-input-number v-model:value="selectedProfile.timeout_seconds" :min="1" :step="10" style="width: 100%" />
             </div>
 
+            <div v-if="selectedProfile.protocol === 'openai'" class="llm-field span-2">
+              <label class="llm-label">使用旧协议（Chat Completions）</label>
+              <n-switch v-model:value="selectedProfile.use_legacy_chat_completions" />
+              <n-text depth="3" style="font-size: 12px">
+                关闭时走 Responses API（默认）；部分国产网关不支持新协议时请开启。
+              </n-text>
+            </div>
+
             <div class="llm-field span-2">
               <label class="llm-label">备注</label>
               <n-input v-model:value="selectedProfile.notes" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="例如：公司网关、测试环境、带 reasoning 参数" />
@@ -407,6 +415,7 @@ function buildProfileFromPreset(preset?: LLMPreset): LLMProfile {
     extra_query: {},
     extra_body: {},
     notes: '',
+    use_legacy_chat_completions: false,
   }
 }
 
@@ -679,7 +688,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--aitext-split-border);
   border-radius: 14px;
   background:
-    linear-gradient(180deg, rgba(79, 70, 229, 0.04), rgba(255, 255, 255, 0.9)),
+    linear-gradient(180deg, var(--color-brand-light), var(--app-surface)),
     var(--app-surface);
   flex-shrink: 0;
 }
@@ -711,9 +720,9 @@ onBeforeUnmount(() => {
 }
 
 .llm-preset-card {
-  border: 1px solid rgba(99, 102, 241, 0.12);
+  border: 1px solid var(--color-brand-border, rgba(99, 102, 241, 0.12));
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--app-surface-raised, var(--app-surface));
   padding: 12px;
   text-align: left;
   display: flex;
@@ -725,8 +734,8 @@ onBeforeUnmount(() => {
 
 .llm-preset-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(79, 70, 229, 0.28);
-  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.08);
+  border-color: var(--color-brand-hover, rgba(79, 70, 229, 0.28));
+  box-shadow: var(--app-shadow-md), 0 10px 22px var(--color-brand-border, rgba(79, 70, 229, 0.08));
 }
 
 .llm-preset-card-head {
@@ -745,8 +754,8 @@ onBeforeUnmount(() => {
 .llm-preset-card-protocol {
   flex-shrink: 0;
   font-size: 11px;
-  color: #4f46e5;
-  background: rgba(79, 70, 229, 0.08);
+  color: var(--color-brand, #4f46e5);
+  background: var(--color-brand-light, rgba(79, 70, 229, 0.08));
   border-radius: 999px;
   padding: 2px 8px;
 }
@@ -818,9 +827,9 @@ onBeforeUnmount(() => {
 
 .llm-profile-item {
   width: 100%;
-  border: 1px solid var(--aitext-split-border);
+  border: 1px solid var(--profile-item-border, var(--aitext-split-border));
   border-radius: 10px;
-  background: var(--app-surface);
+  background: var(--profile-item-bg, var(--app-surface));
   padding: 10px 12px;
   text-align: left;
   cursor: pointer;
@@ -829,12 +838,14 @@ onBeforeUnmount(() => {
 
 .llm-profile-item:hover,
 .llm-profile-item.is-selected {
-  border-color: var(--n-primary-color);
+  border-color: var(--profile-selected-border, var(--color-brand));
   transform: translateY(-1px);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .llm-profile-item.is-active {
-  background: rgba(24, 160, 88, 0.06);
+  background: var(--profile-active-bg, var(--color-brand-light));
+  border-color: var(--profile-selected-border, var(--color-brand-hover));
 }
 
 .llm-profile-name-row {
@@ -846,14 +857,14 @@ onBeforeUnmount(() => {
 
 .llm-profile-name {
   font-size: 13px;
-  font-weight: 600;
-  color: var(--n-text-color-1);
+  font-weight: 700;
+  color: var(--profile-name-color, var(--app-text-primary));
 }
 
 .llm-profile-meta {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--n-text-color-3);
+  color: var(--profile-meta-color, var(--app-text-muted));
 }
 
 .llm-editor {

@@ -534,6 +534,9 @@ def get_vector_store() -> Optional[VectorStore]:
 
     # 读取存储类型（默认 ChromaDB）
     store_type = os.getenv("VECTOR_STORE_TYPE", "chromadb").lower()
+    legacy_qdrant_enabled = os.getenv("QDRANT_ENABLED", "").lower() == "true"
+    if store_type == "chromadb" and legacy_qdrant_enabled:
+        store_type = "qdrant"
 
     try:
         if store_type == "chromadb":
