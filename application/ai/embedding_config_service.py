@@ -77,15 +77,9 @@ class EmbeddingConfigService:
         """获取数据库连接（延迟导入避免循环依赖）。"""
         if self._db is not None:
             return self._db
-        from infrastructure.persistence.database.connection import DatabaseConnection
-        from load_env import PROJECT_ROOT
-        db_path = str(PROJECT_ROOT / "data" / "aitext.db")
-        try:
-            from interfaces.api.dependencies import get_db as _get_global_db
-            return _get_global_db()
-        except Exception:
-            pass
-        return DatabaseConnection(db_path)
+        from infrastructure.persistence.database.connection import get_database
+
+        return get_database()
 
     def _ensure_row(self) -> None:
         """确保存在默认配置行（幂等）。"""
@@ -105,7 +99,7 @@ class EmbeddingConfigService:
             "default", "local", "", "", "text-embedding-3-small",
             1, "BAAI/bge-small-zh-v1.5", now, now,
         ))
-        db.commit()
+        db.get_connection().commit()
         logger.info("EmbeddingConfigService: 已初始化默认嵌入配置")
 
     def get_config(self) -> EmbeddingConfigModel:
@@ -155,7 +149,7 @@ class EmbeddingConfigService:
 
         sql = f"UPDATE embedding_config SET {', '.join(set_clauses)} WHERE id = ?"
         db.execute(sql, params)
-        db.commit()
+        db.get_connection().commit()
 
         logger.info("EmbeddingConfigService: 配置已更新，字段: %s", list(kwargs.keys()))
         return self.get_config()

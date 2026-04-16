@@ -25,6 +25,10 @@ from domain.novel.entities.timeline_registry import TimelineRegistry
 logger = logging.getLogger(__name__)
 
 
+def _normalize_text(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
 class StateUpdater:
     """状态更新应用服务
 
@@ -122,8 +126,11 @@ class StateUpdater:
 
             # 解决伏笔
             for resolved_data in chapter_state.foreshadowing_resolved:
-                fid = resolved_data.get("foreshadowing_id", "")
+                fid = self._resolve_foreshadowing_id(foreshadowing_registry, resolved_data)
                 resolved_ch = int(resolved_data.get("chapter", chapter_number))
+                if not fid:
+                    logger.warning("Skipping foreshadowing resolution with no identifiable reference: %s", resolved_data)
+                    continue
                 try:
                     foreshadowing_registry.mark_resolved(
                         foreshadowing_id=fid,
@@ -239,6 +246,41 @@ class StateUpdater:
         # 写入 chapter_elements（角色出场信息）
         if chapter_state.has_new_characters() and self.db_connection:
             self._write_chapter_elements(novel_id, chapter_number, chapter_state.new_characters)
+
+    def _resolve_foreshadowing_id(
+        self,
+        registry: ForeshadowingRegistry,
+        resolved_data: Dict[str, Any],
+    ) -> str:
+        """兼容 LLM 返回描述而非伏笔 ID 的情况。"""
+        fid = str(resolved_data.get("foreshadowing_id", "")).strip()
+        if fid and registry.get_by_id(fid):
+            return fid
+
+        description = str(
+            resolved_data.get("description")
+            or resolved_data.get("foreshadowing_description")
+            or resolved_data.get("resolved_foreshadowing")
+            or fid
+            or ""
+        ).strip()
+        if not description:
+            return fid
+
+        normalized = _normalize_text(description)
+        exact_match = None
+        fuzzy_match = None
+        for foreshadowing in registry.foreshadowings:
+            candidate = _normalize_text(foreshadowing.description)
+            if not candidate:
+                continue
+            if candidate == normalized:
+                exact_match = foreshadowing.id
+                break
+            if normalized in candidate or candidate in normalized:
+                fuzzy_match = fuzzy_match or foreshadowing.id
+
+        return exact_match or fuzzy_match or fid
 
     def _update_knowledge(
         self,

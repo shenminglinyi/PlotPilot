@@ -154,6 +154,40 @@ class ConsistencyChecker:
 
         return issues
 
+    def resolve_foreshadowing_reference(
+        self,
+        resolved_data: Dict[str, Any],
+        context: ConsistencyContext,
+    ) -> str:
+        """兼容 LLM 只返回伏笔描述而非持久化 ID 的情况。"""
+        fid = str(resolved_data.get("foreshadowing_id", "")).strip()
+        if fid and context.foreshadowing_registry.get_by_id(fid):
+            return fid
+
+        description = str(
+            resolved_data.get("description")
+            or resolved_data.get("foreshadowing_description")
+            or resolved_data.get("resolved_foreshadowing")
+            or fid
+            or ""
+        ).strip().lower()
+        if not description:
+            return fid
+
+        exact_match = None
+        fuzzy_match = None
+        for foreshadowing in context.foreshadowing_registry.foreshadowings:
+            candidate = (foreshadowing.description or "").strip().lower()
+            if not candidate:
+                continue
+            if candidate == description:
+                exact_match = foreshadowing.id
+                break
+            if description in candidate or candidate in description:
+                fuzzy_match = fuzzy_match or foreshadowing.id
+
+        return exact_match or fuzzy_match or fid
+
     def check_all(
         self,
         chapter_state: ChapterState,
@@ -202,7 +236,7 @@ class ConsistencyChecker:
         # 检查伏笔解决
         for resolved in chapter_state.foreshadowing_resolved:
             issues = self.check_foreshadowing(
-                foreshadowing_id=resolved["foreshadowing_id"],
+                foreshadowing_id=self.resolve_foreshadowing_reference(resolved, context),
                 context=context
             )
             all_issues.extend(issues)
