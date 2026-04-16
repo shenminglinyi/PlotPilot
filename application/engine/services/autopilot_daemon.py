@@ -23,9 +23,14 @@ from application.engine.services.context_builder import ContextBuilder
 from application.engine.services.background_task_service import BackgroundTaskService, TaskType
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
+from application.engine.services.style_constraint_builder import build_style_summary
 from domain.novel.value_objects.chapter_id import ChapterId
 
 logger = logging.getLogger(__name__)
+
+VOICE_REWRITE_MAX_ATTEMPTS = 2
+VOICE_REWRITE_THRESHOLD = 0.68
+VOICE_WARNING_THRESHOLD_FALLBACK = 0.75
 
 
 class AutopilotDaemon:
@@ -722,8 +727,20 @@ class AutopilotDaemon:
         content = chapter.content or ""
         chapter_id = ChapterId(chapter.id)
 
-        # 1. 统一章后管线：叙事/向量、文风（一次）、KG 推断；三元组与伏笔在叙事同步单次 LLM 中落库
-        drift_result: Dict[str, Any] = {"drift_alert": False, "similarity_score": None}
+        # 1. 先做文风预检；若严重偏离则定向改写，最多两轮，再执行章后管线，避免分析结果与最终正文错位
+        drift_result = await self._score_voice_only(
+            novel.novel_id.value,
+            chapter_num,
+            content,
+        )
+        content, drift_result = await self._apply_voice_rewrite_loop(
+            novel,
+            chapter,
+            content,
+            drift_result,
+        )
+
+        # 2. 统一章后管线：叙事/向量、文风（一次）、KG 推断；三元组与伏笔在叙事同步单次 LLM 中落库
         if self.aftermath_pipeline:
             try:
                 drift_result = await self.aftermath_pipeline.run_after_chapter_saved(
@@ -754,6 +771,10 @@ class AutopilotDaemon:
         logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 张力值：{tension}/10")
 
         # 章末审阅快照（写入 novels，供 /autopilot/status 与前台「章节状态 / 章节元素」）
+        previous_same_chapter_drift = (
+            novel.last_audit_chapter_number == chapter_num
+            and bool(novel.last_audit_drift_alert)
+        )
         novel.last_audit_chapter_number = chapter_num
         novel.last_audit_similarity = drift_result.get("similarity_score")
         novel.last_audit_drift_alert = bool(drift_result.get("drift_alert", False))
@@ -761,21 +782,27 @@ class AutopilotDaemon:
         novel.last_audit_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
         drift_too_high = bool(drift_result.get("drift_alert", False))
+        similarity_score = drift_result.get("similarity_score")
+        similarity_below_threshold = self._similarity_below_warning_threshold(similarity_score)
         if drift_result.get("similarity_score") is not None:
             logger.info(
                 f"[{novel.novel_id}] 文风相似度：{drift_result.get('similarity_score')}，"
                 f"告警：{drift_too_high}"
             )
 
-        # 3. 文风漂移 → 删章重写
-        if drift_too_high:
-            logger.warning(f"[{novel.novel_id}] 章节 {chapter_num} 文风漂移，删章重写")
-            self.chapter_repository.delete(chapter_id)
-            novel.current_chapter_in_act -= 1
-            novel.current_auto_chapters = max(0, (novel.current_auto_chapters or 1) - 1)
-            novel.current_beat_index = 0
-            novel.current_stage = NovelStage.WRITING
-            return
+        # 3. 文风漂移仅保留告警，不再删章回滚
+        if drift_too_high and similarity_below_threshold:
+            logger.warning(
+                f"[{novel.novel_id}] 章节 {chapter_num} 文风仍偏离，但已完成有限次定向修正，保留本章继续推进"
+            )
+        elif drift_too_high and previous_same_chapter_drift:
+            logger.info(
+                f"[{novel.novel_id}] 同章文风告警持续存在，但已从删除回滚切换为保留并继续"
+            )
+        elif drift_too_high and not similarity_below_threshold:
+            logger.info(
+                f"[{novel.novel_id}] 文风告警来自历史窗口，当前章节相似度未低于阈值，保留本章"
+            )
 
         novel.current_stage = NovelStage.WRITING
 
@@ -792,6 +819,209 @@ class AutopilotDaemon:
         
         # 7. 🆕 摘要生成钩子（双轨融合 - 轨道一）
         await self._maybe_generate_summaries(novel, len(completed))
+
+    def _get_voice_service(self):
+        """优先复用章后管线里的 voice service，避免配置分叉。"""
+        if self.aftermath_pipeline and getattr(self.aftermath_pipeline, "_voice", None):
+            return getattr(self.aftermath_pipeline, "_voice")
+        return self.voice_drift_service
+
+    def _similarity_below_warning_threshold(self, similarity_score: Any) -> bool:
+        """展示告警阈值：宽松，用于提示。"""
+        if similarity_score is None:
+            return False
+        try:
+            from application.analyst.services.voice_drift_service import DRIFT_ALERT_THRESHOLD
+            return float(similarity_score) < float(DRIFT_ALERT_THRESHOLD)
+        except Exception:
+            return float(similarity_score) < VOICE_WARNING_THRESHOLD_FALLBACK
+
+    def _should_attempt_voice_rewrite(self, drift_result: Dict[str, Any]) -> bool:
+        """自动修文阈值：严格，仅对明显偏离的当前章触发。"""
+        similarity = drift_result.get("similarity_score")
+        if similarity is None:
+            return False
+        try:
+            return float(similarity) < VOICE_REWRITE_THRESHOLD
+        except Exception:
+            return False
+
+    async def _score_voice_only(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        content: str,
+    ) -> Dict[str, Any]:
+        """仅做文风评分，用于决定是否先修文。"""
+        voice_service = self._get_voice_service()
+        if not voice_service or not content or not str(content).strip():
+            return {"drift_alert": False, "similarity_score": None}
+
+        try:
+            if getattr(voice_service, "use_llm_mode", False):
+                return await voice_service.score_chapter_async(
+                    novel_id=novel_id,
+                    chapter_number=chapter_number,
+                    content=content,
+                )
+            return voice_service.score_chapter(
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                content=content,
+            )
+        except Exception as e:
+            logger.warning("[%s] 文风预检失败，跳过自动修文：%s", novel_id, e)
+            return {"drift_alert": False, "similarity_score": None}
+
+    def _build_voice_rewrite_prompt(
+        self,
+        novel: Novel,
+        chapter,
+        content: str,
+        similarity_score: float,
+        attempt: int,
+    ) -> Prompt:
+        """构建定向修正文风的改写提示。"""
+        style_summary = ""
+        voice_anchors = ""
+        voice_service = self._get_voice_service()
+        try:
+            fingerprint_repo = getattr(voice_service, "fingerprint_repo", None)
+            if fingerprint_repo:
+                fingerprint = fingerprint_repo.get_by_novel(novel.novel_id.value, None)
+                style_summary = build_style_summary(fingerprint)
+        except Exception as e:
+            logger.debug("[%s] style_summary 获取失败: %s", novel.novel_id, e)
+
+        if self.context_builder:
+            try:
+                voice_anchors = self.context_builder.build_voice_anchor_system_section(
+                    novel.novel_id.value
+                )
+            except Exception as e:
+                logger.debug("[%s] voice anchors 获取失败: %s", novel.novel_id, e)
+
+        style_block = style_summary.strip() or "暂无明确统计摘要，优先保持既有作者语气与句式节奏。"
+        anchor_block = voice_anchors.strip() or "无额外角色声线锚点。"
+        outline = (getattr(chapter, "outline", "") or "").strip() or "无单独大纲，必须严格保留现有剧情事实。"
+
+        system = f"""你是小说文风修订编辑。你的任务不是重写剧情，而是在不改变故事事实的前提下，修正文风偏移。
+
+必须遵守：
+1. 保留所有剧情事件、因果顺序、角色关系、伏笔信息、地点与关键信息。
+2. 保留章节的主要段落结构、对话功能与情绪走向，不要扩写新支线。
+3. 只调整叙述口吻、句式节奏、措辞密度、描写轻重，使文本更贴近既有作者文风。
+4. 输出只能是修订后的完整章节正文，不要解释，不要加标题，不要加批注。
+
+风格约束：
+{style_block}
+
+角色声线锚点：
+{anchor_block}
+"""
+        user = f"""当前为第 {chapter.number} 章，第 {attempt} 次文风定向修正。
+
+当前相似度：{similarity_score:.4f}
+自动修文触发阈值：{VOICE_REWRITE_THRESHOLD:.2f}
+
+章节大纲：
+{outline}
+
+请在不改变剧情事实的前提下，修订以下正文的叙述语气、句式节奏与措辞，使其更贴近既有文风：
+
+{content}
+"""
+        return Prompt(system=system, user=user)
+
+    async def _rewrite_chapter_for_voice(
+        self,
+        novel: Novel,
+        chapter,
+        content: str,
+        similarity_score: float,
+        attempt: int,
+    ) -> Optional[str]:
+        """执行一次定向修文。"""
+        if not self.llm_service:
+            return None
+
+        prompt = self._build_voice_rewrite_prompt(
+            novel,
+            chapter,
+            content,
+            similarity_score,
+            attempt,
+        )
+        config = GenerationConfig(
+            max_tokens=max(4096, min(8192, int(len(content) * 1.5))),
+            temperature=0.35,
+        )
+        try:
+            result = await self.llm_service.generate(prompt, config)
+        except Exception as e:
+            logger.warning("[%s] 文风定向修文失败（attempt=%d）：%s", novel.novel_id, attempt, e)
+            return None
+
+        rewritten = (result.content or "").strip()
+        if not rewritten:
+            return None
+        return rewritten
+
+    async def _apply_voice_rewrite_loop(
+        self,
+        novel: Novel,
+        chapter,
+        content: str,
+        initial_drift_result: Dict[str, Any],
+    ) -> tuple[str, Dict[str, Any]]:
+        """严重漂移时做有限次定向修文，并即时复评分。"""
+        current_content = content
+        current_result = initial_drift_result or {"drift_alert": False, "similarity_score": None}
+
+        for attempt in range(1, VOICE_REWRITE_MAX_ATTEMPTS + 1):
+            if not self._should_attempt_voice_rewrite(current_result):
+                break
+            if not self._is_still_running(novel):
+                logger.info("[%s] 用户已停止，终止文风修文", novel.novel_id)
+                break
+
+            similarity = current_result.get("similarity_score")
+            logger.warning(
+                "[%s] 章节 %s 文风偏离严重（similarity=%s），开始第 %d/%d 次定向修文",
+                novel.novel_id,
+                chapter.number,
+                similarity,
+                attempt,
+                VOICE_REWRITE_MAX_ATTEMPTS,
+            )
+            rewritten = await self._rewrite_chapter_for_voice(
+                novel,
+                chapter,
+                current_content,
+                float(similarity),
+                attempt,
+            )
+            if not rewritten or rewritten.strip() == current_content.strip():
+                logger.warning("[%s] 定向修文未产生有效变化，停止继续重试", novel.novel_id)
+                break
+
+            current_content = rewritten
+            chapter.update_content(current_content)
+            self.chapter_repository.save(chapter)
+            current_result = await self._score_voice_only(
+                novel.novel_id.value,
+                chapter.number,
+                current_content,
+            )
+            logger.info(
+                "[%s] 第 %d 次定向修文后相似度=%s drift_alert=%s",
+                novel.novel_id,
+                attempt,
+                current_result.get("similarity_score"),
+                current_result.get("drift_alert"),
+            )
+
+        return current_content, current_result
 
     def _legacy_auditing_tasks_and_voice(
         self,
