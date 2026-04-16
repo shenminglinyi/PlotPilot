@@ -79,7 +79,7 @@ function Ensure-Uv {
 function Free-Port {
     param([int]$Port)
 
-    Write-Host "[INFO] 检查端口 $Port..." -ForegroundColor Cyan
+    Write-Host "[INFO] Checking port $Port..." -ForegroundColor Cyan
 
     $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
 
@@ -87,22 +87,22 @@ function Free-Port {
     $timeWaitConn = $connections | Where-Object { $_.State -eq 'TimeWait' }
 
     if ($timeWaitConn) {
-        Write-Host "[*] 端口 $Port 有 TIME_WAIT 连接（会自动清理）" -ForegroundColor Cyan
+        Write-Host "[*] Port $Port has TIME_WAIT connections (will auto-clean)" -ForegroundColor Cyan
     }
 
     if ($listeningConn) {
-        Write-Host "[*] 端口 $Port 已被占用（监听中）" -ForegroundColor Yellow
+        Write-Host "[*] Port $Port is in use (Listen)" -ForegroundColor Yellow
 
         foreach ($conn in $listeningConn) {
             $procId = $conn.OwningProcess
 
             if ($procId -eq 0) {
-                Write-Host "  PID=0 系统保留，跳过" -ForegroundColor Gray
+                Write-Host "  PID=0 reserved, skipped" -ForegroundColor Gray
                 continue
             }
 
             if ($procId -eq 4) {
-                Write-Host "  PID=4 系统进程，无法终止" -ForegroundColor Gray
+                Write-Host "  PID=4 System, cannot terminate" -ForegroundColor Gray
                 continue
             }
 
@@ -112,22 +112,22 @@ function Free-Port {
                 Write-Host "  PID=$procId ($procName)" -ForegroundColor Yellow
             }
             else {
-                Write-Host "  PID=$procId (进程不存在，可能是僵尸连接)" -ForegroundColor Yellow
+                Write-Host "  PID=$procId (process not found, may be zombie)" -ForegroundColor Yellow
             }
 
-            $confirm = Read-Host "  确认终止？[y/N]"
+            $confirm = Read-Host "  Kill this process? [y/N]"
             if ($confirm -match '^[Yy]$') {
                 Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-                Write-Host "  [OK] 已终止 PID=$procId" -ForegroundColor Green
+                Write-Host "  [OK] Terminated PID=$procId" -ForegroundColor Green
             }
             else {
-                Write-Host "  [*] 已跳过" -ForegroundColor Gray
+                Write-Host "  [*] Skipped" -ForegroundColor Gray
             }
         }
         Start-Sleep -Milliseconds 500
     }
     else {
-        Write-Host "[OK] 端口 $Port 可用" -ForegroundColor Green
+        Write-Host "[OK] Port $Port is free" -ForegroundColor Green
     }
 }
 
@@ -138,9 +138,9 @@ function Show-Menu {
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  1. Start both services (backend+frontend)"
-    Write-Host "  2. Start backend service"
-    Write-Host "  3. Start frontend dev server"
-    Write-Host "  4. Start Qdrant via Docker"
+    Write-Host "  2. Backend (Start or Kill)"
+    Write-Host "  3. Frontend (Start or Kill)"
+    Write-Host "  4. Qdrant (Start or Kill)"
     Write-Host "  5. Run tests"
     Write-Host "  6. Lazy install (one-click setup)"
     Write-Host ""
@@ -210,15 +210,25 @@ function Start-Both {
 
     Write-Host ""
     Write-Host "[0/2] Vector database configuration..." -ForegroundColor Cyan
-    $startQdrant = Read-Host "Qdrant vector DB for semantic search, start? [y/N]"
+    $qdrantConn = Get-NetTCPConnection -LocalPort 6333 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' }
+    if ($qdrantConn) {
+        $prevPid = $qdrantConn[0].OwningProcess
+        $proc = Get-Process -Id $prevPid -ErrorAction SilentlyContinue
+        $procName = if ($proc) { $proc.ProcessName } else { "Unknown" }
+        Write-Host "[OK] Qdrant already running (PID=$prevPid, $procName)" -ForegroundColor Green
+        $startQdrant = "2"
+    }
+    else {
+        $startQdrant = Read-Host "Qdrant not running. Start Qdrant? [1]"
+        if ($startQdrant -ne "1") {
+            Write-Host "[OK] Skipping Qdrant" -ForegroundColor Green
+        }
+    }
 
-    if ($startQdrant -match '^[Yy]$') {
+    if ($startQdrant -eq "1") {
         Write-Host "[*] Starting Qdrant..." -ForegroundColor Yellow
         $null = Start-Qdrant
         Start-Sleep -Seconds 2
-    }
-    else {
-        Write-Host "[OK] Skipping Qdrant" -ForegroundColor Green
     }
 
     Write-Host ""
@@ -330,7 +340,32 @@ function Start-Both {
 
 function Start-Backend {
     Write-Host ""
-    Write-Host "[OK] Starting backend service..." -ForegroundColor Green
+    Write-Host "[OK] Backend (Start or Kill)..." -ForegroundColor Green
+
+    $backendConn = Get-NetTCPConnection -LocalPort 8005 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' }
+    $runningBackend = $null
+    if ($backendConn) {
+        $prevPid = $backendConn[0].OwningProcess
+        $proc = Get-Process -Id $prevPid -ErrorAction SilentlyContinue
+        if ($proc) {
+            $runningBackend = @{Pid=$prevPid; Name=$proc.ProcessName}
+        }
+    }
+
+    Write-Host "  1) Start backend"
+    if ($runningBackend) {
+        Write-Host "  2) Kill backend (PID=$($runningBackend.Pid), $($runningBackend.Name))"
+    }
+    $choice = Read-Host "Choose [1]"
+    if ($choice -eq "2" -and $runningBackend) {
+        Stop-Process -Id $runningBackend.Pid -Force -ErrorAction SilentlyContinue
+        Write-Host "[OK] Backend process terminated" -ForegroundColor Green
+        Start-Sleep -Milliseconds 500
+    }
+    if ($choice -ne "1" -and -not ($choice -eq "2" -and $runningBackend)) {
+        Write-Host "[*] Cancelled" -ForegroundColor Yellow
+        return
+    }
 
     Free-Port -Port 8005
 
@@ -374,7 +409,32 @@ function Start-Backend {
 
 function Start-Frontend {
     Write-Host ""
-    Write-Host "[OK] Starting frontend dev server..." -ForegroundColor Green
+    Write-Host "[OK] Frontend (Start or Kill)..." -ForegroundColor Green
+
+    $frontendConn = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' }
+    $runningFrontend = $null
+    if ($frontendConn) {
+        $prevPid = $frontendConn[0].OwningProcess
+        $proc = Get-Process -Id $prevPid -ErrorAction SilentlyContinue
+        if ($proc) {
+            $runningFrontend = @{Pid=$prevPid; Name=$proc.ProcessName}
+        }
+    }
+
+    Write-Host "  1) Start frontend"
+    if ($runningFrontend) {
+        Write-Host "  2) Kill frontend (PID=$($runningFrontend.Pid), $($runningFrontend.Name))"
+    }
+    $choice = Read-Host "Choose [1]"
+    if ($choice -eq "2" -and $runningFrontend) {
+        Stop-Process -Id $runningFrontend.Pid -Force -ErrorAction SilentlyContinue
+        Write-Host "[OK] Frontend process terminated" -ForegroundColor Green
+        Start-Sleep -Milliseconds 500
+    }
+    if ($choice -ne "1" -and -not ($choice -eq "2" -and $runningFrontend)) {
+        Write-Host "[*] Cancelled" -ForegroundColor Yellow
+        return
+    }
 
     Free-Port -Port 3000
 
@@ -454,85 +514,119 @@ function Run-Tests {
 
 function Start-Qdrant {
     Write-Host ""
-    Write-Host "[OK] Starting Qdrant vector database..." -ForegroundColor Green
+    Write-Host "[OK] Qdrant (Start or Kill)..." -ForegroundColor Green
 
-    $dockerCmd = $null
-
-    $dockerExe = Get-Command docker -ErrorAction SilentlyContinue
-    if ($dockerExe) {
-        $dockerInfo = & docker info 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            $dockerCmd = "docker"
+    $qdrantConn = Get-NetTCPConnection -LocalPort 6333 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq 'Listen' }
+    $runningQdrant = $null
+    if ($qdrantConn) {
+        $prevPid = $qdrantConn[0].OwningProcess
+        $proc = Get-Process -Id $prevPid -ErrorAction SilentlyContinue
+        if ($proc) {
+            $runningQdrant = @{Pid=$prevPid; Name=$proc.ProcessName}
         }
     }
 
-    if (-not $dockerCmd) {
-        $Script:LastError = "Cannot access Docker"
-        $Script:HasError = $true
-        Write-Host "[!] Cannot access Docker, check Docker installation" -ForegroundColor Red
-        Write-Host "[*] Tip: Try 'sudo usermod -aG docker $USER'" -ForegroundColor Yellow
-        Pause-OnError
+    Write-Host "  1) Start Qdrant"
+    if ($runningQdrant) {
+        Write-Host "  2) Kill Qdrant (PID=$($runningQdrant.Pid), $($runningQdrant.Name))"
+    }
+    $choice = Read-Host "Choose [1]"
+    if ($choice -eq "2" -and $runningQdrant) {
+        Stop-Process -Id $runningQdrant.Pid -Force -ErrorAction SilentlyContinue
+        Write-Host "[OK] Qdrant process terminated" -ForegroundColor Green
+        Start-Sleep -Milliseconds 500
+    }
+    if ($choice -ne "1" -and -not ($choice -eq "2" -and $runningQdrant)) {
+        Write-Host "[*] Cancelled" -ForegroundColor Yellow
         return $false
     }
 
-    Write-Host "[INFO] Checking Docker service status..." -ForegroundColor Cyan
-    $dockerCheck = & docker info 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[*] Docker not running, trying to start..." -ForegroundColor Yellow
+    $qdrantDir = Join-Path $ScriptDir "qdrant"
+    $qdrantExe = Join-Path $qdrantDir "qdrant.exe"
+    $qdrantConfig = Join-Path $qdrantDir "config.yaml"
+    $zipUrl = "https://github.com/qdrant/qdrant/releases/download/v1.17.1/qdrant-x86_64-pc-windows-msvc.zip"
+    $zipFile = Join-Path $qdrantDir "qdrant-x86_64-pc-windows-msvc.zip"
 
-        $serviceCmd = Get-Command systemctl -ErrorAction SilentlyContinue
-        if ($serviceCmd) {
-            Write-Host "[*] Using systemctl to start Docker..." -ForegroundColor Yellow
-            sudo systemctl start docker
-        }
-        else {
-            $serviceCmd = Get-Command service -ErrorAction SilentlyContinue
-            if ($serviceCmd) {
-                Write-Host "[*] Using service to start Docker..." -ForegroundColor Yellow
-                sudo service docker start
+    if (-not (Test-Path $qdrantDir)) {
+        New-Item -ItemType Directory -Path $qdrantDir -Force | Out-Null
+    }
+
+    if (-not (Test-Path $qdrantConfig)) {
+        Write-Host "[*] Creating config.yaml..." -ForegroundColor Yellow
+        @"
+host: 0.0.0.0
+port: 6333
+
+service:
+  http_port: 6333
+  grpc_port: 6334
+
+cluster:
+  enabled: false
+
+storage:
+  snapshots_path: qdrant/snapshots
+  storage_path: qdrant/storage
+  temp_path: qdrant/tmp
+"@ | Out-File -FilePath $qdrantConfig -Encoding UTF8
+    }
+
+    if (-not (Test-Path $qdrantExe)) {
+        Write-Host "[*] Qdrant not found..." -ForegroundColor Yellow
+        if (-not (Test-Path $zipFile)) {
+            Write-Host "[*] Downloading Qdrant from GitHub..." -ForegroundColor Yellow
+            try {
+                Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing -TimeoutSec 300
             }
-            else {
-                $Script:LastError = "Cannot auto-start Docker"
+            catch {
+                $Script:LastError = "Failed to download Qdrant: " + $_.Exception.Message
                 $Script:HasError = $true
-                Write-Host "[!] Cannot auto-start Docker, please start manually" -ForegroundColor Red
-                Write-Host "[*] Run 'sudo systemctl start docker' or 'sudo service docker start'" -ForegroundColor Yellow
+                Write-Host "[!] Failed to download Qdrant: $_" -ForegroundColor Red
                 Pause-OnError
                 return $false
             }
         }
+        Write-Host "[*] Extracting Qdrant..." -ForegroundColor Yellow
+        Expand-Archive -Path $zipFile -DestinationPath $qdrantDir -Force
 
-        Start-Sleep -Seconds 3
-
-        $dockerCheck = & docker info 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            $Script:LastError = "Docker start failed"
-            $Script:HasError = $true
-            Write-Host "[!] Docker start failed, please start manually" -ForegroundColor Red
-            Pause-OnError
-            return $false
+        if (-not (Test-Path $qdrantExe)) {
+            $extractedFiles = Get-ChildItem -Path $qdrantDir -Recurse -Filter "qdrant.exe" -ErrorAction SilentlyContinue
+            if ($extractedFiles) {
+                Move-Item -Path $extractedFiles[0].FullName -Destination $qdrantExe -Force
+            }
         }
+        Write-Host "[OK] Qdrant downloaded and extracted" -ForegroundColor Green
     }
 
-    $composeFile = Join-Path $ScriptDir "docker-compose.yml"
-    if (Test-Path $composeFile) {
-        Write-Host "[OK] Starting Qdrant..." -ForegroundColor Green
-        & docker compose up -d
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "[OK] Qdrant started at http://localhost:6333" -ForegroundColor Green
-        }
-        else {
-            $Script:LastError = "Qdrant start failed, check Docker logs"
-            $Script:HasError = $true
-            Write-Host "[!] Qdrant start failed, check Docker logs" -ForegroundColor Red
-            Pause-OnError
-            return $false
-        }
+    $confirm = Read-Host "Start Qdrant? [y/N]"
+    if (-not ($confirm -match '^[Yy]$')) {
+        Write-Host "[*] Qdrant start cancelled" -ForegroundColor Yellow
+        return $false
+    }
+
+    Write-Host "[*] Starting Qdrant..." -ForegroundColor Yellow
+    $qdrantLog = Join-Path $qdrantDir "qdrant.log"
+    $qdrantProcess = Start-Process -FilePath $qdrantExe -ArgumentList "--config-path", $qdrantConfig -PassThru -RedirectStandardError $qdrantLog -WindowStyle Hidden
+    Start-Sleep -Seconds 5
+
+    if ($qdrantProcess -and -not $qdrantProcess.HasExited) {
+        Write-Host "[OK] Qdrant started at http://localhost:6333" -ForegroundColor Green
+        return $true
     }
     else {
-        Write-Host "[*] docker-compose.yml not found, skipping Qdrant" -ForegroundColor Yellow
+        $Script:LastError = "Qdrant failed to start"
+        $Script:HasError = $true
+        Write-Host "[!] Qdrant failed to start" -ForegroundColor Red
+        if (Test-Path $qdrantLog) {
+            $errorContent = Get-Content $qdrantLog -Raw -ErrorAction SilentlyContinue
+            if ($errorContent) {
+                Write-Host "[!] Error details: $errorContent" -ForegroundColor Red
+            }
+        }
+        Write-Host "[*] Check $qdrantLog for details" -ForegroundColor Yellow
+        Pause-OnError
+        return $false
     }
-
-    return $true
 }
 
 function Lazy-Install {
