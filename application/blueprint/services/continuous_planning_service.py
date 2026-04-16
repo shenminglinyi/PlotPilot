@@ -6,8 +6,10 @@
 import json
 import uuid
 import logging
+import re
 from typing import Dict, List, Optional
 from datetime import datetime
+from json_repair import repair_json
 
 from domain.structure.story_node import StoryNode, NodeType, PlanningStatus, PlanningSource
 from domain.structure.chapter_element import ChapterElement, ElementType, RelationType, Importance
@@ -22,6 +24,133 @@ from domain.ai.value_objects.prompt import Prompt
 from application.audit.services.macro_merge_engine import MacroMergeEngine, MergePlan, MergeConflictException
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_llm_json_output(raw: str) -> str:
+    content = (raw or "").strip()
+    content = re.sub(r"\x1b\[[0-9;]*m", "", content)
+    content = re.sub(r"<think\|?>.*?</think\|?>", "", content, flags=re.DOTALL)
+    content = re.sub(r"<thinking>.*?</thinking>", "", content, flags=re.DOTALL)
+    if "```json" in content:
+        content = content.split("```json", 1)[1].split("```", 1)[0]
+    elif "```" in content:
+        content = content.split("```", 1)[1].split("```", 1)[0]
+    return content.strip()
+
+
+def _extract_outer_json_value(text: str) -> str:
+    starts = [idx for idx in (text.find("{"), text.find("[")) if idx != -1]
+    if not starts:
+        return text
+    start = min(starts)
+
+    root_char = text[start]
+    root_close = "}" if root_char == "{" else "]"
+    depth = 0
+    in_string = False
+    escape = False
+
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == root_char:
+            depth += 1
+            continue
+        if ch == root_close:
+            depth -= 1
+            if depth == 0:
+                return text[start : idx + 1]
+    return text[start:]
+
+
+def _repair_json_string(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return text
+
+    try:
+        json.loads(text)
+        return text
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    def _close_json(s: str) -> str:
+        s = s.strip()
+        if not s:
+            return "{}"
+
+        in_string = False
+        escape = False
+        stack = []
+        result = []
+
+        for ch in s:
+            if escape:
+                result.append(ch)
+                escape = False
+                continue
+            if ch == "\\" and in_string:
+                result.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                result.append(ch)
+                continue
+            if in_string:
+                result.append(ch)
+                continue
+            if ch == "{":
+                stack.append("}")
+                result.append(ch)
+                continue
+            if ch == "[":
+                stack.append("]")
+                result.append(ch)
+                continue
+            if ch in "}]":
+                if stack and stack[-1] == ch:
+                    stack.pop()
+                result.append(ch)
+                continue
+            result.append(ch)
+
+        if in_string:
+            result.append('"')
+
+        repaired = "".join(result).rstrip()
+        while repaired.endswith(","):
+            repaired = repaired[:-1].rstrip()
+        while stack:
+            while repaired.endswith(","):
+                repaired = repaired[:-1].rstrip()
+            repaired += stack.pop()
+        return repaired
+
+    candidate = text
+    retries = 15
+    while retries > 0 and candidate:
+        repaired = _close_json(candidate)
+        try:
+            json.loads(repaired)
+            return repaired
+        except json.JSONDecodeError:
+            last_comma = candidate.rfind(",")
+            if last_comma == -1:
+                break
+            candidate = candidate[:last_comma]
+        retries -= 1
+    return _close_json(text)
 
 
 # 导出 MergeConflictException 供路由层使用
@@ -729,35 +858,32 @@ class ContinuousPlanningService:
         """解析 LLM 响应"""
         # 如果是 GenerationResult 对象，提取 content 属性
         if hasattr(response, 'content'):
-            content = response.content.strip()
+            content = response.content
         else:
-            content = response.strip()
+            content = response
 
-        # 查找 JSON 代码块
-        if "```json" in content:
-            # 提取 ```json 和 ``` 之间的内容
-            start = content.find("```json") + 7
-            end = content.find("```", start)
-            if end != -1:
-                content = content[start:end].strip()
-        elif "```" in content:
-            # 提取第一个 ``` 和最后一个 ``` 之间的内容
-            start = content.find("```") + 3
-            end = content.rfind("```")
-            if end != -1 and end > start:
-                content = content[start:end].strip()
+        cleaned = _sanitize_llm_json_output(content)
+        cleaned = _extract_outer_json_value(cleaned)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
 
-        # 如果还有前缀文字，尝试找到 JSON 开始的位置
-        if not content.startswith("{") and not content.startswith("["):
-            # 查找第一个 { 或 [
-            json_start = min(
-                content.find("{") if "{" in content else len(content),
-                content.find("[") if "[" in content else len(content)
-            )
-            if json_start < len(content):
-                content = content[json_start:]
+        try:
+            repaired = repair_json(cleaned)
+            return json.loads(repaired)
+        except Exception:
+            pass
 
-        return json.loads(content)
+        cleaned = _repair_json_string(cleaned)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as e:
+            logger.error("Failed to parse planning JSON: %s", e)
+            logger.error("Planning content length: %d", len(cleaned))
+            logger.error("Planning raw content (first 1000 chars): %s", cleaned[:1000])
+            logger.error("Planning raw content (last 500 chars): %s", cleaned[-500:])
+            raise
 
     def _calculate_chapter_distribution(self, total_chapters: int, parts: int) -> Dict[str, List[int]]:
         """计算黄金比例的章数分配
