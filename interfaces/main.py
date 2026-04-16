@@ -40,6 +40,8 @@ logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse
 import threading
 import multiprocessing
 
@@ -91,10 +93,23 @@ logger.info("=" * 80)
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="aitext API",
+    title="PlotPilot API",
     version="2.0.0",
-    description="AI 小说创作平台 API"
+    description="PlotPilot（墨枢）AI 小说创作平台 API"
 )
+
+# ── 前端静态文件托管 ──
+_FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+if _FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="frontend-assets")
+    # favicon 等根级静态资源
+    _favicon = _FRONTEND_DIR / "favicon.svg"
+    if _favicon.exists():
+        app.get("/favicon.svg", include_in_schema=False, response_class=FileResponse)(
+            lambda: FileResponse(str(_favicon), media_type="image/svg+xml")
+        )
+    # SPA fallback: 所有非 API 路径都返回 index.html
+    _INDEX_HTML = _FRONTEND_DIR / "index.html"
 
 # 修复反向代理场景下 trailing slash 重定向使用后端本地地址的 bug
 # 当 FastAPI 的 trailing slash 重定向指向 127.0.0.1 时，
@@ -327,15 +342,13 @@ def restart_autopilot_daemon():
 
 
 # 配置 CORS
-# 生产环境请将 CORS_ORIGINS 环境变量设置为允许的域名列表，逗号分隔
-# 例如：CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
-# 未设置时默认仅允许 localhost（开发模式）
+# 前后端同端口部署：前端是同源请求，默认允许所有源。
+# 开发环境可通过 CORS_ORIGINS 环境变量限制。
 _cors_origins_env = os.getenv("CORS_ORIGINS", "")
 if _cors_origins_env:
     _allowed_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
 else:
-    _allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000",
-                        "http://localhost:5173", "http://127.0.0.1:5173"]
+    _allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -401,12 +414,10 @@ app.include_router(stats_router, prefix="/api/stats", tags=["statistics"])
 
 @app.get("/")
 async def root():
-    """根路径
-
-    Returns:
-        欢迎消息
-    """
-    return {"message": "aitext API v2.0"}
+    """根路径 — 返回前端页面（SPA）或 API 欢迎消息"""
+    if _FRONTEND_DIR.exists() and _INDEX_HTML.exists():
+        return FileResponse(str(_INDEX_HTML), media_type="text/html")
+    return {"message": "PlotPilot API v2.0"}
 
 
 @app.get("/health")
@@ -427,6 +438,18 @@ async def health_check():
             "pid": _daemon_process.pid if _daemon_process else None
         }
     }
+
+
+# ── SPA fallback：前端路由兜底（必须在 API 路由之后注册）──
+if _FRONTEND_DIR.exists() and _INDEX_HTML.exists():
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        """SPA fallback — 所有未匹配的路径返回 index.html"""
+        # 排除 API 路径和静态资源
+        if full_path.startswith("api/") or full_path.startswith("assets/") or full_path.startswith("_"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"error": "Not Found"}, status_code=404)
+        return FileResponse(str(_INDEX_HTML), media_type="text/html")
 
 
 if __name__ == "__main__":
