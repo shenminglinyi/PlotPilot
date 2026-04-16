@@ -17,6 +17,41 @@ from domain.shared.exceptions import EntityNotFoundError
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# JSON 输出稳定性增强 - Prompt 常量
+# ============================================================================
+USER_PROMPT_SUFFIX = """
+
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+"""
+
+
+def parse_json_from_response(rsp: str):
+    """从LLM响应中解析JSON，支持```json包裹格式"""
+    pattern = r"```json(.*?)```"
+    rsp_json = None
+    try:
+        match = re.search(pattern, rsp, re.DOTALL)
+        if match is not None:
+            try:
+                rsp_json = json.loads(match.group(1).strip())
+            except:
+                pass
+        else:
+            rsp_json = json.loads(rsp)
+        return rsp_json
+    except json.JSONDecodeError as e:
+        try:
+            match = re.search(r"\{(.*?)\}", rsp, re.DOTALL)
+            if match:
+                content = "{" + match.group(1) + "}"
+                return json.loads(content)
+        except:
+            pass
+        raise e
+
+
 def _sanitize_llm_json_output(raw: str) -> str:
     content = (raw or "").strip()
     content = re.sub(r"\x1b\[[0-9;]*m", "", content)
@@ -120,12 +155,9 @@ def _repair_json_string(text: str) -> str:
 
 
 def _parse_llm_json_to_dict(raw: str) -> Dict[str, Any]:
-    cleaned = _sanitize_llm_json_output(raw)
-    cleaned = _extract_outer_json_object(cleaned)
-    cleaned = _repair_json_string(cleaned)
-    data = json.loads(cleaned)
+    data = parse_json_from_response(raw)
     if not isinstance(data, dict):
-        raise json.JSONDecodeError("Root node is not a JSON object", cleaned, 0)
+        raise json.JSONDecodeError("Root node is not a JSON object", raw, 0)
     return data
 
 
@@ -441,7 +473,7 @@ class AutoBibleGenerator:
 
         system_prompt = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
-**重要：只输出有效的 JSON，不要有任何其他文字。description 字段必须是单行文本，不能有换行符。**
+**重要：description 字段必须是单行文本，不能有换行符。**
 
 要求：
 1. 深入理解故事梗概，提取核心冲突、主题、世界观
@@ -515,9 +547,17 @@ JSON 格式（不要有其他文字）：
 6. 世界观5个维度都要填写，符合故事类型和背景
 7. 适合网文读者，有代入感
 
-只输出 JSON，不要有任何解释文字。"""
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "characters": [],
+  "locations": [],
+  "style": "",
+  "worldbuilding": {{}}
+}}
+```"""
 
-        bible_data = await self._call_llm_and_parse(system_prompt, user_prompt)
+        bible_data = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
         if bible_data:
             return bible_data
 
@@ -699,8 +739,6 @@ JSON 格式（不要有其他文字）：
         """只生成世界观和文风"""
         system_prompt = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
 
-**重要：只输出有效的 JSON，不要有任何其他文字。**
-
 要求：
 1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
 2. 明确的文风公约（叙事视角、人称、基调、节奏）
@@ -743,9 +781,17 @@ JSON 格式：
 
 目标章节数：{target_chapters}章
 
-请生成世界观和文风公约。只输出 JSON，不要有任何解释文字。"""
+请生成世界观和文风公约。
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "style": "",
+  "worldbuilding": {{}}
+}}
+```"""
+
+        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
@@ -753,7 +799,7 @@ JSON 格式：
 
         system_prompt = """你是资深网文策划编辑。基于已有世界观生成主要人物。
 
-**重要：只输出有效的 JSON，不要有任何其他文字。description 字段必须是单行文本。**
+**重要：description 字段必须是单行文本。**
 
 要求：
 1. 至少 3-5 个主要人物（主角、配角、对手、导师等）
@@ -785,9 +831,16 @@ JSON 格式：
 已有世界观：
 {wb_summary}
 
-请基于这个世界观生成主要人物。只输出 JSON，不要有任何解释文字。"""
+请基于这个世界观生成主要人物。
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "characters": []
+}}
+```"""
+
+        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
     async def _generate_locations(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any], characters: list) -> Dict[str, Any]:
         """基于世界观和人物生成地点"""
@@ -795,8 +848,6 @@ JSON 格式：
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
         system_prompt = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
-
-**重要：只输出有效的 JSON，不要有任何其他文字。**
 
 要求：
 1. 至少 5-10 个重要地点，构成完整地图
@@ -833,9 +884,16 @@ JSON 格式：
 已有人物：
 {char_summary}
 
-请基于世界观和人物生成完整地图。只输出 JSON，不要有任何解释文字。"""
+请基于世界观和人物生成完整地图。
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "locations": []
+}}
+```"""
+
+        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
     def _summarize_worldbuilding(self, wb: Dict[str, Any]) -> str:
         """总结世界观为文本"""
@@ -865,6 +923,38 @@ JSON 格式：
             logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
             logger.error(f"Raw content (last 500 chars): {content[-500:]}")
             return {}
+
+    async def _call_llm_and_parse_with_retry(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_retries: int = 3
+    ) -> Dict[str, Any]:
+        """带重试的LLM调用 - 增强JSON输出稳定性"""
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                if attempt == 0:
+                    # 第一次尝试，使用标准prompt
+                    return await self._call_llm_and_parse(system_prompt, user_prompt)
+                else:
+                    # 重试时加强调prompt
+                    retry_reminder = "\n\n【重要提醒】上次JSON解析失败，请严格遵守JSON输出规则！只输出纯JSON，不要任何其他文字！"
+                    logger.warning(f"JSON解析重试 {attempt}/{max_retries}，添加强调提示")
+                    return await self._call_llm_and_parse(
+                        system_prompt + retry_reminder,
+                        user_prompt
+                    )
+            except json.JSONDecodeError as e:
+                last_error = e
+                logger.warning(f"JSON解析失败，重试 {attempt + 1}/{max_retries}")
+            except Exception as e:
+                last_error = e
+                logger.warning(f"LLM调用异常，重试 {attempt + 1}/{max_retries}: {e}")
+
+        logger.error(f"所有重试都失败，返回空字典")
+        return {}
 
     async def _generate_character_triples(self, novel_id: str, character_ids: list):
         """从人物关系生成三元组"""
