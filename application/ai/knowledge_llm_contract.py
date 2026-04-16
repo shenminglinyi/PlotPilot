@@ -8,11 +8,11 @@
 """
 from __future__ import annotations
 
+import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
-
-from application.ai.llm_json_extract import parse_llm_json_to_dict
 
 # ---------------------------------------------------------------------------
 # 与 LLM 约定的形状（字段越少越好，其余由持久化层补全）
@@ -51,8 +51,6 @@ class LlmInitialKnowledgePayload(BaseModel):
 
 _INITIAL_KNOWLEDGE_INSTRUCTIONS = """你是专业的小说知识图谱构建助手。根据小说标题和设定，生成核心知识。
 
-**只输出一个 JSON 对象，不要 markdown 代码块、不要前后解释文字。**
-
 **字段契约（多一字段即非法，不要输出 provenance、source_type、chapter_element_id 等）：**
 - premise_lock: string，一句话核心梗概（约 50～100 字）
 - facts: array，每项仅含 id, subject, predicate, object, note（note 可省略或空字符串）
@@ -60,7 +58,16 @@ _INITIAL_KNOWLEDGE_INSTRUCTIONS = """你是专业的小说知识图谱构建助�
 - object 为宾语字符串（JSON 键名必须是 "object"）
 - 提取 5～10 条核心设定三元组：主要角色身份、核心地点、关键规则/能力；只写确定设定，不要推测
 
-**source_type、推断溯源由服务端写入；模型不要编造。**"""
+**source_type、推断溯源由服务端写入；模型不要编造。**
+
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{
+    "premise_lock": "",
+    "facts": []
+}
+```
+"""
 
 
 def build_initial_knowledge_system_prompt() -> str:
@@ -89,13 +96,40 @@ def initial_knowledge_openai_function_tool() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def parse_json_from_response(rsp: str):
+    """从LLM响应中解析JSON，支持```json包裹格式"""
+    pattern = r"```json(.*?)```"
+    rsp_json = None
+    try:
+        match = re.search(pattern, rsp, re.DOTALL)
+        if match is not None:
+            try:
+                rsp_json = json.loads(match.group(1).strip())
+            except:
+                pass
+        else:
+            rsp_json = json.loads(rsp)
+        return rsp_json
+    except json.JSONDecodeError as e:
+        try:
+            match = re.search(r"\{(.*?)\}", rsp, re.DOTALL)
+            if match:
+                content = "{" + match.group(1) + "}"
+                return json.loads(content)
+        except:
+            pass
+        raise e
+
+
 def parse_initial_knowledge_llm_response(
     raw: str,
 ) -> Tuple[Optional[LlmInitialKnowledgePayload], List[str]]:
     """解析并校验 LLM 返回文本。成功返回 (payload, [])；失败返回 (None, [人类可读错误…])。"""
-    data, errs = parse_llm_json_to_dict(raw)
-    if data is None:
-        return None, errs
+    try:
+        data = parse_json_from_response(raw)
+    except json.JSONDecodeError as e:
+        return None, [f"JSON parse failed: {str(e)}"]
+
     try:
         payload = LlmInitialKnowledgePayload.model_validate(data)
         return payload, []

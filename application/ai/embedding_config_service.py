@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingConfigModel(BaseModel):
     """嵌入配置数据模型。"""
+    model_config = {"protected_namespaces": ()}
     id: str = "default"
     mode: str = "local"  # local | openai
     api_key: str = ""
@@ -77,15 +78,17 @@ class EmbeddingConfigService:
         """获取数据库连接（延迟导入避免循环依赖）。"""
         if self._db is not None:
             return self._db
-        from infrastructure.persistence.database.connection import DatabaseConnection
-        from load_env import PROJECT_ROOT
-        db_path = str(PROJECT_ROOT / "data" / "aitext.db")
         try:
             from interfaces.api.dependencies import get_db as _get_global_db
             return _get_global_db()
         except Exception:
             pass
-        return DatabaseConnection(db_path)
+        from infrastructure.persistence.database.connection import DatabaseConnection
+        from pathlib import Path
+        from application.paths import get_db_path
+        db_path = get_db_path()
+        db_path_str = str(db_path) if isinstance(db_path, (str, Path)) else str(Path(__file__).resolve().parents[2] / "data" / "aitext.db")
+        return DatabaseConnection(db_path_str)
 
     def _ensure_row(self) -> None:
         """确保存在默认配置行（幂等）。"""
