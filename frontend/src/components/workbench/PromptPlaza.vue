@@ -243,7 +243,7 @@ const filteredNodes = computed(() => {
 })
 
 /** 按分类分组的节点 */
-const groupedNodes = computed<Record<string, Prompt[]>>(() => {
+const groupedNodes = computed<Record<string, PromptNode[]>>(() => {
   const nodes = filteredNodes.value
   const result: Record<string, PromptNode[]> = {}
   for (const node of nodes) {
