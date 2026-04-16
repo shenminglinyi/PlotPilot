@@ -5,7 +5,7 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 // 创建原始 axios 实例
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 120000, // 增加到 120 秒，因为 LLM 生成可能需要较长时间
+  timeout: 300000, // 5分钟，精密定制宏观规划生成 27 幕结构需要约 200 秒
   headers: {
     'Content-Type': 'application/json',
   },

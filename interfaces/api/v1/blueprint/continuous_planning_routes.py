@@ -68,22 +68,13 @@ def get_service() -> ContinuousPlanningService:
     story_node_repo = StoryNodeRepository(db_path)
     chapter_element_repo = ChapterElementRepository(db_path)
 
-    # 获取 LLM 服务
-    import os
-    from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
-    from infrastructure.ai.config.settings import Settings
+    # 使用 LLMProviderFactory 从数据库配置中获取当前激活的 LLM 提供者
+    from application.ai.llm_control_service import LLMControlService
+    from infrastructure.ai.provider_factory import LLMProviderFactory
 
-    llm_service = None
-    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if api_key:
-        settings = Settings(
-            api_key=api_key.strip(),
-            base_url=os.getenv("ANTHROPIC_BASE_URL")
-        )
-        try:
-            llm_service = AnthropicProvider(settings)
-        except Exception:
-            pass
+    control_service = LLMControlService()
+    factory = LLMProviderFactory(control_service)
+    llm_service = factory.create_active_provider()
 
     from application.world.services.bible_service import BibleService
     from interfaces.api.dependencies import get_bible_repository

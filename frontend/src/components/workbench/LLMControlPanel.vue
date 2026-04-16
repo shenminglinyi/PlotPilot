@@ -162,11 +162,12 @@
             <div class="llm-field span-2">
               <label class="llm-label">模型名</label>
               <div class="llm-model-row">
-                <n-auto-complete
+                <n-select
                   v-model:value="selectedProfile.model"
                   :options="fetchedModelOptions"
-                  placeholder="例如：gpt-4o / claude-sonnet-4-6 / gemini-2.0-flash / deepseek-chat"
+                  filterable
                   clearable
+                  :placeholder="fetchedModels.length > 0 ? '点击选择或输入过滤模型' : '例如：gpt-4o / claude-sonnet-4-6 / gemini-2.0-flash / deepseek-chat'"
                   style="flex: 1"
                 />
                 <n-button
@@ -180,7 +181,7 @@
                 </n-button>
               </div>
               <n-text v-if="fetchedModels.length > 0" depth="3" style="font-size: 11px">
-                已拉取 {{ fetchedModels.length }} 个模型，可输入过滤或直接选择
+                已拉取 {{ fetchedModels.length }} 个模型，点击选择或输入过滤
               </n-text>
             </div>
 

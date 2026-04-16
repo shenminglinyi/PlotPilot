@@ -293,21 +293,46 @@ class ContinuousPlanningService:
             message="正在生成整版叙事骨架",
         )
 
+        # 构建提示词
         prompt = self._build_precise_macro_prompt(
             bible_context=bible_context,
             target_chapters=target_chapters,
             structure_preference=structure_preference,
             skeleton=skeleton,
         )
-        config = GenerationConfig(
-            max_tokens=self._calculate_precise_max_tokens(structure_preference),
-            temperature=0.7,
-        )
-        response = await self.llm_service.generate(prompt, config)
+        
+        # 根据实际输出规模动态调整 max_tokens：
+        # - 捕获的请求分析显示，27 幕精密规划在 4096 tokens 时被截断（status: incomplete）
+        # - NVIDIA 官方示例推荐 max_tokens=16384 用于复杂规划任务
+        # - 每幕包含 10+ 字段的详细 JSON，实际输出需要 8000-12000 tokens
+        parts = structure_preference.get('parts', 3) if isinstance(structure_preference, dict) else 3
+        vols = structure_preference.get('volumes_per_part', 3) if isinstance(structure_preference, dict) else 3
+        acts = structure_preference.get('acts_per_volume', 3) if isinstance(structure_preference, dict) else 3
+        total_acts = parts * vols * acts
+
+        if total_acts > 27:
+            max_tokens = 16384  # 超大型结构（NVIDIA 官方推荐值）
+        elif total_acts > 9:
+            max_tokens = 16384  # 中型结构（如 27 幕精密规划，使用 NVIDIA 官方推荐值）
+        else:
+            max_tokens = 8192  # 小型结构（极速模式）
+
+        # 使用流式生成避免长时间无数据导致连接断开（NVIDIA API 要求）
+        # 测试显示非流式 120s+ 会断开，流式 201s 可正常完成
+        config = GenerationConfig(max_tokens=max_tokens, temperature=0.7)
+        
+        content_parts = []
+        async for chunk in self.llm_service.stream_generate(prompt, config):
+            content_parts.append(chunk)
+        
+        response = "".join(content_parts)
         updates = self._parse_llm_response(response)
-        self._merge_precise_structure_updates(
-            skeleton=skeleton,
-            updates=updates,
+
+        # 评估规划质量
+        elapsed_time = time.time() - start_time
+        quality_metrics = self._evaluate_macro_plan_quality(
+            structure=skeleton,
+            bible_context=bible_context,
             target_chapters=target_chapters,
             rebalance=False,
         )
