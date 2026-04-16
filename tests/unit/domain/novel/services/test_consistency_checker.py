@@ -253,3 +253,69 @@ class TestConsistencyChecker:
 
         assert len(report.issues) > 0
         assert report.has_critical_issues()
+
+    def test_check_all_resolved_foreshadowing_by_description(self):
+        """测试完整检查可通过描述匹配已存在伏笔。"""
+        self.foreshadowing_registry.register(
+            Foreshadowing(
+                id="f-1",
+                planted_in_chapter=3,
+                description="衣物被更换",
+                importance=ImportanceLevel.MEDIUM,
+                status=ForeshadowingStatus.PLANTED,
+            )
+        )
+
+        chapter_state = ChapterState(
+            new_characters=[],
+            character_actions=[],
+            relationship_changes=[],
+            foreshadowing_planted=[],
+            foreshadowing_resolved=[{"foreshadowing_id": "衣物被更换", "chapter": 5}],
+            events=[],
+        )
+
+        report = self.checker.check_all(
+            chapter_state=chapter_state,
+            context=self.context
+        )
+
+        assert len(report.issues) == 0
+
+    def test_check_all_ambiguous_foreshadowing_description_reports_issue(self):
+        """歧义描述不应自动命中第一条伏笔。"""
+        self.foreshadowing_registry.register(
+            Foreshadowing(
+                id="f-1",
+                planted_in_chapter=3,
+                description="衣物被更换",
+                importance=ImportanceLevel.MEDIUM,
+                status=ForeshadowingStatus.PLANTED,
+            )
+        )
+        self.foreshadowing_registry.register(
+            Foreshadowing(
+                id="f-2",
+                planted_in_chapter=4,
+                description="衣物被更换后袖口有血",
+                importance=ImportanceLevel.HIGH,
+                status=ForeshadowingStatus.PLANTED,
+            )
+        )
+
+        chapter_state = ChapterState(
+            new_characters=[],
+            character_actions=[],
+            relationship_changes=[],
+            foreshadowing_planted=[],
+            foreshadowing_resolved=[{"foreshadowing_id": "衣物被更换后", "chapter": 5}],
+            events=[],
+        )
+
+        report = self.checker.check_all(
+            chapter_state=chapter_state,
+            context=self.context
+        )
+
+        assert len(report.issues) == 1
+        assert report.issues[0].type == IssueType.FORESHADOWING_ERROR

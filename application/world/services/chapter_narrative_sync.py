@@ -24,31 +24,29 @@ from domain.novel.value_objects.foreshadowing import (
 )
 from domain.novel.value_objects.novel_id import NovelId
 from domain.structure.story_node import NodeType
+from application.ai.structured_json_pipeline import (
+    parse_and_repair_json,
+    sanitize_llm_output,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _extract_json_object(text: str) -> dict:
-    """从模型输出中解析 JSON 对象。"""
-    s = (text or "").strip()
-    if not s:
+    """从模型输出中解析 JSON 对象，优先走通用清洗/修复管线。"""
+    cleaned = sanitize_llm_output(text or "")
+    if not cleaned:
         return {}
-    if "```" in s:
-        if "```json" in s:
-            start = s.find("```json") + 7
-            end = s.find("```", start)
-            if end != -1:
-                s = s[start:end].strip()
-        else:
-            start = s.find("```") + 3
-            end = s.rfind("```")
-            if end > start:
-                s = s[start:end].strip()
-    if not s.startswith("{"):
-        i = s.find("{")
-        if i != -1:
-            s = s[i:]
-    return json.loads(s)
+
+    data, errors = parse_and_repair_json(cleaned)
+    if data is not None:
+        return data
+
+    raise json.JSONDecodeError(
+        "Unable to parse chapter bundle JSON",
+        cleaned,
+        0,
+    )
 
 
 def _beats_from_structure_outline(novel_id: str, chapter_number: int) -> List[str]:

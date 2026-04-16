@@ -1,7 +1,7 @@
 """Anthropic LLM 提供商实现"""
 import json
 import logging
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import httpx
 from anthropic import Anthropic, AsyncAnthropic
@@ -15,6 +15,41 @@ from .base import BaseProvider
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
+def _extract_text_from_content_block(block: Any) -> str:
+    """尽量从兼容端点返回的 content block 中提取文本。"""
+    if block is None:
+        return ""
+
+    if isinstance(block, str):
+        return block
+
+    text = getattr(block, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text
+
+    if isinstance(block, dict):
+        for key in ("text", "content", "value"):
+            value = block.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+        if block.get("type") == "json" and block.get("json") is not None:
+            try:
+                return json.dumps(block["json"], ensure_ascii=False)
+            except Exception:
+                return str(block["json"])
+
+    block_type = getattr(block, "type", None)
+    if block_type in {"json", "input_json", "output_json"}:
+        json_payload = getattr(block, "json", None)
+        if json_payload is not None:
+            try:
+                return json.dumps(json_payload, ensure_ascii=False)
+            except Exception:
+                return str(json_payload)
+
+    return ""
 
 
 class AnthropicProvider(BaseProvider):
@@ -100,11 +135,13 @@ class AnthropicProvider(BaseProvider):
             if not response.content:
                 raise RuntimeError("API returned empty content")
 
-            content = ""
+            parts = []
             for block in response.content:
-                if getattr(block, "type", None) == "text":
-                    content = block.text
-                    break
+                text = _extract_text_from_content_block(block)
+                if text:
+                    parts.append(text)
+
+            content = "\n".join(part.strip() for part in parts if part and part.strip()).strip()
             if not content:
                 raise RuntimeError("API returned no text content")
 

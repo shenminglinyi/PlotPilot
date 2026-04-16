@@ -83,6 +83,21 @@
                   </n-text>
                 </n-space>
               </n-alert>
+
+              <n-card v-if="loading" size="small" :bordered="false" style="background: var(--n-color-target)">
+                <n-space vertical :size="10">
+                  <n-text strong>结构生成中</n-text>
+                  <n-progress
+                    type="line"
+                    :percentage="macroProgress.percent"
+                    :indicator-placement="'inside'"
+                    processing
+                  />
+                  <n-text depth="3" style="font-size: 12px">
+                    {{ macroProgress.message || '正在生成叙事骨架...' }}
+                  </n-text>
+                </n-space>
+              </n-card>
             </n-space>
           </n-card>
         </n-space>
@@ -111,7 +126,7 @@
                     {{ nodeTypeLabel(node.type) }}
                   </n-tag>
                   <n-input
-                    v-model:value="node.title"
+                    v-model:value="node.node.title"
                     size="small"
                     placeholder="标题"
                     style="flex:1"
@@ -119,8 +134,8 @@
                 </n-space>
               </template>
               <n-input
-                v-if="node.description !== undefined"
-                v-model:value="node.description"
+                v-if="node.node.description !== undefined"
+                v-model:value="node.node.description"
                 type="textarea"
                 size="small"
                 placeholder="叙事目标（可选）"
@@ -162,7 +177,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useMessage } from 'naive-ui'
-import { planningApi } from '../../api/planning'
+import {
+  planningApi,
+  type MacroPartNode,
+  type MacroPlanProgress,
+  type MacroPlanResultPayload,
+} from '../../api/planning'
 import { workflowApi } from '../../api/workflow'
 
 const props = defineProps<{ show: boolean; novelId: string }>()
@@ -214,24 +234,119 @@ const loading = ref(false)
 const confirming = ref(false)
 const generated = ref(false)
 const rawResult = ref<Record<string, unknown> | null>(null)
-const structurePreview = ref<{ type: string; title: string; description?: string }[]>([])
+const editableStructure = ref<MacroPartNode[]>([])
+const structurePreview = ref<{
+  type: string
+  node: Record<string, unknown>
+}[]>([])
+const macroProgress = ref<MacroPlanProgress>({
+  status: 'idle',
+  current: 0,
+  total: 0,
+  percent: 0,
+  message: '',
+})
+let progressTimer: ReturnType<typeof setInterval> | null = null
+let resultWaiter: Promise<MacroPlanResultPayload> | null = null
 
 const nodeTypeLabel = (type: string) => {
   const map: Record<string, string> = { part: '部', volume: '卷', act: '幕', chapter: '章' }
   return map[type] || type
 }
 
-const flattenStructure = (nodes: unknown[]): { type: string; title: string; description?: string }[] => {
-  const result: { type: string; title: string; description?: string }[] = []
-  const walk = (items: unknown[]) => {
-    for (const item of items) {
-      const n = item as Record<string, unknown>
-      result.push({ type: String(n.type || ''), title: String(n.title || ''), description: n.description as string | undefined })
-      if (Array.isArray(n.children)) walk(n.children)
+const flattenStructure = (parts: MacroPartNode[]) => {
+  const result: { type: string; node: Record<string, unknown> }[] = []
+
+  const walkActs = (acts: unknown[]) => {
+    for (const act of acts) {
+      result.push({ type: 'act', node: act as Record<string, unknown> })
     }
   }
-  walk(nodes)
+
+  const walkVolumes = (volumes: unknown[]) => {
+    for (const volume of volumes) {
+      const volumeNode = volume as Record<string, unknown>
+      result.push({ type: 'volume', node: volumeNode })
+      if (Array.isArray(volumeNode.acts)) {
+        walkActs(volumeNode.acts)
+      }
+    }
+  }
+
+  for (const part of parts) {
+    const partNode = part as Record<string, unknown>
+    result.push({ type: 'part', node: partNode })
+    if (Array.isArray(partNode.volumes)) {
+      walkVolumes(partNode.volumes)
+    }
+  }
+
   return result
+}
+
+const stopProgressPolling = () => {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
+const pollMacroProgress = async () => {
+  if (planMode.value !== 'precise') return
+  try {
+    const res = await planningApi.getMacroProgress(props.novelId)
+    macroProgress.value = res.data
+    if (res.data.status === 'failed') {
+      stopProgressPolling()
+    }
+  } catch {
+    // 进度轮询失败时不打断主流程
+  }
+}
+
+const waitForMacroResult = async (): Promise<MacroPlanResultPayload> => {
+  while (true) {
+    const [progressRes, resultRes] = await Promise.all([
+      planningApi.getMacroProgress(props.novelId),
+      planningApi.getMacroResult(props.novelId),
+    ])
+    macroProgress.value = progressRes.data
+
+    if (progressRes.data.status === 'completed' && resultRes.data.ready && resultRes.data.result) {
+      stopProgressPolling()
+      return resultRes.data.result
+    }
+
+    if (progressRes.data.status === 'failed' || resultRes.data.error) {
+      stopProgressPolling()
+      throw new Error(resultRes.data.error || progressRes.data.message || '生成失败')
+    }
+
+    if (progressRes.data.percent >= 100 && progressRes.data.status === 'completed') {
+      macroProgress.value = {
+        ...progressRes.data,
+        message: '正在整理结果...',
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1200))
+  }
+}
+
+const startProgressPolling = () => {
+  stopProgressPolling()
+  resultWaiter = null
+  macroProgress.value = {
+    status: 'running',
+    current: 0,
+    total: form.value.structure.parts * form.value.structure.volumes_per_part,
+    percent: 0,
+    message: '正在准备结构规划...',
+  }
+  pollMacroProgress()
+  progressTimer = setInterval(() => {
+    void pollMacroProgress()
+  }, 1200)
 }
 
 const doGenerate = async () => {
@@ -250,25 +365,30 @@ const doGenerate = async () => {
       await new Promise(resolve => setTimeout(resolve, 500))
 
       emit('confirmed')
-      handleClose()
+      closeModal()
       return
     } else {
       // 精密模式：调用 generate_macro API（用户指定结构）
-      res = await planningApi.generateMacro(props.novelId, form.value) as unknown as Record<string, unknown>
+      startProgressPolling()
+      await planningApi.generateMacro(props.novelId, form.value)
+      resultWaiter = waitForMacroResult()
+      res = await resultWaiter as unknown as Record<string, unknown>
     }
 
     rawResult.value = res
-    // 尝试提取 structure 或 nodes 字段
-    const nodes = (res.structure as unknown[]) || (res.nodes as unknown[]) || (res.data as unknown[]) || [res]
-    structurePreview.value = flattenStructure(Array.isArray(nodes) ? nodes : [nodes])
+    const structure = Array.isArray(res.structure) ? res.structure as MacroPartNode[] : []
+    editableStructure.value = structure
+    structurePreview.value = flattenStructure(editableStructure.value)
     if (structurePreview.value.length === 0) {
-      structurePreview.value = [{ type: 'part', title: '（AI 返回格式未识别，请查看控制台）' }]
+      structurePreview.value = [{ type: 'part', node: { title: '（AI 返回格式未识别，请查看控制台）' } }]
     }
     generated.value = true
   } catch (e: unknown) {
     const err = e as { response?: { data?: { detail?: string } } }
     message.error(err?.response?.data?.detail || '生成失败，请确认 AI 密钥已配置')
   } finally {
+    stopProgressPolling()
+    resultWaiter = null
     loading.value = false
   }
 }
@@ -276,7 +396,7 @@ const doGenerate = async () => {
 const doConfirm = async () => {
   confirming.value = true
   try {
-    const res = await planningApi.confirmMacro(props.novelId, { structure: structurePreview.value as Record<string, unknown>[] }) as any
+    const res = await planningApi.confirmMacro(props.novelId, { structure: editableStructure.value as Record<string, unknown>[] }) as any
 
     // 解析后端返回的 summary 状态
     const summary = res?.summary || {}
@@ -286,17 +406,17 @@ const doConfirm = async () => {
       // 绿色通路：纯空框架覆盖
       message.success(summary.message || '结构框架已写入结构树')
       emit('confirmed')
-      handleClose()
+      closeModal()
     } else if (status === 'YELLOW') {
       // 黄色通路：安全合并
       message.warning(summary.message || '已安全合并，保留已有正文')
       emit('confirmed')
-      handleClose()
+      closeModal()
     } else {
       // 未知状态，默认成功
       message.success('结构框架已写入结构树')
       emit('confirmed')
-      handleClose()
+      closeModal()
     }
   } catch (e: unknown) {
     const err = e as { response?: { status?: number; data?: { detail?: any } } }
@@ -327,14 +447,27 @@ const doConfirm = async () => {
 }
 
 const reset = () => {
+  stopProgressPolling()
   generated.value = false
   rawResult.value = null
+  editableStructure.value = []
   structurePreview.value = []
+  macroProgress.value = {
+    status: 'idle',
+    current: 0,
+    total: 0,
+    percent: 0,
+    message: '',
+  }
+}
+
+const closeModal = () => {
+  reset()
+  show.value = false
 }
 
 const handleClose = () => {
   if (loading.value || confirming.value) return
-  reset()
-  show.value = false
+  closeModal()
 }
 </script>
