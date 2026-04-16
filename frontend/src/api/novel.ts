@@ -86,4 +86,24 @@ export const novelApi = {
     apiClient.patch<NovelDTO>(`/novels/${novelId}/auto-approve-mode`, { 
       auto_approve_mode: autoApproveMode 
     }) as Promise<NovelDTO>,
+
+  /**
+   * Export novel
+   * GET /api/v1/export/novel/{novelId}
+   */
+  exportNovel: (novelId: string, format: string) =>
+    apiClient.get<Blob>(`/export/novel/${novelId}`, {
+      params: { format },
+      responseType: 'blob'
+    }) as Promise<Blob>,
+
+  /**
+   * Export chapter
+   * GET /api/v1/export/chapter/{chapterId}
+   */
+  exportChapter: (chapterId: string, format: string) =>
+    apiClient.get<Blob>(`/export/chapter/${chapterId}`, {
+      params: { format },
+      responseType: 'blob'
+    }) as Promise<Blob>,
 }
