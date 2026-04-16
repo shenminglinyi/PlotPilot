@@ -19,7 +19,9 @@ DEFAULT_MODEL = "gpt-4o"
 class OpenAIProvider(BaseProvider):
     """OpenAI LLM 提供商实现
 
-    能够自动探活并兼容最新的 Responses API (优先) 和传统的 Chat Completions API (降级)。
+    通过 use_legacy_chat_completions 显式选择协议：
+    - False（默认）：走 Responses API，失败时自动降级到 Chat Completions
+    - True：走 Chat Completions API
     """
 
     # 静态类级别缓存：记录哪些 base_url 不支持 Responses API，从而避免重复降级带来的延迟开销
@@ -183,7 +185,7 @@ class OpenAIProvider(BaseProvider):
         }
         if self.settings.extra_body:
              kwargs.update(self.settings.extra_body)
-             
+
         if stream:
             kwargs["stream"] = True
         return kwargs
@@ -204,12 +206,12 @@ class OpenAIProvider(BaseProvider):
                             break
         if not content:
             raise RuntimeError("Responses API returned empty content")
-            
+
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
-        
+
         return GenerationResult(
-            content=content, 
+            content=content,
             token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
         )
 
@@ -281,5 +283,3 @@ class OpenAIProvider(BaseProvider):
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
-
-		
