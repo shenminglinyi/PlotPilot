@@ -16,6 +16,7 @@ from interfaces.api.dependencies import (
     get_chapter_service,
     get_novel_service,
     get_chapter_aftermath_pipeline,
+    get_chapter_version_service,
 )
 from domain.shared.exceptions import EntityNotFoundError
 logger = logging.getLogger(__name__)
@@ -172,6 +173,7 @@ async def update_chapter(
     chapter_number: int = Path(..., gt=0, description="章节编号"),
     service: ChapterService = Depends(get_chapter_service),
     pipeline: ChapterAftermathPipeline = Depends(get_chapter_aftermath_pipeline),
+    version_service=Depends(get_chapter_version_service),
 ):
     """更新章节内容，保存成功后后台执行统一章后管线（见 ChapterAftermathPipeline）。"""
     try:
@@ -182,6 +184,11 @@ async def update_chapter(
         )
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    try:
+        version_service.create_version(novel_id, chapter_number, request.content)
+    except Exception:
+        logger.warning("Failed to create chapter version snapshot", exc_info=True)
 
     content = request.content
     background_tasks.add_task(

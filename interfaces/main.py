@@ -59,12 +59,14 @@ from interfaces.api.v1.engine import (
     autopilot_routes,
     chronicles,
     snapshot_routes,
+    chapter_version_routes,
     workbench_context_routes,
-    character_scheduler_routes,  # 角色调度API（正式功能）
+    character_scheduler_routes,
+    rewrite_routes,
 )
 
 # Audit module
-from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes
+from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes, review_report_routes
 
 # Analyst module
 from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger
@@ -372,12 +374,15 @@ app.include_router(generation.router, prefix="/api/v1")
 app.include_router(context_intelligence.router, prefix="/api/v1")
 app.include_router(chronicles.router, prefix="/api/v1")
 app.include_router(snapshot_routes.router, prefix="/api/v1")
+app.include_router(chapter_version_routes.router, prefix="/api/v1")
 app.include_router(autopilot_routes.router, prefix="/api/v1")
 app.include_router(workbench_context_routes.router, prefix="/api/v1")
-app.include_router(character_scheduler_routes.router, prefix="/api/v1")  # 角色调度服务
+app.include_router(character_scheduler_routes.router, prefix="/api/v1")
+app.include_router(rewrite_routes.router, prefix="/api/v1")
 
 # Audit module routes
 app.include_router(chapter_review_routes.router)
+app.include_router(review_report_routes.router)
 app.include_router(macro_refactor.router, prefix="/api/v1")
 app.include_router(chapter_element_routes.router)
 

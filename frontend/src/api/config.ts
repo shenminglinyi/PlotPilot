@@ -12,7 +12,30 @@ const axiosInstance = axios.create({
 })
 
 // Add response interceptor to extract data
-axiosInstance.interceptors.response.use(response => response.data)
+axiosInstance.interceptors.response.use(response => response.data, (error) => {
+  if (error.code === 'ECONNABORTED' || error.code === 'ERR_CANCELED') {
+    return Promise.reject(new Error('请求超时，请检查网络连接'))
+  }
+  if (!error.response) {
+    return Promise.reject(new Error('网络连接失败，请检查后端是否已启动'))
+  }
+  const { status, data } = error.response
+  const detail = data?.detail
+  const msg = typeof detail === 'string' ? detail : (detail?.msg || '')
+  if (status === 401) {
+    return Promise.reject(new Error('API Key 无效或已过期，请在设置中重新配置'))
+  }
+  if (status === 429) {
+    return Promise.reject(new Error('请求过于频繁，请稍后再试'))
+  }
+  if (status === 404) {
+    return Promise.reject(new Error(msg || '请求的资源不存在'))
+  }
+  if (status >= 500) {
+    return Promise.reject(new Error(msg || '服务器内部错误，请稍后重试'))
+  }
+  return Promise.reject(new Error(msg || `请求失败 (${status})`))
+})
 
 // 类型安全的 API 客户端接口
 export interface ApiClient {

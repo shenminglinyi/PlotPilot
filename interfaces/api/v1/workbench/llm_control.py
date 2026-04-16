@@ -16,7 +16,7 @@ from application.ai.llm_control_service import (
     LLMControlService,
 )
 from infrastructure.ai.provider_factory import LLMProviderFactory
-from infrastructure.ai.prompt_manager import get_prompt_manager
+# from infrastructure.ai.prompt_manager import get_prompt_manager  # 暂时注释，等待原仓库修复
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/llm-control', tags=['llm-control'])

@@ -27,6 +27,9 @@ build/
 .claude/
 .trae/
 
+# Runtime generated skills (per-novel, do not commit)
+.plotpilot/skills/
+
 # Coverage / test artifacts
 .coverage
 .coverage.*

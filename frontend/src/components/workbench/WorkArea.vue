@@ -6,6 +6,11 @@
         <n-text depth="3" class="work-sub">{{ slug }}</n-text>
       </div>
       <div class="work-mode-switch" role="group" aria-label="创作模式">
+        <n-dropdown :options="exportOptions" @select="handleExport" :disabled="exporting">
+          <n-button size="small" :loading="exporting">
+            导出
+          </n-button>
+        </n-dropdown>
         <n-switch
           v-model:value="workMode"
           checked-value="managed"
@@ -20,7 +25,8 @@
 
     <div class="work-body">
       <!-- 辅助撰稿：编辑区 + 章节状态 + 章节元素（无全托管驾驶、无监控大盘） -->
-      <template v-if="workMode === 'assisted'">
+      <transition name="fade-slide" mode="out-in">
+        <div v-if="workMode === 'assisted'" key="assisted" class="assisted-panel">
         <n-alert
           v-if="isAssistedReadOnly"
           type="warning"
@@ -40,6 +46,7 @@
                     <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
                       {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
                     </n-tag>
+                    <n-tag v-if="hasChanges" size="small" type="warning" round>未保存</n-tag>
                   </div>
                   <n-space :size="8">
                     <n-button size="small" @click="handleReload" :disabled="loading">
@@ -58,7 +65,9 @@
                 </div>
 
                 <div class="editor-body">
+                  <n-spin v-if="loading" size="large" description="加载章节…" style="padding: 60px 0" />
                   <n-input
+                    v-else
                     v-model:value="chapterContent"
                     type="textarea"
                     placeholder="章节内容..."
@@ -124,6 +133,8 @@
                 :current-chapter-number="currentChapter?.number ?? null"
                 :read-only="isAssistedReadOnly"
                 :autopilot-chapter-review="autopilotChapterReview"
+                :content="chapterContent"
+                @content-replace="handleContentReplace"
               />
             </div>
           </n-tab-pane>
@@ -140,11 +151,31 @@
               />
             </div>
           </n-tab-pane>
+
+          <n-tab-pane name="review-report" tab="🔍 审稿报告">
+            <div class="elements-tab-wrap">
+              <ReviewReportPanel
+                :slug="slug"
+                :chapter-number="currentChapter?.number ?? null"
+              />
+            </div>
+          </n-tab-pane>
+
+          <n-tab-pane name="version-history" tab="📜 版本历史">
+            <div class="elements-tab-wrap">
+              <VersionDiffPanel
+                :slug="slug"
+                :chapter-number="currentChapter?.number ?? null"
+                @rolled-back="handleVersionRollback"
+              />
+            </div>
+          </n-tab-pane>
         </n-tabs>
-      </template>
+        </div>
 
       <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会切回辅助撰稿） -->
-      <div v-else class="managed-stack">
+      <div v-else key="managed" class="managed-panel">
+      <div class="managed-stack">
         <n-alert type="success" :show-icon="true" class="managed-daemon-hint">
           <strong>全托管模式</strong>：后端已自动启动守护进程线程，点击「启动全托管」即可开始自动写作。
           系统将自动进行宏观规划、幕级规划、章节撰写和审计。
@@ -161,6 +192,8 @@
           <AutopilotDashboard :novel-id="slug" />
         </div>
       </div>
+      </div>
+      </transition>
     </div>
 
     <!-- AI 生成本章弹窗（流式 + 质检结果在「章节状态」） -->
@@ -453,7 +486,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onUnmounted } from 'vue'
+import { ref, watch, computed, onUnmounted, onMounted, h } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   consumeGenerateChapterStream,
@@ -462,11 +495,14 @@ import {
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
+import { novelApi } from '../../api/novel'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
 import ChapterElementPanel from './ChapterElementPanel.vue'
 import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
+import ReviewReportPanel from './ReviewReportPanel.vue'
+import VersionDiffPanel from './VersionDiffPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
 
@@ -501,6 +537,33 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+
+const exporting = ref(false)
+const exportOptions = [
+  { label: 'TXT', key: 'txt' },
+  { label: 'Markdown', key: 'md' },
+  { label: 'EPUB', key: 'epub' },
+]
+
+const handleExport = async (format: string) => {
+  exporting.value = true
+  try {
+    const { blob, filename } = await novelApi.exportNovel(props.slug, format as 'txt' | 'md' | 'epub')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    message.success(`已导出 ${filename}`)
+  } catch {
+    message.error('导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
 const workMode = ref<'assisted' | 'managed'>('managed')
@@ -655,6 +718,31 @@ watch(
 
 onUnmounted(() => clearAssistedAutopilotPoll())
 
+function onBeforeUnload(e: BeforeUnloadEvent) {
+  if (hasChanges.value) {
+    e.preventDefault()
+  }
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault()
+    if (hasChanges.value && !isAssistedReadOnly.value) {
+      handleSave()
+    }
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('beforeunload', onBeforeUnload)
+  window.addEventListener('keydown', onKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', onBeforeUnload)
+  window.removeEventListener('keydown', onKeyDown)
+})
+
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
 watch(
   () => props.currentChapterId,
@@ -799,7 +887,9 @@ const hasChanges = computed(() => {
 })
 
 const wordCount = computed(() => {
-  return chapterContent.value.length
+  const text = chapterContent.value
+  const matches = text.match(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef，。！？；：""''（）——……、\u00b7]/g)
+  return matches ? matches.length : 0
 })
 
 // 监听传入的章节内容变化
@@ -816,7 +906,14 @@ watch(() => props.currentChapterId, (id) => {
 })
 
 const handleContentChange = () => {
-  // 内容变化
+}
+
+const handleContentReplace = (original: string, replacement: string) => {
+  if (!currentChapter.value || isAssistedReadOnly.value) return
+  const idx = chapterContent.value.indexOf(original)
+  if (idx === -1) return
+  chapterContent.value = chapterContent.value.slice(0, idx) + replacement + chapterContent.value.slice(idx + original.length)
+  handleSave()
 }
 
 const handleSave = async () => {
@@ -832,8 +929,9 @@ const handleSave = async () => {
     originalContent.value = chapterContent.value
     message.success('保存成功')
     emit('chapterUpdated')
-  } catch (error) {
-    message.error('保存失败')
+  } catch (error: any) {
+    const detail = error?.message || error?.response?.data?.detail
+    message.error(typeof detail === 'string' && detail ? `保存失败：${detail}` : '保存失败，请检查网络连接')
   } finally {
     saving.value = false
   }
@@ -846,8 +944,22 @@ const handleReload = async () => {
     chapterContent.value = fresh.content ?? ''
     originalContent.value = fresh.content ?? ''
     message.success('已重新加载')
+  } catch (error: any) {
+    const detail = error?.message || ''
+    message.error(detail || '加载失败，请稍后重试')
+  }
+}
+
+const handleVersionRollback = async () => {
+  if (!currentChapter.value) return
+  try {
+    const fresh = await chapterApi.getChapter(props.slug, currentChapter.value.number)
+    chapterContent.value = fresh.content ?? ''
+    originalContent.value = fresh.content ?? ''
+    message.success('已恢复回滚版本的内容')
+    emit('chapterUpdated')
   } catch {
-    message.error('加载失败，请稍后重试')
+    message.error('刷新章节内容失败')
   }
 }
 
@@ -1029,6 +1141,19 @@ defineExpose({ ensureAssistedMode })
 </script>
 
 <style scoped>
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 .work-area {
   height: 100%;
   min-height: 0;

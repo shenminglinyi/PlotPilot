@@ -31,6 +31,56 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class ReviewReportIssue:
+    def __init__(
+        self,
+        severity: str,
+        category: str,
+        description: str,
+        location: str,
+        suggestion: Optional[str] = None
+    ):
+        self.severity = severity
+        self.category = category
+        self.description = description
+        self.location = location
+        self.suggestion = suggestion
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "severity": self.severity,
+            "category": self.category,
+            "description": self.description,
+            "location": self.location,
+            "suggestion": self.suggestion
+        }
+
+
+class ReviewReport:
+    def __init__(
+        self,
+        chapter_number: int,
+        issues: List[ReviewReportIssue],
+        overall_score: float,
+        summary: Dict[str, int],
+        reviewed_at: datetime
+    ):
+        self.chapter_number = chapter_number
+        self.issues = issues
+        self.overall_score = overall_score
+        self.summary = summary
+        self.reviewed_at = reviewed_at
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "chapter_number": self.chapter_number,
+            "issues": [issue.to_dict() for issue in self.issues],
+            "overall_score": self.overall_score,
+            "summary": self.summary,
+            "reviewed_at": self.reviewed_at.isoformat()
+        }
+
+
 class ConsistencyIssue:
     """一致性问题"""
 
@@ -112,36 +162,28 @@ class ChapterReviewService:
         self.model = model or os.getenv("SYSTEM_MODEL", "")
 
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
-        """审稿章节"""
         chapter = self.chapter_repo.get_by_number(novel_id, chapter_number)
         if not chapter:
             raise ValueError(f"Chapter {chapter_number} not found")
-
         if not chapter.content:
             raise ValueError(f"Chapter {chapter_number} has no content to review")
 
         issues: List[ConsistencyIssue] = []
 
-        # 1. 人物一致性检查
         character_issues = await self._check_character_consistency(novel_id, chapter)
         issues.extend(character_issues)
 
-        # 2. 时间线一致性检查
         timeline_issues = await self._check_timeline_consistency(novel_id, chapter)
         issues.extend(timeline_issues)
 
-        # 3. 故事线连贯性检查
         storyline_issues = await self._check_storyline_consistency(novel_id, chapter)
         issues.extend(storyline_issues)
 
-        # 4. 伏笔使用检查
         foreshadowing_issues = await self._check_foreshadowing_usage(novel_id, chapter)
         issues.extend(foreshadowing_issues)
 
-        # 5. 生成改进建议
         improvement_suggestions = await self._generate_improvement_suggestions(chapter, issues)
 
-        # 6. 计算总体评分
         overall_score = self._calculate_overall_score(issues)
 
         return ChapterReviewResult(
@@ -151,6 +193,131 @@ class ChapterReviewService:
             improvement_suggestions=improvement_suggestions,
             reviewed_at=datetime.now()
         )
+
+    async def generate_structured_review_report(self, novel_id: str, chapter_number: int) -> ReviewReport:
+        chapter = self.chapter_repo.get_by_number(novel_id, chapter_number)
+        if not chapter:
+            raise ValueError(f"Chapter {chapter_number} not found")
+        if not chapter.content:
+            raise ValueError(f"Chapter {chapter_number} has no content to review")
+
+        raw_issues: List[ConsistencyIssue] = []
+
+        character_issues = await self._check_character_consistency(novel_id, chapter)
+        raw_issues.extend(character_issues)
+
+        timeline_issues = await self._check_timeline_consistency(novel_id, chapter)
+        raw_issues.extend(timeline_issues)
+
+        storyline_issues = await self._check_storyline_consistency(novel_id, chapter)
+        raw_issues.extend(storyline_issues)
+
+        foreshadowing_issues = await self._check_foreshadowing_usage(novel_id, chapter)
+        raw_issues.extend(foreshadowing_issues)
+
+        style_issues = await self._check_style_consistency(novel_id, chapter)
+        raw_issues.extend(style_issues)
+
+        report_issues = self._classify_issues(raw_issues)
+        overall_score = self._calculate_overall_score(raw_issues)
+        summary = self._build_summary(report_issues)
+
+        return ReviewReport(
+            chapter_number=chapter_number,
+            issues=report_issues,
+            overall_score=overall_score,
+            summary=summary,
+            reviewed_at=datetime.now()
+        )
+
+    def _classify_issues(self, raw_issues: List[ConsistencyIssue]) -> List[ReviewReportIssue]:
+        CATEGORY_SEVERITY_MAP = {
+            "character": "critical",
+            "timeline": "critical",
+            "storyline": "warning",
+            "foreshadowing": "warning",
+            "style": "suggestion",
+        }
+        CATEGORY_LABEL_MAP = {
+            "character": "人物矛盾",
+            "timeline": "时间线冲突",
+            "storyline": "故事线异常",
+            "foreshadowing": "伏笔遗忘",
+            "style": "文风偏移",
+        }
+        report_issues: List[ReviewReportIssue] = []
+        for issue in raw_issues:
+            base_severity = CATEGORY_SEVERITY_MAP.get(issue.issue_type, "suggestion")
+            severity = issue.severity if issue.severity in ("critical", "warning", "suggestion") else base_severity
+            category = CATEGORY_LABEL_MAP.get(issue.issue_type, issue.issue_type)
+            report_issues.append(ReviewReportIssue(
+                severity=severity,
+                category=category,
+                description=issue.description,
+                location=issue.location,
+                suggestion=issue.suggestion
+            ))
+        report_issues.sort(key=lambda x: {"critical": 0, "warning": 1, "suggestion": 2}.get(x.severity, 3))
+        return report_issues
+
+    def _build_summary(self, issues: List[ReviewReportIssue]) -> Dict[str, int]:
+        summary = {"critical": 0, "warning": 0, "suggestion": 0}
+        for issue in issues:
+            if issue.severity in summary:
+                summary[issue.severity] += 1
+        return summary
+
+    async def _check_style_consistency(
+        self,
+        novel_id: str,
+        chapter: Chapter
+    ) -> List[ConsistencyIssue]:
+        issues = []
+        prompt_text = self._build_style_consistency_prompt(chapter_content=chapter.content)
+
+        prompt = Prompt(system="你是小说审稿助手，专门检查文风与节奏一致性。", user=prompt_text)
+        config = GenerationConfig(
+            model=self.model,
+            max_tokens=self._DEFAULT_MAX_TOKENS,
+            temperature=self._DEFAULT_TEMPERATURE
+        )
+
+        result = await self.llm_service.generate(prompt, config)
+        data, errs = parse_llm_json_to_dict(result.content)
+
+        if data:
+            drifts = data.get("drifts", [])
+            for drift in drifts:
+                issues.append(ConsistencyIssue(
+                    issue_type="style",
+                    severity=drift.get("severity", "suggestion"),
+                    description=drift.get("description", ""),
+                    location=f"Chapter {chapter.chapter_number}",
+                    suggestion=drift.get("suggestion")
+                ))
+        else:
+            logger.warning(f"Style consistency check JSON parse failed: {errs}")
+
+        return issues
+
+    def _build_style_consistency_prompt(self, chapter_content: str) -> str:
+        return f"""请检查以下章节内容的文风与叙事节奏是否存在偏移或异常。
+
+章节内容：
+{chapter_content[:1500]}...
+
+请以 JSON 格式返回检查结果：
+{{
+  "drifts": [
+    {{
+      "severity": "warning/suggestion",
+      "description": "文风偏移或节奏异常的具体描述",
+      "suggestion": "修改建议"
+    }}
+  ]
+}}
+
+如果没有发现偏移，返回空数组。"""
 
     async def _check_character_consistency(
         self,

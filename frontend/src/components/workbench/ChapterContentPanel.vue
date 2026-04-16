@@ -1,5 +1,5 @@
 <template>
-  <div class="cc-panel">
+  <div class="cc-panel" ref="panelRef">
     <n-empty v-if="!currentChapterNumber" description="请先从左侧选择一个章节" style="margin-top: 40px" />
 
     <n-scrollbar v-else class="cc-scroll">
@@ -7,6 +7,18 @@
         <n-alert v-if="readOnly" type="warning" :show-icon="true" size="small">
           托管运行中：仅可查看
         </n-alert>
+
+        <!-- 正文内容 -->
+        <n-card v-if="content" size="small" :bordered="true">
+          <template #header>
+            <span class="card-title">📖 正文内容</span>
+          </template>
+          <div
+            class="cc-content-body"
+            ref="contentBodyRef"
+            @mouseup="handleMouseUp"
+          >{{ content }}</div>
+        </n-card>
 
         <!-- 本章规划 -->
         <n-card v-if="chapterPlan" size="small" :bordered="true" class="cc-card-plan">
@@ -45,7 +57,7 @@
               </ol>
               <n-empty v-else description="暂无宏观节拍" size="small" />
             </n-tab-pane>
-            
+
             <n-tab-pane name="micro" tab="微观">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
                 写作时智能拆分，控制节奏和感官细节
@@ -150,11 +162,58 @@
         </n-card>
       </n-space>
     </n-scrollbar>
+
+    <!-- 浮动工具栏 -->
+    <Teleport to="body">
+      <div
+        v-if="showToolbar && selectedText && !rewriteLoading && !showDiff"
+        class="rewrite-toolbar"
+        :style="toolbarStyle"
+      >
+        <n-button
+          v-for="mode in rewriteModes"
+          :key="mode"
+          size="tiny"
+          :type="activeMode === mode ? 'primary' : 'default'"
+          @click="handleRewriteClick(mode)"
+        >
+          {{ REWRITE_MODE_LABELS[mode] }}
+        </n-button>
+      </div>
+    </Teleport>
+
+    <!-- Diff 视图弹窗 -->
+    <n-modal
+      v-model:show="showDiff"
+      preset="card"
+      title="改写结果对比"
+      style="width: min(780px, 96vw); max-height: min(85vh, 800px)"
+      :mask-closable="false"
+    >
+      <n-scrollbar style="max-height: min(70vh, 650px)">
+        <div class="diff-container">
+          <div class="diff-column">
+            <div class="diff-label">原文</div>
+            <div class="diff-content diff-old">{{ selectedText }}</div>
+          </div>
+          <div class="diff-column">
+            <div class="diff-label">新文</div>
+            <div class="diff-content diff-new">{{ rewrittenText }}</div>
+          </div>
+        </div>
+      </n-scrollbar>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="handleReject">拒绝</n-button>
+          <n-button type="primary" @click="handleAccept">接受</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed, onBeforeUnmount, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { planningApi } from '../../api/planning'
@@ -163,6 +222,11 @@ import { knowledgeApi } from '../../api/knowledge'
 import type { ChapterSummary } from '../../api/knowledge'
 import { bibleApi, type CharacterDTO } from '../../api/bible'
 import type { AutopilotChapterAudit } from './ChapterStatusPanel.vue'
+import {
+  consumeRewriteStream,
+  REWRITE_MODE_LABELS,
+  type RewriteMode,
+} from '../../api/rewrite'
 
 const props = withDefaults(
   defineProps<{
@@ -170,22 +234,45 @@ const props = withDefaults(
     currentChapterNumber?: number | null
     readOnly?: boolean
     autopilotChapterReview?: AutopilotChapterAudit | null
+    content?: string
   }>(),
   {
     currentChapterNumber: null,
     readOnly: false,
     autopilotChapterReview: null,
+    content: '',
   }
 )
 
+const emit = defineEmits<{
+  'content-replace': [original: string, replacement: string]
+}>()
+
+const panelRef = ref<HTMLElement | null>(null)
+const contentBodyRef = ref<HTMLElement | null>(null)
 const storyNodeNotFound = ref(false)
 const chapterPlan = ref<StoryNode | null>(null)
 const knowledgeChapter = ref<ChapterSummary | null>(null)
-
-// Bible 数据用于 ID -> name 映射
 const bibleCharacters = ref<CharacterDTO[]>([])
 
-// 获取人物名称
+const selectedText = ref('')
+const showToolbar = ref(false)
+const toolbarPos = ref({ x: 0, y: 0 })
+const rewriteLoading = ref(false)
+const showDiff = ref(false)
+const rewrittenText = ref('')
+const activeMode = ref<RewriteMode | null>(null)
+const rewriteAbortCtrl = ref<AbortController | null>(null)
+
+const rewriteModes: RewriteMode[] = ['rewrite', 'expand', 'shrink', 'polish', 'continue']
+
+const toolbarStyle = computed(() => ({
+  position: 'fixed' as const,
+  left: `${toolbarPos.value.x}px`,
+  top: `${toolbarPos.value.y}px`,
+  zIndex: 9999,
+}))
+
 const getCharacterName = (charId: string): string => {
   const char = bibleCharacters.value.find(c => c.id === charId)
   return char ? char.name : charId
@@ -222,8 +309,6 @@ interface MicroBeat {
   focus: string
 }
 
-// TODO: 微观节拍需要从后端 API 获取（章节生成时由守护进程创建）
-// 当前暂时从 knowledgeChapter 中读取
 const microBeats = computed<MicroBeat[]>(() => {
   const k = knowledgeChapter.value
   if (k?.micro_beats && Array.isArray(k.micro_beats)) {
@@ -303,13 +388,116 @@ async function loadKnowledgeChapter() {
   }
 }
 
-// 加载 Bible 数据用于名称映射
 async function loadBible() {
   try {
     const bible = await bibleApi.getBible(props.slug)
     bibleCharacters.value = bible.characters || []
   } catch {
     bibleCharacters.value = []
+  }
+}
+
+function handleMouseUp() {
+  const sel = window.getSelection()
+  if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+    showToolbar.value = false
+    selectedText.value = ''
+    return
+  }
+  const text = sel.toString().trim()
+  if (!text) {
+    showToolbar.value = false
+    return
+  }
+  selectedText.value = text
+  const range = sel.getRangeAt(0)
+  const rect = range.getBoundingClientRect()
+  const toolbarWidth = 280
+  const toolbarHeight = 44
+  let x = rect.left + rect.width / 2 - toolbarWidth / 2
+  let y = rect.top - toolbarHeight - 8
+  if (y < 8) {
+    y = rect.bottom + 8
+  }
+  if (x < 8) x = 8
+  if (x + toolbarWidth > window.innerWidth - 8) {
+    x = window.innerWidth - toolbarWidth - 8
+  }
+  toolbarPos.value = { x, y }
+  showToolbar.value = true
+}
+
+function closeToolbar() {
+  showToolbar.value = false
+  selectedText.value = ''
+}
+
+async function handleRewriteClick(mode: RewriteMode) {
+  if (!selectedText.value || props.readOnly) return
+  activeMode.value = mode
+  showToolbar.value = false
+  rewriteLoading.value = true
+  rewrittenText.value = ''
+
+  const ctrl = new AbortController()
+  rewriteAbortCtrl.value = ctrl
+
+  const contextText = props.content
+    ? props.content.slice(0, Math.max(0, props.content.indexOf(selectedText.value)))
+    : ''
+
+  try {
+    await consumeRewriteStream(
+      {
+        text: selectedText.value,
+        mode,
+        context: contextText.slice(-500),
+      },
+      {
+        signal: ctrl.signal,
+        onChunk: (chunk) => {
+          rewrittenText.value += chunk
+        },
+        onDone: () => {
+          rewriteLoading.value = false
+          showDiff.value = true
+        },
+        onError: (msg) => {
+          rewriteLoading.value = false
+          rewrittenText.value = ''
+          window.$message?.error(msg || '改写失败，请重试')
+        },
+      }
+    )
+  } catch {
+    rewriteLoading.value = false
+  } finally {
+    rewriteAbortCtrl.value = null
+  }
+}
+
+function handleAccept() {
+  if (selectedText.value && rewrittenText.value) {
+    emit('content-replace', selectedText.value, rewrittenText.value)
+  }
+  resetRewriteState()
+}
+
+function handleReject() {
+  resetRewriteState()
+}
+
+function resetRewriteState() {
+  showDiff.value = false
+  rewrittenText.value = ''
+  selectedText.value = ''
+  activeMode.value = null
+  rewriteLoading.value = false
+}
+
+function onDocumentClick(e: MouseEvent) {
+  if (showToolbar.value && panelRef.value && !panelRef.value.contains(e.target as Node)) {
+    closeToolbar()
   }
 }
 
@@ -341,6 +529,12 @@ onMounted(async () => {
   await loadBible()
   await resolveStoryNode()
   await loadKnowledgeChapter()
+  document.addEventListener('mousedown', onDocumentClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocumentClick)
+  rewriteAbortCtrl.value?.abort()
 })
 </script>
 
@@ -364,7 +558,17 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-/* 节拍列表 */
+.cc-content-body {
+  font-size: 14px;
+  line-height: 1.9;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  cursor: text;
+  min-height: 60px;
+  padding: 4px 0;
+}
+
 .cc-beat-list {
   margin: 8px 0 0;
   padding-left: 1.2em;
@@ -372,7 +576,6 @@ onMounted(async () => {
   line-height: 1.8;
 }
 
-/* 微观节拍 */
 .micro-beat-item {
   padding: 12px 14px;
   border-radius: 10px;
@@ -405,7 +608,6 @@ onMounted(async () => {
   border-left-color: var(--n-primary-color);
 }
 
-/* 审阅行 */
 .review-row {
   display: flex;
   justify-content: space-between;
@@ -413,7 +615,6 @@ onMounted(async () => {
   gap: 12px;
 }
 
-/* 张力进度条 */
 .tension-bar {
   position: relative;
   width: 100px;
@@ -439,5 +640,54 @@ onMounted(async () => {
   font-size: 11px;
   font-weight: 600;
   color: var(--n-text-color-1);
+}
+
+.diff-container {
+  display: flex;
+  gap: 16px;
+}
+
+.diff-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.diff-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--n-text-color-2);
+}
+
+.diff-content {
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.diff-old {
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.diff-new {
+  background: rgba(16, 185, 129, 0.06);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+}
+</style>
+
+<style>
+.rewrite-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--n-color-popover);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--n-border-color);
+  transform: translateX(-50%);
 }
 </style>

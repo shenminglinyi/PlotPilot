@@ -63,6 +63,11 @@ logger = logging.getLogger(__name__)
 _storage = None
 
 
+def get_export_service():
+    from infrastructure.export.export_service import ExportService
+    return ExportService(get_chapter_repository())
+
+
 def _anthropic_api_key() -> Optional[str]:
     """优先 ANTHROPIC_API_KEY，否则 ANTHROPIC_AUTH_TOKEN（与部分代理/IDE 配置命名一致）。"""
     raw = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
@@ -225,6 +230,15 @@ def get_snapshot_service():
         get_database(),
         get_chapter_repository(),
         get_foreshadowing_repository(),
+    )
+
+
+def get_chapter_version_service():
+    from application.snapshot.services.chapter_version_service import ChapterVersionService
+
+    return ChapterVersionService(
+        get_database(),
+        get_chapter_repository(),
     )
 
 

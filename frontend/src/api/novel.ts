@@ -1,4 +1,4 @@
-import { apiClient } from './config'
+import { apiClient, API_BASE_URL } from './config'
 import type { BookStats } from '../types/api'
 
 export interface ChapterDTO {
@@ -87,20 +87,18 @@ export const novelApi = {
       auto_approve_mode: autoApproveMode 
     }) as Promise<NovelDTO>,
 
-  /**
-   * Export novel
-   * GET /api/v1/export/novel/{novelId}
-   */
-  exportNovel: (novelId: string, format: string) =>
-    apiClient.get<Blob>(`/export/novel/${novelId}`, {
-      params: { format },
-      responseType: 'blob'
-    }) as Promise<Blob>,
+  exportNovel: (novelId: string, format: 'txt' | 'md' | 'epub') => {
+    const url = `/novels/${novelId}/export?format=${format}`
+    return fetch(`${API_BASE_URL}${url}`).then(res => {
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+      const disposition = res.headers.get('Content-Disposition') || ''
+      let filename = `novel.${format}`
+      const match = disposition.match(/filename\*=UTF-8''(.+)/)
+      if (match) filename = decodeURIComponent(match[1])
+      return res.blob().then(blob => ({ blob, filename }))
+    })
+  },
 
-  /**
-   * Export chapter
-   * GET /api/v1/export/chapter/{chapterId}
-   */
   exportChapter: (chapterId: string, format: string) =>
     apiClient.get<Blob>(`/export/chapter/${chapterId}`, {
       params: { format },

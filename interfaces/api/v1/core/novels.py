@@ -1,17 +1,22 @@
 """Novel API 路由"""
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from typing import List
+from fastapi.responses import StreamingResponse
+from typing import List, Optional
 from pydantic import BaseModel, Field
+from urllib.parse import quote
+import io
 import logging
 
 from application.core.services.novel_service import NovelService
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
 from application.core.dtos.novel_dto import NovelDTO
+from infrastructure.export.export_service import ExportService
 from interfaces.api.dependencies import (
     get_novel_service,
     get_auto_bible_generator,
-    get_auto_knowledge_generator
+    get_auto_knowledge_generator,
+    get_export_service,
 )
 from domain.shared.exceptions import EntityNotFoundError
 
@@ -260,3 +265,49 @@ async def get_novel_statistics(
         return service.get_novel_statistics(novel_id)
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{novel_id}/export")
+async def export_novel(
+    novel_id: str,
+    format: str = "txt",
+    export_service: ExportService = Depends(get_export_service),
+    novel_service: NovelService = Depends(get_novel_service),
+):
+    novel_dto = novel_service.get_novel(novel_id)
+    if novel_dto is None:
+        raise HTTPException(status_code=404, detail=f"Novel not found: {novel_id}")
+
+    from domain.novel.entities.novel import Novel
+    from domain.novel.value_objects.novel_id import NovelId
+    novel_repo = novel_service.novel_repository
+    novel = novel_repo.get_by_id(NovelId(novel_id))
+    if novel is None:
+        raise HTTPException(status_code=404, detail=f"Novel not found: {novel_id}")
+
+    fmt = format.lower()
+    title_encoded = quote(novel.title)
+
+    if fmt == "txt":
+        data = export_service.export_txt(novel)
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{title_encoded}.txt"},
+        )
+    elif fmt in ("md", "markdown"):
+        data = export_service.export_markdown(novel)
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{title_encoded}.md"},
+        )
+    elif fmt == "epub":
+        data = export_service.export_epub(novel)
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type="application/epub+zip",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{title_encoded}.epub"},
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported export format: {format}")

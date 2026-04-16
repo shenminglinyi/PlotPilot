@@ -88,13 +88,14 @@ const exportOptions = [
 async function handleExport(format: string) {
   try {
     message.info(`开始导出为 ${format} 格式...`)
-    const blob = await novelApi.exportNovel(props.slug, format)
+    const result = await novelApi.exportNovel(props.slug, format as 'txt' | 'md' | 'epub')
+    const blob = result instanceof Blob ? result : result.blob
+    const filename = result instanceof Blob ? `novel-${props.slug}.${format}` : result.filename
     
-    // 创建下载链接
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `novel-${props.slug}.${format}`
+    a.download = filename
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)

@@ -222,6 +222,7 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
         "add_tension_dimensions.sql",
         "add_hermes_mode.sql",
         "add_use_legacy_chat_completions.sql",
+        "add_chapter_versions.sql",
     ]
     
     for migration_file in migration_files:

@@ -91,10 +91,21 @@
       <n-button v-if="!isRunning && !needsReview" type="primary" size="small" :loading="toggling" @click="openStartModal">
         🚀 启动全托管
       </n-button>
-      <n-button v-if="isRunning" type="error" ghost size="small" :loading="toggling" @click="stop">
+      <n-button v-if="isRunning" type="error" ghost size="small" :loading="toggling" @click="confirmStop">
         ⏹ 停止
       </n-button>
     </n-space>
+
+    <!-- 停止确认弹窗 -->
+    <n-modal v-model:show="showStopConfirm" preset="confirm" type="warning" title="确认停止全托管">
+      停止后当前正在生成的章节将中断，确定停止吗？
+      <template #action>
+        <n-space>
+          <n-button @click="showStopConfirm = false">取消</n-button>
+          <n-button type="error" :loading="toggling" @click="stop">确认停止</n-button>
+        </n-space>
+      </template>
+    </n-modal>
 
     <!-- 启动配置弹窗 -->
     <n-modal v-model:show="showStartModal" title="启动全托管" preset="dialog" positive-text="启动" @positive-click="start">
@@ -399,8 +410,15 @@ async function start() {
   }
 }
 
+const showStopConfirm = ref(false)
+
+function confirmStop() {
+  showStopConfirm.value = true
+}
+
 async function stop() {
   toggling.value = true
+  showStopConfirm.value = false
   await fetch(`${base()}/stop`, { method: 'POST' })
   message.info('已停止')
   await fetchStatus()

@@ -38,6 +38,26 @@ export interface ChapterReviewAiResponse {
   saved: boolean
 }
 
+export interface ReviewReportIssueDTO {
+  severity: string
+  category: string
+  description: string
+  location: string
+  suggestion: string | null
+}
+
+export interface ReviewReportDTO {
+  chapter_number: number
+  issues: ReviewReportIssueDTO[]
+  overall_score: number
+  summary: {
+    critical: number
+    warning: number
+    suggestion: number
+  }
+  reviewed_at: string
+}
+
 export const chapterApi = {
   /**
    * List all chapters for a novel
@@ -94,4 +114,7 @@ export const chapterApi = {
    */
   ensureChapter: (novelId: string, chapterNumber: number, title = '') =>
     apiClient.post<ChapterDTO>(`/novels/${novelId}/chapters/${chapterNumber}/ensure`, { title }) as Promise<ChapterDTO>,
+
+  getReviewReport: (novelId: string, chapterNumber: number) =>
+    apiClient.get<ReviewReportDTO>(`/novels/${novelId}/chapters/${chapterNumber}/review-report`) as Promise<ReviewReportDTO>,
 }

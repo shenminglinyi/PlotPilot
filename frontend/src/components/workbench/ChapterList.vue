@@ -17,15 +17,30 @@
           style="flex: 1;"
         />
       </div>
+
+      <!-- 章节搜索 -->
+      <n-input
+        v-if="chapters.length > 10"
+        v-model:value="searchQuery"
+        placeholder="搜索章节…"
+        clearable
+        size="small"
+        class="chapter-search"
+      >
+        <template #prefix>
+          <span style="font-size: 13px">🔍</span>
+        </template>
+      </n-input>
     </div>
 
     <n-scrollbar class="sidebar-scroll">
       <!-- 平铺视图：仅显示章节列表 -->
       <div v-if="viewMode === 'flat'">
         <div v-if="!chapters.length" class="sidebar-empty">暂无章节，请先在底部执行「启动结构规划」创建章节大纲</div>
+        <div v-else-if="filteredChapters.length === 0" class="sidebar-empty">未找到匹配「{{ searchQuery }}」的章节</div>
         <n-list v-else hoverable clickable>
           <n-list-item
-            v-for="ch in chapters"
+            v-for="ch in filteredChapters"
             :key="ch.id"
             :class="{ 'is-active': currentChapterId === ch.id }"
             @click="handleChapterClick(ch.id, ch.title)"
@@ -79,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, type ComponentPublicInstance } from 'vue'
+import { ref, computed, type ComponentPublicInstance } from 'vue'
 import StoryStructureTree from '@/components/StoryStructureTree.vue'
 import MacroPlanModal from '@/components/workbench/MacroPlanModal.vue'
 
@@ -113,6 +128,16 @@ const viewModeOptions = [
   { label: '树形视图', value: 'tree' },
   { label: '平铺视图', value: 'flat' }
 ]
+
+const searchQuery = ref('')
+const filteredChapters = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return props.chapters
+  return props.chapters.filter(ch =>
+    ch.title.toLowerCase().includes(q) ||
+    String(ch.number).includes(q)
+  )
+})
 
 const showMacroPlan = ref(false)
 const hasStructure = ref(true) // 默认假设有结构，由 StoryStructureTree 更新
@@ -173,6 +198,10 @@ const handleTreeLoaded = (hasData: boolean) => {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: 8px;
+}
+
+.chapter-search {
   margin-top: 8px;
 }
 

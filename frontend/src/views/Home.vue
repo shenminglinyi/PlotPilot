@@ -361,6 +361,13 @@
         </div>
       </div>
     </n-modal>
+
+    <!-- Onboarding Wizard -->
+    <OnboardingWizard
+      v-model:show="showOnboarding"
+      @complete="handleOnboardingComplete"
+      @skip="handleOnboardingSkip"
+    />
   </div>
 </template>
 
@@ -371,6 +378,7 @@ import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
+import OnboardingWizard from '@/components/novel/OnboardingWizard.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
 import { useStatsStore } from '@/stores/statsStore'
 
@@ -420,6 +428,7 @@ const showSetupGuide = ref(false)
 const showLLMSettings = ref(false)
 const showAllModal = ref(false)
 const modalSearchQuery = ref('')
+const showOnboarding = ref(false)
 const newNovelId = ref('')
 const newNovelTargetChapters = ref(10)
 
@@ -508,6 +517,10 @@ const fetchBooks = async () => {
       chapter_count: novel.chapters?.length || 0,
       word_count: novel.total_word_count,
     }))
+    const onboardingCompleted = localStorage.getItem('plotpilot_onboarding_completed')
+    if (books.value.length === 0 && !onboardingCompleted) {
+      showOnboarding.value = true
+    }
   } catch {
     message.error('加载失败')
   } finally {
@@ -571,6 +584,18 @@ const handleSetupComplete = () => {
 
 const handleSetupSkip = () => {
   router.push(`/book/${newNovelId.value}/workbench`)
+}
+
+const handleOnboardingComplete = (novelId: string) => {
+  if (novelId) {
+    router.push(`/book/${novelId}/workbench`)
+  } else {
+    fetchBooks()
+  }
+}
+
+const handleOnboardingSkip = () => {
+  fetchBooks()
 }
 
 const navigateToBook = (slug: string) => {
