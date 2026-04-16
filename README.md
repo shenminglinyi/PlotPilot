@@ -106,7 +106,7 @@ docker compose up -d
 # Qdrant 将运行在 http://localhost:6333
 ```
 
-#### 4. 下载嵌入模型
+### 4. 下载嵌入模型
 
 首次运行需下载本地嵌入模型（约 100 MB）：
 
