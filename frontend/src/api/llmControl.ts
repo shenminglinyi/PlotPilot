@@ -27,6 +27,7 @@ export interface LLMProfile {
   extra_query: Record<string, unknown>
   extra_body: Record<string, unknown>
   notes: string
+  use_legacy_chat_completions: boolean
 }
 
 export interface LLMControlConfig {

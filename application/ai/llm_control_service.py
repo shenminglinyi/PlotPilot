@@ -47,6 +47,7 @@ class LLMProfile(BaseModel):
     extra_query: Dict[str, Any] = Field(default_factory=dict)
     extra_body: Dict[str, Any] = Field(default_factory=dict)
     notes: str = ''
+    use_legacy_chat_completions: bool = False
 
     @field_validator('temperature')
     @classmethod
@@ -154,6 +155,7 @@ class LLMControlService:
             extra_query=json.loads(row.get('extra_query') or '{}'),
             extra_body=json.loads(row.get('extra_body') or '{}'),
             notes=row['notes'] or '',
+            use_legacy_chat_completions=bool(row.get('use_legacy_chat_completions', 0)),
         )
 
     def _profile_to_row(self, p: LLMProfile) -> dict:
@@ -172,6 +174,7 @@ class LLMControlService:
             extra_query=json.dumps(p.extra_query, ensure_ascii=False),
             extra_body=json.dumps(p.extra_body, ensure_ascii=False),
             notes=p.notes,
+            use_legacy_chat_completions=int(p.use_legacy_chat_completions),
         )
 
     # ---- 公共接口（保持与原文件版一致）----------------------------------
@@ -322,15 +325,16 @@ class LLMControlService:
                 row['base_url'], row['api_key'], row['model'],
                 row['temperature'], row['max_tokens'], row['timeout_seconds'],
                 row['extra_headers'], row['extra_query'], row['extra_body'],
-                row['notes'], row['sort_order'],
+                row['notes'], row['use_legacy_chat_completions'], row['sort_order'],
             ))
 
         db.execute_many(
             """INSERT INTO llm_profiles (
                 id, name, preset_key, protocol, base_url, api_key, model,
                 temperature, max_tokens, timeout_seconds,
-                extra_headers, extra_query, extra_body, notes, sort_order
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                extra_headers, extra_query, extra_body, notes,
+                use_legacy_chat_completions, sort_order
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             params_list,
         )
 

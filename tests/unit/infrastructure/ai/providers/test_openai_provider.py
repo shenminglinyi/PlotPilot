@@ -24,10 +24,12 @@ class _FakeStream:
             raise StopAsyncIteration from exc
 
 
-class TestOpenAIProvider:
+class TestOpenAIProviderLegacy:
+    """use_legacy_chat_completions=True → Chat Completions API"""
+
     @pytest.fixture
     def settings(self):
-        return Settings(api_key="test-api-key")
+        return Settings(api_key="test-api-key", use_legacy_chat_completions=True)
 
     @pytest.fixture
     def provider(self, settings):
@@ -36,9 +38,10 @@ class TestOpenAIProvider:
     def test_initialization(self, provider, settings):
         assert provider.settings == settings
         assert provider.async_client is not None
+        assert provider._use_legacy is True
 
     @pytest.mark.anyio
-    async def test_generate_with_default_config(self, provider):
+    async def test_generate_non_stream(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="gpt-4o", temperature=0.7, max_tokens=4096)
         response = SimpleNamespace(
@@ -132,3 +135,99 @@ class TestOpenAIProvider:
     def test_missing_api_key(self):
         with pytest.raises(ValueError, match="API key is required"):
             OpenAIProvider(Settings(api_key=None))
+
+
+class TestOpenAIProviderResponses:
+    """use_legacy_chat_completions=False（默认）→ Responses API"""
+
+    @pytest.fixture
+    def settings(self):
+        return Settings(api_key="test-api-key", use_legacy_chat_completions=False)
+
+    @pytest.fixture
+    def provider(self, settings):
+        return OpenAIProvider(settings)
+
+    def test_default_uses_responses(self, provider):
+        assert provider._use_legacy is False
+
+    @pytest.mark.anyio
+    async def test_generate_non_stream(self, provider):
+        prompt = Prompt(system="You are helpful", user="Hello")
+        config = GenerationConfig(model="gpt-4o", temperature=0.5, max_tokens=2048)
+        response = SimpleNamespace(
+            output=[
+                SimpleNamespace(
+                    type="message",
+                    content=[SimpleNamespace(type="text", text="Hi from responses!")],
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=8, completion_tokens=4),
+        )
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            result = await provider.generate(prompt, config)
+
+            assert result.content == "Hi from responses!"
+            assert result.token_usage.input_tokens == 8
+            assert result.token_usage.output_tokens == 4
+
+            call_kwargs = mock_create.call_args.kwargs
+            assert call_kwargs["model"] == "gpt-4o"
+            assert call_kwargs["temperature"] == 0.5
+            assert call_kwargs["max_output_tokens"] == 2048
+
+    @pytest.mark.anyio
+    async def test_stream_generate(self, provider):
+        prompt = Prompt(system="You are helpful", user="Hello")
+        config = GenerationConfig(model="gpt-4o", temperature=0.7, max_tokens=32)
+        stream = _FakeStream([
+            SimpleNamespace(
+                type="response.content_part.added",
+                part=SimpleNamespace(type="text", text="Hello"),
+            ),
+            SimpleNamespace(type="response.completed"),
+        ])
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = stream
+
+            chunks = [chunk async for chunk in provider.stream_generate(prompt, config)]
+
+            assert chunks == ["Hello"]
+            assert mock_create.await_args.kwargs["stream"] is True
+
+    @pytest.mark.anyio
+    async def test_generate_empty_responses_raises(self, provider):
+        prompt = Prompt(system="You are helpful", user="Hello")
+        config = GenerationConfig()
+        response = SimpleNamespace(
+            output=[],
+            usage=SimpleNamespace(prompt_tokens=5, completion_tokens=0),
+        )
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            with pytest.raises(RuntimeError, match="empty content"):
+                await provider.generate(prompt, config)
+
+
+class TestProfilePassthrough:
+    """profile 的 use_legacy_chat_completions 正确透传到 OpenAIProvider"""
+
+    def test_legacy_flag_passed_through(self):
+        settings_legacy = Settings(api_key="k", use_legacy_chat_completions=True)
+        provider_legacy = OpenAIProvider(settings_legacy)
+        assert provider_legacy._use_legacy is True
+
+        settings_new = Settings(api_key="k", use_legacy_chat_completions=False)
+        provider_new = OpenAIProvider(settings_new)
+        assert provider_new._use_legacy is False
+
+    def test_default_is_responses(self):
+        settings = Settings(api_key="k")
+        provider = OpenAIProvider(settings)
+        assert provider._use_legacy is False

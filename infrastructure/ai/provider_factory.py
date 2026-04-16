@@ -61,6 +61,7 @@ class LLMProviderFactory:
             extra_body=profile.extra_body,
             provider_name=profile.name,
             protocol=profile.protocol,
+            use_legacy_chat_completions=profile.use_legacy_chat_completions,
         )
 
 

@@ -1,8 +1,8 @@
 """OpenAI LLM 提供商实现"""
 import logging
+import openai
 from typing import Any, AsyncIterator
 
-import openai
 from openai import AsyncOpenAI
 
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult
