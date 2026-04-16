@@ -76,6 +76,13 @@ def _migrate_novels_columns_before_schema_script(conn: sqlite3.Connection) -> No
         "current_beat_index": (
             "ALTER TABLE novels ADD COLUMN current_beat_index INTEGER DEFAULT 0"
         ),
+        "genre": "ALTER TABLE novels ADD COLUMN genre TEXT DEFAULT ''",
+        "theme_agent_enabled": (
+            "ALTER TABLE novels ADD COLUMN theme_agent_enabled INTEGER NOT NULL DEFAULT 0"
+        ),
+        "enabled_theme_skills": (
+            "ALTER TABLE novels ADD COLUMN enabled_theme_skills TEXT DEFAULT '[]'"
+        ),
     }
     for col, sql in migrations.items():
         if col not in cols:

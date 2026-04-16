@@ -273,6 +273,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import RealtimeLogStream from './RealtimeLogStream.vue'
 import { subscribeChapterStream } from '../../api/config'
+import { novelApi } from '../../api/novel'
 
 const props = defineProps({ novelId: String })
 const emit = defineEmits(['status-change', 'desk-refresh', 'chapter-content-update', 'chapter-start', 'chapter-chunk'])
@@ -325,14 +326,11 @@ async function fetchAvailableSkills() {
   }
   loadingSkills.value = true
   try {
-    const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/available`)
-    if (res.ok) {
-      const data = await res.json()
-      availableSkills.value = data.available_skills || []
-      // 如果当前没有选中任何技能，默认全选
-      if (startConfig.value.enabled_theme_skills.length === 0 && availableSkills.value.length > 0) {
-        startConfig.value.enabled_theme_skills = availableSkills.value.map(s => s.key)
-      }
+    const data = await novelApi.getAvailableThemeSkills(props.novelId)
+    availableSkills.value = data.available_skills || []
+    // 如果当前没有选中任何技能，默认全选
+    if (startConfig.value.enabled_theme_skills.length === 0 && availableSkills.value.length > 0) {
+      startConfig.value.enabled_theme_skills = availableSkills.value.map(s => s.key)
     }
   } catch (e) {
     console.error('Failed to fetch available skills:', e)
@@ -389,22 +387,11 @@ async function saveCustomSkill() {
   try {
     if (editingSkillId.value) {
       // 更新
-      const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/custom/${editingSkillId.value}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(skillForm.value)
-      })
-      if (!res.ok) { message.error('更新技能失败'); return false }
+      await novelApi.updateCustomSkill(props.novelId, editingSkillId.value, skillForm.value)
       message.success('技能已更新')
     } else {
       // 创建
-      const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/custom`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(skillForm.value)
-      })
-      if (!res.ok) { message.error('创建技能失败'); return false }
-      const created = await res.json()
+      const created = await novelApi.createCustomSkill(props.novelId, skillForm.value)
       // 自动启用新创建的技能
       startConfig.value.enabled_theme_skills.push(created.key)
       message.success('技能已创建')
@@ -419,10 +406,7 @@ async function saveCustomSkill() {
 
 async function deleteCustomSkill(skill) {
   try {
-    const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/custom/${skill.id}`, {
-      method: 'DELETE'
-    })
-    if (!res.ok) { message.error('删除失败'); return }
+    await novelApi.deleteCustomSkill(props.novelId, skill.id)
     // 从已选中列表移除
     startConfig.value.enabled_theme_skills = startConfig.value.enabled_theme_skills.filter(k => k !== skill.key)
     message.success('技能已删除')
@@ -587,30 +571,20 @@ async function start() {
     const newTarget = startConfig.value.target_chapters
     const currentAutoApprove = status.value?.auto_approve_mode ?? false
     const newAutoApprove = startConfig.value.auto_approve_mode
-    
+
     if (currentTarget !== newTarget || currentAutoApprove !== newAutoApprove) {
-      const updateRes = await fetch(`/api/v1/novels/${props.novelId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_chapters: newTarget
-        })
-      })
-      if (!updateRes.ok) {
+      try {
+        await novelApi.updateNovel(props.novelId, { target_chapters: newTarget })
+      } catch {
         message.error('更新目标章节数失败')
         return
       }
-      
+
       // 更新全自动模式
       if (currentAutoApprove !== newAutoApprove) {
-        const approveRes = await fetch(`/api/v1/novels/${props.novelId}/auto-approve-mode`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            auto_approve_mode: newAutoApprove
-          })
-        })
-        if (!approveRes.ok) {
+        try {
+          await novelApi.updateAutoApproveMode(props.novelId, newAutoApprove)
+        } catch {
           message.error('更新全自动模式失败')
           return
         }
@@ -621,14 +595,9 @@ async function start() {
     const currentThemeEnabled = status.value?.theme_agent_enabled ?? false
     const newThemeEnabled = startConfig.value.theme_agent_enabled
     if (currentThemeEnabled !== newThemeEnabled) {
-      const themeRes = await fetch(`/api/v1/novels/${props.novelId}/theme-agent-enabled`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          theme_agent_enabled: newThemeEnabled
-        })
-      })
-      if (!themeRes.ok) {
+      try {
+        await novelApi.updateThemeAgentEnabled(props.novelId, newThemeEnabled)
+      } catch {
         message.error('更新专项题材设置失败')
         return
       }
@@ -640,14 +609,9 @@ async function start() {
       const newSkills = startConfig.value.enabled_theme_skills || []
       const skillsChanged = JSON.stringify(currentSkills.sort()) !== JSON.stringify([...newSkills].sort())
       if (skillsChanged) {
-        const skillRes = await fetch(`/api/v1/novels/${props.novelId}/theme-skills`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            skill_keys: newSkills
-          })
-        })
-        if (!skillRes.ok) {
+        try {
+          await novelApi.updateEnabledThemeSkills(props.novelId, newSkills)
+        } catch {
           message.error('更新增强技能失败')
           return
         }

@@ -297,8 +297,6 @@ class AutopilotDaemon:
                 logger.warning(f"ThemeSkillRegistry 初始化失败（增强技能不可用）：{e}")
                 self._skill_registry_instance = None
         return self._skill_registry_instance
-        self._merge_autopilot_status_from_db(novel)
-        self.novel_repository.save(novel)
 
     async def _process_novel(self, novel: Novel):
         """处理单个小说（全流程）"""

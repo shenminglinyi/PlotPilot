@@ -157,4 +157,39 @@ export const novelApi = {
       params: { format },
       responseType: 'blob'
     }) as Promise<Blob>,
+
+  // ─── 自定义技能 CRUD ───
+
+  /**
+   * Create custom theme skill
+   * POST /api/v1/novels/{novelId}/theme-skills/custom
+   */
+  createCustomSkill: (novelId: string, data: {
+    skill_name: string
+    skill_description?: string
+    context_prompt?: string
+    beat_prompt?: string
+    beat_triggers?: string
+    audit_checks?: string[]
+  }) => apiClient.post(`/novels/${novelId}/theme-skills/custom`, data) as Promise<{ key: string; id: string }>,
+
+  /**
+   * Update custom theme skill
+   * PUT /api/v1/novels/{novelId}/theme-skills/custom/{skillId}
+   */
+  updateCustomSkill: (novelId: string, skillId: string, data: {
+    skill_name?: string
+    skill_description?: string
+    context_prompt?: string
+    beat_prompt?: string
+    beat_triggers?: string
+    audit_checks?: string[]
+  }) => apiClient.put(`/novels/${novelId}/theme-skills/custom/${skillId}`, data) as Promise<void>,
+
+  /**
+   * Delete custom theme skill
+   * DELETE /api/v1/novels/{novelId}/theme-skills/custom/{skillId}
+   */
+  deleteCustomSkill: (novelId: string, skillId: string) =>
+    apiClient.delete(`/novels/${novelId}/theme-skills/custom/${skillId}`) as Promise<void>,
 }
