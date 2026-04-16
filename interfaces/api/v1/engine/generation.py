@@ -1,4 +1,5 @@
 """生成工作流 API 端点"""
+from __future__ import annotations
 import json
 import logging
 
@@ -104,13 +105,6 @@ class StorylineMergePoint(BaseModel):
     description: str = ""
 
 
-class StorylineGraphData(BaseModel):
-    """Git Graph 视图所需的全量数据"""
-    storylines: List['StorylineResponse']
-    merge_points: List[StorylineMergePoint] = []
-    total_chapters: int = 0
-
-
 class StorylineResponse(BaseModel):
     """故事线响应（增强版，含里程碑）"""
     id: str
@@ -124,6 +118,13 @@ class StorylineResponse(BaseModel):
     current_milestone_index: int = 0
     last_active_chapter: int = 0
     progress_summary: str = ""
+
+
+class StorylineGraphData(BaseModel):
+    """Git Graph 视图所需的全量数据"""
+    storylines: List[StorylineResponse]
+    merge_points: List[StorylineMergePoint] = []
+    total_chapters: int = 0
 
 
 class CreateStorylineRequest(BaseModel):

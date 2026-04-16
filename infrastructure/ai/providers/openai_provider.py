@@ -75,7 +75,7 @@ class OpenAIProvider(BaseProvider):
             if use_responses:
                 try:
                     return await self._generate_via_responses(prompt, config)
-                except openai.NotFoundError as e:
+                except (openai.NotFoundError, openai.BadRequestError) as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
                 except self.EmptyResponseError as e:
@@ -83,8 +83,8 @@ class OpenAIProvider(BaseProvider):
                     self.__class__._fallback_to_chat_cache.add(base_url)
                 except Exception as e:
                     # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
-                    if "404" in str(e) or "Not Found" in str(e):
-                        logger.info(f"Gateway returned 404 for Responses API ({base_url}), falling back: {str(e)}")
+                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
+                        logger.info(f"Gateway returned error for Responses API ({base_url}), falling back: {str(e)}")
                         self.__class__._fallback_to_chat_cache.add(base_url)
                     else:
                         raise
@@ -149,15 +149,16 @@ class OpenAIProvider(BaseProvider):
                         if content:
                             yield content
                     return  # 正常完成则结束 generator
-                except openai.NotFoundError:
+                except (openai.NotFoundError, openai.BadRequestError):
                     self.__class__._fallback_to_chat_cache.add(base_url)
                     logger.info(f"Stream: Responses API unsupported for {base_url}, falling back.")
                 except self.EmptyResponseError:
                     self.__class__._fallback_to_chat_cache.add(base_url)
                     logger.warning(f"Stream: Responses API returned empty for {base_url}, falling back.")
                 except Exception as e:
-                    if "404" in str(e) or "Not Found" in str(e):
+                    if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
                         self.__class__._fallback_to_chat_cache.add(base_url)
+                        logger.info(f"Stream: Gateway returned error for Responses API ({base_url}), falling back.")
                     else:
                         logger.error(f"[Responses Stream] Failed: {e}")
                         raise
