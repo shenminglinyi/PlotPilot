@@ -7,6 +7,7 @@
 4. 题材专项节拍模板（beat templates）
 5. 缓冲章模板（buffer chapter template）
 6. 题材专项审计规则（audit criteria）
+7. Skills 增强插槽（可选的能力扩展点）
 
 使用方式：
     通过 ThemeAgentRegistry 注册，管线根据 Novel 的 genre 字段自动加载对应 Agent。
@@ -15,11 +16,12 @@
     - 所有方法返回纯文本/数据结构，不依赖 LLM 调用
     - 每个方法都有合理的默认空值，题材 Agent 按需覆盖
     - 接口面向「注入」而非「替换」— 输出会附加到现有管线上下文中
+    - Skills 为可选增强，每个 Skill 独立实现、可跨题材复用
 """
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -84,6 +86,161 @@ class ThemeAuditCriteria:
     required_elements: List[str] = field(default_factory=list)
     quality_checks: List[str] = field(default_factory=list)
     tension_guidance: str = ""
+
+
+class ThemeSkill(ABC):
+    """题材增强技能插槽 — 可选的能力扩展点
+
+    每个 Skill 是一个独立的增强模块，可以被多个题材 Agent 共享。
+    Skill 在管线的特定阶段被调用，为写作过程注入额外的能力。
+
+    设计原则：
+        - 一个 Skill 只做一件事（单一职责）
+        - Skill 之间互相独立，不依赖其他 Skill
+        - 输入输出均为纯文本/数据结构
+        - 所有 Skill 方法都有安全的默认空值
+
+    生命周期：
+        1. Agent 在 __init__ 或 get_skills() 中声明所用的 Skills
+        2. 管线在对应阶段查找并调用匹配的 Skills
+        3. Skill 输出追加到该阶段的上下文/指令中
+
+    Example:
+        class CultivationSystemSkill(ThemeSkill):
+            skill_key = "cultivation_system"
+            skill_name = "修炼体系生成器"
+
+            def on_context_build(self, ...):
+                return "【修炼境界参考】\\n练气 → 筑基 → 金丹 → ..."
+
+            def on_beat_enhance(self, ...):
+                return "确保突破场景描写包含: 灵气涌动、经脉拓宽、丹田变化"
+    """
+
+    @property
+    @abstractmethod
+    def skill_key(self) -> str:
+        """技能唯一标识（如 'cultivation_system', 'battle_choreography'）"""
+        ...
+
+    @property
+    @abstractmethod
+    def skill_name(self) -> str:
+        """技能显示名称（如 '修炼体系生成器', '战斗编排器'）"""
+        ...
+
+    @property
+    def skill_description(self) -> str:
+        """技能描述（可选）"""
+        return ""
+
+    @property
+    def compatible_genres(self) -> List[str]:
+        """声明此 Skill 适用的题材 genre_key 列表
+
+        返回空列表表示适用于所有题材（通用 Skill）。
+        子类覆盖此属性来声明适用范围。
+
+        Returns:
+            genre_key 列表，如 ["xuanhuan", "xianxia"]
+        """
+        return []
+
+    # ─── 管线注入点 ───
+
+    def on_context_build(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        existing_context: str,
+    ) -> str:
+        """上下文构建阶段增强
+
+        在 ContextBudgetAllocator 收集完所有槽位后调用。
+        返回的文本会追加到题材上下文指令之后。
+
+        Args:
+            novel_id: 小说 ID
+            chapter_number: 章节号
+            outline: 当前章节大纲
+            existing_context: 已构建的上下文文本（只读参考）
+
+        Returns:
+            增强文本，空字符串则不追加
+        """
+        return ""
+
+    def on_beat_enhance(
+        self,
+        beat_description: str,
+        beat_focus: str,
+        chapter_number: int,
+        outline: str,
+    ) -> str:
+        """节拍增强阶段
+
+        在每个节拍的 prompt 构建时调用。
+        返回的文本会追加到该节拍的指令中。
+
+        Args:
+            beat_description: 节拍描述
+            beat_focus: 节拍焦点类型
+            chapter_number: 章节号
+            outline: 章节大纲
+
+        Returns:
+            增强指令文本，空字符串则不追加
+        """
+        return ""
+
+    def on_audit_enhance(
+        self,
+        chapter_number: int,
+        chapter_content: str,
+        outline: str,
+    ) -> List[str]:
+        """审计阶段增强
+
+        在章后审计时调用，返回额外的审计检查项。
+
+        Args:
+            chapter_number: 章节号
+            chapter_content: 章节正文
+            outline: 章节大纲
+
+        Returns:
+            额外的审计检查项列表，空列表则不追加
+        """
+        return []
+
+    def on_prompt_build(
+        self,
+        phase: str,
+        current_prompt: str,
+        **kwargs: Any,
+    ) -> str:
+        """通用 prompt 构建增强（万能插槽）
+
+        在各个 prompt 构建的末尾调用，提供最大灵活性。
+        phase 标识当前是哪个阶段的 prompt。
+
+        Args:
+            phase: 阶段标识，可选值:
+                   'system' — 系统消息构建
+                   'writing' — 写作 prompt
+                   'auditing' — 审计 prompt
+                   'planning' — 规划 prompt
+            current_prompt: 当前已构建的 prompt（只读参考）
+            **kwargs: 阶段特定的额外参数
+
+        Returns:
+            增强文本，空字符串则不追加
+        """
+        return ""
+
+    def __repr__(self) -> str:
+        return f"<ThemeSkill:{self.skill_key}({self.skill_name})>"
 
 
 class ThemeAgent(ABC):
@@ -276,6 +433,137 @@ class ThemeAgent(ABC):
             ]
         """
         return None
+
+    # ─── 8. Skills 增强插槽 ───
+
+    def get_skills(self) -> List[ThemeSkill]:
+        """返回该题材 Agent 挂载的增强技能列表
+
+        子类覆盖此方法来声明所使用的 Skills。
+        管线会在对应阶段自动调用每个 Skill 的注入方法。
+
+        Returns:
+            ThemeSkill 实例列表。空列表表示不使用任何增强技能。
+
+        Example:
+            def get_skills(self):
+                return [
+                    CultivationSystemSkill(),
+                    BattleChoreographySkill(),
+                ]
+        """
+        return []
+
+    def get_skill(self, skill_key: str) -> Optional[ThemeSkill]:
+        """按 key 查找已挂载的 Skill
+
+        Args:
+            skill_key: 技能标识
+
+        Returns:
+            对应的 ThemeSkill 实例，未找到则返回 None
+        """
+        for skill in self.get_skills():
+            if skill.skill_key == skill_key:
+                return skill
+        return None
+
+    def invoke_skills_context(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        existing_context: str,
+    ) -> str:
+        """批量调用所有 Skill 的上下文增强
+
+        Args:
+            novel_id: 小说 ID
+            chapter_number: 章节号
+            outline: 章节大纲
+            existing_context: 已有上下文
+
+        Returns:
+            所有 Skill 的上下文增强文本拼接结果
+        """
+        parts = []
+        for skill in self.get_skills():
+            try:
+                text = skill.on_context_build(
+                    novel_id, chapter_number, outline, existing_context
+                )
+                if text:
+                    parts.append(f"【{skill.skill_name}】\n{text}")
+            except Exception:
+                pass  # Skill 失败不影响主流程
+        return "\n\n".join(parts) if parts else ""
+
+    def invoke_skills_beat(
+        self,
+        beat_description: str,
+        beat_focus: str,
+        chapter_number: int,
+        outline: str,
+    ) -> str:
+        """批量调用所有 Skill 的节拍增强
+
+        Returns:
+            所有 Skill 的节拍增强文本拼接结果
+        """
+        parts = []
+        for skill in self.get_skills():
+            try:
+                text = skill.on_beat_enhance(
+                    beat_description, beat_focus, chapter_number, outline
+                )
+                if text:
+                    parts.append(text)
+            except Exception:
+                pass
+        return "\n".join(parts) if parts else ""
+
+    def invoke_skills_audit(
+        self,
+        chapter_number: int,
+        chapter_content: str,
+        outline: str,
+    ) -> List[str]:
+        """批量调用所有 Skill 的审计增强
+
+        Returns:
+            所有 Skill 的额外审计检查项合并列表
+        """
+        checks: List[str] = []
+        for skill in self.get_skills():
+            try:
+                items = skill.on_audit_enhance(
+                    chapter_number, chapter_content, outline
+                )
+                checks.extend(items)
+            except Exception:
+                pass
+        return checks
+
+    def invoke_skills_prompt(
+        self,
+        phase: str,
+        current_prompt: str,
+        **kwargs: Any,
+    ) -> str:
+        """批量调用所有 Skill 的通用 prompt 增强
+
+        Returns:
+            所有 Skill 的 prompt 增强文本拼接结果
+        """
+        parts = []
+        for skill in self.get_skills():
+            try:
+                text = skill.on_prompt_build(phase, current_prompt, **kwargs)
+                if text:
+                    parts.append(text)
+            except Exception:
+                pass
+        return "\n".join(parts) if parts else ""
 
     # ─── 工具方法 ───
 

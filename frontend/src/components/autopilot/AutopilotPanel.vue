@@ -157,6 +157,96 @@
               </n-text>
             </n-space>
           </n-form-item>
+
+          <!-- 增强技能选择（仅在题材 Agent 开启时显示） -->
+          <n-form-item v-if="startConfig.theme_agent_enabled && currentGenre" label="增强技能">
+            <n-space vertical :size="8" style="width: 100%">
+              <n-spin :show="loadingSkills" size="small">
+                <template v-if="availableSkills.length > 0">
+                  <n-checkbox-group v-model:value="startConfig.enabled_theme_skills">
+                    <n-space vertical :size="4">
+                      <div v-for="skill in availableSkills" :key="skill.key" class="skill-item">
+                        <n-checkbox :value="skill.key">
+                          <n-text>{{ skill.name }}</n-text>
+                          <n-tag v-if="skill.source === 'custom'" size="tiny" type="info" style="margin-left: 4px">自定义</n-tag>
+                          <n-text v-if="skill.description" depth="3" style="font-size: 11px; margin-left: 4px">
+                            — {{ skill.description }}
+                          </n-text>
+                        </n-checkbox>
+                        <n-space v-if="skill.source === 'custom'" :size="4" style="margin-left: 4px">
+                          <n-button text size="tiny" type="primary" @click.stop="openEditSkill(skill)">编辑</n-button>
+                          <n-button text size="tiny" type="error" @click.stop="deleteCustomSkill(skill)">删除</n-button>
+                        </n-space>
+                      </div>
+                    </n-space>
+                  </n-checkbox-group>
+                </template>
+                <template v-else-if="!loadingSkills">
+                  <n-text depth="3" style="font-size: 12px">
+                    当前题材暂无可用增强技能，可点击下方按钮创建自定义技能
+                  </n-text>
+                </template>
+              </n-spin>
+
+              <!-- 新增自定义技能按钮 -->
+              <n-button size="small" dashed type="primary" style="width: 100%" @click="openCreateSkill">
+                + 新增自定义技能
+              </n-button>
+            </n-space>
+          </n-form-item>
+
+          <!-- 自定义技能创建/编辑弹窗 -->
+          <n-modal
+            v-model:show="showSkillEditor"
+            :title="editingSkillId ? '编辑自定义技能' : '新增自定义技能'"
+            preset="dialog"
+            positive-text="保存"
+            negative-text="取消"
+            style="width: 560px"
+            @positive-click="saveCustomSkill"
+          >
+            <n-space vertical :size="12" style="width: 100%">
+              <n-alert type="info" :show-icon="false" style="font-size: 11px">
+                自定义技能让你用自然语言定义写作规则，系统会在生成每章时自动注入这些指令。
+              </n-alert>
+              <n-form label-placement="top" :show-feedback="false">
+                <n-form-item label="技能名称" required>
+                  <n-input v-model:value="skillForm.skill_name" placeholder="如：宠物描写增强、职场术语规范" maxlength="50" show-count />
+                </n-form-item>
+                <n-form-item label="技能说明">
+                  <n-input v-model:value="skillForm.skill_description" placeholder="简要说明这个技能做什么" maxlength="200" show-count />
+                </n-form-item>
+                <n-form-item label="上下文提示词">
+                  <n-input
+                    v-model:value="skillForm.context_prompt"
+                    type="textarea"
+                    :rows="3"
+                    placeholder="每章生成时注入到写作上下文中的指令。例如：&#10;1. 主角的猫必须在每章出现至少一次&#10;2. 描写猫时要体现猫的傲娇性格"
+                  />
+                </n-form-item>
+                <n-form-item label="节拍提示词">
+                  <n-input
+                    v-model:value="skillForm.beat_prompt"
+                    type="textarea"
+                    :rows="2"
+                    placeholder="每个节拍（段落）生成时注入的指令。例如：&#10;对话场景中角色说话方式要有区分度"
+                  />
+                </n-form-item>
+                <n-form-item label="节拍触发关键词">
+                  <n-input
+                    v-model:value="skillForm.beat_triggers"
+                    placeholder="逗号分隔，为空则对所有节拍生效。如：战斗,对决,交锋"
+                  />
+                </n-form-item>
+                <n-form-item label="审计检查项">
+                  <n-dynamic-input
+                    v-model:value="skillForm.audit_checks"
+                    placeholder="每章写完后的审计检查点。如：检查主角的猫是否出场"
+                  />
+                </n-form-item>
+              </n-form>
+            </n-space>
+          </n-modal>
           
           <n-alert type="info" :show-icon="false" style="font-size: 11px; margin-top: -8px">
             <template v-if="startConfig.auto_approve_mode">
@@ -167,6 +257,9 @@
             </template>
             <template v-if="startConfig.theme_agent_enabled && currentGenre">
               <br/>🎯 <strong>专项题材增强已开启</strong>：将使用「{{ currentGenreLabel }}」题材的专项写作能力（人设、节拍、规则）。
+              <template v-if="startConfig.enabled_theme_skills && startConfig.enabled_theme_skills.length > 0">
+                <br/>🧩 已选 <strong>{{ startConfig.enabled_theme_skills.length }}</strong> 个增强技能。
+              </template>
             </template>
           </n-alert>
         </n-form>
@@ -192,7 +285,24 @@ const startConfig = ref({
   target_chapters: 100,
   max_auto_chapters: 120,
   auto_approve_mode: false,
-  theme_agent_enabled: false
+  theme_agent_enabled: false,
+  enabled_theme_skills: []
+})
+
+// 增强技能状态
+const availableSkills = ref([])
+const loadingSkills = ref(false)
+
+// 自定义技能编辑器状态
+const showSkillEditor = ref(false)
+const editingSkillId = ref(null)
+const skillForm = ref({
+  skill_name: '',
+  skill_description: '',
+  context_prompt: '',
+  beat_prompt: '',
+  beat_triggers: '',
+  audit_checks: [],
 })
 
 // 目标章数（从 status 获取）
@@ -206,6 +316,121 @@ const genreMap = {
 }
 const currentGenre = computed(() => status.value?.genre || '')
 const currentGenreLabel = computed(() => genreMap[currentGenre.value] || currentGenre.value || '')
+
+// 加载可用增强技能
+async function fetchAvailableSkills() {
+  if (!props.novelId || !currentGenre.value) {
+    availableSkills.value = []
+    return
+  }
+  loadingSkills.value = true
+  try {
+    const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/available`)
+    if (res.ok) {
+      const data = await res.json()
+      availableSkills.value = data.available_skills || []
+      // 如果当前没有选中任何技能，默认全选
+      if (startConfig.value.enabled_theme_skills.length === 0 && availableSkills.value.length > 0) {
+        startConfig.value.enabled_theme_skills = availableSkills.value.map(s => s.key)
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch available skills:', e)
+  } finally {
+    loadingSkills.value = false
+  }
+}
+
+// 当题材 Agent 开关变化时，自动加载可用技能
+watch(
+  () => startConfig.value.theme_agent_enabled,
+  (enabled) => {
+    if (enabled && currentGenre.value) {
+      fetchAvailableSkills()
+    } else {
+      availableSkills.value = []
+    }
+  }
+)
+
+// ─── 自定义技能管理 ───
+
+function openCreateSkill() {
+  editingSkillId.value = null
+  skillForm.value = {
+    skill_name: '',
+    skill_description: '',
+    context_prompt: '',
+    beat_prompt: '',
+    beat_triggers: '',
+    audit_checks: [],
+  }
+  showSkillEditor.value = true
+}
+
+function openEditSkill(skill) {
+  editingSkillId.value = skill.id
+  skillForm.value = {
+    skill_name: skill.name,
+    skill_description: skill.description || '',
+    context_prompt: skill.context_prompt || '',
+    beat_prompt: skill.beat_prompt || '',
+    beat_triggers: skill.beat_triggers || '',
+    audit_checks: [...(skill.audit_checks || [])],
+  }
+  showSkillEditor.value = true
+}
+
+async function saveCustomSkill() {
+  if (!skillForm.value.skill_name.trim()) {
+    message.warning('请填写技能名称')
+    return false
+  }
+  try {
+    if (editingSkillId.value) {
+      // 更新
+      const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/custom/${editingSkillId.value}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(skillForm.value)
+      })
+      if (!res.ok) { message.error('更新技能失败'); return false }
+      message.success('技能已更新')
+    } else {
+      // 创建
+      const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/custom`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(skillForm.value)
+      })
+      if (!res.ok) { message.error('创建技能失败'); return false }
+      const created = await res.json()
+      // 自动启用新创建的技能
+      startConfig.value.enabled_theme_skills.push(created.key)
+      message.success('技能已创建')
+    }
+    // 刷新技能列表
+    await fetchAvailableSkills()
+  } catch (e) {
+    message.error('操作失败')
+    return false
+  }
+}
+
+async function deleteCustomSkill(skill) {
+  try {
+    const res = await fetch(`/api/v1/novels/${props.novelId}/theme-skills/custom/${skill.id}`, {
+      method: 'DELETE'
+    })
+    if (!res.ok) { message.error('删除失败'); return }
+    // 从已选中列表移除
+    startConfig.value.enabled_theme_skills = startConfig.value.enabled_theme_skills.filter(k => k !== skill.key)
+    message.success('技能已删除')
+    await fetchAvailableSkills()
+  } catch (e) {
+    message.error('删除失败')
+  }
+}
 /** HTTP/1.1 下同域长连接约 6 路；避免与日志 /stream 双开占满导致其它 API 挂起 */
 let statusPollTimer = null
 /** novel_id 在库中不存在(404)时不再轮询，避免旧标签页/错 slug 刷屏访问日志 */
@@ -331,13 +556,19 @@ function openStartModal() {
   const target = status.value?.target_chapters || 100
   const autoApprove = status.value?.auto_approve_mode ?? false
   const themeEnabled = status.value?.theme_agent_enabled ?? false
+  const enabledSkills = status.value?.enabled_theme_skills || []
   startConfig.value = {
     target_chapters: target,
     max_auto_chapters: target + 20,
     auto_approve_mode: autoApprove,
-    theme_agent_enabled: themeEnabled
+    theme_agent_enabled: themeEnabled,
+    enabled_theme_skills: [...enabledSkills]
   }
   showStartModal.value = true
+  // 如果题材增强已开启，立即加载技能列表
+  if (themeEnabled && currentGenre.value) {
+    fetchAvailableSkills()
+  }
 }
 
 function updateProtectionLimit() {
@@ -403,6 +634,26 @@ async function start() {
       }
     }
 
+    // 更新增强技能列表
+    if (newThemeEnabled) {
+      const currentSkills = status.value?.enabled_theme_skills || []
+      const newSkills = startConfig.value.enabled_theme_skills || []
+      const skillsChanged = JSON.stringify(currentSkills.sort()) !== JSON.stringify([...newSkills].sort())
+      if (skillsChanged) {
+        const skillRes = await fetch(`/api/v1/novels/${props.novelId}/theme-skills`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skill_keys: newSkills
+          })
+        })
+        if (!skillRes.ok) {
+          message.error('更新增强技能失败')
+          return
+        }
+      }
+    }
+
     // 然后启动自动驾驶
     const res = await fetch(`${base()}/start`, {
       method: 'POST',
@@ -414,7 +665,9 @@ async function start() {
     if (res.ok) {
       const modeText = startConfig.value.auto_approve_mode ? '（全自动模式）' : ''
       const themeText = startConfig.value.theme_agent_enabled && currentGenre.value ? `（${currentGenreLabel.value}题材增强）` : ''
-      message.success(`自动驾驶已启动${modeText}${themeText}`)
+      const skillCount = startConfig.value.enabled_theme_skills?.length || 0
+      const skillText = startConfig.value.theme_agent_enabled && skillCount > 0 ? `（${skillCount}个增强技能）` : ''
+      message.success(`自动驾驶已启动${modeText}${themeText}${skillText}`)
     }
     else message.error('启动失败')
     await fetchStatus()
@@ -672,5 +925,17 @@ onUnmounted(() => {
   font-size: 11px;
   opacity: 0.95;
   margin-bottom: 8px !important;
+}
+
+.skill-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.skill-item:hover {
+  background: rgba(24, 160, 88, 0.04);
+  border-radius: 4px;
 }
 </style>

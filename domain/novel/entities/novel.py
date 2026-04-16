@@ -64,6 +64,8 @@ class Novel(BaseEntity):
         genre: str = "",
         # 是否启用专项题材 Agent（开关，默认关闭走通用路线）
         theme_agent_enabled: bool = False,
+        # 已启用的增强技能 key 列表（如 ["cultivation_system", "battle_choreography"]）
+        enabled_theme_skills: Optional[List[str]] = None,
     ):
         super().__init__(id.value)
         self.novel_id = id
@@ -106,6 +108,8 @@ class Novel(BaseEntity):
         self.genre = genre
         # 是否启用专项题材 Agent
         self.theme_agent_enabled = theme_agent_enabled
+        # 已启用的增强技能列表
+        self.enabled_theme_skills: List[str] = enabled_theme_skills or []
 
     def add_chapter(self, chapter: Chapter) -> None:
         """添加章节（必须连续）"""

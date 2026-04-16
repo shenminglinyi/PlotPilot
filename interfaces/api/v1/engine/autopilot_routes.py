@@ -205,6 +205,7 @@ async def get_autopilot_status(novel_id: str):
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
         "genre": getattr(novel, "genre", ""),
         "theme_agent_enabled": getattr(novel, "theme_agent_enabled", False),
+        "enabled_theme_skills": getattr(novel, "enabled_theme_skills", []) or [],
         "last_chapter_audit": last_chapter_audit,
     }
 

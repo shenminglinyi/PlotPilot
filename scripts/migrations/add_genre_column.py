@@ -1,4 +1,4 @@
-"""迁移脚本：为 novels 表添加 genre 和 theme_agent_enabled 列
+"""迁移脚本：为 novels 表添加 genre、theme_agent_enabled 和 enabled_theme_skills 列
 
 适用于已有数据库的升级，新建数据库已在 schema.sql 中包含此列。
 """
@@ -34,6 +34,14 @@ def migrate():
         print("Done: theme_agent_enabled column added successfully.")
     else:
         print("Column 'theme_agent_enabled' already exists, skipping.")
+
+    if "enabled_theme_skills" not in columns:
+        print("Adding 'enabled_theme_skills' column to novels table...")
+        cursor.execute("ALTER TABLE novels ADD COLUMN enabled_theme_skills TEXT DEFAULT '[]'")
+        conn.commit()
+        print("Done: enabled_theme_skills column added successfully.")
+    else:
+        print("Column 'enabled_theme_skills' already exists, skipping.")
 
     conn.close()
 

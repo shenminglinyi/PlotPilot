@@ -186,6 +186,8 @@ class AutopilotDaemon:
         每轮 _process_novel 调用一次，确保 genre 变更能实时生效。
         如果 genre 为空或无对应 Agent，则清除已有的 theme_agent（退化为通用模式）。
         仅在 novel.theme_agent_enabled 为 True 时才加载，否则走原有通用路线。
+
+        同时根据 novel.enabled_theme_skills 列表，为 Agent 注入用户选择的增强技能。
         """
         genre = getattr(novel, 'genre', '') or ''
         enabled = getattr(novel, 'theme_agent_enabled', False)
@@ -195,6 +197,8 @@ class AutopilotDaemon:
             agent = self._theme_registry.get(genre)
             if agent:
                 logger.debug(f"[{novel.novel_id}] 已加载题材 Agent：{agent}")
+                # 加载用户启用的增强技能
+                self._inject_skills_to_agent(agent, novel)
             else:
                 logger.debug(f"[{novel.novel_id}] 未找到 genre='{genre}' 对应的题材 Agent，走通用路线")
         elif not enabled and genre:
@@ -208,6 +212,61 @@ class AutopilotDaemon:
             self.context_builder.theme_agent = agent
             if hasattr(self.context_builder, 'budget_allocator') and self.context_builder.budget_allocator:
                 self.context_builder.budget_allocator.theme_agent = agent
+
+    def _inject_skills_to_agent(self, agent, novel: Novel) -> None:
+        """根据 novel.enabled_theme_skills 将技能注入 Agent
+
+        通过覆盖 agent 的 _injected_skills 属性实现动态技能加载，
+        并 monkey-patch get_skills() 方法使其返回注入的技能列表。
+        同时加载用户自定义技能（custom_theme_skills 表）。
+        """
+        skill_keys = getattr(novel, 'enabled_theme_skills', []) or []
+        if not skill_keys:
+            # 无技能配置时，清除之前可能注入的技能
+            if hasattr(agent, '_injected_skills'):
+                delattr(agent, '_injected_skills')
+                # 恢复原始 get_skills
+                if hasattr(agent, '_original_get_skills'):
+                    agent.get_skills = agent._original_get_skills
+                    delattr(agent, '_original_get_skills')
+            return
+
+        try:
+            skills = []
+
+            # 1. 从内置 SkillRegistry 加载
+            skill_registry = self._skill_registry
+            if skill_registry:
+                builtin_keys = [k for k in skill_keys if not k.startswith("custom_")]
+                skills.extend(skill_registry.get_skills_by_keys(builtin_keys))
+
+            # 2. 从 DB 加载自定义技能
+            custom_keys = [k for k in skill_keys if k.startswith("custom_")]
+            if custom_keys:
+                try:
+                    from infrastructure.persistence.database.sqlite_custom_skill_repository import SqliteCustomSkillRepository
+                    from application.engine.theme.skills.custom_skill_wrapper import CustomThemeSkillWrapper
+                    custom_repo = SqliteCustomSkillRepository(self.novel_repository.db)
+                    novel_id = novel.novel_id.value if hasattr(novel.novel_id, 'value') else str(novel.novel_id)
+                    custom_rows = custom_repo.list_by_novel(novel_id)
+                    for row in custom_rows:
+                        if row["skill_key"] in custom_keys:
+                            skills.append(CustomThemeSkillWrapper(row))
+                except Exception as e:
+                    logger.warning(f"[{novel.novel_id}] 加载自定义技能失败：{e}")
+
+            if skills:
+                agent._injected_skills = skills
+                # 保存原始 get_skills 并 monkey-patch
+                if not hasattr(agent, '_original_get_skills'):
+                    agent._original_get_skills = agent.get_skills
+                agent.get_skills = lambda: agent._injected_skills
+                logger.debug(
+                    f"[{novel.novel_id}] 已注入 {len(skills)} 个增强技能: "
+                    f"{[s.skill_key for s in skills]}"
+                )
+        except Exception as e:
+            logger.warning(f"[{novel.novel_id}] 加载增强技能失败：{e}")
 
     @property
     def _theme_registry(self):
@@ -223,6 +282,21 @@ class AutopilotDaemon:
                 logger.warning(f"ThemeAgentRegistry 初始化失败（题材功能不可用）：{e}")
                 self._registry_instance = None
         return self._registry_instance
+
+    @property
+    def _skill_registry(self):
+        """惰性获取 ThemeSkillRegistry（首次调用时初始化）"""
+        if not hasattr(self, '_skill_registry_instance'):
+            try:
+                from application.engine.theme.skill_registry import ThemeSkillRegistry
+                registry = ThemeSkillRegistry()
+                registry.auto_discover()
+                self._skill_registry_instance = registry
+                logger.info(f"ThemeSkillRegistry 初始化完成：{registry}")
+            except Exception as e:
+                logger.warning(f"ThemeSkillRegistry 初始化失败（增强技能不可用）：{e}")
+                self._skill_registry_instance = None
+        return self._skill_registry_instance
         self._merge_autopilot_status_from_db(novel)
         self.novel_repository.save(novel)
 

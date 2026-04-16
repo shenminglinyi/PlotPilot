@@ -23,6 +23,7 @@ export interface NovelDTO {
   auto_approve_mode?: boolean
   genre?: string
   theme_agent_enabled?: boolean
+  enabled_theme_skills?: string[]
 }
 
 export const novelApi = {
@@ -99,6 +100,42 @@ export const novelApi = {
   updateThemeAgentEnabled: (novelId: string, themeAgentEnabled: boolean) =>
     apiClient.patch<NovelDTO>(`/novels/${novelId}/theme-agent-enabled`, {
       theme_agent_enabled: themeAgentEnabled
+    }) as Promise<NovelDTO>,
+
+  /**
+   * Get available theme skills for a novel (filtered by genre)
+   * GET /api/v1/novels/{novelId}/theme-skills/available
+   */
+  getAvailableThemeSkills: (novelId: string) =>
+    apiClient.get<{
+      novel_id: string
+      genre: string
+      available_skills: Array<{
+        key: string
+        name: string
+        description: string
+        compatible_genres: string[]
+      }>
+      enabled_skills: string[]
+    }>(`/novels/${novelId}/theme-skills/available`) as Promise<{
+      novel_id: string
+      genre: string
+      available_skills: Array<{
+        key: string
+        name: string
+        description: string
+        compatible_genres: string[]
+      }>
+      enabled_skills: string[]
+    }>,
+
+  /**
+   * Update enabled theme skills for a novel
+   * PATCH /api/v1/novels/{novelId}/theme-skills
+   */
+  updateEnabledThemeSkills: (novelId: string, skillKeys: string[]) =>
+    apiClient.patch<NovelDTO>(`/novels/${novelId}/theme-skills`, {
+      skill_keys: skillKeys
     }) as Promise<NovelDTO>,
 
   /**
