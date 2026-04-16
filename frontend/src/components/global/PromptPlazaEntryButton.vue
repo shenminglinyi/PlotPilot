@@ -11,21 +11,31 @@
       <span class="plaza-glow"></span>
 
       <span class="plaza-main-content">
-        <span class="plaza-icon-core">
-          <span class="plaza-icon-grid"></span>
-          <span class="plaza-icon-chip">P</span>
-          <span class="plaza-icon-spark"></span>
-        </span>
+        <template v-if="appearance === 'sidebar'">
+          <span class="plaza-plain-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M6 19h12M6 5h12M7 9h10M7 13h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="plaza-title">提示词广场</span>
+        </template>
+        <template v-else>
+          <span class="plaza-icon-core">
+            <span class="plaza-icon-grid"></span>
+            <span class="plaza-icon-chip">P</span>
+            <span class="plaza-icon-spark"></span>
+          </span>
 
-        <span class="plaza-copy">
-          <span class="plaza-title-row">
-            <span class="plaza-title">提示词广场</span>
-            <span v-if="promptCount > 0" class="plaza-count">{{ promptCount }}</span>
+          <span class="plaza-copy">
+            <span class="plaza-title-row">
+              <span class="plaza-title">提示词广场</span>
+              <span v-if="promptCount > 0" class="plaza-count">{{ promptCount }}</span>
+            </span>
+            <span class="plaza-subtitle">
+              浏览 · 编辑 · 版本管理
+            </span>
           </span>
-          <span v-if="appearance !== 'sidebar'" class="plaza-subtitle">
-            浏览 · 编辑 · 版本管理
-          </span>
-        </span>
+        </template>
       </span>
     </button>
 
@@ -248,10 +258,14 @@ onMounted(() => {
 
 .plaza-main.variant-sidebar {
   width: 100%;
-  min-height: 0;
-  padding: 14px 12px;
-  border-radius: 12px;
-  box-shadow: var(--app-shadow-sm), 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
+  min-height: 58px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  color: var(--app-text-inverse, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 50%, transparent);
+  box-shadow: none;
 }
 
 .plaza-main:hover {
@@ -261,7 +275,10 @@ onMounted(() => {
 }
 
 .plaza-main.variant-sidebar:hover {
-  box-shadow: var(--app-shadow-sm), 0 2px 8px var(--color-plaza-border, rgba(5, 150, 105, 0.18));
+  filter: none;
+  transform: none;
+  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  box-shadow: none;
 }
 
 /* ── 光晕层 ─────────────────────────────── */
@@ -283,8 +300,40 @@ onMounted(() => {
   gap: 12px;
 }
 .plaza-main.variant-sidebar .plaza-main-content { 
-  flex-direction: column; 
-  gap: 6px; 
+  flex-direction: row;
+  justify-content: center;
+  gap: 8px;
+}
+
+.plaza-main.variant-sidebar .plaza-glow {
+  display: none;
+}
+
+.plaza-plain-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-inverse, #ffffff);
+}
+
+.plaza-plain-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+[data-theme='anchor'] .plaza-main.variant-sidebar {
+  background: linear-gradient(135deg, var(--color-brand-hover, #ddb930) 0%, var(--color-brand, #c9a227) 55%, var(--color-brand-pressed, #a88a1f) 100%);
+  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 62%, transparent);
+  box-shadow: none;
+}
+
+[data-theme='anchor'] .plaza-main.variant-sidebar:hover {
+  transform: none;
+  filter: none;
+  border-color: color-mix(in srgb, var(--color-brand, #c9a227) 74%, transparent);
+  box-shadow: none;
 }
 
 /* ── 图标核心 ───────────────────────────── */
@@ -373,7 +422,10 @@ onMounted(() => {
   letter-spacing: 0.02em;
 }
 .plaza-main.variant-sidebar .plaza-title { 
-  font-size: 12px; 
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .plaza-count {

@@ -22,6 +22,7 @@ class Settings:
     extra_body: dict[str, Any] = field(default_factory=dict)
     provider_name: Optional[str] = None
     protocol: Optional[str] = None
+    use_legacy_chat_completions: bool = False
 
     def __post_init__(self):
         """验证配置参数"""

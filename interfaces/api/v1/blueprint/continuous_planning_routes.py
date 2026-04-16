@@ -4,11 +4,16 @@
 整合宏观规划、幕级规划、AI 续规划
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 
-from application.blueprint.services.continuous_planning_service import ContinuousPlanningService, MergeConflictException
+from application.blueprint.services.continuous_planning_service import (
+    ContinuousPlanningService,
+    MergeConflictException,
+    get_macro_plan_progress,
+    get_macro_plan_result,
+)
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
@@ -96,10 +101,11 @@ def get_service() -> ContinuousPlanningService:
 
 # ==================== 宏观规划 API ====================
 
-@router.post("/novels/{novel_id}/macro/generate")
+@router.post("/novels/{novel_id}/macro/generate", status_code=202)
 async def generate_macro_plan(
     novel_id: str,
     request: MacroPlanRequest,
+    background_tasks: BackgroundTasks,
     service: ContinuousPlanningService = Depends(get_service)
 ):
     """生成宏观规划
@@ -108,17 +114,56 @@ async def generate_macro_plan(
     """
     try:
         print(f"[DEBUG] 路由层: 收到请求 novel_id={novel_id}, request={request}")
-        result = await service.generate_macro_plan(
-            novel_id=novel_id,
-            target_chapters=request.target_chapters,
-            structure_preference=request.structure.dict()
-        )
-        return result
+        service.initialize_macro_plan_task(novel_id)
+
+        async def _generate_task():
+            try:
+                result = await service.generate_macro_plan(
+                    novel_id=novel_id,
+                    target_chapters=request.target_chapters,
+                    structure_preference=request.structure.dict()
+                )
+                service.store_macro_plan_result(novel_id, result)
+            except Exception as e:
+                import traceback
+                print(f"[ERROR] 生成宏观规划失败:")
+                print(traceback.format_exc())
+                service.store_macro_plan_error(novel_id, str(e))
+                service._update_macro_progress(
+                    novel_id,
+                    status="failed",
+                    message=f"结构规划生成失败: {e}",
+                )
+
+        background_tasks.add_task(_generate_task)
+        return {
+            "success": True,
+            "task_started": True,
+            "novel_id": novel_id,
+        }
     except Exception as e:
         import traceback
         print(f"[ERROR] 生成宏观规划失败:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"生成宏观规划失败: {str(e)}")
+
+
+@router.get("/novels/{novel_id}/macro/progress")
+async def get_macro_plan_generation_progress(novel_id: str):
+    """获取精密结构规划的实时进度。"""
+    return {
+        "success": True,
+        "data": get_macro_plan_progress(novel_id)
+    }
+
+
+@router.get("/novels/{novel_id}/macro/result")
+async def get_macro_plan_generation_result(novel_id: str):
+    """获取精密结构规划生成结果。"""
+    return {
+        "success": True,
+        "data": get_macro_plan_result(novel_id)
+    }
 
 
 @router.post("/novels/{novel_id}/macro/confirm")

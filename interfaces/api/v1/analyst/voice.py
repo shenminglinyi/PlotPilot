@@ -1,4 +1,5 @@
 """Voice API 路由"""
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -103,9 +104,13 @@ def get_voice_fingerprint(
     try:
         fingerprint = service.fingerprint_repo.get_by_novel(novel_id, pov_character_id)
         if not fingerprint:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Voice fingerprint not found for novel {novel_id}"
+            # 返回默认的空指纹而不是 404
+            return VoiceFingerprintResponse(
+                adjective_density=0.0,
+                avg_sentence_length=0.0,
+                sentence_count=0,
+                sample_count=0,
+                last_updated=datetime.now().isoformat()
             )
 
         return VoiceFingerprintResponse(

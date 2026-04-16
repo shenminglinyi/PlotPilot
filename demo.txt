@@ -1,0 +1,28 @@
+# PlotPilot 引入“前三章改写策略”代码修改说明 Demo
+
+在此次改进中，我们将 OpenClaw写文章 项目里的“黄金前三章特别优化”带到了 PlotPilot 中。以下是具体所做的修改：
+
+## 1. ContextBuilder 改造 (application/engine/services/context_builder.py)
+改造 `magnify_outline_to_beats` 函数增加 `chapter_number` 参数感知章节进度。
+- 当 `chapter_number == 1` 时，强制返回包含 "hook"、"character_intro"、"suspense" 焦点词的节拍分配（开篇300字展现核心冲突，介绍主角出场并拉动情感冲击）。
+- 当 `chapter_number == 2` 或 `3` 时，套用人物深层关系过渡或高潮前奏阶段的节拍重点。
+- 在提示词定义集（`focus_instructions`）中，新增了 `"hook"`、`"character_intro"` 和 `"suspense"` 专属的高能指导。
+
+## 2. 核心管线的调用改造
+由于 `ContextBuilder` 此前并未感知 `chapter_number`，所有的上层调用者相应发生调整：
+- **`auto_novel_generation_workflow.py`** (L245, L372)：获取当前的 `chapter_number` 传入，从而在普通单章生成以及流式生成中都能利用前三章拦截策略。
+- **`autopilot_daemon.py`** (L595)：在自动驾驶引擎进入写章节（Writing）并拆解节拍前，传入刚从节点得到的 `chapter_num`。
+- **`chapter_narrative_sync.py`** (L1079)：章后落库同步如果遇到需要动态分配节拍补偿的情境，也能应用相同的黄金法则规则。
+
+通过以上调整，PlotPilot 不再盲目通过简单的"关键词启发式"解析前三章，而是在剧情最关键的新书头三章注入强烈的吸引力和悬念编排！
+
+---
+
+# PlotPilot 引入“滞后期限强制伏笔收线约束”功能
+
+在进行系统分析后，我们发现 `context_budget_allocator.py` 虽然可以从 `foreshadowing_repository` 中筛选出过期伏笔，并在原上文里加上 "🔴已过期" 的标记，但这依然缺乏强制力。在大量上下文堆叠的情况下，大模型极其容易无视这段“过期”伏笔，使得长线文章“光挖坑不填库”。
+
+## 修改点：
+- **拦截解析超时伏笔**：在 `context_budget_allocator.py` 中 `allocate` 分配并组装了全体上下文片段 `slots["pending_foreshadowings"]` 后，迅速对其内部文本进行拆解遍历，匹配存在 `"🔴已过期"` 字眼的行，精准提取具体的伏笔描述条目入栈 `allocation.expired_foreshadows`。
+- **最高优指令注入**：当调用 `get_final_context()` 方法将整体记忆发往底层 LLM 调用前，检查 `expired_foreshadows` 栈中是否存在过高的积压。如果有，则在这个上下文字串的极度醒目位置（最底部）生成一个 “🚨 【强制剧情收束令】 🚨” 块。
+- **立竿见影的效果**：模型将在接收到大段记忆的最后一眼，看到类似“以下伏笔已超出预期揭晓章节，必须在本章内给出解答，无视将会导致崩盘”的暴力级 Prompt 干预。这充分利用了 LLM 对最新、末尾提示词敏感的特性（Recency Bias）彻底闭环所有忘却的悬念！

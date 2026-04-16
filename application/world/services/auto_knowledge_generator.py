@@ -59,7 +59,7 @@ class AutoKnowledgeGenerator:
         context_section = f"\n\n**小说设定摘要：**\n{bible_summary}" if bible_summary.strip() else ""
 
         system_prompt = build_initial_knowledge_system_prompt()
-        user_prompt = f"小说标题：《{title}》{context_section}\n\n请生成初始知识图谱。只输出 JSON。"
+        user_prompt = f"小说标题：《{title}》{context_section}"
 
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=2048, temperature=0.4)

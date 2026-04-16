@@ -236,12 +236,13 @@ class AutoNovelGenerationWorkflow:
         logger.info(f"  ✓ 上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
 
         logger.info("阶段 3: 生成 - 调用 LLM")
+        config = GenerationConfig()
         
         # 如果使用节拍模式，先放大节拍
         beats = []
         if enable_beats:
             logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
-            beats = self.context_builder.magnify_outline_to_beats(outline)
+            beats = self.context_builder.magnify_outline_to_beats(chapter_number, outline)
             logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍")
         
         # 根据是否使用节拍选择不同的生成策略
@@ -361,12 +362,14 @@ class AutoNovelGenerationWorkflow:
 
             yield {"type": "phase", "phase": "llm"}
             logger.info("阶段 3: 生成 - 调用 LLM 流式生成")
+            config = GenerationConfig()
+            chunk_count = 0
             
             # 如果使用节拍模式，先放大节拍
             beats = []
             if enable_beats:
                 logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
-                beats = self.context_builder.magnify_outline_to_beats(outline)
+                beats = self.context_builder.magnify_outline_to_beats(chapter_number, outline)
                 logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍")
                 
                 # 发送节拍信息用于前端展示
@@ -404,6 +407,7 @@ class AutoNovelGenerationWorkflow:
                     
                     beat_content = ""
                     async for piece in self.llm_service.stream_generate(prompt, config):
+                        chunk_count += 1
                         beat_content += piece
                         yield {
                             "type": "chunk", 
@@ -427,10 +431,8 @@ class AutoNovelGenerationWorkflow:
                     voice_anchors=bundle.get("voice_anchors") or "",
                 )
                 
-                config = GenerationConfig()
                 logger.info(f"  → 发送流式请求到 LLM")
                 parts: list[str] = []
-                chunk_count = 0
                 total_chars = 0
                 async for piece in self.llm_service.stream_generate(prompt, config):
                     parts.append(piece)

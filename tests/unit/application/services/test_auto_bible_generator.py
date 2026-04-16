@@ -75,3 +75,42 @@ async def test_generate_bible_data_uses_hardened_parser_path():
     assert result["style"] == "s"
     _, config = llm.generate.await_args.args
     assert config.max_tokens == 4096
+
+
+def test_prepare_locations_for_save_orders_parents_first_and_downgrades_missing_parent():
+    svc = AutoBibleGenerator(llm_service=Mock(), bible_service=Mock())
+
+    prepared = svc._prepare_locations_for_save(
+        "novel-1",
+        [
+            {
+                "id": "loc_chaoyang",
+                "name": "朝阳区",
+                "type": "区域",
+                "description": "城区",
+                "parent_id": "loc_beijing",
+            },
+            {
+                "id": "loc_orphan",
+                "name": "孤立地点",
+                "type": "建筑",
+                "description": "无父节点",
+                "parent_id": "loc_missing",
+            },
+            {
+                "id": "loc_beijing",
+                "name": "北京",
+                "type": "城市",
+                "description": "首都",
+                "parent_id": None,
+            },
+        ],
+    )
+
+    ids = [item["location_id"] for item in prepared]
+    by_id = {item["location_id"]: item for item in prepared}
+
+    assert ids.index("loc_beijing") < ids.index("loc_chaoyang")
+    assert by_id["loc_beijing"]["parent_id"] is None
+    assert by_id["loc_orphan"]["parent_id"] is None
+    assert by_id["loc_chaoyang"]["parent_id"] == "loc_beijing"
