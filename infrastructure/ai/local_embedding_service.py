@@ -1,6 +1,21 @@
 # infrastructure/ai/local_embedding_service.py
+"""
+本地 Embedding 服务（基于 sentence-transformers）
+
+⚠️ 重要：本模块采用懒加载（Lazy Import）策略。
+  sentence-transformers / torch / faiss 均不在模块顶层导入，
+  而是在 __init__ 中按需导入。这样即使未安装 requirements-local.txt
+  的用户，import 本模块也不会崩溃。
+
+使用 BAAI/bge-small-zh-v1.5 模型进行中文文本向量化。
+支持 GPU 加速。
+优先使用本地模型路径，避免从 HuggingFace 下载。
+"""
 
 import os
+from typing import List
+
+# 设置离线模式（不触发网络请求）
 os.environ['HF_HUB_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 os.environ['HF_DATASETS_OFFLINE'] = '1'
@@ -10,9 +25,7 @@ if os.getenv('DISABLE_SSL_VERIFY', 'false').lower() == 'true':
     import logging as _l
     _l.getLogger(__name__).warning("SSL certificate verification is DISABLED via DISABLE_SSL_VERIFY=true")
 
-from typing import List
 import logging
-import torch
 from pathlib import Path
 from domain.ai.services.embedding_service import EmbeddingService
 
@@ -25,6 +38,9 @@ class LocalEmbeddingService(EmbeddingService):
     使用 BAAI/bge-small-zh-v1.5 模型进行中文文本向量化。
     支持 GPU 加速。
     优先使用本地模型路径，避免从 HuggingFace 下载。
+
+    所有重依赖（torch, sentence_transformers）均在 __init__ 中懒加载，
+    确保未安装 local 扩展包时 import 不崩溃。
     """
 
     def __init__(self, model_name: str = None, use_gpu: bool = True):
@@ -34,47 +50,69 @@ class LocalEmbeddingService(EmbeddingService):
         Args:
             model_name: 模型名称或本地路径（如果为 None，从环境变量读取）
             use_gpu: 是否使用 GPU 加速（默认 True，自动检测）
+
+        Raises:
+            ImportError: 未安装 sentence-transformers / torch 等依赖
+            FileNotFoundError: 本地模型文件不存在
         """
+        # ════════════════════════════════════════════
+        # 懒加载：仅在实例化时才导入重依赖
+        # ════════════════════════════════════════════
         try:
+            import torch
             from sentence_transformers import SentenceTransformer
-            
-            # 优先使用环境变量配置的本地路径
-            if model_name is None:
-                model_path = os.getenv("EMBEDDING_MODEL_PATH", "./.models/bge-small-zh-v1.5")
-                # 转换为绝对路径
-                model_path = str(Path(model_path).resolve())
+        except ImportError as e:
+            raise ImportError(
+                "检测到您正在尝试使用本地向量模型（LocalEmbedding），"
+                "但缺少必要的依赖包！\n\n"
+                "请选择以下任一方式解决：\n"
+                "  方式 A — 安装扩展依赖（~2GB）：\n"
+                "    pip install -r requirements-local.txt\n\n"
+                "  方式 B — 切换到 OpenAI API 模式（推荐，无需下载大包）：\n"
+                "    在设置页面将「嵌入模式」改为「openai」,\n"
+                "    并填写 EMBEDDING_API_KEY 和 EMBEDDING_BASE_URL\n\n"
+                f"原始错误: {e}"
+            ) from e
 
-                # 检查本地路径是否存在
-                if os.path.exists(model_path):
-                    model_name = model_path
-                    logger.info(f"Using local model path: {model_path}")
-                else:
-                    # 如果本地路径不存在，报错而不是尝试下载
-                    raise FileNotFoundError(f"Local model not found at {model_path}. Please download the model first.")
+        # 优先使用环境变量配置的本地路径
+        if model_name is None:
+            model_path = os.getenv("EMBEDDING_MODEL_PATH", "./.models/bge-small-zh-v1.5")
+            # 转换为绝对路径
+            model_path = str(Path(model_path).resolve())
 
-            # 检测设备
-            if use_gpu and torch.cuda.is_available():
-                device = 'cuda'
-                logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+            # 检查本地路径是否存在
+            if os.path.exists(model_path):
+                model_name = model_path
+                logger.info(f"Using local model path: {model_path}")
             else:
-                device = 'cpu'
-                logger.info("Using CPU")
+                # 如果本地路径不存在，报错而不是尝试下载
+                raise FileNotFoundError(
+                    f"Local model not found at {model_path}.\n\n"
+                    f"请先下载模型文件到该路径，或运行:\n"
+                    f"  python scripts/utils/download_embedding_model.py\n\n"
+                    f"或者切换到 OpenAI API 模式以跳过本地模型。"
+                )
 
-            # 加载模型 - 使用 trust_remote_code=False 避免执行远程代码
-            # 使用 local_files_only=True 确保只从本地加载
-            self.model = SentenceTransformer(
-                model_name,
-                device=device,
-                trust_remote_code=False,
-                local_files_only=True,
-            )
-            self._dimension = self.model.get_sentence_embedding_dimension()
-            self.device = device
+        # 检测设备
+        if use_gpu and torch.cuda.is_available():
+            device = 'cuda'
+            logger.info(f"Using GPU: {torch.cuda.get_device_name(0)}")
+        else:
+            device = 'cpu'
+            logger.info("Using CPU")
 
-            logger.info(f"Loaded local embedding model: {model_name}, dimension: {self._dimension}, device: {device}")
-        except Exception as e:
-            logger.error(f"Failed to load local embedding model: {e}")
-            raise
+        # 加载模型 - 使用 trust_remote_code=False 避免执行远程代码
+        # 使用 local_files_only=True 确保只从本地加载
+        self.model = SentenceTransformer(
+            model_name,
+            device=device,
+            trust_remote_code=False,
+            local_files_only=True,
+        )
+        self._dimension = self.model.get_sentence_embedding_dimension()
+        self.device = device
+
+        logger.info(f"Loaded local embedding model: {model_name}, dimension: {self._dimension}, device: {device}")
 
     async def embed(self, text: str) -> List[float]:
         """

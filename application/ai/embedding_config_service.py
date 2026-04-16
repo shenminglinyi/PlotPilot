@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class EmbeddingConfigModel(BaseModel):
     """嵌入配置数据模型。"""
     id: str = "default"
-    mode: str = "local"  # local | openai
+    mode: str = "openai"  # local | openai（默认云端，轻量）
     api_key: str = ""
     base_url: str = ""
     model: str = "text-embedding-3-small"
@@ -40,7 +40,7 @@ class EmbeddingConfigModel(BaseModel):
     def from_row(cls, row: Dict[str, Any]) -> "EmbeddingConfigModel":
         return cls(
             id=row["id"],
-            mode=row.get("mode", "local"),
+            mode=row.get("mode", "openai"),
             api_key=row.get("api_key", ""),
             base_url=row.get("base_url", ""),
             model=row.get("model", "text-embedding-3-small"),
@@ -62,7 +62,7 @@ class EmbeddingConfigService:
 
     _DEFAULTS = {
         "id": "default",
-        "mode": "local",
+        "mode": "openai",
         "api_key": "",
         "base_url": "",
         "model": "text-embedding-3-small",
@@ -96,7 +96,7 @@ class EmbeddingConfigService:
             (id, mode, api_key, base_url, model, use_gpu, model_path, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            "default", "local", "", "", "text-embedding-3-small",
+            "default", "openai", "", "", "text-embedding-3-small",
             1, "BAAI/bge-small-zh-v1.5", now, now,
         ))
         db.get_connection().commit()
