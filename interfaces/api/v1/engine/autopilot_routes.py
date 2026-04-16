@@ -203,6 +203,8 @@ async def get_autopilot_status(novel_id: str):
         "progress_pct_manuscript": round(len(in_manuscript) / target * 100, 1) if target else 0,
         "needs_review": novel.current_stage.value == "paused_for_review",
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
+        "genre": getattr(novel, "genre", ""),
+        "theme_agent_enabled": getattr(novel, "theme_agent_enabled", False),
         "last_chapter_audit": last_chapter_audit,
     }
 

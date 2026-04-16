@@ -349,6 +349,28 @@ class NovelService:
 
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 
+    def update_theme_agent_enabled(self, novel_id: str, theme_agent_enabled: bool) -> NovelDTO:
+        """更新专项题材 Agent 开关
+
+        Args:
+            novel_id: 小说 ID
+            theme_agent_enabled: 是否启用专项题材 Agent
+
+        Returns:
+            更新后的 NovelDTO
+
+        Raises:
+            EntityNotFoundError: 如果小说不存在
+        """
+        novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        if novel is None:
+            raise EntityNotFoundError("Novel", novel_id)
+
+        novel.theme_agent_enabled = theme_agent_enabled
+        self.novel_repository.save(novel)
+
+        return NovelDTO.from_domain(self._hydrate_chapters(novel))
+
     def get_novel_statistics(self, novel_id: str) -> Dict[str, Any]:
         """获取小说统计信息（以 Chapter 仓储落盘为准，与列表/读写 API 一致）
 

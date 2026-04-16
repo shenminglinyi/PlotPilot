@@ -80,6 +80,7 @@ class NovelDTO:
     autopilot_status: str = "stopped"
     auto_approve_mode: bool = False
     genre: str = ""
+    theme_agent_enabled: bool = False
 
     @classmethod
     def from_domain(cls, novel: 'Novel') -> 'NovelDTO':
@@ -108,4 +109,5 @@ class NovelDTO:
             autopilot_status=autopilot_status,
             auto_approve_mode=getattr(novel, 'auto_approve_mode', False),
             genre=getattr(novel, 'genre', ''),
+            theme_agent_enabled=getattr(novel, 'theme_agent_enabled', False),
         )

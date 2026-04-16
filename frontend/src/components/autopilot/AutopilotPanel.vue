@@ -128,7 +128,7 @@
           <!-- 全自动模式开关 -->
           <n-form-item label="全自动模式">
             <n-space align="center" justify="space-between" style="width: 100%">
-              <n-switch 
+              <n-switch
                 v-model:value="startConfig.auto_approve_mode"
                 :round="false"
               >
@@ -140,6 +140,23 @@
               </n-text>
             </n-space>
           </n-form-item>
+
+          <!-- 专项题材 Agent 开关 -->
+          <n-form-item label="专项题材增强">
+            <n-space align="center" justify="space-between" style="width: 100%">
+              <n-switch
+                v-model:value="startConfig.theme_agent_enabled"
+                :round="false"
+                :disabled="!currentGenre"
+              >
+                <template #checked>开启</template>
+                <template #unchecked>关闭</template>
+              </n-switch>
+              <n-text depth="3" style="font-size: 12px">
+                {{ currentGenre ? `启用「${currentGenreLabel}」题材专项写作能力` : '请先在顶栏选择题材' }}
+              </n-text>
+            </n-space>
+          </n-form-item>
           
           <n-alert type="info" :show-icon="false" style="font-size: 11px; margin-top: -8px">
             <template v-if="startConfig.auto_approve_mode">
@@ -147,6 +164,9 @@
             </template>
             <template v-else>
               达到 <strong>{{ startConfig.target_chapters }} 章</strong> 目标时自动完成全书；保护上限已自动设置为 <strong>目标 + 20</strong>。
+            </template>
+            <template v-if="startConfig.theme_agent_enabled && currentGenre">
+              <br/>🎯 <strong>专项题材增强已开启</strong>：将使用「{{ currentGenreLabel }}」题材的专项写作能力（人设、节拍、规则）。
             </template>
           </n-alert>
         </n-form>
@@ -168,14 +188,24 @@ const message = useMessage()
 const status = ref(null)
 const toggling = ref(false)
 const showStartModal = ref(false)
-const startConfig = ref({ 
+const startConfig = ref({
   target_chapters: 100,
   max_auto_chapters: 120,
-  auto_approve_mode: false
+  auto_approve_mode: false,
+  theme_agent_enabled: false
 })
 
 // 目标章数（从 status 获取）
 const targetChapters = computed(() => status.value?.target_chapters || 100)
+
+// 题材信息（用于专项题材 Agent 开关的描述文案）
+const genreMap = {
+  xuanhuan: '玄幻', dushi: '都市', scifi: '科幻', history: '历史',
+  wuxia: '武侠', xianxia: '仙侠', fantasy: '奇幻', game: '游戏',
+  suspense: '悬疑', romance: '言情', other: '其他'
+}
+const currentGenre = computed(() => status.value?.genre || '')
+const currentGenreLabel = computed(() => genreMap[currentGenre.value] || currentGenre.value || '')
 /** HTTP/1.1 下同域长连接约 6 路；避免与日志 /stream 双开占满导致其它 API 挂起 */
 let statusPollTimer = null
 /** novel_id 在库中不存在(404)时不再轮询，避免旧标签页/错 slug 刷屏访问日志 */
@@ -300,10 +330,12 @@ function openStartModal() {
   // 打开弹窗时，从当前状态初始化设置
   const target = status.value?.target_chapters || 100
   const autoApprove = status.value?.auto_approve_mode ?? false
+  const themeEnabled = status.value?.theme_agent_enabled ?? false
   startConfig.value = {
     target_chapters: target,
     max_auto_chapters: target + 20,
-    auto_approve_mode: autoApprove
+    auto_approve_mode: autoApprove,
+    theme_agent_enabled: themeEnabled
   }
   showStartModal.value = true
 }
@@ -353,7 +385,24 @@ async function start() {
         }
       }
     }
-    
+
+    // 更新专项题材 Agent 开关
+    const currentThemeEnabled = status.value?.theme_agent_enabled ?? false
+    const newThemeEnabled = startConfig.value.theme_agent_enabled
+    if (currentThemeEnabled !== newThemeEnabled) {
+      const themeRes = await fetch(`/api/v1/novels/${props.novelId}/theme-agent-enabled`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          theme_agent_enabled: newThemeEnabled
+        })
+      })
+      if (!themeRes.ok) {
+        message.error('更新专项题材设置失败')
+        return
+      }
+    }
+
     // 然后启动自动驾驶
     const res = await fetch(`${base()}/start`, {
       method: 'POST',
@@ -364,7 +413,8 @@ async function start() {
     })
     if (res.ok) {
       const modeText = startConfig.value.auto_approve_mode ? '（全自动模式）' : ''
-      message.success(`自动驾驶已启动${modeText}`)
+      const themeText = startConfig.value.theme_agent_enabled && currentGenre.value ? `（${currentGenreLabel.value}题材增强）` : ''
+      message.success(`自动驾驶已启动${modeText}${themeText}`)
     }
     else message.error('启动失败')
     await fetchStatus()

@@ -50,6 +50,11 @@ class UpdateAutoApproveRequest(BaseModel):
     auto_approve_mode: bool = Field(..., description="是否开启全自动模式（跳过所有人工审阅）")
 
 
+class UpdateThemeAgentEnabledRequest(BaseModel):
+    """更新专项题材 Agent 开关请求"""
+    theme_agent_enabled: bool = Field(..., description="是否启用专项题材 Agent")
+
+
 async def _generate_bible_background(
     novel_id: str,
     title: str,
@@ -238,6 +243,31 @@ async def update_auto_approve_mode(
     """
     try:
         return service.update_auto_approve_mode(novel_id, request.auto_approve_mode)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/{novel_id}/theme-agent-enabled", response_model=NovelDTO)
+async def update_theme_agent_enabled(
+    novel_id: str,
+    request: UpdateThemeAgentEnabledRequest,
+    service: NovelService = Depends(get_novel_service)
+):
+    """更新专项题材 Agent 开关
+
+    Args:
+        novel_id: 小说 ID
+        request: 更新专项题材 Agent 请求
+        service: Novel 服务
+
+    Returns:
+        更新后的小说 DTO
+
+    Raises:
+        HTTPException: 如果小说不存在
+    """
+    try:
+        return service.update_theme_agent_enabled(novel_id, request.theme_agent_enabled)
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

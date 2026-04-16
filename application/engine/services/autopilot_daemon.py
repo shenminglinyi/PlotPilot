@@ -185,14 +185,20 @@ class AutopilotDaemon:
 
         每轮 _process_novel 调用一次，确保 genre 变更能实时生效。
         如果 genre 为空或无对应 Agent，则清除已有的 theme_agent（退化为通用模式）。
+        仅在 novel.theme_agent_enabled 为 True 时才加载，否则走原有通用路线。
         """
         genre = getattr(novel, 'genre', '') or ''
+        enabled = getattr(novel, 'theme_agent_enabled', False)
         agent = None
 
-        if genre and self._theme_registry:
+        if enabled and genre and self._theme_registry:
             agent = self._theme_registry.get(genre)
             if agent:
                 logger.debug(f"[{novel.novel_id}] 已加载题材 Agent：{agent}")
+            else:
+                logger.debug(f"[{novel.novel_id}] 未找到 genre='{genre}' 对应的题材 Agent，走通用路线")
+        elif not enabled and genre:
+            logger.debug(f"[{novel.novel_id}] 专项题材 Agent 未启用（genre='{genre}'），走通用路线")
 
         # 注入到管线各组件（幂等设置，无 agent 时清 None）
         self.theme_agent = agent

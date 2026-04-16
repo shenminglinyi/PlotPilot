@@ -134,29 +134,33 @@ class ThemeAgentRegistry:
             成功注册的 Agent 数量
         """
         count = 0
-        try:
-            from application.engine.theme.agents import xuanhuan_agent
-            agent = xuanhuan_agent.XuanhuanThemeAgent()
-            self.register(agent)
-            count += 1
-        except Exception as e:
-            logger.warning(f"加载玄幻题材 Agent 失败：{e}")
 
-        try:
-            from application.engine.theme.agents import suspense_agent
-            agent = suspense_agent.SuspenseThemeAgent()
-            self.register(agent)
-            count += 1
-        except Exception as e:
-            logger.debug(f"加载悬疑题材 Agent 失败（可能尚未实现）：{e}")
+        # (module_name, class_name, display_name)
+        _BUILTIN_AGENTS = [
+            ("xuanhuan_agent", "XuanhuanThemeAgent", "玄幻"),
+            ("dushi_agent", "DushiThemeAgent", "都市"),
+            ("scifi_agent", "ScifiThemeAgent", "科幻"),
+            ("history_agent", "HistoryThemeAgent", "历史"),
+            ("wuxia_agent", "WuxiaThemeAgent", "武侠"),
+            ("xianxia_agent", "XianxiaThemeAgent", "仙侠"),
+            ("fantasy_agent", "FantasyThemeAgent", "奇幻"),
+            ("game_agent", "GameThemeAgent", "游戏"),
+            ("suspense_agent", "SuspenseThemeAgent", "悬疑"),
+            ("romance_agent", "RomanceThemeAgent", "言情"),
+            ("other_agent", "OtherThemeAgent", "其他"),
+        ]
 
-        try:
-            from application.engine.theme.agents import romance_agent
-            agent = romance_agent.RomanceThemeAgent()
-            self.register(agent)
-            count += 1
-        except Exception as e:
-            logger.debug(f"加载言情题材 Agent 失败（可能尚未实现）：{e}")
+        import importlib
+        for module_name, class_name, display_name in _BUILTIN_AGENTS:
+            try:
+                mod = importlib.import_module(
+                    f"application.engine.theme.agents.{module_name}"
+                )
+                cls = getattr(mod, class_name)
+                self.register(cls())
+                count += 1
+            except Exception as e:
+                logger.warning(f"加载{display_name}题材 Agent 失败：{e}")
 
         logger.info(f"自动发现完成，共注册 {count} 个题材 Agent")
         return count

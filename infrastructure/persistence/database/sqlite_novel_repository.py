@@ -29,10 +29,10 @@ class SqliteNovelRepository(NovelRepository):
                 last_audit_narrative_ok, last_audit_at,
                 last_audit_vector_stored, last_audit_foreshadow_stored,
                 last_audit_triples_extracted, last_audit_quality_scores, last_audit_issues,
-                target_words_per_chapter, genre,
+                target_words_per_chapter, genre, theme_agent_enabled,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 slug = excluded.slug,
@@ -61,6 +61,7 @@ class SqliteNovelRepository(NovelRepository):
                 last_audit_issues = excluded.last_audit_issues,
                 target_words_per_chapter = excluded.target_words_per_chapter,
                 genre = excluded.genre,
+                theme_agent_enabled = excluded.theme_agent_enabled,
                 updated_at = excluded.updated_at
         """
         now = datetime.utcnow().isoformat()
@@ -95,6 +96,7 @@ class SqliteNovelRepository(NovelRepository):
         lai_json = json.dumps(lai) if lai else None
         twpc = getattr(novel, "target_words_per_chapter", 3500)
         genre = getattr(novel, "genre", "")
+        theme_agent_enabled = 1 if getattr(novel, "theme_agent_enabled", False) else 0
 
         self.db.execute(sql, (
             novel_id,
@@ -125,6 +127,7 @@ class SqliteNovelRepository(NovelRepository):
             lai_json,
             twpc,
             genre,
+            theme_agent_enabled,
             now,
             now
         ))
@@ -217,6 +220,7 @@ class SqliteNovelRepository(NovelRepository):
             last_audit_issues=lai,
             target_words_per_chapter=row.get("target_words_per_chapter", 3500),
             genre=row.get("genre", ""),
+            theme_agent_enabled=bool(row.get("theme_agent_enabled", 0)),
         )
 
     def delete(self, novel_id: NovelId) -> None:

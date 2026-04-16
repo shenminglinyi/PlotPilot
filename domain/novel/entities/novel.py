@@ -62,6 +62,8 @@ class Novel(BaseEntity):
         target_words_per_chapter: int = 3500,
         # 题材类型（可选，用于加载专项题材 Agent）
         genre: str = "",
+        # 是否启用专项题材 Agent（开关，默认关闭走通用路线）
+        theme_agent_enabled: bool = False,
     ):
         super().__init__(id.value)
         self.novel_id = id
@@ -102,6 +104,8 @@ class Novel(BaseEntity):
         self.target_words_per_chapter = target_words_per_chapter
         # 题材类型
         self.genre = genre
+        # 是否启用专项题材 Agent
+        self.theme_agent_enabled = theme_agent_enabled
 
     def add_chapter(self, chapter: Chapter) -> None:
         """添加章节（必须连续）"""

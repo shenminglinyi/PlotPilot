@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS novels (
     last_audit_narrative_ok INTEGER DEFAULT 1,
     last_audit_at TEXT,
     genre TEXT DEFAULT '',
+    theme_agent_enabled INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
