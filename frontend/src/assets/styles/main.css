@@ -25,8 +25,9 @@ body {
     -apple-system,
     BlinkMacFont,
     sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-weight: 500;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
   background: var(--app-page-bg);
   color: var(--app-text-primary);
   min-height: 100vh;

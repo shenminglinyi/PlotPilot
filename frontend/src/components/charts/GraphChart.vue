@@ -6,6 +6,9 @@
 import { computed } from 'vue'
 import ChartWrapper from './ChartWrapper.vue'
 import type { EChartsOption } from 'echarts'
+import { useThemeStore } from '../../stores/themeStore'
+
+const themeStore = useThemeStore()
 
 interface GraphNode {
   id: string
@@ -39,7 +42,13 @@ const emit = defineEmits<{
   edgeClick: [link: GraphLink]
 }>()
 
-const tooltip = {
+const tooltip = computed(() => ({
+  backgroundColor: themeStore.isDark ? '#1a2436' : '#ffffff',
+  borderColor: themeStore.isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.09)',
+  textStyle: {
+    color: themeStore.isDark ? '#d1d5db' : '#1f2937',
+    fontSize: 12,
+  },
   formatter: (params: any) => {
     const eventParams = params as unknown as GraphEventParams
     if (eventParams.dataType === 'node') {
@@ -47,10 +56,11 @@ const tooltip = {
     }
     const link = eventParams.data as GraphLink | undefined
     return `${link?.source ?? ''} → ${link?.target ?? ''}`
-  }
-}
+  },
+}))
 
 const chartOption = computed(() => ({
+  backgroundColor: 'transparent',
   series: [
     {
       type: 'graph',
@@ -61,21 +71,25 @@ const chartOption = computed(() => ({
       roam: true,
       label: {
         show: true,
-        position: 'right'
+        position: 'right',
+      },
+      lineStyle: {
+        opacity: 0.7,
+        width: 1.5,
+        curveness: 0.2,
       },
       force: {
-        repulsion: 100,
-        edgeLength: 150
+        repulsion: 120,
+        edgeLength: 160,
+        gravity: 0.08,
       },
       emphasis: {
         focus: 'adjacency',
-        lineStyle: {
-          width: 3
-        }
-      }
-    }
+        lineStyle: { width: 3 },
+      },
+    },
   ],
-  tooltip
+  tooltip: tooltip.value,
 }) as EChartsOption)
 
 const handleNodeClick = (params: GraphEventParams) => {
