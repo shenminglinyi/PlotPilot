@@ -1,0 +1,30 @@
+name: Backend CI
+
+on:
+  pull_request:
+    paths:
+      - "**.py"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "pytest.ini"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit -q --tb=short
+        env:
+          # 单测不需要真实 key，用占位值防止启动时报错
+          ANTHROPIC_API_KEY: "test-placeholder"
+          ARK_API_KEY: "test-placeholder"
