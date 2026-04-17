@@ -230,12 +230,18 @@ onMounted(async () => {
   height: 64px;
   background: var(--stats-bar-gradient);
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
   color: var(--nav-hero-text, #ffffff);
   position: relative;
   gap: 16px;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
   border-bottom: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
   box-shadow:
     var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08)),
@@ -247,9 +253,10 @@ onMounted(async () => {
   flex-shrink: 0;
   z-index: 2;
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
 /* 覆盖 topbar 模式下的按钮尺寸以适应导航栏 */
@@ -271,11 +278,15 @@ onMounted(async () => {
 .topbar-center {
   flex: 1;
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
   gap: 4px;
   min-width: 0;
   z-index: 1;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .stats-top-bar.loading,
@@ -289,7 +300,7 @@ onMounted(async () => {
 }
 
 .stat-item {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   text-align: center;
   cursor: help;
   padding: 4px 10px;
@@ -334,8 +345,11 @@ onMounted(async () => {
 /* 右侧：操作按钮 */
 .top-bar-actions {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 8px;
   flex: 0 0 auto;
+  align-items: center;
 }
 
 .action-trigger {
@@ -395,43 +409,31 @@ onMounted(async () => {
   outline-offset: 2px;
 }
 
-/* Responsive design */
+/* Responsive design — 全程单行横向，窄屏可横向滚动 */
 @media (max-width: 900px) {
   .stats-top-bar {
-    height: auto;
-    flex-wrap: wrap;
-    padding: 12px 16px;
-    gap: 10px;
+    height: 56px;
+    flex-wrap: nowrap;
+    padding: 8px 12px;
+    gap: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
   }
 
   .topbar-left {
-    order: -1;
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    gap: 8px;
+    flex-shrink: 0;
   }
 
-  .topbar-left :deep(.global-llm-main.variant-topbar) {
-    width: auto;
-    flex: 1;
-    max-width: 240px;
-  }
-
+  .topbar-left :deep(.global-llm-main.variant-topbar),
   .topbar-left :deep(.plaza-main.variant-topbar) {
-    width: auto;
-    flex: 1;
-    max-width: 200px;
+    min-height: 42px;
+    padding: 6px 10px;
   }
 
   .topbar-center {
-    width: 100%;
-    justify-content: space-around;
-    order: 1;
-  }
-
-  .stat-item {
-    flex: 1;
+    justify-content: flex-end;
+    flex: 1 1 auto;
   }
 
   .stat-value {
@@ -439,14 +441,12 @@ onMounted(async () => {
   }
 
   .settings-trigger {
-    position: absolute;
-    right: 12px;
-    top: 50%;
-    transform: translateY(-50%);
+    position: static;
+    transform: none;
   }
 
   .settings-trigger:hover {
-    transform: translateY(-50%) rotate(45deg);
+    transform: rotate(45deg);
   }
 }
 

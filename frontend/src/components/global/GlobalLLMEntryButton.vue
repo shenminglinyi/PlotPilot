@@ -389,6 +389,7 @@ function openPanel() {
   border-radius: var(--app-radius-xl);
   color: var(--nav-hero-text, #ffffff);
   border-color: rgba(255, 255, 255, 0.28);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
   box-shadow:
     var(--app-shadow-md),
     0 12px 32px rgba(0, 0, 0, 0.18);
@@ -414,8 +415,8 @@ function openPanel() {
 
 .global-llm-main.variant-topbar .global-llm-icon-grid {
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
 }
 
 .global-llm-main.variant-sidebar {
