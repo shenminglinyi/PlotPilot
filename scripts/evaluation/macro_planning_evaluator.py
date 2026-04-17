@@ -128,21 +128,21 @@ class MacroPlanningEvaluator(BaseEvaluator):
         """解析JSON"""
         try:
             return json.loads(content)
-        except (json.JSONDecodeError, ValueError, TypeError):
+        except:
             pass
 
         json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
-            except (json.JSONDecodeError, ValueError, TypeError):
+            except:
                 pass
 
         json_match = re.search(r'\{[\s\S]*\}', content)
         if json_match:
             try:
                 return json.loads(json_match.group(0))
-            except (json.JSONDecodeError, ValueError, TypeError):
+            except:
                 pass
 
         return {}

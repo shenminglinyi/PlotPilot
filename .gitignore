@@ -7,11 +7,6 @@
 .env.*
 !.env.example
 
-# ── AI Agent 配置（本地工具，不入库） ──
-CLAUDE.md
-AGENTS.md
-.gitnexus/
-
 # ── Python ──
 __pycache__/
 *.py[cod]
@@ -80,19 +75,17 @@ qdrant_storage/
 
 # ── 本地模型文件（~2GB，按需下载） ──
 .models/
-frontend/node_modules/
 
 # ── 评估结果 ──
 scripts/evaluation/results/
 
-# Local runtime environment artifacts
-# 这些是本机启动、索引、日志、模型下载产生的内容，不应入库
+# ── 运行时数据目录（保留结构，忽略内容） ──
 data/chromadb/
-data/qdrant_storage/
 data/logs/
 data/llm_configs.json
+
+# ── 日志 ──
 logs/
-data/qdrant/
 
 # ── PyInstaller 打包产物（根目录） ──
 aitext.spec

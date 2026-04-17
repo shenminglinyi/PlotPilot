@@ -276,8 +276,8 @@ function applyDockPosition(shouldPersist = false) {
 
 function defaultState() {
   dockSide.value = 'right'
-  mode.value = 'minimized'
-  yRatio.value = 0.8
+  mode.value = 'expanded'
+  yRatio.value = 0.84
 }
 
 function restoreState() {

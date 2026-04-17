@@ -47,11 +47,10 @@ const categoryLabels = computed(() => {
 
 const graphNodes = computed(() => {
   const cats = categoryLabels.value
-  return props.locations.map((loc, index) => ({
-    id: loc.id || `location-${index + 1}`,
-    name: loc.name || `地点 ${index + 1}`,
+  return props.locations.map((loc) => ({
+    id: loc.id,
+    name: loc.name,
     category: Math.max(0, cats.indexOf(typeLabel(loc.location_type))),
-    symbolSize: 44,
   }))
 })
 

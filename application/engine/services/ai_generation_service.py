@@ -1,8 +1,6 @@
 """AI 生成应用服务"""
 import logging
 from typing import Optional
-from application.engine.word_count_control import generate_with_word_control
-from application.config import AppConfig
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from domain.novel.repositories.novel_repository import NovelRepository
@@ -78,18 +76,12 @@ class AIGenerationService:
         # 3. 构建提示词
         prompt = self._build_chapter_prompt(novel, bible, chapter_number, outline)
 
-        # 4. 调用字数控制闭环
+        # 4. 调用 LLM
         try:
-            async def llm_caller(current_prompt: Prompt):
-                return await self.llm_service.generate(current_prompt, GenerationConfig())
-
-            generation_result = await generate_with_word_control(
-                prompt=prompt,
-                target_words=getattr(novel, "target_words_per_chapter", AppConfig.DEFAULT_WORDS_PER_CHAPTER),
-                llm_caller=llm_caller,
-            )
+            config = GenerationConfig()
+            result = await self.llm_service.generate(prompt, config)
             logger.info(f"Successfully generated chapter {chapter_number} for novel {novel_id}")
-            return generation_result["content"]
+            return result.content
         except Exception as e:
             logger.error(f"LLM generation failed for novel {novel_id}, chapter {chapter_number}: {str(e)}")
             raise RuntimeError(f"Failed to generate chapter: {str(e)}") from e

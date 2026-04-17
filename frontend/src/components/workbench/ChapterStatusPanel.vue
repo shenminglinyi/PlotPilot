@@ -185,45 +185,6 @@
             为第 {{ qcChapterNumber }} 章质检结果
           </n-alert>
 
-          <n-card
-            v-if="wordControlSummary"
-            size="small"
-            :bordered="true"
-            class="word-control-card"
-          >
-            <n-space vertical :size="8">
-              <n-space align="center" justify="space-between">
-                <n-text strong>字数控制</n-text>
-                <n-tag :type="wordControlSummary.within_tolerance ? 'success' : 'warning'" size="small" round>
-                  {{ wordControlSummary.within_tolerance ? '达标' : '未达标' }}
-                </n-tag>
-              </n-space>
-              <div class="word-control-grid">
-                <div class="word-control-item">
-                  <n-text depth="3">目标</n-text>
-                  <n-text>{{ wordControlSummary.target }} 字</n-text>
-                </div>
-                <div class="word-control-item">
-                  <n-text depth="3">实际</n-text>
-                  <n-text>{{ wordControlSummary.actual }} 字</n-text>
-                </div>
-                <div class="word-control-item">
-                  <n-text depth="3">差值</n-text>
-                  <n-text :class="{ 'word-control-bad': !wordControlSummary.within_tolerance }">
-                    {{ wordControlSummary.delta > 0 ? '+' : '' }}{{ wordControlSummary.delta }} 字
-                  </n-text>
-                </div>
-                <div class="word-control-item">
-                  <n-text depth="3">优化</n-text>
-                  <n-text>{{ wordControlActionLabel(wordControlSummary) }}</n-text>
-                </div>
-              </div>
-              <n-text depth="3" style="font-size: 12px">
-                容忍区间：{{ wordControlSummary.min_allowed }} - {{ wordControlSummary.max_allowed }} 字
-              </n-text>
-            </n-space>
-          </n-card>
-
           <ConsistencyReportPanel
             :report="lastWorkflowResult.consistency_report"
             :token-count="lastWorkflowResult.token_count"
@@ -279,7 +240,7 @@ import { ref, watch, computed } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { GenerateChapterWorkflowResponse } from '../../api/workflow'
 import ConsistencyReportPanel from './ConsistencyReportPanel.vue'
-import { chapterApi, type ChapterStructureDTO, type ChapterGenerationMetricsDTO } from '../../api/chapter'
+import { chapterApi, type ChapterStructureDTO } from '../../api/chapter'
 
 interface Chapter {
   id: number | string
@@ -320,7 +281,6 @@ const message = useMessage()
 
 const metaLoading = ref(false)
 const chapterStructure = ref<ChapterStructureDTO | null>(null)
-const persistedWordControl = ref<ChapterGenerationMetricsDTO | null>(null)
 
 const ghostAnnotationLines = computed(() => {
   const raw = props.lastWorkflowResult?.ghost_annotations
@@ -345,10 +305,6 @@ const ghostAnnotationLines = computed(() => {
   return lines
 })
 
-const wordControlSummary = computed(() => {
-  return props.lastWorkflowResult?.word_control ?? persistedWordControl.value
-})
-
 function pacingLabel(p: string) {
   const m: Record<string, string> = {
     slow: '慢',
@@ -370,14 +326,6 @@ function qualityLabel(key: string): string {
   return labels[key] || key
 }
 
-function wordControlActionLabel(summary: NonNullable<typeof wordControlSummary.value>): string {
-  if (summary.trim_applied) return '已裁剪'
-  if (summary.expansion_attempts > 0) {
-    return summary.fallback_used ? `补写 ${summary.expansion_attempts} 轮后返回最优结果` : `已补写 ${summary.expansion_attempts} 轮`
-  }
-  return '无需修正'
-}
-
 function formatTime(t: string) {
   try {
     return new Date(t).toLocaleString('zh-CN', {
@@ -393,20 +341,11 @@ function formatTime(t: string) {
 
 async function loadChapterMeta() {
   chapterStructure.value = null
-  persistedWordControl.value = null
   if (!props.slug || !props.chapter) return
   metaLoading.value = true
   try {
-    const [struct, metrics] = await Promise.allSettled([
-      chapterApi.getChapterStructure(props.slug, props.chapter.number),
-      chapterApi.getChapterGenerationMetrics(props.slug, props.chapter.number),
-    ])
-    if (struct.status === 'fulfilled') {
-      chapterStructure.value = struct.value
-    }
-    if (metrics.status === 'fulfilled') {
-      persistedWordControl.value = metrics.value
-    }
+    const struct = await chapterApi.getChapterStructure(props.slug, props.chapter.number)
+    chapterStructure.value = struct
   } catch {
     chapterStructure.value = null
   } finally {
@@ -441,10 +380,6 @@ function onLocationClick(location: number) {
 
 .status-card:hover {
   border-color: var(--n-primary-color-hover);
-}
-
-.word-control-card {
-  background: linear-gradient(180deg, rgba(24, 160, 88, 0.05) 0%, rgba(24, 160, 88, 0.01) 100%);
 }
 
 .card-title {
@@ -486,23 +421,6 @@ function onLocationClick(location: number) {
 
 .word-count {
   font-size: 12px;
-}
-
-.word-control-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
-}
-
-.word-control-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.word-control-bad {
-  color: #d03050;
-  font-weight: 600;
 }
 
 .review-row {

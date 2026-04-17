@@ -76,13 +76,6 @@ def _migrate_novels_columns_before_schema_script(conn: sqlite3.Connection) -> No
         "current_beat_index": (
             "ALTER TABLE novels ADD COLUMN current_beat_index INTEGER DEFAULT 0"
         ),
-        "genre": "ALTER TABLE novels ADD COLUMN genre TEXT DEFAULT ''",
-        "theme_agent_enabled": (
-            "ALTER TABLE novels ADD COLUMN theme_agent_enabled INTEGER NOT NULL DEFAULT 0"
-        ),
-        "enabled_theme_skills": (
-            "ALTER TABLE novels ADD COLUMN enabled_theme_skills TEXT DEFAULT '[]'"
-        ),
     }
     for col, sql in migrations.items():
         if col not in cols:
@@ -203,10 +196,6 @@ def _apply_chapter_summaries_enhancements(conn: sqlite3.Connection) -> None:
         "key_events": "ALTER TABLE chapter_summaries ADD COLUMN key_events TEXT",
         "open_threads": "ALTER TABLE chapter_summaries ADD COLUMN open_threads TEXT",
         "consistency_note": "ALTER TABLE chapter_summaries ADD COLUMN consistency_note TEXT",
-        "ending_state": "ALTER TABLE chapter_summaries ADD COLUMN ending_state TEXT",
-        "ending_emotion": "ALTER TABLE chapter_summaries ADD COLUMN ending_emotion TEXT",
-        "carry_over_question": "ALTER TABLE chapter_summaries ADD COLUMN carry_over_question TEXT",
-        "next_opening_hint": "ALTER TABLE chapter_summaries ADD COLUMN next_opening_hint TEXT",
         "beat_sections": "ALTER TABLE chapter_summaries ADD COLUMN beat_sections TEXT",
         "micro_beats": "ALTER TABLE chapter_summaries ADD COLUMN micro_beats TEXT",
         "sync_status": "ALTER TABLE chapter_summaries ADD COLUMN sync_status TEXT DEFAULT 'draft'",

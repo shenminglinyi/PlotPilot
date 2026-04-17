@@ -22,15 +22,6 @@ CREATE TABLE IF NOT EXISTS novels (
     last_audit_drift_alert INTEGER DEFAULT 0,
     last_audit_narrative_ok INTEGER DEFAULT 1,
     last_audit_at TEXT,
-    last_audit_vector_stored INTEGER DEFAULT 0,
-    last_audit_foreshadow_stored INTEGER DEFAULT 0,
-    last_audit_triples_extracted INTEGER DEFAULT 0,
-    last_audit_quality_scores TEXT,
-    last_audit_issues TEXT,
-    target_words_per_chapter INTEGER DEFAULT 3500,
-    genre TEXT DEFAULT '',
-    theme_agent_enabled INTEGER NOT NULL DEFAULT 0,
-    enabled_theme_skills TEXT DEFAULT '[]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -115,16 +106,6 @@ CREATE TABLE IF NOT EXISTS chapter_summaries (
     knowledge_id TEXT NOT NULL,
     chapter_number INTEGER NOT NULL,
     summary TEXT,
-    key_events TEXT,
-    open_threads TEXT,
-    consistency_note TEXT,
-    ending_state TEXT,
-    ending_emotion TEXT,
-    carry_over_question TEXT,
-    next_opening_hint TEXT,
-    beat_sections TEXT,
-    micro_beats TEXT,
-    sync_status TEXT DEFAULT 'draft',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (knowledge_id) REFERENCES knowledge(id) ON DELETE CASCADE,
@@ -506,30 +487,6 @@ CREATE TABLE IF NOT EXISTS chapter_style_scores (
 CREATE INDEX IF NOT EXISTS idx_chapter_style_scores_novel
     ON chapter_style_scores(novel_id, chapter_number);
 
--- ========== 章节生成质量控制指标 ==========
-CREATE TABLE IF NOT EXISTS chapter_generation_metrics (
-    novel_id TEXT NOT NULL,
-    chapter_number INTEGER NOT NULL,
-    generated_via TEXT NOT NULL DEFAULT 'manual',
-    target_word_count INTEGER NOT NULL,
-    actual_word_count INTEGER NOT NULL,
-    tolerance REAL NOT NULL DEFAULT 0.15,
-    delta INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'ok',
-    within_tolerance INTEGER NOT NULL DEFAULT 0,
-    action TEXT NOT NULL DEFAULT 'none',
-    expansion_attempts INTEGER NOT NULL DEFAULT 0,
-    trim_applied INTEGER NOT NULL DEFAULT 0,
-    fallback_used INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (novel_id, chapter_number),
-    FOREIGN KEY (novel_id, chapter_number) REFERENCES chapters(novel_id, number) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_chapter_generation_metrics_novel
-    ON chapter_generation_metrics(novel_id, chapter_number);
-
 -- ========== 语义化快照系统（战役三 Task 12）==========
 -- Git-like 版本控制，只存指针不存正文深拷贝
 CREATE TABLE IF NOT EXISTS novel_snapshots (
@@ -661,25 +618,6 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
-
--- 用户自定义增强技能
-CREATE TABLE IF NOT EXISTS custom_theme_skills (
-    id TEXT PRIMARY KEY,
-    novel_id TEXT NOT NULL,
-    skill_key TEXT NOT NULL,
-    skill_name TEXT NOT NULL,
-    skill_description TEXT DEFAULT '',
-    compatible_genres TEXT DEFAULT '[]',
-    context_prompt TEXT DEFAULT '',
-    beat_prompt TEXT DEFAULT '',
-    beat_triggers TEXT DEFAULT '',
-    audit_checks TEXT DEFAULT '[]',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(novel_id, skill_key)
-);
-
-CREATE INDEX IF NOT EXISTS idx_custom_theme_skills_novel ON custom_theme_skills(novel_id);
 
 
 

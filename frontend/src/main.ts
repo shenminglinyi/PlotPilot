@@ -5,6 +5,8 @@ import App from './App.vue'
 
 // Naive UI
 import naive from 'naive-ui'
+
+// ECharts
 import installECharts from './plugins/echarts'
 
 // 样式

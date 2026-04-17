@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import json
 import sqlite3
 from collections import defaultdict
 from datetime import datetime
@@ -272,10 +271,8 @@ class SqliteKnowledgeRepository:
             )
 
         summaries_sql = """
-            SELECT chapter_number, summary, key_events, open_threads,
-                   consistency_note, ending_state, ending_emotion,
-                   carry_over_question, next_opening_hint,
-                   beat_sections, micro_beats, sync_status
+            SELECT chapter_number, summary, key_events, open_threads, 
+                   consistency_note, beat_sections, micro_beats, sync_status
             FROM chapter_summaries
             WHERE knowledge_id = ?
             ORDER BY chapter_number ASC
@@ -302,10 +299,6 @@ class SqliteKnowledgeRepository:
                 key_events=row["key_events"] or "",
                 open_threads=row["open_threads"] or "",
                 consistency_note=row["consistency_note"] or "",
-                ending_state=row["ending_state"] or "",
-                ending_emotion=row["ending_emotion"] or "",
-                carry_over_question=row["carry_over_question"] or "",
-                next_opening_hint=row["next_opening_hint"] or "",
                 beat_sections=beat_sections,
                 micro_beats=micro_beats,
                 sync_status=row["sync_status"] or "synced",
@@ -705,44 +698,13 @@ class SqliteKnowledgeRepository:
                 summary_id = f"{knowledge_id}-ch{cn}"
                 conn.execute(
                     """
-                    INSERT INTO chapter_summaries (
-                        id, knowledge_id, chapter_number, summary, key_events, open_threads,
-                        consistency_note, ending_state, ending_emotion, carry_over_question,
-                        next_opening_hint, beat_sections, micro_beats, sync_status, created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO chapter_summaries (id, knowledge_id, chapter_number, summary, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(knowledge_id, chapter_number) DO UPDATE SET
                         summary = excluded.summary,
-                        key_events = excluded.key_events,
-                        open_threads = excluded.open_threads,
-                        consistency_note = excluded.consistency_note,
-                        ending_state = excluded.ending_state,
-                        ending_emotion = excluded.ending_emotion,
-                        carry_over_question = excluded.carry_over_question,
-                        next_opening_hint = excluded.next_opening_hint,
-                        beat_sections = excluded.beat_sections,
-                        micro_beats = excluded.micro_beats,
-                        sync_status = excluded.sync_status,
                         updated_at = excluded.updated_at
                     """,
-                    (
-                        summary_id,
-                        knowledge_id,
-                        cn,
-                        chapter.summary,
-                        chapter.key_events,
-                        chapter.open_threads,
-                        chapter.consistency_note,
-                        getattr(chapter, "ending_state", "") or "",
-                        getattr(chapter, "ending_emotion", "") or "",
-                        getattr(chapter, "carry_over_question", "") or "",
-                        getattr(chapter, "next_opening_hint", "") or "",
-                        json.dumps(list(chapter.beat_sections or []), ensure_ascii=False),
-                        json.dumps(list(chapter.micro_beats or []), ensure_ascii=False),
-                        chapter.sync_status,
-                        now,
-                        now,
-                    ),
+                    (summary_id, knowledge_id, cn, chapter.summary, now, now),
                 )
 
         logger.info("Saved StoryKnowledge for novel: %s", novel_id)
@@ -787,18 +749,13 @@ class SqliteKnowledgeRepository:
                     """
                     INSERT INTO chapter_summaries 
                     (id, knowledge_id, chapter_number, summary, key_events, open_threads, 
-                     consistency_note, ending_state, ending_emotion, carry_over_question,
-                     next_opening_hint, beat_sections, micro_beats, sync_status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     consistency_note, beat_sections, micro_beats, sync_status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(knowledge_id, chapter_number) DO UPDATE SET
                         summary = excluded.summary,
                         key_events = excluded.key_events,
                         open_threads = excluded.open_threads,
                         consistency_note = excluded.consistency_note,
-                        ending_state = excluded.ending_state,
-                        ending_emotion = excluded.ending_emotion,
-                        carry_over_question = excluded.carry_over_question,
-                        next_opening_hint = excluded.next_opening_hint,
                         beat_sections = excluded.beat_sections,
                         micro_beats = excluded.micro_beats,
                         sync_status = excluded.sync_status,
@@ -808,8 +765,6 @@ class SqliteKnowledgeRepository:
                         summary_id, knowledge_id, chapter_number, 
                         chapter.get("summary", ""), chapter.get("key_events", ""),
                         chapter.get("open_threads", ""), chapter.get("consistency_note", ""),
-                        chapter.get("ending_state", ""), chapter.get("ending_emotion", ""),
-                        chapter.get("carry_over_question", ""), chapter.get("next_opening_hint", ""),
                         beat_sections_json, micro_beats_json, 
                         chapter.get("sync_status", "draft"), now, now
                     ),

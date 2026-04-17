@@ -25,7 +25,6 @@ function formatApiErrorDetail(error: unknown): string {
 export interface BookMeta {
   has_bible?: boolean
   has_outline?: boolean
-  genre?: string
 }
 
 export interface UseWorkbenchOptions {
@@ -46,7 +45,6 @@ export function useWorkbench(options: UseWorkbenchOptions) {
   const currentChapterId = ref<number | null>(null)
   const chapterContent = ref('')
   const chapterLoading = ref(false)
-  const targetWordsPerChapter = ref(3500)
 
   /** 右栏子面板 id，与 SettingsPanel 中 foundation / narrative / tactical 的 tab name 一致 */
   const rightPanel = ref<string>('bible')
@@ -70,7 +68,6 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     ])
 
     bookTitle.value = novelData.title || slug
-    targetWordsPerChapter.value = novelData.target_words_per_chapter || 3500
 
     // Map ChapterDTO[] to the format expected by the UI
     chapters.value = chaptersData.map(ch => ({
@@ -84,7 +81,6 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     bookMeta.value = {
       has_bible: novelData.has_bible,
       has_outline: novelData.has_outline,
-      genre: novelData.genre || '',
     }
   }
 
@@ -190,7 +186,6 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     currentChapterId,
     chapterContent,
     chapterLoading,
-    targetWordsPerChapter,
 
     // Methods
     setRightPanel,

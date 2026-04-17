@@ -1,9 +1,8 @@
 """Novel API 路由"""
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel, Field
 import logging
-import uuid
 
 from application.core.services.novel_service import NovelService
 from application.world.services.auto_bible_generator import AutoBibleGenerator
@@ -12,11 +11,9 @@ from application.core.dtos.novel_dto import NovelDTO
 from interfaces.api.dependencies import (
     get_novel_service,
     get_auto_bible_generator,
-    get_auto_knowledge_generator,
-    get_custom_skill_repository,
+    get_auto_knowledge_generator
 )
 from domain.shared.exceptions import EntityNotFoundError
-from application.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +27,7 @@ class CreateNovelRequest(BaseModel):
     title: str = Field(..., description="小说标题")
     author: str = Field(..., description="作者")
     target_chapters: int = Field(..., gt=0, description="目标章节数")
-    target_words_per_chapter: int = Field(default=AppConfig.DEFAULT_WORDS_PER_CHAPTER, gt=0, description="每章目标字数")
     premise: str = Field(default="", description="故事梗概/创意")
-    genre: str = Field(default="", description="题材类型（可选，如 xuanhuan/suspense/romance）")
 
 
 class UpdateStageRequest(BaseModel):
@@ -45,44 +40,12 @@ class UpdateNovelRequest(BaseModel):
     title: str = Field(None, description="小说标题")
     author: str = Field(None, description="作者")
     target_chapters: int = Field(None, gt=0, description="目标章节数")
-    target_words_per_chapter: int = Field(None, gt=0, description="每章目标字数")
     premise: str = Field(None, description="故事梗概/创意")
-    genre: str = Field(None, description="题材类型（可选）")
 
 
 class UpdateAutoApproveRequest(BaseModel):
     """更新全自动模式请求"""
     auto_approve_mode: bool = Field(..., description="是否开启全自动模式（跳过所有人工审阅）")
-
-
-class UpdateThemeAgentEnabledRequest(BaseModel):
-    """更新专项题材 Agent 开关请求"""
-    theme_agent_enabled: bool = Field(..., description="是否启用专项题材 Agent")
-
-
-class UpdateThemeSkillsRequest(BaseModel):
-    """更新启用的增强技能请求"""
-    skill_keys: List[str] = Field(..., description="启用的增强技能 key 列表")
-
-
-class CreateCustomSkillRequest(BaseModel):
-    """创建自定义增强技能请求"""
-    skill_name: str = Field(..., description="技能名称", min_length=1, max_length=50)
-    skill_description: str = Field(default="", description="技能描述", max_length=200)
-    context_prompt: str = Field(default="", description="上下文增强提示词（每章生成时注入到写作上下文中）")
-    beat_prompt: str = Field(default="", description="节拍增强提示词（每个节拍生成时注入到指令中）")
-    beat_triggers: str = Field(default="", description="节拍触发关键词（逗号分隔，为空则对所有节拍生效）")
-    audit_checks: List[str] = Field(default_factory=list, description="审计检查项列表（章后审计时追加的检查点）")
-
-
-class UpdateCustomSkillRequest(BaseModel):
-    """更新自定义增强技能请求"""
-    skill_name: Optional[str] = Field(None, description="技能名称", min_length=1, max_length=50)
-    skill_description: Optional[str] = Field(None, description="技能描述", max_length=200)
-    context_prompt: Optional[str] = Field(None, description="上下文增强提示词")
-    beat_prompt: Optional[str] = Field(None, description="节拍增强提示词")
-    beat_triggers: Optional[str] = Field(None, description="节拍触发关键词")
-    audit_checks: Optional[List[str]] = Field(None, description="审计检查项列表")
 
 
 async def _generate_bible_background(
@@ -145,9 +108,7 @@ async def create_novel(
         title=request.title,
         author=request.author,
         target_chapters=request.target_chapters,
-        target_words_per_chapter=request.target_words_per_chapter,
-        premise=request.premise,
-        genre=request.genre,
+        premise=request.premise
     )
 
     return novel_dto
@@ -209,15 +170,7 @@ async def update_novel(
         HTTPException: 如果小说不存在
     """
     try:
-        return service.update_novel(
-            novel_id,
-            request.title,
-            request.author,
-            request.target_chapters,
-            request.premise,
-            request.genre,
-            request.target_words_per_chapter,
-        )
+        return service.update_novel(novel_id, request.title, request.author, request.target_chapters, request.premise)
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -284,200 +237,6 @@ async def update_auto_approve_mode(
         return service.update_auto_approve_mode(novel_id, request.auto_approve_mode)
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.patch("/{novel_id}/theme-agent-enabled", response_model=NovelDTO)
-async def update_theme_agent_enabled(
-    novel_id: str,
-    request: UpdateThemeAgentEnabledRequest,
-    service: NovelService = Depends(get_novel_service)
-):
-    """更新专项题材 Agent 开关
-
-    Args:
-        novel_id: 小说 ID
-        request: 更新专项题材 Agent 请求
-        service: Novel 服务
-
-    Returns:
-        更新后的小说 DTO
-
-    Raises:
-        HTTPException: 如果小说不存在
-    """
-    try:
-        return service.update_theme_agent_enabled(novel_id, request.theme_agent_enabled)
-    except EntityNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.get("/{novel_id}/theme-skills/available")
-async def get_available_theme_skills(
-    novel_id: str,
-    service: NovelService = Depends(get_novel_service),
-    custom_repo=Depends(get_custom_skill_repository),
-):
-    """获取小说可用的增强技能列表（内置 + 自定义，根据题材过滤）
-
-    Args:
-        novel_id: 小说 ID
-        service: Novel 服务
-        custom_repo: 自定义技能仓储
-
-    Returns:
-        可用的增强技能列表
-    """
-    novel = service.get_novel(novel_id)
-    if novel is None:
-        raise HTTPException(status_code=404, detail=f"Novel not found: {novel_id}")
-
-    genre = novel.genre or ""
-
-    # 内置技能
-    builtin_skills = service.get_available_theme_skills(genre)
-    for s in builtin_skills:
-        s["source"] = "builtin"
-
-    # 自定义技能
-    custom_rows = custom_repo.list_by_novel(novel_id)
-    custom_skills = []
-    for row in custom_rows:
-        custom_skills.append({
-            "key": row["skill_key"],
-            "name": row["skill_name"],
-            "description": row["skill_description"],
-            "compatible_genres": row.get("compatible_genres", []),
-            "source": "custom",
-            "id": row["id"],
-            "context_prompt": row.get("context_prompt", ""),
-            "beat_prompt": row.get("beat_prompt", ""),
-            "beat_triggers": row.get("beat_triggers", ""),
-            "audit_checks": row.get("audit_checks", []),
-        })
-
-    return {
-        "novel_id": novel_id,
-        "genre": genre,
-        "available_skills": builtin_skills + custom_skills,
-        "enabled_skills": novel.enabled_theme_skills,
-    }
-
-
-@router.patch("/{novel_id}/theme-skills", response_model=NovelDTO)
-async def update_enabled_theme_skills(
-    novel_id: str,
-    request: UpdateThemeSkillsRequest,
-    service: NovelService = Depends(get_novel_service)
-):
-    """更新小说启用的增强技能
-
-    Args:
-        novel_id: 小说 ID
-        request: 更新技能请求（包含要启用的技能 key 列表）
-        service: Novel 服务
-
-    Returns:
-        更新后的小说 DTO
-
-    Raises:
-        HTTPException: 如果小说不存在
-    """
-    try:
-        return service.update_enabled_theme_skills(novel_id, request.skill_keys)
-    except EntityNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-# ─── 自定义增强技能 CRUD ───
-
-
-@router.post("/{novel_id}/theme-skills/custom", status_code=201)
-async def create_custom_skill(
-    novel_id: str,
-    request: CreateCustomSkillRequest,
-    service: NovelService = Depends(get_novel_service),
-    custom_repo=Depends(get_custom_skill_repository),
-):
-    """创建自定义增强技能
-
-    用户填写提示词内容，系统将其包装为 ThemeSkill 注入写作管线。
-
-    Args:
-        novel_id: 小说 ID
-        request: 创建自定义技能请求
-    """
-    novel = service.get_novel(novel_id)
-    if novel is None:
-        raise HTTPException(status_code=404, detail=f"Novel not found: {novel_id}")
-
-    skill_id = f"custom-{uuid.uuid4().hex[:12]}"
-    # 自动生成 skill_key（基于名称的拼音/简写，取唯一后缀）
-    skill_key = f"custom_{uuid.uuid4().hex[:8]}"
-
-    skill_data = {
-        "id": skill_id,
-        "novel_id": novel_id,
-        "skill_key": skill_key,
-        "skill_name": request.skill_name,
-        "skill_description": request.skill_description,
-        "compatible_genres": [novel.genre] if novel.genre else [],
-        "context_prompt": request.context_prompt,
-        "beat_prompt": request.beat_prompt,
-        "beat_triggers": request.beat_triggers,
-        "audit_checks": request.audit_checks,
-    }
-
-    custom_repo.save(skill_data)
-
-    return {
-        **skill_data,
-        "key": skill_key,
-        "source": "custom",
-    }
-
-
-@router.put("/{novel_id}/theme-skills/custom/{skill_id}")
-async def update_custom_skill(
-    novel_id: str,
-    skill_id: str,
-    request: UpdateCustomSkillRequest,
-    service: NovelService = Depends(get_novel_service),
-    custom_repo=Depends(get_custom_skill_repository),
-):
-    """更新自定义增强技能"""
-    existing = custom_repo.get_by_id(skill_id)
-    if not existing or existing["novel_id"] != novel_id:
-        raise HTTPException(status_code=404, detail="Custom skill not found")
-
-    # 合并更新
-    if request.skill_name is not None:
-        existing["skill_name"] = request.skill_name
-    if request.skill_description is not None:
-        existing["skill_description"] = request.skill_description
-    if request.context_prompt is not None:
-        existing["context_prompt"] = request.context_prompt
-    if request.beat_prompt is not None:
-        existing["beat_prompt"] = request.beat_prompt
-    if request.beat_triggers is not None:
-        existing["beat_triggers"] = request.beat_triggers
-    if request.audit_checks is not None:
-        existing["audit_checks"] = request.audit_checks
-
-    custom_repo.save(existing)
-    return {**existing, "key": existing["skill_key"], "source": "custom"}
-
-
-@router.delete("/{novel_id}/theme-skills/custom/{skill_id}", status_code=204)
-async def delete_custom_skill(
-    novel_id: str,
-    skill_id: str,
-    custom_repo=Depends(get_custom_skill_repository),
-):
-    """删除自定义增强技能"""
-    existing = custom_repo.get_by_id(skill_id)
-    if not existing or existing["novel_id"] != novel_id:
-        raise HTTPException(status_code=404, detail="Custom skill not found")
-    custom_repo.delete(skill_id)
 
 
 @router.get("/{novel_id}/statistics")

@@ -13,10 +13,6 @@ class ChapterSummary(BaseEntity):
         key_events: str = "",
         open_threads: str = "",
         consistency_note: str = "",
-        ending_state: str = "",
-        ending_emotion: str = "",
-        carry_over_question: str = "",
-        next_opening_hint: str = "",
         beat_sections: List[str] = None,
         micro_beats: List[Dict[str, Any]] = None,
         sync_status: str = "draft"
@@ -29,10 +25,6 @@ class ChapterSummary(BaseEntity):
             key_events: 人物与关键事件
             open_threads: 埋线/未解问题
             consistency_note: 一致性说明
-            ending_state: 章末客观局势/动作落点
-            ending_emotion: 章末核心情绪落点
-            carry_over_question: 下一章必须承接的问题
-            next_opening_hint: 下一章开场提示
             beat_sections: 节拍子段落列表
             micro_beats: 微观节拍列表
             sync_status: 同步状态 (draft/synced/stale)
@@ -43,10 +35,6 @@ class ChapterSummary(BaseEntity):
         self.key_events = key_events
         self.open_threads = open_threads
         self.consistency_note = consistency_note
-        self.ending_state = ending_state
-        self.ending_emotion = ending_emotion
-        self.carry_over_question = carry_over_question
-        self.next_opening_hint = next_opening_hint
         self.beat_sections = beat_sections or []
         self.micro_beats = micro_beats or []
         self.sync_status = sync_status

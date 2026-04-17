@@ -7,16 +7,33 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 from application.world.services.knowledge_graph_service import KnowledgeGraphService
+from infrastructure.persistence.database.triple_repository import TripleRepository
+from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
+from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+from application.paths import get_db_path
 from domain.bible.triple import SourceType
 from infrastructure.persistence.database.sqlite_knowledge_repository import SqliteKnowledgeRepository
-from interfaces.api.dependencies import (
-    get_knowledge_repository,
-    get_knowledge_graph_service,
-    get_triple_repository,
-)
+from interfaces.api.dependencies import get_knowledge_repository
 
 
 router = APIRouter(prefix="/api/v1/knowledge-graph", tags=["knowledge-graph"])
+
+
+# ==================== 依赖注入 ====================
+
+def get_kg_service() -> KnowledgeGraphService:
+    """获取知识图谱服务"""
+    db_path = get_db_path()
+    return KnowledgeGraphService(
+        TripleRepository(),
+        ChapterElementRepository(db_path),
+        StoryNodeRepository(db_path),
+    )
+
+
+def get_triple_repo() -> TripleRepository:
+    """获取三元组仓储"""
+    return TripleRepository()
 
 
 # ==================== API 端点 ====================
@@ -106,7 +123,7 @@ async def revoke_single_chapter_inferred_triple(
 @router.post("/novels/{novel_id}/infer")
 async def infer_novel_knowledge_graph(
     novel_id: str,
-    service: KnowledgeGraphService = Depends(get_knowledge_graph_service)
+    service: KnowledgeGraphService = Depends(get_kg_service)
 ):
     """
     推断整部小说的知识图谱
@@ -128,7 +145,7 @@ async def infer_novel_knowledge_graph(
 @router.post("/chapters/{chapter_id}/infer")
 async def infer_chapter_knowledge_graph(
     chapter_id: str,
-    service: KnowledgeGraphService = Depends(get_knowledge_graph_service)
+    service: KnowledgeGraphService = Depends(get_kg_service)
 ):
     """
     推断单个章节的知识图谱
@@ -155,7 +172,7 @@ async def get_novel_triples(
     novel_id: str,
     source_type: Optional[str] = None,
     min_confidence: float = 0.0,
-    repo=Depends(get_triple_repository)
+    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     获取小说的所有三元组
@@ -190,7 +207,7 @@ async def get_novel_triples(
 @router.get("/chapters/{chapter_id}/triples")
 async def get_chapter_triples(
     chapter_id: str,
-    repo=Depends(get_triple_repository)
+    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     获取章节相关的三元组
@@ -215,7 +232,7 @@ async def get_chapter_triples(
 @router.post("/triples/{triple_id}/confirm")
 async def confirm_triple(
     triple_id: str,
-    repo=Depends(get_triple_repository)
+    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     确认三元组
@@ -243,7 +260,7 @@ async def confirm_triple(
 @router.delete("/triples/{triple_id}")
 async def delete_triple(
     triple_id: str,
-    repo=Depends(get_triple_repository)
+    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     删除三元组
@@ -270,7 +287,7 @@ async def delete_triple(
 async def get_element_relations(
     element_type: str,
     element_id: str,
-    repo=Depends(get_triple_repository)
+    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     获取元素的所有关系
@@ -310,7 +327,7 @@ async def get_element_relations(
 @router.get("/novels/{novel_id}/statistics")
 async def get_knowledge_graph_statistics(
     novel_id: str,
-    repo=Depends(get_triple_repository)
+    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     获取知识图谱统计信息
@@ -364,7 +381,7 @@ async def get_knowledge_graph_statistics(
 @router.post("/novels/{novel_id}/index")
 async def index_novel_triples(
     novel_id: str,
-    repo=Depends(get_triple_repository)
+    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     将小说的所有三元组索引到向量数据库

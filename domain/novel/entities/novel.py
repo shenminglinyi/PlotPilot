@@ -16,7 +16,6 @@ class NovelStage(str, Enum):
     AUDITING = "auditing"  # 审计：文风、伏笔、图谱
     REVIEWING = "reviewing"  # 旧版兼容
     PAUSED_FOR_REVIEW = "paused_for_review"  # 幕完成，等待人工确认
-    PAUSED_FOR_SEAM_REVIEW = "paused_for_seam_review"  # 接缝复检失败，等待人工修订
     COMPLETED = "completed"
 
 
@@ -60,13 +59,7 @@ class Novel(BaseEntity):
         last_audit_quality_scores: Optional[Dict[str, float]] = None,
         last_audit_issues: Optional[List[Dict[str, str]]] = None,
         # 目标字数控制
-        target_words_per_chapter: int = 3500,  # 默认值由 AppConfig.DEFAULT_WORDS_PER_CHAPTER 管理
-        # 题材类型（可选，用于加载专项题材 Agent）
-        genre: str = "",
-        # 是否启用专项题材 Agent（开关，默认关闭走通用路线）
-        theme_agent_enabled: bool = False,
-        # 已启用的增强技能 key 列表（如 ["cultivation_system", "battle_choreography"]）
-        enabled_theme_skills: Optional[List[str]] = None,
+        target_words_per_chapter: int = 3500,
     ):
         super().__init__(id.value)
         self.novel_id = id
@@ -105,12 +98,6 @@ class Novel(BaseEntity):
         self.last_audit_issues = last_audit_issues or []
         # 目标字数控制
         self.target_words_per_chapter = target_words_per_chapter
-        # 题材类型
-        self.genre = genre
-        # 是否启用专项题材 Agent
-        self.theme_agent_enabled = theme_agent_enabled
-        # 已启用的增强技能列表
-        self.enabled_theme_skills: List[str] = enabled_theme_skills or []
 
     def add_chapter(self, chapter: Chapter) -> None:
         """添加章节（必须连续）"""

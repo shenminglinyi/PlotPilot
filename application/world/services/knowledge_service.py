@@ -61,10 +61,6 @@ class KnowledgeService:
                 key_events=ch.get("key_events", ""),
                 open_threads=ch.get("open_threads", ""),
                 consistency_note=ch.get("consistency_note", ""),
-                ending_state=ch.get("ending_state", ""),
-                ending_emotion=ch.get("ending_emotion", ""),
-                carry_over_question=ch.get("carry_over_question", ""),
-                next_opening_hint=ch.get("next_opening_hint", ""),
                 beat_sections=ch.get("beat_sections", []),
                 micro_beats=ch.get("micro_beats", []),
                 sync_status=ch.get("sync_status", "draft")
@@ -349,10 +345,6 @@ class KnowledgeService:
         key_events: str = "",
         open_threads: str = "",
         consistency_note: str = "",
-        ending_state: str = "",
-        ending_emotion: str = "",
-        carry_over_question: str = "",
-        next_opening_hint: str = "",
         beat_sections: List[str] = None,
         micro_beats: List[Dict[str, Any]] = None,
         sync_status: str = "draft"
@@ -366,10 +358,6 @@ class KnowledgeService:
             key_events: 关键事件
             open_threads: 未解问题
             consistency_note: 一致性说明
-            ending_state: 章末客观局势/动作落点
-            ending_emotion: 章末情绪落点
-            carry_over_question: 下一章必须回应的问题
-            next_opening_hint: 下一章开场提示
             beat_sections: 节拍列表
             micro_beats: 微观节拍列表
             sync_status: 同步状态
@@ -385,10 +373,6 @@ class KnowledgeService:
             key_events=key_events,
             open_threads=open_threads,
             consistency_note=consistency_note,
-            ending_state=ending_state,
-            ending_emotion=ending_emotion,
-            carry_over_question=carry_over_question,
-            next_opening_hint=next_opening_hint,
             beat_sections=beat_sections or [],
             micro_beats=micro_beats or [],
             sync_status=sync_status

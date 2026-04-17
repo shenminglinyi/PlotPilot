@@ -25,17 +25,9 @@ class TestNovelService:
         return Mock()
 
     @pytest.fixture
-    def mock_generation_metrics_repository(self):
-        return Mock()
-
-    @pytest.fixture
-    def service(self, mock_repository, mock_chapter_repository, mock_generation_metrics_repository):
+    def service(self, mock_repository, mock_chapter_repository):
         """创建服务实例"""
-        return NovelService(
-            mock_repository,
-            mock_chapter_repository,
-            chapter_generation_metrics_repository=mock_generation_metrics_repository,
-        )
+        return NovelService(mock_repository, mock_chapter_repository)
 
     def test_create_novel(self, service, mock_repository):
         """测试创建小说"""
@@ -50,7 +42,6 @@ class TestNovelService:
         assert novel_dto.title == "测试小说"
         assert novel_dto.author == "测试作者"
         assert novel_dto.target_chapters == 10
-        assert novel_dto.target_words_per_chapter == 3500
         assert novel_dto.stage == "planning"
 
         # 验证调用了 save
@@ -180,7 +171,7 @@ class TestNovelService:
         with pytest.raises(EntityNotFoundError, match="Novel"):
             service.update_novel_stage("nonexistent", "writing")
 
-    def test_get_novel_statistics(self, service, mock_repository, mock_chapter_repository, mock_generation_metrics_repository):
+    def test_get_novel_statistics(self, service, mock_repository, mock_chapter_repository):
         """测试获取小说统计信息（章节来自 Chapter 仓储）"""
         novel = Novel(
             id=NovelId("test-novel"),
@@ -205,16 +196,6 @@ class TestNovelService:
         )
         mock_repository.get_by_id.return_value = novel
         mock_chapter_repository.list_by_novel.return_value = [chapter1, chapter2]
-        mock_generation_metrics_repository.get_book_summary.return_value = {
-            "total_measured": 1,
-            "within_tolerance_count": 1,
-            "pass_rate": 1.0,
-            "expansion_trigger_count": 0,
-            "trim_trigger_count": 0,
-            "expansion_trigger_rate": 0.0,
-            "trim_trigger_rate": 0.0,
-            "avg_expansion_attempts": 0.0,
-        }
 
         stats = service.get_novel_statistics("test-novel")
 
@@ -225,7 +206,6 @@ class TestNovelService:
         assert stats["slug"] == "test-novel"
         assert stats["title"] == "测试小说"
         assert "completion_rate" in stats
-        assert stats["generation_quality"]["pass_rate"] == 1.0
         mock_chapter_repository.list_by_novel.assert_called_once_with(NovelId("test-novel"))
 
     def test_get_novel_statistics_not_found(self, service, mock_repository):
@@ -234,23 +214,3 @@ class TestNovelService:
 
         with pytest.raises(EntityNotFoundError, match="Novel"):
             service.get_novel_statistics("nonexistent")
-
-    def test_update_novel_updates_target_words_per_chapter(self, service, mock_repository):
-        """测试更新每章目标字数"""
-        novel = Novel(
-            id=NovelId("test-novel"),
-            title="测试小说",
-            author="测试作者",
-            target_chapters=10,
-            target_words_per_chapter=3000
-        )
-        mock_repository.get_by_id.return_value = novel
-
-        novel_dto = service.update_novel(
-            "test-novel",
-            target_words_per_chapter=4200
-        )
-
-        assert novel.target_words_per_chapter == 4200
-        assert novel_dto.target_words_per_chapter == 4200
-        mock_repository.save.assert_called()

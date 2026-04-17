@@ -15,18 +15,10 @@ import sys
 import logging
 import time
 from pathlib import Path
+from dotenv import load_dotenv
 
-_AITEXT_ROOT = Path(__file__).resolve().parent.parent
-if str(_AITEXT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_AITEXT_ROOT))
-
-try:
-    from load_env import load_env
-
-    load_env()
-except Exception:
-    # 非标准启动方式或缺少 .env 时忽略
-    pass
+load_dotenv()
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from application.paths import AITEXT_ROOT, get_db_path, DATA_DIR
 from infrastructure.persistence.database.connection import get_database
@@ -37,7 +29,6 @@ from infrastructure.persistence.database.chapter_element_repository import Chapt
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_storyline_repository import SqliteStorylineRepository
 from infrastructure.persistence.database.sqlite_plot_arc_repository import SqlitePlotArcRepository
-from infrastructure.persistence.database.sqlite_chapter_generation_metrics_repository import SqliteChapterGenerationMetricsRepository
 from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
 
 from application.engine.services.autopilot_daemon import AutopilotDaemon
@@ -161,7 +152,6 @@ def build_daemon() -> AutopilotDaemon:
         circuit_breaker=circuit_breaker,
         chapter_workflow=chapter_workflow,
         aftermath_pipeline=aftermath_pipeline,
-        chapter_generation_metrics_repository=SqliteChapterGenerationMetricsRepository(get_database()),
     )
 
 

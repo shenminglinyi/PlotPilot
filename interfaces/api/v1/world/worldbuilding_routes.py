@@ -6,10 +6,18 @@ from pydantic import BaseModel
 from typing import Optional
 
 from application.world.services.worldbuilding_service import WorldbuildingService
-from interfaces.api.dependencies import get_worldbuilding_service
+from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
+from application.paths import get_db_path
 
 
 router = APIRouter(prefix="/api/v1/novels", tags=["worldbuilding"])
+
+
+def get_worldbuilding_service() -> WorldbuildingService:
+    """获取世界观服务"""
+    db_path = get_db_path()
+    repository = WorldbuildingRepository(db_path)
+    return WorldbuildingService(repository)
 
 
 class CoreRulesDTO(BaseModel):

@@ -1,7 +1,6 @@
 """清空本地 SQLite 中所有业务表（保留表结构）。请先停止占用 aitext.db 的后端进程。"""
 from __future__ import annotations
 
-import shutil
 import sqlite3
 import sys
 from pathlib import Path
@@ -27,7 +26,7 @@ def main() -> int:
     tables = [r[0] for r in cur.fetchall()]
     conn.execute("PRAGMA foreign_keys=OFF")
     for t in tables:
-        cur.execute('DELETE FROM [t]')
+        cur.execute(f'DELETE FROM "{t}"')
     conn.commit()
     try:
         conn.execute("VACUUM")

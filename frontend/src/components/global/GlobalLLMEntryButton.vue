@@ -387,6 +387,35 @@ function openPanel() {
   min-height: 68px;
   padding: 12px 14px;
   border-radius: var(--app-radius-xl);
+  color: var(--nav-hero-text, #ffffff);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow:
+    var(--app-shadow-md),
+    0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.global-llm-main.variant-topbar .global-llm-title {
+  color: var(--nav-hero-text, #ffffff);
+}
+
+.global-llm-main.variant-topbar .global-llm-subtitle {
+  color: var(--nav-hero-text-muted, rgba(255, 255, 255, 0.86));
+}
+
+.global-llm-main.variant-topbar .global-llm-icon-core {
+  background: linear-gradient(
+    180deg,
+    var(--nav-hero-pill-bg-top, rgba(255, 255, 255, 0.22)),
+    var(--nav-hero-pill-bg-bottom, rgba(255, 255, 255, 0.08))
+  );
+  border: 1px solid var(--nav-hero-pill-border, rgba(255, 255, 255, 0.28));
+  box-shadow: var(--nav-hero-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.12));
+}
+
+.global-llm-main.variant-topbar .global-llm-icon-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
 }
 
 .global-llm-main.variant-sidebar {

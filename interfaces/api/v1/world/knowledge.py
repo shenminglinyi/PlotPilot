@@ -53,12 +53,7 @@ async def get_knowledge(
                 key_events=ch.key_events,
                 open_threads=ch.open_threads,
                 consistency_note=ch.consistency_note,
-                ending_state=getattr(ch, "ending_state", "") or "",
-                ending_emotion=getattr(ch, "ending_emotion", "") or "",
-                carry_over_question=getattr(ch, "carry_over_question", "") or "",
-                next_opening_hint=getattr(ch, "next_opening_hint", "") or "",
                 beat_sections=ch.beat_sections,
-                micro_beats=ch.micro_beats,
                 sync_status=ch.sync_status
             )
             for ch in knowledge.chapters
@@ -136,12 +131,7 @@ async def update_knowledge(
                 key_events=ch.key_events,
                 open_threads=ch.open_threads,
                 consistency_note=ch.consistency_note,
-                ending_state=getattr(ch, "ending_state", "") or "",
-                ending_emotion=getattr(ch, "ending_emotion", "") or "",
-                carry_over_question=getattr(ch, "carry_over_question", "") or "",
-                next_opening_hint=getattr(ch, "next_opening_hint", "") or "",
                 beat_sections=ch.beat_sections,
-                micro_beats=ch.micro_beats,
                 sync_status=ch.sync_status
             )
             for ch in knowledge.chapters

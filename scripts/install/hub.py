@@ -647,7 +647,7 @@ class HubWindow(BaseWindow):
     def _show_fatal_error(self, exc, tb_text):
         """致命错误弹窗——显示 traceback"""
         def _do():
-            popup = show_popup(
+            show_popup(
                 self.root, "PlotPilot 发生异常",
                 f"异常类型: {type(exc).__name__}\n\n{str(exc)[:200]}",
                 width=520, height=400, color=ERR_C, icon="✘",

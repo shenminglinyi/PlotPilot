@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from application.workbench.workbench_context_service import build_workbench_context_bundle
 from domain.novel.repositories.plot_arc_repository import PlotArcRepository
+from infrastructure.persistence.database.triple_repository import TripleRepository
 from interfaces.api.dependencies import (
     get_bible_service,
     get_chapter_repository,
@@ -16,12 +17,15 @@ from interfaces.api.dependencies import (
     get_plot_arc_repository,
     get_snapshot_service,
     get_storyline_manager,
-    get_triple_repository,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/novels", tags=["workbench-context"])
+
+
+def get_triple_repository() -> TripleRepository:
+    return TripleRepository()
 
 
 @router.get("/{novel_id}/workbench-context")
@@ -35,7 +39,7 @@ async def get_workbench_context(
     plot_arc_repo: PlotArcRepository = Depends(get_plot_arc_repository),
     knowledge_service=Depends(get_knowledge_service),
     foreshadowing_repo=Depends(get_foreshadowing_repository),
-    triple_repository=Depends(get_triple_repository),
+    triple_repository: TripleRepository = Depends(get_triple_repository),
     db=Depends(get_database),
 ) -> Dict[str, Any]:
     """单次拉取多域数据，与各子路由使用相同仓储逻辑；前端可替代多次并行 GET。"""

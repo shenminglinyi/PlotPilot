@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
@@ -16,10 +15,14 @@ from application.ai.llm_control_service import (
     LLMTestResult,
     LLMControlService,
 )
-from interfaces.api.dependencies import get_llm_control_service, get_llm_provider_factory, get_prompt_manager
+from infrastructure.ai.provider_factory import LLMProviderFactory
+from infrastructure.ai.prompt_manager import get_prompt_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/llm-control', tags=['llm-control'])
+
+_service = LLMControlService()
+_factory = LLMProviderFactory(_service)
 
 
 # ---------- 模型列表拉取 ----------
@@ -67,7 +70,7 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
     candidate = payload.model_dump()
     if not candidate.get('api_key'):
         # 尝试从当前激活配置中获取 key 作为 fallback
-        active = get_llm_control_service().get_active_profile()
+        active = _service.get_active_profile()
         if active:
             candidate['api_key'] = active.api_key
 
@@ -110,24 +113,23 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
 
 @router.get('', response_model=LLMControlPanelData)
 async def get_llm_control_panel() -> LLMControlPanelData:
-    return get_llm_control_service().get_control_panel_data()
+    return _service.get_control_panel_data()
 
 
 @router.put('', response_model=LLMControlPanelData)
 async def save_llm_control_panel(config: LLMControlConfig) -> LLMControlPanelData:
-    svc = get_llm_control_service()
-    saved = svc.save_config(config)
+    saved = _service.save_config(config)
     return LLMControlPanelData(
         config=saved,
-        presets=svc.get_presets(),
-        runtime=svc.get_runtime_summary(saved),
+        presets=_service.get_presets(),
+        runtime=_service.get_runtime_summary(saved),
     )
 
 
 @router.post('/test', response_model=LLMTestResult)
 async def test_llm_profile(profile: LLMProfile) -> LLMTestResult:
     try:
-        return await get_llm_control_service().test_profile_model(profile, get_llm_provider_factory().create_from_profile)
+        return await _service.test_profile_model(profile, _factory.create_from_profile)
     except Exception as exc:
         logger.error('测试 LLM 配置失败: %s', exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -21,7 +21,7 @@ from theme import OK_C, WARN_C, ERR_C, ACCENT2
 from utils import (
     get_proj_dir, get_log_dir, port_in_use, find_free_port,
     check_uvicorn, NO_WIN, DEFAULT_PORT,
-    write_lock,
+    write_lock, kill_port, get_pid_by_port,
 )
 
 
@@ -83,14 +83,20 @@ class BackendLauncher:
 
     def _do_launch(self, port):
         """核心启动流程"""
-        # ── 端口检测 ──
+        # ── 端口检测：占用则自动杀掉占用进程 ──
         if port_in_use(port):
-            self._log(f"端口 {port} 被占用，自动切换...", "warn")
-            port = find_free_port(port + 1)
-            self._port = port
-            self._prog(72, f"使用端口 {port}", "🚀", 5)
-        else:
-            self._port = port
+            pid = get_pid_by_port(port)
+            pid_info = f" (PID={pid})" if pid else ""
+            self._log(f"端口 {port} 被占用{pid_info}，正在释放...", "warn")
+            self._prog(70, f"释放端口 {port}...", "🔪", 5)
+            if kill_port(port):
+                self._log(f"端口 {port} 已释放", "ok")
+            else:
+                self._log(f"无法释放端口 {port}，自动切换备用端口...", "warn")
+                port = find_free_port(port + 1)
+                self._log(f"切换至端口 {port}", "warn")
+        self._port = port
+        self._prog(72, f"使用端口 {port}", "🚀", 5)
 
         # ── 模拟启动步骤 ──
         for pct, label in self.LAUNCH_STEPS:
@@ -133,7 +139,7 @@ class BackendLauncher:
 
         # 阻塞等待退出
         self.proc.wait()
-        from utils import remove_lock
+        from .utils import remove_lock
         remove_lock()
         self._log("服务已停止", "warn")
         return True

@@ -22,17 +22,9 @@ class TestChapterService:
         return Mock()
 
     @pytest.fixture
-    def mock_generation_metrics_repository(self):
-        return Mock()
-
-    @pytest.fixture
-    def service(self, mock_chapter_repository, mock_novel_repository, mock_generation_metrics_repository):
+    def service(self, mock_chapter_repository, mock_novel_repository):
         """创建服务实例"""
-        return ChapterService(
-            mock_chapter_repository,
-            mock_novel_repository,
-            chapter_generation_metrics_repository=mock_generation_metrics_repository,
-        )
+        return ChapterService(mock_chapter_repository, mock_novel_repository)
 
     def test_update_chapter_content(self, service, mock_chapter_repository):
         """测试更新章节内容"""
@@ -127,36 +119,3 @@ class TestChapterService:
         service.delete_chapter("chapter-1")
 
         mock_chapter_repository.delete.assert_called_once_with(ChapterId("chapter-1"))
-
-    def test_update_chapter_by_novel_and_number_persists_generation_metrics(
-        self,
-        service,
-        mock_chapter_repository,
-        mock_generation_metrics_repository,
-    ):
-        chapter = Chapter(
-            id="chapter-1",
-            novel_id=NovelId("novel-1"),
-            number=1,
-            title="第一章",
-            content="原始内容"
-        )
-        mock_chapter_repository.list_by_novel.return_value = [chapter]
-
-        dto = service.update_chapter_by_novel_and_number(
-            "novel-1",
-            1,
-            "更新后的内容",
-            generation_metrics={
-                "target": 3000,
-                "actual": 2950,
-                "tolerance": 0.15,
-                "delta": -50,
-                "status": "ok",
-                "within_tolerance": True,
-                "action": "none",
-            },
-        )
-
-        assert dto.content == "更新后的内容"
-        mock_generation_metrics_repository.upsert.assert_called_once()

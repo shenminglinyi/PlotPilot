@@ -1,8 +1,7 @@
 """Novel 数据传输对象"""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
-from application.config import AppConfig
 
 if TYPE_CHECKING:
     from domain.novel.entities.novel import Novel
@@ -76,14 +75,10 @@ class NovelDTO:
     premise: str
     chapters: List[ChapterDTO]
     total_word_count: int
-    target_words_per_chapter: int = AppConfig.DEFAULT_WORDS_PER_CHAPTER
     has_bible: bool = False
     has_outline: bool = False
     autopilot_status: str = "stopped"
     auto_approve_mode: bool = False
-    genre: str = ""
-    theme_agent_enabled: bool = False
-    enabled_theme_skills: List[str] = field(default_factory=list)
 
     @classmethod
     def from_domain(cls, novel: 'Novel') -> 'NovelDTO':
@@ -109,10 +104,6 @@ class NovelDTO:
             premise=getattr(novel, 'premise', ''),  # 兼容旧数据
             chapters=chapters,
             total_word_count=novel.get_total_word_count().value,
-            target_words_per_chapter=getattr(novel, 'target_words_per_chapter', AppConfig.DEFAULT_WORDS_PER_CHAPTER),
             autopilot_status=autopilot_status,
             auto_approve_mode=getattr(novel, 'auto_approve_mode', False),
-            genre=getattr(novel, 'genre', ''),
-            theme_agent_enabled=getattr(novel, 'theme_agent_enabled', False),
-            enabled_theme_skills=getattr(novel, 'enabled_theme_skills', []) or [],
         )

@@ -4,7 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import Optional
 
+from domain.novel.services.storyline_manager import StorylineManager
+from infrastructure.persistence.database.sqlite_novel_repository import SqliteNovelRepository
+from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
+from infrastructure.persistence.database.connection import get_database
+
 from application.core.services.export_service import ExportService
+from application.core.services.novel_service import NovelService
+from application.core.services.chapter_service import ChapterService
+
 from interfaces.api.dependencies import get_novel_repository, get_chapter_repository
 
 router = APIRouter(prefix="/export", tags=["export"])

@@ -1,21 +1,7 @@
-"""兼容旧导入路径：application.services.* -> 新分层 service 模块。
-
-[已废弃] 此目录仅作向后兼容垫片，不要在新代码中使用。
-请直接 import 正确路径，例如：
-    from application.core.services.novel_service import NovelService
-    from application.engine.services.context_builder import ContextBuilder
-"""
+"""兼容旧导入路径：application.services.* -> 新分层 service 模块。"""
 
 from importlib import import_module
 import sys
-import warnings
-
-warnings.warn(
-    "application.services.* 导入路径已废弃，请使用正确的分层路径。"
-    "详见 CONTRIBUTING.md §9 常见问题。",
-    DeprecationWarning,
-    stacklevel=2,
-)
 
 
 _MODULE_ALIASES = {

@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Optional, List, TYPE_CHECKING
 from domain.novel.value_objects.consistency_report import ConsistencyReport
 from application.audit.dtos.ghost_annotation import GhostAnnotation
-from application.engine.dtos.word_control_dto import WordControlDTO
 
 if TYPE_CHECKING:
     from application.audit.services.cliche_scanner import ClicheHit
@@ -21,7 +20,6 @@ class GenerationResult:
     token_count: int
     ghost_annotations: List[GhostAnnotation] = None  # 幽灵批注（冲突检测结果）
     style_warnings: List['ClicheHit'] = None  # 风格警告（俗套句式检测结果）
-    word_control: Optional[WordControlDTO] = None
 
     def __post_init__(self):
         if not self.content or not self.content.strip():

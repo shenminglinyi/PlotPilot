@@ -54,7 +54,7 @@ async def test_call_llm_and_parse_returns_empty_dict_when_content_is_unrecoverab
     )
     svc = AutoBibleGenerator(llm_service=llm, bible_service=Mock())
 
-    result = await svc._call_llm_and_parse_with_retry("system", "user")
+    result = await svc._call_llm_and_parse("system", "user")
 
     assert result == {}
 
@@ -114,30 +114,3 @@ def test_prepare_locations_for_save_orders_parents_first_and_downgrades_missing_
     assert by_id["loc_beijing"]["parent_id"] is None
     assert by_id["loc_orphan"]["parent_id"] is None
     assert by_id["loc_chaoyang"]["parent_id"] == "loc_beijing"
-
-
-@pytest.mark.asyncio
-async def test_generate_and_save_worldbuilding_creates_bible_before_saving_style_note():
-    llm = Mock()
-    bible_service = Mock()
-    bible_service.get_bible_by_novel.side_effect = [None, Mock()]
-    bible_service.create_bible.return_value = Mock()
-    bible_service.add_style_note.return_value = Mock()
-    worldbuilding_service = Mock()
-
-    svc = AutoBibleGenerator(
-        llm_service=llm,
-        bible_service=bible_service,
-        worldbuilding_service=worldbuilding_service,
-    )
-    svc._generate_worldbuilding_and_style = AsyncMock(
-        return_value={"style": "第三人称有限视角", "worldbuilding": {"era": "近未来"}}
-    )
-    svc._save_worldbuilding = AsyncMock()
-
-    result = await svc.generate_and_save("novel-1", "一个故事", 100, stage="worldbuilding")
-
-    assert result["style"] == "第三人称有限视角"
-    bible_service.create_bible.assert_called_once_with("novel-1-bible", "novel-1")
-    bible_service.add_style_note.assert_called_once()
-    svc._save_worldbuilding.assert_awaited_once_with("novel-1", {"era": "近未来"})

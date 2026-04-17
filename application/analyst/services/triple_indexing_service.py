@@ -57,9 +57,7 @@ class TripleIndexingService:
         Returns:
             collection 名称，格式为 novel_{novel_id}_triples
         """
-        # novel_id 可能包含 "novel-" 前缀，需要去掉避免重复
-        normalized_id = novel_id.replace("novel-", "") if novel_id.startswith("novel-") else novel_id
-        return f"novel_{normalized_id}_triples"
+        return f"novel_{novel_id}_triples"
 
     def _triple_to_text(self, triple: Dict[str, Any]) -> str:
         """将三元组转换为可向量化的文本
@@ -112,8 +110,6 @@ class TripleIndexingService:
     async def ensure_collection(self, novel_id: str) -> None:
         """确保 collection 存在，如果不存在则创建
 
-        修复问题 15：添加 legacy collection 回退，避免迁移期间读写分歧。
-
         Args:
             novel_id: 小说 ID
 
@@ -125,11 +121,6 @@ class TripleIndexingService:
         existing_collections = await self._vector_store.list_collections()
 
         if collection_name not in existing_collections:
-            # 检查 legacy collection 是否存在，避免覆盖旧数据
-            legacy_name = f"novel_{novel_id}_triples"
-            if legacy_name in existing_collections:
-                logger.debug(f"Using legacy collection: {legacy_name}")
-                return
             await self._vector_store.create_collection(
                 collection=collection_name,
                 dimension=self._embedding_dimension
@@ -283,17 +274,11 @@ class TripleIndexingService:
         """
         collection_name = self._get_collection_name(novel_id)
 
-        # 检查 collection 是否存在，添加旧名称回退
+        # 检查 collection 是否存在
         existing = await self._vector_store.list_collections()
         if collection_name not in existing:
-            # 回退到旧名称（带重复 novel- 前缀）
-            legacy_name = f"novel_{novel_id}_triples"
-            if legacy_name in existing:
-                collection_name = legacy_name
-                logger.debug(f"Using legacy collection name: {collection_name}")
-            else:
-                logger.warning(f"Collection {collection_name} does not exist")
-                return []
+            logger.warning(f"Collection {collection_name} does not exist")
+            return []
 
         # 生成查询向量
         query_vector = await self._embedding_service.embed(query)

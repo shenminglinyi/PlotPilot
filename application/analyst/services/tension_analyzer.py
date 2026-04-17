@@ -1,10 +1,9 @@
 """张力分析器服务"""
 import json
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 from application.workbench.dtos.writer_block_dto import TensionSlingshotRequest, TensionDiagnosis
 from domain.novel.repositories.narrative_event_repository import NarrativeEventRepository
-from application.ai.llm_json_extract import parse_llm_json_to_dict
 
 
 class TensionAnalyzer:
@@ -147,15 +146,13 @@ class TensionAnalyzer:
 4. 建议必须是动作导向的，使用"引入"、"增加"、"设置"、"让"等动词开头
 5. 建议要具体，不要泛泛而谈
 
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
+请以 JSON 格式返回结果:
 {{
     "diagnosis": "诊断结果（2-3句话）",
     "tension_level": "low/medium/high",
     "missing_elements": ["缺失元素1", "缺失元素2"],
     "suggestions": ["具体建议1", "具体建议2", "具体建议3"]
 }}
-```
 """
 
         return prompt
@@ -169,25 +166,19 @@ class TensionAnalyzer:
         Returns:
             TensionDiagnosis 对象
         """
-        data, errors = parse_llm_json_to_dict(response)
-        if data is None:
-            return TensionDiagnosis(
-                diagnosis=f"解析响应失败: {'; '.join(errors)}",
-                tension_level="low",
-                missing_elements=["parse_error"],
-                suggestions=["请检查 LLM 响应格式"]
-            )
-
         try:
+            # 尝试解析 JSON
+            data = json.loads(response)
             return TensionDiagnosis(
-                diagnosis=str(data.get("diagnosis", "暂无诊断信息")),
-                tension_level=str(data.get("tension_level", "low")),
-                missing_elements=[str(x) for x in data.get("missing_elements", [])],
-                suggestions=[str(x) for x in data.get("suggestions", [])]
+                diagnosis=data["diagnosis"],
+                tension_level=data["tension_level"],
+                missing_elements=data["missing_elements"],
+                suggestions=data["suggestions"]
             )
-        except KeyError as e:
+        except (json.JSONDecodeError, KeyError) as e:
+            # 如果解析失败，返回默认结果
             return TensionDiagnosis(
-                diagnosis=f"解析响应失败: 缺少字段 {str(e)}",
+                diagnosis=f"解析响应失败: {str(e)}",
                 tension_level="low",
                 missing_elements=["parse_error"],
                 suggestions=["请检查 LLM 响应格式"]

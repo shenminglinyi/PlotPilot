@@ -8,12 +8,10 @@ aitex 通用工具函数
 
 import sys
 import os
-import re
 import socket
 import subprocess
 import shutil
 import time
-import platform
 
 # ── 当 tkinter 可用时使用隐藏窗口标志，否则为 0 ──
 try:
@@ -58,13 +56,10 @@ def get_proj_dir():
 
 
 def get_venv_python(proj_dir=None):
-    """返回虚拟环境 python 路径，不存在则返回 None（跨平台）"""
+    """返回虚拟环境 python.exe 路径，不存在则返回 None"""
     if proj_dir is None:
         proj_dir = get_proj_dir()
-    if platform.system() == "Windows":
-        p = os.path.join(proj_dir, ".venv", "Scripts", "python.exe")
-    else:
-        p = os.path.join(proj_dir, ".venv", "bin", "python")
+    p = os.path.join(proj_dir, ".venv", "Scripts", "python.exe")
     return p if os.path.exists(p) else None
 
 
@@ -94,6 +89,59 @@ def find_free_port(start=8005, max_try=20):
         if not port_in_use(p):
             return p
     return start
+
+
+def get_pid_by_port(port):
+    """返回占用指定端口的进程 PID，找不到返回 None（Windows / Unix 均支持）"""
+    import platform
+    system = platform.system()
+    try:
+        if system == "Windows":
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=NO_WIN,
+            )
+            for line in result.stdout.splitlines():
+                # 匹配 TCP 0.0.0.0:PORT 或 127.0.0.1:PORT，状态 LISTENING
+                parts = line.split()
+                if len(parts) >= 5 and f":{port}" in parts[1] and parts[3] == "LISTENING":
+                    try:
+                        return int(parts[4])
+                    except ValueError:
+                        continue
+        else:
+            result = subprocess.run(
+                ["lsof", "-ti", f"TCP:{port}", "-sTCP:LISTEN"],
+                capture_output=True, text=True, timeout=10,
+            )
+            pid_str = result.stdout.strip().split("\n")[0]
+            if pid_str:
+                return int(pid_str)
+    except Exception:
+        pass
+    return None
+
+
+def kill_port(port, timeout=5):
+    """
+    杀死占用指定端口的进程。
+    返回 True=成功释放端口 / False=未能释放
+    """
+    pid = get_pid_by_port(port)
+    if pid is None:
+        return True  # 端口本来就空闲
+
+    kill_process(pid, timeout=timeout)
+
+    # 等待端口释放（最多 timeout 秒）
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not port_in_use(port):
+            return True
+        time.sleep(0.3)
+    return False
+
 
 DEFAULT_PORT = 8005
 
@@ -144,21 +192,14 @@ def remove_lock(proj_dir=None):
 
 
 def is_process_alive(pid):
-    """检查进程是否存活（跨平台）"""
+    """检查进程是否存活（Windows tasklist）"""
     try:
-        if platform.system() == "Windows":
-            proc = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                capture_output=True, text=True,
-                creationflags=NO_WIN,
-            )
-            return str(pid) in proc.stdout
-        else:
-            import signal
-            os.kill(pid, 0)
-            return True
-    except (ProcessLookupError, PermissionError):
-        return False
+        proc = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True, text=True,
+            creationflags=NO_WIN,
+        )
+        return str(pid) in proc.stdout
     except Exception:
         return False
 

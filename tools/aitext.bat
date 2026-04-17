@@ -186,18 +186,5 @@ echo.
 :: start 之后 bat 立即 exit，不再等待 GUI 关闭
 start "" "%PYTHONW_EXE%" -u scripts\install\hub.py %MODE% 2>logs\hub_error.log
 
-:: 稍等 1 秒，确认进程已起来（防止 pythonw 启动失败时无任何提示）
-timeout /t 1 /nobreak >nul 2>&1
-
-:: 检查是否有错误日志（hub.py 崩溃时会写入）
-for %%F in (logs\hub_error.log) do if %%~zF gtr 0 (
-    echo.
-    echo   [WARN] 检测到启动错误，请查看: logs\hub_error.log
-    echo.
-    type logs\hub_error.log
-    echo.
-    pause
-)
-
 :: bat 在这里就结束了，用户只会看到独立的 Tkinter 窗口
 exit /b 0

@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test:storyline-theme": "node scripts/check-storyline-theme.mjs",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview"
   },
