@@ -76,6 +76,13 @@ def _migrate_novels_columns_before_schema_script(conn: sqlite3.Connection) -> No
         "current_beat_index": (
             "ALTER TABLE novels ADD COLUMN current_beat_index INTEGER DEFAULT 0"
         ),
+        "genre": "ALTER TABLE novels ADD COLUMN genre TEXT DEFAULT ''",
+        "theme_agent_enabled": (
+            "ALTER TABLE novels ADD COLUMN theme_agent_enabled INTEGER NOT NULL DEFAULT 0"
+        ),
+        "enabled_theme_skills": (
+            "ALTER TABLE novels ADD COLUMN enabled_theme_skills TEXT DEFAULT '[]'"
+        ),
     }
     for col, sql in migrations.items():
         if col not in cols:
@@ -220,6 +227,7 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
         "add_macro_diagnosis_results.sql",
         "add_micro_beats_to_chapter_summaries.sql",
         "add_tension_dimensions.sql",
+        "add_use_legacy_chat_completions.sql",
     ]
     
     for migration_file in migration_files:

@@ -77,6 +77,9 @@ body {
   --app-text-secondary: #475569;
   --app-text-muted: #64748b;
   --app-text-inverse: #ffffff;
+  --text-color-1: var(--app-text-primary);
+  --text-color-2: var(--app-text-secondary);
+  --text-color-3: var(--app-text-muted);
 
   /* ── 背景色 ── */
   --app-page-bg: #eef1f6;

@@ -164,10 +164,9 @@ class StreamingBus:
                             logger.warning(f"[StreamingBus] 无法将消息重新放回队列，小说ID: {msg_novel_id}")
 
             except Empty:
-                time.sleep(0.001)
+                pass
             except Exception as e:
                 logger.debug(f"[StreamingBus] get_chunk 异常: {e}")
-                time.sleep(0.001)
 
         return None
 

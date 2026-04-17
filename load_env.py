@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +16,25 @@ _ENV_PATH = _PACKAGE_ROOT / ".env"
 _PROXY_KEYS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
 _DEFAULT_NO_PROXY = "127.0.0.1,localhost"
 _MISSING = object()
+
+_QUOTED_HASH_PATTERN = re.compile(r'''(?P<in_double_quotes>"[^"]*")|(?P<in_single_quotes>'[^']*')|(?P<comment>#[^\n]*)''')
+
+
+def _strip_trailing_comment(value: str) -> str:
+    """移除值末尾的行内注释，但保留引号内的 # 字符。"""
+    in_single = False
+    in_double = False
+    i = 0
+    while i < len(value):
+        ch = value[i]
+        if ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '#' and not in_single and not in_double:
+            return value[:i].rstrip()
+        i += 1
+    return value
 
 
 def _parse_env_file(env_file: Path) -> dict[str, str]:

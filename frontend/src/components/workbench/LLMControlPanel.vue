@@ -199,6 +199,14 @@
               <n-input-number v-model:value="selectedProfile.timeout_seconds" :min="1" :step="10" style="width: 100%" />
             </div>
 
+            <div v-if="selectedProfile.protocol === 'openai'" class="llm-field span-2">
+              <label class="llm-label">使用旧协议（Chat Completions）</label>
+              <n-switch v-model:value="selectedProfile.use_legacy_chat_completions" />
+              <n-text depth="3" style="font-size: 12px">
+                关闭时走 Responses API（默认）；部分国产网关不支持新协议时请开启。
+              </n-text>
+            </div>
+
             <div class="llm-field span-2">
               <label class="llm-label">备注</label>
               <n-input v-model:value="selectedProfile.notes" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" placeholder="例如：公司网关、测试环境、带 reasoning 参数" />
@@ -407,6 +415,7 @@ function buildProfileFromPreset(preset?: LLMPreset): LLMProfile {
     extra_query: {},
     extra_body: {},
     notes: '',
+    use_legacy_chat_completions: false,
   }
 }
 

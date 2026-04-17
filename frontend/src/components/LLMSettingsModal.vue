@@ -2,7 +2,7 @@
   <n-modal
     v-model:show="show"
     preset="card"
-    title="配置管理"
+    title="主题设置"
     style="width: min(560px, 96vw)"
     :mask-closable="false"
     :segmented="{ content: 'soft', footer: 'soft' }"
@@ -262,12 +262,12 @@ function handleThemeChange(newMode: ThemeMode) {
 .mode-card-name {
   font-size: 15px;
   font-weight: 600;
-  color: var(--color-text-primary, #0f172a);
+  color: var(--app-text-primary);
 }
 
 .mode-card-desc {
   font-size: 12.5px;
-  color: var(--color-text-secondary, #64748b);
+  color: var(--app-text-secondary);
   margin-top: 3px;
 }
 

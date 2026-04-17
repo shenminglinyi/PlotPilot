@@ -54,7 +54,7 @@ async def test_call_llm_and_parse_returns_empty_dict_when_content_is_unrecoverab
     )
     svc = AutoBibleGenerator(llm_service=llm, bible_service=Mock())
 
-    result = await svc._call_llm_and_parse("system", "user")
+    result = await svc._call_llm_and_parse_with_retry("system", "user")
 
     assert result == {}
 

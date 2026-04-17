@@ -78,7 +78,8 @@ class NovelService:
         title: str,
         author: str,
         target_chapters: int,
-        premise: str = ""
+        premise: str = "",
+        genre: str = "",
     ) -> NovelDTO:
         """创建新小说
 
@@ -88,6 +89,7 @@ class NovelService:
             author: 作者
             target_chapters: 目标章节数
             premise: 故事梗概/创意
+            genre: 题材类型（可选）
 
         Returns:
             NovelDTO
@@ -98,7 +100,8 @@ class NovelService:
             author=author,
             target_chapters=target_chapters,
             premise=premise,
-            stage=NovelStage.PLANNING
+            stage=NovelStage.PLANNING,
+            genre=genre,
         )
 
         self.novel_repository.save(novel)
@@ -264,8 +267,9 @@ class NovelService:
         novel = self.novel_repository.get_by_id(NovelId(novel_id)) or novel
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 
-    def update_novel(self, novel_id: str, title: Optional[str] = None, author: Optional[str] = None, 
-                     target_chapters: Optional[int] = None, premise: Optional[str] = None) -> NovelDTO:
+    def update_novel(self, novel_id: str, title: Optional[str] = None, author: Optional[str] = None,
+                     target_chapters: Optional[int] = None, premise: Optional[str] = None,
+                     genre: Optional[str] = None) -> NovelDTO:
         """更新小说基本信息
 
         Args:
@@ -274,6 +278,7 @@ class NovelService:
             author: 作者（可选）
             target_chapters: 目标章节数（可选）
             premise: 故事梗概/创意（可选）
+            genre: 题材类型（可选）
 
         Returns:
             更新后的 NovelDTO
@@ -294,6 +299,8 @@ class NovelService:
             novel.target_chapters = target_chapters
         if premise is not None:
             novel.premise = premise
+        if genre is not None:
+            novel.genre = genre
 
         self.novel_repository.save(novel)
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
@@ -341,6 +348,64 @@ class NovelService:
         self.novel_repository.save(novel)
 
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
+
+    def update_theme_agent_enabled(self, novel_id: str, theme_agent_enabled: bool) -> NovelDTO:
+        """更新专项题材 Agent 开关
+
+        Args:
+            novel_id: 小说 ID
+            theme_agent_enabled: 是否启用专项题材 Agent
+
+        Returns:
+            更新后的 NovelDTO
+
+        Raises:
+            EntityNotFoundError: 如果小说不存在
+        """
+        novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        if novel is None:
+            raise EntityNotFoundError("Novel", novel_id)
+
+        novel.theme_agent_enabled = theme_agent_enabled
+        self.novel_repository.save(novel)
+
+        return NovelDTO.from_domain(self._hydrate_chapters(novel))
+
+    def update_enabled_theme_skills(self, novel_id: str, skill_keys: List[str]) -> NovelDTO:
+        """更新小说启用的增强技能列表
+
+        Args:
+            novel_id: 小说 ID
+            skill_keys: 启用的技能 key 列表
+
+        Returns:
+            更新后的 NovelDTO
+
+        Raises:
+            EntityNotFoundError: 如果小说不存在
+        """
+        novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        if novel is None:
+            raise EntityNotFoundError("Novel", novel_id)
+
+        novel.enabled_theme_skills = skill_keys
+        self.novel_repository.save(novel)
+
+        return NovelDTO.from_domain(self._hydrate_chapters(novel))
+
+    def get_available_theme_skills(self, genre_key: str) -> List[Dict[str, Any]]:
+        """获取某题材可用的增强技能列表
+
+        Args:
+            genre_key: 题材标识
+
+        Returns:
+            技能信息列表
+        """
+        from application.engine.theme.skill_registry import ThemeSkillRegistry
+        registry = ThemeSkillRegistry()
+        registry.auto_discover()
+        return registry.list_for_genre(genre_key)
 
     def get_novel_statistics(self, novel_id: str) -> Dict[str, Any]:
         """获取小说统计信息（以 Chapter 仓储落盘为准，与列表/读写 API 一致）

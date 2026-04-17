@@ -6,12 +6,6 @@
     <span>{{ error }}</span>
   </div>
   <div v-else class="stats-top-bar">
-    <!-- 左侧：AI 控制台 + 提示词广场 -->
-    <div class="topbar-left">
-      <GlobalLLMEntryButton appearance="topbar" />
-      <PromptPlazaEntryButton appearance="topbar" />
-    </div>
-
     <!-- 中间：统计数据 -->
     <div class="topbar-center">
       <div
@@ -35,6 +29,24 @@
 
     <!-- 右侧：操作按钮 -->
     <div class="top-bar-actions">
+      <!-- 题材选择 -->
+      <n-popselect
+        v-model:value="selectedGenre"
+        :options="genreOptions"
+        trigger="click"
+        @update:value="handleGenreChange"
+      >
+        <n-tag
+          :bordered="false"
+          size="small"
+          class="genre-tag"
+          :type="selectedGenre ? 'info' : 'default'"
+          style="cursor: pointer"
+        >
+          {{ selectedGenre ? genreLabel : '选择题材' }}
+        </n-tag>
+      </n-popselect>
+
       <!-- 导出按钮 -->
       <n-dropdown 
         trigger="click" 
@@ -61,11 +73,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { NTooltip, NSpin, NDropdown, useMessage } from 'naive-ui'
+import { NTooltip, NSpin, NDropdown, NPopselect, NTag, useMessage } from 'naive-ui'
 import { useStatsStore } from '@/stores/statsStore'
 import { novelApi } from '@/api/novel'
-import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
-import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 
 const props = defineProps<{
   slug: string
@@ -76,6 +86,47 @@ defineEmits<{
 }>()
 
 const message = useMessage()
+
+// 题材选择
+const genreOptions = [
+  { label: '不限', value: '' },
+  { label: '玄幻', value: 'xuanhuan' },
+  { label: '都市', value: 'dushi' },
+  { label: '科幻', value: 'scifi' },
+  { label: '历史', value: 'history' },
+  { label: '武侠', value: 'wuxia' },
+  { label: '仙侠', value: 'xianxia' },
+  { label: '奇幻', value: 'fantasy' },
+  { label: '游戏', value: 'game' },
+  { label: '悬疑', value: 'suspense' },
+  { label: '言情', value: 'romance' },
+  { label: '其他', value: 'other' },
+]
+
+const selectedGenre = ref('')
+
+const genreLabel = computed(() => {
+  const opt = genreOptions.find(o => o.value === selectedGenre.value)
+  return opt ? opt.label : '选择题材'
+})
+
+async function loadGenre() {
+  try {
+    const novel = await novelApi.getNovel(props.slug)
+    selectedGenre.value = novel.genre || ''
+  } catch {
+    // ignore
+  }
+}
+
+async function handleGenreChange(value: string) {
+  try {
+    await novelApi.updateNovel(props.slug, { genre: value })
+    message.success(value ? `题材已设为「${genreLabel.value}」` : '已清除题材设置')
+  } catch {
+    message.error('题材更新失败')
+  }
+}
 
 // 导出选项
 const exportOptions = [
@@ -211,7 +262,10 @@ onMounted(async () => {
   loading.value = true
   error.value = null
   try {
-    await statsStore.loadBookStats(props.slug)
+    await Promise.all([
+      statsStore.loadBookStats(props.slug),
+      loadGenre(),
+    ])
   } catch (err) {
     console.error('Failed to load book stats:', err)
     error.value = `加载统计数据失败：${formatStatsError(err)}`
@@ -240,27 +294,6 @@ onMounted(async () => {
   box-shadow:
     var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08)),
     0 4px 16px var(--color-brand-border, rgba(79, 70, 229, 0.08));
-}
-
-/* 左侧：AI 控制台入口 */
-.topbar-left {
-  flex-shrink: 0;
-  z-index: 2;
-}
-
-/* 覆盖 topbar 模式下的按钮尺寸以适应导航栏 */
-.topbar-left :deep(.global-llm-main.variant-topbar) {
-  width: auto;
-  min-height: 46px;
-  padding: 8px 14px;
-  border-radius: var(--app-radius-lg);
-}
-
-.topbar-left :deep(.plaza-main.variant-topbar) {
-  width: auto;
-  min-height: 46px;
-  padding: 8px 14px;
-  border-radius: var(--app-radius-lg);
 }
 
 /* 中间：统计数据 */
@@ -332,6 +365,12 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   flex: 0 0 auto;
+  align-items: center;
+}
+
+.genre-tag {
+  font-size: 12px;
+  transition: all 0.18s ease;
 }
 
 .action-trigger {
@@ -398,26 +437,6 @@ onMounted(async () => {
     flex-wrap: wrap;
     padding: 12px 16px;
     gap: 10px;
-  }
-
-  .topbar-left {
-    order: -1;
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-  }
-
-  .topbar-left :deep(.global-llm-main.variant-topbar) {
-    width: auto;
-    flex: 1;
-    max-width: 240px;
-  }
-
-  .topbar-left :deep(.plaza-main.variant-topbar) {
-    width: auto;
-    flex: 1;
-    max-width: 200px;
   }
 
   .topbar-center {

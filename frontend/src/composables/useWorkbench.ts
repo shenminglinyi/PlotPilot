@@ -25,6 +25,7 @@ function formatApiErrorDetail(error: unknown): string {
 export interface BookMeta {
   has_bible?: boolean
   has_outline?: boolean
+  genre?: string
 }
 
 export interface UseWorkbenchOptions {
@@ -81,6 +82,7 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     bookMeta.value = {
       has_bible: novelData.has_bible,
       has_outline: novelData.has_outline,
+      genre: novelData.genre || '',
     }
   }
 

@@ -142,6 +142,7 @@ embedding_router = APIRouter(prefix="/settings/embedding", tags=["settings"])
 
 
 class EmbeddingConfigUpdate(BaseModel):
+    model_config = {"protected_namespaces": ()}
     mode: str = "local"
     api_key: str = ""
     base_url: str = ""

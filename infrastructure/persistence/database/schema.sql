@@ -22,6 +22,15 @@ CREATE TABLE IF NOT EXISTS novels (
     last_audit_drift_alert INTEGER DEFAULT 0,
     last_audit_narrative_ok INTEGER DEFAULT 1,
     last_audit_at TEXT,
+    last_audit_vector_stored INTEGER DEFAULT 0,
+    last_audit_foreshadow_stored INTEGER DEFAULT 0,
+    last_audit_triples_extracted INTEGER DEFAULT 0,
+    last_audit_quality_scores TEXT,
+    last_audit_issues TEXT,
+    target_words_per_chapter INTEGER DEFAULT 3500,
+    genre TEXT DEFAULT '',
+    theme_agent_enabled INTEGER NOT NULL DEFAULT 0,
+    enabled_theme_skills TEXT DEFAULT '[]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -611,12 +620,32 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
     extra_query TEXT NOT NULL DEFAULT '{}',
     extra_body TEXT NOT NULL DEFAULT '{}',
     notes TEXT NOT NULL DEFAULT '',
+    use_legacy_chat_completions INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
+
+-- 用户自定义增强技能
+CREATE TABLE IF NOT EXISTS custom_theme_skills (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    skill_key TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    skill_description TEXT DEFAULT '',
+    compatible_genres TEXT DEFAULT '[]',
+    context_prompt TEXT DEFAULT '',
+    beat_prompt TEXT DEFAULT '',
+    beat_triggers TEXT DEFAULT '',
+    audit_checks TEXT DEFAULT '[]',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(novel_id, skill_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_custom_theme_skills_novel ON custom_theme_skills(novel_id);
 
 
 

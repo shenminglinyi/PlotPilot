@@ -1,5 +1,5 @@
 """Novel 数据传输对象"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
 
@@ -79,6 +79,9 @@ class NovelDTO:
     has_outline: bool = False
     autopilot_status: str = "stopped"
     auto_approve_mode: bool = False
+    genre: str = ""
+    theme_agent_enabled: bool = False
+    enabled_theme_skills: List[str] = field(default_factory=list)
 
     @classmethod
     def from_domain(cls, novel: 'Novel') -> 'NovelDTO':
@@ -106,4 +109,7 @@ class NovelDTO:
             total_word_count=novel.get_total_word_count().value,
             autopilot_status=autopilot_status,
             auto_approve_mode=getattr(novel, 'auto_approve_mode', False),
+            genre=getattr(novel, 'genre', ''),
+            theme_agent_enabled=getattr(novel, 'theme_agent_enabled', False),
+            enabled_theme_skills=getattr(novel, 'enabled_theme_skills', []) or [],
         )

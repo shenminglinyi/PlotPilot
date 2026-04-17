@@ -1,9 +1,13 @@
-# Environment (never commit secrets)
+# ════════════════════════════════════════════
+# aitext — AI 小说创作平台
+# ════════════════════════════════════════════
+
+# ── 环境与密钥（永远不提交） ──
 .env
 .env.*
 !.env.example
 
-# Python
+# ── Python ──
 __pycache__/
 *.py[cod]
 *$py.class
@@ -22,19 +26,23 @@ build/
 *.pid
 .superpowers/
 
-# Local agent / MCP caches (do not commit)
+# ── 前端 ──
+frontend/node_modules/
+frontend/.vite/
+
+# ── 本地 Agent / MCP 缓存 ──
 .playwright-mcp/
 .claude/
 .trae/
 
-# Coverage / test artifacts
+# ── 覆盖率 / 测试产物 ──
 .coverage
 .coverage.*
 htmlcov/
 coverage.xml
 *.cover
 
-# Database & SQLite sidecars (local `data/aitext.db` etc.)
+# ── 数据库 SQLite 副本 ──
 *.db
 *.db.backup
 *.db-shm
@@ -42,36 +50,34 @@ coverage.xml
 *.sqlite
 *.sqlite3
 
-# App data dir (`application.paths.DATA_DIR` = repo `data/`)
-# — runtime file storage (cast, foreshadowings, legacy chapter files, etc.)
+# ── 应用运行时数据（保留目录结构，忽略内容） ──
 data/novels/
 data/foreshadowings/
-
-# Generated bible JSON snapshots under data/bibles/
 data/bibles/bible-novel-*.json
 data/bibles/novel-*-bible.json
 data/bibles/bible-test-*.json
 data/bibles/bible-final-*.json
 
-# Book output (keep placeholder only)
+# ── 书籍输出（仅保留占位文件） ──
 output/novels/*/
 !output/novels/.gitkeep
 
-# Temporary / generated API fixtures
+# ── 临时 / 生成的 API fixtures ──
 interfaces/data/
 
-
-# OS / editors
+# ── OS / 编辑器 ──
 .DS_Store
 Thumbs.db
 Desktop.ini
 
-# Local vector DB / dev dumps (if checked in by mistake)
+# ── 本地向量 DB / 开发 dump ──
 qdrant_storage/
+
+# ── 本地模型文件（~2GB，按需下载） ──
 .models/
 frontend/node_modules/
 
-# Evaluation results
+# ── 评估结果 ──
 scripts/evaluation/results/
 
 # Local runtime environment artifacts

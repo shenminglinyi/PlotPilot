@@ -59,6 +59,10 @@
 
     <!-- LLM Settings Modal -->
     <LLMSettingsModal v-model:show="showLLMSettings" />
+
+    <!-- 全局浮动按钮 -->
+    <GlobalLLMFloatingButton />
+    <PromptPlazaFAB />
   </div>
 </template>
 
@@ -75,6 +79,8 @@ import WorkArea from '../components/workbench/WorkArea.vue'
 import SettingsPanel from '../components/workbench/SettingsPanel.vue'
 import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
 import LLMSettingsModal from '../components/LLMSettingsModal.vue'
+import GlobalLLMFloatingButton from '../components/global/GlobalLLMFloatingButton.vue'
+import PromptPlazaFAB from '../components/global/PromptPlazaFAB.vue'
 
 const route = useRoute()
 const message = useMessage()

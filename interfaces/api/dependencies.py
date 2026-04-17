@@ -217,6 +217,12 @@ def get_foreshadowing_repository() -> SqliteForeshadowingRepository:
     return SqliteForeshadowingRepository(get_database())
 
 
+def get_custom_skill_repository():
+    """获取自定义增强技能仓储"""
+    from infrastructure.persistence.database.sqlite_custom_skill_repository import SqliteCustomSkillRepository
+    return SqliteCustomSkillRepository(get_database())
+
+
 def get_snapshot_service():
     """语义快照服务（novel_snapshots；用于编年史 BFF 与回滚）。"""
     from application.snapshot.services.snapshot_service import SnapshotService

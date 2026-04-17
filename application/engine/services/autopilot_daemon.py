@@ -67,6 +67,7 @@ class AutopilotDaemon:
         self.aftermath_pipeline = aftermath_pipeline
         self.volume_summary_service = volume_summary_service
         self.foreshadowing_repository = foreshadowing_repository
+        self.theme_agent = None  # ThemeAgent 插槽，由外部注入
         
         # 惰性初始化 VolumeSummaryService
         if not self.volume_summary_service and llm_service and story_node_repo:
@@ -179,12 +180,133 @@ class AutopilotDaemon:
         self._merge_autopilot_status_from_db(novel)
         self.novel_repository.save(novel)
 
+    def _load_theme_agent_for_novel(self, novel: Novel) -> None:
+        """根据 novel.genre 动态加载题材 Agent 到管线各组件
+
+        每轮 _process_novel 调用一次，确保 genre 变更能实时生效。
+        如果 genre 为空或无对应 Agent，则清除已有的 theme_agent（退化为通用模式）。
+        仅在 novel.theme_agent_enabled 为 True 时才加载，否则走原有通用路线。
+
+        同时根据 novel.enabled_theme_skills 列表，为 Agent 注入用户选择的增强技能。
+        """
+        genre = getattr(novel, 'genre', '') or ''
+        enabled = getattr(novel, 'theme_agent_enabled', False)
+        agent = None
+
+        if enabled and genre and self._theme_registry:
+            agent = self._theme_registry.get(genre)
+            if agent:
+                logger.debug(f"[{novel.novel_id}] 已加载题材 Agent：{agent}")
+                # 加载用户启用的增强技能
+                self._inject_skills_to_agent(agent, novel)
+            else:
+                logger.debug(f"[{novel.novel_id}] 未找到 genre='{genre}' 对应的题材 Agent，走通用路线")
+        elif not enabled and genre:
+            logger.debug(f"[{novel.novel_id}] 专项题材 Agent 未启用（genre='{genre}'），走通用路线")
+
+        # 注入到管线各组件（幂等设置，无 agent 时清 None）
+        self.theme_agent = agent
+        if self.chapter_workflow:
+            self.chapter_workflow.theme_agent = agent
+        if self.context_builder:
+            self.context_builder.theme_agent = agent
+            if hasattr(self.context_builder, 'budget_allocator') and self.context_builder.budget_allocator:
+                self.context_builder.budget_allocator.theme_agent = agent
+
+    def _inject_skills_to_agent(self, agent, novel: Novel) -> None:
+        """根据 novel.enabled_theme_skills 将技能注入 Agent
+
+        通过覆盖 agent 的 _injected_skills 属性实现动态技能加载，
+        并 monkey-patch get_skills() 方法使其返回注入的技能列表。
+        同时加载用户自定义技能（custom_theme_skills 表）。
+        """
+        skill_keys = getattr(novel, 'enabled_theme_skills', []) or []
+        if not skill_keys:
+            # 无技能配置时，清除之前可能注入的技能
+            if hasattr(agent, '_injected_skills'):
+                delattr(agent, '_injected_skills')
+                # 恢复原始 get_skills
+                if hasattr(agent, '_original_get_skills'):
+                    agent.get_skills = agent._original_get_skills
+                    delattr(agent, '_original_get_skills')
+            return
+
+        try:
+            skills = []
+
+            # 1. 从内置 SkillRegistry 加载
+            skill_registry = self._skill_registry
+            if skill_registry:
+                builtin_keys = [k for k in skill_keys if not k.startswith("custom_")]
+                skills.extend(skill_registry.get_skills_by_keys(builtin_keys))
+
+            # 2. 从 DB 加载自定义技能
+            custom_keys = [k for k in skill_keys if k.startswith("custom_")]
+            if custom_keys:
+                try:
+                    from infrastructure.persistence.database.sqlite_custom_skill_repository import SqliteCustomSkillRepository
+                    from application.engine.theme.skills.custom_skill_wrapper import CustomThemeSkillWrapper
+                    custom_repo = SqliteCustomSkillRepository(self.novel_repository.db)
+                    novel_id = novel.novel_id.value if hasattr(novel.novel_id, 'value') else str(novel.novel_id)
+                    custom_rows = custom_repo.list_by_novel(novel_id)
+                    for row in custom_rows:
+                        if row["skill_key"] in custom_keys:
+                            skills.append(CustomThemeSkillWrapper(row))
+                except Exception as e:
+                    logger.warning(f"[{novel.novel_id}] 加载自定义技能失败：{e}")
+
+            if skills:
+                agent._injected_skills = skills
+                # 保存原始 get_skills 并 monkey-patch
+                if not hasattr(agent, '_original_get_skills'):
+                    agent._original_get_skills = agent.get_skills
+                agent.get_skills = lambda: agent._injected_skills
+                logger.debug(
+                    f"[{novel.novel_id}] 已注入 {len(skills)} 个增强技能: "
+                    f"{[s.skill_key for s in skills]}"
+                )
+        except Exception as e:
+            logger.warning(f"[{novel.novel_id}] 加载增强技能失败：{e}")
+
+    @property
+    def _theme_registry(self):
+        """惰性获取 ThemeAgentRegistry（首次调用时初始化）"""
+        if not hasattr(self, '_registry_instance'):
+            try:
+                from application.engine.theme.theme_registry import ThemeAgentRegistry
+                registry = ThemeAgentRegistry()
+                registry.auto_discover()
+                self._registry_instance = registry
+                logger.info(f"ThemeAgentRegistry 初始化完成：{registry}")
+            except Exception as e:
+                logger.warning(f"ThemeAgentRegistry 初始化失败（题材功能不可用）：{e}")
+                self._registry_instance = None
+        return self._registry_instance
+
+    @property
+    def _skill_registry(self):
+        """惰性获取 ThemeSkillRegistry（首次调用时初始化）"""
+        if not hasattr(self, '_skill_registry_instance'):
+            try:
+                from application.engine.theme.skill_registry import ThemeSkillRegistry
+                registry = ThemeSkillRegistry()
+                registry.auto_discover()
+                self._skill_registry_instance = registry
+                logger.info(f"ThemeSkillRegistry 初始化完成：{registry}")
+            except Exception as e:
+                logger.warning(f"ThemeSkillRegistry 初始化失败（增强技能不可用）：{e}")
+                self._skill_registry_instance = None
+        return self._skill_registry_instance
+
     async def _process_novel(self, novel: Novel):
         """处理单个小说（全流程）"""
         try:
             if not self._is_still_running(novel):
                 logger.info(f"[{novel.novel_id}] 用户已停止自动驾驶，跳过本轮")
                 return
+
+            # 根据 novel.genre 动态加载题材 Agent
+            self._load_theme_agent_for_novel(novel)
 
             stage_name = novel.current_stage.value
             logger.debug(f"[{novel.novel_id}] 当前阶段: {stage_name}")
@@ -538,7 +660,17 @@ class AutopilotDaemon:
         outline = next_chapter_node.outline or next_chapter_node.description or next_chapter_node.title
 
         if needs_buffer:
-            outline = f"【缓冲章：日常过渡】{outline}。主角战后休整，与配角闲聊，展示收获，节奏轻松。"
+            # 优先使用题材专项缓冲章模板
+            buffer_outline = ""
+            if self.theme_agent:
+                try:
+                    buffer_outline = self.theme_agent.get_buffer_chapter_template(outline)
+                except Exception as e:
+                    logger.warning(f"ThemeAgent.get_buffer_chapter_template 失败（降级默认）：{e}")
+            if buffer_outline:
+                outline = buffer_outline
+            else:
+                outline = f"【缓冲章：日常过渡】{outline}。主角战后休整，与配角闲聊，展示收获，节奏轻松。"
 
         logger.info(f"[{novel.novel_id}] 📖 开始写第 {chapter_num} 章：{outline[:60]}...")
         logger.info(f"[{novel.novel_id}]    进度: {current_chapters}/{target_chapters} 章（目标）")
@@ -592,7 +724,7 @@ class AutopilotDaemon:
         # 5. 节拍放大
         beats = []
         if self.context_builder:
-            beats = self.context_builder.magnify_outline_to_beats(outline, target_chapter_words=3500)
+            beats = self.context_builder.magnify_outline_to_beats(chapter_num, outline, target_chapter_words=3500)
 
         if not self._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 用户已停止（节拍拆分后）")
