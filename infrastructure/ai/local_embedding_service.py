@@ -74,20 +74,30 @@ class LocalEmbeddingService(EmbeddingService):
                 f"原始错误: {e}"
             ) from e
 
-        # 优先使用环境变量配置的本地路径
+        # 解析模型路径：优先使用本地文件，避免任何网络请求
         if model_name is None:
             model_path = os.getenv("EMBEDDING_MODEL_PATH", "./.models/bge-small-zh-v1.5")
-            # 转换为绝对路径
-            model_path = str(Path(model_path).resolve())
+        else:
+            model_path = model_name
 
-            # 检查本地路径是否存在
-            if os.path.exists(model_path):
-                model_name = model_path
-                logger.info(f"Using local model path: {model_path}")
+        # 将路径转为绝对路径（相对路径基于项目根目录）
+        _resolved = Path(model_path)
+        if not _resolved.is_absolute():
+            _resolved = (Path(__file__).parent.parent.parent / model_path).resolve()
+
+        if _resolved.exists():
+            model_name = str(_resolved)
+            logger.info(f"Using local model path: {model_name}")
+        else:
+            # 尝试将 HuggingFace model-id 映射到 .models/<basename>
+            _basename = Path(model_path).name  # e.g. "bge-small-zh-v1.5"
+            _fallback = (Path(__file__).parent.parent.parent / ".models" / _basename).resolve()
+            if _fallback.exists():
+                model_name = str(_fallback)
+                logger.info(f"Using local model path (auto-resolved): {model_name}")
             else:
-                # 如果本地路径不存在，报错而不是尝试下载
                 raise FileNotFoundError(
-                    f"Local model not found at {model_path}.\n\n"
+                    f"Local model not found at '{_resolved}' or '{_fallback}'.\n\n"
                     f"请先下载模型文件到该路径，或运行:\n"
                     f"  python scripts/utils/download_embedding_model.py\n\n"
                     f"或者切换到 OpenAI API 模式以跳过本地模型。"
