@@ -2,14 +2,14 @@
 import logging
 import json
 import uuid
-import sys
 import re
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_service import WorldbuildingService
+from application.ai.knowledge_llm_contract import parse_json_from_response
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
@@ -25,140 +25,6 @@ USER_PROMPT_SUFFIX = """
 请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
 ```json
 """
-
-
-def parse_json_from_response(rsp: str):
-    """从LLM响应中解析JSON，支持```json包裹格式"""
-    pattern = r"```json(.*?)```"
-    rsp_json = None
-    try:
-        match = re.search(pattern, rsp, re.DOTALL)
-        if match is not None:
-            try:
-                rsp_json = json.loads(match.group(1).strip())
-            except:
-                pass
-        else:
-            rsp_json = json.loads(rsp)
-        return rsp_json
-    except json.JSONDecodeError as e:
-        try:
-            match = re.search(r"\{(.*?)\}", rsp, re.DOTALL)
-            if match:
-                content = "{" + match.group(1) + "}"
-                return json.loads(content)
-        except:
-            pass
-        raise e
-
-
-def _sanitize_llm_json_output(raw: str) -> str:
-    content = (raw or "").strip()
-    content = re.sub(r"\x1b\[[0-9;]*m", "", content)
-    content = re.sub(r"<think\|?>.*?</think\|?>", "", content, flags=re.DOTALL)
-    content = re.sub(r"<thinking>.*?</thinking>", "", content, flags=re.DOTALL)
-    if "```json" in content:
-        content = content.split("```json", 1)[1].split("```", 1)[0]
-    elif "```" in content:
-        content = content.split("```", 1)[1].split("```", 1)[0]
-    return content.strip()
-
-
-def _extract_outer_json_object(text: str) -> str:
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1:
-        return text
-    if end != -1 and end > start:
-        return text[start : end + 1]
-    return text[start:]
-
-
-def _repair_json_string(text: str) -> str:
-    text = text.strip()
-    if not text:
-        return text
-
-    try:
-        json.loads(text)
-        return text
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    def _close_json(s: str) -> str:
-        s = s.strip()
-        if not s:
-            return "{}"
-
-        in_string = False
-        escape = False
-        stack = []
-        result = []
-
-        for ch in s:
-            if escape:
-                result.append(ch)
-                escape = False
-                continue
-            if ch == "\\" and in_string:
-                result.append(ch)
-                escape = True
-                continue
-            if ch == '"':
-                in_string = not in_string
-                result.append(ch)
-                continue
-            if in_string:
-                result.append(ch)
-                continue
-            if ch == "{":
-                stack.append("}")
-                result.append(ch)
-                continue
-            if ch == "[":
-                stack.append("]")
-                result.append(ch)
-                continue
-            if ch in "}]":
-                if stack and stack[-1] == ch:
-                    stack.pop()
-                result.append(ch)
-                continue
-            result.append(ch)
-
-        if in_string:
-            result.append('"')
-
-        repaired = "".join(result).rstrip()
-        while repaired.endswith(","):
-            repaired = repaired[:-1].rstrip()
-        while stack:
-            while repaired.endswith(","):
-                repaired = repaired[:-1].rstrip()
-            repaired += stack.pop()
-        return repaired
-
-    candidate = text
-    retries = 15
-    while retries > 0 and candidate:
-        repaired = _close_json(candidate)
-        try:
-            json.loads(repaired)
-            return repaired
-        except json.JSONDecodeError:
-            last_comma = candidate.rfind(",")
-            if last_comma == -1:
-                break
-            candidate = candidate[:last_comma]
-        retries -= 1
-    return _close_json(text)
-
-
-def _parse_llm_json_to_dict(raw: str) -> Dict[str, Any]:
-    data = parse_json_from_response(raw)
-    if not isinstance(data, dict):
-        raise json.JSONDecodeError("Root node is not a JSON object", raw, 0)
-    return data
 
 
 def _infer_character_importance(char_data: Dict[str, Any]) -> str:
@@ -340,8 +206,6 @@ class AutoBibleGenerator:
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
 
         elif stage == "worldbuilding":
-            import sys
-            print(f"[DEBUG] Stage worldbuilding - checking Bible record", file=sys.stderr, flush=True)
             # 确保Bible记录存在
             try:
                 self.bible_service.get_bible_by_novel(novel_id)
@@ -350,13 +214,10 @@ class AutoBibleGenerator:
                 self.bible_service.create_bible(bible_id, novel_id)
                 logger.info(f"Created Bible record: {bible_id}")
 
-            print(f"[DEBUG] Calling _generate_worldbuilding_and_style", file=sys.stderr, flush=True)
             # 只生成世界观和文风
             bible_data = await self._generate_worldbuilding_and_style(premise, target_chapters)
-            print(f"[DEBUG] _generate_worldbuilding_and_style completed", file=sys.stderr, flush=True)
-            print(f"[DEBUG] bible_data keys: {bible_data.keys()}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] Has 'worldbuilding' key: {'worldbuilding' in bible_data}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] worldbuilding_service is None: {self.worldbuilding_service is None}", file=sys.stderr, flush=True)
+            logger.info(f"Worldbuilding generated, keys: {bible_data.keys()}")
+            logger.info(f"Has worldbuilding key: {'worldbuilding' in bible_data}")
             # 保存文风
             if "style" in bible_data:
                 style_id = f"{novel_id}-style-1"
@@ -665,12 +526,11 @@ JSON 格式（不要有其他文字）：
 
     async def _save_worldbuilding(self, novel_id: str, worldbuilding_data: Dict[str, Any]) -> None:
         """保存世界观到数据库（同时保存到Worldbuilding表和Bible的world_settings）"""
-        print(f"[DEBUG] _save_worldbuilding called with data: {worldbuilding_data}", file=sys.stderr, flush=True)
+        logger.info(f"Saving worldbuilding for {novel_id}")
 
         # 1. 保存到Worldbuilding表（用于后续生成人物和地点时读取）
         if self.worldbuilding_service:
             try:
-                print(f"[DEBUG] Calling worldbuilding_service.update_worldbuilding", file=sys.stderr, flush=True)
                 self.worldbuilding_service.update_worldbuilding(
                     novel_id=novel_id,
                     core_rules=worldbuilding_data.get("core_rules"),
@@ -679,15 +539,13 @@ JSON 格式（不要有其他文字）：
                     culture=worldbuilding_data.get("culture"),
                     daily_life=worldbuilding_data.get("daily_life")
                 )
-                print(f"[DEBUG] Worldbuilding saved to Worldbuilding table", file=sys.stderr, flush=True)
-                logger.info(f"Worldbuilding saved for {novel_id}")
+                logger.info("Worldbuilding saved to Worldbuilding table")
             except Exception as e:
-                print(f"[DEBUG] Failed to save worldbuilding: {e}", file=sys.stderr, flush=True)
                 logger.error(f"Failed to save worldbuilding: {e}")
 
         # 2. 同时保存到Bible的world_settings（用于前端显示）
         try:
-            print(f"[DEBUG] Saving worldbuilding to Bible.world_settings", file=sys.stderr, flush=True)
+            logger.info("Saving worldbuilding to Bible.world_settings")
             bible = self.bible_service.get_bible_by_novel(novel_id)
             if not bible:
                 bible_id = f"{novel_id}-bible"
@@ -724,7 +582,7 @@ JSON 格式（不要有其他文字）：
                 "culture": wb.culture,
                 "daily_life": wb.daily_life
             }
-        except:
+        except (AttributeError, TypeError, KeyError, EntityNotFoundError):
             return {}
 
     def _load_characters(self, novel_id: str) -> list:
@@ -732,7 +590,7 @@ JSON 格式（不要有其他文字）：
         try:
             bible = self.bible_service.get_bible(novel_id)
             return [{"name": c.name, "description": c.description} for c in bible.characters]
-        except:
+        except (AttributeError, TypeError, EntityNotFoundError):
             return []
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
@@ -913,16 +771,18 @@ JSON 格式：
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
         result = await self.llm_service.generate(prompt, config)
 
-        content = ""
+        content = result.content or ""
         try:
-            content = _sanitize_llm_json_output(result.content)
-            return _parse_llm_json_to_dict(content)
+            parsed = parse_json_from_response(content)
+            if not isinstance(parsed, dict):
+                raise ValueError("LLM JSON payload must be an object")
+            return parsed
         except json.JSONDecodeError as e:
             logger.error(f"Content length: {len(content)}")
             logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
             logger.error(f"Raw content (last 500 chars): {content[-500:]}")
-            return {}
+            raise
 
     async def _call_llm_and_parse_with_retry(
         self,
@@ -937,23 +797,29 @@ JSON 格式：
             try:
                 if attempt == 0:
                     # 第一次尝试，使用标准prompt
-                    return await self._call_llm_and_parse(system_prompt, user_prompt)
+                    parsed = await self._call_llm_and_parse(system_prompt, user_prompt)
                 else:
                     # 重试时加强调prompt
                     retry_reminder = "\n\n【重要提醒】上次JSON解析失败，请严格遵守JSON输出规则！只输出纯JSON，不要任何其他文字！"
                     logger.warning(f"JSON解析重试 {attempt}/{max_retries}，添加强调提示")
-                    return await self._call_llm_and_parse(
+                    parsed = await self._call_llm_and_parse(
                         system_prompt + retry_reminder,
                         user_prompt
                     )
-            except json.JSONDecodeError as e:
+                if parsed:
+                    return parsed
+                raise ValueError("LLM returned empty JSON object")
+            except (json.JSONDecodeError, ValueError) as e:
                 last_error = e
-                logger.warning(f"JSON解析失败，重试 {attempt + 1}/{max_retries}")
+                logger.warning(f"JSON解析失败，重试 {attempt + 1}/{max_retries}: {str(e)[:100]}")
             except Exception as e:
                 last_error = e
                 logger.warning(f"LLM调用异常，重试 {attempt + 1}/{max_retries}: {e}")
 
-        logger.error(f"所有重试都失败，返回空字典")
+        if last_error is not None:
+            logger.error("所有重试都失败，返回空字典。最后一次错误: %s", last_error)
+        else:
+            logger.error("所有重试都失败，返回空字典")
         return {}
 
     async def _generate_character_triples(self, novel_id: str, character_ids: list):

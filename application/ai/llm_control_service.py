@@ -405,6 +405,19 @@ class LLMControlService:
             using_mock=False,
         )
 
+    def update_profile_legacy_flag(self, profile_id: str, use_legacy: bool) -> None:
+        """更新指定 profile 的 use_legacy_chat_completions 标志（持久化到数据库）。
+
+        当发现某个 base_url 不支持 Responses API 时调用此方法，
+        下次启动时会直接使用 Chat Completions API 而不再尝试 Responses API。
+        """
+        db = self._db()
+        db.execute(
+            "UPDATE llm_profiles SET use_legacy_chat_completions = ? WHERE id = ?",
+            (int(use_legacy), profile_id),
+        )
+        logger.info("已更新 profile %s 的 use_legacy_chat_completions 为 %s", profile_id, use_legacy)
+
     async def test_profile_model(
         self,
         profile: LLMProfile,

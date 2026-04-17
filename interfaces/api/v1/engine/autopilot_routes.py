@@ -667,7 +667,7 @@ async def stream_debug(novel_id: str):
             sample_msg = queue.get_nowait()
             # 把消息放回去
             queue.put(sample_msg)
-        except:
+        except Exception:
             pass
     
     return {

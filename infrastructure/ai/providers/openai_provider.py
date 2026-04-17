@@ -1,7 +1,7 @@
 """OpenAI LLM 提供商实现"""
 import logging
 import openai
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Optional
 
 from openai import AsyncOpenAI
 
@@ -20,7 +20,7 @@ class OpenAIProvider(BaseProvider):
     """OpenAI LLM 提供商实现
 
     通过 use_legacy_chat_completions 显式选择协议：
-    - False（默认）：走 Responses API，失败时自动降级到 Chat Completions
+    - False (默认)：走 Responses API，失败时自动降级到 Chat Completions
     - True：走 Chat Completions API
     """
 
@@ -34,6 +34,7 @@ class OpenAIProvider(BaseProvider):
             raise ValueError("API key is required for OpenAIProvider")
 
         self._use_legacy = settings.use_legacy_chat_completions
+        self._profile_id: Optional[str] = getattr(settings, "profile_id", None)
 
         client_kwargs = {
             "api_key": settings.api_key,
@@ -45,6 +46,17 @@ class OpenAIProvider(BaseProvider):
             client_kwargs["base_url"] = settings.base_url
 
         self.async_client = AsyncOpenAI(**client_kwargs)
+
+    def _persist_legacy_flag(self, use_legacy: bool) -> None:
+        """将 use_legacy_chat_completions 标志持久化到数据库 (仅当有 profile_id 时)。"""
+        if not self._profile_id:
+            return
+        try:
+            from application.ai.llm_control_service import LLMControlService
+            control_service = LLMControlService()
+            control_service.update_profile_legacy_flag(self._profile_id, use_legacy)
+        except Exception as e:
+            logger.warning("Failed to persist legacy flag to database: %s", e)
 
     async def generate(
         self,
@@ -61,11 +73,13 @@ class OpenAIProvider(BaseProvider):
                 except (openai.NotFoundError, openai.BadRequestError, RuntimeError) as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
+                    self._persist_legacy_flag(True)
                 except Exception as e:
                     # 某些网关在路径错误时可能不抛严格的 404 而是抛出其他错误，如果消息含有明确路径错误也尝试降级
                     if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
                         logger.info(f"Gateway returned error for Responses API ({base_url}), falling back: {str(e)}")
                         self.__class__._fallback_to_chat_cache.add(base_url)
+                        self._persist_legacy_flag(True)
                     else:
                         raise
 
@@ -73,7 +87,9 @@ class OpenAIProvider(BaseProvider):
             return await self._generate_via_chat(prompt, config)
         except RuntimeError:
             raise
-        except Exception as e:
+        except (openai.APIError, openai.APIConnectionError, openai.RateLimitError, openai.APITimeoutError) as e:
+            raise RuntimeError(f"Failed to generate text: {str(e)}") from e
+        except (AttributeError, TypeError, ValueError) as e:
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e
 
     async def _generate_via_chat(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
@@ -120,10 +136,12 @@ class OpenAIProvider(BaseProvider):
                     return  # 正常完成则结束 generator
                 except (openai.NotFoundError, openai.BadRequestError):
                     self.__class__._fallback_to_chat_cache.add(base_url)
+                    self._persist_legacy_flag(True)
                     logger.info(f"Stream: Responses API unsupported for {base_url}, falling back.")
                 except Exception as e:
                     if "404" in str(e) or "Not Found" in str(e) or "400" in str(e) or "Account invalid" in str(e) or "INVALID_ARGUMENT" in str(e):
                         self.__class__._fallback_to_chat_cache.add(base_url)
+                        self._persist_legacy_flag(True)
                         logger.info(f"Stream: Gateway returned error for Responses API ({base_url}), falling back.")
                     else:
                         logger.error(f"[Responses Stream] Failed: {e}")
@@ -137,8 +155,11 @@ class OpenAIProvider(BaseProvider):
                 content = self._extract_text_from_stream_chunk(chunk)
                 if content:
                     yield content
-        except Exception as e:
-            logger.error(f"[Stream] Failed: {e}")
+        except (openai.APIError, openai.APIConnectionError, openai.RateLimitError, openai.APITimeoutError) as e:
+            logger.error(f"[Stream] API error: {e}")
+            raise RuntimeError(f"Failed to stream text: {str(e)}") from e
+        except (AttributeError, TypeError, ValueError) as e:
+            logger.error(f"[Stream] Response parsing error: {e}")
             raise RuntimeError(f"Failed to stream text: {str(e)}") from e
 
     @staticmethod
@@ -236,10 +257,11 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _extract_text_from_response(response: Any) -> str:
-        if not getattr(response, "choices", None):
+        choices = getattr(response, "choices", None)
+        if not choices or len(choices) == 0:
             return ""
 
-        message = getattr(response.choices[0], "message", None)
+        message = getattr(choices[0], "message", None)
         content = getattr(message, "content", None)
         if isinstance(content, str):
             return content.strip()
@@ -247,10 +269,11 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _extract_text_from_stream_chunk(chunk: Any) -> str:
-        if not getattr(chunk, "choices", None):
+        choices = getattr(chunk, "choices", None)
+        if not choices or len(choices) == 0:
             return ""
 
-        delta = getattr(chunk.choices[0], "delta", None)
+        delta = getattr(choices[0], "delta", None)
         content = getattr(delta, "content", None)
         if isinstance(content, str):
             return content
