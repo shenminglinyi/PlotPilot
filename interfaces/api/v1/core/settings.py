@@ -136,12 +136,13 @@ async def fetch_models(body: FetchModelsRequest):
     return [m.id for m in result.items]
 
 
-# ── embedding endpoints ────────────────────────────────
+# ── embedding endpoints（数据库持久化）──────────────────
 
 embedding_router = APIRouter(prefix="/settings/embedding", tags=["settings"])
 
 
 class EmbeddingConfigUpdate(BaseModel):
+    model_config = {"protected_namespaces": ()}
     mode: str = "local"
     api_key: str = ""
     base_url: str = ""
@@ -152,21 +153,26 @@ class EmbeddingConfigUpdate(BaseModel):
 
 @embedding_router.get("/")
 def get_embedding_config():
-    # 返回默认配置（embedding 配置暂未迁移到新体系）
-    return {
-        "mode": "local",
-        "api_key": "",
-        "base_url": "",
-        "model": "text-embedding-3-small",
-        "use_gpu": True,
-        "model_path": "BAAI/bge-small-zh-v1.5",
-    }
+    """获取当前嵌入模型配置（从数据库读取）。"""
+    from application.ai.embedding_config_service import get_embedding_config_service
+    svc = get_embedding_config_service()
+    return svc.to_api_dict()
 
 
 @embedding_router.put("/")
 def update_embedding_config(body: EmbeddingConfigUpdate):
-    # 暂时返回写入的值（后续可持久化）
-    return body.model_dump()
+    """更新嵌入模型配置（持久化到数据库）。"""
+    from application.ai.embedding_config_service import get_embedding_config_service
+    svc = get_embedding_config_service()
+    updated = svc.update_config(
+        mode=body.mode,
+        api_key=body.api_key,
+        base_url=body.base_url,
+        model=body.model,
+        use_gpu=body.use_gpu,
+        model_path=body.model_path,
+    )
+    return updated.to_api_dict()
 
 
 @embedding_router.post("/fetch-models")

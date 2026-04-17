@@ -276,8 +276,8 @@ function applyDockPosition(shouldPersist = false) {
 
 function defaultState() {
   dockSide.value = 'right'
-  mode.value = 'expanded'
-  yRatio.value = 0.84
+  mode.value = 'minimized'
+  yRatio.value = 0.8
 }
 
 function restoreState() {
@@ -459,7 +459,7 @@ onBeforeUnmount(() => {
   background:
     radial-gradient(circle at 18% 18%, rgba(129, 140, 248, 0.32), transparent 28%),
     linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(49, 46, 129, 0.95) 55%, rgba(37, 99, 235, 0.9));
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
   box-shadow:
     0 12px 30px rgba(30, 41, 59, 0.2),
     0 10px 26px rgba(79, 70, 229, 0.22);
@@ -664,7 +664,7 @@ onBeforeUnmount(() => {
 .global-llm-action:hover {
   transform: translateY(-1px);
   background: rgba(255, 255, 255, 0.16);
-  color: #fff;
+  color: var(--app-text-inverse, #fff);
 }
 
 .global-llm-drawer-header {
@@ -699,14 +699,14 @@ onBeforeUnmount(() => {
   border-radius: 14px;
   background:
     linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(59, 130, 246, 0.08)),
-    #f8fafc;
+    var(--app-surface-subtle);
   border: 1px solid rgba(99, 102, 241, 0.1);
 }
 
 .global-llm-runtime-bar.is-mock {
   background:
     linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(249, 115, 22, 0.1)),
-    #fffaf0;
+    var(--color-gold-dim);
   border-color: rgba(245, 158, 11, 0.18);
 }
 

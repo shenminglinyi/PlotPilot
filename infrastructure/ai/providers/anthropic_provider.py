@@ -1,7 +1,7 @@
 """Anthropic LLM 提供商实现"""
 import json
 import logging
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import httpx
 from anthropic import Anthropic, AsyncAnthropic
@@ -15,6 +15,63 @@ from .base import BaseProvider
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
+def _extract_text_from_content_block(block: Any) -> str:
+    """尽量从兼容端点返回的 content block 中提取文本。"""
+    if block is None:
+        return ""
+
+    def _is_json_like(value: Any) -> bool:
+        return isinstance(value, (dict, list, tuple, str, bytes, int, float, bool))
+
+    if isinstance(block, str):
+        return block
+
+    text = getattr(block, "text", None)
+    if isinstance(text, str) and text.strip():
+        return text
+
+    for attr in ("thinking", "input", "arguments", "content", "json"):
+        value = getattr(block, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value
+        if value is not None and attr in {"input", "arguments", "content", "json"} and _is_json_like(value):
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except Exception:
+                return str(value)
+
+    if isinstance(block, dict):
+        for key in ("text", "thinking", "content", "value", "input", "arguments"):
+            value = block.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+            if value is not None and key in {"content", "input", "arguments"} and _is_json_like(value):
+                try:
+                    return json.dumps(value, ensure_ascii=False)
+                except Exception:
+                    return str(value)
+        if block.get("type") in {"json", "input_json", "output_json"} and block.get("json") is not None:
+            try:
+                return json.dumps(block["json"], ensure_ascii=False)
+            except Exception:
+                return str(block["json"])
+
+    block_type = getattr(block, "type", None)
+    if block_type in {"json", "input_json", "output_json", "tool_use", "thinking"}:
+        json_payload = getattr(block, "json", None)
+        if json_payload is not None:
+            try:
+                return json.dumps(json_payload, ensure_ascii=False)
+            except Exception:
+                return str(json_payload)
+        if block_type == "thinking":
+            thinking = getattr(block, "thinking", None)
+            if isinstance(thinking, str) and thinking.strip():
+                return thinking
+
+    return ""
 
 
 class AnthropicProvider(BaseProvider):
@@ -58,8 +115,21 @@ class AnthropicProvider(BaseProvider):
         }
         if base:
             official_client_kw["base_url"] = base
+        official_client_kw["http_client"] = httpx.Client(
+            timeout=settings.timeout_seconds,
+            trust_env=False,
+        )
+        async_http_client = httpx.AsyncClient(
+            timeout=settings.timeout_seconds,
+            trust_env=False,
+        )
         self.client = Anthropic(**official_client_kw)
-        self.async_client = AsyncAnthropic(**official_client_kw)
+        self.async_client = AsyncAnthropic(
+            **{
+                **official_client_kw,
+                "http_client": async_http_client,
+            }
+        )
 
         # 兼容旧字段：若其他模块引用，保留归一化后的值
         self.proxy_base_url = base
@@ -100,12 +170,44 @@ class AnthropicProvider(BaseProvider):
             if not response.content:
                 raise RuntimeError("API returned empty content")
 
-            content = ""
+            parts = []
             for block in response.content:
-                if getattr(block, "type", None) == "text":
-                    content = block.text
-                    break
+                # 诊断日志：记录每个 block 的类型和内容
+                # 修复问题 11：使用安全预览替代原始值，避免敏感数据泄露
+                block_type_debug = getattr(block, "type", None)
+
+                def _preview(v):
+                    """安全预览函数：避免在日志中泄露敏感数据"""
+                    if isinstance(v, str):
+                        return v[:50]
+                    if isinstance(v, (dict, list, tuple)):
+                        return f"<{type(v).__name__} size={len(v)}>"
+                    return f"<{type(v).__name__}>"
+
+                block_attrs = {k: getattr(block, k, None) for k in ("text", "thinking", "json", "input", "arguments", "content")}
+                logger.debug(
+                    "[Anthropic] content block: type=%r, attrs=%s",
+                    block_type_debug,
+                    {k: _preview(v) for k, v in block_attrs.items()},
+                )
+                text = _extract_text_from_content_block(block)
+                if text:
+                    parts.append(text)
+
+            content = "\n".join(part.strip() for part in parts if part and part.strip()).strip()
             if not content:
+                # 记录完整响应供诊断
+                # 修复问题 12：安全提取 usage 属性，避免 usage 结构不同时抛出异常
+                stop_reason = getattr(response, "stop_reason", None)
+                usage = getattr(response, "usage", None)
+                logger.warning(
+                    "[Anthropic] API returned no extractable text. "
+                    "stop_reason=%r, usage=%s, content_blocks=%d, parts_found=%d",
+                    stop_reason,
+                    f"input={getattr(usage, 'input_tokens', None)}, output={getattr(usage, 'output_tokens', None)}" if usage else None,
+                    len(response.content),
+                    len(parts),
+                )
                 raise RuntimeError("API returned no text content")
 
             # 创建 token 使用统计
@@ -158,7 +260,10 @@ class AnthropicProvider(BaseProvider):
         logger.debug(f"[Stream] Calling {url}")
 
         try:
-            async with httpx.AsyncClient(timeout=self.settings.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.settings.timeout_seconds,
+                trust_env=False,
+            ) as client:
                 async with client.stream(
                     "POST",
                     url,

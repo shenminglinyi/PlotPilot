@@ -24,31 +24,29 @@ from domain.novel.value_objects.foreshadowing import (
 )
 from domain.novel.value_objects.novel_id import NovelId
 from domain.structure.story_node import NodeType
+from application.ai.structured_json_pipeline import (
+    parse_and_repair_json,
+    sanitize_llm_output,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _extract_json_object(text: str) -> dict:
-    """从模型输出中解析 JSON 对象。"""
-    s = (text or "").strip()
-    if not s:
+    """从模型输出中解析 JSON 对象，优先走通用清洗/修复管线。"""
+    cleaned = sanitize_llm_output(text or "")
+    if not cleaned:
         return {}
-    if "```" in s:
-        if "```json" in s:
-            start = s.find("```json") + 7
-            end = s.find("```", start)
-            if end != -1:
-                s = s[start:end].strip()
-        else:
-            start = s.find("```") + 3
-            end = s.rfind("```")
-            if end > start:
-                s = s[start:end].strip()
-    if not s.startswith("{"):
-        i = s.find("{")
-        if i != -1:
-            s = s[i:]
-    return json.loads(s)
+
+    data, errors = parse_and_repair_json(cleaned)
+    if data is not None:
+        return data
+
+    raise json.JSONDecodeError(
+        "Unable to parse chapter bundle JSON",
+        cleaned,
+        0,
+    )
 
 
 def _beats_from_structure_outline(novel_id: str, chapter_number: int) -> List[str]:
@@ -106,8 +104,10 @@ async def llm_chapter_extract_bundle(
         pending_foreshadows: 待回收伏笔描述列表（用于消费检测）
     """
     body = chapter_content.strip()
+    # 修复问题 13：对超长章节进行 head+tail 裁剪，确保 ending_* 字段能从章节末尾生成
     if len(body) > 24000:
-        body = body[:24000] + "\n\n…（正文过长已截断）"
+        tail_size = 6000
+        body = body[:18000] + "\n\n…（正文中间部分已截断）\n\n" + body[-tail_size:]
 
     # 构建待回收伏笔提示
     foreshadow_context = ""
@@ -124,6 +124,10 @@ async def llm_chapter_extract_bundle(
   "summary": "string，200～500 字，章末叙事总结，便于检索与衔接",
   "key_events": "string",
   "open_threads": "string",
+  "ending_state": "string，章末客观状态/动作落点，供下一章承接",
+  "ending_emotion": "string，章末主导情绪落点",
+  "carry_over_question": "string，下一章必须优先回应的问题/悬念",
+  "next_opening_hint": "string，建议下一章开场直接承接的动作/场景提示",
   "relation_triples": [ {{"subject": "主体", "predicate": "关系", "object": "客体"}} ],
   "foreshadow_hints": [ {{
     "description": "伏笔或悬念描述",
@@ -146,6 +150,7 @@ async def llm_chapter_extract_bundle(
 - storyline_progress：本章推进的故事线，最多 5 条；无则 []。
 - dialogues：重要对话（推动剧情/展现性格），最多 10 条；无则 []。
 - timeline_events：本章发生的时间线事件（世界内历法/相对时间），最多 5 条；无则 []。
+- ending_state / ending_emotion / carry_over_question / next_opening_hint 必须聚焦章节结尾，避免泛泛总结。
 - 不要编造 beat 列表；summary/key_events/open_threads 用中文；严格合法 JSON。{foreshadow_context}"""
 
     user = f"第 {chapter_number} 章正文如下：\n\n{body}"
@@ -180,6 +185,10 @@ async def llm_chapter_extract_bundle(
         "summary": str(data.get("summary", "")).strip(),
         "key_events": str(data.get("key_events", "")).strip(),
         "open_threads": str(data.get("open_threads", "")).strip(),
+        "ending_state": str(data.get("ending_state", "")).strip(),
+        "ending_emotion": str(data.get("ending_emotion", "")).strip(),
+        "carry_over_question": str(data.get("carry_over_question", "")).strip(),
+        "next_opening_hint": str(data.get("next_opening_hint", "")).strip(),
         "relation_triples": triples_raw[:8],
         "foreshadow_hints": hints_raw[:4],
         "consumed_foreshadows": [str(c).strip() for c in consumed_raw[:5] if str(c).strip()],
@@ -988,9 +997,14 @@ async def sync_chapter_narrative_after_save(
         summary = bundle.get("summary") or ""
         key_events = bundle.get("key_events") or ""
         open_threads = bundle.get("open_threads") or ""
+        ending_state = bundle.get("ending_state") or ""
+        ending_emotion = bundle.get("ending_emotion") or ""
+        carry_over_question = bundle.get("carry_over_question") or ""
+        next_opening_hint = bundle.get("next_opening_hint") or ""
     except Exception as e:
         logger.warning("LLM 章末 bundle 失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
         summary, key_events, open_threads = "", "", ""
+        ending_state, ending_emotion, carry_over_question, next_opening_hint = "", "", "", ""
         bundle = {"relation_triples": [], "foreshadow_hints": []}
 
     # --- 独立多维张力评分 ---
@@ -1045,6 +1059,14 @@ async def sync_chapter_narrative_after_save(
             key_events = existing.key_events or ""
         if not open_threads:
             open_threads = existing.open_threads or ""
+        if not ending_state:
+            ending_state = getattr(existing, "ending_state", "") or ""
+        if not ending_emotion:
+            ending_emotion = getattr(existing, "ending_emotion", "") or ""
+        if not carry_over_question:
+            carry_over_question = getattr(existing, "carry_over_question", "") or ""
+        if not next_opening_hint:
+            next_opening_hint = getattr(existing, "next_opening_hint", "") or ""
 
     beat_sections = _resolve_beat_sections(novel_id, chapter_number, existing_beats)
     
@@ -1078,7 +1100,7 @@ async def sync_chapter_narrative_after_save(
                 try:
                     from application.engine.services.context_builder import ContextBuilder
                     # 使用静态启发式生成节拍（无需实例化）
-                    beats = ContextBuilder(None, None, None, None, None, None).magnify_outline_to_beats(outline_text)
+                    beats = ContextBuilder(None, None, None, None, None, None).magnify_outline_to_beats(chapter_number, outline_text)
                     micro_beats = [
                         {
                             "description": beat.description,
@@ -1099,6 +1121,10 @@ async def sync_chapter_narrative_after_save(
         key_events=key_events or "（未提取）",
         open_threads=open_threads or "无",
         consistency_note=consistency_note,
+        ending_state=ending_state,
+        ending_emotion=ending_emotion,
+        carry_over_question=carry_over_question,
+        next_opening_hint=next_opening_hint,
         beat_sections=beat_sections,
         micro_beats=micro_beats if micro_beats else None,
         sync_status="synced" if summary else "draft",

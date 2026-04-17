@@ -1,5 +1,4 @@
 """Claude 章节摘要生成器实现"""
-import os
 from domain.ai.services.chapter_summarizer import ChapterSummarizer
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
@@ -12,18 +11,6 @@ class ClaudeChapterSummarizer(ChapterSummarizer):
     """
 
     def __init__(self, llm_service: LLMService):
-        """初始化 Claude 章节摘要生成器
-
-        Args:
-            llm_service: LLM 服务实例
-
-        Raises:
-            ValueError: 如果 ANTHROPIC_API_KEY 未设置
-        """
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
-
         self.llm_service = llm_service
 
     async def summarize(self, content: str, max_length: int = 300) -> str:

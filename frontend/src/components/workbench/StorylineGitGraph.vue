@@ -86,9 +86,9 @@
 
           <!-- 流光渐变（用于路径动画） -->
           <linearGradient id="gg-flow-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#fff" stop-opacity="0" />
-            <stop offset="50%" stop-color="#fff" stop-opacity="0.4" />
-            <stop offset="100%" stop-color="#fff" stop-opacity="0" />
+            <stop offset="0%" stop-color="var(--app-text-primary, #fff)" stop-opacity="0" />
+            <stop offset="50%" stop-color="var(--app-text-primary, #fff)" stop-opacity="0.4" />
+            <stop offset="100%" stop-color="var(--app-text-primary, #fff)" stop-opacity="0" />
           </linearGradient>
 
           <!-- HEAD 箭头 marker -->
@@ -226,7 +226,7 @@
               text-anchor="middle"
               font-size="9"
               font-weight="800"
-              fill="#fff"
+              fill="var(--app-text-inverse, #fff)"
               font-family="var(--font-sans, monospace)"
             >⤝</text>
 
@@ -948,7 +948,7 @@ onMounted(() => void loadData())
 .gg-logo {
   font-size: 18px;
   line-height: 1;
-  color: #a78bfa;
+  color: var(--color-brand-suppl, #a78bfa);
   font-weight: 700;
 }
 
@@ -956,7 +956,7 @@ onMounted(() => void loadData())
   margin: 0;
   font-size: 13px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--app-text-primary, #e2e8f0);
   letter-spacing: 0.03em;
   white-space: nowrap;
 }
@@ -976,8 +976,8 @@ onMounted(() => void loadData())
   position: relative;
   cursor: default;
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(99, 102, 241, 0.04) 0%, transparent 60%),
-    #0f1117;
+    radial-gradient(ellipse at 50% 0%, var(--color-brand-light, rgba(99, 102, 241, 0.04)) 0%, transparent 60%),
+    var(--app-surface-subtle, #0f1117);
 }
 
 .gg-canvas.gg--zoomed {
@@ -1034,7 +1034,7 @@ onMounted(() => void loadData())
 
 .gg-track-name {
   font-weight: 600;
-  color: #cbd5e1;
+  color: var(--app-text-secondary, #cbd5e1);
   font-size: 11px;
   letter-spacing: 0.01em;
 }
@@ -1109,7 +1109,7 @@ onMounted(() => void loadData())
 }
 
 .gg-commit-group:hover .gg-commit-label {
-  fill: #e2e8f0;
+  fill: var(--app-text-primary, #e2e8f0);
 }
 
 /* ==================== Tooltip ==================== */
@@ -1117,10 +1117,10 @@ onMounted(() => void loadData())
   position: fixed;
   z-index: 9999;
   padding: 0;
-  background: rgba(15, 17, 23, 0.96);
+  background: var(--app-surface-raised, rgba(15, 17, 23, 0.96));
   backdrop-filter: blur(16px);
   border-radius: 10px;
-  color: #e2e8f0;
+  color: var(--app-text-primary, #e2e8f0);
   font-size: 12px;
   line-height: 1.5;
   pointer-events: none;
@@ -1147,12 +1147,12 @@ onMounted(() => void loadData())
   font-family: monospace;
   font-size: 11px;
   font-weight: 700;
-  color: #a78bfa;
+  color: var(--color-brand-suppl, #a78bfa);
 }
 
 .gg-tip-label {
   font-weight: 600;
-  color: #f1f5f9;
+  color: var(--app-surface-subtle);
   font-size: 12px;
 }
 
@@ -1169,13 +1169,13 @@ onMounted(() => void loadData())
 }
 
 .gg-tip-k {
-  color: #64748b;
+  color: var(--app-text-muted, #64748b);
   font-size: 11px;
   flex-shrink: 0;
 }
 
 .gg-tip-v {
-  color: #cbd5e1;
+  color: var(--app-text-secondary, #cbd5e1);
   font-size: 11px;
   display: flex;
   align-items: center;
@@ -1240,8 +1240,8 @@ onMounted(() => void loadData())
   font-weight: 800;
   padding: 3px 10px;
   border-radius: 6px;
-  background: linear-gradient(135deg, #6366f1, #818cf8);
-  color: #fff;
+  background: linear-gradient(135deg, var(--color-brand, #6366f1), var(--color-brand-suppl, #818cf8));
+  color: var(--app-text-inverse, #fff);
   letter-spacing: 0.06em;
   font-family: var(--font-sans, monospace);
 }
@@ -1260,7 +1260,7 @@ onMounted(() => void loadData())
 .gg-detail-label {
   font-size: 13px;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--app-text-primary, #e2e8f0);
 }
 
 .gg-detail-head-tag {
@@ -1268,8 +1268,8 @@ onMounted(() => void loadData())
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 4px;
-  background: linear-gradient(135deg, #f59e0b, #ef4444);
-  color: #fff;
+  background: linear-gradient(135deg, var(--color-warning, #f59e0b), var(--color-danger, #ef4444));
+  color: var(--app-text-inverse, #fff);
   letter-spacing: 0.05em;
 }
 
@@ -1285,11 +1285,11 @@ onMounted(() => void loadData())
   display: flex;
   gap: 16px;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
 }
 
 .gg-detail-meta b {
-  color: #cbd5e1;
+  color: var(--app-text-secondary, #cbd5e1);
 }
 
 .gg-detail-branch .cyan { color: #22d3ee; font-size: 11px; }
@@ -1308,16 +1308,16 @@ onMounted(() => void loadData())
   justify-content: space-between;
   align-items: center;
   padding: 6px 16px;
-  background: linear-gradient(180deg, #13141c 0%, #161820 100%);
-  border-top: 1px solid rgba(99, 102, 241, 0.1);
+  background: linear-gradient(180deg, var(--app-surface, #13141c) 0%, var(--app-surface-raised, #161820) 100%);
+  border-top: 1px solid var(--app-border, rgba(99, 102, 241, 0.1));
   font-size: 11px;
-  color: #475569;
+  color: var(--app-text-secondary, #475569);
   flex-shrink: 0;
   border-radius: 0 0 12px 12px;
 }
 
 .gg-stats b {
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
   font-weight: 600;
 }
 

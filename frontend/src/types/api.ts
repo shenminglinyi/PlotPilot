@@ -1,19 +1,31 @@
 /**
- * Frontend API Type Definitions
+ * Frontend API Type Definitions — 统一出口
  *
- * Complete TypeScript type definitions for all API responses and data models.
- * These types match the backend Pydantic models from Tasks 2 and 5.
+ * 各领域类型已拆分到独立模块：
+ *   - common.ts   通用响应、Job、日志
+ *   - novel.ts    小说 / Book
+ *   - chapter.ts  章节
+ *   - bible.ts    世界观设定
+ *   - cast.ts     角色关系
+ *   - knowledge.ts 知识图谱
+ *   - stats.ts    统计
+ *
+ * 此文件保持向后兼容，统一 re-export 所有类型。
+ * 新代码请直接从对应子模块导入（tree-shaking 更友好）。
  */
 
-// ============================================================================
-// Generic Response Types
-// ============================================================================
+export * from './common'
+export * from './novel'
+export * from './chapter'
+export * from './bible'
+export * from './cast'
+export * from './knowledge'
+export * from './stats'
 
-export interface SuccessResponse<T> {
-  success: true;
-  data: T;
-  message?: string;
-}
+// ── 组合响应类型（跨模块） ─────────────────────────────────────
+
+import type { BookDesk } from './novel'
+import type { ChapterListItem } from './chapter'
 
 export interface ErrorResponse {
   success: false;
@@ -254,6 +266,10 @@ export interface ChapterNarrativeEntry {
   key_events: string;
   open_threads: string;
   consistency_note: string;
+  ending_state: string;
+  ending_emotion: string;
+  carry_over_question: string;
+  next_opening_hint: string;
   beat_sections: string[];
   sync_status: string;
 }
@@ -386,44 +402,6 @@ export interface DigestPayload {
 // ============================================================================
 
 export interface BookDeskResponse {
-  book: BookDesk | null;
-  chapters: ChapterListItem[];
-}
-
-export interface CastSearchResponse {
-  characters: Character[];
-  relationships: Relationship[];
-}
-
-export interface ChapterReviewAiResponse {
-  ok: boolean;
-  status: ReviewStatus;
-  memo: string;
-  saved: boolean;
-}
-
-export interface SimpleResponse {
-  ok: boolean;
-}
-
-export interface SlugResponse {
-  ok: boolean;
-  slug: string;
-}
-
-export interface MessageIdResponse {
-  ok: boolean;
-  id: string;
-}
-
-// ============================================================================
-// Log Stream Types
-// ============================================================================
-
-export interface LogEntry {
-  timestamp: string;
-  level: string;
-  logger: string;
-  message: string;
-  [key: string]: unknown;
+  book: BookDesk | null
+  chapters: ChapterListItem[]
 }

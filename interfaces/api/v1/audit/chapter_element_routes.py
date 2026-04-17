@@ -7,8 +7,11 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 
 from domain.structure.chapter_element import ElementType, RelationType, Importance
-from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
-from application.paths import get_db_path
+from interfaces.api.dependencies import (
+    get_chapter_element_repository,
+    get_knowledge_graph_service,
+    get_story_node_repository,
+)
 import uuid
 
 
@@ -32,20 +35,14 @@ class ChapterElementBatchUpdate(BaseModel):
     elements: List[ChapterElementCreate] = Field(..., description="元素列表")
 
 
-# ==================== 依赖注入 ====================
-
-def get_chapter_element_repo() -> ChapterElementRepository:
-    """获取章节元素仓储"""
-    return ChapterElementRepository(get_db_path())
-
-
 # ==================== API 端点 ====================
 
 @router.post("/{chapter_id}/elements")
 async def add_chapter_element(
     chapter_id: str,
     request: ChapterElementCreate,
-    repo: ChapterElementRepository = Depends(get_chapter_element_repo)
+    repo=Depends(get_chapter_element_repository),
+    kg_service=Depends(get_knowledge_graph_service),
 ):
     """
     添加章节元素关联
@@ -82,16 +79,6 @@ async def add_chapter_element(
 
         await repo.save(element)
 
-        # 触发知识图谱推断
-        from application.world.services.knowledge_graph_service import KnowledgeGraphService
-        from infrastructure.persistence.database.triple_repository import TripleRepository
-        from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
-
-        kg_service = KnowledgeGraphService(
-            TripleRepository(),
-            repo,
-            StoryNodeRepository(get_db_path()),
-        )
         await kg_service.infer_from_chapter(chapter_id)
 
         return {
@@ -108,7 +95,7 @@ async def add_chapter_element(
 async def get_chapter_elements(
     chapter_id: str,
     element_type: Optional[str] = None,
-    repo: ChapterElementRepository = Depends(get_chapter_element_repo)
+    repo=Depends(get_chapter_element_repository),
 ):
     """
     获取章节的所有元素关联
@@ -136,7 +123,8 @@ async def get_chapter_elements(
 async def batch_update_chapter_elements(
     chapter_id: str,
     request: ChapterElementBatchUpdate,
-    repo: ChapterElementRepository = Depends(get_chapter_element_repo)
+    repo=Depends(get_chapter_element_repository),
+    kg_service=Depends(get_knowledge_graph_service),
 ):
     """
     批量更新章节元素关联
@@ -168,16 +156,6 @@ async def batch_update_chapter_elements(
 
         await repo.save_batch(elements)
 
-        # 触发知识图谱推断
-        from application.world.services.knowledge_graph_service import KnowledgeGraphService
-        from infrastructure.persistence.database.triple_repository import TripleRepository
-        from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
-
-        kg_service = KnowledgeGraphService(
-            TripleRepository(),
-            repo,
-            StoryNodeRepository(get_db_path()),
-        )
         await kg_service.infer_from_chapter(chapter_id)
 
         return {
@@ -195,7 +173,7 @@ async def batch_update_chapter_elements(
 async def delete_chapter_element(
     chapter_id: str,
     element_id: str,
-    repo: ChapterElementRepository = Depends(get_chapter_element_repo)
+    repo=Depends(get_chapter_element_repository),
 ):
     """
     删除章节元素关联
@@ -220,7 +198,8 @@ async def delete_chapter_element(
 async def get_element_chapters(
     element_type: str,
     element_id: str,
-    repo: ChapterElementRepository = Depends(get_chapter_element_repo)
+    repo=Depends(get_chapter_element_repository),
+    story_node_repo=Depends(get_story_node_repository),
 ):
     """
     查询某个元素在哪些章节出现
@@ -232,10 +211,6 @@ async def get_element_chapters(
             ElementType(element_type),
             element_id
         )
-
-        # 获取章节信息
-        from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
-        story_node_repo = StoryNodeRepository(get_db_path())
 
         chapters = []
         for elem in elements:

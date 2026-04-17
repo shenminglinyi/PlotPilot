@@ -22,6 +22,15 @@ CREATE TABLE IF NOT EXISTS novels (
     last_audit_drift_alert INTEGER DEFAULT 0,
     last_audit_narrative_ok INTEGER DEFAULT 1,
     last_audit_at TEXT,
+    last_audit_vector_stored INTEGER DEFAULT 0,
+    last_audit_foreshadow_stored INTEGER DEFAULT 0,
+    last_audit_triples_extracted INTEGER DEFAULT 0,
+    last_audit_quality_scores TEXT,
+    last_audit_issues TEXT,
+    target_words_per_chapter INTEGER DEFAULT 3500,
+    genre TEXT DEFAULT '',
+    theme_agent_enabled INTEGER NOT NULL DEFAULT 0,
+    enabled_theme_skills TEXT DEFAULT '[]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -106,6 +115,16 @@ CREATE TABLE IF NOT EXISTS chapter_summaries (
     knowledge_id TEXT NOT NULL,
     chapter_number INTEGER NOT NULL,
     summary TEXT,
+    key_events TEXT,
+    open_threads TEXT,
+    consistency_note TEXT,
+    ending_state TEXT,
+    ending_emotion TEXT,
+    carry_over_question TEXT,
+    next_opening_hint TEXT,
+    beat_sections TEXT,
+    micro_beats TEXT,
+    sync_status TEXT DEFAULT 'draft',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (knowledge_id) REFERENCES knowledge(id) ON DELETE CASCADE,
@@ -487,6 +506,30 @@ CREATE TABLE IF NOT EXISTS chapter_style_scores (
 CREATE INDEX IF NOT EXISTS idx_chapter_style_scores_novel
     ON chapter_style_scores(novel_id, chapter_number);
 
+-- ========== 章节生成质量控制指标 ==========
+CREATE TABLE IF NOT EXISTS chapter_generation_metrics (
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    generated_via TEXT NOT NULL DEFAULT 'manual',
+    target_word_count INTEGER NOT NULL,
+    actual_word_count INTEGER NOT NULL,
+    tolerance REAL NOT NULL DEFAULT 0.15,
+    delta INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'ok',
+    within_tolerance INTEGER NOT NULL DEFAULT 0,
+    action TEXT NOT NULL DEFAULT 'none',
+    expansion_attempts INTEGER NOT NULL DEFAULT 0,
+    trim_applied INTEGER NOT NULL DEFAULT 0,
+    fallback_used INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (novel_id, chapter_number),
+    FOREIGN KEY (novel_id, chapter_number) REFERENCES chapters(novel_id, number) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_chapter_generation_metrics_novel
+    ON chapter_generation_metrics(novel_id, chapter_number);
+
 -- ========== 语义化快照系统（战役三 Task 12）==========
 -- Git-like 版本控制，只存指针不存正文深拷贝
 CREATE TABLE IF NOT EXISTS novel_snapshots (
@@ -508,4 +551,135 @@ CREATE TABLE IF NOT EXISTS novel_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_novel ON novel_snapshots(novel_id);
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_branch ON novel_snapshots(novel_id, branch_name);
+
+
+-- ========== 提示词广场系统（Prompt Plaza）==========
+-- 模板包：一组相关提示词的集合（如"内置"、"自定义工作流"）
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'user',  -- builtin / user / workflow
+    version TEXT NOT NULL DEFAULT '1.0.0',
+    author TEXT DEFAULT '',
+    icon TEXT DEFAULT '📦',
+    color TEXT DEFAULT '#6b7280',
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 提示词节点：单个提示词（有版本历史）
+CREATE TABLE IF NOT EXISTS prompt_nodes (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    node_key TEXT NOT NULL,           -- 唯一标识，如 "chapter-generation-main"
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'generation',  -- generation/extraction/review/planning/world/creative
+    source TEXT DEFAULT '',            -- 来源代码位置
+    output_format TEXT DEFAULT 'text',  -- text / json
+    contract_module TEXT,              -- Pydantic 合约模块
+    contract_model TEXT,               -- Pydantic 合约模型名
+    tags TEXT NOT NULL DEFAULT '[]',   -- JSON 数组
+    variables TEXT NOT NULL DEFAULT '[]',  -- JSON: 变量定义列表
+    system_file TEXT,                  -- 引用的 .txt 文件名
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    active_version_id TEXT,            -- 当前激活版本 ID
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (template_id) REFERENCES prompt_templates(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prompt_nodes_node_key ON prompt_nodes(node_key);
+CREATE INDEX IF NOT EXISTS idx_prompt_nodes_template ON prompt_nodes(template_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_nodes_category ON prompt_nodes(category);
+
+-- 提示词版本：每个节点的版本历史（支持回滚）
+CREATE TABLE IF NOT EXISTS prompt_versions (
+    id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    version_number INTEGER NOT NULL,
+    system_prompt TEXT NOT NULL DEFAULT '',     -- System 角色提示词
+    user_template TEXT NOT NULL DEFAULT '',      -- User 模板
+    change_summary TEXT DEFAULT '',             -- 版本变更说明
+    created_by TEXT DEFAULT 'system',           -- system / user
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (node_id) REFERENCES prompt_nodes(id) ON DELETE CASCADE,
+    UNIQUE(node_id, version_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_node ON prompt_versions(node_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_versions_node_ver ON prompt_versions(node_id, version_number DESC);
+
+
+-- ========== 嵌入模型配置（Embedding Config）==========
+-- 全局唯一的嵌入服务配置（本地模型 / OpenAI 云端）
+CREATE TABLE IF NOT EXISTS embedding_config (
+    id TEXT PRIMARY KEY DEFAULT 'default',
+    mode TEXT NOT NULL DEFAULT 'local' CHECK(mode IN ('local', 'openai')),
+    api_key TEXT NOT NULL DEFAULT '',
+    base_url TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT 'text-embedding-3-small',
+    use_gpu INTEGER NOT NULL DEFAULT 1,
+    model_path TEXT NOT NULL DEFAULT 'BAAI/bge-small-zh-v1.5',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- ========== LLM 控制面板配置（LLM Profiles）==========
+-- 替代原 llm_profiles.json 本地文件存储，持久化到 SQLite。
+-- active_profile_id 存储在 llm_config_meta 行中。
+
+CREATE TABLE IF NOT EXISTS llm_config_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS llm_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    preset_key TEXT NOT NULL DEFAULT 'custom-openai-compatible',
+    protocol TEXT NOT NULL DEFAULT 'openai' CHECK(protocol IN ('openai', 'anthropic', 'gemini')),
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    temperature REAL NOT NULL DEFAULT 0.7,
+    max_tokens INTEGER NOT NULL DEFAULT 4096,
+    timeout_seconds INTEGER NOT NULL DEFAULT 300,
+    extra_headers TEXT NOT NULL DEFAULT '{}',
+    extra_query TEXT NOT NULL DEFAULT '{}',
+    extra_body TEXT NOT NULL DEFAULT '{}',
+    notes TEXT NOT NULL DEFAULT '',
+    use_legacy_chat_completions INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
+
+-- 用户自定义增强技能
+CREATE TABLE IF NOT EXISTS custom_theme_skills (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    skill_key TEXT NOT NULL,
+    skill_name TEXT NOT NULL,
+    skill_description TEXT DEFAULT '',
+    compatible_genres TEXT DEFAULT '[]',
+    context_prompt TEXT DEFAULT '',
+    beat_prompt TEXT DEFAULT '',
+    beat_triggers TEXT DEFAULT '',
+    audit_checks TEXT DEFAULT '[]',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(novel_id, skill_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_custom_theme_skills_novel ON custom_theme_skills(novel_id);
+
+
 

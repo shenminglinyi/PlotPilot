@@ -165,7 +165,6 @@ const reload = async () => {
 
 const handleNodeClick = (node: EChartsNode) => {
   // 可以跳转到人物详情页
-  console.log('Clicked character:', node.name)
 }
 
 const goToKnowledge = () => {
@@ -206,7 +205,7 @@ onMounted(async () => {
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-  background: #fff;
+  background: var(--app-surface);
 }
 
 .crg-hint {

@@ -298,6 +298,52 @@
                 />
               </div>
 
+              <!-- 修复问题 2：添加接缝字段绑定，支持查看和编辑 downstream 连续性逻辑所依赖的字段 -->
+              <div class="kp-grid-2">
+                <div class="kp-field">
+                  <label class="kp-label">章末状态</label>
+                  <n-input
+                    v-model:value="ch.ending_state"
+                    type="textarea"
+                    :autosize="{ minRows: 2, maxRows: 6 }"
+                    placeholder="章末客观局势 / 动作落点"
+                    class="kp-textarea"
+                  />
+                </div>
+                <div class="kp-field">
+                  <label class="kp-label">章末情绪</label>
+                  <n-input
+                    v-model:value="ch.ending_emotion"
+                    type="textarea"
+                    :autosize="{ minRows: 2, maxRows: 6 }"
+                    placeholder="章末情绪落点"
+                    class="kp-textarea"
+                  />
+                </div>
+              </div>
+
+              <div class="kp-field">
+                <label class="kp-label">必须承接</label>
+                <n-input
+                  v-model:value="ch.carry_over_question"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 6 }"
+                  placeholder="下一章必须回应的问题"
+                  class="kp-textarea"
+                />
+              </div>
+
+              <div class="kp-field">
+                <label class="kp-label">开场提示</label>
+                <n-input
+                  v-model:value="ch.next_opening_hint"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 6 }"
+                  placeholder="下一章开场提示"
+                  class="kp-textarea"
+                />
+              </div>
+
               <div class="kp-ch-foot">
                 <n-button size="tiny" quaternary type="error" @click="removeChapterById(ch.chapter_id)">
                   移除此章条目
@@ -432,6 +478,10 @@ interface Ch {
   key_events: string
   open_threads: string
   consistency_note: string
+  ending_state: string
+  ending_emotion: string
+  carry_over_question: string
+  next_opening_hint: string
   beat_sections: string[]
   sync_status: string
 }
@@ -494,7 +544,6 @@ const inferAll = async () => {
   try {
     const res = await knowledgeGraphApi.inferNovel(props.slug)
     message.success('全书推断完成')
-    console.log('推断结果:', res.data)
     await loadTriples()
   } catch {
     message.error('推断失败')
@@ -631,6 +680,10 @@ const load = async () => {
         key_events: c.key_events || '',
         open_threads: c.open_threads || '',
         consistency_note: c.consistency_note || '',
+        ending_state: c.ending_state || '',
+        ending_emotion: c.ending_emotion || '',
+        carry_over_question: c.carry_over_question || '',
+        next_opening_hint: c.next_opening_hint || '',
         beat_sections: Array.isArray(c.beat_sections) ? [...c.beat_sections] : [],
         sync_status: (() => {
           const s = String(c.sync_status || 'draft').toLowerCase()
@@ -700,6 +753,10 @@ const addChapter = () => {
     key_events: '',
     open_threads: '',
     consistency_note: '',
+    ending_state: '',
+    ending_emotion: '',
+    carry_over_question: '',
+    next_opening_hint: '',
     beat_sections: [],
     sync_status: 'draft',
   })
@@ -761,7 +818,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   padding: 12px 12px 8px;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
 }
 
 .kp-hero {
@@ -845,6 +902,8 @@ onUnmounted(() => {
 
 .kp-subtabs :deep(.n-tab-pane) {
   padding-top: 6px;
+  overflow-y: auto;
+  max-height: 100%;
 }
 
 .kp-section {
@@ -859,7 +918,7 @@ onUnmounted(() => {
 }
 
 .kp-section-icon {
-  color: #94a3b8;
+  color: var(--app-text-secondary, #94a3b8);
   font-size: 12px;
 }
 
@@ -889,7 +948,7 @@ onUnmounted(() => {
 }
 
 .kp-card-premise {
-  background: #fff;
+  background: var(--app-surface);
   border: 1px solid rgba(15, 23, 42, 0.06) !important;
 }
 
@@ -905,7 +964,7 @@ onUnmounted(() => {
 }
 
 .kp-ch-card {
-  background: #fff;
+  background: var(--app-surface);
   border: 1px solid rgba(15, 23, 42, 0.07) !important;
   overflow: hidden;
 }
@@ -1062,7 +1121,7 @@ onUnmounted(() => {
 }
 
 .kp-search-card {
-  background: #fff;
+  background: var(--app-surface);
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 12px;
   flex-shrink: 0;
@@ -1073,7 +1132,7 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--app-surface);
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 12px;
   overflow: hidden;

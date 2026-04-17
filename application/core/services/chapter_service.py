@@ -9,6 +9,7 @@ from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.shared.exceptions import EntityNotFoundError
 from application.core.dtos.chapter_dto import ChapterDTO
+from application.core.dtos.chapter_generation_metrics_dto import ChapterGenerationMetricsDTO
 from application.audit.dtos.chapter_review_dto import ChapterReviewDTO
 from application.core.dtos.chapter_structure_dto import ChapterStructureDTO
 
@@ -20,7 +21,8 @@ class ChapterService:
         self,
         chapter_repository: ChapterRepository,
         novel_repository: NovelRepository,
-        chapter_review_repository=None
+        chapter_review_repository=None,
+        chapter_generation_metrics_repository=None,
     ):
         """初始化服务
 
@@ -32,6 +34,7 @@ class ChapterService:
         self.chapter_repository = chapter_repository
         self.novel_repository = novel_repository
         self.chapter_review_repository = chapter_review_repository
+        self.chapter_generation_metrics_repository = chapter_generation_metrics_repository
 
     def update_chapter_content(
         self,
@@ -117,7 +120,8 @@ class ChapterService:
         self,
         novel_id: str,
         chapter_number: int,
-        content: str
+        content: str,
+        generation_metrics: dict | None = None,
     ) -> Optional[ChapterDTO]:
         """根据小说 ID 和章节号更新章节内容
 
@@ -137,8 +141,41 @@ class ChapterService:
             if chapter.number == chapter_number:
                 chapter.update_content(content)
                 self.chapter_repository.save(chapter)
+                if generation_metrics and self.chapter_generation_metrics_repository:
+                    self.chapter_generation_metrics_repository.upsert(
+                        novel_id,
+                        chapter_number,
+                        generation_metrics,
+                    )
                 return ChapterDTO.from_domain(chapter)
         raise EntityNotFoundError("Chapter", f"{novel_id}/chapter-{chapter_number}")
+
+    def get_chapter_generation_metrics(
+        self,
+        novel_id: str,
+        chapter_number: int,
+    ) -> ChapterGenerationMetricsDTO | None:
+        if not self.chapter_generation_metrics_repository:
+            return None
+        metrics = self.chapter_generation_metrics_repository.get(novel_id, chapter_number)
+        if not metrics:
+            return None
+        return ChapterGenerationMetricsDTO.from_dict(metrics)
+
+    def save_chapter_generation_metrics(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        generation_metrics: dict,
+    ) -> ChapterGenerationMetricsDTO | None:
+        if not self.chapter_generation_metrics_repository:
+            return None
+        metrics = self.chapter_generation_metrics_repository.upsert(
+            novel_id,
+            chapter_number,
+            generation_metrics,
+        )
+        return ChapterGenerationMetricsDTO.from_dict(metrics)
 
     def get_chapter_review(
         self,

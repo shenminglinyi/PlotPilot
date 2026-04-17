@@ -75,15 +75,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import BiblePanel from '../panels/BiblePanel.vue'
-import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
-import WorldbuildingPanel from './WorldbuildingPanel.vue'
-import StorylinePlotOverviewPanel from './StorylinePlotOverviewPanel.vue'
-import HolographicChroniclesPanel from './HolographicChroniclesPanel.vue'
-import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
-import MacroRefactorPanel from './MacroRefactorPanel.vue'
-import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
+import { defineAsyncComponent, ref, watch } from 'vue'
+
+const BiblePanel = defineAsyncComponent(() => import('../panels/BiblePanel.vue'))
+const KnowledgePanel = defineAsyncComponent(() => import('../knowledge/KnowledgePanel.vue'))
+const WorldbuildingPanel = defineAsyncComponent(() => import('./WorldbuildingPanel.vue'))
+const StorylinePlotOverviewPanel = defineAsyncComponent(() => import('./StorylinePlotOverviewPanel.vue'))
+const HolographicChroniclesPanel = defineAsyncComponent(() => import('./HolographicChroniclesPanel.vue'))
+const ForeshadowLedgerPanel = defineAsyncComponent(() => import('./ForeshadowLedgerPanel.vue'))
+const MacroRefactorPanel = defineAsyncComponent(() => import('./MacroRefactorPanel.vue'))
+const SandboxDialoguePanel = defineAsyncComponent(() => import('./SandboxDialoguePanel.vue'))
 
 /** 剧本基建组 */
 const FOUNDATION_TABS = new Set(['bible', 'worldbuilding', 'knowledge'])

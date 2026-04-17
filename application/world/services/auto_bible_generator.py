@@ -2,18 +2,29 @@
 import logging
 import json
 import uuid
-import sys
-from typing import Dict, Any
+import re
+from typing import Dict, Any, Optional
 from datetime import datetime
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_service import WorldbuildingService
+from application.ai.knowledge_llm_contract import parse_json_from_response
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# JSON 输出稳定性增强 - Prompt 常量
+# ============================================================================
+USER_PROMPT_SUFFIX = """
+
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+"""
 
 
 def _infer_character_importance(char_data: Dict[str, Any]) -> str:
@@ -64,6 +75,98 @@ class AutoBibleGenerator:
         self.worldbuilding_service = worldbuilding_service
         self.triple_repository = triple_repository
 
+    def _ensure_bible_exists(self, novel_id: str) -> None:
+        """确保 novel 对应的 Bible 记录存在。"""
+        existing_bible = self.bible_service.get_bible_by_novel(novel_id)
+        if existing_bible is not None:
+            return
+
+        bible_id = f"{novel_id}-bible"
+        self.bible_service.create_bible(bible_id, novel_id)
+        logger.info("Successfully created Bible %s for novel %s", bible_id, novel_id)
+
+    def _prepare_locations_for_save(self, novel_id: str, locations: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+        """规范化地点列表，确保父节点优先、缺失父节点降级为根节点。"""
+        prepared: list[Dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        raw_to_final: dict[str, str] = {}
+
+        for idx, loc_data in enumerate(locations or []):
+            raw_id = loc_data.get("id")
+            normalized_raw_id = (
+                str(raw_id).strip()
+                if isinstance(raw_id, str) and str(raw_id).strip()
+                else ""
+            )
+            location_id = normalized_raw_id or f"{novel_id}-loc-{idx+1}"
+            if location_id in seen_ids:
+                logger.info("Location ID %s already exists in generated payload, generating fallback ID", location_id)
+                location_id = f"{novel_id}-loc-{idx+1}-{len(seen_ids)}"
+            seen_ids.add(location_id)
+            if normalized_raw_id and normalized_raw_id not in raw_to_final:
+                raw_to_final[normalized_raw_id] = location_id
+
+            prepared.append(
+                {
+                    "location_id": location_id,
+                    "name": loc_data["name"],
+                    "description": loc_data["description"],
+                    "location_type": loc_data.get("type", "场景"),
+                    "connections": loc_data.get("connections", []),
+                    "raw_parent_id": loc_data.get("parent_id"),
+                }
+            )
+
+        valid_ids = {item["location_id"] for item in prepared}
+        for item in prepared:
+            p_raw = item.pop("raw_parent_id", None)
+            parent_id = (
+                str(p_raw).strip()
+                if isinstance(p_raw, str) and str(p_raw).strip()
+                else None
+            )
+            if parent_id:
+                parent_id = raw_to_final.get(parent_id, parent_id)
+            if parent_id and parent_id not in valid_ids:
+                logger.warning(
+                    "Generated location %s references missing parent_id=%s, degrading to root node",
+                    item["location_id"],
+                    parent_id,
+                )
+                parent_id = None
+            item["parent_id"] = parent_id
+
+        ordered: list[Dict[str, Any]] = []
+        remaining = prepared[:]
+        saved_ids: set[str] = set()
+        while remaining:
+            progressed = False
+            next_remaining: list[Dict[str, Any]] = []
+            for item in remaining:
+                parent_id = item["parent_id"]
+                if parent_id is None or parent_id in saved_ids:
+                    ordered.append(item)
+                    saved_ids.add(item["location_id"])
+                    progressed = True
+                else:
+                    next_remaining.append(item)
+
+            if not progressed:
+                for item in next_remaining:
+                    logger.warning(
+                        "Location %s still has unresolved parent %s after ordering, degrading to root node",
+                        item["location_id"],
+                        item["parent_id"],
+                    )
+                    item["parent_id"] = None
+                    ordered.append(item)
+                    saved_ids.add(item["location_id"])
+                break
+
+            remaining = next_remaining
+
+        return ordered
+
     async def generate_and_save(
         self,
         novel_id: str,
@@ -85,24 +188,11 @@ class AutoBibleGenerator:
         logger.info(f"Generating Bible for novel: {premise[:50]}... (stage: {stage})")
 
         # 1. 创建空 Bible（如果不存在）
-        bible_id = f"{novel_id}-bible"
         try:
-            existing_bible = self.bible_service.get_bible_by_novel(novel_id)
-            if existing_bible:
-                logger.info(f"Bible already exists for novel {novel_id}")
-            else:
-                logger.info(f"Bible not found for novel {novel_id}, creating new one")
-                self.bible_service.create_bible(bible_id, novel_id)
-                logger.info(f"Successfully created Bible {bible_id} for novel {novel_id}")
+            self._ensure_bible_exists(novel_id)
         except Exception as e:
             logger.error(f"Error checking/creating Bible: {e}")
-            # 尝试创建
-            try:
-                self.bible_service.create_bible(bible_id, novel_id)
-                logger.info(f"Successfully created Bible {bible_id} for novel {novel_id}")
-            except Exception as create_error:
-                logger.error(f"Failed to create Bible: {create_error}")
-                raise
+            raise
 
         # 2. 根据阶段生成不同内容
         if stage == "all":
@@ -113,23 +203,12 @@ class AutoBibleGenerator:
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
 
         elif stage == "worldbuilding":
-            import sys
-            print(f"[DEBUG] Stage worldbuilding - checking Bible record", file=sys.stderr, flush=True)
-            # 确保Bible记录存在
-            try:
-                self.bible_service.get_bible_by_novel(novel_id)
-            except EntityNotFoundError:
-                bible_id = f"{novel_id}-bible"
-                self.bible_service.create_bible(bible_id, novel_id)
-                logger.info(f"Created Bible record: {bible_id}")
+            self._ensure_bible_exists(novel_id)
 
-            print(f"[DEBUG] Calling _generate_worldbuilding_and_style", file=sys.stderr, flush=True)
             # 只生成世界观和文风
             bible_data = await self._generate_worldbuilding_and_style(premise, target_chapters)
-            print(f"[DEBUG] _generate_worldbuilding_and_style completed", file=sys.stderr, flush=True)
-            print(f"[DEBUG] bible_data keys: {bible_data.keys()}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] Has 'worldbuilding' key: {'worldbuilding' in bible_data}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] worldbuilding_service is None: {self.worldbuilding_service is None}", file=sys.stderr, flush=True)
+            logger.info(f"Worldbuilding generated, keys: {bible_data.keys()}")
+            logger.info(f"Has worldbuilding key: {'worldbuilding' in bible_data}")
             # 保存文风
             if "style" in bible_data:
                 style_id = f"{novel_id}-style-1"
@@ -152,13 +231,7 @@ class AutoBibleGenerator:
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
 
         elif stage == "characters":
-            # 确保Bible记录存在
-            try:
-                self.bible_service.get_bible_by_novel(novel_id)
-            except EntityNotFoundError:
-                bible_id = f"{novel_id}-bible"
-                self.bible_service.create_bible(bible_id, novel_id)
-                logger.info(f"Created Bible record: {bible_id}")
+            self._ensure_bible_exists(novel_id)
 
             # 基于已有世界观生成人物
             existing_worldbuilding = self._load_worldbuilding(novel_id)
@@ -197,13 +270,7 @@ class AutoBibleGenerator:
                 await self._generate_character_triples(novel_id, character_ids)
 
         elif stage == "locations":
-            # 确保Bible记录存在
-            try:
-                self.bible_service.get_bible_by_novel(novel_id)
-            except EntityNotFoundError:
-                bible_id = f"{novel_id}-bible"
-                self.bible_service.create_bible(bible_id, novel_id)
-                logger.info(f"Created Bible record: {bible_id}")
+            self._ensure_bible_exists(novel_id)
 
             # 基于已有世界观和人物生成地点
             existing_worldbuilding = self._load_worldbuilding(novel_id)
@@ -211,42 +278,22 @@ class AutoBibleGenerator:
             bible_data = await self._generate_locations(premise, target_chapters, existing_worldbuilding, existing_characters)
             # 保存地点
             location_ids = []
-            used_ids = set()  # 用于跟踪已使用的ID，防止重复
-            for idx, loc_data in enumerate(bible_data.get("locations", [])):
-                raw_id = loc_data.get("id")
-                location_id = (
-                    str(raw_id).strip()
-                    if isinstance(raw_id, str) and str(raw_id).strip()
-                    else f"{novel_id}-loc-{idx+1}"
-                )
-                
-                # 检查并处理重复ID
-                if location_id in used_ids:
-                    logger.info(f"Location ID {location_id} already exists, generating new ID")
-                    location_id = f"{novel_id}-loc-{idx+1}-{len(used_ids)}"
-                
-                used_ids.add(location_id)
-                p_raw = loc_data.get("parent_id")
-                parent_id = (
-                    str(p_raw).strip()
-                    if isinstance(p_raw, str) and str(p_raw).strip()
-                    else None
-                )
+            for loc_data in self._prepare_locations_for_save(novel_id, bible_data.get("locations", [])):
                 try:
                     self.bible_service.add_location(
                         novel_id=novel_id,
-                        location_id=location_id,
+                        location_id=loc_data["location_id"],
                         name=loc_data["name"],
                         description=loc_data["description"],
-                        location_type=loc_data.get("type", "场景"),
-                        connections=loc_data.get("connections", []),
-                        parent_id=parent_id,
+                        location_type=loc_data["location_type"],
+                        connections=loc_data["connections"],
+                        parent_id=loc_data["parent_id"],
                     )
-                    location_ids.append((location_id, loc_data))
-                    logger.info(f"Location saved: {location_id}")
+                    location_ids.append((loc_data["location_id"], loc_data))
+                    logger.info(f"Location saved: {loc_data['location_id']}")
                 except Exception as e:
                     if "already exists" in str(e):
-                        logger.info(f"Location {location_id} already exists, skipping")
+                        logger.info(f"Location {loc_data['location_id']} already exists, skipping")
                     else:
                         logger.error(f"Failed to save location: {e}")
                         raise
@@ -266,7 +313,7 @@ class AutoBibleGenerator:
 
         system_prompt = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
-**重要：只输出有效的 JSON，不要有任何其他文字。description 字段必须是单行文本，不能有换行符。**
+**重要：description 字段必须是单行文本，不能有换行符。**
 
 要求：
 1. 深入理解故事梗概，提取核心冲突、主题、世界观
@@ -340,56 +387,22 @@ JSON 格式（不要有其他文字）：
 6. 世界观5个维度都要填写，符合故事类型和背景
 7. 适合网文读者，有代入感
 
-只输出 JSON，不要有任何解释文字。"""
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "characters": [],
+  "locations": [],
+  "style": "",
+  "worldbuilding": {{}}
+}}
+```"""
 
-        prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
+        bible_data = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+        if bible_data:
+            return bible_data
 
-        result = await self.llm_service.generate(prompt, config)
-
-        # 解析 JSON
-        try:
-            content = result.content.strip()
-
-            # 移除可能的 markdown 代码块标记
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            content = content.strip()
-
-            # 尝试找到第一个 { 和最后一个 }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-
-            logger.info(f"Attempting to parse Bible JSON (length: {len(content)})")
-
-            # 尝试直接解析
-            try:
-                bible_data = json.loads(content)
-                logger.info(f"Successfully parsed Bible JSON")
-                return bible_data
-            except json.JSONDecodeError as e:
-                # 如果失败，尝试修复常见问题
-                logger.warning(f"First parse attempt failed: {e}, trying to repair JSON...")
-
-                # 使用 json.loads 的 strict=False 模式
-                import re
-                # 移除字符串中的控制字符和多余的空白
-                content = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', content)
-
-                bible_data = json.loads(content, strict=False)
-                logger.info(f"Successfully parsed Bible JSON after repair")
-                return bible_data
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Bible JSON: {e}")
-            logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
-            # 返回默认结构
-            return {
+        logger.error("Failed to generate Bible data, falling back to default structure")
+        return {
                 "characters": [
                     {
                         "name": "主角",
@@ -414,13 +427,7 @@ JSON 格式（不要有其他文字）：
 
         # 先确保 Bible 记录存在
         try:
-            from domain.novel.value_objects.novel_id import NovelId
-            existing_bible = self.bible_service.bible_repository.get_by_novel_id(NovelId(novel_id))
-            if existing_bible is None:
-                # 创建 Bible 记录
-                bible_id = f"bible-{novel_id}"
-                self.bible_service.create_bible(bible_id=bible_id, novel_id=novel_id)
-                logger.info(f"Created Bible record for novel {novel_id}")
+            self._ensure_bible_exists(novel_id)
         except Exception as e:
             logger.error(f"Failed to ensure Bible exists: {e}")
             return
@@ -452,40 +459,20 @@ JSON 格式（不要有其他文字）：
                     raise
 
         # 添加地点
-        used_location_ids = set()  # 用于跟踪已使用的位置ID
-        for idx, loc_data in enumerate(bible_data.get("locations", [])):
-            raw_id = loc_data.get("id")
-            location_id = (
-                str(raw_id).strip()
-                if isinstance(raw_id, str) and str(raw_id).strip()
-                else f"{novel_id}-loc-{idx+1}"
-            )
-            
-            # 检查并处理重复ID
-            if location_id in used_location_ids:
-                logger.info(f"Location ID {location_id} already exists, generating new ID")
-                location_id = f"{novel_id}-loc-{idx+1}-{len(used_location_ids)}"
-            
-            used_location_ids.add(location_id)
-            p_raw = loc_data.get("parent_id")
-            parent_id = (
-                str(p_raw).strip()
-                if isinstance(p_raw, str) and str(p_raw).strip()
-                else None
-            )
+        for loc_data in self._prepare_locations_for_save(novel_id, bible_data.get("locations", [])):
             try:
                 self.bible_service.add_location(
                     novel_id=novel_id,
-                    location_id=location_id,
+                    location_id=loc_data["location_id"],
                     name=loc_data["name"],
                     description=loc_data["description"],
-                    location_type=loc_data.get("type", "场景"),
-                    parent_id=parent_id,
+                    location_type=loc_data["location_type"],
+                    parent_id=loc_data["parent_id"],
                 )
-                logger.info(f"Location saved: {location_id}")
+                logger.info(f"Location saved: {loc_data['location_id']}")
             except Exception as e:
                 if "already exists" in str(e):
-                    logger.info(f"Location {location_id} already exists, skipping")
+                    logger.info(f"Location {loc_data['location_id']} already exists, skipping")
                 else:
                     logger.error(f"Failed to save location: {e}")
                     raise
@@ -512,12 +499,11 @@ JSON 格式（不要有其他文字）：
 
     async def _save_worldbuilding(self, novel_id: str, worldbuilding_data: Dict[str, Any]) -> None:
         """保存世界观到数据库（同时保存到Worldbuilding表和Bible的world_settings）"""
-        print(f"[DEBUG] _save_worldbuilding called with data: {worldbuilding_data}", file=sys.stderr, flush=True)
+        logger.info(f"Saving worldbuilding for {novel_id}")
 
         # 1. 保存到Worldbuilding表（用于后续生成人物和地点时读取）
         if self.worldbuilding_service:
             try:
-                print(f"[DEBUG] Calling worldbuilding_service.update_worldbuilding", file=sys.stderr, flush=True)
                 self.worldbuilding_service.update_worldbuilding(
                     novel_id=novel_id,
                     core_rules=worldbuilding_data.get("core_rules"),
@@ -526,15 +512,13 @@ JSON 格式（不要有其他文字）：
                     culture=worldbuilding_data.get("culture"),
                     daily_life=worldbuilding_data.get("daily_life")
                 )
-                print(f"[DEBUG] Worldbuilding saved to Worldbuilding table", file=sys.stderr, flush=True)
-                logger.info(f"Worldbuilding saved for {novel_id}")
+                logger.info("Worldbuilding saved to Worldbuilding table")
             except Exception as e:
-                print(f"[DEBUG] Failed to save worldbuilding: {e}", file=sys.stderr, flush=True)
                 logger.error(f"Failed to save worldbuilding: {e}")
 
         # 2. 同时保存到Bible的world_settings（用于前端显示）
         try:
-            print(f"[DEBUG] Saving worldbuilding to Bible.world_settings", file=sys.stderr, flush=True)
+            logger.info("Saving worldbuilding to Bible.world_settings")
             bible = self.bible_service.get_bible_by_novel(novel_id)
             if not bible:
                 bible_id = f"{novel_id}-bible"
@@ -554,9 +538,8 @@ JSON 格式（不要有其他文字）：
                             description=value,
                             setting_type="rule"  # 统一使用'rule'类型
                         )
-            print(f"[DEBUG] Worldbuilding saved to Bible.world_settings successfully", file=sys.stderr, flush=True)
+            logger.info("Worldbuilding saved to Bible.world_settings successfully")
         except Exception as e:
-            print(f"[DEBUG] Failed to save to Bible.world_settings: {e}", file=sys.stderr, flush=True)
             logger.error(f"Failed to save to Bible.world_settings: {e}")
 
     def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
@@ -572,7 +555,7 @@ JSON 格式（不要有其他文字）：
                 "culture": wb.culture,
                 "daily_life": wb.daily_life
             }
-        except:
+        except (AttributeError, TypeError, KeyError, EntityNotFoundError):
             return {}
 
     def _load_characters(self, novel_id: str) -> list:
@@ -580,14 +563,12 @@ JSON 格式（不要有其他文字）：
         try:
             bible = self.bible_service.get_bible(novel_id)
             return [{"name": c.name, "description": c.description} for c in bible.characters]
-        except:
+        except (AttributeError, TypeError, EntityNotFoundError):
             return []
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风"""
         system_prompt = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
-
-**重要：只输出有效的 JSON，不要有任何其他文字。**
 
 要求：
 1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
@@ -631,9 +612,17 @@ JSON 格式：
 
 目标章节数：{target_chapters}章
 
-请生成世界观和文风公约。只输出 JSON，不要有任何解释文字。"""
+请生成世界观和文风公约。
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "style": "",
+  "worldbuilding": {{}}
+}}
+```"""
+
+        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
@@ -641,7 +630,7 @@ JSON 格式：
 
         system_prompt = """你是资深网文策划编辑。基于已有世界观生成主要人物。
 
-**重要：只输出有效的 JSON，不要有任何其他文字。description 字段必须是单行文本。**
+**重要：description 字段必须是单行文本。**
 
 要求：
 1. 至少 3-5 个主要人物（主角、配角、对手、导师等）
@@ -673,9 +662,16 @@ JSON 格式：
 已有世界观：
 {wb_summary}
 
-请基于这个世界观生成主要人物。只输出 JSON，不要有任何解释文字。"""
+请基于这个世界观生成主要人物。
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "characters": []
+}}
+```"""
+
+        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
     async def _generate_locations(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any], characters: list) -> Dict[str, Any]:
         """基于世界观和人物生成地点"""
@@ -683,8 +679,6 @@ JSON 格式：
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
         system_prompt = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
-
-**重要：只输出有效的 JSON，不要有任何其他文字。**
 
 要求：
 1. 至少 5-10 个重要地点，构成完整地图
@@ -721,9 +715,16 @@ JSON 格式：
 已有人物：
 {char_summary}
 
-请基于世界观和人物生成完整地图。只输出 JSON，不要有任何解释文字。"""
+请基于世界观和人物生成完整地图。
 
-        return await self._call_llm_and_parse(system_prompt, user_prompt)
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "locations": []
+}}
+```"""
+
+        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
     def _summarize_worldbuilding(self, wb: Dict[str, Any]) -> str:
         """总结世界观为文本"""
@@ -739,42 +740,60 @@ JSON 格式：
 
     async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
         """调用 LLM 并解析 JSON"""
-        print(f"[DEBUG] _call_llm_and_parse: Creating prompt", file=sys.stderr, flush=True)
         prompt = Prompt(system=system_prompt, user=user_prompt)
-        config = GenerationConfig(max_tokens=2048, temperature=0.7)
-        print(f"[DEBUG] _call_llm_and_parse: Calling LLM service", file=sys.stderr, flush=True)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
         result = await self.llm_service.generate(prompt, config)
-        print(f"[DEBUG] _call_llm_and_parse: LLM returned result", file=sys.stderr, flush=True)
 
+        content = result.content or ""
         try:
-            content = result.content.strip()
-            print(f"[DEBUG] Raw LLM content length: {len(content)}", file=sys.stderr, flush=True)
-
-            # 移除可能的 markdown 代码块标记
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0]
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0]
-
-            content = content.strip()
-
-            # 尝试找到第一个 { 和最后一个 }
-            start = content.find('{')
-            end = content.rfind('}')
-            if start != -1 and end != -1:
-                content = content[start:end+1]
-
-            print(f"[DEBUG] Cleaned content length: {len(content)}", file=sys.stderr, flush=True)
-            parsed = json.loads(content)
-            print(f"[DEBUG] Successfully parsed JSON with keys: {list(parsed.keys())}", file=sys.stderr, flush=True)
+            parsed = parse_json_from_response(content)
+            if not isinstance(parsed, dict):
+                raise ValueError("LLM JSON payload must be an object")
             return parsed
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Content length: {len(content)}")
+            logger.error(f"Failed to parse JSON: {e}")
             logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
             logger.error(f"Raw content (last 500 chars): {content[-500:]}")
-            print(f"[DEBUG] JSON parse failed, returning empty dict", file=sys.stderr, flush=True)
-            return {}
+            raise
+
+    async def _call_llm_and_parse_with_retry(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_retries: int = 3
+    ) -> Dict[str, Any]:
+        """带重试的LLM调用 - 增强JSON输出稳定性"""
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                if attempt == 0:
+                    # 第一次尝试，使用标准prompt
+                    parsed = await self._call_llm_and_parse(system_prompt, user_prompt)
+                else:
+                    # 重试时加强调prompt
+                    retry_reminder = "\n\n【重要提醒】上次JSON解析失败，请严格遵守JSON输出规则！只输出纯JSON，不要任何其他文字！"
+                    logger.warning(f"JSON解析重试 {attempt}/{max_retries}，添加强调提示")
+                    parsed = await self._call_llm_and_parse(
+                        system_prompt + retry_reminder,
+                        user_prompt
+                    )
+                if parsed:
+                    return parsed
+                raise ValueError("LLM returned empty JSON object")
+            except (json.JSONDecodeError, ValueError) as e:
+                last_error = e
+                logger.warning(f"JSON解析失败，重试 {attempt + 1}/{max_retries}: {str(e)[:100]}")
+            except Exception as e:
+                last_error = e
+                logger.warning(f"LLM调用异常，重试 {attempt + 1}/{max_retries}: {e}")
+
+        if last_error is not None:
+            logger.error("所有重试都失败，返回空字典。最后一次错误: %s", last_error)
+        else:
+            logger.error("所有重试都失败，返回空字典")
+        return {}
 
     async def _generate_character_triples(self, novel_id: str, character_ids: list):
         """从人物关系生成三元组"""

@@ -38,6 +38,7 @@ router = APIRouter(tags=["chapters"])
 class UpdateChapterContentRequest(BaseModel):
     """更新章节内容请求"""
     content: str = Field(..., min_length=0, max_length=100000, description="章节内容")
+    generation_metrics: dict | None = Field(default=None, description="可选的生成质量控制指标")
 
 
 class SaveChapterReviewRequest(BaseModel):
@@ -61,6 +62,26 @@ class ChapterStructureResponse(BaseModel):
     dialogue_ratio: float
     scene_count: int
     pacing: str
+
+
+class ChapterGenerationMetricsResponse(BaseModel):
+    novel_id: str
+    chapter_number: int
+    generated_via: str
+    target: int
+    actual: int
+    tolerance: float
+    delta: int
+    status: str
+    within_tolerance: bool
+    action: str
+    expansion_attempts: int
+    trim_applied: bool
+    fallback_used: bool
+    min_allowed: int
+    max_allowed: int
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class CreateChapterRequest(BaseModel):
@@ -178,10 +199,26 @@ async def update_chapter(
         chapter = service.update_chapter_by_novel_and_number(
             novel_id,
             chapter_number,
-            request.content
+            request.content,
+            request.generation_metrics,
         )
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get(
+    "/{novel_id}/chapters/{chapter_number}/generation-metrics",
+    response_model=ChapterGenerationMetricsResponse
+)
+async def get_chapter_generation_metrics(
+    novel_id: str,
+    chapter_number: int = Path(..., gt=0, description="章节编号"),
+    service: ChapterService = Depends(get_chapter_service)
+):
+    metrics = service.get_chapter_generation_metrics(novel_id, chapter_number)
+    if metrics is None:
+        raise HTTPException(status_code=404, detail=f"Generation metrics not found: {novel_id}/chapter-{chapter_number}")
+    return ChapterGenerationMetricsResponse(**metrics.__dict__)
 
     content = request.content
     background_tasks.add_task(

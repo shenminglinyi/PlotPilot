@@ -1,10 +1,20 @@
 # infrastructure/ai/chromadb_vector_store.py
+"""
+基于 FAISS 的向量存储实现（纯本地，兼容 Windows）
+
+⚠️ 重要：本模块采用懒加载（Lazy Import）策略。
+  faiss / numpy 均不在模块顶层导入，而是在 __init__ 和各方法中
+  按需导入。这样即使未安装 requirements-local.txt 的用户，
+  import 本模块也不会崩溃。
+
+使用 FAISS 进行向量检索，使用 JSON 文件管理元数据。
+命名保持 ChromaDB 以兼容现有代码。
+"""
 from typing import List
 import json
 import os
 from pathlib import Path
-import numpy as np
-import faiss
+
 from domain.ai.services.vector_store import VectorStore
 
 
@@ -13,6 +23,8 @@ class ChromaDBVectorStore(VectorStore):
 
     使用 FAISS 进行向量检索，使用 JSON 文件管理元数据。
     命名保持 ChromaDB 以兼容现有代码。
+
+    所有重依赖（faiss, numpy）均采用懒加载策略。
     """
 
     def __init__(self, persist_directory: str = "./data/chromadb"):
@@ -22,6 +34,22 @@ class ChromaDBVectorStore(VectorStore):
         Args:
             persist_directory: 本地持久化目录
         """
+        # 懒加载 faiss 和 numpy
+        try:
+            import faiss
+            import numpy as np
+        except ImportError as e:
+            raise ImportError(
+                "检测到您正在尝试使用本地向量存储（ChromaDB/FAISS），"
+                "但缺少必要的依赖包！\n\n"
+                "请选择以下任一方式解决：\n"
+                "  方式 A — 安装扩展依赖（~2GB）：\n"
+                "    pip install -r requirements-local.txt\n\n"
+                "  方式 B — 切换到 Qdrant 远程模式（推荐）：\n"
+                "    设置环境变量 VECTOR_STORE_TYPE=qdrant\n\n"
+                f"原始错误: {e}"
+            ) from e
+
         self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.collections = {}  # {collection_name: {"index": faiss.Index, "metadata": dict}}
@@ -29,6 +57,8 @@ class ChromaDBVectorStore(VectorStore):
 
     def _load_collections(self):
         """加载所有已存在的集合"""
+        import faiss
+
         if not self.persist_directory.exists():
             return
 
@@ -49,6 +79,8 @@ class ChromaDBVectorStore(VectorStore):
 
     def _save_collection(self, collection: str):
         """保存集合到磁盘"""
+        import faiss
+
         collection_dir = self.persist_directory / collection
         collection_dir.mkdir(parents=True, exist_ok=True)
 
@@ -68,6 +100,9 @@ class ChromaDBVectorStore(VectorStore):
         payload: dict
     ) -> None:
         """插入向量到集合中"""
+        import numpy as np
+        import faiss
+
         try:
             if collection not in self.collections:
                 raise Exception(f"Collection {collection} does not exist")
@@ -112,6 +147,8 @@ class ChromaDBVectorStore(VectorStore):
         limit: int
     ) -> List[dict]:
         """搜索相似向量"""
+        import numpy as np
+
         try:
             if collection not in self.collections:
                 raise Exception(f"Collection {collection} does not exist")
@@ -169,6 +206,8 @@ class ChromaDBVectorStore(VectorStore):
         dimension: int
     ) -> None:
         """创建集合（若已存在且维度匹配则跳过；维度不匹配时删除后重建）"""
+        import faiss
+
         try:
             if collection in self.collections:
                 existing_dim = self.collections[collection]["index"].d
@@ -197,6 +236,8 @@ class ChromaDBVectorStore(VectorStore):
         collection: str
     ) -> None:
         """删除集合"""
+        import shutil
+
         try:
             if collection in self.collections:
                 del self.collections[collection]
@@ -204,7 +245,6 @@ class ChromaDBVectorStore(VectorStore):
             # 删除磁盘文件
             collection_dir = self.persist_directory / collection
             if collection_dir.exists():
-                import shutil
                 shutil.rmtree(collection_dir)
         except Exception as e:
             raise Exception(f"Failed to delete collection: {str(e)}")

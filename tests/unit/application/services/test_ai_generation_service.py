@@ -92,7 +92,7 @@ class TestAIGenerationService:
 
         # Mock LLM 返回
         mock_result = GenerationResult(
-            content="这是生成的章节内容...",
+            content="这" * 3600,
             token_usage=TokenUsage(input_tokens=100, output_tokens=200)
         )
         mock_llm_service.generate = AsyncMock(return_value=mock_result)
@@ -105,7 +105,7 @@ class TestAIGenerationService:
         )
 
         # 验证
-        assert content == "这是生成的章节内容..."
+        assert content == "这" * 3600
         mock_novel_repository.get_by_id.assert_called_once_with(NovelId("test-novel"))
         mock_bible_repository.get_by_novel_id.assert_called_once_with(NovelId("test-novel"))
         mock_llm_service.generate.assert_called_once()
@@ -127,7 +127,7 @@ class TestAIGenerationService:
 
         # Mock LLM 返回
         mock_result = GenerationResult(
-            content="包含人物和世界设定的章节内容...",
+            content="设" * 3600,
             token_usage=TokenUsage(input_tokens=150, output_tokens=300)
         )
         mock_llm_service.generate = AsyncMock(return_value=mock_result)
@@ -140,7 +140,7 @@ class TestAIGenerationService:
         )
 
         # 验证
-        assert content == "包含人物和世界设定的章节内容..."
+        assert content == "设" * 3600
 
         # 验证 LLM 调用的 prompt 包含 Bible 信息
         call_args = mock_llm_service.generate.call_args
@@ -168,7 +168,7 @@ class TestAIGenerationService:
 
         # Mock LLM 返回
         mock_result = GenerationResult(
-            content="没有 Bible 的章节内容...",
+            content="文" * 3600,
             token_usage=TokenUsage(input_tokens=80, output_tokens=150)
         )
         mock_llm_service.generate = AsyncMock(return_value=mock_result)
@@ -181,7 +181,7 @@ class TestAIGenerationService:
         )
 
         # 验证
-        assert content == "没有 Bible 的章节内容..."
+        assert content == "文" * 3600
 
         # 验证 prompt 不包含 Bible 信息
         call_args = mock_llm_service.generate.call_args

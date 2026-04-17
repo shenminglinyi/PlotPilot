@@ -40,11 +40,14 @@ logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
+from starlette.requests import Request
 import threading
 import multiprocessing
 
 # Core module
-from interfaces.api.v1.core import novels, chapters, scene_generation_routes, settings as llm_settings
+from interfaces.api.v1.core import novels, chapters, scene_generation_routes, settings as llm_settings, export
 
 # World module
 from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_routes, worldbuilding_routes
@@ -75,7 +78,6 @@ from interfaces.api.stats.routers.stats import create_stats_router
 from interfaces.api.stats.services.stats_service import StatsService
 from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import SqliteStatsRepositoryAdapter
 from infrastructure.persistence.database.connection import get_database
-from application.paths import DATA_DIR
 
 # 后端版本号（每次重启递增）
 BACKEND_VERSION = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -92,10 +94,24 @@ logger.info("=" * 80)
 
 # 创建 FastAPI 应用
 app = FastAPI(
-    title="aitext API",
+    title="PlotPilot API",
     version="2.0.0",
-    description="AI 小说创作平台 API"
+    description="PlotPilot（墨枢）AI 小说创作平台 API",
+    redirect_slashes=True,  # 自动将 /api/v1/novels 重定向到 /api/v1/novels/
 )
+
+# ── 前端静态文件托管 ──
+_FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+if _FRONTEND_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="frontend-assets")
+    # favicon 等根级静态资源
+    _favicon = _FRONTEND_DIR / "favicon.svg"
+    if _favicon.exists():
+        app.get("/favicon.svg", include_in_schema=False, response_class=FileResponse)(
+            lambda: FileResponse(str(_favicon), media_type="image/svg+xml")
+        )
+    # SPA fallback: 所有非 API 路径都返回 index.html
+    _INDEX_HTML = _FRONTEND_DIR / "index.html"
 
 # 修复反向代理场景下 trailing slash 重定向使用后端本地地址的 bug
 # 当 FastAPI 的 trailing slash 重定向指向 127.0.0.1 时，
@@ -129,13 +145,6 @@ async def startup_event():
     logger.info("📦 Loading modules and routes...")
     logger.info("✅ FastAPI application started successfully")
     logger.info(f"📊 Registered {len(app.routes)} routes")
-    
-    # 从 JSON 文件恢复上次激活的 LLM 配置
-    try:
-        from application.settings.llm_config_manager import LLMConfigManager
-        LLMConfigManager(DATA_DIR / "llm_configs.json").apply_active_on_startup()
-    except Exception as exc:
-        logger.warning("LLM config restore skipped: %s", exc)
 
     # 重启时将所有运行中的小说设置为停止状态
     _stop_all_running_novels()
@@ -335,15 +344,13 @@ def restart_autopilot_daemon():
 
 
 # 配置 CORS
-# 生产环境请将 CORS_ORIGINS 环境变量设置为允许的域名列表，逗号分隔
-# 例如：CORS_ORIGINS=https://yourapp.com,https://www.yourapp.com
-# 未设置时默认仅允许 localhost（开发模式）
+# 前后端同端口部署：前端是同源请求，默认允许所有源。
+# 开发环境可通过 CORS_ORIGINS 环境变量限制。
 _cors_origins_env = os.getenv("CORS_ORIGINS", "")
 if _cors_origins_env:
     _allowed_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
 else:
-    _allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000",
-                        "http://localhost:5173", "http://127.0.0.1:5173"]
+    _allowed_origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -361,6 +368,7 @@ app.include_router(chapters.router, prefix="/api/v1/novels")
 app.include_router(scene_generation_routes.router)
 app.include_router(llm_settings.router, prefix="/api/v1")
 app.include_router(llm_settings.embedding_router, prefix="/api/v1")
+app.include_router(export.router, prefix="/api/v1")
 
 # World module routes
 app.include_router(bible.router, prefix="/api/v1")
@@ -408,12 +416,10 @@ app.include_router(stats_router, prefix="/api/stats", tags=["statistics"])
 
 @app.get("/")
 async def root():
-    """根路径
-
-    Returns:
-        欢迎消息
-    """
-    return {"message": "aitext API v2.0"}
+    """根路径 — 返回前端页面（SPA）或 API 欢迎消息"""
+    if _FRONTEND_DIR.exists() and _INDEX_HTML.exists():
+        return FileResponse(str(_INDEX_HTML), media_type="text/html")
+    return {"message": "PlotPilot API v2.0"}
 
 
 @app.get("/health")
@@ -434,6 +440,28 @@ async def health_check():
             "pid": _daemon_process.pid if _daemon_process else None
         }
     }
+
+
+# ── SPA fallback：前端路由兜底（必须在 API 路由之后注册）──
+if _FRONTEND_DIR.exists() and _INDEX_HTML.exists():
+    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.post("/{full_path:path}", include_in_schema=False)
+    @app.put("/{full_path:path}", include_in_schema=False)
+    @app.patch("/{full_path:path}", include_in_schema=False)
+    @app.delete("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str, req: Request):
+        """SPA fallback — 所有未匹配的路径返回 index.html"""
+        # 排除 API 路径、统计路由和静态资源
+        if (full_path.startswith("api/") or full_path.startswith("stats/")
+                or full_path.startswith("assets/") or full_path.startswith("_")):
+            # 对无尾部斜杠的 API 路径做 307 重定向到带斜杠版本
+            if not full_path.endswith('/'):
+                redirect_url = req.url.path + '/'
+                if req.url.query:
+                    redirect_url += '?' + req.url.query
+                return RedirectResponse(url=redirect_url, status_code=307)
+            return JSONResponse({"error": "Not Found"}, status_code=404)
+        return FileResponse(str(_INDEX_HTML), media_type="text/html")
 
 
 if __name__ == "__main__":

@@ -50,8 +50,13 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import * as echarts from 'echarts'
+import { init, use, type ECharts, type EChartsCoreOption } from 'echarts/core'
+import { LineChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, MarkLineComponent, MarkPointComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { monitorApi } from '../../api/monitor'
+
+use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, MarkPointComponent, CanvasRenderer])
 
 interface TensionData {
   chapter_number: number
@@ -74,7 +79,7 @@ const tensionData = ref<TensionData[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-let chartInstance: echarts.ECharts | null = null
+let chartInstance: ECharts | null = null
 
 // 张力警戒线
 const tensionThreshold = computed(() => props.threshold ?? 5.0)
@@ -146,13 +151,13 @@ function renderChart() {
   }
 
   if (!chartInstance) {
-    chartInstance = echarts.init(chartRef.value)
+    chartInstance = init(chartRef.value)
   }
 
   const chapterNumbers = tensionData.value.map((d) => d.chapter_number)
   const tensionScores = tensionData.value.map((d) => d.tension_score)
 
-  const option: echarts.EChartsOption = {
+  const option: EChartsCoreOption = {
     grid: {
       left: 36,
       right: 16,
@@ -205,10 +210,17 @@ function renderChart() {
           borderColor: '#fff',
         },
         areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(24, 160, 88, 0.25)' },
-            { offset: 1, color: 'rgba(24, 160, 88, 0.02)' },
-          ]),
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(24, 160, 88, 0.25)' },
+              { offset: 1, color: 'rgba(24, 160, 88, 0.02)' },
+            ],
+          },
         },
         markLine: {
           silent: true,

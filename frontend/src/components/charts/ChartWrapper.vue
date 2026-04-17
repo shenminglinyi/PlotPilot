@@ -43,4 +43,12 @@ const handleClick = (params: any) => {
 .chart-wrapper {
   width: 100%;
 }
+
+.chart-wrapper :deep(.echarts),
+.chart-wrapper :deep(canvas),
+.chart-wrapper :deep(svg) {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
 </style>

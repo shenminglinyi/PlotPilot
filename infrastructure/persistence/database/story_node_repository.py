@@ -2,12 +2,15 @@
 故事结构节点 Repository
 """
 
+import logging
 import sqlite3
 import json
 from typing import List, Optional
 from datetime import datetime
 
 from domain.structure.story_node import StoryNode, NodeType, StoryTree, PlanningStatus, PlanningSource
+
+logger = logging.getLogger(__name__)
 
 
 class StoryNodeRepository:
@@ -324,8 +327,12 @@ class StoryNodeRepository:
             # 3. 批量插入
             if creates:
                 for c in creates:
-                    # 调试日志
-                    print(f"[DEBUG] Inserting node: id={c['id']}, planning_status={c.get('planning_status', 'ai_generated')!r}, planning_source={c.get('planning_source', 'ai_macro')!r}")
+                    logger.debug(
+                        "Inserting node: id=%s, planning_status=%r, planning_source=%r",
+                        c['id'],
+                        c.get('planning_status', 'ai_generated'),
+                        c.get('planning_source', 'ai_macro'),
+                    )
                     cursor.execute("""
                         INSERT INTO story_nodes (
                             id, novel_id, parent_id, node_type, number, title, description, order_index,

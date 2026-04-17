@@ -49,10 +49,14 @@ class ChapterIndexingService:
         Returns:
             collection 名称，格式为 novel_{novel_id}_chunks
         """
-        return f"novel_{novel_id}_chunks"
+        # novel_id 可能包含 "novel-" 前缀，需要去掉避免重复
+        normalized_id = novel_id.replace("novel-", "") if novel_id.startswith("novel-") else novel_id
+        return f"novel_{normalized_id}_chunks"
 
     async def ensure_collection(self, novel_id: str) -> None:
         """确保 collection 存在，如果不存在则创建
+
+        修复问题 14：添加 legacy collection 回退，避免迁移期间读写分歧。
 
         Args:
             novel_id: 小说 ID
@@ -61,6 +65,13 @@ class ChapterIndexingService:
             RuntimeError: 如果创建 collection 失败
         """
         collection_name = self._get_collection_name(novel_id)
+
+        existing = await self._vector_store.list_collections()
+        # 如果 legacy collection 存在，保留使用旧名，避免读写分歧
+        legacy_name = f"novel_{novel_id}_chunks"
+        if legacy_name in existing:
+            logger.debug(f"Using legacy collection: {legacy_name}")
+            return
 
         # 始终调用 create_collection：内部会检查维度是否匹配，
         # 匹配则跳过，不匹配则自动重建（嵌入模型切换时必要）

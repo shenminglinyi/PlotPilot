@@ -23,6 +23,7 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.ai.vector_retrieval_facade import VectorRetrievalFacade
+from application.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class ContextSlot:
 class BudgetAllocation:
     """预算分配结果"""
     slots: Dict[str, ContextSlot] = field(default_factory=dict)
-    total_budget: int = 35000
+    total_budget: int = AppConfig.CONTEXT_MAX_TOKENS
     used_tokens: int = 0
     remaining_tokens: int = 0
     
@@ -69,6 +70,7 @@ class BudgetAllocation:
     # 压缩标记
     compression_applied: bool = False
     compression_log: List[str] = field(default_factory=list)
+    expired_foreshadows: List[str] = field(default_factory=list)
     
     def get_final_context(self) -> str:
         """组装最终上下文"""
@@ -83,6 +85,13 @@ class BudgetAllocation:
             for name, slot in tier_slots:
                 if slot.content.strip():
                     parts.append(f"\n=== {slot.name.upper()} ===\n{slot.content}")
+        
+        # 追加强制收束指令
+        if self.expired_foreshadows:
+            parts.append("\n=== 🚨强制剧情收束令🚨 ===\n" + 
+                         "以下伏笔已超出预期揭晓章节，必须在本章或本节拍的行文中，通过回忆、对话、意外发展或直接揭露等方式去解答或明显推进悬念：\n" + 
+                         "\n".join(f"- {f}" for f in self.expired_foreshadows) + 
+                         "\n【如果你无视此指令，长篇小说的情节网将陷入崩溃】")
         
         return "\n".join(parts)
 
@@ -109,9 +118,8 @@ class ContextBudgetAllocator:
     # 获取组装好的上下文
     context = allocation.get_final_context()
     
-    # 查看分配详情
-    print(f"T0 保留: {allocation.t0_reserved} tokens")
-    print(f"压缩情况: {allocation.compression_log}")
+    # 查看分配详情（通过 logger 或返回值获取）
+    # allocation.t0_reserved, allocation.compression_log
     ```
     """
     
@@ -132,6 +140,7 @@ class ContextBudgetAllocator:
     MAX_ACT_SUMMARIES_TOKENS = 1500
     MAX_RECENT_CHAPTERS_TOKENS = 5000
     MAX_VECTOR_RECALL_TOKENS = 5000
+    MAX_THEME_DIRECTIVES_TOKENS = 1500
     
     def __init__(
         self,
@@ -143,6 +152,8 @@ class ContextBudgetAllocator:
         triple_repository = None,
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
+        theme_agent = None,
+        knowledge_repository = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -150,6 +161,8 @@ class ContextBudgetAllocator:
         self.story_node_repo = story_node_repository
         self.chapter_element_repo = chapter_element_repository
         self.triple_repo = triple_repository
+        self.theme_agent = theme_agent  # ThemeAgent 插槽
+        self.knowledge_repo = knowledge_repository
         
         # 向量检索门面
         self.vector_facade = None
@@ -186,7 +199,7 @@ class ContextBudgetAllocator:
         novel_id: str,
         chapter_number: int,
         outline: str,
-        total_budget: int = 35000,
+        total_budget: int = AppConfig.CONTEXT_MAX_TOKENS,
         scene_director: Optional[Dict[str, Any]] = None,
     ) -> BudgetAllocation:
         """执行预算分配
@@ -205,6 +218,14 @@ class ContextBudgetAllocator:
         
         # ========== 第一步：收集所有内容 ==========
         slots = self._collect_all_slots(novel_id, chapter_number, outline, scene_director)
+        
+        # 提取过期伏笔用于终端强制约束
+        pending_fs_slot = slots.get("pending_foreshadowings")
+        if pending_fs_slot and pending_fs_slot.content:
+            for line in pending_fs_slot.content.split('\n'):
+                if "🔴已过期" in line:
+                    desc = line.split(":", 1)[-1].strip() if ":" in line else line.strip()
+                    allocation.expired_foreshadows.append(desc)
         
         # ========== 第二步：计算 T0 强制保留量 ==========
         t0_slots = {name: slot for name, slot in slots.items() if slot.tier == PriorityTier.T0_CRITICAL}
@@ -312,6 +333,23 @@ class ContextBudgetAllocator:
             max_tokens=1500,  # 最大 1500 tokens
             priority=85,  # 介于角色锚点和伏笔之间
         )
+
+        # 5. 题材指导（ThemeAgent 插槽）
+        if self.theme_agent:
+            try:
+                directives = self.theme_agent.get_context_directives(novel_id, chapter_number, outline)
+                theme_text = directives.to_context_text() if directives else ""
+                if theme_text:
+                    slots["theme_directives"] = ContextSlot(
+                        name="题材指导",
+                        tier=PriorityTier.T0_CRITICAL,
+                        content=theme_text,
+                        tokens=self.estimate_tokens(theme_text),
+                        max_tokens=self.MAX_THEME_DIRECTIVES_TOKENS,
+                        priority=75,  # 低于人设冲突和伏笔，高于图谱
+                    )
+            except Exception as e:
+                logger.warning(f"ThemeAgent.get_context_directives 失败（降级跳过）：{e}")
         
         # ==================== T1: 可压缩内容 ====================
         
@@ -1174,7 +1212,7 @@ class ContextBudgetAllocator:
         chapter_number: int,
         limit: int = 3,
     ) -> str:
-        """获取最近章节内容"""
+        """获取最近章节内容，优先使用章节摘要里的接缝字段。"""
         if not self.chapter_repo:
             return ""
         
@@ -1191,16 +1229,44 @@ class ContextBudgetAllocator:
             
             if not recent:
                 return ""
-            
+
             lines = ["【最近章节】"]
+            chapter_meta = {}
+            if self.knowledge_repo:
+                try:
+                    knowledge = self.knowledge_repo.get_by_novel_id(novel_id)
+                    if knowledge:
+                        chapter_meta = {ch.chapter_id: ch for ch in knowledge.chapters}
+                except Exception as e:
+                    logger.debug("获取章节摘要元数据失败: %s", e)
             for chapter in reversed(recent):  # 按时间顺序
                 lines.append(f"\n第 {chapter.number} 章：{chapter.title}")
-                if chapter.content:
-                    # 截取前 500 字作为预览
-                    preview = chapter.content[:500]
+                meta = chapter_meta.get(chapter.number)
+                # 修复问题 1：使用 any() 检查所有接缝字段，避免遗漏 open_threads 和 ending_emotion
+                if meta and any(
+                    getattr(meta, field, "").strip()
+                    for field in (
+                        "summary", "open_threads", "ending_state",
+                        "ending_emotion", "carry_over_question", "next_opening_hint",
+                    )
+                ):
+                    if meta.summary:
+                        lines.append(f"摘要：{meta.summary}")
+                    if meta.open_threads:
+                        lines.append(f"未解问题：{meta.open_threads}")
+                    if getattr(meta, "ending_state", "").strip():
+                        lines.append(f"章末状态：{meta.ending_state}")
+                    if getattr(meta, "ending_emotion", "").strip():
+                        lines.append(f"章末情绪：{meta.ending_emotion}")
+                    if getattr(meta, "carry_over_question", "").strip():
+                        lines.append(f"必须承接：{meta.carry_over_question}")
+                    if getattr(meta, "next_opening_hint", "").strip():
+                        lines.append(f"下一章开场提示：{meta.next_opening_hint}")
+                elif chapter.content:
+                    preview = chapter.content[-500:]
                     if len(chapter.content) > 500:
-                        preview += "..."
-                    lines.append(preview)
+                        preview = "..." + preview
+                    lines.append(f"章末片段：{preview}")
             
             return "\n".join(lines)
             
@@ -1215,41 +1281,67 @@ class ContextBudgetAllocator:
         chapter_number: int,
         outline: str,
     ) -> str:
-        """获取向量召回片段"""
+        """获取向量召回片段
+
+        从向量数据库中检索与当前章节大纲相关的上下文片段。
+        优先使用新的 collection 命名（无重复 novel- 前缀），
+        回退到旧的命名以保持向后兼容。
+
+        Args:
+            novel_id: 小说 ID
+            chapter_number: 当前章节号
+            outline: 当前章节大纲
+
+        Returns:
+            格式化后的向量召回片段文本
+        """
         if not self.vector_facade:
             return ""
-        
+
         try:
-            collection_name = f"novel_{novel_id}_chunks"
-            results = self.vector_facade.sync_search(
-                collection=collection_name,
-                query_text=outline,
-                limit=5,
-            )
-            
+            # 新的 collection 名称（修复了 novel- 前缀重复问题）
+            normalized_id = novel_id.replace("novel-", "") if novel_id.startswith("novel-") else novel_id
+            new_collection = f"novel_{normalized_id}_chunks"
+            # 旧的 collection 名称（带重复 novel- 前缀）
+            legacy_collection = f"novel_{novel_id}_chunks"
+
+            # 优先尝试新名称，失败时回退到旧名称（避免在 async 环境中调用 asyncio.run）
+            results = None
+            for collection_name in (new_collection, legacy_collection):
+                try:
+                    results = self.vector_facade.sync_search(
+                        collection=collection_name,
+                        query_text=outline,
+                        limit=5,
+                    )
+                    if results is not None:
+                        break
+                except Exception:
+                    results = None
+
             if not results:
                 return ""
-            
+
             # 过滤：排除当前章节，优先相近章节
             filtered = [
                 hit for hit in results
                 if hit.get("payload", {}).get("chapter_number") != chapter_number
             ]
-            
+
             if not filtered:
                 return ""
-            
+
             lines = ["【相关上下文（向量召回）】"]
             for hit in filtered[:3]:  # 最多 3 个片段
                 text = hit.get("payload", {}).get("text", "")
                 ch_num = hit.get("payload", {}).get("chapter_number", "?")
                 lines.append(f"\n[第 {ch_num} 章] {text}")
-            
+
             return "\n".join(lines)
-            
+
         except Exception as e:
             logger.warning(f"向量召回失败: {e}")
-        
+
         return ""
     
     def _get_diagnosis_breakpoints(

@@ -14,6 +14,7 @@ export interface ChapterDTO {
 
 export interface UpdateChapterRequest {
   content: string
+  generation_metrics?: Record<string, unknown>
 }
 
 export interface ChapterReviewDTO {
@@ -29,6 +30,26 @@ export interface ChapterStructureDTO {
   dialogue_ratio: number
   scene_count: number
   pacing: string
+}
+
+export interface ChapterGenerationMetricsDTO {
+  novel_id: string
+  chapter_number: number
+  generated_via: string
+  target: number
+  actual: number
+  tolerance: number
+  delta: number
+  status: string
+  within_tolerance: boolean
+  action: string
+  expansion_attempts: number
+  trim_applied: boolean
+  fallback_used: boolean
+  min_allowed: number
+  max_allowed: number
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export interface ChapterReviewAiResponse {
@@ -87,6 +108,13 @@ export const chapterApi = {
    */
   getChapterStructure: (novelId: string, chapterNumber: number) =>
     apiClient.get<ChapterStructureDTO>(`/novels/${novelId}/chapters/${chapterNumber}/structure`) as Promise<ChapterStructureDTO>,
+
+  /**
+   * Get chapter generation metrics
+   * GET /api/v1/novels/{novelId}/chapters/{chapterNumber}/generation-metrics
+   */
+  getChapterGenerationMetrics: (novelId: string, chapterNumber: number) =>
+    apiClient.get<ChapterGenerationMetricsDTO>(`/novels/${novelId}/chapters/${chapterNumber}/generation-metrics`) as Promise<ChapterGenerationMetricsDTO>,
 
   /**
    * 确保章节在正文库中存在；若不存在则创建空白记录

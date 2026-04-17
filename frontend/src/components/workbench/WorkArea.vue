@@ -194,6 +194,22 @@
                 />
               </n-form-item>
 
+              <n-form-item label="目标字数" label-placement="left" label-width="80">
+                <n-input-number
+                  v-model:value="targetWordCount"
+                  :min="100"
+                  :max="20000"
+                  :step="100"
+                  :disabled="generateInProgress"
+                  placeholder="例如 3000"
+                  style="width: 100%"
+                />
+              </n-form-item>
+
+              <n-alert v-if="targetWordCountHelp" type="warning" :show-icon="true" style="font-size: 12px">
+                {{ targetWordCountHelp }}
+              </n-alert>
+
               <n-form-item label-placement="left" label-width="80" :show-feedback="false">
                 <template #label>
                   <n-space :size="6" align="center">
@@ -351,6 +367,9 @@
                   {{ streamStats.chars }} 字 · ~{{ streamStats.estimated_tokens }} tokens
                 </n-text>
               </n-space>
+              <n-text v-if="targetWordCount != null" depth="3" style="font-size: 12px">
+                目标 {{ targetWordCount }} 字，容忍区间约 {{ Math.round(targetWordCount * 0.85) }} - {{ Math.round(targetWordCount * 1.15) }} 字
+              </n-text>
             </n-space>
             <n-scrollbar style="max-height: 500px">
               <n-input
@@ -482,6 +501,7 @@ interface WorkAreaProps {
   slug: string
   bookTitle?: string
   chapters: Chapter[]
+  targetWordsPerChapter?: number
   currentChapterId?: number | null
   chapterContent?: string
   chapterLoading?: boolean
@@ -489,6 +509,7 @@ interface WorkAreaProps {
 
 const props = withDefaults(defineProps<WorkAreaProps>(), {
   chapters: () => [],
+  targetWordsPerChapter: 3500,
   currentChapterId: null,
   chapterContent: '',
   chapterLoading: false
@@ -510,6 +531,7 @@ const activeTab = ref('editor')
 const showGenerateModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
+const targetWordCount = ref<number | null>(Math.max(100, props.targetWordsPerChapter || 3500))
 /** 弹窗内选中的目标章节（与 useWorkbench 映射一致：id === number） */
 const generateTargetChapterId = ref<number | null>(null)
 const generateInProgress = ref(false)
@@ -520,6 +542,23 @@ const outlineBlurAnalyzing = ref(false)
 const streamPhaseLabel = ref('')
 const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
+const targetWordCountHelp = computed(() => {
+  const value = targetWordCount.value
+  if (value == null) return '留空则沿用当前默认生成策略，不做章节整体字数闭环。'
+  if (value < 500 || value > 10000) {
+    return `目标字数 ${value} 偏离常用范围，系统仍会尝试控制，但建议设置在 500-10000 字之间。`
+  }
+  return `系统会尽量将结果控制在 ${Math.round(value * 0.85)}-${Math.round(value * 1.15)} 字，并在不足时自动补写、超出时智能裁剪。`
+})
+
+watch(
+  () => props.targetWordsPerChapter,
+  (value) => {
+    if (generateInProgress.value) return
+    targetWordCount.value = Math.max(100, value || 3500)
+  },
+  { immediate: true }
+)
 
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
@@ -862,6 +901,7 @@ const handleGenerateChapter = async () => {
   generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
+  targetWordCount.value = Math.max(100, props.targetWordsPerChapter || 3500)
   generatedContent.value = ''
   contextPreview.value = null
   blurSceneCache.value = undefined
@@ -936,10 +976,16 @@ const handleStartGenerate = async () => {
       {
         chapter_number: targetChapterNumber,
         outline: generateOutline.value || defaultOutline,
+        target_word_count: targetWordCount.value ?? undefined,
         scene_director_result: sceneDirectorResult,
       },
       {
         signal: ctrl.signal,
+        onEvent: (event) => {
+          if (event.type === 'warning' && event.warning_type === 'target_word_count_extreme') {
+            message.warning(event.message)
+          }
+        },
         onPhase: (phase) => {
           streamPhaseLabel.value = streamPhaseToLabel(phase)
           streamProgressPct.value = streamPhaseToProgress(phase)
@@ -954,6 +1000,12 @@ const handleStartGenerate = async () => {
           lastWorkflowResult.value = result
           lastQcChapterNumber.value = targetChapterNumber
           generatedContent.value = result.content
+          if (result.actual_word_count != null) {
+            streamStats.value = {
+              ...streamStats.value,
+              chars: result.actual_word_count,
+            }
+          }
           streamProgressPct.value = 100
           streamPhaseLabel.value = '已完成'
           if (props.currentChapterId === targetChapterId) {
@@ -962,6 +1014,15 @@ const handleStartGenerate = async () => {
             message.success(`第 ${targetChapterNumber} 章生成完成，质检在对应章的「章节状态」查看`)
           }
           activeTab.value = 'chapter-status'
+        },
+        onNeedsManualRevision: (result) => {
+          lastWorkflowResult.value = result
+          lastQcChapterNumber.value = targetChapterNumber
+          generatedContent.value = result.content
+          streamProgressPct.value = 100
+          streamPhaseLabel.value = '需人工修订'
+          activeTab.value = 'editor'
+          message.warning(`接缝复检未通过：${result.message}`)
         },
         onError: (err) => {
           if (!ctrl.signal.aborted) {
@@ -995,7 +1056,16 @@ const handleSaveGenerated = async () => {
 
   saving.value = true
   try {
-    await chapterApi.updateChapter(props.slug, saveTarget.number, { content: generatedContent.value })
+    const generationMetrics = lastWorkflowResult.value?.word_control
+      ? {
+          ...lastWorkflowResult.value.word_control,
+          generated_via: 'manual',
+        }
+      : undefined
+    await chapterApi.updateChapter(props.slug, saveTarget.number, {
+      content: generatedContent.value,
+      generation_metrics: generationMetrics,
+    })
     if (saveTarget.id === props.currentChapterId) {
       chapterContent.value = generatedContent.value
       originalContent.value = generatedContent.value

@@ -121,11 +121,17 @@ class HostedWriteService:
 
                 if ev.get("type") == "done" and auto_save:
                     content = ev.get("content") or ""
+                    generation_metrics = ev.get("word_control")
+                    if isinstance(generation_metrics, dict):
+                        generation_metrics = {
+                            **generation_metrics,
+                            "generated_via": "hosted",
+                        }
                     logger.info(f"  → 尝试保存章节 {n} ({len(content)} 字符)")
                     try:
                         # 先尝试更新已存在的章节
                         self._chapter.update_chapter_by_novel_and_number(
-                            novel_id, n, content
+                            novel_id, n, content, generation_metrics
                         )
                         logger.info(f"  ✓ 章节 {n} 更新成功")
                         self._schedule_chapter_aftermath(novel_id, n, content)
@@ -143,6 +149,12 @@ class HostedWriteService:
                                 title=title,
                                 content=content
                             )
+                            if generation_metrics:
+                                self._chapter.save_chapter_generation_metrics(
+                                    novel_id,
+                                    n,
+                                    generation_metrics,
+                                )
                             logger.info(f"  ✓ 章节 {n} 创建成功")
                             self._schedule_chapter_aftermath(novel_id, n, content)
                             yield {"type": "saved", "chapter": n, "ok": True, "created": True}
