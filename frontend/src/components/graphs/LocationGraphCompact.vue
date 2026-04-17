@@ -39,8 +39,6 @@ interface KnowledgeTriple {
   subject: string
   predicate: string
   object: string
-  subject_entity_id?: string
-  object_entity_id?: string
   chapter_id?: number | null
   note?: string
   entity_type?: string
@@ -70,33 +68,27 @@ const graph = computed(() => {
     const a = tripleStringAttrs(t)
     const objImp = a.object_importance
     const objLt = a.object_location_type
-    const subjectId = t.subject_entity_id || t.subject
-    const objectId = t.object_entity_id || t.object
-    const subjectLabel = a.subject_label || t.subject
-    const objectLabel = a.object_label || t.object
-
-    if (!locationMap.has(subjectId)) {
-      locationMap.set(subjectId, {
-        name: subjectLabel,
+    if (!locationMap.has(t.subject)) {
+      locationMap.set(t.subject, {
+        name: t.subject,
         importance: t.importance,
         location_type: t.location_type,
         note: [t.note, t.description].filter(Boolean).join('\n') || '',
       })
     }
-    if (!locationMap.has(objectId)) {
-      locationMap.set(objectId, {
-        name: objectLabel,
+    if (!locationMap.has(t.object)) {
+      locationMap.set(t.object, {
+        name: t.object,
         importance: objImp,
         location_type: objLt,
         note: '',
       })
     } else {
-      const cur = locationMap.get(objectId)!
+      const cur = locationMap.get(t.object)!
       const next = { ...cur }
-      if (objectLabel && (!cur.name || cur.name === objectId)) next.name = objectLabel
       if (objImp && !cur.importance) next.importance = objImp
       if (objLt && !cur.location_type) next.location_type = objLt
-      locationMap.set(objectId, next)
+      locationMap.set(t.object, next)
     }
   })
 
@@ -110,8 +102,8 @@ const graph = computed(() => {
 
   const relationships = locationTriples.map(t => ({
     id: t.id,
-    source_id: t.subject_entity_id || t.subject,
-    target_id: t.object_entity_id || t.object,
+    source_id: t.subject,
+    target_id: t.object,
     label: t.predicate,
     note: [t.note, t.description].filter(Boolean).join('\n') || '',
   }))

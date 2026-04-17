@@ -38,8 +38,6 @@ interface KnowledgeTriple {
   subject: string
   predicate: string
   object: string
-  subject_entity_id?: string
-  object_entity_id?: string
   chapter_id?: number | null
   note?: string
   entity_type?: string
@@ -64,30 +62,22 @@ const graph = computed(() => {
     const a = tripleStringAttrs(t)
     const objImp = a.object_importance
     const noteFromDesc = t.description?.trim()
-    const subjectId = t.subject_entity_id || t.subject
-    const objectId = t.object_entity_id || t.object
-    const subjectLabel = a.subject_label || t.subject
-    const objectLabel = a.object_label || t.object
-
-    if (!characterMap.has(subjectId)) {
-      characterMap.set(subjectId, {
-        name: subjectLabel,
+    if (!characterMap.has(t.subject)) {
+      characterMap.set(t.subject, {
+        name: t.subject,
         importance: t.importance,
         note: [t.note, noteFromDesc].filter(Boolean).join('\n') || '',
       })
     }
-    if (!characterMap.has(objectId)) {
-      characterMap.set(objectId, {
-        name: objectLabel,
+    if (!characterMap.has(t.object)) {
+      characterMap.set(t.object, {
+        name: t.object,
         importance: objImp,
         note: '',
       })
-    } else {
-      const cur = characterMap.get(objectId)!
-      const next = { ...cur }
-      if (objectLabel && (!cur.name || cur.name === objectId)) next.name = objectLabel
-      if (objImp && !cur.importance) next.importance = objImp
-      characterMap.set(objectId, next)
+    } else if (objImp && !characterMap.get(t.object)?.importance) {
+      const cur = characterMap.get(t.object)!
+      characterMap.set(t.object, { ...cur, importance: objImp })
     }
   })
 
@@ -100,8 +90,8 @@ const graph = computed(() => {
 
   const relationships = characterTriples.map(t => ({
     id: t.id,
-    source_id: t.subject_entity_id || t.subject,
-    target_id: t.object_entity_id || t.object,
+    source_id: t.subject,
+    target_id: t.object,
     label: t.predicate,
     note: [t.note, t.description].filter(Boolean).join('\n') || '',
   }))
