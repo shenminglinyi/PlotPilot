@@ -90,6 +90,59 @@ def find_free_port(start=8005, max_try=20):
             return p
     return start
 
+
+def get_pid_by_port(port):
+    """返回占用指定端口的进程 PID，找不到返回 None（Windows / Unix 均支持）"""
+    import platform
+    system = platform.system()
+    try:
+        if system == "Windows":
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=NO_WIN,
+            )
+            for line in result.stdout.splitlines():
+                # 匹配 TCP 0.0.0.0:PORT 或 127.0.0.1:PORT，状态 LISTENING
+                parts = line.split()
+                if len(parts) >= 5 and f":{port}" in parts[1] and parts[3] == "LISTENING":
+                    try:
+                        return int(parts[4])
+                    except ValueError:
+                        continue
+        else:
+            result = subprocess.run(
+                ["lsof", "-ti", f"TCP:{port}", "-sTCP:LISTEN"],
+                capture_output=True, text=True, timeout=10,
+            )
+            pid_str = result.stdout.strip().split("\n")[0]
+            if pid_str:
+                return int(pid_str)
+    except Exception:
+        pass
+    return None
+
+
+def kill_port(port, timeout=5):
+    """
+    杀死占用指定端口的进程。
+    返回 True=成功释放端口 / False=未能释放
+    """
+    pid = get_pid_by_port(port)
+    if pid is None:
+        return True  # 端口本来就空闲
+
+    kill_process(pid, timeout=timeout)
+
+    # 等待端口释放（最多 timeout 秒）
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not port_in_use(port):
+            return True
+        time.sleep(0.3)
+    return False
+
+
 DEFAULT_PORT = 8005
 
 
