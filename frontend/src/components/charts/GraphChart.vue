@@ -1,5 +1,11 @@
 <template>
-  <ChartWrapper :option="chartOption" :height="height" :aria-label="`关系图表 - ${nodes.length} 个节点，${links.length} 个连接`" @click="handleNodeClick" />
+  <ChartWrapper
+    :option="chartOption"
+    :height="height"
+    :theme="echartsTheme"
+    :aria-label="`关系图表 - ${nodes.length} 个节点，${links.length} 个连接`"
+    @click="handleNodeClick"
+  />
 </template>
 
 <script setup lang="ts">
@@ -42,11 +48,44 @@ const emit = defineEmits<{
   edgeClick: [link: GraphLink]
 }>()
 
+/** 同步 ECharts 内置主题与 app 主题，修复暗色模式下图表始终用 light 主题的问题 */
+const echartsTheme = computed(() => themeStore.isDark ? 'dark' : 'light')
+
+/** 节点和边的数量，用于动态调整渲染策略 */
+const nodeCount = computed(() => props.nodes.length)
+
+/**
+ * tooltip 颜色与 CSS 变量体系保持一致：
+ * surface → --app-surface, border → --app-border-strong, text → --app-text-secondary
+ */
+const tooltipColors = computed(() => {
+  const { isDark, isAnchor } = themeStore
+  if (isAnchor) {
+    return {
+      bg: '#111620',
+      border: 'rgba(201,162,39,0.14)',
+      text: '#c4b99a',
+    }
+  }
+    if (isDark) {
+      return {
+        bg: '#1a2235',
+        border: 'rgba(148,163,184,0.12)',
+        text: '#d1d5db',
+      }
+    }
+  return {
+    bg: '#ffffff',
+    border: 'rgba(15,23,42,0.09)',
+    text: '#1f2937',
+  }
+})
+
 const tooltip = computed(() => ({
-  backgroundColor: themeStore.isDark ? '#1a2436' : '#ffffff',
-  borderColor: themeStore.isDark ? 'rgba(148,163,184,0.16)' : 'rgba(15,23,42,0.09)',
+  backgroundColor: tooltipColors.value.bg,
+  borderColor: tooltipColors.value.border,
   textStyle: {
-    color: themeStore.isDark ? '#d1d5db' : '#1f2937',
+    color: tooltipColors.value.text,
     fontSize: 12,
   },
   formatter: (params: any) => {
@@ -59,38 +98,54 @@ const tooltip = computed(() => ({
   },
 }))
 
-const chartOption = computed(() => ({
-  backgroundColor: 'transparent',
-  series: [
-    {
-      type: 'graph',
-      layout: 'force',
-      data: props.nodes,
-      links: props.links,
-      categories: props.categories.map(name => ({ name })),
-      roam: true,
-      label: {
-        show: true,
-        position: 'right',
+/**
+ * 大图（>80节点）关闭动画并降低 force 强度，减少掉帧。
+ * 小图保留动画以提升视觉体验。
+ */
+const chartOption = computed(() => {
+  const large = nodeCount.value > 80
+
+  return {
+    backgroundColor: 'transparent',
+    animation: !large,
+    series: [
+      {
+        type: 'graph',
+        layout: 'force',
+        data: props.nodes,
+        links: props.links,
+        categories: props.categories.map(name => ({ name })),
+        roam: true,
+        label: {
+          show: true,
+          position: 'right',
+          fontSize: 12,
+        },
+        lineStyle: {
+          color: 'source',
+          opacity: 0.45,
+          width: 1.5,
+          curveness: 0.2,
+        },
+        force: {
+          repulsion: large ? 80 : 120,
+          edgeLength: large ? 120 : 160,
+          gravity: large ? 0.12 : 0.08,
+          layoutAnimation: !large,
+          friction: large ? 0.9 : 0.6,
+        },
+        emphasis: {
+          focus: 'adjacency',
+          lineStyle: { width: 3 },
+        },
+        // 大图启用渐进渲染，避免首帧阻塞主线程
+        progressive: large ? 200 : 0,
+        progressiveThreshold: large ? 80 : 9999,
       },
-      lineStyle: {
-        opacity: 0.7,
-        width: 1.5,
-        curveness: 0.2,
-      },
-      force: {
-        repulsion: 120,
-        edgeLength: 160,
-        gravity: 0.08,
-      },
-      emphasis: {
-        focus: 'adjacency',
-        lineStyle: { width: 3 },
-      },
-    },
-  ],
-  tooltip: tooltip.value,
-}) as EChartsOption)
+    ],
+    tooltip: tooltip.value,
+  } as EChartsOption
+})
 
 const handleNodeClick = (params: GraphEventParams) => {
   if (params.dataType === 'node') {

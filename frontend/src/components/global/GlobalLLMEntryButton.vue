@@ -425,8 +425,8 @@ function openPanel() {
   min-height: 58px;
   padding: 0 14px;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  color: var(--app-text-inverse, #ffffff);
+  background: linear-gradient(135deg, var(--color-brand-hover) 0%, var(--color-brand) 55%, var(--color-brand-pressed) 100%);
+  color: var(--app-text-inverse);
   border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
   box-shadow: none;
 }
@@ -476,7 +476,7 @@ function openPanel() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--app-text-inverse, #ffffff);
+  color: var(--app-text-inverse);
 }
 
 .global-llm-plain-icon svg {
@@ -664,7 +664,7 @@ function openPanel() {
 }
 
 .drawer-tab-btn.active {
-  color: var(--tab-active-color, var(--app-text-inverse, #ffffff));
+  color: var(--tab-active-color, var(--app-text-inverse));
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 

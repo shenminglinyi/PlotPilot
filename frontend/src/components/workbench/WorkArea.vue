@@ -453,7 +453,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onUnmounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   consumeGenerateChapterStream,
@@ -603,6 +603,18 @@ function clearAssistedAutopilotPoll() {
   }
 }
 
+function handleVisibilityChange() {
+  if (document.hidden) {
+    clearAssistedAutopilotPoll()
+  } else if (workMode.value === 'assisted') {
+    void pollAutopilotStatusWhileAssisted()
+    assistedAutopilotPollTimer = setInterval(
+      () => void pollAutopilotStatusWhileAssisted(),
+      4000
+    )
+  }
+}
+
 async function pollAutopilotStatusWhileAssisted() {
   if (assistedAutopilot404) return
   try {
@@ -653,7 +665,14 @@ watch(
   { immediate: true }
 )
 
-onUnmounted(() => clearAssistedAutopilotPoll())
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  clearAssistedAutopilotPoll()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
 watch(
@@ -1133,7 +1152,11 @@ defineExpose({ ensureAssistedMode })
 
 .autopilot-container {
   padding: 16px 20px;
-  background: linear-gradient(to bottom, var(--app-surface) 0%, rgba(24, 160, 88, 0.02) 100%);
+  background: linear-gradient(
+    to bottom,
+    var(--app-surface) 0%,
+    color-mix(in srgb, var(--color-success, #22c55e) 3%, var(--app-surface)) 100%
+  );
   border-bottom: 1px solid var(--aitext-split-border);
 }
 
@@ -1209,7 +1232,7 @@ defineExpose({ ensureAssistedMode })
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
-  color: var(--text-color-2);
+  color: var(--app-text-secondary);
 }
 
 .write-modal-body :deep(.n-card) {
@@ -1246,7 +1269,7 @@ defineExpose({ ensureAssistedMode })
   justify-content: space-between;
   align-items: center;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .editor-title {

@@ -63,7 +63,7 @@
           <div ref="scrollContainer" class="stream-body" @scroll="handleScroll">
             <n-timeline>
               <n-timeline-item
-                v-for="event in logEvents"
+                v-for="event in visibleLogEvents"
                 :key="event.id"
                 :type="getEventType(event)"
                 :time="formatTime(event.timestamp)"
@@ -149,6 +149,14 @@ const emit = defineEmits<{
 
 // 状态管理
 const logEvents = ref<LogEvent[]>([])
+
+// 性能优化：仅渲染最近 100 条日志，避免长时间运行导致 DOM 节点过多卡顿
+const MAX_VISIBLE_LOGS = 100
+const visibleLogEvents = computed(() => {
+  if (logEvents.value.length <= MAX_VISIBLE_LOGS) return logEvents.value
+  return logEvents.value.slice(-MAX_VISIBLE_LOGS)
+})
+
 const scrollContainer = ref<HTMLElement | null>(null)
 const isAutoScroll = ref(true)
 const hasNewLogs = ref(false)
@@ -475,10 +483,10 @@ watch(
 
     // 流式滚动显示：只显示最近的文字（避免内容无限累积导致重复显示）
     if (currentCount > lastContentLength.value) {
-      // 只保留最后 500 个字符，避免内容过长
-      const displayLimit = 500
+      // 性能优化：限制流式文字的最大长度，防止 DOM 过大导致卡顿
+      const displayLimit = 800
       if (currentCount > displayLimit) {
-        streamingText.value = content.slice(-displayLimit)
+        streamingText.value = '...' + content.slice(-displayLimit)
       } else {
         streamingText.value = content
       }
@@ -490,6 +498,17 @@ watch(
           scrollContainer2.value.scrollTop = scrollContainer2.value.scrollHeight
         }
       })
+    } else if (currentCount < lastContentLength.value) {
+      // 内容被重置（可能换章了）
+      const displayLimit = 800
+      if (currentCount > displayLimit) {
+        streamingText.value = '...' + content.slice(-displayLimit)
+      } else {
+        streamingText.value = content
+      }
+      lastTimestamp.value = 0
+      writingSpeed.value = 0
+      lastContentLength.value = currentCount
     }
 
     lastWordCount.value = currentCount
@@ -568,8 +587,8 @@ onUnmounted(() => {
 /* 实时写作进度条 */
 .writing-stream-bar {
   margin-bottom: 8px;
-  background: linear-gradient(135deg, rgba(24, 160, 88, 0.06) 0%, rgba(24, 160, 88, 0.02) 100%);
-  border: 1px solid rgba(24, 160, 88, 0.15);
+  background: linear-gradient(135deg, var(--color-success-light, rgba(34, 197, 94, 0.06)) 0%, transparent 100%);
+  border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 20%, transparent);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -583,7 +602,7 @@ onUnmounted(() => {
 }
 
 .writing-stream-bar .stream-cursor {
-  color: #18a058;
+  color: var(--color-success, #22c55e);
   animation: blink 1s step-end infinite;
   font-size: 14px;
 }
@@ -601,9 +620,9 @@ onUnmounted(() => {
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(24, 160, 88, 0.15);
-  color: #18a058;
-  font-size: 11px;
+  background: var(--color-success-light, rgba(34, 197, 94, 0.15));
+  color: var(--color-success, #22c55e);
+  font-size: 12px;
 }
 
 .writing-stream-bar .stream-stats {
@@ -612,7 +631,7 @@ onUnmounted(() => {
 }
 
 .writing-stream-bar .speed {
-  color: #18a058;
+  color: var(--color-success, #22c55e);
 }
 
 .writing-stream-bar .stream-content-preview {
@@ -659,22 +678,22 @@ onUnmounted(() => {
 }
 
 .status-dot.connected {
-  background: #18a058;
-  box-shadow: 0 0 8px rgba(24, 160, 88, 0.5);
+  background: var(--color-success, #22c55e);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--color-success, #22c55e) 50%, transparent);
   animation: pulse-green 2s infinite;
 }
 
 .status-dot.reconnecting {
-  background: #f0a020;
+  background: var(--color-warning, #f59e0b);
   animation: blink-yellow 1s infinite;
 }
 
 .status-dot.disconnected {
-  background: #d03050;
+  background: var(--color-danger, #ef4444);
 }
 
 .status-dot.ended {
-  background: #2080f0;
+  background: var(--color-info, #3b82f6);
 }
 
 @keyframes pulse-green {
@@ -704,7 +723,7 @@ onUnmounted(() => {
   overflow-y: auto;
   padding: 12px 16px;
   scroll-behavior: smooth;
-  font-family: ui-sans-serif, system-ui, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--font-sans);
 }
 
 .stream-body::-webkit-scrollbar {
@@ -761,12 +780,12 @@ onUnmounted(() => {
 
 .event-content--beat_start .event-message,
 .event-content--beat_complete .event-message {
-  font-size: 12.5px;
+  font-size: 13px;
 }
 
 .event-metadata {
-  font-size: 11px;
-  color: var(--text-color-3);
+  font-size: 12px;
+  color: var(--app-text-muted, var(--text-color-3));
 }
 
 /* 新日志指示器 */
@@ -778,7 +797,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: rgba(24, 160, 88, 0.9);
+  background: var(--color-success, #22c55e);
   border-radius: 20px;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -787,7 +806,7 @@ onUnmounted(() => {
 }
 
 .new-logs-indicator:hover {
-  background: rgba(24, 160, 88, 1);
+  filter: brightness(1.1);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }

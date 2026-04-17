@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watchEffect, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { knowledgeApi } from '../../api/knowledge'
 import GraphChart from '../charts/GraphChart.vue'
@@ -36,9 +36,9 @@ const graphData = ref<EChartsGraphData>({ nodes: [], links: [] })
 
 const emptyHint = computed(() => facts.value.length === 0 && !loading.value)
 
-const getThemeColors = () => {
-  const isDark = themeStore.isDark
-  const isAnchor = themeStore.isAnchor
+/** 主题色计算为 computed，使主题切换时图谱颜色即时响应 */
+const themeColors = computed(() => {
+  const { isDark, isAnchor } = themeStore
 
   if (isAnchor) {
     return {
@@ -52,20 +52,20 @@ const getThemeColors = () => {
     return {
       subject: { background: '#1e1b4b', border: '#818cf8' },
       object: { background: '#500724', border: '#f472b6' },
-      labelColor: '#d1d5db',
-      edgeColor: '#6b7280',
+      labelColor: '#e2e8f0',
+      edgeColor: '#94a3b8',
     }
   }
   return {
-    subject: { background: '#e0e7ff', border: '#6366f1' },
-    object: { background: '#fce7f3', border: '#db2777' },
-    labelColor: '#1e1b4b',
-    edgeColor: '#6b7280',
+    subject: { background: '#e0e7ff', border: '#4f46e5' },
+    object: { background: '#fce7f3', border: '#be185d' },
+    labelColor: '#0f172a',
+    edgeColor: '#475569',
   }
-}
+})
 
 const buildVisData = () => {
-  const colors = getThemeColors()
+  const colors = themeColors.value
   const labelToId = new Map<string, string>()
   let nextN = 0
 
@@ -93,6 +93,11 @@ const buildVisData = () => {
         title: lab,
         color: colors.subject,
         font: { size: 13, color: colors.labelColor },
+        itemStyle: {
+          color: colors.subject.background,
+          borderColor: colors.subject.border,
+          borderWidth: 1.5,
+        }
       })
     }
     if (!nodeSeen.has(oid)) {
@@ -104,6 +109,11 @@ const buildVisData = () => {
         title: lab,
         color: colors.object,
         font: { size: 13, color: colors.labelColor },
+        itemStyle: {
+          color: colors.object.background,
+          borderColor: colors.object.border,
+          borderWidth: 1.5,
+        }
       })
     }
     const pred = (f.predicate || '').trim() || '—'
@@ -117,7 +127,7 @@ const buildVisData = () => {
       title: tip,
       arrows: 'to',
       color: colors.edgeColor,
-      font: { size: 11, align: 'middle', color: colors.edgeColor },
+      font: { size: 12, align: 'middle', color: colors.edgeColor },
     })
   }
 
@@ -146,9 +156,24 @@ const handleReloadEvent = () => {
   reload()
 }
 
-// Redraw with new colors when theme switches
-watch(() => themeStore.mode, () => {
-  if (facts.value.length > 0) redraw()
+// 数据变化时立即重绘
+watch(facts, () => {
+  if (facts.value.length > 0) void redraw()
+}, { deep: false })
+
+// 主题切换时延迟 200ms 重绘，避免在主题过渡动画期间阻塞主线程
+let themeRedrawTimer: ReturnType<typeof setTimeout> | null = null
+watchEffect(() => {
+  // 建立对 themeColors 的追踪；facts.length 只做守卫
+  const colors = themeColors.value
+  const hasData = facts.value.length > 0
+  if (!hasData || !colors) return
+
+  if (themeRedrawTimer) clearTimeout(themeRedrawTimer)
+  themeRedrawTimer = setTimeout(() => {
+    themeRedrawTimer = null
+    void redraw()
+  }, 200)
 })
 
 onMounted(() => {
@@ -158,6 +183,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('aitext:knowledge:reload', handleReloadEvent)
+  if (themeRedrawTimer) clearTimeout(themeRedrawTimer)
 })
 </script>
 

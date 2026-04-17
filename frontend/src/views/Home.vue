@@ -1,7 +1,11 @@
 <template>
   <div class="home">
-    <StatsSidebar @create-book="focusCreateInput" @refresh-list="handleRefreshList" />
-    <div class="home-content">
+    <StatsSidebar
+      @create-book="focusCreateInput"
+      @refresh-list="handleRefreshList"
+      @collapsed-change="handleSidebarCollapsedChange"
+    />
+    <div class="home-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
       <div class="home-bg" aria-hidden="true" />
 
       <div class="container">
@@ -409,6 +413,13 @@ const createInputRef = ref<any>(null)
 const showAdvanced = ref(false)
 const creating = ref(false)
 const loading = ref(false)
+
+const SIDEBAR_COLLAPSED_KEY = 'plotpilot_sidebar_collapsed'
+const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+
+function handleSidebarCollapsedChange(isCollapsed: boolean) {
+  sidebarCollapsed.value = isCollapsed
+}
 const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
@@ -677,6 +688,11 @@ onMounted(() => {
   padding: 32px;
   position: relative;
   overflow: hidden;
+  transition: margin-left 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.home-content.sidebar-collapsed {
+  margin-left: 52px;
 }
 
 /* 顶栏：与 StatsTopBar 同款渐变，AI 控制台 / 提示词广场 / 设置 */
@@ -1050,7 +1066,7 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--app-text-muted);
   line-height: 1.6;
 }

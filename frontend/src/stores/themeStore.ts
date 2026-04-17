@@ -20,8 +20,11 @@ function getSystemDark(): boolean {
 export const useThemeStore = defineStore('theme', () => {
   const mode = ref<ThemeMode>(getStoredTheme())
 
+  // 独立追踪 OS 偏好，使 auto 模式下 isDark 能响应系统变化
+  const systemDark = ref(getSystemDark())
+
   const isDark = computed(() => {
-    if (mode.value === 'auto') return getSystemDark()
+    if (mode.value === 'auto') return systemDark.value
     return mode.value === 'dark' || mode.value === 'anchor'
   })
 
@@ -40,16 +43,14 @@ export const useThemeStore = defineStore('theme', () => {
     } catch { /* ignore */ }
   }
 
-  // 监听系统主题变化（仅 auto 模式下需要响应）
+  // 监听系统主题变化，更新响应式 systemDark 使 auto 模式即时生效
   if (typeof window !== 'undefined' && window.matchMedia) {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      // 触发 computed 重新计算即可，无需额外操作
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      systemDark.value = e.matches
     })
   }
 
-  // 同步 <html> class 以支持全局 CSS 变量切换
-  // 监听 mode 而非 isDark，因为 dark<->anchor 切换时 isDark 不变，需要同步更新 data-theme
-  watch(mode, () => {
+  function applyThemeToDOM() {
     const root = document.documentElement
     if (isDark.value) {
       root.classList.add('dark')
@@ -58,7 +59,12 @@ export const useThemeStore = defineStore('theme', () => {
       root.classList.remove('dark')
       root.setAttribute('data-theme', 'light')
     }
-  }, { immediate: true })
+  }
+
+  // 监听 isDark + mode，覆盖所有变化路径：
+  // - 手动切换 mode（light/dark/anchor/auto）
+  // - auto 模式下 OS 偏好变化（systemDark 改变 → isDark 改变）
+  watch([isDark, mode], applyThemeToDOM, { immediate: true })
 
   return { mode, isDark, isAnchor, effectiveTheme, setTheme }
 })

@@ -20,28 +20,35 @@
     </div>
 
     <n-scrollbar class="sidebar-scroll">
-      <!-- 平铺视图：仅显示章节列表 -->
+      <!-- 平铺视图：分页显示章节列表，避免大量章节一次性渲染 -->
       <div v-if="viewMode === 'flat'">
         <div v-if="!chapters.length" class="sidebar-empty">暂无章节，请先在底部执行「启动结构规划」创建章节大纲</div>
-        <n-list v-else hoverable clickable>
-          <n-list-item
-            v-for="ch in chapters"
-            :key="ch.id"
-            :class="{ 'is-active': currentChapterId === ch.id }"
-            @click="handleChapterClick(ch.id, ch.title)"
-          >
-            <n-thing :title="`第${ch.number}章`">
-              <template #description>
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                  <n-text depth="3" style="font-size: 12px;">{{ ch.title }}</n-text>
-                  <n-tag size="small" :type="ch.word_count > 0 ? 'success' : 'default'" round>
-                    {{ ch.word_count > 0 ? '已收稿' : '未收稿' }}
-                  </n-tag>
-                </div>
-              </template>
-            </n-thing>
-          </n-list-item>
-        </n-list>
+        <template v-else>
+          <n-list hoverable clickable>
+            <n-list-item
+              v-for="ch in visibleChapters"
+              :key="ch.id"
+              :class="{ 'is-active': currentChapterId === ch.id }"
+              @click="handleChapterClick(ch.id, ch.title)"
+            >
+              <n-thing :title="`第${ch.number}章`">
+                <template #description>
+                  <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <n-text depth="3" style="font-size: 12px;">{{ ch.title }}</n-text>
+                    <n-tag size="small" :type="ch.word_count > 0 ? 'success' : 'default'" round>
+                      {{ ch.word_count > 0 ? '已收稿' : '未收稿' }}
+                    </n-tag>
+                  </div>
+                </template>
+              </n-thing>
+            </n-list-item>
+          </n-list>
+          <div v-if="hasMoreChapters" class="load-more-bar">
+            <n-button text size="small" @click="loadMoreChapters">
+              查看更多 ({{ chapters.length - visibleCount }} 章)
+            </n-button>
+          </div>
+        </template>
       </div>
 
       <!-- 树形视图：显示完整叙事结构（部-卷-幕-章） -->
@@ -79,9 +86,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, type ComponentPublicInstance } from 'vue'
+import { ref, computed, type ComponentPublicInstance } from 'vue'
 import StoryStructureTree from '@/components/StoryStructureTree.vue'
 import MacroPlanModal from '@/components/workbench/MacroPlanModal.vue'
+
+const INITIAL_VISIBLE_COUNT = 50
+const LOAD_MORE_STEP = 50
 
 interface Chapter {
   id: number
@@ -113,6 +123,14 @@ const viewModeOptions = [
   { label: '树形视图', value: 'tree' },
   { label: '平铺视图', value: 'flat' }
 ]
+
+const visibleCount = ref(INITIAL_VISIBLE_COUNT)
+const visibleChapters = computed(() => props.chapters.slice(0, visibleCount.value))
+const hasMoreChapters = computed(() => props.chapters.length > visibleCount.value)
+
+function loadMoreChapters() {
+  visibleCount.value += LOAD_MORE_STEP
+}
 
 const showMacroPlan = ref(false)
 const hasStructure = ref(true) // 默认假设有结构，由 StoryStructureTree 更新
@@ -214,11 +232,17 @@ const handleTreeLoaded = (hasData: boolean) => {
 }
 
 .sidebar :deep(.n-list-item:hover) {
-  background: rgba(79, 70, 229, 0.06);
+  background: var(--color-brand-light);
 }
 
 .sidebar :deep(.n-list-item.is-active) {
-  background: rgba(79, 70, 229, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.25);
+  background: var(--color-brand-light);
+  box-shadow: inset 0 0 0 1px var(--color-brand-border);
+}
+
+.load-more-bar {
+  padding: 8px 12px;
+  text-align: center;
+  border-top: 1px solid var(--app-border);
 }
 </style>

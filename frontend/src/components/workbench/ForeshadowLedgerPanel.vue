@@ -49,7 +49,7 @@
                 <n-input v-model:value="matchAnchors[idx].value" placeholder="关键词" style="flex:1" size="small" />
                 <n-button size="tiny" text @click="matchAnchors.splice(idx, 1)">✕</n-button>
               </n-space>
-              <n-button size="tiny" dashed secondary @click="matchAnchors.push({ key: '', value: '' })">+ 添加感官</n-button>
+              <n-button size="tiny" dashed @click="matchAnchors.push({ key: '', value: '' })">+ 添加感官</n-button>
 
               <template v-if="matchResult !== null">
                 <n-divider style="margin:4px 0" />
@@ -186,7 +186,7 @@
                 <n-input v-model:value="anchorRows[idx].value" placeholder="具体描述" style="flex:1" />
                 <n-button size="tiny" secondary @click="removeAnchor(idx)">✕</n-button>
               </n-space>
-              <n-button size="tiny" secondary dashed @click="addAnchor">+ 添加锚点</n-button>
+              <n-button size="tiny" dashed @click="addAnchor">+ 添加锚点</n-button>
             </n-space>
           </n-form-item>
         </n-space>

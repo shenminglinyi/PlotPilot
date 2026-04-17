@@ -509,7 +509,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
-  color: white;
+  color: var(--app-text-inverse);
   font-size: 17px;
   font-weight: 800;
   letter-spacing: -0.02em;

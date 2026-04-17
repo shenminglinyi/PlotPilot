@@ -1,5 +1,5 @@
 <template>
-  <aside class="stats-sidebar">
+  <aside class="stats-sidebar" :class="{ 'is-collapsed': collapsed }">
     <!-- Brand Header -->
     <header class="sidebar-brand">
       <div class="brand-logo">
@@ -9,6 +9,21 @@
           <p class="brand-slogan">墨枢 · 作者的领航员</p>
         </div>
       </div>
+      <button
+        class="collapse-toggle"
+        :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        @click="toggleCollapse"
+      >
+        <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+          <path
+            :d="collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
     </header>
 
     <!-- Stats Overview -->
@@ -144,10 +159,21 @@ import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
-defineEmits<{
+const emit = defineEmits<{
   (e: 'create-book'): void
   (e: 'refresh-list'): void
+  (e: 'collapsed-change', collapsed: boolean): void
 }>()
+
+const SIDEBAR_COLLAPSED_KEY = 'plotpilot_sidebar_collapsed'
+
+const collapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed.value))
+  emit('collapsed-change', collapsed.value)
+}
 
 const statsStore = useStatsStore()
 const { globalStats, loading } = storeToRefs(statsStore)
@@ -245,6 +271,12 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 100;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stats-sidebar.is-collapsed {
+  width: 52px;
+  overflow: hidden;
 }
 
 /* Brand Header */
@@ -256,6 +288,53 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   overflow: visible;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* 折叠时 brand header 缩小 */
+.is-collapsed .sidebar-brand {
+  min-height: auto;
+  padding: 12px 0;
+  justify-content: center;
+}
+
+.is-collapsed .brand-text,
+.is-collapsed .stats-section,
+.is-collapsed .quick-actions,
+.is-collapsed .sidebar-footer {
+  display: none;
+}
+
+.is-collapsed .logo-icon {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+}
+
+/* 折叠/展开切换按钮 */
+.collapse-toggle {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: background 0.18s ease;
+  padding: 0;
+}
+
+.collapse-toggle:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.is-collapsed .collapse-toggle {
+  margin: 0 auto;
 }
 
 .sidebar-brand::before {
@@ -543,7 +622,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .update-time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--app-text-muted, #64748b);
   display: flex;
   align-items: center;
@@ -564,7 +643,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .footer-link {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--app-text-muted, #64748b);
   text-decoration: none;
   display: inline-flex;

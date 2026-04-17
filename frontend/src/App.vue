@@ -10,96 +10,128 @@ const naiveTheme = computed(() =>
   themeStore.isDark ? darkTheme : undefined
 )
 
-const themeOverrides = computed<GlobalThemeOverrides>(() => {
-  const isDark = themeStore.isDark
-  const isAnchor = themeStore.isAnchor
+// ─── 静态调色板（不随主题变化，提升出来避免 computed 重建字符串）─────────────
+const LIGHT_PALETTE = {
+  primary:        '#4f46e5',
+  primaryHover:   '#6366f1',
+  primaryPressed: '#4338ca',
+  primarySuppl:   '#818cf8',
+  text1:          '#0f172a',
+  text2:          '#475569',
+  text3:          '#64748b',
+  border:         'rgba(15, 23, 42, 0.09)',
+  divider:        'rgba(15, 23, 42, 0.06)',
+  surface:        '#ffffff',
+  tableStriped:   '#f8fafc',
+  tableHover:     '#f8fafc',
+  inputBg:        '#ffffff',
+  drawerBg:       '#eef1f6',
+  selectBorder:   '#4f46e5',
+} as const
 
-  // 黑金模式专属色值
-  const anchorPrimary = '#c9a227'
-  const anchorPrimaryHover = '#ddb930'
-  const anchorPrimaryPressed = '#a88a1f'
-  const anchorText = '#f0ead6'
-  const anchorText2 = '#c4b99a'
-  const anchorText3 = '#8a8070'
-  const anchorSurface = '#111620'
-  const anchorBg = '#0a0c10'
-  const anchorInput = '#0d1018'
+const DARK_PALETTE = {
+  primary:        '#818cf8',
+  primaryHover:   '#a5b4fc',
+  primaryPressed: '#6366f1',
+  primarySuppl:   '#c7d2fe',
+  text1:          '#e2e8f0',
+  text2:          '#94a3b8',
+  text3:          '#64748b',
+  border:         'rgba(148, 163, 184, 0.12)',
+  divider:        'rgba(148, 163, 184, 0.08)',
+  surface:        '#1a2235',
+  tableStriped:   '#161d2e',
+  tableHover:     '#232d42',
+  inputBg:        '#161d2e',
+  drawerBg:       '#121826',
+  selectBorder:   '#818cf8',
+} as const
+
+const ANCHOR_PALETTE = {
+  primary:        '#c9a227',
+  primaryHover:   '#ddb930',
+  primaryPressed: '#a88a1f',
+  primarySuppl:   '#e8c84a',
+  text1:          '#f0ead6',
+  text2:          '#c4b99a',
+  text3:          '#8a8070',
+  border:         'rgba(201, 162, 39, 0.14)',
+  divider:        'rgba(201, 162, 39, 0.06)',
+  surface:        '#111620',
+  tableStriped:   '#0d1018',
+  tableHover:     '#181f2e',
+  inputBg:        '#0d1018',
+  drawerBg:       '#0a0c10',
+  selectBorder:   '#c9a227',
+} as const
+
+// 形状与间距等静态覆盖，与主题无关，freeze 后永不重建
+const SHAPE_OVERRIDES: GlobalThemeOverrides = Object.freeze({
+  common: {
+    borderRadius:      '10px',
+    borderRadiusSmall: '8px',
+    fontSize:          '14px',
+    fontSizeMedium:    '15px',
+    lineHeight:        '1.55',
+    heightMedium:      '38px',
+  },
+  Card:       { borderRadius: '14px', paddingMedium: '20px' },
+  Button:     { borderRadiusMedium: '10px' },
+  Input:      { borderRadius: '10px' },
+  Scrollbar:  { width: '8px', height: '8px', borderRadius: '4px' },
+  DataTable:  { borderRadius: '12px', thFontWeight: '600' },
+  Tag:        { borderRadius: '6px' },
+  Progress:   { railBorderRadius: '4px', fillBorderRadius: '4px' },
+  Drawer:     { bodyPadding: '0' },
+  Alert:      { border: 'none' },
+})
+
+// ─── 只有颜色部分是动态的，量少性能好 ─────────────────────────────────────
+const themeOverrides = computed<GlobalThemeOverrides>(() => {
+  const p = themeStore.isAnchor ? ANCHOR_PALETTE
+          : themeStore.isDark   ? DARK_PALETTE
+          :                       LIGHT_PALETTE
 
   return {
+    ...SHAPE_OVERRIDES,
     common: {
-      primaryColor: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
-      primaryColorHover: isAnchor ? anchorPrimaryHover : (isDark ? '#a5b4fc' : '#6366f1'),
-      primaryColorPressed: isAnchor ? anchorPrimaryPressed : (isDark ? '#6366f1' : '#4338ca'),
-      primaryColorSuppl: isAnchor ? '#e8c84a' : (isDark ? '#c7d2fe' : '#818cf8'),
-      borderRadius: '10px',
-      borderRadiusSmall: '8px',
-      fontSize: '14px',
-      fontSizeMedium: '15px',
-      lineHeight: '1.55',
-      heightMedium: '38px',
-
-      /* 文字 — 使用变量体系 */
-      bodyColor: isAnchor ? anchorText : (isDark ? '#e2e8f0' : '#0f172a'),
-      textColor1: isAnchor ? anchorText : (isDark ? '#e2e8f0' : '#0f172a'),
-      textColor2: isAnchor ? anchorText2 : (isDark ? '#94a3b8' : '#475569'),
-      textColor3: isAnchor ? anchorText3 : (isDark ? '#64748b' : '#64748b'),
-
-      /* 边框 */
-      borderColor: isAnchor ? 'rgba(201, 162, 39, 0.14)' : (isDark ? '#334155' : 'rgba(15, 23, 42, 0.09)'),
-      dividerColor: isAnchor ? 'rgba(201, 162, 39, 0.06)' : (isDark ? '#1e293b' : 'rgba(15, 23, 42, 0.06)'),
-
-      /* 背景（暗色禁止纯白）*/
-      cardColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
-      modalColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
-      popoverColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
-      tableColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
-      tableColorStriped: isAnchor ? anchorInput : (isDark ? '#0f172a' : '#f8fafc'),
-      tableColorHover: isAnchor ? '#181f2e' : (isDark ? '#1a2436' : '#f8fafc'),
-      tableHeaderColor: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
-    },
-    Card: {
-      borderRadius: '14px',
-      paddingMedium: '20px',
-    },
-    Button: {
-      borderRadiusMedium: '10px',
-    },
-    Input: {
-      borderRadius: '10px',
+      ...SHAPE_OVERRIDES.common,
+      primaryColor:        p.primary,
+      primaryColorHover:   p.primaryHover,
+      primaryColorPressed: p.primaryPressed,
+      primaryColorSuppl:   p.primarySuppl,
+      bodyColor:           p.text1,
+      textColor1:          p.text1,
+      textColor2:          p.text2,
+      textColor3:          p.text3,
+      borderColor:         p.border,
+      dividerColor:        p.divider,
+      cardColor:           p.surface,
+      modalColor:          p.surface,
+      popoverColor:        p.surface,
+      tableColor:          p.surface,
+      tableColorStriped:   p.tableStriped,
+      tableColorHover:     p.tableHover,
+      tableHeaderColor:    p.surface,
     },
     Select: {
       peers: {
         InternalSelection: {
-          color: isAnchor ? anchorInput : (isDark ? '#0f172a' : '#ffffff'),
-          borderActive: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
-          borderFocus: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
+          color:       p.inputBg,
+          borderActive: p.selectBorder,
+          borderFocus:  p.selectBorder,
         },
       },
     },
-    Drawer: {
-      color: isAnchor ? anchorBg : (isDark ? '#0b1121' : '#eef1f6'),
-      bodyPadding: '0',
-    },
+    Drawer: { ...SHAPE_OVERRIDES.Drawer, color: p.drawerBg },
     Tabs: {
-      tabTextColorActiveLine: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
-      tabTextColorHoverLine: isAnchor ? anchorText2 : (isDark ? '#94a3b8' : '#475569'),
-      barColor: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
+      tabTextColorActiveLine: p.primary,
+      tabTextColorHoverLine:  p.text2,
+      barColor:               p.primary,
     },
-    Switch: {
-      railColorActive: isAnchor ? anchorPrimary : (isDark ? '#818cf8' : '#4f46e5'),
-    },
-    Alert: {
-      color: isAnchor ? anchorSurface : (isDark ? '#131c31' : '#ffffff'),
-      border: 'none',
-    },
-    Form: {
-      labelTextColorTop: isAnchor ? anchorText2 : (isDark ? '#94a3b8' : '#475569'),
-    },
-    Scrollbar: {
-      width: '8px',
-      height: '8px',
-      borderRadius: '4px',
-    },
+    Switch: { railColorActive: p.primary },
+    Alert:  { ...SHAPE_OVERRIDES.Alert, color: p.surface },
+    Form:   { labelTextColorTop: p.text2 },
   }
 })
 </script>

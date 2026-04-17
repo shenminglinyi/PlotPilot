@@ -254,7 +254,7 @@ onMounted(() => {
   min-height: 68px;
   padding: 12px 14px;
   border-radius: var(--app-radius-xl);
-  color: var(--nav-hero-text, #ffffff);
+  color: var(--nav-hero-text);
   border-color: rgba(255, 255, 255, 0.28);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
   box-shadow:
@@ -263,7 +263,7 @@ onMounted(() => {
 }
 
 .plaza-main.variant-topbar .plaza-title {
-  color: var(--nav-hero-text, #ffffff);
+  color: var(--nav-hero-text);
 }
 
 .plaza-main.variant-topbar .plaza-subtitle {
@@ -297,9 +297,9 @@ onMounted(() => {
   min-height: 58px;
   padding: 0 14px;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
-  color: var(--app-text-inverse, #ffffff);
-  border: 1px solid color-mix(in srgb, var(--color-brand, #4f46e5) 50%, transparent);
+  background: linear-gradient(135deg, var(--color-brand-hover) 0%, var(--color-brand) 55%, var(--color-brand-pressed) 100%);
+  color: var(--app-text-inverse);
+  border: 1px solid color-mix(in srgb, var(--color-brand) 50%, transparent);
   box-shadow: none;
 }
 
@@ -466,8 +466,8 @@ onMounted(() => {
 .plaza-count {
   font-size: 10.5px;
   font-weight: 600;
-  background: var(--app-text-inverse, rgba(255, 255, 255, 0.2));
-  color: var(--app-text-inverse, #fff);
+  background: var(--app-text-inverse);
+  color: var(--app-text-primary);
   padding: 1px 7px;
   border-radius: 999px;
   letter-spacing: 0.3px;
@@ -507,7 +507,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, var(--color-plaza, #059669), var(--color-plaza-hover, #047857));
-  color: white;
+  color: var(--app-text-inverse);
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -0.01em;
@@ -515,7 +515,7 @@ onMounted(() => {
 .modal-header-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--n-text-color-1, #333);
+  color: var(--app-text-primary);
 }
 .modal-header-actions {
   display: flex;
@@ -532,7 +532,7 @@ onMounted(() => {
 /* ── Modal Footer ────────────────────────── */
 .modal-footer-hint {
   font-size: 12px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
 }
 
 /* ── 导入区域 ────────────────────────────── */
@@ -541,7 +541,7 @@ onMounted(() => {
 }
 .import-hint {
   font-size: 13px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
   margin-bottom: 12px;
 }
 </style>
