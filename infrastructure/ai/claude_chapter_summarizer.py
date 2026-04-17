@@ -1,4 +1,6 @@
 """Claude 章节摘要生成器实现"""
+import os
+
 from domain.ai.services.chapter_summarizer import ChapterSummarizer
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
@@ -11,6 +13,8 @@ class ClaudeChapterSummarizer(ChapterSummarizer):
     """
 
     def __init__(self, llm_service: LLMService):
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
         self.llm_service = llm_service
 
     async def summarize(self, content: str, max_length: int = 300) -> str:
@@ -51,7 +55,7 @@ Requirements:
 
             # 配置生成参数
             config = GenerationConfig(
-                model=os.getenv("WRITING_MODEL", ""),
+                model=os.getenv("WRITING_MODEL", "claude-3-5-sonnet-20241022"),
                 max_tokens=1024,
                 temperature=0.7
             )

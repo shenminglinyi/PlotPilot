@@ -8,10 +8,12 @@ Collection 命名约定：
   * kind: str - "chapter_summary" | "bible_snippet"
   * novel_id: str - 小说 ID（冗余但便于跨 collection 查询）
 """
-import uuid
+import logging
 from typing import Optional
 from domain.ai.services.embedding_service import EmbeddingService
 from domain.ai.services.vector_store import VectorStore
+
+logger = logging.getLogger(__name__)
 
 
 class ChapterIndexingService:
@@ -49,9 +51,7 @@ class ChapterIndexingService:
         Returns:
             collection 名称，格式为 novel_{novel_id}_chunks
         """
-        # novel_id 可能包含 "novel-" 前缀，需要去掉避免重复
-        normalized_id = novel_id.replace("novel-", "") if novel_id.startswith("novel-") else novel_id
-        return f"novel_{normalized_id}_chunks"
+        return f"novel_{novel_id}_chunks"
 
     async def ensure_collection(self, novel_id: str) -> None:
         """确保 collection 存在，如果不存在则创建
@@ -118,8 +118,7 @@ class ChapterIndexingService:
             "novel_id": novel_id
         }
 
-        # 构造唯一 ID（Qdrant 要求 UUID 或 uint64，用 uuid5 生成确定性 UUID）
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{novel_id}_ch{chapter_number}_summary"))
+        point_id = f"{novel_id}_ch{chapter_number}_summary"
 
         # 写入向量存储
         collection_name = self._get_collection_name(novel_id)
@@ -170,9 +169,11 @@ class ChapterIndexingService:
             "novel_id": novel_id
         }
 
-        # 构造唯一 ID（Qdrant 要求 UUID 或 uint64，用 uuid5 生成确定性 UUID）
-        raw_id = f"{novel_id}_ch{chapter_number}_bible_{snippet_id}" if snippet_id else f"{novel_id}_ch{chapter_number}_bible"
-        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, raw_id))
+        point_id = (
+            f"{novel_id}_ch{chapter_number}_bible_{snippet_id}"
+            if snippet_id
+            else f"{novel_id}_ch{chapter_number}_bible"
+        )
 
         # 写入向量存储
         collection_name = self._get_collection_name(novel_id)

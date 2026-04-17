@@ -98,8 +98,9 @@ class TestClaudeChapterSummarizer:
 
 
 @pytest.mark.skipif(
-    os.getenv("ANTHROPIC_API_KEY") is None,
-    reason="ANTHROPIC_API_KEY not set"
+    not os.getenv("ANTHROPIC_API_KEY")
+    or os.getenv("ANTHROPIC_API_KEY", "").startswith("test-"),
+    reason="ANTHROPIC_API_KEY not set or placeholder"
 )
 class TestClaudeChapterSummarizerIntegration:
     """ClaudeChapterSummarizer 集成测试（需要真实 API key）"""

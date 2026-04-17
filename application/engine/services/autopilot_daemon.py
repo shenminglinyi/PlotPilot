@@ -890,30 +890,37 @@ class AutopilotDaemon:
                 post = await self.chapter_workflow.post_process_generated_chapter(
                     novel.novel_id.value, chapter_num, outline, chapter_content, scene_director=None
                 )
-                chapter_content = post.get("content") or chapter_content
-                seam_rewrite_info = post.get("seam_rewrite_info") or {}
-                await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="draft")
-                logger.info(f"[{novel.novel_id}]    ✅ post_process_generated_chapter 完成")
-                if getattr(self.chapter_workflow, "_requires_manual_seam_revision", None) and \
-                        self.chapter_workflow._requires_manual_seam_revision(seam_rewrite_info):
-                    logger.warning(
-                        "[%s] 第 %s 章接缝复检未通过，进入人工修订: attempts=%s status=%s",
+                if isinstance(post, dict):
+                    chapter_content = post.get("content") or chapter_content
+                    seam_rewrite_info = post.get("seam_rewrite_info") or {}
+                    await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="draft")
+                    logger.info(f"[{novel.novel_id}]    ✅ post_process_generated_chapter 完成")
+                    if getattr(self.chapter_workflow, "_requires_manual_seam_revision", None) and \
+                            self.chapter_workflow._requires_manual_seam_revision(seam_rewrite_info):
+                        logger.warning(
+                            "[%s] 第 %s 章接缝复检未通过，进入人工修订: attempts=%s status=%s",
+                            novel.novel_id,
+                            chapter_num,
+                            seam_rewrite_info.get("attempts"),
+                            seam_rewrite_info.get("status"),
+                        )
+                        await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="reviewing")
+                        novel.current_stage = NovelStage.PAUSED_FOR_SEAM_REVIEW
+                        novel.last_audit_chapter_number = chapter_num
+                        novel.last_audit_narrative_ok = False
+                        novel.last_audit_at = datetime.now(timezone.utc).isoformat()
+                        novel.last_audit_issues = [{
+                            "type": "seam_check_failed",
+                            "message": "章节接缝复检未通过，需要人工修订开头后再继续。",
+                        }]
+                        self._flush_novel(novel)
+                        return
+                else:
+                    logger.debug(
+                        "[%s] post_process_generated_chapter 返回非 dict，跳过后处理落库: %s",
                         novel.novel_id,
-                        chapter_num,
-                        seam_rewrite_info.get("attempts"),
-                        seam_rewrite_info.get("status"),
+                        type(post).__name__,
                     )
-                    await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="reviewing")
-                    novel.current_stage = NovelStage.PAUSED_FOR_SEAM_REVIEW
-                    novel.last_audit_chapter_number = chapter_num
-                    novel.last_audit_narrative_ok = False
-                    novel.last_audit_at = datetime.now(timezone.utc).isoformat()
-                    novel.last_audit_issues = [{
-                        "type": "seam_check_failed",
-                        "message": "章节接缝复检未通过，需要人工修订开头后再继续。",
-                    }]
-                    self._flush_novel(novel)
-                    return
             except Exception as e:
                 logger.warning(f"post_process_generated_chapter 失败（仍落库）：{e}")
 

@@ -1,4 +1,6 @@
 """OpenAI 嵌入服务实现"""
+import os
+
 from typing import List, Optional
 from openai import AsyncOpenAI
 from domain.ai.services.embedding_service import EmbeddingService
@@ -13,7 +15,7 @@ class OpenAIEmbeddingService(EmbeddingService):
 
     def __init__(
         self,
-        api_key: str,
+        api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
     ):
@@ -27,12 +29,13 @@ class OpenAIEmbeddingService(EmbeddingService):
         Raises:
             ValueError: 如果 api_key 为空
         """
+        api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise ValueError("api_key is required for OpenAIEmbeddingService")
+            raise ValueError("OPENAI_API_KEY environment variable is required")
 
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url or None)
         self.model = model or "text-embedding-3-small"
-        self._dimension: int = 0
+        self._dimension: int = 1536
 
     @classmethod
     def from_config(cls, config: dict) -> "OpenAIEmbeddingService":

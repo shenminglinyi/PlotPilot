@@ -8,7 +8,8 @@ from domain.novel.value_objects.novel_id import NovelId
 from interfaces.api.dependencies import (
     get_novel_repository,
     get_chapter_repository,
-    get_foreshadowing_repository
+    get_foreshadowing_repository,
+    get_llm_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,76 @@ class ForeshadowStatsResponse(BaseModel):
     resolution_rate: float
 
 
+def _is_default_tension(value: Any) -> bool:
+    """判断张力值是否仍是默认中性值。"""
+    try:
+        return abs(float(value) - 50.0) < 1e-6
+    except (TypeError, ValueError):
+        return False
+
+
+def _needs_tension_backfill(chapter: Any) -> bool:
+    """正文已存在，但张力四字段仍全为默认值时触发懒回填。"""
+    content = (getattr(chapter, "content", "") or "").strip()
+    if not content:
+        return False
+    return all(
+        _is_default_tension(getattr(chapter, field, None))
+        for field in ("tension_score", "plot_tension", "emotional_tension", "pacing_tension")
+    )
+
+
+async def _backfill_tension_scores_if_needed(novel_id: str, chapters: List[Any], chapter_repo: Any) -> List[Any]:
+    """为历史默认值章节补算张力，并立即落库。"""
+    if not chapters:
+        return chapters
+
+    from application.analyst.services.tension_scoring_service import TensionScoringService
+
+    tension_service = TensionScoringService(get_llm_service())
+    changed = False
+    prev_tension = 50.0
+
+    for ch in sorted(chapters, key=lambda item: item.number):
+        if not _needs_tension_backfill(ch):
+            raw_tension = getattr(ch, "tension_score", None)
+            if raw_tension is not None:
+                prev_tension = float(raw_tension)
+            continue
+
+        try:
+            dims = await tension_service.score_chapter(
+                chapter_content=ch.content,
+                chapter_number=ch.number,
+                prev_chapter_tension=prev_tension,
+            )
+            if any(
+                not _is_default_tension(value)
+                for value in (
+                    dims.composite_score,
+                    dims.plot_tension,
+                    dims.emotional_tension,
+                    dims.pacing_tension,
+                )
+            ):
+                ch.update_tension_dimensions(dims)
+                chapter_repo.save(ch)
+                changed = True
+                logger.info(
+                    "监控接口懒回填张力 novel=%s ch=%s composite=%.1f",
+                    novel_id,
+                    ch.number,
+                    dims.composite_score,
+                )
+            prev_tension = float(dims.composite_score)
+        except Exception as e:
+            logger.warning("监控接口张力懒回填失败 novel=%s ch=%s: %s", novel_id, ch.number, e)
+
+    if changed:
+        return chapter_repo.list_by_novel(NovelId(novel_id))
+    return chapters
+
+
 @router.get("/{novel_id}/monitor/tension-curve", response_model=TensionCurveResponse)
 async def get_tension_curve(novel_id: str):
     """
@@ -52,11 +123,14 @@ async def get_tension_curve(novel_id: str):
     try:
         chapter_repo = get_chapter_repository()
         chapters = chapter_repo.list_by_novel(NovelId(novel_id))
+        chapters = await _backfill_tension_scores_if_needed(novel_id, chapters, chapter_repo)
 
         points = []
         for ch in chapters:
             # 从章节元数据中获取张力值（0-100），转换为 0-10 范围
-            raw_tension = getattr(ch, 'tension_score', None) or 50.0
+            raw_tension = getattr(ch, 'tension_score', None)
+            if raw_tension is None:
+                raw_tension = 50.0
             tension = float(raw_tension) / 10.0  # 转换为 0-10 范围
             points.append(TensionPoint(
                 chapter=ch.number,

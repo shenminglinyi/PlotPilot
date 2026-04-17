@@ -113,20 +113,20 @@ class StateUpdater:
             logger.debug(f"Updating Bible with {len(chapter_state.new_characters)} new characters")
             bible = self.bible_repository.get_by_novel_id(novel_id_obj)
             if bible is None:
-                logger.warning(f"Bible not found for novel {novel_id}, skipping character update")
-            else:
-                for char_data in chapter_state.new_characters:
-                    char_id = CharacterId(str(uuid.uuid4()))
-                    character = Character(
-                        id=char_id,
-                        name=char_data.get("name", "未知角色"),
-                        description=char_data.get("description", "")
-                    )
-                    bible.add_character(character)
-                    logger.debug(f"Added character: {char_data.get('name')}")
+                raise ValueError("Bible not found")
 
-                self.bible_repository.save(bible)
-                logger.info(f"Bible updated: added {len(chapter_state.new_characters)} new characters for novel {novel_id}")
+            for char_data in chapter_state.new_characters:
+                char_id = CharacterId(str(uuid.uuid4()))
+                character = Character(
+                    id=char_id,
+                    name=char_data.get("name", "未知角色"),
+                    description=char_data.get("description", "")
+                )
+                bible.add_character(character)
+                logger.debug(f"Added character: {char_data.get('name')}")
+
+            self.bible_repository.save(bible)
+            logger.info(f"Bible updated: added {len(chapter_state.new_characters)} new characters for novel {novel_id}")
         else:
             logger.debug("No new characters to add")
 
@@ -139,11 +139,7 @@ class StateUpdater:
             )
             foreshadowing_registry = self.foreshadowing_repository.get_by_novel_id(novel_id_obj)
             if foreshadowing_registry is None:
-                logger.info(f"ForeshadowingRegistry not found for novel {novel_id}, creating new one")
-                foreshadowing_registry = ForeshadowingRegistry(
-                    id=str(uuid.uuid4()),
-                    novel_id=novel_id_obj
-                )
+                raise ValueError("ForeshadowingRegistry not found")
 
             # 添加新伏笔
             for foreshadow_data in chapter_state.foreshadowing_planted:

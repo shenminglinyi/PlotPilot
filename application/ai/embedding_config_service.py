@@ -19,7 +19,7 @@ class EmbeddingConfigModel(BaseModel):
     """嵌入配置数据模型。"""
     model_config = {"protected_namespaces": ()}
     id: str = "default"
-    mode: str = "openai"  # local | openai（默认云端，轻量）
+    mode: str = "local"  # local | openai
     api_key: str = ""
     base_url: str = ""
     model: str = "text-embedding-3-small"
@@ -48,7 +48,7 @@ class EmbeddingConfigModel(BaseModel):
     def from_row(cls, row: Dict[str, Any]) -> "EmbeddingConfigModel":
         return cls(
             id=row["id"],
-            mode=row.get("mode", "openai"),
+            mode=row.get("mode", "local"),
             api_key=row.get("api_key", ""),
             base_url=row.get("base_url", ""),
             model=row.get("model", "text-embedding-3-small"),
@@ -70,7 +70,7 @@ class EmbeddingConfigService:
 
     _DEFAULTS = {
         "id": "default",
-        "mode": "openai",
+        "mode": "local",
         "api_key": "",
         "base_url": "",
         "model": "text-embedding-3-small",

@@ -151,13 +151,9 @@ class RelationshipEngine:
         Returns:
             共同连接的角色 ID 列表
         """
-        # 获取两个角色的所有关系
-        char1_relationships = self._graph.get_all_relationships(char1_id)
-        char2_relationships = self._graph.get_all_relationships(char2_id)
-
-        # 提取角色 ID
-        char1_connections = {char_id for char_id, _ in char1_relationships}
-        char2_connections = {char_id for char_id, _ in char2_relationships}
+        adjacency = getattr(self._graph, "_adjacency_list", {})
+        char1_connections = set(adjacency.get(char1_id, {}).keys())
+        char2_connections = set(adjacency.get(char2_id, {}).keys())
 
         # 找出共同连接（排除彼此）
         common = char1_connections & char2_connections

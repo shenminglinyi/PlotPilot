@@ -47,18 +47,17 @@ class TestAnthropicProvider:
                 content=[Mock(type="text", text="Hi there!")],
                 usage=Mock(input_tokens=10, output_tokens=5)
             )
+            result = await provider.generate(prompt, config)
 
-        result = await provider.generate(prompt, config)
+            assert result.content == "Hi there!"
+            assert result.token_usage.input_tokens == 10
+            assert result.token_usage.output_tokens == 5
 
-        assert result.content == "Hi there!"
-        assert result.token_usage.input_tokens == 10
-        assert result.token_usage.output_tokens == 5
-
-        mock_create.assert_called_once()
-        call_kwargs = mock_create.call_args[1]
-        assert call_kwargs['model'] == "claude-3-5-sonnet-20241022"
-        assert call_kwargs['temperature'] == 0.7
-        assert call_kwargs['max_tokens'] == 4096
+            mock_create.assert_called_once()
+            call_kwargs = mock_create.call_args[1]
+            assert call_kwargs['model'] == "claude-3-5-sonnet-20241022"
+            assert call_kwargs['temperature'] == 0.7
+            assert call_kwargs['max_tokens'] == 4096
 
     @pytest.mark.asyncio
     async def test_generate_with_custom_config(self, provider):
@@ -75,13 +74,12 @@ class TestAnthropicProvider:
                 content=[Mock(type="text", text="Response")],
                 usage=Mock(input_tokens=20, output_tokens=10)
             )
+            await provider.generate(prompt, config)
 
-        await provider.generate(prompt, config)
-
-        call_kwargs = mock_create.call_args[1]
-        assert call_kwargs['model'] == "claude-3-opus-20240229"
-        assert call_kwargs['temperature'] == 0.5
-        assert call_kwargs['max_tokens'] == 2048
+            call_kwargs = mock_create.call_args[1]
+            assert call_kwargs['model'] == "claude-3-opus-20240229"
+            assert call_kwargs['temperature'] == 0.5
+            assert call_kwargs['max_tokens'] == 2048
 
     @pytest.mark.asyncio
     async def test_generate_accepts_text_blocks_without_type(self, provider):
@@ -139,9 +137,8 @@ class TestAnthropicProvider:
                 content=[],
                 usage=Mock(input_tokens=10, output_tokens=5)
             )
-
-        with pytest.raises(RuntimeError, match="empty content"):
-            await provider.generate(prompt, config)
+            with pytest.raises(RuntimeError, match="empty content"):
+                await provider.generate(prompt, config)
 
     @pytest.mark.asyncio
     async def test_generate_api_error(self, provider):

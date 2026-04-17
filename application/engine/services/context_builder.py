@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from application.world.services.bible_service import BibleService
 from domain.bible.services.relationship_engine import RelationshipEngine
 from domain.novel.services.storyline_manager import StorylineManager
+from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.novel.repositories.plot_arc_repository import PlotArcRepository
@@ -125,8 +126,17 @@ class ContextBuilder:
             total_budget=max_tokens,
             scene_director=scene_director,
         )
-        
-        return allocation.get_final_context()
+
+        final_context = allocation.get_final_context()
+        if final_context.strip():
+            return final_context
+        return self._build_legacy_context(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            max_tokens=max_tokens,
+            scene_director=scene_director,
+        )
 
     def build_structured_context(
         self,
@@ -182,7 +192,7 @@ class ContextBuilder:
                 layer3_parts.append(f"=== {slot.name.upper()} ===\n{slot.content}")
                 layer3_tokens += slot.tokens
         
-        return {
+        result = {
             "layer1_text": "\n\n".join(layer1_parts),
             "layer2_text": "\n\n".join(layer2_parts),
             "layer3_text": "\n\n".join(layer3_parts),
@@ -193,6 +203,200 @@ class ContextBuilder:
                 "total": allocation.used_tokens,
             },
         }
+        if any(result[key].strip() for key in ("layer1_text", "layer2_text", "layer3_text")):
+            return result
+        return self._build_legacy_structured_context(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            max_tokens=max_tokens,
+            scene_director=scene_director,
+        )
+
+    def _build_legacy_context(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        max_tokens: int,
+        scene_director: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        structured = self._build_legacy_structured_context(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            max_tokens=max_tokens,
+            scene_director=scene_director,
+        )
+        return "\n\n".join(
+            part for part in (
+                structured["layer1_text"],
+                structured["layer2_text"],
+                structured["layer3_text"],
+            )
+            if part.strip()
+        )
+
+    def _build_legacy_structured_context(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        max_tokens: int,
+        scene_director: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        layer1 = self._build_layer1_legacy(novel_id, chapter_number, outline)
+        layer2 = self._build_layer2_smart_retrieval(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            budget=max_tokens,
+            scene_director=scene_director,
+        )
+        total = len(layer1) + len(layer2)
+        return {
+            "layer1_text": layer1,
+            "layer2_text": layer2,
+            "layer3_text": "",
+            "token_usage": {
+                "layer1": len(layer1),
+                "layer2": len(layer2),
+                "layer3": 0,
+                "total": total,
+            },
+        }
+
+    def _build_layer1_legacy(self, novel_id: str, chapter_number: int, outline: str) -> str:
+        parts: List[str] = []
+        novel = self.novel_repository.get_by_id(novel_id)
+        if novel:
+            parts.append(
+                f"=== NOVEL ===\nTitle: {getattr(novel, 'title', '')}\nAuthor: {getattr(novel, 'author', '')}\nChapter {chapter_number}\nOutline: {outline}"
+            )
+
+        if getattr(self.storyline_manager, "repository", None):
+            storylines = self.storyline_manager.repository.get_by_novel_id(NovelId(novel_id)) or []
+            if storylines:
+                lines = ["=== ACTIVE STORYLINES ===", "Active Storylines:"]
+                for storyline in storylines:
+                    lines.append(f"- {getattr(getattr(storyline, 'storyline_type', None), 'value', '')}")
+                parts.append("\n".join(lines))
+
+        if self.plot_arc_repository:
+            arc = self.plot_arc_repository.get_by_novel_id(NovelId(novel_id))
+            points = []
+            if arc:
+                points = list(getattr(arc, "plot_points", None) or getattr(arc, "key_points", None) or [])
+            if points:
+                points = sorted(points, key=lambda p: p.chapter_number)
+                nearest = min(points, key=lambda p: abs(p.chapter_number - chapter_number))
+                parts.append(
+                    "\n".join(
+                        [
+                            "=== PLOT ARC ===",
+                            "Plot arc (pacing)",
+                            f"Expected tension for this chapter: {getattr(getattr(nearest, 'tension', None), 'value', getattr(nearest, 'tension', ''))}",
+                        ]
+                    )
+                )
+
+        bible = self.bible_service.get_bible_by_novel(novel_id)
+        if bible and getattr(bible, "timeline_notes", None):
+            lines = ["=== BIBLE TIMELINE ===", "Bible timeline notes"]
+            for note in bible.timeline_notes:
+                lines.append(f"- {getattr(note, 'event', '')}: {getattr(note, 'description', '')}")
+            parts.append("\n".join(lines))
+
+        return "\n\n".join(parts)
+
+    def _build_layer2_smart_retrieval(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        budget: int,
+        scene_director: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        parts: List[str] = []
+        bible = self.bible_service.get_bible_by_novel(novel_id)
+
+        selected_character_names = None
+        if scene_director and getattr(scene_director, "characters", None):
+            selected_character_names = set(scene_director.characters)
+
+        if bible and getattr(bible, "characters", None):
+            lines = ["=== CHARACTERS ==="]
+            for char in bible.characters:
+                name = getattr(char, "name", "")
+                if selected_character_names and name not in selected_character_names:
+                    continue
+                public_profile = getattr(char, "public_profile", None) or getattr(char, "description", "")
+                hidden_profile = getattr(char, "hidden_profile", None)
+                reveal_chapter = getattr(char, "reveal_chapter", None)
+                lines.append(f"- {name}: {public_profile}")
+                if hidden_profile and (reveal_chapter is None or chapter_number >= reveal_chapter):
+                    lines.append(f"  Hidden: {hidden_profile}")
+            if len(lines) > 1:
+                parts.append("\n".join(lines))
+
+        if bible and getattr(bible, "world_settings", None) and scene_director and getattr(scene_director, "trigger_keywords", None):
+            trigger_lines = ["=== TRIGGERED WORLD SETTINGS ===", "Triggered World Settings"]
+            keywords = [str(keyword).strip() for keyword in scene_director.trigger_keywords if str(keyword).strip()]
+            for setting in bible.world_settings:
+                haystack = " ".join(
+                    str(getattr(setting, field, "") or "")
+                    for field in ("name", "setting_type", "description")
+                )
+                if any(keyword in haystack for keyword in keywords):
+                    trigger_lines.append(
+                        f"- {getattr(setting, 'name', '')}: {getattr(setting, 'description', '')}"
+                    )
+            if len(trigger_lines) > 2:
+                parts.append("\n".join(trigger_lines))
+
+        chapters = self.chapter_repository.list_by_novel(NovelId(novel_id)) or []
+        recent_lines = ["=== RECENT CHAPTERS ==="]
+        for chapter in chapters:
+            if getattr(chapter, "number", 0) < chapter_number:
+                title = getattr(chapter, "title", "") or f"Chapter {getattr(chapter, 'number', '')}"
+                recent_lines.append(
+                    f"- {title}: {getattr(chapter, 'content', '')[:200]}"
+                )
+        if len(recent_lines) > 1:
+            parts.append("\n".join(recent_lines))
+
+        vector_text = self._collect_vector_results(novel_id, chapter_number, outline)
+        if vector_text:
+            parts.append(vector_text)
+
+        layer2 = "\n\n".join(parts)
+        if len(layer2) > budget:
+            layer2 = layer2[:budget]
+        return layer2
+
+    def _collect_vector_results(self, novel_id: str, chapter_number: int, outline: str) -> str:
+        if not getattr(self, "vector_facade", None):
+            return ""
+
+        try:
+            collection = f"novel_{novel_id}_chunks"
+            results = self.vector_facade.sync_search(collection, outline, limit=5)
+        except Exception:
+            return ""
+
+        lines = ["=== VECTOR RESULTS ==="]
+        for item in results:
+            payload = item.get("payload", {})
+            hit_chapter = payload.get("chapter_number")
+            if isinstance(hit_chapter, int) and abs(hit_chapter - chapter_number) > 10:
+                continue
+            text = str(payload.get("text", "")).strip()
+            if text:
+                lines.append(f"- {text}")
+
+        if len(lines) == 1:
+            return ""
+        return "\n".join(lines)
 
     def magnify_outline_to_beats(self, chapter_number: int, outline: str, target_chapter_words: int = AppConfig.DEFAULT_WORDS_PER_CHAPTER) -> List[Beat]:
         """节拍放大器：将章节大纲拆分为微观节拍

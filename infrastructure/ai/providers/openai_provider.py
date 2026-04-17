@@ -70,7 +70,7 @@ class OpenAIProvider(BaseProvider):
             if use_responses:
                 try:
                     return await self._generate_via_responses(prompt, config)
-                except (openai.NotFoundError, openai.BadRequestError, RuntimeError) as e:
+                except (openai.NotFoundError, openai.BadRequestError) as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
                     self._persist_legacy_flag(True)
