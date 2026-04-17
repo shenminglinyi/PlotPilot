@@ -3,6 +3,22 @@
     <StatsSidebar @create-book="focusCreateInput" @refresh-list="handleRefreshList" />
     <div class="home-content">
       <div class="home-bg" aria-hidden="true" />
+
+      <!-- 顶栏：与工作台 StatsTopBar 一致，放 AI 控制台 / 提示词广场 -->
+      <nav class="home-top-nav" aria-label="全局工具">
+        <div class="home-top-nav-inner">
+          <div class="home-top-nav-tools">
+            <GlobalLLMEntryButton appearance="topbar" />
+            <PromptPlazaEntryButton appearance="topbar" />
+          </div>
+          <button type="button" class="home-nav-settings-btn" @click="showLLMSettings = true" aria-label="LLM 设置">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20">
+              <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
+            </svg>
+          </button>
+        </div>
+      </nav>
+
       <div class="container">
         <!-- Header -->
         <header class="header">
@@ -10,11 +26,6 @@
             <h1 class="title">书稿工作台</h1>
             <p class="subtitle">从一句梗概到完整书稿，结构规划与校阅一站完成</p>
           </div>
-          <button class="settings-btn" @click="showLLMSettings = true" aria-label="LLM 设置">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22">
-              <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
-            </svg>
-          </button>
         </header>
 
         <!-- Create Card -->
@@ -372,6 +383,8 @@ import { novelApi, type NovelDTO } from '../api/novel'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
+import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
+import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 import { useStatsStore } from '@/stores/statsStore'
 
 // Icons
@@ -683,6 +696,69 @@ onMounted(() => {
   overflow: hidden;
 }
 
+/* 顶栏：与 StatsTopBar 同款渐变，AI 控制台 / 提示词广场 / 设置 */
+.home-top-nav {
+  position: relative;
+  z-index: 2;
+  margin: -32px -32px 28px -32px;
+  padding: 12px 20px 14px;
+  background: var(--stats-bar-gradient);
+  border-bottom: var(--stats-bar-border-bottom, 1px solid rgba(255, 255, 255, 0.08));
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 8px 28px rgba(0, 0, 0, 0.12);
+}
+
+.home-top-nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.home-top-nav-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.home-top-nav-tools :deep(.global-llm-main.variant-topbar),
+.home-top-nav-tools :deep(.plaza-main.variant-topbar) {
+  width: auto;
+  min-height: 46px;
+  padding: 8px 14px;
+}
+
+.home-nav-settings-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--nav-hero-text, #ffffff);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.home-nav-settings-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.04);
+}
+
+.home-nav-settings-btn:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
+}
+
 .home-bg {
   position: absolute;
   inset: 0;
@@ -705,7 +781,6 @@ onMounted(() => {
   text-align: center;
   margin-bottom: 40px;
   animation: fade-up 0.55s ease both;
-  position: relative;
 }
 
 .title {
@@ -723,56 +798,6 @@ onMounted(() => {
   font-weight: 400;
 }
 
-.settings-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 40px;
-  height: 40px;
-  border: none;
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--app-text-secondary, #94a3b8);
-  transition: all 0.18s ease;
-  backdrop-filter: blur(8px);
-}
-
-/* 头部操作按钮组 */
-.header-actions {
-  position: absolute;
-  top: 0;
-  right: 16px;
-  display: flex;
-  gap: 8px;
-}
-.header-actions .settings-btn {
-  position: static;
-}
-
-/* 提示词广场按钮 */
-.plaza-btn {
-  background: linear-gradient(135deg, #eef2ff, #ede9fe) !important;
-  border-color: #c7d2fe !important;
-}
-.plaza-btn:hover {
-  background: linear-gradient(135deg, #e0e7ff, #ddd6fe) !important;
-  color: #6366f1 !important;
-  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.15) !important;
-}
-.plaza-btn-icon {
-  font-size: 18px;
-}
-
-.settings-btn:hover {
-  background: var(--color-brand-light);
-  color: var(--color-brand);
-  box-shadow: var(--app-shadow-md);
-}
 
 .create-card {
   margin-bottom: 32px;
@@ -1086,6 +1111,10 @@ onMounted(() => {
   .home-content {
     padding: 24px;
   }
+
+  .home-top-nav {
+    margin: -24px -24px 24px -24px;
+  }
 }
 
 /* ── 底部版权 ──────────────────────────────── */
@@ -1141,17 +1170,30 @@ onMounted(() => {
   box-shadow: 0 0 8px var(--color-glow-gold);
 }
 
-/* Responsive */
-@media (max-width: 1200px) {
-  .home-content {
-    padding: 24px;
-  }
-}
-
 @media (max-width: 768px) {
   .home-content {
     margin-left: 0;
     padding: 16px;
+  }
+
+  .home-top-nav {
+    margin: -16px -16px 20px -16px;
+    padding: 10px 14px 12px;
+  }
+
+  .home-top-nav-tools {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .home-top-nav-inner {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .home-nav-settings-btn {
+    align-self: flex-end;
   }
 
   .section-header {

@@ -115,6 +115,14 @@ body {
   /* ── StatsTopBar 渐变 ── */
   --stats-bar-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
 
+  /* 彩色顶栏上的文字与「药丸」图标底（与 --app-text-inverse 解耦：暗色主题里 inverse 是深色字，不能用在渐变条上） */
+  --nav-hero-text: #ffffff;
+  --nav-hero-text-muted: rgba(255, 255, 255, 0.86);
+  --nav-hero-pill-bg-top: rgba(255, 255, 255, 0.26);
+  --nav-hero-pill-bg-bottom: rgba(255, 255, 255, 0.1);
+  --nav-hero-pill-border: rgba(255, 255, 255, 0.32);
+  --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+
   /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
   --tab-track-bg: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
   --tab-track-shadow: 0 2px 10px var(--color-brand-border), 0 1px 3px var(--color-brand-border);
@@ -192,6 +200,13 @@ body {
   /* ── StatsTopBar 渐变（暗色版：深靛蓝+微光）── */
   --stats-bar-gradient: linear-gradient(135deg, #1e293b 0%, #334155 35%, #1e3a5f 65%, #172554 100%);
 
+  --nav-hero-text: #f8fafc;
+  --nav-hero-text-muted: rgba(248, 250, 252, 0.82);
+  --nav-hero-pill-bg-top: rgba(255, 255, 255, 0.16);
+  --nav-hero-pill-bg-bottom: rgba(255, 255, 255, 0.06);
+  --nav-hero-pill-border: rgba(255, 255, 255, 0.22);
+  --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+
   color-scheme: dark;
 }
 
@@ -256,6 +271,13 @@ body {
 
   /* 黑金模式顶部栏额外装饰：金色底边线 */
   --stats-bar-border-bottom: 1px solid rgba(212, 168, 67, 0.18);
+
+  --nav-hero-text: #faf6ee;
+  --nav-hero-text-muted: rgba(250, 246, 238, 0.78);
+  --nav-hero-pill-bg-top: rgba(212, 168, 67, 0.22);
+  --nav-hero-pill-bg-bottom: rgba(10, 12, 16, 0.35);
+  --nav-hero-pill-border: rgba(212, 168, 67, 0.35);
+  --nav-hero-shadow: 0 1px 0 rgba(245, 215, 126, 0.12) inset;
 
   color-scheme: dark;
 }
