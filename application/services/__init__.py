@@ -26,7 +26,6 @@ _MODULE_ALIASES = {
     "state_extractor": "application.analyst.services.state_extractor",
     "state_updater": "application.analyst.services.state_updater",
     "style_constraint_builder": "application.engine.services.style_constraint_builder",
-    "subtext_matching_service": "application.analyst.services.subtext_matching_service",
     "tension_analyzer": "application.analyst.services.tension_analyzer",
     "trigger_keyword_catalog": "application.engine.services.trigger_keyword_catalog",
     "voice_drift_service": "application.analyst.services.voice_drift_service",

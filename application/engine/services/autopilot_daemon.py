@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
+from domain.novel.entities.chapter import ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
@@ -24,11 +25,13 @@ from application.engine.services.background_task_service import BackgroundTaskSe
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
 from application.engine.services.style_constraint_builder import build_style_summary
+from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 from domain.novel.value_objects.chapter_id import ChapterId
 
 logger = logging.getLogger(__name__)
 
-VOICE_REWRITE_MAX_ATTEMPTS = 2
+# 定向修文：单章内 LLM 修文轮数上限（与全局一致）
+VOICE_REWRITE_MAX_ATTEMPTS = LLM_MAX_TOTAL_ATTEMPTS
 VOICE_REWRITE_THRESHOLD = 0.68
 VOICE_WARNING_THRESHOLD_FALLBACK = 0.75
 
@@ -592,7 +595,10 @@ class AutopilotDaemon:
         # 5. 节拍放大
         beats = []
         if self.context_builder:
-            beats = self.context_builder.magnify_outline_to_beats(chapter_num, outline, target_chapter_words=3500)
+            tw = getattr(novel, "target_words_per_chapter", None) or 2500
+            beats = self.context_builder.magnify_outline_to_beats(
+                chapter_num, outline, target_chapter_words=int(tw)
+            )
 
         if not self._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 用户已停止（节拍拆分后）")
@@ -707,15 +713,27 @@ class AutopilotDaemon:
 
         logger.info(f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{len(chapter_content)} 字 (共 {novel.current_auto_chapters}/{novel.target_chapters} 章)")
 
+    def _latest_completed_chapter_number(self, novel_id: NovelId) -> Optional[int]:
+        """已完结章节的最大章节号（与故事树全局章节号一致）。
+
+        不能用 current_act * 10 + current_chapter_in_act 推算：幕内常见每幕 5 章，
+        进入第二幕后会得到 11、12…，与库中第 6、7 章错位，导致审计找不到章节、张力曲线断档。
+        """
+        chapters = self.chapter_repository.list_by_novel(novel_id)
+        completed = [c for c in chapters if c.status == ChapterStatus.COMPLETED]
+        if not completed:
+            return None
+        return max(c.number for c in completed)
+
     async def _handle_auditing(self, novel: Novel):
         """处理审计（含张力打分）"""
         if not self._is_still_running(novel):
             return
 
-        chapter_num = novel.current_act * 10 + novel.current_chapter_in_act  # 刚写完的章节
-
-        from domain.novel.value_objects.novel_id import NovelId
-        from domain.novel.value_objects.chapter_id import ChapterId
+        chapter_num = self._latest_completed_chapter_number(NovelId(novel.novel_id.value))
+        if chapter_num is None:
+            novel.current_stage = NovelStage.WRITING
+            return
 
         chapter = self.chapter_repository.get_by_novel_and_number(
             NovelId(novel.novel_id.value), chapter_num

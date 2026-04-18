@@ -20,7 +20,7 @@
           </div>
           <div class="bible-role-item bible-role-here">
             <span class="bible-role-k">写作风格</span>
-            <span class="bible-role-v">此处 · 文风公约</span>
+            <span class="bible-role-v">本书锁定 · 文风市场预设（只读标签）</span>
           </div>
           <div class="bible-role-item">
             <span class="bible-role-k">角色与地点</span>
@@ -51,6 +51,73 @@
 
     <n-scrollbar class="bible-scroll">
       <div class="bible-form">
+        <n-card
+          v-if="hasBookLock"
+          size="small"
+          class="bible-card bible-card-creation-lock"
+          :bordered="false"
+          :segmented="{ content: true, footer: false }"
+        >
+          <template #header>
+            <div class="bcard-head">
+              <span class="bcard-icon bcard-icon-lock" aria-hidden="true">◎</span>
+              <div>
+                <div class="bcard-title">本书锁定</div>
+                <div class="bcard-desc">
+                  赛道、世界观与文风市场预设仅作展示，不提供修改入口（与创建书目 / Bible 初始约定一致）。
+                </div>
+              </div>
+            </div>
+          </template>
+          <n-descriptions
+            :column="1"
+            label-placement="left"
+            size="small"
+            class="bible-creation-lock-desc"
+          >
+            <n-descriptions-item label="赛道 / 类型">{{ lockedGenre || '—' }}</n-descriptions-item>
+            <n-descriptions-item label="世界观基调">{{ lockedWorld || '—' }}</n-descriptions-item>
+            <n-descriptions-item label="文风市场预设">
+              <n-space size="small" wrap align="center">
+                <n-tag
+                  v-if="stylePresetTag.matched"
+                  type="info"
+                  size="small"
+                  round
+                  :bordered="false"
+                >
+                  {{ stylePresetTag.label }}
+                </n-tag>
+                <n-tag
+                  v-else-if="stylePresetTag.hasText"
+                  type="warning"
+                  size="small"
+                  round
+                  :bordered="false"
+                >
+                  {{ stylePresetTag.label }}
+                </n-tag>
+                <n-tag v-else type="default" size="small" round :bordered="false">—</n-tag>
+              </n-space>
+            </n-descriptions-item>
+          </n-descriptions>
+          <n-collapse
+            v-if="(state.style_notes || '').trim()"
+            class="bible-style-full-collapse"
+          >
+            <n-collapse-item title="查看完整文风公约文本" name="style">
+              <n-input
+                :value="state.style_notes"
+                type="textarea"
+                readonly
+                disabled
+                :autosize="{ minRows: 4, maxRows: 14 }"
+                class="bible-textarea bible-textarea-readonly"
+              />
+            </n-collapse-item>
+          </n-collapse>
+        </n-card>
+
         <n-card size="small" class="bible-card" :bordered="false" :segmented="{ content: true, footer: false }">
           <template #header>
             <div class="bcard-head bcard-head-row">
@@ -86,40 +153,6 @@
           />
         </n-card>
 
-        <n-card size="small" class="bible-card" :bordered="false" :segmented="{ content: true, footer: false }">
-          <template #header>
-            <div class="bcard-head">
-              <span class="bcard-icon bcard-icon-text" aria-hidden="true">文</span>
-              <div>
-                <div class="bcard-title">叙事与风格公约（市场预设）</div>
-                <div class="bcard-desc">
-                  从内置爆款模板中选择一种「怎么写」；不提供自定义 Prompt 入口，避免跑偏。保存后写入全书上下文。
-                </div>
-              </div>
-            </div>
-          </template>
-          <n-space vertical :size="12">
-            <n-form-item label="文风模板" label-placement="top" :show-feedback="false">
-              <n-select
-                v-model:value="stylePresetValue"
-                :options="stylePresetOptions"
-                placeholder="选择市场向文风公约"
-                @update:value="onStylePresetChange"
-              />
-            </n-form-item>
-            <n-alert v-if="styleNotesUnmatchedPreset" type="warning" :show-icon="true" style="font-size: 12px">
-              当前文案与内置模板不完全一致（可能来自旧版本）。切换模板将覆盖为预设全文。
-            </n-alert>
-            <n-input
-              :value="state.style_notes"
-              type="textarea"
-              readonly
-              disabled
-              :autosize="{ minRows: 6, maxRows: 14 }"
-              class="bible-textarea bible-textarea-readonly"
-            />
-          </n-space>
-        </n-card>
       </div>
     </n-scrollbar>
 
@@ -156,8 +189,8 @@ import { bibleApi } from '../../api/bible'
 import type { CharacterDTO, LocationDTO, TimelineNoteDTO, StyleNoteDTO } from '../../api/bible'
 import { knowledgeApi } from '../../api/knowledge'
 import { MARKET_STYLE_PRESETS, matchPresetValue } from '@/constants/marketStylePresets'
-
-
+import { novelApi } from '@/api/novel'
+import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()
@@ -187,22 +220,37 @@ const generating = ref(false)
 const premiseLock = ref('')
 const generatingKnowledge = ref(false)
 
-const stylePresetOptions = MARKET_STYLE_PRESETS.map(p => ({ label: p.label, value: p.value }))
-const stylePresetValue = ref(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
+/** 创建书目时写入 premise 的赛道 / 世界观；文风来自 Bible（只读标签展示） */
+const lockedGenre = ref('')
+const lockedWorld = ref('')
+const hasBookLock = computed(() => {
+  const g = lockedGenre.value.trim()
+  const w = lockedWorld.value.trim()
+  const sty = (state.value.style_notes || '').trim()
+  return g !== '' || w !== '' || sty !== ''
+})
 
-const styleNotesUnmatchedPreset = computed(() => {
+/** 文风市场预设：匹配内置模板则显示预设名，否则警告文案 */
+const stylePresetTag = computed(() => {
   const t = (state.value.style_notes || '').trim()
-  if (!t) return false
-  return matchPresetValue(t) === null
+  if (!t) {
+    return { matched: false, hasText: false, label: '—' }
+  }
+  const m = matchPresetValue(t)
+  if (m) {
+    const p = MARKET_STYLE_PRESETS.find((x) => x.value === m)
+    return { matched: true, hasText: true, label: p?.label ?? m }
+  }
+  return {
+    matched: false,
+    hasText: true,
+    label: '与内置模板不一致（可能来自旧数据或导入）',
+  }
 })
 
 function applyStylePresetByValue(value: string) {
-  const p = MARKET_STYLE_PRESETS.find(x => x.value === value)
+  const p = MARKET_STYLE_PRESETS.find((x) => x.value === value)
   if (p) state.value.style_notes = p.body
-}
-
-function onStylePresetChange(value: string) {
-  applyStylePresetByValue(value)
 }
 
 const stats = computed(() => {
@@ -289,15 +337,26 @@ const loadPremiseLock = async () => {
   }
 }
 
+const loadCreationLock = async () => {
+  try {
+    const n = await novelApi.getNovel(props.slug)
+    const parsed = parseGenreWorldFromPremise(n.premise || '')
+    lockedGenre.value = (n.locked_genre || '').trim() || parsed.genre
+    lockedWorld.value = (n.locked_world_preset || '').trim() || parsed.worldPreset
+  } catch {
+    lockedGenre.value = ''
+    lockedWorld.value = ''
+  }
+}
+
 const load = async () => {
+  await loadCreationLock()
   try {
     const bible = await bibleApi.getBible(props.slug)
     state.value = fromApiFormat(bible)
     const matched = matchPresetValue(state.value.style_notes)
-    if (matched) {
-      stylePresetValue.value = matched
-    } else if (!(state.value.style_notes || '').trim()) {
-      applyStylePresetByValue(stylePresetValue.value)
+    if (!matched && !(state.value.style_notes || '').trim()) {
+      applyStylePresetByValue(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
     }
     syncJsonFromState()
   } catch (err: any) {
@@ -306,6 +365,7 @@ const load = async () => {
       try {
         await bibleApi.createBible(props.slug, `bible-${props.slug}`)
         state.value = emptyState()
+        applyStylePresetByValue(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
         syncJsonFromState()
       } catch {
         message.error('创建设定失败')
@@ -559,6 +619,27 @@ onMounted(() => {
 .bible-scroll {
   flex: 1;
   min-height: 0;
+}
+
+.bible-card-creation-lock {
+  border: 1px solid var(--app-border, rgba(15, 23, 42, 0.1));
+}
+
+.bible-creation-lock-desc :deep(.n-descriptions-item__label) {
+  color: var(--app-text-secondary, #475569);
+}
+
+.bible-creation-lock-desc :deep(.n-descriptions-item__content) {
+  color: var(--app-text-primary, #111827);
+}
+
+.bible-style-full-collapse {
+  margin-top: 12px;
+}
+
+.bible-style-full-collapse :deep(.n-collapse-item__header) {
+  font-size: 12px;
+  color: var(--app-text-secondary, #475569);
 }
 
 .bible-form {

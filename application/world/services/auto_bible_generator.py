@@ -928,12 +928,15 @@ JSON 格式：
         self,
         system_prompt: str,
         user_prompt: str,
-        max_retries: int = 3
+        max_retries: int = 3,
     ) -> Dict[str, Any]:
-        """带重试的LLM调用 - 增强JSON输出稳定性"""
-        last_error = None
+        """带重试的 LLM 调用；总尝试次数不超过 LLM_MAX_TOTAL_ATTEMPTS。"""
+        from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 
-        for attempt in range(max_retries):
+        last_error = None
+        attempts = min(max_retries, LLM_MAX_TOTAL_ATTEMPTS)
+
+        for attempt in range(attempts):
             try:
                 if attempt == 0:
                     # 第一次尝试，使用标准prompt
@@ -941,17 +944,17 @@ JSON 格式：
                 else:
                     # 重试时加强调prompt
                     retry_reminder = "\n\n【重要提醒】上次JSON解析失败，请严格遵守JSON输出规则！只输出纯JSON，不要任何其他文字！"
-                    logger.warning(f"JSON解析重试 {attempt}/{max_retries}，添加强调提示")
+                    logger.warning(f"JSON解析重试 {attempt}/{attempts}，添加强调提示")
                     return await self._call_llm_and_parse(
                         system_prompt + retry_reminder,
                         user_prompt
                     )
             except json.JSONDecodeError as e:
                 last_error = e
-                logger.warning(f"JSON解析失败，重试 {attempt + 1}/{max_retries}")
+                logger.warning(f"JSON解析失败，重试 {attempt + 1}/{attempts}")
             except Exception as e:
                 last_error = e
-                logger.warning(f"LLM调用异常，重试 {attempt + 1}/{max_retries}: {e}")
+                logger.warning(f"LLM调用异常，重试 {attempt + 1}/{attempts}: {e}")
 
         logger.error(f"所有重试都失败，返回空字典")
         return {}

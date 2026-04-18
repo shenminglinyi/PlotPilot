@@ -166,6 +166,7 @@ async def get_autopilot_status(novel_id: str):
     completed = [c for c in chapters if _status(c) == "completed"]
     in_manuscript = [c for c in chapters if _status(c) in ("draft", "completed")]
     target = novel.target_chapters or 1
+    twpc = getattr(novel, "target_words_per_chapter", None) or 2500
 
     lacn = getattr(novel, "last_audit_chapter_number", None)
     last_chapter_audit = None
@@ -194,6 +195,8 @@ async def get_autopilot_status(novel_id: str):
         "current_auto_chapters": getattr(novel, "current_auto_chapters", 0),
         "max_auto_chapters": getattr(novel, "max_auto_chapters", 9999),
         "target_chapters": novel.target_chapters,
+        "target_words_per_chapter": twpc,
+        "target_plan_total_words": target * twpc,
         "last_chapter_tension": getattr(novel, "last_chapter_tension", 0),
         "consecutive_error_count": getattr(novel, "consecutive_error_count", 0),
         "total_words": total_words,

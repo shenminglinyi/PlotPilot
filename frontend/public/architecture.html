@@ -1011,13 +1011,10 @@ flowchart LR
                     <div class="card">
                         <h4>MacroPlanModal.vue</h4>
                         <p><strong>触发:</strong> 点击"启动结构规划"按钮</p>
-                        <p><strong>流程:</strong></p>
+                        <p><strong>流程（V1 一键）:</strong></p>
                         <ol style="padding-left: 20px; margin-top: 10px;">
-                            <li>输入目标章节数、结构偏好</li>
-                            <li>调用 <code>planningApi.generateMacro()</code></li>
-                            <li>AI 生成部-卷-幕结构</li>
-                            <li>用户编辑后确认</li>
-                            <li>调用 <code>planningApi.confirmMacro()</code></li>
+                            <li>调用 <code>workflowApi.planNovel()</code>，由 AI 依据书目设定生成并写入叙事结构</li>
+                            <li>无「精密定制」部×卷×幕表单；篇幅目标来自建档</li>
                         </ol>
                     </div>
 

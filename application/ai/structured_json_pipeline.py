@@ -20,13 +20,14 @@ from json_repair import repair_json
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# 默认最大重试次数
-DEFAULT_MAX_RETRIES = 2
+# 校验/解析失败后的额外重试轮数（总次数 = 1 + 该值，且不超过 LLM_MAX_TOTAL_ATTEMPTS）
+DEFAULT_MAX_RETRIES = LLM_MAX_TOTAL_ATTEMPTS - 1
 
 
 def _is_retryable_llm_error(exc: Exception) -> bool:
@@ -194,15 +195,15 @@ async def structured_json_generate(
 ) -> Optional[T]:
     """调用 LLM 获取结构化 JSON 输出，经过完整清洗/修复/校验管线。
 
-    如果校验失败，会将错误信息追加到 prompt 中让 LLM 重新生成，
-    最多重试 max_retries 次。全部失败返回 None。
+    如果校验失败，会将错误信息追加到 prompt 中让 LLM 重新生成。
+    总调用次数（含首次）不超过 LLM_MAX_TOTAL_ATTEMPTS（默认 3），全部失败返回 None。
 
     Args:
         llm: LLM 服务实例
         prompt: 原始 prompt
         config: 生成配置（可含 response_format 强制 JSON）
         schema_model: Pydantic 模型类，用于 schema 校验
-        max_retries: 校验失败时最大重试次数
+        max_retries: 期望的「额外重试轮数」，会被压缩到总次数上限内
 
     Returns:
         校验通过的 Pydantic 模型实例，或 None（全部失败）
@@ -222,8 +223,9 @@ async def structured_json_generate(
     """
     current_prompt = prompt
     last_errors: List[str] = []
+    total_attempts = min(1 + max(0, max_retries), LLM_MAX_TOTAL_ATTEMPTS)
 
-    for attempt in range(1 + max_retries):
+    for attempt in range(total_attempts):
         # --- 调用 LLM ---
         try:
             result = await llm.generate(current_prompt, config)
@@ -231,13 +233,13 @@ async def structured_json_generate(
         except Exception as e:
             logger.warning("结构化 JSON 管线 LLM 调用失败 (attempt=%d): %s", attempt, e)
             last_errors = [str(e)]
-            if attempt < max_retries and _is_retryable_llm_error(e):
+            if attempt < total_attempts - 1 and _is_retryable_llm_error(e):
                 delay = _retry_delay_seconds(attempt)
                 logger.info(
                     "结构化 JSON 管线遇到可重试错误，%.1f 秒后重试 (attempt=%d/%d)",
                     delay,
                     attempt + 1,
-                    max_retries,
+                    total_attempts,
                 )
                 await asyncio.sleep(delay)
                 continue
@@ -258,12 +260,14 @@ async def structured_json_generate(
             last_errors = parse_errors
 
         logger.warning(
-            "结构化 JSON 管线校验失败 (attempt=%d/%d): %s",
-            attempt, max_retries, last_errors,
+            "结构化 JSON 管线校验失败 (第 %d/%d 次): %s",
+            attempt + 1,
+            total_attempts,
+            last_errors,
         )
 
         # --- 构建重试 prompt：把错误反馈给 LLM ---
-        if attempt < max_retries:
+        if attempt < total_attempts - 1:
             error_feedback = "\n".join(f"- {e}" for e in last_errors[:8])
             retry_note = (
                 f"\n\n【系统反馈】你上一次的输出格式有误，请修正后重新输出：\n"
@@ -277,7 +281,7 @@ async def structured_json_generate(
             )
 
     logger.error(
-        "结构化 JSON 管线全部重试耗尽 (retries=%d): %s",
-        max_retries, last_errors,
+        "结构化 JSON 管线全部重试耗尽 (total_attempts=%d): %s",
+        total_attempts, last_errors,
     )
     return None

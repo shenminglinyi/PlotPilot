@@ -27,6 +27,9 @@ _DEFAULT_SEED_PATH = (
     Path(__file__).resolve().parent / "prompts" / "prompts_defaults.json"
 )
 
+# 进程内只执行一次：从 JSON 回填已存在库中的内置节点（迁移旧版 system_file）
+_BUILTIN_SYNC_ONCE = False
+
 # 分类定义（与 prompts_defaults.json 的 categories 对应）
 BUILTIN_CATEGORIES = [
     {"key": "generation", "name": "📝 内容生成", "icon": "✍️",
@@ -310,10 +313,74 @@ class PromptManager:
     # 种子初始化
     # ------------------------------------------------------------------
 
+    def _sync_builtin_nodes_from_seed(self, seed_data: Dict[str, Any]) -> None:
+        """将已落库的内置节点与 prompts_defaults.json 对齐（如清除 system_file、刷新正文）。"""
+        global _BUILTIN_SYNC_ONCE
+        if _BUILTIN_SYNC_ONCE:
+            return
+
+        prompts = seed_data.get("prompts", [])
+        for p in prompts:
+            if p.get("id") != "tension-scoring":
+                continue
+            full_system = (p.get("system") or "").strip()
+            if not full_system:
+                break
+
+            db = self._get_db()
+            conn = db.get_connection()
+            row = conn.execute(
+                """
+                SELECT id, active_version_id FROM prompt_nodes
+                WHERE node_key = ? AND is_builtin = 1
+                """,
+                ("tension-scoring",),
+            ).fetchone()
+            if not row or not row["active_version_id"]:
+                break
+
+            now = datetime.now().isoformat()
+            conn.execute(
+                """
+                UPDATE prompt_nodes
+                SET system_file = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (now, row["id"]),
+            )
+            conn.execute(
+                """
+                UPDATE prompt_versions
+                SET system_prompt = ?
+                WHERE id = ?
+                """,
+                (full_system, row["active_version_id"]),
+            )
+            conn.commit()
+            logger.info(
+                "PromptManager: 已同步内置 tension-scoring 与 prompts_defaults.json"
+            )
+            break
+
+        _BUILTIN_SYNC_ONCE = True
+
     def ensure_seeded(self) -> bool:
         """确保内置种子已导入数据库（幂等）。"""
         if self._seeded:
             return True
+
+        seed_path = _DEFAULT_SEED_PATH
+        seed_data: Optional[Dict[str, Any]] = None
+        if seed_path.exists():
+            try:
+                seed_data = json.loads(seed_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.error("读取种子文件失败: %s", exc)
+                seed_data = None
+
+        if seed_data:
+            self._sync_builtin_nodes_from_seed(seed_data)
+
         db = self._get_db()
         conn = db.get_connection()
 
@@ -326,16 +393,16 @@ class PromptManager:
             logger.info("PromptManager: 内置种子已存在，跳过初始化")
             return True
 
-        seed_path = _DEFAULT_SEED_PATH
         if not seed_path.exists():
             logger.warning("内置种子文件不存在: %s", seed_path)
             return False
 
-        try:
-            seed_data = json.loads(seed_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.error("读取种子文件失败: %s", exc)
-            return False
+        if seed_data is None:
+            try:
+                seed_data = json.loads(seed_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.error("读取种子文件失败: %s", exc)
+                return False
 
         template_id = _uid()
         now = datetime.now().isoformat()
@@ -757,10 +824,11 @@ class PromptManager:
         system = self._render_template(node.get_active_system(), var_map)
         user = self._render_template(node.get_active_user_template(), var_map)
 
-        # 如果有 system_file 且 builtin，尝试加载
+        # 遗留：仅当数据库中 system 为空时才用外部 .txt（旧种子）；正文已入 JSON/DB 时不覆盖
         if node.system_file and node.is_builtin:
             file_system = self._load_system_file(node.system_file)
-            if file_system:
+            db_system = (node.get_active_system() or "").strip()
+            if file_system and not db_system:
                 system = self._render_template(file_system, var_map)
 
         return {"system": system, "user": user}

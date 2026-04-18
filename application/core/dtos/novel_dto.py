@@ -79,6 +79,9 @@ class NovelDTO:
     has_outline: bool = False
     autopilot_status: str = "stopped"
     auto_approve_mode: bool = False
+    locked_genre: str = ""
+    locked_world_preset: str = ""
+    target_words_per_chapter: int = 2500
 
     @classmethod
     def from_domain(cls, novel: 'Novel') -> 'NovelDTO':
@@ -95,15 +98,23 @@ class NovelDTO:
         _ap = getattr(novel, 'autopilot_status', 'stopped')
         autopilot_status = _ap.value if hasattr(_ap, 'value') else str(_ap)
 
+        premise_text = getattr(novel, 'premise', '') or ''
+        from application.core.premise_genre_world import parse_genre_world_from_premise
+
+        lg, lw = parse_genre_world_from_premise(premise_text)
+
         return cls(
             id=novel.novel_id.value,
             title=novel.title,
             author=novel.author,
             target_chapters=novel.target_chapters,
             stage=_public_stage(novel),
-            premise=getattr(novel, 'premise', ''),  # 兼容旧数据
+            premise=premise_text,
             chapters=chapters,
             total_word_count=novel.get_total_word_count().value,
             autopilot_status=autopilot_status,
             auto_approve_mode=getattr(novel, 'auto_approve_mode', False),
+            locked_genre=lg,
+            locked_world_preset=lw,
+            target_words_per_chapter=int(getattr(novel, "target_words_per_chapter", 2500) or 2500),
         )

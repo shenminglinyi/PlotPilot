@@ -13,7 +13,7 @@
         <header class="header">
           <div class="header-content">
             <h1 class="title">一键出书 · 全托管</h1>
-            <p class="subtitle">只需写清核心梗概（2000 字内），赛道与文风由系统预设；后台自动套用成熟网文结构，你只管看进度与成稿。</p>
+            <p class="subtitle">只需写清核心梗概（2000 字内），选目标篇幅与赛道；结构规划由系统在后台完成，无需自己算部卷幕。</p>
           </div>
         </header>
 
@@ -29,7 +29,7 @@
                 <template #icon>
                   <n-icon><component :is="showAdvanced ? IconChevronUp : IconChevronDown" /></n-icon>
                 </template>
-                {{ showAdvanced ? '收起高级' : '高级（书名、篇幅）' }}
+                {{ showAdvanced ? '收起高级' : '高级（自定义章数/每章字数）' }}
               </n-button>
             </div>
 
@@ -69,7 +69,27 @@
               </n-gi>
             </n-grid>
 
+            <div v-show="!showAdvanced" class="length-tier-block">
+              <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
+              <n-radio-group v-model:value="lengthTier" name="lengthTier" class="length-tier-group">
+                <n-space vertical :size="10">
+                  <n-radio
+                    v-for="opt in lengthTierOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                    :disabled="creating"
+                  >
+                    <span class="length-tier-title">{{ opt.title }}</span>
+                    <span class="length-tier-hint">{{ opt.hint }}</span>
+                  </n-radio>
+                </n-space>
+              </n-radio-group>
+            </div>
+
             <div v-show="showAdvanced" class="advanced-settings">
+              <n-alert type="info" :show-icon="true" style="margin-bottom: 12px; font-size: 12px">
+                自定义章数与每章字数时，不再使用「目标篇幅」档位推导；结构提示仍会在后台写入梗概供模型使用。
+              </n-alert>
               <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
                 <n-gi>
                   <n-form-item label="书名">
@@ -466,6 +486,26 @@ const newBook = ref({
   words: 2500,
 })
 
+/** V1 目标篇幅档（与高级自定义二选一） */
+const lengthTier = ref<'short' | 'standard' | 'epic'>('standard')
+const lengthTierOptions = [
+  {
+    value: 'short' as const,
+    title: 'A · 短篇快穿 / 脑洞文',
+    hint: '约 30 万字（按约 2000 字/章推导章数）',
+  },
+  {
+    value: 'standard' as const,
+    title: 'B · 标准商业连载',
+    hint: '约 100 万字',
+  },
+  {
+    value: 'epic' as const,
+    title: 'C · 宏大史诗巨著',
+    hint: '约 300 万字',
+  },
+]
+
 const genreOptions = [
   { label: '玄幻升级', value: '玄幻升级' },
   { label: '都市爽文', value: '都市爽文' },
@@ -591,22 +631,31 @@ const handleCreate = async () => {
     const title = newBook.value.title || newBook.value.premise.substring(0, 20)
     const novelId = `novel-${Date.now()}`
 
-    const targetChapters = newBook.value.chapters || 100  // 始终使用用户输入或默认 100
-    const payload = {
+    const base = {
       novel_id: novelId,
       title: title,
       author: '作者',
-      target_chapters: targetChapters,
       premise: newBook.value.premise.trim(),
       genre: newBook.value.genre,
       world_preset: newBook.value.worldPreset,
     }
-
-    const result = await novelApi.createNovel(payload)
+    const result = await novelApi.createNovel(
+      showAdvanced.value
+        ? {
+            ...base,
+            target_chapters: newBook.value.chapters || 100,
+            target_words_per_chapter: newBook.value.words || 2500,
+          }
+        : {
+            ...base,
+            length_tier: lengthTier.value,
+            target_chapters: 0,
+          }
+    )
     message.success('创建成功')
 
     newNovelId.value = result.id
-    newNovelTargetChapters.value = targetChapters
+    newNovelTargetChapters.value = result.target_chapters
     showSetupGuide.value = true
   } catch (error: any) {
     message.error(error.response?.data?.detail || '创建失败')
@@ -816,6 +865,31 @@ onMounted(() => {
 
 .preset-row {
   margin-top: 4px;
+}
+
+.length-tier-block {
+  margin-top: 8px;
+  padding: 4px 0 4px;
+}
+
+.length-tier-label {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+  margin-bottom: 10px;
+}
+
+.length-tier-group :deep(.n-radio) {
+  align-items: flex-start;
+}
+
+.length-tier-title {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.length-tier-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 
 .advanced-settings {

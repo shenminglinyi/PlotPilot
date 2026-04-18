@@ -549,7 +549,7 @@ class ContextBudgetAllocator:
             sorted_subtext = sorted(pending_subtext, key=subtext_sort_key)
             
             if sorted_subtext:
-                lines.append("\n【潜台词账本】")
+                lines.append("\n【伏笔手账本·待兑现疑问】")
                 for entry in sorted_subtext[:5]:  # 最多 5 个
                     importance = getattr(entry, 'importance', 'medium')
                     suggested = getattr(entry, 'suggested_resolve_chapter', None)
@@ -564,11 +564,8 @@ class ContextBudgetAllocator:
                             status_mark = f"⏳预期Ch{suggested}"
                     
                     lines.append(
-                        f"- Ch{entry.chapter} [{entry.character_id}] {status_mark}: {entry.hidden_clue}"
+                        f"- Ch{entry.chapter} [{entry.character_id}] {status_mark}: {entry.question}"
                     )
-                    if entry.sensory_anchors:
-                        anchors = ", ".join(f"{k}:{v}" for k, v in entry.sensory_anchors.items())
-                        lines.append(f"  感官锚点: {anchors}")
             
             return "\n".join(lines)
             

@@ -17,6 +17,13 @@
       style="margin: 4px 0"
     />
 
+    <p v-if="status" class="ap-plan-hint">
+      与首页「目标篇幅」同一套落库参数：计划约
+      <strong>{{ formatWords(planTotalWordsHint) }}</strong> 字（
+      <strong>{{ status.target_chapters ?? '—' }}</strong> 章 ×
+      <strong>{{ status.target_words_per_chapter ?? 2500 }}</strong> 字/章）。全托管写满目标章即停；节拍拆分按「每章字数」执行。
+    </p>
+
     <!-- 数据格 -->
     <div class="ap-grid">
       <div class="ap-cell">
@@ -114,6 +121,15 @@
               @update:value="updateProtectionLimit"
             />
           </n-form-item>
+          <n-form-item label="每章目标字数">
+            <n-input-number
+              v-model:value="startConfig.target_words_per_chapter"
+              :min="500"
+              :max="10000"
+              :step="500"
+              style="width: 100%"
+            />
+          </n-form-item>
           <!-- 保护上限 -->
           <n-form-item label="保护上限（章节数，防止意外消耗）">
             <n-input-number 
@@ -149,6 +165,9 @@
               达到 <strong>{{ startConfig.target_chapters }} 章</strong> 目标时自动完成全书；保护上限已自动设置为 <strong>目标 + 20</strong>。
             </template>
           </n-alert>
+          <n-text depth="3" style="font-size: 11px; line-height: 1.5; display: block; margin-top: 4px">
+            目标章数与每章字数与首页「目标篇幅」同一套落库字段（PUT /novels），可在此微调后再启动；节拍拆分与上方进度说明一致。
+          </n-text>
         </n-form>
       </n-space>
     </n-modal>
@@ -170,12 +189,25 @@ const toggling = ref(false)
 const showStartModal = ref(false)
 const startConfig = ref({ 
   target_chapters: 100,
+  target_words_per_chapter: 2500,
   max_auto_chapters: 120,
   auto_approve_mode: false
 })
 
 // 目标章数（从 status 获取）
 const targetChapters = computed(() => status.value?.target_chapters || 100)
+
+/** 与后端 target_plan_total_words 一致；旧接口无该字段时本地推算 */
+const planTotalWordsHint = computed(() => {
+  const s = status.value
+  if (!s) return 0
+  if (s.target_plan_total_words != null && s.target_plan_total_words > 0) {
+    return s.target_plan_total_words
+  }
+  const tc = s.target_chapters ?? 0
+  const tw = s.target_words_per_chapter ?? 2500
+  return tc * tw
+})
 /** HTTP/1.1 下同域长连接约 6 路；避免与日志 /stream 双开占满导致其它 API 挂起 */
 let statusPollTimer = null
 /** novel_id 在库中不存在(404)时不再轮询，避免旧标签页/错 slug 刷屏访问日志 */
@@ -297,11 +329,13 @@ watch(
 )
 
 function openStartModal() {
-  // 打开弹窗时，从当前状态初始化设置
+  // 打开弹窗时，从当前状态初始化设置（与 GET /autopilot/.../status 一致）
   const target = status.value?.target_chapters || 100
+  const wpc = status.value?.target_words_per_chapter ?? 2500
   const autoApprove = status.value?.auto_approve_mode ?? false
   startConfig.value = {
     target_chapters: target,
+    target_words_per_chapter: wpc,
     max_auto_chapters: target + 20,
     auto_approve_mode: autoApprove
   }
@@ -319,38 +353,44 @@ function updateProtectionLimit() {
 async function start() {
   toggling.value = true
   try {
-    // 先更新小说的目标章节数和全自动模式（如果需要修改）
     const currentTarget = status.value?.target_chapters
     const newTarget = startConfig.value.target_chapters
+    const currentWpc = status.value?.target_words_per_chapter ?? 2500
+    const newWpc = startConfig.value.target_words_per_chapter
     const currentAutoApprove = status.value?.auto_approve_mode ?? false
     const newAutoApprove = startConfig.value.auto_approve_mode
-    
-    if (currentTarget !== newTarget || currentAutoApprove !== newAutoApprove) {
+
+    const novelPatch = {}
+    if (currentTarget !== newTarget) {
+      novelPatch.target_chapters = newTarget
+    }
+    if (currentWpc !== newWpc) {
+      novelPatch.target_words_per_chapter = newWpc
+    }
+
+    if (Object.keys(novelPatch).length > 0) {
       const updateRes = await fetch(`/api/v1/novels/${props.novelId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_chapters: newTarget
-        })
+        body: JSON.stringify(novelPatch)
       })
       if (!updateRes.ok) {
-        message.error('更新目标章节数失败')
+        message.error('更新书目目标章数或每章字数失败')
         return
       }
-      
-      // 更新全自动模式
-      if (currentAutoApprove !== newAutoApprove) {
-        const approveRes = await fetch(`/api/v1/novels/${props.novelId}/auto-approve-mode`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            auto_approve_mode: newAutoApprove
-          })
+    }
+
+    if (currentAutoApprove !== newAutoApprove) {
+      const approveRes = await fetch(`/api/v1/novels/${props.novelId}/auto-approve-mode`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          auto_approve_mode: newAutoApprove
         })
-        if (!approveRes.ok) {
-          message.error('更新全自动模式失败')
-          return
-        }
+      })
+      if (!approveRes.ok) {
+        message.error('更新全自动模式失败')
+        return
       }
     }
     
@@ -568,6 +608,18 @@ onUnmounted(() => {
 .tag-idle {
   background: rgba(100, 100, 100, 0.1);
   color: #999;
+}
+
+.ap-plan-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--app-text-secondary, #64748b);
+}
+
+.ap-plan-hint strong {
+  color: var(--app-text-primary, #111827);
+  font-weight: 600;
 }
 
 .ap-grid {

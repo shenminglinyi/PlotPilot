@@ -155,7 +155,7 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
             "ALTER TABLE novels ADD COLUMN last_audit_issues TEXT"
         ),
         "target_words_per_chapter": (
-            "ALTER TABLE novels ADD COLUMN target_words_per_chapter INTEGER DEFAULT 3500"
+            "ALTER TABLE novels ADD COLUMN target_words_per_chapter INTEGER DEFAULT 2500"
         ),
     }
     for col, sql in migrations.items():
