@@ -70,6 +70,9 @@ def should_skip_autopilot_log_line(
         return True
     if "[DEBUG]" in msg and "streaming_bus" in msg.lower():
         return True
+    if "autopilot_routes" in ln and (level or "").upper() == "DEBUG":
+        if "[SSE]" in msg and "chapter" in msg.lower():
+            return True
     return False
 
 
@@ -78,6 +81,8 @@ def should_skip_raw_log_file_line(line: str) -> bool:
     if "[StreamingBus]" in line and "publish:" in line:
         return True
     if "[DEBUG]" in line and "streaming_bus" in line.lower():
+        return True
+    if "autopilot_routes" in line.lower() and "[SSE]" in line and "chapter" in line.lower():
         return True
     return False
 

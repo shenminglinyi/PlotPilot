@@ -483,7 +483,8 @@ async def autopilot_log_stream(
 
                 last_beat = current_beat
 
-                # 终止条件（单连接只发一次，避免重复「已停止」）
+                # 托管进入终态：单连接只发一次「自动驾驶已停止」事件；不断开 SSE，继续 tail 日志与心跳，
+                # 避免前端误以为「未连接」且无法再看后续守护进程日志。
                 terminal_states = {"stopped", "error", "completed"}
                 if novel.autopilot_status.value in terminal_states:
                     if not complete_sent:
@@ -496,10 +497,10 @@ async def autopilot_log_stream(
                             "metadata": {
                                 "status": st,
                                 "status_label": _autopilot_status_zh(st),
+                                "tail": True,
                             },
                         }
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                    break
 
                 # 运行中：定期推送进度快照（仅用于前端进度条，不写时间线刷屏）
                 if novel.autopilot_status.value == AutopilotStatus.RUNNING.value:

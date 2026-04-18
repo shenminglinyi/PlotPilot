@@ -6,6 +6,14 @@
       <div class="toolbar-right">
         <span class="meta">{{ rows.length }} 行</span>
         <span class="meta dim">{{ statusHint }}</span>
+        <button
+          v-if="!autoScroll"
+          type="button"
+          class="stick-bottom-btn"
+          @click="scrollToBottomManual"
+        >
+          回到底部
+        </button>
         <n-tag
           size="medium"
           round
@@ -61,12 +69,14 @@ interface Row {
 
 const rows = ref<Row[]>([])
 const bodyRef = ref<HTMLElement | null>(null)
-const connectionStatus = ref<'connected' | 'reconnecting' | 'disconnected' | 'ended'>('disconnected')
-const streamEndedNormally = ref(false)
+const connectionStatus = ref<'connected' | 'reconnecting' | 'disconnected'>('disconnected')
 const lastLogSeq = ref(0)
 const progressHint = ref('')
 const autoScroll = ref(true)
-let lastCompleteAt = 0
+
+/** 程序设置 scrollTop 时仍会触发 scroll；此期间忽略 onScroll，避免误判为「用户离开底部」 */
+let scrollingProgrammatically = false
+let scrollLockToken = 0
 
 /** 当前阶段（英文 key，用于 tag 配色） */
 const behaviorStageKey = ref('')
@@ -76,9 +86,6 @@ const behaviorAutopilotStatus = ref('')
 const behaviorLabel = ref('—')
 
 const stageTagType = computed(() => {
-  if (connectionStatus.value === 'ended') {
-    return 'default'
-  }
   const ap = behaviorAutopilotStatus.value
   if (ap === 'error') {
     return 'error'
@@ -134,11 +141,15 @@ function applyBehaviorFromMeta(meta?: Record<string, unknown>) {
 const statusHint = computed(() => {
   switch (connectionStatus.value) {
     case 'connected':
+      if (
+        behaviorAutopilotStatus.value === 'stopped' ||
+        behaviorAutopilotStatus.value === 'error'
+      ) {
+        return 'SSE · 继续监听'
+      }
       return 'SSE'
     case 'reconnecting':
       return '重连…'
-    case 'ended':
-      return '已结束'
     case 'disconnected':
       return '未连接'
     default:
@@ -174,7 +185,9 @@ function clipForUi(s: string) {
 /** 与后端过滤互补：漏网的 StreamingBus 行不再入列 */
 function isNoiseMessage(msg: string) {
   const m = msg || ''
-  return m.includes('[StreamingBus]') && m.includes('publish:')
+  if (m.includes('[StreamingBus]') && m.includes('publish:')) return true
+  if (m.includes('[SSE]') && m.includes('发送') && m.toLowerCase().includes('chapter')) return true
+  return false
 }
 
 function kindForType(t: string, meta?: Record<string, unknown>): RowKind {
@@ -232,39 +245,57 @@ function pushRow(data: Record<string, unknown>) {
 function scrollToBottom() {
   const el = bodyRef.value
   if (!el || !autoScroll.value) return
+  const token = ++scrollLockToken
+  scrollingProgrammatically = true
   el.scrollTop = el.scrollHeight
+  nextTick(() => {
+    el.scrollTop = el.scrollHeight
+    window.setTimeout(() => {
+      if (token === scrollLockToken) {
+        scrollingProgrammatically = false
+      }
+    }, 220)
+  })
 }
 
-function flushPending() {
-  flushScheduled = false
-  const batch = pending.splice(0, pending.length)
-  for (const item of batch) {
-    pushRow(item.data)
-  }
-  if (!autoScroll.value) return
+function scrollToBottomManual() {
+  autoScroll.value = true
+  const el = bodyRef.value
+  if (!el) return
+  const token = ++scrollLockToken
+  scrollingProgrammatically = true
   nextTick(() => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        scrollToBottom()
-      })
-    })
+    el.scrollTop = el.scrollHeight
+    window.setTimeout(() => {
+      if (token === scrollLockToken) {
+        scrollingProgrammatically = false
+      }
+    }, 220)
   })
 }
 
 function scheduleFlush() {
   if (flushScheduled) return
   flushScheduled = true
-  requestAnimationFrame(flushPending)
+  queueMicrotask(() => {
+    flushScheduled = false
+    const batch = pending.splice(0, pending.length)
+    for (const item of batch) {
+      pushRow(item.data)
+    }
+    if (!autoScroll.value) return
+    nextTick(() => scrollToBottom())
+  })
 }
 
 function onScroll() {
-  if (!bodyRef.value) return
+  if (!bodyRef.value || scrollingProgrammatically) return
   const { scrollTop, scrollHeight, clientHeight } = bodyRef.value
-  autoScroll.value = scrollHeight - scrollTop - clientHeight < 48
+  const gap = scrollHeight - scrollTop - clientHeight
+  autoScroll.value = gap < 80
 }
 
 function connect() {
-  if (streamEndedNormally.value) return
   if (eventSource) eventSource.close()
   const q = lastLogSeq.value > 0 ? `?after_seq=${lastLogSeq.value}` : ''
   eventSource = new EventSource(`/api/v1/autopilot/${props.novelId}/stream${q}`)
@@ -295,11 +326,6 @@ function connect() {
       }
 
       if (typ === 'autopilot_complete') {
-        const now = Date.now()
-        if (now - lastCompleteAt < 1200) return
-        lastCompleteAt = now
-        connectionStatus.value = 'ended'
-        streamEndedNormally.value = true
         const doneMeta = data.metadata as Record<string, unknown> | undefined
         const st = doneMeta?.status != null ? String(doneMeta.status) : ''
         if (st) {
@@ -317,18 +343,12 @@ function connect() {
 
       pending.push({ data })
       scheduleFlush()
-
-      if (typ === 'autopilot_complete' && eventSource) {
-        eventSource.close()
-        eventSource = null
-      }
     } catch {
       /* ignore */
     }
   }
 
   eventSource.onerror = () => {
-    if (streamEndedNormally.value) return
     connectionStatus.value = 'reconnecting'
     if (!reconnectTimer) {
       reconnectTimer = window.setTimeout(() => connect(), 3000)
@@ -349,9 +369,7 @@ watch(
     behaviorAutopilotStatus.value = ''
     behaviorLabel.value = '—'
     lastLogSeq.value = 0
-    streamEndedNormally.value = false
     connectionStatus.value = 'disconnected'
-    lastCompleteAt = 0
     pending.length = 0
     if (eventSource) {
       eventSource.close()
@@ -420,9 +438,6 @@ onUnmounted(() => {
 .led.disconnected {
   background: #ef4444;
 }
-.led.ended {
-  background: #64748b;
-}
 
 @keyframes pulse {
   50% {
@@ -451,6 +466,21 @@ onUnmounted(() => {
 }
 .meta.dim {
   opacity: 0.85;
+}
+
+.stick-bottom-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #a5b4fc;
+  background: rgba(79, 70, 229, 0.2);
+  border: 1px solid rgba(129, 140, 248, 0.45);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.stick-bottom-btn:hover {
+  background: rgba(79, 70, 229, 0.35);
 }
 
 .stage-tag {
