@@ -218,6 +218,7 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
     # 按执行顺序定义迁移文件
     migration_files = [
         "add_macro_diagnosis_results.sql",
+        "add_macro_diagnosis_context_patch.sql",
         "add_micro_beats_to_chapter_summaries.sql",
         "add_tension_dimensions.sql",
         "add_use_legacy_chat_completions.sql",

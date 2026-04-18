@@ -72,13 +72,34 @@ class NovelService:
         )
         self.story_node_repository.save_sync(act_node)
 
+    @staticmethod
+    def _compose_premise_with_presets(
+        premise: str,
+        genre: str = "",
+        world_preset: str = "",
+    ) -> str:
+        """将赛道/世界观预设与梗概合并，供后续 Bible/全托管链路统一消费（无需额外表字段）。"""
+        parts = []
+        g = (genre or "").strip()
+        w = (world_preset or "").strip()
+        if g:
+            parts.append(f"类型：{g}")
+        if w:
+            parts.append(f"世界观基调：{w}")
+        body = (premise or "").strip()
+        if not parts:
+            return body
+        return "【" + "；".join(parts) + "】\n\n" + body
+
     def create_novel(
         self,
         novel_id: str,
         title: str,
         author: str,
         target_chapters: int,
-        premise: str = ""
+        premise: str = "",
+        genre: str = "",
+        world_preset: str = "",
     ) -> NovelDTO:
         """创建新小说
 
@@ -88,16 +109,19 @@ class NovelService:
             author: 作者
             target_chapters: 目标章节数
             premise: 故事梗概/创意
+            genre: 赛道/类型（前端下拉预设，写入 premise 前缀）
+            world_preset: 世界观基调（前端下拉预设，写入 premise 前缀）
 
         Returns:
             NovelDTO
         """
+        full_premise = self._compose_premise_with_presets(premise, genre, world_preset)
         novel = Novel(
             id=NovelId(novel_id),
             title=title,
             author=author,
             target_chapters=target_chapters,
-            premise=premise,
+            premise=full_premise,
             stage=NovelStage.PLANNING
         )
 

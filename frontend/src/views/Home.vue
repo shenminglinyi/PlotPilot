@@ -12,8 +12,8 @@
         <!-- Header -->
         <header class="header">
           <div class="header-content">
-            <h1 class="title">书稿工作台</h1>
-            <p class="subtitle">从一句梗概到完整书稿，结构规划与校阅一站完成</p>
+            <h1 class="title">一键出书 · 全托管</h1>
+            <p class="subtitle">只需写清核心梗概（2000 字内），赛道与文风由系统预设；后台自动套用成熟网文结构，你只管看进度与成稿。</p>
           </div>
         </header>
 
@@ -29,7 +29,7 @@
                 <template #icon>
                   <n-icon><component :is="showAdvanced ? IconChevronUp : IconChevronDown" /></n-icon>
                 </template>
-                {{ showAdvanced ? '收起设置' : '高级设置' }}
+                {{ showAdvanced ? '收起高级' : '高级（书名、篇幅）' }}
               </n-button>
             </div>
 
@@ -37,23 +37,43 @@
               ref="createInputRef"
               v-model:value="newBook.premise"
               type="textarea"
-              placeholder="描述你想写的故事…&#10;&#10;例如：程序员穿越成状元，用工程思维整顿吏治。"
-              :rows="4"
+              placeholder="用一段话写清主线与爽点预期（不超过 2000 字）…&#10;&#10;例如：废柴赘婿觉醒签到系统，从被退婚到一方巨擘。"
+              :rows="5"
               :disabled="creating"
               size="large"
               class="premise-input"
+              show-count
+              :maxlength="PREMISE_MAX_LEN"
             />
+
+            <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" class="preset-row">
+              <n-gi>
+                <n-form-item label="赛道 / 类型">
+                  <n-select
+                    v-model:value="newBook.genre"
+                    :options="genreOptions"
+                    placeholder="选择赛道（系统会按预设推进）"
+                    :disabled="creating"
+                  />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="世界观基调">
+                  <n-select
+                    v-model:value="newBook.worldPreset"
+                    :options="worldPresetOptions"
+                    placeholder="选择基调（不可自填 Prompt）"
+                    :disabled="creating"
+                  />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
 
             <div v-show="showAdvanced" class="advanced-settings">
               <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
                 <n-gi>
                   <n-form-item label="书名">
                     <n-input v-model:value="newBook.title" placeholder="留空则从梗概自动截取" />
-                  </n-form-item>
-                </n-gi>
-                <n-gi>
-                  <n-form-item label="类型">
-                    <n-select v-model:value="newBook.genre" :options="genreOptions" placeholder="选择类型" />
                   </n-form-item>
                 </n-gi>
                 <n-gi>
@@ -75,7 +95,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim()"
+                :disabled="!newBook.premise.trim() || !newBook.genre || !newBook.worldPreset"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -435,25 +455,38 @@ const selectedBooks = ref<string[]>([])
 const showBatchDeleteConfirm = ref(false)
 const batchDeleting = ref(false)
 
+const PREMISE_MAX_LEN = 2000
+
 const newBook = ref({
   title: '',
   premise: '',
   genre: '',
+  worldPreset: '',
   chapters: 100,  // 默认 100 章
   words: 2500,
 })
 
 const genreOptions = [
-  { label: '玄幻', value: '玄幻' },
-  { label: '都市', value: '都市' },
-  { label: '科幻', value: '科幻' },
-  { label: '历史', value: '历史' },
-  { label: '武侠', value: '武侠' },
-  { label: '仙侠', value: '仙侠' },
-  { label: '奇幻', value: '奇幻' },
-  { label: '游戏', value: '游戏' },
-  { label: '悬疑', value: '悬疑' },
+  { label: '玄幻升级', value: '玄幻升级' },
+  { label: '都市爽文', value: '都市爽文' },
+  { label: '仙侠修真', value: '仙侠修真' },
+  { label: '科幻赛博', value: '科幻赛博' },
+  { label: '悬疑推理', value: '悬疑推理' },
+  { label: '历史架空', value: '历史架空' },
+  { label: '游戏异界', value: '游戏异界' },
+  { label: '言情甜宠', value: '言情甜宠' },
   { label: '其他', value: '其他' },
+]
+
+const worldPresetOptions = [
+  { label: '修仙风（宗门、境界、机缘）', value: '修仙风' },
+  { label: '赛博朋克（巨企、义体、霓虹）', value: '赛博朋克风' },
+  { label: '悬疑风（谜题、反转、线索）', value: '悬疑风' },
+  { label: '高武江湖（门派、恩怨）', value: '高武江湖' },
+  { label: '末日废土（生存、资源）', value: '末日废土' },
+  { label: '西幻史诗（王国、种族）', value: '西幻史诗' },
+  { label: '现代都市（职场、日常）', value: '现代都市' },
+  { label: '克系诡异（未知、调查）', value: '克系诡异' },
 ]
 
 const filteredBooks = computed(() => {
@@ -541,7 +574,15 @@ const formatWordCount = (count: number): string => {
 
 const handleCreate = async () => {
   if (!newBook.value.premise.trim()) {
-    message.warning('请输入故事创意')
+    message.warning('请输入核心梗概')
+    return
+  }
+  if (!newBook.value.genre) {
+    message.warning('请选择赛道 / 类型')
+    return
+  }
+  if (!newBook.value.worldPreset) {
+    message.warning('请选择世界观基调')
     return
   }
 
@@ -556,7 +597,9 @@ const handleCreate = async () => {
       title: title,
       author: '作者',
       target_chapters: targetChapters,
-      premise: newBook.value.premise,
+      premise: newBook.value.premise.trim(),
+      genre: newBook.value.genre,
+      world_preset: newBook.value.worldPreset,
     }
 
     const result = await novelApi.createNovel(payload)
@@ -769,6 +812,10 @@ onMounted(() => {
 .premise-input :deep(textarea) {
   font-size: 15px;
   line-height: 1.6;
+}
+
+.preset-row {
+  margin-top: 4px;
 }
 
 .advanced-settings {

@@ -45,6 +45,9 @@ export const novelApi = {
     title: string
     author: string
     target_chapters: number
+    premise?: string
+    genre?: string
+    world_preset?: string
   }) => apiClient.post<NovelDTO>('/novels', data) as Promise<NovelDTO>,
 
   /**

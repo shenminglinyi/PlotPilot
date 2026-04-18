@@ -1,7 +1,7 @@
 <template>
   <div class="foreshadow-panel">
     <n-alert type="default" :show-icon="true" class="ledger-sync-hint" style="margin-bottom: 10px">
-      与<strong>中栏 · 托管撰稿 · 监控大盘</strong>中的伏笔统计、列表使用<strong>同一套账本数据</strong>（foreshadow-ledger）；此处为编辑与核销入口。
+      <strong>简单版</strong>：把「主角还没兑现的疑问」记在这里；回收时对照爽点。数据与托管监控大盘同源，此处可增删与核销。
     </n-alert>
     <header class="panel-header">
       <div class="header-main">
@@ -10,7 +10,7 @@
           <n-tag size="small" round :bordered="false">Foreshadow Ledger</n-tag>
         </div>
         <p class="panel-lead">
-          <strong>写</strong>：人工埋设或章后 NLP 异步入库；<strong>读</strong>：供「本章建议」向量/启发式检索与上下文全局池，监控大盘统计回收率。
+          伏笔 ≈ 主角（或读者）当下的疑问；在本阶段兑现并与爽点挂钩即可，不必写论文。
         </p>
       </div>
       <n-space class="header-actions" :size="8" align="center">

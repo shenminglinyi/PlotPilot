@@ -1272,28 +1272,18 @@ class ContextBudgetAllocator:
         novel_id: str,
         chapter_number: int,
     ) -> str:
-        """获取宏观诊断断点（人设冲突提醒）
+        """获取宏观诊断「系统叙事校准」补丁（静默注入 Context 头部，无前端交互）。
         
-        从最新的未解决宏观诊断结果中提取冲突断点，注入到后续生成的提示词中，
-        提醒 LLM 避免继续犯相同的人设错误。
-        
-        已解决的诊断结果不会被注入。
-        
-        Args:
-            novel_id: 小说 ID
-            chapter_number: 当前章节号
-        
-        Returns:
-            格式化的人设冲突提醒文本
+        优先使用后台 Map-Reduce 扫描后写入的 context_patch；对用户透明。
+        已解决的诊断结果（resolved=1）不再注入。
         """
         try:
             from infrastructure.persistence.database.connection import get_database
             
             db = get_database()
             
-            # 获取最新未解决的诊断结果（关键：resolved = 0）
             sql = """
-                SELECT breakpoints, trait, trigger_reason, created_at
+                SELECT context_patch, breakpoints, trait, created_at
                 FROM macro_diagnosis_results
                 WHERE novel_id = ? AND status = 'completed' AND resolved = 0
                 ORDER BY created_at DESC
@@ -1301,55 +1291,17 @@ class ContextBudgetAllocator:
             """
             row = db.fetch_one(sql, (novel_id,))
             
-            if not row or not row["breakpoints"]:
+            if not row:
                 return ""
             
-            import json
-            breakpoints = json.loads(row["breakpoints"])
+            cp = row.get("context_patch")
+            if cp and str(cp).strip():
+                return str(cp).strip()
             
-            if not breakpoints:
-                return ""
-            
-            # 过滤：只保留当前章节之前的断点（已存在的冲突）
-            relevant_breakpoints = [
-                bp for bp in breakpoints
-                if bp.get("chapter", 0) <= chapter_number
-            ]
-            
-            if not relevant_breakpoints:
-                return ""
-            
-            # 构建提醒文本
-            lines = [
-                "【⚠️ 人设冲突提醒 - 请在后续章节避免继续犯类似错误】",
-                f"诊断时间：{row['created_at'][:16] if row['created_at'] else ''}",
-                f"扫描人设：{row['trait']}",
-                "",
-                "已检测到以下人设冲突断点，请在写作时注意避免：",
-            ]
-            
-            # 按章节分组
-            by_chapter = {}
-            for bp in relevant_breakpoints[:15]:  # 最多 15 个断点
-                ch = bp.get("chapter", 0)
-                if ch not in by_chapter:
-                    by_chapter[ch] = []
-                by_chapter[ch].append(bp)
-            
-            for ch in sorted(by_chapter.keys()):
-                bps = by_chapter[ch]
-                lines.append(f"\n第 {ch} 章：")
-                for bp in bps:
-                    reason = bp.get("reason", "")
-                    tags = bp.get("tags", [])
-                    tags_str = "、".join(tags)
-                    lines.append(f"  • {reason}（冲突标签：{tags_str}）")
-            
-            lines.append("\n【注意】请确保后续章节的角色行为符合人设，避免上述冲突标签。")
-            
-            return "\n".join(lines)
+            # 兼容旧库仅有 breakpoints 无 context_patch 时：不注入长列表，避免暴露「诊断」口吻
+            return ""
             
         except Exception as e:
-            logger.warning(f"获取宏观诊断断点失败: {e}")
+            logger.warning(f"获取宏观叙事校准补丁失败: {e}")
         
         return ""

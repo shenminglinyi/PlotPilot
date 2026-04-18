@@ -28,7 +28,7 @@
           </div>
           <div class="bible-role-item">
             <span class="bible-role-k">叙事线索</span>
-            <span class="bible-role-v">故事线/情节弧/时间线</span>
+            <span class="bible-role-v">故事线/时间线</span>
           </div>
         </div>
         <div class="bible-stats" aria-live="polite">
@@ -91,73 +91,33 @@
             <div class="bcard-head">
               <span class="bcard-icon bcard-icon-text" aria-hidden="true">文</span>
               <div>
-                <div class="bcard-title">叙事与风格公约</div>
-                <div class="bcard-desc">人称、时态、叙事距离、基调与禁区——全书的「怎么写」。</div>
-              </div>
-            </div>
-          </template>
-          <n-input
-            v-model:value="state.style_notes"
-            type="textarea"
-            :autosize="{ minRows: 5, maxRows: 22 }"
-            placeholder="建议写明：第三人称有限 / 全知；冷幽默或克制；是否允许破墙、血腥、感情线尺度；参考气质（勿抄原文）…"
-            show-count
-            :maxlength="12000"
-            class="bible-textarea"
-          />
-        </n-card>
-
-        <!-- 文风样本区块 -->
-        <n-card size="small" class="bible-card" :bordered="false" :segmented="{ content: true, footer: false }">
-          <template #header>
-            <div class="bcard-head">
-              <span class="bcard-icon bcard-icon-voice" aria-hidden="true">🎙</span>
-              <div>
-                <div class="bcard-title">文风样本（AI 学习用）</div>
-                <div class="bcard-desc">提交「AI 原稿 → 你的改稿」对，生成时 AI 会自动遵循你的改写习惯。
-                  <span v-if="fingerprint"> · 当前共 {{ fingerprint.sample_count }} 个样本，平均句长 {{ fingerprint.avg_sentence_length.toFixed(1) }} 字</span>
+                <div class="bcard-title">叙事与风格公约（市场预设）</div>
+                <div class="bcard-desc">
+                  从内置爆款模板中选择一种「怎么写」；不提供自定义 Prompt 入口，避免跑偏。保存后写入全书上下文。
                 </div>
               </div>
             </div>
           </template>
           <n-space vertical :size="12">
-            <n-form-item label="AI 原稿" label-placement="top" :show-feedback="false">
-              <n-input
-                v-model:value="voiceForm.ai_original"
-                type="textarea"
-                :autosize="{ minRows: 3, maxRows: 8 }"
-                placeholder="粘贴 AI 生成的原文段落（改稿前）"
+            <n-form-item label="文风模板" label-placement="top" :show-feedback="false">
+              <n-select
+                v-model:value="stylePresetValue"
+                :options="stylePresetOptions"
+                placeholder="选择市场向文风公约"
+                @update:value="onStylePresetChange"
               />
             </n-form-item>
-            <n-form-item label="你的改稿" label-placement="top" :show-feedback="false">
-              <n-input
-                v-model:value="voiceForm.author_refined"
-                type="textarea"
-                :autosize="{ minRows: 3, maxRows: 8 }"
-                placeholder="粘贴你修改后的版本（AI 将学习你的改法）"
-              />
-            </n-form-item>
-            <n-space :size="8" align="center">
-              <n-form-item label="来自章节" label-placement="left" label-width="70" :show-feedback="false">
-                <n-input-number v-model:value="voiceForm.chapter_number" :min="1" style="width:90px" />
-              </n-form-item>
-              <n-form-item label="场景类型" label-placement="left" label-width="70" :show-feedback="false">
-                <n-select
-                  v-model:value="voiceForm.scene_type"
-                  :options="sceneTypeOptions"
-                  style="width:120px"
-                />
-              </n-form-item>
-              <n-button
-                type="primary"
-                size="small"
-                :loading="voiceSaving"
-                :disabled="!voiceForm.ai_original.trim() || !voiceForm.author_refined.trim()"
-                @click="submitVoiceSample"
-              >
-                提交样本
-              </n-button>
-            </n-space>
+            <n-alert v-if="styleNotesUnmatchedPreset" type="warning" :show-icon="true" style="font-size: 12px">
+              当前文案与内置模板不完全一致（可能来自旧版本）。切换模板将覆盖为预设全文。
+            </n-alert>
+            <n-input
+              :value="state.style_notes"
+              type="textarea"
+              readonly
+              disabled
+              :autosize="{ minRows: 6, maxRows: 14 }"
+              class="bible-textarea bible-textarea-readonly"
+            />
           </n-space>
         </n-card>
       </div>
@@ -195,8 +155,7 @@ import { useMessage } from 'naive-ui'
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO, LocationDTO, TimelineNoteDTO, StyleNoteDTO } from '../../api/bible'
 import { knowledgeApi } from '../../api/knowledge'
-import { voiceApi } from '../../api/voice'
-import type { VoiceFingerprintDTO } from '../../api/voice'
+import { MARKET_STYLE_PRESETS, matchPresetValue } from '@/constants/marketStylePresets'
 
 
 
@@ -228,38 +187,22 @@ const generating = ref(false)
 const premiseLock = ref('')
 const generatingKnowledge = ref(false)
 
-// 文风样本
-const voiceForm = ref({ ai_original: '', author_refined: '', chapter_number: 1, scene_type: 'general' })
-const voiceSaving = ref(false)
-const fingerprint = ref<VoiceFingerprintDTO | null>(null)
-const sceneTypeOptions = [
-  { label: '通用', value: 'general' },
-  { label: '战斗', value: 'combat' },
-  { label: '对话', value: 'dialogue' },
-  { label: '心理', value: 'inner' },
-  { label: '环境', value: 'environment' },
-]
+const stylePresetOptions = MARKET_STYLE_PRESETS.map(p => ({ label: p.label, value: p.value }))
+const stylePresetValue = ref(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
 
-const loadFingerprint = async () => {
-  try {
-    fingerprint.value = await voiceApi.getFingerprint(props.slug)
-  } catch {
-    fingerprint.value = null
-  }
+const styleNotesUnmatchedPreset = computed(() => {
+  const t = (state.value.style_notes || '').trim()
+  if (!t) return false
+  return matchPresetValue(t) === null
+})
+
+function applyStylePresetByValue(value: string) {
+  const p = MARKET_STYLE_PRESETS.find(x => x.value === value)
+  if (p) state.value.style_notes = p.body
 }
 
-const submitVoiceSample = async () => {
-  voiceSaving.value = true
-  try {
-    await voiceApi.createSample(props.slug, voiceForm.value)
-    message.success('文风样本已提交，AI 将在下次生成时参考你的改写习惯')
-    voiceForm.value = { ai_original: '', author_refined: '', chapter_number: 1, scene_type: 'general' }
-    await loadFingerprint()
-  } catch {
-    message.error('提交失败')
-  } finally {
-    voiceSaving.value = false
-  }
+function onStylePresetChange(value: string) {
+  applyStylePresetByValue(value)
 }
 
 const stats = computed(() => {
@@ -350,6 +293,12 @@ const load = async () => {
   try {
     const bible = await bibleApi.getBible(props.slug)
     state.value = fromApiFormat(bible)
+    const matched = matchPresetValue(state.value.style_notes)
+    if (matched) {
+      stylePresetValue.value = matched
+    } else if (!(state.value.style_notes || '').trim()) {
+      applyStylePresetByValue(stylePresetValue.value)
+    }
     syncJsonFromState()
   } catch (err: any) {
     // If Bible doesn't exist, create it
@@ -466,7 +415,6 @@ watch(
 
 onMounted(() => {
   void load()
-  void loadFingerprint()
 })
 </script>
 
@@ -755,6 +703,11 @@ onMounted(() => {
 
 .bible-textarea :deep(textarea) {
   line-height: 1.55;
+}
+
+.bible-textarea-readonly :deep(textarea) {
+  cursor: default;
+  color: var(--app-text-secondary);
 }
 
 .char-block,

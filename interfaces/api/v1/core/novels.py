@@ -27,7 +27,9 @@ class CreateNovelRequest(BaseModel):
     title: str = Field(..., description="小说标题")
     author: str = Field(..., description="作者")
     target_chapters: int = Field(..., gt=0, description="目标章节数")
-    premise: str = Field(default="", description="故事梗概/创意")
+    premise: str = Field(default="", max_length=2000, description="故事梗概/创意（建议 2000 字内）")
+    genre: str = Field(default="", description="赛道/类型（下拉预设）")
+    world_preset: str = Field(default="", description="世界观基调（下拉预设）")
 
 
 class UpdateStageRequest(BaseModel):
@@ -108,7 +110,9 @@ async def create_novel(
         title=request.title,
         author=request.author,
         target_chapters=request.target_chapters,
-        premise=request.premise
+        premise=request.premise,
+        genre=request.genre,
+        world_preset=request.world_preset,
     )
 
     return novel_dto

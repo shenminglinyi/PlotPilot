@@ -793,8 +793,6 @@ flowchart LR
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/v1/novels/{id}/storylines</code></td><td>新建故事线</td></tr>
                         <tr><td><span class="badge badge-put">PUT</span></td><td><code>/api/v1/novels/{id}/storylines/{sid}</code></td><td>更新</td></tr>
                         <tr><td><span class="badge badge-delete">DELETE</span></td><td><code>/api/v1/novels/{id}/storylines/{sid}</code></td><td>删除</td></tr>
-                        <tr><td><span class="badge badge-get">GET</span></td><td><code>/api/v1/novels/{id}/plot-arc</code></td><td>情节弧</td></tr>
-                        <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/v1/novels/{id}/plot-arc</code></td><td>保存情节弧</td></tr>
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/v1/novels/{id}/plan</code></td><td>运行规划流水线</td></tr>
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/v1/novels/{id}/chapters/{n}/review</code></td><td>章节审阅生成</td></tr>
                         <tr><td><span class="badge badge-post">POST</span></td><td><code>/api/v1/novels/{id}/outline/extend</code></td><td>扩展大纲</td></tr>
@@ -958,12 +956,6 @@ flowchart LR
                                     <td>workflowApi.getStorylines()</td>
                                 </tr>
                                 <tr>
-                                    <td>📈 情节弧</td>
-                                    <td>PlotArcPanel.vue</td>
-                                    <td>设计情节张力曲线</td>
-                                    <td>workflowApi.getPlotArc()</td>
-                                </tr>
-                                <tr>
                                     <td>⏱️ 时间线</td>
                                     <td>TimelinePanel.vue</td>
                                     <td>管理时间流逝与事件序列</td>
@@ -1008,12 +1000,6 @@ flowchart LR
                                     <td>VoiceDriftPanel.vue</td>
                                     <td>监控文风一致性，显示漂移曲线</td>
                                     <td>voiceDriftApi.getDriftReport()</td>
-                                </tr>
-                                <tr>
-                                    <td>重构扫描</td>
-                                    <td>MacroRefactorPanel.vue</td>
-                                    <td>扫描结构问题，提供重构建议</td>
-                                    <td>-</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1074,26 +1060,14 @@ flowchart LR
                     </ul>
                 </div>
 
-                <h3>2. 情节弧线 (Plot Arc)</h3>
-                <div class="highlight">
-                    <h4>🎯 设计目标</h4>
-                    <p>设计小说的情节张力曲线，规划起承转合的关键剧情点和节奏控制。</p>
-                </div>
-
-                <div class="card">
-                    <h4>前端组件: PlotArcPanel.vue</h4>
-                    <p><strong>位置:</strong> 右侧面板 → 创作设定 → 情节弧</p>
-                    <p><strong>可视化:</strong> SVG 绘制张力曲线，章节号为 X 轴，张力值为 Y 轴</p>
-                </div>
-
-                <h3>3. 时间线 (Timeline)</h3>
+                <h3>2. 时间线 (Timeline)</h3>
                 <div class="card">
                     <h4>前端组件: TimelinePanel.vue</h4>
                     <p><strong>位置:</strong> 右侧面板 → 创作设定 → 时间线</p>
                     <p><strong>存储:</strong> Bible 的 timeline_notes 字段</p>
                 </div>
 
-                <h3>4. 伏笔账本 (Foreshadow Ledger)</h3>
+                <h3>3. 伏笔账本 (Foreshadow Ledger)</h3>
                 <div class="highlight">
                     <h4>🎯 核心亮点：感官锚点匹配</h4>
                     <p>输入当前场景的感官描述（视觉/听觉/嗅觉等），AI 自动找出最匹配的待兑现伏笔。</p>
@@ -1109,21 +1083,21 @@ flowchart LR
                     </ul>
                 </div>
 
-                <h3>5. 章节元素 (Chapter Elements)</h3>
+                <h3>4. 章节元素 (Chapter Elements)</h3>
                 <div class="card">
                     <h4>前端组件: ChapterElementPanel.vue</h4>
                     <p><strong>位置:</strong> 右侧面板 → 辅助工具 → 章节元素</p>
                     <p><strong>功能:</strong> 管理章节与 Bible 元素的关联，支持批量更新</p>
                 </div>
 
-                <h3>6. 对话沙盒 (Sandbox Dialogue)</h3>
+                <h3>5. 对话沙盒 (Sandbox Dialogue)</h3>
                 <div class="card">
                     <h4>前端组件: SandboxDialoguePanel.vue</h4>
                     <p><strong>位置:</strong> 右侧面板 → 辅助工具 → 对话沙盒</p>
                     <p><strong>功能:</strong> 查看对话白名单，辅助场景规划</p>
                 </div>
 
-                <h3>7. 文风漂移 (Voice Drift)</h3>
+                <h3>6. 文风漂移 (Voice Drift)</h3>
                 <div class="card">
                     <h4>前端组件: VoiceDriftPanel.vue</h4>
                     <p><strong>位置:</strong> 右侧面板 → 辅助工具 → 文风漂移</p>
@@ -1165,7 +1139,6 @@ flowchart TB
                     <h4>阶段 1: 初始规划</h4>
                     <ol style="padding-left: 20px;">
                         <li>设计故事线（主线/支线）</li>
-                        <li>设计情节弧（张力曲线）</li>
                         <li>设计时间线（关键事件）</li>
                         <li>宏观规划（部-卷-幕）</li>
                         <li>幕级规划（第一幕的章节）</li>
@@ -1187,7 +1160,7 @@ flowchart TB
                     <h4>阶段 3: 定期检查</h4>
                     <ul style="padding-left: 20px;">
                         <li>每 5-10 章：文风漂移、伏笔状态</li>
-                        <li>每完成一幕：情节弧、时间线</li>
+                        <li>每完成一幕：时间线</li>
                         <li>每完成一卷：重构扫描</li>
                     </ul>
                 </div>
@@ -1249,14 +1222,8 @@ flowchart TB
                         <tr>
                             <td><strong>故事线</strong></td>
                             <td>规划阶段</td>
-                            <td>宏观规划、情节弧</td>
+                            <td>宏观规划</td>
                             <td>Bible → 宏观规划</td>
-                        </tr>
-                        <tr>
-                            <td><strong>情节弧</strong></td>
-                            <td>规划阶段</td>
-                            <td>故事线、幕级规划</td>
-                            <td>独立存储 → 可视化</td>
                         </tr>
                         <tr>
                             <td><strong>时间线</strong></td>
@@ -1295,9 +1262,9 @@ flowchart TB
                 <div class="highlight">
                     <h4>🎯 推荐工作流</h4>
                     <ol style="padding-left: 20px; margin-top: 10px;">
-                        <li><strong>规划阶段:</strong> 故事线 → 情节弧 → 时间线 → 宏观规划 → 幕级规划</li>
+                        <li><strong>规划阶段:</strong> 故事线 → 时间线 → 宏观规划 → 幕级规划</li>
                         <li><strong>写作阶段:</strong> 查看伏笔/元素/对话 → 写作 → 添加伏笔/元素 → 计算文风</li>
-                        <li><strong>检查阶段:</strong> 每 5-10 章检查文风 → 每幕检查情节弧 → 每卷重构扫描</li>
+                        <li><strong>检查阶段:</strong> 每 5-10 章检查文风 → 每幕检查时间线 → 每卷重构扫描</li>
                     </ol>
                 </div>
 

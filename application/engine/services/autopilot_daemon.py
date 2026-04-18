@@ -814,7 +814,7 @@ class AutopilotDaemon:
             novel.autopilot_status = AutopilotStatus.STOPPED
             novel.current_stage = NovelStage.COMPLETED
 
-        # 6. 自动触发宏观诊断（每10章或幕完成时）
+        # 6. 自动触发宏观诊断（卷完结或约 6 万字间隔；静默注入，无前端提案交互）
         await self._auto_trigger_macro_diagnosis(novel, len(completed))
         
         # 7. 🆕 摘要生成钩子（双轨融合 - 轨道一）
@@ -1049,47 +1049,80 @@ class AutopilotDaemon:
                 logger.warning("文风检测失败（跳过）：%s", e)
         return {"drift_alert": False, "similarity_score": None}
 
+    def _sum_completed_chapter_words(self, novel_id: str) -> int:
+        """已完结章节字数合计，用于宏观诊断字数间隔锚点。"""
+        chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
+        total = 0
+        for c in chapters:
+            st = getattr(c.status, "value", c.status)
+            if st == "completed":
+                total += int(getattr(c, "word_count", 0) or 0)
+        return total
+
+    def _get_last_macro_word_anchor(self, novel_id: str) -> int:
+        from infrastructure.persistence.database.connection import get_database
+
+        db = get_database()
+        row = db.fetch_one(
+            """
+            SELECT total_words_at_run FROM macro_diagnosis_results
+            WHERE novel_id=? ORDER BY created_at DESC LIMIT 1
+            """,
+            (novel_id,),
+        )
+        if not row:
+            return 0
+        v = row.get("total_words_at_run")
+        return int(v) if v is not None else 0
+
+    def _macro_diagnosis_should_run(self, novel: Novel, completed_count: int) -> tuple:
+        """触发：任一卷（Volume）章节范围完结；或累计字数距上次诊断 ≥ 约 6 万字（5~10 万取中）。"""
+        from application.audit.services.macro_diagnosis_service import MACRO_DIAGNOSIS_WORD_INTERVAL
+        from domain.structure.story_node import NodeType
+
+        novel_id = novel.novel_id.value
+        total_words = self._sum_completed_chapter_words(novel_id)
+
+        if self.story_node_repo:
+            try:
+                nodes = self.story_node_repo.get_by_novel_sync(novel_id)
+                for n in nodes:
+                    if n.node_type == NodeType.VOLUME and n.chapter_end == completed_count:
+                        return True, f"卷「{n.title or n.number}」完结（第{completed_count}章）"
+            except Exception as e:
+                logger.debug("[%s] 宏观诊断卷检测跳过: %s", novel_id, e)
+
+        last_anchor = self._get_last_macro_word_anchor(novel_id)
+        if total_words >= last_anchor + MACRO_DIAGNOSIS_WORD_INTERVAL:
+            return True, (
+                f"字数间隔（累计约{total_words}字，距上次锚点≥{MACRO_DIAGNOSIS_WORD_INTERVAL // 10000}万字）"
+            )
+        return False, ""
+
     async def _auto_trigger_macro_diagnosis(self, novel: Novel, completed_count: int) -> None:
-        """自动触发宏观诊断（每10章或幕完成时）
-
-        触发条件：
-        1. 每10章触发一次
-        2. 每幕完成时触发一次
-        """
+        """自动触发宏观诊断：卷完结或字数间隔；结果仅用于静默 context_patch，不经前端提案。"""
         try:
-            # 判断是否需要触发
-            should_trigger = False
-            trigger_reason = ""
-
-            # 条件1：每10章
-            if completed_count > 0 and completed_count % 10 == 0:
-                should_trigger = True
-                trigger_reason = f"每10章检查点（当前{completed_count}章）"
-
-            # 条件2：幕完成（current_chapter_in_act回到0表示新幕开始）
-            if novel.current_chapter_in_act == 0 and novel.current_act > 0:
-                should_trigger = True
-                trigger_reason = f"第{novel.current_act}幕完成"
-
+            should_trigger, trigger_reason = self._macro_diagnosis_should_run(novel, completed_count)
             if not should_trigger:
                 return
 
+            total_words = self._sum_completed_chapter_words(novel.novel_id.value)
             logger.info(f"[{novel.novel_id}] 📊 自动触发宏观诊断：{trigger_reason}")
 
-            # 调用宏观诊断服务（后台异步执行，不阻塞写作流程）
-            asyncio.create_task(self._run_macro_diagnosis_background(novel.novel_id.value))
+            asyncio.create_task(
+                self._run_macro_diagnosis_background(novel.novel_id.value, total_words, trigger_reason)
+            )
 
         except Exception as e:
             logger.warning(f"[{novel.novel_id}] 自动触发宏观诊断失败: {e}")
 
-    async def _run_macro_diagnosis_background(self, novel_id: str) -> None:
-        """后台执行宏观诊断
-        
-        流程：
-        1. 初始化 MacroDiagnosisService（惰性加载）
-        2. 执行全人设扫描
-        3. 结果自动存储到 macro_diagnosis_results 表
-        """
+    async def _run_macro_diagnosis_background(
+        self,
+        novel_id: str,
+        total_words_snapshot: int,
+        trigger_reason: str,
+    ) -> None:
+        """后台执行宏观诊断：扫描结果写入 context_patch，供生成上下文头部静默注入。"""
         try:
             from infrastructure.persistence.database.connection import get_database
             from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
@@ -1098,17 +1131,16 @@ class AutopilotDaemon:
             
             logger.info(f"[{novel_id}] 📊 宏观诊断后台任务已启动")
             
-            # 初始化服务
             db = get_database()
             narrative_event_repo = SqliteNarrativeEventRepository(db)
             scanner = MacroRefactorScanner(narrative_event_repo)
             diagnosis_service = MacroDiagnosisService(db, scanner)
             
-            # 执行全人设扫描（使用内置规则）
             result = diagnosis_service.run_full_diagnosis(
                 novel_id=novel_id,
-                trigger_reason=f"自动触发（检查点）",
-                traits=None  # 使用默认的内置人设标签
+                trigger_reason=trigger_reason,
+                traits=None,
+                total_words_at_run=total_words_snapshot,
             )
             
             if result.status == "completed":

@@ -152,16 +152,16 @@ const menuOptions = computed(() => {
     { label: '重命名', key: 'rename' },
   ]
   if (node.node_type === 'part') {
-    items.push({ label: '➕ 添加卷', key: 'add-child' })
+    items.push({ label: '添加卷', key: 'add-child' })
   } else if (node.node_type === 'volume') {
-    items.push({ label: '➕ 添加幕', key: 'add-child' })
+    items.push({ label: '添加幕', key: 'add-child' })
   } else if (node.node_type === 'act') {
-    items.push({ label: '➕ 添加章节（手动）', key: 'add-child' })
+    items.push({ label: '添加章节（手动）', key: 'add-child' })
     items.push({ type: 'divider', key: 'div' })
-    items.push({ label: '🤖 AI 规划章节', key: 'plan-act' })
+    items.push({ label: 'AI 规划章节', key: 'plan-act' })
   }
   items.push({ type: 'divider', key: 'div-del' })
-  items.push({ label: '🗑 删除', key: 'delete' })
+  items.push({ label: '删除', key: 'delete' })
   return items
 })
 
@@ -429,7 +429,11 @@ const renderLabel = ({ option }: { option: any }) => {
 const renderSuffix = ({ option }: { option: any }) => {
   const elements: any[] = []
   const node = option as StoryNode
-  if (node.description && ['part', 'volume', 'act'].includes(node.node_type)) {
+  // 「幕」节点仅显示标题（如第 n 幕），不显示后端附带的内容小结，避免树形一行过长
+  if (
+    node.description &&
+    ['part', 'volume'].includes(node.node_type)
+  ) {
     elements.push(
       h('span', {
         class: 'node-description',

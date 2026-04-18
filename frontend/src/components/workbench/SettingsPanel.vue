@@ -35,9 +35,6 @@
       <n-tab-pane name="chronicles" tab="编年史" display-directive="if">
         <HolographicChroniclesPanel :slug="slug" />
       </n-tab-pane>
-      <n-tab-pane name="macro-refactor" tab="宏观诊断" display-directive="if">
-        <MacroRefactorPanel :slug="slug" />
-      </n-tab-pane>
       <n-tab-pane name="sandbox" tab="对话沙盒" display-directive="if">
         <SandboxDialoguePanel :slug="slug" />
       </n-tab-pane>
@@ -56,13 +53,12 @@ import WorldbuildingPanel from './WorldbuildingPanel.vue'
 import StorylinePlotOverviewPanel from './StorylinePlotOverviewPanel.vue'
 import HolographicChroniclesPanel from './HolographicChroniclesPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
-import MacroRefactorPanel from './MacroRefactorPanel.vue'
 import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
-  'storyline-arc', 'chronicles', 'macro-refactor',
+  'storyline-arc', 'chronicles',
   'sandbox', 'foreshadow',
 ])
 
@@ -73,6 +69,7 @@ const LEGACY_TAB_MAP: Record<string, string> = {
   'timeline': 'chronicles',
   'snapshots': 'chronicles',
   'foreshadow-suggestions': 'sandbox',
+  'macro-refactor': 'bible',
 }
 
 function resolveTab(panel: string | undefined): string {
