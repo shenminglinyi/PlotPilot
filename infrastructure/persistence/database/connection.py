@@ -377,6 +377,10 @@ class DatabaseConnection:
         conn.executemany(sql, params_list)
         conn.commit()
 
+    def commit(self) -> None:
+        """提交当前线程连接上的事务（与 execute() 成对使用）。"""
+        self.get_connection().commit()
+
     def fetch_one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         """查询单条记录
 
