@@ -92,6 +92,9 @@ class ChapterAftermathPipeline:
             "drift_alert": False,
             "similarity_score": None,
             "narrative_sync_ok": False,
+            "vector_stored": False,
+            "foreshadow_stored": False,
+            "triples_extracted": False,
         }
 
         if not content or not str(content).strip():
@@ -104,7 +107,7 @@ class ChapterAftermathPipeline:
                 sync_chapter_narrative_after_save,
             )
 
-            await sync_chapter_narrative_after_save(
+            sync_flags = await sync_chapter_narrative_after_save(
                 novel_id,
                 chapter_number,
                 content,
@@ -119,6 +122,9 @@ class ChapterAftermathPipeline:
                 narrative_event_repository=self._narrative_event_repository,
             )
             out["narrative_sync_ok"] = True
+            out["vector_stored"] = bool(sync_flags.get("vector_stored"))
+            out["foreshadow_stored"] = bool(sync_flags.get("foreshadow_stored"))
+            out["triples_extracted"] = bool(sync_flags.get("triples_extracted"))
         except Exception as e:
             logger.warning(
                 "叙事同步/向量失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
