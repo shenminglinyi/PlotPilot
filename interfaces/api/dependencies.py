@@ -12,7 +12,6 @@ from domain.ai.services.llm_service import LLMService
 
 if TYPE_CHECKING:
     from application.engine.services.scene_director_service import SceneDirectorService
-    from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
 
 from application.paths import DATA_DIR
 from infrastructure.persistence.storage.file_storage import FileStorage
@@ -510,15 +509,11 @@ _vector_store_singleton: Optional[VectorStore] = None
 def get_vector_store() -> Optional[VectorStore]:
     """获取向量存储（单例，整个进程共享同一实例）
 
-    根据环境变量返回 ChromaDB 或 Qdrant 实例。
+    使用本地 FAISS 向量存储（ChromaDBVectorStore），无需外部服务。
 
     环境变量配置：
-    - VECTOR_STORE_ENABLED: 是否启用向量存储（"true" 启用，默认 "true"）
-    - VECTOR_STORE_TYPE: 向量存储类型（"chromadb" 或 "qdrant"，默认 "chromadb"）
-    - VECTOR_STORE_PATH: ChromaDB 本地存储路径（默认 "./data/chromadb"）
-    - QDRANT_HOST: Qdrant 服务器地址（默认 "localhost"，仅 qdrant 类型）
-    - QDRANT_PORT: Qdrant 服务器端口（默认 6333，仅 qdrant 类型）
-    - QDRANT_API_KEY: Qdrant API 密钥（可选，仅 qdrant 类型）
+    - VECTOR_STORE_ENABLED: 是否启用（"true" 启用，默认 "true"）
+    - VECTOR_STORE_PATH: 本地存储路径（默认 "./data/chromadb"）
 
     Returns:
         VectorStore 实例或 None
@@ -527,31 +522,14 @@ def get_vector_store() -> Optional[VectorStore]:
     if _vector_store_singleton is not None:
         return _vector_store_singleton
 
-    # 检查是否启用（默认启用）
     enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
     if not enabled:
         return None
 
-    # 读取存储类型（默认 ChromaDB）
-    store_type = os.getenv("VECTOR_STORE_TYPE", "chromadb").lower()
-    legacy_qdrant_enabled = os.getenv("QDRANT_ENABLED", "").lower() == "true"
-    if store_type == "chromadb" and legacy_qdrant_enabled:
-        store_type = "qdrant"
-
     try:
-        if store_type == "chromadb":
-            from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
-            persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
-            _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
-        elif store_type == "qdrant":
-            from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
-            host = os.getenv("QDRANT_HOST", "localhost")
-            port = int(os.getenv("QDRANT_PORT", "6333"))
-            api_key = os.getenv("QDRANT_API_KEY")
-            _vector_store_singleton = QdrantVectorStore(host=host, port=port, api_key=api_key)
-        else:
-            logger.warning(f"Unknown VECTOR_STORE_TYPE: {store_type}, vector store disabled")
-            return None
+        from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
+        persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
+        _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
         return _vector_store_singleton
     except Exception as e:
         logger.warning(f"Failed to initialize vector store: {e}")
