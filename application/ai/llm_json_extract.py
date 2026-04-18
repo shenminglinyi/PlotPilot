@@ -100,7 +100,8 @@ def repair_json(text: str) -> str:
         return res
 
     current_s = text
-    max_retries = 15
+    # 截断修复迭代次数上限，避免与 LLM 侧无限循环叠加
+    max_retries = 3
     while max_retries > 0 and current_s:
         repaired = _do_repair(current_s)
         try:

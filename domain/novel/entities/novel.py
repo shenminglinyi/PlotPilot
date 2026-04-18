@@ -59,7 +59,7 @@ class Novel(BaseEntity):
         last_audit_quality_scores: Optional[Dict[str, float]] = None,
         last_audit_issues: Optional[List[Dict[str, str]]] = None,
         # 目标字数控制
-        target_words_per_chapter: int = 3500,
+        target_words_per_chapter: int = 2500,
     ):
         super().__init__(id.value)
         self.novel_id = id

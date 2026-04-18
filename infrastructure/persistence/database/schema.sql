@@ -541,7 +541,7 @@ CREATE TABLE IF NOT EXISTS prompt_nodes (
     contract_model TEXT,               -- Pydantic 合约模型名
     tags TEXT NOT NULL DEFAULT '[]',   -- JSON 数组
     variables TEXT NOT NULL DEFAULT '[]',  -- JSON: 变量定义列表
-    system_file TEXT,                  -- 引用的 .txt 文件名
+    system_file TEXT,                  -- 预留，可为空（正文在 prompt_versions.system_prompt）
     is_builtin INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     active_version_id TEXT,            -- 当前激活版本 ID

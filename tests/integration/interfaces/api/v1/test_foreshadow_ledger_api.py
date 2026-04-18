@@ -7,7 +7,7 @@ from interfaces.api.dependencies import get_foreshadowing_repository
 
 
 class TestForeshadowLedgerAPI:
-    """测试潜台词账本 API（SQLite 伏笔仓储）"""
+    """伏笔手账本 API（SQLite）"""
 
     @pytest.fixture
     def novel_id(self):
@@ -15,7 +15,6 @@ class TestForeshadowLedgerAPI:
 
     @pytest.fixture
     def setup_registry(self, db, client, novel_id):
-        """依赖 client，确保已 monkeypatch get_database，与内存库一致。"""
         db.execute(
             "INSERT OR IGNORE INTO novels (id, title, slug, target_chapters) VALUES (?, ?, ?, ?)",
             (novel_id, "Foreshadow Ledger Test", novel_id, 100),
@@ -51,11 +50,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-001",
                 "chapter": 5,
                 "character_id": "char-001",
-                "hidden_clue": "主角的秘密身份",
-                "sensory_anchors": {
-                    "visual": "红色围巾",
-                    "auditory": "轻微的咳嗽声",
-                },
+                "question": "主角的真实身份究竟是什么？",
             },
         )
 
@@ -64,8 +59,7 @@ class TestForeshadowLedgerAPI:
         assert data["id"] == "entry-001"
         assert data["chapter"] == 5
         assert data["character_id"] == "char-001"
-        assert data["hidden_clue"] == "主角的秘密身份"
-        assert data["sensory_anchors"]["visual"] == "红色围巾"
+        assert data["question"] == "主角的真实身份究竟是什么？"
         assert data["status"] == "pending"
         assert data["consumed_at_chapter"] is None
 
@@ -76,8 +70,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-002",
                 "chapter": 5,
                 "character_id": "char-001",
-                "hidden_clue": "线索",
-                "sensory_anchors": {"visual": "红色"},
+                "question": "线索A",
             },
         )
 
@@ -87,8 +80,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-002",
                 "chapter": 6,
                 "character_id": "char-002",
-                "hidden_clue": "另一个线索",
-                "sensory_anchors": {"visual": "蓝色"},
+                "question": "线索B",
             },
         )
 
@@ -102,8 +94,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-003",
                 "chapter": 5,
                 "character_id": "char-001",
-                "hidden_clue": "线索1",
-                "sensory_anchors": {"visual": "红色"},
+                "question": "疑问1",
             },
         )
         client.post(
@@ -112,8 +103,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-004",
                 "chapter": 6,
                 "character_id": "char-002",
-                "hidden_clue": "线索2",
-                "sensory_anchors": {"visual": "蓝色"},
+                "question": "疑问2",
             },
         )
 
@@ -132,8 +122,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-005",
                 "chapter": 5,
                 "character_id": "char-001",
-                "hidden_clue": "线索",
-                "sensory_anchors": {"visual": "红色"},
+                "question": "疑问",
             },
         )
 
@@ -153,8 +142,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-006",
                 "chapter": 5,
                 "character_id": "char-001",
-                "hidden_clue": "线索",
-                "sensory_anchors": {"visual": "红色"},
+                "question": "疑问",
             },
         )
 
@@ -165,7 +153,7 @@ class TestForeshadowLedgerAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == "entry-006"
-        assert data["hidden_clue"] == "线索"
+        assert data["question"] == "疑问"
 
     def test_get_nonexistent_entry(self, client, novel_id, setup_registry):
         response = client.get(
@@ -181,15 +169,14 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-007",
                 "chapter": 5,
                 "character_id": "char-001",
-                "hidden_clue": "原始线索",
-                "sensory_anchors": {"visual": "红色"},
+                "question": "原始疑问",
             },
         )
 
         response = client.put(
             f"/api/v1/novels/{novel_id}/foreshadow-ledger/entry-007",
             json={
-                "hidden_clue": "更新后的线索",
+                "question": "更新后的疑问",
                 "status": "consumed",
                 "consumed_at_chapter": 10,
             },
@@ -197,7 +184,7 @@ class TestForeshadowLedgerAPI:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["hidden_clue"] == "更新后的线索"
+        assert data["question"] == "更新后的疑问"
         assert data["status"] == "consumed"
         assert data["consumed_at_chapter"] == 10
 
@@ -208,8 +195,7 @@ class TestForeshadowLedgerAPI:
                 "entry_id": "entry-008",
                 "chapter": 5,
                 "character_id": "char-001",
-                "hidden_clue": "线索",
-                "sensory_anchors": {"visual": "红色"},
+                "question": "疑问",
             },
         )
 
@@ -223,55 +209,3 @@ class TestForeshadowLedgerAPI:
             f"/api/v1/novels/{novel_id}/foreshadow-ledger/entry-008",
         )
         assert response.status_code == 404
-
-    def test_match_subtext_entry(self, client, novel_id, setup_registry):
-        client.post(
-            f"/api/v1/novels/{novel_id}/foreshadow-ledger",
-            json={
-                "entry_id": "entry-009",
-                "chapter": 5,
-                "character_id": "char-001",
-                "hidden_clue": "线索",
-                "sensory_anchors": {
-                    "visual": "红色围巾",
-                    "auditory": "脚步声",
-                },
-            },
-        )
-
-        response = client.post(
-            f"/api/v1/novels/{novel_id}/foreshadow-ledger/match",
-            json={
-                "current_anchors": {
-                    "visual": "她戴着红色围巾走进房间",
-                    "auditory": "远处传来脚步声",
-                },
-            },
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["matched"] is True
-        assert data["entry"]["id"] == "entry-009"
-
-    def test_match_no_result(self, client, novel_id, setup_registry):
-        client.post(
-            f"/api/v1/novels/{novel_id}/foreshadow-ledger",
-            json={
-                "entry_id": "entry-010",
-                "chapter": 5,
-                "character_id": "char-001",
-                "hidden_clue": "线索",
-                "sensory_anchors": {"visual": "红色围巾"},
-            },
-        )
-
-        response = client.post(
-            f"/api/v1/novels/{novel_id}/foreshadow-ledger/match",
-            json={"current_anchors": {"visual": "蓝色帽子"}},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["matched"] is False
-        assert data["entry"] is None

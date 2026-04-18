@@ -1,7 +1,12 @@
 """AutoNovelGenerationWorkflow 单元测试"""
 import pytest
 from unittest.mock import Mock, AsyncMock
-from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
+from application.workflows.auto_novel_generation_workflow import (
+    AutoNovelGenerationWorkflow,
+    CHAPTER_CONTEXT_LAYER2_HEADER,
+    CHAPTER_CONTEXT_LAYER3_HEADER,
+    assemble_chapter_bundle_context_text,
+)
 from application.engine.dtos.generation_result import GenerationResult
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.context_builder import ContextBuilder
@@ -96,6 +101,18 @@ def workflow(
     )
 
 
+def test_assemble_chapter_bundle_context_text_uses_t2_t3_headers():
+    payload = {
+        "layer1_text": "L1",
+        "layer2_text": "L2",
+        "layer3_text": "L3",
+    }
+    s = assemble_chapter_bundle_context_text(payload)
+    assert f"=== {CHAPTER_CONTEXT_LAYER2_HEADER} ===" in s
+    assert f"=== {CHAPTER_CONTEXT_LAYER3_HEADER} ===" in s
+    assert "L1" in s and "L2" in s and "L3" in s
+
+
 class TestGenerateChapter:
     """测试 generate_chapter 方法"""
 
@@ -113,6 +130,8 @@ class TestGenerateChapter:
         assert result.content == "Generated chapter content"
         assert result.token_count == 9250
         assert "Layer 1 context" in result.context_used
+        assert f"=== {CHAPTER_CONTEXT_LAYER2_HEADER} ===" in result.context_used
+        assert f"=== {CHAPTER_CONTEXT_LAYER3_HEADER} ===" in result.context_used
         assert isinstance(result.consistency_report, ConsistencyReport)
 
         # 验证调用顺序

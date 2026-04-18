@@ -155,7 +155,7 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
             "ALTER TABLE novels ADD COLUMN last_audit_issues TEXT"
         ),
         "target_words_per_chapter": (
-            "ALTER TABLE novels ADD COLUMN target_words_per_chapter INTEGER DEFAULT 3500"
+            "ALTER TABLE novels ADD COLUMN target_words_per_chapter INTEGER DEFAULT 2500"
         ),
     }
     for col, sql in migrations.items():
@@ -218,6 +218,7 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
     # 按执行顺序定义迁移文件
     migration_files = [
         "add_macro_diagnosis_results.sql",
+        "add_macro_diagnosis_context_patch.sql",
         "add_micro_beats_to_chapter_summaries.sql",
         "add_tension_dimensions.sql",
         "add_use_legacy_chat_completions.sql",
@@ -302,7 +303,7 @@ class DatabaseConnection:
         db_file = Path(self.db_path)
         db_file.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
 
         schema_path = Path(__file__).parent / "schema.sql"
@@ -327,11 +328,14 @@ class DatabaseConnection:
 
     def get_connection(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._local.connection = sqlite3.connect(
+                self.db_path, check_same_thread=False, timeout=30.0
+            )
             self._local.connection.row_factory = sqlite3.Row
             self._local.connection.execute("PRAGMA foreign_keys = ON")
             self._local.connection.execute("PRAGMA journal_mode=WAL")
-            self._local.connection.execute("PRAGMA busy_timeout=5000")
+            # 与 API/守护进程并发写时延长等待（毫秒）
+            self._local.connection.execute("PRAGMA busy_timeout=30000")
         return self._local.connection
 
     @contextmanager
@@ -375,6 +379,10 @@ class DatabaseConnection:
         conn = self.get_connection()
         conn.executemany(sql, params_list)
         conn.commit()
+
+    def commit(self) -> None:
+        """提交当前线程连接上的事务（与 execute() 成对使用）。"""
+        self.get_connection().commit()
 
     def fetch_one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         """查询单条记录

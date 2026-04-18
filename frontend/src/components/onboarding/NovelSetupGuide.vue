@@ -13,7 +13,6 @@
       <n-step title="人物" description="主要角色" />
       <n-step title="地图" description="地图系统" />
       <n-step title="故事线" description="主线支线" />
-      <n-step title="情节弧" description="剧情曲线" />
       <n-step title="开始" description="进入工作台" />
     </n-steps>
 
@@ -231,26 +230,8 @@
         </n-spin>
       </div>
 
-      <!-- Step 5: Plot Arc -->
+      <!-- Step 5: Complete -->
       <div v-else-if="currentStep === 5" class="step-panel">
-        <div class="step-info">
-          <n-icon size="48" color="#f0a020">
-            <IconChart />
-          </n-icon>
-          <h3>设计情节弧线</h3>
-          <p>规划故事的起承转合，设置关键剧情点和张力变化。</p>
-          <n-space vertical size="small" style="margin-top: 16px; text-align: left">
-            <div>• 开端：故事的起点</div>
-            <div>• 上升：矛盾逐渐激化</div>
-            <div>• 转折：关键转折点</div>
-            <div>• 高潮：矛盾最激烈时刻</div>
-            <div>• 结局：故事的收尾</div>
-          </n-space>
-        </div>
-      </div>
-
-      <!-- Step 6: Complete -->
-      <div v-else-if="currentStep === 6" class="step-panel">
         <div class="step-info">
           <n-icon size="48" color="#18a058">
             <IconCheck />
@@ -264,7 +245,7 @@
 
     <template #footer>
       <n-space justify="space-between">
-        <n-button v-if="currentStep > 3 && currentStep < 6" @click="handleSkip">
+        <n-button v-if="currentStep > 3 && currentStep < 5" @click="handleSkip">
           跳过向导
         </n-button>
         <div v-else></div>
@@ -277,10 +258,7 @@
             确认并继续
           </n-button>
           <n-button v-if="currentStep === 4" :disabled="!mainPlotCommitted" @click="handleNext"> 下一步 </n-button>
-          <n-button v-if="currentStep === 5" @click="handleNext">
-            完成设置
-          </n-button>
-          <n-button v-if="currentStep === 6" type="primary" @click="handleComplete">
+          <n-button v-if="currentStep === 5" type="primary" @click="handleComplete">
             进入工作台
           </n-button>
         </n-space>
@@ -418,13 +396,6 @@ const IconTimeline = () =>
     'svg',
     { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'currentColor' },
     h('path', { d: 'M23 8c0 1.1-.9 2-2 2-.18 0-.35-.02-.51-.07l-3.56 3.55c.05.16.07.34.07.52 0 1.1-.9 2-2 2s-2-.9-2-2c0-.18.02-.36.07-.52l-2.55-2.55c-.16.05-.34.07-.52.07s-.36-.02-.52-.07l-4.55 4.56c.05.16.07.33.07.51 0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2c.18 0 .35.02.51.07l4.56-4.55C8.02 9.36 8 9.18 8 9c0-1.1.9-2 2-2s2 .9 2 2c0 .18-.02.36-.07.52l2.55 2.55c.16-.05.34-.07.52-.07s.36.02.52.07l3.55-3.56C19.02 8.35 19 8.18 19 8c0-1.1.9-2 2-2s2 .9 2 2z' })
-  )
-
-const IconChart = () =>
-  h(
-    'svg',
-    { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'currentColor' },
-    h('path', { d: 'M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z' })
   )
 
 const IconCheck = () =>
@@ -752,7 +723,7 @@ const handleNext = async () => {
       console.error('Failed to generate locations:', error)
       generatingLocations.value = false
     }
-  } else if (currentStep.value < 6) {
+  } else if (currentStep.value < 5) {
     currentStep.value++
   }
 }

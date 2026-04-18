@@ -274,11 +274,9 @@ class TripleIndexingService:
         """
         collection_name = self._get_collection_name(novel_id)
 
-        # 检查 collection 是否存在
         existing = await self._vector_store.list_collections()
         if collection_name not in existing:
-            logger.warning(f"Collection {collection_name} does not exist")
-            return []
+            await self.ensure_collection(novel_id)
 
         # 生成查询向量
         query_vector = await self._embedding_service.embed(query)

@@ -21,8 +21,7 @@ def test_from_dict_coerces_string_chapter_fields():
                 "id": "s-1",
                 "chapter": "4",
                 "character_id": "char-1",
-                "hidden_clue": "鞋底有泥",
-                "sensory_anchors": {"visual": "泥点"},
+                "question": "鞋底有泥",
                 "status": "pending",
                 "consumed_at_chapter": None,
                 "suggested_resolve_chapter": "9",
@@ -42,5 +41,6 @@ def test_from_dict_coerces_string_chapter_fields():
 
     subtext = registry.subtext_entries[0]
     assert subtext.chapter == 4
+    assert subtext.question == "鞋底有泥"
     assert subtext.suggested_resolve_chapter == 9
     assert subtext.resolve_chapter_window == 2

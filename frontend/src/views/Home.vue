@@ -12,8 +12,8 @@
         <!-- Header -->
         <header class="header">
           <div class="header-content">
-            <h1 class="title">书稿工作台</h1>
-            <p class="subtitle">从一句梗概到完整书稿，结构规划与校阅一站完成</p>
+            <h1 class="title">一键出书 · 全托管</h1>
+            <p class="subtitle">只需写清核心梗概（2000 字内），选目标篇幅与赛道；结构规划由系统在后台完成，无需自己算部卷幕。</p>
           </div>
         </header>
 
@@ -29,7 +29,7 @@
                 <template #icon>
                   <n-icon><component :is="showAdvanced ? IconChevronUp : IconChevronDown" /></n-icon>
                 </template>
-                {{ showAdvanced ? '收起设置' : '高级设置' }}
+                {{ showAdvanced ? '收起高级' : '高级（自定义章数/每章字数）' }}
               </n-button>
             </div>
 
@@ -37,23 +37,63 @@
               ref="createInputRef"
               v-model:value="newBook.premise"
               type="textarea"
-              placeholder="描述你想写的故事…&#10;&#10;例如：程序员穿越成状元，用工程思维整顿吏治。"
-              :rows="4"
+              placeholder="用一段话写清主线与爽点预期（不超过 2000 字）…&#10;&#10;例如：废柴赘婿觉醒签到系统，从被退婚到一方巨擘。"
+              :rows="5"
               :disabled="creating"
               size="large"
               class="premise-input"
+              show-count
+              :maxlength="PREMISE_MAX_LEN"
             />
 
+            <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" class="preset-row">
+              <n-gi>
+                <n-form-item label="赛道 / 类型">
+                  <n-select
+                    v-model:value="newBook.genre"
+                    :options="genreOptions"
+                    placeholder="选择赛道（系统会按预设推进）"
+                    :disabled="creating"
+                  />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="世界观基调">
+                  <n-select
+                    v-model:value="newBook.worldPreset"
+                    :options="worldPresetOptions"
+                    placeholder="选择基调（不可自填 Prompt）"
+                    :disabled="creating"
+                  />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+
+            <div v-show="!showAdvanced" class="length-tier-block">
+              <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
+              <n-radio-group v-model:value="lengthTier" name="lengthTier" class="length-tier-group">
+                <n-space vertical :size="10">
+                  <n-radio
+                    v-for="opt in lengthTierOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                    :disabled="creating"
+                  >
+                    <span class="length-tier-title">{{ opt.title }}</span>
+                    <span class="length-tier-hint">{{ opt.hint }}</span>
+                  </n-radio>
+                </n-space>
+              </n-radio-group>
+            </div>
+
             <div v-show="showAdvanced" class="advanced-settings">
+              <n-alert type="info" :show-icon="true" style="margin-bottom: 12px; font-size: 12px">
+                自定义章数与每章字数时，不再使用「目标篇幅」档位推导；结构提示仍会在后台写入梗概供模型使用。
+              </n-alert>
               <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
                 <n-gi>
                   <n-form-item label="书名">
                     <n-input v-model:value="newBook.title" placeholder="留空则从梗概自动截取" />
-                  </n-form-item>
-                </n-gi>
-                <n-gi>
-                  <n-form-item label="类型">
-                    <n-select v-model:value="newBook.genre" :options="genreOptions" placeholder="选择类型" />
                   </n-form-item>
                 </n-gi>
                 <n-gi>
@@ -75,7 +115,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim()"
+                :disabled="!newBook.premise.trim() || !newBook.genre || !newBook.worldPreset"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -435,25 +475,58 @@ const selectedBooks = ref<string[]>([])
 const showBatchDeleteConfirm = ref(false)
 const batchDeleting = ref(false)
 
+const PREMISE_MAX_LEN = 2000
+
 const newBook = ref({
   title: '',
   premise: '',
   genre: '',
+  worldPreset: '',
   chapters: 100,  // 默认 100 章
   words: 2500,
 })
 
+/** V1 目标篇幅档（与高级自定义二选一） */
+const lengthTier = ref<'short' | 'standard' | 'epic'>('standard')
+const lengthTierOptions = [
+  {
+    value: 'short' as const,
+    title: 'A · 短篇快穿 / 脑洞文',
+    hint: '约 30 万字（按约 2000 字/章推导章数）',
+  },
+  {
+    value: 'standard' as const,
+    title: 'B · 标准商业连载',
+    hint: '约 100 万字',
+  },
+  {
+    value: 'epic' as const,
+    title: 'C · 宏大史诗巨著',
+    hint: '约 300 万字',
+  },
+]
+
 const genreOptions = [
-  { label: '玄幻', value: '玄幻' },
-  { label: '都市', value: '都市' },
-  { label: '科幻', value: '科幻' },
-  { label: '历史', value: '历史' },
-  { label: '武侠', value: '武侠' },
-  { label: '仙侠', value: '仙侠' },
-  { label: '奇幻', value: '奇幻' },
-  { label: '游戏', value: '游戏' },
-  { label: '悬疑', value: '悬疑' },
+  { label: '玄幻升级', value: '玄幻升级' },
+  { label: '都市爽文', value: '都市爽文' },
+  { label: '仙侠修真', value: '仙侠修真' },
+  { label: '科幻赛博', value: '科幻赛博' },
+  { label: '悬疑推理', value: '悬疑推理' },
+  { label: '历史架空', value: '历史架空' },
+  { label: '游戏异界', value: '游戏异界' },
+  { label: '言情甜宠', value: '言情甜宠' },
   { label: '其他', value: '其他' },
+]
+
+const worldPresetOptions = [
+  { label: '修仙风（宗门、境界、机缘）', value: '修仙风' },
+  { label: '赛博朋克（巨企、义体、霓虹）', value: '赛博朋克风' },
+  { label: '悬疑风（谜题、反转、线索）', value: '悬疑风' },
+  { label: '高武江湖（门派、恩怨）', value: '高武江湖' },
+  { label: '末日废土（生存、资源）', value: '末日废土' },
+  { label: '西幻史诗（王国、种族）', value: '西幻史诗' },
+  { label: '现代都市（职场、日常）', value: '现代都市' },
+  { label: '克系诡异（未知、调查）', value: '克系诡异' },
 ]
 
 const filteredBooks = computed(() => {
@@ -541,7 +614,15 @@ const formatWordCount = (count: number): string => {
 
 const handleCreate = async () => {
   if (!newBook.value.premise.trim()) {
-    message.warning('请输入故事创意')
+    message.warning('请输入核心梗概')
+    return
+  }
+  if (!newBook.value.genre) {
+    message.warning('请选择赛道 / 类型')
+    return
+  }
+  if (!newBook.value.worldPreset) {
+    message.warning('请选择世界观基调')
     return
   }
 
@@ -550,20 +631,31 @@ const handleCreate = async () => {
     const title = newBook.value.title || newBook.value.premise.substring(0, 20)
     const novelId = `novel-${Date.now()}`
 
-    const targetChapters = newBook.value.chapters || 100  // 始终使用用户输入或默认 100
-    const payload = {
+    const base = {
       novel_id: novelId,
       title: title,
       author: '作者',
-      target_chapters: targetChapters,
-      premise: newBook.value.premise,
+      premise: newBook.value.premise.trim(),
+      genre: newBook.value.genre,
+      world_preset: newBook.value.worldPreset,
     }
-
-    const result = await novelApi.createNovel(payload)
+    const result = await novelApi.createNovel(
+      showAdvanced.value
+        ? {
+            ...base,
+            target_chapters: newBook.value.chapters || 100,
+            target_words_per_chapter: newBook.value.words || 2500,
+          }
+        : {
+            ...base,
+            length_tier: lengthTier.value,
+            target_chapters: 0,
+          }
+    )
     message.success('创建成功')
 
     newNovelId.value = result.id
-    newNovelTargetChapters.value = targetChapters
+    newNovelTargetChapters.value = result.target_chapters
     showSetupGuide.value = true
   } catch (error: any) {
     message.error(error.response?.data?.detail || '创建失败')
@@ -769,6 +861,35 @@ onMounted(() => {
 .premise-input :deep(textarea) {
   font-size: 15px;
   line-height: 1.6;
+}
+
+.preset-row {
+  margin-top: 4px;
+}
+
+.length-tier-block {
+  margin-top: 8px;
+  padding: 4px 0 4px;
+}
+
+.length-tier-label {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+  margin-bottom: 10px;
+}
+
+.length-tier-group :deep(.n-radio) {
+  align-items: flex-start;
+}
+
+.length-tier-title {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.length-tier-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 
 .advanced-settings {

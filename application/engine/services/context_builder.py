@@ -6,6 +6,9 @@
 - T1: 可压缩内容（图谱子网、近期幕摘要）—— 按比例压缩
 - T2: 动态内容（最近章节）—— 动态水位线
 - T3: 可牺牲内容（向量召回）—— 预算不足时归零
+
+与 AutoNovelGenerationWorkflow 拼接时：Layer1≈T0+T1，Layer2 段名为 RECENT CHAPTERS（T2），
+Layer3 段名为 VECTOR RECALL（T3）；见 assemble_chapter_bundle_context_text。
 """
 import logging
 from typing import List, Optional, TYPE_CHECKING, Dict, Any
@@ -187,7 +190,7 @@ class ContextBuilder:
             },
         }
 
-    def magnify_outline_to_beats(self, chapter_number: int, outline: str, target_chapter_words: int = 3500) -> List[Beat]:
+    def magnify_outline_to_beats(self, chapter_number: int, outline: str, target_chapter_words: int = 2500) -> List[Beat]:
         """节拍放大器：将章节大纲拆分为微观节拍
         
         核心策略：
@@ -242,11 +245,28 @@ class ContextBuilder:
                 Beat(description="情绪余波：接受现实、决定下一步行动", target_words=800, focus="emotion"),
             ]
         else:
-            # 默认：日常/过渡场景
+            # 默认：四章拍「起承转合」，用信息义务占满篇幅，减少空泛水词
             beats = [
-                Beat(description="场景开场：环境描写、人物登场、日常互动", target_words=800, focus="sensory"),
-                Beat(description="主要事件：推进剧情的核心动作或对话", target_words=1200, focus="dialogue"),
-                Beat(description="场景收尾：情绪沉淀、埋下伏笔、过渡到下一章", target_words=500, focus="emotion"),
+                Beat(
+                    description="起：交代场景与人物状态，抛出本章要处理的具体麻烦或悬念（可小但须清晰）。",
+                    target_words=500,
+                    focus="sensory",
+                ),
+                Beat(
+                    description="承：阻碍升级或对手施压，人物关系或信息出现新变化。",
+                    target_words=500,
+                    focus="dialogue",
+                ),
+                Beat(
+                    description="转：主角做出选择、亮出底牌或发现盲点，情节出现可感知的转折。",
+                    target_words=500,
+                    focus="action",
+                ),
+                Beat(
+                    description="合：阶段性结果落地，同时抛出下一章钩子（勿提前剧透全书谜底）。",
+                    target_words=500,
+                    focus="suspense",
+                ),
             ]
 
         # 调整字数分配
@@ -273,9 +293,30 @@ class ContextBuilder:
 
         instruction = focus_instructions.get(beat.focus, "")
 
+        sensory_rotation = [
+            "本节拍至少一处环境锚点：光影或空间层次（禁止纯背景说明书式罗列）。",
+            "本节拍至少一处环境锚点：温度、体感或材质。",
+            "本节拍至少一处环境锚点：声音或节奏（含有意义的静默）。",
+            "本节拍至少一处环境锚点：气味或一口味觉细节（若场景合理）。",
+        ]
+        anchor_line = sensory_rotation[beat_index % len(sensory_rotation)]
+
+        if beat.focus == "dialogue":
+            obligation = (
+                "叙事义务：至少 3 轮有信息增量的对话回合（有问有答、推进关系或暴露新事实）；"
+                "避免同义反复与空洞感叹凑字。"
+            )
+        elif beat.focus == "suspense":
+            obligation = "叙事义务：必须留下可追踪的悬念点（人/物/约定/时间之一），不要空喊「事情不对劲」。"
+        else:
+            obligation = (
+                "叙事义务：至少包含「目标→阻碍→反应」中的一步可观察描写；"
+                "或至少 2 轮短对话推动信息。"
+            )
+
         return f"""
 【节拍 {beat_index + 1}/{total_beats}】
-目标字数：{beat.target_words} 字
+目标字数：{beat.target_words} 字（软目标：以完成义务为主，勿用废话硬凑）
 聚焦点：{beat.focus}
 
 {instruction}
@@ -283,8 +324,12 @@ class ContextBuilder:
 节拍内容：
 {beat.description}
 
+密度与可检查要求：
+- {anchor_line}
+- {obligation}
+
 注意：
 - 这是完整章节的一部分，不要写章节标题
-- 不要在节拍结尾强行总结或过渡
+- 不要在节拍结尾强行总结全章
 - 专注于当前节拍的内容，自然衔接到下一节拍
 """.strip()

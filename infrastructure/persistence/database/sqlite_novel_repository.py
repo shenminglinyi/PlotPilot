@@ -92,7 +92,7 @@ class SqliteNovelRepository(NovelRepository):
         laqs_json = json.dumps(laqs) if laqs else None
         lai = getattr(novel, "last_audit_issues", [])
         lai_json = json.dumps(lai) if lai else None
-        twpc = getattr(novel, "target_words_per_chapter", 3500)
+        twpc = getattr(novel, "target_words_per_chapter", 2500)
 
         self.db.execute(sql, (
             novel_id,
@@ -212,7 +212,7 @@ class SqliteNovelRepository(NovelRepository):
             last_audit_triples_extracted=bool(row.get("last_audit_triples_extracted", 0)),
             last_audit_quality_scores=laqs,
             last_audit_issues=lai,
-            target_words_per_chapter=row.get("target_words_per_chapter", 3500),
+            target_words_per_chapter=row.get("target_words_per_chapter", 2500),
         )
 
     def delete(self, novel_id: NovelId) -> None:

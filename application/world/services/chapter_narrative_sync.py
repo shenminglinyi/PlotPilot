@@ -204,13 +204,13 @@ def _fuzzy_match_foreshadow(consumed_desc: str, pending_list: List[Any]) -> Opti
     
     # 优先精确匹配
     for f in pending_list:
-        desc = getattr(f, 'description', None) or getattr(f, 'hidden_clue', None)
+        desc = getattr(f, 'description', None) or getattr(f, 'question', None)
         if desc and desc.lower().strip() == consumed_lower:
             return f
     
     # 其次模糊匹配（包含关系）
     for f in pending_list:
-        desc = getattr(f, 'description', None) or getattr(f, 'hidden_clue', None)
+        desc = getattr(f, 'description', None) or getattr(f, 'question', None)
         if desc:
             desc_lower = desc.lower().strip()
             # 检查是否有足够的重叠
@@ -968,8 +968,8 @@ async def sync_chapter_narrative_after_save(
                         pending_foreshadow_descs.append(f.description)
                 # 从 SubtextLedgerEntry 获取描述
                 for e in registry.get_pending_subtext_entries():
-                    if e.hidden_clue:
-                        pending_foreshadow_descs.append(e.hidden_clue)
+                    if e.question:
+                        pending_foreshadow_descs.append(e.question)
                 if pending_foreshadow_descs:
                     logger.debug(
                         "伏笔消费检测：获取到 %d 个待回收伏笔 novel=%s ch=%s",

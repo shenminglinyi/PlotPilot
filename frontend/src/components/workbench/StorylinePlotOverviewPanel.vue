@@ -3,11 +3,11 @@
     <div class="spo-intro">
       <div class="spo-intro-header">
         <span class="spo-intro-icon">📊</span>
-        <h4 class="spo-intro-title">故事线 · 情节弧（全书骨架）</h4>
+        <h4 class="spo-intro-title">故事线（全书骨架）</h4>
       </div>
       <ul class="spo-bullets">
-        <li><strong>写</strong>：宏观规划（MACRO_PLANNING）或重大转折后人工调整故事线起止章；情节弧关键张力点在此维护。</li>
-        <li><strong>读</strong>：幕/章规划（ACT_PLANNING）与生成上下文组装时注入「当前处于哪条线、弧上张力位置」。</li>
+        <li><strong>写</strong>：宏观规划（MACRO_PLANNING）或重大转折后人工调整故事线起止章。</li>
+        <li><strong>读</strong>：幕/章规划（ACT_PLANNING）与生成上下文组装时注入「当前处于哪条线」。</li>
       </ul>
     </div>
 
@@ -20,10 +20,6 @@
         <n-radio-button value="storylines">
           <span class="mode-icon">📚</span>
           <span>故事线列表与编辑</span>
-        </n-radio-button>
-        <n-radio-button value="plotArc">
-          <span class="mode-icon">🎯</span>
-          <span>情节弧（剧情点）编辑</span>
         </n-radio-button>
       </n-radio-group>
     </div>
@@ -74,74 +70,10 @@
             </div>
           </div>
         </n-card>
-
-        <!-- 张力曲线（图形容器避免卡片 overflow 裁切网格线） -->
-        <n-card title="情节弧 · 张力曲线" size="small" :bordered="true" class="spo-card--chart">
-          <n-empty
-            v-if="plotPoints.length === 0"
-            class="spo-empty-inline"
-            size="small"
-            description="暂无剧情点"
-          >
-            <template #extra>
-              <n-text depth="3" style="font-size: 12px; max-width: 260px; text-align: center">
-                切换到「情节弧（剧情点）编辑」添加关键剧情点后，此处会显示张力曲线预览。
-              </n-text>
-            </template>
-          </n-empty>
-          <div v-else class="chart-wrap">
-            <svg
-              viewBox="0 0 800 200"
-              class="tension-svg"
-              preserveAspectRatio="xMidYMid meet"
-              shape-rendering="geometricPrecision"
-            >
-              <line
-                v-for="i in 4"
-                :key="'g' + i"
-                :x1="0"
-                :y1="i * 50"
-                :x2="800"
-                :y2="i * 50"
-                stroke="var(--n-border-color)"
-                stroke-width="1"
-                stroke-dasharray="4,4"
-              />
-              <polyline
-                :points="tensionPolyline"
-                fill="none"
-                stroke="#18a058"
-                stroke-width="3"
-              />
-              <g v-for="p in sortedPoints" :key="p.chapter_number">
-                <circle
-                  :cx="chapterX(p.chapter_number)"
-                  :cy="tensionY(p.tension)"
-                  r="6"
-                  fill="#2080f0"
-                  stroke="var(--app-text-inverse, #fff)"
-                  stroke-width="2"
-                />
-                <text
-                  :x="chapterX(p.chapter_number)"
-                  :y="tensionY(p.tension) - 12"
-                  text-anchor="middle"
-                  font-size="11"
-                  fill="var(--n-text-color-3)"
-                >
-                  Ch{{ p.chapter_number }}
-                </text>
-              </g>
-            </svg>
-          </div>
-        </n-card>
         </n-space>
 
         <div v-show="spoView === 'storylines'" class="spo-view-embed">
           <StorylinePanel :slug="slug" :current-chapter="currentChapter" />
-        </div>
-        <div v-show="spoView === 'plotArc'" class="spo-view-embed">
-          <PlotArcPanel :slug="slug" />
         </div>
       </div>
     </n-spin>
@@ -153,50 +85,26 @@ import { ref, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { workflowApi } from '../../api/workflow'
-import type { StorylineDTO, PlotArcDTO, PlotPointDTO } from '../../api/workflow'
+import type { StorylineDTO } from '../../api/workflow'
 import StorylinePanel from './StorylinePanel.vue'
-import PlotArcPanel from './PlotArcPanel.vue'
 
 const props = defineProps<{ slug: string; currentChapter?: number | null }>()
 
-type SpoView = 'charts' | 'storylines' | 'plotArc'
+type SpoView = 'charts' | 'storylines'
 const spoView = ref<SpoView>('charts')
 
 const loading = ref(false)
 const storylines = ref<StorylineDTO[]>([])
-const plotPoints = ref<PlotPointDTO[]>([])
 
 const maxChapter = computed(() => {
   let m = 1
   for (const sl of storylines.value) {
     m = Math.max(m, sl.estimated_chapter_end || 1, sl.estimated_chapter_start || 1)
   }
-  for (const p of plotPoints.value) {
-    m = Math.max(m, p.chapter_number || 1)
-  }
   return Math.max(m, 12)
 })
 
 const midChapterLabel = computed(() => String(Math.round(maxChapter.value / 2)))
-
-const sortedPoints = computed(() =>
-  [...plotPoints.value].sort((a, b) => a.chapter_number - b.chapter_number)
-)
-
-function chapterX(ch: number): number {
-  const max = maxChapter.value
-  if (max <= 1) return 400
-  return 40 + ((ch - 1) / (max - 1)) * 720
-}
-
-function tensionY(t: number): number {
-  const clamped = Math.min(4, Math.max(1, t))
-  return 200 - (clamped - 1) * 45 - 10
-}
-
-const tensionPolyline = computed(() =>
-  sortedPoints.value.map(p => `${chapterX(p.chapter_number)},${tensionY(p.tension)}`).join(' ')
-)
 
 function barStyle(start: number, end: number) {
   const max = maxChapter.value
@@ -236,15 +144,10 @@ function shortName(sl: StorylineDTO) {
 async function load() {
   loading.value = true
   try {
-    const [sl, arc] = await Promise.all([
-      workflowApi.getStorylines(props.slug),
-      workflowApi.getPlotArc(props.slug).catch(() => null as PlotArcDTO | null),
-    ])
+    const sl = await workflowApi.getStorylines(props.slug)
     storylines.value = sl || []
-    plotPoints.value = arc?.key_points ?? []
   } catch {
     storylines.value = []
-    plotPoints.value = []
   } finally {
     loading.value = false
   }
@@ -355,8 +258,7 @@ watch(deskTick, () => void load())
   overflow: hidden;
 }
 
-.spo-view-embed :deep(.storyline-panel),
-.spo-view-embed :deep(.plot-arc-panel) {
+.spo-view-embed :deep(.storyline-panel) {
   flex: 1;
   min-height: 0;
   border-radius: 12px;
@@ -488,30 +390,6 @@ watch(deskTick, () => void load())
 .gantt-bar:hover {
   box-shadow: 0 4px 16px rgba(24, 160, 88, 0.5);
   transform: translateY(-1px);
-}
-
-.chart-wrap {
-  width: 100%;
-  overflow-x: auto;
-  padding: 4px 0 0;
-  margin: 0;
-  box-sizing: border-box;
-}
-
-/* 曲线卡片：内容区顶对齐，避免出现「未通栏」的视错觉 */
-.spo-panel :deep(.spo-card--chart .n-card__content) {
-  padding-top: 8px !important;
-}
-
-/* 优化张力曲线样式 */
-.tension-svg {
-  width: 100%;
-  max-width: 800px;
-  height: auto;
-  min-height: 160px;
-  display: block;
-  filter: drop-shadow(0 3px 8px rgba(24, 160, 88, 0.12));
-  margin: 0 auto;
 }
 
 .spo-card-hint {

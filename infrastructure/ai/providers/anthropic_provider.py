@@ -84,7 +84,7 @@ class AnthropicProvider(BaseProvider):
         official_client_kw = {
             "api_key": settings.api_key,
             "timeout": 300.0,  # 5 分钟超时
-            "max_retries": 5,
+            "max_retries": 2,
             "default_headers": {
                 "User-Agent": "claude-cli/2.1.87 (external, cli)",
                 **(settings.extra_headers or {}),

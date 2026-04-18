@@ -133,7 +133,7 @@ const message = useMessage()
 const showModal = ref(false)
 const promptCount = ref(0)
 const stats = ref<PromptStats | null>(null)
-const plazaRef = ref()
+const plazaRef = ref<{ loadData: () => Promise<void> } | null>(null)
 
 // 导入相关
 const showImportModal = ref(false)
@@ -161,7 +161,7 @@ async function loadStats() {
 // ---- 导出 ----
 async function handleExport() {
   try {
-    const res = await (await fetch('/api/v1/llm-control/prompts/export')).json()
+    const res = await promptPlazaApi.exportAll()
     const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -170,8 +170,9 @@ async function handleExport() {
     a.click()
     URL.revokeObjectURL(url)
     message.success('导出成功')
-  } catch (e: any) {
-    message.error(e?.message || '导出失败')
+  } catch (e: unknown) {
+    const err = e as { message?: string }
+    message.error(err?.message || '导出失败')
   }
 }
 
@@ -197,19 +198,23 @@ async function handleImport() {
     return false
   }
   try {
-    const data = JSON.parse(importFileContent.value)
-    await fetch('/api/v1/llm-control/prompts/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    })
-    message.success('导入成功')
+    const data = JSON.parse(importFileContent.value) as Parameters<typeof promptPlazaApi.importData>[0]
+    if (!data.prompts || !Array.isArray(data.prompts)) {
+      message.error('JSON 中需包含 prompts 数组')
+      return false
+    }
+    const result = await promptPlazaApi.importData(data)
+    message.success(result.message || '导入成功')
+    if (result.errors?.length) {
+      message.warning(`部分条目未导入：${result.errors.slice(0, 3).join('；')}`)
+    }
     showImportModal.value = false
     loadStats()
-    plazaRef.value?.$forceUpdate?.()
+    await plazaRef.value?.loadData?.()
     return true
-  } catch (e: any) {
-    message.error(e?.message || '导入失败，请检查 JSON 格式')
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } }; message?: string }
+    message.error(err?.response?.data?.detail || err?.message || '导入失败，请检查 JSON 格式')
     return false
   }
 }

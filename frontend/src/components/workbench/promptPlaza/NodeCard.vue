@@ -125,21 +125,21 @@ const sourceLabel = computed(() => {
 .card-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--n-text-color-1, #333);
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .card-key {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--app-text-muted);
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
 }
 
 /* 描述 */
 .card-desc {
   font-size: 12px;
-  color: var(--n-text-color-2, #666);
+  color: var(--app-text-secondary);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -157,12 +157,12 @@ const sourceLabel = computed(() => {
 }
 .var-label {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
   margin-right: 2px;
 }
 .more-vars {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
 }
 
 /* 标签 */
@@ -177,13 +177,13 @@ const sourceLabel = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-top: 6px;
-  border-top: 1px solid var(--n-border-color, #f0f0f0);
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border);
   margin-top: auto;
 }
 .footer-item {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
 }
 .version-badge {
   font-weight: 500;

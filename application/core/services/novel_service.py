@@ -9,6 +9,10 @@ from domain.novel.repositories.novel_repository import NovelRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.shared.exceptions import EntityNotFoundError
 from application.core.dtos.novel_dto import NovelDTO
+from application.core.v1_length_tiers import (
+    build_v1_structure_black_box_hint,
+    resolve_v1_length_params,
+)
 from domain.structure.story_node import StoryNode, NodeType, PlanningStatus, PlanningSource
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 
@@ -72,13 +76,36 @@ class NovelService:
         )
         self.story_node_repository.save_sync(act_node)
 
+    @staticmethod
+    def _compose_premise_with_presets(
+        premise: str,
+        genre: str = "",
+        world_preset: str = "",
+    ) -> str:
+        """将赛道/世界观预设与梗概合并，供后续 Bible/全托管链路统一消费（无需额外表字段）。"""
+        parts = []
+        g = (genre or "").strip()
+        w = (world_preset or "").strip()
+        if g:
+            parts.append(f"类型：{g}")
+        if w:
+            parts.append(f"世界观基调：{w}")
+        body = (premise or "").strip()
+        if not parts:
+            return body
+        return "【" + "；".join(parts) + "】\n\n" + body
+
     def create_novel(
         self,
         novel_id: str,
         title: str,
         author: str,
         target_chapters: int,
-        premise: str = ""
+        premise: str = "",
+        genre: str = "",
+        world_preset: str = "",
+        length_tier: Optional[str] = None,
+        target_words_per_chapter: Optional[int] = None,
     ) -> NovelDTO:
         """创建新小说
 
@@ -86,19 +113,30 @@ class NovelService:
             novel_id: 小说 ID
             title: 标题
             author: 作者
-            target_chapters: 目标章节数
+            target_chapters: 目标章节数（未使用 V1 体量档时有效）
             premise: 故事梗概/创意
+            genre: 赛道/类型（前端下拉预设，写入 premise 前缀）
+            world_preset: 世界观基调（前端下拉预设，写入 premise 前缀）
+            length_tier: V1 体量档 short|standard|epic；若指定则由服务端推导章数与每章字数
+            target_words_per_chapter: 每章目标字数（可选；与体量档或自定义章数搭配）
 
         Returns:
             NovelDTO
         """
+        chapters, wpc, tier_norm = resolve_v1_length_params(
+            length_tier, target_chapters, target_words_per_chapter
+        )
+        structure_hint = build_v1_structure_black_box_hint(tier_norm, chapters, wpc)
+        user_block = self._compose_premise_with_presets(premise, genre, world_preset)
+        full_premise = f"{structure_hint}\n\n{user_block}"
         novel = Novel(
             id=NovelId(novel_id),
             title=title,
             author=author,
-            target_chapters=target_chapters,
-            premise=premise,
-            stage=NovelStage.PLANNING
+            target_chapters=chapters,
+            premise=full_premise,
+            stage=NovelStage.PLANNING,
+            target_words_per_chapter=wpc,
         )
 
         self.novel_repository.save(novel)
@@ -264,8 +302,15 @@ class NovelService:
         novel = self.novel_repository.get_by_id(NovelId(novel_id)) or novel
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 
-    def update_novel(self, novel_id: str, title: Optional[str] = None, author: Optional[str] = None, 
-                     target_chapters: Optional[int] = None, premise: Optional[str] = None) -> NovelDTO:
+    def update_novel(
+        self,
+        novel_id: str,
+        title: Optional[str] = None,
+        author: Optional[str] = None,
+        target_chapters: Optional[int] = None,
+        premise: Optional[str] = None,
+        target_words_per_chapter: Optional[int] = None,
+    ) -> NovelDTO:
         """更新小说基本信息
 
         Args:
@@ -274,6 +319,7 @@ class NovelService:
             author: 作者（可选）
             target_chapters: 目标章节数（可选）
             premise: 故事梗概/创意（可选）
+            target_words_per_chapter: 每章目标字数（可选，500–10000）
 
         Returns:
             更新后的 NovelDTO
@@ -294,6 +340,9 @@ class NovelService:
             novel.target_chapters = target_chapters
         if premise is not None:
             novel.premise = premise
+        if target_words_per_chapter is not None:
+            tw = int(target_words_per_chapter)
+            novel.target_words_per_chapter = max(500, min(10000, tw))
 
         self.novel_repository.save(novel)
         return NovelDTO.from_domain(self._hydrate_chapters(novel))

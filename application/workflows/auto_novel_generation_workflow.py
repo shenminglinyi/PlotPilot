@@ -26,6 +26,19 @@ from domain.ai.value_objects.prompt import Prompt
 
 logger = logging.getLogger(__name__)
 
+# 与 ContextBuilder.build_structured_context 映射：Layer1≈T0+T1，Layer2=T2，Layer3=T3
+# 段名与语义对齐，避免「SMART RETRIEVAL」贴在近期正文等历史误标
+CHAPTER_CONTEXT_LAYER2_HEADER = "RECENT CHAPTERS"  # T2 近期章节正文
+CHAPTER_CONTEXT_LAYER3_HEADER = "VECTOR RECALL"  # T3 向量召回
+
+
+def assemble_chapter_bundle_context_text(payload: Dict[str, Any]) -> str:
+    """将 build_structured_context 的 payload 拼成章节主上下文块（与 prepare_chapter_generation 同源）。"""
+    return (
+        f"{payload['layer1_text']}\n\n=== {CHAPTER_CONTEXT_LAYER2_HEADER} ===\n{payload['layer2_text']}\n\n"
+        f"=== {CHAPTER_CONTEXT_LAYER3_HEADER} ===\n{payload['layer3_text']}"
+    )
+
 
 def _consistency_report_to_dict(report: ConsistencyReport) -> Dict[str, Any]:
     """供 SSE / JSON 序列化。"""
@@ -148,10 +161,7 @@ class AutoNovelGenerationWorkflow:
             max_tokens=max_tokens,
             scene_director=scene_director,
         )
-        context = (
-            f"{payload['layer1_text']}\n\n=== SMART RETRIEVAL ===\n{payload['layer2_text']}\n\n"
-            f"=== RECENT CONTEXT ===\n{payload['layer3_text']}"
-        )
+        context = assemble_chapter_bundle_context_text(payload)
         context_tokens = payload["token_usage"]["total"]
         style_summary = self._get_style_summary(novel_id)
         voice_anchors = ""
@@ -159,6 +169,62 @@ class AutoNovelGenerationWorkflow:
             voice_anchors = self.context_builder.build_voice_anchor_system_section(novel_id)
         except Exception as e:
             logger.warning("voice_anchor section skipped: %s", e)
+        return {
+            "storyline_context": storyline_context,
+            "plot_tension": plot_tension,
+            "context": context,
+            "context_tokens": context_tokens,
+            "style_summary": style_summary,
+            "voice_anchors": voice_anchors,
+        }
+
+    def build_fallback_chapter_bundle(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        *,
+        scene_director: Optional[SceneDirectorAnalysis] = None,
+        max_tokens: int = 20000,
+    ) -> Dict[str, Any]:
+        """prepare_chapter_generation 失败时的降级：仍用三层洋葱 + 同段名拼接；叙事/文风各步独立容错。
+
+        供全托管等场景在「故事线/张力等」子步骤异常时保持与主路径一致的上下文形态。
+        """
+        payload = self.context_builder.build_structured_context(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            max_tokens=max_tokens,
+            scene_director=scene_director,
+        )
+        context = assemble_chapter_bundle_context_text(payload)
+        context_tokens = payload["token_usage"]["total"]
+
+        storyline_context = ""
+        try:
+            storyline_context = self._get_storyline_context(novel_id, chapter_number)
+        except Exception as e:
+            logger.warning("fallback storyline_context skipped: %s", e)
+
+        plot_tension = ""
+        try:
+            plot_tension = self._get_plot_tension(novel_id, chapter_number)
+        except Exception as e:
+            logger.warning("fallback plot_tension skipped: %s", e)
+
+        style_summary = ""
+        try:
+            style_summary = self._get_style_summary(novel_id)
+        except Exception as e:
+            logger.warning("fallback style_summary skipped: %s", e)
+
+        voice_anchors = ""
+        try:
+            voice_anchors = self.context_builder.build_voice_anchor_system_section(novel_id)
+        except Exception as e:
+            logger.warning("fallback voice_anchors skipped: %s", e)
+
         return {
             "storyline_context": storyline_context,
             "plot_tension": plot_tension,

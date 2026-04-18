@@ -210,7 +210,7 @@ class ContinuousPlanningService:
         self,
         novel_id: str,
         target_chapters: int,
-        structure_preference: Dict[str, int]
+        structure_preference: Optional[Dict[str, int]] = None,
     ) -> Dict:
         """生成宏观规划"""
         import time
@@ -816,6 +816,121 @@ class ContinuousPlanningService:
         return {
             "success": True,
             "summary": plan.summary
+        }
+
+    async def _count_macro_structure_nodes(self, novel_id: str) -> int:
+        """部 / 卷 / 幕节点数量（用于落库后展示规模）。"""
+        nodes = await self.story_node_repo.get_by_novel(novel_id)
+        return sum(
+            1
+            for n in nodes
+            if n.node_type in (NodeType.PART, NodeType.VOLUME, NodeType.ACT)
+        )
+
+    async def persist_macro_structure_with_fallback(
+        self,
+        novel_id: str,
+        structure: List[Dict],
+    ) -> Dict:
+        """先安全合并，失败则回退为一次性写入（与全托管守护进程行为一致）。"""
+        try:
+            await self.confirm_macro_plan_safe(novel_id=novel_id, structure=structure)
+            count = await self._count_macro_structure_nodes(novel_id)
+            return {
+                "success": True,
+                "created_nodes": count,
+                "message": f"已同步 {count} 个结构节点",
+            }
+        except Exception as e:
+            logger.warning(
+                f"[{novel_id}] confirm_macro_plan_safe 失败，回退 confirm_macro_plan：{e}"
+            )
+            return await self.confirm_macro_plan(novel_id=novel_id, structure=structure)
+
+    def build_minimal_macro_structure(
+        self,
+        target_chapters: int,
+        *,
+        placeholder_description: str = (
+            "系统生成的占位结构（可在审阅后于结构树中调整）"
+        ),
+    ) -> List[Dict]:
+        """LLM 无有效输出时的最小部–卷–幕骨架（左侧规划与全托管共用）。"""
+        target = max(int(target_chapters or 30), 1)
+        per_act = max(target // 3, 5)
+        return [
+            {
+                "title": "第一部",
+                "description": placeholder_description,
+                "volumes": [
+                    {
+                        "title": "第一卷",
+                        "description": "",
+                        "acts": [
+                            {
+                                "title": "第一幕 · 开端",
+                                "description": "故事建立与主线引出",
+                                "suggested_chapter_count": per_act,
+                            },
+                            {
+                                "title": "第二幕 · 发展",
+                                "description": "冲突升级与转折",
+                                "suggested_chapter_count": per_act,
+                            },
+                            {
+                                "title": "第三幕 · 高潮与收尾",
+                                "description": "决战与结局",
+                                "suggested_chapter_count": per_act,
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+
+    async def apply_macro_plan_from_llm_result(
+        self,
+        llm_result: Dict,
+        novel_id: str,
+        target_chapters: int,
+        *,
+        minimal_fallback_on_empty: bool = True,
+    ) -> Dict:
+        """在 `generate_macro_plan` 之后统一落库：有效结构则写入，否则可选占位骨架。
+
+        供 POST /novels/{id}/plan 与全托管守护进程共用，避免两处逻辑分叉。
+        """
+        struct = llm_result.get("structure") if isinstance(llm_result, dict) else None
+        if llm_result.get("success") and isinstance(struct, list) and len(struct) > 0:
+            confirm = await self.persist_macro_structure_with_fallback(
+                novel_id, struct
+            )
+            return {
+                "success": True,
+                "created_nodes": confirm["created_nodes"],
+                "used_minimal_fallback": False,
+                "message": confirm.get("message", ""),
+            }
+
+        if not minimal_fallback_on_empty:
+            raise ValueError(
+                "宏观规划未返回有效结构（success 或 structure 无效）"
+            )
+
+        logger.warning(
+            "宏观规划未返回有效结构（success=%r），使用最小占位结构 novel_id=%s",
+            llm_result.get("success") if isinstance(llm_result, dict) else None,
+            novel_id,
+        )
+        minimal = self.build_minimal_macro_structure(target_chapters)
+        confirm = await self.persist_macro_structure_with_fallback(
+            novel_id, minimal
+        )
+        return {
+            "success": True,
+            "created_nodes": confirm["created_nodes"],
+            "used_minimal_fallback": True,
+            "message": confirm.get("message", ""),
         }
 
     # ==================== 幕级规划 ====================

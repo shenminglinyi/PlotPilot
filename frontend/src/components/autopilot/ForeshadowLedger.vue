@@ -233,7 +233,7 @@ async function loadForeshadows() {
     const entries = await foreshadowApi.list(props.novelId)
     foreshadows.value = entries.map((entry) => ({
       id: entry.id,
-      description: entry.hidden_clue,
+      description: entry.question,
       importance: 'medium' as const,
       planted_chapter: entry.chapter,
       is_collected: entry.status === 'consumed',

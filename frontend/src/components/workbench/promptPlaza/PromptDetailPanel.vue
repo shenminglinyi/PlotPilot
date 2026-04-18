@@ -7,110 +7,121 @@
           {{ nodeDetail?.is_builtin ? '内置' : '自定义' }}
         </n-tag>
         <n-tag v-if="nodeDetail?.output_format === 'json'" type="success" size="small" :bordered="false">JSON</n-tag>
-        <span class="version-info">v{{ nodeDetail?.version_count || 0 }}</span>
+        <span class="version-info">共 {{ nodeDetail?.version_count || 0 }} 个版本</span>
       </div>
-      <p class="desc-text">{{ nodeDetail?.description }}</p>
+      <p class="meta-tip">
+        <span class="meta-tip-icon" aria-hidden="true">✎</span>
+        内置与自定义提示词<strong>均可直接修改</strong>；点「保存为新版本」写入数据库，历史保留在「版本历史」中，可随时回滚。
+      </p>
+      <p class="desc-text">{{ nodeDetail?.description || '（无描述）' }}</p>
       <div class="source-line" v-if="nodeDetail?.source">
         <span class="source-icon">S</span>
         <code>{{ nodeDetail.source }}</code>
       </div>
     </div>
 
-    <!-- Tabs: 详情 / 编辑 / 版本历史 -->
-    <n-tabs type="line" animated size="small">
+    <!-- Tabs: 编辑内容（默认） / 版本历史 -->
+    <n-tabs
+      v-model:value="activeTab"
+      type="segment"
+      animated
+      size="medium"
+      class="detail-tabs"
+    >
 
-      <!-- ===== Tab 1: 详情展示 ===== -->
-      <n-tab-pane name="detail" tab="详情">
-        <!-- 变量列表 -->
-        <div class="section-block" v-if="variables.length">
-          <h4 class="section-title">模板变量</h4>
-          <div class="var-table">
-            <div class="var-row var-header">
-              <span class="col-name">变量名</span>
-              <span class="col-type">类型</span>
-              <span class="col-desc">说明</span>
-              <span class="col-req">必填</span>
-            </div>
-            <div class="var-row" v-for="v in variables" :key="v.name">
-              <span class="col-name"><code>{{ '{' }}{{ v.name }}{{ '}' }}</code></span>
-              <span class="col-type">{{ v.type }}</span>
-              <span class="col-desc">{{ v.desc || '-' }}</span>
-              <span class="col-req">
-                <n-tag v-if="v.required" size="tiny" type="error" :bordered="false">必填</n-tag>
-                <span v-else class="optional-text">可选</span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- System 提示词 -->
-        <div class="section-block">
-          <h4 class="section-title section-title-system">System 提示词</h4>
-          <pre class="code-block system-code">{{ nodeDetail?.system || '(空)' }}</pre>
-        </div>
-
-        <!-- User 模板 -->
-        <div class="section-block">
-          <h4 class="section-title section-title-user">User 模板</h4>
-          <pre class="code-block user-code">{{ nodeDetail?.user_template || '(空)' }}</pre>
-        </div>
-
-        <!-- 标签 -->
-        <div class="section-block" v-if="nodeDetail?.tags?.length">
-          <h4 class="section-title">标签</h4>
-          <div class="tags-list">
-            <n-tag v-for="tag in nodeDetail.tags" :key="tag" :bordered="false">{{ tag }}</n-tag>
-          </div>
-        </div>
-
-        <!-- 合约信息 -->
-        <div class="section-block" v-if="nodeDetail?.contract_module">
-          <h4 class="section-title">Pydantic 合约</h4>
-          <code class="contract-code">{{ nodeDetail.contract_module }}:{{ nodeDetail.contract_model }}</code>
-        </div>
-      </n-tab-pane>
-
-      <!-- ===== Tab 2: 编辑器 ===== -->
-      <n-tab-pane name="edit" tab="编辑">
+      <!-- 编辑内容：变量 + 正文编辑（合并原「详情」只读与「编辑」） -->
+      <n-tab-pane name="content" tab="编辑内容">
         <div class="tab-content edit-tab">
-          <n-alert type="info" title="版本管理提示" :bordered="false" style="margin-bottom: 16px">
-            每次保存将自动创建新版本，不会覆盖历史记录。可随时回滚。
-          </n-alert>
+          <!-- 变量列表 -->
+          <div class="section-block" v-if="variables.length">
+            <h4 class="section-title">模板变量</h4>
+            <div class="var-table">
+              <div class="var-row var-header">
+                <span class="col-name">变量名</span>
+                <span class="col-type">类型</span>
+                <span class="col-desc">说明</span>
+                <span class="col-req">必填</span>
+              </div>
+              <div class="var-row" v-for="v in variables" :key="v.name">
+                <span class="col-name"><code>{{ '{' }}{{ v.name }}{{ '}' }}</code></span>
+                <span class="col-type">{{ v.type }}</span>
+                <span class="col-desc">{{ v.desc || '-' }}</span>
+                <span class="col-req">
+                  <n-tag v-if="v.required" size="tiny" type="error" :bordered="false">必填</n-tag>
+                  <span v-else class="optional-text">可选</span>
+                </span>
+              </div>
+            </div>
+          </div>
 
-          <n-form label-placement="top" size="small">
-            <n-form-item label="变更摘要（选填）">
+          <div class="section-block" v-if="nodeDetail?.tags?.length">
+            <h4 class="section-title">标签</h4>
+            <div class="tags-list">
+              <n-tag v-for="tag in nodeDetail.tags" :key="tag" :bordered="false">{{ tag }}</n-tag>
+            </div>
+          </div>
+
+          <div class="section-block" v-if="nodeDetail?.contract_module">
+            <h4 class="section-title">Pydantic 合约</h4>
+            <code class="contract-code">{{ nodeDetail.contract_module }}:{{ nodeDetail.contract_model }}</code>
+          </div>
+
+          <n-form label-placement="top" size="small" class="edit-form">
+            <n-form-item label="本次修改说明（选填，便于在历史中辨认）">
               <n-input
                 v-model:value="editForm.change_summary"
-                placeholder="描述这次修改的内容..."
+                placeholder="例如：收紧 JSON 输出约束、调整章节长度说明…"
                 maxlength="100"
                 show-count
               />
             </n-form-item>
-            <n-form-item label="System 提示词">
+            <n-form-item>
+              <template #label>
+                <span class="form-label-with-hint">
+                  System 提示词
+                  <span class="label-hint">角色与规则，一般较长</span>
+                </span>
+              </template>
               <n-input
                 v-model:value="editForm.system"
                 type="textarea"
-                :rows="8"
-                placeholder="编辑 System 角色提示词..."
+                :autosize="{ minRows: 10, maxRows: 28 }"
+                placeholder="在此直接编辑 System 内容…"
+                class="mono-input"
               />
             </n-form-item>
-            <n-form-item label="User 模板">
+            <n-form-item>
+              <template #label>
+                <span class="form-label-with-hint">
+                  User 模板
+                  <span class="label-hint">与变量列表一致，半角花括号包裹名称</span>
+                </span>
+              </template>
               <n-input
                 v-model:value="editForm.user_template"
                 type="textarea"
-                :rows="5"
-                placeholder="编辑 User 模板（支持 {variable}）..."
+                :autosize="{ minRows: 5, maxRows: 20 }"
+                placeholder="在此编辑 User 模板…"
+                class="mono-input"
               />
             </n-form-item>
-            <div class="edit-actions">
-              <n-button type="primary" @click="handleSave" :loading="saving">保存为新版本</n-button>
-              <n-button secondary @click="resetEditForm">重置</n-button>
-            </div>
           </n-form>
+
+          <div class="edit-sticky-bar">
+            <div class="edit-sticky-hint">
+              修改后请点击保存；「恢复当前版本」会丢弃未保存的编辑。
+            </div>
+            <div class="edit-sticky-actions">
+              <n-button secondary @click="resetEditForm">恢复当前版本</n-button>
+              <n-button type="primary" @click="handleSave" :loading="saving">
+                保存为新版本
+              </n-button>
+            </div>
+          </div>
         </div>
       </n-tab-pane>
 
-      <!-- ===== Tab 3: 版本时间线 ===== -->
+      <!-- 版本时间线 -->
       <n-tab-pane name="versions" tab="版本历史 ({{ versions.length }})">
         <div class="tab-content versions-tab">
           <div class="timeline" v-if="versions.length">
@@ -199,6 +210,8 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+/** 默认打开「编辑内容」，避免用户误以为只读 */
+const activeTab = ref<'content' | 'versions'>('content')
 const loading = ref(true)
 const saving = ref(false)
 const nodeDetail = ref<PromptNodeDetail | null>(null)
@@ -303,7 +316,10 @@ function formatTime(timeStr: string): string {
 }
 
 // 监听 nodeKey 变化重新加载
-watch(() => props.nodeKey, () => { loadDetail() })
+watch(() => props.nodeKey, () => {
+  activeTab.value = 'content'
+  loadDetail()
+})
 
 onMounted(() => { loadDetail() })
 </script>
@@ -315,8 +331,65 @@ onMounted(() => { loadDetail() })
 .detail-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   padding: 6px 2px;
+}
+
+.detail-tabs {
+  margin-top: 2px;
+}
+.detail-tabs :deep(.n-tabs-nav) {
+  justify-content: center;
+}
+
+.edit-form {
+  padding-bottom: 8px;
+}
+.form-label-with-hint {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.label-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--app-text-muted);
+}
+.mono-input :deep(textarea) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.edit-sticky-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-top: 16px;
+  padding: 12px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.06);
+}
+.edit-sticky-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  max-width: min(100%, 360px);
+  line-height: 1.45;
+}
+.edit-sticky-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
 }
 
 /* ---- 元信息 ---- */
@@ -337,6 +410,37 @@ onMounted(() => { loadDetail() })
   color: var(--app-text-muted);
   margin-left: auto;
   font-weight: 500;
+}
+.meta-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+  background: var(--color-brand-light);
+  border: 1px solid var(--color-brand-border);
+  border-radius: var(--app-radius-md);
+}
+.meta-tip strong {
+  color: var(--app-text-primary);
+  font-weight: 600;
+}
+.meta-tip-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--app-surface);
+  color: var(--color-brand);
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--app-border);
 }
 .desc-text {
   font-size: 13px;
@@ -396,10 +500,10 @@ onMounted(() => { loadDetail() })
   flex-shrink: 0;
 }
 .section-title-system::before {
-  background: #89b4fa;
+  background: var(--color-brand);
 }
 .section-title-user::before {
-  background: #a6e3a1;
+  background: var(--color-success, #10b981);
 }
 
 /* ---- 变量表格 ---- */
@@ -455,10 +559,10 @@ onMounted(() => { loadDetail() })
   opacity: 0.65;
 }
 
-/* ---- 代码块（暗色终端风格）---- */
+/* ---- 代码块（适应主题）---- */
 .code-block {
-  background: #1a1b26;
-  color: #a9b1d6;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-primary);
   padding: 16px 18px;
   border-radius: var(--app-radius-md);
   font-size: 12.5px;
@@ -469,22 +573,21 @@ onMounted(() => { loadDetail() })
   overflow-y: auto;
   font-family: var(--font-mono);
   margin: 0;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--app-border);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 .code-block::-webkit-scrollbar {
   width: 5px;
 }
 .code-block::-webkit-scrollbar-thumb {
-  background: rgba(122, 130, 160, 0.35);
+  background: var(--app-border-strong);
   border-radius: 3px;
 }
 .system-code {
-  border-left: 3px solid #7aa2f7;
+  border-left: 3px solid var(--color-brand);
 }
 .user-code {
-  border-left: 3px solid #9ece6a;
+  border-left: 3px solid var(--color-success, #10b981);
 }
 
 /* ---- 标签 ---- */
@@ -504,13 +607,6 @@ onMounted(() => { loadDetail() })
   font-family: var(--font-mono);
   display: inline-block;
   border: 1px solid var(--color-gold-border);
-}
-
-/* ---- 编辑器 ---- */
-.edit-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 18px;
 }
 
 /* ---- 时间线 ---- */
