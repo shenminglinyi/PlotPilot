@@ -21,17 +21,34 @@ from domain.ai.services.llm_service import LLMService
 from application.paths import get_db_path
 from interfaces.api.dependencies import get_database
 
+import os
+from infrastructure.ai.providers.openai_provider import OpenAIProvider
+from infrastructure.ai.config.settings import Settings
+
+
+from infrastructure.persistence.database.connection import get_database
+
 
 router = APIRouter(prefix="/api/v1/planning", tags=["continuous-planning"])
 
 
 # ==================== DTOs ====================
 
+
+from pydantic import BaseModel, Field
+
+
+
+
 class StructurePreference(BaseModel):
     """结构偏好"""
     parts: int = Field(3, ge=1, le=10)
     volumes_per_part: int = Field(3, ge=1, le=10)
     acts_per_volume: int = Field(3, ge=1, le=10)
+
+# class GenerateMacroPlanRequest(BaseModel):
+#     target_chapters: int
+#     structure: StructurePreference = Field(default_factory=StructurePreference)
 
 
 class MacroPlanRequest(BaseModel):
@@ -62,28 +79,93 @@ class ContinuePlanningRequest(BaseModel):
 
 # ==================== 依赖注入 ====================
 
+# def get_service() -> ContinuousPlanningService:
+#     """获取规划服务"""
+#     db_path = get_db_path()
+#     story_node_repo = StoryNodeRepository(db_path)
+#     chapter_element_repo = ChapterElementRepository(db_path)
+
+#     # 获取 LLM 服务
+#     import os
+#     from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+#     from infrastructure.ai.config.settings import Settings
+
+#     llm_service = None
+#     api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
+#     if api_key:
+#         settings = Settings(
+#             api_key=api_key.strip(),
+#             base_url=os.getenv("ANTHROPIC_BASE_URL")
+#         )
+#         try:
+#             llm_service = AnthropicProvider(settings)
+#         except Exception:
+#             pass
+
+#     from application.world.services.bible_service import BibleService
+#     from interfaces.api.dependencies import get_bible_repository
+
+#     bible_service = BibleService(get_bible_repository())
+
+#     return ContinuousPlanningService(
+#         story_node_repo,
+#         chapter_element_repo,
+#         llm_service,
+#         bible_service,
+#         chapter_repository=SqliteChapterRepository(get_database()),
+#     )
+
 def get_service() -> ContinuousPlanningService:
-    """获取规划服务"""
+    """获取规划服务（优先使用 OpenAI 兼容配置）"""
     db_path = get_db_path()
     story_node_repo = StoryNodeRepository(db_path)
     chapter_element_repo = ChapterElementRepository(db_path)
 
-    # 获取 LLM 服务
     import os
-    from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
     from infrastructure.ai.config.settings import Settings
-
     llm_service = None
-    api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if api_key:
-        settings = Settings(
-            api_key=api_key.strip(),
-            base_url=os.getenv("ANTHROPIC_BASE_URL")
-        )
+
+    # ---------- 1. 优先尝试 OpenAI 兼容配置（NVIDIA NIM 代理） ----------
+    openai_api_key = os.getenv('OPENAI_API_KEY')
+    openai_base_url = os.getenv('OPENAI_BASE_URL')
+
+    if openai_api_key and openai_base_url:
         try:
-            llm_service = AnthropicProvider(settings)
-        except Exception:
-            pass
+            from infrastructure.ai.providers.openai_provider import OpenAIProvider
+            settings = Settings()
+            settings.api_key = openai_api_key.strip()
+            settings.base_url = openai_base_url.strip()
+            settings.default_model = os.getenv('DEFAULT_LLM_MODEL_NAME', 'qwen/qwen3.5-397b-a17b')
+            settings.use_legacy_chat_completions = True  # 关键：使用 /v1/chat/completions
+            settings.timeout_seconds = 300.0
+            # ✅ 直接使用 OpenAIProvider，不需要包装成 LLMService
+            llm_service = OpenAIProvider(settings=settings)
+            print(f"✅ 使用 OpenAIProvider 初始化 LLM 服务: {settings.default_model} @ {settings.base_url}")
+        except Exception as e:
+            print(f"⚠️ OpenAIProvider 初始化失败: {e}")
+
+    # ---------- 2. 降级：尝试 Anthropic ----------
+    if llm_service is None:
+        api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
+        if api_key:
+            try:
+                from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
+                settings = Settings(
+                    api_key=api_key.strip(),
+                    base_url=os.getenv("ANTHROPIC_BASE_URL")
+                )
+                llm_service = AnthropicProvider(settings=settings)
+                print("✅ 使用 AnthropicProvider 初始化 LLM 服务")
+            except Exception:
+                pass
+
+    # ---------- 3. 检查是否成功 ----------
+    if llm_service is None:
+        raise RuntimeError(
+            "无法初始化任何 LLM 服务。请检查环境变量：\n"
+            "  - OpenAI: OPENAI_API_KEY, OPENAI_BASE_URL\n"
+            "  - Anthropic: ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN"
+        )
 
     from application.world.services.bible_service import BibleService
     from interfaces.api.dependencies import get_bible_repository
@@ -93,25 +175,69 @@ def get_service() -> ContinuousPlanningService:
     return ContinuousPlanningService(
         story_node_repo,
         chapter_element_repo,
-        llm_service,
+        llm_service,  # 这里直接传入 OpenAIProvider 实例
         bible_service,
         chapter_repository=SqliteChapterRepository(get_database()),
     )
 
-
 # ==================== 宏观规划 API ====================
 
 @router.post("/novels/{novel_id}/macro/generate", status_code=202)
+# async def generate_macro_plan(
+#     novel_id: str,
+#     request: MacroPlanRequest,
+#     background_tasks: BackgroundTasks,
+#     service: ContinuousPlanningService = Depends(get_service)
+# ):
+#     #生成宏观规划
+
+#     #生成部-卷-幕结构框架，不保存，返回供用户编辑
+    
+#     try:
+#         print(f"[DEBUG] 路由层: 收到请求 novel_id={novel_id}, request={request}")
+#         service.initialize_macro_plan_task(novel_id)
+
+#         async def _generate_task():
+#             try:
+#                 result = await service.generate_macro_plan(
+#                     novel_id=novel_id,
+#                     target_chapters=request.target_chapters,
+#                     structure_preference=request.structure.dict()
+#                 )
+#                 service.store_macro_plan_result(novel_id, result)
+#             except Exception as e:
+#                 import traceback
+#                 print(f"[ERROR] 生成宏观规划失败:")
+#                 print(traceback.format_exc())
+#                 service.store_macro_plan_error(novel_id, str(e))
+#                 service._update_macro_progress(
+#                     novel_id,
+#                     status="failed",
+#                     message=f"结构规划生成失败: {e}",
+#                 )
+
+#         background_tasks.add_task(_generate_task)
+#         return {
+#             "success": True,
+#             "task_started": True,
+#             "novel_id": novel_id,
+#         }
+#     except Exception as e:
+#         import traceback
+#         print(f"[ERROR] 生成宏观规划失败:")
+#         print(traceback.format_exc())
+#         raise HTTPException(status_code=500, detail=f"生成宏观规划失败: {str(e)}")
+
 async def generate_macro_plan(
     novel_id: str,
     request: MacroPlanRequest,
     background_tasks: BackgroundTasks,
     service: ContinuousPlanningService = Depends(get_service)
 ):
-    """生成宏观规划
+    #生成宏观规划
 
-    生成部-卷-幕结构框架，不保存，返回供用户编辑
-    """
+    #生成部-卷-幕结构框架，不保存，返回供用户编辑
+    
     try:
         print(f"[DEBUG] 路由层: 收到请求 novel_id={novel_id}, request={request}")
         service.initialize_macro_plan_task(novel_id)
@@ -146,6 +272,8 @@ async def generate_macro_plan(
         print(f"[ERROR] 生成宏观规划失败:")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"生成宏观规划失败: {str(e)}")
+
+
 
 
 @router.get("/novels/{novel_id}/macro/progress")

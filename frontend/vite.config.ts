@@ -23,6 +23,14 @@ export default defineConfig({
         timeout: 0,
         // 不要重写路径
         rewrite: (path) => path,
+        // 🔥 关键：跟随重定向（让代理处理，而非浏览器）
+        followRedirects: true,
+        // 🔥 添加：错误处理
+        onProxyRes: (proxyRes, req, res) => {
+          if (proxyRes.statusCode === 307 || proxyRes.statusCode === 308) {
+            console.log('⚠️ Redirect detected:', proxyRes.headers.location);
+          }
+        }
       },
     },
   },

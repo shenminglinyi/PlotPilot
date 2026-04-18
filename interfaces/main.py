@@ -17,6 +17,8 @@ import time
 import logging
 from datetime import datetime
 
+#os.environ['DISABLE_AUTO_DAEMON'] = '1'
+
 # 必须在其他 aitext 模块导入前执行：将仓库根目录 `.env` 写入 os.environ
 _AITEXT_ROOT = Path(__file__).resolve().parents[1]
 if str(_AITEXT_ROOT) not in sys.path:
@@ -350,7 +352,8 @@ _cors_origins_env = os.getenv("CORS_ORIGINS", "")
 if _cors_origins_env:
     _allowed_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
 else:
-    _allowed_origins = ["*"]
+    _allowed_origins = ["http://localhost:3000", "http://127.0.0.1:3000",
+                        "http://localhost:5173", "http://127.0.0.1:5173"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -358,6 +361,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],  # 🔥 可选：便于调试
 )
 
 # HTTP 访问日志由 uvicorn.access 输出（与 uvicorn 默认格式一致：IP + 请求行 + 状态码）

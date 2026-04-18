@@ -44,7 +44,37 @@ class OpenAIProvider(BaseProvider):
         if settings.base_url:
             client_kwargs["base_url"] = settings.base_url
 
-        self.async_client = AsyncOpenAI(**client_kwargs)
+        logging.basicConfig()
+        logging.getLogger("openai").setLevel(logging.DEBUG)
+        logging.getLogger("httpx").setLevel(logging.DEBUG)
+
+        import httpx
+
+        async def log_request(request):
+            print(f"[HTTP] 请求: {request.method} {request.url}")
+
+        async def log_response(response):
+            print(f"[HTTP] 响应: {response.status_code}")
+            try:
+                body = response.text[:500]
+                print(f"[HTTP] 响应体预览: {body}")
+            except Exception as e:
+                print(f"[HTTP] 读取响应体失败: {e}")
+
+        http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.timeout_seconds or 600.0),
+            event_hooks={
+                "request": [log_request],
+                "response": [log_response],
+            }
+        )
+
+        self.async_client = AsyncOpenAI(
+            api_key=settings.api_key,
+            base_url=settings.base_url,
+            timeout=settings.timeout_seconds,
+            http_client=http_client
+        )
 
     async def generate(
         self,
@@ -80,8 +110,16 @@ class OpenAIProvider(BaseProvider):
         """Chat Completions API 非流式生成"""
         messages = self._build_messages(prompt)
         request_kwargs = self._build_chat_request_kwargs(messages, config)
+        print(f"[LLM] 准备调用 Chat API，模型: {request_kwargs.get('model')}，max_tokens: {request_kwargs.get('max_tokens')}")
+        try:
+            response = await self.async_client.chat.completions.create(**request_kwargs)
+            print(f"[LLM] 收到响应，status: success")
+        except Exception as e:
+            print(f"[LLM] 请求异常: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
-        response = await self.async_client.chat.completions.create(**request_kwargs)
         content = self._extract_text_from_response(response)
 
         if not content:
@@ -94,6 +132,7 @@ class OpenAIProvider(BaseProvider):
 
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
+        print(f"[LLM] 生成成功，内容长度: {len(content)}，输入tokens: {input_tokens}，输出tokens: {output_tokens}")
         return GenerationResult(
             content=content,
             token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),

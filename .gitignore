@@ -117,3 +117,10 @@ llm_profiles.json
 # ── 锁文件（运行时生成） ──
 aitext.lock
 scripts/aitext.lock
+
+
+# 本地临时文件和目录
+%USERPROFILE%/
+.history/
+frontend/%USERPROFILE%/
+test_llm.py

@@ -51,12 +51,6 @@ export const novelApi = {
     title: string
     author: string
     target_chapters: number
-    premise?: string
-    genre?: string
-    world_preset?: string
-    /** V1 体量档：与 target_chapters 二选一由后端解析 */
-    length_tier?: 'short' | 'standard' | 'epic' | null
-    target_words_per_chapter?: number | null
   }) => apiClient.post<NovelDTO>('/novels', data) as Promise<NovelDTO>,
 
   /**

@@ -17,7 +17,7 @@ from domain.shared.exceptions import EntityNotFoundError
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/novels", tags=["novels"])
+router = APIRouter(prefix="/novels",redirect_slashes=False, tags=["novels"])
 
 
 # Request Models
@@ -136,7 +136,6 @@ async def create_novel(
     )
 
     return novel_dto
-
 
 @router.get("/{novel_id}", response_model=NovelDTO)
 async def get_novel(
