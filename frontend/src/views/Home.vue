@@ -12,8 +12,10 @@
         <!-- Header -->
         <header class="header">
           <div class="header-content">
-            <h1 class="title">一键出书 · 全托管</h1>
-            <p class="subtitle">只需写清核心梗概（2000 字内），选目标篇幅与赛道；结构规划由系统在后台完成，无需自己算部卷幕。</p>
+            <h1 class="title">墨枢 · 长篇叙事工作台</h1>
+            <p class="subtitle">
+              以梗概与类型开局，选定目标篇幅；宏观结构、幕次与节拍由后台自动编排，你专注把故事写下去即可。
+            </p>
           </div>
         </header>
 
@@ -72,15 +74,18 @@
             <div v-show="!showAdvanced" class="length-tier-block">
               <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
               <n-radio-group v-model:value="lengthTier" name="lengthTier" class="length-tier-group">
-                <n-space vertical :size="10">
+                <n-space :size="14" :wrap="true" align="flex-start" class="length-tier-space">
                   <n-radio
                     v-for="opt in lengthTierOptions"
                     :key="opt.value"
                     :value="opt.value"
                     :disabled="creating"
+                    class="length-tier-radio"
                   >
-                    <span class="length-tier-title">{{ opt.title }}</span>
-                    <span class="length-tier-hint">{{ opt.hint }}</span>
+                    <div class="length-tier-option-inner">
+                      <span class="length-tier-title">{{ opt.title }}</span>
+                      <span class="length-tier-hint">{{ opt.hint }}</span>
+                    </div>
                   </n-radio>
                 </n-space>
               </n-radio-group>
@@ -204,7 +209,7 @@
               </span>
             </div>
 
-            <!-- 书目卡片网格（限制展示数量，不滚动） -->
+            <!-- 书目卡片：单行横排，多于可视宽度时横向滚动 -->
             <div class="books-list-wrap">
               <div class="books-grid">
                 <div
@@ -303,13 +308,14 @@
       </template>
     </n-modal>
 
-    <!-- Setup Guide Modal -->
+    <!-- 新书向导：仅挂载一次且 show 恒为 true，避免「先关再开」的双过渡（原 newNovelId + showSetupGuide 分步更新导致） -->
     <NovelSetupGuide
-      v-if="newNovelId"
-      :novel-id="newNovelId"
-      :target-chapters="newNovelTargetChapters"
-      :show="showSetupGuide"
-      @update:show="showSetupGuide = $event"
+      v-if="setupWizard"
+      :key="setupWizard.novelId"
+      :novel-id="setupWizard.novelId"
+      :target-chapters="setupWizard.targetChapters"
+      :show="true"
+      @update:show="(open) => { if (!open) setupWizard = null }"
       @complete="handleSetupComplete"
       @skip="handleSetupSkip"
     />
@@ -463,12 +469,11 @@ function handleSidebarCollapsedChange(isCollapsed: boolean) {
 const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
-const showSetupGuide = ref(false)
 const showLLMSettings = ref(false)
 const showAllModal = ref(false)
 const modalSearchQuery = ref('')
-const newNovelId = ref('')
-const newNovelTargetChapters = ref(10)
+/** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */
+const setupWizard = ref<{ novelId: string; targetChapters: number } | null>(null)
 
 // Batch delete
 const selectedBooks = ref<string[]>([])
@@ -654,9 +659,10 @@ const handleCreate = async () => {
     )
     message.success('创建成功')
 
-    newNovelId.value = result.id
-    newNovelTargetChapters.value = result.target_chapters
-    showSetupGuide.value = true
+    setupWizard.value = {
+      novelId: result.id,
+      targetChapters: result.target_chapters,
+    }
   } catch (error: any) {
     message.error(error.response?.data?.detail || '创建失败')
   } finally {
@@ -665,11 +671,15 @@ const handleCreate = async () => {
 }
 
 const handleSetupComplete = () => {
-  router.push(`/book/${newNovelId.value}/workbench`)
+  const id = setupWizard.value?.novelId
+  setupWizard.value = null
+  if (id) router.push(`/book/${id}/workbench`)
 }
 
 const handleSetupSkip = () => {
-  router.push(`/book/${newNovelId.value}/workbench`)
+  const id = setupWizard.value?.novelId
+  setupWizard.value = null
+  if (id) router.push(`/book/${id}/workbench`)
 }
 
 const navigateToBook = (slug: string) => {
@@ -883,18 +893,36 @@ onMounted(() => {
   margin-bottom: 10px;
 }
 
+.length-tier-space {
+  width: 100%;
+}
+
 .length-tier-group :deep(.n-radio) {
   align-items: flex-start;
 }
 
+.length-tier-radio {
+  flex: 1 1 200px;
+  min-width: min(200px, 100%);
+}
+
+.length-tier-option-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  max-width: 280px;
+}
+
 .length-tier-title {
   font-weight: 600;
-  margin-right: 8px;
+  line-height: 1.35;
 }
 
 .length-tier-hint {
   font-size: 12px;
   color: var(--app-text-muted);
+  line-height: 1.45;
 }
 
 .advanced-settings {
@@ -1031,7 +1059,7 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* ── 书目卡片网格（块展示，不滚动）── */
+/* ── 书目：单行横排，多本时横向滚动 ── */
 .books-list-wrap {
   display: flex;
   flex-direction: column;
@@ -1039,14 +1067,23 @@ onMounted(() => {
 }
 
 .books-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
-/* 卡片 */
+/* 卡片（固定宽度，保证单行横滑） */
 .book-card {
   position: relative;
+  flex: 0 0 auto;
+  width: 260px;
+  max-width: min(260px, 82vw);
   display: flex;
   flex-direction: column;
   padding: 20px;
