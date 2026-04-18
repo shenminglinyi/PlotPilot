@@ -89,7 +89,8 @@ class AutoNovelGenerationWorkflow:
         foreshadowing_repository: Optional[ForeshadowingRepository] = None,
         conflict_detection_service: Optional[ConflictDetectionService] = None,
         voice_fingerprint_service: Optional['VoiceFingerprintService'] = None,
-        cliche_scanner: Optional['ClicheScanner'] = None
+        cliche_scanner: Optional['ClicheScanner'] = None,
+        memory_engine: Optional['MemoryEngine'] = None,
     ):
         """初始化工作流
 
@@ -106,12 +107,25 @@ class AutoNovelGenerationWorkflow:
             conflict_detection_service: 冲突检测服务（可选）
             voice_fingerprint_service: 风格指纹服务（可选）
             cliche_scanner: 俗套扫描器（可选）
+            memory_engine: V6 记忆引擎（可选，提供 FACT_LOCK / BEATS / CLUES 注入与章后回写）
         """
         self.context_builder = context_builder
         self.consistency_checker = consistency_checker
         self.storyline_manager = storyline_manager
         self.plot_arc_repository = plot_arc_repository
         self.llm_service = llm_service
+
+        # ★ V6 记忆引擎（跨章节状态机）
+        self.memory_engine = memory_engine
+        if memory_engine and bible_repository:
+            # 将 memory_engine 注入 context_builder 的 budget_allocator
+            if hasattr(self.context_builder, 'budget_allocator'):
+                self.context_builder.budget_allocator.memory_engine = memory_engine
+                logger.info("✓ MemoryEngine 已注入 ContextBudgetAllocator")
+
+        # V6 运行时上下文缓存（供 _build_prompt 使用）
+        self._current_novel_id: str = ""
+        self._current_chapter_number: int = 0
         
         # 强制初始化 StateExtractor（如果未提供）
         if state_extractor is None:
@@ -242,7 +256,7 @@ class AutoNovelGenerationWorkflow:
         content: str,
         scene_director: Optional[SceneDirectorAnalysis] = None,
     ) -> Dict[str, Any]:
-        """生成正文后的统一后处理：俗套扫描、状态提取、一致性、冲突批注、StateUpdater。"""
+        """生成正文后的统一后处理：俗套扫描、状态提取、一致性、冲突批注、StateUpdater、MemoryEngine回写。"""
         style_warnings = self._scan_cliches(content)
         chapter_state = await self._extract_chapter_state(content, chapter_number)
         consistency_report = self._check_consistency(chapter_state, novel_id)
@@ -252,11 +266,35 @@ class AutoNovelGenerationWorkflow:
                 self.state_updater.update_from_chapter(novel_id, chapter_number, chapter_state)
             except Exception as e:
                 logger.warning("StateUpdater 失败: %s", e)
+
+        # ★ V6 新增：MemoryEngine 章后状态回写（LLM 驱动的增量提取）
+        memory_delta = {}
+        if self.memory_engine:
+            try:
+                memory_delta = await self.memory_engine.update_from_chapter(
+                    novel_id=novel_id,
+                    chapter_number=chapter_number,
+                    content=content,
+                    outline=outline,
+                )
+                if memory_delta.get("new_beats", 0) or memory_delta.get("new_clues", 0):
+                    logger.info(
+                        f"  🧠 MemoryEngine: +{memory_delta.get('new_beats', 0)} beats, "
+                        f"+{memory_delta.get('new_clues', 0)} clues"
+                    )
+                if memory_delta.get("violations", 0):
+                    logger.warning(
+                        f"  ⚠️ MemoryEngine 检测到 {memory_delta['violations']} 个事实违反"
+                    )
+            except Exception as e:
+                logger.warning("MemoryEngine 章后回写失败: %s", e)
+
         return {
             "style_warnings": style_warnings,
             "chapter_state": chapter_state,
             "consistency_report": consistency_report,
             "ghost_annotations": ghost_annotations,
+            "memory_delta": memory_delta,
         }
 
     async def generate_chapter(
@@ -292,6 +330,10 @@ class AutoNovelGenerationWorkflow:
         logger.info(f"开始生成章节: 小说={novel_id}, 章节={chapter_number}")
         logger.info(f"大纲: {outline[:100]}...")
         logger.info(f"========================================")
+
+        # ★ V6: 缓存当前 novel_id/chapter_number 供 _build_prompt 中 MemoryEngine 使用
+        self._current_novel_id = novel_id
+        self._current_chapter_number = chapter_number
 
         logger.info("阶段 1-2: 规划 + 结构化上下文（prepare_chapter_generation）")
         bundle = self.prepare_chapter_generation(
@@ -778,10 +820,31 @@ class AutoNovelGenerationWorkflow:
                 "不要重复已写内容。\n"
             )
 
+        # ★ V6: 从 MemoryEngine 获取 fact_lock 文本块（T0 注入）
+        fact_lock = ""
+        if self.memory_engine:
+            try:
+                # 从 context 中提取 novel_id（通过 budget_allocator 传递）
+                # 这里用组合方式：FACT_LOCK + BEATS + CLUES 合并为一个文本块
+                fl = self.memory_engine.build_fact_lock_section(
+                    self._current_novel_id or "", self._current_chapter_number or 0
+                )
+                beats = self.memory_engine.get_completed_beats_section(
+                    self._current_novel_id or ""
+                )
+                clues = self.memory_engine.get_revealed_clues_section(
+                    self._current_novel_id or ""
+                )
+                parts = [p for p in [fl, beats, clues] if p.strip()]
+                fact_lock = "\n\n".join(parts) if parts else ""
+            except Exception as e:
+                logger.warning(f"MemoryEngine fact_lock 构建失败: {e}")
+
         system_message = f"""你是一位专业的网络小说作家。根据以下上下文撰写章节内容。
 
 {planning_section}{voice_block}{context}
 
+{fact_lock}
 写作要求：
 1. 必须有多个人物互动（至少2-3个角色出场）
 2. 必须有对话（不能只有独白和叙述）

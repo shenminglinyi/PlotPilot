@@ -150,6 +150,7 @@ class ContextBudgetAllocator:
         triple_repository = None,
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
+        memory_engine: Optional['MemoryEngine'] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -157,7 +158,10 @@ class ContextBudgetAllocator:
         self.story_node_repo = story_node_repository
         self.chapter_element_repo = chapter_element_repository
         self.triple_repo = triple_repository
-        
+
+        # V6 记忆引擎（可选，用于 T0 槽位注入 FACT_LOCK / BEATS / CLUES）
+        self.memory_engine = memory_engine
+
         # 向量检索门面
         self.vector_facade = None
         if vector_store and embedding_service:
@@ -284,7 +288,57 @@ class ContextBudgetAllocator:
         slots = {}
         
         # ==================== T0: 强制内容 ====================
-        
+
+        # ★ V6 T0-α: FACT_LOCK（不可篡改事实块）—— 最高优先级 priority=120
+        fact_lock_content = ""
+        if self.memory_engine:
+            try:
+                fact_lock_content = self.memory_engine.build_fact_lock_section(
+                    novel_id, chapter_number
+                )
+            except Exception as e:
+                logger.warning(f"FACT_LOCK 构建失败: {e}")
+        slots["fact_lock"] = ContextSlot(
+            name="🔒绝对事实边界(FACT_LOCK)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=fact_lock_content,
+            tokens=self.estimate_tokens(fact_lock_content),
+            max_tokens=2500,
+            priority=120,
+        )
+
+        # ★ V6 T0-β: COMPLETED_BEATS（已完成节拍锁）—— priority=115
+        beats_content = ""
+        if self.memory_engine:
+            try:
+                beats_content = self.memory_engine.get_completed_beats_section(novel_id)
+            except Exception as e:
+                logger.warning(f"COMPLETED_BEATS 构建失败: {e}")
+        slots["completed_beats"] = ContextSlot(
+            name="✅已完成节拍(COMPLETED_BEATS)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=beats_content,
+            tokens=self.estimate_tokens(beats_content),
+            max_tokens=2000,
+            priority=115,
+        )
+
+        # ★ V6 T0-γ: REVEALED_CLUES（已揭露线索清单）—— priority=110
+        clues_content = ""
+        if self.memory_engine:
+            try:
+                clues_content = self.memory_engine.get_revealed_clues_section(novel_id)
+            except Exception as e:
+                logger.warning(f"REVEALED_CLUES 构建失败: {e}")
+        slots["revealed_clues"] = ContextSlot(
+            name="🔍已揭露线索(REVEALED_CLUES)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=clues_content,
+            tokens=self.estimate_tokens(clues_content),
+            max_tokens=2000,
+            priority=110,
+        )
+
         # 1. 当前幕摘要
         act_summary = self._get_current_act_summary(novel_id, chapter_number)
         slots["current_act_summary"] = ContextSlot(
