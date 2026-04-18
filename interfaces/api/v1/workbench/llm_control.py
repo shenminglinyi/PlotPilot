@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
@@ -447,6 +448,8 @@ async def export_prompts() -> Dict[str, Any]:
             "tags": detail.get("tags", []),
             "variables": detail.get("variables", []),
             "output_format": detail.get("output_format", "text"),
+            "contract_module": detail.get("contract_module"),
+            "contract_model": detail.get("contract_model"),
             "system": detail.get("system", ""),
             "user_template": detail.get("user_template", ""),
         })
@@ -517,8 +520,19 @@ async def import_prompts(payload: ImportPayload) -> Dict[str, Any]:
             # 尝试按 key 查找已有节点
             existing = mgr.get_node(node_key, by_key=True)
 
-            tags_json = json.dumps(p.get("tags", []), ensure_ascii=False)
-            vars_json = json.dumps(p.get("variables", []), ensure_ascii=False)
+            meta: Dict[str, Any] = {}
+            for k in (
+                "description",
+                "tags",
+                "variables",
+                "output_format",
+                "contract_module",
+                "contract_model",
+                "source",
+                "category",
+            ):
+                if k in p:
+                    meta[k] = p.get(k)
 
             if existing:
                 # 已存在 → 更新（创建新版本）
@@ -528,8 +542,7 @@ async def import_prompts(payload: ImportPayload) -> Dict[str, Any]:
                     user_template=user_content or None,
                     change_summary=f"导入更新 ({now})",
                     name=name or None,
-                    description=p.get("description"),
-                    tags=p.get("tags"),
+                    **meta,
                 )
                 updated_count += 1
             else:
@@ -542,6 +555,12 @@ async def import_prompts(payload: ImportPayload) -> Dict[str, Any]:
                     user_template=user_content,
                     description=p.get("description", ""),
                     category=p.get("category", "generation"),
+                    tags=p.get("tags", []),
+                    variables=p.get("variables", []),
+                    output_format=p.get("output_format", "text"),
+                    source=p.get("source", ""),
+                    contract_module=p.get("contract_module"),
+                    contract_model=p.get("contract_model"),
                 )
                 created_count += 1
 

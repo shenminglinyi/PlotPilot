@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -26,9 +25,6 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SEED_PATH = (
     Path(__file__).resolve().parent / "prompts" / "prompts_defaults.json"
 )
-
-# 进程内只执行一次：从 JSON 回填已存在库中的内置节点（迁移旧版 system_file）
-_BUILTIN_SYNC_ONCE = False
 
 # 分类定义（与 prompts_defaults.json 的 categories 对应）
 BUILTIN_CATEGORIES = [
@@ -313,74 +309,10 @@ class PromptManager:
     # 种子初始化
     # ------------------------------------------------------------------
 
-    def _sync_builtin_nodes_from_seed(self, seed_data: Dict[str, Any]) -> None:
-        """将已落库的内置节点与 prompts_defaults.json 对齐（如清除 system_file、刷新正文）。"""
-        global _BUILTIN_SYNC_ONCE
-        if _BUILTIN_SYNC_ONCE:
-            return
-
-        prompts = seed_data.get("prompts", [])
-        for p in prompts:
-            if p.get("id") != "tension-scoring":
-                continue
-            full_system = (p.get("system") or "").strip()
-            if not full_system:
-                break
-
-            db = self._get_db()
-            conn = db.get_connection()
-            row = conn.execute(
-                """
-                SELECT id, active_version_id FROM prompt_nodes
-                WHERE node_key = ? AND is_builtin = 1
-                """,
-                ("tension-scoring",),
-            ).fetchone()
-            if not row or not row["active_version_id"]:
-                break
-
-            now = datetime.now().isoformat()
-            conn.execute(
-                """
-                UPDATE prompt_nodes
-                SET system_file = NULL, updated_at = ?
-                WHERE id = ?
-                """,
-                (now, row["id"]),
-            )
-            conn.execute(
-                """
-                UPDATE prompt_versions
-                SET system_prompt = ?
-                WHERE id = ?
-                """,
-                (full_system, row["active_version_id"]),
-            )
-            conn.commit()
-            logger.info(
-                "PromptManager: 已同步内置 tension-scoring 与 prompts_defaults.json"
-            )
-            break
-
-        _BUILTIN_SYNC_ONCE = True
-
     def ensure_seeded(self) -> bool:
         """确保内置种子已导入数据库（幂等）。"""
         if self._seeded:
             return True
-
-        seed_path = _DEFAULT_SEED_PATH
-        seed_data: Optional[Dict[str, Any]] = None
-        if seed_path.exists():
-            try:
-                seed_data = json.loads(seed_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError) as exc:
-                logger.error("读取种子文件失败: %s", exc)
-                seed_data = None
-
-        if seed_data:
-            self._sync_builtin_nodes_from_seed(seed_data)
-
         db = self._get_db()
         conn = db.get_connection()
 
@@ -393,16 +325,16 @@ class PromptManager:
             logger.info("PromptManager: 内置种子已存在，跳过初始化")
             return True
 
+        seed_path = _DEFAULT_SEED_PATH
         if not seed_path.exists():
             logger.warning("内置种子文件不存在: %s", seed_path)
             return False
 
-        if seed_data is None:
-            try:
-                seed_data = json.loads(seed_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError) as exc:
-                logger.error("读取种子文件失败: %s", exc)
-                return False
+        try:
+            seed_data = json.loads(seed_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.error("读取种子文件失败: %s", exc)
+            return False
 
         template_id = _uid()
         now = datetime.now().isoformat()
@@ -453,10 +385,7 @@ class PromptManager:
                 ver_id, now, now,
             ))
 
-            # 处理 system_file 引用
             system_content = p.get("system", "")
-            if p.get("system_file") and not system_content:
-                system_content = self._load_system_file(p["system_file"])
 
             conn.execute("""
                 INSERT INTO prompt_versions
@@ -470,18 +399,6 @@ class PromptManager:
         count = len(prompts)
         logger.info("PromptManager: 已导入 %d 个内置提示词种子", count)
         return True
-
-    @staticmethod
-    def _load_system_file(filename: str) -> str:
-        """从 prompts 目录加载 .txt 系统提示词文件。"""
-        dir_path = _DEFAULT_SEED_PATH.parent
-        file_path = dir_path / filename
-        if file_path.exists():
-            try:
-                return file_path.read_text(encoding="utf-8").strip()
-            except OSError:
-                pass
-        return ""
 
     # ------------------------------------------------------------------
     # 模板包 CRUD
@@ -623,15 +540,23 @@ class PromptManager:
         ver_id = _uid()
         now = datetime.now().isoformat()
 
+        tags_s = json.dumps(kwargs.get("tags", []), ensure_ascii=False)
+        vars_s = json.dumps(kwargs.get("variables", []), ensure_ascii=False)
+        out_fmt = kwargs.get("output_format") or "text"
+        src = kwargs.get("source") or ""
+        cm = kwargs.get("contract_module")
+        cmodel = kwargs.get("contract_model")
+
         db.execute("""
             INSERT INTO prompt_nodes
             (id, template_id, node_key, name, description, category,
-             output_format, tags, variables, is_builtin, sort_order,
-             active_version_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'text', '[]', '[]', 0, 0, ?, ?, ?)
+             source, output_format, contract_module, contract_model, tags, variables,
+             is_builtin, sort_order, active_version_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
         """, (
             node_id, template_id, node_key, name,
             kwargs.get("description", ""), kwargs.get("category", "generation"),
+            src, out_fmt, cm, cmodel, tags_s, vars_s,
             ver_id, now, now,
         ))
 
@@ -730,6 +655,24 @@ class PromptManager:
         if kwargs.get("tags") is not None:
             set_clauses.append("tags = ?")
             params.append(json.dumps(kwargs["tags"], ensure_ascii=False))
+        if kwargs.get("variables") is not None:
+            set_clauses.append("variables = ?")
+            params.append(json.dumps(kwargs["variables"], ensure_ascii=False))
+        if kwargs.get("output_format") is not None:
+            set_clauses.append("output_format = ?")
+            params.append(kwargs["output_format"])
+        if kwargs.get("contract_module") is not None:
+            set_clauses.append("contract_module = ?")
+            params.append(kwargs["contract_module"])
+        if kwargs.get("contract_model") is not None:
+            set_clauses.append("contract_model = ?")
+            params.append(kwargs["contract_model"])
+        if kwargs.get("source") is not None:
+            set_clauses.append("source = ?")
+            params.append(kwargs["source"])
+        if kwargs.get("category") is not None:
+            set_clauses.append("category = ?")
+            params.append(kwargs["category"])
 
         params.append(node_id)
         sql = f"UPDATE prompt_nodes SET {', '.join(set_clauses)} WHERE id = ?"
@@ -823,13 +766,6 @@ class PromptManager:
         var_map = variables or {}
         system = self._render_template(node.get_active_system(), var_map)
         user = self._render_template(node.get_active_user_template(), var_map)
-
-        # 遗留：仅当数据库中 system 为空时才用外部 .txt（旧种子）；正文已入 JSON/DB 时不覆盖
-        if node.system_file and node.is_builtin:
-            file_system = self._load_system_file(node.system_file)
-            db_system = (node.get_active_system() or "").strip()
-            if file_system and not db_system:
-                system = self._render_template(file_system, var_map)
 
         return {"system": system, "user": user}
 

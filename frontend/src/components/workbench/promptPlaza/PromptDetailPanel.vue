@@ -396,10 +396,10 @@ onMounted(() => { loadDetail() })
   flex-shrink: 0;
 }
 .section-title-system::before {
-  background: #89b4fa;
+  background: var(--color-brand);
 }
 .section-title-user::before {
-  background: #a6e3a1;
+  background: var(--color-success, #10b981);
 }
 
 /* ---- 变量表格 ---- */
@@ -455,10 +455,10 @@ onMounted(() => { loadDetail() })
   opacity: 0.65;
 }
 
-/* ---- 代码块（暗色终端风格）---- */
+/* ---- 代码块（适应主题）---- */
 .code-block {
-  background: #1a1b26;
-  color: #a9b1d6;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-primary);
   padding: 16px 18px;
   border-radius: var(--app-radius-md);
   font-size: 12.5px;
@@ -469,22 +469,21 @@ onMounted(() => { loadDetail() })
   overflow-y: auto;
   font-family: var(--font-mono);
   margin: 0;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--app-border);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 .code-block::-webkit-scrollbar {
   width: 5px;
 }
 .code-block::-webkit-scrollbar-thumb {
-  background: rgba(122, 130, 160, 0.35);
+  background: var(--app-border-strong);
   border-radius: 3px;
 }
 .system-code {
-  border-left: 3px solid #7aa2f7;
+  border-left: 3px solid var(--color-brand);
 }
 .user-code {
-  border-left: 3px solid #9ece6a;
+  border-left: 3px solid var(--color-success, #10b981);
 }
 
 /* ---- 标签 ---- */

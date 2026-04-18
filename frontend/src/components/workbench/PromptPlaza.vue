@@ -9,12 +9,26 @@
         </n-tag>
       </div>
       <div class="header-right">
+        <n-button
+          size="small"
+          quaternary
+          @click="handleExportJson"
+        >
+          导出 JSON
+        </n-button>
+        <n-button
+          size="small"
+          quaternary
+          @click="showImportModal = true"
+        >
+          导入 JSON
+        </n-button>
         <n-input
           v-model:value="searchQuery"
-          placeholder="搜索提示词..."
+          placeholder="搜索名称 / 键 / 描述 / 标签..."
           clearable
           size="small"
-          style="width: 220px"
+          class="plaza-search-input"
         />
         <n-button
           size="small"
@@ -29,29 +43,23 @@
 
     <!-- 分类标签栏 -->
     <div class="category-tabs" v-if="categories.length">
-      <n-button
-        :type="activeCategory === null ? 'primary' : 'default'"
-        size="small"
-        secondary
-        round
-        @click="activeCategory = null"
+      <div
         class="category-tab"
+        :class="{ 'is-active': activeCategory === null }"
+        @click="activeCategory = null"
       >
         全部 ({{ stats?.total_nodes || 0 }})
-      </n-button>
-      <n-button
+      </div>
+      <div
         v-for="cat in categories"
         :key="cat.key"
-        :type="activeCategory === cat.key ? 'primary' : 'default'"
-        size="small"
-        secondary
-        round
-        @click="activeCategory = cat.key"
         class="category-tab"
+        :class="{ 'is-active': activeCategory === cat.key }"
+        @click="activeCategory = cat.key"
         :style="{ '--cat-color': cat.color }"
       >
         {{ cat.name.split(' ').slice(1).join(' ') }} ({{ cat.count }})
-      </n-button>
+      </div>
     </div>
 
     <!-- 主内容区 -->
@@ -146,6 +154,31 @@
     </transition>
 
     <!-- 创建新节点弹窗 -->
+    <!-- 导入 JSON（与顶栏入口共用能力） -->
+    <n-modal
+      v-model:show="showImportModal"
+      preset="dialog"
+      title="导入提示词"
+      positive-text="导入"
+      negative-text="取消"
+      @positive-click="handleImportJson"
+      style="max-width: 520px"
+    >
+      <div class="import-body">
+        <p class="import-hint">
+          支持 <code>prompts_defaults.json</code> 全量或仅含 <code>prompts</code> 数组。按 <code>id</code> 匹配已有节点并更新。
+        </p>
+        <n-upload
+          accept=".json,application/json"
+          :max="1"
+          :show-file-list="true"
+          @change="onImportFile"
+        >
+          <n-button>选择文件</n-button>
+        </n-upload>
+      </div>
+    </n-modal>
+
     <n-modal
       v-model:show="showCreateModal"
       preset="dialog"
@@ -197,13 +230,17 @@
 import { ref, computed, onMounted, reactive, nextTick } from 'vue'
 import {
   NButton, NTag, NInput, NSpin, NEmpty,
-  NModal, NForm, NFormItem, NSelect, useMessage,
+  NModal, NForm, NFormItem, NSelect, NUpload, useMessage,
 } from 'naive-ui'
 import { promptPlazaApi, type PromptNode, type PromptCategoryInfo, type PromptStats } from '../../api/llmControl'
 import NodeCard from './promptPlaza/NodeCard.vue'
 import PromptDetailPanel from './promptPlaza/PromptDetailPanel.vue'
 
 const message = useMessage()
+
+const emit = defineEmits<{
+  (e: 'refresh-stats'): void
+}>()
 
 // ---- 状态 ----
 const loading = ref(true)
@@ -213,6 +250,8 @@ const selectedNode = ref<PromptNode | null>(null)
 const showDetailModal = ref(false)
 const detailEntering = ref(false)
 const showCreateModal = ref(false)
+const showImportModal = ref(false)
+const importFileText = ref('')
 const stats = ref<PromptStats | null>(null)
 const categories = ref<PromptCategoryInfo[]>([])
 const allNodes = ref<PromptNode[]>([])
@@ -236,9 +275,10 @@ const filteredNodes = computed(() => {
   const q = searchQuery.value.toLowerCase().trim()
   return allNodes.value.filter(n =>
     n.name.toLowerCase().includes(q) ||
-    n.description.toLowerCase().includes(q) ||
+    (n.description || '').toLowerCase().includes(q) ||
     n.node_key.toLowerCase().includes(q) ||
-    n.tags.some(t => t.toLowerCase().includes(q))
+    n.tags.some(t => t.toLowerCase().includes(q)) ||
+    (n.source || '').toLowerCase().includes(q)
   )
 })
 
@@ -285,6 +325,7 @@ async function loadData() {
   } finally {
     loading.value = false
   }
+  emit('refresh-stats')
 }
 
 function openDetail(node: PromptNode) {
@@ -306,6 +347,66 @@ function closeDetail() {
 
 function onNodeUpdated() {
   loadData()
+}
+
+async function handleExportJson() {
+  try {
+    const res = await promptPlazaApi.exportAll()
+    const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `prompts-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('已导出')
+  } catch (e: unknown) {
+    const err = e as { message?: string }
+    message.error(err?.message || '导出失败')
+  }
+}
+
+function onImportFile(data: {
+  file: { file?: File | null }
+  fileList: Array<{ file?: File | null }>
+}) {
+  const f = data.file?.file
+  if (!f) return
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    importFileText.value = (e.target?.result as string) || ''
+  }
+  reader.readAsText(f)
+}
+
+async function handleImportJson() {
+  if (!importFileText.value.trim()) {
+    message.warning('请先选择 JSON 文件')
+    return false
+  }
+  try {
+    const parsed = JSON.parse(importFileText.value) as {
+      prompts?: unknown[]
+      [key: string]: unknown
+    }
+    if (!parsed.prompts || !Array.isArray(parsed.prompts)) {
+      message.error('JSON 中需包含 prompts 数组')
+      return false
+    }
+    const result = await promptPlazaApi.importData(parsed as Parameters<typeof promptPlazaApi.importData>[0])
+    message.success(result.message || '导入完成')
+    if (result.errors?.length) {
+      message.warning(`部分条目未导入：${result.errors.slice(0, 3).join('；')}`)
+    }
+    showImportModal.value = false
+    importFileText.value = ''
+    await loadData()
+    return true
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } }; message?: string }
+    message.error(err?.response?.data?.detail || err?.message || '导入失败')
+    return false
+  }
 }
 
 function getCategoryName(catKey: string): string {
@@ -341,6 +442,8 @@ async function handleCreate() {
 onMounted(() => {
   loadData()
 })
+
+defineExpose({ loadData })
 </script>
 
 <style scoped>
@@ -371,6 +474,26 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.plaza-search-input {
+  width: min(220px, 36vw);
+}
+.import-body {
+  margin-top: 8px;
+}
+.import-hint {
+  font-size: 13px;
+  color: var(--app-text-muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.import-hint code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--app-surface-subtle);
 }
 .plaza-title {
   margin: 0;
@@ -384,17 +507,38 @@ onMounted(() => {
 .category-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px 18px 12px;
+  gap: 8px;
+  padding: 8px 18px 14px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
 }
 .category-tab {
-  font-size: 12px;
-  transition: all 0.2s;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  border-radius: 16px;
+  padding: 0 14px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--app-text-secondary);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  user-select: none;
 }
 .category-tab:hover {
-  transform: translateY(-1px);
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+}
+.category-tab.is-active {
+  background: var(--color-brand);
+  color: var(--app-text-inverse);
+  border-color: var(--color-brand);
+  box-shadow: 0 2px 6px var(--color-brand-border);
+}
+.category-tab.is-active:hover {
+  background: var(--color-brand-hover);
 }
 
 /* ---- 内容区 ---- */
