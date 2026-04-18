@@ -1,9 +1,9 @@
-"""SQLite 故事线仓储。"""
+"""SQLite 故事线仓储�?""
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from domain.novel.entities.storyline import Storyline
@@ -39,7 +39,7 @@ class SqliteStorylineRepository(StorylineRepository):
         return self.db.get_connection()
 
     def _now(self) -> str:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
     def save(self, storyline: Storyline) -> None:
         now = self._now()

@@ -1,9 +1,9 @@
-"""SQLite Bible 仓储：Bible 聚合与子表全部落库。"""
+"""SQLite Bible 仓储：Bible 聚合与子表全部落库�?""
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from domain.bible.entities.bible import Bible
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class SqliteBibleRepository(BibleRepository):
-    """Bible 与子实体读写 SQLite；save 为整本替换子表。"""
+    """Bible 与子实体读写 SQLite；save 为整本替换子表�?""
 
     def __init__(self, db: DatabaseConnection):
         self.db = db
@@ -25,7 +25,7 @@ class SqliteBibleRepository(BibleRepository):
         return self.db.get_connection()
 
     def _now(self) -> str:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
     def _clear_children(self, conn, novel_id: str) -> None:
         conn.execute("DELETE FROM bible_style_notes WHERE novel_id = ?", (novel_id,))
@@ -317,7 +317,7 @@ class SqliteBibleRepository(BibleRepository):
         verbal_tic: str,
         idle_behavior: str,
     ) -> None:
-        """仅更新 bible_characters 声线锚点列（不落整本 Bible）。"""
+        """仅更�?bible_characters 声线锚点列（不落整本 Bible）�?""
         row = self.db.fetch_one(
             "SELECT id FROM bible_characters WHERE novel_id = ? AND id = ?",
             (novel_id, character_id),

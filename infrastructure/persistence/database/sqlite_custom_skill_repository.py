@@ -1,12 +1,12 @@
 """SQLite Custom Theme Skill Repository
 
-用户自定义增强技能的持久化存储。
+用户自定义增强技能的持久化存储�?
 每个自定义技能归属于某个 novel，用户在前端填写提示词内容，
-运行时被包装为 ThemeSkill 实例注入管线。
+运行时被包装�?ThemeSkill 实例注入管线�?
 """
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from infrastructure.persistence.database.connection import DatabaseConnection
@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 class SqliteCustomSkillRepository:
-    """用户自定义增强技能仓储"""
+    """用户自定义增强技能仓�?""
 
     def __init__(self, db: DatabaseConnection):
         self.db = db
         self._ensure_table()
 
     def _ensure_table(self) -> None:
-        """确保表存在（兼容旧数据库）"""
+        """确保表存在（兼容旧数据库�?""
         sql = """
             CREATE TABLE IF NOT EXISTS custom_theme_skills (
                 id TEXT PRIMARY KEY,
@@ -44,22 +44,22 @@ class SqliteCustomSkillRepository:
         self.db.get_connection().commit()
 
     def save(self, skill_data: Dict[str, Any]) -> None:
-        """保存自定义技能（UPSERT）
+        """保存自定义技能（UPSERT�?
 
         Args:
             skill_data: 技能数据字典，包含:
-                - id: 技能 ID
+                - id: 技�?ID
                 - novel_id: 小说 ID
                 - skill_key: 技能唯一标识
-                - skill_name: 技能名称
-                - skill_description: 技能描述
+                - skill_name: 技能名�?
+                - skill_description: 技能描�?
                 - compatible_genres: 适用题材列表
                 - context_prompt: 上下文增强提示词
-                - beat_prompt: 节拍增强提示词
-                - beat_triggers: 触发关键词（逗号分隔）
+                - beat_prompt: 节拍增强提示�?
+                - beat_triggers: 触发关键词（逗号分隔�?
                 - audit_checks: 审计检查项列表
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         sql = """
             INSERT INTO custom_theme_skills (
                 id, novel_id, skill_key, skill_name, skill_description,
@@ -98,26 +98,26 @@ class SqliteCustomSkillRepository:
         self.db.get_connection().commit()
 
     def list_by_novel(self, novel_id: str) -> List[Dict[str, Any]]:
-        """列出小说的所有自定义技能"""
+        """列出小说的所有自定义技�?""
         sql = "SELECT * FROM custom_theme_skills WHERE novel_id = ? ORDER BY created_at"
         rows = self.db.fetch_all(sql, (novel_id,))
         return [self._row_to_dict(row) for row in rows]
 
     def get_by_id(self, skill_id: str) -> Optional[Dict[str, Any]]:
-        """按 ID 获取技能"""
+        """�?ID 获取技�?""
         sql = "SELECT * FROM custom_theme_skills WHERE id = ?"
         row = self.db.fetch_one(sql, (skill_id,))
         return self._row_to_dict(row) if row else None
 
     def delete(self, skill_id: str) -> bool:
-        """删除技能"""
+        """删除技�?""
         sql = "DELETE FROM custom_theme_skills WHERE id = ?"
         self.db.execute(sql, (skill_id,))
         self.db.get_connection().commit()
         return True
 
     def _row_to_dict(self, row: dict) -> Dict[str, Any]:
-        """行 → 字典"""
+        """�?�?字典"""
         genres_raw = row.get("compatible_genres", "[]")
         audit_raw = row.get("audit_checks", "[]")
         return {

@@ -1,9 +1,9 @@
-"""章节保存后：LLM 生成章末总结 → 节拍沿用既有规划 → StoryKnowledge → 向量索引。
+"""章节保存后：LLM 生成章末总结 �?节拍沿用既有规划 �?StoryKnowledge �?向量索引�?
 
 节拍来源（按优先级，不由 LLM 现编）：
-1. 知识库里该章已有 beat_sections（宏观规划 / 用户手填）
-2. 结构树中该章节点 outline（规划节拍，按换行/分号拆条）
-3. 仍无则保持空列表，仅写 summary。
+1. 知识库里该章已有 beat_sections（宏观规�?/ 用户手填�?
+2. 结构树中该章节点 outline（规划节拍，按换�?分号拆条�?
+3. 仍无则保持空列表，仅�?summary�?
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_json_object(text: str) -> dict:
-    """从模型输出中解析 JSON 对象，优先走通用清洗/修复管线。"""
+    """从模型输出中解析 JSON 对象，优先走通用清洗/修复管线�?""
     cleaned = sanitize_llm_output(text or "")
     if not cleaned:
         return {}
@@ -50,7 +50,7 @@ def _extract_json_object(text: str) -> dict:
 
 
 def _beats_from_structure_outline(novel_id: str, chapter_number: int) -> List[str]:
-    """从结构树章节节点的 outline 拆成节拍条（规划层本来就有）。"""
+    """从结构树章节节点�?outline 拆成节拍条（规划层本来就有）�?""
     try:
         from application.paths import get_db_path
         from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
@@ -65,15 +65,15 @@ def _beats_from_structure_outline(novel_id: str, chapter_number: int) -> List[st
             outline = (n.outline or "").strip()
             if not outline:
                 return []
-            # 优先按“行”拆分；若为一段式大纲，则再按常见中文标点拆分，避免 beat_sections 为空
+            # 优先按“行”拆分；若为一段式大纲，则再按常见中文标点拆分，避�?beat_sections 为空
             parts = re.split(r"[\n\r]+", outline)
             cleaned = [p.strip() for p in parts if p.strip()]
             if len(cleaned) <= 1:
-                parts = re.split(r"[；;。！？!?]+", outline)
+                parts = re.split(r"[�?。！�??]+", outline)
                 cleaned = [p.strip() for p in parts if p.strip()]
             return cleaned[:32]
     except Exception as e:
-        logger.debug("从结构树取 outline 失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+        logger.debug("从结构树�?outline 失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
     return []
 
 
@@ -82,7 +82,7 @@ def _resolve_beat_sections(
     chapter_number: int,
     existing_beats: List[str],
 ) -> List[str]:
-    """节拍：优先已有知识库条；否则用结构树 outline。"""
+    """节拍：优先已有知识库条；否则用结构树 outline�?""
     cleaned = [str(b).strip() for b in (existing_beats or []) if str(b).strip()]
     if cleaned:
         return cleaned
@@ -95,58 +95,58 @@ async def llm_chapter_extract_bundle(
     chapter_number: int,
     pending_foreshadows: Optional[List[str]] = None,
 ) -> dict:
-    """一次 LLM 调用：叙事摘要 + 关键事件/埋线 + 人物关系三元组 + 伏笔线索 + 伏笔消费检测 + 故事线进展 + 张力值 + 对话提取（避免多次调用）。
+    """一�?LLM 调用：叙事摘�?+ 关键事件/埋线 + 人物关系三元�?+ 伏笔线索 + 伏笔消费检�?+ 故事线进�?+ 张力�?+ 对话提取（避免多次调用）�?
     
     Args:
         llm: LLM 服务
         chapter_content: 章节正文
-        chapter_number: 章节号
+        chapter_number: 章节�?
         pending_foreshadows: 待回收伏笔描述列表（用于消费检测）
     """
     body = chapter_content.strip()
     if len(body) > 24000:
         body = body[:24000] + "\n\n…（正文过长已截断）"
 
-    # 构建待回收伏笔提示
+    # 构建待回收伏笔提�?
     foreshadow_context = ""
     if pending_foreshadows:
         foreshadow_list = "\n".join(f"  - {f}" for f in pending_foreshadows[:15])
         foreshadow_context = f"""
-【待回收伏笔清单】
+【待回收伏笔清单�?
 {foreshadow_list}
 
-请判断本章是否呼应/回收了上述伏笔。如果章节内容明确揭示或回应了某个伏笔的悬念，则在 consumed_foreshadows 中列出该伏笔的原描述（需与清单中的描述高度匹配）。"""
+请判断本章是否呼�?回收了上述伏笔。如果章节内容明确揭示或回应了某个伏笔的悬念，则�?consumed_foreshadows 中列出该伏笔的原描述（需与清单中的描述高度匹配）�?""
 
-    system = f"""你是网文叙事编辑与信息抽取。根据章节正文输出**一个** JSON 对象（不要其它说明文字）：
+    system = f"""你是网文叙事编辑与信息抽取。根据章节正文输�?*一�?* JSON 对象（不要其它说明文字）�?
 {{
-  "summary": "string，200～500 字，章末叙事总结，便于检索与衔接",
+  "summary": "string�?00�?00 字，章末叙事总结，便于检索与衔接",
   "key_events": "string",
   "open_threads": "string",
   "relation_triples": [ {{"subject": "主体", "predicate": "关系", "object": "客体"}} ],
   "foreshadow_hints": [ {{
-    "description": "伏笔或悬念描述",
+    "description": "伏笔或悬念描�?,
     "suggested_resolve_offset": 5,
     "importance": "medium",
     "resolve_hint": "预期回收场景提示"
   }} ],
   "consumed_foreshadows": [ "被回收的伏笔描述1", "被回收的伏笔描述2" ],
-  "storyline_progress": [ {{"type": "主线|支线|感情线", "description": "本章该线进展"}} ],
-  "dialogues": [ {{"speaker": "角色名", "content": "对话内容", "context": "对话场景"}} ],
+  "storyline_progress": [ {{"type": "主线|支线|感情�?, "description": "本章该线进展"}} ],
+  "dialogues": [ {{"speaker": "角色�?, "content": "对话内容", "context": "对话场景"}} ],
   "timeline_events": [ {{"time_point": "时间描述", "event": "事件摘要", "description": "详细说明"}} ]
 }}
-约束：
-- relation_triples：只写文中明确出现的关系，最多 8 条；无则 []。
-- foreshadow_hints：潜在伏笔/未解悬念，最多 4 条；无则 []。
-  - suggested_resolve_offset：建议在多少章后回收（整数，通常 3-15 章），快节奏短篇用 2-5，长篇用 5-15
-  - importance：伏笔重要性，可选 "low"（次要）、"medium"（一般）、"high"（重要）、"critical"（关键）
-  - resolve_hint：简短描述预期回收的场景或剧情点（可选，如"下一幕高潮"）
-- consumed_foreshadows：本章回收/呼应的伏笔，从待回收清单中匹配，输出原描述；最多 5 条；无则 []。
-- storyline_progress：本章推进的故事线，最多 5 条；无则 []。
-- dialogues：重要对话（推动剧情/展现性格），最多 10 条；无则 []。
-- timeline_events：本章发生的时间线事件（世界内历法/相对时间），最多 5 条；无则 []。
-- 不要编造 beat 列表；summary/key_events/open_threads 用中文；严格合法 JSON。{foreshadow_context}"""
+约束�?
+- relation_triples：只写文中明确出现的关系，最�?8 条；无则 []�?
+- foreshadow_hints：潜在伏�?未解悬念，最�?4 条；无则 []�?
+  - suggested_resolve_offset：建议在多少章后回收（整数，通常 3-15 章），快节奏短篇�?2-5，长篇用 5-15
+  - importance：伏笔重要性，可�?"low"（次要）�?medium"（一般）�?high"（重要）�?critical"（关键）
+  - resolve_hint：简短描述预期回收的场景或剧情点（可选，�?下一幕高�?�?
+- consumed_foreshadows：本章回�?呼应的伏笔，从待回收清单中匹配，输出原描述；最�?5 条；无则 []�?
+- storyline_progress：本章推进的故事线，最�?5 条；无则 []�?
+- dialogues：重要对话（推动剧情/展现性格），最�?10 条；无则 []�?
+- timeline_events：本章发生的时间线事件（世界内历�?相对时间），最�?5 条；无则 []�?
+- 不要编�?beat 列表；summary/key_events/open_threads 用中文；严格合法 JSON。{foreshadow_context}"""
 
-    user = f"第 {chapter_number} 章正文如下：\n\n{body}"
+    user = f"�?{chapter_number} 章正文如下：\n\n{body}"
 
     prompt = Prompt(system=system, user=user)
     config = GenerationConfig(max_tokens=4096, temperature=0.45)
@@ -188,11 +188,11 @@ async def llm_chapter_extract_bundle(
 
 
 def _fuzzy_match_foreshadow(consumed_desc: str, pending_list: List[Any]) -> Optional[Any]:
-    """模糊匹配消费的伏笔描述与待回收列表。
+    """模糊匹配消费的伏笔描述与待回收列表�?
     
     Args:
-        consumed_desc: LLM 返回的消费伏笔描述
-        pending_list: 待回收伏笔列表（Foreshadowing 或 SubtextLedgerEntry）
+        consumed_desc: LLM 返回的消费伏笔描�?
+        pending_list: 待回收伏笔列表（Foreshadowing �?SubtextLedgerEntry�?
     
     Returns:
         匹配到的伏笔对象，未匹配返回 None
@@ -213,10 +213,10 @@ def _fuzzy_match_foreshadow(consumed_desc: str, pending_list: List[Any]) -> Opti
         desc = getattr(f, 'description', None) or getattr(f, 'question', None)
         if desc:
             desc_lower = desc.lower().strip()
-            # 检查是否有足够的重叠
+            # 检查是否有足够的重�?
             if consumed_lower in desc_lower or desc_lower in consumed_lower:
                 return f
-            # 检查关键词重叠（至少 50% 的词匹配）
+            # 检查关键词重叠（至�?50% 的词匹配�?
             consumed_words = set(consumed_lower)
             desc_words = set(desc_lower)
             if consumed_words and desc_words:
@@ -234,12 +234,12 @@ def persist_bundle_triples_and_foreshadows(
     triple_repository: Any,
     foreshadowing_repo: Any,
 ) -> None:
-    """将 bundle 中的三元组与伏笔写入表，并处理伏笔消费状态更新。
+    """�?bundle 中的三元组与伏笔写入表，并处理伏笔消费状态更新�?
     
-    功能：
-    1. 三元组落库
+    功能�?
+    1. 三元组落�?
     2. 新伏笔注册（PLANTED 状态）
-    3. 已消费伏笔状态更新（PLANTED -> RESOLVED / pending -> consumed）
+    3. 已消费伏笔状态更新（PLANTED -> RESOLVED / pending -> consumed�?
     """
     triples = bundle.get("relation_triples") or []
     hints = bundle.get("foreshadow_hints") or []
@@ -248,7 +248,7 @@ def persist_bundle_triples_and_foreshadows(
     if triple_repository and triples:
         kr = getattr(triple_repository, "_kr", None)
         if kr is None:
-            logger.warning("triple_repository 无 _kr，跳过三元组落库")
+            logger.warning("triple_repository �?_kr，跳过三元组落库")
         else:
             for item in triples:
                 if not isinstance(item, dict):
@@ -272,7 +272,7 @@ def persist_bundle_triples_and_foreshadows(
                 try:
                     kr.save_triple(novel_id, row)
                 except Exception as e:
-                    logger.debug("三元组落库跳过: %s", e)
+                    logger.debug("三元组落库跳�? %s", e)
 
     if foreshadowing_repo and hints:
         try:
@@ -284,7 +284,7 @@ def persist_bundle_triples_and_foreshadows(
                     id=str(uuid.uuid4()),
                     novel_id=NovelId(novel_id)
                 )
-                logger.info("创建新伏笔账本 novel=%s", novel_id)
+                logger.info("创建新伏笔账�?novel=%s", novel_id)
             for h in hints:
                 if not isinstance(h, dict):
                     desc = str(h).strip()
@@ -293,14 +293,14 @@ def persist_bundle_triples_and_foreshadows(
                     resolve_hint = None
                 else:
                     desc = str(h.get("description", "")).strip()
-                    # 获取预期回收章节偏移量
+                    # 获取预期回收章节偏移�?
                     resolve_offset = h.get("suggested_resolve_offset", 5)
                     try:
                         resolve_offset = int(resolve_offset)
-                        resolve_offset = max(2, min(30, resolve_offset))  # 限制在 2-30 章
+                        resolve_offset = max(2, min(30, resolve_offset))  # 限制�?2-30 �?
                     except (ValueError, TypeError):
                         resolve_offset = 5
-                    # 获取重要性
+                    # 获取重要�?
                     importance_val = str(h.get("importance", "medium")).strip().lower()
                     if importance_val not in ("low", "medium", "high", "critical"):
                         importance_val = "medium"
@@ -311,7 +311,7 @@ def persist_bundle_triples_and_foreshadows(
                 if not desc:
                     continue
                 try:
-                    # 计算预期回收章节 = 埋设章节 + 偏移量
+                    # 计算预期回收章节 = 埋设章节 + 偏移�?
                     suggested_resolve = chapter_number + resolve_offset
                     registry.register(
                         Foreshadowing(
@@ -330,7 +330,7 @@ def persist_bundle_triples_and_foreshadows(
                 except Exception as e:
                     logger.debug("伏笔入库跳过: %s", e)
             
-            # 处理伏笔消费：将 LLM 识别的已消费伏笔标记为 RESOLVED/consumed
+            # 处理伏笔消费：将 LLM 识别的已消费伏笔标记�?RESOLVED/consumed
             if consumed:
                 # 获取所有待回收伏笔
                 pending_foreshadows = registry.get_unresolved()
@@ -351,13 +351,13 @@ def persist_bundle_triples_and_foreshadows(
                             )
                             consumed_count += 1
                             logger.info(
-                                "伏笔已消费 novel=%s ch=%s: %s -> RESOLVED",
+                                "伏笔已消�?novel=%s ch=%s: %s -> RESOLVED",
                                 novel_id, chapter_number, consumed_desc[:50]
                             )
-                            # 从待回收列表中移除已处理的
+                            # 从待回收列表中移除已处理�?
                             pending_foreshadows = [f for f in pending_foreshadows if f.id != matched_foreshadow.id]
                         except Exception as e:
-                            logger.warning("伏笔消费状态更新失败: %s", e)
+                            logger.warning("伏笔消费状态更新失�? %s", e)
                         continue
                     
                     # 2. 尝试匹配 SubtextLedgerEntry 对象
@@ -376,14 +376,14 @@ def persist_bundle_triples_and_foreshadows(
                                 "潜台词条目已消费 novel=%s ch=%s: %s -> consumed",
                                 novel_id, chapter_number, consumed_desc[:50]
                             )
-                            # 从待回收列表中移除已处理的
+                            # 从待回收列表中移除已处理�?
                             pending_subtext = [e for e in pending_subtext if e.id != matched_entry.id]
                         except Exception as e:
-                            logger.warning("潜台词条目消费状态更新失败: %s", e)
+                            logger.warning("潜台词条目消费状态更新失�? %s", e)
                 
                 if consumed_count > 0:
                     logger.info(
-                        "伏笔消费检测完成 novel=%s ch=%s consumed=%d/%d",
+                        "伏笔消费检测完�?novel=%s ch=%s consumed=%d/%d",
                         novel_id, chapter_number, consumed_count, len(consumed)
                     )
             
@@ -393,7 +393,7 @@ def persist_bundle_triples_and_foreshadows(
 
 
 def _importance_str_to_level(importance_str: str) -> ImportanceLevel:
-    """将字符串转换为 ImportanceLevel 枚举。"""
+    """将字符串转换�?ImportanceLevel 枚举�?""
     mapping = {
         "low": ImportanceLevel.LOW,
         "medium": ImportanceLevel.MEDIUM,
@@ -408,18 +408,18 @@ def _auto_generate_plot_point(
     chapter_repository: Any,
     plot_arc_repository: Any,
 ) -> None:
-    """自动生成剧情点：当张力值显著变化时添加到情节弧。"""
+    """自动生成剧情点：当张力值显著变化时添加到情节弧�?""
     try:
         from domain.novel.value_objects.novel_id import NovelId
         from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
         from domain.novel.value_objects.tension_level import TensionLevel
 
-        # 获取前一章的张力值
+        # 获取前一章的张力�?
         chapters = chapter_repository.list_by_novel(NovelId(novel_id))
         prev_ch = next((ch for ch in chapters if ch.number == chapter_number - 1), None)
 
         if not prev_ch:
-            return  # 第一章不生成剧情点
+            return  # 第一章不生成剧情�?
 
         prev_tension = prev_ch.tension_score
         tension_diff = abs(tension_score - prev_tension)
@@ -429,20 +429,20 @@ def _auto_generate_plot_point(
         point_type = PlotPointType.RISING_ACTION
         description = ""
 
-        # 1. 张力显著上升（>20分）
+        # 1. 张力显著上升�?20分）
         if tension_score - prev_tension > 20:
             should_generate = True
             if tension_score >= 80:
                 point_type = PlotPointType.CLIMAX
-                description = f"高潮：张力从 {prev_tension:.0f} 跃升至 {tension_score:.0f}"
+                description = f"高潮：张力从 {prev_tension:.0f} 跃升�?{tension_score:.0f}"
             elif tension_score >= 60:
                 point_type = PlotPointType.TURNING_POINT
-                description = f"转折：张力从 {prev_tension:.0f} 上升至 {tension_score:.0f}"
+                description = f"转折：张力从 {prev_tension:.0f} 上升�?{tension_score:.0f}"
             else:
                 point_type = PlotPointType.RISING_ACTION
-                description = f"上升：张力从 {prev_tension:.0f} 提升至 {tension_score:.0f}"
+                description = f"上升：张力从 {prev_tension:.0f} 提升�?{tension_score:.0f}"
 
-        # 2. 张力显著下降（>20分）
+        # 2. 张力显著下降�?20分）
         elif prev_tension - tension_score > 20:
             should_generate = True
             if prev_tension >= 70 and tension_score < 50:
@@ -450,18 +450,18 @@ def _auto_generate_plot_point(
                 description = f"回落：张力从 {prev_tension:.0f} 降至 {tension_score:.0f}"
             else:
                 point_type = PlotPointType.RESOLUTION
-                description = f"缓和：张力从 {prev_tension:.0f} 回落至 {tension_score:.0f}"
+                description = f"缓和：张力从 {prev_tension:.0f} 回落�?{tension_score:.0f}"
 
-        # 3. 达到峰值（>=85）
+        # 3. 达到峰值（>=85�?
         elif tension_score >= 85 and prev_tension < 85:
             should_generate = True
             point_type = PlotPointType.CLIMAX
-            description = f"巅峰：张力达到 {tension_score:.0f}"
+            description = f"巅峰：张力达�?{tension_score:.0f}"
 
         if not should_generate:
             return
 
-        # 转换张力分数到 TensionLevel
+        # 转换张力分数�?TensionLevel
         if tension_score >= 80:
             tension_level = TensionLevel.PEAK
         elif tension_score >= 60:
@@ -487,7 +487,7 @@ def _auto_generate_plot_point(
         if existing:
             return
 
-        # 添加剧情点
+        # 添加剧情�?
         plot_point = PlotPoint(
             chapter_number=chapter_number,
             point_type=point_type,
@@ -497,11 +497,11 @@ def _auto_generate_plot_point(
         plot_arc.add_plot_point(plot_point)
         plot_arc_repository.save(plot_arc)
 
-        logger.info("自动生成剧情点 novel=%s ch=%s type=%s tension=%.0f",
+        logger.info("自动生成剧情�?novel=%s ch=%s type=%s tension=%.0f",
                    novel_id, chapter_number, point_type.value, tension_score)
 
     except Exception as e:
-        logger.warning("自动生成剧情点失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+        logger.warning("自动生成剧情点失�?novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
 
 def _auto_advance_milestone(
@@ -510,7 +510,7 @@ def _auto_advance_milestone(
     storyline_progress: List[dict],
     storyline_repository: Any,
 ) -> None:
-    """自动推进里程碑：根据进展描述判断是否达成里程碑条件。"""
+    """自动推进里程碑：根据进展描述判断是否达成里程碑条件�?""
     try:
         from domain.novel.value_objects.novel_id import NovelId
 
@@ -526,7 +526,7 @@ def _auto_advance_milestone(
             if not description:
                 continue
 
-            # 匹配故事线
+            # 匹配故事�?
             matched = None
             for sl in storylines:
                 if line_type in sl.name or line_type in sl.storyline_type.value:
@@ -551,7 +551,7 @@ def _auto_advance_milestone(
                 milestone_keywords = current_milestone.description.lower()
                 progress_keywords = description.lower()
 
-                # 如果进展描述包含里程碑关键词，认为达成
+                # 如果进展描述包含里程碑关键词，认为达�?
                 keyword_match = any(
                     word in progress_keywords
                     for word in milestone_keywords.split()[:3]  # 取前3个词
@@ -560,18 +560,18 @@ def _auto_advance_milestone(
                 if keyword_match or chapter_number >= current_milestone.target_chapter_end:
                     matched.current_milestone_index = current_idx + 1
                     storyline_repository.save(matched)
-                    logger.info("自动推进里程碑 novel=%s storyline=%s milestone=%d->%d ch=%s",
+                    logger.info("自动推进里程�?novel=%s storyline=%s milestone=%d->%d ch=%s",
                                novel_id, matched.name, current_idx, current_idx + 1, chapter_number)
 
     except Exception as e:
-        logger.warning("自动推进里程碑失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+        logger.warning("自动推进里程碑失�?novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
 
 def _initialize_first_chapter_snapshot(
     novel_id: str,
     chapter_number: int,
 ) -> None:
-    """首章初始化：创建初始快照。"""
+    """首章初始化：创建初始快照�?""
     try:
         from infrastructure.persistence.database.connection import get_database
 
@@ -579,7 +579,7 @@ def _initialize_first_chapter_snapshot(
         conn = db.get_connection()
         cursor = conn.cursor()
 
-        # 检查是否已有快照
+        # 检查是否已有快�?
         cursor.execute(
             "SELECT COUNT(*) FROM novel_snapshots WHERE novel_id = ?",
             (novel_id,)
@@ -592,7 +592,7 @@ def _initialize_first_chapter_snapshot(
 
         # 创建初始快照
         snapshot_id = f"snapshot-{uuid.uuid4()}"
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         cursor.execute("""
             INSERT INTO novel_snapshots (
@@ -604,7 +604,7 @@ def _initialize_first_chapter_snapshot(
             snapshot_id,
             novel_id,
             "AUTO",
-            "第1章完成",
+            "�?章完�?,
             "小说开篇，自动创建初始快照",
             json.dumps([f"{novel_id}-ch{chapter_number}"]),
             json.dumps({"exists": True, "timestamp": now}),
@@ -619,7 +619,7 @@ def _initialize_first_chapter_snapshot(
         logger.info("首章自动创建快照 novel=%s snapshot=%s", novel_id, snapshot_id)
 
     except Exception as e:
-        logger.warning("首章快照初始化失败 novel=%s: %s", novel_id, e)
+        logger.warning("首章快照初始化失�?novel=%s: %s", novel_id, e)
 
 
 def _initialize_first_chapter_storyline(
@@ -628,10 +628,10 @@ def _initialize_first_chapter_storyline(
     bundle: dict,
     storyline_repository: Any,
 ) -> None:
-    """首章初始化：基于章末总结创建主线故事线。
+    """首章初始化：基于章末总结创建主线故事线�?
 
-    使用 LLM 生成的 summary 作为依据，而不是硬匹配关键词。
-    summary 来自 sync_chapter_narrative_after_save 中的 llm_chapter_extract_bundle。
+    使用 LLM 生成�?summary 作为依据，而不是硬匹配关键词�?
+    summary 来自 sync_chapter_narrative_after_save 中的 llm_chapter_extract_bundle�?
     """
     try:
         from domain.novel.value_objects.novel_id import NovelId
@@ -642,10 +642,10 @@ def _initialize_first_chapter_storyline(
         # 检查是否已有故事线
         existing = storyline_repository.get_by_novel_id(NovelId(novel_id))
         if existing:
-            logger.info("首章已有故事线，跳过初始化 novel=%s", novel_id)
+            logger.info("首章已有故事线，跳过初始�?novel=%s", novel_id)
             return
 
-        # 使用 LLM 生成的章末总结作为故事线描述
+        # 使用 LLM 生成的章末总结作为故事线描�?
         summary = bundle.get("summary", "")
 
         # 默认创建主线，名称和描述基于首章内容
@@ -659,13 +659,13 @@ def _initialize_first_chapter_storyline(
             storyline_type=StorylineType.MAIN_PLOT,
             status=StorylineStatus.ACTIVE,
             estimated_chapter_start=chapter_number,
-            estimated_chapter_end=chapter_number + 20,  # 预估20章
+            estimated_chapter_end=chapter_number + 20,  # 预估20�?
             name=storyline_name,
             description=storyline_desc,
-            progress_summary=summary  # 将首章摘要作为初始进展
+            progress_summary=summary  # 将首章摘要作为初始进�?
         )
         storyline_repository.save(main_storyline)
-        logger.info("首章自动初始化主线 novel=%s desc=%s", novel_id, storyline_desc[:50])
+        logger.info("首章自动初始化主�?novel=%s desc=%s", novel_id, storyline_desc[:50])
 
     except Exception as e:
         logger.warning("首章故事线初始化失败 novel=%s: %s", novel_id, e)
@@ -677,7 +677,7 @@ def _auto_adjust_storyline_range(
     storyline_progress: List[dict],
     storyline_repository: Any,
 ) -> None:
-    """自动调整故事线范围：检测新故事线开始或现有故事线结束。"""
+    """自动调整故事线范围：检测新故事线开始或现有故事线结束�?""
     try:
         from domain.novel.value_objects.novel_id import NovelId
         from domain.novel.value_objects.storyline_type import StorylineType
@@ -697,10 +697,10 @@ def _auto_adjust_storyline_range(
                 continue
 
             # 检测关键词判断是否是新故事线开始或结束
-            is_start = any(kw in description for kw in ["开始", "启动", "引入", "出现"])
+            is_start = any(kw in description for kw in ["开�?, "启动", "引入", "出现"])
             is_end = any(kw in description for kw in ["结束", "完成", "解决", "落幕"])
 
-            # 匹配现有故事线
+            # 匹配现有故事�?
             matched = None
             for sl in storylines:
                 if line_type in sl.name or line_type in sl.storyline_type.value:
@@ -708,21 +708,21 @@ def _auto_adjust_storyline_range(
                     break
 
             if matched:
-                # 更新现有故事线范围
+                # 更新现有故事线范�?
                 if is_end and matched.status != StorylineStatus.COMPLETED:
                     # 故事线结束，更新结束章节
                     if chapter_number > matched.estimated_chapter_end:
                         matched.estimated_chapter_end = chapter_number
                         matched.status = StorylineStatus.COMPLETED
                         storyline_repository.save(matched)
-                        logger.info("自动结束故事线 novel=%s storyline=%s end_ch=%d",
+                        logger.info("自动结束故事�?novel=%s storyline=%s end_ch=%d",
                                    novel_id, matched.name, chapter_number)
 
                 elif chapter_number > matched.estimated_chapter_end:
                     # 故事线超出预期范围，自动延长
-                    matched.estimated_chapter_end = chapter_number + 5  # 预留5章
+                    matched.estimated_chapter_end = chapter_number + 5  # 预留5�?
                     storyline_repository.save(matched)
-                    logger.info("自动延长故事线 novel=%s storyline=%s new_end=%d",
+                    logger.info("自动延长故事�?novel=%s storyline=%s new_end=%d",
                                novel_id, matched.name, matched.estimated_chapter_end)
 
             elif is_start:
@@ -730,7 +730,7 @@ def _auto_adjust_storyline_range(
                 storyline_type_map = {
                     "主线": StorylineType.MAIN_PLOT,
                     "支线": StorylineType.GROWTH,
-                    "感情线": StorylineType.ROMANCE,
+                    "感情�?: StorylineType.ROMANCE,
                     "暗线": StorylineType.GROWTH,
                 }
 
@@ -746,16 +746,16 @@ def _auto_adjust_storyline_range(
                     storyline_type=new_type,
                     status=StorylineStatus.ACTIVE,
                     estimated_chapter_start=chapter_number,
-                    estimated_chapter_end=chapter_number + 10,  # 预估10章
+                    estimated_chapter_end=chapter_number + 10,  # 预估10�?
                     name=line_type,
                     description=description
                 )
                 storyline_repository.save(new_storyline)
-                logger.info("自动创建故事线 novel=%s type=%s name=%s start_ch=%d",
+                logger.info("自动创建故事�?novel=%s type=%s name=%s start_ch=%d",
                            novel_id, new_type.value, line_type, chapter_number)
 
     except Exception as e:
-        logger.warning("自动调整故事线范围失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+        logger.warning("自动调整故事线范围失�?novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
 
 def persist_bundle_extras(
@@ -767,8 +767,8 @@ def persist_bundle_extras(
     plot_arc_repository: Any = None,
     narrative_event_repository: Any = None,
 ) -> None:
-    """将 bundle 中的故事线进展、张力值、对话写入表，并自动生成剧情点、推进里程碑、调整故事线范围。"""
-    # 1. 张力值写入 chapters 表
+    """�?bundle 中的故事线进展、张力值、对话写入表，并自动生成剧情点、推进里程碑、调整故事线范围�?""
+    # 1. 张力值写�?chapters �?
     tension_score = bundle.get("tension_score")
     tension_dims = bundle.get("tension_dimensions")
     if chapter_repository and (tension_score is not None or tension_dims):
@@ -787,7 +787,7 @@ def persist_bundle_extras(
                     )
                     target_ch.update_tension_dimensions(dims)
                     logger.debug(
-                        "张力维度已落库 novel=%s ch=%s composite=%.1f plot=%.0f emotional=%.0f pacing=%.0f",
+                        "张力维度已落�?novel=%s ch=%s composite=%.1f plot=%.0f emotional=%.0f pacing=%.0f",
                         novel_id, chapter_number,
                         dims.composite_score,
                         dims.plot_tension,
@@ -799,16 +799,16 @@ def persist_bundle_extras(
                     logger.debug("张力值已落库 novel=%s ch=%s tension=%.1f", novel_id, chapter_number, tension_score)
                 chapter_repository.save(target_ch)
         except Exception as e:
-            logger.warning("张力值落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+            logger.warning("张力值落库失�?novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-    # 2. 自动生成剧情点（基于张力变化）
+    # 2. 自动生成剧情点（基于张力变化�?
     if chapter_repository and plot_arc_repository and tension_score is not None:
         _auto_generate_plot_point(
             novel_id, chapter_number, tension_score,
             chapter_repository, plot_arc_repository
         )
 
-    # 3. 故事线进展更新
+    # 3. 故事线进展更�?
     storyline_progress = bundle.get("storyline_progress") or []
     if storyline_repository and storyline_progress:
         try:
@@ -822,7 +822,7 @@ def persist_bundle_extras(
                 if not description:
                     continue
 
-                # 匹配故事线类型
+                # 匹配故事线类�?
                 matched = None
                 for sl in storylines:
                     if line_type in sl.name or line_type in sl.storyline_type.value:
@@ -834,25 +834,25 @@ def persist_bundle_extras(
                     storyline_repository.save(matched)
                     logger.debug("故事线进展已更新 novel=%s ch=%s type=%s", novel_id, chapter_number, line_type)
         except Exception as e:
-            logger.warning("故事线进展落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+            logger.warning("故事线进展落库失�?novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-    # 4. 自动推进里程碑
+    # 4. 自动推进里程�?
     if storyline_repository and storyline_progress:
         _auto_advance_milestone(novel_id, chapter_number, storyline_progress, storyline_repository)
 
-    # 5. 自动调整故事线范围（或首章初始化）
+    # 5. 自动调整故事线范围（或首章初始化�?
     if storyline_repository:
         if chapter_number == 1 and not storyline_progress:
-            # 首章且 LLM 未返回故事线进展，强制初始化主线
+            # 首章�?LLM 未返回故事线进展，强制初始化主线
             _initialize_first_chapter_storyline(novel_id, chapter_number, bundle, storyline_repository)
         elif storyline_progress:
             _auto_adjust_storyline_range(novel_id, chapter_number, storyline_progress, storyline_repository)
 
-    # 6. 首章初始化快照
+    # 6. 首章初始化快�?
     if chapter_number == 1:
         _initialize_first_chapter_snapshot(novel_id, chapter_number)
 
-    # 7. 对话提取（写入 narrative_events 表）
+    # 7. 对话提取（写�?narrative_events 表）
     dialogues = bundle.get("dialogues") or []
     if narrative_event_repository and dialogues:
         try:
@@ -871,7 +871,7 @@ def persist_bundle_extras(
                 if len(content) > 100:
                     event_summary += "..."
 
-                # 构建 mutations（对话不涉及实体变更，可为空）
+                # 构建 mutations（对话不涉及实体变更，可为空�?
                 mutations = []
 
                 # 构建 tags
@@ -892,7 +892,7 @@ def persist_bundle_extras(
         except Exception as e:
             logger.warning("对话落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-    # 8. 时间轴事件提取（写入 timeline_notes）
+    # 8. 时间轴事件提取（写入 timeline_notes�?
     timeline_events = bundle.get("timeline_events") or []
     if timeline_events:
         try:
@@ -911,17 +911,17 @@ def persist_bundle_extras(
                 if not event:
                     continue
 
-                # 写入 bible_timeline_notes 表
+                # 写入 bible_timeline_notes �?
                 note_id = f"tl-{uuid.uuid4()}"
                 cursor.execute("""
                     INSERT INTO bible_timeline_notes (id, novel_id, time_point, event, description)
                     VALUES (?, ?, ?, ?, ?)
-                """, (note_id, novel_id, time_point or f"第{chapter_number}章", event, description))
+                """, (note_id, novel_id, time_point or f"第{chapter_number}�?, event, description))
 
             conn.commit()
-            logger.info("时间轴事件提取完成 novel=%s ch=%s count=%d", novel_id, chapter_number, len(timeline_events))
+            logger.info("时间轴事件提取完�?novel=%s ch=%s count=%d", novel_id, chapter_number, len(timeline_events))
         except Exception as e:
-            logger.warning("时间轴落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+            logger.warning("时间轴落库失�?novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
 
 async def sync_chapter_narrative_after_save(
@@ -938,9 +938,9 @@ async def sync_chapter_narrative_after_save(
     plot_arc_repository: Any = None,
     narrative_event_repository: Any = None,
 ) -> None:
-    """异步：一次 LLM 写 summary/事件/埋线 + 可选三元组与伏笔 + 故事线/张力/对话 → 节拍来自规划 → upsert knowledge → 向量索引。"""
+    """异步：一�?LLM �?summary/事件/埋线 + 可选三元组与伏�?+ 故事�?张力/对话 �?节拍来自规划 �?upsert knowledge �?向量索引�?""
     if not content or not str(content).strip():
-        logger.debug("跳过叙事同步：正文为空 novel=%s ch=%s", novel_id, chapter_number)
+        logger.debug("跳过叙事同步：正文为�?novel=%s ch=%s", novel_id, chapter_number)
         return
 
     existing = None
@@ -962,21 +962,21 @@ async def sync_chapter_narrative_after_save(
         try:
             registry = foreshadowing_repo.get_by_novel_id(NovelId(novel_id))
             if registry:
-                # 从 Foreshadowing 对象获取描述
+                # �?Foreshadowing 对象获取描述
                 for f in registry.get_unresolved():
                     if f.description:
                         pending_foreshadow_descs.append(f.description)
-                # 从 SubtextLedgerEntry 获取描述
+                # �?SubtextLedgerEntry 获取描述
                 for e in registry.get_pending_subtext_entries():
                     if e.question:
                         pending_foreshadow_descs.append(e.question)
                 if pending_foreshadow_descs:
                     logger.debug(
-                        "伏笔消费检测：获取到 %d 个待回收伏笔 novel=%s ch=%s",
+                        "伏笔消费检测：获取�?%d 个待回收伏笔 novel=%s ch=%s",
                         len(pending_foreshadow_descs), novel_id, chapter_number
                     )
         except Exception as e:
-            logger.warning("获取待回收伏笔失败: %s", e)
+            logger.warning("获取待回收伏笔失�? %s", e)
 
     try:
         bundle = await llm_chapter_extract_bundle(
@@ -1024,7 +1024,7 @@ async def sync_chapter_narrative_after_save(
     except Exception as e:
         logger.warning("独立张力评分失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-    # 将张力结果注入 bundle，供 persist_bundle_extras 使用
+    # 将张力结果注�?bundle，供 persist_bundle_extras 使用
     if tension_dimensions is not None:
         bundle["tension_score"] = tension_dimensions.composite_score
         bundle["tension_dimensions"] = {
@@ -1053,8 +1053,8 @@ async def sync_chapter_narrative_after_save(
         if bundle.get("micro_beats"):
             micro_beats = bundle.get("micro_beats")
         else:
-            # 否则从大纲动态生成
-            # 获取章节大纲（从结构树或 beat_sections 推断）
+            # 否则从大纲动态生�?
+            # 获取章节大纲（从结构树或 beat_sections 推断�?
             outline_text = ""
             try:
                 # 尝试从结构树获取大纲
@@ -1071,7 +1071,7 @@ async def sync_chapter_narrative_after_save(
             except Exception as e:
                 logger.debug("从结构树获取大纲失败: %s", e)
             
-            # 如果有大纲，使用静态方法生成节拍
+            # 如果有大纲，使用静态方法生成节�?
             if outline_text:
                 try:
                     from application.engine.services.context_builder import ContextBuilder
@@ -1084,7 +1084,7 @@ async def sync_chapter_narrative_after_save(
                             "focus": beat.focus
                         } for beat in beats
                     ]
-                    logger.debug("从大纲生成微观节拍: %d 个", len(micro_beats))
+                    logger.debug("从大纲生成微观节�? %d �?, len(micro_beats))
                 except Exception as e:
                     logger.debug("生成微观节拍失败: %s", e)
     except Exception as e:
@@ -1094,8 +1094,8 @@ async def sync_chapter_narrative_after_save(
         novel_id=novel_id,
         chapter_id=chapter_number,
         summary=summary,
-        key_events=key_events or "（未提取）",
-        open_threads=open_threads or "无",
+        key_events=key_events or "（未提取�?,
+        open_threads=open_threads or "�?,
         consistency_note=consistency_note,
         beat_sections=beat_sections,
         micro_beats=micro_beats if micro_beats else None,
@@ -1113,7 +1113,7 @@ async def sync_chapter_narrative_after_save(
             )
         except Exception as e:
             logger.warning(
-                "bundle 三元组/伏笔落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+                "bundle 三元�?伏笔落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
 
     if storyline_repository is not None or chapter_repository is not None or narrative_event_repository is not None:
@@ -1129,11 +1129,11 @@ async def sync_chapter_narrative_after_save(
             )
         except Exception as e:
             logger.warning(
-                "bundle 故事线/张力/对话落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+                "bundle 故事�?张力/对话落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
 
     logger.info(
-        "分章叙事已落库 novel=%s ch=%s beats=%d(src=planning/knowledge) summary_len=%d",
+        "分章叙事已落�?novel=%s ch=%s beats=%d(src=planning/knowledge) summary_len=%d",
         novel_id,
         chapter_number,
         len(beat_sections),
@@ -1142,7 +1142,7 @@ async def sync_chapter_narrative_after_save(
 
     if indexing_svc is None:
         return
-    text_for_vector = summary.strip() if summary.strip() else "；".join(beat_sections) if beat_sections else content[:800]
+    text_for_vector = summary.strip() if summary.strip() else "�?.join(beat_sections) if beat_sections else content[:800]
     try:
         await indexing_svc.ensure_collection(novel_id)
         await indexing_svc.index_chapter_summary(novel_id, chapter_number, text_for_vector)
@@ -1163,7 +1163,7 @@ def sync_chapter_narrative_after_save_blocking(
     storyline_repository: Any = None,
     chapter_repository: Any = None,
 ) -> None:
-    """供 FastAPI BackgroundTasks 同步入口调用。"""
+    """�?FastAPI BackgroundTasks 同步入口调用�?""
     try:
         asyncio.run(
             sync_chapter_narrative_after_save(

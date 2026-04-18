@@ -1,9 +1,9 @@
-"""SQLite Chapter Review Repository：章节审阅（审定）记录。"""
+"""SQLite Chapter Review Repository：章节审阅（审定）记录�?""
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from application.audit.dtos.chapter_review_dto import ChapterReviewDTO
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class SqliteChapterReviewRepository:
-    """chapter_reviews 表读写。"""
+    """chapter_reviews 表读写�?""
 
     def __init__(self, db: DatabaseConnection):
         self.db = db
@@ -29,9 +29,9 @@ class SqliteChapterReviewRepository:
         created_at = row.get("created_at")
         updated_at = row.get("updated_at")
         try:
-            ca = datetime.fromisoformat(created_at) if isinstance(created_at, str) else datetime.utcnow()
+            ca = datetime.fromisoformat(created_at) if isinstance(created_at, str) else datetime.now(timezone.utc)
         except Exception:
-            ca = datetime.utcnow()
+            ca = datetime.now(timezone.utc)
         try:
             ua = datetime.fromisoformat(updated_at) if isinstance(updated_at, str) else ca
         except Exception:
@@ -44,7 +44,7 @@ class SqliteChapterReviewRepository:
         )
 
     def upsert(self, novel_id: str, chapter_number: int, *, status: str, memo: str) -> ChapterReviewDTO:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         self.db.execute(
             """
             INSERT INTO chapter_reviews (novel_id, chapter_number, status, memo, created_at, updated_at)
@@ -60,7 +60,7 @@ class SqliteChapterReviewRepository:
         return self.get(novel_id, chapter_number) or ChapterReviewDTO(
             status=status,
             memo=memo or "",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
 

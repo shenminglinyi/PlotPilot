@@ -1,5 +1,5 @@
 """Voice API 路由"""
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -110,7 +110,7 @@ def get_voice_fingerprint(
                 avg_sentence_length=0.0,
                 sentence_count=0,
                 sample_count=0,
-                last_updated=datetime.now().isoformat()
+                last_updated=datetime.now(timezone.utc).isoformat()
             )
 
         return VoiceFingerprintResponse(

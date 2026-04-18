@@ -1,13 +1,13 @@
-"""SQLite 伏笔与潜台词账本仓储。
+"""SQLite 伏笔与潜台词账本仓储�?
 
-以单行 JSON 快照持久化 ForeshadowingRegistry（与 ForeshadowingMapper 一致），
-替代文件系统 foreshadowings/{novel_id}.json。
+以单�?JSON 快照持久�?ForeshadowingRegistry（与 ForeshadowingMapper 一致）�?
+替代文件系统 foreshadowings/{novel_id}.json�?
 """
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from domain.novel.entities.foreshadowing_registry import ForeshadowingRegistry
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class SqliteForeshadowingRepository(ForeshadowingRepository):
-    """伏笔注册表 SQLite 实现。"""
+    """伏笔注册�?SQLite 实现�?""
 
     def __init__(self, db: DatabaseConnection):
         self._db = db
@@ -69,7 +69,7 @@ class SqliteForeshadowingRepository(ForeshadowingRepository):
             ForeshadowingMapper.to_dict(registry),
             ensure_ascii=False,
         )
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         sql = """
             INSERT INTO novel_foreshadow_registry (novel_id, payload, updated_at)
             VALUES (?, ?, ?)

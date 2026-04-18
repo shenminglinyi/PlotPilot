@@ -2,7 +2,7 @@
 import logging
 import json
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from domain.novel.entities.chapter import Chapter
 from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.novel_id import NovelId
@@ -36,7 +36,7 @@ class SqliteChapterRepository(ChapterRepository):
                 pacing_tension = excluded.pacing_tension,
                 updated_at = excluded.updated_at
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         chapter_id = chapter.id.value if hasattr(chapter.id, 'value') else chapter.id
         novel_id = chapter.novel_id.value if hasattr(chapter.novel_id, 'value') else chapter.novel_id
         status = chapter.status.value if hasattr(chapter.status, 'value') else chapter.status
@@ -46,7 +46,7 @@ class SqliteChapterRepository(ChapterRepository):
             chapter.number,
             chapter.title,
             chapter.content,
-            chapter.outline,  # 使用实体的 outline 字段
+            chapter.outline,  # 使用实体�?outline 字段
             status,
             chapter.tension_score,
             chapter.plot_tension,
@@ -79,7 +79,7 @@ class SqliteChapterRepository(ChapterRepository):
         return self._row_to_chapter(row)
 
     def list_by_novel(self, novel_id: NovelId) -> List[Chapter]:
-        """列出小说的所有章节"""
+        """列出小说的所有章�?""
         sql = "SELECT * FROM chapters WHERE novel_id = ? ORDER BY number ASC"
         rows = self.db.fetch_all(sql, (novel_id.value,))
 
@@ -88,12 +88,12 @@ class SqliteChapterRepository(ChapterRepository):
     def delete(self, chapter_id: ChapterId) -> None:
         """删除章节
         
-        需要先清理关联数据：
+        需要先清理关联数据�?
         - triples 表通过 (novel_id, chapter_number) 外键引用章节
-        - 由于 novel_id 是 NOT NULL，ON DELETE SET NULL 会失败
-        - 所以需要先将相关 triples 的 chapter_number 设为 NULL
+        - 由于 novel_id �?NOT NULL，ON DELETE SET NULL 会失�?
+        - 所以需要先将相�?triples �?chapter_number 设为 NULL
         """
-        # 1. 获取章节信息以确定 novel_id 和章节号
+        # 1. 获取章节信息以确�?novel_id 和章节号
         chapter = self.get_by_id(chapter_id)
         if not chapter:
             logger.warning(f"Chapter not found for deletion: {chapter_id.value}")
@@ -102,19 +102,19 @@ class SqliteChapterRepository(ChapterRepository):
         novel_id = chapter.novel_id.value if hasattr(chapter.novel_id, 'value') else chapter.novel_id
         chapter_number = chapter.number
         
-        # 2. 先处理 triples 表中引用此章节的记录（将 chapter_number 设为 NULL）
+        # 2. 先处�?triples 表中引用此章节的记录（将 chapter_number 设为 NULL�?
         # 注意：triples 表有 FOREIGN KEY (novel_id, chapter_number) REFERENCES chapters ON DELETE SET NULL
-        # 但 novel_id 是 NOT NULL，所以直接删除章节会导致约束失败
-        # 正确做法：先将 triples 中相关记录的 chapter_number 设为 NULL
+        # �?novel_id �?NOT NULL，所以直接删除章节会导致约束失败
+        # 正确做法：先�?triples 中相关记录的 chapter_number 设为 NULL
         update_triples_sql = """
             UPDATE triples 
             SET chapter_number = NULL, updated_at = ?
             WHERE novel_id = ? AND chapter_number = ?
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         self.db.execute(update_triples_sql, (now, novel_id, chapter_number))
         
-        # 3. 删除 triple_more_chapters 中关联此章节的记录
+        # 3. 删除 triple_more_chapters 中关联此章节的记�?
         delete_more_sql = """
             DELETE FROM triple_more_chapters 
             WHERE novel_id = ? AND chapter_number = ?
@@ -128,7 +128,7 @@ class SqliteChapterRepository(ChapterRepository):
         logger.info(f"Deleted chapter: {chapter_id.value}")
 
     def exists(self, chapter_id: ChapterId) -> bool:
-        """检查章节是否存在"""
+        """检查章节是否存�?""
         sql = "SELECT 1 FROM chapters WHERE id = ? LIMIT 1"
         row = self.db.fetch_one(sql, (chapter_id.value,))
         return row is not None
@@ -143,7 +143,7 @@ class SqliteChapterRepository(ChapterRepository):
             SET tension_score = ?, updated_at = ?
             WHERE novel_id = ? AND number = ?
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         self.db.execute(sql, (score, now, novel_id, chapter_number))
         self.db.get_connection().commit()
         logger.info(f"Updated tension score for novel {novel_id} chapter {chapter_number}: {score}")

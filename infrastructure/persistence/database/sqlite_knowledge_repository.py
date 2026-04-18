@@ -1,10 +1,10 @@
-"""SQLite Knowledge Repository — 三元组扩展字段用子表，库内不存 JSON 文本列。"""
+"""SQLite Knowledge Repository �?三元组扩展字段用子表，库内不�?JSON 文本列�?""
 from __future__ import annotations
 
 import logging
 import sqlite3
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from domain.novel.value_objects.novel_id import NovelId
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _dedupe_provenance_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """同一批内按 (triple_id, rule_id, story_node, element) 去重。"""
+    """同一批内�?(triple_id, rule_id, story_node, element) 去重�?""
     seen: set[Tuple[Any, ...]] = set()
     out: List[Dict[str, Any]] = []
     for r in rows:
@@ -35,7 +35,7 @@ def _dedupe_provenance_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 class SqliteKnowledgeRepository:
-    """知识图谱与章节摘要（关系化存储）。"""
+    """知识图谱与章节摘要（关系化存储）�?""
 
     def __init__(self, db: DatabaseConnection):
         self.db = db
@@ -48,7 +48,7 @@ class SqliteKnowledgeRepository:
                 premise_lock = excluded.premise_lock,
                 updated_at = excluded.updated_at
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         knowledge_id = f"{novel_id}-knowledge"
         self.db.execute(sql, (knowledge_id, novel_id, 1, premise_lock, now, now))
         self.db.get_connection().commit()
@@ -127,7 +127,7 @@ class SqliteKnowledgeRepository:
 
     @staticmethod
     def _delete_triples_for_merge(conn: sqlite3.Connection, novel_id: str, payload_ids: Set[str]) -> None:
-        """删除「可被合并覆盖」且不在 payload 中的三元组；保留推断/Bible/AI 来源。"""
+        """删除「可被合并覆盖」且不在 payload 中的三元组；保留推断/Bible/AI 来源�?""
         if payload_ids:
             placeholders = ",".join("?" * len(payload_ids))
             conn.execute(
@@ -205,7 +205,7 @@ class SqliteKnowledgeRepository:
     def get_triple_side_data_for_novel(self, novel_id: str) -> tuple[
         dict[str, list[int]], dict[str, list[str]], dict[str, dict[str, str]]
     ]:
-        """供 TripleRepository 等与 triples 子表对齐的读取。"""
+        """�?TripleRepository 等与 triples 子表对齐的读取�?""
         return self._load_triple_children(novel_id)
 
     def _build_facts_from_triple_rows(
@@ -259,7 +259,7 @@ class SqliteKnowledgeRepository:
 
         knowledge = self.db.fetch_one("SELECT * FROM knowledge WHERE novel_id = ?", (novel_id_str,))
         if not knowledge:
-            # 尚无 knowledge 行但已有 triples（如仅 Bible 地点同步写入）时仍返回事实，供 GET/可视化编辑
+            # 尚无 knowledge 行但已有 triples（如�?Bible 地点同步写入）时仍返回事实，�?GET/可视化编�?
             if not facts:
                 return None
             return StoryKnowledge(
@@ -446,7 +446,7 @@ class SqliteKnowledgeRepository:
         provenance_rows: Optional[List[Dict[str, Any]]] = None,
         provenance_mode: str = "skip",
     ) -> None:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         conn = self.db.get_connection()
         try:
             self._insert_triple_row(conn, novel_id, triple, now)
@@ -460,7 +460,7 @@ class SqliteKnowledgeRepository:
             raise
 
     def append_triple_provenance_only(self, novel_id: str, triple_id: str, rows: List[Dict[str, Any]]) -> None:
-        """仅追加溯源行（三元组行已存在）。"""
+        """仅追加溯源行（三元组行已存在）�?""
         if not rows:
             return
         conn = self.db.get_connection()
@@ -511,7 +511,7 @@ class SqliteKnowledgeRepository:
     def list_chapter_inference_evidence(
         self, novel_id: str, story_node_id: str
     ) -> List[Dict[str, Any]]:
-        """本章 story_node 参与推断的 chapter_inferred 三元组及本节点下的证据行。"""
+        """本章 story_node 参与推断�?chapter_inferred 三元组及本节点下的证据行�?""
         id_rows = self.db.fetch_all(
             """
             SELECT DISTINCT t.id FROM triples t
@@ -555,7 +555,7 @@ class SqliteKnowledgeRepository:
     def revoke_chapter_inference_for_story_node(
         self, novel_id: str, story_node_id: str
     ) -> Dict[str, int]:
-        """删除本章节节点下的溯源；若无剩余证据且为 chapter_inferred 则删除三元组。"""
+        """删除本章节节点下的溯源；若无剩余证据且为 chapter_inferred 则删除三元组�?""
         with self.db.transaction() as conn:
             cur = conn.execute(
                 """
@@ -590,7 +590,7 @@ class SqliteKnowledgeRepository:
         return {"removed_provenance_triples": len(affected), "deleted_inferred_facts": deleted_triples}
 
     def try_delete_chapter_inferred_triple(self, novel_id: str, triple_id: str) -> str:
-        """删除 chapter_inferred 三元组。返回 deleted | not_found | not_inferred。"""
+        """删除 chapter_inferred 三元组。返�?deleted | not_found | not_inferred�?""
         row = self.db.fetch_one(
             "SELECT id, source_type FROM triples WHERE id = ? AND novel_id = ?",
             (triple_id, novel_id),
@@ -645,7 +645,7 @@ class SqliteKnowledgeRepository:
                 summary = excluded.summary,
                 updated_at = excluded.updated_at
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         summary_id = f"{knowledge_id}-ch{chapter_number}"
         self.db.execute(sql, (summary_id, knowledge_id, chapter_number, summary, now, now))
         self.db.get_connection().commit()
@@ -653,7 +653,7 @@ class SqliteKnowledgeRepository:
     def save(self, knowledge: StoryKnowledge) -> None:
         novel_id = knowledge.novel_id
         knowledge_id = f"{novel_id}-knowledge"
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         with self.db.transaction() as conn:
             conn.execute(
@@ -712,7 +712,7 @@ class SqliteKnowledgeRepository:
     def save_all(self, novel_id: str, data: dict) -> None:
         logger.info("save_all called for %s, facts count: %s", novel_id, len(data.get("facts", [])))
         knowledge_id = f"{novel_id}-knowledge"
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         with self.db.transaction() as conn:
             conn.execute(
@@ -740,7 +740,7 @@ class SqliteKnowledgeRepository:
                 chapter_number = chapter.get("number") or chapter.get("chapter_id")
                 summary_id = f"{knowledge_id}-ch{chapter_number}"
                 
-                # 将节拍数据转换为JSON字符串
+                # 将节拍数据转换为JSON字符�?
                 import json
                 beat_sections_json = json.dumps(chapter.get("beat_sections", []), ensure_ascii=False)
                 micro_beats_json = json.dumps(chapter.get("micro_beats", []), ensure_ascii=False)

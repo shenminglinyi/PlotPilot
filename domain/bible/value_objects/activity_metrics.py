@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass
 class ActivityMetrics:
-    """角色活动度指标值对象
+    """角色活动度指标值对�?
 
-    跟踪角色在小说中的活跃程度，用于智能角色选择。
+    跟踪角色在小说中的活跃程度，用于智能角色选择�?
     """
 
     last_appearance_chapter: int = 0
@@ -16,27 +16,27 @@ class ActivityMetrics:
 
     def __post_init__(self):
         if self.last_updated is None:
-            self.last_updated = datetime.utcnow()
+            self.last_updated = datetime.now(timezone.utc)
 
     def update_activity(self, chapter_number: int, dialogue_count: int = 0) -> None:
         """更新活动指标
 
         Args:
-            chapter_number: 章节号
+            chapter_number: 章节�?
             dialogue_count: 对话数量（可选）
         """
         self.last_appearance_chapter = chapter_number
         self.appearance_count += 1
         self.total_dialogue_count += dialogue_count
-        self.last_updated = datetime.utcnow()
+        self.last_updated = datetime.now(timezone.utc)
 
     def is_active_since(self, chapter: int) -> bool:
-        """判断角色是否在指定章节之后活跃
+        """判断角色是否在指定章节之后活�?
 
         Args:
-            chapter: 章节号
+            chapter: 章节�?
 
         Returns:
-            bool: 如果角色在该章节或之后出现过，返回 True
+            bool: 如果角色在该章节或之后出现过，返�?True
         """
         return self.last_appearance_chapter >= chapter

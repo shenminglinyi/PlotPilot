@@ -1,7 +1,7 @@
-"""SQLite 情节弧仓储（一书多弧以 slug 区分；读写 API 默认 slug=default）。"""
+"""SQLite 情节弧仓储（一书多弧以 slug 区分；读�?API 默认 slug=default）�?""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from domain.novel.entities.plot_arc import PlotArc
@@ -22,7 +22,7 @@ class SqlitePlotArcRepository(PlotArcRepository):
         return self.db.get_connection()
 
     def _now(self) -> str:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
     def save(self, plot_arc: PlotArc) -> None:
         now = self._now()

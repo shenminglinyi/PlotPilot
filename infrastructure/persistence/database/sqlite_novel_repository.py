@@ -2,7 +2,7 @@
 import logging
 import json
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 from domain.novel.entities.novel import Novel, AutopilotStatus, NovelStage
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.repositories.novel_repository import NovelRepository
@@ -62,11 +62,11 @@ class SqliteNovelRepository(NovelRepository):
                 target_words_per_chapter = excluded.target_words_per_chapter,
                 updated_at = excluded.updated_at
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         novel_id = novel.novel_id.value if hasattr(novel, 'novel_id') else novel.id
         slug = novel_id
         premise = getattr(novel, 'premise', '')
-        author = getattr(novel, 'author', '未知作者')
+        author = getattr(novel, 'author', '未知作�?)
         _ap = getattr(novel, 'autopilot_status', 'stopped')
         autopilot_status = _ap.value if isinstance(_ap, AutopilotStatus) else _ap
         auto_approve_mode = 1 if getattr(novel, 'auto_approve_mode', False) else 0
@@ -152,13 +152,13 @@ class SqliteNovelRepository(NovelRepository):
         return self._row_to_novel(NovelId(row['id']), row)
 
     def list_all(self) -> List[Novel]:
-        """列出所有小说"""
+        """列出所有小�?""
         sql = "SELECT * FROM novels ORDER BY created_at DESC"
         rows = self.db.fetch_all(sql)
         return [self._row_to_novel(NovelId(row['id']), row) for row in rows]
 
     def find_by_autopilot_status(self, status: str) -> List[Novel]:
-        """根据自动驾驶状态查找小说列表"""
+        """根据自动驾驶状态查找小说列�?""
         sql = "SELECT * FROM novels WHERE autopilot_status = ? ORDER BY updated_at DESC"
         rows = self.db.fetch_all(sql, (status,))
         return [self._row_to_novel(NovelId(row['id']), row) for row in rows]
@@ -189,7 +189,7 @@ class SqliteNovelRepository(NovelRepository):
         return Novel(
             id=novel_id,
             title=row['title'],
-            author=row.get('author', '未知作者'),
+            author=row.get('author', '未知作�?),
             target_chapters=row.get('target_chapters', 0),
             premise=row.get('premise', ''),
             autopilot_status=autopilot_status,
@@ -223,7 +223,7 @@ class SqliteNovelRepository(NovelRepository):
         logger.info(f"Deleted novel: {novel_id.value}")
 
     def exists(self, novel_id: NovelId) -> bool:
-        """检查小说是否存在"""
+        """检查小说是否存�?""
         sql = "SELECT 1 FROM novels WHERE id = ? LIMIT 1"
         row = self.db.fetch_one(sql, (novel_id.value,))
         return row is not None

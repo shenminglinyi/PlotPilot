@@ -1,6 +1,6 @@
 """Chapter 应用服务"""
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.chapter_id import ChapterId
@@ -22,7 +22,7 @@ class ChapterService:
         novel_repository: NovelRepository,
         chapter_review_repository=None
     ):
-        """初始化服务
+        """初始化服�?
 
         Args:
             chapter_repository: Chapter 仓储
@@ -48,7 +48,7 @@ class ChapterService:
             更新后的 ChapterDTO
 
         Raises:
-            EntityNotFoundError: 如果章节不存在
+            EntityNotFoundError: 如果章节不存�?
         """
         chapter = self.chapter_repository.get_by_id(ChapterId(chapter_id))
         if chapter is None:
@@ -60,7 +60,7 @@ class ChapterService:
         return ChapterDTO.from_domain(chapter)
 
     def list_chapters_by_novel(self, novel_id: str) -> List[ChapterDTO]:
-        """列出小说的所有章节
+        """列出小说的所有章�?
 
         Args:
             novel_id: 小说 ID
@@ -78,7 +78,7 @@ class ChapterService:
             chapter_id: 章节 ID
 
         Returns:
-            ChapterDTO 或 None
+            ChapterDTO �?None
         """
         chapter = self.chapter_repository.get_by_id(ChapterId(chapter_id))
         if chapter is None:
@@ -102,10 +102,10 @@ class ChapterService:
 
         Args:
             novel_id: 小说 ID
-            chapter_number: 章节号
+            chapter_number: 章节�?
 
         Returns:
-            ChapterDTO 或 None
+            ChapterDTO �?None
         """
         chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
         for chapter in chapters:
@@ -123,14 +123,14 @@ class ChapterService:
 
         Args:
             novel_id: 小说 ID
-            chapter_number: 章节号
-            content: 新内容
+            chapter_number: 章节�?
+            content: 新内�?
 
         Returns:
-            更新后的 ChapterDTO 或 None
+            更新后的 ChapterDTO �?None
 
         Raises:
-            EntityNotFoundError: 如果章节不存在
+            EntityNotFoundError: 如果章节不存�?
         """
         chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
         for chapter in chapters:
@@ -149,27 +149,27 @@ class ChapterService:
 
         Args:
             novel_id: 小说 ID
-            chapter_number: 章节号
+            chapter_number: 章节�?
 
         Returns:
             ChapterReviewDTO
 
         Raises:
-            EntityNotFoundError: 如果章节不存在
+            EntityNotFoundError: 如果章节不存�?
         """
         # 验证章节存在
         chapter = self._get_chapter_by_novel_and_number(novel_id, chapter_number)
         if chapter is None:
             raise EntityNotFoundError("Chapter", f"{novel_id}/chapter-{chapter_number}")
 
-        # 使用数据库 repository
+        # 使用数据�?repository
         if self.chapter_review_repository:
             review = self.chapter_review_repository.get(novel_id, chapter_number)
             if review:
                 return review
 
         # 返回默认审阅
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return ChapterReviewDTO(
             status="draft",
             memo="",
@@ -188,29 +188,29 @@ class ChapterService:
 
         Args:
             novel_id: 小说 ID
-            chapter_number: 章节号
-            status: 审阅状态
+            chapter_number: 章节�?
+            status: 审阅状�?
             memo: 审阅备注
 
         Returns:
             ChapterReviewDTO
 
         Raises:
-            EntityNotFoundError: 如果章节不存在
+            EntityNotFoundError: 如果章节不存�?
         """
         # 验证章节存在
         chapter = self._get_chapter_by_novel_and_number(novel_id, chapter_number)
         if chapter is None:
             raise EntityNotFoundError("Chapter", f"{novel_id}/chapter-{chapter_number}")
 
-        # 使用数据库 repository
+        # 使用数据�?repository
         if self.chapter_review_repository:
             return self.chapter_review_repository.upsert(
                 novel_id, chapter_number, status=status, memo=memo
             )
 
         # 降级：返回临时对象（不应该到达这里）
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return ChapterReviewDTO(
             status=status,
             memo=memo,
@@ -227,13 +227,13 @@ class ChapterService:
 
         Args:
             novel_id: 小说 ID
-            chapter_number: 章节号
+            chapter_number: 章节�?
 
         Returns:
             ChapterStructureDTO
 
         Raises:
-            EntityNotFoundError: 如果章节不存在
+            EntityNotFoundError: 如果章节不存�?
         """
         chapter = self._get_chapter_by_novel_and_number(novel_id, chapter_number)
         if chapter is None:
@@ -251,7 +251,7 @@ class ChapterService:
                 pacing="medium"
             )
 
-        # 计算字数（中文字符 + 英文单词）
+        # 计算字数（中文字�?+ 英文单词�?
         chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', content))
         english_words = len(re.findall(r'\b[a-zA-Z]+\b', content))
         word_count = chinese_chars + english_words
@@ -266,7 +266,7 @@ class ChapterService:
             dialogue_chars += len(match.group(1))
         dialogue_ratio = dialogue_chars / word_count if word_count > 0 else 0.0
 
-        # 计算场景数（通过分隔符或空行判断）
+        # 计算场景数（通过分隔符或空行判断�?
         scene_count = len(re.findall(r'---+|\n\n\n+', content)) + 1
 
         # 判断节奏（基于平均段落长度）
@@ -292,12 +292,12 @@ class ChapterService:
         chapter_number: int,
         title: str = ""
     ) -> ChapterDTO:
-        """确保章节在正文库中存在；不存在则创建空白记录（不校验章节号连续性）。
+        """确保章节在正文库中存在；不存在则创建空白记录（不校验章节号连续性）�?
 
         Args:
             novel_id: 小说 ID
-            chapter_number: 章节号
-            title: 章节标题（可选，默认为 "第N章"）
+            chapter_number: 章节�?
+            title: 章节标题（可选，默认�?"第N�?�?
 
         Returns:
             ChapterDTO
@@ -306,7 +306,7 @@ class ChapterService:
         if existing:
             return existing
 
-        chapter_title = title.strip() if title and title.strip() else f"第{chapter_number}章"
+        chapter_title = title.strip() if title and title.strip() else f"第{chapter_number}�?
         chapter_id = f"chapter-{novel_id}-{chapter_number}"
         chapter = Chapter(
             id=chapter_id,
@@ -328,10 +328,10 @@ class ChapterService:
 
         Args:
             novel_id: 小说 ID
-            chapter_number: 章节号
+            chapter_number: 章节�?
 
         Returns:
-            Chapter 实体或 None
+            Chapter 实体�?None
         """
         chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
         for chapter in chapters:

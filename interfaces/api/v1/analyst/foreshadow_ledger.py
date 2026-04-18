@@ -1,8 +1,8 @@
-"""伏笔手账本 API：主角/读者当下的疑问，本阶段兑现即可（不必写长文）。"""
+"""伏笔手账�?API：主�?读者当下的疑问，本阶段兑现即可（不必写长文）�?""
 from fastapi import APIRouter, Depends, HTTPException, Path
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import replace
 
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
@@ -117,7 +117,7 @@ def list_subtext_entries(
                     question=f.description,
                     status=entry_status,
                     consumed_at_chapter=f.resolved_in_chapter,
-                    created_at=datetime.utcnow().isoformat(),
+                    created_at=datetime.now(timezone.utc).isoformat(),
                 )
             )
 

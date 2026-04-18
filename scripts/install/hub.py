@@ -58,6 +58,8 @@ if _INSTALL_DIR not in _sys_path_set:
 # 第一层防御：import 阶段的异常兜底
 # ══════════════════════════════════════════════
 _import_errors = []
+import importlib
+
 _base_modules = {
     "time": "time", "threading": "threading",
     "subprocess": "subprocess", "socket": "socket",
@@ -66,7 +68,7 @@ _base_modules = {
 }
 for _mod_name, _var_name in list(_base_modules.items()):
     try:
-        exec(f"import {_mod_name}")
+        importlib.import_module(_mod_name)
     except Exception as e:
         _import_errors.append(f"导入 {_mod_name} 失败: {e}")
 

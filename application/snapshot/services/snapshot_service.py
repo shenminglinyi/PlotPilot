@@ -1,15 +1,15 @@
 """语义化快照服务（Git-like，轻量指针）
 
-核心设计：
-1. 只存章节 ID 指针，不深拷贝正文
-2. 快照 Bible/Foreshadow/Graph 状态
-3. 支持回滚和分支
+核心设计�?
+1. 只存章节 ID 指针，不深拷贝正�?
+2. 快照 Bible/Foreshadow/Graph 状�?
+3. 支持回滚和分�?
 """
 import json
 import uuid
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,10 @@ class SnapshotService:
         chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
         chapter_pointers = [c.id for c in chapters if c.status.value == "completed"]
 
-        # 2. 序列化 Bible 状态（简化版：只记录存在性）
-        bible_state = {"exists": True, "timestamp": datetime.utcnow().isoformat()}
+        # 2. 序列�?Bible 状态（简化版：只记录存在性）
+        bible_state = {"exists": True, "timestamp": datetime.now(timezone.utc).isoformat()}
 
-        # 3. 序列化伏笔状态
+        # 3. 序列化伏笔状�?
         foreshadow_state = {}
         if self.foreshadowing_repo:
             try:
@@ -77,7 +77,7 @@ class SnapshotService:
             json.dumps(chapter_pointers),
             json.dumps(bible_state),
             json.dumps(foreshadow_state),
-            datetime.utcnow().isoformat()
+            datetime.now(timezone.utc).isoformat()
         ))
         self.db.get_connection().commit()
 
@@ -85,7 +85,7 @@ class SnapshotService:
         return snapshot_id
 
     def list_snapshots(self, novel_id: str) -> List[Dict[str, Any]]:
-        """列出所有快照"""
+        """列出所有快�?""
         sql = """
             SELECT id, name, trigger_type, branch_name, created_at, description
             FROM novel_snapshots
@@ -96,7 +96,7 @@ class SnapshotService:
         return [dict(row) for row in rows]
 
     def list_snapshots_with_pointers(self, novel_id: str) -> List[Dict[str, Any]]:
-        """编年史 BFF：含 chapter_pointers，按创建时间升序（叙事轴从下往上可读）。"""
+        """编年�?BFF：含 chapter_pointers，按创建时间升序（叙事轴从下往上可读）�?""
         sql = """
             SELECT id, name, trigger_type, branch_name, created_at, description, chapter_pointers
             FROM novel_snapshots
@@ -129,7 +129,7 @@ class SnapshotService:
         return snapshot
 
     def rollback_to_snapshot(self, novel_id: str, snapshot_id: str) -> Dict[str, Any]:
-        """回滚到快照：删除当前作品中不在快照 chapter_pointers 内的章节行。
+        """回滚到快照：删除当前作品中不在快�?chapter_pointers 内的章节行�?
 
         Returns:
             { "deleted_chapter_ids": [...], "deleted_count": int }
@@ -151,7 +151,7 @@ class SnapshotService:
 
         if not valid_chapter_ids and all_chapters:
             raise ValueError(
-                "该快照未记录任何章节指针，为避免误删全书正文已中止回滚"
+                "该快照未记录任何章节指针，为避免误删全书正文已中止回�?
             )
 
         deleted_ids: List[str] = []
@@ -167,7 +167,7 @@ class SnapshotService:
                 deleted_ids.append(cid)
 
         logger.info(
-            "[Snapshot] 回滚完成：%s，删除 %s 章",
+            "[Snapshot] 回滚完成�?s，删�?%s �?,
             snapshot.get("name"),
             len(deleted_ids),
         )
@@ -180,12 +180,12 @@ class SnapshotService:
         branch_name: str,
         description: Optional[str] = None
     ) -> str:
-        """从快照创建分支"""
+        """从快照创建分�?""
         snapshot = self.get_snapshot(snapshot_id)
         if not snapshot:
             raise ValueError(f"快照不存在：{snapshot_id}")
 
-        # 创建新快照作为分支起点
+        # 创建新快照作为分支起�?
         new_snapshot_id = self.create_snapshot(
             novel_id=novel_id,
             trigger_type="MANUAL",
