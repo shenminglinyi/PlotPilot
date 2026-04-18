@@ -547,6 +547,7 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     s.current_stage ?? '',
     s.current_act ?? 0,
     s.current_chapter_in_act ?? 0,
+    s.current_chapter_number ?? '',
     s.current_beat_index ?? 0,
     s.needs_review === true ? '1' : '0',
   ].join('|')

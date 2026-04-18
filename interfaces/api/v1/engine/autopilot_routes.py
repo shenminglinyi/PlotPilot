@@ -26,6 +26,26 @@ from application.engine.services.autopilot_log_ring import (
 logger = logging.getLogger(__name__)
 
 
+def _chapter_status_str(c) -> str:
+    return c.status.value if hasattr(c.status, "value") else c.status
+
+
+def resolve_autopilot_current_chapter_number(chapters) -> Optional[int]:
+    """与 SSE 日志、进度条一致：有 draft 取最大 draft 章号；否则取最大 completed+1（预测下一章）。"""
+    if not chapters:
+        return None
+    try:
+        drafts = [c for c in chapters if _chapter_status_str(c) == "draft"]
+        if drafts:
+            return max(int(c.number) for c in drafts)
+        completed = [c for c in chapters if _chapter_status_str(c) == "completed"]
+        if completed:
+            return max(int(c.number) for c in completed) + 1
+    except Exception:
+        return None
+    return None
+
+
 def _has_chapter_nodes_under_current_act(novel_id: str, current_act_zero_based: int) -> bool:
     """当前幕（0-based）下是否已有章节结构节点。有则确认审阅后应直接 WRITING，避免再次跑幕级规划并重复弹确认。"""
     repo = StoryNodeRepository(get_db_path())
@@ -175,6 +195,7 @@ async def get_autopilot_status(novel_id: str):
     _status = lambda c: c.status.value if hasattr(c.status, 'value') else c.status
     completed = [c for c in chapters if _status(c) == "completed"]
     in_manuscript = [c for c in chapters if _status(c) in ("draft", "completed")]
+    current_chapter_number = resolve_autopilot_current_chapter_number(chapters)
     target = novel.target_chapters or 1
     twpc = getattr(novel, "target_words_per_chapter", None) or 2500
 
@@ -214,6 +235,8 @@ async def get_autopilot_status(novel_id: str):
         "progress_pct": round(len(completed) / target * 100, 1) if target else 0,
         "manuscript_chapters": len(in_manuscript),
         "progress_pct_manuscript": round(len(in_manuscript) / target * 100, 1) if target else 0,
+        # 与 /autopilot/{id}/stream 中 chapter_label、progress 元数据同源，便于驾驶舱与实时日志对齐
+        "current_chapter_number": current_chapter_number,
         "needs_review": novel.current_stage.value == "paused_for_review",
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
@@ -281,25 +304,6 @@ async def autopilot_log_stream(
 
     async def event_generator():
         install_autopilot_log_ring_handler()
-        def _resolve_current_chapter_number(novel) -> Optional[int]:
-            """
-            日志流事件补齐“当前章节号”。
-            由于 Novel 表仅存 current_act/current_chapter_in_act（非全书章号），这里从章节表推断：
-            - 若有 draft 章：取最大 draft 章号（通常就是正在生成的那章，节拍级增量落库）
-            - 否则：取最大 completed 章号 + 1（作为“即将写入”的预测章号）
-            """
-            try:
-                chapters = chapter_repo.list_by_novel(NovelId(novel_id))
-                _st = lambda c: c.status.value if hasattr(c.status, "value") else c.status
-                drafts = [c for c in chapters if _st(c) == "draft"]
-                if drafts:
-                    return max(int(c.number) for c in drafts)
-                completed = [c for c in chapters if _st(c) == "completed"]
-                if completed:
-                    return max(int(c.number) for c in completed) + 1
-            except Exception:
-                return None
-            return None
 
         # 发送初始连接事件（前端可不写入时间线；metadata 用于工具栏「当前阶段」标签）
         novel_boot = novel_repo.get_by_id(NovelId(novel_id))
@@ -358,6 +362,10 @@ async def autopilot_log_stream(
                 if not novel:
                     break
 
+                chapters_snapshot = chapter_repo.list_by_novel(NovelId(novel_id))
+                current_chapter_number = resolve_autopilot_current_chapter_number(chapters_snapshot)
+                chapter_label = f"第 {current_chapter_number} 章 · " if current_chapter_number else ""
+
                 file_lines, file_cursor = read_incremental_log_file_lines(
                     log_file_path, novel_id, file_cursor
                 )
@@ -391,9 +399,8 @@ async def autopilot_log_stream(
                     last_seq_cursor = max(last_seq_cursor, e.seq)
 
                 current_stage = novel.current_stage.value
-                current_beat = getattr(novel, "current_beat_index", 0)
-                current_chapter_number = _resolve_current_chapter_number(novel)
-                chapter_label = f"第 {current_chapter_number} 章 · " if current_chapter_number else ""
+                current_beat = getattr(novel, "current_beat_index", 0) or 0
+                # current_beat 为守护进程 0-based「下一节拍索引」；面向用户统一用 1-based 展示
 
                 # 检测阶段变更（去抖后推送）
                 if first_stage_poll:
@@ -430,12 +437,15 @@ async def autopilot_log_stream(
                 # 检测 beat 变更（表示上一个 beat 完成）
                 act_display = (novel.current_act or 0) + 1
                 if last_beat is not None and current_beat > last_beat:
+                    done_1based = int(last_beat) + 1
+                    next_1based = int(current_beat) + 1
                     event = {
                         "type": "beat_complete",
-                        "message": f"{chapter_label}第 {act_display} 幕 · 节拍 {last_beat} 已生成完毕",
+                        "message": f"{chapter_label}第 {act_display} 幕 · 节拍 {done_1based} 已生成完毕",
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
                             "beat_index": last_beat,
+                            "beat_index_1based": done_1based,
                             "act": novel.current_act,
                             "act_display": act_display,
                             "chapter_number": current_chapter_number,
@@ -446,10 +456,11 @@ async def autopilot_log_stream(
                     # 新 beat 开始
                     event = {
                         "type": "beat_start",
-                        "message": f"{chapter_label}第 {act_display} 幕 · 正在生成节拍 {current_beat}",
+                        "message": f"{chapter_label}第 {act_display} 幕 · 正在生成节拍 {next_1based}",
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
                             "beat_index": current_beat,
+                            "beat_index_1based": next_1based,
                             "act": novel.current_act,
                             "act_display": act_display,
                             "chapter_number": current_chapter_number,
@@ -504,34 +515,26 @@ async def autopilot_log_stream(
 
                 # 运行中：定期推送进度快照（仅用于前端进度条，不写时间线刷屏）
                 if novel.autopilot_status.value == AutopilotStatus.RUNNING.value:
-                    chapters = chapter_repo.list_by_novel(NovelId(novel_id))
-                    _st = lambda c: c.status.value if hasattr(c.status, "value") else c.status
-                    completed = [c for c in chapters if _st(c) == "completed"]
-                    drafts = [c for c in chapters if _st(c) == "draft"]
+                    _st = _chapter_status_str
+                    completed = [c for c in chapters_snapshot if _st(c) == "completed"]
+                    drafts = [c for c in chapters_snapshot if _st(c) == "draft"]
                     n_done = len(completed)
                     tgt = novel.target_chapters or 1
                     pct = round(n_done / tgt * 100, 1) if tgt else 0.0
                     total_words = sum(
                         c.word_count.value if hasattr(c.word_count, "value") else c.word_count
-                        for c in chapters
+                        for c in chapters_snapshot
                         if c.word_count
                     )
                     stage_zh = _stage_name_zh(current_stage)
                     act_display = (novel.current_act or 0) + 1
                     tw = int(total_words) if total_words else 0
-                    current_chapter_number = None
-                    try:
-                        if drafts:
-                            current_chapter_number = max(int(c.number) for c in drafts)
-                        elif completed:
-                            current_chapter_number = max(int(c.number) for c in completed) + 1
-                    except Exception:
-                        current_chapter_number = None
+                    beat_1based = int(current_beat) + 1
                     progress_event = {
                         "type": "progress",
                         "message": (
                             f"全书 {n_done}/{tgt} 章 · 约 {tw} 字 · "
-                            f"第 {act_display} 幕 · 节拍 {current_beat} · {stage_zh}"
+                            f"第 {act_display} 幕 · 节拍 {beat_1based} · {stage_zh}"
                         ),
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
@@ -542,6 +545,7 @@ async def autopilot_log_stream(
                             "current_act": novel.current_act,
                             "act_display": act_display,
                             "current_beat_index": current_beat,
+                            "current_beat_index_1based": beat_1based,
                             "stage": current_stage,
                             "stage_label": stage_zh,
                             "chapter_number": current_chapter_number,
@@ -704,12 +708,14 @@ async def autopilot_events(novel_id: str):
                 completed = [c for c in chapters if _st(c) == "completed"]
                 in_manuscript = [c for c in chapters if _st(c) in ("draft", "completed")]
                 tgt = novel.target_chapters or 1
+                current_chapter_number_ev = resolve_autopilot_current_chapter_number(chapters)
 
                 data = {
                     "autopilot_status": novel.autopilot_status.value,
                     "current_stage": novel.current_stage.value,
                     "current_act": novel.current_act,
                     "current_beat_index": getattr(novel, "current_beat_index", 0),
+                    "current_chapter_number": current_chapter_number_ev,
                     "completed_chapters": len(completed),
                     "manuscript_chapters": len(in_manuscript),
                     "progress_pct": round(len(completed) / tgt * 100, 1) if tgt else 0,
