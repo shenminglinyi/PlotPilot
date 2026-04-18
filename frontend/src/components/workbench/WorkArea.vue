@@ -1,8 +1,36 @@
 <template>
   <div class="work-area">
     <header class="work-header">
-      <div class="work-title-wrap">
-        <h2 class="work-title">{{ bookTitle || slug }}</h2>
+      <div class="work-title-area">
+        <div class="work-title-wrap">
+          <n-input
+            v-if="isEditingTitle"
+            v-model:value="editingTitle"
+            ref="titleInputRef"
+            class="work-title-input"
+            size="large"
+            @keyup.enter="confirmEditTitle"
+            @blur="cancelEditTitle"
+            @keyup.esc="cancelEditTitle"
+          />
+          <template v-else>
+            <n-tooltip trigger="hover">
+              <template #trigger>
+                <div class="work-title-edit-wrap" @click="startEditTitle">
+                  <n-button tertiary size="small" type="primary" @click.stop="startEditTitle">
+                    <template #icon>
+                      <n-icon :component="BrushSharp" />
+                    </template>
+                  </n-button>
+                  <h2 class="work-title">
+                    {{ bookTitle || slug }}
+                  </h2>
+                </div>
+              </template>
+              点击编辑，回车可以更新
+            </n-tooltip>
+          </template>
+        </div>
         <n-text depth="3" class="work-sub">{{ slug }}</n-text>
       </div>
       <div class="work-mode-switch" role="group" aria-label="创作模式">
@@ -42,6 +70,9 @@
                     </n-tag>
                   </div>
                   <n-space :size="8">
+                    <n-button size="small" @click="openReadingMode" :disabled="!currentChapter">
+                      📖 阅读
+                    </n-button>
                     <n-button size="small" @click="handleReload" :disabled="loading">
                       重新加载
                     </n-button>
@@ -449,12 +480,23 @@
       </template>
     </n-modal>
 
+    <!-- 看书模式 -->
+    <ReadingMode
+      v-model:show="showReadingModal"
+      :chapter-title="currentChapter ? (currentChapter.title || `第${currentChapter.number}章`) : ''"
+      :content="chapterContent"
+      :chapters="chapters"
+      :current-chapter-number="currentChapter?.number ?? 0"
+      @chapter-change="handleChapterChange"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
-import { useMessage } from 'naive-ui'
+import { ref, watch, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { useMessage, NIcon } from 'naive-ui'
+import { BrushSharp } from '@vicons/ionicons5'
 import {
   consumeGenerateChapterStream,
   analyzeScene,
@@ -469,6 +511,7 @@ import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
+import ReadingMode from './ReadingMode.vue'
 
 interface Chapter {
   id: number
@@ -485,6 +528,7 @@ interface WorkAreaProps {
   currentChapterId?: number | null
   chapterContent?: string
   chapterLoading?: boolean
+  updateBookTitle?: (newTitle: string) => Promise<void>
 }
 
 const props = withDefaults(defineProps<WorkAreaProps>(), {
@@ -498,9 +542,47 @@ const emit = defineEmits<{
   setRightPanel: [panel: string]
   startWrite: []
   chapterUpdated: []
+  selectChapter: [chapterId: number]
 }>()
 
 const message = useMessage()
+
+const isEditingTitle = ref(false)
+const editingTitle = ref('')
+const titleInputRef = ref<HTMLElement | null>(null)
+
+const startEditTitle = () => {
+  isEditingTitle.value = true
+  editingTitle.value = props.bookTitle || props.slug
+  nextTick(() => {
+    const inputEl = titleInputRef.value?.querySelector?.('input') as HTMLInputElement | null
+    const input = inputEl || titleInputRef.value as HTMLInputElement | null
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
+}
+
+const confirmEditTitle = async () => {
+  if (!isEditingTitle.value) return
+  const newTitle = editingTitle.value.trim()
+  if (!newTitle) {
+    cancelEditTitle()
+    return
+  }
+  if (newTitle !== (props.bookTitle || props.slug)) {
+    if (props.updateBookTitle) {
+      await props.updateBookTitle(newTitle)
+    }
+  }
+  isEditingTitle.value = false
+}
+
+const cancelEditTitle = () => {
+  isEditingTitle.value = false
+  editingTitle.value = ''
+}
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
 const workMode = ref<'assisted' | 'managed'>('managed')
@@ -700,6 +782,18 @@ const showTensionModal = ref(false)
 const tensionLoading = ref(false)
 const tensionStuckReason = ref('')
 const tensionResult = ref<TensionDiagnosis | null>(null)
+const showReadingModal = ref(false)
+
+const openReadingMode = () => {
+  showReadingModal.value = true
+}
+
+const handleChapterChange = async (chapterNumber: number) => {
+  const targetChapter = props.chapters.find(ch => ch.number === chapterNumber)
+  if (targetChapter) {
+    emit('selectChapter', targetChapter.id)
+  }
+}
 
 const openTensionModal = () => {
   tensionResult.value = null
@@ -1134,16 +1228,62 @@ defineExpose({ ensureAssistedMode })
   border-bottom: 1px solid var(--aitext-split-border);
 }
 
-.work-title-wrap {
+.work-title-area {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.work-title-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.work-title-edit-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.work-title-edit-wrap:hover .work-title {
+  opacity: 0.8;
 }
 
 .work-title {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+}
+
+.title-edit-icon {
+  font-size: 16px;
+  color: var(--text-color-3);
+  cursor: pointer;
+  transition: color 0.2s;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.title-edit-icon:hover {
+  color: var(--primary-color);
+}
+
+.work-title-input {
+  max-width: 400px;
+}
+
+.work-title-input :deep(.n-input__wrapper) {
+  padding: 4px 8px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.work-title-input :deep(.n-input__state-border) {
+  display: none;
 }
 
 .work-sub {

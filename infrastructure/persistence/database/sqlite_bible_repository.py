@@ -79,7 +79,7 @@ class SqliteBibleRepository(BibleRepository):
                         description = rel.get("description", "") or ""
                     conn.execute(
                         """
-                        INSERT INTO bible_character_relationships
+                        INSERT OR REPLACE INTO bible_character_relationships
                         (id, character_id, target_name, relation, description)
                         VALUES (?, ?, ?, ?, ?)
                         """,
@@ -89,7 +89,7 @@ class SqliteBibleRepository(BibleRepository):
             for ws in bible.world_settings:
                 conn.execute(
                     """
-                    INSERT INTO bible_world_settings
+                    INSERT OR REPLACE INTO bible_world_settings
                     (id, novel_id, name, description, setting_type, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -126,7 +126,7 @@ class SqliteBibleRepository(BibleRepository):
             for order, note in enumerate(bible.timeline_notes):
                 conn.execute(
                     """
-                    INSERT INTO bible_timeline_notes
+                    INSERT OR REPLACE INTO bible_timeline_notes
                     (id, novel_id, event, time_point, description, sort_order, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -145,7 +145,7 @@ class SqliteBibleRepository(BibleRepository):
             for sn in bible.style_notes:
                 conn.execute(
                     """
-                    INSERT INTO bible_style_notes
+                    INSERT OR REPLACE INTO bible_style_notes
                     (id, novel_id, category, content, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,

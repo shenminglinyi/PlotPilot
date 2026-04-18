@@ -72,6 +72,8 @@ Desktop.ini
 
 # ── 本地向量 DB / 开发 dump ──
 qdrant_storage/
+qdrant/
+.qdrant-initialized
 
 # ── 本地模型文件（~2GB，按需下载） ──
 .models/

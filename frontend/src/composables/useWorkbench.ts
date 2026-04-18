@@ -174,6 +174,17 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     // Current architecture uses delegation pattern
   }
 
+  const updateBookTitle = async (newTitle: string) => {
+    try {
+      await novelApi.updateNovel(slug, { title: newTitle })
+      bookTitle.value = newTitle
+      message.success('书名更新成功')
+    } catch (error) {
+      const detail = formatApiErrorDetail(error)
+      message.error(detail ? `更新失败：${detail}` : '更新失败，请稍后重试')
+    }
+  }
+
   return {
     // State
     bookTitle,
@@ -193,5 +204,6 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     handleChapterSelect,
     goHome,
     goToChapter,
+    updateBookTitle,
   }
 }

@@ -167,20 +167,29 @@ watch(activeTab, (tab) => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-tabs :deep(.n-tabs-content-wrapper) {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-tabs :deep(.n-tabs-pane-wrapper) {
-  height: 100%;
-  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-tabs :deep(.n-tab-pane) {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 </style>

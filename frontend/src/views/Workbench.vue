@@ -29,8 +29,10 @@
                   :current-chapter-id="currentChapterId"
                   :chapter-content="chapterContent"
                   :chapter-loading="chapterLoading"
+                  :update-book-title="updateBookTitle"
                   @set-right-panel="setRightPanel"
                   @chapter-updated="handleChapterUpdated"
+                  @select-chapter="onSidebarChapterSelect"
                 />
               </template>
 
@@ -127,6 +129,7 @@ const {
   goHome,
   goToChapter,
   handleChapterSelect,
+  updateBookTitle,
 } = useWorkbench({ slug })
 
 const currentChapter = computed(() => {

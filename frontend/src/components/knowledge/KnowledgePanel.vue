@@ -836,14 +836,31 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .kp-subtabs :deep(.n-tabs-nav) {
   padding: 0 2px 6px;
+  flex-shrink: 0;
+}
+
+.kp-subtabs :deep(.n-tabs-content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kp-subtabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  min-height: 0;
 }
 
 .kp-subtabs :deep(.n-tab-pane) {
   padding-top: 6px;
+  padding-bottom: 20px;
+  height: auto;
 }
 
 .kp-section {
@@ -1117,6 +1134,14 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.kp-narrative-container > :deep(.kp-subtabs) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .kp-search-input {
