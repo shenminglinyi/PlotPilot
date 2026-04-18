@@ -264,22 +264,19 @@ class AutopilotDaemon:
         result = await self.planning_service.generate_macro_plan(
             novel_id=novel.novel_id.value,
             target_chapters=target_chapters,
-            structure_preference=None  # 极速模式：AI 自主决定最优结构
+            structure_preference=None,
         )
 
         if not self._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 宏观规划 LLM 返回后检测到停止，不再落库")
             return
 
-        struct = result.get("structure") if isinstance(result, dict) else None
-        # 注意：structure 为 [] 时不能写 `if result.get("structure")`，否则会被当成失败分支且不落库
-        if result.get("success") and isinstance(struct, list) and len(struct) > 0:
-            await self._confirm_macro_structure(novel, struct)
-        else:
-            logger.warning(
-                f"[{novel.novel_id}] 宏观规划未返回有效结构（success={result.get('success')!r}），使用最小占位结构"
-            )
-            await self._create_minimal_structure(novel)
+        await self.planning_service.apply_macro_plan_from_llm_result(
+            result,
+            novel_id=novel.novel_id.value,
+            target_chapters=target_chapters,
+            minimal_fallback_on_empty=True,
+        )
 
         # ⏸ 幕级大纲已就绪，进入人工审阅点（先落库再记日志，防止未保存导致下轮仍跑宏观规划）
         # 全自动模式：跳过审阅，直接进入幕级规划
@@ -291,54 +288,6 @@ class AutopilotDaemon:
             novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
             self._flush_novel(novel)
             logger.info(f"[{novel.novel_id}] 宏观规划完成，进入审阅等待")
-
-    async def _confirm_macro_structure(self, novel: Novel, structure: list):
-        """落库宏观结构；安全合并失败时回退为一次性写入（新书通常为无冲突）。"""
-        novel_id = novel.novel_id.value
-        try:
-            await self.planning_service.confirm_macro_plan_safe(
-                novel_id=novel_id,
-                structure=structure
-            )
-        except Exception as e:
-            logger.warning(f"[{novel_id}] confirm_macro_plan_safe 失败，回退 confirm_macro_plan：{e}")
-            await self.planning_service.confirm_macro_plan(
-                novel_id=novel_id,
-                structure=structure
-            )
-
-    async def _create_minimal_structure(self, novel: Novel):
-        """LLM 无输出或解析为空时，落库最小部-卷-幕树，避免审阅点侧栏仍为空。"""
-        novel_id = novel.novel_id.value
-        target = novel.target_chapters or 30
-        per_act = max(target // 3, 5)
-        structure = [{
-            "title": "第一部",
-            "description": "全托管自动生成的占位结构（可在审阅后于结构树中调整）",
-            "volumes": [{
-                "title": "第一卷",
-                "description": "",
-                "acts": [
-                    {
-                        "title": "第一幕 · 开端",
-                        "description": "故事建立与主线引出",
-                        "suggested_chapter_count": per_act,
-                    },
-                    {
-                        "title": "第二幕 · 发展",
-                        "description": "冲突升级与转折",
-                        "suggested_chapter_count": per_act,
-                    },
-                    {
-                        "title": "第三幕 · 高潮与收尾",
-                        "description": "决战与结局",
-                        "suggested_chapter_count": per_act,
-                    },
-                ],
-            }],
-        }]
-        logger.warning(f"[{novel.novel_id}] 使用最小占位宏观结构（{len(structure[0]['volumes'][0]['acts'])} 幕）")
-        await self._confirm_macro_structure(novel, structure)
 
     def _fallback_act_chapters_plan(self, act_node, count: int) -> List[Dict[str, Any]]:
         """LLM 幕级规划失败或 chapters 为空时，生成可落库的占位章节（避免抛错导致连续失败计数）。"""
