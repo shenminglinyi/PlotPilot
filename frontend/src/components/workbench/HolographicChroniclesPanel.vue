@@ -271,6 +271,17 @@ watch(chroniclesTick, () => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 双螺旋随章数变长时不人为限高；在标签页可视区内滚动 */
+.hc-spin :deep(.n-spin-content) {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .hc-view-embed {
@@ -297,8 +308,6 @@ watch(chroniclesTick, () => {
 
 .helix-wrap {
   position: relative;
-  max-height: min(54vh, 500px);
-  overflow-y: auto;
   padding: 12px 8px 16px;
   border: 1px solid var(--n-border-color);
   border-radius: 12px;
