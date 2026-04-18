@@ -75,19 +75,32 @@
         />
       </div>
 
-      <!-- Stage Distribution -->
-      <div v-if="globalStats?.books_by_stage" class="stage-distribution">
+      <!-- 各阶段书籍：始终占位，避免异步出现后挤压下方快捷操作 / 弹层触发区 -->
+      <div class="stage-distribution">
         <h3 class="stage-title">各阶段书籍</h3>
-        <div class="stage-list">
+        <div v-if="loading" class="stage-list" aria-hidden="true">
+          <div v-for="n in 4" :key="n" class="stage-item stage-item--skeleton">
+            <span class="stage-dot stage-dot--placeholder" />
+            <n-skeleton style="flex: 1; max-width: 68%" :height="14" round />
+            <n-skeleton :width="40" :height="22" round />
+          </div>
+        </div>
+        <div
+          v-else-if="globalStats?.books_by_stage && Object.keys(globalStats.books_by_stage).length > 0"
+          class="stage-list"
+        >
           <div
             v-for="(count, stage) in globalStats.books_by_stage"
             :key="stage"
             class="stage-item"
           >
-            <span class="stage-dot" :class="`stage-${stage}`"></span>
+            <span class="stage-dot" :class="`stage-${stage}`" />
             <span class="stage-name">{{ getStageLabel(stage as string) }}</span>
             <span class="stage-count">{{ count }}</span>
           </div>
+        </div>
+        <div v-else class="stage-list stage-empty">
+          <span class="stage-empty-hint">暂无分阶段统计</span>
         </div>
       </div>
     </section>
@@ -155,6 +168,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
+import { NSkeleton } from 'naive-ui'
 import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
@@ -472,12 +486,34 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   margin-bottom: 14px;
 }
 
-/* Stage Distribution */
+/* Stage Distribution（固定占位高度，避免布局抖动） */
 .stage-distribution {
   background: var(--app-surface);
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  min-height: 168px;
+  box-sizing: border-box;
+}
+
+.stage-item--skeleton {
+  padding: 6px 0;
+}
+
+.stage-dot--placeholder {
+  background: var(--app-border, rgba(148, 163, 184, 0.35));
+  opacity: 0.9;
+}
+
+.stage-list.stage-empty {
+  min-height: 88px;
+  justify-content: center;
+  align-items: center;
+}
+
+.stage-empty-hint {
+  font-size: 12px;
+  color: var(--app-text-muted, #94a3b8);
 }
 
 .stage-title {

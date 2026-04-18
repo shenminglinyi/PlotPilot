@@ -772,14 +772,19 @@ onMounted(() => {
 .home {
   display: flex;
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .home-content {
   flex: 1;
+  min-height: 0;
   margin-left: 300px;
   padding: 32px;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   transition: margin-left 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
