@@ -303,7 +303,7 @@ class DatabaseConnection:
         db_file = Path(self.db_path)
         db_file.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
 
         schema_path = Path(__file__).parent / "schema.sql"
@@ -328,11 +328,14 @@ class DatabaseConnection:
 
     def get_connection(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._local.connection = sqlite3.connect(
+                self.db_path, check_same_thread=False, timeout=30.0
+            )
             self._local.connection.row_factory = sqlite3.Row
             self._local.connection.execute("PRAGMA foreign_keys = ON")
             self._local.connection.execute("PRAGMA journal_mode=WAL")
-            self._local.connection.execute("PRAGMA busy_timeout=5000")
+            # 与 API/守护进程并发写时延长等待（毫秒）
+            self._local.connection.execute("PRAGMA busy_timeout=30000")
         return self._local.connection
 
     @contextmanager
