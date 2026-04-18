@@ -772,6 +772,9 @@ class AutopilotDaemon:
         novel.last_audit_similarity = drift_result.get("similarity_score")
         novel.last_audit_drift_alert = bool(drift_result.get("drift_alert", False))
         novel.last_audit_narrative_ok = bool(drift_result.get("narrative_sync_ok", True))
+        novel.last_audit_vector_stored = bool(drift_result.get("vector_stored", False))
+        novel.last_audit_foreshadow_stored = bool(drift_result.get("foreshadow_stored", False))
+        novel.last_audit_triples_extracted = bool(drift_result.get("triples_extracted", False))
         novel.last_audit_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
         drift_too_high = bool(drift_result.get("drift_alert", False))

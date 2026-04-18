@@ -13,7 +13,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
@@ -937,11 +937,25 @@ async def sync_chapter_narrative_after_save(
     chapter_repository: Any = None,
     plot_arc_repository: Any = None,
     narrative_event_repository: Any = None,
-) -> None:
-    """异步：一次 LLM 写 summary/事件/埋线 + 可选三元组与伏笔 + 故事线/张力/对话 → 节拍来自规划 → upsert knowledge → 向量索引。"""
+) -> Dict[str, bool]:
+    """异步：一次 LLM 写 summary/事件/埋线 + 可选三元组与伏笔 + 故事线/张力/对话 → 节拍来自规划 → upsert knowledge → 向量索引。
+
+    返回各子步骤是否成功落库，供章后管线写入 last_audit_* 审阅快照。
+    """
+    empty_flags: Dict[str, bool] = {
+        "vector_stored": False,
+        "foreshadow_stored": False,
+        "triples_extracted": False,
+    }
     if not content or not str(content).strip():
         logger.debug("跳过叙事同步：正文为空 novel=%s ch=%s", novel_id, chapter_number)
-        return
+        return empty_flags
+
+    flags: Dict[str, bool] = {
+        "vector_stored": False,
+        "foreshadow_stored": False,
+        "triples_extracted": False,
+    }
 
     existing = None
     existing_beats: List[str] = []
@@ -1111,6 +1125,10 @@ async def sync_chapter_narrative_after_save(
                 triple_repository,
                 foreshadowing_repo,
             )
+            if triple_repository is not None:
+                flags["triples_extracted"] = True
+            if foreshadowing_repo is not None:
+                flags["foreshadow_stored"] = True
         except Exception as e:
             logger.warning(
                 "bundle 三元组/伏笔落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
@@ -1140,15 +1158,17 @@ async def sync_chapter_narrative_after_save(
         len(summary),
     )
 
-    if indexing_svc is None:
-        return
-    text_for_vector = summary.strip() if summary.strip() else "；".join(beat_sections) if beat_sections else content[:800]
-    try:
-        await indexing_svc.ensure_collection(novel_id)
-        await indexing_svc.index_chapter_summary(novel_id, chapter_number, text_for_vector)
-        logger.debug("章节向量索引完成 novel=%s ch=%s", novel_id, chapter_number)
-    except Exception as e:
-        logger.warning("章节向量索引失败 novel=%s ch=%s: [%s] %s", novel_id, chapter_number, type(e).__name__, e, exc_info=True)
+    if indexing_svc is not None:
+        text_for_vector = summary.strip() if summary.strip() else "；".join(beat_sections) if beat_sections else content[:800]
+        try:
+            await indexing_svc.ensure_collection(novel_id)
+            await indexing_svc.index_chapter_summary(novel_id, chapter_number, text_for_vector)
+            flags["vector_stored"] = True
+            logger.debug("章节向量索引完成 novel=%s ch=%s", novel_id, chapter_number)
+        except Exception as e:
+            logger.warning("章节向量索引失败 novel=%s ch=%s: [%s] %s", novel_id, chapter_number, type(e).__name__, e, exc_info=True)
+
+    return flags
 
 
 def sync_chapter_narrative_after_save_blocking(
