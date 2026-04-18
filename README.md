@@ -2,28 +2,34 @@
 
 <img width="400" height="300" alt="微信图片_20260415003740_893_102" src="https://github.com/user-attachments/assets/71f083b8-a787-4eaf-a927-b15185a4f317" />
 
-> AI 驱动的长篇小说创作平台 — 自动驾驶写作、知识图谱管理、风格分析一体化。
+> AI 驱动的长篇创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)](https://vuejs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
+- **顶层架构**：上下文管理、知识体系、消费组件、状态感知等，超过 20 余个 prompt 接点，支持定制。
+- **通用设计**：通过提示词定制，支持短篇小说、超长篇小说、剧本、标书、转录等多种任务类型。
+- **自动驾驶模式**：后台守护进程持续生成章节，支持 SSE 实时流式推送。
+- **Story Bible**：人物、地点、世界设定的结构化管理。
+- **知识图谱**：自动提取故事三元组，语义检索历史内容。
+- **伏笔台账**：追踪并自动闭合叙事钩子。
+- **风格分析**：作者声音漂移检测与文体指纹。
+- **节拍表与故事结构**：三幕式、章节节拍规划。
+- **DDD 四层架构**：`domain` / `application` / `infrastructure` / `interfaces`。
+
 ---
 
 ## 产品亮点
 
-**全托管自动驾驶**：后台守护进程按阶段自动推进 宏观规划 → 幕级节拍 → 章节生成 → 章末审阅，支持熔断保护、人工审阅节点与 SSE 实时状态推流。无需逐章手动触发，启动后持续写完目标字数。
+**全托管自动驾驶**：后台守护进程按阶段推进 **宏观规划 → 幕级节拍 → 章节生成 → 章末审阅**，无需逐章手动触发，可持续写满目标字数；支持 **熔断保护**、**人工审阅节点**、**SSE 实时状态推流**。
 
-**统一章后管线**：章节生成结束后，一次 LLM 调用同时完成摘要提取、关键事件识别、人物三元组构建、伏笔注册与消费检测、故事线进展更新，最终写入知识库并建立向量索引。HTTP 手动保存与自动驾驶走同一套逻辑，永不漂移。
+**统一章后管线**：章末 **一次 LLM 调用**完成摘要提取、关键事件、人物三元组、伏笔注册与消费检测、故事线进展，落库并建立 **本地向量索引**。**HTTP 手动保存**与**自动驾驶**共用同一套管线（叙事落库 + 索引），逻辑不漂移。
 
-**多层记忆体系**：Story Bible（人物、地点、世界设定）、分章摘要、本地向量语义检索、伏笔台账、叙事事件与时间轴，多路信息协同注入生成上下文，兼顾长篇一致与局部鲜活。
+**多层记忆与监控**：**Story Bible**（人物、地点、世界设定）、分章摘要、向量语义检索、伏笔台账、叙事事件与时间轴多路注入上下文；**章节张力**（0–10）与历史张力曲线、**文风相似度与漂移告警**，偏离时 **定向修写**、不回滚章节。
 
-**文风与张力监控**：章节级文风相似度与漂移告警；章末自动打分张力值（0–10），历史张力曲线实时可查；文风偏离时执行定向修写，不回滚章节。
-
-**超过 20 个提示接点**：集中式提示词配置，角色声线锚点、节拍约束、字数层级、记忆引擎铁律等策略独立配置，支持短篇、超长篇、剧本、标书等多种文体切换。
-
-**全功能工作台**：写作区实时预览、章节状态与审阅面板、张力心电图、伏笔账本、知识图谱、监控大盘与 LLM 控制台一体整合。
+**提示词与工作台**：集中式配置 **20+ 提示接点**，声线锚点、节拍约束、字数层级、记忆引擎铁律等可独立策略化，适配短篇、超长篇、剧本、标书等。**工作台**整合写作区与实时预览、章节状态与审阅、张力心电图、伏笔与知识图谱、监控大盘、LLM 控制台。
 
 ---
 
@@ -34,7 +40,7 @@
 1. 将 `python-3.11.9-embed-amd64.zip` 放入 `tools/` 目录（首次使用）
 2. 双击 `tools/aitext.bat`
 
-启动器将自动完成：环境自检 → 创建虚拟环境 → 安装依赖（国内镜像源自动切换）→ 启动后端服务 → 打开浏览器。后续启动直接双击，秒开。
+启动器将自动完成：环境自检 → 创建虚拟环境 → 安装依赖（国内镜像源自动切换）→ 启动后端服务 → 打开浏览器。后续启动直接双击即可。
 
 > 也支持 `aitext.bat pack` 打包整个项目分享给他人，对方双击即用。
 
@@ -57,7 +63,7 @@ cd frontend && npm install && npm run dev
 
 后端 API：`http://127.0.0.1:8005` · 文档：`http://127.0.0.1:8005/docs` · 前端：`http://localhost:3000`
 
-生产构建后前端由 FastAPI 静态托管，无需单独部署前端服务。
+生产构建后前端可由 FastAPI 静态托管（`frontend/dist`），也可独立部署。
 
 ---
 
@@ -67,9 +73,9 @@ cd frontend && npm install && npm run dev
 |---|---|
 | 后端框架 | FastAPI + uvicorn，DDD 四层架构 |
 | AI 模型 | OpenAI 兼容协议 / Anthropic Claude / 火山方舟 Doubao |
-| 向量存储 | 本地 FAISS（无需容器，开箱即用） |
-| 嵌入模型 | OpenAI 兼容 API（默认）/ 本地 sentence-transformers |
-| 主数据库 | SQLite（单文件，便于备份与迁移） |
+| 向量存储 | 本地 FAISS（无需额外服务） |
+| 嵌入模型 | OpenAI 兼容 API（默认）/ 本地 sentence-transformers（见 `requirements-local.txt`） |
+| 主数据库 | SQLite |
 | 前端 | Vue 3 + TypeScript + Vite + Naive UI + ECharts |
 
 ---
@@ -79,12 +85,43 @@ cd frontend && npm install && npm run dev
 | 变量 | 说明 |
 |---|---|
 | `ANTHROPIC_API_KEY` / `ARK_API_KEY` | 至少配置一个 LLM 凭证 |
-| `EMBEDDING_SERVICE` | `openai`（默认）或 `local`（本地需额外安装约 2GB 模型） |
+| `EMBEDDING_SERVICE` | `openai`（默认）或 `local`（本地需额外安装模型） |
 | `CORS_ORIGINS` | 生产环境前端域名，逗号分隔 |
 | `DISABLE_AUTO_DAEMON` | 设为 `1` 禁止启动时自动拉起守护进程 |
-| `LOG_LEVEL` / `LOG_FILE` | 日志级别与路径，默认 `INFO` / `logs/aitext.log` |
+| `LOG_LEVEL` / `LOG_FILE` | 日志级别与路径 |
 
 完整说明见 `.env.example`。
+
+---
+
+## 测试
+
+```bash
+pytest tests/ -v
+```
+
+如需覆盖率：`pytest tests/ --cov=. --cov-report=term-missing`
+
+---
+
+## 贡献
+
+1. Fork 本仓库  
+2. 新建分支：`git checkout -b feat/your-feature`  
+3. 提交说明建议遵循 [Conventional Commits](https://www.conventionalcommits.org/)  
+4. 推送并发起 Pull Request  
+
+---
+
+## 交流与实战演示
+
+纸上得来终觉浅。如果你想看这套系统在实际创作里怎么跑，欢迎来直播间蹲点：
+
+- **抖音**：搜索直播间 **91472902104** 即可找到  
+- **时间**：每晚约 **21:00** 随缘开播（以实际为准）  
+- **内容**：现场写脑洞、改 Bug、看 PR，以及本地部署相关的常见问题
+
+欢迎创作者和技术同行来直播间交流。
 
 ---
 
