@@ -2,16 +2,26 @@
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Dict, Optional
 from domain.novel.entities.novel import AutopilotStatus, NovelStage
 from domain.novel.value_objects.novel_id import NovelId
 from interfaces.api.dependencies import get_novel_repository, get_chapter_repository
 from application.paths import get_db_path
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+from application.engine.services.autopilot_log_ring import (
+    file_end_offset,
+    initial_snapshot_offset,
+    install_autopilot_log_ring_handler,
+    iter_new_for_novel,
+    read_incremental_log_file_lines,
+    shorten_log_message,
+    snapshot_for_novel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -256,20 +266,21 @@ async def reset_circuit_breaker(novel_id: str):
 
 
 @router.get("/{novel_id}/stream")
-async def autopilot_log_stream(novel_id: str):
+async def autopilot_log_stream(
+    novel_id: str,
+    after_seq: int = Query(0, ge=0, description="仅推送 seq 大于该值的守护进程日志行；重连时传入上次最后一条 seq"),
+):
     """
     SSE 实时日志流（用于监控大盘）
 
-    推送 beat 级别的事件日志：
-    - beat_start: 开始生成某个 beat
-    - beat_complete: beat 生成完成
-    - beat_error: beat 生成失败
-    - stage_change: 阶段变更
+    - log_line: API 进程内存环 + LOG_FILE 增量 tail（独立守护进程日志，按书目过滤）
+    - beat_start / beat_complete / stage_change / progress 等：状态机摘要
     """
     novel_repo = get_novel_repository()
     chapter_repo = get_chapter_repository()
 
     async def event_generator():
+        install_autopilot_log_ring_handler()
         def _resolve_current_chapter_number(novel) -> Optional[int]:
             """
             日志流事件补齐“当前章节号”。
@@ -290,17 +301,51 @@ async def autopilot_log_stream(novel_id: str):
                 return None
             return None
 
-        # 发送初始连接事件
+        # 发送初始连接事件（前端可不写入时间线；metadata 用于工具栏「当前阶段」标签）
+        novel_boot = novel_repo.get_by_id(NovelId(novel_id))
+        init_meta: Dict[str, Any] = {}
+        if novel_boot:
+            init_meta = {
+                "stage": novel_boot.current_stage.value,
+                "stage_label": _stage_name_zh(novel_boot.current_stage.value),
+                "autopilot_status": novel_boot.autopilot_status.value,
+                "autopilot_status_label": _autopilot_status_zh(novel_boot.autopilot_status.value),
+            }
         init_event = {
             "type": "connected",
-            "message": "日志流已连接（阶段变更需连续约 4 秒一致才推送，避免界面抖动）",
-            "timestamp": datetime.now().isoformat()
+            "message": "日志流已连接（含守护进程实时日志；阶段变更约 4s 去抖）",
+            "timestamp": datetime.now().isoformat(),
+            "metadata": init_meta,
         }
         yield f"data: {json.dumps(init_event, ensure_ascii=False)}\n\n"
+
+        last_seq_cursor = after_seq
+        if after_seq == 0:
+            for snap in snapshot_for_novel(novel_id, limit=400):
+                ev = {
+                    "type": "log_line",
+                    "message": shorten_log_message(snap.message),
+                    "timestamp": snap.timestamp_iso,
+                    "metadata": {
+                        "seq": snap.seq,
+                        "level": snap.level,
+                        "logger": snap.logger_name,
+                        "replay": True,
+                    },
+                }
+                yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                last_seq_cursor = max(last_seq_cursor, snap.seq)
+
+        log_file_path = os.getenv("LOG_FILE", "logs/aitext.log")
+        if after_seq == 0:
+            file_cursor = initial_snapshot_offset(log_file_path)
+        else:
+            file_cursor = file_end_offset(log_file_path)
 
         last_beat = None
         heartbeat_counter = 0
         last_error_broadcast = -1
+        complete_sent = False
         # 阶段变更去抖：同一阶段需连续 2 次轮询（约 4s）一致才推送，避免幕级规划↔待审阅 来回刷屏
         first_stage_poll = True
         last_emitted_stage: Optional[str] = None
@@ -312,6 +357,38 @@ async def autopilot_log_stream(novel_id: str):
                 novel = novel_repo.get_by_id(NovelId(novel_id))
                 if not novel:
                     break
+
+                file_lines, file_cursor = read_incremental_log_file_lines(
+                    log_file_path, novel_id, file_cursor
+                )
+                for item in file_lines:
+                    ev = {
+                        "type": "log_line",
+                        "message": item["message"],
+                        "timestamp": item["timestamp"],
+                        "metadata": {
+                            "seq": item["seq"],
+                            "level": item["level"],
+                            "logger": item["logger"],
+                            "source": "file",
+                        },
+                    }
+                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    last_seq_cursor = max(last_seq_cursor, item["seq"])
+
+                for e in iter_new_for_novel(novel_id, last_seq_cursor, limit=200):
+                    ev = {
+                        "type": "log_line",
+                        "message": shorten_log_message(e.message),
+                        "timestamp": e.timestamp_iso,
+                        "metadata": {
+                            "seq": e.seq,
+                            "level": e.level,
+                            "logger": e.logger_name,
+                        },
+                    }
+                    yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    last_seq_cursor = max(last_seq_cursor, e.seq)
 
                 current_stage = novel.current_stage.value
                 current_beat = getattr(novel, "current_beat_index", 0)
@@ -406,20 +483,22 @@ async def autopilot_log_stream(novel_id: str):
 
                 last_beat = current_beat
 
-                # 终止条件
+                # 终止条件（单连接只发一次，避免重复「已停止」）
                 terminal_states = {"stopped", "error", "completed"}
                 if novel.autopilot_status.value in terminal_states:
-                    st = novel.autopilot_status.value
-                    event = {
-                        "type": "autopilot_complete",
-                        "message": f"自动驾驶{_autopilot_status_zh(st)}",
-                        "timestamp": datetime.now().isoformat(),
-                        "metadata": {
-                            "status": st,
-                            "status_label": _autopilot_status_zh(st),
-                        },
-                    }
-                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    if not complete_sent:
+                        complete_sent = True
+                        st = novel.autopilot_status.value
+                        event = {
+                            "type": "autopilot_complete",
+                            "message": f"自动驾驶{_autopilot_status_zh(st)}",
+                            "timestamp": datetime.now().isoformat(),
+                            "metadata": {
+                                "status": st,
+                                "status_label": _autopilot_status_zh(st),
+                            },
+                        }
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     break
 
                 # 运行中：定期推送进度快照（仅用于前端进度条，不写时间线刷屏）
@@ -465,6 +544,10 @@ async def autopilot_log_stream(novel_id: str):
                             "stage": current_stage,
                             "stage_label": stage_zh,
                             "chapter_number": current_chapter_number,
+                            "autopilot_status": novel.autopilot_status.value,
+                            "autopilot_status_label": _autopilot_status_zh(
+                                novel.autopilot_status.value
+                            ),
                         },
                     }
                     yield f"data: {json.dumps(progress_event, ensure_ascii=False)}\n\n"

@@ -80,14 +80,12 @@
       宏观规划完成后会停一次；之后每一幕<strong>仅在首次生成该幕章节规划</strong>时再停一次，不会无限循环。
     </n-alert>
 
-    <!-- 实时日志流 -->
-    <RealtimeLogStream
+    <!-- 仅流式正文预览（与监控大盘终端日志分离，避免双 SSE 卡顿） -->
+    <AutopilotWritingStream
       v-if="isRunning"
-      :novel-id="novelId"
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
       :writing-beat-index="writingBeatIndex"
-      @desk-refresh="emit('desk-refresh')"
     />
 
     <!-- 操作按钮 -->
@@ -177,11 +175,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
-import RealtimeLogStream from './RealtimeLogStream.vue'
+import AutopilotWritingStream from './AutopilotWritingStream.vue'
 import { subscribeChapterStream } from '../../api/config'
 
 const props = defineProps({ novelId: String })
-const emit = defineEmits(['status-change', 'desk-refresh', 'chapter-content-update', 'chapter-start', 'chapter-chunk'])
+const emit = defineEmits(['status-change', 'chapter-content-update', 'chapter-start', 'chapter-chunk'])
 const message = useMessage()
 
 const status = ref(null)
@@ -208,7 +206,7 @@ const planTotalWordsHint = computed(() => {
   const tw = s.target_words_per_chapter ?? 2500
   return tc * tw
 })
-/** HTTP/1.1 下同域长连接约 6 路；避免与日志 /stream 双开占满导致其它 API 挂起 */
+/** 驾驶舱仅保留章节内容流；全量日志在监控大盘终端（单 /stream） */
 let statusPollTimer = null
 /** novel_id 在库中不存在(404)时不再轮询，避免旧标签页/错 slug 刷屏访问日志 */
 const statusPollDisabled = ref(false)
@@ -448,7 +446,7 @@ async function clearCircuitBreaker() {
 // 章节内容流订阅（用于推送内容到编辑框）
 let chapterStreamCtrl = null
 
-// 写作内容状态（传递给 RealtimeLogStream 显示）
+// 写作内容状态（传递给 AutopilotWritingStream）
 const writingContent = ref('')
 const writingChapterNumber = ref(0)
 const writingBeatIndex = ref(0)

@@ -153,12 +153,14 @@
           <AutopilotPanel
             :novel-id="slug"
             @status-change="handleAutopilotStatusChange"
-            @desk-refresh="handleAutopilotDeskRefreshFromStream"
             @chapter-content-update="handleChapterContentUpdate"
           />
         </div>
         <div class="managed-monitor">
-          <AutopilotDashboard :novel-id="slug" />
+          <AutopilotDashboard
+            :novel-id="slug"
+            @desk-refresh="handleAutopilotDeskRefreshFromStream"
+          />
         </div>
       </div>
     </div>

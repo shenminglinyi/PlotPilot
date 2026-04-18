@@ -11,8 +11,8 @@
       <div class="grid-cell span-2">
         <TensionChart :novel-id="novelId" />
       </div>
-      <div class="grid-cell span-1">
-        <RealtimeLogStream :novel-id="novelId" />
+      <div class="grid-cell span-1 grid-cell--terminal">
+        <AutopilotTerminalLog :novel-id="novelId" @desk-refresh="emit('desk-refresh')" />
       </div>
 
       <!-- 第二行：文风警报 + 伏笔账本 + 熔断器 -->
@@ -41,13 +41,17 @@
 import { ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import TensionChart from './TensionChart.vue'
-import RealtimeLogStream from './RealtimeLogStream.vue'
+import AutopilotTerminalLog from './AutopilotTerminalLog.vue'
 import VoiceDriftIndicator from './VoiceDriftIndicator.vue'
 import ForeshadowLedger from './ForeshadowLedger.vue'
 import CircuitBreakerStatus from './CircuitBreakerStatus.vue'
 
 const props = defineProps<{
   novelId: string
+}>()
+
+const emit = defineEmits<{
+  'desk-refresh': []
 }>()
 
 const message = useMessage()
@@ -92,6 +96,17 @@ function handleBreakerReset() {
 
 .grid-cell {
   min-height: 280px;
+}
+
+/* 实时日志：固定视口高度，内容仅在面板内滚动（避免 Grid 行被日志撑到整页） */
+.grid-cell--terminal {
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  width: 100%;
+  min-width: 0;
+  height: clamp(220px, 42vh, 340px);
+  overflow: hidden;
 }
 
 .grid-cell.span-1 {
