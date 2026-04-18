@@ -27,8 +27,18 @@ from application.engine.services.chapter_aftermath_pipeline import ChapterAfterm
 from application.engine.services.style_constraint_builder import build_style_summary
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 from domain.novel.value_objects.chapter_id import ChapterId
+from domain.novel.value_objects.word_count import WordCount
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_word_count_to_int(wc: Any) -> int:
+    """章节 word_count 可能为 int 或 WordCount 值对象。"""
+    if wc is None:
+        return 0
+    if isinstance(wc, WordCount):
+        return wc.value
+    return int(wc)
 
 # 定向修文：单章内 LLM 修文轮数上限（与全局一致）
 VOICE_REWRITE_MAX_ATTEMPTS = LLM_MAX_TOTAL_ATTEMPTS
@@ -499,7 +509,7 @@ class AutopilotDaemon:
             logger.info(f"[{novel.novel_id}] 用户已停止，跳过本章（上下文组装前）")
             return
 
-        # 4. 组装上下文（与「写一章 / 流式」同源：结构化上下文 + 故事线 + 张力 + 文风）
+        # 4. 组装上下文：唯一主路径 prepare_chapter_generation；失败则三层同构降级，最后才扁平洋葱
         bundle = None
         context = ""
         if self.chapter_workflow:
@@ -513,18 +523,34 @@ class AutopilotDaemon:
                     f"约 {bundle['context_tokens']} tokens"
                 )
             except Exception as e:
-                logger.warning(f"prepare_chapter_generation 失败，降级 build_context：{e}")
-                bundle = None
+                logger.warning(
+                    f"prepare_chapter_generation 失败，尝试同构降级 build_fallback_chapter_bundle：{e}"
+                )
+                try:
+                    bundle = self.chapter_workflow.build_fallback_chapter_bundle(
+                        novel.novel_id.value,
+                        chapter_num,
+                        outline,
+                        scene_director=None,
+                        max_tokens=20000,
+                    )
+                    context = bundle["context"]
+                    logger.info(
+                        f"[{novel.novel_id}]    上下文（fallback bundle）: {len(context)} 字符"
+                    )
+                except Exception as e2:
+                    logger.warning(f"同构降级失败，最后尝试扁平 build_context：{e2}")
+                    bundle = None
         if bundle is None and self.context_builder:
             try:
                 context = self.context_builder.build_context(
                     novel_id=novel.novel_id.value,
                     chapter_number=chapter_num,
                     outline=outline,
-                    max_tokens=20000
+                    max_tokens=20000,
                 )
             except Exception as e:
-                logger.warning(f"ContextBuilder 失败，降级：{e}")
+                logger.warning(f"ContextBuilder.build_context 失败：{e}")
 
         if not self._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 用户已停止（上下文组装后）")
@@ -1023,7 +1049,7 @@ class AutopilotDaemon:
         for c in chapters:
             st = getattr(c.status, "value", c.status)
             if st == "completed":
-                total += int(getattr(c, "word_count", 0) or 0)
+                total += _coerce_word_count_to_int(getattr(c, "word_count", None))
         return total
 
     def _get_last_macro_word_anchor(self, novel_id: str) -> int:

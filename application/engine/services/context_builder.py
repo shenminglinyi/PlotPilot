@@ -6,6 +6,9 @@
 - T1: 可压缩内容（图谱子网、近期幕摘要）—— 按比例压缩
 - T2: 动态内容（最近章节）—— 动态水位线
 - T3: 可牺牲内容（向量召回）—— 预算不足时归零
+
+与 AutoNovelGenerationWorkflow 拼接时：Layer1≈T0+T1，Layer2 段名为 RECENT CHAPTERS（T2），
+Layer3 段名为 VECTOR RECALL（T3）；见 assemble_chapter_bundle_context_text。
 """
 import logging
 from typing import List, Optional, TYPE_CHECKING, Dict, Any

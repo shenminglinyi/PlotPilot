@@ -1270,7 +1270,8 @@ class ContextBudgetAllocator:
         chapter_number: int,
     ) -> str:
         """获取宏观诊断「系统叙事校准」补丁（静默注入 Context 头部，无前端交互）。
-        
+
+        仅只读查询 DB 中已写好的 context_patch；扫描/计算在后台任务中完成，不在 allocate 热路径重跑。
         优先使用后台 Map-Reduce 扫描后写入的 context_patch；对用户透明。
         已解决的诊断结果（resolved=1）不再注入。
         """
