@@ -3,7 +3,6 @@ from infrastructure.monitoring.monitoring_db import get_monitoring_db, Monitorin
 from infrastructure.monitoring.token_watcher import (
     TokenWatcher,
     TokenLogEntry,
-    TokenWatcherContext,
     TokenWatcherConfig,
     get_token_watcher,
 )
@@ -14,7 +13,6 @@ __all__ = [
     'MonitoringDB',
     'TokenWatcher',
     'TokenLogEntry',
-    'TokenWatcherContext',
     'TokenWatcherConfig',
     'get_token_watcher',
     'watch_tokens',

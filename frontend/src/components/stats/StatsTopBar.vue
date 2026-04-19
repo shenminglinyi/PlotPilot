@@ -78,16 +78,25 @@
         </svg>
       </div>
     </div>
+
+    <!-- Token 监控 Drawer -->
+    <TokenWatcherPanel 
+      v-model:show="tokenWatcherVisible" 
+      @config-change="handleTokenWatcherConfigChange"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { NTooltip, NSpin, NDropdown, NButton, useMessage } from 'naive-ui'
+import { StopwatchOutline, StopwatchSharp } from '@vicons/ionicons5'
 import { useStatsStore } from '@/stores/statsStore'
 import { novelApi } from '@/api/novel'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
+import TokenWatcherPanel from '@/components/global/TokenWatcherPanel.vue'
+import { tokenWatcherApi, type TokenWatcherConfig } from '@/api/tokenWatcher'
 
 const props = defineProps<{
   slug: string
@@ -102,10 +111,24 @@ const message = useMessage()
 // AI 工具组件引用（用于以编程方式触发各组件内部按钮）
 const llmRef = ref<{ $el: HTMLElement } | null>(null)
 const plazaRef = ref<{ $el: HTMLElement } | null>(null)
+const tokenWatcherVisible = ref(false)
+const tokenWatcherConfig = ref<TokenWatcherConfig>({
+  enabled: false,
+  paginate: 20,
+  usage_only: true,
+})
 
-const aiToolsOptions = [
+const aiToolsOptions = computed(() => [
   { label: '⚙️ AI 控制台', key: 'llm' },
   { label: '✦ 提示词广场', key: 'plaza' },
+  { label: tokenWatcherConfig.value.enabled ? '🔔 Token 监控 ' : '🔕 Token 监控', key: 'tokenWatcher' }
+])
+
+const exportOptions = [
+  { label: '📱 EPUB (电子书)', key: 'epub' },
+  { label: '📄 PDF (打印)', key: 'pdf' },
+  { label: '📝 DOCX (Word)', key: 'docx' },
+  { label: '📋 Markdown', key: 'markdown' }
 ]
 
 function handleAiToolSelect(key: string) {
@@ -113,16 +136,14 @@ function handleAiToolSelect(key: string) {
     llmRef.value?.$el?.querySelector('button')?.click()
   } else if (key === 'plaza') {
     plazaRef.value?.$el?.querySelector('button')?.click()
+  } else if (key === 'tokenWatcher') {
+    tokenWatcherVisible.value = true
   }
 }
 
-// 导出选项
-const exportOptions = [
-  { label: '📱 EPUB (电子书)', key: 'epub' },
-  { label: '📄 PDF (打印)', key: 'pdf' },
-  { label: '📝 DOCX (Word)', key: 'docx' },
-  { label: '📋 Markdown', key: 'markdown' }
-]
+function handleTokenWatcherConfigChange(config: TokenWatcherConfig) {
+  tokenWatcherConfig.value = config
+}
 
 async function handleExport(format: string) {
   try {
@@ -251,6 +272,13 @@ async function loadStats() {
   error.value = null
   try {
     await statsStore.loadBookStats(props.slug)
+    // 加载 Token 监控配置
+    try {
+      const config = await tokenWatcherApi.getConfig()
+      tokenWatcherConfig.value = config
+    } catch (e) {
+      console.error('加载 Token 监控配置失败:', e)
+    }
   } catch (err) {
     console.error('Failed to load book stats:', err)
     error.value = `加载统计数据失败：${formatStatsError(err)}`

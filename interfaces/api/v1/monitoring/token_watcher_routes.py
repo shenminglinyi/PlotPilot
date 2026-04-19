@@ -1,9 +1,9 @@
 """TokenWatcher API 路由"""
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from typing import List, Optional, Any, Dict
+from typing import List, Optional
 
-from infrastructure.monitoring import get_token_watcher, TokenWatcherConfig
+from infrastructure.monitoring import get_token_watcher
 
 router = APIRouter(prefix="/api/v1/token-watcher", tags=["token-watcher"])
 
@@ -13,15 +13,12 @@ class TokenLogItem(BaseModel):
     timestamp: str
     model: str
     provider: str
-    operation_type: str
     input_tokens: int
     output_tokens: int
     total_tokens: int
     latency_ms: int
     success: int
     error_message: Optional[str] = None
-    request_preview: Optional[str] = None
-    response_preview: Optional[str] = None
 
 
 class TokenLogsResponse(BaseModel):
@@ -37,8 +34,16 @@ class TokenSummaryResponse(BaseModel):
     total_input_tokens: int
     total_output_tokens: int
     total_tokens: int
-    success_count: int
-    error_count: int
+    avg_latency_ms: float
+
+
+class TokenStatsItem(BaseModel):
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    total_calls: int
+    total_input_tokens: int
+    total_output_tokens: int
+    total_tokens: int
     avg_latency_ms: float
 
 
@@ -65,7 +70,7 @@ def get_status():
     watcher = get_token_watcher()
     config = watcher.config
     summary = watcher.get_summary()
-    
+
     return StatusResponse(
         config=ConfigResponse(
             enabled=config.enabled,
@@ -81,7 +86,7 @@ def get_config():
     """获取 TokenWatcher 配置"""
     watcher = get_token_watcher()
     config = watcher.config
-    
+
     return ConfigResponse(
         enabled=config.enabled,
         paginate=config.paginate,
@@ -98,7 +103,7 @@ def update_config(request: UpdateConfigRequest):
         paginate=request.paginate,
         usage_only=request.usage_only
     )
-    
+
     config = watcher.config
     return ConfigResponse(
         enabled=config.enabled,
@@ -111,13 +116,22 @@ def update_config(request: UpdateConfigRequest):
 def get_logs(
     page: int = Query(1, ge=1, description="页码"),
     page_size: Optional[int] = Query(None, ge=1, le=100, description="每页数量"),
+    provider: Optional[str] = Query(None, description="筛选提供商"),
+    model: Optional[str] = Query(None, description="筛选模型"),
+    time_range: Optional[str] = Query(None, description="时间范围: today, week, month"),
 ):
     """获取 Token 使用日志（分页）"""
     watcher = get_token_watcher()
-    result = watcher.get_logs(page=page, page_size=page_size)
-    
+    result = watcher.get_logs(
+        page=page,
+        page_size=page_size,
+        provider=provider,
+        model=model,
+        time_range=time_range,
+    )
+
     logs = [TokenLogItem(**log) for log in result['logs']]
-    
+
     return TokenLogsResponse(
         logs=logs,
         total=result['total'],
@@ -135,20 +149,70 @@ def get_summary():
     return TokenSummaryResponse(**summary)
 
 
-@router.delete("/logs/{log_id}")
-def delete_log(log_id: int):
-    """删除单条日志"""
+@router.get("/stats", response_model=List[TokenStatsItem])
+def get_stats(
+    group_by: str = Query('provider', description="分组维度: provider, model, provider_model"),
+    provider: Optional[str] = Query(None, description="筛选提供商"),
+    model: Optional[str] = Query(None, description="筛选模型"),
+    time_range: Optional[str] = Query(None, description="时间范围: today, week, month"),
+):
+    """按维度查询统计数据"""
     watcher = get_token_watcher()
-    success = watcher.delete_log(log_id)
-    if not success:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="日志记录不存在")
-    return {"success": True, "deleted_id": log_id}
+    stats = watcher.get_stats_by_dimension(
+        group_by=group_by,
+        provider=provider,
+        model=model,
+        time_range=time_range,
+    )
+    return [TokenStatsItem(**item) for item in stats]
 
 
-@router.delete("/logs")
-def clear_logs():
-    """清空所有日志"""
+class FiltersResponse(BaseModel):
+    providers: List[str]
+    models: List[str]
+
+
+@router.get("/filters", response_model=FiltersResponse)
+def get_filters():
+    """获取可用的筛选选项"""
     watcher = get_token_watcher()
-    count = watcher.clear_logs()
+    return FiltersResponse(**watcher.get_filters())
+
+
+@router.get("/logs/export")
+def export_logs(
+    provider: Optional[str] = Query(None, description="筛选提供商"),
+    model: Optional[str] = Query(None, description="筛选模型"),
+    time_range: Optional[str] = Query(None, description="时间范围: today, week, month"),
+):
+    """导出日志数据"""
+    watcher = get_token_watcher()
+    logs = watcher.export_logs(
+        provider=provider,
+        model=model,
+        time_range=time_range,
+    )
+
+    export_data = []
+    for log in logs:
+        export_data.append({
+            '时间': log['timestamp'],
+            '提供商': log['provider'],
+            '模型': log['model'],
+            '输入Token': log['input_tokens'],
+            '输出Token': log['output_tokens'],
+            '总Token': log['total_tokens'],
+            '延迟ms': log['latency_ms'],
+            '状态': '成功' if log['success'] else '失败',
+            '错误信息': log['error_message'] or '',
+        })
+
+    return export_data
+
+
+@router.delete("/stats")
+def reset_stats():
+    """重置统计数据（同时清空日志）"""
+    watcher = get_token_watcher()
+    count = watcher.reset_stats()
     return {"success": True, "deleted_count": count}

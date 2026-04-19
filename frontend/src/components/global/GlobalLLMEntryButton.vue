@@ -247,7 +247,7 @@
       <ModelSettingsModal ref="modelSettingsModalRef" />
       
       <!-- Token 监控模态框 -->
-      <TokenWatcherModal
+      <TokenWatcherPanel
         v-model:show="showTokenModal"
         @config-change="handleTokenConfigChange"
       />
@@ -267,7 +267,7 @@ import { settingsApi, type EmbeddingConfig } from '../../api/settings'
 import { tokenWatcherApi, type TokenWatcherConfig } from '../../api/tokenWatcher'
 import LLMControlPanel from '../workbench/LLMControlPanel.vue'
 import ModelSettingsModal from '../settings/ModelSettingsModal.vue'
-import TokenWatcherModal from './TokenWatcherModal.vue'
+import TokenWatcherPanel from './TokenWatcherPanel.vue'
 
 type Appearance = 'sidebar' | 'topbar'
 type DrawerTab = 'embedding' | 'llm'

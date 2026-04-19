@@ -46,15 +46,9 @@ class MonitoringDB:
                 timestamp TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
                 model TEXT NOT NULL DEFAULT '',
                 provider TEXT NOT NULL DEFAULT '',
-                operation_type TEXT NOT NULL DEFAULT '',
-                
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
                 total_tokens INTEGER NOT NULL DEFAULT 0,
-                
-                request_preview TEXT,
-                response_preview TEXT,
-                
                 latency_ms INTEGER NOT NULL DEFAULT 0,
                 success INTEGER NOT NULL DEFAULT 1,
                 error_message TEXT
@@ -62,12 +56,29 @@ class MonitoringDB:
             
             CREATE INDEX IF NOT EXISTS idx_token_logs_timestamp ON token_logs(timestamp);
             CREATE INDEX IF NOT EXISTS idx_token_logs_model ON token_logs(model);
+            CREATE INDEX IF NOT EXISTS idx_token_logs_provider ON token_logs(provider);
             
             CREATE TABLE IF NOT EXISTS token_config (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
             );
+            
+            CREATE TABLE IF NOT EXISTS token_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                total_calls INTEGER NOT NULL DEFAULT 0,
+                total_input_tokens INTEGER NOT NULL DEFAULT 0,
+                total_output_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                total_latency_ms INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                UNIQUE(provider, model)
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_token_stats_provider ON token_stats(provider);
+            CREATE INDEX IF NOT EXISTS idx_token_stats_model ON token_stats(model);
         ''')
         conn.commit()
 
