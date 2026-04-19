@@ -179,7 +179,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
-import { resolveApiFetchUrl, subscribeChapterStream } from '../../api/config'
+import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 
 const props = defineProps({ novelId: String })
 const emit = defineEmits(['status-change', 'chapter-content-update', 'chapter-start', 'chapter-chunk'])
@@ -287,11 +287,11 @@ function formatWords(n) {
   return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : String(n)
 }
 
-// API 调用（路径须经 resolveApiFetchUrl，桌面壳下不能用相对 /api）
+// API 调用（路径须经 resolveHttpUrl，桌面壳下不能用相对 /api）
 const autopilotApiRoot = () => `/api/v1/autopilot/${props.novelId}`
 
 async function fetchStatus() {
-  const res = await fetch(await resolveApiFetchUrl(`${autopilotApiRoot()}/status`))
+  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`))
   if (res.status === 404) {
     clearStatusPoll()
     status.value = null
@@ -372,9 +372,7 @@ async function start() {
     }
 
     if (Object.keys(novelPatch).length > 0) {
-      const updateRes = await fetch(
-        await resolveApiFetchUrl(`/api/v1/novels/${props.novelId}`),
-        {
+      const updateRes = await fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(novelPatch),
@@ -388,9 +386,7 @@ async function start() {
 
     if (currentAutoApprove !== newAutoApprove) {
       const approveRes = await fetch(
-        await resolveApiFetchUrl(
-          `/api/v1/novels/${props.novelId}/auto-approve-mode`,
-        ),
+        resolveHttpUrl(`/api/v1/novels/${props.novelId}/auto-approve-mode`),
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -406,7 +402,7 @@ async function start() {
     }
     
     // 然后启动自动驾驶
-    const res = await fetch(await resolveApiFetchUrl(`${autopilotApiRoot()}/start`), {
+    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -426,7 +422,7 @@ async function start() {
 
 async function stop() {
   toggling.value = true
-  await fetch(await resolveApiFetchUrl(`${autopilotApiRoot()}/stop`), {
+  await fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
     method: 'POST',
   })
   message.info('已停止')
@@ -436,10 +432,9 @@ async function stop() {
 
 async function resume() {
   toggling.value = true
-  const res = await fetch(
-    await resolveApiFetchUrl(`${autopilotApiRoot()}/resume`),
-    { method: 'POST' },
-  )
+  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), {
+    method: 'POST',
+  })
   if (res.ok) message.success('已确认大纲，开始写作')
   else { const e = await res.json(); message.error(e.detail || '恢复失败') }
   await fetchStatus()
@@ -450,7 +445,7 @@ async function clearCircuitBreaker() {
   toggling.value = true
   try {
     const res = await fetch(
-      await resolveApiFetchUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
+      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
       { method: 'POST' },
     )
     if (res.ok) {

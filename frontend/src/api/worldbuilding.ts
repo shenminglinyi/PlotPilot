@@ -1,5 +1,4 @@
-import axios from 'axios'
-import { API_BASE_URL } from './config'
+import { apiClient } from './config'
 
 export interface CoreRules {
   power_system: string
@@ -45,13 +44,9 @@ export interface Worldbuilding {
 }
 
 export const worldbuildingApi = {
-  getWorldbuilding: async (slug: string): Promise<Worldbuilding> => {
-    const response = await axios.get(`${API_BASE_URL}/novels/${slug}/worldbuilding`)
-    return response.data
-  },
+  getWorldbuilding: (slug: string): Promise<Worldbuilding> =>
+    apiClient.get<Worldbuilding>(`novels/${slug}/worldbuilding`),
 
-  updateWorldbuilding: async (slug: string, data: Partial<Worldbuilding>): Promise<Worldbuilding> => {
-    const response = await axios.put(`${API_BASE_URL}/novels/${slug}/worldbuilding`, data)
-    return response.data
-  }
+  updateWorldbuilding: (slug: string, data: Partial<Worldbuilding>): Promise<Worldbuilding> =>
+    apiClient.put<Worldbuilding>(`novels/${slug}/worldbuilding`, data),
 }

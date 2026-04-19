@@ -123,7 +123,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { resolveApiFetchUrl } from '@/api/config'
+import { resolveHttpUrl } from '@/api/config'
 
 interface ErrorRecord {
   message: string
@@ -232,9 +232,7 @@ async function loadBreakerData() {
   loading.value = true
   try {
     const res = await fetch(
-      await resolveApiFetchUrl(
-        `/api/v1/autopilot/${props.novelId}/circuit-breaker`,
-      ),
+      resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/circuit-breaker`),
     )
     if (res.status === 404) {
       stopPolling()
@@ -262,9 +260,7 @@ async function loadBreakerData() {
 async function handleReset() {
   try {
     const res = await fetch(
-      await resolveApiFetchUrl(
-        `/api/v1/autopilot/${props.novelId}/circuit-breaker/reset`,
-      ),
+      resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/circuit-breaker/reset`),
       { method: 'POST' },
     )
     if (res.ok) {

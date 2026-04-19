@@ -88,7 +88,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { resolveApiFetchUrl } from '@/api/config'
+import { resolveHttpUrl } from '@/api/config'
 
 interface VoiceDriftData {
   drift_score: number
@@ -190,9 +190,7 @@ async function loadDriftData() {
   loading.value = true
   try {
     const res = await fetch(
-      await resolveApiFetchUrl(
-        `/api/v1/novels/${props.novelId}/monitor/voice-drift`,
-      ),
+      resolveHttpUrl(`/api/v1/novels/${props.novelId}/monitor/voice-drift`),
     )
     if (res.ok) {
       const dataArray = await res.json()
