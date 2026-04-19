@@ -18,7 +18,7 @@ class SqliteNovelRepository(NovelRepository):
         self.db = db
 
     def save(self, novel: Novel) -> None:
-        """保存小说"""
+        """保存小说（带写锁重试机制）"""
         sql = """
             INSERT INTO novels (
                 id, title, slug, author, target_chapters, premise,
@@ -84,7 +84,6 @@ class SqliteNovelRepository(NovelRepository):
         ladr = 1 if getattr(novel, "last_audit_drift_alert", False) else 0
         lano = 1 if getattr(novel, "last_audit_narrative_ok", True) else 0
         laat = getattr(novel, "last_audit_at", None)
-        # 新增字段
         lavs = 1 if getattr(novel, "last_audit_vector_stored", False) else 0
         lafs = 1 if getattr(novel, "last_audit_foreshadow_stored", False) else 0
         late = 1 if getattr(novel, "last_audit_triples_extracted", False) else 0
@@ -94,38 +93,35 @@ class SqliteNovelRepository(NovelRepository):
         lai_json = json.dumps(lai) if lai else None
         twpc = getattr(novel, "target_words_per_chapter", 2500)
 
-        self.db.execute(sql, (
-            novel_id,
-            novel.title,
-            slug,
-            author,
-            novel.target_chapters,
-            premise,
-            autopilot_status,
-            auto_approve_mode,
-            current_stage,
-            current_act,
-            current_chapter_in_act,
-            max_auto_chapters,
-            current_auto_chapters,
-            last_chapter_tension,
-            consecutive_error_count,
-            current_beat_index,
-            lacn,
-            lasim,
-            ladr,
-            lano,
-            laat,
-            lavs,
-            lafs,
-            late,
-            laqs_json,
-            lai_json,
-            twpc,
-            now,
-            now
-        ))
-        self.db.get_connection().commit()
+        params = (
+            novel_id, novel.title, slug, author, novel.target_chapters, premise,
+            autopilot_status, auto_approve_mode, current_stage, current_act, current_chapter_in_act,
+            max_auto_chapters, current_auto_chapters, last_chapter_tension,
+            consecutive_error_count, current_beat_index,
+            lacn, lasim, ladr, lano, laat,
+            lavs, lafs, late, laqs_json, lai_json, twpc,
+            now, now
+        )
+
+        import time
+        import sqlite3
+        import random
+
+        max_retries = 15
+        base_delay = 1.0
+
+        for attempt in range(max_retries):
+            try:
+                self.db.execute(sql, params)
+                self.db.get_connection().commit()
+                return
+            except sqlite3.OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    wait = base_delay * (2 ** attempt) + random.uniform(0, 1.0)
+                    logger.warning(f"数据库写锁冲突，{wait:.2f}秒后重试 (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait)
+                    continue
+                raise
 
     async def async_save(self, novel: Novel) -> None:
         """异步保存小说（守护进程使用）"""
