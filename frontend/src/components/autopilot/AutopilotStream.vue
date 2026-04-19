@@ -2,7 +2,7 @@
   <div v-if="isVisible" class="ap-stream">
     <div class="stream-header">
       <span class="pulse-dot"></span>
-      正在生成第 {{ chapterNumber }} 章 · 节拍 {{ beatIndex }}
+      正在生成第 {{ chapterNumber }} 章 · 节拍 {{ (beatIndex || 0) + 1 }}
       <span class="word-count">{{ wordCount }} 字</span>
     </div>
     <div ref="streamEl" class="stream-body">

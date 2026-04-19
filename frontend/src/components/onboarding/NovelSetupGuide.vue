@@ -268,7 +268,7 @@
 </template>
 
 <script setup lang="ts">
-import { h, ref, watch, computed, onUnmounted } from 'vue'
+import { h, ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi, type BibleDTO, type StyleNoteDTO } from '@/api/bible'
 import { worldbuildingApi } from '@/api/worldbuilding'
@@ -554,10 +554,6 @@ function clearGenerationTimers() {
   }
 }
 
-onUnmounted(() => {
-  clearGenerationTimers()
-})
-
 /** 仅清理轮询定时器，保留总超时 timer（由 clearGenerationTimers 统一清理） */
 function clearPollTimer() {
   if (pollTimerRef.value != null) {
@@ -651,26 +647,44 @@ async function startBibleGeneration() {
   }
 }
 
+function resetWizardStateForOpen() {
+  currentStep.value = 1
+  stepStatus.value = 'process'
+  plotOptions.value = []
+  mainPlotCommitted.value = false
+  customMode.value = false
+  customLogline.value = ''
+  plotSuggestError.value = ''
+}
+
+function stopGenerationOnClose() {
+  biblePollEpoch.value += 1
+  clearGenerationTimers()
+  generatingBible.value = false
+}
+
 watch(
   () => props.show,
   (val) => {
     if (val) {
-      currentStep.value = 1
-      stepStatus.value = 'process'
-      plotOptions.value = []
-      mainPlotCommitted.value = false
-      customMode.value = false
-      customLogline.value = ''
-      plotSuggestError.value = ''
+      resetWizardStateForOpen()
       void startBibleGeneration()
     } else {
-      biblePollEpoch.value += 1
-      clearGenerationTimers()
-      generatingBible.value = false
+      stopGenerationOnClose()
     }
-  },
-  { immediate: true }
+  }
 )
+
+onMounted(() => {
+  if (props.show) {
+    resetWizardStateForOpen()
+    void startBibleGeneration()
+  }
+})
+
+onUnmounted(() => {
+  stopGenerationOnClose()
+})
 
 watch(currentStep, (step) => {
   if (step === 4 && props.show && plotOptions.value.length === 0 && !plotSuggesting.value) {

@@ -37,8 +37,11 @@
         <div class="value">{{ formatWords(status?.total_words) }}</div>
       </div>
       <div class="ap-cell">
-        <div class="label">当前幕 / 节拍</div>
+        <div class="label">当前章 / 幕 / 节拍</div>
         <div class="value">
+          <template v-if="status?.current_chapter_number != null && isWriting">
+            第 {{ status.current_chapter_number }} 章 ·
+          </template>
           第 {{ (status?.current_act || 0) + 1 }} 幕
           <span v-if="isWriting">· {{ beatLabel }}</span>
         </div>
@@ -259,9 +262,11 @@ const stageTagClass = computed(() => ({
   'tag-idle':    !isRunning.value && !needsReview.value,
 }))
 
+/** 与守护进程一致：current_beat_index 为 0-based「下一节拍索引」，展示为 1-based 与 /autopilot/stream 日志对齐 */
 const beatLabel = computed(() => {
-  const b = status.value?.current_beat_index || 0
-  return b === 0 ? '准备' : `节拍 ${b}`
+  if (!isWriting.value) return ''
+  const b = status.value?.current_beat_index ?? 0
+  return `节拍 ${Number(b) + 1}`
 })
 
 const tensionLabel = computed(() => {
