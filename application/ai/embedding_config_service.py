@@ -1,11 +1,12 @@
 """EmbeddingConfigService — 嵌入模型配置管理服务（数据库驱动）。
 
-将嵌入模型配置持久化到 SQLite embedding_config 表，
-替代之前硬编码默认值的临时实现。
+将嵌入模型配置持久化到 SQLite embedding_config 表；
+默认模型 ID / 本地路径由环境变量或用户在设置中填写，不在代码中写死。
 """
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -21,9 +22,9 @@ class EmbeddingConfigModel(BaseModel):
     mode: str = "openai"  # local | openai（默认云端，轻量）
     api_key: str = ""
     base_url: str = ""
-    model: str = "text-embedding-3-small"
+    model: str = ""
     use_gpu: bool = True
-    model_path: str = "BAAI/bge-small-zh-v1.5"
+    model_path: str = ""
     created_at: str = ""
     updated_at: str = ""
 
@@ -44,9 +45,9 @@ class EmbeddingConfigModel(BaseModel):
             mode=row.get("mode", "openai"),
             api_key=row.get("api_key", ""),
             base_url=row.get("base_url", ""),
-            model=row.get("model", "text-embedding-3-small"),
+            model=row.get("model", ""),
             use_gpu=bool(row.get("use_gpu", 1)),
-            model_path=row.get("model_path", "BAAI/bge-small-zh-v1.5"),
+            model_path=row.get("model_path", ""),
             created_at=row.get("created_at", ""),
             updated_at=row.get("updated_at", ""),
         )
@@ -66,9 +67,9 @@ class EmbeddingConfigService:
         "mode": "openai",
         "api_key": "",
         "base_url": "",
-        "model": "text-embedding-3-small",
+        "model": (os.getenv("EMBEDDING_MODEL") or "").strip(),
         "use_gpu": 1,
-        "model_path": "BAAI/bge-small-zh-v1.5",
+        "model_path": (os.getenv("LOCAL_EMBEDDING_MODEL_PATH") or "").strip(),
     }
 
     def __init__(self, db_connection=None):
@@ -97,8 +98,15 @@ class EmbeddingConfigService:
             (id, mode, api_key, base_url, model, use_gpu, model_path, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            "default", "openai", "", "", "text-embedding-3-small",
-            1, "BAAI/bge-small-zh-v1.5", now, now,
+            "default",
+            "openai",
+            "",
+            "",
+            (os.getenv("EMBEDDING_MODEL") or "").strip(),
+            1,
+            (os.getenv("LOCAL_EMBEDDING_MODEL_PATH") or "").strip(),
+            now,
+            now,
         ))
         db.get_connection().commit()
         logger.info("EmbeddingConfigService: 已初始化默认嵌入配置")

@@ -10,10 +10,9 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
 from .base import BaseProvider
+from .model_resolution import require_resolved_model_id
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MODEL = "gpt-4o"
 
 
 class OpenAIProvider(BaseProvider):
@@ -155,8 +154,13 @@ class OpenAIProvider(BaseProvider):
         *,
         stream: bool = False,
     ) -> dict[str, Any]:
+        model_id = require_resolved_model_id(
+            config.model,
+            self.settings.default_model,
+            provider_label="OpenAI 兼容",
+        )
         kwargs: dict[str, Any] = {
-            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+            "model": model_id,
             "messages": messages,
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
@@ -176,8 +180,13 @@ class OpenAIProvider(BaseProvider):
         *,
         stream: bool = False,
     ) -> dict[str, Any]:
+        model_id = require_resolved_model_id(
+            config.model,
+            self.settings.default_model,
+            provider_label="OpenAI 兼容",
+        )
         kwargs: dict[str, Any] = {
-            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+            "model": model_id,
             "instructions": prompt.system,
             "input": [{"role": "user", "content": prompt.user}],
             "temperature": config.temperature,

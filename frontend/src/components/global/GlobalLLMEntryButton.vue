@@ -40,23 +40,51 @@
     </button>
 
     <teleport to="body">
-      <n-drawer
-        :show="showPanel"
-        placement="right"
-        :width="drawerWidth"
-        :close-on-esc="true"
+      <n-modal
+        v-model:show="showPanel"
+        preset="card"
+        title=""
+        :style="aiConsoleModalStyle"
+        :bordered="true"
+        :segmented="{ content: true, footer: 'soft' }"
         :mask-closable="true"
-        @update:show="handleDrawerShowChange"
+        :close-on-esc="true"
+        @update:show="handleModalShowChange"
       >
-        <n-drawer-content
-          closable
-          :header-style="drawerHeaderStyle"
-          :native-scrollbar="false"
-          :body-content-style="drawerBodyStyle"
-        >
-          <template #header>
-            <div class="global-llm-drawer-header">
-              <!-- 顶部 Tab 切换 -->
+        <template #header>
+          <div class="ai-console-modal-header">
+            <div class="modal-header">
+              <div class="modal-header-left">
+                <span class="modal-header-icon modal-header-icon-llm" aria-hidden="true">AI</span>
+                <span class="modal-header-title">AI 控制台</span>
+                <n-tag
+                  v-if="drawerTab === 'llm'"
+                  size="small"
+                  :type="runtimeSummary?.using_mock ? 'warning' : 'info'"
+                  :bordered="false"
+                >
+                  {{
+                    runtimeLoading
+                      ? '读取中…'
+                      : runtimeSummary?.using_mock
+                        ? 'Mock'
+                        : (runtimeSummary?.protocol || '未连接')
+                  }}
+                </n-tag>
+              </div>
+              <div class="modal-header-actions">
+                <n-button
+                  v-if="drawerTab === 'llm'"
+                  size="small"
+                  secondary
+                  @click="modelSettingsModalRef?.open()"
+                >
+                  核心引擎
+                </n-button>
+              </div>
+            </div>
+
+            <div class="ai-console-header-stack">
               <div class="drawer-tab-switch">
                 <div class="drawer-tab-track" :style="{ transform: `translateX(${drawerTab === 'embedding' ? 0 : '100%'})` }"></div>
                 <button
@@ -77,7 +105,6 @@
                 </button>
               </div>
 
-              <!-- 运行时状态栏（仅 LLM 标签页显示） -->
               <div v-if="drawerTab === 'llm'" class="global-llm-runtime-bar" :class="{ 'is-mock': runtimeSummary?.using_mock }">
                 <div class="global-llm-runtime-main">
                   <span class="global-llm-runtime-label">当前激活模型</span>
@@ -86,9 +113,6 @@
                   </span>
                 </div>
                 <div class="global-llm-runtime-meta">
-                  <n-button size="tiny" secondary @click="modelSettingsModalRef?.open()">
-                    核心引擎
-                  </n-button>
                   <span class="global-llm-runtime-chip">
                     {{ runtimeSummary?.protocol || (runtimeLoading ? 'loading' : 'mock') }}
                   </span>
@@ -98,22 +122,24 @@
                 </div>
               </div>
 
-              <!-- 嵌入模型标题（仅嵌入标签页显示） -->
               <div v-else class="embedding-header-info">
                 <div class="embedding-header-title">向量检索使用的嵌入模型配置</div>
-                <div class="embedding-header-desc">每本书的向量索引与嵌入模型绑定，一旦开始写作后切换模型将导致已有索引不可用。如需更换，请先删除对应书籍的向量数据（data/chromadb/）再重新生成。</div>
+                <div class="embedding-header-desc">
+                  每本书的向量索引与嵌入模型绑定，一旦开始写作后切换模型将导致已有索引不可用。如需更换，请先删除对应书籍的向量数据（data/chromadb/）再重新生成。
+                </div>
               </div>
             </div>
-          </template>
+          </div>
+        </template>
 
-          <div class="global-llm-drawer-body">
-            <div class="drawer-scroll-content">
+        <div class="modal-body ai-console-modal-body">
+          <div class="drawer-scroll-content">
               <!-- ══════════════════════════════════
                    LLM 设置面板
                    ══════════════════════════════════ -->
               <div v-show="drawerTab === 'llm'">
                 <LLMControlPanel
-                  scroll-state-key="global-drawer"
+                  scroll-state-key="global-modal"
                   @panel-updated="handlePanelUpdated"
                 />
               </div>
@@ -204,10 +230,20 @@
                   </div>
                 </template>
               </div>
-            </div>
           </div>
-        </n-drawer-content>
-      </n-drawer>
+        </div>
+
+        <template #footer>
+          <div class="modal-footer-hint">
+            <template v-if="drawerTab === 'llm'">
+              配置持久化在本地 SQLite；激活档案需填写有效的 API Key 与模型 ID 后才会走真实网关。
+            </template>
+            <template v-else>
+              嵌入模型与向量维度绑定；更换模型后通常需要重建索引。
+            </template>
+          </div>
+        </template>
+      </n-modal>
 
       <!-- 核心引擎配置模态框 -->
       <ModelSettingsModal ref="modelSettingsModalRef" />
@@ -217,7 +253,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NDrawer, NDrawerContent, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin } from 'naive-ui'
+import { NModal, NTag, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin } from 'naive-ui'
 import {
   llmControlApi,
   type LLMControlPanelData,
@@ -244,28 +280,13 @@ const runtimeLoading = ref(false)
 const runtimeSummary = ref<LLMRuntimeSummary | null>(null)
 const modelSettingsModalRef = ref<InstanceType<typeof ModelSettingsModal> | null>(null)
 
-const drawerWidth = computed(() => {
-  const width = document.documentElement?.clientWidth || window.innerWidth || 1440
-  if (width <= 640) return width
-  if (width <= 900) return Math.max(360, Math.round(width * 0.96))
-  if (width <= 1280) return Math.min(960, Math.round(width * 0.84))
-  return 1040
-})
-
-const drawerBodyStyle = computed(() => {
-  const width = document.documentElement?.clientWidth || window.innerWidth || 1440
-  return {
-    padding: '0',
-    height: width <= 768 ? 'calc(100vh - 56px)' : 'calc(100vh - 68px)',
-  }
-})
-
-const drawerHeaderStyle = computed(() => {
-  const width = document.documentElement?.clientWidth || window.innerWidth || 1440
-  return {
-    padding: width <= 768 ? '16px 16px 12px' : '18px 20px 14px',
-  }
-})
+/** 与提示词广场入口弹窗一致的居中卡片尺寸 */
+const aiConsoleModalStyle = {
+  width: '92vw',
+  maxWidth: '1100px',
+  height: '85vh',
+  marginTop: '5vh',
+} as const
 
 async function refreshRuntimeSummary() {
   runtimeLoading.value = true
@@ -283,7 +304,7 @@ function handlePanelUpdated(data: LLMControlPanelData) {
   runtimeSummary.value = data.runtime
 }
 
-function handleDrawerShowChange(value: boolean) {
+function handleModalShowChange(value: boolean) {
   showPanel.value = value
   if (value) void refreshRuntimeSummary()
 }
@@ -300,9 +321,9 @@ const embeddingForm = ref<EmbeddingConfig>({
   mode: 'local',
   api_key: '',
   base_url: '',
-  model: 'text-embedding-3-small',
+  model: '',
   use_gpu: true,
-  model_path: 'BAAI/bge-small-zh-v1.5',
+  model_path: '',
 })
 
 async function loadEmbeddingConfig() {
@@ -609,11 +630,74 @@ function openPanel() {
   text-overflow: ellipsis;
 }
 
-/* ── Drawer Header ─────────────────────────────────── */
-.global-llm-drawer-header {
+/* ── 居中弹窗头部（对齐提示词广场 modal-header）── */
+.ai-console-modal-header {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+}
+
+.ai-console-header-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+}
+
+.modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.modal-header-icon-llm {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  color: var(--app-text-inverse);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.modal-header-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+}
+
+.modal-header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.modal-body.ai-console-modal-body {
+  height: calc(85vh - 230px);
+  min-height: 260px;
+  overflow: hidden;
+  border-radius: var(--app-radius-md, 8px);
+}
+
+.modal-footer-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.55;
 }
 
 /* ── Tab Switch（切换嵌入/LLM）── */
@@ -764,15 +848,9 @@ function openPanel() {
   font-size: 12px;
 }
 
-/* ── Drawer Body ───────────────────────────────────── */
-.global-llm-drawer-body {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
 .drawer-scroll-content {
   height: 100%;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
 }

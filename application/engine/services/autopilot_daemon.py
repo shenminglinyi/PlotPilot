@@ -25,6 +25,7 @@ from application.engine.services.background_task_service import BackgroundTaskSe
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
 from application.engine.services.style_constraint_builder import build_style_summary
+from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.word_count import WordCount
@@ -958,7 +959,7 @@ class AutopilotDaemon:
             logger.warning("[%s] 文风定向修文失败（attempt=%d）：%s", novel.novel_id, attempt, e)
             return None
 
-        rewritten = (result.content or "").strip()
+        rewritten = strip_reasoning_artifacts((result.content or "").strip())
         if not rewritten:
             return None
         return rewritten
@@ -1223,7 +1224,7 @@ class AutopilotDaemon:
         if novel is not None:
             self._merge_autopilot_status_from_db(novel)
 
-        return content
+        return strip_reasoning_artifacts(content)
 
     async def _push_streaming_chunk(self, novel_id: str, chunk: str):
         """推送增量文字到全局流式队列，供 SSE 接口消费"""

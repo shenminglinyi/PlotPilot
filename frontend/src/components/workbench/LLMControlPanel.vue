@@ -165,7 +165,7 @@
                 <n-auto-complete
                   v-model:value="selectedProfile.model"
                   :options="fetchedModelOptions"
-                  placeholder="例如：gpt-4o / claude-sonnet-4-6 / gemini-2.0-flash / deepseek-chat"
+                  placeholder="填写所用网关文档中的模型 ID（本处不预设具体名称）"
                   clearable
                   style="flex: 1"
                 />
@@ -231,6 +231,8 @@
               </div>
               <n-alert type="info" :show-icon="false" class="llm-tip">
                 这里用于兼容特殊网关：如 <code>reasoning_effort</code>、<code>top_p</code>、厂商专属开关、额外 header / query。
+                若使用带「思考链」的模型，请确认网关会把推理与正文分离；否则正文里可能出现推理片段，可换用标准聊天模型或更新到最新版本（服务端会自动剥离常见
+                <code>think</code>、<code>redacted_reasoning</code> 等标签）。
               </n-alert>
             </n-collapse-item>
           </n-collapse>

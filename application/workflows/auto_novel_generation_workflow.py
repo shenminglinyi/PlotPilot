@@ -23,6 +23,7 @@ from domain.novel.value_objects.consistency_context import ConsistencyContext
 from domain.novel.value_objects.novel_id import NovelId
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -378,7 +379,7 @@ class AutoNovelGenerationWorkflow:
                 beat_content = llm_result.content
                 content_parts.append(beat_content)
             
-            content = "".join(content_parts)
+            content = strip_reasoning_artifacts("".join(content_parts))
             logger.info(f"  ✓ 节拍生成完成: {len(beats)} 个节拍, {len(content)} 字符")
         else:
             # 传统单段生成
@@ -392,7 +393,7 @@ class AutoNovelGenerationWorkflow:
             )
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
             llm_result = await self.llm_service.generate(prompt, config)
-            content = llm_result.content
+            content = strip_reasoning_artifacts(llm_result.content or "")
             logger.info(f"  ✓ LLM 响应已接收: {len(content)} 字符")
         
         # 保存微观节拍用于后续处理
@@ -527,7 +528,7 @@ class AutoNovelGenerationWorkflow:
                     content_parts.append(beat_content)
                     yield {"type": "beat_done", "beat_index": i, "beat_content_length": len(beat_content)}
                 
-                content = "".join(content_parts)
+                content = strip_reasoning_artifacts("".join(content_parts))
             else:
                 # 传统单段生成
                 prompt = self._build_prompt(
@@ -558,7 +559,7 @@ class AutoNovelGenerationWorkflow:
                         }
                     }
 
-                content = "".join(parts)
+                content = strip_reasoning_artifacts("".join(parts))
             logger.info(f"  ✓ LLM 流式响应完成: {chunk_count} 个块, {len(content)} 字符")
 
             if not content.strip():
@@ -636,7 +637,7 @@ class AutoNovelGenerationWorkflow:
             )
             cfg = GenerationConfig(max_tokens=1024, temperature=0.7)
             out = await self.llm_service.generate(outline_prompt, cfg)
-            text = (out.content or "").strip()
+            text = strip_reasoning_artifacts((out.content or "").strip())
             if text:
                 return text
         except Exception as e:

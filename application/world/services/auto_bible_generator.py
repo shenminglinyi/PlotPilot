@@ -390,6 +390,12 @@ class AutoBibleGenerator:
             # 基于已有世界观生成人物
             existing_worldbuilding = self._load_worldbuilding(novel_id)
             bible_data = await self._generate_characters(premise, target_chapters, existing_worldbuilding)
+            chars_payload = bible_data.get("characters") or []
+            if not chars_payload:
+                raise ValueError(
+                    "角色生成未得到任何人物：多为模型输出非 JSON、截断或解析失败。"
+                    "请确认 AI 控制台模型可用并适当增大超时；也可查看服务端日志中的 LLM 原始片段。"
+                )
             # 保存人物
             character_ids = []
             used_char_ids = set()  # 用于跟踪已使用的人物ID
@@ -436,6 +442,12 @@ class AutoBibleGenerator:
             existing_worldbuilding = self._load_worldbuilding(novel_id)
             existing_characters = self._load_characters(novel_id)
             bible_data = await self._generate_locations(premise, target_chapters, existing_worldbuilding, existing_characters)
+            locs_payload = bible_data.get("locations") or []
+            if not locs_payload:
+                raise ValueError(
+                    "地点生成未得到任何地点：多为模型输出非 JSON、截断或解析失败。"
+                    "请确认 AI 控制台模型可用并适当增大超时；也可查看服务端日志中的 LLM 原始片段。"
+                )
             # 保存地点
             location_ids = []
             for loc_data in self._prepare_locations_for_save(novel_id, bible_data.get("locations", [])):
@@ -711,21 +723,67 @@ JSON 格式（不要有其他文字）：
         except Exception as e:
             logger.error(f"Failed to save to Bible.world_settings: {e}")
 
-    def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
-        """加载已有世界观"""
-        if not self.worldbuilding_service:
-            return {}
+    def _worldbuilding_dict_nonempty(self, data: Dict[str, Any]) -> bool:
+        for block in data.values():
+            if not isinstance(block, dict):
+                continue
+            if any(str(v).strip() for v in block.values()):
+                return True
+        return False
+
+    def _worldbuilding_from_bible_world_settings(self, novel_id: str) -> Dict[str, Any]:
+        """从 Bible.world_settings 的「维度.键」扁平名还原五维 dict（与向导第 1 步写入格式一致）。"""
+        dims: Dict[str, Dict[str, str]] = {
+            "core_rules": {},
+            "geography": {},
+            "society": {},
+            "culture": {},
+            "daily_life": {},
+        }
+        dim_keys = frozenset(dims.keys())
         try:
-            wb = self.worldbuilding_service.get_worldbuilding(novel_id)
-            return {
-                "core_rules": wb.core_rules,
-                "geography": wb.geography,
-                "society": wb.society,
-                "culture": wb.culture,
-                "daily_life": wb.daily_life
-            }
-        except:
+            bible = self.bible_service.get_bible(novel_id)
+        except Exception:
             return {}
+        if bible is None:
+            return {}
+        for s in bible.world_settings or []:
+            name = (getattr(s, "name", None) or "").strip()
+            dot = name.find(".")
+            if dot < 0:
+                continue
+            dim, key = name[:dot], name[dot + 1 :].strip()
+            if dim not in dim_keys or not key:
+                continue
+            desc = (getattr(s, "description", None) or "").strip()
+            dims[dim][key] = desc
+        return dims
+
+    def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
+        """加载已有世界观：优先 worldbuilding 表，若为空则回退 Bible.world_settings（避免第 1 步只落 Bible 时角色步拿到「无」）。"""
+        merged: Dict[str, Any] = {}
+        if self.worldbuilding_service:
+            try:
+                wb = self.worldbuilding_service.get_worldbuilding(novel_id)
+                if wb is not None:
+                    merged = {
+                        "core_rules": dict(wb.core_rules),
+                        "geography": dict(wb.geography),
+                        "society": dict(wb.society),
+                        "culture": dict(wb.culture),
+                        "daily_life": dict(wb.daily_life),
+                    }
+            except Exception:
+                merged = {}
+
+        if self._worldbuilding_dict_nonempty(merged):
+            return merged
+
+        from_bible = self._worldbuilding_from_bible_world_settings(novel_id)
+        if self._worldbuilding_dict_nonempty(from_bible):
+            return from_bible
+
+        return merged
 
     def _load_characters(self, novel_id: str) -> list:
         """加载已有人物"""

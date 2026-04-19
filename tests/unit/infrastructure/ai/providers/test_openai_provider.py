@@ -41,6 +41,13 @@ class TestOpenAIProviderLegacy:
         assert provider._use_legacy is True
 
     @pytest.mark.anyio
+    async def test_generate_requires_model_id(self, provider):
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="", max_tokens=32, temperature=0.5)
+        with pytest.raises(ValueError, match="未配置模型 ID"):
+            await provider.generate(prompt, config)
+
+    @pytest.mark.anyio
     async def test_generate_non_stream(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="gpt-4o", temperature=0.7, max_tokens=4096)
@@ -114,7 +121,7 @@ class TestOpenAIProviderLegacy:
     @pytest.mark.anyio
     async def test_generate_empty_content_raises(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
-        config = GenerationConfig()
+        config = GenerationConfig(model="test-model")
         empty_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=None))],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
@@ -202,7 +209,7 @@ class TestOpenAIProviderResponses:
     @pytest.mark.anyio
     async def test_generate_empty_responses_raises(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
-        config = GenerationConfig()
+        config = GenerationConfig(model="test-model")
         response = SimpleNamespace(
             output=[],
             usage=SimpleNamespace(prompt_tokens=5, completion_tokens=0),

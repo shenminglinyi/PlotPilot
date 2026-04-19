@@ -20,6 +20,7 @@ from json_repair import repair_json
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 
 logger = logging.getLogger(__name__)
@@ -62,9 +63,9 @@ def sanitize_llm_output(raw: str) -> str:
 
     处理内容：
     1. BOM 头 (\\ufeff)
-    2. Markdown 代码块围栏 (```json ... ```)
-    3. 前后空白 / 零宽字符
-    4. <think|>...</think|> 思维链标签（部分模型会输出）
+    2. 思维链 / reasoning 块（见 strip_reasoning_artifacts）
+    3. Markdown 代码块围栏 (```json ... ```)
+    4. 前后空白 / 零宽字符
     """
     s = raw
 
@@ -72,9 +73,8 @@ def sanitize_llm_output(raw: str) -> str:
     if s and s[0] == "\ufeff":
         s = s[1:]
 
-    # 2. 去思维链标签（如 <think|>...</think|>）
-    s = re.sub(r"<think\|?>.*?</think\|?>", "", s, flags=re.DOTALL)
-    s = re.sub(r"<thinking>.*?</thinking>", "", s, flags=re.DOTALL)
+    # 2. 去思维链与厂商 reasoning 围栏
+    s = strip_reasoning_artifacts(s)
 
     # 3. 去 markdown 围栏
     #    匹配 ```json ... ``` 或 ``` ... ```

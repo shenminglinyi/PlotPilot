@@ -314,11 +314,12 @@ export const workflowApi = {
   getStorylineGraphData: (novelId: string) =>
     apiClient.get<StorylineGraphDataDTO>(`/novels/${novelId}/storylines/graph-data`) as unknown as Promise<StorylineGraphDataDTO>,
 
-  /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options */
+  /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options（单次 LLM，易超过默认 120s） */
   suggestMainPlotOptions: (novelId: string) =>
     apiClient.post<{ plot_options: MainPlotOptionDTO[] }>(
       `/novels/${novelId}/setup/suggest-main-plot-options`,
-      {}
+      {},
+      { timeout: 300_000 }
     ) as unknown as Promise<{ plot_options: MainPlotOptionDTO[] }>,
 
   /** POST /api/v1/novels/{novel_id}/storylines */

@@ -11,10 +11,9 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
 from .base import BaseProvider
+from .model_resolution import require_resolved_model_id
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 def _extract_text_from_content_block(block: Any) -> str:
@@ -116,9 +115,14 @@ class AnthropicProvider(BaseProvider):
             RuntimeError: 当 API 调用失败或返回空内容时
         """
         try:
+            model_id = require_resolved_model_id(
+                config.model,
+                self.settings.default_model,
+                provider_label="Anthropic / Claude",
+            )
             # 构建请求参数
             create_kwargs = {
-                "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+                "model": model_id,
                 "temperature": config.temperature,
                 "max_tokens": config.max_tokens,
                 "system": prompt.system,
@@ -182,8 +186,13 @@ class AnthropicProvider(BaseProvider):
             **(self.settings.extra_headers or {}),
         }
 
+        model_id = require_resolved_model_id(
+            config.model,
+            self.settings.default_model,
+            provider_label="Anthropic / Claude",
+        )
         payload = {
-            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+            "model": model_id,
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "system": prompt.system,
