@@ -5,7 +5,7 @@ from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.novel_id import NovelId
 from domain.shared.exceptions import EntityNotFoundError
-from application.services.chapter_service import ChapterService
+from application.core.services.chapter_service import ChapterService
 
 
 class TestChapterService:
@@ -116,6 +116,16 @@ class TestChapterService:
 
     def test_delete_chapter(self, service, mock_chapter_repository):
         """测试删除章节"""
+        chapter = Chapter(
+            id="chapter-1",
+            novel_id=NovelId("novel-1"),
+            number=1,
+            title="第一章",
+            content="",
+        )
+        mock_chapter_repository.get_by_id.return_value = chapter
+
         service.delete_chapter("chapter-1")
 
+        mock_chapter_repository.get_by_id.assert_called_once_with(ChapterId("chapter-1"))
         mock_chapter_repository.delete.assert_called_once_with(ChapterId("chapter-1"))

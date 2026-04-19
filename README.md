@@ -1,13 +1,15 @@
 # PlotPilot（墨枢）
 
-<img width="400" height="300" alt="微信图片_20260415003740_893_102" src="https://github.com/user-attachments/assets/71f083b8-a787-4eaf-a927-b15185a4f317" />
+<p align="center">
+  <img src="docs/plotpilot-readme.png" alt="PlotPilot 墨枢" width="480" />
+</p>
 
 > AI 驱动的长篇创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)](https://vuejs.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?style=flat&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-D22128?style=flat&logo=apache&logoColor=white)](LICENSE)
 
 - **顶层架构**：上下文管理、知识体系、消费组件、状态感知等，超过 20 余个 prompt 接点，支持定制。
 - **通用设计**：通过提示词定制，支持短篇小说、超长篇小说、剧本、标书、转录等多种任务类型。
@@ -46,6 +48,13 @@
 
 ---
 
+## 桌面安装版（Windows · Tauri）
+
+- **下载**：[GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases)（当前线：`PlotPilot_*_x64-setup.exe`，NSIS）
+- **说明**：安装包内含冻结后端，无需单独装 Python；详细构建说明见 `[docs/BUILD_INSTALLER.md](docs/BUILD_INSTALLER.md)`。
+
+---
+
 ## 开发者启动
 
 **环境要求**：Python 3.9+、Node.js 18+
@@ -69,26 +78,30 @@ cd frontend && npm install && npm run dev
 
 ## 技术栈
 
-| 层 | 技术 |
-|---|---|
-| 后端框架 | FastAPI + uvicorn，DDD 四层架构 |
-| AI 模型 | OpenAI 兼容协议 / Anthropic Claude / 火山方舟 Doubao |
-| 向量存储 | 本地 FAISS（无需额外服务） |
-| 嵌入模型 | OpenAI 兼容 API（默认）/ 本地 sentence-transformers（见 `requirements-local.txt`） |
-| 主数据库 | SQLite |
-| 前端 | Vue 3 + TypeScript + Vite + Naive UI + ECharts |
+
+| 层     | 技术                                                                      |
+| ----- | ----------------------------------------------------------------------- |
+| 后端框架  | FastAPI + uvicorn，DDD 四层架构                                              |
+| AI 模型 | OpenAI 兼容协议 / Anthropic Claude / 火山方舟 Doubao                            |
+| 向量存储  | 本地 FAISS（无需额外服务）                                                        |
+| 嵌入模型  | OpenAI 兼容 API（默认）/ 本地 sentence-transformers（见 `requirements-local.txt`） |
+| 主数据库  | SQLite                                                                  |
+| 前端    | Vue 3 + TypeScript + Vite + Naive UI + ECharts                          |
+
 
 ---
 
 ## 环境变量
 
-| 变量 | 说明 |
-|---|---|
-| `ANTHROPIC_API_KEY` / `ARK_API_KEY` | 至少配置一个 LLM 凭证 |
-| `EMBEDDING_SERVICE` | `openai`（默认）或 `local`（本地需额外安装模型） |
-| `CORS_ORIGINS` | 生产环境前端域名，逗号分隔 |
-| `DISABLE_AUTO_DAEMON` | 设为 `1` 禁止启动时自动拉起守护进程 |
-| `LOG_LEVEL` / `LOG_FILE` | 日志级别与路径 |
+
+| 变量                                  | 说明                               |
+| ----------------------------------- | -------------------------------- |
+| `ANTHROPIC_API_KEY` / `ARK_API_KEY` | 至少配置一个 LLM 凭证                    |
+| `EMBEDDING_SERVICE`                 | `openai`（默认）或 `local`（本地需额外安装模型） |
+| `CORS_ORIGINS`                      | 生产环境前端域名，逗号分隔                    |
+| `DISABLE_AUTO_DAEMON`               | 设为 `1` 禁止启动时自动拉起守护进程             |
+| `LOG_LEVEL` / `LOG_FILE`            | 日志级别与路径                          |
+
 
 完整说明见 `.env.example`。
 
@@ -106,10 +119,10 @@ pytest tests/ -v
 
 ## 贡献
 
-1. Fork 本仓库  
-2. 新建分支：`git checkout -b feat/your-feature`  
-3. 提交说明建议遵循 [Conventional Commits](https://www.conventionalcommits.org/)  
-4. 推送并发起 Pull Request  
+1. Fork 本仓库
+2. 新建分支：`git checkout -b feat/your-feature`
+3. 提交说明建议遵循 [Conventional Commits](https://www.conventionalcommits.org/)
+4. 推送并发起 Pull Request
 
 ---
 
