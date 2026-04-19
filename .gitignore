@@ -158,4 +158,4 @@ mcps/
 .history/
 frontend/%USERPROFILE%/
 test_llm.py
-.gitignore.gitignore
+.gitignore
