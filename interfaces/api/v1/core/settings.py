@@ -146,9 +146,9 @@ class EmbeddingConfigUpdate(BaseModel):
     mode: str = "local"
     api_key: str = ""
     base_url: str = ""
-    model: str = "text-embedding-3-small"
+    model: str = ""
     use_gpu: bool = True
-    model_path: str = "BAAI/bge-small-zh-v1.5"
+    model_path: str = ""
 
 
 @embedding_router.get("/")

@@ -37,8 +37,11 @@
         <div class="value">{{ formatWords(status?.total_words) }}</div>
       </div>
       <div class="ap-cell">
-        <div class="label">当前幕 / 节拍</div>
+        <div class="label">当前章 / 幕 / 节拍</div>
         <div class="value">
+          <template v-if="status?.current_chapter_number != null && isWriting">
+            第 {{ status.current_chapter_number }} 章 ·
+          </template>
           第 {{ (status?.current_act || 0) + 1 }} 幕
           <span v-if="isWriting">· {{ beatLabel }}</span>
         </div>
@@ -176,7 +179,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
-import { subscribeChapterStream } from '../../api/config'
+import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 
 const props = defineProps({ novelId: String })
 const emit = defineEmits(['status-change', 'chapter-content-update', 'chapter-start', 'chapter-chunk'])
@@ -259,9 +262,11 @@ const stageTagClass = computed(() => ({
   'tag-idle':    !isRunning.value && !needsReview.value,
 }))
 
+/** 与守护进程一致：current_beat_index 为 0-based「下一节拍索引」，展示为 1-based 与 /autopilot/stream 日志对齐 */
 const beatLabel = computed(() => {
-  const b = status.value?.current_beat_index || 0
-  return b === 0 ? '准备' : `节拍 ${b}`
+  if (!isWriting.value) return ''
+  const b = status.value?.current_beat_index ?? 0
+  return `节拍 ${Number(b) + 1}`
 })
 
 const tensionLabel = computed(() => {
@@ -282,11 +287,11 @@ function formatWords(n) {
   return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : String(n)
 }
 
-// API 调用
-const base = () => `/api/v1/autopilot/${props.novelId}`
+// API 调用（路径须经 resolveHttpUrl，桌面壳下不能用相对 /api）
+const autopilotApiRoot = () => `/api/v1/autopilot/${props.novelId}`
 
 async function fetchStatus() {
-  const res = await fetch(`${base()}/status`)
+  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`))
   if (res.status === 404) {
     clearStatusPoll()
     status.value = null
@@ -367,11 +372,12 @@ async function start() {
     }
 
     if (Object.keys(novelPatch).length > 0) {
-      const updateRes = await fetch(`/api/v1/novels/${props.novelId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(novelPatch)
-      })
+      const updateRes = await fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(novelPatch),
+        },
+      )
       if (!updateRes.ok) {
         message.error('更新书目目标章数或每章字数失败')
         return
@@ -379,13 +385,16 @@ async function start() {
     }
 
     if (currentAutoApprove !== newAutoApprove) {
-      const approveRes = await fetch(`/api/v1/novels/${props.novelId}/auto-approve-mode`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          auto_approve_mode: newAutoApprove
-        })
-      })
+      const approveRes = await fetch(
+        resolveHttpUrl(`/api/v1/novels/${props.novelId}/auto-approve-mode`),
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            auto_approve_mode: newAutoApprove,
+          }),
+        },
+      )
       if (!approveRes.ok) {
         message.error('更新全自动模式失败')
         return
@@ -393,12 +402,12 @@ async function start() {
     }
     
     // 然后启动自动驾驶
-    const res = await fetch(`${base()}/start`, {
+    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        max_auto_chapters: startConfig.value.max_auto_chapters
-      })
+        max_auto_chapters: startConfig.value.max_auto_chapters,
+      }),
     })
     if (res.ok) {
       const modeText = startConfig.value.auto_approve_mode ? '（全自动模式）' : ''
@@ -413,7 +422,9 @@ async function start() {
 
 async function stop() {
   toggling.value = true
-  await fetch(`${base()}/stop`, { method: 'POST' })
+  await fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
+    method: 'POST',
+  })
   message.info('已停止')
   await fetchStatus()
   toggling.value = false
@@ -421,7 +432,9 @@ async function stop() {
 
 async function resume() {
   toggling.value = true
-  const res = await fetch(`${base()}/resume`, { method: 'POST' })
+  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), {
+    method: 'POST',
+  })
   if (res.ok) message.success('已确认大纲，开始写作')
   else { const e = await res.json(); message.error(e.detail || '恢复失败') }
   await fetchStatus()
@@ -431,7 +444,10 @@ async function resume() {
 async function clearCircuitBreaker() {
   toggling.value = true
   try {
-    const res = await fetch(`${base()}/circuit-breaker/reset`, { method: 'POST' })
+    const res = await fetch(
+      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
+      { method: 'POST' },
+    )
     if (res.ok) {
       message.success('已解除挂起并清零失败计数，可重新启动全托管')
       await fetchStatus()

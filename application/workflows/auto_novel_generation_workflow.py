@@ -23,6 +23,8 @@ from domain.novel.value_objects.consistency_context import ConsistencyContext
 from domain.novel.value_objects.novel_id import NovelId
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.llm_output_sanitize import strip_reasoning_artifacts
+from application.workflows.beat_continuation import format_prior_draft_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -356,8 +358,9 @@ class AutoNovelGenerationWorkflow:
         # 根据是否使用节拍选择不同的生成策略
         if enable_beats and beats:
             # 按节拍生成
-            content_parts = []
+            content_parts: list[str] = []
             for i, beat in enumerate(beats):
+                prior_draft = "\n\n".join(content_parts)
                 beat_prompt_text = self.context_builder.build_beat_prompt(beat, i, len(beats))
                 logger.info(f"生成节拍 {i+1}/{len(beats)}: {beat.focus} - {beat.description[:50]}...")
                 
@@ -372,13 +375,14 @@ class AutoNovelGenerationWorkflow:
                     total_beats=len(beats),
                     beat_target_words=beat.target_words,
                     voice_anchors=bundle.get("voice_anchors") or "",
+                    chapter_draft_so_far=prior_draft,
                 )
                 
                 llm_result = await self.llm_service.generate(prompt, config)
                 beat_content = llm_result.content
                 content_parts.append(beat_content)
             
-            content = "".join(content_parts)
+            content = strip_reasoning_artifacts("".join(content_parts))
             logger.info(f"  ✓ 节拍生成完成: {len(beats)} 个节拍, {len(content)} 字符")
         else:
             # 传统单段生成
@@ -392,7 +396,7 @@ class AutoNovelGenerationWorkflow:
             )
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
             llm_result = await self.llm_service.generate(prompt, config)
-            content = llm_result.content
+            content = strip_reasoning_artifacts(llm_result.content or "")
             logger.info(f"  ✓ LLM 响应已接收: {len(content)} 字符")
         
         # 保存微观节拍用于后续处理
@@ -495,8 +499,9 @@ class AutoNovelGenerationWorkflow:
             # 根据是否使用节拍选择不同的生成策略
             if enable_beats and beats:
                 # 按节拍生成
-                content_parts = []
+                content_parts: list[str] = []
                 for i, beat in enumerate(beats):
+                    prior_draft = "\n\n".join(content_parts)
                     beat_prompt_text = self.context_builder.build_beat_prompt(beat, i, len(beats))
                     logger.info(f"生成节拍 {i+1}/{len(beats)}: {beat.focus} - {beat.description[:50]}...")
                     
@@ -511,6 +516,7 @@ class AutoNovelGenerationWorkflow:
                         total_beats=len(beats),
                         beat_target_words=beat.target_words,
                         voice_anchors=bundle.get("voice_anchors") or "",
+                        chapter_draft_so_far=prior_draft,
                     )
                     
                     beat_content = ""
@@ -527,7 +533,7 @@ class AutoNovelGenerationWorkflow:
                     content_parts.append(beat_content)
                     yield {"type": "beat_done", "beat_index": i, "beat_content_length": len(beat_content)}
                 
-                content = "".join(content_parts)
+                content = strip_reasoning_artifacts("".join(content_parts))
             else:
                 # 传统单段生成
                 prompt = self._build_prompt(
@@ -558,7 +564,7 @@ class AutoNovelGenerationWorkflow:
                         }
                     }
 
-                content = "".join(parts)
+                content = strip_reasoning_artifacts("".join(parts))
             logger.info(f"  ✓ LLM 流式响应完成: {chunk_count} 个块, {len(content)} 字符")
 
             if not content.strip():
@@ -636,7 +642,7 @@ class AutoNovelGenerationWorkflow:
             )
             cfg = GenerationConfig(max_tokens=1024, temperature=0.7)
             out = await self.llm_service.generate(outline_prompt, cfg)
-            text = (out.content or "").strip()
+            text = strip_reasoning_artifacts((out.content or "").strip())
             if text:
                 return text
         except Exception as e:
@@ -737,6 +743,7 @@ class AutoNovelGenerationWorkflow:
         total_beats: Optional[int] = None,
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
+        chapter_draft_so_far: str = "",
     ) -> Prompt:
         """构建与 HTTP 单章 / 流式 / 托管按节拍写作一致的 Prompt（对外 API）。"""
         return self._build_prompt(
@@ -750,6 +757,7 @@ class AutoNovelGenerationWorkflow:
             total_beats=total_beats,
             beat_target_words=beat_target_words,
             voice_anchors=voice_anchors,
+            chapter_draft_so_far=chapter_draft_so_far,
         )
 
     def _build_prompt(
@@ -765,6 +773,7 @@ class AutoNovelGenerationWorkflow:
         total_beats: Optional[int] = None,
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
+        chapter_draft_so_far: str = "",
     ) -> Prompt:
         """构建 LLM 提示词
 
@@ -778,6 +787,7 @@ class AutoNovelGenerationWorkflow:
             beat_index / total_beats: 节拍序号（0-based / 总数）
             beat_target_words: 本段目标字数（分节拍时覆盖「整章 2000-3000 字」说明）
             voice_anchors: Bible 角色声线/小动作锚点（高优先级 System 提示）
+            chapter_draft_so_far: 同章内当前节拍之前已生成的正文（拼接后传入，避免后续节拍重复）
 
         Returns:
             Prompt 对象
@@ -808,6 +818,7 @@ class AutoNovelGenerationWorkflow:
             )
 
         beat_mode = bool((beat_prompt or "").strip())
+        prior_in_chapter = format_prior_draft_for_prompt(chapter_draft_so_far)
         length_rule = (
             f"7. 本段约 {beat_target_words} 字（本章分多节输出之一，勿写章节标题）"
             if beat_target_words
@@ -815,10 +826,15 @@ class AutoNovelGenerationWorkflow:
         )
         beat_extra = ""
         if beat_mode and beat_index is not None and total_beats is not None and total_beats > 0:
-            beat_extra = (
-                f"\n9. 这是本章第 {beat_index + 1}/{total_beats} 段输出；若非第一段，须承接上文语义，"
-                "不要重复已写内容。\n"
-            )
+            if prior_in_chapter:
+                beat_extra = (
+                    f"\n9. 本章第 {beat_index + 1}/{total_beats} 段：用户消息中「本章已生成正文」为当前章已写部分，"
+                    "请从其**之后**自然续写，不得复述或改写其中对白与已发生情节。\n"
+                )
+            else:
+                beat_extra = (
+                    f"\n9. 本章第 {beat_index + 1}/{total_beats} 段：与前后节拍连贯，避免同章内重复铺垫或重复对白。\n"
+                )
 
         # ★ V6: 从 MemoryEngine 获取 fact_lock 文本块（T0 注入）
         fact_lock = ""
@@ -867,15 +883,27 @@ class AutoNovelGenerationWorkflow:
 - 推进主线情节，不要原地踏步
 - 结尾要有悬念或转折"""
 
+        if beat_mode and prior_in_chapter:
+            user_message += f"""
+
+【本章已生成正文（仅承接；禁止复述、改写或重复已交代的情节与对白；勿写章节标题）】
+{prior_in_chapter}
+"""
+
         if beat_mode:
             bi = beat_index if beat_index is not None else 0
             tb = total_beats if total_beats is not None else 1
+            beat_tail = (
+                "本段只写该节拍对应正文，紧接上文已写正文之后继续，衔接自然。"
+                if prior_in_chapter
+                else "本段只写该节拍对应正文，与全章其它节拍情节连贯。"
+            )
             user_message += f"""
 
 【节拍 {bi + 1}/{tb}】
 {(beat_prompt or '').strip()}
 
-本段只写该节拍对应正文，与上文衔接自然。"""
+{beat_tail}"""
 
         user_message += "\n\n开始撰写："
 

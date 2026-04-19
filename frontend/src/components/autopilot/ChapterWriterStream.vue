@@ -4,7 +4,7 @@
       <span class="pulse-dot"></span>
       <span class="header-text">
         正在生成第 {{ chapterNumber }} 章
-        <span v-if="beatIndex > 0" class="beat-badge">节拍 {{ beatIndex }}</span>
+        <span v-if="chapterNumber > 0" class="beat-badge">节拍 {{ (beatIndex || 0) + 1 }}</span>
       </span>
       <span class="word-count">{{ wordCount }} 字</span>
     </div>

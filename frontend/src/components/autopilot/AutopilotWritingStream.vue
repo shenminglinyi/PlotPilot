@@ -4,7 +4,7 @@
       <span class="stream-cursor">▋</span>
       <span class="stream-info">
         正在生成第 {{ writingChapterNumber }} 章
-        <span v-if="writingBeatIndex > 0" class="beat-badge">节拍 {{ writingBeatIndex }}</span>
+        <span v-if="writingChapterNumber > 0" class="beat-badge">节拍 {{ (writingBeatIndex || 0) + 1 }}</span>
       </span>
       <span class="stream-stats">
         {{ writingWordCount }} 字

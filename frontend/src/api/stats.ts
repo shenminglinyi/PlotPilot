@@ -1,26 +1,8 @@
-import axios from 'axios'
 import type { GlobalStats, ChapterStats, WritingProgress } from '../types/api'
+import { legacyStatsHttp } from './config'
 import { novelApi } from './novel'
 
-const request = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
-})
-
-// FastAPI returns SuccessResponse<T> as { success, data, message? }
-request.interceptors.response.use(response => {
-  const body = response.data
-  if (
-    body &&
-    typeof body === 'object' &&
-    'success' in body &&
-    (body as { success?: boolean }).success === true &&
-    'data' in body
-  ) {
-    return (body as { data: unknown }).data
-  }
-  return body
-})
+const request = legacyStatsHttp
 
 function enc(slug: string): string {
   return encodeURIComponent(slug)

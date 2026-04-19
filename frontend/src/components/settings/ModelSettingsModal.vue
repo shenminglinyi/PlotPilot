@@ -57,7 +57,7 @@
           </n-gi>
           <n-gi>
             <n-form-item label="模型名">
-              <n-input v-model:value="formData.default_model" placeholder="gpt-4o / claude-sonnet-4-6" />
+              <n-input v-model:value="formData.default_model" placeholder="网关文档中的主模型 ID" />
             </n-form-item>
           </n-gi>
         </n-grid>
@@ -91,7 +91,7 @@
             </n-gi>
             <n-gi>
               <n-form-item label="模型名">
-                <n-input v-model:value="formData.cheap_model" placeholder="gpt-4o-mini 等" />
+                <n-input v-model:value="formData.cheap_model" placeholder="轻量/低成本模型 ID（按网关文档填写）" />
               </n-form-item>
             </n-gi>
           </n-grid>

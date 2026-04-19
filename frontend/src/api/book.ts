@@ -1,4 +1,3 @@
-import axios from 'axios'
 import type {
   BookListItem,
   BookDeskResponse,
@@ -17,6 +16,7 @@ import type {
   JobCreateResponse,
   JobStatusResponse,
 } from '../types/api'
+import { legacyBookHttp } from './config'
 
 // Legacy API client (old /api endpoints)
 // DEPRECATED: This file is maintained for backward compatibility only.
@@ -48,13 +48,7 @@ import type {
 //
 // TODO: Migrate existing components to new API clients before removing this file.
 
-const request = axios.create({
-  baseURL: '/api',
-  timeout: 30000,
-})
-
-// 添加响应拦截器，直接返回数据
-request.interceptors.response.use(response => response.data)
+const request = legacyBookHttp
 
 export const bookApi = {
   getList: () => request.get<BookListItem[]>('/books') as unknown as Promise<BookListItem[]>,

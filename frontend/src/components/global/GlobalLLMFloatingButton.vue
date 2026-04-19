@@ -60,59 +60,77 @@
       </button>
     </div>
 
-    <n-drawer
-      :show="showPanel"
-      placement="right"
-      :width="drawerWidth"
-      :close-on-esc="true"
+    <n-modal
+      v-model:show="showPanel"
+      preset="card"
+      title=""
+      :style="aiConsoleModalStyle"
+      :bordered="true"
+      :segmented="{ content: true, footer: 'soft' }"
       :mask-closable="true"
-      @update:show="handleDrawerShowChange"
+      :close-on-esc="true"
+      @update:show="handleModalShowChange"
     >
-      <n-drawer-content
-        closable
-        :header-style="drawerHeaderStyle"
-        :native-scrollbar="false"
-        :body-content-style="drawerBodyStyle"
-      >
-        <template #header>
-          <div class="global-llm-drawer-header">
-            <div class="global-llm-drawer-title-wrap">
-              <div class="global-llm-drawer-title">全局 LLM 设置</div>
-              <div class="global-llm-drawer-subtitle">统一控制当前项目的模型网关、协议与激活配置</div>
-            </div>
-
-            <div class="global-llm-runtime-bar" :class="{ 'is-mock': runtimeSummary?.using_mock }">
-              <div class="global-llm-runtime-main">
-                <span class="global-llm-runtime-label">当前激活模型</span>
-                <span class="global-llm-runtime-model">
-                  {{ runtimeSummary?.model || (runtimeLoading ? '读取中…' : '未配置') }}
-                </span>
-              </div>
-              <div class="global-llm-runtime-meta">
-                <span class="global-llm-runtime-chip">
-                  {{ runtimeSummary?.protocol || (runtimeLoading ? 'loading' : 'mock') }}
-                </span>
-                <span class="global-llm-runtime-name">
-                  {{ runtimeSummary?.active_profile_name || runtimeSummary?.reason || '未激活任何配置' }}
-                </span>
-              </div>
+      <template #header>
+        <div class="fab-llm-modal-header">
+          <div class="modal-header">
+            <div class="modal-header-left">
+              <span class="modal-header-icon modal-header-icon-llm" aria-hidden="true">AI</span>
+              <span class="modal-header-title">AI 控制台</span>
+              <n-tag
+                size="small"
+                :type="runtimeSummary?.using_mock ? 'warning' : 'info'"
+                :bordered="false"
+              >
+                {{
+                  runtimeLoading
+                    ? '读取中…'
+                    : runtimeSummary?.using_mock
+                      ? 'Mock'
+                      : (runtimeSummary?.protocol || '未连接')
+                }}
+              </n-tag>
             </div>
           </div>
-        </template>
-        <div class="global-llm-drawer-body">
-          <LLMControlPanel
-            scroll-state-key="global-drawer"
-            @panel-updated="handlePanelUpdated"
-          />
+          <div class="fab-llm-modal-subtitle">
+            统一控制当前项目的模型网关、协议与激活配置
+          </div>
+          <div class="global-llm-runtime-bar" :class="{ 'is-mock': runtimeSummary?.using_mock }">
+            <div class="global-llm-runtime-main">
+              <span class="global-llm-runtime-label">当前激活模型</span>
+              <span class="global-llm-runtime-model">
+                {{ runtimeSummary?.model || (runtimeLoading ? '读取中…' : '未配置') }}
+              </span>
+            </div>
+            <div class="global-llm-runtime-meta">
+              <span class="global-llm-runtime-chip">
+                {{ runtimeSummary?.protocol || (runtimeLoading ? 'loading' : 'mock') }}
+              </span>
+              <span class="global-llm-runtime-name">
+                {{ runtimeSummary?.active_profile_name || runtimeSummary?.reason || '未激活任何配置' }}
+              </span>
+            </div>
+          </div>
         </div>
-      </n-drawer-content>
-    </n-drawer>
+      </template>
+      <div class="modal-body fab-llm-modal-body">
+        <LLMControlPanel
+          scroll-state-key="global-fab-modal"
+          @panel-updated="handlePanelUpdated"
+        />
+      </div>
+      <template #footer>
+        <div class="modal-footer-hint">
+          完整能力（含嵌入模型）请从侧栏或顶栏打开 AI 控制台。
+        </div>
+      </template>
+    </n-modal>
   </teleport>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NDrawer, NDrawerContent, NIcon } from 'naive-ui'
+import { NModal, NTag, NIcon } from 'naive-ui'
 import {
   ExpandOutline,
   HardwareChipOutline,
@@ -176,26 +194,16 @@ function getViewportHeight(): number {
   return document.documentElement?.clientHeight || window.innerHeight || 900
 }
 
-const drawerWidth = computed(() => {
-  const width = viewportWidth.value
-  if (width <= 640) return width
-  if (width <= 900) return Math.max(360, Math.round(width * 0.96))
-  if (width <= 1280) return Math.min(960, Math.round(width * 0.84))
-  return 1040
-})
+const aiConsoleModalStyle = {
+  width: '92vw',
+  maxWidth: '1100px',
+  height: '85vh',
+  marginTop: '5vh',
+} as const
 
 const shellStyle = computed(() => ({
   left: `${position.value.x}px`,
   top: `${position.value.y}px`,
-}))
-
-const drawerBodyStyle = computed(() => ({
-  padding: '0',
-  height: viewportWidth.value <= 768 ? 'calc(100vh - 56px)' : 'calc(100vh - 68px)',
-}))
-
-const drawerHeaderStyle = computed(() => ({
-  padding: viewportWidth.value <= 768 ? '16px 16px 12px' : '18px 20px 14px',
 }))
 
 const actionsStyle = computed(() =>
@@ -321,7 +329,7 @@ function handlePanelUpdated(data: LLMControlPanelData) {
   runtimeSummary.value = data.runtime
 }
 
-function handleDrawerShowChange(value: boolean) {
+function handleModalShowChange(value: boolean) {
   showPanel.value = value
   if (value) {
     void refreshRuntimeSummary()
@@ -667,27 +675,66 @@ onBeforeUnmount(() => {
   color: var(--app-text-inverse, #fff);
 }
 
-.global-llm-drawer-header {
+.fab-llm-modal-header {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
 }
 
-.global-llm-drawer-title-wrap {
+.modal-header {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
-.global-llm-drawer-title {
-  font-size: 18px;
+.modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.modal-header-icon-llm {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  color: var(--app-text-inverse);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.modal-header-title {
+  font-size: 16px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
-.global-llm-drawer-subtitle {
+.fab-llm-modal-subtitle {
   font-size: 12px;
-  color: #64748b;
+  line-height: 1.45;
+  color: var(--app-text-muted);
+}
+
+.modal-body.fab-llm-modal-body {
+  height: calc(85vh - 220px);
+  min-height: 260px;
+  overflow: hidden;
+  border-radius: var(--app-radius-md, 8px);
+}
+
+.modal-footer-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.55;
 }
 
 .global-llm-runtime-bar {
@@ -720,14 +767,14 @@ onBeforeUnmount(() => {
 .global-llm-runtime-label {
   font-size: 11px;
   line-height: 1;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .global-llm-runtime-model {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.25;
-  color: #0f172a;
+  color: var(--app-text-primary);
 }
 
 .global-llm-runtime-meta {
@@ -753,14 +800,8 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #475569;
+  color: var(--app-text-secondary);
   font-size: 12px;
-}
-
-.global-llm-drawer-body {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
 }
 
 @media (max-width: 768px) {

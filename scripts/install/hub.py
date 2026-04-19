@@ -420,7 +420,7 @@ class HubWindow(BaseWindow):
 
         if needs_install:
             self.log("开始安装核心依赖（轻量级，约 1~3 分钟）...", "title")
-            self.log("仅包含 FastAPI / OpenAI / Qdrant 等核心组件", "dim")
+            self.log("仅包含 FastAPI / OpenAI 等核心组件", "dim")
             if not self._installer.install():
                 self._show_fatal_simple(
                     "核心依赖安装失败",

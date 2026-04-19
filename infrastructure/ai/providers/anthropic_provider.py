@@ -11,10 +11,9 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
 from .base import BaseProvider
+from .model_resolution import require_resolved_model_id
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 def _extract_text_from_content_block(block: Any) -> str:
@@ -93,8 +92,13 @@ class AnthropicProvider(BaseProvider):
         }
         if base:
             official_client_kw["base_url"] = base
-        self.client = Anthropic(**official_client_kw)
-        self.async_client = AsyncAnthropic(**official_client_kw)
+
+        # SDK 内置 httpx 默认 trust_env=True，会走系统 HTTP(S)_PROXY，本机代理 TLS 常导致 ConnectError。
+        _sdk_timeout = httpx.Timeout(300.0)
+        self._http_client_sync = httpx.Client(timeout=_sdk_timeout, trust_env=False)
+        self._http_client_async = httpx.AsyncClient(timeout=_sdk_timeout, trust_env=False)
+        self.client = Anthropic(**official_client_kw, http_client=self._http_client_sync)
+        self.async_client = AsyncAnthropic(**official_client_kw, http_client=self._http_client_async)
 
         # 兼容旧字段：若其他模块引用，保留归一化后的值
         self.proxy_base_url = base
@@ -116,9 +120,14 @@ class AnthropicProvider(BaseProvider):
             RuntimeError: 当 API 调用失败或返回空内容时
         """
         try:
+            model_id = require_resolved_model_id(
+                config.model,
+                self.settings.default_model,
+                provider_label="Anthropic / Claude",
+            )
             # 构建请求参数
             create_kwargs = {
-                "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+                "model": model_id,
                 "temperature": config.temperature,
                 "max_tokens": config.max_tokens,
                 "system": prompt.system,
@@ -182,8 +191,13 @@ class AnthropicProvider(BaseProvider):
             **(self.settings.extra_headers or {}),
         }
 
+        model_id = require_resolved_model_id(
+            config.model,
+            self.settings.default_model,
+            provider_label="Anthropic / Claude",
+        )
         payload = {
-            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+            "model": model_id,
             "max_tokens": config.max_tokens,
             "temperature": config.temperature,
             "system": prompt.system,
@@ -195,7 +209,10 @@ class AnthropicProvider(BaseProvider):
         logger.debug(f"[Stream] Calling {url}")
 
         try:
-            async with httpx.AsyncClient(timeout=self.settings.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.settings.timeout_seconds,
+                trust_env=False,
+            ) as client:
                 async with client.stream(
                     "POST",
                     url,

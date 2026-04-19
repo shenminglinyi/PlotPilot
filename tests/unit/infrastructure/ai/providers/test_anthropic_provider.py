@@ -13,7 +13,7 @@ class TestAnthropicProvider:
     @pytest.fixture
     def settings(self):
         """创建测试配置"""
-        return Settings(api_key="test-api-key")
+        return Settings(api_key="test-api-key", default_model="test-anthropic-model")
 
     @pytest.fixture
     def provider(self, settings):
@@ -49,7 +49,7 @@ class TestAnthropicProvider:
 
         mock_create.assert_called_once()
         call_kwargs = mock_create.call_args[1]
-        assert call_kwargs['model'] == "claude-3-5-sonnet-20241022"
+        assert call_kwargs["model"] == "claude-3-5-sonnet-20241022"
         assert call_kwargs['temperature'] == 0.7
         assert call_kwargs['max_tokens'] == 4096
 

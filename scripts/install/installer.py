@@ -5,7 +5,7 @@ aitex 依赖安装器
 pip install 的 GUI 封装，支持分级安装策略：
 
   阶段 1 — 核心依赖（requirements.txt，秒级完成）
-    FastAPI / Pydantic / OpenAI / Qdrant / httpx 等
+    FastAPI / Pydantic / OpenAI / httpx 等
     装完即可启动服务（OpenAI API 模式）
 
   阶段 2 — 扩展依赖（可选，requirements-local.txt，~2GB）

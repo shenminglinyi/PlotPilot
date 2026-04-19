@@ -1,11 +1,6 @@
-import axios from 'axios'
+import { apiClient } from './config'
 
-const request = axios.create({
-  baseURL: '/api/v1',
-  timeout: 30000,
-})
-
-request.interceptors.response.use(response => response.data)
+const request = apiClient
 
 // TypeScript interfaces
 export interface StoryEvent {

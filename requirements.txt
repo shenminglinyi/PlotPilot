@@ -28,9 +28,6 @@ openai>=1.65.0,<2.0.0
 anthropic>=0.40.0
 volcengine-python-sdk[ark]>=1.0.0
 
-# ── 向量数据库（轻量客户端） ──
-qdrant-client>=1.7.0,<2.0.0
-
 # ── 工具库 ──
 python-dotenv>=1.0.0
 json-repair>=0.30.0

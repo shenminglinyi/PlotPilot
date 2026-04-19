@@ -101,7 +101,7 @@ function handleThemeChange(newMode: ThemeMode) {
       .startViewTransition(applyTheme)
   } else {
     // 降级：CSS transition 方案（Firefox / Safari）
-    const root = document.documentElement
+    const root = (document as any).documentElement as HTMLElement
     root.classList.add('theme-transitioning')
     applyTheme()
     setTimeout(() => root.classList.remove('theme-transitioning'), 360)

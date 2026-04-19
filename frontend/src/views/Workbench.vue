@@ -176,6 +176,8 @@ watch(
 .workbench {
   height: 100vh;
   min-height: 0;
+  max-height: 100vh;
+  overflow: hidden;
   background: var(--app-page-bg, #f0f2f8);
   display: flex;
   flex-direction: column;
@@ -184,23 +186,36 @@ watch(
 .workbench-spin {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .workbench-spin :deep(.n-spin-content) {
-  min-height: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .workbench-inner {
-  height: 100%;
+  flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .workbench-inner :deep(.n-split) {
+  flex: 1;
+  min-height: 0;
   height: 100%;
 }
 
-.workbench-inner :deep(.n-split-pane-1) {
+.workbench-inner :deep(.n-split-pane-1),
+.workbench-inner :deep(.n-split-pane-2) {
   min-height: 0;
   overflow: hidden;
 }
