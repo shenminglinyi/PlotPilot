@@ -38,13 +38,14 @@ setup_logging(level=log_level, log_file=log_file)
 
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from starlette.requests import Request
 import threading
 import multiprocessing
+import signal
 
 # Core module
 from interfaces.api.v1.core import novels, chapters, scene_generation_routes, settings as llm_settings, export
@@ -152,17 +153,65 @@ async def startup_event():
     # 启动自动驾驶守护进程（后台线程）
     _start_autopilot_daemon_thread()
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """应用关闭事件"""
-    # 停止守护进程线程
+def _checkpoint_sqlite_wal_safe() -> None:
+    """桌面端优雅退出时尽量将 WAL 落盘，降低异常断电时的损坏概率。"""
+    try:
+        import sqlite3
+
+        from application.paths import get_db_path
+
+        dbp = get_db_path()
+        conn = sqlite3.connect(dbp, timeout=15.0)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("WAL checkpoint 失败（可忽略）: %s", e)
+
+
+def _run_backend_shutdown_hooks() -> None:
+    """与 shutdown 生命周期钩子共用：守护进程停止 + WAL + 日志。"""
     _stop_autopilot_daemon_thread()
-    
+    _checkpoint_sqlite_wal_safe()
+
     uptime = time.time() - STARTUP_TIME
     logger.info("=" * 80)
-    logger.info(f"🛑 BACKEND SHUTTING DOWN")
-    logger.info(f"   Total uptime: {uptime:.2f} seconds ({uptime/3600:.2f} hours)")
+    logger.info("🛑 BACKEND SHUTTING DOWN")
+    logger.info("   Total uptime: %.2f seconds (%.2f hours)", uptime, uptime / 3600)
     logger.info("=" * 80)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭事件（uvicorn 优雅退出时触发；Windows 桌面专用路径见 /internal/shutdown）。"""
+    _run_backend_shutdown_hooks()
+
+
+def _assert_internal_shutdown_localhost(request: Request) -> None:
+    if not request.client:
+        raise HTTPException(status_code=403, detail="forbidden")
+    host = request.client.host or ""
+    if host not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def _internal_shutdown_after_response() -> None:
+    """HTTP 响应已发出后再触发进程级退出，避免截断响应体。"""
+    time.sleep(0.15)
+    if os.name == "nt":
+        _run_backend_shutdown_hooks()
+        logging.shutdown()
+        os._exit(0)
+    os.kill(os.getpid(), signal.SIGINT)
+
+
+@app.post("/internal/shutdown", include_in_schema=False)
+async def internal_shutdown(request: Request):
+    """仅本机：供 Tauri 在关闭窗口前触发优雅停机（Unix 走 SIGINT→uvicorn；Windows 走钩子+_exit）。"""
+    _assert_internal_shutdown_localhost(request)
+    threading.Thread(target=_internal_shutdown_after_response, daemon=True).start()
+    return {"ok": True, "message": "shutting down"}
 
 # 守护进程进程管理（使用独立进程避免阻塞主事件循环）
 _daemon_process = None
@@ -199,7 +248,13 @@ def _stop_all_running_novels():
         
         conn = sqlite3.connect(str(db_path_obj), timeout=10.0)
         try:
-            # 检查有多少运行中的小说
+            cur = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='novels' LIMIT 1"
+            )
+            if cur.fetchone() is None:
+                logger.info("ℹ️  新库尚无 novels 表，跳过运行中小说复位")
+                return
+
             cursor = conn.execute(
                 "SELECT COUNT(*) FROM novels WHERE autopilot_status = 'running'"
             )

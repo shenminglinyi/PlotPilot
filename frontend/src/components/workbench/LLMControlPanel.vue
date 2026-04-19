@@ -15,11 +15,11 @@
           <n-tag size="small" type="info" round>
             运行中：{{ runtimeLabel }}
           </n-tag>
-          <n-tag v-if="panelData?.runtime.model" size="small" round>
-            模型 {{ panelData?.runtime.model }}
+          <n-tag v-if="panelData?.runtime?.model" size="small" round>
+            模型 {{ panelData?.runtime?.model }}
           </n-tag>
-          <n-tag v-if="panelData?.runtime.protocol" size="small" round>
-            协议 {{ panelData?.runtime.protocol }}
+          <n-tag v-if="panelData?.runtime?.protocol" size="small" round>
+            协议 {{ panelData?.runtime?.protocol }}
           </n-tag>
         </n-space>
       </div>
@@ -29,8 +29,8 @@
       </n-space>
     </header>
 
-    <n-alert v-if="panelData?.runtime.using_mock" type="warning" :show-icon="true" class="llm-alert">
-      {{ panelData?.runtime.reason || '当前未配置可用模型，运行时会退回 MockProvider。' }}
+    <n-alert v-if="panelData?.runtime?.using_mock" type="warning" :show-icon="true" class="llm-alert">
+      {{ panelData?.runtime?.reason || '当前未配置可用模型，运行时会退回 MockProvider。' }}
     </n-alert>
 
     <section v-if="panelData && quickImportPresets.length" class="llm-preset-strip">
@@ -58,7 +58,7 @@
       </div>
     </section>
 
-    <div v-if="panelData" class="llm-layout">
+    <div v-if="panelData && panelData.config" class="llm-layout">
       <aside class="llm-sidebar">
         <div class="llm-sidebar-head">
           <div>
@@ -70,19 +70,19 @@
 
         <div ref="sidebarListRef" class="llm-profile-list" @scroll="saveUiState">
           <button
-            v-for="profile in panelData.config.profiles"
+            v-for="profile in panelData.config?.profiles || []"
             :key="profile.id"
             type="button"
             class="llm-profile-item"
             :class="{
-              'is-active': profile.id === panelData.config.active_profile_id,
+              'is-active': profile.id === panelData.config?.active_profile_id,
               'is-selected': profile.id === selectedProfileId,
             }"
             @click="selectProfile(profile.id)"
           >
             <div class="llm-profile-name-row">
               <span class="llm-profile-name">{{ profile.name }}</span>
-              <n-tag v-if="profile.id === panelData.config.active_profile_id" size="tiny" type="success" round>
+              <n-tag v-if="profile.id === panelData.config?.active_profile_id" size="tiny" type="success" round>
                 启用中
               </n-tag>
             </div>
@@ -108,7 +108,7 @@
                   size="small"
                   secondary
                   type="error"
-                  :disabled="panelData.config.profiles.length <= 1"
+                  :disabled="(panelData.config?.profiles || []).length <= 1"
                   @click="removeSelected"
                 >
                   删除
@@ -247,10 +247,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   llmControlApi,
+  type LLMControlConfig,
   type LLMControlPanelData,
   type LLMPreset,
   type LLMProfile,
   type LLMProtocol,
+  type LLMRuntimeSummary,
   type ModelItem,
 } from '../../api/llmControl'
 
@@ -305,7 +307,7 @@ const quickImportPresets = computed(() =>
 )
 
 const selectedProfile = computed(() =>
-  panelData.value?.config.profiles.find((profile) => profile.id === selectedProfileId.value) || null
+  panelData.value?.config?.profiles.find((profile) => profile.id === selectedProfileId.value) || null
 )
 
 const selectedPreset = computed<LLMPreset | null>(() => {
@@ -419,9 +421,80 @@ function buildProfileFromPreset(preset?: LLMPreset): LLMProfile {
   }
 }
 
+function defaultRuntimeSummary(): LLMRuntimeSummary {
+  return {
+    source: 'mock',
+    active_profile_id: null,
+    active_profile_name: null,
+    protocol: null,
+    model: null,
+    base_url: null,
+    using_mock: true,
+    reason: '尚未加载或未返回运行时摘要',
+  }
+}
+
+/**
+ * 兼容代理/网关返回的 `{ data: { config, ... } }`，并补全缺失字段，避免访问 `config.active_profile_id` 时报错。
+ */
+function normalizePanelData(raw: unknown): LLMControlPanelData {
+  let root: Record<string, unknown> =
+    raw && typeof raw === 'object' ? { ...(raw as Record<string, unknown>) } : {}
+
+  const wrapped = root.data
+  if (
+    wrapped &&
+    typeof wrapped === 'object' &&
+    'config' in (wrapped as object) &&
+    !('config' in root)
+  ) {
+    root = { ...(wrapped as Record<string, unknown>) }
+  }
+
+  const cfgIn = root.config
+  const cfgObj =
+    cfgIn && typeof cfgIn === 'object'
+      ? (cfgIn as Record<string, unknown>)
+      : { version: 1, active_profile_id: null, profiles: [] }
+
+  let profiles: LLMProfile[] = Array.isArray(cfgObj.profiles)
+    ? (cfgObj.profiles as LLMProfile[]).filter(
+        (p) => p && typeof p === 'object' && typeof p.id === 'string',
+      )
+    : []
+
+  if (!profiles.length) {
+    profiles = [buildProfileFromPreset(undefined)]
+  }
+
+  let activeId =
+    typeof cfgObj.active_profile_id === 'string' ? cfgObj.active_profile_id : null
+  if (!activeId || !profiles.some((p) => p.id === activeId)) {
+    activeId = profiles[0]?.id ?? null
+  }
+
+  const config: LLMControlConfig = {
+    version: typeof cfgObj.version === 'number' ? cfgObj.version : 1,
+    active_profile_id: activeId,
+    profiles,
+  }
+
+  const presets: LLMPreset[] = Array.isArray(root.presets)
+    ? (root.presets as LLMPreset[])
+    : []
+
+  const rtIn = root.runtime
+  const runtime: LLMRuntimeSummary =
+    rtIn && typeof rtIn === 'object'
+      ? { ...defaultRuntimeSummary(), ...(rtIn as Partial<LLMRuntimeSummary>) }
+      : defaultRuntimeSummary()
+
+  return { config, presets, runtime }
+}
+
 function uniqueProfileName(baseName: string): string {
   const normalized = baseName.trim() || '新配置'
-  const names = new Set((panelData.value?.config.profiles || []).map((profile) => profile.name))
+  const names = new Set((panelData.value?.config?.profiles || []).map((profile) => profile.name))
   if (!names.has(normalized)) return normalized
   let index = 2
   while (names.has(`${normalized} ${index}`)) {
@@ -460,7 +533,8 @@ function commitAdvancedEditors() {
 async function loadPanel() {
   loading.value = true
   try {
-    const data = await llmControlApi.getPanel()
+    const raw = await llmControlApi.getPanel()
+    const data = normalizePanelData(raw)
     panelData.value = deepClone(data)
     const persistedState = readUiState()
     const preferredId = persistedState.selectedProfileId || selectedProfileId.value
@@ -568,12 +642,13 @@ async function saveAll() {
   saving.value = true
   try {
     const response = await llmControlApi.saveConfig(panelData.value.config)
-    panelData.value = deepClone(response)
-    selectedProfileId.value = response.config.profiles.some((profile) => profile.id === selectedProfileId.value)
+    const normalized = normalizePanelData(response)
+    panelData.value = deepClone(normalized)
+    selectedProfileId.value = normalized.config.profiles.some((profile) => profile.id === selectedProfileId.value)
       ? selectedProfileId.value
-      : response.config.active_profile_id || response.config.profiles[0]?.id || ''
+      : normalized.config.active_profile_id || normalized.config.profiles[0]?.id || ''
     syncJsonEditors()
-    emit('panel-updated', deepClone(response))
+    emit('panel-updated', deepClone(normalized))
     await nextTick()
     restoreUiState()
     saveUiState()

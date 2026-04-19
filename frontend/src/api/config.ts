@@ -1,8 +1,67 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 
+// ---------------------------------------------------------------------------
+// Tauri 桌面壳适配（浏览器中 isTauri 为 false，invoke 失败即走 Vite 代理）
+// 不单独维护 tauri.ts，避免仓库出现「仅打包机需要」的额外文件。
+// ---------------------------------------------------------------------------
+let _isTauri: boolean | null = null
+let _cachedPort: number | null = null
+
+function isTauri(): boolean {
+  if (_isTauri === null) {
+    if (typeof window === 'undefined') {
+      _isTauri = false
+    } else {
+      const w = window as Window & {
+        __TAURI__?: unknown
+        __TAURI_INTERNALS__?: unknown
+      }
+      _isTauri = !!(w.__TAURI__ || w.__TAURI_INTERNALS__)
+    }
+  }
+  return _isTauri
+}
+
+async function getApiBaseUrl(): Promise<string> {
+  if (_cachedPort && _cachedPort > 0) {
+    return `http://127.0.0.1:${_cachedPort}`
+  }
+  if (!isTauri()) {
+    return ''
+  }
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const port = await invoke<number>('get_backend_port')
+    if (port && port > 0) {
+      _cachedPort = port as number
+      return `http://127.0.0.1:${_cachedPort}`
+    }
+  } catch (e) {
+    console.warn('[Tauri] 无法获取后端端口，使用默认值', e)
+  }
+  return 'http://127.0.0.1:8005'
+}
+
+function setBackendPort(port: number): void {
+  _cachedPort = port
+}
+
+async function initTauriConnection(): Promise<void> {
+  if (!isTauri()) {
+    return
+  }
+  try {
+    const baseUrl = await getApiBaseUrl()
+    console.log(`[Tauri] 后端地址已连接: ${baseUrl}`)
+  } catch (e) {
+    console.error('[Tauri] 后端连接初始化失败:', e)
+  }
+}
+
+// Tauri 模式下使用动态端口，开发模式使用 Vite proxy
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
-// 创建原始 axios 实例
+// 创建原始 axios 实例（baseURL 稍后可能被动态更新）
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 120000, // 增加到 120 秒，因为 LLM 生成可能需要较长时间
@@ -10,6 +69,39 @@ const axiosInstance = axios.create({
     'Content-Type': 'application/json',
   },
 })
+
+/**
+ * 初始化 API 基础 URL（在 App 启动时调用）
+ * Tauri 模式：从 Rust 后端获取动态端口并更新 axios baseURL
+ * 开发模式：保持 Vite proxy 不变
+ */
+export async function initApiClient(): Promise<void> {
+  let boundViaIpc = false
+
+  // 桌面壳：优先 IPC 取端口（不依赖 window.__TAURI__；Tauri 2 默认无该全局）
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const port = await invoke<number>('get_backend_port')
+    if (port && port > 0) {
+      setBackendPort(port)
+      axiosInstance.defaults.baseURL = `http://127.0.0.1:${port}/api/v1`
+      boundViaIpc = true
+      console.log(`[API] 桌面模式 baseURL: ${axiosInstance.defaults.baseURL}`)
+    }
+  } catch {
+    // 浏览器 / 非 Tauri：无 IPC，继续走下方或保持 Vite 代理
+  }
+
+  if (!boundViaIpc && isTauri()) {
+    const baseUrl = await getApiBaseUrl()
+    if (baseUrl) {
+      axiosInstance.defaults.baseURL = `${baseUrl}/api/v1`
+      console.log(`[API] Tauri 模式，baseURL 已更新为: ${axiosInstance.defaults.baseURL}`)
+    }
+  }
+
+  await initTauriConnection()
+}
 
 // Add response interceptor to extract data
 axiosInstance.interceptors.response.use(response => response.data)
@@ -65,7 +157,13 @@ export function subscribeChapterStream(
 
   ;(async () => {
     try {
-      const res = await fetch(`/api/v1/autopilot/${novelId}/chapter-stream`, {
+      // 桌面壳在 initApiClient 里会写入 _cachedPort；开发模式 baseUrl 为空则走 Vite 代理
+      const baseUrl = await getApiBaseUrl()
+      const streamUrl = baseUrl
+        ? `${baseUrl}/api/v1/autopilot/${novelId}/chapter-stream`
+        : `/api/v1/autopilot/${novelId}/chapter-stream`
+
+      const res = await fetch(streamUrl, {
         signal: ctrl.signal,
         headers: {
           'Accept': 'text/event-stream',
