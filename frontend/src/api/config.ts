@@ -42,6 +42,18 @@ async function getApiBaseUrl(): Promise<string> {
   return 'http://127.0.0.1:8005'
 }
 
+/**
+ * 将 `/api/...` 解析为实际请求 URL。
+ * 浏览器：保持相对路径，走 Vite 代理；Tauri：补全 `http://127.0.0.1:<port>`（与 axios 一致）。
+ */
+export async function resolveApiFetchUrl(path: string): Promise<string> {
+  if (!path.startsWith('/')) {
+    throw new Error(`resolveApiFetchUrl: path must start with /, got: ${path}`)
+  }
+  const base = await getApiBaseUrl()
+  return base ? `${base}${path}` : path
+}
+
 function setBackendPort(port: number): void {
   _cachedPort = port
 }

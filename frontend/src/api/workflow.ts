@@ -2,7 +2,7 @@
  * 子项目 8：工作流 / 长任务 / 一致性 / 故事线
  * 后端路由实现见 `docs/superpowers/plans/2026-04-02-subproject-8-frontend-extensions.md`
  */
-import { apiClient } from './config'
+import { apiClient, resolveApiFetchUrl } from './config'
 import type { JobStatusResponse } from '../types/api'
 
 export interface StorylineMilestoneDTO {
@@ -162,12 +162,17 @@ export async function consumeGenerateChapterStream(
     signal?: AbortSignal
   }
 ): Promise<void> {
-  const res = await fetch(`/api/v1/novels/${novelId}/generate-chapter-stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-    signal: handlers.signal,
-  })
+  const res = await fetch(
+    await resolveApiFetchUrl(
+      `/api/v1/novels/${novelId}/generate-chapter-stream`,
+    ),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      signal: handlers.signal,
+    },
+  )
   if (!res.ok || !res.body) {
     const t = await res.text().catch(() => '')
     handlers.onError?.(t || `HTTP ${res.status}`)
@@ -264,12 +269,17 @@ export async function consumeHostedWriteStream(
     signal?: AbortSignal
   }
 ): Promise<void> {
-  const res = await fetch(`/api/v1/novels/${novelId}/hosted-write-stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: handlers.signal,
-  })
+  const res = await fetch(
+    await resolveApiFetchUrl(
+      `/api/v1/novels/${novelId}/hosted-write-stream`,
+    ),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: handlers.signal,
+    },
+  )
   if (!res.ok || !res.body) {
     const t = await res.text().catch(() => '')
     handlers.onError?.(t || `HTTP ${res.status}`)

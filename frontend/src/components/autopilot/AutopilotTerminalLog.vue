@@ -48,6 +48,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { NTag } from 'naive-ui'
+import { resolveApiFetchUrl } from '@/api/config'
 
 const props = defineProps<{ novelId: string }>()
 
@@ -295,10 +296,13 @@ function onScroll() {
   autoScroll.value = gap < 80
 }
 
-function connect() {
+async function connect() {
   if (eventSource) eventSource.close()
   const q = lastLogSeq.value > 0 ? `?after_seq=${lastLogSeq.value}` : ''
-  eventSource = new EventSource(`/api/v1/autopilot/${props.novelId}/stream${q}`)
+  const url = await resolveApiFetchUrl(
+    `/api/v1/autopilot/${props.novelId}/stream${q}`,
+  )
+  eventSource = new EventSource(url)
 
   eventSource.onopen = () => {
     connectionStatus.value = 'connected'
@@ -351,13 +355,13 @@ function connect() {
   eventSource.onerror = () => {
     connectionStatus.value = 'reconnecting'
     if (!reconnectTimer) {
-      reconnectTimer = window.setTimeout(() => connect(), 3000)
+      reconnectTimer = window.setTimeout(() => void connect(), 3000)
     }
   }
 }
 
 onMounted(() => {
-  connect()
+  void connect()
 })
 
 watch(
@@ -379,7 +383,7 @@ watch(
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
-    connect()
+    void connect()
   }
 )
 

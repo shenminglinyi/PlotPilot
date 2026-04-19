@@ -88,6 +88,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { resolveApiFetchUrl } from '@/api/config'
 
 interface VoiceDriftData {
   drift_score: number
@@ -188,7 +189,11 @@ const driftDetails = computed(() => driftData.value?.details ?? [])
 async function loadDriftData() {
   loading.value = true
   try {
-    const res = await fetch(`/api/v1/novels/${props.novelId}/monitor/voice-drift`)
+    const res = await fetch(
+      await resolveApiFetchUrl(
+        `/api/v1/novels/${props.novelId}/monitor/voice-drift`,
+      ),
+    )
     if (res.ok) {
       const dataArray = await res.json()
       // 取第一个角色的数据（或者可以聚合多个角色）
