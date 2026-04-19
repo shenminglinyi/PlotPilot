@@ -13,9 +13,47 @@
 from typing import List
 import json
 import os
+import uuid
+import logging
 from pathlib import Path
 
 from domain.ai.services.vector_store import VectorStore
+from domain.novel.value_objects.chapter_renumber_spec import ChapterRenumberSpec
+
+_vector_renumber_log = logging.getLogger(__name__)
+
+
+def _vector_payload_targets_novel(collection: str, novel_id: str, payload: dict) -> bool:
+    """约定：novel_{id}_chunks / novel_{id}_triples 整库属于该书；其它 collection 用 payload.novel_id。"""
+    if collection == f"novel_{novel_id}_chunks" or collection == f"novel_{novel_id}_triples":
+        return True
+    return payload.get("novel_id") == novel_id
+
+
+def _vector_id_after_chapter_shift(
+    collection: str,
+    old_vector_id: str,
+    payload: dict,
+    novel_id: str,
+    new_chapter_number: int,
+) -> str:
+    """与 ChapterIndexingService / IndexingService / TripleIndexingService 的 id 规则对齐。"""
+    if collection == f"novel_{novel_id}_triples" or payload.get("triple_id"):
+        return old_vector_id
+    kind = payload.get("kind")
+    if kind == "chapter_summary":
+        return str(
+            uuid.uuid5(
+                uuid.NAMESPACE_DNS,
+                f"{novel_id}_ch{new_chapter_number}_summary",
+            )
+        )
+    if kind == "bible_snippet":
+        raw = f"{novel_id}_ch{new_chapter_number}_bible"
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, raw))
+    if collection == "chapters" or old_vector_id.startswith(f"{novel_id}_"):
+        return f"{novel_id}_{new_chapter_number}"
+    return old_vector_id
 
 
 class ChromaDBVectorStore(VectorStore):
@@ -255,3 +293,64 @@ class ChromaDBVectorStore(VectorStore):
             return list(self.collections.keys())
         except Exception as e:
             raise Exception(f"Failed to list collections: {str(e)}")
+
+    def renumber_chapter_metadata_for_novel(
+        self,
+        spec: ChapterRenumberSpec,
+        collection_names: List[str],
+    ) -> int:
+        """删章并重排章节号后，修正向量元数据中的 chapter_number（及需重建的 point id）。
+
+        仅改写 metadata，不重算向量；与各 IndexingService 写入约定一致。
+        """
+        changed = 0
+        for collection in collection_names:
+            if collection not in self.collections:
+                continue
+            coll = self.collections[collection]
+            meta = coll["metadata"]
+            for old_id in list(meta.keys()):
+                entry = meta.get(old_id)
+                if not entry:
+                    continue
+                payload = entry.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                if not _vector_payload_targets_novel(collection, spec.novel_id, payload):
+                    continue
+                raw_cn = payload.get("chapter_number")
+                if raw_cn is None or isinstance(raw_cn, bool):
+                    continue
+                try:
+                    cn_int = int(raw_cn)
+                except (TypeError, ValueError):
+                    continue
+                new_cn = spec.shift_chapter_ref(cn_int)
+                if new_cn == cn_int:
+                    continue
+                new_payload = dict(payload)
+                new_payload["chapter_number"] = new_cn
+                new_id = _vector_id_after_chapter_shift(
+                    collection, old_id, new_payload, spec.novel_id, new_cn
+                )
+                entry["payload"] = new_payload
+                if new_id == old_id:
+                    meta[old_id] = entry
+                    changed += 1
+                    continue
+                if new_id in meta:
+                    _vector_renumber_log.warning(
+                        "向量重编号 id 已存在，仅更新 payload，建议对该书重扫向量: "
+                        "collection=%s old_id=%s new_id=%s",
+                        collection,
+                        old_id,
+                        new_id,
+                    )
+                    meta[old_id] = entry
+                    changed += 1
+                    continue
+                del meta[old_id]
+                meta[new_id] = entry
+                changed += 1
+            self._save_collection(collection)
+        return changed

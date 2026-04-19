@@ -1,4 +1,4 @@
 """工作流层"""
-from application.workflows.novel_generation_workflow import NovelGenerationWorkflow
+from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 
-__all__ = ["NovelGenerationWorkflow"]
+__all__ = ["AutoNovelGenerationWorkflow"]

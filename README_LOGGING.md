@@ -33,16 +33,19 @@ python interfaces/main.py
 ### 3. 查看日志
 
 **实时查看日志：**
+
 ```bash
 python scripts/tail_logs.py
 ```
 
 **查看最近 100 行：**
+
 ```bash
 python scripts/tail_logs.py logs/aitext.log 100
 ```
 
 **使用系统命令：**
+
 ```bash
 # Windows PowerShell
 Get-Content logs/aitext.log -Tail 50 -Wait
@@ -59,13 +62,15 @@ python scripts/check_health.py
 
 ## 日志级别说明
 
-| 级别 | 用途 | 示例 |
-|------|------|------|
-| **DEBUG** | 详细调试信息 | 每个循环的处理时间、变量值 |
-| **INFO** | 常规运行信息 | 启动消息、阶段变更、章节完成 |
-| **WARNING** | 警告信息 | 熔断器触发、文风漂移、耗时过长 |
-| **ERROR** | 错误信息 | 处理失败、连续错误 |
-| **CRITICAL** | 严重错误 | 系统崩溃级别错误 |
+
+| 级别           | 用途     | 示例              |
+| ------------ | ------ | --------------- |
+| **DEBUG**    | 详细调试信息 | 每个循环的处理时间、变量值   |
+| **INFO**     | 常规运行信息 | 启动消息、阶段变更、章节完成  |
+| **WARNING**  | 警告信息   | 熔断器触发、文风漂移、耗时过长 |
+| **ERROR**    | 错误信息   | 处理失败、连续错误       |
+| **CRITICAL** | 严重错误   | 系统崩溃级别错误        |
+
 
 ## 日志内容示例
 
@@ -127,3 +132,4 @@ grep "章完成" logs/aitext.log | wc -l
 2. **开发环境**: 使用 `LOG_LEVEL=DEBUG`，查看详细执行流程
 3. **性能调优**: 关注 "耗时过长" 警告
 4. **稳定性监控**: 关注熔断器触发、连续失败次数
+
