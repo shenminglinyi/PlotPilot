@@ -1,6 +1,8 @@
 """OpenAI 嵌入服务实现"""
 import os
 from typing import List, Optional
+
+import httpx
 from openai import AsyncOpenAI
 from domain.ai.services.embedding_service import EmbeddingService
 
@@ -29,7 +31,12 @@ class OpenAIEmbeddingService(EmbeddingService):
             raise ValueError("EMBEDDING_API_KEY or OPENAI_API_KEY environment variable is required")
 
         _base_url = base_url or os.getenv("EMBEDDING_BASE_URL") or None
-        self.client = AsyncOpenAI(api_key=_api_key, base_url=_base_url)
+        self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0), trust_env=False)
+        self.client = AsyncOpenAI(
+            api_key=_api_key,
+            base_url=_base_url,
+            http_client=self._http_client,
+        )
         resolved = (model or os.getenv("EMBEDDING_MODEL") or "").strip()
         if not resolved:
             raise ValueError(

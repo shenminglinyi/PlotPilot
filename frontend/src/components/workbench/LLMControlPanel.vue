@@ -348,7 +348,16 @@ async function handleFetchModels() {
       message.warning('未获取到可用模型列表')
     }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : '拉取失败'
+    const ax = error as { response?: { data?: { detail?: unknown } }; message?: string }
+    let detail = ''
+    const d = ax?.response?.data?.detail
+    if (typeof d === 'string' && d.trim()) {
+      detail = d.trim()
+    } else if (Array.isArray(d)) {
+      detail = d.map((x: { msg?: string }) => (typeof x?.msg === 'string' ? x.msg : JSON.stringify(x))).join('; ')
+    }
+    if (!detail && ax?.message) detail = ax.message
+    if (!detail) detail = '拉取失败'
     message.error(`模型列表拉取失败：${detail}`)
   } finally {
     fetchingModels.value = false

@@ -21,7 +21,7 @@
       <div v-if="currentStep === 1" class="step-panel">
         <n-alert type="info" class="wizard-hint-alert" style="margin-bottom: 16px; width: 100%">
           世界观与文风由后台多次调用 LLM 生成，<strong>常见耗时 2～10 分钟</strong>（慢模型、思考链或网关排队会更久）。
-          若长时间无结果，请到 <strong>AI 控制台</strong> 检查超时时间、网络与模型是否可用；关闭本窗口不会中断后台任务，可在工作台 Bible 继续查看或重试。
+          本向导<strong>单步界面最长等待约 {{ WIZARD_STEP_TIMEOUT_SECONDS }} 秒</strong>；若仍无结果，请到 <strong>AI 控制台</strong> 调大请求超时并检查网络与模型；关闭本窗口不会中断后台任务，可在工作台 Bible 继续查看或重试。
         </n-alert>
         <n-alert v-if="bibleError" type="error" style="margin-bottom: 16px; width: 100%">
           <div class="wizard-error-text">{{ bibleError }}</div>
@@ -99,7 +99,7 @@
           {{ charactersError }}
         </n-alert>
         <n-alert type="info" class="wizard-hint-alert" style="margin-bottom: 16px; width: 100%">
-          与第 1 步相同，人物生成在后台跑 LLM，请耐心等待；超时或失败时可稍后在 Bible 中补全。
+          与第 1 步相同，人物生成在后台跑 LLM；本步界面最长约 {{ WIZARD_STEP_TIMEOUT_SECONDS }} 秒，请耐心等待。超时或失败时可稍后在 Bible 中补全。
         </n-alert>
         <n-spin :show="generatingCharacters">
           <div v-if="!charactersGenerated" class="step-info">
@@ -135,7 +135,7 @@
           {{ locationsError }}
         </n-alert>
         <n-alert type="info" class="wizard-hint-alert" style="margin-bottom: 16px; width: 100%">
-          地图与地点同样依赖 LLM；若卡住请先确认 API 未报错，再于工作台重试生成。
+          地图与地点同样依赖 LLM；本步界面最长约 {{ WIZARD_STEP_TIMEOUT_SECONDS }} 秒。若卡住请先确认 API 未报错，再于工作台重试生成。
         </n-alert>
         <n-spin :show="generatingLocations">
           <div v-if="!locationsGenerated" class="step-info">
@@ -180,7 +180,7 @@
           {{ plotSuggestError }}
         </n-alert>
         <n-alert type="info" class="wizard-hint-alert" style="margin-bottom: 12px; width: 100%">
-          主线候选为单次 LLM 推演，约需 1～5 分钟；超时请调大 AI 控制台中的请求超时或换更快模型，并点击「重新推演」。
+          主线候选为单次 LLM 推演，约需 1～5 分钟；本步请求最长约 {{ WIZARD_STEP_TIMEOUT_SECONDS }} 秒，超时请调大 AI 控制台中的请求超时或换更快模型，并点击「重新推演」。
         </n-alert>
         <n-alert v-if="mainPlotCommitted" type="success" title="已保存主线" style="margin-bottom: 12px; width: 100%">
           已进入本书的主故事线记录，可随时在工作台「设置 → 故事线」中修改。
@@ -294,6 +294,7 @@
 import { h, ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi, type BibleDTO, type StyleNoteDTO } from '@/api/bible'
+import { WIZARD_STEP_TIMEOUT_MS, WIZARD_STEP_TIMEOUT_SECONDS } from '@/constants/wizard'
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
@@ -400,8 +401,8 @@ function isLikelyTimeoutError(error: unknown): boolean {
   return /timeout|ECONNABORTED|ETIMEDOUT|aborted|超时/i.test(text)
 }
 
-/** 向导内：单阶段轮询 Bible 就绪的最长等待（与 LLM 实际耗时匹配，避免 2 分钟误杀） */
-const WIZARD_BIBLE_POLL_DEADLINE_MS = 12 * 60 * 1000
+/** 向导内：单阶段轮询 Bible 就绪的最长等待（与单步 HTTP 超时一致，默认 400s） */
+const WIZARD_BIBLE_POLL_DEADLINE_MS = WIZARD_STEP_TIMEOUT_MS
 
 const IconBook = () =>
   h(
@@ -516,8 +517,7 @@ async function loadPlotSuggestions() {
   } catch (e: unknown) {
     let msg = formatApiError(e) || '推演失败，请重试'
     if (isLikelyTimeoutError(e)) {
-      msg =
-        '请求超时：主线推演依赖 LLM，慢模型或思考链容易超过等待上限。请在 AI 控制台调大「超时（秒）」或换更快模型后，点击「重新推演」。'
+      msg = `请求超时：本步前端最长等待约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒。主线推演依赖 LLM，请在 AI 控制台调大「超时（秒）」或换更快模型后，点击「重新推演」。`
     }
     plotSuggestError.value = msg
   } finally {
@@ -629,7 +629,7 @@ function pollBibleUntil(
       return
     }
     try {
-      const bible = await bibleApi.getBible(props.novelId)
+      const bible = await bibleApi.getBible(props.novelId, { timeout: WIZARD_STEP_TIMEOUT_MS })
       if (options.isStale()) return
       bibleData.value = bible
       if (predicate(bible)) {
@@ -699,7 +699,7 @@ async function startBibleGeneration() {
 
           // 加载 Bible + 世界观：世界观接口失败时从 Bible.world_settings 回退
           try {
-            const bible = await bibleApi.getBible(props.novelId)
+            const bible = await bibleApi.getBible(props.novelId, { timeout: WIZARD_STEP_TIMEOUT_MS })
             bibleData.value = bible
             let fromApi = emptyWorldbuildingShape()
             try {
@@ -736,7 +736,7 @@ async function startBibleGeneration() {
       clearGenerationTimers()
       generatingBible.value = false
       bibleError.value = [
-        '本步等待超时（向导界面最多等待约 12 分钟）。',
+        `本步等待超时（向导界面最多等待约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒）。`,
         '常见原因：模型较慢、思考链、网关排队，或 AI 控制台里「超时」设得过短。',
         '后台任务可能仍在执行——请到工作台打开 Bible 查看是否已生成；也可在 Bible 中手动触发生成/重试。',
       ].join('\n')
@@ -833,8 +833,7 @@ const handleNext = async () => {
           },
           onTimeout: () => {
             generatingCharacters.value = false
-            charactersError.value =
-              '等待人物生成超时（约 12 分钟）。后台可能仍在跑——请到工作台 Bible 查看；若无数据可返回上一步再进入本步重试，或在 Bible 手动生成。'
+            charactersError.value = `等待人物生成超时（约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒）。后台可能仍在跑——请到工作台 Bible 查看；若无数据可返回上一步再进入本步重试，或在 Bible 手动生成。`
             message.warning('人物生成超时')
           },
           onFatal: (msg) => {
@@ -872,8 +871,7 @@ const handleNext = async () => {
           },
           onTimeout: () => {
             generatingLocations.value = false
-            locationsError.value =
-              '等待地图生成超时（约 12 分钟）。请到工作台 Bible 查看地点是否已写入，或稍后重试。'
+            locationsError.value = `等待地图生成超时（约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒）。请到工作台 Bible 查看地点是否已写入，或稍后重试。`
             message.warning('地图生成超时')
           },
           onFatal: (msg) => {

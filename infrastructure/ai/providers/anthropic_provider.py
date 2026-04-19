@@ -92,8 +92,13 @@ class AnthropicProvider(BaseProvider):
         }
         if base:
             official_client_kw["base_url"] = base
-        self.client = Anthropic(**official_client_kw)
-        self.async_client = AsyncAnthropic(**official_client_kw)
+
+        # SDK 内置 httpx 默认 trust_env=True，会走系统 HTTP(S)_PROXY，本机代理 TLS 常导致 ConnectError。
+        _sdk_timeout = httpx.Timeout(300.0)
+        self._http_client_sync = httpx.Client(timeout=_sdk_timeout, trust_env=False)
+        self._http_client_async = httpx.AsyncClient(timeout=_sdk_timeout, trust_env=False)
+        self.client = Anthropic(**official_client_kw, http_client=self._http_client_sync)
+        self.async_client = AsyncAnthropic(**official_client_kw, http_client=self._http_client_async)
 
         # 兼容旧字段：若其他模块引用，保留归一化后的值
         self.proxy_base_url = base
@@ -204,7 +209,10 @@ class AnthropicProvider(BaseProvider):
         logger.debug(f"[Stream] Calling {url}")
 
         try:
-            async with httpx.AsyncClient(timeout=self.settings.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.settings.timeout_seconds,
+                trust_env=False,
+            ) as client:
                 async with client.stream(
                     "POST",
                     url,

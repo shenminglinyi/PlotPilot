@@ -37,7 +37,7 @@ class GeminiProvider(BaseProvider):
         url = self._build_url(model_id, 'generateContent')
         timeout = httpx.Timeout(self.settings.timeout_seconds)
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             response = await client.post(
                 url,
                 params=query,
@@ -69,7 +69,7 @@ class GeminiProvider(BaseProvider):
         url = self._build_url(model_id, 'streamGenerateContent')
         timeout = httpx.Timeout(self.settings.timeout_seconds)
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             async with client.stream(
                 'POST',
                 url,

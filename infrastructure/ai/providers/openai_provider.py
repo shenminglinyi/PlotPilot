@@ -1,6 +1,7 @@
 """OpenAI LLM 提供商实现"""
 import logging
 import openai
+import httpx
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -43,6 +44,11 @@ class OpenAIProvider(BaseProvider):
         if settings.base_url:
             client_kwargs["base_url"] = settings.base_url
 
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.timeout_seconds),
+            trust_env=False,
+        )
+        client_kwargs["http_client"] = self._http_client
         self.async_client = AsyncOpenAI(**client_kwargs)
 
     async def generate(

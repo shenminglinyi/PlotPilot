@@ -4,6 +4,7 @@ import json
 import logging
 import uuid
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -48,6 +49,29 @@ class ModelListResponse(BaseModel):
     count: int = 0
 
 
+def _openai_compatible_models_base(base_url: str) -> str:
+    """OpenAI 兼容列表接口为 GET {base}/models，其中 base 必须带版本路径（通常为 /v1）。
+
+    用户常只填 ``https://网关主机``，会误请求 ``/models`` 而非 ``/v1/models``，导致 400/HTML。
+    若 URL 已包含非根 path（如火山 /api/v3、智谱 /api/paas/v4），则原样保留。
+    """
+    default = 'https://api.openai.com/v1'
+    raw = (base_url or '').strip()
+    if not raw:
+        return default
+    if '://' not in raw:
+        raw = f'https://{raw}'
+    parsed = urlparse(raw)
+    path = (parsed.path or '').rstrip('/')
+    if not path:
+        path = '/v1'
+    else:
+        path = '/' + path.lstrip('/')
+    return urlunparse(
+        (parsed.scheme or 'https', parsed.netloc, path, '', '', ''),
+    ).rstrip('/')
+
+
 def _normalize_model_items(data: Dict[str, Any]) -> List[ModelItem]:
     """将不同网关的 /models 响应统一为 ModelItem 列表。"""
     items: List[ModelItem] = []
@@ -90,24 +114,51 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
             'anthropic-version': '2023-06-01',
         }
     else:
-        url = f"{(base_url or 'https://api.openai.com/v1').rstrip('/')}/models"
+        openai_base = _openai_compatible_models_base(base_url)
+        url = f'{openai_base}/models'
         headers = {
             'Authorization': f'Bearer {api_key}',
         }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # 不向子进程继承 HTTP(S)_PROXY：本机 Clash/V2 等监听 127.0.0.1 时，httpx 走代理易导致
+        # start_tls / BrokenResourceError，而国内直连 API 域名通常无需系统代理。
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
-            data = response.json()
+            try:
+                data = response.json()
+            except json.JSONDecodeError:
+                snippet = (response.text or '')[:240].replace('\n', ' ')
+                raise HTTPException(
+                    status_code=502,
+                    detail=f'上游未返回 JSON（请检查 Base URL 与协议是否匹配 OpenAI 兼容）。请求 URL：{url}。片段：{snippet}',
+                )
         normalized = _normalize_model_items(data)
         return ModelListResponse(
             success=True,
             items=normalized,
             count=len(normalized),
         )
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        body = (exc.response.text or '')[:400].replace('\n', ' ')
+        raise HTTPException(
+            status_code=502,
+            detail=f'上游模型列表 HTTP {exc.response.status_code}：{body or exc.response.reason_phrase}（请求 {url}）',
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f'连接上游失败：{exc}（请求 {url}）。'
+                '若日志里出现连向 127.0.0.1 某端口，多为系统 HTTP 代理注入导致 TLS 异常；'
+                '当前接口已禁用继承环境代理，请更新后端后重试。仍失败请检查本机防火墙/DNS。'
+            ),
+        ) from exc
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f'Failed to fetch model list: {exc}') from exc
+        raise HTTPException(status_code=502, detail=f'拉取模型列表失败：{exc}') from exc
 
 
 # ---------- 核心 CRUD + 测试 ----------
