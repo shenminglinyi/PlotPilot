@@ -283,27 +283,18 @@ class PromptManager:
         """
         Args:
             db_connection: DatabaseConnection 实例（延迟注入，避免循环导入）。
-                           为 None 时使用 get_db() 延迟获取。
+                           为 None 时使用全局 get_database()（与 FastAPI / paths.DATA_DIR 一致）。
         """
         self._db = db_connection
         self._seeded = False
 
     def _get_db(self):
-        """获取数据库连接（延迟导入避免循环依赖）。"""
+        """与主应用共用同一 SQLite（含桌面版 AITEXT_PROD_DATA_DIR）。"""
         if self._db is not None:
             return self._db
-        from infrastructure.persistence.database.connection import DatabaseConnection
-        from pathlib import Path
+        from infrastructure.persistence.database.connection import get_database
 
-        # 使用项目根目录定位数据库
-        db_path = str(Path(__file__).resolve().parent.parent.parent / "data" / "aitext.db")
-        # 尝试从已有连接池获取
-        try:
-            from interfaces.api.dependencies import get_db as _get_global_db
-            return _get_global_db()
-        except Exception:
-            pass
-        return DatabaseConnection(db_path)
+        return get_database()
 
     # ------------------------------------------------------------------
     # 种子初始化
