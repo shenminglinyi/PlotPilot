@@ -139,7 +139,12 @@ class ContextBudgetAllocator:
     MAX_ACT_SUMMARIES_TOKENS = 1500
     MAX_RECENT_CHAPTERS_TOKENS = 5000
     MAX_VECTOR_RECALL_TOKENS = 5000
-    
+
+    # 最近章节槽位：紧邻上一章侧重章末承接；更早章节仅章首短预览以省预算
+    PREV_CHAPTER_BRIDGE_HEAD_CHARS = 250
+    PREV_CHAPTER_BRIDGE_TAIL_CHARS = 1200
+    OLDER_CHAPTER_HEAD_PREVIEW_CHARS = 500
+
     def __init__(
         self,
         foreshadowing_repository: Optional[ForeshadowingRepository] = None,
@@ -1233,14 +1238,35 @@ class ContextBudgetAllocator:
             logger.warning(f"获取近期幕摘要失败: {e}")
         
         return ""
-    
+
+    def _excerpt_immediate_previous_chapter(self, content: str) -> str:
+        """紧邻上一章正文：头短 + 章末长段，标明供本章开头承接。"""
+        raw = (content or "").strip()
+        if not raw:
+            return ""
+        head_n = self.PREV_CHAPTER_BRIDGE_HEAD_CHARS
+        tail_n = self.PREV_CHAPTER_BRIDGE_TAIL_CHARS
+        if len(raw) <= tail_n:
+            return f"【章末节选，供本章开头承接】\n{raw}"
+        if len(raw) <= head_n + tail_n:
+            return f"【章末节选，供本章开头承接】\n{raw}"
+        head = raw[:head_n]
+        tail = raw[-tail_n:]
+        return (
+            f"【章首略览】\n{head}……\n"
+            f"【章末节选，供本章开头承接】\n{tail}"
+        )
+
     def _get_recent_chapters(
         self,
         novel_id: str,
         chapter_number: int,
         limit: int = 3,
     ) -> str:
-        """获取最近章节内容"""
+        """获取最近章节内容。
+
+        紧邻上一章（chapter_number - 1）优先展示章末，便于两章衔接；更早章节仅章首短预览。
+        """
         if not self.chapter_repo:
             return ""
         
@@ -1258,15 +1284,23 @@ class ContextBudgetAllocator:
             if not recent:
                 return ""
             
+            prev_num = chapter_number - 1
+            older_cap = self.OLDER_CHAPTER_HEAD_PREVIEW_CHARS
             lines = ["【最近章节】"]
-            for chapter in reversed(recent):  # 按时间顺序
+            for chapter in reversed(recent):  # 按时间顺序（旧 → 新）
                 lines.append(f"\n第 {chapter.number} 章：{chapter.title}")
-                if chapter.content:
-                    # 截取前 500 字作为预览
-                    preview = chapter.content[:500]
-                    if len(chapter.content) > 500:
-                        preview += "..."
-                    lines.append(preview)
+                body = (chapter.content or "").strip()
+                if not body:
+                    continue
+                if chapter.number == prev_num:
+                    excerpt = self._excerpt_immediate_previous_chapter(chapter.content or "")
+                    if excerpt:
+                        lines.append(excerpt)
+                    continue
+                preview = body[:older_cap]
+                if len(body) > older_cap:
+                    preview = f"{preview}..."
+                lines.append(f"【章首预览】\n{preview}")
             
             return "\n".join(lines)
             

@@ -27,6 +27,7 @@ from application.engine.services.chapter_aftermath_pipeline import ChapterAfterm
 from application.engine.services.style_constraint_builder import build_style_summary
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
+from application.workflows.beat_continuation import format_prior_draft_for_prompt
 from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.word_count import WordCount
 
@@ -609,13 +610,20 @@ class AutopilotDaemon:
                         total_beats=len(beats),
                         beat_target_words=int(beat.target_words),
                         voice_anchors=voice_anchors,
+                        chapter_draft_so_far=chapter_content,
                     )
                     max_tokens = int(beat.target_words * 1.5)
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                     beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
                     beat_content = await self._stream_one_beat(
-                        outline, context, beat_prompt, beat, novel=novel, voice_anchors=voice_anchors
+                        outline,
+                        context,
+                        beat_prompt,
+                        beat,
+                        novel=novel,
+                        voice_anchors=voice_anchors,
+                        chapter_draft_so_far=chapter_content,
                     )
 
                 if beat_content.strip():
@@ -1232,7 +1240,14 @@ class AutopilotDaemon:
         streaming_bus.publish(novel_id, chunk)
 
     async def _stream_one_beat(
-        self, outline, context, beat_prompt, beat, novel=None, voice_anchors: str = ""
+        self,
+        outline,
+        context,
+        beat_prompt,
+        beat,
+        novel=None,
+        voice_anchors: str = "",
+        chapter_draft_so_far: str = "",
     ) -> str:
         """无 AutoNovelGenerationWorkflow 时的降级：爽文短 Prompt + 流式。"""
         va = (voice_anchors or "").strip()
@@ -1254,6 +1269,12 @@ class AutopilotDaemon:
         if context:
             user_parts.append(context)
         user_parts.append(f"\n【本章大纲】\n{outline}")
+        prior = format_prior_draft_for_prompt(chapter_draft_so_far)
+        if prior:
+            user_parts.append(
+                "\n【本章已生成正文（仅承接；禁止复述或重复已写对白与情节）】\n"
+                f"{prior}"
+            )
         if beat_prompt:
             user_parts.append(f"\n{beat_prompt}")
         user_parts.append("\n\n开始撰写：")
