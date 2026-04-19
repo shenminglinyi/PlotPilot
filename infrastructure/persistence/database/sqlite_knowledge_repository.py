@@ -692,19 +692,44 @@ class SqliteKnowledgeRepository:
                 }
                 self._insert_triple_row(conn, novel_id, d, now)
 
+            import json as _json
             conn.execute("DELETE FROM chapter_summaries WHERE knowledge_id = ?", (knowledge_id,))
             for chapter in knowledge.chapters:
                 cn = chapter.chapter_id
                 summary_id = f"{knowledge_id}-ch{cn}"
+                beat_sections_json = _json.dumps(
+                    list(getattr(chapter, "beat_sections", None) or []), ensure_ascii=False
+                )
+                micro_beats_json = _json.dumps(
+                    list(getattr(chapter, "micro_beats", None) or []), ensure_ascii=False
+                )
                 conn.execute(
                     """
-                    INSERT INTO chapter_summaries (id, knowledge_id, chapter_number, summary, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO chapter_summaries
+                    (id, knowledge_id, chapter_number, summary, key_events, open_threads,
+                     consistency_note, beat_sections, micro_beats, sync_status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(knowledge_id, chapter_number) DO UPDATE SET
                         summary = excluded.summary,
+                        key_events = excluded.key_events,
+                        open_threads = excluded.open_threads,
+                        consistency_note = excluded.consistency_note,
+                        beat_sections = excluded.beat_sections,
+                        micro_beats = excluded.micro_beats,
+                        sync_status = excluded.sync_status,
                         updated_at = excluded.updated_at
                     """,
-                    (summary_id, knowledge_id, cn, chapter.summary, now, now),
+                    (
+                        summary_id, knowledge_id, cn,
+                        chapter.summary or "",
+                        getattr(chapter, "key_events", "") or "",
+                        getattr(chapter, "open_threads", "") or "",
+                        getattr(chapter, "consistency_note", "") or "",
+                        beat_sections_json,
+                        micro_beats_json,
+                        getattr(chapter, "sync_status", "draft") or "draft",
+                        now, now,
+                    ),
                 )
 
         logger.info("Saved StoryKnowledge for novel: %s", novel_id)

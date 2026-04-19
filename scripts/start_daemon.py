@@ -152,6 +152,7 @@ def build_daemon() -> AutopilotDaemon:
         circuit_breaker=circuit_breaker,
         chapter_workflow=chapter_workflow,
         aftermath_pipeline=aftermath_pipeline,
+        knowledge_service=get_knowledge_service(),
     )
 
 

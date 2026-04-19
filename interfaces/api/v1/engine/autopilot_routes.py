@@ -305,6 +305,33 @@ async def autopilot_log_stream(
 
     async def event_generator():
         install_autopilot_log_ring_handler()
+<<<<<<< HEAD
+=======
+        def _resolve_current_chapter_number(novel) -> Optional[int]:
+            “””
+            日志流事件补齐”当前章节号”。
+            由于 Novel 表仅存 current_act/current_chapter_in_act（非全书章号），这里从章节表推断：
+            - 若有 draft 章且有内容（节拍增量落库中）：取最大有内容 draft 章号
+            - 若 draft 章均为空壳（预创建）：取最小 draft 章号（即将写入的下一章）
+            - 否则：取最大 completed 章号 + 1（作为”即将写入”的预测章号）
+            “””
+            try:
+                chapters = chapter_repo.list_by_novel(NovelId(novel_id))
+                _st = lambda c: c.status.value if hasattr(c.status, “value”) else c.status
+                _wc = lambda c: c.word_count.value if hasattr(c.word_count, “value”) else (c.word_count or 0)
+                drafts = [c for c in chapters if _st(c) == “draft”]
+                if drafts:
+                    active = [c for c in drafts if _wc(c) > 0]
+                    if active:
+                        return max(int(c.number) for c in active)
+                    return min(int(c.number) for c in drafts)
+                completed = [c for c in chapters if _st(c) == “completed”]
+                if completed:
+                    return max(int(c.number) for c in completed) + 1
+            except Exception:
+                return None
+            return None
+>>>>>>> 9704cb8 (feat: 分章叙事节拍持久化 + autopilot 集成 + 章节号推断修复)
 
         # 发送初始连接事件（前端可不写入时间线；metadata 用于工具栏「当前阶段」标签）
         novel_boot = novel_repo.get_by_id(NovelId(novel_id))
@@ -531,6 +558,19 @@ async def autopilot_log_stream(
                     act_display = (novel.current_act or 0) + 1
                     tw = int(total_words) if total_words else 0
                     beat_1based = int(current_beat) + 1
+                    current_chapter_number = None
+                    try:
+                        if drafts:
+                            _wc2 = lambda c: c.word_count.value if hasattr(c.word_count, "value") else (c.word_count or 0)
+                            active2 = [c for c in drafts if _wc2(c) > 0]
+                            current_chapter_number = (
+                                max(int(c.number) for c in active2) if active2
+                                else min(int(c.number) for c in drafts)
+                            )
+                        elif completed:
+                            current_chapter_number = max(int(c.number) for c in completed) + 1
+                    except Exception:
+                        current_chapter_number = None
                     progress_event = {
                         "type": "progress",
                         "message": (
