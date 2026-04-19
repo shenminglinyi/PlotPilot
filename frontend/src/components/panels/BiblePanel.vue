@@ -20,7 +20,7 @@
           </div>
           <div class="bible-role-item bible-role-here">
             <span class="bible-role-k">写作风格</span>
-            <span class="bible-role-v">本书锁定 · 文风市场预设（只读标签）</span>
+            <span class="bible-role-v">本书锁定 · 文风市场预设（可更改）</span>
           </div>
           <div class="bible-role-item">
             <span class="bible-role-k">角色与地点</span>
@@ -64,7 +64,7 @@
               <div>
                 <div class="bcard-title">本书锁定</div>
                 <div class="bcard-desc">
-                  赛道、世界观与文风市场预设仅作展示，不提供修改入口（与创建书目 / Bible 初始约定一致）。
+                  赛道与世界观仅作展示，不可修改。文风市场预设可通过"更改模板"按钮调整。
                 </div>
               </div>
             </div>
@@ -98,6 +98,28 @@
                   {{ stylePresetTag.label }}
                 </n-tag>
                 <n-tag v-else type="default" size="small" round :bordered="false">—</n-tag>
+                <n-dropdown
+                  :options="stylePresetMenuOptions"
+                  trigger="click"
+                  placement="bottom-start"
+                  @select="handleStylePresetSelect"
+                >
+                  <n-button size="tiny" secondary :disabled="saving">
+                    <template #icon>
+                      <n-icon><component :is="GearIcon" /></n-icon>
+                    </template>
+                    更改模板
+                  </n-button>
+                </n-dropdown>
+                <n-button size="tiny" secondary @click="openStyleEditor" :disabled="saving">
+                  自定义
+                </n-button>
+                <n-button size="tiny" secondary :loading="regeneratingStyle" @click="handleRegenerateStyle" :disabled="saving">
+                  <template #icon>
+                    <n-icon>✦</n-icon>
+                  </template>
+                  AI 重新生成
+                </n-button>
               </n-space>
             </n-descriptions-item>
           </n-descriptions>
@@ -106,6 +128,9 @@
             class="bible-style-full-collapse"
           >
             <n-collapse-item title="查看完整文风公约文本" name="style">
+              <template #header-extra>
+                <n-button size="tiny" text @click.stop="openStyleEditor">编辑</n-button>
+              </template>
               <n-input
                 :value="state.style_notes"
                 type="textarea"
@@ -179,18 +204,51 @@
         </n-space>
       </n-space>
     </n-modal>
+
+    <!-- 文风自定义编辑弹窗 -->
+    <n-modal v-model:show="showStyleEditor" preset="card" title="自定义文风公约" style="width: 700px; max-width: 90vw">
+      <n-space vertical :size="12">
+        <n-alert type="info" :show-icon="true">
+          自定义文风时，可以参考预设模板的结构。如果不使用预设模板，标签会显示"与内置模板不一致"。
+        </n-alert>
+        <n-input
+          v-model:value="customStyleText"
+          type="textarea"
+          :rows="12"
+          placeholder="输入自定义的文风公约，例如：&#10;【文风公约·自定义】第三人称有限视角；节奏明快，对话简洁..."
+          show-count
+          :maxlength="5000"
+        />
+        <n-space :size="8" justify="end">
+          <n-button @click="showStyleEditor = false">取消</n-button>
+          <n-button type="primary" :loading="saving" @click="saveCustomStyle">保存</n-button>
+        </n-space>
+      </n-space>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
-import { useMessage } from 'naive-ui'
+import { ref, watch, onMounted, computed, h } from 'vue'
+import { useMessage, NIcon } from 'naive-ui'
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO, LocationDTO, TimelineNoteDTO, StyleNoteDTO } from '../../api/bible'
 import { knowledgeApi } from '../../api/knowledge'
 import { MARKET_STYLE_PRESETS, matchPresetValue } from '@/constants/marketStylePresets'
 import { novelApi } from '@/api/novel'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
+
+// 齿轮图标
+const GearIcon = () =>
+  h('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24',
+    width: '1em',
+    height: '1em',
+    fill: 'currentColor'
+  }, h('path', {
+    d: 'M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z'
+  }))
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()
@@ -215,8 +273,11 @@ const emptyState = () => ({
 const state = ref(emptyState())
 const jsonRaw = ref('')
 const showJsonModal = ref(false)
+const showStyleEditor = ref(false)
+const customStyleText = ref('')
 const saving = ref(false)
 const generating = ref(false)
+const regeneratingStyle = ref(false)
 const premiseLock = ref('')
 const generatingKnowledge = ref(false)
 
@@ -251,6 +312,106 @@ const stylePresetTag = computed(() => {
 function applyStylePresetByValue(value: string) {
   const p = MARKET_STYLE_PRESETS.find((x) => x.value === value)
   if (p) state.value.style_notes = p.body
+}
+
+/** 文风预设下拉菜单选项 */
+const stylePresetMenuOptions = computed(() =>
+  MARKET_STYLE_PRESETS.map(p => ({
+    label: p.label,
+    key: p.value,
+  }))
+)
+
+/** 处理文风预设选择 */
+async function handleStylePresetSelect(value: string) {
+  const preset = MARKET_STYLE_PRESETS.find(p => p.value === value)
+  if (!preset) return
+
+  // 应用预设
+  state.value.style_notes = preset.body
+
+  // 自动保存
+  try {
+    saving.value = true
+    const apiData = toApiFormat(state.value)
+    await bibleApi.updateBible(props.slug, apiData)
+    message.success(`已应用文风预设：${preset.label}`)
+    syncJsonFromState() // 更新 JSON 缓存
+  } catch (error: any) {
+    message.error('保存失败：' + (error.response?.data?.detail || error.message))
+  } finally {
+    saving.value = false
+  }
+}
+
+/** 保存自定义文风 */
+async function saveCustomStyle() {
+  if (!customStyleText.value.trim()) {
+    message.warning('请输入文风公约内容')
+    return
+  }
+
+  state.value.style_notes = customStyleText.value.trim()
+
+  try {
+    saving.value = true
+    const apiData = toApiFormat(state.value)
+    await bibleApi.updateBible(props.slug, apiData)
+    message.success('文风公约已保存')
+    showStyleEditor.value = false
+    syncJsonFromState()
+  } catch (error: any) {
+    message.error('保存失败：' + (error.response?.data?.detail || error.message))
+  } finally {
+    saving.value = false
+  }
+}
+
+/** AI 重新生成文风 */
+async function handleRegenerateStyle() {
+  if (!confirm('确定要 AI 重新生成文风公约吗？当前内容将被覆盖。')) {
+    return
+  }
+
+  regeneratingStyle.value = true
+  try {
+    // 调用 Bible 生成 API，只生成文风部分
+    await bibleApi.generateBible(props.slug, 'style')
+
+    // 轮询检查状态
+    const checkStatus = async () => {
+      try {
+        const status = await bibleApi.getBibleStatus(props.slug)
+        if (status.ready) {
+          // 重新加载 Bible
+          const bible = await bibleApi.getBible(props.slug)
+          const fromApi = fromApiFormat(bible)
+          state.value.style_notes = fromApi.style_notes
+          syncJsonFromState()
+          regeneratingStyle.value = false
+          message.success('文风公约已重新生成')
+        } else {
+          // 继续轮询
+          setTimeout(checkStatus, 2000)
+        }
+      } catch (error) {
+        regeneratingStyle.value = false
+        message.error('生成失败')
+      }
+    }
+
+    // 开始轮询
+    setTimeout(checkStatus, 1000)
+  } catch (error: any) {
+    regeneratingStyle.value = false
+    message.error('启动生成失败：' + (error.response?.data?.detail || error.message))
+  }
+}
+
+/** 打开自定义编辑器 */
+function openStyleEditor() {
+  customStyleText.value = state.value.style_notes || ''
+  showStyleEditor.value = true
 }
 
 const stats = computed(() => {

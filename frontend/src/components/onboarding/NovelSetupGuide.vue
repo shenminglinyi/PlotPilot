@@ -274,6 +274,7 @@ import { bibleApi, type BibleDTO, type StyleNoteDTO } from '@/api/bible'
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
+import { MARKET_STYLE_PRESETS } from '@/constants/marketStylePresets'
 
 const WB_DIMS = ['core_rules', 'geography', 'society', 'culture', 'daily_life'] as const
 
@@ -411,8 +412,10 @@ const props = withDefaults(
     show: boolean
     /** 用于主线默认章节范围 1 ~ targetChapters */
     targetChapters?: number
+    /** 文风市场预设值（从创建页面传递） */
+    stylePreset?: string
   }>(),
-  { targetChapters: 100 }
+  { targetChapters: 100, stylePreset: '' }
 )
 
 const message = useMessage()
@@ -601,6 +604,34 @@ async function startBibleGeneration() {
           try {
             const bible = await bibleApi.getBible(props.novelId)
             bibleData.value = bible
+
+            // 如果有文风预设，自动应用预设模板
+            if (props.stylePreset) {
+              const presetObj = MARKET_STYLE_PRESETS.find(p => p.value === props.stylePreset)
+              if (presetObj) {
+                // 应用预设模板到 style_notes
+                const updatedBible = {
+                  characters: bibleData.value.characters || [],
+                  world_settings: bibleData.value.world_settings || [],
+                  locations: bibleData.value.locations || [],
+                  timeline_notes: bibleData.value.timeline_notes || [],
+                  style_notes: [{
+                    id: `style-note-${Date.now()}`,
+                    category: '文风公约',
+                    content: presetObj.body,
+                  }],
+                }
+                // 保存到后端
+                try {
+                  const updated = await bibleApi.updateBible(props.novelId, updatedBible)
+                  bibleData.value = updated
+                  console.log('✓ 文风预设已自动应用')
+                } catch (err) {
+                  console.warn('应用文风预设失败:', err)
+                }
+              }
+            }
+
             let fromApi = emptyWorldbuildingShape()
             try {
               const w = await worldbuildingApi.getWorldbuilding(props.novelId)

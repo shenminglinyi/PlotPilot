@@ -69,6 +69,16 @@
                   />
                 </n-form-item>
               </n-gi>
+              <n-gi :span="2">
+                <n-form-item label="文风市场预设" label-style="font-weight: 600; color: #18a058;">
+                  <n-select
+                    v-model:value="newBook.stylePreset"
+                    :options="stylePresetOptions"
+                    placeholder="选择文风模板（AI 将严格按此模板生成）"
+                    :disabled="creating"
+                  />
+                </n-form-item>
+              </n-gi>
             </n-grid>
 
             <div v-show="!showAdvanced" class="length-tier-block">
@@ -120,7 +130,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim() || !newBook.genre || !newBook.worldPreset"
+                :disabled="!newBook.premise.trim() || !newBook.genre || !newBook.worldPreset || !newBook.stylePreset"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -314,6 +324,7 @@
       :key="setupWizard.novelId"
       :novel-id="setupWizard.novelId"
       :target-chapters="setupWizard.targetChapters"
+      :style-preset="setupWizard.stylePreset"
       :show="true"
       @update:show="(open) => { if (!open) setupWizard = null }"
       @complete="handleSetupComplete"
@@ -419,6 +430,7 @@ import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
 import { useStatsStore } from '@/stores/statsStore'
+import { MARKET_STYLE_PRESETS } from '@/constants/marketStylePresets'
 
 // Icons
 const IconSpark = () =>
@@ -473,7 +485,7 @@ const showLLMSettings = ref(false)
 const showAllModal = ref(false)
 const modalSearchQuery = ref('')
 /** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */
-const setupWizard = ref<{ novelId: string; targetChapters: number } | null>(null)
+const setupWizard = ref<{ novelId: string; targetChapters: number; stylePreset?: string } | null>(null)
 
 // Batch delete
 const selectedBooks = ref<string[]>([])
@@ -487,6 +499,7 @@ const newBook = ref({
   premise: '',
   genre: '',
   worldPreset: '',
+  stylePreset: '',  // 文风市场预设
   chapters: 100,  // 默认 100 章
   words: 2500,
 })
@@ -533,6 +546,16 @@ const worldPresetOptions = [
   { label: '现代都市（职场、日常）', value: '现代都市' },
   { label: '克系诡异（未知、调查）', value: '克系诡异' },
 ]
+
+// 文风市场预设选项
+const stylePresetOptions = computed(() => [
+  { label: '修仙·升级打脸', value: 'xianxia_hot' },
+  { label: '赛博·冷峻群像', value: 'cyberpunk' },
+  { label: '悬疑·线索回收', value: 'mystery' },
+  { label: '都市·爽点直给', value: 'urban_power' },
+  { label: '玄幻·热血史诗', value: 'xuanhuan_epic' },
+  { label: '言情·甜宠克制', value: 'romance_sweet' },
+])
 
 const filteredBooks = computed(() => {
   if (!searchQuery.value.trim()) {
@@ -630,19 +653,35 @@ const handleCreate = async () => {
     message.warning('请选择世界观基调')
     return
   }
+  if (!newBook.value.stylePreset) {
+    message.warning('请选择文风市场预设')
+    return
+  }
 
   creating.value = true
   try {
     const title = newBook.value.title || newBook.value.premise.substring(0, 20)
     const novelId = `novel-${Date.now()}`
 
+    // 获取文风预设的完整内容
+    const stylePresetObj = MARKET_STYLE_PRESETS.find(p => p.value === newBook.value.stylePreset)
+    const stylePresetBody = stylePresetObj?.body || ''
+
+    // 构建包含文风预设的 premise
+    let fullPremise = newBook.value.premise.trim()
+    if (stylePresetBody) {
+      fullPremise = `【文风预设】\n${stylePresetBody}\n\n【故事梗概】\n${fullPremise}`
+    }
+
     const base = {
       novel_id: novelId,
       title: title,
       author: '作者',
-      premise: newBook.value.premise.trim(),
+      premise: fullPremise,
       genre: newBook.value.genre,
       world_preset: newBook.value.worldPreset,
+      // 传递文风预设值，供后续使用
+      style_preset: newBook.value.stylePreset,
     }
     const result = await novelApi.createNovel(
       showAdvanced.value
@@ -662,6 +701,7 @@ const handleCreate = async () => {
     setupWizard.value = {
       novelId: result.id,
       targetChapters: result.target_chapters,
+      stylePreset: newBook.value.stylePreset,  // 传递给向导
     }
   } catch (error: any) {
     message.error(error.response?.data?.detail || '创建失败')
