@@ -80,6 +80,10 @@ class LocalEmbeddingService(EmbeddingService):
         else:
             model_path = model_name
 
+        # 判断是否为 HuggingFace 模型 ID（如 "BAAI/bge-small-zh-v1.5"）
+        _original_model_name = model_path
+        _is_hf_model_id = "/" in model_path and not Path(model_path).is_absolute()
+
         # 将路径转为绝对路径（相对路径基于项目根目录）
         _resolved = Path(model_path)
         if not _resolved.is_absolute():
@@ -95,6 +99,10 @@ class LocalEmbeddingService(EmbeddingService):
             if _fallback.exists():
                 model_name = str(_fallback)
                 logger.info(f"Using local model path (auto-resolved): {model_name}")
+            elif _is_hf_model_id:
+                # 看起来像 HuggingFace 模型 ID，保留原始值让 SentenceTransformer 从缓存加载
+                model_name = _original_model_name
+                logger.info(f"Using HuggingFace model ID (cached): {model_name}")
             else:
                 raise FileNotFoundError(
                     f"Local model not found at '{_resolved}' or '{_fallback}'.\n\n"
