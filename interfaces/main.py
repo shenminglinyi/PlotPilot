@@ -74,6 +74,7 @@ from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger
 
 # Workbench module
 from interfaces.api.v1.workbench import sandbox, writer_block, monitor, llm_control
+from interfaces.api.v1.monitoring import token_watcher_routes
 from interfaces.api.stats.routers.stats import create_stats_router
 from interfaces.api.stats.services.stats_service import StatsService
 from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import SqliteStatsRepositoryAdapter
@@ -406,6 +407,9 @@ app.include_router(writer_block.router, prefix="/api/v1")
 app.include_router(sandbox.router, prefix="/api/v1")
 app.include_router(monitor.router, prefix="/api/v1")
 app.include_router(llm_control.router, prefix="/api/v1")
+
+# TokenWatcher routes
+app.include_router(token_watcher_routes.router)
 
 # 注册统计路由（使用 SQLite 适配器）
 stats_repository = SqliteStatsRepositoryAdapter(get_database())

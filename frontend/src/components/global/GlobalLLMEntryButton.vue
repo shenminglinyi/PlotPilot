@@ -86,6 +86,40 @@
                   </span>
                 </div>
                 <div class="global-llm-runtime-meta">
+                  <n-tooltip trigger="hover">
+                    <template #trigger>
+                      <n-button 
+                        size="tiny" 
+                        :secondary="true"
+                        :type="tokenWatcherConfig?.enabled ? 'success' : 'default'"
+                        class="token-watcher-tag"
+                        @click="handleTokenClick"
+                        @dblclick="handleTokenDblClick"
+                      >
+                        <span class="token-icon" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" fill="none" style="width: 14px; height: 14px;">
+                            <path 
+                              d="M12 3.5v3.3M12 17.2v3.3M3.5 12h3.3M17.2 12h3.3M6.6 6.6l2.4 2.4M15 15l2.4 2.4M6.6 17.4l2.4-2.4M15 9l2.4-2.4" 
+                              stroke="currentColor" 
+                              stroke-width="1.8" 
+                              stroke-linecap="round"
+                              v-if="!tokenWatcherConfig?.enabled"
+                            />
+                            <path 
+                              d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6.6 6.6l1.6 1.6M15.8 15.8l1.6 1.6M6.6 17.4l1.6-1.6M15.8 8.2l1.6-1.6" 
+                              stroke="currentColor" 
+                              stroke-width="2" 
+                              stroke-linecap="round"
+                              v-if="tokenWatcherConfig?.enabled"
+                            />
+                            <circle cx="12" cy="12" r="3.8" stroke="currentColor" stroke-width="2" v-if="tokenWatcherConfig?.enabled" />
+                          </svg>
+                        </span>
+                        Token监控
+                      </n-button>
+                    </template>
+                    单击设置，双击切换
+                  </n-tooltip>
                   <n-button size="tiny" secondary @click="modelSettingsModalRef?.open()">
                     核心引擎
                   </n-button>
@@ -211,21 +245,29 @@
 
       <!-- 核心引擎配置模态框 -->
       <ModelSettingsModal ref="modelSettingsModalRef" />
+      
+      <!-- Token 监控模态框 -->
+      <TokenWatcherPanel
+        v-model:show="showTokenModal"
+        @config-change="handleTokenConfigChange"
+      />
     </teleport>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NDrawer, NDrawerContent, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin } from 'naive-ui'
+import { NDrawer, NDrawerContent, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin, NTooltip } from 'naive-ui'
 import {
   llmControlApi,
   type LLMControlPanelData,
   type LLMRuntimeSummary,
 } from '../../api/llmControl'
 import { settingsApi, type EmbeddingConfig } from '../../api/settings'
+import { tokenWatcherApi, type TokenWatcherConfig } from '../../api/tokenWatcher'
 import LLMControlPanel from '../workbench/LLMControlPanel.vue'
 import ModelSettingsModal from '../settings/ModelSettingsModal.vue'
+import TokenWatcherPanel from './TokenWatcherPanel.vue'
 
 type Appearance = 'sidebar' | 'topbar'
 type DrawerTab = 'embedding' | 'llm'
@@ -243,6 +285,62 @@ const drawerTab = ref<DrawerTab>('llm')
 const runtimeLoading = ref(false)
 const runtimeSummary = ref<LLMRuntimeSummary | null>(null)
 const modelSettingsModalRef = ref<InstanceType<typeof ModelSettingsModal> | null>(null)
+const tokenWatcherConfig = ref<TokenWatcherConfig | null>(null)
+const tokenWatcherLoading = ref(false)
+const showTokenModal = ref(false)
+let clickTimer: number | null = null
+
+async function loadTokenWatcherConfig() {
+  tokenWatcherLoading.value = true
+  try {
+    tokenWatcherConfig.value = await tokenWatcherApi.getConfig()
+  } catch {
+    tokenWatcherConfig.value = null
+  } finally {
+    tokenWatcherLoading.value = false
+  }
+}
+
+async function toggleTokenWatcher() {
+  if (!tokenWatcherConfig.value) return
+  try {
+    const newConfig = await tokenWatcherApi.updateConfig({
+      enabled: !tokenWatcherConfig.value.enabled,
+    })
+    tokenWatcherConfig.value = newConfig
+  } catch {
+    // 失败时重新加载配置
+    await loadTokenWatcherConfig()
+  }
+}
+
+function handleTokenClick(e: MouseEvent) {
+  // 单击时延迟执行，等待确认是否是双击
+  if (clickTimer) {
+    clearTimeout(clickTimer)
+    clickTimer = null
+    return
+  }
+  clickTimer = window.setTimeout(() => {
+    showTokenModal.value = true
+    clickTimer = null
+  }, 250)
+}
+
+function handleTokenDblClick(e: MouseEvent) {
+  // 双击时切换开关，取消单击事件
+  if (clickTimer) {
+    clearTimeout(clickTimer)
+    clickTimer = null
+  }
+  e.preventDefault()
+  e.stopPropagation()
+  void toggleTokenWatcher()
+}
+
+function handleTokenConfigChange(config: TokenWatcherConfig) {
+  tokenWatcherConfig.value = config
+}
 
 const drawerWidth = computed(() => {
   const width = document.documentElement?.clientWidth || window.innerWidth || 1440
@@ -351,6 +449,7 @@ async function handleFetchEmbeddingModels() {
 function openPanel() {
   void refreshRuntimeSummary()
   void loadEmbeddingConfig()
+  void loadTokenWatcherConfig()
   showPanel.value = true
 }
 </script>
@@ -742,6 +841,18 @@ function openPanel() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.token-watcher-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.token-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .global-llm-runtime-chip {
