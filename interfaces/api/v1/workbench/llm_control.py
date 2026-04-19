@@ -353,7 +353,7 @@ async def export_prompts() -> Dict[str, Any]:
 
     return {
         "_meta": {
-            "version": "1.0.0",
+            "version": "1.0.1",
             "description": "PlotPilot 提示词导出",
             "exported_at": datetime.now().isoformat(),
             "source": "prompt_plaza_export",

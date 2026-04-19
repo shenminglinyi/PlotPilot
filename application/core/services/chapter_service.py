@@ -1,5 +1,5 @@
 """Chapter 应用服务"""
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 import re
 from domain.novel.entities.chapter import Chapter, ChapterStatus
@@ -20,7 +20,8 @@ class ChapterService:
         self,
         chapter_repository: ChapterRepository,
         novel_repository: NovelRepository,
-        chapter_review_repository=None
+        chapter_review_repository=None,
+        chapter_renumber_coordinator: Any = None,
     ):
         """初始化服务
 
@@ -28,10 +29,12 @@ class ChapterService:
             chapter_repository: Chapter 仓储
             novel_repository: Novel 仓储
             chapter_review_repository: Chapter Review 仓储（可选）
+            chapter_renumber_coordinator: 删章后伏笔/快照/向量等侧车数据章号重排（可选）
         """
         self.chapter_repository = chapter_repository
         self.novel_repository = novel_repository
         self.chapter_review_repository = chapter_review_repository
+        self._chapter_renumber_coordinator = chapter_renumber_coordinator
 
     def update_chapter_content(
         self,
@@ -91,7 +94,19 @@ class ChapterService:
         Args:
             chapter_id: 章节 ID
         """
+        chapter = self.chapter_repository.get_by_id(ChapterId(chapter_id))
+        if chapter is None:
+            return
+        novel_id = (
+            chapter.novel_id.value
+            if hasattr(chapter.novel_id, "value")
+            else chapter.novel_id
+        )
+        deleted_number = chapter.number
         self.chapter_repository.delete(ChapterId(chapter_id))
+        coordinator = self._chapter_renumber_coordinator
+        if coordinator is not None:
+            coordinator.on_chapter_deleted(novel_id, deleted_number)
 
     def get_chapter_by_novel_and_number(
         self,

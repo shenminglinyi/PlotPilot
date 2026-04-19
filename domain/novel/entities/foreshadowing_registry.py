@@ -1,8 +1,14 @@
 # domain/novel/entities/foreshadowing_registry.py
+from __future__ import annotations
+
+import logging
 from typing import List, Optional
 from dataclasses import replace
 
 from domain.shared.base_entity import BaseEntity
+from domain.novel.value_objects.chapter_renumber_spec import ChapterRenumberSpec
+
+logger = logging.getLogger(__name__)
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.foreshadowing import (
     Foreshadowing,
@@ -160,4 +166,76 @@ class ForeshadowingRegistry(BaseEntity):
             and e.suggested_resolve_chapter is not None
             and current_chapter <= e.suggested_resolve_chapter <= current_chapter + window
         ]
+
+    @staticmethod
+    def _clamp_foreshadowing_chapters(f: Foreshadowing) -> Foreshadowing:
+        planted = f.planted_in_chapter
+        suggested = f.suggested_resolve_chapter
+        resolved = f.resolved_in_chapter
+        if suggested is not None and suggested < planted:
+            suggested = planted
+        if resolved is not None and resolved < planted:
+            resolved = planted
+        if suggested is not None and resolved is not None and resolved < suggested:
+            resolved = suggested
+        return replace(
+            f,
+            suggested_resolve_chapter=suggested,
+            resolved_in_chapter=resolved,
+        )
+
+    def apply_chapter_renumber_after_chapter_deleted(self, spec: ChapterRenumberSpec) -> None:
+        """删章并重排章节号后，同步伏笔与潜台词中的章号引用（与 chapters 表一致）。"""
+        new_foreshadowings: List[Foreshadowing] = []
+        for f in self._foreshadowings:
+            try:
+                nf = replace(
+                    f,
+                    planted_in_chapter=spec.shift_chapter_ref(f.planted_in_chapter),
+                    suggested_resolve_chapter=spec.shift_optional_chapter_ref(
+                        f.suggested_resolve_chapter
+                    ),
+                    resolved_in_chapter=spec.shift_optional_chapter_ref(f.resolved_in_chapter),
+                )
+                new_foreshadowings.append(self._clamp_foreshadowing_chapters(nf))
+            except (ValueError, TypeError) as e:
+                logger.warning(
+                    "伏笔 %s 章号重映射后校验失败，保留原条目: %s",
+                    getattr(f, "id", "?"),
+                    e,
+                )
+                new_foreshadowings.append(f)
+
+        self._foreshadowings.clear()
+        self._foreshadowings.extend(new_foreshadowings)
+
+        new_entries: List[SubtextLedgerEntry] = []
+        for e in self._subtext_entries:
+            try:
+                nc = spec.shift_chapter_ref(e.chapter)
+                ncon = spec.shift_optional_chapter_ref(e.consumed_at_chapter)
+                nsug = spec.shift_optional_chapter_ref(e.suggested_resolve_chapter)
+                nwin = spec.shift_optional_chapter_ref(e.resolve_chapter_window)
+                if ncon is not None and ncon < nc:
+                    ncon = nc
+                if nsug is not None and nsug < nc:
+                    nsug = nc
+                ne = replace(
+                    e,
+                    chapter=nc,
+                    consumed_at_chapter=ncon,
+                    suggested_resolve_chapter=nsug,
+                    resolve_chapter_window=nwin,
+                )
+                new_entries.append(ne)
+            except (ValueError, TypeError) as ex:
+                logger.warning(
+                    "潜台词条目 %s 章号重映射失败，保留原条目: %s",
+                    getattr(e, "id", "?"),
+                    ex,
+                )
+                new_entries.append(e)
+
+        self._subtext_entries.clear()
+        self._subtext_entries.extend(new_entries)
 

@@ -80,12 +80,18 @@ from interfaces.api.stats.services.stats_service import StatsService
 from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import SqliteStatsRepositoryAdapter
 from infrastructure.persistence.database.connection import get_database
 
-# 后端版本号（每次重启递增）
-BACKEND_VERSION = datetime.now().strftime("%Y%m%d-%H%M%S")
+# 产品发布版本（与前端 / 安装包一致）
+APP_RELEASE_VERSION = "1.0.1"
+# 构建标识（每次进程启动唯一）
+BACKEND_BUILD_ID = datetime.now().strftime("%Y%m%d-%H%M%S")
 STARTUP_TIME = time.time()
 
 logger.info("=" * 80)
-logger.info(f"🚀 BACKEND STARTING - Version: {BACKEND_VERSION}")
+logger.info(
+    "🚀 BACKEND STARTING - Release %s (build %s)",
+    APP_RELEASE_VERSION,
+    BACKEND_BUILD_ID,
+)
 logger.info(f"   Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 logger.info(f"   Log Level: {logging.getLevelName(log_level)}")
 logger.info(f"   Log File: {log_file}")
@@ -96,7 +102,7 @@ logger.info("=" * 80)
 # 创建 FastAPI 应用
 app = FastAPI(
     title="PlotPilot API",
-    version="2.0.0",
+    version="1.0.1",
     description="PlotPilot（墨枢）AI 小说创作平台 API",
     redirect_slashes=True,  # 自动将 /api/v1/novels 重定向到 /api/v1/novels/
 )
@@ -474,7 +480,7 @@ async def root():
     """根路径 — 返回前端页面（SPA）或 API 欢迎消息"""
     if _FRONTEND_DIR.exists() and _INDEX_HTML.exists():
         return FileResponse(str(_INDEX_HTML), media_type="text/html")
-    return {"message": "PlotPilot API v2.0"}
+    return {"message": "PlotPilot API", "release": APP_RELEASE_VERSION}
 
 
 @app.get("/health")
@@ -488,7 +494,8 @@ async def health_check():
     daemon_alive = _daemon_process is not None and _daemon_process.is_alive()
     return {
         "status": "healthy",
-        "version": BACKEND_VERSION,
+        "version": APP_RELEASE_VERSION,
+        "build_id": BACKEND_BUILD_ID,
         "uptime_seconds": round(uptime, 2),
         "daemon_process": {
             "running": daemon_alive,

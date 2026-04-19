@@ -262,6 +262,19 @@ def get_novel_service() -> NovelService:
     )
 
 
+def get_chapter_renumber_coordinator():
+    """删章后章号侧车数据（伏笔 JSON、快照内嵌 JSON、向量元数据）重排编排。"""
+    from application.novel.chapter_renumber.coordinator import (
+        build_default_chapter_renumber_coordinator,
+    )
+
+    return build_default_chapter_renumber_coordinator(
+        db=get_database(),
+        foreshadowing_repository=get_foreshadowing_repository(),
+        vector_store=get_vector_store(),
+    )
+
+
 def get_chapter_service() -> ChapterService:
     """获取 Chapter 服务
 
@@ -274,7 +287,8 @@ def get_chapter_service() -> ChapterService:
     return ChapterService(
         get_chapter_repository(), 
         get_novel_repository(),
-        review_repo
+        review_repo,
+        chapter_renumber_coordinator=get_chapter_renumber_coordinator(),
     )
 
 
