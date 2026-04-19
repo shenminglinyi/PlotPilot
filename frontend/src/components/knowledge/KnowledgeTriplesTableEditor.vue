@@ -306,24 +306,24 @@ onMounted(() => {
 
 .ktte-icon {
   font-size: 16px;
-  color: #6366f1;
+  color: var(--color-brand);
 }
 
 .ktte-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--app-text-primary);
 }
 
 .ktte-tag-tool {
   font-size: 11px;
-  background: #f3f4f6;
-  color: #6b7280;
+  background: var(--app-surface-subtle);
+  color: var(--app-text-muted);
 }
 
 .ktte-hint {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--app-text-muted);
   margin: 0 0 16px;
   line-height: 1.6;
 }
@@ -336,8 +336,8 @@ onMounted(() => {
   margin-bottom: 14px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: rgba(99, 102, 241, 0.06);
-  border: 1px solid rgba(99, 102, 241, 0.12);
+  background: var(--color-brand-light);
+  border: 1px solid var(--color-brand-border);
 }
 
 .ktte-facts {
@@ -352,14 +352,14 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--app-surface-subtle);
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
 }
 
 .ktte-fact-id {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--app-text-muted);
   font-family: monospace;
 }
 

@@ -1,8 +1,9 @@
 """TensionAnalyzer 单元测试"""
 import pytest
 from unittest.mock import Mock, AsyncMock
-from application.services.tension_analyzer import TensionAnalyzer
-from application.dtos.writer_block_dto import TensionSlingshotRequest, TensionDiagnosis
+
+from application.analyst.services.tension_analyzer import TensionAnalyzer
+from application.workbench.dtos.writer_block_dto import TensionDiagnosis, TensionSlingshotRequest
 
 
 class TestTensionAnalyzer:
@@ -24,7 +25,12 @@ class TestTensionAnalyzer:
     @pytest.fixture
     def analyzer(self, mock_event_repo, mock_llm_client):
         """创建 TensionAnalyzer 实例"""
-        return TensionAnalyzer(mock_event_repo, mock_llm_client)
+        return TensionAnalyzer(
+            mock_event_repo,
+            mock_llm_client,
+            chapter_repository=None,
+            plot_arc_repository=None,
+        )
 
     @pytest.mark.asyncio
     async def test_analyze_low_tension(self, analyzer, mock_event_repo, mock_llm_client):
@@ -238,3 +244,33 @@ class TestTensionAnalyzer:
 
         assert result is not None
         assert result.tension_level == "low"
+
+    @pytest.mark.asyncio
+    async def test_analyze_parses_markdown_fenced_json(
+        self, analyzer, mock_event_repo, mock_llm_client
+    ):
+        """LLM 用 markdown 代码块包裹 JSON 时仍能解析。"""
+        mock_event_repo.list_up_to_chapter.return_value = []
+
+        mock_llm_client.generate.return_value = """
+下面是分析结果：
+```json
+{
+    "diagnosis": "暂无事件，张力偏低。",
+    "tension_level": "low",
+    "missing_elements": ["events"],
+    "suggestions": ["先写下本章一个具体场景"]
+}
+```
+"""
+
+        request = TensionSlingshotRequest(
+            novel_id="novel-001",
+            chapter_number=1,
+        )
+
+        result = await analyzer.analyze_tension(request)
+
+        assert result.tension_level == "low"
+        assert "暂无事件" in result.diagnosis
+        assert len(result.suggestions) >= 1

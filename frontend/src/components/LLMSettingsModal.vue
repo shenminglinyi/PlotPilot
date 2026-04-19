@@ -88,9 +88,26 @@ const themeOptions = computed(() => [
 ])
 
 function handleThemeChange(newMode: ThemeMode) {
-  themeStore.setTheme(newMode)
   const opt = themeOptions.value.find((o) => o.value === newMode)
-  message.success(`已切换到${opt?.label ?? newMode}主题`)
+  const label = opt?.label ?? newMode
+
+  const applyTheme = () => {
+    themeStore.setTheme(newMode)
+  }
+
+  if ('startViewTransition' in document) {
+    // Chrome/Edge 111+：页面截图 + 交叉淡入淡出，平滑无闪烁
+    ;(document as Document & { startViewTransition: (cb: () => void) => void })
+      .startViewTransition(applyTheme)
+  } else {
+    // 降级：CSS transition 方案（Firefox / Safari）
+    const root = (document as any).documentElement as HTMLElement
+    root.classList.add('theme-transitioning')
+    applyTheme()
+    setTimeout(() => root.classList.remove('theme-transitioning'), 360)
+  }
+
+  message.success(`已切换到${label}主题`)
 }
 </script>
 

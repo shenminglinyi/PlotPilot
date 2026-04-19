@@ -199,9 +199,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   position: relative;
-  background: #fafafa;
+  background: var(--app-surface-subtle);
   border-radius: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  border: 1px solid var(--app-border-strong);
   overflow: hidden;
 }
 
@@ -212,7 +212,7 @@ onMounted(async () => {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  border-bottom: 1px solid var(--app-border);
   background: var(--app-surface);
 }
 

@@ -23,8 +23,23 @@ from domain.novel.value_objects.consistency_context import ConsistencyContext
 from domain.novel.value_objects.novel_id import NovelId
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.llm_output_sanitize import strip_reasoning_artifacts
+from application.workflows.beat_continuation import format_prior_draft_for_prompt
 
 logger = logging.getLogger(__name__)
+
+# 与 ContextBuilder.build_structured_context 映射：Layer1≈T0+T1，Layer2=T2，Layer3=T3
+# 段名与语义对齐，避免「SMART RETRIEVAL」贴在近期正文等历史误标
+CHAPTER_CONTEXT_LAYER2_HEADER = "RECENT CHAPTERS"  # T2 近期章节正文
+CHAPTER_CONTEXT_LAYER3_HEADER = "VECTOR RECALL"  # T3 向量召回
+
+
+def assemble_chapter_bundle_context_text(payload: Dict[str, Any]) -> str:
+    """将 build_structured_context 的 payload 拼成章节主上下文块（与 prepare_chapter_generation 同源）。"""
+    return (
+        f"{payload['layer1_text']}\n\n=== {CHAPTER_CONTEXT_LAYER2_HEADER} ===\n{payload['layer2_text']}\n\n"
+        f"=== {CHAPTER_CONTEXT_LAYER3_HEADER} ===\n{payload['layer3_text']}"
+    )
 
 
 def _consistency_report_to_dict(report: ConsistencyReport) -> Dict[str, Any]:
@@ -76,7 +91,8 @@ class AutoNovelGenerationWorkflow:
         foreshadowing_repository: Optional[ForeshadowingRepository] = None,
         conflict_detection_service: Optional[ConflictDetectionService] = None,
         voice_fingerprint_service: Optional['VoiceFingerprintService'] = None,
-        cliche_scanner: Optional['ClicheScanner'] = None
+        cliche_scanner: Optional['ClicheScanner'] = None,
+        memory_engine: Optional['MemoryEngine'] = None,
     ):
         """初始化工作流
 
@@ -93,12 +109,25 @@ class AutoNovelGenerationWorkflow:
             conflict_detection_service: 冲突检测服务（可选）
             voice_fingerprint_service: 风格指纹服务（可选）
             cliche_scanner: 俗套扫描器（可选）
+            memory_engine: V6 记忆引擎（可选，提供 FACT_LOCK / BEATS / CLUES 注入与章后回写）
         """
         self.context_builder = context_builder
         self.consistency_checker = consistency_checker
         self.storyline_manager = storyline_manager
         self.plot_arc_repository = plot_arc_repository
         self.llm_service = llm_service
+
+        # ★ V6 记忆引擎（跨章节状态机）
+        self.memory_engine = memory_engine
+        if memory_engine and bible_repository:
+            # 将 memory_engine 注入 context_builder 的 budget_allocator
+            if hasattr(self.context_builder, 'budget_allocator'):
+                self.context_builder.budget_allocator.memory_engine = memory_engine
+                logger.info("✓ MemoryEngine 已注入 ContextBudgetAllocator")
+
+        # V6 运行时上下文缓存（供 _build_prompt 使用）
+        self._current_novel_id: str = ""
+        self._current_chapter_number: int = 0
         
         # 强制初始化 StateExtractor（如果未提供）
         if state_extractor is None:
@@ -148,10 +177,7 @@ class AutoNovelGenerationWorkflow:
             max_tokens=max_tokens,
             scene_director=scene_director,
         )
-        context = (
-            f"{payload['layer1_text']}\n\n=== SMART RETRIEVAL ===\n{payload['layer2_text']}\n\n"
-            f"=== RECENT CONTEXT ===\n{payload['layer3_text']}"
-        )
+        context = assemble_chapter_bundle_context_text(payload)
         context_tokens = payload["token_usage"]["total"]
         style_summary = self._get_style_summary(novel_id)
         voice_anchors = ""
@@ -159,6 +185,62 @@ class AutoNovelGenerationWorkflow:
             voice_anchors = self.context_builder.build_voice_anchor_system_section(novel_id)
         except Exception as e:
             logger.warning("voice_anchor section skipped: %s", e)
+        return {
+            "storyline_context": storyline_context,
+            "plot_tension": plot_tension,
+            "context": context,
+            "context_tokens": context_tokens,
+            "style_summary": style_summary,
+            "voice_anchors": voice_anchors,
+        }
+
+    def build_fallback_chapter_bundle(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        *,
+        scene_director: Optional[SceneDirectorAnalysis] = None,
+        max_tokens: int = 20000,
+    ) -> Dict[str, Any]:
+        """prepare_chapter_generation 失败时的降级：仍用三层洋葱 + 同段名拼接；叙事/文风各步独立容错。
+
+        供全托管等场景在「故事线/张力等」子步骤异常时保持与主路径一致的上下文形态。
+        """
+        payload = self.context_builder.build_structured_context(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            max_tokens=max_tokens,
+            scene_director=scene_director,
+        )
+        context = assemble_chapter_bundle_context_text(payload)
+        context_tokens = payload["token_usage"]["total"]
+
+        storyline_context = ""
+        try:
+            storyline_context = self._get_storyline_context(novel_id, chapter_number)
+        except Exception as e:
+            logger.warning("fallback storyline_context skipped: %s", e)
+
+        plot_tension = ""
+        try:
+            plot_tension = self._get_plot_tension(novel_id, chapter_number)
+        except Exception as e:
+            logger.warning("fallback plot_tension skipped: %s", e)
+
+        style_summary = ""
+        try:
+            style_summary = self._get_style_summary(novel_id)
+        except Exception as e:
+            logger.warning("fallback style_summary skipped: %s", e)
+
+        voice_anchors = ""
+        try:
+            voice_anchors = self.context_builder.build_voice_anchor_system_section(novel_id)
+        except Exception as e:
+            logger.warning("fallback voice_anchors skipped: %s", e)
+
         return {
             "storyline_context": storyline_context,
             "plot_tension": plot_tension,
@@ -176,7 +258,7 @@ class AutoNovelGenerationWorkflow:
         content: str,
         scene_director: Optional[SceneDirectorAnalysis] = None,
     ) -> Dict[str, Any]:
-        """生成正文后的统一后处理：俗套扫描、状态提取、一致性、冲突批注、StateUpdater。"""
+        """生成正文后的统一后处理：俗套扫描、状态提取、一致性、冲突批注、StateUpdater、MemoryEngine回写。"""
         style_warnings = self._scan_cliches(content)
         chapter_state = await self._extract_chapter_state(content, chapter_number)
         consistency_report = self._check_consistency(chapter_state, novel_id)
@@ -186,11 +268,35 @@ class AutoNovelGenerationWorkflow:
                 self.state_updater.update_from_chapter(novel_id, chapter_number, chapter_state)
             except Exception as e:
                 logger.warning("StateUpdater 失败: %s", e)
+
+        # ★ V6 新增：MemoryEngine 章后状态回写（LLM 驱动的增量提取）
+        memory_delta = {}
+        if self.memory_engine:
+            try:
+                memory_delta = await self.memory_engine.update_from_chapter(
+                    novel_id=novel_id,
+                    chapter_number=chapter_number,
+                    content=content,
+                    outline=outline,
+                )
+                if memory_delta.get("new_beats", 0) or memory_delta.get("new_clues", 0):
+                    logger.info(
+                        f"  🧠 MemoryEngine: +{memory_delta.get('new_beats', 0)} beats, "
+                        f"+{memory_delta.get('new_clues', 0)} clues"
+                    )
+                if memory_delta.get("violations", 0):
+                    logger.warning(
+                        f"  ⚠️ MemoryEngine 检测到 {memory_delta['violations']} 个事实违反"
+                    )
+            except Exception as e:
+                logger.warning("MemoryEngine 章后回写失败: %s", e)
+
         return {
             "style_warnings": style_warnings,
             "chapter_state": chapter_state,
             "consistency_report": consistency_report,
             "ghost_annotations": ghost_annotations,
+            "memory_delta": memory_delta,
         }
 
     async def generate_chapter(
@@ -227,6 +333,10 @@ class AutoNovelGenerationWorkflow:
         logger.info(f"大纲: {outline[:100]}...")
         logger.info(f"========================================")
 
+        # ★ V6: 缓存当前 novel_id/chapter_number 供 _build_prompt 中 MemoryEngine 使用
+        self._current_novel_id = novel_id
+        self._current_chapter_number = chapter_number
+
         logger.info("阶段 1-2: 规划 + 结构化上下文（prepare_chapter_generation）")
         bundle = self.prepare_chapter_generation(
             novel_id, chapter_number, outline, scene_director=scene_director
@@ -248,8 +358,9 @@ class AutoNovelGenerationWorkflow:
         # 根据是否使用节拍选择不同的生成策略
         if enable_beats and beats:
             # 按节拍生成
-            content_parts = []
+            content_parts: list[str] = []
             for i, beat in enumerate(beats):
+                prior_draft = "\n\n".join(content_parts)
                 beat_prompt_text = self.context_builder.build_beat_prompt(beat, i, len(beats))
                 logger.info(f"生成节拍 {i+1}/{len(beats)}: {beat.focus} - {beat.description[:50]}...")
                 
@@ -264,13 +375,14 @@ class AutoNovelGenerationWorkflow:
                     total_beats=len(beats),
                     beat_target_words=beat.target_words,
                     voice_anchors=bundle.get("voice_anchors") or "",
+                    chapter_draft_so_far=prior_draft,
                 )
                 
                 llm_result = await self.llm_service.generate(prompt, config)
                 beat_content = llm_result.content
                 content_parts.append(beat_content)
             
-            content = "".join(content_parts)
+            content = strip_reasoning_artifacts("".join(content_parts))
             logger.info(f"  ✓ 节拍生成完成: {len(beats)} 个节拍, {len(content)} 字符")
         else:
             # 传统单段生成
@@ -284,7 +396,7 @@ class AutoNovelGenerationWorkflow:
             )
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
             llm_result = await self.llm_service.generate(prompt, config)
-            content = llm_result.content
+            content = strip_reasoning_artifacts(llm_result.content or "")
             logger.info(f"  ✓ LLM 响应已接收: {len(content)} 字符")
         
         # 保存微观节拍用于后续处理
@@ -387,8 +499,9 @@ class AutoNovelGenerationWorkflow:
             # 根据是否使用节拍选择不同的生成策略
             if enable_beats and beats:
                 # 按节拍生成
-                content_parts = []
+                content_parts: list[str] = []
                 for i, beat in enumerate(beats):
+                    prior_draft = "\n\n".join(content_parts)
                     beat_prompt_text = self.context_builder.build_beat_prompt(beat, i, len(beats))
                     logger.info(f"生成节拍 {i+1}/{len(beats)}: {beat.focus} - {beat.description[:50]}...")
                     
@@ -403,6 +516,7 @@ class AutoNovelGenerationWorkflow:
                         total_beats=len(beats),
                         beat_target_words=beat.target_words,
                         voice_anchors=bundle.get("voice_anchors") or "",
+                        chapter_draft_so_far=prior_draft,
                     )
                     
                     beat_content = ""
@@ -419,7 +533,7 @@ class AutoNovelGenerationWorkflow:
                     content_parts.append(beat_content)
                     yield {"type": "beat_done", "beat_index": i, "beat_content_length": len(beat_content)}
                 
-                content = "".join(content_parts)
+                content = strip_reasoning_artifacts("".join(content_parts))
             else:
                 # 传统单段生成
                 prompt = self._build_prompt(
@@ -450,7 +564,7 @@ class AutoNovelGenerationWorkflow:
                         }
                     }
 
-                content = "".join(parts)
+                content = strip_reasoning_artifacts("".join(parts))
             logger.info(f"  ✓ LLM 流式响应完成: {chunk_count} 个块, {len(content)} 字符")
 
             if not content.strip():
@@ -528,7 +642,7 @@ class AutoNovelGenerationWorkflow:
             )
             cfg = GenerationConfig(max_tokens=1024, temperature=0.7)
             out = await self.llm_service.generate(outline_prompt, cfg)
-            text = (out.content or "").strip()
+            text = strip_reasoning_artifacts((out.content or "").strip())
             if text:
                 return text
         except Exception as e:
@@ -629,6 +743,7 @@ class AutoNovelGenerationWorkflow:
         total_beats: Optional[int] = None,
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
+        chapter_draft_so_far: str = "",
     ) -> Prompt:
         """构建与 HTTP 单章 / 流式 / 托管按节拍写作一致的 Prompt（对外 API）。"""
         return self._build_prompt(
@@ -642,6 +757,7 @@ class AutoNovelGenerationWorkflow:
             total_beats=total_beats,
             beat_target_words=beat_target_words,
             voice_anchors=voice_anchors,
+            chapter_draft_so_far=chapter_draft_so_far,
         )
 
     def _build_prompt(
@@ -657,6 +773,7 @@ class AutoNovelGenerationWorkflow:
         total_beats: Optional[int] = None,
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
+        chapter_draft_so_far: str = "",
     ) -> Prompt:
         """构建 LLM 提示词
 
@@ -670,6 +787,7 @@ class AutoNovelGenerationWorkflow:
             beat_index / total_beats: 节拍序号（0-based / 总数）
             beat_target_words: 本段目标字数（分节拍时覆盖「整章 2000-3000 字」说明）
             voice_anchors: Bible 角色声线/小动作锚点（高优先级 System 提示）
+            chapter_draft_so_far: 同章内当前节拍之前已生成的正文（拼接后传入，避免后续节拍重复）
 
         Returns:
             Prompt 对象
@@ -700,6 +818,7 @@ class AutoNovelGenerationWorkflow:
             )
 
         beat_mode = bool((beat_prompt or "").strip())
+        prior_in_chapter = format_prior_draft_for_prompt(chapter_draft_so_far)
         length_rule = (
             f"7. 本段约 {beat_target_words} 字（本章分多节输出之一，勿写章节标题）"
             if beat_target_words
@@ -707,15 +826,41 @@ class AutoNovelGenerationWorkflow:
         )
         beat_extra = ""
         if beat_mode and beat_index is not None and total_beats is not None and total_beats > 0:
-            beat_extra = (
-                f"\n9. 这是本章第 {beat_index + 1}/{total_beats} 段输出；若非第一段，须承接上文语义，"
-                "不要重复已写内容。\n"
-            )
+            if prior_in_chapter:
+                beat_extra = (
+                    f"\n9. 本章第 {beat_index + 1}/{total_beats} 段：用户消息中「本章已生成正文」为当前章已写部分，"
+                    "请从其**之后**自然续写，不得复述或改写其中对白与已发生情节。\n"
+                )
+            else:
+                beat_extra = (
+                    f"\n9. 本章第 {beat_index + 1}/{total_beats} 段：与前后节拍连贯，避免同章内重复铺垫或重复对白。\n"
+                )
+
+        # ★ V6: 从 MemoryEngine 获取 fact_lock 文本块（T0 注入）
+        fact_lock = ""
+        if self.memory_engine:
+            try:
+                # 从 context 中提取 novel_id（通过 budget_allocator 传递）
+                # 这里用组合方式：FACT_LOCK + BEATS + CLUES 合并为一个文本块
+                fl = self.memory_engine.build_fact_lock_section(
+                    self._current_novel_id or "", self._current_chapter_number or 0
+                )
+                beats = self.memory_engine.get_completed_beats_section(
+                    self._current_novel_id or ""
+                )
+                clues = self.memory_engine.get_revealed_clues_section(
+                    self._current_novel_id or ""
+                )
+                parts = [p for p in [fl, beats, clues] if p.strip()]
+                fact_lock = "\n\n".join(parts) if parts else ""
+            except Exception as e:
+                logger.warning(f"MemoryEngine fact_lock 构建失败: {e}")
 
         system_message = f"""你是一位专业的网络小说作家。根据以下上下文撰写章节内容。
 
 {planning_section}{voice_block}{context}
 
+{fact_lock}
 写作要求：
 1. 必须有多个人物互动（至少2-3个角色出场）
 2. 必须有对话（不能只有独白和叙述）
@@ -738,15 +883,27 @@ class AutoNovelGenerationWorkflow:
 - 推进主线情节，不要原地踏步
 - 结尾要有悬念或转折"""
 
+        if beat_mode and prior_in_chapter:
+            user_message += f"""
+
+【本章已生成正文（仅承接；禁止复述、改写或重复已交代的情节与对白；勿写章节标题）】
+{prior_in_chapter}
+"""
+
         if beat_mode:
             bi = beat_index if beat_index is not None else 0
             tb = total_beats if total_beats is not None else 1
+            beat_tail = (
+                "本段只写该节拍对应正文，紧接上文已写正文之后继续，衔接自然。"
+                if prior_in_chapter
+                else "本段只写该节拍对应正文，与全章其它节拍情节连贯。"
+            )
             user_message += f"""
 
 【节拍 {bi + 1}/{tb}】
 {(beat_prompt or '').strip()}
 
-本段只写该节拍对应正文，与上文衔接自然。"""
+{beat_tail}"""
 
         user_message += "\n\n开始撰写："
 

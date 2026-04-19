@@ -1,5 +1,5 @@
 <template>
-  <aside class="stats-sidebar">
+  <aside class="stats-sidebar" :class="{ 'is-collapsed': collapsed }">
     <!-- Brand Header -->
     <header class="sidebar-brand">
       <div class="brand-logo">
@@ -9,6 +9,21 @@
           <p class="brand-slogan">墨枢 · 作者的领航员</p>
         </div>
       </div>
+      <button
+        class="collapse-toggle"
+        :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        @click="toggleCollapse"
+      >
+        <svg viewBox="0 0 24 24" fill="none" width="16" height="16">
+          <path
+            :d="collapsed ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
     </header>
 
     <!-- Stats Overview -->
@@ -60,19 +75,32 @@
         />
       </div>
 
-      <!-- Stage Distribution -->
-      <div v-if="globalStats?.books_by_stage" class="stage-distribution">
+      <!-- 各阶段书籍：始终占位，避免异步出现后挤压下方快捷操作 / 弹层触发区 -->
+      <div class="stage-distribution">
         <h3 class="stage-title">各阶段书籍</h3>
-        <div class="stage-list">
+        <div v-if="loading" class="stage-list" aria-hidden="true">
+          <div v-for="n in 4" :key="n" class="stage-item stage-item--skeleton">
+            <span class="stage-dot stage-dot--placeholder" />
+            <n-skeleton style="flex: 1; max-width: 68%" :height="14" round />
+            <n-skeleton :width="40" :height="22" round />
+          </div>
+        </div>
+        <div
+          v-else-if="globalStats?.books_by_stage && Object.keys(globalStats.books_by_stage).length > 0"
+          class="stage-list"
+        >
           <div
             v-for="(count, stage) in globalStats.books_by_stage"
             :key="stage"
             class="stage-item"
           >
-            <span class="stage-dot" :class="`stage-${stage}`"></span>
+            <span class="stage-dot" :class="`stage-${stage}`" />
             <span class="stage-name">{{ getStageLabel(stage as string) }}</span>
             <span class="stage-count">{{ count }}</span>
           </div>
+        </div>
+        <div v-else class="stage-list stage-empty">
+          <span class="stage-empty-hint">暂无分阶段统计</span>
         </div>
       </div>
     </section>
@@ -106,6 +134,8 @@
           </span>
           <span>刷新列表</span>
         </button>
+        <GlobalLLMEntryButton appearance="sidebar" />
+        <PromptPlazaEntryButton appearance="sidebar" />
       </div>
     </section>
 
@@ -138,12 +168,26 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
+import { NSkeleton } from 'naive-ui'
 import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
-defineEmits<{
+import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
+import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
+const emit = defineEmits<{
   (e: 'create-book'): void
   (e: 'refresh-list'): void
+  (e: 'collapsed-change', collapsed: boolean): void
 }>()
+
+const SIDEBAR_COLLAPSED_KEY = 'plotpilot_sidebar_collapsed'
+
+const collapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed.value))
+  emit('collapsed-change', collapsed.value)
+}
 
 const statsStore = useStatsStore()
 const { globalStats, loading } = storeToRefs(statsStore)
@@ -241,6 +285,12 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   overflow-y: auto;
   overflow-x: hidden;
   z-index: 100;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stats-sidebar.is-collapsed {
+  width: 52px;
+  overflow: hidden;
 }
 
 /* Brand Header */
@@ -252,6 +302,53 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   overflow: visible;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* 折叠时 brand header 缩小 */
+.is-collapsed .sidebar-brand {
+  min-height: auto;
+  padding: 12px 0;
+  justify-content: center;
+}
+
+.is-collapsed .brand-text,
+.is-collapsed .stats-section,
+.is-collapsed .quick-actions,
+.is-collapsed .sidebar-footer {
+  display: none;
+}
+
+.is-collapsed .logo-icon {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+}
+
+/* 折叠/展开切换按钮 */
+.collapse-toggle {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  transition: background 0.18s ease;
+  padding: 0;
+}
+
+.collapse-toggle:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.is-collapsed .collapse-toggle {
+  margin: 0 auto;
 }
 
 .sidebar-brand::before {
@@ -389,12 +486,34 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
   margin-bottom: 14px;
 }
 
-/* Stage Distribution */
+/* Stage Distribution（固定占位高度，避免布局抖动） */
 .stage-distribution {
   background: var(--app-surface);
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  min-height: 168px;
+  box-sizing: border-box;
+}
+
+.stage-item--skeleton {
+  padding: 6px 0;
+}
+
+.stage-dot--placeholder {
+  background: var(--app-border, rgba(148, 163, 184, 0.35));
+  opacity: 0.9;
+}
+
+.stage-list.stage-empty {
+  min-height: 88px;
+  justify-content: center;
+  align-items: center;
+}
+
+.stage-empty-hint {
+  font-size: 12px;
+  color: var(--app-text-muted, #94a3b8);
 }
 
 .stage-title {
@@ -539,7 +658,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .update-time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--app-text-muted, #64748b);
   display: flex;
   align-items: center;
@@ -560,7 +679,7 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 }
 
 .footer-link {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--app-text-muted, #64748b);
   text-decoration: none;
   display: inline-flex;

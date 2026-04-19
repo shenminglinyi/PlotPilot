@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -39,11 +40,22 @@ class TensionScoringLlmPayload(BaseModel):
     @field_validator("plot_tension", "emotional_tension", "pacing_tension", mode="before")
     @classmethod
     def coerce_to_float(cls, v):
+        if isinstance(v, (int, float)):
+            return float(v)
         if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return 0.0
             try:
-                return float(v)
+                return float(s)
             except ValueError:
-                raise ValueError(f"无法将 '{v}' 转为数字")
+                pass
+            # 模型常把长评语误写入数值字段：取首个数字，否则中性分
+            m = re.search(r"(\d+(?:\.\d+)?)", s)
+            if m:
+                x = float(m.group(1))
+                return min(100.0, max(0.0, x))
+            return 50.0
         return v
 
 

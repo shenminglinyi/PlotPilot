@@ -1,3 +1,4 @@
+import re
 import uuid
 import logging
 from typing import Optional, List, Dict, Any
@@ -27,6 +28,25 @@ logger = logging.getLogger(__name__)
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip().lower()
+
+
+def _safe_chapter_int(value: Any, fallback: int) -> int:
+    """LLM 常在 chapter 字段填「本章」「当前章节」等，避免 int() 直接崩。"""
+    if value is None:
+        return fallback
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    s = str(value).strip()
+    if s.isdigit():
+        return int(s)
+    m = re.search(r"\d+", s)
+    if m:
+        return int(m.group(0))
+    return fallback
 
 
 class StateUpdater:
@@ -66,7 +86,9 @@ class StateUpdater:
             chapter_number: 章节号
             chapter_state: 章节状态
         """
-        chapter_number = int(chapter_number)
+        chapter_number = _safe_chapter_int(chapter_number, 1)
+        if chapter_number < 1:
+            chapter_number = 1
         novel_id_obj = NovelId(novel_id)
         logger.info(
             f"StateUpdater.update_from_chapter: novel={novel_id}, chapter={chapter_number}, "
@@ -116,7 +138,9 @@ class StateUpdater:
             for foreshadow_data in chapter_state.foreshadowing_planted:
                 foreshadowing = Foreshadowing(
                     id=str(uuid.uuid4()),
-                    planted_in_chapter=int(foreshadow_data.get("chapter", chapter_number)),
+                    planted_in_chapter=_safe_chapter_int(
+                        foreshadow_data.get("chapter"), chapter_number
+                    ),
                     description=foreshadow_data.get("description", ""),
                     importance=ImportanceLevel.MEDIUM,
                     status=ForeshadowingStatus.PLANTED
@@ -127,7 +151,9 @@ class StateUpdater:
             # 解决伏笔
             for resolved_data in chapter_state.foreshadowing_resolved:
                 fid = self._resolve_foreshadowing_id(foreshadowing_registry, resolved_data)
-                resolved_ch = int(resolved_data.get("chapter", chapter_number))
+                resolved_ch = _safe_chapter_int(
+                    resolved_data.get("chapter"), chapter_number
+                )
                 if not fid:
                     logger.warning("Skipping foreshadowing resolution with no identifiable reference: %s", resolved_data)
                     continue

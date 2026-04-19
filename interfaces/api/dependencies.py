@@ -12,7 +12,6 @@ from domain.ai.services.llm_service import LLMService
 
 if TYPE_CHECKING:
     from application.engine.services.scene_director_service import SceneDirectorService
-    from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
 
 from application.paths import DATA_DIR
 from infrastructure.persistence.storage.file_storage import FileStorage
@@ -263,6 +262,19 @@ def get_novel_service() -> NovelService:
     )
 
 
+def get_chapter_renumber_coordinator():
+    """删章后章号侧车数据（伏笔 JSON、快照内嵌 JSON、向量元数据）重排编排。"""
+    from application.novel.chapter_renumber.coordinator import (
+        build_default_chapter_renumber_coordinator,
+    )
+
+    return build_default_chapter_renumber_coordinator(
+        db=get_database(),
+        foreshadowing_repository=get_foreshadowing_repository(),
+        vector_store=get_vector_store(),
+    )
+
+
 def get_chapter_service() -> ChapterService:
     """获取 Chapter 服务
 
@@ -275,7 +287,8 @@ def get_chapter_service() -> ChapterService:
     return ChapterService(
         get_chapter_repository(), 
         get_novel_repository(),
-        review_repo
+        review_repo,
+        chapter_renumber_coordinator=get_chapter_renumber_coordinator(),
     )
 
 
@@ -420,7 +433,7 @@ def get_embedding_service():
     配置优先级：
     1. 数据库 embedding_config 表中的 mode / api_key / base_url / model / model_path / use_gpu
     2. 环境变量 EMBEDDING_SERVICE / EMBEDDING_MODEL_PATH 等
-    3. 默认值：本地 BAAI/bge-small-zh-v1.5
+    3. 环境变量 EMBEDDING_MODEL / EMBEDDING_MODEL_PATH（无代码内写死的模型名）
 
     如果 VECTOR_STORE_ENABLED=false，返回 None。
     """
@@ -431,8 +444,8 @@ def get_embedding_service():
     _mode = "local"
     _api_key = ""
     _base_url = ""
-    _model = "text-embedding-3-small"
-    _model_path = "BAAI/bge-small-zh-v1.5"
+    _model = ""
+    _model_path = ""
     _use_gpu = True
 
     try:
@@ -442,8 +455,8 @@ def get_embedding_service():
         _mode = cfg.mode
         _api_key = cfg.api_key
         _base_url = cfg.base_url
-        _model = cfg.model or "text-embedding-3-small"
-        _model_path = cfg.model_path or "BAAI/bge-small-zh-v1.5"
+        _model = (cfg.model or "").strip()
+        _model_path = (cfg.model_path or "").strip()
         _use_gpu = cfg.use_gpu
         logger.info(
             "Embedding 配置来源: 数据库 | mode=%s, model=%s, path=%s",
@@ -454,7 +467,8 @@ def get_embedding_service():
         _mode = os.getenv("EMBEDDING_SERVICE", "local").lower()
         _api_key = os.getenv("EMBEDDING_API_KEY") or ""
         _base_url = os.getenv("EMBEDDING_BASE_URL") or ""
-        _model_path = os.getenv("EMBEDDING_MODEL_PATH", "BAAI/bge-small-zh-v1.5")
+        _model = (os.getenv("EMBEDDING_MODEL") or "").strip()
+        _model_path = (os.getenv("EMBEDDING_MODEL_PATH") or "").strip()
         _use_gpu = os.getenv("EMBEDDING_USE_GPU", "true").lower() == "true"
         logger.warning("读取嵌入配置失败，回退到环境变量: %s", exc)
 
@@ -463,6 +477,9 @@ def get_embedding_service():
             key = _api_key or os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
             if not key:
                 logger.warning("embedding mode=openai 但未配置 API Key，向量检索已禁用")
+                return None
+            if not (_model or "").strip():
+                logger.warning("embedding mode=openai 但未配置模型 ID（model / EMBEDDING_MODEL），向量检索已禁用")
                 return None
             from infrastructure.ai.openai_embedding_service import OpenAIEmbeddingService
             logger.info("使用 OpenAI 嵌入服务 (DB配置): base_url=%s, model=%s", _base_url, _model)
@@ -473,6 +490,9 @@ def get_embedding_service():
             )
         else:
             # 默认 local 模式
+            if not (_model_path or "").strip():
+                logger.warning("embedding mode=local 但未配置 model_path，向量检索已禁用")
+                return None
             from infrastructure.ai.local_embedding_service import LocalEmbeddingService
             logger.info("使用本地嵌入服务 (DB配置): path=%s, gpu=%s", _model_path, _use_gpu)
             return LocalEmbeddingService(model_name=_model_path, use_gpu=_use_gpu)
@@ -510,15 +530,11 @@ _vector_store_singleton: Optional[VectorStore] = None
 def get_vector_store() -> Optional[VectorStore]:
     """获取向量存储（单例，整个进程共享同一实例）
 
-    根据环境变量返回 ChromaDB 或 Qdrant 实例。
+    使用本地 FAISS 向量存储（ChromaDBVectorStore），无需外部服务。
 
     环境变量配置：
-    - VECTOR_STORE_ENABLED: 是否启用向量存储（"true" 启用，默认 "true"）
-    - VECTOR_STORE_TYPE: 向量存储类型（"chromadb" 或 "qdrant"，默认 "chromadb"）
-    - VECTOR_STORE_PATH: ChromaDB 本地存储路径（默认 "./data/chromadb"）
-    - QDRANT_HOST: Qdrant 服务器地址（默认 "localhost"，仅 qdrant 类型）
-    - QDRANT_PORT: Qdrant 服务器端口（默认 6333，仅 qdrant 类型）
-    - QDRANT_API_KEY: Qdrant API 密钥（可选，仅 qdrant 类型）
+    - VECTOR_STORE_ENABLED: 是否启用（"true" 启用，默认 "true"）
+    - VECTOR_STORE_PATH: 本地存储路径（默认 "./data/chromadb"）
 
     Returns:
         VectorStore 实例或 None
@@ -527,31 +543,14 @@ def get_vector_store() -> Optional[VectorStore]:
     if _vector_store_singleton is not None:
         return _vector_store_singleton
 
-    # 检查是否启用（默认启用）
     enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
     if not enabled:
         return None
 
-    # 读取存储类型（默认 ChromaDB）
-    store_type = os.getenv("VECTOR_STORE_TYPE", "chromadb").lower()
-    legacy_qdrant_enabled = os.getenv("QDRANT_ENABLED", "").lower() == "true"
-    if store_type == "chromadb" and legacy_qdrant_enabled:
-        store_type = "qdrant"
-
     try:
-        if store_type == "chromadb":
-            from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
-            persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
-            _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
-        elif store_type == "qdrant":
-            from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
-            host = os.getenv("QDRANT_HOST", "localhost")
-            port = int(os.getenv("QDRANT_PORT", "6333"))
-            api_key = os.getenv("QDRANT_API_KEY")
-            _vector_store_singleton = QdrantVectorStore(host=host, port=port, api_key=api_key)
-        else:
-            logger.warning(f"Unknown VECTOR_STORE_TYPE: {store_type}, vector store disabled")
-            return None
+        from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
+        persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
+        _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
         return _vector_store_singleton
     except Exception as e:
         logger.warning(f"Failed to initialize vector store: {e}")
@@ -900,7 +899,12 @@ def get_tension_analyzer():
 
     llm_client = LLMClient(provider=llm_provider)
     narrative_event_repo = SqliteNarrativeEventRepository(get_database())
-    return TensionAnalyzer(narrative_event_repo, llm_client)
+    return TensionAnalyzer(
+        narrative_event_repo,
+        llm_client,
+        chapter_repository=get_chapter_repository(),
+        plot_arc_repository=get_plot_arc_repository(),
+    )
 
 
 def get_sandbox_dialogue_service():

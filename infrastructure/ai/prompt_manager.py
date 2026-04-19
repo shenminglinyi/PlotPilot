@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -284,27 +283,18 @@ class PromptManager:
         """
         Args:
             db_connection: DatabaseConnection 实例（延迟注入，避免循环导入）。
-                           为 None 时使用 get_db() 延迟获取。
+                           为 None 时使用全局 get_database()（与 FastAPI / paths.DATA_DIR 一致）。
         """
         self._db = db_connection
         self._seeded = False
 
     def _get_db(self):
-        """获取数据库连接（延迟导入避免循环依赖）。"""
+        """与主应用共用同一 SQLite（含桌面版 AITEXT_PROD_DATA_DIR）。"""
         if self._db is not None:
             return self._db
-        from infrastructure.persistence.database.connection import DatabaseConnection
-        from pathlib import Path
+        from infrastructure.persistence.database.connection import get_database
 
-        # 使用项目根目录定位数据库
-        db_path = str(Path(__file__).resolve().parent.parent.parent / "data" / "aitext.db")
-        # 尝试从已有连接池获取
-        try:
-            from interfaces.api.dependencies import get_db as _get_global_db
-            return _get_global_db()
-        except Exception:
-            pass
-        return DatabaseConnection(db_path)
+        return get_database()
 
     # ------------------------------------------------------------------
     # 种子初始化
@@ -386,10 +376,7 @@ class PromptManager:
                 ver_id, now, now,
             ))
 
-            # 处理 system_file 引用
             system_content = p.get("system", "")
-            if p.get("system_file") and not system_content:
-                system_content = self._load_system_file(p["system_file"])
 
             conn.execute("""
                 INSERT INTO prompt_versions
@@ -403,18 +390,6 @@ class PromptManager:
         count = len(prompts)
         logger.info("PromptManager: 已导入 %d 个内置提示词种子", count)
         return True
-
-    @staticmethod
-    def _load_system_file(filename: str) -> str:
-        """从 prompts 目录加载 .txt 系统提示词文件。"""
-        dir_path = _DEFAULT_SEED_PATH.parent
-        file_path = dir_path / filename
-        if file_path.exists():
-            try:
-                return file_path.read_text(encoding="utf-8").strip()
-            except OSError:
-                pass
-        return ""
 
     # ------------------------------------------------------------------
     # 模板包 CRUD
@@ -556,15 +531,23 @@ class PromptManager:
         ver_id = _uid()
         now = datetime.now().isoformat()
 
+        tags_s = json.dumps(kwargs.get("tags", []), ensure_ascii=False)
+        vars_s = json.dumps(kwargs.get("variables", []), ensure_ascii=False)
+        out_fmt = kwargs.get("output_format") or "text"
+        src = kwargs.get("source") or ""
+        cm = kwargs.get("contract_module")
+        cmodel = kwargs.get("contract_model")
+
         db.execute("""
             INSERT INTO prompt_nodes
             (id, template_id, node_key, name, description, category,
-             output_format, tags, variables, is_builtin, sort_order,
-             active_version_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'text', '[]', '[]', 0, 0, ?, ?, ?)
+             source, output_format, contract_module, contract_model, tags, variables,
+             is_builtin, sort_order, active_version_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
         """, (
             node_id, template_id, node_key, name,
             kwargs.get("description", ""), kwargs.get("category", "generation"),
+            src, out_fmt, cm, cmodel, tags_s, vars_s,
             ver_id, now, now,
         ))
 
@@ -663,6 +646,24 @@ class PromptManager:
         if kwargs.get("tags") is not None:
             set_clauses.append("tags = ?")
             params.append(json.dumps(kwargs["tags"], ensure_ascii=False))
+        if kwargs.get("variables") is not None:
+            set_clauses.append("variables = ?")
+            params.append(json.dumps(kwargs["variables"], ensure_ascii=False))
+        if kwargs.get("output_format") is not None:
+            set_clauses.append("output_format = ?")
+            params.append(kwargs["output_format"])
+        if kwargs.get("contract_module") is not None:
+            set_clauses.append("contract_module = ?")
+            params.append(kwargs["contract_module"])
+        if kwargs.get("contract_model") is not None:
+            set_clauses.append("contract_model = ?")
+            params.append(kwargs["contract_model"])
+        if kwargs.get("source") is not None:
+            set_clauses.append("source = ?")
+            params.append(kwargs["source"])
+        if kwargs.get("category") is not None:
+            set_clauses.append("category = ?")
+            params.append(kwargs["category"])
 
         params.append(node_id)
         sql = f"UPDATE prompt_nodes SET {', '.join(set_clauses)} WHERE id = ?"
@@ -756,12 +757,6 @@ class PromptManager:
         var_map = variables or {}
         system = self._render_template(node.get_active_system(), var_map)
         user = self._render_template(node.get_active_user_template(), var_map)
-
-        # 如果有 system_file 且 builtin，尝试加载
-        if node.system_file and node.is_builtin:
-            file_system = self._load_system_file(node.system_file)
-            if file_system:
-                system = self._render_template(file_system, var_map)
 
         return {"system": system, "user": user}
 

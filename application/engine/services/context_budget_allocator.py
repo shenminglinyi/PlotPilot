@@ -139,7 +139,12 @@ class ContextBudgetAllocator:
     MAX_ACT_SUMMARIES_TOKENS = 1500
     MAX_RECENT_CHAPTERS_TOKENS = 5000
     MAX_VECTOR_RECALL_TOKENS = 5000
-    
+
+    # 最近章节槽位：紧邻上一章侧重章末承接；更早章节仅章首短预览以省预算
+    PREV_CHAPTER_BRIDGE_HEAD_CHARS = 250
+    PREV_CHAPTER_BRIDGE_TAIL_CHARS = 1200
+    OLDER_CHAPTER_HEAD_PREVIEW_CHARS = 500
+
     def __init__(
         self,
         foreshadowing_repository: Optional[ForeshadowingRepository] = None,
@@ -150,6 +155,7 @@ class ContextBudgetAllocator:
         triple_repository = None,
         vector_store: Optional[VectorStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
+        memory_engine: Optional['MemoryEngine'] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -157,7 +163,10 @@ class ContextBudgetAllocator:
         self.story_node_repo = story_node_repository
         self.chapter_element_repo = chapter_element_repository
         self.triple_repo = triple_repository
-        
+
+        # V6 记忆引擎（可选，用于 T0 槽位注入 FACT_LOCK / BEATS / CLUES）
+        self.memory_engine = memory_engine
+
         # 向量检索门面
         self.vector_facade = None
         if vector_store and embedding_service:
@@ -284,7 +293,57 @@ class ContextBudgetAllocator:
         slots = {}
         
         # ==================== T0: 强制内容 ====================
-        
+
+        # ★ V6 T0-α: FACT_LOCK（不可篡改事实块）—— 最高优先级 priority=120
+        fact_lock_content = ""
+        if self.memory_engine:
+            try:
+                fact_lock_content = self.memory_engine.build_fact_lock_section(
+                    novel_id, chapter_number
+                )
+            except Exception as e:
+                logger.warning(f"FACT_LOCK 构建失败: {e}")
+        slots["fact_lock"] = ContextSlot(
+            name="🔒绝对事实边界(FACT_LOCK)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=fact_lock_content,
+            tokens=self.estimate_tokens(fact_lock_content),
+            max_tokens=2500,
+            priority=120,
+        )
+
+        # ★ V6 T0-β: COMPLETED_BEATS（已完成节拍锁）—— priority=115
+        beats_content = ""
+        if self.memory_engine:
+            try:
+                beats_content = self.memory_engine.get_completed_beats_section(novel_id)
+            except Exception as e:
+                logger.warning(f"COMPLETED_BEATS 构建失败: {e}")
+        slots["completed_beats"] = ContextSlot(
+            name="✅已完成节拍(COMPLETED_BEATS)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=beats_content,
+            tokens=self.estimate_tokens(beats_content),
+            max_tokens=2000,
+            priority=115,
+        )
+
+        # ★ V6 T0-γ: REVEALED_CLUES（已揭露线索清单）—— priority=110
+        clues_content = ""
+        if self.memory_engine:
+            try:
+                clues_content = self.memory_engine.get_revealed_clues_section(novel_id)
+            except Exception as e:
+                logger.warning(f"REVEALED_CLUES 构建失败: {e}")
+        slots["revealed_clues"] = ContextSlot(
+            name="🔍已揭露线索(REVEALED_CLUES)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=clues_content,
+            tokens=self.estimate_tokens(clues_content),
+            max_tokens=2000,
+            priority=110,
+        )
+
         # 1. 当前幕摘要
         act_summary = self._get_current_act_summary(novel_id, chapter_number)
         slots["current_act_summary"] = ContextSlot(
@@ -549,7 +608,7 @@ class ContextBudgetAllocator:
             sorted_subtext = sorted(pending_subtext, key=subtext_sort_key)
             
             if sorted_subtext:
-                lines.append("\n【潜台词账本】")
+                lines.append("\n【伏笔手账本·待兑现疑问】")
                 for entry in sorted_subtext[:5]:  # 最多 5 个
                     importance = getattr(entry, 'importance', 'medium')
                     suggested = getattr(entry, 'suggested_resolve_chapter', None)
@@ -564,11 +623,8 @@ class ContextBudgetAllocator:
                             status_mark = f"⏳预期Ch{suggested}"
                     
                     lines.append(
-                        f"- Ch{entry.chapter} [{entry.character_id}] {status_mark}: {entry.hidden_clue}"
+                        f"- Ch{entry.chapter} [{entry.character_id}] {status_mark}: {entry.question}"
                     )
-                    if entry.sensory_anchors:
-                        anchors = ", ".join(f"{k}:{v}" for k, v in entry.sensory_anchors.items())
-                        lines.append(f"  感官锚点: {anchors}")
             
             return "\n".join(lines)
             
@@ -1182,14 +1238,35 @@ class ContextBudgetAllocator:
             logger.warning(f"获取近期幕摘要失败: {e}")
         
         return ""
-    
+
+    def _excerpt_immediate_previous_chapter(self, content: str) -> str:
+        """紧邻上一章正文：头短 + 章末长段，标明供本章开头承接。"""
+        raw = (content or "").strip()
+        if not raw:
+            return ""
+        head_n = self.PREV_CHAPTER_BRIDGE_HEAD_CHARS
+        tail_n = self.PREV_CHAPTER_BRIDGE_TAIL_CHARS
+        if len(raw) <= tail_n:
+            return f"【章末节选，供本章开头承接】\n{raw}"
+        if len(raw) <= head_n + tail_n:
+            return f"【章末节选，供本章开头承接】\n{raw}"
+        head = raw[:head_n]
+        tail = raw[-tail_n:]
+        return (
+            f"【章首略览】\n{head}……\n"
+            f"【章末节选，供本章开头承接】\n{tail}"
+        )
+
     def _get_recent_chapters(
         self,
         novel_id: str,
         chapter_number: int,
         limit: int = 3,
     ) -> str:
-        """获取最近章节内容"""
+        """获取最近章节内容。
+
+        紧邻上一章（chapter_number - 1）优先展示章末，便于两章衔接；更早章节仅章首短预览。
+        """
         if not self.chapter_repo:
             return ""
         
@@ -1207,15 +1284,23 @@ class ContextBudgetAllocator:
             if not recent:
                 return ""
             
+            prev_num = chapter_number - 1
+            older_cap = self.OLDER_CHAPTER_HEAD_PREVIEW_CHARS
             lines = ["【最近章节】"]
-            for chapter in reversed(recent):  # 按时间顺序
+            for chapter in reversed(recent):  # 按时间顺序（旧 → 新）
                 lines.append(f"\n第 {chapter.number} 章：{chapter.title}")
-                if chapter.content:
-                    # 截取前 500 字作为预览
-                    preview = chapter.content[:500]
-                    if len(chapter.content) > 500:
-                        preview += "..."
-                    lines.append(preview)
+                body = (chapter.content or "").strip()
+                if not body:
+                    continue
+                if chapter.number == prev_num:
+                    excerpt = self._excerpt_immediate_previous_chapter(chapter.content or "")
+                    if excerpt:
+                        lines.append(excerpt)
+                    continue
+                preview = body[:older_cap]
+                if len(body) > older_cap:
+                    preview = f"{preview}..."
+                lines.append(f"【章首预览】\n{preview}")
             
             return "\n".join(lines)
             
@@ -1272,28 +1357,19 @@ class ContextBudgetAllocator:
         novel_id: str,
         chapter_number: int,
     ) -> str:
-        """获取宏观诊断断点（人设冲突提醒）
-        
-        从最新的未解决宏观诊断结果中提取冲突断点，注入到后续生成的提示词中，
-        提醒 LLM 避免继续犯相同的人设错误。
-        
-        已解决的诊断结果不会被注入。
-        
-        Args:
-            novel_id: 小说 ID
-            chapter_number: 当前章节号
-        
-        Returns:
-            格式化的人设冲突提醒文本
+        """获取宏观诊断「系统叙事校准」补丁（静默注入 Context 头部，无前端交互）。
+
+        仅只读查询 DB 中已写好的 context_patch；扫描/计算在后台任务中完成，不在 allocate 热路径重跑。
+        优先使用后台 Map-Reduce 扫描后写入的 context_patch；对用户透明。
+        已解决的诊断结果（resolved=1）不再注入。
         """
         try:
             from infrastructure.persistence.database.connection import get_database
             
             db = get_database()
             
-            # 获取最新未解决的诊断结果（关键：resolved = 0）
             sql = """
-                SELECT breakpoints, trait, trigger_reason, created_at
+                SELECT context_patch, breakpoints, trait, created_at
                 FROM macro_diagnosis_results
                 WHERE novel_id = ? AND status = 'completed' AND resolved = 0
                 ORDER BY created_at DESC
@@ -1301,55 +1377,17 @@ class ContextBudgetAllocator:
             """
             row = db.fetch_one(sql, (novel_id,))
             
-            if not row or not row["breakpoints"]:
+            if not row:
                 return ""
             
-            import json
-            breakpoints = json.loads(row["breakpoints"])
+            cp = row.get("context_patch")
+            if cp and str(cp).strip():
+                return str(cp).strip()
             
-            if not breakpoints:
-                return ""
-            
-            # 过滤：只保留当前章节之前的断点（已存在的冲突）
-            relevant_breakpoints = [
-                bp for bp in breakpoints
-                if bp.get("chapter", 0) <= chapter_number
-            ]
-            
-            if not relevant_breakpoints:
-                return ""
-            
-            # 构建提醒文本
-            lines = [
-                "【⚠️ 人设冲突提醒 - 请在后续章节避免继续犯类似错误】",
-                f"诊断时间：{row['created_at'][:16] if row['created_at'] else ''}",
-                f"扫描人设：{row['trait']}",
-                "",
-                "已检测到以下人设冲突断点，请在写作时注意避免：",
-            ]
-            
-            # 按章节分组
-            by_chapter = {}
-            for bp in relevant_breakpoints[:15]:  # 最多 15 个断点
-                ch = bp.get("chapter", 0)
-                if ch not in by_chapter:
-                    by_chapter[ch] = []
-                by_chapter[ch].append(bp)
-            
-            for ch in sorted(by_chapter.keys()):
-                bps = by_chapter[ch]
-                lines.append(f"\n第 {ch} 章：")
-                for bp in bps:
-                    reason = bp.get("reason", "")
-                    tags = bp.get("tags", [])
-                    tags_str = "、".join(tags)
-                    lines.append(f"  • {reason}（冲突标签：{tags_str}）")
-            
-            lines.append("\n【注意】请确保后续章节的角色行为符合人设，避免上述冲突标签。")
-            
-            return "\n".join(lines)
+            # 兼容旧库仅有 breakpoints 无 context_patch 时：不注入长列表，避免暴露「诊断」口吻
+            return ""
             
         except Exception as e:
-            logger.warning(f"获取宏观诊断断点失败: {e}")
+            logger.warning(f"获取宏观叙事校准补丁失败: {e}")
         
         return ""

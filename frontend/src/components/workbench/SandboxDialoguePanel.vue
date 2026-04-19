@@ -392,11 +392,11 @@ watch(deskTick, () => {
 .anchor-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-color-3);
+  color: var(--app-text-muted);
 }
 
 .generated-output {
-  background: rgba(24, 160, 88, 0.06);
+  background: var(--color-success-dim, rgba(34, 197, 94, 0.06));
 }
 
 .dialogue-section :deep(.n-card__header) {
@@ -408,16 +408,17 @@ watch(deskTick, () => {
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  background: var(--app-surface-subtle);
   border-radius: 8px;
-  border: none;
+  border: 1px solid var(--app-border);
   transition: all 0.2s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .dialogue-item:hover {
-  background: linear-gradient(135deg, #f0f7ff 0%, #e8f4ff 100%);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+  background: var(--color-info-dim, rgba(59, 130, 246, 0.08));
+  border-color: var(--color-info-border, rgba(59, 130, 246, 0.2));
+  box-shadow: var(--app-shadow-md);
   transform: translateY(-1px);
 }
 
@@ -430,12 +431,12 @@ watch(deskTick, () => {
 .dialogue-content {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text-color-1);
+  color: var(--app-text-primary);
 }
 
 .dialogue-footer {
   padding-top: 8px;
-  border-top: 1px solid var(--n-border-color);
+  border-top: 1px solid var(--app-divider);
   margin-top: 8px;
   text-align: right;
 }
@@ -448,8 +449,8 @@ watch(deskTick, () => {
   padding: 12px 16px;
   font-weight: 700;
   font-size: 14px;
-  background: rgba(0, 0, 0, 0.02);
-  border-bottom: 1px solid var(--n-border-color);
+  background: var(--app-surface-subtle);
+  border-bottom: 1px solid var(--app-divider);
 }
 
 .sandbox-panel :deep(.n-collapse-item__header-main) {

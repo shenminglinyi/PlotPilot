@@ -153,12 +153,14 @@
           <AutopilotPanel
             :novel-id="slug"
             @status-change="handleAutopilotStatusChange"
-            @desk-refresh="handleAutopilotDeskRefreshFromStream"
             @chapter-content-update="handleChapterContentUpdate"
           />
         </div>
         <div class="managed-monitor">
-          <AutopilotDashboard :novel-id="slug" />
+          <AutopilotDashboard
+            :novel-id="slug"
+            @desk-refresh="handleAutopilotDeskRefreshFromStream"
+          />
         </div>
       </div>
     </div>
@@ -453,8 +455,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onUnmounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
+import { resolveHttpUrl } from '../../api/config'
 import {
   consumeGenerateChapterStream,
   analyzeScene,
@@ -545,6 +548,7 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     s.current_stage ?? '',
     s.current_act ?? 0,
     s.current_chapter_in_act ?? 0,
+    s.current_chapter_number ?? '',
     s.current_beat_index ?? 0,
     s.needs_review === true ? '1' : '0',
   ].join('|')
@@ -603,10 +607,22 @@ function clearAssistedAutopilotPoll() {
   }
 }
 
+function handleVisibilityChange() {
+  if (document.hidden) {
+    clearAssistedAutopilotPoll()
+  } else if (workMode.value === 'assisted') {
+    void pollAutopilotStatusWhileAssisted()
+    assistedAutopilotPollTimer = setInterval(
+      () => void pollAutopilotStatusWhileAssisted(),
+      4000
+    )
+  }
+}
+
 async function pollAutopilotStatusWhileAssisted() {
   if (assistedAutopilot404) return
   try {
-    const res = await fetch(`/api/v1/autopilot/${props.slug}/status`)
+    const res = await fetch(resolveHttpUrl(`/api/v1/autopilot/${props.slug}/status`))
     if (res.status === 404) {
       assistedAutopilot404 = true
       clearAssistedAutopilotPoll()
@@ -653,7 +669,14 @@ watch(
   { immediate: true }
 )
 
-onUnmounted(() => clearAssistedAutopilotPoll())
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onUnmounted(() => {
+  clearAssistedAutopilotPoll()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
 watch(
@@ -1133,7 +1156,11 @@ defineExpose({ ensureAssistedMode })
 
 .autopilot-container {
   padding: 16px 20px;
-  background: linear-gradient(to bottom, var(--app-surface) 0%, rgba(24, 160, 88, 0.02) 100%);
+  background: linear-gradient(
+    to bottom,
+    var(--app-surface) 0%,
+    color-mix(in srgb, var(--color-success, #22c55e) 3%, var(--app-surface)) 100%
+  );
   border-bottom: 1px solid var(--aitext-split-border);
 }
 
@@ -1209,7 +1236,7 @@ defineExpose({ ensureAssistedMode })
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
-  color: var(--text-color-2);
+  color: var(--app-text-secondary);
 }
 
 .write-modal-body :deep(.n-card) {
@@ -1246,7 +1273,7 @@ defineExpose({ ensureAssistedMode })
   justify-content: space-between;
   align-items: center;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .editor-title {

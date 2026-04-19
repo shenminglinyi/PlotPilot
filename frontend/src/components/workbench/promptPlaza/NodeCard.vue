@@ -90,8 +90,8 @@ const sourceLabel = computed(() => {
 
 <style scoped>
 .node-card {
-  background: var(--n-color, var(--app-surface, #fff));
-  border: 1px solid var(--n-border-color, #e8e8e8);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   border-radius: 10px;
   padding: 14px;
   cursor: pointer;
@@ -102,15 +102,15 @@ const sourceLabel = computed(() => {
   position: relative;
 }
 .node-card:hover {
-  border-color: var(--n-primary-color, #4f46e5);
-  box-shadow: 0 2px 12px rgba(79, 70, 229, 0.1);
+  border-color: var(--color-brand);
+  box-shadow: var(--app-shadow-md);
   transform: translateY(-2px);
 }
 .node-card.is-builtin {
-  border-left: 3px solid var(--n-primary-color, #4f46e5);
+  border-left: 3px solid var(--color-brand);
 }
 .node-card.has-edit {
-  border-left: 3px solid #f59e0b;
+  border-left: 3px solid var(--color-warning);
 }
 
 /* 头部 */
@@ -125,21 +125,21 @@ const sourceLabel = computed(() => {
 .card-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--n-text-color-1, #333);
+  color: var(--app-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .card-key {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--app-text-muted);
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', monospace);
 }
 
 /* 描述 */
 .card-desc {
   font-size: 12px;
-  color: var(--n-text-color-2, #666);
+  color: var(--app-text-secondary);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -157,12 +157,12 @@ const sourceLabel = computed(() => {
 }
 .var-label {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
   margin-right: 2px;
 }
 .more-vars {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
 }
 
 /* 标签 */
@@ -177,13 +177,13 @@ const sourceLabel = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-top: 6px;
-  border-top: 1px solid var(--n-border-color, #f0f0f0);
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border);
   margin-top: auto;
 }
 .footer-item {
   font-size: 11px;
-  color: var(--n-text-color-3, #999);
+  color: var(--app-text-muted);
 }
 .version-badge {
   font-weight: 500;
@@ -197,8 +197,8 @@ const sourceLabel = computed(() => {
 }
 .builtin-badge {
   font-size: 10px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-  color: white;
+  background: linear-gradient(135deg, var(--color-brand), var(--color-purple));
+  color: var(--app-text-inverse);
   padding: 1px 6px;
   border-radius: 4px;
   font-weight: 600;

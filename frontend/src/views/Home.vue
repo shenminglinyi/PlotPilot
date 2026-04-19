@@ -1,30 +1,21 @@
 <template>
   <div class="home">
-    <StatsSidebar @create-book="focusCreateInput" @refresh-list="handleRefreshList" />
-    <div class="home-content">
+    <StatsSidebar
+      @create-book="focusCreateInput"
+      @refresh-list="handleRefreshList"
+      @collapsed-change="handleSidebarCollapsedChange"
+    />
+    <div class="home-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
       <div class="home-bg" aria-hidden="true" />
-
-      <!-- 顶栏：与工作台 StatsTopBar 一致，放 AI 控制台 / 提示词广场 -->
-      <nav class="home-top-nav" aria-label="全局工具">
-        <div class="home-top-nav-inner">
-          <div class="home-top-nav-tools">
-            <GlobalLLMEntryButton appearance="topbar" />
-            <PromptPlazaEntryButton appearance="topbar" />
-          </div>
-          <button type="button" class="home-nav-settings-btn" @click="showLLMSettings = true" aria-label="LLM 设置">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20">
-              <path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
-            </svg>
-          </button>
-        </div>
-      </nav>
 
       <div class="container">
         <!-- Header -->
         <header class="header">
           <div class="header-content">
-            <h1 class="title">书稿工作台</h1>
-            <p class="subtitle">从一句梗概到完整书稿，结构规划与校阅一站完成</p>
+            <h1 class="title">墨枢 · 长篇叙事工作台</h1>
+            <p class="subtitle">
+              以梗概与类型开局，选定目标篇幅；宏观结构、幕次与节拍由后台自动编排，你专注把故事写下去即可。
+            </p>
           </div>
         </header>
 
@@ -40,7 +31,7 @@
                 <template #icon>
                   <n-icon><component :is="showAdvanced ? IconChevronUp : IconChevronDown" /></n-icon>
                 </template>
-                {{ showAdvanced ? '收起设置' : '高级设置' }}
+                {{ showAdvanced ? '收起高级' : '高级（自定义章数/每章字数）' }}
               </n-button>
             </div>
 
@@ -48,23 +39,66 @@
               ref="createInputRef"
               v-model:value="newBook.premise"
               type="textarea"
-              placeholder="描述你想写的故事…&#10;&#10;例如：程序员穿越成状元，用工程思维整顿吏治。"
-              :rows="4"
+              placeholder="用一段话写清主线与爽点预期（不超过 2000 字）…&#10;&#10;例如：废柴赘婿觉醒签到系统，从被退婚到一方巨擘。"
+              :rows="5"
               :disabled="creating"
               size="large"
               class="premise-input"
+              show-count
+              :maxlength="PREMISE_MAX_LEN"
             />
 
+            <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" class="preset-row">
+              <n-gi>
+                <n-form-item label="赛道 / 类型">
+                  <n-select
+                    v-model:value="newBook.genre"
+                    :options="genreOptions"
+                    placeholder="选择赛道（系统会按预设推进）"
+                    :disabled="creating"
+                  />
+                </n-form-item>
+              </n-gi>
+              <n-gi>
+                <n-form-item label="世界观基调">
+                  <n-select
+                    v-model:value="newBook.worldPreset"
+                    :options="worldPresetOptions"
+                    placeholder="选择基调（不可自填 Prompt）"
+                    :disabled="creating"
+                  />
+                </n-form-item>
+              </n-gi>
+            </n-grid>
+
+            <div v-show="!showAdvanced" class="length-tier-block">
+              <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
+              <n-radio-group v-model:value="lengthTier" name="lengthTier" class="length-tier-group">
+                <n-space :size="14" :wrap="true" align="flex-start" class="length-tier-space">
+                  <n-radio
+                    v-for="opt in lengthTierOptions"
+                    :key="opt.value"
+                    :value="opt.value"
+                    :disabled="creating"
+                    class="length-tier-radio"
+                  >
+                    <div class="length-tier-option-inner">
+                      <span class="length-tier-title">{{ opt.title }}</span>
+                      <span class="length-tier-hint">{{ opt.hint }}</span>
+                    </div>
+                  </n-radio>
+                </n-space>
+              </n-radio-group>
+            </div>
+
             <div v-show="showAdvanced" class="advanced-settings">
+              <n-alert type="info" :show-icon="true" style="margin-bottom: 12px; font-size: 12px">
+                自定义章数与每章字数时，不再使用「目标篇幅」档位推导；结构提示仍会在后台写入梗概供模型使用。
+              </n-alert>
               <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen">
                 <n-gi>
                   <n-form-item label="书名">
                     <n-input v-model:value="newBook.title" placeholder="留空则从梗概自动截取" />
-                  </n-form-item>
-                </n-gi>
-                <n-gi>
-                  <n-form-item label="类型">
-                    <n-select v-model:value="newBook.genre" :options="genreOptions" placeholder="选择类型" />
                   </n-form-item>
                 </n-gi>
                 <n-gi>
@@ -86,7 +120,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim()"
+                :disabled="!newBook.premise.trim() || !newBook.genre || !newBook.worldPreset"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -175,7 +209,7 @@
               </span>
             </div>
 
-            <!-- 书目卡片网格（限制展示数量，不滚动） -->
+            <!-- 书目卡片：单行横排，多于可视宽度时横向滚动 -->
             <div class="books-list-wrap">
               <div class="books-grid">
                 <div
@@ -274,13 +308,14 @@
       </template>
     </n-modal>
 
-    <!-- Setup Guide Modal -->
+    <!-- 新书向导：仅挂载一次且 show 恒为 true，避免「先关再开」的双过渡（原 newNovelId + showSetupGuide 分步更新导致） -->
     <NovelSetupGuide
-      v-if="newNovelId"
-      :novel-id="newNovelId"
-      :target-chapters="newNovelTargetChapters"
-      :show="showSetupGuide"
-      @update:show="showSetupGuide = $event"
+      v-if="setupWizard"
+      :key="setupWizard.novelId"
+      :novel-id="setupWizard.novelId"
+      :target-chapters="setupWizard.targetChapters"
+      :show="true"
+      @update:show="(open) => { if (!open) setupWizard = null }"
       @complete="handleSetupComplete"
       @skip="handleSetupSkip"
     />
@@ -383,8 +418,6 @@ import { novelApi, type NovelDTO } from '../api/novel'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
-import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
-import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 import { useStatsStore } from '@/stores/statsStore'
 
 // Icons
@@ -426,40 +459,79 @@ const createInputRef = ref<any>(null)
 const showAdvanced = ref(false)
 const creating = ref(false)
 const loading = ref(false)
+
+const SIDEBAR_COLLAPSED_KEY = 'plotpilot_sidebar_collapsed'
+const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+
+function handleSidebarCollapsedChange(isCollapsed: boolean) {
+  sidebarCollapsed.value = isCollapsed
+}
 const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
-const showSetupGuide = ref(false)
 const showLLMSettings = ref(false)
 const showAllModal = ref(false)
 const modalSearchQuery = ref('')
-const newNovelId = ref('')
-const newNovelTargetChapters = ref(10)
+/** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */
+const setupWizard = ref<{ novelId: string; targetChapters: number } | null>(null)
 
 // Batch delete
 const selectedBooks = ref<string[]>([])
 const showBatchDeleteConfirm = ref(false)
 const batchDeleting = ref(false)
 
+const PREMISE_MAX_LEN = 2000
+
 const newBook = ref({
   title: '',
   premise: '',
   genre: '',
+  worldPreset: '',
   chapters: 100,  // 默认 100 章
   words: 2500,
 })
 
+/** V1 目标篇幅档（与高级自定义二选一） */
+const lengthTier = ref<'short' | 'standard' | 'epic'>('standard')
+const lengthTierOptions = [
+  {
+    value: 'short' as const,
+    title: 'A · 短篇快穿 / 脑洞文',
+    hint: '约 30 万字（按约 2000 字/章推导章数）',
+  },
+  {
+    value: 'standard' as const,
+    title: 'B · 标准商业连载',
+    hint: '约 100 万字',
+  },
+  {
+    value: 'epic' as const,
+    title: 'C · 宏大史诗巨著',
+    hint: '约 300 万字',
+  },
+]
+
 const genreOptions = [
-  { label: '玄幻', value: '玄幻' },
-  { label: '都市', value: '都市' },
-  { label: '科幻', value: '科幻' },
-  { label: '历史', value: '历史' },
-  { label: '武侠', value: '武侠' },
-  { label: '仙侠', value: '仙侠' },
-  { label: '奇幻', value: '奇幻' },
-  { label: '游戏', value: '游戏' },
-  { label: '悬疑', value: '悬疑' },
+  { label: '玄幻升级', value: '玄幻升级' },
+  { label: '都市爽文', value: '都市爽文' },
+  { label: '仙侠修真', value: '仙侠修真' },
+  { label: '科幻赛博', value: '科幻赛博' },
+  { label: '悬疑推理', value: '悬疑推理' },
+  { label: '历史架空', value: '历史架空' },
+  { label: '游戏异界', value: '游戏异界' },
+  { label: '言情甜宠', value: '言情甜宠' },
   { label: '其他', value: '其他' },
+]
+
+const worldPresetOptions = [
+  { label: '修仙风（宗门、境界、机缘）', value: '修仙风' },
+  { label: '赛博朋克（巨企、义体、霓虹）', value: '赛博朋克风' },
+  { label: '悬疑风（谜题、反转、线索）', value: '悬疑风' },
+  { label: '高武江湖（门派、恩怨）', value: '高武江湖' },
+  { label: '末日废土（生存、资源）', value: '末日废土' },
+  { label: '西幻史诗（王国、种族）', value: '西幻史诗' },
+  { label: '现代都市（职场、日常）', value: '现代都市' },
+  { label: '克系诡异（未知、调查）', value: '克系诡异' },
 ]
 
 const filteredBooks = computed(() => {
@@ -547,7 +619,15 @@ const formatWordCount = (count: number): string => {
 
 const handleCreate = async () => {
   if (!newBook.value.premise.trim()) {
-    message.warning('请输入故事创意')
+    message.warning('请输入核心梗概')
+    return
+  }
+  if (!newBook.value.genre) {
+    message.warning('请选择赛道 / 类型')
+    return
+  }
+  if (!newBook.value.worldPreset) {
+    message.warning('请选择世界观基调')
     return
   }
 
@@ -556,21 +636,33 @@ const handleCreate = async () => {
     const title = newBook.value.title || newBook.value.premise.substring(0, 20)
     const novelId = `novel-${Date.now()}`
 
-    const targetChapters = newBook.value.chapters || 100  // 始终使用用户输入或默认 100
-    const payload = {
+    const base = {
       novel_id: novelId,
       title: title,
       author: '作者',
-      target_chapters: targetChapters,
-      premise: newBook.value.premise,
+      premise: newBook.value.premise.trim(),
+      genre: newBook.value.genre,
+      world_preset: newBook.value.worldPreset,
     }
-
-    const result = await novelApi.createNovel(payload)
+    const result = await novelApi.createNovel(
+      showAdvanced.value
+        ? {
+            ...base,
+            target_chapters: newBook.value.chapters || 100,
+            target_words_per_chapter: newBook.value.words || 2500,
+          }
+        : {
+            ...base,
+            length_tier: lengthTier.value,
+            target_chapters: 0,
+          }
+    )
     message.success('创建成功')
 
-    newNovelId.value = result.id
-    newNovelTargetChapters.value = targetChapters
-    showSetupGuide.value = true
+    setupWizard.value = {
+      novelId: result.id,
+      targetChapters: result.target_chapters,
+    }
   } catch (error: any) {
     message.error(error.response?.data?.detail || '创建失败')
   } finally {
@@ -579,11 +671,15 @@ const handleCreate = async () => {
 }
 
 const handleSetupComplete = () => {
-  router.push(`/book/${newNovelId.value}/workbench`)
+  const id = setupWizard.value?.novelId
+  setupWizard.value = null
+  if (id) router.push(`/book/${id}/workbench`)
 }
 
 const handleSetupSkip = () => {
-  router.push(`/book/${newNovelId.value}/workbench`)
+  const id = setupWizard.value?.novelId
+  setupWizard.value = null
+  if (id) router.push(`/book/${id}/workbench`)
 }
 
 const navigateToBook = (slug: string) => {
@@ -686,78 +782,27 @@ onMounted(() => {
 .home {
   display: flex;
   min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .home-content {
   flex: 1;
+  min-height: 0;
   margin-left: 300px;
   padding: 32px;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  transition: margin-left 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.home-content.sidebar-collapsed {
+  margin-left: 52px;
 }
 
 /* 顶栏：与 StatsTopBar 同款渐变，AI 控制台 / 提示词广场 / 设置 */
-.home-top-nav {
-  position: relative;
-  z-index: 2;
-  margin: -32px -32px 28px -32px;
-  padding: 12px 20px 14px;
-  background: var(--stats-bar-gradient);
-  border-bottom: var(--stats-bar-border-bottom, 1px solid rgba(255, 255, 255, 0.08));
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.06) inset,
-    0 8px 28px rgba(0, 0, 0, 0.12);
-}
-
-.home-top-nav-inner {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.home-top-nav-tools {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.home-top-nav-tools :deep(.global-llm-main.variant-topbar),
-.home-top-nav-tools :deep(.plaza-main.variant-topbar) {
-  width: auto;
-  min-height: 46px;
-  padding: 8px 14px;
-}
-
-.home-nav-settings-btn {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--nav-hero-text, #ffffff);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
-}
-
-.home-nav-settings-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  border-color: rgba(255, 255, 255, 0.4);
-  transform: scale(1.04);
-}
-
-.home-nav-settings-btn:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.55);
-  outline-offset: 2px;
-}
 
 .home-bg {
   position: absolute;
@@ -831,6 +876,53 @@ onMounted(() => {
 .premise-input :deep(textarea) {
   font-size: 15px;
   line-height: 1.6;
+}
+
+.preset-row {
+  margin-top: 4px;
+}
+
+.length-tier-block {
+  margin-top: 8px;
+  padding: 4px 0 4px;
+}
+
+.length-tier-label {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+  margin-bottom: 10px;
+}
+
+.length-tier-space {
+  width: 100%;
+}
+
+.length-tier-group :deep(.n-radio) {
+  align-items: flex-start;
+}
+
+.length-tier-radio {
+  flex: 1 1 200px;
+  min-width: min(200px, 100%);
+}
+
+.length-tier-option-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  max-width: 280px;
+}
+
+.length-tier-title {
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.length-tier-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.45;
 }
 
 .advanced-settings {
@@ -967,7 +1059,7 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* ── 书目卡片网格（块展示，不滚动）── */
+/* ── 书目：单行横排，多本时横向滚动 ── */
 .books-list-wrap {
   display: flex;
   flex-direction: column;
@@ -975,14 +1067,23 @@ onMounted(() => {
 }
 
 .books-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
-/* 卡片 */
+/* 卡片（固定宽度，保证单行横滑） */
 .book-card {
   position: relative;
+  flex: 0 0 auto;
+  width: 260px;
+  max-width: min(260px, 82vw);
   display: flex;
   flex-direction: column;
   padding: 20px;
@@ -1112,9 +1213,7 @@ onMounted(() => {
     padding: 24px;
   }
 
-  .home-top-nav {
-    margin: -24px -24px 24px -24px;
-  }
+
 }
 
 /* ── 底部版权 ──────────────────────────────── */
@@ -1130,7 +1229,7 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--app-text-muted);
   line-height: 1.6;
 }
@@ -1174,26 +1273,6 @@ onMounted(() => {
   .home-content {
     margin-left: 0;
     padding: 16px;
-  }
-
-  .home-top-nav {
-    margin: -16px -16px 20px -16px;
-    padding: 10px 14px 12px;
-  }
-
-  .home-top-nav-tools {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .home-top-nav-inner {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-
-  .home-nav-settings-btn {
-    align-self: flex-end;
   }
 
   .section-header {

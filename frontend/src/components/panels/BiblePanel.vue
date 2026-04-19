@@ -20,7 +20,7 @@
           </div>
           <div class="bible-role-item bible-role-here">
             <span class="bible-role-k">写作风格</span>
-            <span class="bible-role-v">此处 · 文风公约</span>
+            <span class="bible-role-v">本书锁定 · 文风市场预设（只读标签）</span>
           </div>
           <div class="bible-role-item">
             <span class="bible-role-k">角色与地点</span>
@@ -28,7 +28,7 @@
           </div>
           <div class="bible-role-item">
             <span class="bible-role-k">叙事线索</span>
-            <span class="bible-role-v">故事线/情节弧/时间线</span>
+            <span class="bible-role-v">故事线/时间线</span>
           </div>
         </div>
         <div class="bible-stats" aria-live="polite">
@@ -51,6 +51,73 @@
 
     <n-scrollbar class="bible-scroll">
       <div class="bible-form">
+        <n-card
+          v-if="hasBookLock"
+          size="small"
+          class="bible-card bible-card-creation-lock"
+          :bordered="false"
+          :segmented="{ content: true, footer: false }"
+        >
+          <template #header>
+            <div class="bcard-head">
+              <span class="bcard-icon bcard-icon-lock" aria-hidden="true">◎</span>
+              <div>
+                <div class="bcard-title">本书锁定</div>
+                <div class="bcard-desc">
+                  赛道、世界观与文风市场预设仅作展示，不提供修改入口（与创建书目 / Bible 初始约定一致）。
+                </div>
+              </div>
+            </div>
+          </template>
+          <n-descriptions
+            :column="1"
+            label-placement="left"
+            size="small"
+            class="bible-creation-lock-desc"
+          >
+            <n-descriptions-item label="赛道 / 类型">{{ lockedGenre || '—' }}</n-descriptions-item>
+            <n-descriptions-item label="世界观基调">{{ lockedWorld || '—' }}</n-descriptions-item>
+            <n-descriptions-item label="文风市场预设">
+              <n-space size="small" wrap align="center">
+                <n-tag
+                  v-if="stylePresetTag.matched"
+                  type="info"
+                  size="small"
+                  round
+                  :bordered="false"
+                >
+                  {{ stylePresetTag.label }}
+                </n-tag>
+                <n-tag
+                  v-else-if="stylePresetTag.hasText"
+                  type="warning"
+                  size="small"
+                  round
+                  :bordered="false"
+                >
+                  {{ stylePresetTag.label }}
+                </n-tag>
+                <n-tag v-else type="default" size="small" round :bordered="false">—</n-tag>
+              </n-space>
+            </n-descriptions-item>
+          </n-descriptions>
+          <n-collapse
+            v-if="(state.style_notes || '').trim()"
+            class="bible-style-full-collapse"
+          >
+            <n-collapse-item title="查看完整文风公约文本" name="style">
+              <n-input
+                :value="state.style_notes"
+                type="textarea"
+                readonly
+                disabled
+                :autosize="{ minRows: 4, maxRows: 14 }"
+                class="bible-textarea bible-textarea-readonly"
+              />
+            </n-collapse-item>
+          </n-collapse>
+        </n-card>
+
         <n-card size="small" class="bible-card" :bordered="false" :segmented="{ content: true, footer: false }">
           <template #header>
             <div class="bcard-head bcard-head-row">
@@ -86,80 +153,6 @@
           />
         </n-card>
 
-        <n-card size="small" class="bible-card" :bordered="false" :segmented="{ content: true, footer: false }">
-          <template #header>
-            <div class="bcard-head">
-              <span class="bcard-icon bcard-icon-text" aria-hidden="true">文</span>
-              <div>
-                <div class="bcard-title">叙事与风格公约</div>
-                <div class="bcard-desc">人称、时态、叙事距离、基调与禁区——全书的「怎么写」。</div>
-              </div>
-            </div>
-          </template>
-          <n-input
-            v-model:value="state.style_notes"
-            type="textarea"
-            :autosize="{ minRows: 5, maxRows: 22 }"
-            placeholder="建议写明：第三人称有限 / 全知；冷幽默或克制；是否允许破墙、血腥、感情线尺度；参考气质（勿抄原文）…"
-            show-count
-            :maxlength="12000"
-            class="bible-textarea"
-          />
-        </n-card>
-
-        <!-- 文风样本区块 -->
-        <n-card size="small" class="bible-card" :bordered="false" :segmented="{ content: true, footer: false }">
-          <template #header>
-            <div class="bcard-head">
-              <span class="bcard-icon bcard-icon-voice" aria-hidden="true">🎙</span>
-              <div>
-                <div class="bcard-title">文风样本（AI 学习用）</div>
-                <div class="bcard-desc">提交「AI 原稿 → 你的改稿」对，生成时 AI 会自动遵循你的改写习惯。
-                  <span v-if="fingerprint"> · 当前共 {{ fingerprint.sample_count }} 个样本，平均句长 {{ fingerprint.avg_sentence_length.toFixed(1) }} 字</span>
-                </div>
-              </div>
-            </div>
-          </template>
-          <n-space vertical :size="12">
-            <n-form-item label="AI 原稿" label-placement="top" :show-feedback="false">
-              <n-input
-                v-model:value="voiceForm.ai_original"
-                type="textarea"
-                :autosize="{ minRows: 3, maxRows: 8 }"
-                placeholder="粘贴 AI 生成的原文段落（改稿前）"
-              />
-            </n-form-item>
-            <n-form-item label="你的改稿" label-placement="top" :show-feedback="false">
-              <n-input
-                v-model:value="voiceForm.author_refined"
-                type="textarea"
-                :autosize="{ minRows: 3, maxRows: 8 }"
-                placeholder="粘贴你修改后的版本（AI 将学习你的改法）"
-              />
-            </n-form-item>
-            <n-space :size="8" align="center">
-              <n-form-item label="来自章节" label-placement="left" label-width="70" :show-feedback="false">
-                <n-input-number v-model:value="voiceForm.chapter_number" :min="1" style="width:90px" />
-              </n-form-item>
-              <n-form-item label="场景类型" label-placement="left" label-width="70" :show-feedback="false">
-                <n-select
-                  v-model:value="voiceForm.scene_type"
-                  :options="sceneTypeOptions"
-                  style="width:120px"
-                />
-              </n-form-item>
-              <n-button
-                type="primary"
-                size="small"
-                :loading="voiceSaving"
-                :disabled="!voiceForm.ai_original.trim() || !voiceForm.author_refined.trim()"
-                @click="submitVoiceSample"
-              >
-                提交样本
-              </n-button>
-            </n-space>
-          </n-space>
-        </n-card>
       </div>
     </n-scrollbar>
 
@@ -195,10 +188,9 @@ import { useMessage } from 'naive-ui'
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO, LocationDTO, TimelineNoteDTO, StyleNoteDTO } from '../../api/bible'
 import { knowledgeApi } from '../../api/knowledge'
-import { voiceApi } from '../../api/voice'
-import type { VoiceFingerprintDTO } from '../../api/voice'
-
-
+import { MARKET_STYLE_PRESETS, matchPresetValue } from '@/constants/marketStylePresets'
+import { novelApi } from '@/api/novel'
+import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()
@@ -228,38 +220,37 @@ const generating = ref(false)
 const premiseLock = ref('')
 const generatingKnowledge = ref(false)
 
-// 文风样本
-const voiceForm = ref({ ai_original: '', author_refined: '', chapter_number: 1, scene_type: 'general' })
-const voiceSaving = ref(false)
-const fingerprint = ref<VoiceFingerprintDTO | null>(null)
-const sceneTypeOptions = [
-  { label: '通用', value: 'general' },
-  { label: '战斗', value: 'combat' },
-  { label: '对话', value: 'dialogue' },
-  { label: '心理', value: 'inner' },
-  { label: '环境', value: 'environment' },
-]
+/** 创建书目时写入 premise 的赛道 / 世界观；文风来自 Bible（只读标签展示） */
+const lockedGenre = ref('')
+const lockedWorld = ref('')
+const hasBookLock = computed(() => {
+  const g = lockedGenre.value.trim()
+  const w = lockedWorld.value.trim()
+  const sty = (state.value.style_notes || '').trim()
+  return g !== '' || w !== '' || sty !== ''
+})
 
-const loadFingerprint = async () => {
-  try {
-    fingerprint.value = await voiceApi.getFingerprint(props.slug)
-  } catch {
-    fingerprint.value = null
+/** 文风市场预设：匹配内置模板则显示预设名，否则警告文案 */
+const stylePresetTag = computed(() => {
+  const t = (state.value.style_notes || '').trim()
+  if (!t) {
+    return { matched: false, hasText: false, label: '—' }
   }
-}
+  const m = matchPresetValue(t)
+  if (m) {
+    const p = MARKET_STYLE_PRESETS.find((x) => x.value === m)
+    return { matched: true, hasText: true, label: p?.label ?? m }
+  }
+  return {
+    matched: false,
+    hasText: true,
+    label: '与内置模板不一致（可能来自旧数据或导入）',
+  }
+})
 
-const submitVoiceSample = async () => {
-  voiceSaving.value = true
-  try {
-    await voiceApi.createSample(props.slug, voiceForm.value)
-    message.success('文风样本已提交，AI 将在下次生成时参考你的改写习惯')
-    voiceForm.value = { ai_original: '', author_refined: '', chapter_number: 1, scene_type: 'general' }
-    await loadFingerprint()
-  } catch {
-    message.error('提交失败')
-  } finally {
-    voiceSaving.value = false
-  }
+function applyStylePresetByValue(value: string) {
+  const p = MARKET_STYLE_PRESETS.find((x) => x.value === value)
+  if (p) state.value.style_notes = p.body
 }
 
 const stats = computed(() => {
@@ -346,10 +337,27 @@ const loadPremiseLock = async () => {
   }
 }
 
+const loadCreationLock = async () => {
+  try {
+    const n = await novelApi.getNovel(props.slug)
+    const parsed = parseGenreWorldFromPremise(n.premise || '')
+    lockedGenre.value = (n.locked_genre || '').trim() || parsed.genre
+    lockedWorld.value = (n.locked_world_preset || '').trim() || parsed.worldPreset
+  } catch {
+    lockedGenre.value = ''
+    lockedWorld.value = ''
+  }
+}
+
 const load = async () => {
+  await loadCreationLock()
   try {
     const bible = await bibleApi.getBible(props.slug)
     state.value = fromApiFormat(bible)
+    const matched = matchPresetValue(state.value.style_notes)
+    if (!matched && !(state.value.style_notes || '').trim()) {
+      applyStylePresetByValue(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
+    }
     syncJsonFromState()
   } catch (err: any) {
     // If Bible doesn't exist, create it
@@ -357,6 +365,7 @@ const load = async () => {
       try {
         await bibleApi.createBible(props.slug, `bible-${props.slug}`)
         state.value = emptyState()
+        applyStylePresetByValue(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
         syncJsonFromState()
       } catch {
         message.error('创建设定失败')
@@ -466,7 +475,6 @@ watch(
 
 onMounted(() => {
   void load()
-  void loadFingerprint()
 })
 </script>
 
@@ -613,6 +621,27 @@ onMounted(() => {
   min-height: 0;
 }
 
+.bible-card-creation-lock {
+  border: 1px solid var(--app-border, rgba(15, 23, 42, 0.1));
+}
+
+.bible-creation-lock-desc :deep(.n-descriptions-item__label) {
+  color: var(--app-text-secondary, #475569);
+}
+
+.bible-creation-lock-desc :deep(.n-descriptions-item__content) {
+  color: var(--app-text-primary, #111827);
+}
+
+.bible-style-full-collapse {
+  margin-top: 12px;
+}
+
+.bible-style-full-collapse :deep(.n-collapse-item__header) {
+  font-size: 12px;
+  color: var(--app-text-secondary, #475569);
+}
+
 .bible-form {
   padding: 14px 2px 24px;
   display: flex;
@@ -755,6 +784,11 @@ onMounted(() => {
 
 .bible-textarea :deep(textarea) {
   line-height: 1.55;
+}
+
+.bible-textarea-readonly :deep(textarea) {
+  cursor: default;
+  color: var(--app-text-secondary);
 }
 
 .char-block,

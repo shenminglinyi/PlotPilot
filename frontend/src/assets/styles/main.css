@@ -15,18 +15,19 @@ html {
 
 body {
   font-family:
-    'Inter',
-    'Noto Sans SC',
+    'Microsoft YaHei',
     'PingFang SC',
     'Hiragino Sans GB',
-    'Microsoft YaHei',
+    'Noto Sans SC',
+    'Inter',
     'Source Han Sans CN',
     system-ui,
     -apple-system,
     BlinkMacFont,
     sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-weight: 500;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
   background: var(--app-page-bg);
   color: var(--app-text-primary);
   min-height: 100vh;
@@ -41,12 +42,12 @@ body {
    ═══════════════════════════════════════════════════ */
 :root {
   /* ── 品牌色 ── */
-  --color-brand: #4f46e5;
-  --color-brand-hover: #6366f1;
-  --color-brand-pressed: #4338ca;
-  --color-brand-suppl: #818cf8;
-  --color-brand-light: rgba(79, 70, 229, 0.08);
-  --color-brand-border: rgba(79, 70, 229, 0.15);
+  --color-brand: #2563eb;
+  --color-brand-hover: #3b82f6;
+  --color-brand-pressed: #1d4ed8;
+  --color-brand-suppl: #60a5fa;
+  --color-brand-light: rgba(37, 99, 235, 0.08);
+  --color-brand-border: rgba(37, 99, 235, 0.18);
 
   /* ── 黑金装饰色 ── */
   --color-gold: #d4a853;
@@ -65,18 +66,30 @@ body {
   /* ── 语义色 ── */
   --color-success: #22c55e;
   --color-success-light: #dcfce7;
+  --color-success-dim: rgba(34, 197, 94, 0.12);
   --color-warning: #f59e0b;
   --color-warning-light: #fef3c7;
+  --color-warning-dim: rgba(245, 158, 11, 0.12);
   --color-danger: #ef4444;
   --color-danger-light: #fee2e2;
+  --color-danger-dim: rgba(239, 68, 68, 0.12);
   --color-info: #3b82f6;
   --color-info-light: #dbeafe;
+  --color-info-dim: rgba(59, 130, 246, 0.12);
+  --color-purple: #8b5cf6;
+  --color-purple-light: #ede9fe;
+  --color-purple-dim: rgba(139, 92, 246, 0.12);
 
   /* ── 文字色（全部使用变量，禁止硬编码）── */
-  --app-text-primary: #0f172a;
-  --app-text-secondary: #475569;
-  --app-text-muted: #64748b;
+  --app-text-primary: #111827;
+  --app-text-secondary: #1f2937;
+  --app-text-muted: #475569;
   --app-text-inverse: #ffffff;
+
+  /* 与 Naive UI n-text depth、旧组件对齐：统一走 app 文字色，避免暗色下仍落回 #0f172a */
+  --text-color-1: var(--app-text-primary);
+  --text-color-2: var(--app-text-secondary);
+  --text-color-3: var(--app-text-muted);
 
   /* ── 背景色 ── */
   --app-page-bg: #eef1f6;
@@ -108,12 +121,19 @@ body {
   --aitext-panel-muted: #f8fafc;
 
   /* ── 字体 ── */
-  --font-sans: 'Inter', 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
   --font-serif: 'Noto Serif SC', 'Source Han Serif CN', 'Songti SC', Georgia, serif;
 
+  /* ── 字号阶梯（最小 12px，确保可读性）── */
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+
   /* ── StatsTopBar 渐变 ── */
-  --stats-bar-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #6366f1 100%);
+  --stats-bar-gradient: linear-gradient(135deg, #1f2937 0%, #334155 55%, #475569 100%);
 
   /* 彩色顶栏上的文字与「药丸」图标底（与 --app-text-inverse 解耦：暗色主题里 inverse 是深色字，不能用在渐变条上） */
   --nav-hero-text: #ffffff;
@@ -141,12 +161,12 @@ body {
    ═══════════════════════════════════════════════════ */
 [data-theme='dark'] {
   /* ── 品牌色（暗模式下略提亮）── */
-  --color-brand: #818cf8;
-  --color-brand-hover: #a5b4fc;
-  --color-brand-pressed: #6366f1;
-  --color-brand-suppl: #c7d2fe;
-  --color-brand-light: rgba(129, 140, 248, 0.12);
-  --color-brand-border: rgba(129, 140, 248, 0.2);
+  --color-brand: #60a5fa;
+  --color-brand-hover: #93c5fd;
+  --color-brand-pressed: #3b82f6;
+  --color-brand-suppl: #bfdbfe;
+  --color-brand-light: rgba(96, 165, 250, 0.12);
+  --color-brand-border: rgba(96, 165, 250, 0.22);
 
   /* ── 黑金装饰色（暗模式下更耀眼）── */
   --color-gold: #e5b86e;
@@ -163,9 +183,9 @@ body {
   --color-anchor-glow: rgba(232, 184, 74, 0.45);
 
   /* ── 文字色 ── */
-  --app-text-primary: #e2e8f0;
-  --app-text-secondary: #94a3b8;
-  --app-text-muted: #64748b;
+  --app-text-primary: #f3f4f6;
+  --app-text-secondary: #d1d5db;
+  --app-text-muted: #9ca3af;
   --app-text-inverse: #0f172a;
 
   /* ── 组件交互态（Tab / 档案 / 运行时栏）── */
@@ -175,17 +195,17 @@ body {
   --tab-inactive-color: var(--app-text-secondary, #94a3b8);
   --tab-inactive-hover-color: var(--app-text-primary, #e2e8f0);
 
-  /* ── 背景色（深色系，禁止纯白）── */
-  --app-page-bg: #0b1121;
-  --app-surface: #131c31;
-  --app-surface-raised: #1a2436;
-  --app-surface-subtle: #0f172a;
-  --app-input-bg: #0f172a;
+  /* ── 背景色（深色系，不要太深，符合美学）── */
+  --app-page-bg: #121826;
+  --app-surface: #1a2235;
+  --app-surface-raised: #232d42;
+  --app-surface-subtle: #161d2e;
+  --app-input-bg: #161d2e;
 
   /* ── 边框 ── */
-  --app-border: rgba(148, 163, 184, 0.1);
-  --app-border-strong: rgba(148, 163, 184, 0.16);
-  --app-divider: rgba(51, 65, 85, 0.4);
+  --app-border: rgba(148, 163, 184, 0.12);
+  --app-border-strong: rgba(148, 163, 184, 0.2);
+  --app-divider: rgba(148, 163, 184, 0.08);
 
   /* ── 阴影 ── */
   --app-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
@@ -194,11 +214,11 @@ body {
   --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.4);
 
   /* ── 面板专用 ── */
-  --aitext-split-border: rgba(51, 65, 85, 0.45);
-  --aitext-panel-muted: #0f172a;
+  --aitext-split-border: rgba(148, 163, 184, 0.1);
+  --aitext-panel-muted: #161d2e;
 
   /* ── StatsTopBar 渐变（暗色版：深靛蓝+微光）── */
-  --stats-bar-gradient: linear-gradient(135deg, #1e293b 0%, #334155 35%, #1e3a5f 65%, #172554 100%);
+  --stats-bar-gradient: linear-gradient(135deg, #161d2e 0%, #1e293b 50%, #334155 100%);
 
   --nav-hero-text: #f8fafc;
   --nav-hero-text-muted: rgba(248, 250, 252, 0.82);
@@ -206,6 +226,23 @@ body {
   --nav-hero-pill-bg-bottom: rgba(255, 255, 255, 0.06);
   --nav-hero-pill-border: rgba(255, 255, 255, 0.22);
   --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+
+  /* ── 语义色（暗模式：更亮的色值 + dim 改为极低不透明度）── */
+  --color-success: #4ade80;
+  --color-success-light: rgba(74, 222, 128, 0.14);
+  --color-success-dim: rgba(74, 222, 128, 0.08);
+  --color-warning: #fbbf24;
+  --color-warning-light: rgba(251, 191, 36, 0.14);
+  --color-warning-dim: rgba(251, 191, 36, 0.08);
+  --color-danger: #f87171;
+  --color-danger-light: rgba(248, 113, 113, 0.14);
+  --color-danger-dim: rgba(248, 113, 113, 0.08);
+  --color-info: #60a5fa;
+  --color-info-light: rgba(96, 165, 250, 0.14);
+  --color-info-dim: rgba(96, 165, 250, 0.08);
+  --color-purple: #a78bfa;
+  --color-purple-light: rgba(167, 139, 250, 0.14);
+  --color-purple-dim: rgba(167, 139, 250, 0.08);
 
   color-scheme: dark;
 }
@@ -266,8 +303,7 @@ body {
   --aitext-panel-muted: #0d1018;
 
   /* ── StatsTopBar 渐变（黑金版：墨黑金边）── */
-  --stats-bar-gradient: linear-gradient(135deg, #141210 0%, #1c1812 25%, #201a12 50%, #161310 75%, #0e0c09 100%),
-    linear-gradient(90deg, transparent 95%, rgba(212, 168, 67, 0.08) 100%);
+  --stats-bar-gradient: linear-gradient(135deg, #16130f 0%, #1f1a13 50%, #2a2318 100%);
 
   /* 黑金模式顶部栏额外装饰：金色底边线 */
   --stats-bar-border-bottom: 1px solid rgba(212, 168, 67, 0.18);
@@ -301,14 +337,14 @@ body {
 }
 
 .aitext-panel-desc {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--app-text-muted);
   margin-bottom: 12px;
 }
 
 .aitext-composer-hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
   color: var(--app-text-muted);
 }
@@ -481,15 +517,56 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 .right-panel { background: var(--aitext-panel-muted); }
 
 /* ═══════════════════════════════════════════════════
-   全局过渡动画（主题切换时平滑过渡）
+   主题切换过渡动画
    ═══════════════════════════════════════════════════ */
-.theme-transitioning,
-.theme-transitioning *,
-.theme-transitioning *::before,
-.theme-transitioning *::after {
+
+/*
+ * View Transition API（Chrome/Edge 111+）：
+ * 截图旧页面 → 应用新主题 → 新旧画面交叉淡入淡出。
+ * 不依赖 `*` 选择器，不与组件自身 transition 冲突。
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.32s;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+::view-transition-old(root) {
+  animation-name: theme-fade-out;
+}
+
+::view-transition-new(root) {
+  animation-name: theme-fade-in;
+}
+
+@keyframes theme-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes theme-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/*
+ * 降级方案（Firefox / Safari）：
+ * 仅对关键属性加 transition，避免 `*` 选择器拖累性能。
+ */
+.theme-transitioning {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease !important;
+}
+
+.theme-transitioning [class*='n-'],
+.theme-transitioning .app-surface,
+.theme-transitioning .stats-top-bar,
+.theme-transitioning .stats-sidebar,
+.theme-transitioning .right-panel,
+.theme-transitioning .sidebar {
   transition:
     background-color 0.3s ease,
     color 0.3s ease,
-    border-color 0.3s ease,
-    box-shadow 0.3s ease !important;
+    border-color 0.3s ease !important;
 }

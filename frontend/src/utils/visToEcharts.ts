@@ -33,7 +33,7 @@ export interface VisEdge {
   color?: string | { color?: string; opacity?: number }
   width?: number
   arrows?: string | { to?: boolean | { enabled?: boolean } }
-  font?: { size?: number; align?: string }
+  font?: { size?: number; align?: string; color?: string }
   smooth?: boolean
 }
 
@@ -163,6 +163,11 @@ export function convertNode(visNode: VisNode): EChartsNode {
     if (!standardKeys.includes(key) && visNode[key] !== undefined) {
       ;(node as any)[key] = visNode[key]
     }
+  }
+
+  // Apply explicit itemStyle if provided
+  if (visNode.itemStyle) {
+    node.itemStyle = { ...node.itemStyle, ...visNode.itemStyle }
   }
 
   return node

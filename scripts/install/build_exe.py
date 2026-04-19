@@ -73,6 +73,24 @@ def build():
         if os.path.exists(req_path):
             req_files.append(f"{req_path}{os.pathsep}.{os.pathsep}")
 
+    # 可选：仅有目录时才打入，避免无 Tauri / 未 build 前端时 PyInstaller 失败
+    optional_bundles: list[str] = []
+    frontend_dist = os.path.join(PROJ_DIR, "frontend", "dist")
+    if os.path.isdir(frontend_dist):
+        optional_bundles.extend(
+            ["--add-data", f"{frontend_dist}{os.pathsep}dist"]
+        )
+    else:
+        print(f"  [SKIP] 未找到前端构建目录，跳过: {frontend_dist}")
+
+    frontend_tauri = os.path.join(PROJ_DIR, "frontend", "src-tauri")
+    if os.path.isdir(frontend_tauri):
+        optional_bundles.extend(
+            ["--add-data", f"{frontend_tauri}{os.pathsep}src-tauri"]
+        )
+    else:
+        print(f"  [SKIP] 未找到 Tauri 工程目录，跳过: {frontend_tauri}")
+
     # PyInstaller 命令
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -85,6 +103,7 @@ def build():
         "--add-data", f"{INSTALL_DIR}{os.pathsep}scripts/install",
         # requirements 文件（核心 + 扩展）
         *req_files,
+        *optional_bundles,
         # tkinter + 常用标准库（PyInstaller 可能遗漏的）
         "--hidden-import", "tkinter",
         "--hidden-import", "tkinter.ttk",

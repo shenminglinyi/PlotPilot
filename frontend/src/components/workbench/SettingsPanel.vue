@@ -1,73 +1,44 @@
 <template>
   <div class="right-panel">
-    <!-- 一级：剧本基建 / 叙事脉络 / 片场 — 监控在中栏「监控大盘」 -->
-    <div class="group-bar">
-      <n-radio-group v-model:value="activeGroup" size="small" class="group-switch">
-        <n-radio-button value="foundation">剧本基建</n-radio-button>
-        <n-radio-button value="narrative">叙事脉络</n-radio-button>
-        <n-radio-button value="tactical">片场</n-radio-button>
-      </n-radio-group>
-      <n-text v-if="currentChapter" depth="3" style="font-size:11px;flex-shrink:0">
-        第{{ currentChapter.number }}章
-        <n-tag :type="currentChapter.word_count > 0 ? 'success' : 'default'" size="tiny" round style="margin-left:4px">
-          {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
-        </n-tag>
-      </n-text>
+    <!-- 章节上下文（当有章节时显示） -->
+    <div v-if="currentChapter" class="chapter-context-bar">
+      <span class="chapter-context-label">第{{ currentChapter.number }}章</span>
+      <n-tag
+        :type="currentChapter.word_count > 0 ? 'success' : 'default'"
+        size="tiny"
+        round
+      >
+        {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
+      </n-tag>
     </div>
 
-    <!-- 剧本基建：作品设定 / 世界观 / 知识库 -->
+    <!-- 扁平化单层标签栏，使用 display-directive="if" 避免图表组件在 display:none 状态下挂载导致 width/height 为 0 -->
     <n-tabs
-      v-if="activeGroup === 'foundation'"
-      v-model:value="foundationTab"
+      v-model:value="activeTab"
       type="line"
       size="small"
       class="settings-tabs"
-      :tabs-padding="8"
+      :tabs-padding="4"
     >
-      <n-tab-pane name="bible" tab="作品设定">
+      <n-tab-pane name="bible" tab="作品设定" display-directive="if">
         <BiblePanel :key="bibleKey" :slug="slug" />
       </n-tab-pane>
-      <n-tab-pane name="worldbuilding" tab="世界观">
+      <n-tab-pane name="worldbuilding" tab="世界观" display-directive="if">
         <WorldbuildingPanel :slug="slug" />
       </n-tab-pane>
-      <n-tab-pane name="knowledge" tab="知识库">
+      <n-tab-pane name="knowledge" tab="知识库" display-directive="if">
         <KnowledgePanel :slug="slug" />
       </n-tab-pane>
-    </n-tabs>
-
-    <!-- 叙事脉络：故事线·弧光 / 全息编年史（剧情×快照双螺旋）/ 宏观诊断 -->
-    <n-tabs
-      v-if="activeGroup === 'narrative'"
-      v-model:value="narrativeTab"
-      type="line"
-      size="small"
-      class="settings-tabs"
-      :tabs-padding="8"
-    >
-      <n-tab-pane name="storyline-arc" tab="故事线·弧光">
+      <n-tab-pane name="storyline-arc" tab="故事线" display-directive="if">
         <StorylinePlotOverviewPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
-      <n-tab-pane name="chronicles" tab="全息编年史">
+      <n-tab-pane name="chronicles" tab="编年史" display-directive="if">
         <HolographicChroniclesPanel :slug="slug" />
       </n-tab-pane>
-      <n-tab-pane name="macro-refactor" tab="宏观诊断">
-        <MacroRefactorPanel :slug="slug" />
-      </n-tab-pane>
-    </n-tabs>
-
-    <!-- 片场：对话沙盒 / 伏笔账本（「本章伏笔回收建议」已迁至中栏辅助撰稿 → 章节元素） -->
-    <n-tabs
-      v-if="activeGroup === 'tactical'"
-      v-model:value="tacticalTab"
-      type="line"
-      size="small"
-      class="settings-tabs"
-      :tabs-padding="8"
-    >
-      <n-tab-pane name="sandbox" tab="对话沙盒">
+      <n-tab-pane name="sandbox" tab="对话沙盒" display-directive="if">
         <SandboxDialoguePanel :slug="slug" />
       </n-tab-pane>
-      <n-tab-pane name="foreshadow" tab="伏笔账本">
+      <n-tab-pane name="foreshadow" tab="伏笔账本" display-directive="if">
         <ForeshadowLedgerPanel :slug="slug" />
       </n-tab-pane>
     </n-tabs>
@@ -82,32 +53,29 @@ import WorldbuildingPanel from './WorldbuildingPanel.vue'
 import StorylinePlotOverviewPanel from './StorylinePlotOverviewPanel.vue'
 import HolographicChroniclesPanel from './HolographicChroniclesPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
-import MacroRefactorPanel from './MacroRefactorPanel.vue'
 import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
 
-/** 剧本基建组 */
-const FOUNDATION_TABS = new Set(['bible', 'worldbuilding', 'knowledge'])
-/** 叙事脉络组（时间轴+快照已并入「全息编年史」；旧 tab id 见 LEGACY_NARRATIVE） */
-const NARRATIVE_TABS = new Set(['storyline-arc', 'chronicles', 'macro-refactor'])
-const LEGACY_NARRATIVE = new Set(['storylines', 'plot-arc', 'timeline', 'snapshots'])
-/** 片场；本章伏笔建议在中栏「辅助撰稿 → 🧩 章节元素」 */
-const TACTICAL_TABS = new Set(['sandbox', 'foreshadow'])
-/** 旧版「本章建议」Tab 已移除，映射到对话沙盒 */
-const LEGACY_TACTICAL = new Set(['foreshadow-suggestions'])
+/** 所有合法 tab 名 */
+const ALL_TABS = new Set([
+  'bible', 'worldbuilding', 'knowledge',
+  'storyline-arc', 'chronicles',
+  'sandbox', 'foreshadow',
+])
 
-function resolveGroup(panel: string | undefined): 'foundation' | 'narrative' | 'tactical' {
-  if (!panel) return 'foundation'
-  if (LEGACY_TACTICAL.has(panel)) return 'tactical'
-  if (TACTICAL_TABS.has(panel)) return 'tactical'
-  if (NARRATIVE_TABS.has(panel) || LEGACY_NARRATIVE.has(panel)) return 'narrative'
-  return 'foundation'
+/** 旧版 tab 名映射到新 tab 名 */
+const LEGACY_TAB_MAP: Record<string, string> = {
+  'storylines': 'storyline-arc',
+  'plot-arc': 'storyline-arc',
+  'timeline': 'chronicles',
+  'snapshots': 'chronicles',
+  'foreshadow-suggestions': 'sandbox',
+  'macro-refactor': 'bible',
 }
 
-function normalizeNarrativeTab(panel: string | undefined): string {
-  if (panel === 'storylines' || panel === 'plot-arc') return 'storyline-arc'
-  if (panel === 'timeline' || panel === 'snapshots') return 'chronicles'
-  if (panel && NARRATIVE_TABS.has(panel)) return panel
-  return 'storyline-arc'
+function resolveTab(panel: string | undefined): string {
+  if (!panel) return 'bible'
+  if (ALL_TABS.has(panel)) return panel
+  return LEGACY_TAB_MAP[panel] ?? 'bible'
 }
 
 interface Chapter {
@@ -134,46 +102,14 @@ const emit = defineEmits<{
   'update:currentPanel': [panel: string]
 }>()
 
-const activeGroup = ref<'foundation' | 'narrative' | 'tactical'>(resolveGroup(props.currentPanel))
-
-const foundationTab = ref(
-  FOUNDATION_TABS.has(props.currentPanel ?? '') ? props.currentPanel! : 'bible'
-)
-const narrativeTab = ref(normalizeNarrativeTab(props.currentPanel))
-function normalizeTacticalTab(panel: string | undefined): string {
-  if (panel && LEGACY_TACTICAL.has(panel)) return 'sandbox'
-  if (panel && TACTICAL_TABS.has(panel)) return panel
-  return 'sandbox'
-}
-
-const tacticalTab = ref(normalizeTacticalTab(props.currentPanel))
-
-function activePanelId(): string {
-  if (activeGroup.value === 'foundation') return foundationTab.value
-  if (activeGroup.value === 'narrative') return narrativeTab.value
-  return tacticalTab.value
-}
+const activeTab = ref(resolveTab(props.currentPanel))
 
 watch(() => props.currentPanel, (newVal) => {
-  if (!newVal) return
-  if (TACTICAL_TABS.has(newVal) || LEGACY_TACTICAL.has(newVal)) {
-    activeGroup.value = 'tactical'
-    tacticalTab.value = normalizeTacticalTab(newVal)
-  } else if (NARRATIVE_TABS.has(newVal) || LEGACY_NARRATIVE.has(newVal)) {
-    activeGroup.value = 'narrative'
-    narrativeTab.value = normalizeNarrativeTab(newVal)
-  } else if (FOUNDATION_TABS.has(newVal)) {
-    activeGroup.value = 'foundation'
-    foundationTab.value = newVal
-  } else {
-    activeGroup.value = 'foundation'
-    foundationTab.value = 'bible'
-  }
+  activeTab.value = resolveTab(newVal)
 })
 
-/** 用户切换顶部三组或任一组内子 Tab 时，回写父级 rightPanel（保持与路由/程序化跳转一致） */
-watch([activeGroup, foundationTab, narrativeTab, tacticalTab], () => {
-  emit('update:currentPanel', activePanelId())
+watch(activeTab, (tab) => {
+  emit('update:currentPanel', tab)
 })
 </script>
 
@@ -188,20 +124,22 @@ watch([activeGroup, foundationTab, narrativeTab, tacticalTab], () => {
   border-left: 1px solid var(--aitext-split-border);
 }
 
-.group-bar {
+/* 当前章节上下文提示条 */
+.chapter-context-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 4px 12px;
   background: var(--app-surface);
   border-bottom: 1px solid var(--aitext-split-border);
   flex-shrink: 0;
+  font-size: 12px;
+  color: var(--app-text-muted);
 }
 
-.group-switch {
-  flex-shrink: 0;
-  flex-wrap: wrap;
+.chapter-context-label {
+  font-weight: 600;
+  color: var(--app-text-secondary);
 }
 
 .settings-tabs {

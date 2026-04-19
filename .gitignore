@@ -21,7 +21,11 @@ venv/
 .eggs/
 dist/
 build/
+# PyInstaller / 冻结后端目录（仅打包机本机生成，勿提交）
+out/
 *.egg
+# PyInstaller 单次构建在仓库根目录生成的 spec（由脚本传入 CLI，勿入库）
+/plotpilot-backend.spec
 *.log
 *.pid
 .superpowers/
@@ -29,6 +33,7 @@ build/
 # ── 前端 ──
 frontend/node_modules/
 frontend/.vite/
+frontend/dist/
 
 # ── 本地 Agent / MCP 缓存 ──
 .playwright-mcp/
@@ -117,3 +122,31 @@ llm_profiles.json
 # ── 锁文件（运行时生成） ──
 aitext.lock
 scripts/aitext.lock
+
+# ── Tauri 桌面壳（仅本机打包用，勿提交；协作者 clone 后无此目录，不影响 npm run dev） ──
+frontend/src-tauri/
+
+# ── 仅本机 Windows 打包链路（协作者只需 npm run dev + 后端） ──
+scripts/build_installer.py
+scripts/build_backend_pyinstaller.py
+scripts/tauri_backend_launcher.py
+requirements-nsis.txt
+docs/BUILD_INSTALLER.md
+
+# ── 桌面分发物（勿拷进仓库根再提交） ──
+PlotPilot_*-setup.exe
+PlotPilot*.exe
+*.msi
+
+# ── Cursor / MCP 本地（机器相关，一般不入库） ──
+.cursor/*
+!.cursor/rules/
+mcps/
+
+# ── Windows「副本」等临时拷贝（含「xxx - 副本.json」） ──
+*副本*
+
+# ── 备份与补丁杂项 ──
+*.rs.bk
+*.orig
+*.rej

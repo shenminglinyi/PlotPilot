@@ -17,6 +17,13 @@
       style="margin: 4px 0"
     />
 
+    <p v-if="status" class="ap-plan-hint">
+      与首页「目标篇幅」同一套落库参数：计划约
+      <strong>{{ formatWords(planTotalWordsHint) }}</strong> 字（
+      <strong>{{ status.target_chapters ?? '—' }}</strong> 章 ×
+      <strong>{{ status.target_words_per_chapter ?? 2500 }}</strong> 字/章）。全托管写满目标章即停；节拍拆分按「每章字数」执行。
+    </p>
+
     <!-- 数据格 -->
     <div class="ap-grid">
       <div class="ap-cell">
@@ -30,8 +37,11 @@
         <div class="value">{{ formatWords(status?.total_words) }}</div>
       </div>
       <div class="ap-cell">
-        <div class="label">当前幕 / 节拍</div>
+        <div class="label">当前章 / 幕 / 节拍</div>
         <div class="value">
+          <template v-if="status?.current_chapter_number != null && isWriting">
+            第 {{ status.current_chapter_number }} 章 ·
+          </template>
           第 {{ (status?.current_act || 0) + 1 }} 幕
           <span v-if="isWriting">· {{ beatLabel }}</span>
         </div>
@@ -73,14 +83,12 @@
       宏观规划完成后会停一次；之后每一幕<strong>仅在首次生成该幕章节规划</strong>时再停一次，不会无限循环。
     </n-alert>
 
-    <!-- 实时日志流 -->
-    <RealtimeLogStream
+    <!-- 仅流式正文预览（与监控大盘终端日志分离，避免双 SSE 卡顿） -->
+    <AutopilotWritingStream
       v-if="isRunning"
-      :novel-id="novelId"
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
       :writing-beat-index="writingBeatIndex"
-      @desk-refresh="emit('desk-refresh')"
     />
 
     <!-- 操作按钮 -->
@@ -112,6 +120,15 @@
               :step="10"
               style="width: 100%"
               @update:value="updateProtectionLimit"
+            />
+          </n-form-item>
+          <n-form-item label="每章目标字数">
+            <n-input-number
+              v-model:value="startConfig.target_words_per_chapter"
+              :min="500"
+              :max="10000"
+              :step="500"
+              style="width: 100%"
             />
           </n-form-item>
           <!-- 保护上限 -->
@@ -149,6 +166,9 @@
               达到 <strong>{{ startConfig.target_chapters }} 章</strong> 目标时自动完成全书；保护上限已自动设置为 <strong>目标 + 20</strong>。
             </template>
           </n-alert>
+          <n-text depth="3" style="font-size: 11px; line-height: 1.5; display: block; margin-top: 4px">
+            目标章数与每章字数与首页「目标篇幅」同一套落库字段（PUT /novels），可在此微调后再启动；节拍拆分与上方进度说明一致。
+          </n-text>
         </n-form>
       </n-space>
     </n-modal>
@@ -158,11 +178,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
-import RealtimeLogStream from './RealtimeLogStream.vue'
-import { subscribeChapterStream } from '../../api/config'
+import AutopilotWritingStream from './AutopilotWritingStream.vue'
+import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 
 const props = defineProps({ novelId: String })
-const emit = defineEmits(['status-change', 'desk-refresh', 'chapter-content-update', 'chapter-start', 'chapter-chunk'])
+const emit = defineEmits(['status-change', 'chapter-content-update', 'chapter-start', 'chapter-chunk'])
 const message = useMessage()
 
 const status = ref(null)
@@ -170,13 +190,26 @@ const toggling = ref(false)
 const showStartModal = ref(false)
 const startConfig = ref({ 
   target_chapters: 100,
+  target_words_per_chapter: 2500,
   max_auto_chapters: 120,
   auto_approve_mode: false
 })
 
 // 目标章数（从 status 获取）
 const targetChapters = computed(() => status.value?.target_chapters || 100)
-/** HTTP/1.1 下同域长连接约 6 路；避免与日志 /stream 双开占满导致其它 API 挂起 */
+
+/** 与后端 target_plan_total_words 一致；旧接口无该字段时本地推算 */
+const planTotalWordsHint = computed(() => {
+  const s = status.value
+  if (!s) return 0
+  if (s.target_plan_total_words != null && s.target_plan_total_words > 0) {
+    return s.target_plan_total_words
+  }
+  const tc = s.target_chapters ?? 0
+  const tw = s.target_words_per_chapter ?? 2500
+  return tc * tw
+})
+/** 驾驶舱仅保留章节内容流；全量日志在监控大盘终端（单 /stream） */
 let statusPollTimer = null
 /** novel_id 在库中不存在(404)时不再轮询，避免旧标签页/错 slug 刷屏访问日志 */
 const statusPollDisabled = ref(false)
@@ -229,9 +262,11 @@ const stageTagClass = computed(() => ({
   'tag-idle':    !isRunning.value && !needsReview.value,
 }))
 
+/** 与守护进程一致：current_beat_index 为 0-based「下一节拍索引」，展示为 1-based 与 /autopilot/stream 日志对齐 */
 const beatLabel = computed(() => {
-  const b = status.value?.current_beat_index || 0
-  return b === 0 ? '准备' : `节拍 ${b}`
+  if (!isWriting.value) return ''
+  const b = status.value?.current_beat_index ?? 0
+  return `节拍 ${Number(b) + 1}`
 })
 
 const tensionLabel = computed(() => {
@@ -252,11 +287,11 @@ function formatWords(n) {
   return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : String(n)
 }
 
-// API 调用
-const base = () => `/api/v1/autopilot/${props.novelId}`
+// API 调用（路径须经 resolveHttpUrl，桌面壳下不能用相对 /api）
+const autopilotApiRoot = () => `/api/v1/autopilot/${props.novelId}`
 
 async function fetchStatus() {
-  const res = await fetch(`${base()}/status`)
+  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`))
   if (res.status === 404) {
     clearStatusPoll()
     status.value = null
@@ -297,11 +332,13 @@ watch(
 )
 
 function openStartModal() {
-  // 打开弹窗时，从当前状态初始化设置
+  // 打开弹窗时，从当前状态初始化设置（与 GET /autopilot/.../status 一致）
   const target = status.value?.target_chapters || 100
+  const wpc = status.value?.target_words_per_chapter ?? 2500
   const autoApprove = status.value?.auto_approve_mode ?? false
   startConfig.value = {
     target_chapters: target,
+    target_words_per_chapter: wpc,
     max_auto_chapters: target + 20,
     auto_approve_mode: autoApprove
   }
@@ -319,48 +356,58 @@ function updateProtectionLimit() {
 async function start() {
   toggling.value = true
   try {
-    // 先更新小说的目标章节数和全自动模式（如果需要修改）
     const currentTarget = status.value?.target_chapters
     const newTarget = startConfig.value.target_chapters
+    const currentWpc = status.value?.target_words_per_chapter ?? 2500
+    const newWpc = startConfig.value.target_words_per_chapter
     const currentAutoApprove = status.value?.auto_approve_mode ?? false
     const newAutoApprove = startConfig.value.auto_approve_mode
-    
-    if (currentTarget !== newTarget || currentAutoApprove !== newAutoApprove) {
-      const updateRes = await fetch(`/api/v1/novels/${props.novelId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          target_chapters: newTarget
-        })
-      })
+
+    const novelPatch = {}
+    if (currentTarget !== newTarget) {
+      novelPatch.target_chapters = newTarget
+    }
+    if (currentWpc !== newWpc) {
+      novelPatch.target_words_per_chapter = newWpc
+    }
+
+    if (Object.keys(novelPatch).length > 0) {
+      const updateRes = await fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(novelPatch),
+        },
+      )
       if (!updateRes.ok) {
-        message.error('更新目标章节数失败')
+        message.error('更新书目目标章数或每章字数失败')
         return
       }
-      
-      // 更新全自动模式
-      if (currentAutoApprove !== newAutoApprove) {
-        const approveRes = await fetch(`/api/v1/novels/${props.novelId}/auto-approve-mode`, {
+    }
+
+    if (currentAutoApprove !== newAutoApprove) {
+      const approveRes = await fetch(
+        resolveHttpUrl(`/api/v1/novels/${props.novelId}/auto-approve-mode`),
+        {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            auto_approve_mode: newAutoApprove
-          })
-        })
-        if (!approveRes.ok) {
-          message.error('更新全自动模式失败')
-          return
-        }
+            auto_approve_mode: newAutoApprove,
+          }),
+        },
+      )
+      if (!approveRes.ok) {
+        message.error('更新全自动模式失败')
+        return
       }
     }
     
     // 然后启动自动驾驶
-    const res = await fetch(`${base()}/start`, {
+    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        max_auto_chapters: startConfig.value.max_auto_chapters
-      })
+        max_auto_chapters: startConfig.value.max_auto_chapters,
+      }),
     })
     if (res.ok) {
       const modeText = startConfig.value.auto_approve_mode ? '（全自动模式）' : ''
@@ -375,7 +422,9 @@ async function start() {
 
 async function stop() {
   toggling.value = true
-  await fetch(`${base()}/stop`, { method: 'POST' })
+  await fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
+    method: 'POST',
+  })
   message.info('已停止')
   await fetchStatus()
   toggling.value = false
@@ -383,7 +432,9 @@ async function stop() {
 
 async function resume() {
   toggling.value = true
-  const res = await fetch(`${base()}/resume`, { method: 'POST' })
+  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), {
+    method: 'POST',
+  })
   if (res.ok) message.success('已确认大纲，开始写作')
   else { const e = await res.json(); message.error(e.detail || '恢复失败') }
   await fetchStatus()
@@ -393,7 +444,10 @@ async function resume() {
 async function clearCircuitBreaker() {
   toggling.value = true
   try {
-    const res = await fetch(`${base()}/circuit-breaker/reset`, { method: 'POST' })
+    const res = await fetch(
+      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
+      { method: 'POST' },
+    )
     if (res.ok) {
       message.success('已解除挂起并清零失败计数，可重新启动全托管')
       await fetchStatus()
@@ -408,7 +462,7 @@ async function clearCircuitBreaker() {
 // 章节内容流订阅（用于推送内容到编辑框）
 let chapterStreamCtrl = null
 
-// 写作内容状态（传递给 RealtimeLogStream 显示）
+// 写作内容状态（传递给 AutopilotWritingStream）
 const writingContent = ref('')
 const writingChapterNumber = ref(0)
 const writingBeatIndex = ref(0)
@@ -568,6 +622,18 @@ onUnmounted(() => {
 .tag-idle {
   background: rgba(100, 100, 100, 0.1);
   color: #999;
+}
+
+.ap-plan-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--app-text-secondary, #64748b);
+}
+
+.ap-plan-hint strong {
+  color: var(--app-text-primary, #111827);
+  font-weight: 600;
 }
 
 .ap-grid {

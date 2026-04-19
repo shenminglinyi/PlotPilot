@@ -116,10 +116,10 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  color: white;
+  background: linear-gradient(135deg, var(--color-brand), var(--color-purple));
+  color: var(--app-text-inverse);
   box-shadow:
-    0 4px 14px rgba(99, 102, 241, 0.35),
+    0 4px 14px var(--color-brand-border),
     0 2px 6px rgba(0, 0, 0, 0.1);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
@@ -128,14 +128,14 @@ defineExpose({
 .plaza-fab-main:hover {
   transform: translateY(-2px) scale(1.05);
   box-shadow:
-    0 8px 24px rgba(99, 102, 241, 0.45),
+    0 8px 24px var(--color-brand-glow, rgba(99, 102, 241, 0.45)),
     0 4px 10px rgba(0, 0, 0, 0.15);
 }
 .plaza-fab-main:active {
   transform: scale(0.96);
 }
 .plaza-fab-main.is-open {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  background: linear-gradient(135deg, var(--color-brand-pressed), var(--color-purple));
   box-shadow:
     0 2px 8px rgba(79, 70, 229, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.15);
@@ -204,14 +204,14 @@ defineExpose({
   height: 20px;
   padding: 0 5px;
   border-radius: 10px;
-  background: #ef4444;
-  color: white;
+  background: var(--color-danger);
+  color: var(--app-text-inverse);
   font-size: 11px;
   font-weight: 700;
   line-height: 20px;
   text-align: center;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.35);
+  border: 2px solid var(--app-surface);
+  box-shadow: 0 2px 4px var(--color-danger-dim);
   pointer-events: none;
 }
 

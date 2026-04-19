@@ -1,7 +1,7 @@
 """Writer Block API endpoints."""
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException
 from application.analyst.services.tension_analyzer import TensionAnalyzer
 from application.workbench.dtos.writer_block_dto import TensionSlingshotRequest, TensionDiagnosis
 from interfaces.api.dependencies import get_tension_analyzer
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/novels", tags=["writer-block"])
 @router.post("/{novel_id}/writer-block/tension-slingshot", response_model=TensionDiagnosis)
 async def tension_slingshot(
     novel_id: str,
-    request: TensionSlingshotRequest = Body(...),
+    request: TensionSlingshotRequest,
     analyzer: TensionAnalyzer = Depends(get_tension_analyzer)
 ) -> TensionDiagnosis:
     """

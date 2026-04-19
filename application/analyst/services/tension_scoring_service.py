@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Optional
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
@@ -18,34 +17,14 @@ from application.ai.tension_scoring_contract import (
     tension_scoring_response_format,
 )
 from application.ai.structured_json_pipeline import structured_json_generate
+from infrastructure.ai.prompt_manager import get_prompt_manager
 
 logger = logging.getLogger(__name__)
 
 # 章节正文最大长度（与 llm_chapter_extract_bundle 保持一致）
 _MAX_CONTENT_LENGTH = 24000
 
-# Prompt 模板文件路径（可独立修改，无需改代码）
-_PROMPT_FILE = Path(__file__).resolve().parent.parent.parent.parent / "infrastructure" / "ai" / "prompts" / "tension_scoring.txt"
-
-# 模板缓存
-_cached_template: Optional[str] = None
-
-
-def _load_prompt_template() -> str:
-    """加载 prompt 模板文件（首次读盘，后续用缓存）。"""
-    global _cached_template
-    if _cached_template is not None:
-        return _cached_template
-    try:
-        _cached_template = _PROMPT_FILE.read_text(encoding="utf-8")
-        logger.debug("张力评分 prompt 模板已加载: %s", _PROMPT_FILE)
-    except FileNotFoundError:
-        logger.warning("张力评分 prompt 模板未找到: %s，使用内置兜底", _PROMPT_FILE)
-        _cached_template = _FALLBACK_TEMPLATE
-    return _cached_template
-
-
-# 仅在模板文件丢失时使用的兜底 prompt
+# PromptManager / DB 不可用时使用的兜底 system
 _FALLBACK_TEMPLATE = """你是专业的网文叙事张力分析师。你的任务是分析章节正文的多维张力。
 
 ## 评分维度（每项 0-100 整数）
@@ -134,5 +113,10 @@ class TensionScoringService:
 
     @staticmethod
     def _build_system_prompt(prev_tension: float) -> str:
-        template = _load_prompt_template()
-        return template.format(prev_tension=f"{prev_tension:.0f}")
+        mgr = get_prompt_manager()
+        mgr.ensure_seeded()
+        prev = f"{prev_tension:.0f}"
+        rendered = mgr.render("tension-scoring", {"prev_tension": prev})
+        if rendered and (rendered.get("system") or "").strip():
+            return rendered["system"]
+        return _FALLBACK_TEMPLATE.format(prev_tension=prev)

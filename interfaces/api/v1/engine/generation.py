@@ -746,32 +746,44 @@ async def plan_novel(
             )
         logger.info(f"[PlanNovel] Novel found: {novel.title}")
 
-        # 生成宏观结构（部-卷-幕），AI 自主决定数量
+        # 生成 + 落库与全托管共用 ContinuousPlanningService.apply_macro_plan_from_llm_result
         logger.info(f"[PlanNovel] Calling generate_macro_plan (AI autonomous planning)")
         macro_plan = await continuous_planning_service.generate_macro_plan(
             novel_id=novel_id,
             target_chapters=novel.target_chapters,
-            structure_preference=None  # 不限制结构，让 AI 自主决定
+            structure_preference=None,
         )
-        logger.info(f"[PlanNovel] Macro plan generated")
+        logger.info(f"[PlanNovel] Macro plan generated, persisting (shared path with autopilot)")
 
-        # 确认并创建结构节点
-        logger.info(f"[PlanNovel] Calling confirm_macro_plan")
-        confirm_result = await continuous_planning_service.confirm_macro_plan(
+        confirm_result = await continuous_planning_service.apply_macro_plan_from_llm_result(
+            macro_plan,
             novel_id=novel_id,
-            structure=macro_plan.get("structure", [])
+            target_chapters=novel.target_chapters,
+            minimal_fallback_on_empty=True,
         )
 
-        logger.info(f"Created {confirm_result['created_nodes']} structure nodes")
+        logger.info(
+            f"Persisted macro structure: nodes={confirm_result['created_nodes']}, "
+            f"minimal_fallback={confirm_result.get('used_minimal_fallback')}"
+        )
+
+        if confirm_result.get("used_minimal_fallback"):
+            msg = (
+                f"LLM 未返回有效结构，已写入占位骨架；共 {confirm_result['created_nodes']} 个结构节点"
+            )
+        else:
+            msg = confirm_result.get("message") or (
+                f"成功创建 {confirm_result['created_nodes']} 个结构节点"
+            )
 
         return PlanResponse(
             success=True,
-            message=f"成功创建 {confirm_result['created_nodes']} 个结构节点",
+            message=msg,
             bible_updated=False,
             outline_updated=False,
             chapters_planned=0,
             structure_created=True,
-            nodes_created=confirm_result['created_nodes']
+            nodes_created=confirm_result["created_nodes"],
         )
 
     except HTTPException:

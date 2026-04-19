@@ -15,13 +15,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import type { EChartsOption } from 'echarts'
 
 const props = withDefaults(defineProps<{
   option: EChartsOption
   height?: string
+  /** ECharts 内置主题名；由调用方基于 themeStore 传入，确保图表与 UI 主题同步 */
   theme?: string
   ariaLabel?: string
 }>(), {

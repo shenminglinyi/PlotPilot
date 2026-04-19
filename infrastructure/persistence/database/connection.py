@@ -1,12 +1,27 @@
-"""SQLite 数据库连接管理"""
-import sqlite3
+"""SQLite 数据库连接"""
 import logging
+import sqlite3
+import sys
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
-from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+
+def _database_asset_dir() -> Path:
+    """
+    存放 schema.sql 与 migrations/ 的目录。
+
+    - 开发：本仓库 infrastructure/persistence/database/
+    - PyInstaller：始终使用包内资源（sys._MEIPASS），不读开发者本机其它路径。
+    """
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return Path(meipass) / "infrastructure" / "persistence" / "database"
+    return Path(__file__).resolve().parent
 
 
 def _migrate_triples_columns(conn: sqlite3.Connection) -> None:
@@ -155,7 +170,7 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
             "ALTER TABLE novels ADD COLUMN last_audit_issues TEXT"
         ),
         "target_words_per_chapter": (
-            "ALTER TABLE novels ADD COLUMN target_words_per_chapter INTEGER DEFAULT 3500"
+            "ALTER TABLE novels ADD COLUMN target_words_per_chapter INTEGER DEFAULT 2500"
         ),
     }
     for col, sql in migrations.items():
@@ -212,38 +227,28 @@ def _apply_chapter_summaries_enhancements(conn: sqlite3.Connection) -> None:
 
 
 def _apply_migration_files(conn: sqlite3.Connection) -> None:
-    """应用独立的迁移文件（幂等执行）"""
-    migrations_dir = Path(__file__).parent / "migrations"
-    
-    # 按执行顺序定义迁移文件
-    migration_files = [
-        "add_macro_diagnosis_results.sql",
-        "add_micro_beats_to_chapter_summaries.sql",
-        "add_tension_dimensions.sql",
-        "add_use_legacy_chat_completions.sql",
-    ]
-    
-    for migration_file in migration_files:
-        migration_path = migrations_dir / migration_file
-        if migration_path.exists():
-            try:
-                with open(migration_path, 'r', encoding='utf-8') as f:
-                    migration_sql = f.read()
-                
-                # 执行迁移SQL（使用executescript处理多个语句）
-                conn.executescript(migration_sql)
-                conn.commit()
-                logger.info(f"Applied migration: {migration_file}")
-            except sqlite3.OperationalError as e:
-                # 忽略已存在的表/列错误（幂等性）
-                if "already exists" in str(e) or "duplicate column" in str(e):
-                    logger.debug(f"Migration {migration_file} already applied: {e}")
-                else:
-                    logger.warning(f"Migration {migration_file} failed: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to apply migration {migration_file}: {e}")
-        else:
-            logger.warning(f"Migration file not found: {migration_path}")
+    """应用 migrations 目录下全部 .sql（幂等执行，顺序按文件名稳定排序）。"""
+    migrations_dir = _database_asset_dir() / "migrations"
+    if not migrations_dir.is_dir():
+        logger.warning("未找到迁移目录（将仅依赖 schema.sql 与代码内补丁）: %s", migrations_dir)
+        return
+
+    for migration_path in sorted(migrations_dir.glob("*.sql")):
+        migration_file = migration_path.name
+        try:
+            migration_sql = migration_path.read_text(encoding="utf-8")
+            conn.executescript(migration_sql)
+            conn.commit()
+            logger.info("Applied migration: %s", migration_file)
+        except sqlite3.OperationalError as e:
+            if "already exists" in str(e) or "duplicate column" in str(e):
+                logger.debug("Migration %s already applied: %s", migration_file, e)
+            else:
+                logger.warning("Migration %s failed: %s", migration_file, e)
+        except OSError as e:
+            logger.warning("Failed to read migration %s: %s", migration_file, e)
+        except Exception as e:
+            logger.warning("Failed to apply migration %s: %s", migration_file, e)
 
 
 def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
@@ -302,10 +307,10 @@ class DatabaseConnection:
         db_file = Path(self.db_path)
         db_file.parent.mkdir(parents=True, exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
 
-        schema_path = Path(__file__).parent / "schema.sql"
+        schema_path = _database_asset_dir() / "schema.sql"
         if schema_path.exists():
             _migrate_novels_columns_before_schema_script(conn)
             with open(schema_path, 'r', encoding='utf-8') as f:
@@ -327,11 +332,14 @@ class DatabaseConnection:
 
     def get_connection(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+            self._local.connection = sqlite3.connect(
+                self.db_path, check_same_thread=False, timeout=30.0
+            )
             self._local.connection.row_factory = sqlite3.Row
             self._local.connection.execute("PRAGMA foreign_keys = ON")
             self._local.connection.execute("PRAGMA journal_mode=WAL")
-            self._local.connection.execute("PRAGMA busy_timeout=5000")
+            # 与 API/守护进程并发写时延长等待（毫秒）
+            self._local.connection.execute("PRAGMA busy_timeout=30000")
         return self._local.connection
 
     @contextmanager
@@ -375,6 +383,10 @@ class DatabaseConnection:
         conn = self.get_connection()
         conn.executemany(sql, params_list)
         conn.commit()
+
+    def commit(self) -> None:
+        """提交当前线程连接上的事务（与 execute() 成对使用）。"""
+        self.get_connection().commit()
 
     def fetch_one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         """查询单条记录

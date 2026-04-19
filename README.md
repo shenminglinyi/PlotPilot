@@ -1,191 +1,145 @@
 # PlotPilot（墨枢）
 
-
-<img width="400" height="300" alt="微信图片_20260415003740_893_102" src="https://github.com/user-attachments/assets/71f083b8-a787-4eaf-a927-b15185a4f317" />
-
+<p align="center">
+  <img src="docs/plotpilot-readme.png" alt="PlotPilot 墨枢" width="480" />
+</p>
 
 > AI 驱动的长篇创作平台 — 自动驾驶生成、知识图谱管理、风格分析一体化。
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
-[![Vue](https://img.shields.io/badge/Vue-3.5-green.svg)](https://vuejs.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?style=flat&logo=vuedotjs&logoColor=white)](https://vuejs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-D22128?style=flat&logo=apache&logoColor=white)](LICENSE)
 
-- 顶层架构：上下文管理，知识体系，消费组件，状态感知等，超过20余个prompt接点，支持定制。
-- 通用设计：通过提示词定制，支持短篇小说，超长篇小说，剧本，标书，转录等多种任务类型。
-- 自动驾驶模式：后台守护进程持续生成章节，支持 SSE 实时流式推送
-- Story Bible：人物、地点、世界设定的结构化管理
-- 知识图谱：自动提取故事三元组，语义检索历史内容
-- 伏笔台账：追踪并自动闭合叙事钩子
-- 风格分析：作者声音漂移检测与文体指纹
-- 节拍表 & 故事结构：三幕式、章节节拍规划
-- DDD 四层架构：domain / application / infrastructure / interfaces
+- **顶层架构**：上下文管理、知识体系、消费组件、状态感知等，超过 20 余个 prompt 接点，支持定制。
+- **通用设计**：通过提示词定制，支持短篇小说、超长篇小说、剧本、标书、转录等多种任务类型。
+- **自动驾驶模式**：后台守护进程持续生成章节，支持 SSE 实时流式推送。
+- **Story Bible**：人物、地点、世界设定的结构化管理。
+- **知识图谱**：自动提取故事三元组，语义检索历史内容。
+- **伏笔台账**：追踪并自动闭合叙事钩子。
+- **风格分析**：作者声音漂移检测与文体指纹。
+- **节拍表与故事结构**：三幕式、章节节拍规划。
+- **DDD 四层架构**：`domain` / `application` / `infrastructure` / `interfaces`。
+
+---
+
+## 产品亮点
+
+**全托管自动驾驶**：后台守护进程按阶段推进 **宏观规划 → 幕级节拍 → 章节生成 → 章末审阅**，无需逐章手动触发，可持续写满目标字数；支持 **熔断保护**、**人工审阅节点**、**SSE 实时状态推流**。
+
+**统一章后管线**：章末 **一次 LLM 调用**完成摘要提取、关键事件、人物三元组、伏笔注册与消费检测、故事线进展，落库并建立 **本地向量索引**。**HTTP 手动保存**与**自动驾驶**共用同一套管线（叙事落库 + 索引），逻辑不漂移。
+
+**多层记忆与监控**：**Story Bible**（人物、地点、世界设定）、分章摘要、向量语义检索、伏笔台账、叙事事件与时间轴多路注入上下文；**章节张力**（0–10）与历史张力曲线、**文风相似度与漂移告警**，偏离时 **定向修写**、不回滚章节。
+
+**提示词与工作台**：集中式配置 **20+ 提示接点**，声线锚点、节拍约束、字数层级、记忆引擎铁律等可独立策略化，适配短篇、超长篇、剧本、标书等。**工作台**整合写作区与实时预览、章节状态与审阅、张力心电图、伏笔与知识图谱、监控大盘、LLM 控制台。
+
+---
+
+## 一键启动（Windows）
+
+项目提供开箱即用的图形化启动器，**无需提前安装 Python、无需命令行**：
+
+1. 将 `python-3.11.9-embed-amd64.zip` 放入 `tools/` 目录（首次使用）
+2. 双击 `tools/aitext.bat`
+
+启动器将自动完成：环境自检 → 创建虚拟环境 → 安装依赖（国内镜像源自动切换）→ 启动后端服务 → 打开浏览器。后续启动直接双击即可。
+
+> 也支持 `aitext.bat pack` 打包整个项目分享给他人，对方双击即用。
+
+---
+
+## 桌面安装版（Windows · Tauri）
+
+- **下载**：[GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases)（当前线：`PlotPilot_*_x64-setup.exe`，NSIS）
+- **说明**：安装包内含冻结后端，无需单独装 Python；详细构建说明见 `[docs/BUILD_INSTALLER.md](docs/BUILD_INSTALLER.md)`。
+
+---
+
+## 开发者启动
+
+**环境要求**：Python 3.9+、Node.js 18+
+
+```bash
+# 后端
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env    # 填写 LLM 凭证
+uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
+
+# 前端（另开终端）
+cd frontend && npm install && npm run dev
+```
+
+后端 API：`http://127.0.0.1:8005` · 文档：`http://127.0.0.1:8005/docs` · 前端：`http://localhost:3000`
+
+生产构建后前端可由 FastAPI 静态托管（`frontend/dist`），也可独立部署。
+
+---
 
 ## 技术栈
 
-| 层 | 技术 |
-|---|---|
-| 后端框架 | FastAPI + uvicorn |
-| AI 模型 | Anthropic Claude（主）、ByteDance Ark/Doubao（备） |
-| 向量数据库 | Qdrant（可选 ChromaDB） |
-| 嵌入模型 | BAAI/bge-small-zh-v1.5（本地） / OpenAI Embedding（可选） |
-| 主数据库 | SQLite |
-| 前端 | Vue 3 + TypeScript + Vite + Naive UI |
-| 状态管理 | Pinia |
-| 可视化 | ECharts |
 
-## 快速开始
+| 层     | 技术                                                                      |
+| ----- | ----------------------------------------------------------------------- |
+| 后端框架  | FastAPI + uvicorn，DDD 四层架构                                              |
+| AI 模型 | OpenAI 兼容协议 / Anthropic Claude / 火山方舟 Doubao                            |
+| 向量存储  | 本地 FAISS（无需额外服务）                                                        |
+| 嵌入模型  | OpenAI 兼容 API（默认）/ 本地 sentence-transformers（见 `requirements-local.txt`） |
+| 主数据库  | SQLite                                                                  |
+| 前端    | Vue 3 + TypeScript + Vite + Naive UI + ECharts                          |
 
-### 环境要求
 
-- Python 3.9+
-- Node.js 18+
-- （可选）Docker — 用于启动 Qdrant 向量数据库
+---
 
-### 1. 克隆仓库
+## 环境变量
 
-```bash
-git clone https://github.com/shenminglinyi/PlotPilot.git
-cd PlotPilot
-```
 
-### 2. 后端配置
+| 变量                                  | 说明                               |
+| ----------------------------------- | -------------------------------- |
+| `ANTHROPIC_API_KEY` / `ARK_API_KEY` | 至少配置一个 LLM 凭证                    |
+| `EMBEDDING_SERVICE`                 | `openai`（默认）或 `local`（本地需额外安装模型） |
+| `CORS_ORIGINS`                      | 生产环境前端域名，逗号分隔                    |
+| `DISABLE_AUTO_DAEMON`               | 设为 `1` 禁止启动时自动拉起守护进程             |
+| `LOG_LEVEL` / `LOG_FILE`            | 日志级别与路径                          |
 
-```bash
-# 创建虚拟环境（推荐）
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
-# 安装依赖
-pip install -r requirements.txt
+完整说明见 `.env.example`。
 
-# 配置环境变量
-cp .env.example .env
-# 编辑 .env，至少填写以下任一 LLM 凭证：
-#   ANTHROPIC_API_KEY   — 使用 Claude 模型
-#   ARK_API_KEY         — 使用 ByteDance Doubao 模型
-```
-
-### 3. 启动向量数据库（可选）
-
-语义检索功能依赖 Qdrant，若不需要可跳过此步骤。
-
-```bash
-docker compose up -d
-# Qdrant 将运行在 http://localhost:6333
-```
-
-### 4. 下载嵌入模型
-
-首次运行需下载本地嵌入模型（约 100 MB）：
-
-```bash
-python scripts/utils/download_embedding_model.py
-# 或通过 ModelScope 镜像下载（国内推荐）：
-python scripts/utils/download_model_via_modelscope.py
-```
-
-### 5. 启动后端
-
-```bash
-uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
-```
-
-后端 API：http://localhost:8005  
-交互文档：http://localhost:8005/docs
-
-### 6. 启动前端
-
-```bash
-cd frontend
-npm install
-npm run dev
-# 前端运行在 http://localhost:3000
-```
-
-## 环境变量参考
-
-| 变量 | 必填 | 说明 |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | 二选一 | Anthropic Claude API 密钥 |
-| `ARK_API_KEY` | 二选一 | ByteDance Ark/Doubao API 密钥 |
-| `ARK_BASE_URL` | 否 | Ark API 地址，默认北京节点 |
-| `ARK_MODEL` | 否 | Doubao 模型 ID，默认 `doubao-seed-2-0-mini-260215` |
-| `ANTHROPIC_BASE_URL` | 否 | 自建网关或代理地址 |
-| `CORS_ORIGINS` | 否 | 生产环境允许的前端域名，逗号分隔；未设置时仅允许 localhost |
-| `DISABLE_AUTO_DAEMON` | 否 | 设为 `1` 禁止自动驾驶守护进程在启动时自动运行 |
-| `LOG_LEVEL` | 否 | 日志级别，默认 `INFO` |
-| `LOG_FILE` | 否 | 日志文件路径，默认 `logs/aitext.log` |
-
-## 系统架构
-
-### DDD 四层架构
-
-```
-PlotPilot/
-├── domain/          # 领域层：实体、值对象、仓储接口
-│   ├── novel/       # 小说、章节、情节弧
-│   ├── bible/       # 人物、地点、世界设定
-│   ├── cast/        # 角色关系图
-│   ├── knowledge/   # 知识三元组
-│   └── shared/      # 基础实体、异常、领域事件
-│
-├── application/     # 应用层：用例编排、工作流、DTO
-│   ├── engine/      # 生成引擎、自动驾驶守护进程
-│   ├── analyst/     # 声音分析、张力分析、状态机
-│   ├── audit/       # 章节审查、宏观重构
-│   └── blueprint/   # 节拍表、故事结构规划
-│
-├── infrastructure/  # 基础设施层：技术实现
-│   ├── ai/          # Anthropic / Ark 提供商、ChromaDB、Qdrant
-│   └── persistence/ # SQLite 仓储、Schema 迁移
-│
-├── interfaces/      # 接口层：FastAPI 路由
-│   └── api/v1/      # REST API（core / world / engine / audit / analyst）
-│
-└── frontend/        # Vue 3 前端
-```
+---
 
 ## 测试
 
-### 运行测试
-
 ```bash
-# 运行单元测试和集成测试
-pytest tests/unit/ tests/integration/ -v
-
-# 带覆盖率报告
-pytest tests/unit/ tests/integration/ --cov=. --cov-report=term-missing
-
-# 竞态检测（需安装 pytest-race 或使用 go test -race 类似工具）
 pytest tests/ -v
 ```
 
+如需覆盖率：`pytest tests/ --cov=. --cov-report=term-missing`
+
+---
+
 ## 贡献
 
-1. Fork 项目
-2. 创建特性分支：`git checkout -b feat/your-feature`
-3. 提交更改：遵循 [Conventional Commits](https://www.conventionalcommits.org/)
-4. 推送并创建 Pull Request
+1. Fork 本仓库
+2. 新建分支：`git checkout -b feat/your-feature`
+3. 提交说明建议遵循 [Conventional Commits](https://www.conventionalcommits.org/)
+4. 推送并发起 Pull Request
+
+---
+
+## 交流与实战演示
+
+纸上得来终觉浅。如果你想看这套系统在实际创作里怎么跑，欢迎来直播间蹲点：
+
+- **抖音**：搜索直播间 **91472902104** 即可找到  
+- **时间**：每晚约 **21:00** 随缘开播（以实际为准）  
+- **内容**：现场写脑洞、改 Bug、看 PR，以及本地部署相关的常见问题
+
+欢迎创作者和技术同行来直播间交流。
 
 ---
 
 ## 许可证
 
-本项目采用 **Apache License 2.0** 协议，并附加 **Commons Clause** 条件限制。
+本项目采用 **Apache License 2.0**，并附加 **Commons Clause** 条件限制。
 
-> ** 核心授权与限制说明：**
-> - ** 允许学习与魔改：** 您可以自由地拉取代码、阅读、学习、修改，甚至在您的个人设备或非商业性质的内部团队中部署使用。
-> - ** 绝对禁止商业化（Commons Clause）：** 严禁将本项目（包含任何修改版本）用于任何形式的营利行为。这包括但不限于：将其封装为收费 SaaS 网页端、打包售卖源码、作为其他收费产品的引流工具或增值服务等。
-> 
-> 任何涉及资金交易的使用行为均构成侵权。详细法律条款请参阅项目根目录下的 [LICENSE](LICENSE) 文件。
-
-## 交流与实战演示 (Live & Community)
-
-纸上得来终觉浅。如果你想看这套系统在实际创作中是如何运行的，欢迎来我的直播间蹲点：
-
-- **抖音 ID / 直播间搜索：** [91472902104]
-- **直播时间：** 每晚 [9:00] 随缘直播
-- **直播内容：** 现场用这套工具写脑洞、改 Bug、看 PR，以及解答大家在本地部署时遇到的一些通识问题。
-
-欢迎真正的创作者和技术同行来直播间找我聊聊！
+允许学习、修改与非商业内部部署；**严禁**将本项目（含修改版）用于任何营利行为，包括封装收费 SaaS、打包售卖源码或作为收费产品的增值服务。详见 [LICENSE](LICENSE)。
