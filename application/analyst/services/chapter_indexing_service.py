@@ -21,9 +21,6 @@ class ChapterIndexingService:
     使用 novel_id 隔离不同小说的 collection。
     """
 
-    # OpenAI text-embedding-3-small 的向量维度
-    EMBEDDING_DIMENSION = 1536
-
     def __init__(
         self,
         vector_store: VectorStore,

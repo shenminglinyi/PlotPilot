@@ -7,9 +7,8 @@
   而是在 __init__ 中按需导入。这样即使未安装 requirements-local.txt
   的用户，import 本模块也不会崩溃。
 
-使用 BAAI/bge-small-zh-v1.5 模型进行中文文本向量化。
-支持 GPU 加速。
-优先使用本地模型路径，避免从 HuggingFace 下载。
+本地 sentence-transformers 向量模型（具体权重路径或 HuggingFace ID 由配置提供）。
+支持 GPU 加速。优先使用本地目录，避免联网下载。
 """
 
 import os
@@ -33,11 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 class LocalEmbeddingService(EmbeddingService):
-    """本地 Embedding 服务（基于 sentence-transformers）
-
-    使用 BAAI/bge-small-zh-v1.5 模型进行中文文本向量化。
-    支持 GPU 加速。
-    优先使用本地模型路径，避免从 HuggingFace 下载。
+    """本地 Embedding 服务（基于 sentence-transformers）。
 
     所有重依赖（torch, sentence_transformers）均在 __init__ 中懒加载，
     确保未安装 local 扩展包时 import 不崩溃。
@@ -74,13 +69,18 @@ class LocalEmbeddingService(EmbeddingService):
                 f"原始错误: {e}"
             ) from e
 
-        # 解析模型路径：优先使用本地文件，避免任何网络请求
-        if model_name is None:
-            model_path = os.getenv("EMBEDDING_MODEL_PATH", "./.models/bge-small-zh-v1.5")
+        # 解析模型路径：参数优先，否则读环境变量；不在代码中写死具体模型 ID
+        if model_name is None or not str(model_name).strip():
+            model_path = (os.getenv("EMBEDDING_MODEL_PATH") or "").strip()
         else:
-            model_path = model_name
+            model_path = str(model_name).strip()
 
-        # 判断是否为 HuggingFace 模型 ID（如 "BAAI/bge-small-zh-v1.5"）
+        if not model_path:
+            raise ValueError(
+                "未配置本地嵌入模型：请在嵌入设置中填写 model_path，或设置环境变量 EMBEDDING_MODEL_PATH。"
+            )
+
+        # 判断是否为 HuggingFace 模型 ID（含 "/" 的短字符串且非本机绝对路径）
         _original_model_name = model_path
         _is_hf_model_id = "/" in model_path and not Path(model_path).is_absolute()
 

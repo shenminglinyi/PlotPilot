@@ -117,11 +117,6 @@ class LLMTestResult(BaseModel):
 class LLMControlService:
     """LLM 控制面板服务 —— 配置全部持久化到 SQLite（llm_profiles + llm_config_meta 表）。"""
 
-    _DEFAULT_OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o')
-    _DEFAULT_ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL', 'claude-sonnet-4-6')
-    _DEFAULT_GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash')
-    _DEFAULT_ARK_MODEL = os.getenv('ARK_MODEL', 'doubao-seed-2-0-mini-260215')
-
     # ---- 内部 DB 辅助 ------------------------------------------------
 
     def _db(self):
@@ -195,8 +190,8 @@ class LLMControlService:
                 label='OpenAI 官方',
                 protocol='openai',
                 default_base_url='https://api.openai.com/v1',
-                default_model=self._DEFAULT_OPENAI_MODEL,
-                description='OpenAI 官方接口（自动兼容底层 Responses API 与 Chat Completions）。',
+                default_model='',
+                description='OpenAI 官方接口（自动兼容底层 Responses API 与 Chat Completions）。导入后请在「模型名」填写所用模型 ID。',
                 tags=['official'],
             ),
             LLMPreset(
@@ -204,8 +199,8 @@ class LLMControlService:
                 label='Claude / Anthropic 官方',
                 protocol='anthropic',
                 default_base_url='https://api.anthropic.com',
-                default_model=self._DEFAULT_ANTHROPIC_MODEL,
-                description='Anthropic Messages 接口；也可接入 Claude-compatible 网关。',
+                default_model='',
+                description='Anthropic Messages 接口；也可接入 Claude-compatible 网关。请填写网关文档中的模型 ID。',
                 tags=['official'],
             ),
             LLMPreset(
@@ -213,8 +208,8 @@ class LLMControlService:
                 label='Gemini / Google 官方',
                 protocol='gemini',
                 default_base_url='https://generativelanguage.googleapis.com/v1beta',
-                default_model=self._DEFAULT_GEMINI_MODEL,
-                description='Gemini generateContent / streamGenerateContent 接口。',
+                default_model='',
+                description='Gemini generateContent / streamGenerateContent 接口。请填写 Google 文档中的模型 ID。',
                 tags=['official'],
             ),
             LLMPreset(
@@ -222,8 +217,8 @@ class LLMControlService:
                 label='DeepSeek',
                 protocol='openai',
                 default_base_url='https://api.deepseek.com/v1',
-                default_model='deepseek-chat',
-                description='DeepSeek 官方 OpenAI-compatible 接口。',
+                default_model='',
+                description='DeepSeek 官方 OpenAI-compatible 接口。模型名以官方文档为准。',
                 tags=['domestic', 'preset'],
             ),
             LLMPreset(
@@ -231,8 +226,8 @@ class LLMControlService:
                 label='Qwen / DashScope',
                 protocol='openai',
                 default_base_url='https://dashscope.aliyuncs.com/compatible-mode/v1',
-                default_model='qwen-plus',
-                description='阿里云百炼 / DashScope OpenAI-compatible 接口。',
+                default_model='',
+                description='阿里云百炼 / DashScope OpenAI-compatible 接口。模型名以控制台为准。',
                 tags=['domestic', 'preset'],
             ),
             LLMPreset(
@@ -240,8 +235,8 @@ class LLMControlService:
                 label='智谱 GLM（OpenAI 兼容）',
                 protocol='openai',
                 default_base_url='https://open.bigmodel.cn/api/paas/v4',
-                default_model='glm-4.5',
-                description='智谱 OpenAI-compatible 接口。',
+                default_model='',
+                description='智谱 OpenAI-compatible 接口。模型名以智谱文档为准。',
                 tags=['domestic', 'preset'],
             ),
             LLMPreset(
@@ -249,8 +244,8 @@ class LLMControlService:
                 label='智谱 GLM（Claude 兼容）',
                 protocol='anthropic',
                 default_base_url='https://open.bigmodel.cn/api/anthropic',
-                default_model='glm-4.5',
-                description='智谱 Anthropic-compatible 接口。',
+                default_model='',
+                description='智谱 Anthropic-compatible 接口。模型名以智谱文档为准。',
                 tags=['domestic', 'preset'],
             ),
             LLMPreset(
@@ -258,8 +253,8 @@ class LLMControlService:
                 label='豆包 / 火山方舟 Ark',
                 protocol='openai',
                 default_base_url='https://ark.cn-beijing.volces.com/api/v3',
-                default_model=self._DEFAULT_ARK_MODEL,
-                description='方舟 OpenAI-compatible 接口；也兼容仓库现有 ARK_BASE_URL 配置。',
+                default_model='',
+                description='方舟 OpenAI-compatible 接口；模型名以方舟控制台 Endpoint 为准。',
                 tags=['domestic', 'preset'],
             ),
         ]
@@ -429,13 +424,25 @@ class LLMControlService:
                 user='请只回复"连接成功"。',
             )
             config = GenerationConfig(
-                model=resolved.model or None,
+                model=resolved.model,
                 max_tokens=min(resolved.max_tokens, 64),
                 temperature=0,
             )
             result = await llm_service.generate(prompt, config)
             latency_ms = int((perf_counter() - started) * 1000)
-            preview = (result.content or '').strip().replace('\r', ' ').replace('\n', ' ')
+            body = (result.content or '').strip()
+            if not body:
+                return LLMTestResult(
+                    ok=False,
+                    provider_label=resolved.name,
+                    model=resolved.model or '',
+                    latency_ms=latency_ms,
+                    error=(
+                        "模型返回了空内容。请核对：API Key 是否有效、模型名与协议是否匹配、"
+                        "base_url 是否正确；若使用代理或网关，也可能是超时截断或限流。"
+                    ),
+                )
+            preview = body.replace('\r', ' ').replace('\n', ' ')
             return LLMTestResult(
                 ok=True,
                 provider_label=resolved.name,
@@ -445,12 +452,15 @@ class LLMControlService:
             )
         except Exception as exc:
             latency_ms = int((perf_counter() - started) * 1000)
+            err_text = str(exc).strip()
+            if not err_text:
+                err_text = "未知错误（异常无消息），请查看服务端日志。"
             return LLMTestResult(
                 ok=False,
                 provider_label=resolved.name,
                 model=resolved.model or '',
                 latency_ms=latency_ms,
-                error=str(exc),
+                error=err_text,
             )
 
     def _sanitize_config(self, config: LLMControlConfig) -> LLMControlConfig:
@@ -504,7 +514,7 @@ class LLMControlService:
                 preset_key='claude-official',
                 protocol='anthropic',
                 base_url='https://api.anthropic.com',
-                model=self._DEFAULT_ANTHROPIC_MODEL,
+                model='',
             ),
             LLMProfile(
                 id='gemini-official-default',
@@ -512,7 +522,7 @@ class LLMControlService:
                 preset_key='gemini-official',
                 protocol='gemini',
                 base_url='https://generativelanguage.googleapis.com/v1beta',
-                model=self._DEFAULT_GEMINI_MODEL,
+                model='',
             ),
         ]
         active_profile_id = profiles[0].id
@@ -537,7 +547,7 @@ class LLMControlService:
                 'preset_key': 'openai-official' if not os.getenv('OPENAI_BASE_URL') else 'custom-openai-compatible',
                 'api_key': openai_key,
                 'base_url': (os.getenv('OPENAI_BASE_URL') or '').strip(),
-                'model': (os.getenv('OPENAI_MODEL') or '').strip() or self._DEFAULT_OPENAI_MODEL,
+                'model': (os.getenv('OPENAI_MODEL') or '').strip(),
             })
             active_profile_id = profiles[0].id
         elif gemini_key:
@@ -553,7 +563,7 @@ class LLMControlService:
                 'preset_key': 'doubao-ark',
                 'api_key': ark_key,
                 'base_url': (os.getenv('ARK_BASE_URL') or '').strip() or 'https://ark.cn-beijing.volces.com/api/v3',
-                'model': (os.getenv('ARK_MODEL') or '').strip() or self._DEFAULT_ARK_MODEL,
+                'model': (os.getenv('ARK_MODEL') or '').strip(),
             })
             active_profile_id = profiles[0].id
 

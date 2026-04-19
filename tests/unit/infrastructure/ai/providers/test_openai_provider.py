@@ -41,6 +41,13 @@ class TestOpenAIProviderLegacy:
         assert provider._use_legacy is True
 
     @pytest.mark.anyio
+    async def test_generate_requires_model_id(self, provider):
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="", max_tokens=32, temperature=0.5)
+        with pytest.raises(ValueError, match="未配置模型 ID"):
+            await provider.generate(prompt, config)
+
+    @pytest.mark.anyio
     async def test_generate_non_stream(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="gpt-4o", temperature=0.7, max_tokens=4096)
@@ -62,6 +69,32 @@ class TestOpenAIProviderLegacy:
             assert call_kwargs["model"] == "gpt-4o"
             assert call_kwargs["temperature"] == 0.7
             assert call_kwargs["max_tokens"] == 4096
+
+    @pytest.mark.anyio
+    async def test_generate_accepts_message_content_as_list_of_text_parts(self, provider):
+        """聚合网关 / 新协议常返回 content 为 [{type,text}] 列表，而非纯字符串。"""
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="gpt-4o", temperature=0, max_tokens=64)
+        response = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=[
+                            {"type": "text", "text": '{"a":'},
+                            {"type": "text", "text": ' 1}'},
+                        ]
+                    )
+                )
+            ],
+            usage=SimpleNamespace(prompt_tokens=3, completion_tokens=4),
+        )
+
+        with patch.object(provider.async_client.chat.completions, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            result = await provider.generate(prompt, config)
+
+            assert result.content == '{"a":\n 1}'
 
     @pytest.mark.anyio
     async def test_generate_falls_back_to_stream_when_content_is_empty(self, provider):
@@ -114,7 +147,7 @@ class TestOpenAIProviderLegacy:
     @pytest.mark.anyio
     async def test_generate_empty_content_raises(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
-        config = GenerationConfig()
+        config = GenerationConfig(model="test-model")
         empty_response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=None))],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
@@ -180,6 +213,31 @@ class TestOpenAIProviderResponses:
             assert call_kwargs["max_output_tokens"] == 2048
 
     @pytest.mark.anyio
+    async def test_generate_responses_joins_multiple_text_parts(self, provider):
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="gpt-4o", temperature=0, max_tokens=32)
+        response = SimpleNamespace(
+            output=[
+                SimpleNamespace(
+                    type="message",
+                    content=[SimpleNamespace(type="text", text="Line1")],
+                ),
+                SimpleNamespace(
+                    type="message",
+                    content=[SimpleNamespace(type="text", text="Line2")],
+                ),
+            ],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=2),
+        )
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            result = await provider.generate(prompt, config)
+
+            assert result.content == "Line1\nLine2"
+
+    @pytest.mark.anyio
     async def test_stream_generate(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="gpt-4o", temperature=0.7, max_tokens=32)
@@ -202,7 +260,7 @@ class TestOpenAIProviderResponses:
     @pytest.mark.anyio
     async def test_generate_empty_responses_raises(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
-        config = GenerationConfig()
+        config = GenerationConfig(model="test-model")
         response = SimpleNamespace(
             output=[],
             usage=SimpleNamespace(prompt_tokens=5, completion_tokens=0),

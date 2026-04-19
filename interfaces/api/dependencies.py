@@ -419,7 +419,7 @@ def get_embedding_service():
     配置优先级：
     1. 数据库 embedding_config 表中的 mode / api_key / base_url / model / model_path / use_gpu
     2. 环境变量 EMBEDDING_SERVICE / EMBEDDING_MODEL_PATH 等
-    3. 默认值：本地 BAAI/bge-small-zh-v1.5
+    3. 环境变量 EMBEDDING_MODEL / EMBEDDING_MODEL_PATH（无代码内写死的模型名）
 
     如果 VECTOR_STORE_ENABLED=false，返回 None。
     """
@@ -430,8 +430,8 @@ def get_embedding_service():
     _mode = "local"
     _api_key = ""
     _base_url = ""
-    _model = "text-embedding-3-small"
-    _model_path = "BAAI/bge-small-zh-v1.5"
+    _model = ""
+    _model_path = ""
     _use_gpu = True
 
     try:
@@ -441,8 +441,8 @@ def get_embedding_service():
         _mode = cfg.mode
         _api_key = cfg.api_key
         _base_url = cfg.base_url
-        _model = cfg.model or "text-embedding-3-small"
-        _model_path = cfg.model_path or "BAAI/bge-small-zh-v1.5"
+        _model = (cfg.model or "").strip()
+        _model_path = (cfg.model_path or "").strip()
         _use_gpu = cfg.use_gpu
         logger.info(
             "Embedding 配置来源: 数据库 | mode=%s, model=%s, path=%s",
@@ -453,7 +453,8 @@ def get_embedding_service():
         _mode = os.getenv("EMBEDDING_SERVICE", "local").lower()
         _api_key = os.getenv("EMBEDDING_API_KEY") or ""
         _base_url = os.getenv("EMBEDDING_BASE_URL") or ""
-        _model_path = os.getenv("EMBEDDING_MODEL_PATH", "BAAI/bge-small-zh-v1.5")
+        _model = (os.getenv("EMBEDDING_MODEL") or "").strip()
+        _model_path = (os.getenv("EMBEDDING_MODEL_PATH") or "").strip()
         _use_gpu = os.getenv("EMBEDDING_USE_GPU", "true").lower() == "true"
         logger.warning("读取嵌入配置失败，回退到环境变量: %s", exc)
 
@@ -462,6 +463,9 @@ def get_embedding_service():
             key = _api_key or os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
             if not key:
                 logger.warning("embedding mode=openai 但未配置 API Key，向量检索已禁用")
+                return None
+            if not (_model or "").strip():
+                logger.warning("embedding mode=openai 但未配置模型 ID（model / EMBEDDING_MODEL），向量检索已禁用")
                 return None
             from infrastructure.ai.openai_embedding_service import OpenAIEmbeddingService
             logger.info("使用 OpenAI 嵌入服务 (DB配置): base_url=%s, model=%s", _base_url, _model)
@@ -472,6 +476,9 @@ def get_embedding_service():
             )
         else:
             # 默认 local 模式
+            if not (_model_path or "").strip():
+                logger.warning("embedding mode=local 但未配置 model_path，向量检索已禁用")
+                return None
             from infrastructure.ai.local_embedding_service import LocalEmbeddingService
             logger.info("使用本地嵌入服务 (DB配置): path=%s, gpu=%s", _model_path, _use_gpu)
             return LocalEmbeddingService(model_name=_model_path, use_gpu=_use_gpu)

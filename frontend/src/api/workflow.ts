@@ -2,6 +2,7 @@
  * 子项目 8：工作流 / 长任务 / 一致性 / 故事线
  * 后端路由实现见 `docs/superpowers/plans/2026-04-02-subproject-8-frontend-extensions.md`
  */
+import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
 import { apiClient, resolveHttpUrl } from './config'
 import type { JobStatusResponse } from '../types/api'
 
@@ -314,11 +315,12 @@ export const workflowApi = {
   getStorylineGraphData: (novelId: string) =>
     apiClient.get<StorylineGraphDataDTO>(`/novels/${novelId}/storylines/graph-data`) as unknown as Promise<StorylineGraphDataDTO>,
 
-  /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options */
+  /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options（单次 LLM；引导页默认 400s） */
   suggestMainPlotOptions: (novelId: string) =>
     apiClient.post<{ plot_options: MainPlotOptionDTO[] }>(
       `/novels/${novelId}/setup/suggest-main-plot-options`,
-      {}
+      {},
+      { timeout: WIZARD_STEP_TIMEOUT_MS }
     ) as unknown as Promise<{ plot_options: MainPlotOptionDTO[] }>,
 
   /** POST /api/v1/novels/{novel_id}/storylines */

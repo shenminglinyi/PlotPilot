@@ -1,6 +1,7 @@
 """OpenAI LLM 提供商实现"""
 import logging
 import openai
+import httpx
 from typing import Any, AsyncIterator
 
 from openai import AsyncOpenAI
@@ -10,10 +11,9 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
 from .base import BaseProvider
+from .model_resolution import require_resolved_model_id
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MODEL = "gpt-4o"
 
 
 class OpenAIProvider(BaseProvider):
@@ -44,6 +44,11 @@ class OpenAIProvider(BaseProvider):
         if settings.base_url:
             client_kwargs["base_url"] = settings.base_url
 
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.timeout_seconds),
+            trust_env=False,
+        )
+        client_kwargs["http_client"] = self._http_client
         self.async_client = AsyncOpenAI(**client_kwargs)
 
     async def generate(
@@ -155,8 +160,13 @@ class OpenAIProvider(BaseProvider):
         *,
         stream: bool = False,
     ) -> dict[str, Any]:
+        model_id = require_resolved_model_id(
+            config.model,
+            self.settings.default_model,
+            provider_label="OpenAI 兼容",
+        )
         kwargs: dict[str, Any] = {
-            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+            "model": model_id,
             "messages": messages,
             "temperature": config.temperature,
             "max_tokens": config.max_tokens,
@@ -176,8 +186,13 @@ class OpenAIProvider(BaseProvider):
         *,
         stream: bool = False,
     ) -> dict[str, Any]:
+        model_id = require_resolved_model_id(
+            config.model,
+            self.settings.default_model,
+            provider_label="OpenAI 兼容",
+        )
         kwargs: dict[str, Any] = {
-            "model": config.model or self.settings.default_model or DEFAULT_MODEL,
+            "model": model_id,
             "instructions": prompt.system,
             "input": [{"role": "user", "content": prompt.user}],
             "temperature": config.temperature,
@@ -196,14 +211,16 @@ class OpenAIProvider(BaseProvider):
         response = await self.async_client.responses.create(**request_kwargs)
 
         output = getattr(response, "output", None)
-        content = ""
+        content_parts: list[str] = []
         if output:
             for item in output:
                 if getattr(item, "type", "") == "message":
                     for part in getattr(item, "content", []):
                         if getattr(part, "type", "") == "text":
-                            content = str(getattr(part, "text", "")).strip()
-                            break
+                            piece = str(getattr(part, "text", "")).strip()
+                            if piece:
+                                content_parts.append(piece)
+        content = "\n".join(content_parts).strip()
         if not content:
             raise RuntimeError("Responses API returned empty content")
 
@@ -235,15 +252,39 @@ class OpenAIProvider(BaseProvider):
         return ""
 
     @staticmethod
+    def _normalize_chat_completion_content(content: Any) -> str:
+        """兼容 message.content 为 str 或多段 content part 列表（OpenAI 新协议与多数聚合网关）。"""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content.strip()
+
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    item_type = (item.get("type") or "").lower()
+                    if item_type in ("reasoning", "thinking", "refusal"):
+                        continue
+                    text_val = item.get("text")
+                    if isinstance(text_val, str) and text_val.strip():
+                        parts.append(text_val)
+                else:
+                    text_attr = getattr(item, "text", None)
+                    if isinstance(text_attr, str) and text_attr.strip():
+                        parts.append(text_attr)
+            return "\n".join(parts).strip()
+
+        return str(content).strip()
+
+    @staticmethod
     def _extract_text_from_response(response: Any) -> str:
         if not getattr(response, "choices", None):
             return ""
 
         message = getattr(response.choices[0], "message", None)
         content = getattr(message, "content", None)
-        if isinstance(content, str):
-            return content.strip()
-        return ""
+        return OpenAIProvider._normalize_chat_completion_content(content)
 
     @staticmethod
     def _extract_text_from_stream_chunk(chunk: Any) -> str:
@@ -254,6 +295,8 @@ class OpenAIProvider(BaseProvider):
         content = getattr(delta, "content", None)
         if isinstance(content, str):
             return content
+        if isinstance(content, list):
+            return OpenAIProvider._normalize_chat_completion_content(content)
         return ""
 
     async def _generate_via_stream(self, request_kwargs: dict[str, Any]) -> tuple[str, TokenUsage]:
