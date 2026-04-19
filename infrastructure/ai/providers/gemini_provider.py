@@ -137,6 +137,8 @@ class GeminiProvider(BaseProvider):
         for candidate in data.get('candidates') or []:
             content = candidate.get('content') or {}
             for part in content.get('parts') or []:
+                if part.get('thought') is True:
+                    continue
                 text = part.get('text')
                 if text:
                     pieces.append(str(text))
