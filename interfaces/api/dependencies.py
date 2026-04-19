@@ -899,7 +899,12 @@ def get_tension_analyzer():
 
     llm_client = LLMClient(provider=llm_provider)
     narrative_event_repo = SqliteNarrativeEventRepository(get_database())
-    return TensionAnalyzer(narrative_event_repo, llm_client)
+    return TensionAnalyzer(
+        narrative_event_repo,
+        llm_client,
+        chapter_repository=get_chapter_repository(),
+        plot_arc_repository=get_plot_arc_repository(),
+    )
 
 
 def get_sandbox_dialogue_service():
