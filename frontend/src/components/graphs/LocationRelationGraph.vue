@@ -70,7 +70,7 @@ const getColorByImportance = (importance?: string) => {
     case 'normal':
       return { background: '#e5e7eb', border: '#9ca3af' } // 灰色 - 一般地点
     default:
-      return { background: '#e0e7ff', border: '#6366f1' } // 默认紫色
+      return { background: '#ccfbf1', border: '#0d9488' } // 默认墨青
   }
 }
 

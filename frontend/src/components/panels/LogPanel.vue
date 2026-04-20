@@ -87,7 +87,7 @@ defineExpose({
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #1a1d24 0%, #0f1115 100%);
+  background: #14161c;
   color: #d4d4d4;
   font-family: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
   font-size: 12px;

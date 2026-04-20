@@ -301,7 +301,7 @@ const buildVisData = () => {
       id: c.id,
       label: c.name + (c.role ? `\n${c.role}` : '') + (ne ? `\n·${ne}事件` : ''),
       title,
-      color: hi.size && !hi.has(c.id) ? { background: '#e2e8f0', border: '#cbd5e1' } : { background: '#c7d2fe', border: '#6366f1' },
+      color: hi.size && !hi.has(c.id) ? { background: '#e2e8f0', border: '#cbd5e1' } : { background: '#ccfbf1', border: '#0d9488' },
       font: { size: 14 },
     }
   })

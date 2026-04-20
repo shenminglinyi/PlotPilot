@@ -753,7 +753,7 @@ onUnmounted(() => {
   height: 100%;
   min-height: 0;
   padding: 12px 14px;
-  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, rgba(99, 102, 241, 0.06) 100%);
+  background: var(--app-surface-subtle);
   border-left: 1px solid var(--app-border);
 }
 

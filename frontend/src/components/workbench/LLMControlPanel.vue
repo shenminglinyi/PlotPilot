@@ -773,9 +773,7 @@ onBeforeUnmount(() => {
   padding: 14px;
   border: 1px solid var(--aitext-split-border);
   border-radius: 14px;
-  background:
-    linear-gradient(180deg, var(--color-brand-light), var(--app-surface)),
-    var(--app-surface);
+  background: var(--app-surface);
   flex-shrink: 0;
 }
 
@@ -840,7 +838,7 @@ onBeforeUnmount(() => {
 .llm-preset-card-protocol {
   flex-shrink: 0;
   font-size: 11px;
-  color: var(--color-brand, #4f46e5);
+  color: var(--color-brand, #0d9488);
   background: var(--color-brand-light, rgba(79, 70, 229, 0.08));
   border-radius: 999px;
   padding: 2px 8px;

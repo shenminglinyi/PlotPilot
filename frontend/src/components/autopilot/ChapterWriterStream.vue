@@ -119,7 +119,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  background: linear-gradient(135deg, rgba(24, 160, 88, 0.08) 0%, rgba(24, 160, 88, 0.02) 100%);
+  background: rgba(24, 160, 88, 0.07);
   border-bottom: 1px solid var(--border-color);
   font-size: 12px;
   color: var(--text-color-2);

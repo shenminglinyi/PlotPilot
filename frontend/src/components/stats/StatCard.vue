@@ -83,7 +83,7 @@ const trendValue = computed(() => props.trend ? Math.abs(props.trend.value) : 0)
   left: 0;
   width: 3px;
   height: 100%;
-  background: linear-gradient(180deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-pressed, #7c3aed) 100%);
+  background: var(--color-brand, #0d9488);
   opacity: 0;
   transition: opacity 0.2s ease;
 }

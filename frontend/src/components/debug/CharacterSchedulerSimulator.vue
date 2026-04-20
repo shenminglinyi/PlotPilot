@@ -355,7 +355,7 @@ const estimatedTokens = computed(() => {
 
 <style scoped>
 .character-scheduler-simulator {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: #181c28;
   border-radius: 16px;
   padding: 24px;
   color: #e0e0e0;
@@ -528,7 +528,7 @@ const estimatedTokens = computed(() => {
 
 .character-card.mentioned {
   border-color: #fdcb6e;
-  background: linear-gradient(135deg, #2d3436 0%, #3d4446 100%);
+  background: #353b42;
 }
 
 .character-card.selected {
@@ -668,7 +668,7 @@ const estimatedTokens = computed(() => {
 
 .queue-item.selected {
   border-left-color: #00cec9;
-  background: linear-gradient(90deg, #2d3436 0%, #3d4446 100%);
+  background: #353b42;
 }
 
 .queue-item.excluded {

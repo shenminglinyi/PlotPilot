@@ -790,7 +790,8 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   margin-left: 300px;
-  padding: 32px;
+  padding: var(--layout-page-padding-y, 32px) var(--layout-page-padding-x, 32px);
+  padding-bottom: max(28px, env(safe-area-inset-bottom, 0px));
   position: relative;
   overflow-x: hidden;
   overflow-y: auto;
@@ -807,47 +808,53 @@ onMounted(() => {
 .home-bg {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse 110% 80% at 50% -30%, var(--color-brand-light), transparent 55%),
-    radial-gradient(ellipse 60% 50% at 100% 20%, rgba(14, 165, 233, 0.12), transparent 45%),
-    radial-gradient(ellipse 50% 40% at 0% 60%, var(--color-gold-dim), transparent 50%),
-    linear-gradient(180deg, var(--app-page-bg) 0%, var(--app-surface-subtle) 45%, var(--app-page-bg) 100%);
+  background: var(--app-page-bg);
   z-index: 0;
 }
 
 .container {
   position: relative;
   z-index: 1;
-  max-width: 1200px;
+  width: 100%;
+  max-width: var(--layout-content-max, 1080px);
   margin: 0 auto;
 }
 
 .header {
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: clamp(28px, 4vw, 40px);
   animation: fade-up 0.55s ease both;
 }
 
+.header-content {
+  max-width: 42rem;
+  margin: 0 auto;
+}
+
 .title {
-  font-size: clamp(2rem, 4vw, 2.5rem);
+  font-size: clamp(1.75rem, 3.6vw, 2.35rem);
   font-weight: 700;
-  margin: 0 0 12px;
-  letter-spacing: -0.03em;
+  margin: 0 0 14px;
+  letter-spacing: -0.025em;
   color: var(--app-text-primary);
+  line-height: 1.2;
 }
 
 .subtitle {
-  font-size: 1.05rem;
+  font-size: clamp(0.98rem, 1.5vw, 1.0625rem);
   color: var(--app-text-secondary);
-  margin: 0;
+  margin: 0 auto;
   font-weight: 400;
+  line-height: 1.65;
+  max-width: 46ch;
 }
 
 
 .create-card {
-  margin-bottom: 32px;
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+  margin-bottom: clamp(24px, 3vw, 32px);
+  border-radius: var(--app-radius-xl, 16px);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-md);
   animation: fade-up 0.55s ease 0.08s both;
 }
 
@@ -926,10 +933,10 @@ onMounted(() => {
 }
 
 .advanced-settings {
-  padding: 16px;
-  background: rgba(79, 70, 229, 0.04);
-  border-radius: 12px;
-  border: 1px solid rgba(79, 70, 229, 0.1);
+  padding: 16px 18px;
+  background: var(--color-brand-light);
+  border-radius: var(--app-radius-md, 12px);
+  border: 1px solid var(--color-brand-border);
 }
 
 .w-full {
@@ -938,9 +945,10 @@ onMounted(() => {
 
 .books-section {
   background: var(--app-surface);
-  border-radius: 16px;
-  padding: 28px;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
+  border-radius: var(--app-radius-xl, 16px);
+  border: 1px solid var(--app-border);
+  padding: clamp(20px, 2.5vw, 28px);
+  box-shadow: var(--app-shadow-sm);
   animation: fade-up 0.55s ease 0.14s both;
 }
 
@@ -949,8 +957,14 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 20px;
+  margin: -4px 0 18px;
+  padding-bottom: 14px;
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-divider);
 }
 
 .section-left {
@@ -1022,7 +1036,7 @@ onMounted(() => {
 .empty-illustration {
   width: 100px;
   height: 100px;
-  background: linear-gradient(135deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  background: var(--app-surface-subtle);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1097,14 +1111,14 @@ onMounted(() => {
 }
 
 .book-card:hover {
-  border-color: var(--color-brand, #4f46e5);
-  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.1);
+  border-color: var(--color-brand);
+  box-shadow: 0 6px 22px color-mix(in srgb, var(--color-brand) 14%, transparent);
   transform: translateY(-2px);
 }
 
 .book-card.is-selected {
-  border-color: var(--color-brand, #4f46e5);
-  background: var(--color-brand-light, rgba(79, 70, 229, 0.04));
+  border-color: var(--color-brand);
+  background: var(--color-brand-light);
 }
 
 /* 阶段状态小圆点 */
@@ -1186,9 +1200,9 @@ onMounted(() => {
   justify-content: space-between;
   margin-top: 12px;
   padding: 12px 16px;
-  background: var(--color-brand-light, rgba(79, 70, 229, 0.05));
-  border: 1px dashed var(--color-brand-border, rgba(79, 70, 229, 0.2));
-  border-radius: 10px;
+  background: var(--color-brand-light);
+  border: 1px dashed var(--color-brand-border);
+  border-radius: var(--app-radius-md, 10px);
 }
 
 .fold-hint {

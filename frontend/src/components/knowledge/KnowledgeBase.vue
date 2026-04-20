@@ -103,7 +103,7 @@ const buildVisData = () => {
         id: sid,
         label: lab.length > 42 ? `${lab.slice(0, 40)}…` : lab,
         title: lab,
-        color: { background: '#e0e7ff', border: '#6366f1' },
+        color: { background: '#ccfbf1', border: '#0d9488' },
         font: { size: 13 },
       })
     }

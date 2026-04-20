@@ -12,10 +12,10 @@ const naiveTheme = computed(() =>
 
 // ─── 静态调色板（不随主题变化，提升出来避免 computed 重建字符串）─────────────
 const LIGHT_PALETTE = {
-  primary:        '#4f46e5',
-  primaryHover:   '#6366f1',
-  primaryPressed: '#4338ca',
-  primarySuppl:   '#818cf8',
+  primary:        '#0d9488',
+  primaryHover:   '#14b8a6',
+  primaryPressed: '#0f766e',
+  primarySuppl:   '#5eead4',
   text1:          '#0f172a',
   text2:          '#475569',
   text3:          '#64748b',
@@ -26,14 +26,14 @@ const LIGHT_PALETTE = {
   tableHover:     '#f8fafc',
   inputBg:        '#ffffff',
   drawerBg:       '#eef1f6',
-  selectBorder:   '#4f46e5',
+  selectBorder:   '#0d9488',
 } as const
 
 const DARK_PALETTE = {
-  primary:        '#818cf8',
-  primaryHover:   '#a5b4fc',
-  primaryPressed: '#6366f1',
-  primarySuppl:   '#c7d2fe',
+  primary:        '#2dd4bf',
+  primaryHover:   '#5eead4',
+  primaryPressed: '#14b8a6',
+  primarySuppl:   '#99f6e4',
   text1:          '#e2e8f0',
   text2:          '#94a3b8',
   text3:          '#64748b',
@@ -44,7 +44,7 @@ const DARK_PALETTE = {
   tableHover:     '#232d42',
   inputBg:        '#161d2e',
   drawerBg:       '#121826',
-  selectBorder:   '#818cf8',
+  selectBorder:   '#2dd4bf',
 } as const
 
 const ANCHOR_PALETTE = {
@@ -158,14 +158,16 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
 <style>
 .app-fade-enter-active,
 .app-fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .app-fade-enter-from {
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(4px);
 }
 .app-fade-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(-2px);
 }
 </style>

@@ -48,17 +48,7 @@ const chartOption = computed<EChartsOption>(() => ({
         color: CHART_COLORS.primary
       },
       areaStyle: {
-        color: {
-          type: 'linear',
-          x: 0,
-          y: 0,
-          x2: 0,
-          y2: 1,
-          colorStops: [
-            { offset: 0, color: CHART_COLORS.gradientStart },
-            { offset: 1, color: CHART_COLORS.gradientEnd }
-          ]
-        }
+        color: 'rgba(13, 148, 136, 0.14)'
       }
     }
   ],

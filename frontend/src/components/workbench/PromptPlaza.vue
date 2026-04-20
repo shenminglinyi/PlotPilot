@@ -652,7 +652,7 @@ defineExpose({ loadData })
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   font-size: 17px;
   font-weight: 800;

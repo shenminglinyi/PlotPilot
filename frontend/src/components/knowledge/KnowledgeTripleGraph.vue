@@ -75,7 +75,7 @@ const getColorByType = (entityType?: string, importance?: string) => {
       case 'minor':
         return { background: '#bfdbfe', border: '#3b82f6' } // 蓝色 - 次要人物
       default:
-        return { background: '#e0e7ff', border: '#6366f1' } // 默认紫色
+        return { background: '#ccfbf1', border: '#0d9488' } // 默认墨青
     }
   } else if (entityType === 'location') {
     // 地点节点
@@ -87,11 +87,11 @@ const getColorByType = (entityType?: string, importance?: string) => {
       case 'normal':
         return { background: '#e5e7eb', border: '#9ca3af' } // 灰色 - 一般地点
       default:
-        return { background: '#e0e7ff', border: '#6366f1' } // 默认紫色
+        return { background: '#ccfbf1', border: '#0d9488' } // 默认墨青
     }
   }
   // 默认颜色
-  return { background: '#e0e7ff', border: '#6366f1' }
+  return { background: '#ccfbf1', border: '#0d9488' }
 }
 
 const buildVisData = () => {
@@ -225,7 +225,7 @@ onMounted(async () => {
   padding: 0 4px;
   border-radius: 4px;
   background: rgba(79, 70, 229, 0.08);
-  color: #4338ca;
+  color: #0f766e;
 }
 
 .ktg-canvas {

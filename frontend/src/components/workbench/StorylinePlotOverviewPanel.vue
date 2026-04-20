@@ -166,7 +166,7 @@ watch(deskTick, () => void load())
   min-height: 0;
   overflow-y: auto;
   padding: 20px 16px;
-  background: linear-gradient(135deg, var(--n-color-modal) 0%, rgba(99, 102, 241, 0.03) 100%);
+  background: var(--n-color-modal);
 }
 
 /* 优化顶部提示信息样式 */
@@ -174,7 +174,7 @@ watch(deskTick, () => void load())
   margin-bottom: 16px;
   padding: 16px 18px;
   border-radius: 12px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.05) 100%);
+  background: rgba(13, 148, 136, 0.08);
   border: 1px solid rgba(99, 102, 241, 0.15);
   box-shadow: 0 2px 12px rgba(99, 102, 241, 0.08);
   transition: all 0.3s ease;
@@ -345,7 +345,7 @@ watch(deskTick, () => void load())
 .gantt-track {
   flex: 1;
   height: 18px;
-  background: linear-gradient(90deg, rgba(24, 160, 88, 0.06) 0%, rgba(24, 160, 88, 0.1) 50%, rgba(24, 160, 88, 0.06) 100%);
+  background: rgba(24, 160, 88, 0.08);
   border-radius: 9px;
   position: relative;
   min-width: 0;
@@ -354,14 +354,7 @@ watch(deskTick, () => void load())
 }
 
 .gantt-track::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 50%;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.15), transparent);
-  border-radius: 9px 9px 0 0;
+  display: none;
 }
 
 .gantt-bar {
@@ -369,7 +362,7 @@ watch(deskTick, () => void load())
   top: 3px;
   height: 12px;
   border-radius: 6px;
-  background: linear-gradient(135deg, #36ad6a 0%, #18a058 100%);
+  background: #18a058;
   min-width: 8px;
   box-shadow: 0 2px 8px rgba(24, 160, 88, 0.35);
   transition: all 0.25s ease;
@@ -377,14 +370,7 @@ watch(deskTick, () => void load())
 }
 
 .gantt-bar::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 50%;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.25), transparent);
-  border-radius: 6px 6px 0 0;
+  display: none;
 }
 
 .gantt-bar:hover {
@@ -416,7 +402,7 @@ watch(deskTick, () => void load())
   padding: 14px 18px !important;
   font-weight: 600;
   border-bottom: 1px solid rgba(99, 102, 241, 0.1);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.02) 100%);
+  background: rgba(13, 148, 136, 0.05);
 }
 
 .spo-panel :deep(.n-card-header__main) {

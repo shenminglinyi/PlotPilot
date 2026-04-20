@@ -71,13 +71,13 @@ const themeOptions = computed(() => [
     value: 'dark' as ThemeMode,
     label: '深色',
     desc: '护眼暗色主题，适合夜间写作',
-    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36A7 7 0 0112 3z" fill="#818cf8"/></svg>',
+    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26"><path d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36A7 7 0 0112 3z" fill="#5eead4"/></svg>',
   },
   {
     value: 'anchor' as ThemeMode,
     label: '黑金',
     desc: '主播限定色，奢华暗金风格',
-    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26"><defs><linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#d4a843"/><stop offset="100%" stop-color="#f5d485"/></linearGradient></defs><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="url(#ag)"/></svg>',
+    icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" fill="#d4a843"/></svg>',
   },
   {
     value: 'auto' as ThemeMode,
@@ -146,7 +146,7 @@ function handleThemeChange(newMode: ThemeMode) {
 /* 黑金模式预览卡片：金色边框 + 微金底 */
 [data-theme='anchor'] .theme-preview-card.is-dark,
 .theme-preview-card.is-anchor {
-  background: linear-gradient(145deg, #0d0e14, #12141c);
+  background: #101218;
   border-color: rgba(201, 162, 39, 0.2);
   box-shadow:
     0 4px 24px rgba(0, 0, 0, 0.4),
@@ -232,7 +232,7 @@ function handleThemeChange(newMode: ThemeMode) {
 }
 
 .theme-mode-card.active {
-  border-color: #4f46e5;
+  border-color: #0d9488;
   background: rgba(79, 70, 229, 0.05);
   box-shadow:
     0 0 0 3px rgba(79, 70, 229, 0.08),
@@ -242,7 +242,7 @@ function handleThemeChange(newMode: ThemeMode) {
 /* 黑金模式激活态：金色光晕 */
 .theme-mode-card.active[data-mode="anchor"] {
   border-color: var(--color-gold, #d4a843);
-  background: linear-gradient(135deg, rgba(212, 168, 67, 0.06), rgba(245, 212, 133, 0.03));
+  background: rgba(212, 168, 67, 0.06);
   box-shadow:
     0 0 0 3px rgba(212, 168, 67, 0.12),
     0 2px 12px rgba(212, 168, 67, 0.15);
@@ -290,7 +290,7 @@ function handleThemeChange(newMode: ThemeMode) {
 
 .mode-card-check {
   flex-shrink: 0;
-  color: #4f46e5;
+  color: #0d9488;
   display: flex;
   align-items: center;
 }

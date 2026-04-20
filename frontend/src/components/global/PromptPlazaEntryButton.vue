@@ -240,9 +240,7 @@ onMounted(() => {
   display: block;
   overflow: hidden;
   border: 1px solid var(--app-border);
-  background:
-    radial-gradient(circle at 18% 18%, var(--color-plaza-light, rgba(16, 185, 129, 0.28)), transparent 28%),
-    linear-gradient(135deg, var(--color-plaza, #059669), var(--color-plaza-hover, #047857));
+  background: var(--color-plaza, #059669);
   color: var(--app-text-inverse);
   box-shadow: var(--app-shadow-md), 0 10px 26px var(--color-plaza-border, rgba(5, 150, 105, 0.22));
   backdrop-filter: blur(12px);
@@ -261,7 +259,7 @@ onMounted(() => {
   border-radius: var(--app-radius-xl);
   color: var(--nav-hero-text);
   border-color: rgba(255, 255, 255, 0.28);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
+  background: rgba(255, 255, 255, 0.14);
   box-shadow:
     var(--app-shadow-md),
     0 12px 32px rgba(0, 0, 0, 0.18);
@@ -276,19 +274,14 @@ onMounted(() => {
 }
 
 .plaza-main.variant-topbar .plaza-icon-core {
-  background: linear-gradient(
-    180deg,
-    var(--nav-hero-pill-bg-top, rgba(255, 255, 255, 0.22)),
-    var(--nav-hero-pill-bg-bottom, rgba(255, 255, 255, 0.08))
-  );
+  background: rgba(255, 255, 255, 0.2);
   border: 1px solid var(--nav-hero-pill-border, rgba(255, 255, 255, 0.28));
   box-shadow: var(--nav-hero-shadow, inset 0 1px 0 rgba(255, 255, 255, 0.12));
 }
 
 .plaza-main.variant-topbar .plaza-icon-grid {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background: rgba(255, 255, 255, 0.06);
+  background-image: none;
 }
 
 .plaza-main.variant-topbar .plaza-count {
@@ -302,7 +295,7 @@ onMounted(() => {
   min-height: 58px;
   padding: 0 14px;
   border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-brand-hover) 0%, var(--color-brand) 55%, var(--color-brand-pressed) 100%);
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   border: 1px solid color-mix(in srgb, var(--color-brand) 50%, transparent);
   box-shadow: none;
@@ -317,18 +310,13 @@ onMounted(() => {
 .plaza-main.variant-sidebar:hover {
   filter: none;
   transform: none;
-  background: linear-gradient(135deg, var(--color-brand, #4f46e5) 0%, var(--color-brand-hover, #6366f1) 55%, var(--color-brand-pressed, #4338ca) 100%);
+  background: var(--color-brand-hover, #14b8a6);
   box-shadow: none;
 }
 
 /* ── 光晕层 ─────────────────────────────── */
 .plaza-glow {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 80% 20%, var(--app-text-inverse, rgba(255, 255, 255, 0.18)), transparent 24%),
-    linear-gradient(180deg, var(--app-text-inverse, rgba(255, 255, 255, 0.06)), transparent 45%);
-  pointer-events: none;
+  display: none;
 }
 
 /* ── 内容区 ─────────────────────────────── */
@@ -364,7 +352,7 @@ onMounted(() => {
 }
 
 [data-theme='anchor'] .plaza-main.variant-sidebar {
-  background: linear-gradient(135deg, var(--color-brand-hover, #ddb930) 0%, var(--color-brand, #c9a227) 55%, var(--color-brand-pressed, #a88a1f) 100%);
+  background: var(--color-brand, #c9a227);
   border-color: color-mix(in srgb, var(--color-brand, #c9a227) 62%, transparent);
   box-shadow: none;
 }
@@ -386,7 +374,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, var(--app-text-inverse, rgba(15, 23, 42, 0.5)), var(--app-text-inverse, rgba(15, 23, 42, 0.16)));
+  background: rgba(15, 23, 42, 0.35);
   border: 1px solid var(--app-text-inverse, rgba(255, 255, 255, 0.12));
   box-shadow: inset 0 1px 0 var(--app-text-inverse, rgba(255, 255, 255, 0.08));
 }
@@ -401,10 +389,9 @@ onMounted(() => {
   inset: 8px;
   border-radius: inherit;
   opacity: 0.35;
-  background-image:
-    linear-gradient(var(--color-plaza-suppl, rgba(167, 243, 208, 0.16)) 1px, transparent 1px),
-    linear-gradient(90deg, var(--color-plaza-suppl, rgba(167, 243, 208, 0.16)) 1px, transparent 1px);
-  background-size: 7px 7px;
+  background: rgba(255, 255, 255, 0.06);
+  background-image: none;
+  background-size: auto;
 }
 .plaza-main.variant-sidebar .plaza-icon-grid { 
   inset: 4px; 
@@ -511,7 +498,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-plaza, #059669), var(--color-plaza-hover, #047857));
+  background: var(--color-plaza, #059669);
   color: var(--app-text-inverse);
   font-size: 13px;
   font-weight: 800;

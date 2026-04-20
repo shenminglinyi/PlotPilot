@@ -671,11 +671,13 @@ watch(
 
 onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('keydown', onGlobalKeydown)
 })
 
 onUnmounted(() => {
   clearAssistedAutopilotPoll()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
@@ -1044,11 +1046,23 @@ const stopGenerate = () => {
 }
 
 /** 左侧每次点选章节时由父组件调用，确保回到辅助撰稿（含重复点击当前章） */
+function getHasUnsavedChanges() {
+  return hasChanges.value && !isAssistedReadOnly.value
+}
+
 function ensureAssistedMode() {
   workMode.value = 'assisted'
 }
 
-defineExpose({ ensureAssistedMode })
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (workMode.value !== 'assisted' || activeTab.value !== 'editor') return
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 's') return
+  if (!hasChanges.value || isAssistedReadOnly.value) return
+  e.preventDefault()
+  void handleSave()
+}
+
+defineExpose({ ensureAssistedMode, getHasUnsavedChanges })
 </script>
 
 <style scoped>
@@ -1134,8 +1148,11 @@ defineExpose({ ensureAssistedMode })
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  gap: 12px 16px;
+  padding: 14px clamp(16px, 2vw, 24px);
   border-bottom: 1px solid var(--aitext-split-border);
+  flex-wrap: wrap;
+  background: var(--app-surface);
 }
 
 .work-title-wrap {
@@ -1156,11 +1173,7 @@ defineExpose({ ensureAssistedMode })
 
 .autopilot-container {
   padding: 16px 20px;
-  background: linear-gradient(
-    to bottom,
-    var(--app-surface) 0%,
-    color-mix(in srgb, var(--color-success, #22c55e) 3%, var(--app-surface)) 100%
-  );
+  background: var(--app-surface);
   border-bottom: 1px solid var(--aitext-split-border);
 }
 

@@ -534,7 +534,7 @@ onUnmounted(() => {
 
 <style scoped>
 .autopilot-panel {
-  background: linear-gradient(135deg, rgba(24, 160, 88, 0.05) 0%, rgba(24, 160, 88, 0.02) 100%);
+  background: rgba(24, 160, 88, 0.05);
   border: 1px solid rgba(24, 160, 88, 0.15);
   border-radius: 12px;
   padding: 16px 18px;

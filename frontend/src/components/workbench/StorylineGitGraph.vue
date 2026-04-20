@@ -54,18 +54,6 @@
         preserveAspectRatio="xMinYMin meet"
       >
         <defs>
-          <!-- 每条轨道的渐变 -->
-          <linearGradient v-for="tr in tracks" :id="'gg-grad-' + tr.id" :key="'g-' + tr.id" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" :stop-color="tr.color" stop-opacity="1" />
-            <stop offset="100%" :stop-color="adjustColor(tr.color, -40)" stop-opacity="1" />
-          </linearGradient>
-
-          <!-- Merge 专用渐变 -->
-          <linearGradient id="gg-grad-merge" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="#a78bfa" />
-            <stop offset="100%" stop-color="#6366f1" />
-          </linearGradient>
-
           <!-- 发光滤镜 -->
           <filter id="gg-glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -83,13 +71,6 @@
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-
-          <!-- 流光渐变（用于路径动画） -->
-          <linearGradient id="gg-flow-grad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="var(--app-text-primary, #fff)" stop-opacity="0" />
-            <stop offset="50%" stop-color="var(--app-text-primary, #fff)" stop-opacity="0.4" />
-            <stop offset="100%" stop-color="var(--app-text-primary, #fff)" stop-opacity="0" />
-          </linearGradient>
 
           <!-- HEAD 箭头 marker -->
           <marker id="gg-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
@@ -213,8 +194,8 @@
               width="18"
               height="18"
               rx="4"
-              fill="url(#gg-grad-merge)"
-              stroke="#8b5cf6"
+              fill="#0d9488"
+              stroke="#0f766e"
               stroke-width="1.5"
               :filter="cm.chapterIndex === currentChapter ? 'url(#gg-glow-head)' : ''"
               class="gg-node-shape gg-merge-shape"
@@ -236,7 +217,7 @@
               :cx="commitCx(cm)"
               :cy="commitCy(cm)"
               :r="cm.chapterIndex === currentChapter ? 8 : (isActiveCommit(cm) ? 6.5 : 5)"
-              :fill="'url(#gg-grad-' + (getTrackId(cm) || 'default') + ')'"
+              :fill="getTrackColor(getTrackId(cm))"
               :stroke="getTrackColor(getTrackId(cm))"
               :stroke-width="cm.chapterIndex === currentChapter ? 2.5 : 1.5"
               :filter="cm.chapterIndex === currentChapter ? 'url(#gg-glow-head)' : ''"
@@ -498,7 +479,7 @@ const paddingR = 40           // 右侧留白
 
 // ==================== 颜色系统 ====================
 const LINE_COLORS: Record<string, string> = {
-  main_plot: '#6366f1',   // indigo - 主线 master
+  main_plot: '#0d9488',   // teal - 主线 master（墨青）
   romance: '#ec4899',     // pink
   revenge: '#ef4444',     // red
   mystery: '#8b5cf6',     // violet
@@ -511,14 +492,6 @@ const LINE_COLORS: Record<string, string> = {
 
 function getLineColor(type: string): string {
   return LINE_COLORS[type] || '#94a3b8'
-}
-
-function adjustColor(hex: string, amount: number): string {
-  const num = parseInt(hex.replace('#', ''), 16)
-  const r = Math.min(255, Math.max(0, (num >> 16) + amount))
-  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount))
-  const b = Math.min(255, Math.max(0, (num & 0xff) + amount))
-  return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -932,7 +905,7 @@ onMounted(() => void loadData())
   justify-content: space-between;
   align-items: center;
   padding: 10px 16px;
-  background: linear-gradient(180deg, #161820 0%, #13141c 100%);
+  background: #161820;
   border-bottom: 1px solid rgba(99, 102, 241, 0.12);
   flex-shrink: 0;
   border-radius: 12px 12px 0 0;
@@ -975,9 +948,7 @@ onMounted(() => void loadData())
   overflow: auto;
   position: relative;
   cursor: default;
-  background:
-    radial-gradient(ellipse at 50% 0%, var(--color-brand-light, rgba(99, 102, 241, 0.04)) 0%, transparent 60%),
-    var(--app-surface-subtle, #0f1117);
+  background: var(--app-surface-subtle, #0f1117);
 }
 
 .gg-canvas.gg--zoomed {
@@ -1139,7 +1110,7 @@ onMounted(() => void loadData())
   align-items: center;
   gap: 8px;
   padding: 8px 12px 6px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.08));
+  background: rgba(13, 148, 136, 0.12);
   border-bottom: 1px solid rgba(99, 102, 241, 0.12);
 }
 
@@ -1215,7 +1186,7 @@ onMounted(() => void loadData())
 /* ==================== 详情面板 ==================== */
 .gg-detail-bar {
   flex-shrink: 0;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.05) 100%);
+  background: rgba(13, 148, 136, 0.08);
   border-top: 1px solid rgba(99, 102, 241, 0.15);
   padding: 12px 16px;
   animation: slideUp 0.28s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1240,21 +1211,21 @@ onMounted(() => void loadData())
   font-weight: 800;
   padding: 3px 10px;
   border-radius: 6px;
-  background: linear-gradient(135deg, var(--color-brand, #6366f1), var(--color-brand-suppl, #818cf8));
+  background: var(--color-brand, #0d9488);
   color: var(--app-text-inverse, #fff);
   letter-spacing: 0.06em;
   font-family: var(--font-sans, monospace);
 }
 
 .gg-detail-badge--merge {
-  background: linear-gradient(135deg, #a78bfa, #6366f1);
+  background: #0f766e;
 }
 
 .gg-detail-hash {
   font-family: monospace;
   font-size: 11px;
   font-weight: 600;
-  color: #a78bfa;
+  color: #14b8a6;
 }
 
 .gg-detail-label {
@@ -1268,7 +1239,7 @@ onMounted(() => void loadData())
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 4px;
-  background: linear-gradient(135deg, var(--color-warning, #f59e0b), var(--color-danger, #ef4444));
+  background: var(--color-warning, #f59e0b);
   color: var(--app-text-inverse, #fff);
   letter-spacing: 0.05em;
 }
@@ -1308,8 +1279,8 @@ onMounted(() => void loadData())
   justify-content: space-between;
   align-items: center;
   padding: 6px 16px;
-  background: linear-gradient(180deg, var(--app-surface, #13141c) 0%, var(--app-surface-raised, #161820) 100%);
-  border-top: 1px solid var(--app-border, rgba(99, 102, 241, 0.1));
+  background: var(--app-surface-raised, #161820);
+  border-top: 1px solid var(--app-border);
   font-size: 11px;
   color: var(--app-text-secondary, #475569);
   flex-shrink: 0;
@@ -1359,8 +1330,8 @@ onMounted(() => void loadData())
 .gg-spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid rgba(99, 102, 241, 0.15);
-  border-top-color: #6366f1;
+  border: 3px solid rgba(13, 148, 136, 0.2);
+  border-top-color: #0d9488;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }

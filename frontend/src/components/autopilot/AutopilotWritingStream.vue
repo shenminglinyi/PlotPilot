@@ -106,11 +106,7 @@ watch(
 <style scoped>
 .writing-stream-bar {
   margin-top: 4px;
-  background: linear-gradient(
-    135deg,
-    var(--color-success-light, rgba(34, 197, 94, 0.06)) 0%,
-    transparent 100%
-  );
+  background: var(--color-success-light, rgba(34, 197, 94, 0.08));
   border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 20%, transparent);
   border-radius: 6px;
   overflow: hidden;

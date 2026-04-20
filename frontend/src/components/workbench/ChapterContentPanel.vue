@@ -376,14 +376,14 @@ onMounted(async () => {
 .micro-beat-item {
   padding: 12px 14px;
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.02) 100%);
+  background: rgba(13, 148, 136, 0.06);
   border: 1px solid rgba(99, 102, 241, 0.1);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .micro-beat-item:hover {
   border-color: rgba(99, 102, 241, 0.2);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
+  background: rgba(13, 148, 136, 0.09);
 }
 
 .micro-beat-header {
@@ -426,7 +426,7 @@ onMounted(async () => {
 
 .tension-fill {
   height: 100%;
-  background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444);
+  background: #f59e0b;
   border-radius: 10px;
   transition: width 0.3s ease;
 }

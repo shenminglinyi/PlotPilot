@@ -50,14 +50,14 @@ const themeColors = computed(() => {
   }
   if (isDark) {
     return {
-      subject: { background: '#1e1b4b', border: '#818cf8' },
+      subject: { background: '#134e4a', border: '#2dd4bf' },
       object: { background: '#500724', border: '#f472b6' },
       labelColor: '#e2e8f0',
       edgeColor: '#94a3b8',
     }
   }
   return {
-    subject: { background: '#e0e7ff', border: '#4f46e5' },
+    subject: { background: '#ccfbf1', border: '#0d9488' },
     object: { background: '#fce7f3', border: '#be185d' },
     labelColor: '#0f172a',
     edgeColor: '#475569',

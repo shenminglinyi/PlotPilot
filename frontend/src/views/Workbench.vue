@@ -4,7 +4,7 @@
 
     <n-spin :show="pageLoading" class="workbench-spin" description="加载工作台…">
       <div class="workbench-inner">
-        <n-split direction="horizontal" :min="0.12" :max="0.30" :default-size="0.18">
+        <n-split direction="horizontal" :min="0.14" :max="0.32" :default-size="0.2">
           <template #1>
             <ChapterList
               ref="chapterListRef"
@@ -12,14 +12,14 @@
               :chapters="chapters"
               :current-chapter-id="currentChapterId"
               @select="onSidebarChapterSelect"
-              @back="goHome"
+              @back="handleBackToHome"
               @refresh="handleChapterUpdated"
               @plan-act="handlePlanAct"
             />
           </template>
 
           <template #2>
-            <n-split direction="horizontal" :min="0.40" :max="0.75" :default-size="0.60">
+            <n-split direction="horizontal" :min="0.38" :max="0.74" :default-size="0.58">
               <template #1>
                 <WorkArea
                   ref="workAreaRef"
@@ -64,8 +64,8 @@
 
 <script setup lang="ts">
 import { onMounted, computed, ref, watch, type ComponentPublicInstance } from 'vue'
-import { useRoute } from 'vue-router'
-import { useMessage } from 'naive-ui'
+import { useRoute, useRouter } from 'vue-router'
+import { useMessage, useDialog } from 'naive-ui'
 import { useWorkbench } from '../composables/useWorkbench'
 import { useStatsStore } from '../stores/statsStore'
 import { useWorkbenchRefreshStore } from '../stores/workbenchRefreshStore'
@@ -77,18 +77,80 @@ import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
 import LLMSettingsModal from '../components/LLMSettingsModal.vue'
 
 const route = useRoute()
+const router = useRouter()
 const message = useMessage()
+const dialog = useDialog()
 const statsStore = useStatsStore()
 const workbenchRefresh = useWorkbenchRefreshStore()
 
 const slug = route.params.slug as string
 
 const chapterListRef = ref<ComponentPublicInstance<{ refreshStoryTree: () => void }> | null>(null)
-const workAreaRef = ref<ComponentPublicInstance<{ ensureAssistedMode: () => void }> | null>(null)
+const workAreaRef = ref<ComponentPublicInstance<{
+  ensureAssistedMode: () => void
+  getHasUnsavedChanges: () => boolean
+}> | null>(null)
+
+const {
+  bookTitle,
+  chapters,
+  rightPanel,
+  biblePanelKey,
+  pageLoading,
+  bookMeta,
+  currentJobId,
+  currentChapterId,
+  chapterContent,
+  chapterLoading,
+  setRightPanel,
+  loadDesk,
+  goHome,
+  goToChapter,
+  handleChapterSelect,
+} = useWorkbench({ slug })
+
+function confirmDiscardDraft(): Promise<boolean> {
+  return new Promise((resolve) => {
+    dialog.warning({
+      title: '未保存的修改',
+      content: '当前章节正文有未保存的修改。继续将放弃这些修改。',
+      positiveText: '放弃修改并继续',
+      negativeText: '取消',
+      maskClosable: false,
+      onPositiveClick: () => {
+        resolve(true)
+      },
+      onNegativeClick: () => {
+        resolve(false)
+      },
+      onClose: () => {
+        resolve(false)
+      },
+    })
+  })
+}
 
 async function onSidebarChapterSelect(chapterId: number, title = '') {
+  if (chapterId === currentChapterId.value) {
+    workAreaRef.value?.ensureAssistedMode?.()
+    return
+  }
+  const dirty = workAreaRef.value?.getHasUnsavedChanges?.() ?? false
+  if (dirty) {
+    const ok = await confirmDiscardDraft()
+    if (!ok) return
+  }
   await handleChapterSelect(chapterId, title)
   workAreaRef.value?.ensureAssistedMode?.()
+}
+
+async function handleBackToHome() {
+  const dirty = workAreaRef.value?.getHasUnsavedChanges?.() ?? false
+  if (dirty) {
+    const ok = await confirmDiscardDraft()
+    if (!ok) return
+  }
+  goHome()
 }
 
 const handleChapterUpdated = async () => {
@@ -111,24 +173,6 @@ const handlePlanAct = (actId: string, actTitle: string) => {
   showActPlanning.value = true
 }
 
-const {
-  bookTitle,
-  chapters,
-  rightPanel,
-  biblePanelKey,
-  pageLoading,
-  bookMeta,
-  currentJobId,
-  currentChapterId,
-  chapterContent,
-  chapterLoading,
-  setRightPanel,
-  loadDesk,
-  goHome,
-  goToChapter,
-  handleChapterSelect,
-} = useWorkbench({ slug })
-
 const currentChapter = computed(() => {
   if (!currentChapterId.value) return null
   return chapters.value.find(ch => ch.id === currentChapterId.value) || null
@@ -148,6 +192,23 @@ function parseChapterQuery(q: unknown): number | null {
 async function syncChapterFromRoute() {
   const n = parseChapterQuery(route.query.chapter)
   if (n != null) {
+    if (n === currentChapterId.value) return
+    const dirty = workAreaRef.value?.getHasUnsavedChanges?.() ?? false
+    if (dirty) {
+      const ok = await confirmDiscardDraft()
+      if (!ok) {
+        const cur = currentChapterId.value
+        const reverted = { ...route.query } as Record<string, string | string[] | undefined>
+        if (cur != null) reverted.chapter = String(cur)
+        else delete reverted.chapter
+        await router.replace({
+          name: 'Workbench',
+          params: { slug },
+          query: reverted,
+        })
+        return
+      }
+    }
     await goToChapter(n)
   }
 }

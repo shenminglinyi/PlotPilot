@@ -195,7 +195,7 @@ watch(chroniclesTick, () => {
   flex-direction: column;
   overflow: hidden;
   padding: 16px;
-  background: linear-gradient(to bottom, var(--n-color-modal) 0%, rgba(99, 102, 241, 0.02) 100%);
+  background: var(--n-color-modal);
 }
 
 .hc-head {
@@ -211,10 +211,7 @@ watch(chroniclesTick, () => {
   margin: 0 0 8px;
   font-size: 18px;
   font-weight: 700;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-brand);
 }
 
 .hc-lead {
@@ -348,7 +345,7 @@ watch(chroniclesTick, () => {
 .helix-header-right {
   text-align: left;
   padding-left: 8px;
-  color: #6366f1;
+  color: #0d9488;
 }
 
 .helix-row {
@@ -362,7 +359,7 @@ watch(chroniclesTick, () => {
 }
 
 .helix-row--hot {
-  background: linear-gradient(to right, rgba(24, 160, 88, 0.06), rgba(99, 102, 241, 0.08));
+  background: rgba(13, 148, 136, 0.06);
   border-radius: 8px;
   padding-left: 6px;
   padding-right: 6px;
@@ -382,14 +379,14 @@ watch(chroniclesTick, () => {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2), 0 2px 8px rgba(99, 102, 241, 0.3);
+  background: var(--color-brand);
+  box-shadow: 0 0 0 4px var(--color-brand-border), 0 2px 8px var(--color-brand-border);
   transition: all 0.3s ease;
 }
 
 .helix-row--hot .helix-dot {
   transform: scale(1.2);
-  box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.3), 0 4px 12px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 0 0 6px var(--color-brand-border), 0 4px 12px var(--color-brand-border);
 }
 
 .helix-ch-num {
@@ -419,7 +416,7 @@ watch(chroniclesTick, () => {
   margin-bottom: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(24, 160, 88, 0.08), rgba(24, 160, 88, 0.12));
+  background: rgba(24, 160, 88, 0.1);
   border: 1px solid rgba(24, 160, 88, 0.25);
   box-shadow: 0 2px 6px rgba(24, 160, 88, 0.1);
   transition: all 0.2s ease;
@@ -453,7 +450,7 @@ watch(chroniclesTick, () => {
   margin-bottom: 10px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.12));
+  background: rgba(13, 148, 136, 0.1);
   border: 1px solid rgba(99, 102, 241, 0.3);
   box-shadow: 0 2px 6px rgba(99, 102, 241, 0.1);
   transition: all 0.2s ease;
@@ -479,7 +476,7 @@ watch(chroniclesTick, () => {
   color: var(--n-text-color-3);
   padding: 12px 10px 6px;
   border-top: 2px solid var(--n-border-color);
-  background: linear-gradient(to top, rgba(99, 102, 241, 0.03), transparent);
+  background: var(--n-color-modal);
 }
 
 .hc-panel :deep(.n-alert) {

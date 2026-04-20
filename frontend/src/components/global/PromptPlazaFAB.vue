@@ -116,7 +116,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-purple));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   box-shadow:
     0 4px 14px var(--color-brand-border),
@@ -135,36 +135,14 @@ defineExpose({
   transform: scale(0.96);
 }
 .plaza-fab-main.is-open {
-  background: linear-gradient(135deg, var(--color-brand-pressed), var(--color-purple));
+  background: var(--color-brand-pressed);
   box-shadow:
-    0 2px 8px rgba(79, 70, 229, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    0 2px 8px var(--color-brand-border),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .fab-glow {
-  position: absolute;
-  inset: -2px;
-  border-radius: 18px;
-  background: conic-gradient(
-    from 180deg,
-    transparent,
-    rgba(167, 139, 250, 0.4),
-    transparent,
-    rgba(99, 102, 241, 0.4),
-    transparent
-  );
-  opacity: 0;
-  transition: opacity 0.3s;
-  z-index: -1;
-  animation: glow-spin 4s linear infinite paused;
-}
-.plaza-fab-main:hover .fab-glow,
-.plaza-fab-main.is-open .fab-glow {
-  opacity: 1;
-  animation-play-state: running;
-}
-@keyframes glow-spin {
-  to { transform: rotate(360deg); }
+  display: none;
 }
 
 .fab-content {

@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { workflowApi } from '../api/workflow'
 import { novelApi } from '../api/novel'
@@ -34,6 +34,7 @@ export interface UseWorkbenchOptions {
 export function useWorkbench(options: UseWorkbenchOptions) {
   const { slug } = options
   const router = useRouter()
+  const route = useRoute()
   const message = useMessage()
   const statsStore = useStatsStore()
 
@@ -149,6 +150,15 @@ export function useWorkbench(options: UseWorkbenchOptions) {
       const existed = chapters.value.some((c) => c.number === id)
       if (!existed) {
         await loadDesk()
+      }
+      // 与地址栏同步，便于刷新、分享链接与浏览器后退；不影响其他 query 参数
+      const chapterStr = String(id)
+      if (route.name === 'Workbench' && String(route.query.chapter ?? '') !== chapterStr) {
+        await router.replace({
+          name: 'Workbench',
+          params: { slug },
+          query: { ...route.query, chapter: chapterStr },
+        })
       }
     } catch (error) {
       const detail = formatApiErrorDetail(error)

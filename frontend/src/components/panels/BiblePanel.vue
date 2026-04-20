@@ -485,7 +485,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   padding: 0 12px 10px;
-  background: linear-gradient(165deg, var(--app-surface-subtle) 0%, var(--app-border) 55%, var(--app-page-bg) 100%);
+  background: var(--app-page-bg);
 }
 
 .bible-hero {
@@ -525,7 +525,7 @@ onMounted(() => {
   letter-spacing: 0.06em;
   text-transform: none;
   background: rgba(79, 70, 229, 0.1) !important;
-  color: #4338ca !important;
+  color: #0f766e !important;
 }
 
 .bible-lead {
@@ -714,7 +714,7 @@ onMounted(() => {
 .bcard-icon-lock {
   font-size: 12px;
   font-weight: 700;
-  color: #4338ca;
+  color: #0f766e;
   background: rgba(67, 56, 202, 0.12);
 }
 
@@ -723,7 +723,7 @@ onMounted(() => {
   padding: 1px 5px;
   border-radius: 4px;
   background: rgba(15, 23, 42, 0.06);
-  color: #4338ca;
+  color: #0f766e;
 }
 
 .bcard-icon {
@@ -735,7 +735,7 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 13px;
-  color: #6366f1;
+  color: #0d9488;
   background: rgba(99, 102, 241, 0.12);
   border-radius: 6px;
 }
@@ -752,7 +752,7 @@ onMounted(() => {
   height: 22px;
   margin-top: 2px;
   border-radius: 6px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(14, 165, 233, 0.15));
+  background: rgba(13, 148, 136, 0.15);
   position: relative;
 }
 
@@ -765,7 +765,7 @@ onMounted(() => {
   width: 2px;
   transform: translateX(-50%);
   border-radius: 1px;
-  background: #6366f1;
+  background: #0d9488;
 }
 
 .bcard-title {
@@ -847,7 +847,7 @@ onMounted(() => {
   padding: 1px 5px;
   border-radius: 4px;
   background: rgba(79, 70, 229, 0.1);
-  color: #4338ca;
+  color: #0f766e;
 }
 
 .bible-json {

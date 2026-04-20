@@ -61,7 +61,7 @@ const getColorByImportance = (importance?: string) => {
     case 'minor':
       return { background: '#bfdbfe', border: '#3b82f6' } // 蓝色 - 次要人物
     default:
-      return { background: '#e0e7ff', border: '#6366f1' } // 默认紫色
+      return { background: '#ccfbf1', border: '#0d9488' } // 默认墨青
   }
 }
 

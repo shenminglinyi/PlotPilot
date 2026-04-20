@@ -537,7 +537,7 @@ onMounted(() => { loadDetail() })
 }
 .col-name code {
   font-size: 11.5px;
-  background: linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(139, 92, 246, 0.06));
+  background: rgba(13, 148, 136, 0.1);
   padding: 2px 6px;
   border-radius: 4px;
   color: var(--color-brand);
@@ -664,7 +664,7 @@ onMounted(() => { loadDetail() })
 }
 .timeline-item.is-current .timeline-content {
   border-color: var(--color-brand);
-  background: linear-gradient(135deg, var(--color-brand-light), transparent 60%);
+  background: var(--color-brand-light);
 }
 .timeline-header {
   display: flex;

@@ -760,7 +760,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   padding: 12px 12px 8px;
-  background: linear-gradient(180deg, var(--app-surface-subtle) 0%, var(--app-border) 100%);
+  background: var(--app-surface-subtle);
 }
 
 .kp-hero {
@@ -911,7 +911,7 @@ onUnmounted(() => {
 
 .kp-ch-card :deep(.n-card-header) {
   padding: 10px 14px;
-  background: linear-gradient(90deg, var(--color-brand-light), transparent);
+  background: var(--color-brand-light);
   border-bottom: 1px solid var(--app-divider);
 }
 

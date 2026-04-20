@@ -485,7 +485,7 @@ function onLocationClick(location: number) {
 
 .tension-fill {
   height: 100%;
-  background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444);
+  background: #f59e0b;
   border-radius: 4px;
   transition: width 0.3s ease;
 }

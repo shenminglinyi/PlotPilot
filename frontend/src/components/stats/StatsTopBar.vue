@@ -32,6 +32,13 @@
           </svg>
         </div>
       </n-dropdown>
+
+      <nav v-if="slug" class="topbar-book-nav" aria-label="本书导航">
+        <RouterLink class="book-nav-link" :to="workbenchTo">工作台</RouterLink>
+        <RouterLink class="book-nav-link" :to="castTo">角色</RouterLink>
+        <RouterLink class="book-nav-link" :to="characterGraphTo">人物图</RouterLink>
+        <RouterLink class="book-nav-link" :to="locationGraphTo">地点图</RouterLink>
+      </nav>
     </div>
 
     <!-- 中间：统计数据 -->
@@ -83,6 +90,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { NTooltip, NSpin, NDropdown, NButton, useMessage } from 'naive-ui'
 import { useStatsStore } from '@/stores/statsStore'
 import { novelApi } from '@/api/novel'
@@ -98,6 +106,36 @@ defineEmits<{
 }>()
 
 const message = useMessage()
+const route = useRoute()
+
+const chapterQuery = computed(() => {
+  const c = route.query.chapter
+  if (c == null || c === '') return {}
+  const v = Array.isArray(c) ? c[0] : c
+  return v ? { chapter: String(v) } : {}
+})
+
+const workbenchTo = computed(() => ({
+  name: 'Workbench' as const,
+  params: { slug: props.slug },
+  query: chapterQuery.value,
+}))
+
+const castTo = computed(() => ({
+  name: 'Cast' as const,
+  params: { slug: props.slug },
+  query: chapterQuery.value,
+}))
+
+const characterGraphTo = computed(() => ({
+  name: 'CharacterGraph' as const,
+  params: { slug: props.slug },
+}))
+
+const locationGraphTo = computed(() => ({
+  name: 'LocationGraph' as const,
+  params: { slug: props.slug },
+}))
 
 // AI 工具组件引用（用于以编程方式触发各组件内部按钮）
 const llmRef = ref<{ $el: HTMLElement } | null>(null)
@@ -273,7 +311,7 @@ onMounted(loadStats)
    ═══════════════════════════════════════════════════ */
 .stats-top-bar {
   height: 64px;
-  background: var(--stats-bar-gradient);
+  background: var(--stats-bar-bg);
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
@@ -340,6 +378,49 @@ onMounted(loadStats)
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
+}
+
+.ai-tools-trigger:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
+}
+
+/* 本书内快速跳转（与章节 query 联动） */
+.topbar-book-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  margin-left: 4px;
+}
+
+.book-nav-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--nav-hero-text-muted, rgba(255, 255, 255, 0.86));
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--app-radius-sm);
+  white-space: nowrap;
+  transition: background var(--app-transition), color var(--app-transition);
+}
+
+.book-nav-link:hover {
+  color: var(--nav-hero-text, #fff);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.book-nav-link.router-link-active {
+  color: var(--nav-hero-text, #fff);
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+}
+
+.book-nav-link:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
 }
 
 /* 中间：统计数据 */
@@ -436,7 +517,12 @@ onMounted(loadStats)
 .action-trigger:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.16);
-  transform: rotate(45deg);
+  transform: scale(1.05);
+}
+
+.action-trigger:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
 }
 
 /* 右侧：设置触发器 */
@@ -457,7 +543,7 @@ onMounted(loadStats)
 .settings-trigger:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.16);
-  transform: rotate(45deg);
+  transform: scale(1.05);
 }
 
 .dropdown-item-icon {
@@ -514,7 +600,7 @@ onMounted(loadStats)
   }
 
   .settings-trigger:hover {
-    transform: rotate(45deg);
+    transform: scale(1.05);
   }
 }
 

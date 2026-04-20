@@ -35,29 +35,11 @@
             font-size: 13px;
             min-height: 100vh;
             padding: 10px 12px 20px;
-            background: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(56, 189, 248, 0.12), transparent 55%),
-                radial-gradient(ellipse 80% 50% at 100% 50%, rgba(167, 139, 250, 0.08), transparent 50%),
-                radial-gradient(ellipse 60% 40% at 0% 80%, rgba(244, 114, 182, 0.06), transparent 45%),
-                linear-gradient(165deg, #030712 0%, #0b1020 40%, #060a14 100%);
+            background: #060a14;
         }
 
         .starfield {
-            pointer-events: none;
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            background-image:
-                radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.85) 50%, transparent 51%),
-                radial-gradient(1px 1px at 30% 65%, rgba(255,255,255,0.5) 50%, transparent 51%),
-                radial-gradient(1px 1px at 72% 18%, rgba(255,255,255,0.7) 50%, transparent 51%),
-                radial-gradient(1px 1px at 88% 42%, rgba(255,255,255,0.4) 50%, transparent 51%),
-                radial-gradient(1px 1px at 55% 88%, rgba(255,255,255,0.55) 50%, transparent 51%),
-                radial-gradient(1px 1px at 15% 90%, rgba(255,255,255,0.35) 50%, transparent 51%),
-                radial-gradient(1.5px 1.5px at 45% 35%, rgba(125,211,252,0.9) 50%, transparent 51%),
-                radial-gradient(1px 1px at 92% 75%, rgba(167,139,250,0.8) 50%, transparent 51%),
-                radial-gradient(2px 2px at 60% 12%, rgba(255,255,255,0.25) 50%, transparent 51%);
-            background-size: 100% 100%;
-            opacity: 0.65;
+            display: none;
         }
 
         .page-wrap {
@@ -77,7 +59,7 @@
         }
 
         header {
-            background: linear-gradient(125deg, rgba(14, 165, 233, 0.25) 0%, rgba(99, 102, 241, 0.2) 45%, rgba(168, 85, 247, 0.18) 100%);
+            background: rgba(14, 165, 233, 0.14);
             border-bottom: 1px solid var(--border);
             color: var(--text);
             padding: 18px 22px 20px;
@@ -258,7 +240,7 @@
         }
 
         .flow-step .number {
-            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            background: var(--accent);
             color: #0f172a;
             width: 28px;
             height: 28px;
@@ -332,7 +314,7 @@
         }
 
         .highlight {
-            background: linear-gradient(90deg, rgba(251, 191, 36, 0.12), rgba(245, 158, 11, 0.06));
+            background: rgba(251, 191, 36, 0.1);
             padding: 10px 12px;
             border-radius: 8px;
             margin: 10px 0;

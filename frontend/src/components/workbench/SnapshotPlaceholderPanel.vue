@@ -118,12 +118,8 @@ defineProps<{ slug: string }>()
 }
 
 .branch-line--dashed {
-  background: repeating-linear-gradient(
-    90deg,
-    var(--n-border-color) 0,
-    var(--n-border-color) 6px,
-    transparent 6px,
-    transparent 12px
-  );
+  height: 0;
+  border-top: 2px dashed var(--n-border-color);
+  background: none;
 }
 </style>

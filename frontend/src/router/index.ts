@@ -9,6 +9,10 @@ import CharacterSchedulerSimulator from '../components/debug/CharacterSchedulerS
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior(_to, _from, savedPosition) {
+    if (savedPosition) return savedPosition
+    return { top: 0, left: 0 }
+  },
   routes: [
     { path: '/', name: 'Home', component: Home },
     { path: '/book/:slug/workbench', name: 'Workbench', component: Workbench },

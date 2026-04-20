@@ -464,9 +464,7 @@ onBeforeUnmount(() => {
   z-index: 1;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.22);
-  background:
-    radial-gradient(circle at 18% 18%, rgba(129, 140, 248, 0.32), transparent 28%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(49, 46, 129, 0.95) 55%, rgba(37, 99, 235, 0.9));
+  background: rgba(15, 23, 42, 0.96);
   color: var(--app-text-inverse, #fff);
   box-shadow:
     0 12px 30px rgba(30, 41, 59, 0.2),
@@ -513,12 +511,7 @@ onBeforeUnmount(() => {
 }
 
 .global-llm-glow {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.18), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 45%);
-  pointer-events: none;
+  display: none;
 }
 
 .global-llm-main-content {
@@ -538,7 +531,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.16));
+  background: rgba(15, 23, 42, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -547,20 +540,15 @@ onBeforeUnmount(() => {
   width: 62px;
   height: 62px;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(96, 165, 250, 0.3), transparent 34%),
-    linear-gradient(180deg, rgba(15, 23, 42, 0.5), rgba(15, 23, 42, 0.18));
+  background: rgba(15, 23, 42, 0.38);
 }
 
 .global-llm-icon-grid {
   position: absolute;
   inset: 8px;
   border-radius: inherit;
-  opacity: 0.35;
-  background-image:
-    linear-gradient(rgba(191, 219, 254, 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(191, 219, 254, 0.12) 1px, transparent 1px);
-  background-size: 7px 7px;
+  opacity: 0.2;
+  background: rgba(148, 163, 184, 0.08);
 }
 
 .global-llm-icon-chip,
@@ -614,7 +602,7 @@ onBeforeUnmount(() => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #86efac, #22c55e);
+  background: #22c55e;
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
 }
 
@@ -705,7 +693,7 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-hover));
+  background: var(--color-brand);
   color: var(--app-text-inverse);
   font-size: 11px;
   font-weight: 800;
@@ -744,16 +732,12 @@ onBeforeUnmount(() => {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 14px;
-  background:
-    linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(59, 130, 246, 0.08)),
-    var(--app-surface-subtle);
+  background: rgba(13, 148, 136, 0.08);
   border: 1px solid rgba(99, 102, 241, 0.1);
 }
 
 .global-llm-runtime-bar.is-mock {
-  background:
-    linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(249, 115, 22, 0.1)),
-    var(--color-gold-dim);
+  background: var(--color-gold-dim);
   border-color: rgba(245, 158, 11, 0.18);
 }
 
@@ -789,7 +773,7 @@ onBeforeUnmount(() => {
   padding: 4px 9px;
   border-radius: 999px;
   background: rgba(79, 70, 229, 0.1);
-  color: #4338ca;
+  color: #0f766e;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
