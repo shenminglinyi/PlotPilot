@@ -81,9 +81,9 @@ from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import Sq
 from infrastructure.persistence.database.connection import get_database
 
 # 产品发布版本（与前端 / 安装包一致）
-APP_RELEASE_VERSION = "1.0.1"
-# 构建标识（每次进程启动唯一）
-BACKEND_BUILD_ID = datetime.now().strftime("%Y%m%d-%H%M%S")
+APP_RELEASE_VERSION = "1.0.2"
+# 构建标识（与安装包/发布说明一致，便于对账）
+BACKEND_BUILD_ID = "build-20260420-2200-b022"
 STARTUP_TIME = time.time()
 
 logger.info("=" * 80)
@@ -102,7 +102,7 @@ logger.info("=" * 80)
 # 创建 FastAPI 应用
 app = FastAPI(
     title="PlotPilot API",
-    version="1.0.1",
+    version="1.0.2",
     description="PlotPilot（墨枢）AI 小说创作平台 API",
     redirect_slashes=True,  # 自动将 /api/v1/novels 重定向到 /api/v1/novels/
 )
