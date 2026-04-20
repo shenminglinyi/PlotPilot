@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "PlotPilot - AI 小说创作平台",
         "width": 1400,
         "height": 900,

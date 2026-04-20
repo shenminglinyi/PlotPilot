@@ -103,6 +103,28 @@ async function initTauriConnection(): Promise<void> {
   console.log(`[Tauri] API baseURL: ${axiosInstance.defaults.baseURL}`)
 }
 
+/** 桌面壳：后端在后台线程就绪，IPC 端口在健康检查通过前可能为 0 */
+const TAURI_BACKEND_POLL_MS = 200
+const TAURI_BACKEND_WAIT_MS = 125_000
+
+async function waitForTauriBackendPort(
+  invoke: (cmd: string) => Promise<number>,
+  maxWaitMs: number,
+  intervalMs: number,
+): Promise<number | null> {
+  const deadline = Date.now() + maxWaitMs
+  while (Date.now() < deadline) {
+    const p = await invoke('get_backend_port')
+    if (p > 0) {
+      return p
+    }
+    await new Promise<void>(resolve => {
+      setTimeout(resolve, intervalMs)
+    })
+  }
+  return null
+}
+
 /**
  * 初始化 API（应用启动时调用一次）
  */
@@ -110,15 +132,21 @@ export async function initApiClient(): Promise<void> {
   let port: number | null = null
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const p = await invoke<number>('get_backend_port')
-    if (p && p > 0) {
-      port = p
+    const first = await invoke<number>('get_backend_port')
+    if (first > 0) {
+      port = first
+    } else if (isTauri()) {
+      port = await waitForTauriBackendPort(
+        cmd => invoke<number>(cmd),
+        TAURI_BACKEND_WAIT_MS,
+        TAURI_BACKEND_POLL_MS,
+      )
     }
   } catch {
     // 浏览器 / 无 IPC
   }
 
-  if (port != null) {
+  if (port != null && port > 0) {
     axiosInstance.defaults.baseURL = `http://127.0.0.1:${port}/api/v1`
     console.log(`[API] 桌面模式 baseURL: ${axiosInstance.defaults.baseURL}`)
   } else if (isTauri()) {

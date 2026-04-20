@@ -23,9 +23,53 @@
       rel="stylesheet"
     />
     <title>PlotPilot · 墨枢 | 作者的领航员</title>
+    <style>
+      /* 首屏：在 JS/Vue 挂载前即可显示，避免桌面壳等后端时纯白窗口 */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.25rem;
+        background: linear-gradient(160deg, #0f172a 0%, #1e293b 45%, #312e81 100%);
+        color: #e2e8f0;
+        font-family: system-ui, 'Segoe UI', 'Noto Sans SC', sans-serif;
+        z-index: 2147483647;
+      }
+      #boot-splash .boot-logo {
+        font-size: 1.35rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      #boot-splash .boot-hint {
+        font-size: 0.875rem;
+        color: #94a3b8;
+      }
+      #boot-splash .boot-spinner {
+        width: 2.5rem;
+        height: 2.5rem;
+        border: 3px solid rgba(129, 140, 248, 0.25);
+        border-top-color: #818cf8;
+        border-radius: 50%;
+        animation: boot-spin 0.85s linear infinite;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div id="boot-splash" aria-live="polite">
+        <div class="boot-spinner" aria-hidden="true"></div>
+        <div class="boot-logo">PlotPilot · 墨枢</div>
+        <div class="boot-hint">正在启动本地服务，请稍候…</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
