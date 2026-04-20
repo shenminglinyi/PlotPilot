@@ -6,13 +6,15 @@
 """
 
 import uuid
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, TYPE_CHECKING, Set
 
+from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.novel_id import NovelId
 from domain.structure.story_node import StoryNode, StoryTree, NodeType
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 
 if TYPE_CHECKING:
+    from application.novel.chapter_renumber.coordinator import ChapterRenumberCoordinator
     from domain.novel.repositories.chapter_repository import ChapterRepository
     from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 
@@ -30,10 +32,12 @@ class StoryStructureService:
         self,
         repository: StoryNodeRepository,
         chapter_repository: Optional["ChapterRepository"] = None,
+        chapter_renumber_coordinator: Optional["ChapterRenumberCoordinator"] = None,
         planning_service: Optional["ContinuousPlanningService"] = None,
     ):
         self.repository = repository
         self._chapter_repository = chapter_repository
+        self._chapter_renumber_coordinator = chapter_renumber_coordinator
         self._planning_service = planning_service
 
     def _enrich_chapter_nodes_from_chapters_table(
@@ -159,9 +163,62 @@ class StoryStructureService:
         saved_node = await self.repository.save(node)
         return saved_node.to_dict()
 
+    def _collect_descendant_chapter_numbers(self, novel_id: str, root_id: str) -> List[int]:
+        """找出子树内挂着的正文章节编号，供删结构时同步清理正文库。"""
+        nodes = self.repository.get_by_novel_sync(novel_id)
+        by_id = {node.id: node for node in nodes}
+        root = by_id.get(root_id)
+        if root is None:
+            return []
+
+        children_by_parent: Dict[str, List[StoryNode]] = {}
+        for node in nodes:
+            if node.parent_id:
+                children_by_parent.setdefault(node.parent_id, []).append(node)
+
+        chapter_numbers: Set[int] = set()
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node.node_type == NodeType.CHAPTER:
+                try:
+                    chapter_numbers.add(int(node.number))
+                except (TypeError, ValueError):
+                    pass
+            stack.extend(children_by_parent.get(node.id, []))
+
+        return sorted(chapter_numbers, reverse=True)
+
     async def delete_node(self, node_id: str) -> bool:
-        """删除节点"""
-        return await self.repository.delete(node_id)
+        """删除节点，并同步清理关联的正文章节。"""
+        node = await self.repository.get_by_id(node_id)
+        if not node:
+            return False
+
+        deleted_any = False
+        if self._chapter_repository is not None:
+            chapter_numbers = self._collect_descendant_chapter_numbers(node.novel_id, node_id)
+            for chapter_number in chapter_numbers:
+                chapter = self._chapter_repository.get_by_novel_and_number(
+                    NovelId(node.novel_id), chapter_number
+                )
+                if chapter is None:
+                    continue
+                chapter_id = chapter.id.value if hasattr(chapter.id, "value") else chapter.id
+                self._chapter_repository.delete(ChapterId(chapter_id))
+                coordinator = self._chapter_renumber_coordinator
+                if coordinator is not None:
+                    coordinator.on_chapter_deleted(node.novel_id, chapter_number, chapter_id)
+                deleted_any = True
+
+        remaining = await self.repository.get_by_id(node_id)
+        if remaining is None:
+            return node.node_type == NodeType.CHAPTER and deleted_any
+
+        deleted_node = await self.repository.delete(node_id)
+        if deleted_node:
+            return True
+        return False
 
     async def reorder_nodes(self, node_ids: List[str]) -> List[Dict[str, Any]]:
         """重新排序节点"""
