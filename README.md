@@ -143,3 +143,15 @@ pytest tests/ -v
 本项目采用 **Apache License 2.0**，并附加 **Commons Clause** 条件限制。
 
 允许学习、修改与非商业内部部署；**严禁**将本项目（含修改版）用于任何营利行为，包括封装收费 SaaS、打包售卖源码或作为收费产品的增值服务。详见 [LICENSE](LICENSE)。
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=shenminglinyi%2FPlotPilot&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=shenminglinyi/PlotPilot&type=date&legend=top-left" />
+ </picture>
+</a>
