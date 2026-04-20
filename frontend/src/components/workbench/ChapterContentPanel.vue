@@ -38,12 +38,12 @@
           <n-tabs type="segment" size="small" animated>
             <n-tab-pane name="macro" tab="宏观">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-                来自章节大纲，用于叙事摘要和向量检索
+                章节大纲 — 作者意图总览
               </n-text>
-              <ol v-if="beatLines.length" class="cc-beat-list">
-                <li v-for="(line, bi) in beatLines" :key="bi">{{ line }}</li>
-              </ol>
-              <n-empty v-else description="暂无宏观节拍" size="small" />
+              <div v-if="chapterPlan?.outline?.trim()" class="macro-outline-text">
+                {{ chapterPlan.outline }}
+              </div>
+              <n-empty v-else description="暂无大纲数据" size="small" />
             </n-tab-pane>
             
             <n-tab-pane name="micro" tab="微观">
@@ -73,33 +73,7 @@
           </n-tabs>
         </n-card>
 
-        <!-- 本章总结 -->
-        <n-card v-if="hasSummaryBlock" size="small" :bordered="true">
-          <template #header>
-            <span class="card-title">📝 本章总结</span>
-          </template>
-          <n-descriptions
-            v-if="knowledgeChapter && (knowledgeChapter.summary || knowledgeChapter.key_events || knowledgeChapter.consistency_note)"
-            :column="1"
-            label-placement="left"
-            size="small"
-          >
-            <n-descriptions-item v-if="knowledgeChapter.summary" label="摘要">
-              <n-text style="font-size: 12px; white-space: pre-wrap">{{ knowledgeChapter.summary }}</n-text>
-            </n-descriptions-item>
-            <n-descriptions-item v-if="knowledgeChapter.key_events" label="关键事件">
-              <n-text style="font-size: 12px; white-space: pre-wrap">{{ knowledgeChapter.key_events }}</n-text>
-            </n-descriptions-item>
-            <n-descriptions-item v-if="knowledgeChapter.consistency_note" label="一致性">
-              <n-text style="font-size: 12px; white-space: pre-wrap">{{ knowledgeChapter.consistency_note }}</n-text>
-            </n-descriptions-item>
-          </n-descriptions>
-          <n-text v-else-if="chapterPlan?.description" style="font-size: 12px; white-space: pre-wrap">
-            {{ chapterPlan.description }}
-          </n-text>
-        </n-card>
-
-        <n-alert v-else-if="storyNodeNotFound" type="warning" :show-icon="true">
+        <n-alert v-if="storyNodeNotFound" type="warning" :show-icon="true">
           未在结构树中找到第 {{ currentChapterNumber }} 章的规划节点
         </n-alert>
 
@@ -327,13 +301,6 @@ const getBeatTypeColor = (focus: string): 'success' | 'warning' | 'error' | 'inf
   return colorMap[focus] || 'default'
 }
 
-const hasSummaryBlock = computed(() => {
-  if (!props.currentChapterNumber) return false
-  const k = knowledgeChapter.value
-  if (k && (k.summary?.trim() || k.key_events?.trim() || k.consistency_note?.trim())) return true
-  return !!chapterPlan.value?.description?.trim()
-})
-
 function formatTime(t: string) {
   try {
     return new Date(t).toLocaleString('zh-CN', {
@@ -455,6 +422,14 @@ onMounted(async () => {
   padding-left: 1.2em;
   font-size: 12px;
   line-height: 1.8;
+}
+
+/* 宏观大纲 */
+.macro-outline-text {
+  font-size: 15px;
+  line-height: 1.9;
+  color: var(--n-text-color-1);
+  white-space: pre-wrap;
 }
 
 /* 微观节拍 */
