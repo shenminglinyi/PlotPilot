@@ -1,6 +1,73 @@
 import { apiClient } from './config'
 import type { BookStats } from '../types/api'
 
+function pickNumber(raw: Record<string, unknown>, keys: string[], fallback = 0): number {
+  for (const key of keys) {
+    const v = raw[key]
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return v
+    }
+    if (typeof v === 'string' && v.trim() !== '') {
+      const n = Number(v)
+      if (Number.isFinite(n)) {
+        return n
+      }
+    }
+  }
+  return fallback
+}
+
+function pickString(raw: Record<string, unknown>, keys: string[], fallback = ''): string {
+  for (const key of keys) {
+    const v = raw[key]
+    if (typeof v === 'string') {
+      return v
+    }
+  }
+  return fallback
+}
+
+/**
+ * 将 GET /novels/:id/statistics 的 JSON 转为 BookStats。
+ * 使用 unknown + 窄化，避免部分环境下 axios 泛型与 store 的 Map 类型推导冲突（如 vue-tsc 报 NovelStatisticsResponse）。
+ */
+function toBookStatsFromStatisticsPayload(raw: unknown, novelId: string): BookStats {
+  if (raw === null || typeof raw !== 'object') {
+    throw new Error('novel statistics: 响应不是 JSON 对象')
+  }
+  const r = raw as Record<string, unknown>
+
+  const totalChapters = pickNumber(r, ['total_chapters', 'chapters_total'])
+  const completedChapters = pickNumber(r, ['completed_chapters', 'chapters_completed'])
+  const totalWords = pickNumber(r, ['total_words'])
+  const avgChapterWords = pickNumber(r, ['avg_chapter_words', 'average_chapter_length'])
+
+  let completionRate: number
+  if (Object.prototype.hasOwnProperty.call(r, 'completion_rate')) {
+    completionRate = pickNumber(r, ['completion_rate'])
+  } else if (totalChapters > 0) {
+    completionRate = completedChapters / totalChapters
+  } else {
+    completionRate = 0
+  }
+
+  let lastUpdated = pickString(r, ['last_updated', 'last_activity'])
+  if (!lastUpdated) {
+    lastUpdated = new Date().toISOString()
+  }
+
+  return {
+    slug: pickString(r, ['slug']) || novelId,
+    title: pickString(r, ['title']),
+    total_chapters: totalChapters,
+    completed_chapters: completedChapters,
+    total_words: totalWords,
+    avg_chapter_words: avgChapterWords,
+    completion_rate: completionRate,
+    last_updated: lastUpdated,
+  }
+}
+
 export interface ChapterDTO {
   id: string
   number: number
@@ -88,8 +155,10 @@ export const novelApi = {
    * 小说统计（与 Chapter 仓储一致，用于顶栏等；勿再用 /api/stats/book）
    * GET /api/v1/novels/{novelId}/statistics
    */
-  getNovelStatistics: (novelId: string) =>
-    apiClient.get<BookStats>(`/novels/${novelId}/statistics`) as Promise<BookStats>,
+  getNovelStatistics: async (novelId: string): Promise<BookStats> => {
+    const raw = await apiClient.get<unknown>(`/novels/${novelId}/statistics`)
+    return toBookStatsFromStatisticsPayload(raw, novelId)
+  },
 
   /**
    * Update auto approve mode
