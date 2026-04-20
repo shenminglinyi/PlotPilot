@@ -48,23 +48,27 @@
             
             <n-tab-pane name="micro" tab="微观">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-                写作时智能拆分，控制节奏和感官细节
+                写作时智能拆分，控制节奏和感官细节；下方为本章节拍（优先展示落库的微观节拍，否则与叙事节拍/大纲一致）
               </n-text>
               <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
                 <div v-for="(beat, i) in microBeats" :key="i" class="micro-beat-item">
                   <div class="micro-beat-header">
                     <n-tag :type="getBeatTypeColor(beat.focus)" size="small" round>
-                      {{ beat.focus }}
+                      {{ beatFocusLabel(beat.focus) }}
                     </n-tag>
-                    <n-text strong style="margin-left: 8px">Beat {{ i + 1 }}</n-text>
-                    <n-text depth="3" style="margin-left: 8px; font-size: 12px">
-                      ({{ beat.target_words }}字)
+                    <n-text strong style="margin-left: 8px">节拍 {{ i + 1 }}</n-text>
+                    <n-text
+                      v-if="beat.target_words > 0"
+                      depth="3"
+                      style="margin-left: 8px; font-size: 12px"
+                    >
+                      （约 {{ beat.target_words }} 字）
                     </n-text>
                   </div>
                   <div class="micro-beat-desc">{{ beat.description }}</div>
                 </div>
               </n-space>
-              <n-empty v-else description="章节生成时自动创建微观节拍" size="small" />
+              <n-empty v-else description="暂无节拍：请在知识库填写本章叙事节拍，或待章节生成/审阅落库后自动写入" size="small" />
             </n-tab-pane>
           </n-tabs>
         </n-card>
@@ -222,12 +226,63 @@ interface MicroBeat {
   focus: string
 }
 
-// TODO: 微观节拍需要从后端 API 获取（章节生成时由守护进程创建）
-// 当前暂时从 knowledgeChapter 中读取
+const BEAT_FOCUS_LABELS: Record<string, string> = {
+  sensory: '感官',
+  dialogue: '对话',
+  action: '动作',
+  emotion: '情绪',
+  pacing: '节奏',
+  transition: '过渡',
+}
+
+function beatFocusLabel(focus: string): string {
+  const key = (focus || '').trim()
+  if (BEAT_FOCUS_LABELS[key]) return BEAT_FOCUS_LABELS[key]
+  if (!key) return '节拍'
+  return key
+}
+
+function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
+  const out: MicroBeat[] = []
+  for (const item of raw) {
+    if (item == null) continue
+    if (typeof item === 'string') {
+      const d = item.trim()
+      if (d) out.push({ description: d, target_words: 0, focus: 'pacing' })
+      continue
+    }
+    if (typeof item === 'object' && !Array.isArray(item)) {
+      const o = item as Record<string, unknown>
+      const desc = String(o.description ?? o.text ?? o.summary ?? '').trim()
+      if (!desc) continue
+      const tw = o.target_words
+      const targetWords =
+        typeof tw === 'number' && Number.isFinite(tw)
+          ? tw
+          : typeof tw === 'string' && tw.trim() !== '' && Number.isFinite(Number(tw))
+            ? Number(tw)
+            : 0
+      const focus = String(o.focus ?? o.type ?? 'pacing').trim() || 'pacing'
+      out.push({ description: desc, target_words: targetWords, focus })
+    }
+  }
+  return out
+}
+
+/** 结构化微观节拍（micro_beats）；若无则用 beat_sections / 大纲行作为可读占位，与「宏观」同源数据、卡片化展示 */
 const microBeats = computed<MicroBeat[]>(() => {
   const k = knowledgeChapter.value
-  if (k?.micro_beats && Array.isArray(k.micro_beats)) {
-    return k.micro_beats as MicroBeat[]
+  if (k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0) {
+    const parsed = normalizeMicroBeatItems(k.micro_beats as unknown[])
+    if (parsed.length > 0) return parsed
+  }
+  const lines = beatLines.value
+  if (lines.length > 0) {
+    return lines.map(line => ({
+      description: line,
+      target_words: 0,
+      focus: 'pacing',
+    }))
   }
   return []
 })
@@ -238,6 +293,8 @@ const getBeatTypeColor = (focus: string): 'success' | 'warning' | 'error' | 'inf
     dialogue: 'success',
     action: 'warning',
     emotion: 'error',
+    pacing: 'default',
+    transition: 'info',
   }
   return colorMap[focus] || 'default'
 }
