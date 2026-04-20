@@ -19,7 +19,7 @@
 - **伏笔台账**：追踪并自动闭合叙事钩子。
 - **风格分析**：作者声音漂移检测与文体指纹。
 - **节拍表与故事结构**：三幕式、章节节拍规划。
-- **DDD 四层架构**：`domain` / `application` / `infrastructure` / `interfaces`。
+- **DDD 四层架构**：`domain` / `application` / `infrastructure` / `interfaces`
 
 ---
 
