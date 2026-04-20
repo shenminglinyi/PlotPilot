@@ -67,6 +67,7 @@ class AutopilotDaemon:
         aftermath_pipeline: Optional[ChapterAftermathPipeline] = None,
         volume_summary_service=None,
         foreshadowing_repository=None,
+        knowledge_service=None,
     ):
         self.novel_repository = novel_repository
         self.llm_service = llm_service
@@ -82,6 +83,7 @@ class AutopilotDaemon:
         self.aftermath_pipeline = aftermath_pipeline
         self.volume_summary_service = volume_summary_service
         self.foreshadowing_repository = foreshadowing_repository
+        self.knowledge_service = knowledge_service
         
         # 惰性初始化 VolumeSummaryService
         if not self.volume_summary_service and llm_service and story_node_repo:
@@ -500,6 +502,22 @@ class AutopilotDaemon:
 
         chapter_num = next_chapter_node.number
         outline = next_chapter_node.outline or next_chapter_node.description or next_chapter_node.title
+
+        # 合并分章叙事节拍（beat_sections）到 outline，让 AI 按用户设定的叙事节拍生成
+        if self.knowledge_service:
+            try:
+                knowledge = self.knowledge_service.get_knowledge(novel.novel_id.value)
+                chapter_entry = next(
+                    (ch for ch in knowledge.chapters if str(ch.chapter_id) == str(chapter_num)),
+                    None
+                )
+                if chapter_entry and getattr(chapter_entry, "beat_sections", None):
+                    beats_text = "\n".join(str(b) for b in chapter_entry.beat_sections if b)
+                    if beats_text.strip():
+                        outline = f"【分章叙事节拍】\n{beats_text}\n\n【章节大纲】\n{outline}"
+                        logger.info(f"[{novel.novel_id}] 已合并第{chapter_num}章分章叙事节拍（{len(chapter_entry.beat_sections)}条）")
+            except Exception as _e:
+                logger.warning(f"[{novel.novel_id}] 读取分章叙事失败，使用原始大纲：{_e}")
 
         if needs_buffer:
             outline = f"【缓冲章：日常过渡】{outline}。主角战后休整，与配角闲聊，展示收获，节奏轻松。"

@@ -691,7 +691,7 @@ const generateKnowledge = async () => {
 }
 
 const addChapter = () => {
-  const ids = data.value.chapters.map(c => c.chapter_id)
+  const ids = data.value.chapters.map(c => Number(c.chapter_id)).filter(n => Number.isFinite(n))
   const next = ids.length ? Math.max(...ids) + 1 : 1
   data.value.chapters.push({
     chapter_id: next,
