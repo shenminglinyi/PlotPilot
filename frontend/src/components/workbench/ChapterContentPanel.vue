@@ -204,14 +204,42 @@ const planMoodLine = computed(() => {
   return ''
 })
 
+const BEAT_LINE_CAP = 48
+/** 与后端 chapter_narrative_sync._beats_from_structure_outline 一致：先按换行，再按句读拆，避免一整段只算一条节拍 */
+const BEAT_SENTENCE_SPLIT = /[；;。！？!?]+/
+
+function expandRawBeatLines(raw: string[]): string[] {
+  const out: string[] = []
+  for (const line of raw) {
+    const t = String(line || '').trim()
+    if (!t) continue
+    const byNewline = t.split(/\n+/).map(s => s.trim()).filter(Boolean)
+    for (const chunk of byNewline) {
+      const subs = chunk.split(BEAT_SENTENCE_SPLIT).map(s => s.trim()).filter(Boolean)
+      if (subs.length <= 1) {
+        out.push(chunk)
+      } else {
+        out.push(...subs)
+      }
+      if (out.length >= BEAT_LINE_CAP) {
+        return out.slice(0, BEAT_LINE_CAP)
+      }
+    }
+  }
+  return out.slice(0, BEAT_LINE_CAP)
+}
+
 const beatLines = computed(() => {
   const k = knowledgeChapter.value
+  let raw: string[] = []
   if (k?.beat_sections?.length) {
-    return k.beat_sections.map(s => String(s || '').trim()).filter(Boolean)
+    raw = k.beat_sections.map(s => String(s || '').trim()).filter(Boolean)
+  } else {
+    const ol = chapterPlan.value?.outline?.trim()
+    if (!ol) return []
+    raw = ol.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0)
   }
-  const ol = chapterPlan.value?.outline?.trim()
-  if (!ol) return []
-  return ol.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0)
+  return expandRawBeatLines(raw)
 })
 
 const showBeatsCard = computed(() => {
