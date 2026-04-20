@@ -2,16 +2,8 @@
 import urllib.parse
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import Optional
-
-from domain.novel.services.storyline_manager import StorylineManager
-from infrastructure.persistence.database.sqlite_novel_repository import SqliteNovelRepository
-from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
-from infrastructure.persistence.database.connection import get_database
 
 from application.core.services.export_service import ExportService
-from application.core.services.novel_service import NovelService
-from application.core.services.chapter_service import ChapterService
 
 from interfaces.api.dependencies import get_novel_repository, get_chapter_repository
 
@@ -61,6 +53,8 @@ async def export_novel(
                 "Content-Disposition": f"attachment; filename={encoded_filename}; filename*=UTF-8''{encoded_filename}"
             }
         )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
 
@@ -100,5 +94,7 @@ async def export_chapter(
                 "Content-Disposition": f"attachment; filename={encoded_filename}; filename*=UTF-8''{encoded_filename}"
             }
         )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
