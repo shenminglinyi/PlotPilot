@@ -1,0 +1,64 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
+  "productName": "PlotPilot",
+  "version": "1.0.2",
+  "identifier": "com.plotpilot.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "PlotPilot - AI 小说创作平台",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "center": true,
+        "decorations": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../out/tauri/plotpilot-backend/": "plotpilot-backend/"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "both",
+        "languages": ["SimpChinese", "English"]
+      }
+    },
+    "shortDescription": "AI 驱动的智能小说创作平台",
+    "longDescription": "PlotPilot（墨枢）是一款 AI 驱动的智能小说创作平台，提供剧情分析、角色管理、AI 续写等专业功能。",
+    "category": "Productivity",
+    "publisher": "PlotPilot Team",
+    "copyright": "© 2025 PlotPilot Team. All rights reserved."
+  },
+  "plugins": {}
+}
