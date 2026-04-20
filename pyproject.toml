@@ -1,3 +1,32 @@
+[project]
+name = "plotpilot"
+version = "0.1.0"
+description = "PlotPilot / aitext — API 与写作相关服务"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.6",
+    "pydantic>=2.0.0",
+    "httpx==0.27.0",
+    "openai>=1.65.0,<2.0.0",
+    "anthropic>=0.40.0",
+    "volcengine-python-sdk[ark]>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "json-repair>=0.30.0",
+    "pytest>=7.0,<9.0",
+    "pytest-asyncio>=0.23,<1.0",
+]
+
+[project.optional-dependencies]
+local = [
+    "numpy>=1.21.0",
+    "faiss-cpu>=1.7.4",
+    "sentence-transformers>=2.2.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -5,8 +34,8 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = ["-v", "--strict-markers"]
-
-[tool.pytest.ini_options.markers]
-unit = "unit tests"
-integration = "integration tests"
-slow = "slow tests"
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+    "slow: slow tests",
+]
