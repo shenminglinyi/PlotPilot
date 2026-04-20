@@ -27,9 +27,10 @@ class _FakeStoryRepo:
 
 
 class _FakeChapterRepo:
-    def __init__(self, chapters):
+    def __init__(self, chapters, on_delete=None):
         self._chapters = {number: chapter for number, chapter in chapters.items()}
         self.deleted_numbers = []
+        self._on_delete = on_delete
 
     def get_by_novel_and_number(self, novel_id, chapter_number):
         return self._chapters.get(chapter_number)
@@ -40,6 +41,8 @@ class _FakeChapterRepo:
             if current_id == chapter_id.value:
                 self.deleted_numbers.append(number)
                 del self._chapters[number]
+                if self._on_delete is not None:
+                    self._on_delete(chapter_id.value)
                 return
 
 
@@ -47,8 +50,13 @@ class _FakeCoordinator:
     def __init__(self):
         self.calls = []
 
-    def on_chapter_deleted(self, novel_id: str, deleted_chapter_number: int) -> None:
-        self.calls.append((novel_id, deleted_chapter_number))
+    def on_chapter_deleted(
+        self,
+        novel_id: str,
+        deleted_chapter_number: int,
+        deleted_chapter_id: Optional[str] = None,
+    ) -> None:
+        self.calls.append((novel_id, deleted_chapter_number, deleted_chapter_id))
 
 
 def _node(node_id: str, node_type: NodeType, number: int, parent_id: Optional[str] = None):
@@ -85,5 +93,50 @@ def test_delete_node_removes_descendant_chapters_before_deleting_structure_node(
 
     assert result is True
     assert chapter_repo.deleted_numbers == [2, 1]
-    assert coordinator.calls == [("novel-1", 2), ("novel-1", 1)]
+    assert coordinator.calls == [
+        ("novel-1", 2, "chapter-2"),
+        ("novel-1", 1, "chapter-1"),
+    ]
     assert repo.deleted_ids == ["act-1"]
+
+
+def test_delete_node_returns_true_when_direct_chapter_delete_removes_story_node():
+    repo = _FakeStoryRepo([_node("chapter-1", NodeType.CHAPTER, 1)])
+    chapter_repo = _FakeChapterRepo(
+        {1: _chapter(1)},
+        on_delete=lambda chapter_id: repo._nodes.pop(chapter_id, None),
+    )
+    coordinator = _FakeCoordinator()
+    service = StoryStructureService(
+        repo,
+        chapter_repository=chapter_repo,
+        chapter_renumber_coordinator=coordinator,
+    )
+
+    result = asyncio.run(service.delete_node("chapter-1"))
+
+    assert result is True
+    assert chapter_repo.deleted_numbers == [1]
+    assert coordinator.calls == [("novel-1", 1, "chapter-1")]
+    assert asyncio.run(repo.get_by_id("chapter-1")) is None
+    assert repo.deleted_ids == []
+
+
+def test_delete_node_returns_false_when_structure_delete_fails_after_chapter_cleanup():
+    class _FailingDeleteStoryRepo(_FakeStoryRepo):
+        async def delete(self, node_id):
+            return False
+
+    repo = _FailingDeleteStoryRepo(
+        [
+            _node("act-1", NodeType.ACT, 1),
+            _node("chapter-1", NodeType.CHAPTER, 1, parent_id="act-1"),
+        ]
+    )
+    chapter_repo = _FakeChapterRepo({1: _chapter(1)})
+    service = StoryStructureService(repo, chapter_repository=chapter_repo)
+
+    result = asyncio.run(service.delete_node("act-1"))
+
+    assert result is False
+    assert chapter_repo.deleted_numbers == [1]

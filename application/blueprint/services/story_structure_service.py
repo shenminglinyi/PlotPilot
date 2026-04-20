@@ -208,11 +208,17 @@ class StoryStructureService:
                 self._chapter_repository.delete(ChapterId(chapter_id))
                 coordinator = self._chapter_renumber_coordinator
                 if coordinator is not None:
-                    coordinator.on_chapter_deleted(node.novel_id, chapter_number)
+                    coordinator.on_chapter_deleted(node.novel_id, chapter_number, chapter_id)
                 deleted_any = True
 
-        deleted_any = await self.repository.delete(node_id) or deleted_any
-        return deleted_any
+        remaining = await self.repository.get_by_id(node_id)
+        if remaining is None:
+            return node.node_type == NodeType.CHAPTER and deleted_any
+
+        deleted_node = await self.repository.delete(node_id)
+        if deleted_node:
+            return True
+        return False
 
     async def reorder_nodes(self, node_ids: List[str]) -> List[Dict[str, Any]]:
         """重新排序节点"""
