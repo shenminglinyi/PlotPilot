@@ -200,11 +200,12 @@ async def get_autopilot_status(novel_id: str):
     twpc = getattr(novel, "target_words_per_chapter", None) or 2500
 
     lacn = getattr(novel, "last_audit_chapter_number", None)
+    last_tension = int(getattr(novel, "last_chapter_tension", 0) or 0)
     last_chapter_audit = None
     if lacn is not None:
         last_chapter_audit = {
             "chapter_number": int(lacn),
-            "tension": int(getattr(novel, "last_chapter_tension", 0) or 0),
+            "tension": last_tension,
             "drift_alert": bool(getattr(novel, "last_audit_drift_alert", False)),
             "similarity_score": getattr(novel, "last_audit_similarity", None),
             "narrative_sync_ok": bool(getattr(novel, "last_audit_narrative_ok", True)),
@@ -228,7 +229,7 @@ async def get_autopilot_status(novel_id: str):
         "target_chapters": novel.target_chapters,
         "target_words_per_chapter": twpc,
         "target_plan_total_words": target * twpc,
-        "last_chapter_tension": getattr(novel, "last_chapter_tension", 0),
+        "last_chapter_tension": last_tension,
         "consecutive_error_count": getattr(novel, "consecutive_error_count", 0),
         "total_words": total_words,
         "completed_chapters": len(completed),

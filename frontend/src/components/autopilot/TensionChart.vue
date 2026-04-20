@@ -75,6 +75,9 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 
 let chartInstance: echarts.ECharts | null = null
+/** 容器尚未布局完成时延迟渲染；封顶避免无限 setTimeout（隐藏标签页 / 折叠面板） */
+let renderDimensionAttempts = 0
+const RENDER_DIMENSION_ATTEMPTS_MAX = 40
 
 // 张力警戒线
 const tensionThreshold = computed(() => props.threshold ?? 5.0)
@@ -107,6 +110,7 @@ const maxTension = computed(() => {
 async function loadTensionData() {
   loading.value = true
   error.value = null
+  renderDimensionAttempts = 0
   try {
     // 使用 apiClient（走 Vite proxy）而非裸 fetch
     const data = await monitorApi.getTensionCurve(props.novelId)
@@ -140,10 +144,15 @@ function renderChart() {
   // 确保 DOM 可见且有尺寸
   const rect = chartRef.value.getBoundingClientRect()
   if (rect.width < 10 || rect.height < 10) {
-    // 容器不可见，延迟重试
-    setTimeout(() => renderChart(), 200)
+    renderDimensionAttempts += 1
+    if (renderDimensionAttempts <= RENDER_DIMENSION_ATTEMPTS_MAX) {
+      setTimeout(() => renderChart(), 200)
+    } else {
+      console.warn('[TensionChart] 容器尺寸长期为 0，停止重试（请展开所在面板或切换可见标签）')
+    }
     return
   }
+  renderDimensionAttempts = 0
 
   if (!chartInstance) {
     chartInstance = echarts.init(chartRef.value)

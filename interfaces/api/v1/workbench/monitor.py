@@ -56,8 +56,13 @@ async def get_tension_curve(novel_id: str):
         points = []
         for ch in chapters:
             # 从章节元数据中获取张力值（0-100），转换为 0-10 范围
-            raw_tension = getattr(ch, 'tension_score', None) or 50.0
-            tension = float(raw_tension) / 10.0  # 转换为 0-10 范围
+            # 注意：不能用 `or 50`，否则合法值 0 会被当成「缺省」误判为 5.0
+            raw = getattr(ch, "tension_score", None)
+            if raw is None:
+                raw_tension = 50.0
+            else:
+                raw_tension = float(raw)
+            tension = raw_tension / 10.0
             points.append(TensionPoint(
                 chapter=ch.number,
                 tension=tension,
