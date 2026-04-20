@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from application.blueprint.services.story_structure_service import StoryStructureService
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
+from interfaces.api.dependencies import get_chapter_renumber_coordinator
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
@@ -68,6 +69,7 @@ def get_service(
     return StoryStructureService(
         repository,
         chapter_repository=chapter_repo,
+        chapter_renumber_coordinator=get_chapter_renumber_coordinator(),
         planning_service=planning_service
     )
 
