@@ -856,6 +856,9 @@ class AutoNovelGenerationWorkflow:
             except Exception as e:
                 logger.warning(f"MemoryEngine fact_lock 构建失败: {e}")
 
+        # ⚡ 提示词集中管理说明：
+        # 此模板对应 prompts_defaults.json 中的 id=workflow-chapter-generation
+        # 如需修改提示词内容，请编辑 JSON 文件而非此代码文件
         system_message = f"""你是一位专业的网络小说作家。根据以下上下文撰写章节内容。
 
 {planning_section}{voice_block}{context}

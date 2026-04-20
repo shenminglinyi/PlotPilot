@@ -279,57 +279,47 @@ class ContextBuilder:
         logger.info(f"节拍放大器：将大纲拆分为 {len(beats)} 个节拍")
         return beats
 
-    def build_beat_prompt(self, beat: Beat, beat_index: int, total_beats: int) -> str:
-        """构建单个节拍的生成提示"""
-        focus_instructions = {
-            "sensory": "重点描写感官细节：视觉（光影、色彩）、听觉（声音、静默）、触觉（温度、质感）、嗅觉、味觉。让读者身临其境。",
-            "dialogue": "重点描写对话：人物的语气、表情、肢体语言、对话中的潜台词。对话要推动剧情，展现人物性格。",
-            "action": "重点描写动作：具体的动作细节、力度、速度、节奏。避免抽象描述，要让读者看到画面。",
-            "emotion": "重点描写情绪：内心独白、情绪的起伏、回忆闪回、心理挣扎。深入人物内心世界。",
-            "hook": "开篇核心【黄金法则】：必须包含一个强烈的情感冲击点。通过具体行动展现主角的核心特质，暗示重大冲突即将发生。切勿平铺直叙或使用大段背景介绍。",
-            "character_intro": "人物引入【塑造技巧】：通过动作或对话来展现人物，不要平铺直叙。对白要能立刻区分出不同角色的性格特点，建立他们的记忆点。",
-            "suspense": "悬念铺垫【文学指导】：留下剧情钩子！不要一次性把答案抖露。在结尾营造紧张或神秘气氛，埋下让人欲罢不能的伏笔，保持读者的强烈好奇心。",
-        }
+    # 节拍聚焦指令已迁移至 prompts_defaults.json (id=beat-focus-instructions)
+    # 通过 PromptLoader 统一读取，不再在此硬编码
+    _BEAT_PROMPT_ID = "beat-focus-instructions"
 
+    def build_beat_prompt(self, beat: Beat, beat_index: int, total_beats: int) -> str:
+        """构建单个节拍的生成提示（指令从 prompts_defaults.json 统一读取）"""
+        from infrastructure.ai.prompt_loader import get_prompt_loader
+
+        loader = get_prompt_loader()
+
+        # 聚焦指令字典
+        focus_instructions = loader.get_directives_dict(self._BEAT_PROMPT_ID, "_focus_instructions")
         instruction = focus_instructions.get(beat.focus, "")
 
-        sensory_rotation = [
-            "本节拍至少一处环境锚点：光影或空间层次（禁止纯背景说明书式罗列）。",
-            "本节拍至少一处环境锚点：温度、体感或材质。",
-            "本节拍至少一处环境锚点：声音或节奏（含有意义的静默）。",
-            "本节拍至少一处环境锚点：气味或一口味觉细节（若场景合理）。",
-        ]
+        # 感官锚点轮转
+        sensory_rotation = loader.get_list_field(self._BEAT_PROMPT_ID, "_sensory_rotation")
+        if not sensory_rotation:
+            # 安全降级
+            sensory_rotation = [
+                "本节拍至少一处环境锚点：光影或空间层次。",
+                "本节拍至少一处环境锚点：温度、体感或材质。",
+                "本节拍至少一处环境锚点：声音或节奏。",
+                "本节拍至少一处环境锚点：气味或味觉细节。",
+            ]
         anchor_line = sensory_rotation[beat_index % len(sensory_rotation)]
 
-        if beat.focus == "dialogue":
-            obligation = (
-                "叙事义务：至少 3 轮有信息增量的对话回合（有问有答、推进关系或暴露新事实）；"
-                "避免同义反复与空洞感叹凑字。"
-            )
-        elif beat.focus == "suspense":
-            obligation = "叙事义务：必须留下可追踪的悬念点（人/物/约定/时间之一），不要空喊「事情不对劲」。"
+        # 叙事义务
+        obligations = loader.get_field(self._BEAT_PROMPT_ID, "_obligations", {})
+        if isinstance(obligations, dict):
+            obligation = obligations.get(beat.focus, obligations.get("default", "叙事义务：推进情节或深化人物。"))
         else:
-            obligation = (
-                "叙事义务：至少包含「目标→阻碍→反应」中的一步可观察描写；"
-                "或至少 2 轮短对话推动信息。"
-            )
+            obligation = "叙事义务：推进情节或深化人物。"
 
-        return f"""
-【节拍 {beat_index + 1}/{total_beats}】
-目标字数：{beat.target_words} 字（软目标：以完成义务为主，勿用废话硬凑）
-聚焦点：{beat.focus}
-
-{instruction}
-
-节拍内容：
-{beat.description}
-
-密度与可检查要求：
-- {anchor_line}
-- {obligation}
-
-注意：
-- 这是完整章节的一部分，不要写章节标题
-- 不要在节拍结尾强行总结全章
-- 专注于当前节拍的内容，自然衔接到下一节拍
-""".strip()
+        # 使用 PromptLoader 渲染模板
+        return loader.render(self._BEAT_PROMPT_ID, template_field="user_template", variables={
+            "beat_index": beat_index + 1,
+            "total_beats": total_beats,
+            "target_words": beat.target_words,
+            "focus": beat.focus,
+            "instruction": instruction,
+            "description": beat.description,
+            "anchor_line": anchor_line,
+            "obligation": obligation,
+        })

@@ -1,10 +1,15 @@
-"""上下文配额分配器 - 洋葱模型优先级挤压
+"""上下文配额分配器 - 洋葱模型优先级挤压 + 全局收敛沙漏
 
 核心设计：
-- T0 级（绝对不删减）：系统 Prompt、当前幕摘要、强制伏笔、角色锚点
+- T0 级（绝对不删减）：系统 Prompt、当前幕摘要、强制伏笔、角色锚点、**生命周期行为准则**
 - T1 级（按比例压缩）：图谱子网、近期幕摘要
 - T2 级（动态水位线）：最近章节内容
 - T3 级（可牺牲泡沫）：向量召回片段
+
+全局倒计时与收敛沙漏（V7）：
+- 根据当前章节 / 目标总章节数 计算 progress (0.0 ~ 1.0)
+- 根据 progress 自动切换行为模式：开局(0-25%) / 发展(25-75%) / 收敛(75-90%) / 终局(90-100%)
+- 行为准则作为最高优先级 T0 槽位注入，引导 AI 自然收束笔墨
 
 当 Token 预算紧张时，从 T3 → T2 → T1 逐层挤压，T0 绝对保护。
 """
@@ -33,6 +38,14 @@ class PriorityTier(str, Enum):
     T1_COMPRESSIBLE = "t1_compressible"  # 按比例压缩
     T2_DYNAMIC = "t2_dynamic"        # 动态水位线
     T3_SACRIFICIAL = "t3_sacrificial"  # 可牺牲泡沫
+
+
+class StoryPhase(str, Enum):
+    """故事生命周期阶段 —— 全局收敛沙漏的核心状态机"""
+    OPENING = "opening"       # 开局期 (0% - 25%)：尽情铺陈，抛出悬念
+    DEVELOPMENT = "development" # 发展期 (25% - 75%)：激化矛盾，引入支线
+    CONVERGENCE = "convergence" # 收敛期 (75% - 90%)：禁止开新坑，强制填坑
+    FINALE = "finale"          # 终局期 (90% - 100%)：终极对决，切断日常
 
 
 @dataclass
@@ -70,6 +83,11 @@ class BudgetAllocation:
     compression_applied: bool = False
     compression_log: List[str] = field(default_factory=list)
     expired_foreshadows: List[str] = field(default_factory=list)
+    
+    # V7 全局收敛沙漏
+    progress: float = 0.0           # 全局进度 0.0 ~ 1.0
+    phase: StoryPhase = StoryPhase.OPENING  # 当前生命周期阶段
+    total_chapters: int = 0         # 目标总章节数
     
     def get_final_context(self) -> str:
         """组装最终上下文"""
@@ -219,6 +237,19 @@ class ContextBudgetAllocator:
         """
         allocation = BudgetAllocation(total_budget=total_budget)
         
+        # ========== V7 全局收敛沙漏：计算进度与阶段 ==========
+        total_chapters = self._estimate_total_chapters(novel_id)
+        progress = chapter_number / max(total_chapters, 1)
+        phase = self._classify_phase(progress)
+        allocation.progress = round(progress, 4)
+        allocation.phase = phase
+        allocation.total_chapters = total_chapters
+        
+        logger.info(
+            f"[沙漏 V7] 进度: {chapter_number}/{total_chapters} = {progress:.1%} | "
+            f"阶段: {phase.value}"
+        )
+        
         # ========== 第一步：收集所有内容 ==========
         slots = self._collect_all_slots(novel_id, chapter_number, outline, scene_director)
         
@@ -294,7 +325,18 @@ class ContextBudgetAllocator:
         
         # ==================== T0: 强制内容 ====================
 
-        # ★ V6 T0-α: FACT_LOCK（不可篡改事实块）—— 最高优先级 priority=120
+        # ★ V7 T0-Ω: 生命周期行为准则（全局收敛沙漏）—— 最高优先级 priority=130
+        lifecycle_directive = self._build_lifecycle_directive(novel_id, chapter_number)
+        slots["lifecycle_directive"] = ContextSlot(
+            name="⏳生命周期行为准则(SANDGLASS)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=lifecycle_directive,
+            tokens=self.estimate_tokens(lifecycle_directive),
+            max_tokens=600,
+            priority=130,
+        )
+
+        # ★ V6 T0-α: FACT_LOCK（不可篡改事实块）—— priority=120
         fact_lock_content = ""
         if self.memory_engine:
             try:
@@ -1391,3 +1433,110 @@ class ContextBudgetAllocator:
             logger.warning(f"获取宏观叙事校准补丁失败: {e}")
         
         return ""
+    
+    # ==================== V7 全局收敛沙漏方法 ====================
+    
+    def _estimate_total_chapters(self, novel_id: str) -> int:
+        """估算目标总章节数
+        
+        优先级：
+        1. 结构树根节点（part）的 chapter_end 字段
+        2. 各 part 节点 suggested_chapter_count 之和
+        3. 已有最大章节号 × 1.2（保守估算，假设已完成 80%+）
+        4. 兜底返回 100
+        """
+        if not self.story_node_repo:
+            return 100
+        
+        try:
+            nodes = self.story_node_repo.get_by_novel_sync(novel_id)
+            if not nodes:
+                return 100
+            
+            # 策略 1：找根 part 节点的 chapter_end
+            part_nodes = [n for n in nodes if n.node_type.value == "part"]
+            for part in part_nodes:
+                if part.chapter_end and part.chapter_end > 0:
+                    return part.chapter_end
+            
+            # 策略 2：suggested_chapter_count 求和
+            total_suggested = sum(
+                (p.suggested_chapter_count or 0) for p in part_nodes if p.suggested_chapter_count
+            )
+            if total_suggested > 0:
+                return total_suggested
+            
+            # 策略 3：最大章节号 × 1.2
+            chapter_nodes = [n for n in nodes if n.node_type.value == "chapter"]
+            if chapter_nodes:
+                max_ch = max(n.number for n in chapter_nodes)
+                if max_ch > 0:
+                    return max(int(max_ch * 1.2), max_ch + 10)
+            
+        except Exception as e:
+            logger.warning(f"估算总章节数失败: {e}")
+        
+        return 100
+    
+    def _classify_phase(self, progress: float) -> StoryPhase:
+        """根据进度值判定当前生命周期阶段"""
+        if progress >= 0.90:
+            return StoryPhase.FINALE
+        elif progress >= 0.75:
+            return StoryPhase.CONVERGENCE
+        elif progress >= 0.25:
+            return StoryPhase.DEVELOPMENT
+        else:
+            return StoryPhase.OPENING
+    
+    # PHASE_DIRECTIVES 已迁移至 prompts_defaults.json (id=lifecycle-phase-directives)
+    # 通过 PromptLoader 统一读取，不再在此硬编码
+    _LIFECYCLE_PROMPT_ID = "lifecycle-phase-directives"
+
+    def _get_phase_directives(self) -> Dict[StoryPhase, str]:
+        """从 PromptLoader 获取阶段指令字典（集中管理）。"""
+        from infrastructure.ai.prompt_loader import get_prompt_loader
+
+        raw = get_prompt_loader().get_directives_dict(
+            self._LIFECYCLE_PROMPT_ID, directives_key="_directives"
+        )
+        if not raw:
+            logger.warning("沙漏阶段指令未找到 (id=%s)，使用空指令", self._LIFECYCLE_PROMPT_ID)
+            return {}
+
+        result: Dict[StoryPhase, str] = {}
+        for key, value in raw.items():
+            try:
+                phase = StoryPhase[key]
+                result[phase] = str(value)
+            except KeyError:
+                logger.debug("未知阶段 key=%s，跳过", key)
+        return result
+
+    def _build_lifecycle_directive(self, novel_id: str, chapter_number: int) -> str:
+        """构建生命周期行为准则文本（指令从 prompts_defaults.json 统一读取）。"""
+        total = self._estimate_total_chapters(novel_id)
+        progress = chapter_number / max(total, 1)
+        phase = self._classify_phase(progress)
+
+        directives = self._get_phase_directives()
+        base_directive = directives.get(phase, "")
+
+        directive = f"{base_directive}\n\n"
+        directive += f"——\n"
+        directive += f"📊 全局进度：第 {chapter_number} 章 / 约 {total} 章 ({progress:.0%})\n"
+        directive += f"🎯 当前阶段：{phase.value}\n"
+
+        from infrastructure.ai.prompt_loader import get_prompt_loader
+        loader = get_prompt_loader()
+
+        if phase == StoryPhase.CONVERGENCE:
+            remaining = total - chapter_number
+            extra_tpl = loader.get_field(self._LIFECYCLE_PROMPT_ID, "_convergence_extra", "")
+            directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"⚠️ 剩余约 {remaining} 章完成收束，时间紧迫。\n")
+        elif phase == StoryPhase.FINALE:
+            remaining = total - chapter_number
+            extra_tpl = loader.get_field(self._LIFECYCLE_PROMPT_ID, "_finale_extra", "")
+            directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"🔥 剩余约 {remaining} 章，这是最后的冲刺。\n")
+
+        return directive

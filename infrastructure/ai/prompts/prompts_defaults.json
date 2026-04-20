@@ -1190,6 +1190,116 @@
           "default": ""
         }
       ]
+    },
+    {
+      "id": "lifecycle-phase-directives",
+      "name": "全局收敛沙漏 · 阶段行为准则",
+      "category": "generation",
+      "source": "application/engine/services/context_budget_allocator.py::PHASE_DIRECTIVES",
+      "description": "V7 全局收敛沙漏：根据故事进度（开局/发展/收敛/终局）动态注入 T0 行为指令，防止长篇网文剧情发散",
+      "builtin": true,
+      "tags": [
+        "核心",
+        "V7",
+        "沙漏",
+        "阶段控制",
+        "防发散"
+      ],
+      "output_format": "text",
+      "_directives": {
+        "OPENING": "【开局期 · 尽情铺陈】\n当前处于故事开局阶段。你的核心任务：\n1. 建立强烈的开篇钩子 — 前 300 字内必须抓住读者\n2. 自然引入主角特质 — 通过行动和对话展现，禁止大段背景介绍\n3. 抛出核心悬念 — 让读者迫切想知道「接下来会发生什么」\n4. 建立人物羁绊 — 展现角色间的关系张力\n✅ 鼓励：埋设伏笔、引入新角色、铺陈世界观、展开支线",
+        "DEVELOPMENT": "【发展期 · 激化矛盾】\n当前处于故事发展阶段。你的核心任务：\n1. 推进主要冲突 — 主角面临真正的阻碍和挑战\n2. 引入次级反派或支线冲突 — 增加叙事层次感\n3. 制造小高潮 — 每 3-5 章应有可感知的转折或揭秘\n4. 深化人物关系 — 通过冲突和合作展现角色成长\n✅ 鼓励：适度新设定、支线任务、关系变化、反转铺垫",
+        "CONVERGENCE": "【收敛期 · 强制填坑 ⚠️】\n⚠️ 故事已进入收网阶段（进度 75%-90%）。最高优先级行为准则：\n1. 【禁止开新坑】绝对禁止引入新的重要角色、新地图、新核心设定！\n2. 【强制填坑】所有剧情必须开始回收伏笔，将零散支线向核心主线汇聚。\n3. 【砍掉发散】如果某条支线无法在剩余章节内收束，直接放弃或一笔带过。\n4. 【聚焦核心】所有笔墨应服务于最终决战前的必要准备。\n❌ 禁止：新角色首秀、新地图开辟、新阴谋线开启、日常水剧情\n✅ 要求：每章至少推进/回收 1 个已有悬念",
+        "FINALE": "【终局模式 · 最后的冲刺 🔥】\n🔥 这是故事的终章阶段（进度 90%+）。最高行为准则：\n1. 【终极对决】让主角直面最终宿命，彻底解决核心冲突。\n2. 【切断一切无关内容】禁止日常戏、禁止新话题、禁止世界观展开。\n3. 【情感爆发】这是读者等待了整本书的时刻 — 给予充分的情绪释放。\n4. 【闭环收束】所有重要伏笔必须在此阶段揭晓或给出明确走向。\n❌ 绝对禁止：新角色登场、新线索埋设、日常过渡段、开放性新悬念\n✅ 唯一焦点：核心冲突的最终解决 + 主要人物的命运归宿"
+      },
+      "_convergence_extra": "⚠️ 剩余约 {remaining} 章完成收束，时间紧迫。",
+      "_finale_extra": "🔥 剩余约 {remaining} 章，这是最后的冲刺。",
+      "system": "",
+      "user_template": "{directive}\n\n——\n📊 全局进度：第 {chapter_number} 章 / 约 {total_chapters} 章 ({progress_pct})\n🎯 当前阶段：{phase_name}\n{extra_hint}",
+      "variables": [
+        {"name": "directive", "desc": "阶段基准指令文本", "type": "string"},
+        {"name": "chapter_number", "desc": "当前章节号", "type": "integer"},
+        {"name": "total_chapters", "desc": "预估总章节数", "type": "integer"},
+        {"name": "progress_pct", "desc": "进度百分比", "type": "string"},
+        {"name": "phase_name", "desc": "阶段名称", "type": "string"},
+        {"name": "extra_hint", "desc": "额外压力提示（收敛/终局时非空）", "type": "string", "default": ""}
+      ]
+    },
+    {
+      "id": "beat-focus-instructions",
+      "name": "微观节拍 · 聚焦指令集",
+      "category": "generation",
+      "source": "application/engine/services/context_builder.py::build_beat_prompt()",
+      "description": "Beat Magnifier 节拍放大器：7 种节拍类型（sensory/dialogue/action/emotion/hook/character_intro/suspense）的聚焦指令 + 感官锚点轮转 + 叙事义务",
+      "builtin": true,
+      "tags": [
+        "核心",
+        "节拍",
+        "Beat Magnifier",
+        "感官",
+        "对话"
+      ],
+      "output_format": "text",
+      "_focus_instructions": {
+        "sensory": "重点描写感官细节：视觉（光影、色彩）、听觉（声音、静默）、触觉（温度、质感）、嗅觉、味觉。让读者身临其境。",
+        "dialogue": "重点描写对话：人物的语气、表情、肢体语言、对话中的潜台词。对话要推动剧情，展现人物性格。",
+        "action": "重点描写动作：具体的动作细节、力度、速度、节奏。避免抽象描述，要让读者看到画面。",
+        "emotion": "重点描写情绪：内心独白、情绪的起伏、回忆闪回、心理挣扎。深入人物内心世界。",
+        "hook": "开篇核心【黄金法则】：必须包含一个强烈的情感冲击点。通过具体行动展现主角的核心特质，暗示重大冲突即将发生。切勿平铺直叙或使用大段背景介绍。",
+        "character_intro": "人物引入【塑造技巧】：通过动作或对话来展现人物，不要平铺直叙。对白要能立刻区分出不同角色的性格特点，建立他们的记忆点。",
+        "suspense": "悬念铺垫【文学指导】：留下剧情钩子！不要一次性把答案抖露。在结尾营造紧张或神秘气氛，埋下让人欲罢不能的伏笔，保持读者的强烈好奇心。"
+      },
+      "_sensory_rotation": [
+        "本节拍至少一处环境锚点：光影或空间层次（禁止纯背景说明书式罗列）。",
+        "本节拍至少一处环境锚点：温度、体感或材质。",
+        "本节拍至少一处环境锚点：声音或节奏（含有意义的静默）。",
+        "本节拍至少一处环境锚点：气味或一口味觉细节（若场景合理）。"
+      ],
+      "_obligations": {
+        "default": "叙事义务：至少包含「目标→阻碍→反应」中的一步可观察描写；或至少 2 轮短对话推动信息。",
+        "dialogue": "叙事义务：至少 3 轮有信息增量的对话回合（有问有答、推进关系或暴露新事实）；避免同义反复与空洞感叹凑字。",
+        "suspense": "叙事义务：必须留下可追踪的悬念点（人/物/约定/时间之一），不要空喊「事情不对劲」。"
+      },
+      "system": "",
+      "user_template": "【节拍 {beat_index}/{total_beats}】\n目标字数：{target_words} 字（软目标：以完成义务为主，勿用废话硬凑）\n聚焦点：{focus}\n\n{instruction}\n\n节拍内容：\n{description}\n\n密度与可检查要求：\n- {anchor_line}\n- {obligation}\n\n注意：\n- 这是完整章节的一部分，不要写章节标题\n- 不要在节拍结尾强行总结全章\n- 专注于当前节拍的内容，自然衔接到下一节拍",
+      "variables": [
+        {"name": "beat_index", "desc": "节拍序号（从1开始）", "type": "integer"},
+        {"name": "total_beats", "desc": "总节拍数", "type": "integer"},
+        {"name": "target_words", "desc": "目标字数", "type": "integer"},
+        {"name": "focus", "desc": "聚焦类型", "type": "string"},
+        {"name": "instruction", "desc": "聚焦指令", "type": "string"},
+        {"name": "description", "desc": "节拍内容描述", "type": "string"},
+        {"name": "anchor_line", "desc": "环境锚点轮转行", "type": "string"},
+        {"name": "obligation", "desc": "叙事义务", "type": "string"}
+      ]
+    },
+    {
+      "id": "workflow-chapter-generation",
+      "name": "工作流章节生成（运行时组装）",
+      "category": "generation",
+      "source": "application/workflows/auto_novel_generation_workflow.py::_build_prompt()",
+      "description": "AutoNovelGenerationWorkflow 运行时使用的 system/user 模板。与 chapter-generation-main 不同的是：此版本是代码中实际拼接的「轻量版」，用于流式生成和托管模式",
+      "builtin": true,
+      "tags": [
+        "核心",
+        "工作流",
+        "运行时",
+        "流式生成"
+      ],
+      "output_format": "text",
+      "system_template": "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。\n\n{planning_section}{voice_block}{context}\n\n{fact_lock}\n写作要求：\n1. 必须有多个人物互动（至少2-3个角色出场）\n2. 必须有对话（不能只有独白和叙述）\n3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）\n4. 保持人物性格一致\n5. 推进情节发展\n6. 使用生动的场景描写和细节\n{length_rule}\n8. 用中文写作，使用第三人称叙事{beat_extra}",
+      "user_template": "请根据以下大纲撰写本章内容：\n\n{outline}\n\n关键要求（必须遵守）：\n- 至少2-3个角色出场并互动\n- 必须包含对话场景（不少于3段对话）\n- 必须有明确的冲突或戏剧张力\n- 场景要具体生动，不要空泛叙述\n- 推进主线情节，不要原地踏步\n- 结尾要有悬念或转折{prior_draft}{beat_section}",
+      "variables": [
+        {"name": "planning_section", "desc": "故事线/张力/风格约束块", "type": "string", "default": ""},
+        {"name": "voice_block", "desc": "角色声线与肢体语言锚点", "type": "string", "default": ""},
+        {"name": "context", "desc": "完整上下文（Bible摘要+前情提要）", "type": "string"},
+        {"name": "fact_lock", "desc": "记忆引擎事实锁块", "type": "string", "default": ""},
+        {"name": "length_rule", "desc": "字数规则（第7条）", "type": "string"},
+        {"name": "beat_extra", "desc": "节拍模式附加说明（第9条）", "type": "string", "default": ""},
+        {"name": "outline", "desc": "章节大纲", "type": "string"},
+        {"name": "prior_draft", "desc": "本章已生成正文（续写模式）", "type": "string", "default": ""},
+        {"name": "beat_section", "desc": "当前节拍说明", "type": "string", "default": ""}
+      ]
     }
   ]
 }
