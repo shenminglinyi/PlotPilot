@@ -83,7 +83,7 @@ from infrastructure.persistence.database.connection import get_database
 # 产品发布版本（与前端 / 安装包一致）
 APP_RELEASE_VERSION = "1.0.2"
 # 构建标识（与安装包/发布说明一致，便于对账）
-BACKEND_BUILD_ID = "build-20260420-2200-b022"
+BACKEND_BUILD_ID = "build-20260209-1200-c4d2"
 STARTUP_TIME = time.time()
 
 logger.info("=" * 80)
