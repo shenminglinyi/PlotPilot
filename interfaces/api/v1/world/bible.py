@@ -174,9 +174,7 @@ async def generate_bible(
         202 Accepted，表示生成任务已启动
     """
     async def _generate_task():
-        import sys
-        print(f"[TASK START] Bible generation for {novel_id}, stage={stage}", file=sys.stderr, flush=True)
-        logger.info(f"Starting Bible generation task for {novel_id}, stage={stage}")
+        logger.info("Bible generation task started for %s, stage=%s", novel_id, stage)
         clear_bible_generation_state(novel_id)
         try:
             # 获取小说信息（需要 premise 和 target_chapters）
@@ -215,11 +213,8 @@ async def generate_bible(
             logger.info(f"Bible and Knowledge generated successfully for {novel_id}")
             clear_bible_generation_state(novel_id)
         except Exception as e:
-            import sys
             import traceback
-            print(f"[TASK ERROR] {e}", file=sys.stderr, flush=True)
-            traceback.print_exc(file=sys.stderr)
-            logger.error(f"Failed to generate Bible/Knowledge for {novel_id}: {e}")
+            logger.error("Bible generation task failed for %s: %s", novel_id, e)
             logger.error(traceback.format_exc())
             record_bible_generation_failure(novel_id, stage, str(e))
 

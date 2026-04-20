@@ -2,7 +2,6 @@
 import logging
 import json
 import uuid
-import sys
 import re
 from typing import Dict, Any
 from datetime import datetime
@@ -36,7 +35,7 @@ def parse_json_from_response(rsp: str):
         if match is not None:
             try:
                 rsp_json = json.loads(match.group(1).strip())
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
         else:
             rsp_json = json.loads(rsp)
@@ -47,7 +46,7 @@ def parse_json_from_response(rsp: str):
             if match:
                 content = "{" + match.group(1) + "}"
                 return json.loads(content)
-        except:
+        except (json.JSONDecodeError, ValueError):
             pass
         raise e
 
@@ -340,8 +339,7 @@ class AutoBibleGenerator:
                 await self._save_worldbuilding(novel_id, bible_data["worldbuilding"])
 
         elif stage == "worldbuilding":
-            import sys
-            print(f"[DEBUG] Stage worldbuilding - checking Bible record", file=sys.stderr, flush=True)
+            logger.debug("Stage worldbuilding - checking Bible record")
             # 确保Bible记录存在
             try:
                 self.bible_service.get_bible_by_novel(novel_id)
@@ -350,13 +348,11 @@ class AutoBibleGenerator:
                 self.bible_service.create_bible(bible_id, novel_id)
                 logger.info(f"Created Bible record: {bible_id}")
 
-            print(f"[DEBUG] Calling _generate_worldbuilding_and_style", file=sys.stderr, flush=True)
+            logger.debug("Calling _generate_worldbuilding_and_style")
             # 只生成世界观和文风
             bible_data = await self._generate_worldbuilding_and_style(premise, target_chapters)
-            print(f"[DEBUG] _generate_worldbuilding_and_style completed", file=sys.stderr, flush=True)
-            print(f"[DEBUG] bible_data keys: {bible_data.keys()}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] Has 'worldbuilding' key: {'worldbuilding' in bible_data}", file=sys.stderr, flush=True)
-            print(f"[DEBUG] worldbuilding_service is None: {self.worldbuilding_service is None}", file=sys.stderr, flush=True)
+            logger.debug("_generate_worldbuilding_and_style completed, keys=%s", list(bible_data.keys()))
+            logger.debug("Has 'worldbuilding' key: %s, worldbuilding_service is None: %s", 'worldbuilding' in bible_data, self.worldbuilding_service is None)
             # 保存文风
             if "style" in bible_data:
                 style_id = f"{novel_id}-style-1"
@@ -677,12 +673,12 @@ JSON 格式（不要有其他文字）：
 
     async def _save_worldbuilding(self, novel_id: str, worldbuilding_data: Dict[str, Any]) -> None:
         """保存世界观到数据库（同时保存到Worldbuilding表和Bible的world_settings）"""
-        print(f"[DEBUG] _save_worldbuilding called with data: {worldbuilding_data}", file=sys.stderr, flush=True)
+        logger.debug("_save_worldbuilding called")
 
         # 1. 保存到Worldbuilding表（用于后续生成人物和地点时读取）
         if self.worldbuilding_service:
             try:
-                print(f"[DEBUG] Calling worldbuilding_service.update_worldbuilding", file=sys.stderr, flush=True)
+                logger.debug("Calling worldbuilding_service.update_worldbuilding")
                 self.worldbuilding_service.update_worldbuilding(
                     novel_id=novel_id,
                     core_rules=worldbuilding_data.get("core_rules"),
@@ -691,15 +687,14 @@ JSON 格式（不要有其他文字）：
                     culture=worldbuilding_data.get("culture"),
                     daily_life=worldbuilding_data.get("daily_life")
                 )
-                print(f"[DEBUG] Worldbuilding saved to Worldbuilding table", file=sys.stderr, flush=True)
+                logger.debug("Worldbuilding saved to Worldbuilding table")
                 logger.info(f"Worldbuilding saved for {novel_id}")
             except Exception as e:
-                print(f"[DEBUG] Failed to save worldbuilding: {e}", file=sys.stderr, flush=True)
-                logger.error(f"Failed to save worldbuilding: {e}")
+                logger.error("Failed to save worldbuilding: %s", e)
 
         # 2. 同时保存到Bible的world_settings（用于前端显示）
         try:
-            print(f"[DEBUG] Saving worldbuilding to Bible.world_settings", file=sys.stderr, flush=True)
+            logger.debug("Saving worldbuilding to Bible.world_settings")
             bible = self.bible_service.get_bible_by_novel(novel_id)
             if not bible:
                 bible_id = f"{novel_id}-bible"
@@ -790,7 +785,7 @@ JSON 格式（不要有其他文字）：
         try:
             bible = self.bible_service.get_bible(novel_id)
             return [{"name": c.name, "description": c.description} for c in bible.characters]
-        except:
+        except Exception:
             return []
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:

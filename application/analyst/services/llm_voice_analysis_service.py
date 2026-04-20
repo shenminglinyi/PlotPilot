@@ -256,7 +256,7 @@ class LLMVoiceAnalysisService:
                         val = data.get(dim, 0.5)
                         result[dim] = max(0.0, min(1.0, float(val)))
                     return result
-                except:
+                except (json.JSONDecodeError, ValueError):
                     pass
             return self._get_neutral_style(0)
 
@@ -278,7 +278,7 @@ class LLMVoiceAnalysisService:
                         "baseline": data.get("baseline", {}),
                         "tolerance": data.get("tolerance", {}),
                     }
-                except:
+                except (json.JSONDecodeError, ValueError):
                     pass
             return self._get_default_baseline()
 

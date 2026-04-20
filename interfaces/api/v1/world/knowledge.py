@@ -1,7 +1,11 @@
 """Knowledge API routes"""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 from application.world.services.knowledge_service import KnowledgeService
 from application.world.dtos.knowledge_dto import (
@@ -101,8 +105,7 @@ async def update_knowledge(
     Returns:
         更新后的故事知识 DTO
     """
-    import sys
-    print(f"[API] update_knowledge called for {novel_id}, facts: {len(request.facts)}", file=sys.stderr, flush=True)
+    logger.debug("update_knowledge called for %s, facts: %d", novel_id, len(request.facts))
 
     try:
         data = {
@@ -112,13 +115,9 @@ async def update_knowledge(
             "facts": [fact.model_dump() for fact in request.facts]
         }
 
-        print(f"[API] Calling service.update_knowledge", file=sys.stderr, flush=True)
         knowledge = service.update_knowledge(novel_id, data)
-        print(f"[API] service.update_knowledge completed", file=sys.stderr, flush=True)
     except Exception as e:
-        print(f"[API] Exception: {e}", file=sys.stderr, flush=True)
-        import traceback
-        traceback.print_exc()
+        logger.error("update_knowledge failed for %s: %s", novel_id, e)
         raise
 
     return StoryKnowledgeDTO(

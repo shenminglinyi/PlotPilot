@@ -107,7 +107,7 @@ def parse_json_from_response(rsp: str):
         if match is not None:
             try:
                 rsp_json = json.loads(match.group(1).strip())
-            except:
+            except (json.JSONDecodeError, ValueError):
                 pass
         else:
             rsp_json = json.loads(rsp)
@@ -118,7 +118,7 @@ def parse_json_from_response(rsp: str):
             if match:
                 content = "{" + match.group(1) + "}"
                 return json.loads(content)
-        except:
+        except (json.JSONDecodeError, ValueError):
             pass
         raise e
 
