@@ -48,7 +48,7 @@ async def review_chapter(
     - 改进建议生成
     """
     try:
-        result = service.review_chapter(novel_id, chapter_number)
+        result = await service.review_chapter(novel_id, chapter_number)
 
         return ChapterReviewResponse(
             chapter_number=result.chapter_number,

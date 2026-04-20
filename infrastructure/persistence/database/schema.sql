@@ -41,6 +41,18 @@ CREATE TABLE IF NOT EXISTS chapters (
     UNIQUE(novel_id, number)
 );
 
+-- 章节节拍表（场景列表 JSON，与 SqliteBeatSheetRepository 一致）
+CREATE TABLE IF NOT EXISTS beat_sheets (
+    id TEXT PRIMARY KEY,
+    chapter_id TEXT NOT NULL UNIQUE,
+    data TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_beat_sheets_chapter_id ON beat_sheets(chapter_id);
+
 -- 三元组主行（无 JSON 列）
 CREATE TABLE IF NOT EXISTS triples (
     id TEXT PRIMARY KEY,

@@ -42,28 +42,18 @@ class SqliteBeatSheetRepository(BeatSheetRepository):
         }
 
         conn = self.db.get_connection()
-
-        # 检查是否已存在
-        existing = await self.get_by_chapter_id(beat_sheet.chapter_id)
-        if existing:
-            # 更新
-            conn.execute(
-                """
-                UPDATE beat_sheets
-                SET data = ?
-                WHERE chapter_id = ?
-                """,
-                (json.dumps(data), beat_sheet.chapter_id)
-            )
-        else:
-            # 插入
-            conn.execute(
-                """
-                INSERT INTO beat_sheets (id, chapter_id, data)
-                VALUES (?, ?, ?)
-                """,
-                (beat_sheet.id, beat_sheet.chapter_id, json.dumps(data))
-            )
+        payload = json.dumps(data)
+        conn.execute(
+            """
+            INSERT INTO beat_sheets (id, chapter_id, data)
+            VALUES (?, ?, ?)
+            ON CONFLICT(chapter_id) DO UPDATE SET
+                id = excluded.id,
+                data = excluded.data,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (beat_sheet.id, beat_sheet.chapter_id, payload),
+        )
         conn.commit()
 
     async def get_by_chapter_id(self, chapter_id: str) -> Optional[BeatSheet]:
