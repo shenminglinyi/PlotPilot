@@ -169,15 +169,83 @@
                       <div class="emb-local-name">BAAI/bge-small-zh-v1.5</div>
                       <div class="emb-local-desc">本地中文嵌入模型，无需网络连接</div>
                     </div>
-                    <n-form label-placement="left" label-width="100" style="margin-top: 14px">
-                      <n-form-item label="模型路径">
-                        <n-input v-model:value="embeddingForm.model_path" placeholder="BAAI/bge-small-zh-v1.5" />
-                      </n-form-item>
-                      <n-form-item label="GPU 加速">
-                        <n-switch v-model:value="embeddingForm.use_gpu" />
-                      </n-form-item>
-                    </n-form>
-                  </div>
+
+                    <!-- ═══ 扩展包安装状态 & 操作 ═══ -->
+                    <div class="ext-install-section">
+                      <!-- 未安装 / 检测中 -->
+                      <template v-if="extensionsStatus && !extensionsStatus.all_installed">
+                        <n-alert type="warning" :show-icon="true" class="mb-3">
+                          <template #header>⚠️ 缺少本地 AI 扩展包</template>
+                          本地向量检索需要 faiss / numpy / sentence-transformers 等依赖。
+                          请点击下方按钮一键安装（约 2GB，需要 5~20 分钟）。
+                        </n-alert>
+                        <div class="ext-install-actions">
+                          <n-button
+                            type="warning"
+                            :loading="extensionsInstalling"
+                            :disabled="extensionsInstalling"
+                            @click="startInstallExtensions"
+                          >
+                            {{ extensionsInstalling ? '正在安装...' : '📦 下载并安装扩展包' }}
+                          </n-button>
+                          <n-button
+                            v-if="extensionsInstalling"
+                            size="small"
+                            secondary
+                            @click="cancelInstallExtensions"
+                          >
+                            取消
+                          </n-button>
+                        </div>
+                      </template>
+
+                      <!-- 已安装 -->
+                      <template v-else-if="extensionsStatus && extensionsStatus.all_installed">
+                        <n-alert type="success" :show-icon="false" class="mb-3">
+                          ✅ 本地 AI 扩展包已安装完毕（faiss · numpy · sentence-transformers）
+                        </n-alert>
+                      </template>
+
+                      <!-- 安装进度面板 -->
+                      <div v-if="extensionsInstalling" class="ext-install-progress">
+                        <n-progress
+                          type="line"
+                          :percentage="extensionsInstallPercent"
+                          :status="extensionsInstallPercent >= 100 ? 'success' : 'default'"
+                          :show-indicator="true"
+                        />
+                        <div class="ext-install-log">
+                          <div
+                            v-for="(log, idx) in extensionsInstallLog"
+                            :key="idx"
+                            class="ext-log-line"
+                          >{{ log }}</div>
+                          <div v-if="extensionsInstalling && extensionsInstallLog.length === 0" class="ext-log-line ext-log-dim">
+                            正在连接服务器...
+                          </div>
+                        </div>
+                      </div>
+
+                      <!-- 安装完成后的日志 -->
+                      <div v-if="!extensionsInstalling && extensionsInstallLog.length > 0" class="ext-install-progress">
+                        <div class="ext-install-log">
+                          <div
+                            v-for="(log, idx) in extensionsInstallLog.slice(-8)"
+                            :key="idx"
+                            class="ext-log-line"
+                          >{{ log }}</div>
+                        </div>
+                      </div>
+
+                      <n-form label-placement="left" label-width="100" style="margin-top: 14px">
+                        <n-form-item label="模型路径">
+                          <n-input v-model:value="embeddingForm.model_path" placeholder="BAAI/bge-small-zh-v1.5" />
+                        </n-form-item>
+                        <n-form-item label="GPU 加速">
+                          <n-switch v-model:value="embeddingForm.use_gpu" />
+                        </n-form-item>
+                      </n-form>
+                    </div>
 
                   <!-- Cloud mode -->
                   <div v-else class="emb-cloud-form">
@@ -253,13 +321,13 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { NModal, NTag, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin } from 'naive-ui'
+import { NModal, NTag, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin, NAlert, NProgress } from 'naive-ui'
 import {
   llmControlApi,
   type LLMControlPanelData,
   type LLMRuntimeSummary,
 } from '../../api/llmControl'
-import { settingsApi, type EmbeddingConfig } from '../../api/settings'
+import { settingsApi, type EmbeddingConfig, type ExtensionsStatus, type InstallEvent } from '../../api/settings'
 import LLMControlPanel from '../workbench/LLMControlPanel.vue'
 import ModelSettingsModal from '../settings/ModelSettingsModal.vue'
 
@@ -317,6 +385,68 @@ const embeddingSaving = ref(false)
 const fetchingEmbeddingModels = ref(false)
 const embeddingModelOptions = ref<Array<{ label: string; value: string }>>([])
 
+// ── 扩展包安装状态 ─────────────────────────────────────
+extensionsStatus = ref<ExtensionsStatus | null>(null)
+const extensionsChecking = ref(false)
+const extensionsInstalling = ref(false)
+const extensionsInstallLog = ref<string[]>([])
+const extensionsInstallPercent = ref(0)
+let extensionsAbortCtrl: AbortController | null = null
+
+async function checkExtensionsStatus() {
+  extensionsChecking.value = true
+  try {
+    extensionsStatus.value = await settingsApi.getExtensionsStatus()
+  } catch {
+    // 静默失败
+  } finally {
+    extensionsChecking.value = false
+  }
+}
+
+function startInstallExtensions() {
+  if (extensionsInstalling.value) return
+  extensionsInstalling.value = true
+  extensionsInstallLog.value = []
+  extensionsInstallPercent.value = 0
+
+  extensionsAbortCtrl = settingsApi.installExtensions({
+    onEvent: (event: InstallEvent) => {
+      if (event.type === 'progress' && event.percent !== undefined) {
+        extensionsInstallPercent.value = event.percent
+      }
+      // 只记录重要日志（避免刷屏）
+      if (['info', 'success', 'error', 'warn', 'done'].includes(event.type)) {
+        extensionsInstallLog.value.push(event.message)
+        // 只保留最近 50 条
+        if (extensionsInstallLog.value.length > 50) {
+          extensionsInstallLog.value = extensionsInstallLog.value.slice(-50)
+        }
+      }
+    },
+    onDone: (success) => {
+      extensionsInstalling.value = false
+      if (success) {
+        extensionsInstallLog.value.push('✅ 安装完成！请重启服务以生效。')
+        extensionsInstallPercent.value = 100
+      } else {
+        extensionsInstallLog.value.push('❌ 安装失败，请检查网络后重试')
+      }
+      void checkExtensionsStatus()
+    },
+    onError: (err) => {
+      extensionsInstalling.value = false
+      extensionsInstallLog.value.push(`❌ 错误: ${err.message}`)
+    },
+  })
+}
+
+function cancelInstallExtensions() {
+  extensionsAbortCtrl?.abort()
+  extensionsInstalling.value = false
+  extensionsInstallLog.value.push('已取消安装')
+}
+
 const embeddingForm = ref<EmbeddingConfig>({
   mode: 'local',
   api_key: '',
@@ -372,6 +502,7 @@ async function handleFetchEmbeddingModels() {
 function openPanel() {
   void refreshRuntimeSummary()
   void loadEmbeddingConfig()
+  void checkExtensionsStatus()
   showPanel.value = true
 }
 </script>
@@ -909,6 +1040,50 @@ function openPanel() {
 }
 
 .emb-cloud-form { padding: 0 4px; }
+
+/* ── 扩展包安装区域 ─────────────────────────────── */
+.ext-install-section {
+  margin-top: 12px;
+}
+
+.ext-install-section .mb-3 {
+  margin-bottom: 12px;
+}
+
+.ext-install-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ext-install-progress {
+  margin-top: 12px;
+  border: 1px solid var(--app-border, rgba(128, 128, 128, 0.2));
+  border-radius: var(--app-radius-md, 8px);
+  padding: 12px;
+  background: var(--app-surface-subtle, rgba(0, 0, 0, 0.02));
+}
+
+.ext-install-log {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 8px;
+  font-family: "SF Mono", "Cascadia Code", "Consolas", monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  user-select: text;
+}
+
+.ext-log-line {
+  color: var(--app-text-secondary);
+  word-break: break-all;
+}
+
+.ext-log-dim {
+  color: var(--app-text-muted);
+  font-style: italic;
+}
 
 .model-row {
   display: flex;

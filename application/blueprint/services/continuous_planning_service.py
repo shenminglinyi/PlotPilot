@@ -28,6 +28,94 @@ _macro_plan_progress_store: Dict[str, Dict] = {}
 _macro_plan_result_store: Dict[str, Dict] = {}
 
 
+# ======================================================================
+#  结构计算引擎 (Structure Calculator)
+#  -------------------------------
+#  唯一真相源：根据 target_chapters 计算出合理的部/卷/幕/章分布。
+#  所有路径（极速模式 / 精密模式 / fallback / 动态幕生成）都必须通过本引擎
+#  获取结构参数，禁止任何地方再硬编码 "3幕" 或 "5章"。
+# ======================================================================
+
+
+def calculate_structure_params(target_chapters: int) -> Dict:
+    """根据目标总章节数，计算最优的结构参数。
+
+    这是整个规划系统的「唯一真相源」(Single Source of Truth)。
+    任何需要知道"该有几幕"、"每幕该几章"的地方都应调用此函数。
+
+    设计原则（基于叙事工程学 + 网文商业实践）：
+    - 一幕 = 一个完整的叙事弧线（激励事件 → 发展 → 高潮 → 降级），至少 5 章
+    - 一卷 = 一个大的故事单元（通常 3-8 幕）
+    - 一部 = 一个大阶段（起源 / 发展 / 决战）
+    - 每幕章数随总篇幅增长：短篇每幕薄，长篇每幕厚（更复杂的情节需要更多篇幅展开）
+
+    Args:
+        target_chapters: 目标总章节数
+
+    Returns:
+        {
+            "parts": int,              # 部数
+            "volumes_per_part": int,   # 每部卷数
+            "acts_per_volume": int,    # 每卷幕数
+            "chapters_per_act": int,   # 每幕建议章数
+            "total_acts": int,         # 总幕数
+            "reasoning": str,           # 计算理由（用于日志）
+        }
+    """
+    t = max(target_chapters, 10)
+
+    if t <= 30:
+        # 短篇：1部1卷3幕，每幕约10章（三幕剧刚好是一个完整故事）
+        parts, vpp, apv = 1, 1, 3
+        cpa = max(t // 3, 5)
+        reason = f"短篇({t}章)：1部×1卷×3幕，每幕{cpa}章，经典三幕剧"
+    elif t <= 80:
+        # 中短篇：1部2-3卷，每卷3-4幕
+        parts, vpp = 1, 2
+        apv = 4 if t > 50 else 3
+        total_acts = vpp * apv
+        cpa = max(t // total_acts, 5)
+        reason = f"中短篇({t}章)：{parts}部×{vpp}卷×{apv}幕={total_acts}幕，每幕{cpa}章"
+    elif t <= 200:
+        # 中篇：2-3部，每部2-3卷，每卷4-5幕
+        parts = 2 if t <= 120 else 3
+        vpp = 3 if t <= 150 else 3
+        apv = 5 if t > 100 else 4
+        total_acts = parts * vpp * apv
+        cpa = max(t // total_acts, 6)
+        reason = f"中篇({t}章)：{parts}部×{vpp}卷×{apv}幕≈{total_acts}幕，每幕{cpa}章"
+    elif t <= 500:
+        # 长篇：3-4部，每部3-4卷，每卷5-7幕
+        parts = 3 if t <= 300 else 4
+        vpp = 3 if t <= 350 else 4
+        apv = 6 if t > 300 else 5
+        total_acts = parts * vpp * apv
+        cpa = max(t // total_acts, 8)
+        reason = f"长篇({t}章)：{parts}部×{vpp}卷×{apv}幕≈{total_acts}幕，每幕{cpa}章"
+    else:
+        # 超长篇(500+)：4-6部，每部4-6卷，每卷6-10幕
+        # 超长篇的幕只规划框架，具体幕在写作时动态生成
+        # 这里给出的是"每卷建议幕数"的上限参考值
+        if t <= 800:
+            parts, vpp, apv = 4, 4, 7
+        elif t <= 1500:
+            parts, vpp, apv = 5, 5, 8
+        else:
+            parts, vpp, apv = 6, 6, 10
+        total_acts = parts * vpp * apv
+        cpa = max(t // total_acts, 10)
+        reason = f"超长篇({t}章)：{parts}部×{vpp}卷×{apv}幕≈{total_acts}幕，每幕{cpa}章（动态扩展）"
+
+    return {
+        "parts": parts,
+        "volumes_per_part": vpp,
+        "acts_per_volume": apv,
+        "chapters_per_act": cpa,
+        "total_acts": parts * vpp * apv,
+        "reasoning": reason,
+    }
+
+
 def _sanitize_llm_json_output(raw: str) -> str:
     content = (raw or "").strip()
     content = re.sub(r"\x1b\[[0-9;]*m", "", content)
@@ -855,38 +943,51 @@ class ContinuousPlanningService:
             "系统生成的占位结构（可在审阅后于结构树中调整）"
         ),
     ) -> List[Dict]:
-        """LLM 无有效输出时的最小部–卷–幕骨架（左侧规划与全托管共用）。"""
+        """LLM 无有效输出时的最小部–卷–幕骨架（左侧规划与全托管共用）。
+
+        不再硬编码 3 幕！改用 calculate_structure_params 动态计算。
+        """
         target = max(int(target_chapters or 30), 1)
-        per_act = max(target // 3, 5)
-        return [
-            {
-                "title": "第一部",
+        params = calculate_structure_params(target)
+        parts_count = params["parts"]
+        volumes_per_part = params["volumes_per_part"]
+        acts_per_volume = params["acts_per_volume"]
+        chapters_per_act = params["chapters_per_act"]
+
+        logger.info(
+            f"[MinimalFallback] target={target} → "
+            f"{parts_count}部×{volumes_per_part}卷×{acts_per_volume}幕, "
+            f"每幕{chapters_per_act}章 ({params['reasoning']})"
+        )
+
+        structure = []
+        for p in range(1, parts_count + 1):
+            part_node = {
+                "title": f"第{p}部",
                 "description": placeholder_description,
-                "volumes": [
-                    {
-                        "title": "第一卷",
-                        "description": "",
-                        "acts": [
-                            {
-                                "title": "第一幕 · 开端",
-                                "description": "故事建立与主线引出",
-                                "suggested_chapter_count": per_act,
-                            },
-                            {
-                                "title": "第二幕 · 发展",
-                                "description": "冲突升级与转折",
-                                "suggested_chapter_count": per_act,
-                            },
-                            {
-                                "title": "第三幕 · 高潮与收尾",
-                                "description": "决战与结局",
-                                "suggested_chapter_count": per_act,
-                            },
-                        ],
-                    }
-                ],
+                "volumes": [],
             }
-        ]
+            for v in range(1, volumes_per_part + 1):
+                volume_node = {
+                    "title": f"第{v}卷",
+                    "description": "",
+                    "acts": [],
+                }
+                for a in range(1, acts_per_volume + 1):
+                    global_act = (p - 1) * volumes_per_part * acts_per_volume + (v - 1) * acts_per_volume + a
+                    act_titles = ["开端 · 世界建立", "发展 · 冲突升级", "转折 · 陷入深渊",
+                                   "高潮 · 终极对决", "收尾 · 新世界", "过渡 · 力量积蓄",
+                                   "阴谋 · 暗流涌动", "觉醒 · 真相大白", "抉择 · 牺牲与重生",
+                                   "终局 · 一切归零"]
+                    title_prefix = act_titles[a - 1] if a <= len(act_titles) else f"第{a}幕"
+                    volume_node["acts"].append({
+                        "title": f"第{a}幕 · {title_prefix}",
+                        "description": f"第{p}部-第{v}卷-第{a}幕叙事单元",
+                        "suggested_chapter_count": chapters_per_act,
+                    })
+                part_node["volumes"].append(volume_node)
+            structure.append(part_node)
+        return structure
 
     async def apply_macro_plan_from_llm_result(
         self,
@@ -947,7 +1048,14 @@ class ContinuousPlanningService:
 
         bible_context = self._get_bible_context(act_node.novel_id)
         previous_summary = await self._get_previous_acts_summary(act_node)
-        chapter_count = custom_chapter_count or act_node.suggested_chapter_count or 5
+        # 使用结构计算引擎的推荐值作为 fallback（替代硬编码的 5）
+        _default_cpa = calculate_structure_params(100)["chapters_per_act"]
+        chapter_count = custom_chapter_count or act_node.suggested_chapter_count or _default_cpa
+        if not custom_chapter_count and not act_node.suggested_chapter_count:
+            logger.info(
+                f"[ActPlanning] act={act_id} 无自定义章数且无 suggested_chapter_count，"
+                f"使用引擎推荐值 {_default_cpa}"
+            )
 
         prompt = self._build_act_planning_prompt(
             act_node, bible_context, previous_summary, chapter_count
@@ -1421,14 +1529,28 @@ class ContinuousPlanningService:
         return {"part_chapters": part_chapters, "part_ratios": part_ratios}
 
     def _build_quick_macro_prompt(self, bible_context: Dict, target_chapters: int) -> Prompt:
-        """极速模式：破城槌提示词 V3（渐进式规划版）
+        """极速模式：破城槌提示词 V4（智能结构感知版）
 
-        设计哲学：
-        - 超长篇（>500章）：只规划部/卷框架，幕节点动态生成
-        - 中长篇（<500章）：可以规划完整的部/卷/幕结构
-        - 避免单次 LLM 输出过多内容导致截断
+        V4 变更：
+        - 使用 calculate_structure_params 注入结构参数到 prompt 中
+        - 不再使用硬编码的"三幕剧"暗示，改为根据目标篇幅推荐合理幕数
+        - 让 LLM 在一个明确的数量框架内发挥创意
         """
-        
+
+        # 从结构计算引擎获取推荐参数
+        params = calculate_structure_params(target_chapters)
+        rec_acts_per_volume = params["acts_per_volume"]
+        rec_chapters_per_act = params["chapters_per_act"]
+        rec_parts = params["parts"]
+        rec_volumes_per_part = params["volumes_per_part"]
+        total_recommended_acts = params["total_acts"]
+
+        logger.info(
+            f"[QuickPrompt] target={target_chapters} → "
+            f"推荐 {rec_parts}部×{rec_volumes_per_part}卷×{rec_acts_per_volume}幕"
+            f"≈{total_recommended_acts}幕, 每幕~{rec_chapters_per_act}章"
+        )
+
         # 根据章节数决定规划深度
         if target_chapters > 500:
             planning_depth = "framework"  # 只规划部/卷框架
@@ -1437,7 +1559,8 @@ class ContinuousPlanningService:
 - 只输出「部」和「卷」的标题与主题（不输出具体幕）
 - 【强制要求】每卷必须输出 estimated_chapters（预估章数）
 - 【章数约束】所有卷的 estimated_chapters 之和必须等于 {target_chapters} 章
-- 每卷建议 50-200 章，根据剧情需要灵活分配
+- 每卷建议 {rec_chapters_per_act * rec_acts_per_volume}-{rec_chapters_per_act * rec_acts_per_volume * 2} 章，根据剧情需要灵活分配
+- 写作时每卷将动态生成约 {rec_acts_per_volume} 幕（每幕约 {rec_chapters_per_act} 章）
 - 幕节点将在写作过程中动态生成
 """
         elif target_chapters > 100:
@@ -1447,7 +1570,8 @@ class ContinuousPlanningService:
 - 规划「部」和「卷」的完整结构
 - 【强制要求】每卷必须输出 estimated_chapters（预估章数）
 - 【章数约束】所有卷的 estimated_chapters 之和必须等于 {target_chapters} 章
-- 只为第1-2部的卷规划幕节点（约50-100幕）
+- 【关键参数】建议每卷规划 {rec_acts_per_volume} 幕（每幕约 {rec_chapters_per_act} 章）
+- 只为第1-2部的卷规划幕节点
 - 后续部的幕节点将在写作中动态生成
 """
         else:
@@ -1455,7 +1579,9 @@ class ContinuousPlanningService:
             depth_instruction = f"""
 【规划深度】目标章节数<100，完整规划所有部/卷/幕
 - 【强制要求】每幕必须输出 estimated_chapters（预估章数）
+- 【关键参数】建议共 {rec_parts} 部，每部 {rec_volumes_per_part} 卷，每卷 {rec_acts_per_volume} 幕
 - 【章数约束】所有幕的 estimated_chapters 之和必须等于 {target_chapters} 章
+- 每幕建议约 {rec_chapters_per_act} 章
 """
         
         system_msg = f"""# 角色设定
@@ -1466,22 +1592,23 @@ class ContinuousPlanningService:
 # 叙事结构理论指导
 <STORY_THEORY>
 你设计的结构应符合以下经典叙事原理：
-1. 三幕剧结构：Setup（设定）→ Confrontation（对抗）→ Resolution（解决）
+1. 多幕级联结构：每一幕是一个完整的「激励事件→发展→高潮→降级」叙事弧线。
+   本篇小说目标 {target_chapters} 章，建议分为约 {total_recommended_acts} 幕
+   （{rec_parts} 部 × 每部约 {rec_volumes_per_part} 卷 × 每卷约 {rec_acts_per_volume} 幕），
+   每幕约 {rec_chapters_per_act} 章。请严格按此数量框架规划。
 2. 英雄之旅：平凡世界→冒险召唤→试炼→深渊→蜕变→归来
-3. 情绪曲线：开篇抓人→中段起伏（小高潮间隔3-5幕）→终局爆发
+3. 情绪曲线：开篇抓人→中段起伏（小高潮间隔2-3幕）→终局爆发
 4. 钩子密度：每部结尾必须有大悬念，每卷结尾有中等悬念，每幕结尾有小悬念
 </STORY_THEORY>
 
-# 核心推演铁律（The Icebreaker Rules V3）
+# 核心推演铁律（The Icebreaker Rules V4）
 <CONSTRAINTS>
-1. 【结构自主】根据目标篇幅智能决定部/卷数量：
-   - 短篇（<50章）：1-2部，每部2-3卷
-   - 中篇（50-200章）：2-3部，每部2-4卷
-   - 长篇（200-500章）：3-5部，每部3-5卷
-   - 超长篇（500-2000章）：4-6部，每部4-6卷
-   - 史诗（>2000章）：5-8部，每部4-8卷
+1. 【结构量化】本次规划的硬性数量约束（必须遵守）：
+   - 总幕数应在 {total_recommended_acts} 幕左右（±20%可接受）
+   - 每卷应包含 {rec_acts_per_volume} 幕左右，不要出现某卷只有1-2幕的情况
+   - 每幕约 {rec_chapters_per_act} 章（重要情节的幕可以多几章，过渡幕可以少几章）
 
-2. 【极致冲突】每一幕（如果有）必须包含：
+2. 【极致冲突】每一幕必须包含：
    - 核心对抗（谁 vs 谁）
    - 赌注（失败会失去什么）
    - 转折（预期违背）
@@ -2107,6 +2234,10 @@ class ContinuousPlanningService:
         - 强制注入待回收伏笔
         - 注入角色当前状态锚点
         """
+        # 使用结构计算引擎获取推荐每幕章数（替代硬编码的 5）
+        # 通过 current_act 的 novel_id 查找小说目标章节数
+        _default_cpa = calculate_structure_params(100)["chapters_per_act"]  # 保守默认值
+
         # 收集双轨上下文
         dual_track_context = await self._collect_dual_track_context(novel_id, current_act, bible_context)
         
@@ -2122,7 +2253,7 @@ class ContinuousPlanningService:
                 result = {}
             result.setdefault("title", f"第{current_act.number + 1}幕")
             result.setdefault("description", "继续推进剧情")
-            result.setdefault("suggested_chapter_count", 5)
+            result.setdefault("suggested_chapter_count", _default_cpa)
             
             return result
         except Exception as e:
@@ -2130,7 +2261,7 @@ class ContinuousPlanningService:
             return {
                 "title": f"第{current_act.number + 1}幕",
                 "description": "描述",
-                "suggested_chapter_count": 5
+                "suggested_chapter_count": _default_cpa
             }
     
     async def _collect_dual_track_context(
