@@ -73,16 +73,78 @@ def _extract_outer_json_object(text: str) -> str:
     return text[start:]
 
 
+# 常见的 LLM 输出中混入的非标准引号映射
+_FIXABLE_QUOTES: Dict[int, str] = {
+    0x201C: '"',   # " (左双引号)
+    0x201D: '"',   # " (右双引号)
+    0x2018: "'",   # ' (左单引号)
+    0x2019: "'",   # ' (右单引号)
+    0x201E: '"',   # " (双低-9引号)
+    0x201F: '"',   # " (双高反转-9引号)
+    0x2033: '"',   # ″ (双二分引号)
+    0x2036: '"',   # ‶ (反转双三引号)
+    0x275D: '"',   # ❝ (粗左双引号)
+    0x275E: '"',   # ❞ (粗右双引号)
+    0xFF02: '"',   # ＂ (全角双引号)
+    0x02BA: "'",   # ʺ (修饰字母单引号)
+    0x0060: "'",   # ` (反引号 – 仅在字符串内部替换)
+}
+
+
+def _normalize_quotes_in_json(text: str) -> str:
+    """将 JSON 字符串值中的中文/非标准引号替换为 ASCII 引号。
+
+    策略：仅在字符串值内部（两个 ASCII 双引号之间）进行替换，
+    避免误伤 JSON 结构本身的括号。
+    """
+    result = []
+    in_string = False
+    escape = False
+
+    for ch in text:
+        if escape:
+            result.append(ch)
+            escape = False
+            continue
+        if ch == "\\" and in_string:
+            result.append(ch)
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            continue
+        if in_string:
+            cp = ord(ch)
+            if cp in _FIXABLE_QUOTES:
+                result.append(_FIXABLE_QUOTES[cp])
+                continue
+        result.append(ch)
+
+    return "".join(result)
+
+
 def _repair_json_string(text: str) -> str:
     text = text.strip()
     if not text:
         return text
 
+    # 阶段 0：直接解析（最快路径）
     try:
         json.loads(text)
         return text
     except (json.JSONDecodeError, ValueError):
         pass
+
+    # 阶段 1：标准化非 ASCII 引号后重试
+    normalized = _normalize_quotes_in_json(text)
+    if normalized != text:
+        try:
+            json.loads(normalized)
+            return normalized
+        except (json.JSONDecodeError, ValueError):
+            pass
+        text = normalized  # 后续修复基于标准化后的文本
 
     def _close_json(s: str) -> str:
         s = s.strip()
@@ -961,7 +1023,7 @@ JSON 格式：
         return "\n".join(parts)
 
     async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
-        """调用 LLM 并解析 JSON"""
+        """调用 LLM 并解析 JSON（含自动修复）"""
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
         result = await self.llm_service.generate(prompt, config)
@@ -969,13 +1031,23 @@ JSON 格式：
         content = ""
         try:
             content = _sanitize_llm_json_output(result.content)
+            # 第一轮：直接解析
             return _parse_llm_json_to_dict(content)
         except json.JSONDecodeError as e:
-            logger.error(f"Content length: {len(content)}")
-            logger.error(f"Failed to parse JSON: {e}")
-            logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
-            logger.error(f"Raw content (last 500 chars): {content[-500:]}")
-            return {}
+            logger.warning(f"Direct JSON parse failed, attempting repair: {e}")
+            logger.debug(f"Content length: {len(content)}")
+            logger.debug(f"Raw content (first 1000 chars): {content[:1000]}")
+
+            # 第二轮：使用修复引擎（处理截断、中文引号、未闭合括号等）
+            try:
+                repaired = _repair_json_string(content)
+                return _parse_llm_json_to_dict(repaired)
+            except json.JSONDecodeError as e2:
+                logger.error(f"Content length: {len(content)}")
+                logger.error(f"Failed to parse JSON (even after repair): {e2}")
+                logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
+                logger.error(f"Raw content (last 500 chars): {content[-500:]}")
+                raise  # 向上抛出，让重试逻辑处理
 
     async def _call_llm_and_parse_with_retry(
         self,
@@ -983,7 +1055,11 @@ JSON 格式：
         user_prompt: str,
         max_retries: int = 3,
     ) -> Dict[str, Any]:
-        """带重试的 LLM 调用；总尝试次数不超过 LLM_MAX_TOTAL_ATTEMPTS。"""
+        """带重试的 LLM 调用；总尝试次数不超过 LLM_MAX_TOTAL_ATTEMPTS。
+
+        注意：当所有重试均失败时抛出 ValueError 而非返回空字典，
+        以避免调用方将空结果当作有效数据继续处理。
+        """
         from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 
         last_error = None
@@ -997,20 +1073,24 @@ JSON 格式：
                 else:
                     # 重试时加强调prompt
                     retry_reminder = "\n\n【重要提醒】上次JSON解析失败，请严格遵守JSON输出规则！只输出纯JSON，不要任何其他文字！"
-                    logger.warning(f"JSON解析重试 {attempt}/{attempts}，添加强调提示")
+                    logger.warning("JSON解析重试 %d/%d，添加强调提示", attempt, attempts)
                     return await self._call_llm_and_parse(
                         system_prompt + retry_reminder,
                         user_prompt
                     )
             except json.JSONDecodeError as e:
                 last_error = e
-                logger.warning(f"JSON解析失败，重试 {attempt + 1}/{attempts}")
+                logger.warning("JSON解析失败，重试 %d/%d", attempt + 1, attempts)
             except Exception as e:
                 last_error = e
-                logger.warning(f"LLM调用异常，重试 {attempt + 1}/{attempts}: {e}")
+                logger.warning("LLM调用异常，重试 %d/%d: %s", attempt + 1, attempts, e)
 
-        logger.error(f"所有重试都失败，返回空字典")
-        return {}
+        # 所有重试均失败 → 抛出异常而非返回空字典
+        error_msg = f"Bible LLM 生成在 {attempts} 次尝试后仍然失败（JSON 解析错误）"
+        if last_error:
+            error_msg += f": {last_error}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     async def _generate_character_triples(self, novel_id: str, character_ids: list):
         """从人物关系生成三元组"""
