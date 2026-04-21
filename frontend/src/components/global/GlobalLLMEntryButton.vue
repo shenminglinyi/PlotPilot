@@ -246,6 +246,7 @@
                         </n-form-item>
                       </n-form>
                     </div>
+                  </div>
 
                   <!-- Cloud mode -->
                   <div v-else class="emb-cloud-form">
@@ -386,7 +387,7 @@ const fetchingEmbeddingModels = ref(false)
 const embeddingModelOptions = ref<Array<{ label: string; value: string }>>([])
 
 // ── 扩展包安装状态 ─────────────────────────────────────
-extensionsStatus = ref<ExtensionsStatus | null>(null)
+const extensionsStatus = ref<ExtensionsStatus | null>(null)
 const extensionsChecking = ref(false)
 const extensionsInstalling = ref(false)
 const extensionsInstallLog = ref<string[]>([])

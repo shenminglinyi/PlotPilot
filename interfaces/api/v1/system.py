@@ -126,8 +126,7 @@ async def install_extensions(request: Request):
         )
 
     def _generate_events():
-        """生成 SSE 事件流"""
-        nonlocal _install_status
+        """生成 SSE 事件流（就地更新模块级 _install_status 字典，无需 global）"""
 
         # 加锁
         acquired = _install_lock.acquire(timeout=0.1)
@@ -188,7 +187,8 @@ async def install_extensions(request: Request):
             for attempt in range(max_mirrors):
                 m = PIP_MIRRORS[attempt]
                 if attempt > 0:
-                    yield f"data: {json.dumps({'type': 'warn', 'message': f'🔄 切换镜像源 [{m[\"name\"]}] ({attempt+1}/{max_mirrors})'}, ensure_ascii=False)}\n\n"
+                    mirror_name = m["name"]
+                    yield f"data: {json.dumps({'type': 'warn', 'message': f'🔄 切换镜像源 [{mirror_name}] ({attempt+1}/{max_mirrors})'}, ensure_ascii=False)}\n\n"
 
                 cmd = [
                     python_exe, "-m", "pip", "install", "-r", str(req_file),
@@ -261,7 +261,8 @@ async def install_extensions(request: Request):
                         success = True
                         break
                     else:
-                        yield f"data: {json.dumps({'type': 'warn', 'message': f'❌ 镜像 [{m[\"name\"]}] 失败 (code={proc.returncode})'}, ensure_ascii=False)}\n\n"
+                        fail_mirror = m["name"]
+                        yield f"data: {json.dumps({'type': 'warn', 'message': f'❌ 镜像 [{fail_mirror}] 失败 (code={proc.returncode})'}, ensure_ascii=False)}\n\n"
 
                 except subprocess.TimeoutExpired:
                     yield f"data: {json.dumps({'type': 'error', 'message': '⏰ 安装超时（>10分钟）'}, ensure_ascii=False)}\n\n"
