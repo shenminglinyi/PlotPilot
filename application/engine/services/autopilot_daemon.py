@@ -338,6 +338,16 @@ class AutopilotDaemon:
 
         target_act = next((n for n in act_nodes if n.number == target_act_number), None)
 
+        # 结构推荐参数：在动态幕生成与章节规划 fallback 两个分支都会用到，
+        # 必须在 `if not target_act:` 之外提前计算，否则 target_act 已存在时
+        # 后面 `chapter_budget = target_act.suggested_chapter_count or rec_chapters_per_act`
+        # 会触发 UnboundLocalError。
+        from application.blueprint.services.continuous_planning_service import calculate_structure_params
+        target_chapters = novel.target_chapters or 100
+        struct_params = calculate_structure_params(target_chapters)
+        rec_chapters_per_act = struct_params["chapters_per_act"]
+        rec_acts_per_volume = struct_params["acts_per_volume"]
+
         # 动态幕生成：超长篇可能只规划了部/卷框架，幕节点需要动态生成
         if not target_act:
             # 先尝试找到父卷节点
@@ -345,13 +355,6 @@ class AutopilotDaemon:
                 [n for n in all_nodes if n.node_type.value == "volume"],
                 key=lambda n: n.number
             )
-
-            # 使用结构计算引擎获取推荐参数（替代硬编码的 // 3）
-            from application.blueprint.services.continuous_planning_service import calculate_structure_params
-            target_chapters = novel.target_chapters or 100
-            struct_params = calculate_structure_params(target_chapters)
-            rec_chapters_per_act = struct_params["chapters_per_act"]
-            rec_acts_per_volume = struct_params["acts_per_volume"]
 
             # 智能父卷选择：优先让当前卷填满（达到 rec_acts_per_volume 幕），再跳下一卷
             parent_volume = self._find_parent_volume_for_new_act(
