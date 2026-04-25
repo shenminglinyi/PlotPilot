@@ -116,7 +116,21 @@ class ReaderSimulationService:
         )
 
         prompt = self._build_prompt(context)
-        response = await self._llm_client.generate(prompt)
+
+        # LLM 调用隔离：网络错误/超时/认证失败等均转为降级报告，
+        # 让上层 API 明确感知 LLM 失败而非被通用 500 掩盖。
+        try:
+            response = await self._llm_client.generate(prompt)
+        except Exception as e:
+            logger.error(
+                "读者模拟 LLM 调用失败 novel=%s ch=%d: %s",
+                novel_id, chapter_number, e,
+            )
+            return self._empty_report(
+                novel_id, chapter_number,
+                f"LLM 调用失败: {type(e).__name__}: {e}",
+            )
+
         report = self._parse_response(novel_id, chapter_number, response)
         return report
 
@@ -276,6 +290,20 @@ class ReaderSimulationService:
                 "JSON 结构校验失败: " + "; ".join(schema_errors[:2]),
             )
 
+        # 空响应保护：LLM 可能返回空对象、空字符串或拒答，
+        # 这种情况下 payload.feedbacks 为空但 schema 能过（所有字段都有默认值）。
+        # 此时应判定为降级而非假成功，避免 API 层返回空报告却宣称成功。
+        if not payload.feedbacks:
+            logger.warning(
+                "读者模拟 LLM 返回空 feedbacks novel=%s ch=%d（可能是密钥缺失/模型拒答）",
+                novel_id, chapter_number,
+            )
+            preview = (response or "").strip()[:200] or "(空响应)"
+            return self._empty_report(
+                novel_id, chapter_number,
+                f"LLM 返回无有效读者反馈（响应预览: {preview}）",
+            )
+
         feedbacks = []
         for fb in payload.feedbacks:
             feedbacks.append(ReaderFeedbackDTO(
@@ -320,7 +348,12 @@ class ReaderSimulationService:
         chapter_number: int,
         reason: str,
     ) -> ChapterReaderReportDTO:
-        """生成空报告（用于异常分支）。"""
+        """生成空报告（用于异常/降级分支）。
+
+        所有降级分支（章节不存在、LLM 失败、JSON 解析失败、Schema 校验失败）
+        均走此入口，标记 is_fallback=True 让 API 层能精准识别并拒绝持久化
+        假数据。
+        """
         feedbacks = []
         for persona_key in ("hardcore", "casual", "nitpicker"):
             feedbacks.append(ReaderFeedbackDTO(
@@ -335,4 +368,6 @@ class ReaderSimulationService:
             feedbacks=feedbacks,
             pacing_verdict=reason,
             analyzed_at=datetime.utcnow(),
+            is_fallback=True,
+            error_message=reason,
         )

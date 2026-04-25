@@ -23,15 +23,39 @@ class ReaderSimulationRepository:
         return get_database()
 
     def ensure_table(self) -> None:
-        """确保表存在（首次调用时自动建表）。"""
+        """确保 reader_simulations 表存在。
+
+        正常情况下由迁移系统在启动时自动执行
+        (`add_reader_simulations.sql`)。此方法仅作兜底保障——
+        如果某次启动时迁移未运行（如部署回滚、老数据库升级场景），
+        首次调用 API 时会自动建表。
+
+        DatabaseConnection 是自定义包装器，不提供 executescript()，
+        因此通过 get_connection() 拿到底层 sqlite3.Connection 执行。
+        """
         from pathlib import Path
+
         migration_path = (
             Path(__file__).parent / "migrations" / "add_reader_simulations.sql"
         )
-        db = self._get_db()
-        if migration_path.exists():
+        if not migration_path.exists():
+            logger.warning(
+                "迁移脚本不存在，跳过 ensure_table: %s", migration_path
+            )
+            return
+
+        try:
             sql = migration_path.read_text(encoding="utf-8")
-            db.executescript(sql)
+            db = self._get_db()
+            # DatabaseConnection 没有 executescript；需要底层 sqlite3 连接
+            raw_conn = db.get_connection()
+            raw_conn.executescript(sql)
+            raw_conn.commit()
+            logger.debug("reader_simulations 表初始化完成")
+        except Exception as e:
+            # SQL 里使用了 CREATE TABLE IF NOT EXISTS，
+            # 表已存在时不应抛错；若仍失败则记录但不阻塞主流程。
+            logger.warning("ensure_table 失败（可能表已存在）: %s", e)
 
     def save(
         self,

@@ -228,3 +228,40 @@ class TestPersonaLabels:
         assert PERSONA_LABELS["hardcore"] == "硬核粉"
         assert PERSONA_LABELS["casual"] == "休闲读者"
         assert PERSONA_LABELS["nitpicker"] == "挑刺党"
+
+
+class TestFallbackReport:
+    """测试降级报告标识（LLM 失败 / 章节不存在等场景）"""
+
+    def test_default_report_not_fallback(self):
+        """正常构造的报告默认 is_fallback=False"""
+        report = ChapterReaderReportDTO(novel_id="x", chapter_number=1)
+        assert report.is_fallback is False
+        assert report.error_message == ""
+
+    def test_fallback_fields_serialized(self):
+        """is_fallback 和 error_message 应该出现在 to_dict 输出中"""
+        report = ChapterReaderReportDTO(
+            novel_id="x",
+            chapter_number=1,
+            is_fallback=True,
+            error_message="LLM 调用失败",
+        )
+        d = report.to_dict()
+        assert d["is_fallback"] is True
+        assert d["error_message"] == "LLM 调用失败"
+
+    def test_empty_report_factory_marks_fallback(self):
+        """Service._empty_report 必须标记 is_fallback=True"""
+        from application.reader.services.reader_simulation_service import (
+            ReaderSimulationService,
+        )
+        report = ReaderSimulationService._empty_report(
+            "novel-1", 3, "章节不存在"
+        )
+        assert report.is_fallback is True
+        assert report.error_message == "章节不存在"
+        assert len(report.feedbacks) == 3  # 三个人设都填充
+        # 每个读者的 verdict 应该包含 reason
+        for fb in report.feedbacks:
+            assert fb.one_line_verdict == "章节不存在"

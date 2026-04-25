@@ -28,15 +28,19 @@ def _get_service() -> ReaderSimulationService:
     global _service
     if _service is None:
         from interfaces.api.dependencies import get_chapter_repository, get_llm_service
+        from infrastructure.ai.llm_client import LLMClient
         try:
             from interfaces.api.dependencies import get_knowledge_repository
             knowledge_repo = get_knowledge_repository()
         except Exception:
             knowledge_repo = None
 
+        # 使用 LLMClient 包装器（接受字符串 prompt，自动构建 GenerationConfig）
+        llm_client = LLMClient(provider=get_llm_service())
+
         _service = ReaderSimulationService(
             chapter_repository=get_chapter_repository(),
-            llm_client=get_llm_service(),
+            llm_client=llm_client,
             knowledge_repository=knowledge_repo,
         )
     return _service
@@ -63,6 +67,16 @@ async def simulate_readers(novel_id: str, chapter_number: int):
     输出四维度评分：悬疑保持度、爽感评分、劝退风险、情感共鸣度。
 
     调用 LLM，耗时约 10-30 秒。
+
+    Returns:
+        200: 成功，data 为完整读者模拟报告
+        400: 章节不存在或内容为空（不是 LLM 问题）
+        502: LLM 调用或解析失败（is_fallback=True 情况）
+        500: 其他意外错误
+
+    Notes:
+        - 降级结果（LLM 失败等）**不会持久化**，避免后续查询返回假数据
+        - 持久化失败会在响应中通过 meta.persisted=false 明确告知，不会静默
     """
     try:
         service = _get_service()
@@ -70,30 +84,61 @@ async def simulate_readers(novel_id: str, chapter_number: int):
             novel_id=novel_id,
             chapter_number=chapter_number,
         )
-
-        # 持久化
-        try:
-            repo = _get_repo()
-            repo.save(
-                novel_id=novel_id,
-                chapter_number=chapter_number,
-                overall_readability=report.overall_readability,
-                chapter_hook_strength=report.chapter_hook_strength,
-                pacing_verdict=report.pacing_verdict,
-                avg_scores=report._compute_avg_scores(),
-                feedbacks_json=json.dumps(
-                    [f.to_dict() for f in report.feedbacks],
-                    ensure_ascii=False,
-                ),
-            )
-        except Exception as e:
-            logger.warning("读者模拟结果持久化失败: %s", e)
-
-        return {"success": True, "data": report.to_dict()}
-
     except Exception as e:
-        logger.error("读者模拟失败 novel=%s ch=%d: %s", novel_id, chapter_number, e)
-        raise HTTPException(status_code=500, detail=f"读者模拟分析失败: {e}")
+        logger.exception(
+            "读者模拟意外失败 novel=%s ch=%d", novel_id, chapter_number
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"读者模拟分析失败: {type(e).__name__}: {e}",
+        )
+
+    # 降级分支（章节不存在/LLM 失败等）：拒绝持久化，返回更明确的状态码
+    if report.is_fallback:
+        msg = report.error_message or "读者模拟失败"
+        # 「章节不存在/内容为空」是客户端问题，其他是上游 LLM 问题
+        is_client_error = (
+            "章节不存在" in msg or "章节内容为空" in msg
+        )
+        status_code = 400 if is_client_error else 502
+        logger.warning(
+            "读者模拟降级 novel=%s ch=%d status=%d: %s",
+            novel_id, chapter_number, status_code, msg,
+        )
+        raise HTTPException(status_code=status_code, detail=msg)
+
+    # 正常结果：尝试持久化，失败时将状态透出给客户端而非静默
+    persisted = True
+    persist_error: Optional[str] = None
+    try:
+        repo = _get_repo()
+        repo.save(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            overall_readability=report.overall_readability,
+            chapter_hook_strength=report.chapter_hook_strength,
+            pacing_verdict=report.pacing_verdict,
+            avg_scores=report._compute_avg_scores(),
+            feedbacks_json=json.dumps(
+                [f.to_dict() for f in report.feedbacks],
+                ensure_ascii=False,
+            ),
+        )
+    except Exception as e:
+        persisted = False
+        persist_error = f"{type(e).__name__}: {e}"
+        logger.exception(
+            "读者模拟结果持久化失败 novel=%s ch=%d", novel_id, chapter_number
+        )
+
+    return {
+        "success": True,
+        "data": report.to_dict(),
+        "meta": {
+            "persisted": persisted,
+            "persist_error": persist_error,
+        },
+    }
 
 
 @router.get("/novels/{novel_id}/chapters/{chapter_number}/simulation")
