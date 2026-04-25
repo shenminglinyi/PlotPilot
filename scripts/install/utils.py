@@ -281,7 +281,32 @@ def find_python():
 
     # Windows: py launcher
     if os.name == "nt":
-        for ver_flag in ("3.12", "3.11", "3.10", "3.13", "3"):
+        # 先尝试 py -0 列出已安装版本
+        try:
+            r = subprocess.run(
+                ["py", "-0"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=NO_WIN,
+            )
+            # 输出格式: " -V:3.13 *  Python 3.13 (64-bit)"
+            for line in (r.stdout + r.stderr).splitlines():
+                import re
+                m = re.search(r"-V:(\d+\.\d+)", line)
+                if m:
+                    ver_flag = m.group(1)
+                    r2 = subprocess.run(
+                        ["py", f"-{ver_flag}", "--version"],
+                        capture_output=True, text=True, timeout=5,
+                        creationflags=NO_WIN,
+                    )
+                    ver = (r2.stdout + r2.stderr).strip()
+                    if ver and _version_ok(ver):
+                        return (f"py -{ver_flag}", ver)
+        except Exception:
+            pass
+
+        # 兜底：尝试常见版本
+        for ver_flag in ("3.13", "3.12", "3.11", "3.10", "3"):
             try:
                 r = subprocess.run(
                     ["py", f"-{ver_flag}", "--version"],
