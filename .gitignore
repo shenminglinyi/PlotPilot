@@ -127,6 +127,8 @@ scripts/aitext.lock
 # 提交源码，忽略构建产物
 frontend/src-tauri/target/
 frontend/src-tauri/Cargo.lock
+frontend/src-tauri/scripts/
+frontend/src-tauri/tools/
 
 # ── 仅本机 Windows 打包链路（协作者只需 npm run dev + 后端） ──
 scripts/build_installer.py
