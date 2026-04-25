@@ -257,6 +257,7 @@ async def get_autopilot_status(novel_id: str):
         "needs_review": novel.current_stage.value == "paused_for_review",
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
+        "audit_progress": getattr(novel, "audit_progress", None),  # 审计进度指示
     }
 
 

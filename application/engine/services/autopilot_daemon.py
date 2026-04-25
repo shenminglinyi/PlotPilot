@@ -655,9 +655,9 @@ class AutopilotDaemon:
                     )
                     # 字数控制策略：
                     # - prompt 中要求目标的 75%（在 context_builder 中处理）
-                    # - max_tokens = prompt 目标 × 1.3（允许少量超出）
-                    # - 最终输出 ≈ 原始目标字数
-                    max_tokens = int(beat.target_words * 1.3)
+                    # - max_tokens = prompt 目标 × 1.1（硬性上限，超出会被截断）
+                    # - 最终输出应接近 prompt 目标，略低于原始目标
+                    max_tokens = int(beat.target_words * 1.1)
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                     beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
@@ -691,7 +691,11 @@ class AutopilotDaemon:
                 novel.current_beat_index = i + 1
                 self._flush_novel(novel)
 
-                logger.info(f"[{novel.novel_id}]    ✅ 节拍 {i+1}/{len(beats)} 完成: {len(beat_content)} 字")
+                actual_len = len(beat_content)
+                target_len = beat.target_words
+                ratio = actual_len / target_len if target_len > 0 else 0
+                warning = f" ⚠️ 超出 {int((ratio - 1) * 100)}%" if ratio > 1.1 else ""
+                logger.info(f"[{novel.novel_id}]    ✅ 节拍 {i+1}/{len(beats)} 完成: {actual_len} 字 (目标 {target_len}){warning}")
         else:
             # 降级：无节拍，一次生成
             if not self._is_still_running(novel):
@@ -738,11 +742,20 @@ class AutopilotDaemon:
         actual_word_count = len(chapter_content.strip())
         target_word_count = int(getattr(novel, "target_words_per_chapter", None) or 2500)
 
-        # 字数警告：低于目标 60% 时发出警告但仍然完成
+        # 字数警告：低于目标 60% 或超出 120% 时发出警告
         if actual_word_count < target_word_count * 0.6:
             logger.warning(
                 f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数不足：{actual_word_count} 字 "
                 f"(目标 {target_word_count} 字，低于 60%)"
+            )
+        elif actual_word_count > target_word_count * 1.2:
+            logger.warning(
+                f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数超出：{actual_word_count} 字 "
+                f"(目标 {target_word_count} 字，超出 {int((actual_word_count / target_word_count - 1) * 100)}%)"
+            )
+        else:
+            logger.info(
+                f"[{novel.novel_id}] 第 {chapter_num} 章字数：{actual_word_count} 字 (目标 {target_word_count})"
             )
 
         await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="completed")
@@ -779,6 +792,7 @@ class AutopilotDaemon:
         chapter_num = self._latest_completed_chapter_number(NovelId(novel.novel_id.value))
         if chapter_num is None:
             novel.current_stage = NovelStage.WRITING
+            self._flush_novel(novel)
             return
 
         chapter = self.chapter_repository.get_by_novel_and_number(
@@ -786,10 +800,15 @@ class AutopilotDaemon:
         )
         if not chapter:
             novel.current_stage = NovelStage.WRITING
+            self._flush_novel(novel)
             return
 
         content = chapter.content or ""
         chapter_id = ChapterId(chapter.id)
+
+        # 审计阶段：保存进度以便前端能看到
+        novel.audit_progress = "voice_check"
+        self._flush_novel(novel)
 
         # 1. 先做文风预检；若严重偏离则定向改写，最多两轮，再执行章后管线，避免分析结果与最终正文错位
         drift_result = await self._score_voice_only(
@@ -805,6 +824,9 @@ class AutopilotDaemon:
         )
 
         # 2. 统一章后管线：叙事/向量、文风（一次）、KG 推断；三元组与伏笔在叙事同步单次 LLM 中落库
+        novel.audit_progress = "aftermath_pipeline"
+        self._flush_novel(novel)
+
         if self.aftermath_pipeline:
             try:
                 drift_result = await self.aftermath_pipeline.run_after_chapter_saved(
@@ -827,6 +849,9 @@ class AutopilotDaemon:
             )
 
         # 2. 张力打分（轻量 LLM 调用，~200 token）
+        novel.audit_progress = "tension_scoring"
+        self._flush_novel(novel)
+
         tension = await self._score_tension(content)
         novel.last_chapter_tension = tension
         # 保存张力值到章节（用于张力曲线图）
@@ -872,6 +897,7 @@ class AutopilotDaemon:
             )
 
         novel.current_stage = NovelStage.WRITING
+        novel.audit_progress = None  # 清除审计进度
 
         # 5. 全书完成检测
         chapters = self.chapter_repository.list_by_novel(NovelId(novel.novel_id.value))
@@ -1418,7 +1444,7 @@ class AutopilotDaemon:
         user_parts.append("\n\n开始撰写：")
 
         # 字数控制策略（与主流程一致）
-        max_tokens = int(beat.target_words * 1.3) if beat else 3000
+        max_tokens = int(beat.target_words * 1.1) if beat else 3000
 
         prompt = Prompt(system=system, user="\n".join(user_parts))
         config = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
