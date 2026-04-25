@@ -248,12 +248,20 @@ const dotClass = computed(() => ({
 }))
 
 const stageLabel = computed(() => {
+  const stage = status.value?.current_stage
+  if (stage === 'auditing') {
+    const progress = status.value?.audit_progress
+    if (progress === 'voice_check') return '审计中（文风检查）'
+    if (progress === 'aftermath_pipeline') return '审计中（章后管线）'
+    if (progress === 'tension_scoring') return '审计中（张力打分）'
+    return '审计中'
+  }
   const m = {
     macro_planning: '宏观规划', act_planning: '幕级规划',
     writing: '撰写中', auditing: '审计中',
     paused_for_review: '待审阅', completed: '已完成',
   }
-  return m[status.value?.current_stage] || '待机'
+  return m[stage] || '待机'
 })
 
 const stageTagClass = computed(() => ({
