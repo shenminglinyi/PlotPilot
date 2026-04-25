@@ -352,5 +352,7 @@ async def get_chapter_detail(
                 "elements": [elem.to_dict() for elem in elements]
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取章节详情失败: {str(e)}")

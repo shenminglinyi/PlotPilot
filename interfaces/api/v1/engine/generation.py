@@ -810,7 +810,7 @@ async def review_chapter(
     """章节审稿：AI 审稿并返回修改建议"""
     try:
         # 读取章节内容
-        chapter = chapter_service.get_chapter(novel_id, chapter_number)
+        chapter = chapter_service.get_chapter_by_novel_and_number(novel_id, chapter_number)
         if not chapter:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
