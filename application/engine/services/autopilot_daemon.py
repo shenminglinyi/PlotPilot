@@ -330,6 +330,13 @@ class AutopilotDaemon:
         novel_id = novel.novel_id.value
         target_act_number = novel.current_act + 1  # 1-indexed
 
+        # 提前计算结构推荐参数，供后续多处使用（避免动态幕生成失败时变量未定义）
+        from application.blueprint.services.continuous_planning_service import calculate_structure_params
+        target_chapters = novel.target_chapters or 100
+        struct_params = calculate_structure_params(target_chapters)
+        rec_chapters_per_act = struct_params["chapters_per_act"]
+        rec_acts_per_volume = struct_params["acts_per_volume"]
+
         all_nodes = await self.story_node_repo.get_by_novel(novel_id)
         act_nodes = sorted(
             [n for n in all_nodes if n.node_type.value == "act"],
@@ -345,13 +352,6 @@ class AutopilotDaemon:
                 [n for n in all_nodes if n.node_type.value == "volume"],
                 key=lambda n: n.number
             )
-
-            # 使用结构计算引擎获取推荐参数（替代硬编码的 // 3）
-            from application.blueprint.services.continuous_planning_service import calculate_structure_params
-            target_chapters = novel.target_chapters or 100
-            struct_params = calculate_structure_params(target_chapters)
-            rec_chapters_per_act = struct_params["chapters_per_act"]
-            rec_acts_per_volume = struct_params["acts_per_volume"]
 
             # 智能父卷选择：优先让当前卷填满（达到 rec_acts_per_volume 幕），再跳下一卷
             parent_volume = self._find_parent_volume_for_new_act(
