@@ -17,6 +17,10 @@
     </n-steps>
 
     <div class="step-content">
+      <!-- 续传提示 -->
+      <n-alert v-if="resumedFromStep > 1" type="success" style="margin-bottom: 16px">
+        检测到之前的进度，已自动跳至第 {{ resumedFromStep }} 步。您可以继续完成剩余设置。
+      </n-alert>
       <!-- Step 1: Generate Worldbuilding + Style -->
       <div v-if="currentStep === 1" class="step-panel">
         <n-alert type="info" class="wizard-hint-alert" style="margin-bottom: 16px; width: 100%">
@@ -471,6 +475,7 @@ const modalOpen = computed({
 
 const currentStep = ref(1)
 const stepStatus = ref<'process' | 'finish' | 'error' | 'wait'>('process')
+const resumedFromStep = ref(0) // 0 表示新会话，>0 表示从该步续传
 
 // 第1步：生成世界观和文风
 const generatingBible = ref(false)
@@ -772,6 +777,74 @@ function resetWizardStateForOpen() {
   plotSuggestError.value = ''
   charactersError.value = ''
   locationsError.value = ''
+  resumedFromStep.value = 0
+}
+
+/** 检查已存在数据，确定向导应从哪一步继续 */
+async function detectWizardProgress(): Promise<number> {
+  try {
+    // 检查 Bible 数据
+    const bible = await bibleApi.getBible(props.novelId, { timeout: 30_000 })
+    bibleData.value = bible
+
+    // 解析世界观
+    let fromApi = emptyWorldbuildingShape()
+    try {
+      const w = await worldbuildingApi.getWorldbuilding(props.novelId)
+      fromApi = normalizeWorldbuildingFromApi(w as unknown as Record<string, unknown>)
+    } catch {
+      /* 404 忽略 */
+    }
+    const fromWs = worldbuildingFromWorldSettings(bible.world_settings)
+    worldbuildingData.value = mergeWorldbuildingDisplay(fromApi, fromWs)
+
+    const hasWorldbuilding = bible.world_settings?.length > 0 || Object.values(worldbuildingData.value).some(dim => Object.keys(dim).length > 0)
+    const hasStyle = styleConventionFromBible(bible).length > 0
+    const hasCharacters = (bible.characters?.length ?? 0) > 0
+    const hasLocations = (bible.locations?.length ?? 0) > 0
+
+    // 检查主线是否存在
+    let hasMainPlot = false
+    try {
+      const storylines = await workflowApi.getStorylines(props.novelId)
+      hasMainPlot = storylines.some(s => s.storyline_type === 'main_plot')
+      if (hasMainPlot) {
+        mainPlotCommitted.value = true
+      }
+    } catch {
+      /* 忽略 */
+    }
+
+    // 确定当前步骤
+    if (!hasWorldbuilding && !hasStyle) {
+      resumedFromStep.value = 0 // 新会话
+      return 1 // 世界观未生成
+    }
+    bibleGenerated.value = true
+
+    if (!hasCharacters) {
+      resumedFromStep.value = 2 // 从人物步骤续传
+      return 2 // 人物未生成
+    }
+    charactersGenerated.value = true
+
+    if (!hasLocations) {
+      resumedFromStep.value = 3 // 从地点步骤续传
+      return 3 // 地点未生成
+    }
+    locationsGenerated.value = true
+
+    if (!hasMainPlot) {
+      resumedFromStep.value = 4 // 从主线步骤续传
+      return 4 // 主线未设定
+    }
+
+    resumedFromStep.value = 5 // 全部完成
+    return 5
+  } catch (err) {
+    console.warn('[NovelSetupGuide] detectWizardProgress failed:', err)
+    return 1 // 出错时从头开始
+  }
 }
 
 function stopGenerationOnClose() {
@@ -784,20 +857,30 @@ function stopGenerationOnClose() {
 
 watch(
   () => props.show,
-  (val) => {
+  async (val) => {
     if (val) {
       resetWizardStateForOpen()
-      void startBibleGeneration()
+      // 检查已有进度，确定从哪一步继续
+      const step = await detectWizardProgress()
+      currentStep.value = step
+      // 只有在第 1 步且世界观未生成时才启动生成
+      if (step === 1 && !bibleGenerated.value) {
+        void startBibleGeneration()
+      }
     } else {
       stopGenerationOnClose()
     }
   }
 )
 
-onMounted(() => {
+onMounted(async () => {
   if (props.show) {
     resetWizardStateForOpen()
-    void startBibleGeneration()
+    const step = await detectWizardProgress()
+    currentStep.value = step
+    if (step === 1 && !bibleGenerated.value) {
+      void startBibleGeneration()
+    }
   }
 })
 
@@ -806,7 +889,8 @@ onUnmounted(() => {
 })
 
 watch(currentStep, (step) => {
-  if (step === 4 && props.show && plotOptions.value.length === 0 && !plotSuggesting.value) {
+  // 第 4 步：主线未提交且无候选时才加载
+  if (step === 4 && props.show && !mainPlotCommitted.value && plotOptions.value.length === 0 && !plotSuggesting.value) {
     void loadPlotSuggestions()
   }
 })
@@ -816,6 +900,10 @@ const handleNext = async () => {
     step2PollEpoch.value += 1
     const epoch2 = step2PollEpoch.value
     currentStep.value = 2
+    // 如果人物已存在，跳过生成
+    if (charactersGenerated.value) {
+      return
+    }
     generatingCharacters.value = true
     charactersGenerated.value = false
     charactersError.value = ''
@@ -854,6 +942,10 @@ const handleNext = async () => {
     step3PollEpoch.value += 1
     const epoch3 = step3PollEpoch.value
     currentStep.value = 3
+    // 如果地点已存在，跳过生成
+    if (locationsGenerated.value) {
+      return
+    }
     generatingLocations.value = true
     locationsGenerated.value = false
     locationsError.value = ''
