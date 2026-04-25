@@ -669,6 +669,10 @@ class AutopilotDaemon:
                     )
 
                 if beat_content.strip():
+                    # V8: 截断检测与自动续写（软着陆）
+                    beat_content = await self._ensure_complete_ending(
+                        beat_content, beat, outline, chapter_content, novel
+                    )
                     chapter_content += ("\n\n" if chapter_content else "") + beat_content
                     await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="draft")
 
@@ -1280,6 +1284,82 @@ class AutopilotDaemon:
         """推送增量文字到全局流式队列，供 SSE 接口消费"""
         from application.engine.services.streaming_bus import streaming_bus
         streaming_bus.publish(novel_id, chunk)
+
+    async def _ensure_complete_ending(
+        self,
+        content: str,
+        beat: "Beat",
+        outline: str,
+        chapter_draft_so_far: str,
+        novel=None,
+    ) -> str:
+        """V8: 截断检测与自动续写（软着陆）
+
+        检测内容是否被截断（没有以句号等结束符结尾），
+        如果被截断，自动发起续写请求完成收尾。
+
+        Args:
+            content: 已生成的内容
+            beat: 当前节拍对象
+            outline: 章节大纲
+            chapter_draft_so_far: 本章已生成的正文
+            novel: 小说对象
+
+        Returns:
+            完整的内容（可能包含续写部分）
+        """
+        import re
+
+        if not content or not content.strip():
+            return content
+
+        # 检测是否以句子结束符结尾
+        # 中文句号、英文句号、叹号、问号、引号、省略号
+        ending_pattern = r'[。！？…）】》"\'』」]$'
+        stripped = content.rstrip()
+
+        if re.search(ending_pattern, stripped):
+            # 结尾完整，无需续写
+            return content
+
+        # 检测是否被截断
+        logger.warning(f"[截断检测] 内容未以结束符结尾，可能被截断，发起自动续写")
+
+        # 构建续写 Prompt
+        continuation_prompt = Prompt(
+            system="你是小说续写助手。你的任务是为被截断的段落提供一个简短、自然的结尾。"
+                   "不要重复已有内容，只需在 150 字以内完成收尾，让段落有完整的结尾。",
+            user=f"""以下段落被截断了，请续写一个简短的结尾（150字以内）让它完整结束：
+
+---截断的内容---
+{stripped[-500:]}
+
+---续写要求---
+1. 承接上文，给出自然的收尾
+2. 不要重复已有内容
+3. 必须以句号结束
+4. 字数控制在 150 字以内
+
+请直接续写，不要解释："""
+        )
+
+        try:
+            config = GenerationConfig(max_tokens=300, temperature=0.7)
+            continuation = await self._stream_llm_with_stop_watch(
+                continuation_prompt, config, novel=novel
+            )
+
+            if continuation and continuation.strip():
+                # 拼接续写内容
+                result = stripped + continuation.strip()
+                logger.info(f"[截断续写] 成功续写 {len(continuation.strip())} 字")
+                return result
+
+        except Exception as e:
+            logger.warning(f"[截断续写] 续写失败: {e}")
+
+        # 续写失败，返回原内容（至少加个句号让它看起来完整）
+        return stripped + "。"
 
     async def _stream_one_beat(
         self,

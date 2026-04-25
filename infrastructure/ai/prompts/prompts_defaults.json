@@ -1261,7 +1261,7 @@
         "suspense": "叙事义务：必须留下可追踪的悬念点（人/物/约定/时间之一），不要空喊「事情不对劲」。"
       },
       "system": "",
-      "user_template": "【节拍 {beat_index}/{total_beats}】\n目标字数：{target_words} 字（软目标：以完成义务为主，勿用废话硬凑）\n聚焦点：{focus}\n\n{instruction}\n\n节拍内容：\n{description}\n\n密度与可检查要求：\n- {anchor_line}\n- {obligation}\n\n注意：\n- 这是完整章节的一部分，不要写章节标题\n- 不要在节拍结尾强行总结全章\n- 专注于当前节拍的内容，自然衔接到下一节拍",
+      "user_template": "【节拍 {beat_index}/{total_beats}】\n目标字数：约 {target_words} 字\n聚焦点：{focus}\n\n{instruction}\n\n节拍内容：\n{description}\n\n密度与可检查要求：\n- {anchor_line}\n- {obligation}\n\n⚠️ 篇幅控制与收尾规则（必须遵守）：\n- 当剧情已交代完毕，立即用完整的句子结束本节拍，不要拖沓\n- 禁止无意义的对话重复或空洞感叹来凑字数\n- 若已达到目标字数附近，主动收束场景，给出干净利落的段落结尾\n- 结尾必须完整（有句号），绝不允许中途截断\n\n注意：\n- 这是完整章节的一部分，不要写章节标题\n- 不要在节拍结尾强行总结全章\n- 专注于当前节拍的内容，自然衔接到下一节拍",
       "variables": [
         {"name": "beat_index", "desc": "节拍序号（从1开始）", "type": "integer"},
         {"name": "total_beats", "desc": "总节拍数", "type": "integer"},
