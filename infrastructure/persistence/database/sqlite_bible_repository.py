@@ -74,9 +74,16 @@ class SqliteBibleRepository(BibleRepository):
                         relation = ""
                         description = ""
                     else:
-                        target_name = rel.get("target", "") or ""
-                        relation = rel.get("relation", "") or ""
-                        description = rel.get("description", "") or ""
+                        # 支持 Pydantic 模型和字典两种格式
+                        if hasattr(rel, "model_dump"):
+                            rel_dict = rel.model_dump()
+                        elif hasattr(rel, "dict"):
+                            rel_dict = rel.dict()
+                        else:
+                            rel_dict = rel
+                        target_name = rel_dict.get("target", "") or ""
+                        relation = rel_dict.get("relation", "") or ""
+                        description = rel_dict.get("description", "") or ""
                     conn.execute(
                         """
                         INSERT INTO bible_character_relationships

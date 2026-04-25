@@ -514,7 +514,7 @@ async def bulk_update_bible(
         更新后的 Bible DTO
 
     Raises:
-        HTTPException: 如果 Bible 不存在
+        HTTPException: 如果 Bible 不存在或参数无效
     """
     try:
         return service.update_bible(
@@ -527,3 +527,5 @@ async def bulk_update_bible(
         )
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

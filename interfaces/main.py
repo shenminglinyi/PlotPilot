@@ -424,6 +424,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 注册统一错误处理器（捕获未处理异常并记录日志）
+from interfaces.api.middleware.error_handler import add_error_handlers
+add_error_handlers(app)
+
 # HTTP 访问日志由 uvicorn.access 输出（与 uvicorn 默认格式一致：IP + 请求行 + 状态码）
 
 # Core module routes
