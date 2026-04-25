@@ -653,8 +653,11 @@ class AutopilotDaemon:
                         voice_anchors=voice_anchors,
                         chapter_draft_so_far=chapter_content,
                     )
-                    # 中文 1 token ≈ 1.5 字符，使用 2.0 倍安全余量避免截断
-                    max_tokens = int(beat.target_words * 2.0)
+                    # 字数控制策略：
+                    # - prompt 中要求目标的 75%（在 context_builder 中处理）
+                    # - max_tokens = prompt 目标 × 1.3（允许少量超出）
+                    # - 最终输出 ≈ 原始目标字数
+                    max_tokens = int(beat.target_words * 1.3)
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                     beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
@@ -1414,8 +1417,8 @@ class AutopilotDaemon:
             user_parts.append(f"\n{beat_prompt}")
         user_parts.append("\n\n开始撰写：")
 
-        # 中文 1 token ≈ 1.5 字符，使用 2.0 倍安全余量避免截断
-        max_tokens = int(beat.target_words * 2.0) if beat else 4000
+        # 字数控制策略（与主流程一致）
+        max_tokens = int(beat.target_words * 1.3) if beat else 3000
 
         prompt = Prompt(system=system, user="\n".join(user_parts))
         config = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
