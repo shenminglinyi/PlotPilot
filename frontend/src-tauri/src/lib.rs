@@ -44,16 +44,22 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // 已经在关闭中，直接忽略后续点击
                 if GRACEFUL_SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
                     api.prevent_close();
                     return;
                 }
                 api.prevent_close();
+
+                // 最小化窗口给用户反馈（关闭正在进行）
+                let _ = window.minimize();
+
                 let app_handle = window.app_handle().clone();
                 std::thread::spawn(move || {
                     let backend = app_handle.state::<Mutex<BackendManager>>();
                     if let Ok(mgr) = backend.lock() {
-                        mgr.graceful_shutdown(Duration::from_secs(10));
+                        // 减少超时时间，快速关闭
+                        mgr.graceful_shutdown(Duration::from_secs(3));
                     }
                     app_handle.exit(0);
                 });

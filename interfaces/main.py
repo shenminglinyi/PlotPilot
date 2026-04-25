@@ -178,7 +178,7 @@ def _checkpoint_sqlite_wal_safe() -> None:
         from application.paths import get_db_path
 
         dbp = get_db_path()
-        conn = sqlite3.connect(dbp, timeout=15.0)
+        conn = sqlite3.connect(dbp, timeout=2.0)  # 减少超时
         try:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
@@ -455,11 +455,11 @@ def _stop_autopilot_daemon_thread():
         _daemon_stop_event.set()
 
     if _daemon_process and _daemon_process.is_alive():
-        _daemon_process.join(timeout=5)  # 等待最多5秒
+        _daemon_process.join(timeout=2)  # 减少等待时间到2秒
         if _daemon_process.is_alive():
             logger.warning("⚠️  守护进程未在超时时间内停止，强制终止")
             _daemon_process.terminate()
-            _daemon_process.join(timeout=2)
+            _daemon_process.join(timeout=1)
             # 如果还是活着，强制kill
             if _daemon_process.is_alive():
                 logger.warning("⚠️  守护进程仍未停止，使用 SIGKILL")
