@@ -731,7 +731,17 @@ class AutopilotDaemon:
             except Exception as e:
                 logger.warning(f"post_process_generated_chapter 失败（仍落库）：{e}")
 
-        # 7. 章节完成，标记 completed
+        # 7. 章节完成，标记 completed（带字数验证）
+        actual_word_count = len(chapter_content.strip())
+        target_word_count = int(getattr(novel, "target_words_per_chapter", None) or 2500)
+
+        # 字数警告：低于目标 60% 时发出警告但仍然完成
+        if actual_word_count < target_word_count * 0.6:
+            logger.warning(
+                f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数不足：{actual_word_count} 字 "
+                f"(目标 {target_word_count} 字，低于 60%)"
+            )
+
         await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="completed")
 
         # 8. 更新计数器，重置节拍索引
@@ -741,7 +751,10 @@ class AutopilotDaemon:
         novel.current_stage = NovelStage.AUDITING
         self._flush_novel(novel)
 
-        logger.info(f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{len(chapter_content)} 字 (共 {novel.current_auto_chapters}/{novel.target_chapters} 章)")
+        logger.info(
+            f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{actual_word_count} 字 "
+            f"(目标 {target_word_count} 字，共 {novel.current_auto_chapters}/{novel.target_chapters} 章)"
+        )
 
     def _latest_completed_chapter_number(self, novel_id: NovelId) -> Optional[int]:
         """已完结章节的最大章节号（与故事树全局章节号一致）。
@@ -1409,23 +1422,53 @@ class AutopilotDaemon:
         return await self._stream_llm_with_stop_watch(prompt, config, novel=novel)
 
     async def _upsert_chapter_content(self, novel, chapter_node, content: str, status: str):
-        """最小事务：只更新章节内容，不涉及其他表"""
+        """最小事务：只更新章节内容，不涉及其他表
+
+        安全规则：
+        1. 空内容不能将状态更新为 completed（防止空章节被标记为完成）
+        2. 空内容不会覆盖已有内容（防止意外清空）
+        """
         from domain.novel.entities.chapter import Chapter, ChapterStatus
         from domain.novel.value_objects.novel_id import NovelId
+
+        content_str = (content or "").strip()
 
         existing = self.chapter_repository.get_by_novel_and_number(
             NovelId(novel.novel_id.value), chapter_node.number
         )
         if existing:
-            # 防御：避免意外用空串覆盖已有正文（例如并发/异常分支写入空内容）
-            if (not (content or "").strip()) and (existing.content or "").strip():
-                existing.status = ChapterStatus(status)
-                self.chapter_repository.save(existing)
+            existing_content = (existing.content or "").strip()
+
+            # 安全检查：空内容不能标记为 completed
+            if not content_str and status == "completed":
+                logger.warning(
+                    f"[{novel.novel_id}] 拒绝将章节 {chapter_node.number} 标记为 completed：内容为空"
+                )
                 return
+
+            # 防御：避免意外用空串覆盖已有正文
+            if not content_str:
+                # 空内容：只允许更新状态为 draft（不能覆盖已有内容，不能标记为 completed）
+                if status == "draft" and existing_content:
+                    logger.debug(
+                        f"[{novel.novel_id}] 章节 {chapter_node.number} 内容为空，仅更新状态为 draft（保留已有内容）"
+                    )
+                    existing.status = ChapterStatus.DRAFT
+                    self.chapter_repository.save(existing)
+                return
+
+            # 正常更新：有内容时才更新
             existing.update_content(content)
             existing.status = ChapterStatus(status)
             self.chapter_repository.save(existing)
         else:
+            # 新建章节：空内容只能创建为 draft
+            if not content_str and status == "completed":
+                logger.warning(
+                    f"[{novel.novel_id}] 拒绝创建空的 completed 章节 {chapter_node.number}"
+                )
+                return
+
             chapter = Chapter(
                 id=chapter_node.id,
                 novel_id=NovelId(novel.novel_id.value),
@@ -1433,7 +1476,7 @@ class AutopilotDaemon:
                 title=chapter_node.title,
                 content=content,
                 outline=chapter_node.outline or "",
-                status=ChapterStatus(status)
+                status=ChapterStatus(status if content_str else "draft")
             )
             self.chapter_repository.save(chapter)
 
