@@ -271,7 +271,7 @@ class ContextBuilder:
 
         # 调整字数分配（保守策略）
         # LLM 倾向于超出字数要求，因此 prompt 中只要求目标的 75%
-        # 配合 max_tokens = target × 1.3，最终输出约等于目标
+        # 配合 max_tokens = target × 1.1（硬性上限），强制控制字数
         total_words = sum(b.target_words for b in beats)
         prompt_target_ratio = 0.75  # prompt 中只要求 75%
         if total_words != target_chapter_words:
