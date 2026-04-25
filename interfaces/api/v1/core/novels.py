@@ -245,6 +245,53 @@ async def delete_novel(
     service.delete_novel(novel_id)
 
 
+@router.post("/{novel_id}/bible/generate", status_code=202)
+async def generate_bible_alias(
+    novel_id: str,
+    background_tasks: BackgroundTasks,
+    stage: str = "all",
+    bible_generator: AutoBibleGenerator = Depends(get_auto_bible_generator),
+    knowledge_generator: AutoKnowledgeGenerator = Depends(get_auto_knowledge_generator)
+):
+    """手动触发 Bible 生成（别名路由，与 POST /bible/novels/{novel_id}/generate 等价）
+
+    Args:
+        novel_id: 小说 ID
+        background_tasks: FastAPI 后台任务
+        stage: 生成阶段 (all / worldbuilding / characters / locations)
+
+    Returns:
+        202 Accepted
+    """
+    try:
+        import traceback
+
+        async def _generate_task():
+            try:
+                bible_data = await bible_generator.generate_and_save(
+                    novel_id=novel_id,
+                    stage=stage
+                )
+                if knowledge_generator and stage in ("all", "worldbuilding"):
+                    await knowledge_generator.generate_and_save(
+                        novel_id=novel_id,
+                        bible_data=bible_data
+                    )
+            except Exception as e:
+                logger.error(f"Failed to generate Bible/Knowledge for {novel_id}: {e}")
+                logger.error(traceback.format_exc())
+
+        background_tasks.add_task(_generate_task)
+
+        return {
+            "message": "Bible generation started",
+            "novel_id": novel_id,
+            "status_url": f"/api/v1/bible/novels/{novel_id}/bible/status"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"启动Bible生成失败: {str(e)}")
+
+
 @router.patch("/{novel_id}/auto-approve-mode", response_model=NovelDTO)
 async def update_auto_approve_mode(
     novel_id: str,
