@@ -123,8 +123,10 @@ llm_profiles.json
 aitext.lock
 scripts/aitext.lock
 
-# ── Tauri 桌面壳（仅本机打包用，勿提交；协作者 clone 后无此目录，不影响 npm run dev） ──
-frontend/src-tauri/
+# ── Tauri 桌面壳 ──
+# 提交源码，忽略构建产物
+frontend/src-tauri/target/
+frontend/src-tauri/Cargo.lock
 
 # ── 仅本机 Windows 打包链路（协作者只需 npm run dev + 后端） ──
 scripts/build_installer.py
