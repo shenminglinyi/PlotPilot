@@ -573,9 +573,39 @@ impl BackendManager {
     fn terminate_hard(&self) {
         #[cfg(target_os = "windows")]
         {
+            // 方法1: 使用 Job Object 杀死进程树
             let job = self.job_kill_tree.lock().unwrap().take();
             drop(job);
+
+            // 方法2: 使用 taskkill 强制杀死整个进程树（双保险）
+            let guard = self.child.lock().unwrap();
+            if let Some(child) = guard.as_ref() {
+                let pid = child.id();
+                log::info!("🛑 使用 taskkill 强制终止进程树 (PID={})...", pid);
+
+                // /F 强制终止 /T 包含子进程
+                let kill_result = Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .output();
+
+                match kill_result {
+                    Ok(output) => {
+                        if output.status.success() {
+                            log::info!("✅ taskkill 成功终止进程树");
+                        } else {
+                            log::warn!(
+                                "taskkill 返回非零状态: {}",
+                                String::from_utf8_lossy(&output.stderr)
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("taskkill 执行失败: {}", e);
+                    }
+                }
+            }
         }
+
         let mut guard = self.child.lock().unwrap();
         if let Some(mut child) = guard.take() {
             log::info!("🛑 正在强杀后端进程...");

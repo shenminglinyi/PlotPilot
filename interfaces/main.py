@@ -159,9 +159,14 @@ async def startup_event():
     logger.info("✅ FastAPI application started successfully")
     logger.info(f"📊 Registered {len(app.routes)} routes")
 
+    # Windows: 启动前清理上次可能残留的进程
+    if os.name == "nt":
+        logger.info("🧹 Windows 启动前检查残留进程...")
+        _cleanup_orphan_python_processes()
+
     # 重启时将所有运行中的小说设置为停止状态
     _stop_all_running_novels()
-    
+
     # 启动自动驾驶守护进程（后台线程）
     _start_autopilot_daemon_thread()
 
@@ -382,6 +387,65 @@ def _start_autopilot_daemon_thread():
     logger.info("✅ 守护进程已创建并启动（独立进程模式，流式队列已传递）")
 
 
+def _cleanup_orphan_python_processes():
+    """Windows: 清理可能残留的 plotpilot-backend 相关进程。
+
+    注意：只清理命令行中包含 'plotpilot' 或 'autopilot' 的 Python 进程，
+    避免误杀其他无关的 Python 进程。
+    """
+    import subprocess
+
+    try:
+        # 获取当前进程 PID
+        current_pid = os.getpid()
+        logger.info(f"🔍 检查残留进程（当前 PID={current_pid}）...")
+
+        # 使用 wmic 查找 Python 进程
+        result = subprocess.run(
+            ['wmic', 'process', 'where', "name='python.exe' or name='python3.exe' or name='plotpilot-backend.exe'",
+             'get', 'processid,commandline'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        lines = result.stdout.strip().split('\n')
+        killed_count = 0
+
+        for line in lines:
+            line = line.strip()
+            if not line or 'CommandLine' in line:
+                continue
+
+            # 检查是否是相关进程
+            if any(keyword in line.lower() for keyword in ['plotpilot', 'autopilot', 'uvicorn', 'interfaces.main']):
+                # 提取 PID（最后一个数字）
+                parts = line.split()
+                for part in reversed(parts):
+                    if part.isdigit():
+                        pid = int(part)
+                        # 不要杀死当前进程
+                        if pid != current_pid:
+                            try:
+                                logger.info(f"🧹 清理残留进程 PID={pid}: {line[:80]}...")
+                                subprocess.run(['taskkill', '/F', '/PID', str(pid)],
+                                             capture_output=True, timeout=5)
+                                killed_count += 1
+                            except Exception as e:
+                                logger.warning(f"清理进程 {pid} 失败: {e}")
+                        break
+
+        if killed_count > 0:
+            logger.info(f"✅ 已清理 {killed_count} 个残留进程")
+        else:
+            logger.info("✅ 未发现残留进程")
+
+    except subprocess.TimeoutExpired:
+        logger.warning("⚠️ 进程清理超时")
+    except Exception as e:
+        logger.warning(f"⚠️ 进程清理失败: {e}")
+
+
 def _stop_autopilot_daemon_thread():
     """停止守护进程"""
     global _daemon_process, _daemon_stop_event
@@ -396,11 +460,24 @@ def _stop_autopilot_daemon_thread():
             logger.warning("⚠️  守护进程未在超时时间内停止，强制终止")
             _daemon_process.terminate()
             _daemon_process.join(timeout=2)
+            # 如果还是活着，强制kill
+            if _daemon_process.is_alive():
+                logger.warning("⚠️  守护进程仍未停止，使用 SIGKILL")
+                try:
+                    import signal
+                    import os
+                    os.kill(_daemon_process.pid, signal.SIGKILL)
+                except Exception as e:
+                    logger.error(f"强制终止守护进程失败: {e}")
         else:
             logger.info("✅ 守护进程已成功停止")
 
     _daemon_process = None
     _daemon_stop_event = None
+
+    # Windows: 额外清理可能残留的 Python 子进程
+    if os.name == "nt":
+        _cleanup_orphan_python_processes()
 
 
 def restart_autopilot_daemon():
