@@ -417,3 +417,43 @@ class StoryNodeRepository:
             created_at=datetime.fromisoformat(row_dict["created_at"]),
             updated_at=datetime.fromisoformat(row_dict["updated_at"]),
         )
+
+    async def update_chapter_ranges(self, novel_id: str) -> None:
+        """根据子节点的 chapter_start/chapter_end 更新父节点的章节范围"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, parent_id, chapter_start, chapter_end, node_type
+                FROM story_nodes WHERE novel_id = ?
+                ORDER BY order_index
+            """, (novel_id,))
+            rows = cursor.fetchall()
+
+            nodes_by_parent = {}
+            for row in rows:
+                pid = row[1]
+                if pid not in nodes_by_parent:
+                    nodes_by_parent[pid] = []
+                nodes_by_parent[pid].append(row)
+
+            for parent_id, children in nodes_by_parent.items():
+                if not children:
+                    continue
+                starts = [r[2] for r in children if r[2] is not None]
+                ends = [r[3] for r in children if r[3] is not None]
+                if starts and ends:
+                    new_start = min(starts)
+                    new_end = max(ends)
+                    cursor.execute("""
+                        UPDATE story_nodes
+                        SET chapter_start = ?, chapter_end = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (new_start, new_end, datetime.now().isoformat(), parent_id))
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()

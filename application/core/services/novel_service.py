@@ -190,7 +190,13 @@ class NovelService:
             NovelDTO 列表
         """
         novels = self.novel_repository.list_all()
-        return [NovelDTO.from_domain(self._hydrate_chapters(novel)) for novel in novels]
+        dtos = []
+        for novel in novels:
+            dto = NovelDTO.from_domain(self._hydrate_chapters(novel))
+            dto.has_bible = self._check_has_bible(novel.novel_id.value)
+            dto.has_outline = self._check_has_outline(novel.novel_id.value)
+            dtos.append(dto)
+        return dtos
 
     def delete_novel(self, novel_id: str) -> None:
         """删除小说

@@ -248,12 +248,20 @@ const dotClass = computed(() => ({
 }))
 
 const stageLabel = computed(() => {
+  const stage = status.value?.current_stage
+  if (stage === 'auditing') {
+    const progress = status.value?.audit_progress
+    if (progress === 'voice_check') return '审计中（文风检查）'
+    if (progress === 'aftermath_pipeline') return '审计中（章后管线）'
+    if (progress === 'tension_scoring') return '审计中（张力打分）'
+    return '审计中'
+  }
   const m = {
     macro_planning: '宏观规划', act_planning: '幕级规划',
     writing: '撰写中', auditing: '审计中',
     paused_for_review: '待审阅', completed: '已完成',
   }
-  return m[status.value?.current_stage] || '待机'
+  return m[stage] || '待机'
 })
 
 const stageTagClass = computed(() => ({
@@ -291,16 +299,23 @@ function formatWords(n) {
 const autopilotApiRoot = () => `/api/v1/autopilot/${props.novelId}`
 
 async function fetchStatus() {
-  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`))
-  if (res.status === 404) {
-    clearStatusPoll()
-    status.value = null
-    statusPollDisabled.value = true
-    return
-  }
-  if (res.ok) {
-    status.value = await res.json()
-    emit('status-change', status.value)
+  try {
+    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`))
+    if (res.status === 404) {
+      clearStatusPoll()
+      status.value = null
+      statusPollDisabled.value = true
+      return
+    }
+    if (res.ok) {
+      status.value = await res.json()
+      emit('status-change', status.value)
+    } else {
+      console.warn('[AutopilotPanel] fetchStatus failed:', res.status, res.statusText)
+    }
+  } catch (err) {
+    console.error('[AutopilotPanel] fetchStatus error:', err)
+    // 不清除 status，保留上一次的有效数据
   }
 }
 
@@ -312,14 +327,13 @@ function clearStatusPoll() {
 }
 
 watch(
-  () => [isRunning.value, needsReview.value],
-  ([running, review]) => {
+  () => [isRunning.value, needsReview.value, statusPollDisabled.value],
+  ([running, review, disabled]) => {
     clearStatusPoll()
-    if (statusPollDisabled.value) return
-    if (running || review) {
-      statusPollTimer = setInterval(() => fetchStatus(), 3000)
-      void fetchStatus()
-    }
+    if (disabled) return
+    // 始终开始轮询，即使初始状态未知，以便从临时故障中恢复
+    statusPollTimer = setInterval(() => fetchStatus(), 3000)
+    void fetchStatus()
   },
   { immediate: true }
 )
@@ -461,6 +475,7 @@ async function clearCircuitBreaker() {
 
 // 章节内容流订阅（用于推送内容到编辑框）
 let chapterStreamCtrl = null
+let chapterStreamReconnectTimer = null
 
 // 写作内容状态（传递给 AutopilotWritingStream）
 const writingContent = ref('')
@@ -470,6 +485,10 @@ const writingBeatIndex = ref(0)
 function startChapterStream() {
   if (chapterStreamCtrl) {
     chapterStreamCtrl.abort()
+  }
+  if (chapterStreamReconnectTimer) {
+    clearTimeout(chapterStreamReconnectTimer)
+    chapterStreamReconnectTimer = null
   }
   writingContent.value = ''
   writingChapterNumber.value = 0
@@ -497,17 +516,39 @@ function startChapterStream() {
     },
     onConnected: () => {
       // SSE连接成功
+      console.log('[AutopilotPanel] SSE 流已连接')
     },
     onDisconnected: () => {
-      // SSE连接断开
+      // SSE连接断开，如果仍在运行状态则尝试重连
+      if (isRunning.value) {
+        console.log('[AutopilotPanel] SSE 断开，3秒后重连...')
+        chapterStreamReconnectTimer = setTimeout(() => {
+          if (isRunning.value) {
+            startChapterStream()
+          }
+        }, 3000)
+      }
     },
     onError: (err) => {
-      console.error('Chapter stream error:', err)
+      console.error('[AutopilotPanel] Chapter stream error:', err)
+      // 错误时也尝试重连
+      if (isRunning.value) {
+        console.log('[AutopilotPanel] SSE 错误，5秒后重连...')
+        chapterStreamReconnectTimer = setTimeout(() => {
+          if (isRunning.value) {
+            startChapterStream()
+          }
+        }, 5000)
+      }
     }
   })
 }
 
 function stopChapterStream() {
+  if (chapterStreamReconnectTimer) {
+    clearTimeout(chapterStreamReconnectTimer)
+    chapterStreamReconnectTimer = null
+  }
   if (chapterStreamCtrl) {
     chapterStreamCtrl.abort()
     chapterStreamCtrl = null

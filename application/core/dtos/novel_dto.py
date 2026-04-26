@@ -75,6 +75,7 @@ class NovelDTO:
     premise: str
     chapters: List[ChapterDTO]
     total_word_count: int
+    slug: str = ""
     has_bible: bool = False
     has_outline: bool = False
     autopilot_status: str = "stopped"
@@ -105,6 +106,7 @@ class NovelDTO:
 
         return cls(
             id=novel.novel_id.value,
+            slug=getattr(novel, 'slug', novel.novel_id.value) or novel.novel_id.value,
             title=novel.title,
             author=novel.author,
             target_chapters=novel.target_chapters,

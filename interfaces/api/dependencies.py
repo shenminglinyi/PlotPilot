@@ -525,6 +525,7 @@ def get_triple_indexing_service():
 
 
 _vector_store_singleton: Optional[VectorStore] = None
+_vector_store_init_failed: bool = False
 
 
 def get_vector_store() -> Optional[VectorStore]:
@@ -539,21 +540,33 @@ def get_vector_store() -> Optional[VectorStore]:
     Returns:
         VectorStore 实例或 None
     """
-    global _vector_store_singleton
+    global _vector_store_singleton, _vector_store_init_failed
+
+    # 如果已经初始化过（成功或失败），直接返回结果
     if _vector_store_singleton is not None:
         return _vector_store_singleton
+    if _vector_store_init_failed:
+        return None
 
     enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
     if not enabled:
+        _vector_store_init_failed = True
         return None
 
     try:
         from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
         persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
         _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
+        logger.info("向量存储初始化成功: %s", persist_dir)
         return _vector_store_singleton
     except Exception as e:
-        logger.warning(f"Failed to initialize vector store: {e}")
+        _vector_store_init_failed = True
+        logger.warning(
+            "向量存储初始化失败，已降级禁用。"
+            "如需使用向量功能，请安装依赖: pip install -r requirements-local.txt"
+            " 或设置 VECTOR_STORE_TYPE=qdrant。错误: %s",
+            e,
+        )
         return None
 
 

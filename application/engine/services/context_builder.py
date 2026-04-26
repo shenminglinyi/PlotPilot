@@ -269,14 +269,20 @@ class ContextBuilder:
                 ),
             ]
 
-        # 调整字数分配
+        # 调整字数分配（保守策略）
+        # LLM 倾向于超出字数要求，因此 prompt 中只要求目标的 75%
+        # 配合 max_tokens = target × 1.1（硬性上限），强制控制字数
         total_words = sum(b.target_words for b in beats)
+        prompt_target_ratio = 0.75  # prompt 中只要求 75%
         if total_words != target_chapter_words:
-            ratio = target_chapter_words / total_words
+            ratio = (target_chapter_words * prompt_target_ratio) / total_words
             for beat in beats:
                 beat.target_words = int(beat.target_words * ratio)
 
-        logger.info(f"节拍放大器：将大纲拆分为 {len(beats)} 个节拍")
+        logger.info(
+            f"节拍放大器：将大纲拆分为 {len(beats)} 个节拍，"
+            f"prompt 目标 {sum(b.target_words for b in beats)} 字（实际目标 {target_chapter_words} 字的 {int(prompt_target_ratio * 100)}%）"
+        )
         return beats
 
     # 节拍聚焦指令已迁移至 prompts_defaults.json (id=beat-focus-instructions)

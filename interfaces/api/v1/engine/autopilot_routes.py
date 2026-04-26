@@ -31,13 +31,29 @@ def _chapter_status_str(c) -> str:
 
 
 def resolve_autopilot_current_chapter_number(chapters) -> Optional[int]:
-    """与 SSE 日志、进度条一致：有 draft 取最大 draft 章号；否则取最大 completed+1（预测下一章）。"""
+    """与 SSE 日志、进度条一致：有内容的 draft 取最大章号；否则取最大 completed+1（预测下一章）。
+
+    注意：幕级规划时会创建空的 draft 记录，需要忽略内容为空的 draft。
+    """
     if not chapters:
         return None
     try:
-        drafts = [c for c in chapters if _chapter_status_str(c) == "draft"]
-        if drafts:
-            return max(int(c.number) for c in drafts)
+        # 只考虑有实际内容的 draft（字数 > 0）
+        def has_content(c) -> bool:
+            wc = c.word_count
+            if hasattr(wc, 'value'):
+                wc = wc.value
+            # 也检查 content 长度（兼容 word_count 为空的情况）
+            content_len = len(c.content) if hasattr(c, 'content') and c.content else 0
+            return (wc or 0) > 0 or content_len > 0
+
+        drafts_with_content = [
+            c for c in chapters
+            if _chapter_status_str(c) == "draft" and has_content(c)
+        ]
+        if drafts_with_content:
+            return max(int(c.number) for c in drafts_with_content)
+
         completed = [c for c in chapters if _chapter_status_str(c) == "completed"]
         if completed:
             return max(int(c.number) for c in completed) + 1
@@ -241,6 +257,7 @@ async def get_autopilot_status(novel_id: str):
         "needs_review": novel.current_stage.value == "paused_for_review",
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
+        "audit_progress": getattr(novel, "audit_progress", None),  # 审计进度指示
     }
 
 

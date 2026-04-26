@@ -425,13 +425,14 @@ class PromptManager:
         db = self._get_db()
         tid = _uid()
         now = datetime.now().isoformat()
-        db.execute("""
+        conn = db.get_connection()
+        conn.execute("""
             INSERT INTO prompt_templates
             (id, name, description, category, version, author, icon, color,
              is_builtin, metadata, created_at, updated_at)
             VALUES (?, ?, ?, ?, '1.0.0', '', '📦', '#6b7280', 0, '{}', ?, ?)
         """, (tid, name, description, category, now, now))
-        db.commit()
+        conn.commit()
         return TemplateInfo({"id": tid, "name": name, "description": description,
                              "category": category, "node_count": 0})
 

@@ -159,8 +159,9 @@ class ContextBudgetAllocator:
     MAX_VECTOR_RECALL_TOKENS = 5000
 
     # 最近章节槽位：紧邻上一章侧重章末承接；更早章节仅章首短预览以省预算
-    PREV_CHAPTER_BRIDGE_HEAD_CHARS = 250
-    PREV_CHAPTER_BRIDGE_TAIL_CHARS = 1200
+    # V8 优化：增加章末保留量，提升章节间连贯性
+    PREV_CHAPTER_BRIDGE_HEAD_CHARS = 300   # 章首略览
+    PREV_CHAPTER_BRIDGE_TAIL_CHARS = 2000  # 章末完整保留（原 1200 → 2000）
     OLDER_CHAPTER_HEAD_PREVIEW_CHARS = 500
 
     def __init__(

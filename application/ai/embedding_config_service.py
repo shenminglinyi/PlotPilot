@@ -157,8 +157,9 @@ class EmbeddingConfigService:
         params.append("default")  # WHERE id = ?
 
         sql = f"UPDATE embedding_config SET {', '.join(set_clauses)} WHERE id = ?"
-        db.execute(sql, params)
-        db.get_connection().commit()
+        conn = db.get_connection()
+        conn.execute(sql, tuple(params))
+        conn.commit()
 
         logger.info("EmbeddingConfigService: 配置已更新，字段: %s", list(kwargs.keys()))
         return self.get_config()

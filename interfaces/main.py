@@ -76,6 +76,9 @@ from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger
 # System module (internal tooling)
 from interfaces.api.v1 import system as system_routes
 
+# Reader Simulation module
+from interfaces.api.v1 import reader as reader_module
+
 # Workbench module
 from interfaces.api.v1.workbench import sandbox, writer_block, monitor, llm_control
 from interfaces.api.stats.routers.stats import create_stats_router
@@ -156,9 +159,14 @@ async def startup_event():
     logger.info("✅ FastAPI application started successfully")
     logger.info(f"📊 Registered {len(app.routes)} routes")
 
+    # Windows: 启动前清理上次可能残留的进程
+    if os.name == "nt":
+        logger.info("🧹 Windows 启动前检查残留进程...")
+        _cleanup_orphan_python_processes()
+
     # 重启时将所有运行中的小说设置为停止状态
     _stop_all_running_novels()
-    
+
     # 启动自动驾驶守护进程（后台线程）
     _start_autopilot_daemon_thread()
 
@@ -170,7 +178,7 @@ def _checkpoint_sqlite_wal_safe() -> None:
         from application.paths import get_db_path
 
         dbp = get_db_path()
-        conn = sqlite3.connect(dbp, timeout=15.0)
+        conn = sqlite3.connect(dbp, timeout=2.0)  # 减少超时
         try:
             conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         finally:
@@ -379,6 +387,65 @@ def _start_autopilot_daemon_thread():
     logger.info("✅ 守护进程已创建并启动（独立进程模式，流式队列已传递）")
 
 
+def _cleanup_orphan_python_processes():
+    """Windows: 清理可能残留的 plotpilot-backend 相关进程。
+
+    注意：只清理命令行中包含 'plotpilot' 或 'autopilot' 的 Python 进程，
+    避免误杀其他无关的 Python 进程。
+    """
+    import subprocess
+
+    try:
+        # 获取当前进程 PID
+        current_pid = os.getpid()
+        logger.info(f"🔍 检查残留进程（当前 PID={current_pid}）...")
+
+        # 使用 wmic 查找 Python 进程
+        result = subprocess.run(
+            ['wmic', 'process', 'where', "name='python.exe' or name='python3.exe' or name='plotpilot-backend.exe'",
+             'get', 'processid,commandline'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        lines = result.stdout.strip().split('\n')
+        killed_count = 0
+
+        for line in lines:
+            line = line.strip()
+            if not line or 'CommandLine' in line:
+                continue
+
+            # 检查是否是相关进程
+            if any(keyword in line.lower() for keyword in ['plotpilot', 'autopilot', 'uvicorn', 'interfaces.main']):
+                # 提取 PID（最后一个数字）
+                parts = line.split()
+                for part in reversed(parts):
+                    if part.isdigit():
+                        pid = int(part)
+                        # 不要杀死当前进程
+                        if pid != current_pid:
+                            try:
+                                logger.info(f"🧹 清理残留进程 PID={pid}: {line[:80]}...")
+                                subprocess.run(['taskkill', '/F', '/PID', str(pid)],
+                                             capture_output=True, timeout=5)
+                                killed_count += 1
+                            except Exception as e:
+                                logger.warning(f"清理进程 {pid} 失败: {e}")
+                        break
+
+        if killed_count > 0:
+            logger.info(f"✅ 已清理 {killed_count} 个残留进程")
+        else:
+            logger.info("✅ 未发现残留进程")
+
+    except subprocess.TimeoutExpired:
+        logger.warning("⚠️ 进程清理超时")
+    except Exception as e:
+        logger.warning(f"⚠️ 进程清理失败: {e}")
+
+
 def _stop_autopilot_daemon_thread():
     """停止守护进程"""
     global _daemon_process, _daemon_stop_event
@@ -388,16 +455,29 @@ def _stop_autopilot_daemon_thread():
         _daemon_stop_event.set()
 
     if _daemon_process and _daemon_process.is_alive():
-        _daemon_process.join(timeout=5)  # 等待最多5秒
+        _daemon_process.join(timeout=2)  # 减少等待时间到2秒
         if _daemon_process.is_alive():
             logger.warning("⚠️  守护进程未在超时时间内停止，强制终止")
             _daemon_process.terminate()
-            _daemon_process.join(timeout=2)
+            _daemon_process.join(timeout=1)
+            # 如果还是活着，强制kill
+            if _daemon_process.is_alive():
+                logger.warning("⚠️  守护进程仍未停止，使用 SIGKILL")
+                try:
+                    import signal
+                    import os
+                    os.kill(_daemon_process.pid, signal.SIGKILL)
+                except Exception as e:
+                    logger.error(f"强制终止守护进程失败: {e}")
         else:
             logger.info("✅ 守护进程已成功停止")
 
     _daemon_process = None
     _daemon_stop_event = None
+
+    # Windows: 额外清理可能残留的 Python 子进程
+    if os.name == "nt":
+        _cleanup_orphan_python_processes()
 
 
 def restart_autopilot_daemon():
@@ -423,6 +503,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册统一错误处理器（捕获未处理异常并记录日志）
+from interfaces.api.middleware.error_handler import add_error_handlers
+add_error_handlers(app)
 
 # HTTP 访问日志由 uvicorn.access 输出（与 uvicorn 默认格式一致：IP + 请求行 + 状态码）
 
@@ -467,6 +551,9 @@ app.include_router(foreshadow_ledger.router, prefix="/api/v1")
 
 # System module routes (internal tooling)
 app.include_router(system_routes.router, prefix="/api/v1")
+
+# Reader Simulation module routes
+app.include_router(reader_module.router, prefix="/api/v1")
 
 # Workbench module routes
 app.include_router(writer_block.router, prefix="/api/v1")

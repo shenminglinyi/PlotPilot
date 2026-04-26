@@ -105,7 +105,7 @@ async function initTauriConnection(): Promise<void> {
 
 /** 桌面壳：后端在后台线程就绪，IPC 端口在健康检查通过前可能为 0 */
 const TAURI_BACKEND_POLL_MS = 200
-const TAURI_BACKEND_WAIT_MS = 125_000
+const TAURI_BACKEND_WAIT_MS = 30_000  // 30秒，避免长时间卡住
 
 async function waitForTauriBackendPort(
   invoke: (cmd: string) => Promise<number>,
@@ -136,19 +136,34 @@ export async function initApiClient(): Promise<void> {
     if (first > 0) {
       port = first
     } else if (isTauri()) {
+      console.log('[API] 等待后端就绪...')
       port = await waitForTauriBackendPort(
         cmd => invoke<number>(cmd),
         TAURI_BACKEND_WAIT_MS,
         TAURI_BACKEND_POLL_MS,
       )
     }
-  } catch {
-    // 浏览器 / 无 IPC
+  } catch (e) {
+    console.warn('[API] Tauri IPC 调用失败:', e)
   }
 
   if (port != null && port > 0) {
-    axiosInstance.defaults.baseURL = `http://127.0.0.1:${port}/api/v1`
-    console.log(`[API] 桌面模式 baseURL: ${axiosInstance.defaults.baseURL}`)
+    const newBaseURL = `http://127.0.0.1:${port}/api/v1`
+    axiosInstance.defaults.baseURL = newBaseURL
+    console.log(`[API] 桌面模式 baseURL: ${newBaseURL}`)
+
+    // 验证后端是否真的响应
+    try {
+      const healthCheck = await fetch(`http://127.0.0.1:${port}/health`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000)
+      })
+      if (!healthCheck.ok) {
+        console.warn('[API] 后端健康检查失败，状态码:', healthCheck.status)
+      }
+    } catch (e) {
+      console.warn('[API] 后端健康检查异常:', e)
+    }
   } else if (isTauri()) {
     axiosInstance.defaults.baseURL = 'http://127.0.0.1:8005/api/v1'
     console.warn('[API] Tauri 下未能通过 IPC 取得端口，回退 8005')

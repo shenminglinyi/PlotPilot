@@ -172,6 +172,9 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
         "target_words_per_chapter": (
             "ALTER TABLE novels ADD COLUMN target_words_per_chapter INTEGER DEFAULT 2500"
         ),
+        "audit_progress": (
+            "ALTER TABLE novels ADD COLUMN audit_progress TEXT"
+        ),
     }
     for col, sql in migrations.items():
         if col not in cols:

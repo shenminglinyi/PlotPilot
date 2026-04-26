@@ -330,6 +330,13 @@ class AutopilotDaemon:
         novel_id = novel.novel_id.value
         target_act_number = novel.current_act + 1  # 1-indexed
 
+        # 提前计算结构推荐参数，供后续多处使用（避免动态幕生成失败时变量未定义）
+        from application.blueprint.services.continuous_planning_service import calculate_structure_params
+        target_chapters = novel.target_chapters or 100
+        struct_params = calculate_structure_params(target_chapters)
+        rec_chapters_per_act = struct_params["chapters_per_act"]
+        rec_acts_per_volume = struct_params["acts_per_volume"]
+
         all_nodes = await self.story_node_repo.get_by_novel(novel_id)
         act_nodes = sorted(
             [n for n in all_nodes if n.node_type.value == "act"],
@@ -345,13 +352,6 @@ class AutopilotDaemon:
                 [n for n in all_nodes if n.node_type.value == "volume"],
                 key=lambda n: n.number
             )
-
-            # 使用结构计算引擎获取推荐参数（替代硬编码的 // 3）
-            from application.blueprint.services.continuous_planning_service import calculate_structure_params
-            target_chapters = novel.target_chapters or 100
-            struct_params = calculate_structure_params(target_chapters)
-            rec_chapters_per_act = struct_params["chapters_per_act"]
-            rec_acts_per_volume = struct_params["acts_per_volume"]
 
             # 智能父卷选择：优先让当前卷填满（达到 rec_acts_per_volume 幕），再跳下一卷
             parent_volume = self._find_parent_volume_for_new_act(
@@ -653,7 +653,11 @@ class AutopilotDaemon:
                         voice_anchors=voice_anchors,
                         chapter_draft_so_far=chapter_content,
                     )
-                    max_tokens = int(beat.target_words * 1.5)
+                    # 字数控制策略：
+                    # - prompt 中要求目标的 75%（在 context_builder 中处理）
+                    # - max_tokens = prompt 目标 × 1.1（硬性上限，超出会被截断）
+                    # - 最终输出应接近 prompt 目标，略低于原始目标
+                    max_tokens = int(beat.target_words * 1.1)
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                     beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
@@ -668,6 +672,10 @@ class AutopilotDaemon:
                     )
 
                 if beat_content.strip():
+                    # V8: 截断检测与自动续写（软着陆）
+                    beat_content = await self._ensure_complete_ending(
+                        beat_content, beat, outline, chapter_content, novel
+                    )
                     chapter_content += ("\n\n" if chapter_content else "") + beat_content
                     await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="draft")
 
@@ -683,7 +691,11 @@ class AutopilotDaemon:
                 novel.current_beat_index = i + 1
                 self._flush_novel(novel)
 
-                logger.info(f"[{novel.novel_id}]    ✅ 节拍 {i+1}/{len(beats)} 完成: {len(beat_content)} 字")
+                actual_len = len(beat_content)
+                target_len = beat.target_words
+                ratio = actual_len / target_len if target_len > 0 else 0
+                warning = f" ⚠️ 超出 {int((ratio - 1) * 100)}%" if ratio > 1.1 else ""
+                logger.info(f"[{novel.novel_id}]    ✅ 节拍 {i+1}/{len(beats)} 完成: {actual_len} 字 (目标 {target_len}){warning}")
         else:
             # 降级：无节拍，一次生成
             if not self._is_still_running(novel):
@@ -726,7 +738,26 @@ class AutopilotDaemon:
             except Exception as e:
                 logger.warning(f"post_process_generated_chapter 失败（仍落库）：{e}")
 
-        # 7. 章节完成，标记 completed
+        # 7. 章节完成，标记 completed（带字数验证）
+        actual_word_count = len(chapter_content.strip())
+        target_word_count = int(getattr(novel, "target_words_per_chapter", None) or 2500)
+
+        # 字数警告：低于目标 60% 或超出 120% 时发出警告
+        if actual_word_count < target_word_count * 0.6:
+            logger.warning(
+                f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数不足：{actual_word_count} 字 "
+                f"(目标 {target_word_count} 字，低于 60%)"
+            )
+        elif actual_word_count > target_word_count * 1.2:
+            logger.warning(
+                f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数超出：{actual_word_count} 字 "
+                f"(目标 {target_word_count} 字，超出 {int((actual_word_count / target_word_count - 1) * 100)}%)"
+            )
+        else:
+            logger.info(
+                f"[{novel.novel_id}] 第 {chapter_num} 章字数：{actual_word_count} 字 (目标 {target_word_count})"
+            )
+
         await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="completed")
 
         # 8. 更新计数器，重置节拍索引
@@ -736,7 +767,10 @@ class AutopilotDaemon:
         novel.current_stage = NovelStage.AUDITING
         self._flush_novel(novel)
 
-        logger.info(f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{len(chapter_content)} 字 (共 {novel.current_auto_chapters}/{novel.target_chapters} 章)")
+        logger.info(
+            f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{actual_word_count} 字 "
+            f"(目标 {target_word_count} 字，共 {novel.current_auto_chapters}/{novel.target_chapters} 章)"
+        )
 
     def _latest_completed_chapter_number(self, novel_id: NovelId) -> Optional[int]:
         """已完结章节的最大章节号（与故事树全局章节号一致）。
@@ -758,6 +792,7 @@ class AutopilotDaemon:
         chapter_num = self._latest_completed_chapter_number(NovelId(novel.novel_id.value))
         if chapter_num is None:
             novel.current_stage = NovelStage.WRITING
+            self._flush_novel(novel)
             return
 
         chapter = self.chapter_repository.get_by_novel_and_number(
@@ -765,10 +800,15 @@ class AutopilotDaemon:
         )
         if not chapter:
             novel.current_stage = NovelStage.WRITING
+            self._flush_novel(novel)
             return
 
         content = chapter.content or ""
         chapter_id = ChapterId(chapter.id)
+
+        # 审计阶段：保存进度以便前端能看到
+        novel.audit_progress = "voice_check"
+        self._flush_novel(novel)
 
         # 1. 先做文风预检；若严重偏离则定向改写，最多两轮，再执行章后管线，避免分析结果与最终正文错位
         drift_result = await self._score_voice_only(
@@ -784,6 +824,9 @@ class AutopilotDaemon:
         )
 
         # 2. 统一章后管线：叙事/向量、文风（一次）、KG 推断；三元组与伏笔在叙事同步单次 LLM 中落库
+        novel.audit_progress = "aftermath_pipeline"
+        self._flush_novel(novel)
+
         if self.aftermath_pipeline:
             try:
                 drift_result = await self.aftermath_pipeline.run_after_chapter_saved(
@@ -806,6 +849,9 @@ class AutopilotDaemon:
             )
 
         # 2. 张力打分（轻量 LLM 调用，~200 token）
+        novel.audit_progress = "tension_scoring"
+        self._flush_novel(novel)
+
         tension = await self._score_tension(content)
         novel.last_chapter_tension = tension
         # 保存张力值到章节（用于张力曲线图）
@@ -851,6 +897,7 @@ class AutopilotDaemon:
             )
 
         novel.current_stage = NovelStage.WRITING
+        novel.audit_progress = None  # 清除审计进度
 
         # 5. 全书完成检测
         chapters = self.chapter_repository.list_by_novel(NovelId(novel.novel_id.value))
@@ -1280,6 +1327,82 @@ class AutopilotDaemon:
         from application.engine.services.streaming_bus import streaming_bus
         streaming_bus.publish(novel_id, chunk)
 
+    async def _ensure_complete_ending(
+        self,
+        content: str,
+        beat: "Beat",
+        outline: str,
+        chapter_draft_so_far: str,
+        novel=None,
+    ) -> str:
+        """V8: 截断检测与自动续写（软着陆）
+
+        检测内容是否被截断（没有以句号等结束符结尾），
+        如果被截断，自动发起续写请求完成收尾。
+
+        Args:
+            content: 已生成的内容
+            beat: 当前节拍对象
+            outline: 章节大纲
+            chapter_draft_so_far: 本章已生成的正文
+            novel: 小说对象
+
+        Returns:
+            完整的内容（可能包含续写部分）
+        """
+        import re
+
+        if not content or not content.strip():
+            return content
+
+        # 检测是否以句子结束符结尾
+        # 中文句号、英文句号、叹号、问号、引号、省略号
+        ending_pattern = r'[。！？…）】》"\'』」]$'
+        stripped = content.rstrip()
+
+        if re.search(ending_pattern, stripped):
+            # 结尾完整，无需续写
+            return content
+
+        # 检测是否被截断
+        logger.warning(f"[截断检测] 内容未以结束符结尾，可能被截断，发起自动续写")
+
+        # 构建续写 Prompt
+        continuation_prompt = Prompt(
+            system="你是小说续写助手。你的任务是为被截断的段落提供一个简短、自然的结尾。"
+                   "不要重复已有内容，只需在 150 字以内完成收尾，让段落有完整的结尾。",
+            user=f"""以下段落被截断了，请续写一个简短的结尾（150字以内）让它完整结束：
+
+---截断的内容---
+{stripped[-500:]}
+
+---续写要求---
+1. 承接上文，给出自然的收尾
+2. 不要重复已有内容
+3. 必须以句号结束
+4. 字数控制在 150 字以内
+
+请直接续写，不要解释："""
+        )
+
+        try:
+            config = GenerationConfig(max_tokens=300, temperature=0.7)
+            continuation = await self._stream_llm_with_stop_watch(
+                continuation_prompt, config, novel=novel
+            )
+
+            if continuation and continuation.strip():
+                # 拼接续写内容
+                result = stripped + continuation.strip()
+                logger.info(f"[截断续写] 成功续写 {len(continuation.strip())} 字")
+                return result
+
+        except Exception as e:
+            logger.warning(f"[截断续写] 续写失败: {e}")
+
+        # 续写失败，返回原内容（至少加个句号让它看起来完整）
+        return stripped + "。"
+
     async def _stream_one_beat(
         self,
         outline,
@@ -1320,30 +1443,61 @@ class AutopilotDaemon:
             user_parts.append(f"\n{beat_prompt}")
         user_parts.append("\n\n开始撰写：")
 
-        max_tokens = int(beat.target_words * 1.5) if beat else 3000
+        # 字数控制策略（与主流程一致）
+        max_tokens = int(beat.target_words * 1.1) if beat else 3000
 
         prompt = Prompt(system=system, user="\n".join(user_parts))
         config = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
         return await self._stream_llm_with_stop_watch(prompt, config, novel=novel)
 
     async def _upsert_chapter_content(self, novel, chapter_node, content: str, status: str):
-        """最小事务：只更新章节内容，不涉及其他表"""
+        """最小事务：只更新章节内容，不涉及其他表
+
+        安全规则：
+        1. 空内容不能将状态更新为 completed（防止空章节被标记为完成）
+        2. 空内容不会覆盖已有内容（防止意外清空）
+        """
         from domain.novel.entities.chapter import Chapter, ChapterStatus
         from domain.novel.value_objects.novel_id import NovelId
+
+        content_str = (content or "").strip()
 
         existing = self.chapter_repository.get_by_novel_and_number(
             NovelId(novel.novel_id.value), chapter_node.number
         )
         if existing:
-            # 防御：避免意外用空串覆盖已有正文（例如并发/异常分支写入空内容）
-            if (not (content or "").strip()) and (existing.content or "").strip():
-                existing.status = ChapterStatus(status)
-                self.chapter_repository.save(existing)
+            existing_content = (existing.content or "").strip()
+
+            # 安全检查：空内容不能标记为 completed
+            if not content_str and status == "completed":
+                logger.warning(
+                    f"[{novel.novel_id}] 拒绝将章节 {chapter_node.number} 标记为 completed：内容为空"
+                )
                 return
+
+            # 防御：避免意外用空串覆盖已有正文
+            if not content_str:
+                # 空内容：只允许更新状态为 draft（不能覆盖已有内容，不能标记为 completed）
+                if status == "draft" and existing_content:
+                    logger.debug(
+                        f"[{novel.novel_id}] 章节 {chapter_node.number} 内容为空，仅更新状态为 draft（保留已有内容）"
+                    )
+                    existing.status = ChapterStatus.DRAFT
+                    self.chapter_repository.save(existing)
+                return
+
+            # 正常更新：有内容时才更新
             existing.update_content(content)
             existing.status = ChapterStatus(status)
             self.chapter_repository.save(existing)
         else:
+            # 新建章节：空内容只能创建为 draft
+            if not content_str and status == "completed":
+                logger.warning(
+                    f"[{novel.novel_id}] 拒绝创建空的 completed 章节 {chapter_node.number}"
+                )
+                return
+
             chapter = Chapter(
                 id=chapter_node.id,
                 novel_id=NovelId(novel.novel_id.value),
@@ -1351,7 +1505,7 @@ class AutopilotDaemon:
                 title=chapter_node.title,
                 content=content,
                 outline=chapter_node.outline or "",
-                status=ChapterStatus(status)
+                status=ChapterStatus(status if content_str else "draft")
             )
             self.chapter_repository.save(chapter)
 
