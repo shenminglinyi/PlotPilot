@@ -370,7 +370,10 @@ class NovelService:
         if novel is None:
             raise EntityNotFoundError("Novel", novel_id)
 
-        novel.stage = NovelStage(stage)
+        try:
+            novel.stage = NovelStage(stage)
+        except ValueError:
+            raise ValueError(f"Invalid stage value: {stage}. Valid values: {[s.value for s in NovelStage]}")
         self.novel_repository.save(novel)
 
         return NovelDTO.from_domain(self._hydrate_chapters(novel))

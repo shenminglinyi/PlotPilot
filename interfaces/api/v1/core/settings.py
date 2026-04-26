@@ -172,7 +172,7 @@ def update_embedding_config(body: EmbeddingConfigUpdate):
         use_gpu=body.use_gpu,
         model_path=body.model_path,
     )
-    return updated.to_api_dict()
+    return updated.to_dict()
 
 
 @embedding_router.post("/fetch-models")
