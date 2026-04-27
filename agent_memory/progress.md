@@ -62,6 +62,10 @@
   - `ContinuityPanel.vue` 已可从文风漂移、大纲偏离、角色掉线、关系提醒直接创建候选改稿任务
   - `WorkArea.vue` 已能消费该上下文，复用现有候选稿 API 自动生成候选改稿，并直接打开候选稿弹窗选中结果
   - 该链路保持现有候选稿分支、采纳、章后记忆更新逻辑不变，只补最小前端联动
+- 已继续收口候选改稿的展示体验：
+  - 新增 `frontend/src/utils/candidateDraftDisplay.ts`，统一把候选稿来源转成作者可读标签
+  - 工作台 `WorkArea.vue` 与单章页 `Chapter.vue` 的候选稿卡片已复用同一套来源标签和改稿焦点标签
+  - 连续性生成的候选稿现在能显示“文风改稿 / 大纲改稿 / 角色掉线 / 关系推进”等来源，以及“文风漂移 / 大纲偏离 / 角色连续性”等处理目标
 
 ## 验证状态
 
@@ -82,6 +86,7 @@
 - `cd frontend && npm run build`：通过（口吻锁定与对话沙盒联动接入后再次验证）
 - `cd frontend && npm run build`：通过（连续性面板直达处理动作接入后再次验证）
 - `cd frontend && npm run build`：先失败后通过（新增 `candidateRewriteSeed` 类型校验文件，验证缺少 store 能力时 `TS2339` 报错；补完联动后重新构建通过）
+- `cd frontend && npm run build`：先失败后通过（新增候选稿展示 helper 类型校验，验证缺少 `candidateDraftDisplay` 时 `TS2307` 报错；补完 helper 与两个候选稿入口后重新构建通过）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过

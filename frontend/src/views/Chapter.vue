@@ -245,7 +245,9 @@
                           <n-space vertical :size="8">
                             <n-space justify="space-between" align="center">
                               <n-space :size="6" align="center">
-                                <n-tag size="small" round>{{ draft.source }}</n-tag>
+                                <n-tag size="small" round :type="candidateDraftSourceType(draft.source)">
+                                  {{ candidateDraftSourceLabel(draft.source) }}
+                                </n-tag>
                                 <n-tag size="small" round type="default">{{ draft.branch_name }}</n-tag>
                                 <n-tag
                                   size="small"
@@ -258,6 +260,17 @@
                               <n-text depth="3" style="font-size: 11px">{{ formatDraftTime(draft.created_at) }}</n-text>
                             </n-space>
                             <n-text strong>{{ draft.title || `第${draft.chapter_number}章候选稿` }}</n-text>
+                            <n-space v-if="candidateDraftFocusTags(draft).length" :size="6" wrap>
+                              <n-tag
+                                v-for="tag in candidateDraftFocusTags(draft)"
+                                :key="`${draft.id}-${tag}`"
+                                size="small"
+                                round
+                                type="info"
+                              >
+                                {{ tag }}
+                              </n-tag>
+                            </n-space>
                             <n-text depth="3" style="font-size: 12px; line-height: 1.6">
                               {{ draft.rationale || '无说明' }}
                             </n-text>
@@ -343,6 +356,11 @@ import type { ChapterCandidateDraftDTO } from '../api/chapter'
 import { knowledgeGraphApi, type InferenceFactBundle } from '../api/knowledgeGraph'
 import { useStatsStore } from '../stores/statsStore'
 import { useCandidateDraftBranchStore } from '../stores/candidateDraftBranchStore'
+import {
+  candidateDraftFocusTags,
+  candidateDraftSourceLabel,
+  candidateDraftSourceType,
+} from '../utils/candidateDraftDisplay'
 import CandidateDraftBranchSwitcher from '../components/workbench/CandidateDraftBranchSwitcher.vue'
 
 // Status mapping: old API (pending/ok/revise) <-> new API (draft/reviewed/approved)

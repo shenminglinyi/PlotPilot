@@ -1,0 +1,23 @@
+import {
+  candidateDraftFocusTags,
+  candidateDraftSourceLabel,
+  candidateDraftSourceType,
+} from '@/utils/candidateDraftDisplay'
+import type { ChapterCandidateDraftDTO } from '@/api/chapter'
+
+const draft = {
+  source: 'continuity-outline',
+  metadata: {
+    rewrite_focus: 'outline-deviation',
+    outline_status: 'warning',
+    warning_reasons: ['正文摘要与大纲重合度偏低'],
+  },
+} as unknown as ChapterCandidateDraftDTO
+
+const label: string = candidateDraftSourceLabel(draft.source)
+const tags: string[] = candidateDraftFocusTags(draft)
+const tagType: string = candidateDraftSourceType(draft.source)
+
+void label
+void tags
+void tagType
