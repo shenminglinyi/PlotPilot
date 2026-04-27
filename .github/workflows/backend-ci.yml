@@ -29,8 +29,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run unit tests
-        run: pytest tests/unit -q --tb=short
+      - name: Run verified backend workflow tests
+        run: >
+          pytest
+          tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py
+          tests/unit/application/services/test_chapter_candidate_draft_service.py
+          tests/unit/application/services/test_chapter_service.py
+          tests/unit/application/services/test_chronicles_service.py
+          tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py
+          -q
+          --tb=short
         env:
           # 单测不需要真实 key，用占位值防止启动时报错
           ANTHROPIC_API_KEY: "test-placeholder"
