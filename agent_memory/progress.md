@@ -39,12 +39,17 @@
 - `cd frontend && npm run build`：通过。
 - 新后端 CI 对应本地命令已通过：
   - `python -m pytest tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`
+- GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
+- GitHub Actions 当前状态：
+  - `Backend CI` push run `25004405301`：通过
+  - `Frontend CI` push run `25004405272`：通过
+  - `Frontend CI` 手动 run `25004296419`：通过
 
 ## 下一步
 
-- 观察 GitHub 新一轮 backend/frontend CI 是否都能稳定通过
 - 评估是否要在单章页采纳候选稿后同步刷新更多派生信息面板，例如结构分析/审定信息，而不是只刷新正文与推断证据
 - 评估是否把候选稿页签内部那套分支输入收敛成复用 `CandidateDraftBranchSwitcher.vue`，减少重复 UI
+- 评估是否要把 GitHub Actions 使用的 `checkout/setup-*` action 版本前瞻升级到支持 Node 24，提前消除弃用告警
 
 ## 待确认
 

@@ -9,6 +9,7 @@
 - API 集成测试会触发现有向量存储初始化；当前 worktree 只安装了 `requirements.txt`，未装 `requirements-local.txt`，因此会看到 `faiss` 缺失告警。现阶段不影响候选稿闭环测试，但后续如果要测向量相关能力，需要补本地依赖或显式 mock 掉向量层。
 - 新建 worktree 默认没有 `frontend/node_modules`；前端改动验证前需要先在 worktree 下执行 `cd frontend && npm ci`，否则 `npm run build` 会因为缺少 `vue-tsc` 直接失败。
 - 当前 `tests/integration/interfaces/api/v1/conftest.py` 使用 `DatabaseConnection(\":memory:\")`，而连接对象内部又按线程缓存 SQLite 连接；如果测试先在主线程手动写库、再通过 `TestClient` 走请求线程读取，容易出现“主线程有表，请求线程 no such table” 的假失败。此类用例优先写成纯单元测试，或把数据创建动作也放到请求线程侧完成。
+- GitHub Actions 当前会提示 `actions/checkout@v4`、`actions/setup-node@v4`、`actions/setup-python@v5` 运行在即将弃用的 Node.js 20 兼容层上；暂时不影响 CI 通过，但后续需要关注对应 action 的 Node 24 支持升级窗口。
 
 ## 已解除
 
