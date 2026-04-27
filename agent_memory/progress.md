@@ -55,6 +55,8 @@
 - `python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py tests/unit/application/services/test_chronicles_service.py -q --tb=short`：通过（5 passed）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
+  - `Backend CI` push run `25006720081`：通过
+  - `Frontend CI` push run `25006719997`：通过
   - `Backend CI` push run `25004405301`：通过
   - `Frontend CI` push run `25004405272`：通过
   - `Frontend CI` 手动 run `25004296419`：通过
