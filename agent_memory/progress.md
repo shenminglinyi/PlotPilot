@@ -34,6 +34,11 @@
   - `tests/unit/application/services/test_continuity_overview_service.py`
   - `tests/integration/interfaces/api/v1/test_continuity_api.py`
 - 后端 CI 已纳入连续性总览测试
+- 已继续推进 `P2`，并直接融入现有连续性总览链路：
+  - `ContinuityOverviewService` 已新增“关系变化追踪”聚合：基于 `Bible 关系 + 同章共现 + 当前章摘要/审阅` 输出活跃关系信号与潜在掉线关系
+  - `ContinuityOverviewService` 已新增“大纲偏离提醒”聚合：基于 `story_nodes.outline + chapter_summaries + chapter_reviews` 输出启发式偏离状态与原因
+  - `interfaces/api/v1/analyst/continuity.py` 与 `frontend/src/api/continuity.ts` 已同步扩展接口模型
+  - `frontend/src/components/workbench/ContinuityPanel.vue` 已扩展为完整的 `P2` 视图：关系变化追踪、大纲偏离提醒、原有掉线/时间线/文风状态统一展示
 
 ## 验证状态
 
@@ -47,6 +52,7 @@
 - `cd frontend && npm run build`：通过。
 - 新后端 CI 对应本地命令已通过：
   - `python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`
+- `python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py tests/unit/application/services/test_chronicles_service.py -q --tb=short`：通过（5 passed）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25004405301`：通过
@@ -55,10 +61,10 @@
 
 ## 下一步
 
-- 继续扩展 `P2` 连续性面板：优先补“关系变化追踪”或“大纲偏离提醒”的最小版本
-- 评估是否把候选稿页签内部那套分支输入收敛成复用 `CandidateDraftBranchSwitcher.vue`，减少重复 UI
+- 将本轮 `P2` 关系变化追踪 / 大纲偏离提醒同步推送到 GitHub，并观察 CI
+- 继续向 `P2` 后半段推进：优先考虑把“角色口吻锁定工作流”或“出场/掉线提醒与关系视图联动”接到现有工作台
 - 评估是否要把 GitHub Actions 使用的 `checkout/setup-*` action 版本前瞻升级到支持 Node 24，提前消除弃用告警
 
 ## 待确认
 
-- 下一轮 P2 更适合先做“关系变化追踪”，还是先做“大纲与正文偏离提醒”。
+- 连续性面板里的“关系变化追踪”当前是启发式版本，后续是否要升级为基于显式关系事件表的精确追踪。

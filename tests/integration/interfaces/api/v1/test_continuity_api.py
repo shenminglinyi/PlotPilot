@@ -29,6 +29,22 @@ class _FakeContinuityOverviewService:
                     "description": "目前仍互相信任",
                 }
             ],
+            "relationship_tracking": {
+                "tracked_pairs": 1,
+                "active_signals": [
+                    {
+                        "source_character": "林羽",
+                        "target_character": "苏晴",
+                        "relation": "盟友",
+                        "last_joint_chapter": 12,
+                        "joint_appearance_count": 1,
+                        "change_signal": "关系趋紧",
+                        "signal_excerpt": "林羽与苏晴在码头对峙后关系趋紧",
+                        "severity": "warning",
+                    }
+                ],
+                "stale_pairs": [],
+            },
             "voice_drift": {
                 "drift_alert": True,
                 "latest_similarity_score": 0.63,
@@ -49,6 +65,13 @@ class _FakeContinuityOverviewService:
                         "timestamp_type": "relative",
                     }
                 ],
+            },
+            "outline_deviation": {
+                "status": "warning",
+                "overlap_score": 0.38,
+                "outline_excerpt": "林羽与苏晴在码头对峙，关系出现裂痕，并决定当夜潜入仓库。",
+                "summary_excerpt": "林羽与苏晴在码头对峙后关系趋紧，林羽决定独自潜入仓库。",
+                "warning_reasons": ["审阅备注提示可能偏离大纲"],
             },
         }
 
@@ -74,3 +97,5 @@ class TestContinuityAPI:
         assert payload["voice_drift"]["drift_alert"] is True
         assert payload["timeline"]["current_chapter_has_event"] is False
         assert payload["character_dropouts"][0]["character_name"] == "林羽"
+        assert payload["relationship_tracking"]["active_signals"][0]["change_signal"] == "关系趋紧"
+        assert payload["outline_deviation"]["status"] == "warning"

@@ -16,6 +16,34 @@ export interface RelationshipSpotlightItem {
   description: string
 }
 
+export interface RelationshipSignalItem {
+  source_character: string
+  target_character: string
+  relation: string
+  description: string
+  last_joint_chapter: number
+  joint_appearance_count: number
+  change_signal: string
+  signal_excerpt: string
+  severity: 'info' | 'success' | 'warning' | 'error' | string
+}
+
+export interface StaleRelationshipItem {
+  source_character: string
+  target_character: string
+  relation: string
+  description: string
+  last_joint_chapter: number
+  chapters_since_joint: number
+  severity: 'info' | 'success' | 'warning' | 'error' | string
+}
+
+export interface RelationshipTrackingSummary {
+  tracked_pairs: number
+  active_signals: RelationshipSignalItem[]
+  stale_pairs: StaleRelationshipItem[]
+}
+
 export interface TimelineEventItem {
   id: string
   chapter_number: number
@@ -39,14 +67,24 @@ export interface VoiceDriftSummary {
   alert_consecutive: number
 }
 
+export interface OutlineDeviationSummary {
+  status: 'aligned' | 'watch' | 'warning' | 'unavailable' | string
+  overlap_score: number | null
+  outline_excerpt: string
+  summary_excerpt: string
+  warning_reasons: string[]
+}
+
 export interface ContinuityOverviewResponse {
   novel_id: string
   chapter_number: number
   latest_chapter_number: number
   character_dropouts: CharacterDropoutItem[]
   relationship_spotlights: RelationshipSpotlightItem[]
+  relationship_tracking: RelationshipTrackingSummary
   voice_drift: VoiceDriftSummary
   timeline: TimelineSummary
+  outline_deviation: OutlineDeviationSummary
 }
 
 export const continuityApi = {

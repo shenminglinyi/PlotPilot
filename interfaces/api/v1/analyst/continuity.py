@@ -29,6 +29,34 @@ class RelationshipSpotlightItem(BaseModel):
     description: str
 
 
+class RelationshipSignalItem(BaseModel):
+    source_character: str
+    target_character: str
+    relation: str
+    description: str = ""
+    last_joint_chapter: int
+    joint_appearance_count: int
+    change_signal: str
+    signal_excerpt: str = ""
+    severity: str
+
+
+class StaleRelationshipItem(BaseModel):
+    source_character: str
+    target_character: str
+    relation: str
+    description: str = ""
+    last_joint_chapter: int
+    chapters_since_joint: int
+    severity: str
+
+
+class RelationshipTrackingSummary(BaseModel):
+    tracked_pairs: int
+    active_signals: List[RelationshipSignalItem]
+    stale_pairs: List[StaleRelationshipItem]
+
+
 class TimelineEventItem(BaseModel):
     id: str
     chapter_number: int
@@ -52,14 +80,24 @@ class VoiceDriftSummary(BaseModel):
     alert_consecutive: int
 
 
+class OutlineDeviationSummary(BaseModel):
+    status: str
+    overlap_score: Optional[float]
+    outline_excerpt: str
+    summary_excerpt: str
+    warning_reasons: List[str] = Field(default_factory=list)
+
+
 class ContinuityOverviewResponse(BaseModel):
     novel_id: str
     chapter_number: int
     latest_chapter_number: int
     character_dropouts: List[CharacterDropoutItem]
     relationship_spotlights: List[RelationshipSpotlightItem]
+    relationship_tracking: RelationshipTrackingSummary
     voice_drift: VoiceDriftSummary
     timeline: TimelineSummary
+    outline_deviation: OutlineDeviationSummary
 
 
 @router.get(

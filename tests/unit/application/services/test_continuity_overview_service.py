@@ -34,6 +34,11 @@ class _FakeBibleService:
                     name="苏晴",
                     relationships=[],
                 ),
+                SimpleNamespace(
+                    id="char-yan",
+                    name="严舟",
+                    relationships=[],
+                ),
             ]
         )
 
@@ -77,11 +82,25 @@ def test_get_overview_collects_dropouts_and_existing_signals():
     db = _FakeDb()
     db.execute(
         """
+        CREATE TABLE chapters (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT,
+            number INTEGER,
+            title TEXT,
+            content TEXT,
+            outline TEXT,
+            status TEXT
+        )
+        """
+    )
+    db.execute(
+        """
         CREATE TABLE story_nodes (
             id TEXT PRIMARY KEY,
             novel_id TEXT,
             node_type TEXT,
-            number INTEGER
+            number INTEGER,
+            outline TEXT
         )
         """
     )
@@ -97,12 +116,110 @@ def test_get_overview_collects_dropouts_and_existing_signals():
         """
     )
     db.execute(
+        """
+        CREATE TABLE knowledge (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT UNIQUE
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE chapter_summaries (
+            id TEXT PRIMARY KEY,
+            knowledge_id TEXT NOT NULL,
+            chapter_number INTEGER NOT NULL,
+            summary TEXT,
+            key_events TEXT,
+            open_threads TEXT,
+            consistency_note TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE chapter_reviews (
+            novel_id TEXT NOT NULL,
+            chapter_number INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            memo TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    db.execute(
+        "INSERT INTO knowledge (id, novel_id) VALUES (?, ?)",
+        ("novel-1-knowledge", "novel-1"),
+    )
+    db.execute(
         "INSERT INTO story_nodes (id, novel_id, node_type, number) VALUES (?, ?, ?, ?)",
         ("sn-4", "novel-1", "chapter", 4),
     )
     db.execute(
+        "INSERT INTO story_nodes (id, novel_id, node_type, number, outline) VALUES (?, ?, ?, ?, ?)",
+        (
+            "sn-12",
+            "novel-1",
+            "chapter",
+            12,
+            "林羽与苏晴在码头对峙，关系出现裂痕，并决定当夜潜入仓库。",
+        ),
+    )
+    db.execute(
+        """
+        INSERT INTO chapters (id, novel_id, number, title, content, outline, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "ch-12",
+            "novel-1",
+            12,
+            "第12章",
+            "林羽在码头和苏晴爆发争执，两人的信任开始松动。深夜里，他决定独自潜入仓库。",
+            "林羽与苏晴在码头对峙，关系出现裂痕，并决定当夜潜入仓库。",
+            "draft",
+        ),
+    )
+    db.execute(
         "INSERT INTO chapter_elements (id, chapter_id, element_type, element_id, relation_type) VALUES (?, ?, ?, ?, ?)",
-        ("elem-1", "sn-4", "character", "char-lin", "appears"),
+        ("elem-1", "sn-4", "character", "char-yan", "appears"),
+    )
+    db.execute(
+        "INSERT INTO chapter_elements (id, chapter_id, element_type, element_id, relation_type) VALUES (?, ?, ?, ?, ?)",
+        ("elem-2", "sn-12", "character", "char-lin", "appears"),
+    )
+    db.execute(
+        "INSERT INTO chapter_elements (id, chapter_id, element_type, element_id, relation_type) VALUES (?, ?, ?, ?, ?)",
+        ("elem-3", "sn-12", "character", "char-su", "appears"),
+    )
+    db.execute(
+        """
+        INSERT INTO chapter_summaries (
+            id, knowledge_id, chapter_number, summary, key_events, open_threads, consistency_note
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "sum-12",
+            "novel-1-knowledge",
+            12,
+            "林羽与苏晴在码头对峙后关系趋紧，林羽决定独自潜入仓库。",
+            "码头对峙；潜入仓库",
+            "苏晴是否还会相信林羽",
+            "本章强化了两人的信任裂痕。",
+        ),
+    )
+    db.execute(
+        """
+        INSERT INTO chapter_reviews (novel_id, chapter_number, status, memo)
+        VALUES (?, ?, ?, ?)
+        """,
+        (
+            "novel-1",
+            12,
+            "draft",
+            "新增了赵四的临时线索，和原大纲不完全一致，建议检查是否偏离。",
+        ),
     )
 
     service = ContinuityOverviewService(
@@ -121,6 +238,11 @@ def test_get_overview_collects_dropouts_and_existing_signals():
     assert overview["voice_drift"]["latest_similarity_score"] == 0.63
     assert overview["timeline"]["current_chapter_has_event"] is False
     assert overview["timeline"]["total_events"] == 1
-    assert overview["character_dropouts"][0]["character_name"] == "林羽"
+    assert overview["character_dropouts"][0]["character_name"] == "严舟"
     assert overview["character_dropouts"][0]["chapters_absent"] == 8
     assert overview["relationship_spotlights"][0]["relation"] == "盟友"
+    assert overview["relationship_tracking"]["active_signals"][0]["source_character"] == "林羽"
+    assert overview["relationship_tracking"]["active_signals"][0]["target_character"] == "苏晴"
+    assert overview["relationship_tracking"]["active_signals"][0]["change_signal"] == "关系趋紧"
+    assert overview["outline_deviation"]["status"] == "warning"
+    assert "审阅备注提示可能偏离大纲" in overview["outline_deviation"]["warning_reasons"]
