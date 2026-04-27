@@ -554,6 +554,14 @@
                         预览
                       </n-button>
                       <n-button
+                        v-if="isCandidateRewriteTask(draft)"
+                        size="tiny"
+                        secondary
+                        @click="handleGenerateFromCandidateTask(draft)"
+                      >
+                        按任务生成
+                      </n-button>
+                      <n-button
                         size="tiny"
                         type="primary"
                         :loading="acceptingCandidateDraftId === draft.id"
@@ -621,8 +629,10 @@ import { useCandidateDraftBranchStore } from '../../stores/candidateDraftBranchS
 import { useWorkbenchContextStore } from '../../stores/workbenchContextStore'
 import {
   candidateDraftFocusTags,
+  candidateDraftRewritePrompt,
   candidateDraftSourceLabel,
   candidateDraftSourceType,
+  isCandidateRewriteTask,
 } from '../../utils/candidateDraftDisplay'
 import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
 import ChapterElementPanel from './ChapterElementPanel.vue'
@@ -690,6 +700,7 @@ const savingCandidateDraft = ref(false)
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
 const lastConsumedCandidateRewriteVersion = ref(0)
+const activeCandidateRewriteTask = ref<ChapterCandidateDraftDTO | null>(null)
 const candidateBranchFilter = computed({
   get: () => candidateDraftBranchStore.getActiveBranch(props.slug),
   set: (value: string) => candidateDraftBranchStore.setActiveBranch(props.slug, value),
@@ -1082,6 +1093,7 @@ const handleGenerateChapter = async () => {
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
+  activeCandidateRewriteTask.value = null
   contextPreview.value = null
   blurSceneCache.value = undefined
   showGenerateModal.value = true
@@ -1176,15 +1188,22 @@ const handleSaveGeneratedAsCandidate = async () => {
   }
   savingCandidateDraft.value = true
   try {
+    const rewriteTask = activeCandidateRewriteTask.value
     const draft = await chapterApi.createCandidateDraft(props.slug, target.number, {
-      source: 'workbench-generate',
-      title: `${target.title || `第${target.number}章`} 候选稿`,
+      source: rewriteTask?.source || 'workbench-generate',
+      title: rewriteTask
+        ? `${target.title || `第${target.number}章`} 改稿候选`
+        : `${target.title || `第${target.number}章`} 候选稿`,
       content: generatedContent.value,
-      rationale: generateOutline.value.trim() ? `生成大纲：${generateOutline.value.trim()}` : '来自工作台快速生成',
+      rationale: rewriteTask
+        ? `按候选改稿任务生成：${rewriteTask.rationale || candidateDraftSourceLabel(rewriteTask.source)}`
+        : generateOutline.value.trim() ? `生成大纲：${generateOutline.value.trim()}` : '来自工作台快速生成',
       branch_name: candidateBranchFilter.value.trim() || 'main',
       metadata: {
         outline: generateOutline.value,
         sceneDirectorUsed: useSceneDirector.value,
+        ...(rewriteTask?.metadata || {}),
+        rewrite_task_id: rewriteTask?.id,
       },
     })
     message.success('已保存为候选稿')
@@ -1226,6 +1245,20 @@ const handleRejectCandidateDraft = async (draftId: string) => {
   } catch {
     message.error('拒绝候选稿失败')
   }
+}
+
+const handleGenerateFromCandidateTask = (draft: ChapterCandidateDraftDTO) => {
+  const chapter = currentChapter.value
+  if (!chapter || draft.chapter_number !== chapter.number) return
+
+  activeCandidateRewriteTask.value = draft
+  generateTargetChapterId.value = chapter.id
+  generateOutline.value = candidateDraftRewritePrompt(draft)
+  generatedContent.value = ''
+  contextPreview.value = null
+  blurSceneCache.value = undefined
+  showCandidateDraftsModal.value = false
+  showGenerateModal.value = true
 }
 
 function streamPhaseToProgress(phase: string): number {

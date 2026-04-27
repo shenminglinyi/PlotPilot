@@ -26,6 +26,13 @@ const FOCUS_LABELS: Record<string, string> = {
   'character-continuity': '角色连续性',
 }
 
+const REWRITE_TASK_SOURCES = new Set([
+  'continuity-voice',
+  'continuity-outline',
+  'continuity-dropout',
+  'continuity-relationship',
+])
+
 function stringFromMetadata(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -56,4 +63,21 @@ export function candidateDraftFocusTags(draft: ChapterCandidateDraftDTO): string
   }
 
   return tags
+}
+
+export function isCandidateRewriteTask(draft: ChapterCandidateDraftDTO): boolean {
+  return REWRITE_TASK_SOURCES.has(draft.source)
+}
+
+export function candidateDraftRewritePrompt(draft: ChapterCandidateDraftDTO): string {
+  const tags = candidateDraftFocusTags(draft)
+  const tagLine = tags.length ? `处理目标：${tags.join('、')}` : ''
+  const rationale = draft.rationale?.trim() || '根据候选改稿任务修订当前章节。'
+
+  return [
+    `第${draft.chapter_number}章候选改稿任务`,
+    tagLine,
+    rationale,
+    '请在保留现有主线事实和关键事件的前提下，生成一版可直接进入候选稿区的修订正文。',
+  ].filter(Boolean).join('\n\n')
 }
