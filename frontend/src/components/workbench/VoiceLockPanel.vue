@@ -237,6 +237,7 @@ const message = useMessage()
 const refreshStore = useWorkbenchRefreshStore()
 const contextStore = useWorkbenchContextStore()
 const { deskTick } = storeToRefs(refreshStore)
+const { voiceLockDraft, voiceLockDraftVersion } = storeToRefs(contextStore)
 
 const loading = ref(false)
 const loadError = ref('')
@@ -353,6 +354,13 @@ function jumpToSandbox() {
   message.success('已带着当前角色上下文切到对话沙盒')
 }
 
+function applyVoiceLockDraft() {
+  const draft = voiceLockDraft.value
+  if (!draft || draft.slug !== props.slug) return
+  if (selectedCharacterId.value === draft.characterId) return
+  selectedCharacterId.value = draft.characterId
+}
+
 async function loadCharacters() {
   const result = await bibleApi.listCharacters(props.slug)
   characters.value = result
@@ -462,6 +470,13 @@ watch(selectedCharacter, character => {
   syncSelectedCharacter(character)
 })
 
+watch(
+  [voiceLockDraftVersion, () => props.slug],
+  () => {
+    applyVoiceLockDraft()
+  },
+)
+
 watch(deskTick, () => {
   void reloadAll()
 })
@@ -469,6 +484,7 @@ watch(deskTick, () => {
 onMounted(() => {
   sampleChapter.value = props.currentChapter || 1
   void reloadAll()
+  applyVoiceLockDraft()
 })
 </script>
 

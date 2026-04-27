@@ -142,6 +142,22 @@
                     >
                       受影响关系线：{{ item.stale_relationship_targets.join('、') }}
                     </n-text>
+                    <n-space :size="8">
+                      <n-button
+                        size="tiny"
+                        tertiary
+                        @click="openVoiceLock(item.character_id, item.character_name)"
+                      >
+                        去口吻锁定
+                      </n-button>
+                      <n-button
+                        size="tiny"
+                        tertiary
+                        @click="openSandbox(item.character_id, item.character_name, `请写一段${item.character_name}重新回到主线的对白场景。`)"
+                      >
+                        去对话沙盒
+                      </n-button>
+                    </n-space>
                   </div>
                 </div>
               </n-space>
@@ -213,6 +229,22 @@
                           <n-text v-if="item.signal_excerpt" depth="3" style="font-size: 12px">
                             {{ item.signal_excerpt }}
                           </n-text>
+                          <n-space :size="8">
+                            <n-button
+                              size="tiny"
+                              tertiary
+                              @click="openVoiceLock(lookupCharacterId(item.source_character), item.source_character)"
+                            >
+                              去口吻锁定
+                            </n-button>
+                            <n-button
+                              size="tiny"
+                              tertiary
+                              @click="openSandbox(lookupCharacterId(item.source_character), item.source_character, buildRelationshipScenePrompt(item.source_character, item.target_character, item.change_signal))"
+                            >
+                              去对话沙盒
+                            </n-button>
+                          </n-space>
                         </div>
                       </n-space>
                     </div>
@@ -244,6 +276,22 @@
                           <n-text depth="3" style="font-size: 12px">
                             上次同章推进：第{{ item.last_joint_chapter }}章
                           </n-text>
+                          <n-space :size="8">
+                            <n-button
+                              size="tiny"
+                              tertiary
+                              @click="openVoiceLock(lookupCharacterId(item.source_character), item.source_character)"
+                            >
+                              去口吻锁定
+                            </n-button>
+                            <n-button
+                              size="tiny"
+                              tertiary
+                              @click="openSandbox(lookupCharacterId(item.source_character), item.source_character, buildRelationshipScenePrompt(item.source_character, item.target_character, `修复与${item.target_character}的掉线关系`))"
+                            >
+                              去对话沙盒
+                            </n-button>
+                          </n-space>
                         </div>
                       </n-space>
                     </div>
@@ -351,17 +399,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
+import { useMessage } from 'naive-ui'
+import { bibleApi, type CharacterDTO } from '@/api/bible'
 import { continuityApi, type ContinuityOverviewResponse } from '@/api/continuity'
+import { useWorkbenchContextStore } from '@/stores/workbenchContextStore'
 
 const props = defineProps<{
   slug: string
   currentChapter?: number | null
 }>()
 
+const message = useMessage()
+const contextStore = useWorkbenchContextStore()
 const loading = ref(false)
 const loadError = ref('')
 const overview = ref<ContinuityOverviewResponse | null>(null)
+const characters = ref<CharacterDTO[]>([])
+
+const characterIdByName = computed(() => {
+  const entries = characters.value
+    .filter(item => item.name && item.id)
+    .map(item => [item.name, item.id] as const)
+  return new Map(entries)
+})
 
 function formatPercent(value: number | null) {
   if (value == null) return '—'
@@ -413,6 +474,51 @@ function outlineTagType(value: string) {
   return 'default'
 }
 
+function buildRelationshipScenePrompt(source: string, target: string, cue: string) {
+  if (target) {
+    return `请写一段${source}与${target}相关的对白场景，重点处理“${cue}”。`
+  }
+  return `请写一段${source}的对白场景，重点处理“${cue}”。`
+}
+
+function openVoiceLock(characterId: string | null | undefined, characterName: string) {
+  if (!characterId) {
+    message.warning(`当前还无法定位角色「${characterName}」的口吻页签`)
+    return
+  }
+  contextStore.openVoiceLockForCharacter({
+    slug: props.slug,
+    characterId,
+  })
+  message.success(`已切到「${characterName}」的口吻锁定`)
+}
+
+function openSandbox(characterId: string | null | undefined, characterName: string, scenePrompt: string) {
+  if (!characterId) {
+    message.warning(`当前还无法定位角色「${characterName}」去对话沙盒`)
+    return
+  }
+  contextStore.openSandboxWithDraft({
+    slug: props.slug,
+    characterId,
+    scenePrompt,
+  })
+  message.success(`已带着「${characterName}」上下文切到对话沙盒`)
+}
+
+function lookupCharacterId(name: string) {
+  return characterIdByName.value.get(name) || null
+}
+
+async function loadCharacters() {
+  if (!props.slug) return
+  try {
+    characters.value = await bibleApi.listCharacters(props.slug)
+  } catch {
+    characters.value = []
+  }
+}
+
 async function loadOverview() {
   if (!props.slug) return
   loading.value = true
@@ -430,11 +536,13 @@ async function loadOverview() {
 watch(
   () => [props.slug, props.currentChapter] as const,
   () => {
+    void loadCharacters()
     void loadOverview()
   },
 )
 
 onMounted(() => {
+  void loadCharacters()
   void loadOverview()
 })
 </script>

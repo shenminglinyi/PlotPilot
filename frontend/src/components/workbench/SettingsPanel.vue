@@ -119,7 +119,7 @@ const emit = defineEmits<{
 
 const activeTab = ref(resolveTab(props.currentPanel))
 const contextStore = useWorkbenchContextStore()
-const { targetPanel, sandboxDraftVersion, sandboxDraft } = storeToRefs(contextStore)
+const { targetPanel, voiceLockDraftVersion, voiceLockDraft, sandboxDraftVersion, sandboxDraft } = storeToRefs(contextStore)
 
 watch(() => props.currentPanel, (newVal) => {
   activeTab.value = resolveTab(newVal)
@@ -130,8 +130,12 @@ watch(activeTab, (tab) => {
 })
 
 watch(
-  [targetPanel, sandboxDraftVersion, () => props.slug],
-  ([panel, _version, slug]) => {
+  [targetPanel, voiceLockDraftVersion, sandboxDraftVersion, () => props.slug],
+  ([panel, _voiceVersion, _sandboxVersion, slug]) => {
+    if (panel === 'voice-lock' && voiceLockDraft.value?.slug === slug) {
+      activeTab.value = 'voice-lock'
+      return
+    }
     if (panel === 'sandbox' && sandboxDraft.value?.slug === slug) {
       activeTab.value = 'sandbox'
     }
