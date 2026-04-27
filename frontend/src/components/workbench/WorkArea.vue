@@ -605,6 +605,7 @@ import type { ChapterCandidateDraftDTO } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
 import { useCandidateDraftBranchStore } from '../../stores/candidateDraftBranchStore'
+import { useWorkbenchContextStore } from '../../stores/workbenchContextStore'
 import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
 import ChapterElementPanel from './ChapterElementPanel.vue'
 import ChapterContentPanel from './ChapterContentPanel.vue'
@@ -644,6 +645,7 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const candidateDraftBranchStore = useCandidateDraftBranchStore()
+const workbenchContextStore = useWorkbenchContextStore()
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
 const workMode = ref<'assisted' | 'managed'>('managed')
@@ -669,6 +671,7 @@ const loadingCandidateDrafts = ref(false)
 const savingCandidateDraft = ref(false)
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
+const lastConsumedCandidateRewriteVersion = ref(0)
 const candidateBranchFilter = computed({
   get: () => candidateDraftBranchStore.getActiveBranch(props.slug),
   set: (value: string) => candidateDraftBranchStore.setActiveBranch(props.slug, value),
@@ -999,6 +1002,13 @@ watch(candidateBranchFilter, () => {
   void loadCandidateDrafts()
 })
 
+watch(
+  () => [workbenchContextStore.candidateRewriteSeedVersion, props.currentChapterId] as const,
+  () => {
+    void applyCandidateRewriteSeed()
+  },
+)
+
 // 切换回正在生成的章节时，自动打开生成弹窗（让用户看到进度）
 watch(() => props.currentChapterId, (id) => {
   if (id !== null && id === generatingChapterId.value) {
@@ -1097,6 +1107,47 @@ const openCandidateDrafts = async () => {
   if (!currentChapter.value) return
   showCandidateDraftsModal.value = true
   await loadCandidateDrafts()
+}
+
+const applyCandidateRewriteSeed = async () => {
+  const version = workbenchContextStore.candidateRewriteSeedVersion
+  const seed = workbenchContextStore.candidateRewriteSeed
+  const chapter = currentChapter.value
+  if (!seed || !chapter) return
+  if (seed.slug !== props.slug || seed.chapterNumber !== chapter.number) return
+  if (version <= lastConsumedCandidateRewriteVersion.value) return
+
+  lastConsumedCandidateRewriteVersion.value = version
+
+  const baseContent = (seed.content ?? chapterContent.value).trim()
+  if (!baseContent) {
+    message.warning('当前章节正文为空，暂时无法创建候选改稿')
+    return
+  }
+
+  savingCandidateDraft.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(props.slug, chapter.number, {
+      source: seed.source,
+      title: seed.title || `${chapter.title || `第${chapter.number}章`} 候选改稿`,
+      content: baseContent,
+      rationale: seed.rationale,
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        ...(seed.metadata || {}),
+        triggered_by: 'continuity-panel',
+      },
+    })
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+    showCandidateDraftsModal.value = true
+    activeTab.value = 'editor'
+    message.success('已根据连续性提醒创建候选改稿')
+  } catch {
+    message.error('创建候选改稿失败')
+  } finally {
+    savingCandidateDraft.value = false
+  }
 }
 
 const handleSaveGeneratedAsCandidate = async () => {

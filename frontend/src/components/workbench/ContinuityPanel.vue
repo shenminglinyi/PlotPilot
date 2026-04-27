@@ -66,8 +66,15 @@
               title="文风漂移告警"
               class="section-alert"
             >
-              最近 {{ overview.voice_drift.alert_consecutive }} 章持续低于
-              {{ formatPercent(overview.voice_drift.alert_threshold) }}，建议回看作者样本或做定向修文。
+              <n-space vertical :size="8" align="start">
+                <span>
+                  最近 {{ overview.voice_drift.alert_consecutive }} 章持续低于
+                  {{ formatPercent(overview.voice_drift.alert_threshold) }}，建议回看作者样本或做定向修文。
+                </span>
+                <n-button size="tiny" tertiary @click="queueVoiceRewrite">
+                  建候选改稿
+                </n-button>
+              </n-space>
             </n-alert>
 
             <n-alert
@@ -85,10 +92,17 @@
               title="大纲偏离提醒"
               class="section-alert"
             >
-              <span v-if="overview.outline_deviation.warning_reasons.length">
-                {{ overview.outline_deviation.warning_reasons.join('；') }}。
-              </span>
-              建议在继续写下一章前回看本章大纲与审阅备注。
+              <n-space vertical :size="8" align="start">
+                <span>
+                  <span v-if="overview.outline_deviation.warning_reasons.length">
+                    {{ overview.outline_deviation.warning_reasons.join('；') }}。
+                  </span>
+                  建议在继续写下一章前回看本章大纲与审阅备注。
+                </span>
+                <n-button size="tiny" tertiary @click="queueOutlineRewrite">
+                  建候选改稿
+                </n-button>
+              </n-space>
             </n-alert>
 
             <n-alert
@@ -97,7 +111,14 @@
               title="大纲覆盖不完整"
               class="section-alert"
             >
-              {{ overview.outline_deviation.warning_reasons.join('；') || '当前章节只覆盖了部分大纲节点。' }}
+              <n-space vertical :size="8" align="start">
+                <span>
+                  {{ overview.outline_deviation.warning_reasons.join('；') || '当前章节只覆盖了部分大纲节点。' }}
+                </span>
+                <n-button size="tiny" tertiary @click="queueOutlineRewrite">
+                  建候选改稿
+                </n-button>
+              </n-space>
             </n-alert>
 
             <n-card size="small" :bordered="false" title="角色掉线提醒">
@@ -143,6 +164,13 @@
                       受影响关系线：{{ item.stale_relationship_targets.join('、') }}
                     </n-text>
                     <n-space :size="8">
+                      <n-button
+                        size="tiny"
+                        tertiary
+                        @click="queueCharacterRewrite(item.character_name, `补写${item.character_name}回到主线的场景，并修复掉线提醒。`, 'continuity-dropout')"
+                      >
+                        建候选改稿
+                      </n-button>
                       <n-button
                         size="tiny"
                         tertiary
@@ -233,6 +261,13 @@
                             <n-button
                               size="tiny"
                               tertiary
+                              @click="queueCharacterRewrite(item.source_character, `强化${item.source_character}${item.target_character ? `与${item.target_character}` : ''}的关系推进，重点处理“${item.change_signal}”。`, 'continuity-relationship')"
+                            >
+                              建候选改稿
+                            </n-button>
+                            <n-button
+                              size="tiny"
+                              tertiary
                               @click="openVoiceLock(lookupCharacterId(item.source_character), item.source_character)"
                             >
                               去口吻锁定
@@ -277,6 +312,13 @@
                             上次同章推进：第{{ item.last_joint_chapter }}章
                           </n-text>
                           <n-space :size="8">
+                            <n-button
+                              size="tiny"
+                              tertiary
+                              @click="queueCharacterRewrite(item.source_character, `修复${item.source_character}${item.target_character ? `与${item.target_character}` : ''}的沉默关系线，并给出新的互动推进。`, 'continuity-relationship')"
+                            >
+                              建候选改稿
+                            </n-button>
                             <n-button
                               size="tiny"
                               tertiary
@@ -504,6 +546,56 @@ function openSandbox(characterId: string | null | undefined, characterName: stri
     scenePrompt,
   })
   message.success(`已带着「${characterName}」上下文切到对话沙盒`)
+}
+
+function queueCandidateRewrite(source: string, rationale: string, metadata?: Record<string, unknown>) {
+  if (!overview.value) {
+    message.warning('当前还没有可用的连续性数据')
+    return
+  }
+  contextStore.openCandidateRewriteSeed({
+    slug: props.slug,
+    chapterNumber: overview.value.chapter_number,
+    source,
+    title: `第${overview.value.chapter_number}章 候选改稿`,
+    rationale,
+    metadata,
+  })
+  message.success('已把连续性提醒转成候选改稿任务')
+}
+
+function queueVoiceRewrite() {
+  if (!overview.value) return
+  queueCandidateRewrite(
+    'continuity-voice',
+    `根据连续性巡检修正文风漂移：最近 ${overview.value.voice_drift.alert_consecutive} 章相似度连续偏低，优先统一措辞、句式和角色表达。`,
+    {
+      rewrite_focus: 'voice-drift',
+      alert_consecutive: overview.value.voice_drift.alert_consecutive,
+      alert_threshold: overview.value.voice_drift.alert_threshold,
+    },
+  )
+}
+
+function queueOutlineRewrite() {
+  if (!overview.value) return
+  const reasons = overview.value.outline_deviation.warning_reasons
+  queueCandidateRewrite(
+    'continuity-outline',
+    `根据连续性巡检修复本章与大纲的偏离。${reasons.length ? `重点问题：${reasons.join('；')}。` : ''}请尽量保留现有亮点，只补齐主线、大纲节点与叙事重点。`,
+    {
+      rewrite_focus: 'outline-deviation',
+      outline_status: overview.value.outline_deviation.status,
+      warning_reasons: reasons,
+    },
+  )
+}
+
+function queueCharacterRewrite(characterName: string, rationale: string, source: string) {
+  queueCandidateRewrite(source, rationale, {
+    rewrite_focus: 'character-continuity',
+    character_name: characterName,
+  })
 }
 
 function lookupCharacterId(name: string) {
