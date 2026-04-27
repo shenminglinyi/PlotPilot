@@ -7,12 +7,14 @@ on:
       - "requirements*.txt"
       - "pyproject.toml"
       - "pytest.ini"
+      - ".github/workflows/backend-ci.yml"
   pull_request:
     paths:
       - "**.py"
       - "requirements*.txt"
       - "pyproject.toml"
       - "pytest.ini"
+      - ".github/workflows/backend-ci.yml"
   workflow_dispatch:
 
 jobs:
