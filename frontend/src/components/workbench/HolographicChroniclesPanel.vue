@@ -8,7 +8,12 @@
           悬浮右侧快照节点时高亮本行左侧剧情；回滚将删除快照未包含的章节（不可撤销）。
         </p>
       </div>
-      <n-button size="small" type="primary" :loading="loading" @click="load">刷新</n-button>
+      <n-space :size="8" align="center">
+        <n-tag size="small" round :type="activeBranchName ? 'info' : 'default'">
+          {{ activeBranchName ? `当前分支 · ${activeBranchName}` : '当前分支 · 全部' }}
+        </n-tag>
+        <n-button size="small" type="primary" :loading="loading" @click="load">刷新</n-button>
+      </n-space>
     </header>
 
     <n-alert v-if="noteText" type="default" :show-icon="true" class="hc-note" style="font-size: 11px">
@@ -22,9 +27,11 @@
 
     <div class="hc-view-body">
       <n-spin v-show="hcView === 'helix'" :show="loading" class="hc-spin">
-        <div v-if="rows.length === 0 && !loading" class="hc-empty-wrap">
+        <div v-if="filteredRows.length === 0 && !loading" class="hc-empty-wrap">
           <n-empty
-            description="暂无编年节点：可切换到「剧情时间线 · 列表编辑」维护 Bible 时间线，或在后端创建 novel_snapshots"
+            :description="activeBranchName
+              ? `当前分支「${activeBranchName}」下暂无快照可显示`
+              : '暂无编年节点：可切换到「剧情时间线 · 列表编辑」维护 Bible 时间线，或在后端创建 novel_snapshots'"
           >
             <template #icon><span style="font-size: 40px">🧬</span></template>
           </n-empty>
@@ -38,7 +45,7 @@
         </div>
 
         <div
-          v-for="row in rows"
+          v-for="row in filteredRows"
           :key="row.chapter_index"
           class="helix-row"
           :class="{ 'helix-row--hot': hoverChapter === row.chapter_index }"
@@ -73,6 +80,14 @@
               <n-tag :type="sn.kind === 'MANUAL' ? 'warning' : 'info'" size="tiny" round>
                 {{ sn.kind === 'MANUAL' ? '🟣 Manual' : '🔵 Auto' }}
               </n-tag>
+              <n-tag
+                v-if="sn.origin_type === 'candidate_accept'"
+                type="success"
+                size="tiny"
+                round
+              >
+                候选稿采纳{{ sn.candidate_source ? ` · ${sn.candidate_source}` : '' }}
+              </n-tag>
               <span class="snap-name">{{ sn.name }}</span>
               <n-button
                 size="tiny"
@@ -102,9 +117,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { useCandidateDraftBranchStore } from '../../stores/candidateDraftBranchStore'
 import { useDialog, useMessage } from 'naive-ui'
 import { chroniclesApi } from '../../api/chronicles'
 import type { ChronicleRow, ChronicleSnapshot } from '../../api/chronicles'
@@ -126,9 +142,34 @@ const rollbackId = ref<string | null>(null)
 
 const refreshStore = useWorkbenchRefreshStore()
 const { chroniclesTick } = storeToRefs(refreshStore)
+const candidateDraftBranchStore = useCandidateDraftBranchStore()
+
+const activeBranchName = computed(() => {
+  const branch = candidateDraftBranchStore.getActiveBranch(props.slug).trim()
+  return branch || ''
+})
+
+const filteredRows = computed<ChronicleRow[]>(() => {
+  const branch = activeBranchName.value
+  return rows.value
+    .map((row) => ({
+      ...row,
+      snapshots: branch
+        ? row.snapshots.filter((snapshot) => snapshot.branch_name === branch)
+        : row.snapshots,
+    }))
+    .filter((row) => row.story_events.length > 0 || row.snapshots.length > 0)
+})
 
 function snapTooltip(sn: ChronicleSnapshot): string {
-  const parts = [sn.name, sn.description, sn.created_at].filter(Boolean)
+  const parts = [
+    sn.name,
+    sn.origin_type === 'candidate_accept' && sn.candidate_source
+      ? `候选来源: ${sn.candidate_source}`
+      : '',
+    sn.description,
+    sn.created_at,
+  ].filter(Boolean)
   return parts.join(' · ')
 }
 

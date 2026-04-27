@@ -1,12 +1,19 @@
 name: Backend CI
 
 on:
+  push:
+    paths:
+      - "**.py"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "pytest.ini"
   pull_request:
     paths:
       - "**.py"
       - "requirements*.txt"
       - "pyproject.toml"
       - "pytest.ini"
+  workflow_dispatch:
 
 jobs:
   test:

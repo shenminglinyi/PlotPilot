@@ -38,6 +38,36 @@ export interface ChapterReviewAiResponse {
   saved: boolean
 }
 
+export interface ChapterCandidateDraftDTO {
+  id: string
+  novel_id: string
+  chapter_number: number
+  branch_name: string
+  source: string
+  status: string
+  title: string
+  content: string
+  rationale: string
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateChapterCandidateDraftRequest {
+  source: string
+  title?: string
+  content: string
+  rationale?: string
+  metadata?: Record<string, unknown>
+  branch_name?: string
+}
+
+export interface AcceptChapterCandidateDraftResponse {
+  draft: ChapterCandidateDraftDTO
+  chapter: ChapterDTO
+  snapshot_id: string
+}
+
 export const chapterApi = {
   /**
    * List all chapters for a novel
@@ -94,4 +124,33 @@ export const chapterApi = {
    */
   ensureChapter: (novelId: string, chapterNumber: number, title = '') =>
     apiClient.post<ChapterDTO>(`/novels/${novelId}/chapters/${chapterNumber}/ensure`, { title }) as Promise<ChapterDTO>,
+
+  /**
+   * GET /api/v1/novels/{novelId}/chapters/{chapterNumber}/candidate-drafts
+   */
+  listCandidateDrafts: (novelId: string, chapterNumber: number, branchName?: string) =>
+    apiClient.get<ChapterCandidateDraftDTO[]>(
+      `/novels/${novelId}/chapters/${chapterNumber}/candidate-drafts`,
+      {
+        params: branchName ? { branch_name: branchName } : undefined,
+      }
+    ) as Promise<ChapterCandidateDraftDTO[]>,
+
+  /**
+   * POST /api/v1/novels/{novelId}/chapters/{chapterNumber}/candidate-drafts
+   */
+  createCandidateDraft: (novelId: string, chapterNumber: number, data: CreateChapterCandidateDraftRequest) =>
+    apiClient.post<ChapterCandidateDraftDTO>(`/novels/${novelId}/chapters/${chapterNumber}/candidate-drafts`, data) as Promise<ChapterCandidateDraftDTO>,
+
+  /**
+   * POST /api/v1/novels/{novelId}/chapters/{chapterNumber}/candidate-drafts/{draftId}/accept
+   */
+  acceptCandidateDraft: (novelId: string, chapterNumber: number, draftId: string) =>
+    apiClient.post<AcceptChapterCandidateDraftResponse>(`/novels/${novelId}/chapters/${chapterNumber}/candidate-drafts/${draftId}/accept`, {}) as Promise<AcceptChapterCandidateDraftResponse>,
+
+  /**
+   * POST /api/v1/novels/{novelId}/chapters/{chapterNumber}/candidate-drafts/{draftId}/reject
+   */
+  rejectCandidateDraft: (novelId: string, chapterNumber: number, draftId: string) =>
+    apiClient.post<ChapterCandidateDraftDTO>(`/novels/${novelId}/chapters/${chapterNumber}/candidate-drafts/${draftId}/reject`, {}) as Promise<ChapterCandidateDraftDTO>,
 }

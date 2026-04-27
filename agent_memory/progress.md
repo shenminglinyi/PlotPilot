@@ -7,16 +7,40 @@
 - 已保留原始冻结基线：`local/base-v1.0.3`
 - 已补齐 `v1.0.4` 变更到二开主线，提交为 `1166ceb upstream: sync v1.0.4 changes`
 - 已更新 `LOCAL_DEVELOPMENT.md`，记录本地二开策略、分支约定和上游吸收方式。
+- 已创建隔离开发 worktree：`~/.config/superpowers/worktrees/PlotPilot-NovelPro/local-feature-p1-candidate-gate`
+- 已开始 `P1` 后端闭环开发：新增章节候选稿表、SQLite 仓储、DTO、应用服务、API 路由
+- 已将候选稿采纳接入现有 `ChapterService`、`SnapshotService`、`ChapterAftermathPipeline`，不是独立旁路
+- 已写入实现计划：`docs/superpowers/plans/2026-04-27-p1-candidate-drafts.md`
+- 已补完 `P1` 最薄前端闭环：在 `WorkArea.vue` 接入候选稿按钮、候选稿弹窗、生成结果“保存为候选稿”、候选稿采纳/拒绝
+- 已在 `frontend/src/api/chapter.ts` 增加候选稿 API wrapper，并通过现有工作台章节流刷新正文与列表
+- 已补齐候选稿与现有编年史的最小融合：采纳候选稿生成的快照可被编年史识别为 `candidate_accept`，并在 `HolographicChroniclesPanel.vue` 直接显示“候选稿采纳 · 来源”
+- 已把候选稿入口补到单章页 `frontend/src/views/Chapter.vue`：顶部快捷入口、工具菜单“保存为候选稿”、右侧候选稿页签、候选稿预览/采纳/拒绝
+- 已把 `branch_name` 可见性筛选接入两个现有入口：`WorkArea.vue` 与 `Chapter.vue` 都可按分支名查看候选稿，留空查看全部；新建候选稿时留空会回落到 `main`
+- 已在 `frontend/src/api/chapter.ts` 透传 `branch_name` 查询参数，并补充仓储/API 回归测试，锁定按分支筛选行为
+- 已新增统一的候选稿活动分支 store：`frontend/src/stores/candidateDraftBranchStore.ts`
+- 工作台 `WorkArea.vue` 与单章页 `Chapter.vue` 已改为共享同一个活动分支来源，跨页面切换会保持当前小说的候选稿分支选择
+- `HolographicChroniclesPanel.vue` 已感知活动分支：顶部显示当前分支，并按活动分支过滤右侧快照显示；左侧剧情时间线仍保持全量
+- `StorylineGitGraph.vue` 已感知活动分支：顶部/tooltip/详情栏显示当前回滚分支，回滚时优先使用该分支下的快照
+- 已新增显式分支切换组件：`frontend/src/components/workbench/CandidateDraftBranchSwitcher.vue`
+- 工作台右栏 `SettingsPanel.vue` 与单章页 `Chapter.vue` 头部都已挂上统一分支切换入口，不再只能依赖候选稿页签内部的筛选输入
 
 ## 验证状态
 
-- `git status --short --branch`：工作区干净，仅显示当前分支。
 - `python3 -m compileall -q application domain infrastructure interfaces scripts`：通过。
+- 候选稿相关测试通过：
+  - `tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py`
+  - `tests/unit/application/services/test_chapter_candidate_draft_service.py`
+  - `tests/unit/application/services/test_chapter_service.py`
+  - `tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py`
+- `tests/unit/application/services/test_chronicles_service.py`：通过。
+- `cd frontend && npm run build`：通过。
 
 ## 下一步
 
-优先从 v1.1 规划中选择第一个可落地功能。建议先做“剧情分支与回滚”，因为它会成为章节 A/B 对照、精细改稿、按目标修文等能力的底层安全网。
+- 评估是否要在单章页采纳候选稿后同步刷新更多派生信息面板，例如结构分析/审定信息，而不是只刷新正文与推断证据
+- 评估是否把 Git Graph 本体的数据源也做成分支感知，而不只是回滚时筛快照；这会触及更深的故事线模型，不属于 P1 最小闭环
+- 评估是否要把候选稿页签内部那套分支输入收敛成复用 `CandidateDraftBranchSwitcher.vue`，减少重复 UI
 
 ## 待确认
 
-- 是否先从后端数据结构与迁移开始，还是先做最薄的本地 UI 验证闭环。
+- 下一轮是先补编年史联动，还是先做 `branch_name` 可见性和后续分支 UI 的前置字段流转。

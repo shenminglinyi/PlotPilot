@@ -34,6 +34,7 @@ from application.ai.llm_control_service import LLMControlService
 
 from application.core.services.novel_service import NovelService
 from application.core.services.chapter_service import ChapterService
+from application.core.services.chapter_candidate_draft_service import ChapterCandidateDraftService
 from application.world.services.bible_service import BibleService
 from application.world.services.cast_service import CastService
 from application.world.services.knowledge_service import KnowledgeService
@@ -289,6 +290,21 @@ def get_chapter_service() -> ChapterService:
         get_novel_repository(),
         review_repo,
         chapter_renumber_coordinator=get_chapter_renumber_coordinator(),
+    )
+
+
+def get_chapter_candidate_draft_repository():
+    from infrastructure.persistence.database.sqlite_chapter_candidate_draft_repository import (
+        SqliteChapterCandidateDraftRepository,
+    )
+
+    return SqliteChapterCandidateDraftRepository(get_database())
+
+
+def get_chapter_candidate_draft_service() -> ChapterCandidateDraftService:
+    return ChapterCandidateDraftService(
+        get_chapter_candidate_draft_repository(),
+        get_chapter_service(),
     )
 
 
@@ -974,4 +990,3 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
-

@@ -20,6 +20,8 @@ export interface ChronicleSnapshot {
   created_at: string | null
   description: string | null
   anchor_chapter: number | null
+  origin_type: string
+  candidate_source: string | null
 }
 
 export interface ChronicleRow {

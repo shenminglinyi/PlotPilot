@@ -521,6 +521,29 @@ CREATE TABLE IF NOT EXISTS novel_snapshots (
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_novel ON novel_snapshots(novel_id);
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_branch ON novel_snapshots(novel_id, branch_name);
 
+-- ========== 章节候选稿（NovelPro P1）==========
+-- 外部模型或局部改稿产生的候选正文；只有采纳后才写入 chapters 主稿并触发现有章后管线
+CREATE TABLE IF NOT EXISTS chapter_candidate_drafts (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    branch_name TEXT NOT NULL DEFAULT 'main',
+    source TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    title TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    rationale TEXT DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_candidate_drafts_chapter
+    ON chapter_candidate_drafts(novel_id, chapter_number, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_candidate_drafts_branch
+    ON chapter_candidate_drafts(novel_id, branch_name, status);
+
 
 -- ========== 提示词广场系统（Prompt Plaza）==========
 -- 模板包：一组相关提示词的集合（如"内置"、"自定义工作流"）
@@ -630,6 +653,5 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
-
 
 

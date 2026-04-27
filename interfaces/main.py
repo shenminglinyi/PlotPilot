@@ -48,7 +48,14 @@ import multiprocessing
 import signal
 
 # Core module
-from interfaces.api.v1.core import novels, chapters, scene_generation_routes, settings as llm_settings, export
+from interfaces.api.v1.core import (
+    novels,
+    chapters,
+    chapter_candidate_drafts,
+    scene_generation_routes,
+    settings as llm_settings,
+    export,
+)
 
 # World module
 from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_routes, worldbuilding_routes
@@ -513,6 +520,7 @@ add_error_handlers(app)
 # Core module routes
 app.include_router(novels.router, prefix="/api/v1")
 app.include_router(chapters.router, prefix="/api/v1/novels")
+app.include_router(chapter_candidate_drafts.router, prefix="/api/v1")
 app.include_router(scene_generation_routes.router)
 app.include_router(llm_settings.router, prefix="/api/v1")
 app.include_router(llm_settings.embedding_router, prefix="/api/v1")

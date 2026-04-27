@@ -12,6 +12,10 @@
       </n-tag>
     </div>
 
+    <div class="branch-context-bar">
+      <CandidateDraftBranchSwitcher :slug="slug" width="150px" />
+    </div>
+
     <!-- 扁平化单层标签栏，使用 display-directive="if" 避免图表组件在 display:none 状态下挂载导致 width/height 为 0 -->
     <n-tabs
       v-model:value="activeTab"
@@ -54,6 +58,7 @@ import StorylinePlotOverviewPanel from './StorylinePlotOverviewPanel.vue'
 import HolographicChroniclesPanel from './HolographicChroniclesPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
+import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
@@ -140,6 +145,16 @@ watch(activeTab, (tab) => {
 .chapter-context-label {
   font-weight: 600;
   color: var(--app-text-secondary);
+}
+
+.branch-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--aitext-split-border);
+  flex-shrink: 0;
 }
 
 .settings-tabs {

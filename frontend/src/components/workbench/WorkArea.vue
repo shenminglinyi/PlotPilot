@@ -47,6 +47,17 @@
                     </n-button>
                     <n-button
                       size="small"
+                      secondary
+                      @click="openCandidateDrafts"
+                      :disabled="!currentChapter"
+                    >
+                      候选稿
+                      <template v-if="candidateDrafts.length">
+                        （{{ candidateDrafts.length }}）
+                      </template>
+                    </n-button>
+                    <n-button
+                      size="small"
                       type="primary"
                       @click="handleSave"
                       :disabled="!hasChanges || isAssistedReadOnly"
@@ -319,10 +330,20 @@
             :bordered="false"
           >
             <template #header-extra>
-              <n-space :size="8">
-                <n-button
-                  v-if="generatedContent && !generateInProgress"
-                  size="tiny"
+                <n-space :size="8">
+                  <n-button
+                    v-if="generatedContent && !generateInProgress"
+                    size="tiny"
+                    secondary
+                    :loading="savingCandidateDraft"
+                    :disabled="isAssistedReadOnly"
+                    @click="handleSaveGeneratedAsCandidate"
+                  >
+                    保存为候选稿
+                  </n-button>
+                  <n-button
+                    v-if="generatedContent && !generateInProgress"
+                    size="tiny"
                   type="primary"
                   :disabled="isAssistedReadOnly"
                   @click="handleSaveGenerated"
@@ -451,6 +472,121 @@
       </template>
     </n-modal>
 
+    <n-modal
+      v-model:show="showCandidateDraftsModal"
+      preset="card"
+      title="章节候选稿"
+      style="width: min(960px, 96vw)"
+      :segmented="{ content: true, footer: 'soft' }"
+    >
+      <n-space vertical :size="16">
+        <n-alert type="info" :show-icon="true" style="font-size: 13px">
+          候选稿不会直接改写主稿。点击“采纳为主稿”后，才会复用现有章节保存、快照和章后记忆更新链路。
+        </n-alert>
+
+        <n-space justify="space-between" align="center">
+          <n-space vertical :size="4">
+            <n-text depth="3" style="font-size: 12px">
+              当前章节：{{ currentChapter ? `第${currentChapter.number}章` : '未选择章节' }}
+            </n-text>
+            <n-text depth="3" style="font-size: 11px">
+              候选稿分支与全局切换保持同步；留空表示查看全部，新建时会回落到 `main`。
+            </n-text>
+          </n-space>
+          <n-space :size="8" align="center">
+            <CandidateDraftBranchSwitcher :slug="slug" width="180px" />
+            <n-button size="small" secondary :loading="loadingCandidateDrafts" @click="loadCandidateDrafts">
+              刷新
+            </n-button>
+          </n-space>
+        </n-space>
+
+        <n-empty
+          v-if="!loadingCandidateDrafts && candidateDrafts.length === 0"
+          description="当前章节还没有候选稿"
+        />
+
+        <n-grid v-else :cols="2" :x-gap="16">
+          <n-grid-item>
+            <n-scrollbar style="max-height: 460px">
+              <n-space vertical :size="12">
+                <n-card
+                  v-for="draft in candidateDrafts"
+                  :key="draft.id"
+                  size="small"
+                  :bordered="true"
+                  :class="{ 'candidate-card--active': selectedCandidateDraftId === draft.id }"
+                >
+                  <n-space vertical :size="8">
+                    <n-space justify="space-between" align="center">
+                      <n-space :size="6" align="center">
+                        <n-tag size="small" round>{{ draft.source }}</n-tag>
+                        <n-tag size="small" round type="default">{{ draft.branch_name }}</n-tag>
+                        <n-tag
+                          size="small"
+                          round
+                          :type="draft.status === 'accepted' ? 'success' : draft.status === 'rejected' ? 'error' : 'warning'"
+                        >
+                          {{ draft.status }}
+                        </n-tag>
+                      </n-space>
+                      <n-text depth="3" style="font-size: 11px">{{ formatDraftTime(draft.created_at) }}</n-text>
+                    </n-space>
+                    <n-text strong>{{ draft.title || `第${draft.chapter_number}章候选稿` }}</n-text>
+                    <n-text depth="3" style="font-size: 12px; line-height: 1.6">
+                      {{ draft.rationale || '无说明' }}
+                    </n-text>
+                    <n-space :size="8">
+                      <n-button size="tiny" secondary @click="selectedCandidateDraftId = draft.id">
+                        预览
+                      </n-button>
+                      <n-button
+                        size="tiny"
+                        type="primary"
+                        :loading="acceptingCandidateDraftId === draft.id"
+                        :disabled="draft.status === 'accepted'"
+                        @click="handleAcceptCandidateDraft(draft.id)"
+                      >
+                        采纳为主稿
+                      </n-button>
+                      <n-button
+                        size="tiny"
+                        type="error"
+                        secondary
+                        :disabled="draft.status === 'rejected'"
+                        @click="handleRejectCandidateDraft(draft.id)"
+                      >
+                        拒绝
+                      </n-button>
+                    </n-space>
+                  </n-space>
+                </n-card>
+              </n-space>
+            </n-scrollbar>
+          </n-grid-item>
+
+          <n-grid-item>
+            <n-space vertical :size="10">
+              <n-text strong>候选稿预览</n-text>
+              <n-input
+                :value="selectedCandidateDraft?.content || ''"
+                type="textarea"
+                readonly
+                :autosize="{ minRows: 20, maxRows: 24 }"
+                placeholder="选择左侧候选稿查看正文"
+              />
+            </n-space>
+          </n-grid-item>
+        </n-grid>
+      </n-space>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showCandidateDraftsModal = false">关闭</n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
   </div>
 </template>
 
@@ -465,8 +601,11 @@ import {
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
+import type { ChapterCandidateDraftDTO } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
+import { useCandidateDraftBranchStore } from '../../stores/candidateDraftBranchStore'
+import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
 import ChapterElementPanel from './ChapterElementPanel.vue'
 import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
@@ -504,6 +643,7 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const candidateDraftBranchStore = useCandidateDraftBranchStore()
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
 const workMode = ref<'assisted' | 'managed'>('managed')
@@ -511,6 +651,7 @@ const workMode = ref<'assisted' | 'managed'>('managed')
 // Tab 状态（仅辅助撰稿）
 const activeTab = ref('editor')
 const showGenerateModal = ref(false)
+const showCandidateDraftsModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
 /** 弹窗内选中的目标章节（与 useWorkbench 映射一致：id === number） */
@@ -523,6 +664,15 @@ const outlineBlurAnalyzing = ref(false)
 const streamPhaseLabel = ref('')
 const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
+const candidateDrafts = ref<ChapterCandidateDraftDTO[]>([])
+const loadingCandidateDrafts = ref(false)
+const savingCandidateDraft = ref(false)
+const acceptingCandidateDraftId = ref<string | null>(null)
+const selectedCandidateDraftId = ref<string | null>(null)
+const candidateBranchFilter = computed({
+  get: () => candidateDraftBranchStore.getActiveBranch(props.slug),
+  set: (value: string) => candidateDraftBranchStore.setActiveBranch(props.slug, value),
+})
 
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
@@ -817,6 +967,11 @@ const currentChapter = computed(() => {
   return props.chapters.find(ch => ch.id === props.currentChapterId) || null
 })
 
+const selectedCandidateDraft = computed(() => {
+  if (!selectedCandidateDraftId.value) return null
+  return candidateDrafts.value.find(draft => draft.id === selectedCandidateDraftId.value) || null
+})
+
 const hasChanges = computed(() => {
   return chapterContent.value !== originalContent.value
 })
@@ -829,6 +984,14 @@ const wordCount = computed(() => {
 watch(() => props.chapterContent, (newContent) => {
   chapterContent.value = newContent
   originalContent.value = newContent
+}, { immediate: true })
+
+watch(currentChapter, (chapter) => {
+  candidateDrafts.value = []
+  selectedCandidateDraftId.value = null
+  if (chapter) {
+    void loadCandidateDrafts()
+  }
 }, { immediate: true })
 
 // 切换回正在生成的章节时，自动打开生成弹窗（让用户看到进度）
@@ -889,6 +1052,106 @@ const handleGenerateChapter = async () => {
   contextPreview.value = null
   blurSceneCache.value = undefined
   showGenerateModal.value = true
+}
+
+const formatDraftTime = (value: string) => {
+  if (!value) return '未知时间'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const loadCandidateDrafts = async () => {
+  if (!currentChapter.value) return
+  loadingCandidateDrafts.value = true
+  try {
+    const drafts = await chapterApi.listCandidateDrafts(
+      props.slug,
+      currentChapter.value.number,
+      candidateBranchFilter.value.trim() || undefined,
+    )
+    candidateDrafts.value = drafts
+    if (!selectedCandidateDraftId.value || !drafts.some(d => d.id === selectedCandidateDraftId.value)) {
+      selectedCandidateDraftId.value = drafts[0]?.id ?? null
+    }
+  } catch {
+    candidateDrafts.value = []
+    selectedCandidateDraftId.value = null
+    message.error('加载候选稿失败')
+  } finally {
+    loadingCandidateDrafts.value = false
+  }
+}
+
+const openCandidateDrafts = async () => {
+  if (!currentChapter.value) return
+  showCandidateDraftsModal.value = true
+  await loadCandidateDrafts()
+}
+
+const handleSaveGeneratedAsCandidate = async () => {
+  const target = modalTargetChapter.value
+  if (!target || !generatedContent.value.trim()) {
+    message.warning('没有可保存的候选正文')
+    return
+  }
+  savingCandidateDraft.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(props.slug, target.number, {
+      source: 'workbench-generate',
+      title: `${target.title || `第${target.number}章`} 候选稿`,
+      content: generatedContent.value,
+      rationale: generateOutline.value.trim() ? `生成大纲：${generateOutline.value.trim()}` : '来自工作台快速生成',
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        outline: generateOutline.value,
+        sceneDirectorUsed: useSceneDirector.value,
+      },
+    })
+    message.success('已保存为候选稿')
+    if (currentChapter.value?.number === target.number) {
+      await loadCandidateDrafts()
+      selectedCandidateDraftId.value = draft.id
+      showCandidateDraftsModal.value = true
+    }
+  } catch {
+    message.error('保存候选稿失败')
+  } finally {
+    savingCandidateDraft.value = false
+  }
+}
+
+const handleAcceptCandidateDraft = async (draftId: string) => {
+  if (!currentChapter.value) return
+  acceptingCandidateDraftId.value = draftId
+  try {
+    const result = await chapterApi.acceptCandidateDraft(props.slug, currentChapter.value.number, draftId)
+    chapterContent.value = result.chapter.content
+    originalContent.value = result.chapter.content
+    message.success('候选稿已采纳为主稿')
+    await loadCandidateDrafts()
+    emit('chapterUpdated')
+  } catch {
+    message.error('采纳候选稿失败')
+  } finally {
+    acceptingCandidateDraftId.value = null
+  }
+}
+
+const handleRejectCandidateDraft = async (draftId: string) => {
+  if (!currentChapter.value) return
+  try {
+    await chapterApi.rejectCandidateDraft(props.slug, currentChapter.value.number, draftId)
+    message.success('候选稿已标记为拒绝')
+    await loadCandidateDrafts()
+  } catch {
+    message.error('拒绝候选稿失败')
+  }
 }
 
 function streamPhaseToProgress(phase: string): number {
@@ -1272,6 +1535,8 @@ defineExpose({ ensureAssistedMode })
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--app-border);
 }
@@ -1325,5 +1590,11 @@ defineExpose({ ensureAssistedMode })
 .editor-footer {
   padding-top: 12px;
   border-top: 1px solid var(--border-color);
+}
+
+.candidate-card--active {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 28%, transparent);
+  background: color-mix(in srgb, var(--primary-color) 4%, var(--card-color));
 }
 </style>

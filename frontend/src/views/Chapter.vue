@@ -17,6 +17,8 @@
       </n-space>
 
       <n-space :size="8" :wrap="false">
+        <CandidateDraftBranchSwitcher :slug="slug" width="150px" />
+
         <n-button-group>
           <n-button size="small" @click="prevChapter" :disabled="!canPrev">
             <template #icon>
@@ -35,6 +37,11 @@
         <n-dropdown :options="toolOptions" @select="handleToolSelect">
           <n-button size="small" secondary>工具</n-button>
         </n-dropdown>
+
+        <n-button size="small" secondary @click="reviewTab = 'candidates'">
+          候选稿
+          <template v-if="candidateDrafts.length">（{{ candidateDrafts.length }}）</template>
+        </n-button>
 
         <n-button size="small" quaternary @click="goCastGraph">关系图</n-button>
 
@@ -79,7 +86,7 @@
 
       <template #2>
         <div class="review-panel">
-          <n-tabs type="segment" animated class="review-tabs">
+          <n-tabs v-model:value="reviewTab" type="segment" animated class="review-tabs">
             <n-tab-pane name="review" tab="审定">
               <n-form label-placement="top" class="review-form">
                 <n-form-item label="状态">
@@ -187,6 +194,118 @@
               </n-spin>
             </n-tab-pane>
 
+            <n-tab-pane name="candidates" tab="候选稿">
+              <n-space vertical :size="12" style="width: 100%">
+                <n-alert type="info" :show-icon="true" style="font-size: 12px">
+                  当前页的候选稿与工作台共用同一套数据和采纳链路。采纳后会进入现有主稿、快照和章后记忆更新流程。
+                </n-alert>
+                <n-space justify="space-between" align="center">
+                  <n-space vertical :size="4">
+                    <n-text depth="3" style="font-size: 12px">
+                      当前章节：第 {{ chapterId }} 章
+                    </n-text>
+                    <n-text depth="3" style="font-size: 11px">
+                      候选稿分支与全局切换保持同步；留空表示查看全部，新建时会回落到 `main`。
+                    </n-text>
+                  </n-space>
+                  <n-space :size="8">
+                    <CandidateDraftBranchSwitcher :slug="slug" width="180px" />
+                    <n-button
+                      size="small"
+                      secondary
+                      :loading="savingCandidateDraft"
+                      :disabled="!content.trim()"
+                      @click="saveCurrentAsCandidate"
+                    >
+                      保存当前稿为候选稿
+                    </n-button>
+                    <n-button size="small" secondary :loading="loadingCandidateDrafts" @click="loadCandidateDrafts">
+                      刷新
+                    </n-button>
+                  </n-space>
+                </n-space>
+
+                <n-empty
+                  v-if="!loadingCandidateDrafts && candidateDrafts.length === 0"
+                  description="当前章节还没有候选稿"
+                  size="small"
+                />
+
+                <n-grid v-else :cols="2" :x-gap="12">
+                  <n-grid-item>
+                    <n-scrollbar style="max-height: 520px">
+                      <n-space vertical :size="10">
+                        <n-card
+                          v-for="draft in candidateDrafts"
+                          :key="draft.id"
+                          size="small"
+                          :bordered="true"
+                          :class="{ 'candidate-card--active': selectedCandidateDraftId === draft.id }"
+                        >
+                          <n-space vertical :size="8">
+                            <n-space justify="space-between" align="center">
+                              <n-space :size="6" align="center">
+                                <n-tag size="small" round>{{ draft.source }}</n-tag>
+                                <n-tag size="small" round type="default">{{ draft.branch_name }}</n-tag>
+                                <n-tag
+                                  size="small"
+                                  round
+                                  :type="draft.status === 'accepted' ? 'success' : draft.status === 'rejected' ? 'error' : 'warning'"
+                                >
+                                  {{ draft.status }}
+                                </n-tag>
+                              </n-space>
+                              <n-text depth="3" style="font-size: 11px">{{ formatDraftTime(draft.created_at) }}</n-text>
+                            </n-space>
+                            <n-text strong>{{ draft.title || `第${draft.chapter_number}章候选稿` }}</n-text>
+                            <n-text depth="3" style="font-size: 12px; line-height: 1.6">
+                              {{ draft.rationale || '无说明' }}
+                            </n-text>
+                            <n-space :size="8">
+                              <n-button size="tiny" secondary @click="selectedCandidateDraftId = draft.id">
+                                预览
+                              </n-button>
+                              <n-button
+                                size="tiny"
+                                type="primary"
+                                :loading="acceptingCandidateDraftId === draft.id"
+                                :disabled="draft.status === 'accepted'"
+                                @click="acceptCandidateDraft(draft.id)"
+                              >
+                                采纳为主稿
+                              </n-button>
+                              <n-button
+                                size="tiny"
+                                type="error"
+                                secondary
+                                :disabled="draft.status === 'rejected'"
+                                @click="rejectCandidateDraft(draft.id)"
+                              >
+                                拒绝
+                              </n-button>
+                            </n-space>
+                          </n-space>
+                        </n-card>
+                      </n-space>
+                    </n-scrollbar>
+                  </n-grid-item>
+
+                  <n-grid-item>
+                    <n-space vertical :size="10">
+                      <n-text strong>候选稿预览</n-text>
+                      <n-input
+                        :value="selectedCandidateDraft?.content || ''"
+                        type="textarea"
+                        readonly
+                        :autosize="{ minRows: 20, maxRows: 24 }"
+                        placeholder="选择左侧候选稿查看正文"
+                      />
+                    </n-space>
+                  </n-grid-item>
+                </n-grid>
+              </n-space>
+            </n-tab-pane>
+
             <n-tab-pane name="info" tab="信息">
               <n-space vertical :size="16" class="info-stats">
                 <n-statistic label="字数" :value="wordCount" />
@@ -220,8 +339,11 @@ import { useMessage, useDialog } from 'naive-ui'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { chapterApi } from '../api/chapter'
+import type { ChapterCandidateDraftDTO } from '../api/chapter'
 import { knowledgeGraphApi, type InferenceFactBundle } from '../api/knowledgeGraph'
 import { useStatsStore } from '../stores/statsStore'
+import { useCandidateDraftBranchStore } from '../stores/candidateDraftBranchStore'
+import CandidateDraftBranchSwitcher from '../components/workbench/CandidateDraftBranchSwitcher.vue'
 
 // Status mapping: old API (pending/ok/revise) <-> new API (draft/reviewed/approved)
 const statusToNew = (oldStatus: string): string => {
@@ -247,6 +369,7 @@ const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const statsStore = useStatsStore()
+const candidateDraftBranchStore = useCandidateDraftBranchStore()
 
 const inferenceLoading = ref(false)
 const inferenceFacts = ref<InferenceFactBundle[]>([])
@@ -286,6 +409,16 @@ const saving = ref(false)
 const saveStatus = ref<'unsaved' | 'saving' | 'saved'>('saved')
 const lastSaveTime = ref('')
 const saveTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const reviewTab = ref('review')
+const candidateDrafts = ref<ChapterCandidateDraftDTO[]>([])
+const loadingCandidateDrafts = ref(false)
+const savingCandidateDraft = ref(false)
+const acceptingCandidateDraftId = ref<string | null>(null)
+const selectedCandidateDraftId = ref<string | null>(null)
+const candidateBranchFilter = computed({
+  get: () => candidateDraftBranchStore.getActiveBranch(slug),
+  set: (value: string) => candidateDraftBranchStore.setActiveBranch(slug, value),
+})
 
 const reviewStatus = ref('pending')
 const reviewMemo = ref('')
@@ -352,9 +485,15 @@ const canNext = computed(() => {
 const createTime = ref('—')
 const updateTime = ref('—')
 
+const selectedCandidateDraft = computed(() => {
+  if (!selectedCandidateDraftId.value) return null
+  return candidateDrafts.value.find((draft) => draft.id === selectedCandidateDraftId.value) || null
+})
+
 const toolOptions = [
   { label: '复制全文', key: 'copy' },
   { label: '清空正文', key: 'clear' },
+  { label: '保存为候选稿', key: 'save-candidate' },
 ]
 
 const handleToolSelect = (key: string) => {
@@ -368,6 +507,108 @@ const handleToolSelect = (key: string) => {
     content.value = ''
     onInput()
     updatePreview(false)
+  }
+  if (key === 'save-candidate') {
+    void saveCurrentAsCandidate()
+  }
+}
+
+const formatDraftTime = (value: string) => {
+  if (!value) return '未知时间'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const loadCandidateDrafts = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
+  loadingCandidateDrafts.value = true
+  try {
+    const drafts = await chapterApi.listCandidateDrafts(
+      slug,
+      cid,
+      candidateBranchFilter.value.trim() || undefined,
+    )
+    candidateDrafts.value = drafts
+    if (!selectedCandidateDraftId.value || !drafts.some((d) => d.id === selectedCandidateDraftId.value)) {
+      selectedCandidateDraftId.value = drafts[0]?.id ?? null
+    }
+  } catch (error) {
+    console.error('Failed to load candidate drafts:', error)
+    candidateDrafts.value = []
+    selectedCandidateDraftId.value = null
+    message.error('加载候选稿失败')
+  } finally {
+    loadingCandidateDrafts.value = false
+  }
+}
+
+const saveCurrentAsCandidate = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
+  if (!content.value.trim()) {
+    message.warning('当前正文为空，无法保存为候选稿')
+    return
+  }
+  savingCandidateDraft.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(slug, cid, {
+      source: 'chapter-editor',
+      title: `第${cid}章 当前编辑稿`,
+      content: content.value,
+      rationale: '来自单章页当前编辑稿',
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+    })
+    reviewTab.value = 'candidates'
+    message.success('已保存为候选稿')
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+  } catch (error) {
+    console.error('Failed to save candidate draft:', error)
+    message.error('保存候选稿失败')
+  } finally {
+    savingCandidateDraft.value = false
+  }
+}
+
+const acceptCandidateDraft = async (draftId: string) => {
+  const cid = chapterId.value
+  if (cid == null) return
+  acceptingCandidateDraftId.value = draftId
+  try {
+    const result = await chapterApi.acceptCandidateDraft(slug, cid, draftId)
+    content.value = result.chapter.content || ''
+    saveStatus.value = 'saved'
+    lastSaveTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    updateTime.value = new Date().toLocaleString('zh-CN', { hour12: false })
+    updatePreview(false)
+    message.success('候选稿已采纳为主稿')
+    await Promise.all([loadCandidateDrafts(), loadInferenceEvidence()])
+    statsStore.onChapterSaved(slug, cid)
+  } catch (error) {
+    console.error('Failed to accept candidate draft:', error)
+    message.error('采纳候选稿失败')
+  } finally {
+    acceptingCandidateDraftId.value = null
+  }
+}
+
+const rejectCandidateDraft = async (draftId: string) => {
+  const cid = chapterId.value
+  if (cid == null) return
+  try {
+    await chapterApi.rejectCandidateDraft(slug, cid, draftId)
+    message.success('候选稿已标记为拒绝')
+    await loadCandidateDrafts()
+  } catch (error) {
+    console.error('Failed to reject candidate draft:', error)
+    message.error('拒绝候选稿失败')
   }
 }
 
@@ -525,7 +766,7 @@ const loadChapter = async () => {
   }
 
   saveStatus.value = 'saved'
-  await loadInferenceEvidence()
+  await Promise.all([loadInferenceEvidence(), loadCandidateDrafts()])
 }
 
 const loadInferenceEvidence = async () => {

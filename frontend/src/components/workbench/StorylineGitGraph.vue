@@ -8,6 +8,9 @@
         <n-tag size="tiny" round :bordered="false" type="info">
           {{ tracks.length }} tracks · {{ commits.length }} commits
         </n-tag>
+        <n-tag size="tiny" round :bordered="false" :type="activeBranchName ? 'success' : 'default'">
+          {{ activeBranchName ? `分支 ${activeBranchName}` : '全部分支' }}
+        </n-tag>
       </div>
       <div class="gg-header-right">
         <n-button size="tiny" secondary :loading="loading" @click="loadData">
@@ -362,6 +365,10 @@
                 <span class="gg-tip-k">Merge</span>
                 <span class="gg-tip-v purple">⤝ {{ tooltip.commit.mergeFrom.length }} 条线汇合</span>
               </div>
+              <div class="gg-tip-row">
+                <span class="gg-tip-k">回滚分支</span>
+                <span class="gg-tip-v">{{ activeBranchName || '全部快照' }}</span>
+              </div>
               <div v-if="tooltip.commit?.chapterIndex === currentChapter" class="gg-tip-current">
                 ● HEAD — 当前写作位置
               </div>
@@ -390,6 +397,7 @@
             <div class="gg-detail-meta">
               <span><b>章节：</b>第 {{ activeCommitData.chapterIndex }} 章</span>
               <span><b>轨道：</b>{{ getTrackLabel(activeCommitData) }}</span>
+              <span><b>回滚分支：</b>{{ activeBranchName || '全部快照' }}</span>
             </div>
             <div v-if="activeCommitData.branchFrom" class="gg-detail-branch">
               <span class="cyan">↗ Branch from #{{ activeCommitData.branchFrom.slice(0, 8) }}</span>
@@ -432,6 +440,7 @@ import { workflowApi } from '../../api/workflow'
 import { chroniclesApi } from '../../api/chronicles'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { useCandidateDraftBranchStore } from '../../stores/candidateDraftBranchStore'
 import type { StorylineDTO, StorylineGraphDataDTO, StorylineMergePointDTO } from '../../api/workflow'
 
 // ==================== Props & Emits ====================
@@ -445,6 +454,11 @@ const message = useMessage()
 const dialog = useDialog()
 const refreshStore = useWorkbenchRefreshStore()
 const { chroniclesTick } = storeToRefs(refreshStore)
+const candidateDraftBranchStore = useCandidateDraftBranchStore()
+const activeBranchName = computed(() => {
+  const branch = candidateDraftBranchStore.getActiveBranch(props.slug).trim()
+  return branch || ''
+})
 
 // ==================== 类型定义 ====================
 interface TrackDef {
@@ -859,12 +873,18 @@ async function confirmRollback(cm: CommitDef) {
       rollbacking.value = true
       try {
         const res = await chroniclesApi.get(props.slug)
+        const branchName = activeBranchName.value
         const snaps = res.rows
           .filter(r => r.chapter_index >= cm.chapterIndex)
           .flatMap(r => r.snapshots)
+          .filter((snapshot) => !branchName || snapshot.branch_name === branchName)
           .sort((a, b) => (a.anchor_chapter ?? 0) - (b.anchor_chapter ?? 0))
         if (!snaps.length) {
-          message.warning('该章节无可用快照，请先在全息编年史中创建快照')
+          message.warning(
+            branchName
+              ? `当前分支「${branchName}」下无可用快照，请先切换分支或创建快照`
+              : '该章节无可用快照，请先在全息编年史中创建快照'
+          )
           return false
         }
         const target = [...snaps].reverse().find(s => (s.anchor_chapter ?? 0) <= cm.chapterIndex) || snaps[0]

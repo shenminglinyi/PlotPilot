@@ -38,6 +38,8 @@ class SnapshotItem(BaseModel):
     created_at: Optional[str] = None
     description: Optional[str] = None
     anchor_chapter: Optional[int] = None
+    origin_type: str = "snapshot"
+    candidate_source: Optional[str] = None
 
 
 class ChronicleRow(BaseModel):
