@@ -118,6 +118,9 @@
                       <n-button size="small" type="primary" :loading="saveLoading" @click="saveAnchors">
                         保存锚点
                       </n-button>
+                      <n-button size="small" tertiary @click="jumpToSandbox">
+                        去对话沙盒试写
+                      </n-button>
                       <n-button size="small" secondary @click="resetEdits">
                         恢复当前值
                       </n-button>
@@ -222,6 +225,7 @@ import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
 import { sandboxApi } from '@/api/sandbox'
 import { voiceApi } from '@/api/voice'
+import { useWorkbenchContextStore } from '@/stores/workbenchContextStore'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 
 const props = defineProps<{
@@ -231,6 +235,7 @@ const props = defineProps<{
 
 const message = useMessage()
 const refreshStore = useWorkbenchRefreshStore()
+const contextStore = useWorkbenchContextStore()
 const { deskTick } = storeToRefs(refreshStore)
 
 const loading = ref(false)
@@ -319,6 +324,33 @@ function resetSampleFields() {
   authorRefined.value = ''
   sceneType.value = 'general'
   sampleChapter.value = props.currentChapter || 1
+}
+
+function buildSuggestedScenePrompt() {
+  const character = selectedCharacter.value
+  if (!character) return ''
+  const scene = sceneType.value.trim()
+  if (scene && scene !== 'general') {
+    return `请写一段${character.name}在“${scene}”场景中的对白，保留当前口吻锚点。`
+  }
+  return `请写一段${character.name}在当前章节语境下的对白，保留当前口吻锚点。`
+}
+
+function jumpToSandbox() {
+  const character = selectedCharacter.value
+  if (!character) {
+    message.warning('先选择角色再去对话沙盒')
+    return
+  }
+  contextStore.openSandboxWithDraft({
+    slug: props.slug,
+    characterId: character.id,
+    scenePrompt: buildSuggestedScenePrompt(),
+    mentalState: editMental.value || 'NORMAL',
+    verbalTic: editVerbal.value || '',
+    idleBehavior: editIdle.value || '',
+  })
+  message.success('已带着当前角色上下文切到对话沙盒')
 }
 
 async function loadCharacters() {

@@ -170,6 +170,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { useWorkbenchContextStore } from '../../stores/workbenchContextStore'
 import { useMessage } from 'naive-ui'
 import { sandboxApi } from '../../api/sandbox'
 import type { DialogueWhitelistResponse, DialogueEntry, CharacterAnchor } from '../../api/sandbox'
@@ -178,6 +179,8 @@ import type { CharacterDTO } from '../../api/bible'
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()
+const contextStore = useWorkbenchContextStore()
+const { sandboxDraft, sandboxDraftVersion } = storeToRefs(contextStore)
 
 // 状态
 const loading = ref(false)
@@ -198,6 +201,7 @@ const editVerbal = ref('')
 const editIdle = ref('')
 const scenePrompt = ref('')
 const generatedLine = ref('')
+const lastConsumedSandboxVersion = ref(0)
 
 // 角色选项
 const characterOptions = computed(() =>
@@ -287,6 +291,21 @@ async function onCharacterSelect(charId: string | null) {
   }
 }
 
+async function applySandboxDraftContext() {
+  const draft = sandboxDraft.value
+  if (!draft || draft.slug !== props.slug) return
+  if (sandboxDraftVersion.value === lastConsumedSandboxVersion.value) return
+
+  lastConsumedSandboxVersion.value = sandboxDraftVersion.value
+  selectedCharacterId.value = draft.characterId
+  await onCharacterSelect(draft.characterId)
+
+  editMental.value = draft.mentalState || editMental.value || 'NORMAL'
+  editVerbal.value = draft.verbalTic || editVerbal.value || ''
+  editIdle.value = draft.idleBehavior || editIdle.value || ''
+  scenePrompt.value = draft.scenePrompt || scenePrompt.value
+}
+
 // 保存锚点
 async function saveAnchors() {
   const id = selectedCharacterId.value
@@ -362,6 +381,7 @@ watch(
 onMounted(() => {
   loadCharacters()
   loadWhitelist()
+  void applySandboxDraftContext()
 })
 
 // 刷新监听
@@ -371,6 +391,13 @@ watch(deskTick, () => {
   loadCharacters()
   loadWhitelist()
 })
+
+watch(
+  [sandboxDraftVersion, () => props.slug],
+  () => {
+    void applySandboxDraftContext()
+  },
+)
 </script>
 
 <style scoped>

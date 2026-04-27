@@ -48,6 +48,11 @@
   - `ContinuityOverviewService` 已给掉线角色补充关系上下文字段：`tracked_relationship_count / stale_relationship_count / stale_relationship_targets / dropout_scope`
   - `ContinuityPanel.vue` 的掉线卡片已直接展示“受影响关系线”和沉默关系计数
   - 当前连续性面板已经能在同一屏里把“角色掉线”和“关系线掉线”对应起来
+- 已继续推进 `P2` 的“口吻锁定 ↔ 对话沙盒”联动：
+  - 新增 `frontend/src/stores/workbenchContextStore.ts`
+  - `VoiceLockPanel.vue` 已支持“去对话沙盒试写”，会带上当前角色、建议场景提示和未保存锚点草稿
+  - `SettingsPanel.vue` 会根据共享上下文自动切到“对话沙盒”
+  - `SandboxDialoguePanel.vue` 会自动接收并应用该角色与临时锚点，不必重新选人
 
 ## 验证状态
 
@@ -65,6 +70,7 @@
 - `cd frontend && npm run build`：通过（口吻锁定页签接入后再次验证）
 - `python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py -q --tb=short`：通过（2 passed）
 - `cd frontend && npm run build`：通过（掉线提醒与关系联动接入后再次验证）
+- `cd frontend && npm run build`：通过（口吻锁定与对话沙盒联动接入后再次验证）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过
@@ -78,6 +84,7 @@
 - 将本轮 `P2` 关系变化追踪 / 大纲偏离提醒同步推送到 GitHub，并观察 CI
 - 继续向 `P2` 后半段推进：优先考虑把“出场/掉线提醒与关系视图联动”接到现有工作台，或把口吻锁定与对话沙盒做快捷跳转
 - 继续向 `P2` 后半段推进：优先考虑把口吻锁定与对话沙盒做快捷跳转，或给连续性面板补“跳到口吻锁定/对话沙盒”的上下文入口
+- 继续向 `P2` 后半段推进：优先考虑给连续性面板补“跳到口吻锁定/对话沙盒”的上下文入口，或把角色掉线卡片与口吻锁定直接联动
 - 评估是否要把 GitHub Actions 使用的 `checkout/setup-*` action 版本前瞻升级到支持 Node 24，提前消除弃用告警
 
 ## 待确认

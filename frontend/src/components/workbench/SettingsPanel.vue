@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import BiblePanel from '../panels/BiblePanel.vue'
 import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
 import WorldbuildingPanel from './WorldbuildingPanel.vue'
@@ -67,6 +68,7 @@ import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
 import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
 import VoiceLockPanel from './VoiceLockPanel.vue'
+import { useWorkbenchContextStore } from '@/stores/workbenchContextStore'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
@@ -116,6 +118,8 @@ const emit = defineEmits<{
 }>()
 
 const activeTab = ref(resolveTab(props.currentPanel))
+const contextStore = useWorkbenchContextStore()
+const { targetPanel, sandboxDraftVersion, sandboxDraft } = storeToRefs(contextStore)
 
 watch(() => props.currentPanel, (newVal) => {
   activeTab.value = resolveTab(newVal)
@@ -124,6 +128,15 @@ watch(() => props.currentPanel, (newVal) => {
 watch(activeTab, (tab) => {
   emit('update:currentPanel', tab)
 })
+
+watch(
+  [targetPanel, sandboxDraftVersion, () => props.slug],
+  ([panel, _version, slug]) => {
+    if (panel === 'sandbox' && sandboxDraft.value?.slug === slug) {
+      activeTab.value = 'sandbox'
+    }
+  },
+)
 </script>
 
 <style scoped>
