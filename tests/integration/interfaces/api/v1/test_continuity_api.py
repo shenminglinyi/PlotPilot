@@ -19,6 +19,10 @@ class _FakeContinuityOverviewService:
                     "chapters_absent": 8,
                     "appearance_count": 2,
                     "severity": "high",
+                    "tracked_relationship_count": 1,
+                    "stale_relationship_count": 1,
+                    "stale_relationship_targets": ["苏晴"],
+                    "dropout_scope": "linked",
                 }
             ],
             "relationship_spotlights": [
@@ -97,5 +101,6 @@ class TestContinuityAPI:
         assert payload["voice_drift"]["drift_alert"] is True
         assert payload["timeline"]["current_chapter_has_event"] is False
         assert payload["character_dropouts"][0]["character_name"] == "林羽"
+        assert payload["character_dropouts"][0]["dropout_scope"] == "linked"
         assert payload["relationship_tracking"]["active_signals"][0]["change_signal"] == "关系趋紧"
         assert payload["outline_deviation"]["status"] == "warning"

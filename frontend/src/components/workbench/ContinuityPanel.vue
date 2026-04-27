@@ -122,6 +122,26 @@
                     <n-text depth="3" style="font-size: 12px">
                       上次出场：第{{ item.last_appearance_chapter }}章 · 已缺席 {{ item.chapters_absent }} 章 · 总出场 {{ item.appearance_count }} 次
                     </n-text>
+                    <n-space v-if="item.tracked_relationship_count > 0" :size="6" wrap>
+                      <n-tag size="small" round :type="dropoutScopeType(item.dropout_scope)">
+                        关联关系 {{ item.tracked_relationship_count }}
+                      </n-tag>
+                      <n-tag
+                        v-if="item.stale_relationship_count > 0"
+                        size="small"
+                        round
+                        type="warning"
+                      >
+                        沉默关系 {{ item.stale_relationship_count }}
+                      </n-tag>
+                    </n-space>
+                    <n-text
+                      v-if="item.stale_relationship_targets.length > 0"
+                      depth="3"
+                      style="font-size: 12px"
+                    >
+                      受影响关系线：{{ item.stale_relationship_targets.join('、') }}
+                    </n-text>
                   </div>
                 </div>
               </n-space>
@@ -365,6 +385,12 @@ function relationshipSeverityType(value: string) {
   if (value === 'warning') return 'warning'
   if (value === 'success') return 'success'
   return 'info'
+}
+
+function dropoutScopeType(value: string) {
+  if (value === 'linked') return 'warning'
+  if (value === 'tracked') return 'info'
+  return 'default'
 }
 
 function timestampTypeLabel(value: string) {

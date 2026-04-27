@@ -37,7 +37,9 @@ class _FakeBibleService:
                 SimpleNamespace(
                     id="char-yan",
                     name="严舟",
-                    relationships=[],
+                    relationships=[
+                        {"target": "苏晴", "relation": "旧友", "description": "多年未再合作"}
+                    ],
                 ),
             ]
         )
@@ -187,6 +189,10 @@ def test_get_overview_collects_dropouts_and_existing_signals():
     )
     db.execute(
         "INSERT INTO chapter_elements (id, chapter_id, element_type, element_id, relation_type) VALUES (?, ?, ?, ?, ?)",
+        ("elem-1b", "sn-4", "character", "char-su", "appears"),
+    )
+    db.execute(
+        "INSERT INTO chapter_elements (id, chapter_id, element_type, element_id, relation_type) VALUES (?, ?, ?, ?, ?)",
         ("elem-2", "sn-12", "character", "char-lin", "appears"),
     )
     db.execute(
@@ -240,9 +246,15 @@ def test_get_overview_collects_dropouts_and_existing_signals():
     assert overview["timeline"]["total_events"] == 1
     assert overview["character_dropouts"][0]["character_name"] == "严舟"
     assert overview["character_dropouts"][0]["chapters_absent"] == 8
+    assert overview["character_dropouts"][0]["tracked_relationship_count"] == 1
+    assert overview["character_dropouts"][0]["stale_relationship_count"] == 1
+    assert overview["character_dropouts"][0]["stale_relationship_targets"] == ["苏晴"]
+    assert overview["character_dropouts"][0]["dropout_scope"] == "linked"
     assert overview["relationship_spotlights"][0]["relation"] == "盟友"
     assert overview["relationship_tracking"]["active_signals"][0]["source_character"] == "林羽"
     assert overview["relationship_tracking"]["active_signals"][0]["target_character"] == "苏晴"
     assert overview["relationship_tracking"]["active_signals"][0]["change_signal"] == "关系趋紧"
+    assert overview["relationship_tracking"]["stale_pairs"][0]["source_character"] == "严舟"
+    assert overview["relationship_tracking"]["stale_pairs"][0]["target_character"] == "苏晴"
     assert overview["outline_deviation"]["status"] == "warning"
     assert "审阅备注提示可能偏离大纲" in overview["outline_deviation"]["warning_reasons"]

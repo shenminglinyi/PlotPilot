@@ -20,6 +20,10 @@ class CharacterDropoutItem(BaseModel):
     chapters_absent: int
     appearance_count: int
     severity: str
+    tracked_relationship_count: int = 0
+    stale_relationship_count: int = 0
+    stale_relationship_targets: List[str] = Field(default_factory=list)
+    dropout_scope: str = "solo"
 
 
 class RelationshipSpotlightItem(BaseModel):

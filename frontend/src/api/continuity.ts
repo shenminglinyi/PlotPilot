@@ -7,6 +7,10 @@ export interface CharacterDropoutItem {
   chapters_absent: number
   appearance_count: number
   severity: 'low' | 'medium' | 'high' | string
+  tracked_relationship_count: number
+  stale_relationship_count: number
+  stale_relationship_targets: string[]
+  dropout_scope: 'solo' | 'tracked' | 'linked' | string
 }
 
 export interface RelationshipSpotlightItem {

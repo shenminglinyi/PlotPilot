@@ -85,6 +85,11 @@ class ContinuityOverviewService:
             max_relationships=max_relationships,
             chapter_context=chapter_context,
         )
+        dropouts = self._attach_dropout_relationship_context(
+            dropouts=dropouts,
+            bible=bible,
+            relationship_tracking=relationship_tracking,
+        )
         outline_deviation = self._build_outline_deviation(
             chapter_context=chapter_context,
         )
@@ -486,6 +491,77 @@ class ContinuityOverviewService:
             "active_signals": active_signals[:max_relationships],
             "stale_pairs": stale_pairs[:max_relationships],
         }
+
+    def _attach_dropout_relationship_context(
+        self,
+        *,
+        dropouts: list[dict[str, Any]],
+        bible,
+        relationship_tracking: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        if not dropouts:
+            return dropouts
+
+        tracked_map = self._build_character_relationship_map(bible)
+        stale_map: dict[str, list[str]] = {}
+
+        for item in relationship_tracking.get("stale_pairs", []) or []:
+            source_name = str(item.get("source_character") or "").strip()
+            target_name = str(item.get("target_character") or "").strip()
+            if source_name and target_name:
+                stale_map.setdefault(source_name, []).append(target_name)
+                stale_map.setdefault(target_name, []).append(source_name)
+
+        enriched: list[dict[str, Any]] = []
+        for item in dropouts:
+            name = str(item.get("character_name") or "").strip()
+            tracked_targets = list(dict.fromkeys(tracked_map.get(name, [])))
+            stale_targets = list(dict.fromkeys(stale_map.get(name, [])))
+
+            if stale_targets:
+                dropout_scope = "linked"
+            elif tracked_targets:
+                dropout_scope = "tracked"
+            else:
+                dropout_scope = "solo"
+
+            enriched.append(
+                {
+                    **item,
+                    "tracked_relationship_count": len(tracked_targets),
+                    "stale_relationship_count": len(stale_targets),
+                    "stale_relationship_targets": stale_targets,
+                    "dropout_scope": dropout_scope,
+                }
+            )
+        return enriched
+
+    def _build_character_relationship_map(self, bible) -> dict[str, list[str]]:
+        if not bible:
+            return {}
+
+        relationship_map: dict[str, list[str]] = {}
+        for character in bible.characters:
+            source_name = str(getattr(character, "name", "") or "").strip()
+            if not source_name:
+                continue
+
+            for relationship in list(getattr(character, "relationships", []) or []):
+                if isinstance(relationship, dict):
+                    target_name = str(
+                        relationship.get("target")
+                        or relationship.get("target_name")
+                        or relationship.get("character")
+                        or ""
+                    ).strip()
+                else:
+                    target_name = ""
+
+                if not target_name:
+                    continue
+                relationship_map.setdefault(source_name, []).append(target_name)
+                relationship_map.setdefault(target_name, []).append(source_name)
+        return relationship_map
 
     def _load_joint_appearance_stat(
         self,
