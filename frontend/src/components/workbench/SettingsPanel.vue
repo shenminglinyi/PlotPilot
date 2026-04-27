@@ -42,6 +42,9 @@
       <n-tab-pane name="continuity" tab="连续性" display-directive="if">
         <ContinuityPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
+      <n-tab-pane name="voice-lock" tab="口吻锁定" display-directive="if">
+        <VoiceLockPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
+      </n-tab-pane>
       <n-tab-pane name="sandbox" tab="对话沙盒" display-directive="if">
         <SandboxDialoguePanel :slug="slug" />
       </n-tab-pane>
@@ -63,12 +66,13 @@ import ContinuityPanel from './ContinuityPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
 import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
+import VoiceLockPanel from './VoiceLockPanel.vue'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
-  'continuity', 'sandbox', 'foreshadow',
+  'continuity', 'voice-lock', 'sandbox', 'foreshadow',
 ])
 
 /** 旧版 tab 名映射到新 tab 名 */

@@ -39,6 +39,11 @@
   - `ContinuityOverviewService` 已新增“大纲偏离提醒”聚合：基于 `story_nodes.outline + chapter_summaries + chapter_reviews` 输出启发式偏离状态与原因
   - `interfaces/api/v1/analyst/continuity.py` 与 `frontend/src/api/continuity.ts` 已同步扩展接口模型
   - `frontend/src/components/workbench/ContinuityPanel.vue` 已扩展为完整的 `P2` 视图：关系变化追踪、大纲偏离提醒、原有掉线/时间线/文风状态统一展示
+- 已继续推进 `P2` 后半段：新增 `frontend/src/components/workbench/VoiceLockPanel.vue`
+  - 直接复用现有 `bibleApi / sandboxApi / voiceApi`
+  - 在现有 `SettingsPanel.vue` 中新增“口吻锁定”页签，不另起工作流
+  - 已接入角色锁定总览、锚点编辑、作者样本对沉淀 3 个最小闭环
+  - 当前章会自动带入样本沉淀的默认章节号
 
 ## 验证状态
 
@@ -53,6 +58,7 @@
 - 新后端 CI 对应本地命令已通过：
   - `python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`
 - `python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py tests/unit/application/services/test_chronicles_service.py -q --tb=short`：通过（5 passed）
+- `cd frontend && npm run build`：通过（口吻锁定页签接入后再次验证）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过
@@ -64,7 +70,7 @@
 ## 下一步
 
 - 将本轮 `P2` 关系变化追踪 / 大纲偏离提醒同步推送到 GitHub，并观察 CI
-- 继续向 `P2` 后半段推进：优先考虑把“角色口吻锁定工作流”或“出场/掉线提醒与关系视图联动”接到现有工作台
+- 继续向 `P2` 后半段推进：优先考虑把“出场/掉线提醒与关系视图联动”接到现有工作台，或把口吻锁定与对话沙盒做快捷跳转
 - 评估是否要把 GitHub Actions 使用的 `checkout/setup-*` action 版本前瞻升级到支持 Node 24，提前消除弃用告警
 
 ## 待确认
