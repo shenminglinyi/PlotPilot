@@ -859,6 +859,11 @@ watch(
   }
 )
 
+watch(candidateBranchFilter, () => {
+  if (chapterId.value == null) return
+  void loadCandidateDrafts()
+})
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeySave)
   try {

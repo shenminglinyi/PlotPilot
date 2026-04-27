@@ -23,6 +23,7 @@
 - `StorylineGitGraph.vue` 已感知活动分支：顶部/tooltip/详情栏显示当前回滚分支，回滚时优先使用该分支下的快照
 - 已新增显式分支切换组件：`frontend/src/components/workbench/CandidateDraftBranchSwitcher.vue`
 - 工作台右栏 `SettingsPanel.vue` 与单章页 `Chapter.vue` 头部都已挂上统一分支切换入口，不再只能依赖候选稿页签内部的筛选输入
+- 工作台 `WorkArea.vue` 与单章页 `Chapter.vue` 的候选稿列表已在活动分支切换后自动刷新；当前分支切换会立即同步候选稿计数与列表，不必再手动点“刷新”
 - 已创建 GitHub 私有仓库：`frankmeng82/PlotPilot-NovelPro`
 - 已完成首轮上传；由于原 worktree 历史对象缺失，改为使用干净导出仓库 `/tmp/PlotPilot-NovelPro-publish` 推送
 - 已将后端 CI 从“跑全部 unit tests”收口为“跑 P1 候选稿闭环已验证通过的后端测试集”，避免被 `v1.0.4` 基线现存失败阻断当前增量开发反馈

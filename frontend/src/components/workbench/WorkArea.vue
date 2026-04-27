@@ -994,6 +994,11 @@ watch(currentChapter, (chapter) => {
   }
 }, { immediate: true })
 
+watch(candidateBranchFilter, () => {
+  if (!currentChapter.value) return
+  void loadCandidateDrafts()
+})
+
 // 切换回正在生成的章节时，自动打开生成弹窗（让用户看到进度）
 watch(() => props.currentChapterId, (id) => {
   if (id !== null && id === generatingChapterId.value) {
