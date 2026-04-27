@@ -34,6 +34,8 @@ jobs:
       - name: Run verified backend workflow tests
         run: >
           pytest
+          tests/unit/application/services/test_continuity_overview_service.py
+          tests/integration/interfaces/api/v1/test_continuity_api.py
           tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py
           tests/unit/application/services/test_chapter_candidate_draft_service.py
           tests/unit/application/services/test_chapter_service.py

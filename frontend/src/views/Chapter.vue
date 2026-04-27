@@ -582,14 +582,13 @@ const acceptCandidateDraft = async (draftId: string) => {
   if (cid == null) return
   acceptingCandidateDraftId.value = draftId
   try {
-    const result = await chapterApi.acceptCandidateDraft(slug, cid, draftId)
-    content.value = result.chapter.content || ''
+    await chapterApi.acceptCandidateDraft(slug, cid, draftId)
+    await loadChapter()
     saveStatus.value = 'saved'
     lastSaveTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     updateTime.value = new Date().toLocaleString('zh-CN', { hour12: false })
     updatePreview(false)
     message.success('候选稿已采纳为主稿')
-    await Promise.all([loadCandidateDrafts(), loadInferenceEvidence()])
     statsStore.onChapterSaved(slug, cid)
   } catch (error) {
     console.error('Failed to accept candidate draft:', error)

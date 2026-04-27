@@ -41,6 +41,7 @@ from application.world.services.knowledge_service import KnowledgeService
 from application.analyst.services.voice_sample_service import VoiceSampleService
 from application.analyst.services.voice_fingerprint_service import VoiceFingerprintService
 from application.analyst.services.voice_drift_service import VoiceDriftService
+from application.analyst.services.continuity_overview_service import ContinuityOverviewService
 from application.engine.services.context_builder import ContextBuilder
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
@@ -849,6 +850,16 @@ def get_voice_drift_service() -> VoiceDriftService:
     )
     score_repo = SqliteChapterStyleScoreRepository(get_database())
     return VoiceDriftService(score_repo, get_voice_fingerprint_repository())
+
+
+def get_continuity_overview_service() -> ContinuityOverviewService:
+    return ContinuityOverviewService(
+        bible_service=get_bible_service(),
+        chapter_service=get_chapter_service(),
+        voice_drift_service=get_voice_drift_service(),
+        timeline_repository=get_timeline_repository(),
+        db_connection=get_database(),
+    )
 
 
 def get_macro_refactor_scanner():

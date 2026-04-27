@@ -39,6 +39,9 @@
       <n-tab-pane name="chronicles" tab="编年史" display-directive="if">
         <HolographicChroniclesPanel :slug="slug" />
       </n-tab-pane>
+      <n-tab-pane name="continuity" tab="连续性" display-directive="if">
+        <ContinuityPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
+      </n-tab-pane>
       <n-tab-pane name="sandbox" tab="对话沙盒" display-directive="if">
         <SandboxDialoguePanel :slug="slug" />
       </n-tab-pane>
@@ -56,6 +59,7 @@ import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
 import WorldbuildingPanel from './WorldbuildingPanel.vue'
 import StorylinePlotOverviewPanel from './StorylinePlotOverviewPanel.vue'
 import HolographicChroniclesPanel from './HolographicChroniclesPanel.vue'
+import ContinuityPanel from './ContinuityPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
 import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
@@ -64,7 +68,7 @@ import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
-  'sandbox', 'foreshadow',
+  'continuity', 'sandbox', 'foreshadow',
 ])
 
 /** 旧版 tab 名映射到新 tab 名 */

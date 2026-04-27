@@ -24,9 +24,16 @@
 - 已新增显式分支切换组件：`frontend/src/components/workbench/CandidateDraftBranchSwitcher.vue`
 - 工作台右栏 `SettingsPanel.vue` 与单章页 `Chapter.vue` 头部都已挂上统一分支切换入口，不再只能依赖候选稿页签内部的筛选输入
 - 工作台 `WorkArea.vue` 与单章页 `Chapter.vue` 的候选稿列表已在活动分支切换后自动刷新；当前分支切换会立即同步候选稿计数与列表，不必再手动点“刷新”
+- 单章页 `Chapter.vue` 采纳候选稿后已改为调用 `loadChapter()` 全量刷新当前章派生信息，不再只刷新正文与推断证据
 - 已创建 GitHub 私有仓库：`frankmeng82/PlotPilot-NovelPro`
 - 已完成首轮上传；由于原 worktree 历史对象缺失，改为使用干净导出仓库 `/tmp/PlotPilot-NovelPro-publish` 推送
 - 已将后端 CI 从“跑全部 unit tests”收口为“跑 P1 候选稿闭环已验证通过的后端测试集”，避免被 `v1.0.4` 基线现存失败阻断当前增量开发反馈
+- 已开始 `P2` 第一批最小能力：新增连续性总览服务/接口/右栏面板，聚合角色掉线、时间线覆盖、文风漂移与关系摘要
+- `SettingsPanel.vue` 已新增“连续性”页签，使用 `ContinuityPanel.vue` 接现有 `Bible / Timeline / Voice Drift / chapter_elements` 数据
+- 已新增连续性后端测试：
+  - `tests/unit/application/services/test_continuity_overview_service.py`
+  - `tests/integration/interfaces/api/v1/test_continuity_api.py`
+- 后端 CI 已纳入连续性总览测试
 
 ## 验证状态
 
@@ -39,7 +46,7 @@
 - `tests/unit/application/services/test_chronicles_service.py`：通过。
 - `cd frontend && npm run build`：通过。
 - 新后端 CI 对应本地命令已通过：
-  - `python -m pytest tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`
+  - `python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25004405301`：通过
@@ -48,10 +55,10 @@
 
 ## 下一步
 
-- 评估是否要在单章页采纳候选稿后同步刷新更多派生信息面板，例如结构分析/审定信息，而不是只刷新正文与推断证据
+- 继续扩展 `P2` 连续性面板：优先补“关系变化追踪”或“大纲偏离提醒”的最小版本
 - 评估是否把候选稿页签内部那套分支输入收敛成复用 `CandidateDraftBranchSwitcher.vue`，减少重复 UI
 - 评估是否要把 GitHub Actions 使用的 `checkout/setup-*` action 版本前瞻升级到支持 Node 24，提前消除弃用告警
 
 ## 待确认
 
-- 若 GitHub CI 绿了，下一轮优先继续做 P1 内的 UI 收口，还是开始准备 P2 的“更完整分支工作流”。
+- 下一轮 P2 更适合先做“关系变化追踪”，还是先做“大纲与正文偏离提醒”。
