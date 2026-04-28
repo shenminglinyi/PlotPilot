@@ -1,5 +1,6 @@
 import {
   candidateDraftFocusTags,
+  candidateDraftLineageTags,
   candidateDraftRewritePrompt,
   candidateDraftSourceLabel,
   candidateDraftSourceType,
@@ -21,9 +22,17 @@ const tags: string[] = candidateDraftFocusTags(draft)
 const tagType: string = candidateDraftSourceType(draft.source)
 const rewriteTask: boolean = isCandidateRewriteTask(draft)
 const prompt: string = candidateDraftRewritePrompt(draft)
+const lineageTags: string[] = candidateDraftLineageTags({
+  ...draft,
+  metadata: {
+    ...draft.metadata,
+    rewrite_task_id: 'task-1',
+  },
+})
 
 void label
 void tags
 void tagType
 void rewriteTask
 void prompt
+void lineageTags

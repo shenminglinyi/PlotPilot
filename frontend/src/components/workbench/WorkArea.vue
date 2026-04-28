@@ -546,6 +546,17 @@
                         {{ tag }}
                       </n-tag>
                     </n-space>
+                    <n-space v-if="candidateDraftLineageTags(draft).length" :size="6" wrap>
+                      <n-tag
+                        v-for="tag in candidateDraftLineageTags(draft)"
+                        :key="`${draft.id}-lineage-${tag}`"
+                        size="small"
+                        round
+                        type="success"
+                      >
+                        {{ tag }}
+                      </n-tag>
+                    </n-space>
                     <n-text depth="3" style="font-size: 12px; line-height: 1.6">
                       {{ draft.rationale || '无说明' }}
                     </n-text>
@@ -629,6 +640,7 @@ import { useCandidateDraftBranchStore } from '../../stores/candidateDraftBranchS
 import { useWorkbenchContextStore } from '../../stores/workbenchContextStore'
 import {
   candidateDraftFocusTags,
+  candidateDraftLineageTags,
   candidateDraftRewritePrompt,
   candidateDraftSourceLabel,
   candidateDraftSourceType,

@@ -76,6 +76,11 @@
   - 单章页 `Chapter.vue` 对连续性来源候选稿显示“去工作台生成”
   - 点击后会带着当前候选改稿任务跳转到对应章节工作台
   - `WorkArea.vue` 会消费该上下文，自动切回辅助撰稿并打开现有 AI 生成弹窗
+- 已区分“候选改稿任务”和“按任务生成的结果稿”：
+  - `candidateDraftDisplay.ts` 已新增 `candidateDraftLineageTags`
+  - 带有 `metadata.rewrite_task_id` 的候选稿会显示“任务生成”标签
+  - 带有 `rewrite_task_id` 的结果稿不再显示“按任务生成 / 去工作台生成”，避免结果稿再次被当成任务循环执行
+  - 工作台与单章页候选稿列表均已接入该展示规则
 
 ## 验证状态
 
@@ -99,6 +104,7 @@
 - `cd frontend && npm run build`：先失败后通过（新增候选稿展示 helper 类型校验，验证缺少 `candidateDraftDisplay` 时 `TS2307` 报错；补完 helper 与两个候选稿入口后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（扩展候选稿展示 helper 类型校验，验证缺少 `candidateDraftRewritePrompt / isCandidateRewriteTask` 时 `TS2305` 报错；补完“按任务生成”后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（扩展 `workbenchContextStore.candidate-rewrite` 类型校验，验证缺少 `openCandidateRewriteExecution` 时 `TS2551` 报错；补完单章页跳转工作台生成后重新构建通过）
+- `cd frontend && npm run build`：先失败后通过（扩展候选稿展示 helper 类型校验，验证缺少 `candidateDraftLineageTags` 时 `TS2305` 报错；补完任务生成标签与循环保护后重新构建通过）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过

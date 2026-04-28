@@ -37,6 +37,10 @@ function stringFromMetadata(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+function hasRewriteTaskParent(draft: ChapterCandidateDraftDTO): boolean {
+  return Boolean(stringFromMetadata(draft.metadata?.rewrite_task_id))
+}
+
 export function candidateDraftSourceLabel(source: string): string {
   return SOURCE_LABELS[source] || source || '未知来源'
 }
@@ -65,8 +69,15 @@ export function candidateDraftFocusTags(draft: ChapterCandidateDraftDTO): string
   return tags
 }
 
+export function candidateDraftLineageTags(draft: ChapterCandidateDraftDTO): string[] {
+  if (hasRewriteTaskParent(draft)) {
+    return ['任务生成']
+  }
+  return []
+}
+
 export function isCandidateRewriteTask(draft: ChapterCandidateDraftDTO): boolean {
-  return REWRITE_TASK_SOURCES.has(draft.source)
+  return REWRITE_TASK_SOURCES.has(draft.source) && !hasRewriteTaskParent(draft)
 }
 
 export function candidateDraftRewritePrompt(draft: ChapterCandidateDraftDTO): string {
