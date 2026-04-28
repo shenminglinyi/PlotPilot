@@ -62,6 +62,85 @@ def test_sync_chapter_writes_obsidian_long_term_memory(tmp_path):
     assert "主角必须为每次越级胜利付出代价" in fact_text
     assert "| 林夜 | 战力代价 | 灵脉受损 |" in fact_text
 
+    character_graph = tmp_path / "novel-obsidian" / "03_Entities" / "Character_Relationships.md"
+    assert character_graph.exists()
+    graph_text = character_graph.read_text(encoding="utf-8")
+    assert "graph LR" in graph_text
+    assert "林夜" in graph_text
+    assert "灵脉受损" in graph_text
+
+
+def test_load_knowledge_reads_obsidian_as_primary_memory(tmp_path):
+    novel_dir = tmp_path / "novel-primary"
+    (novel_dir / "02_Chapters").mkdir(parents=True)
+    (novel_dir / "04_Timelines").mkdir(parents=True)
+    (novel_dir / "01_Fact_Locks.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: plotpilot-fact-locks",
+                "---",
+                "",
+                "# 事实锁 / 长期设定",
+                "",
+                "## 全书基调",
+                "主角每次越级都必须付出代价。",
+                "",
+                "## 知识三元组",
+                "| 主体 | 关系 | 客体 | 章节 | 备注 | 标签 |",
+                "| --- | --- | --- | --- | --- | --- |",
+                "| 林夜 | 敌对 | 黑塔会 | 3 | 黑塔会追杀林夜 | 角色关系, 冲突 |",
+                "| 黑塔会 | 掌控 | 黑塔城 | 2 | 势力控制城市 | 势力, 地点 |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (novel_dir / "02_Chapters" / "Chapter_0003.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "type: plotpilot-chapter-memory",
+                "chapter: 3",
+                "sync_status: synced",
+                "---",
+                "",
+                "# 第 3 章长期记忆",
+                "",
+                "## 章末摘要",
+                "林夜逃出黑塔城。",
+                "",
+                "## 关键事件",
+                "林夜与黑塔会正面冲突。",
+                "",
+                "## 未解问题 / 伏笔",
+                "黑塔会为何追杀林夜。",
+                "",
+                "## 连续性说明",
+                "林夜仍处于被追杀状态。",
+                "",
+                "## 节拍",
+                "- 潜入黑塔城",
+                "- 逃离追杀",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    service = ObsidianMemoryService(tmp_path, None)
+    knowledge = service.load_knowledge("novel-primary")
+
+    assert knowledge is not None
+    assert knowledge.premise_lock == "主角每次越级都必须付出代价。"
+    assert len(knowledge.facts) == 2
+    assert knowledge.facts[0].subject == "林夜"
+    assert knowledge.facts[0].predicate == "敌对"
+    assert knowledge.facts[0].object == "黑塔会"
+    assert knowledge.facts[0].chapter_id == 3
+    assert "角色关系" in knowledge.facts[0].tags
+    assert len(knowledge.chapters) == 1
+    assert knowledge.chapters[0].summary == "林夜逃出黑塔城。"
+    assert knowledge.chapters[0].beat_sections == ["潜入黑塔城", "逃离追杀"]
+
 
 @pytest.mark.asyncio
 async def test_aftermath_pipeline_syncs_obsidian_after_narrative_sync(monkeypatch):

@@ -1,8 +1,8 @@
-"""Obsidian long-term memory mirror for PlotPilot Knowledge.
+"""Obsidian long-term memory bridge for PlotPilot Knowledge.
 
-This service does not replace SQLite Knowledge. It exports the current
-chapter-level memory into a Markdown vault so Obsidian can act as a durable,
-readable long-term memory surface.
+PlotPilot still writes through the existing chapter/Knowledge pipeline. This
+service exports PP cache into Markdown and can read supported notes back as the
+primary long-term memory source.
 """
 from __future__ import annotations
 
@@ -10,9 +10,12 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from application.paths import DATA_DIR
+from domain.knowledge.chapter_summary import ChapterSummary
+from domain.knowledge.knowledge_triple import KnowledgeTriple
+from domain.knowledge.story_knowledge import StoryKnowledge
 
 
 OBSIDIAN_VAULT_ENV = "PLOTPILOT_OBSIDIAN_VAULT"
@@ -47,8 +50,51 @@ def _table_cell(value: Any) -> str:
     return str(value or "").replace("|", "\\|").replace("\n", " ").strip()
 
 
+def _parse_table_cell(value: str) -> str:
+    return str(value or "").replace("\\|", "|").strip()
+
+
+def _parse_tags(value: str) -> List[str]:
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
+def _parse_chapter_number(value: str) -> Optional[int]:
+    raw = str(value or "").strip()
+    match = re.search(r"\d+", raw)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except ValueError:
+        return None
+
+
+def _extract_section(markdown: str, title: str) -> str:
+    pattern = re.compile(
+        rf"^##\s+{re.escape(title)}\s*$\n(?P<body>.*?)(?=^##\s+|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(markdown)
+    if not match:
+        return ""
+    return match.group("body").strip()
+
+
+def _extract_frontmatter_value(markdown: str, key: str) -> str:
+    if not markdown.startswith("---"):
+        return ""
+    end = markdown.find("\n---", 3)
+    if end < 0:
+        return ""
+    frontmatter = markdown[3:end]
+    for line in frontmatter.splitlines():
+        if line.strip().startswith(f"{key}:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
 class ObsidianMemoryService:
-    """Exports existing PlotPilot Knowledge into an Obsidian-compatible vault."""
+    """Exports PP cache to Obsidian and reads supported notes back as memory."""
 
     def __init__(self, vault_root: Optional[Path], knowledge_service: Any):
         self.vault_root = Path(vault_root or resolve_obsidian_vault_path()).expanduser()
@@ -77,6 +123,7 @@ class ObsidianMemoryService:
         self._write_index(novel_dir, novel_id, knowledge)
         self._write_fact_locks(novel_dir, knowledge)
         self._write_timeline(novel_dir, knowledge)
+        self._write_relationship_graph(novel_dir, knowledge)
         chapter_path = self._write_chapter_note(novel_dir, novel_id, chapter)
 
         return {
@@ -85,6 +132,30 @@ class ObsidianMemoryService:
             "chapter_note": str(chapter_path),
             "fact_count": len(getattr(knowledge, "facts", []) or []),
         }
+
+    def load_knowledge(self, novel_id: str) -> Optional[StoryKnowledge]:
+        """Read Obsidian vault notes back as the long-term memory source."""
+        novel_dir = self.vault_root / _safe_segment(novel_id)
+        if not novel_dir.exists():
+            return None
+
+        premise_lock, facts = self._read_fact_locks(novel_dir / "01_Fact_Locks.md")
+        chapters = self._read_chapter_notes(novel_dir / "02_Chapters")
+        if not premise_lock and not facts and not chapters:
+            return None
+
+        return StoryKnowledge(
+            novel_id=novel_id,
+            premise_lock=premise_lock,
+            chapters=chapters,
+            facts=facts,
+        )
+
+    def has_memory(self, novel_id: str) -> bool:
+        return self.load_knowledge(novel_id) is not None
+
+    def get_relationship_graph_path(self, novel_id: str) -> Path:
+        return self.vault_root / _safe_segment(novel_id) / "03_Entities" / "Character_Relationships.md"
 
     def _write_index(self, novel_dir: Path, novel_id: str, knowledge: Any) -> None:
         chapters = sorted(getattr(knowledge, "chapters", []) or [], key=lambda item: item.chapter_id)
@@ -143,6 +214,40 @@ class ObsidianMemoryService:
             )
         self._write_text(novel_dir / "01_Fact_Locks.md", "\n".join(lines) + "\n")
 
+    def _read_fact_locks(self, path: Path) -> tuple[str, List[KnowledgeTriple]]:
+        if not path.exists():
+            return "", []
+        text = path.read_text(encoding="utf-8")
+        premise_lock = _extract_section(text, "全书基调").strip()
+        facts: List[KnowledgeTriple] = []
+        for line in text.splitlines():
+            if not line.startswith("|"):
+                continue
+            if "---" in line or "主体" in line:
+                continue
+            cells = [_parse_table_cell(part) for part in line.strip().strip("|").split("|")]
+            if len(cells) < 3:
+                continue
+            subject, predicate, obj = cells[:3]
+            if not subject or not predicate or not obj:
+                continue
+            chapter_id = _parse_chapter_number(cells[3] if len(cells) > 3 else "")
+            note = cells[4] if len(cells) > 4 else ""
+            tags = _parse_tags(cells[5] if len(cells) > 5 else "")
+            facts.append(
+                KnowledgeTriple(
+                    id=f"obsidian-{len(facts) + 1:04d}-{_safe_segment(subject)}-{_safe_segment(predicate)}-{_safe_segment(obj)}",
+                    subject=subject,
+                    predicate=predicate,
+                    object=obj,
+                    chapter_id=chapter_id,
+                    note=note,
+                    tags=tags,
+                    source_type="obsidian_primary",
+                )
+            )
+        return premise_lock, facts
+
     def _write_timeline(self, novel_dir: Path, knowledge: Any) -> None:
         chapters = sorted(getattr(knowledge, "chapters", []) or [], key=lambda item: item.chapter_id)
         lines = [
@@ -169,6 +274,38 @@ class ObsidianMemoryService:
                 )
             )
         self._write_text(novel_dir / "04_Timelines" / "Timeline.md", "\n".join(lines) + "\n")
+
+    def _write_relationship_graph(self, novel_dir: Path, knowledge: Any) -> None:
+        facts = getattr(knowledge, "facts", []) or []
+        lines = [
+            _frontmatter(
+                {
+                    "type": "plotpilot-relationship-graph",
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "fact_count": len(facts),
+                }
+            ),
+            "",
+            "# 角色 / 故事关系图",
+            "",
+            "```mermaid",
+            "graph LR",
+        ]
+        edge_count = 0
+        for fact in facts:
+            subject = _safe_segment(getattr(fact, "subject", ""))
+            obj = _safe_segment(getattr(fact, "object", ""))
+            predicate = _table_cell(getattr(fact, "predicate", "关联"))
+            if not subject or not obj:
+                continue
+            lines.append(
+                f'  {subject}["{_table_cell(getattr(fact, "subject", ""))}"] -->|"{predicate}"| {obj}["{_table_cell(getattr(fact, "object", ""))}"]'
+            )
+            edge_count += 1
+        if edge_count == 0:
+            lines.append('  Empty["暂无结构化关系"]')
+        lines.extend(["```", ""])
+        self._write_text(novel_dir / "03_Entities" / "Character_Relationships.md", "\n".join(lines))
 
     def _write_chapter_note(self, novel_dir: Path, novel_id: str, chapter: Any) -> Path:
         chapter_number = int(getattr(chapter, "chapter_id", 0) or 0)
@@ -220,6 +357,36 @@ class ObsidianMemoryService:
 
         self._write_text(path, "\n".join(lines) + "\n")
         return path
+
+    def _read_chapter_notes(self, chapters_dir: Path) -> List[ChapterSummary]:
+        if not chapters_dir.exists():
+            return []
+        chapters: List[ChapterSummary] = []
+        for path in sorted(chapters_dir.glob("Chapter_*.md")):
+            text = path.read_text(encoding="utf-8")
+            chapter_id = _parse_chapter_number(_extract_frontmatter_value(text, "chapter"))
+            if chapter_id is None:
+                chapter_id = _parse_chapter_number(path.stem)
+            if chapter_id is None:
+                continue
+            beat_lines = []
+            beats_text = _extract_section(text, "节拍")
+            for line in beats_text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("- "):
+                    beat_lines.append(stripped[2:].strip())
+            chapters.append(
+                ChapterSummary(
+                    chapter_id=chapter_id,
+                    summary=_extract_section(text, "章末摘要"),
+                    key_events=_extract_section(text, "关键事件"),
+                    open_threads=_extract_section(text, "未解问题 / 伏笔"),
+                    consistency_note=_extract_section(text, "连续性说明"),
+                    beat_sections=beat_lines,
+                    sync_status=_extract_frontmatter_value(text, "sync_status") or "synced",
+                )
+            )
+        return chapters
 
     @staticmethod
     def _write_text(path: Path, content: str) -> None:

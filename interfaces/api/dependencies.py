@@ -323,13 +323,23 @@ def get_power_system_service() -> PowerSystemService:
 
 
 def get_obsidian_memory_service():
-    """Obsidian 长期记忆镜像；读取现有 Knowledge，不另建第二套记忆源。"""
+    """Obsidian 长期记忆镜像；导出时读取 PP 缓存，避免被尚未同步的 Obsidian 内容遮挡。"""
     from application.world.services.obsidian_memory_service import (
         ObsidianMemoryService,
         resolve_obsidian_vault_path,
     )
 
-    return ObsidianMemoryService(resolve_obsidian_vault_path(), get_knowledge_service())
+    return ObsidianMemoryService(resolve_obsidian_vault_path(), get_cached_knowledge_service())
+
+
+def get_obsidian_primary_memory_service():
+    """Obsidian 主记忆读取器；不依赖 KnowledgeService，避免读取时递归。"""
+    from application.world.services.obsidian_memory_service import (
+        ObsidianMemoryService,
+        resolve_obsidian_vault_path,
+    )
+
+    return ObsidianMemoryService(resolve_obsidian_vault_path(), None)
 
 
 @lru_cache
@@ -448,6 +458,14 @@ def get_knowledge_service() -> KnowledgeService:
     Returns:
         KnowledgeService 实例
     """
+    return KnowledgeService(
+        get_knowledge_repository(),
+        primary_memory_service=get_obsidian_primary_memory_service(),
+    )
+
+
+def get_cached_knowledge_service() -> KnowledgeService:
+    """获取 PP SQLite Knowledge 缓存服务；用于写后导出等不能优先读 Obsidian 的链路。"""
     return KnowledgeService(get_knowledge_repository())
 
 
@@ -884,6 +902,17 @@ def get_continuity_overview_service() -> ContinuityOverviewService:
         voice_drift_service=get_voice_drift_service(),
         timeline_repository=get_timeline_repository(),
         db_connection=get_database(),
+    )
+
+
+def get_novelpro_monitor_service():
+    from application.analyst.services.novelpro_monitor_service import NovelProMonitorService
+
+    return NovelProMonitorService(
+        knowledge_service=get_knowledge_service(),
+        obsidian_memory_service=get_obsidian_primary_memory_service(),
+        continuity_service=get_continuity_overview_service(),
+        power_system_service=get_power_system_service(),
     )
 
 

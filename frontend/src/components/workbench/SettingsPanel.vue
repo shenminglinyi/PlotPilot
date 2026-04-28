@@ -25,7 +25,7 @@
       >
         <span class="suite-eyebrow">新增功能</span>
         <strong>NovelPro 测试区</strong>
-        <span>连续性 · 口吻 · 战力 · PP AI</span>
+        <span>监控 · 记忆 · 连续性 · 战力</span>
       </button>
       <button
         class="suite-card"
@@ -47,6 +47,9 @@
       class="settings-tabs"
       :tabs-padding="4"
     >
+      <n-tab-pane v-if="activeGroup === 'novelpro'" name="novelpro-monitor" tab="监控中心" display-directive="if">
+        <NovelProMonitorPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
+      </n-tab-pane>
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="continuity" tab="连续性巡检" display-directive="if">
         <ContinuityPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
@@ -95,6 +98,7 @@ const KnowledgePanel = defineAsyncComponent(() => import('../knowledge/Knowledge
 const WorldbuildingPanel = defineAsyncComponent(() => import('./WorldbuildingPanel.vue'))
 const StorylinePlotOverviewPanel = defineAsyncComponent(() => import('./StorylinePlotOverviewPanel.vue'))
 const HolographicChroniclesPanel = defineAsyncComponent(() => import('./HolographicChroniclesPanel.vue'))
+const NovelProMonitorPanel = defineAsyncComponent(() => import('./NovelProMonitorPanel.vue'))
 const ContinuityPanel = defineAsyncComponent(() => import('./ContinuityPanel.vue'))
 const ForeshadowLedgerPanel = defineAsyncComponent(() => import('./ForeshadowLedgerPanel.vue'))
 const SandboxDialoguePanel = defineAsyncComponent(() => import('./SandboxDialoguePanel.vue'))
@@ -106,12 +110,13 @@ const ModelRolePanel = defineAsyncComponent(() => import('./ModelRolePanel.vue')
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
+  'novelpro-monitor',
   'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox', 'foreshadow',
 ])
-const NOVELPRO_TABS = new Set(['continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox'])
+const NOVELPRO_TABS = new Set(['novelpro-monitor', 'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox'])
 const BASE_TABS = new Set(['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'])
 const GROUP_DEFAULT_TAB = {
-  novelpro: 'continuity',
+  novelpro: 'novelpro-monitor',
   base: 'bible',
 } as const
 
@@ -128,7 +133,7 @@ const LEGACY_TAB_MAP: Record<string, string> = {
 }
 
 function resolveTab(panel: string | undefined): string {
-  if (!panel) return 'bible'
+  if (!panel) return 'novelpro-monitor'
   if (ALL_TABS.has(panel)) return panel
   return LEGACY_TAB_MAP[panel] ?? 'bible'
 }
@@ -154,7 +159,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  currentPanel: 'bible',
+  currentPanel: 'novelpro-monitor',
   bibleKey: 0,
   currentChapter: null,
 })

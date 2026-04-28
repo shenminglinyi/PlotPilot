@@ -211,6 +211,14 @@
   - 新增 `docs/novelpro-obsidian-long-term-memory.md` 记录 Obsidian 长期记忆的路径、结构和使用边界
   - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest ... -q --tb=short`：通过（38 passed）
   - `cd frontend && npm run build`：通过；构建输出无大包 warning
+- 2026-04-28 继续按用户新目标升级：
+  - Obsidian 已从“只读镜像”升级为长期主记忆回读源；`KnowledgeService` 读取时优先使用 Obsidian，并同步回 PP SQLite 缓存
+  - Obsidian 自动导出链路改为读取 PP SQLite 缓存专线，避免刚保存/采纳后的新章节记忆被旧 Markdown 内容遮挡
+  - `ObsidianMemoryService` 已支持回读 `01_Fact_Locks.md`、章节笔记和生成 `03_Entities/Character_Relationships.md` Mermaid 关系图
+  - 新增 NovelPro 监控中心后端服务/API：聚合 Obsidian 主记忆、知识关系图、连续性巡检和战力系统提醒
+  - 右侧 NovelPro 测试区新增默认页签“监控中心”，集中显示健康分、Obsidian 状态、关系图统计、连续性和战力告警
+  - 验证通过：`.venv/bin/python -m compileall -q application interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_novelpro_monitor_service.py tests/unit/application/services/test_knowledge_service_obsidian_primary.py tests/unit/application/services/test_obsidian_memory_service.py -q --tb=short`（5 passed）
+  - 验证通过：`cd frontend && npm run build`
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `434b5a5 feat: add configurable model roles`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042757111`：通过
@@ -227,7 +235,7 @@
 
 ## 下一步
 
-- 若继续开发，优先处理全量测试恢复和更严格的连续性/时间线推理；当前主流程已改为 PP AI 单线，Obsidian 作为 PP Knowledge 的长期记忆镜像。
+- 若继续开发，优先把 Obsidian 回读扩展到更多结构化笔记（角色档案、势力/地点、战力事件）并提升连续性/时间线推理精度；当前主流程已改为 PP AI 单线，Obsidian 是长期主记忆层，PP SQLite 是运行缓存。
 
 ## 待确认
 
