@@ -43,6 +43,7 @@ class RelationshipSignalItem(BaseModel):
     change_signal: str
     signal_excerpt: str = ""
     severity: str
+    source: str = "heuristic"
 
 
 class StaleRelationshipItem(BaseModel):
@@ -56,6 +57,7 @@ class StaleRelationshipItem(BaseModel):
 
 
 class RelationshipTrackingSummary(BaseModel):
+    source: str = "heuristic"
     tracked_pairs: int
     active_signals: List[RelationshipSignalItem]
     stale_pairs: List[StaleRelationshipItem]
@@ -84,12 +86,22 @@ class VoiceDriftSummary(BaseModel):
     alert_consecutive: int
 
 
+class OutlineNodeStatusItem(BaseModel):
+    node_key: str
+    outline_text: str
+    status: str
+    note: str = ""
+    evidence: str = ""
+
+
 class OutlineDeviationSummary(BaseModel):
+    source: str = "heuristic"
     status: str
     overlap_score: Optional[float]
     outline_excerpt: str
     summary_excerpt: str
     warning_reasons: List[str] = Field(default_factory=list)
+    outline_nodes: List[OutlineNodeStatusItem] = Field(default_factory=list)
 
 
 class ContinuityOverviewResponse(BaseModel):
@@ -102,6 +114,36 @@ class ContinuityOverviewResponse(BaseModel):
     voice_drift: VoiceDriftSummary
     timeline: TimelineSummary
     outline_deviation: OutlineDeviationSummary
+
+
+class RelationshipEventRequest(BaseModel):
+    chapter_number: int = Field(..., ge=1)
+    source_character: str = Field(..., min_length=1)
+    target_character: str = ""
+    relation: str = "关系"
+    event_type: str = "update"
+    description: str = ""
+    evidence: str = ""
+    severity: str = "info"
+
+
+class RelationshipEventResponse(RelationshipEventRequest):
+    id: str
+    novel_id: str
+
+
+class OutlineNodeStatusRequest(BaseModel):
+    chapter_number: int = Field(..., ge=1)
+    node_key: str = Field(..., min_length=1)
+    outline_text: str = Field(..., min_length=1)
+    status: str = "pending"
+    note: str = ""
+    evidence: str = ""
+
+
+class OutlineNodeStatusResponse(OutlineNodeStatusRequest):
+    id: str
+    novel_id: str
 
 
 @router.get(
@@ -117,3 +159,33 @@ def get_continuity_overview(
 ) -> ContinuityOverviewResponse:
     payload = service.get_overview(novel_id, chapter_number)
     return ContinuityOverviewResponse(**payload)
+
+
+@router.post(
+    "/novels/{novel_id}/continuity/relationship-events",
+    response_model=RelationshipEventResponse,
+    summary="记录关系变化事件",
+    description="为连续性面板补充结构化关系推进/破裂/修复记录，优先用于后续巡检。",
+)
+def record_relationship_event(
+    request: RelationshipEventRequest,
+    novel_id: str = Path(..., description="小说 ID"),
+    service: ContinuityOverviewService = Depends(get_continuity_overview_service),
+) -> RelationshipEventResponse:
+    payload = service.record_relationship_event(novel_id, request.model_dump())
+    return RelationshipEventResponse(**payload)
+
+
+@router.put(
+    "/novels/{novel_id}/continuity/outline-nodes",
+    response_model=OutlineNodeStatusResponse,
+    summary="更新章节大纲节点状态",
+    description="记录章节大纲节点是否已完成、变更、缺失或阻塞，用于降低脱纲巡检误判。",
+)
+def upsert_outline_node_status(
+    request: OutlineNodeStatusRequest,
+    novel_id: str = Path(..., description="小说 ID"),
+    service: ContinuityOverviewService = Depends(get_continuity_overview_service),
+) -> OutlineNodeStatusResponse:
+    payload = service.upsert_outline_node_status(novel_id, request.model_dump())
+    return OutlineNodeStatusResponse(**payload)

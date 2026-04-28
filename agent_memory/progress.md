@@ -111,6 +111,12 @@
   - 工作台右栏重面板改为异步组件，主包体积从约 3.16MB 降到约 2.90MB，并拆出连续性、战力、口吻锁定、知识库等独立 chunk
   - FastAPI 启停生命周期从 `on_event` 迁移到 lifespan，清理对应弃用告警
   - `HTTP_422_UNPROCESSABLE_ENTITY` 兼容常量改为无弃用告警写法
+- 已继续开发后续优化项：
+  - 新增 `continuity_relationship_events` 与 `outline_node_statuses` 两张结构化连续性追踪表
+  - 连续性总览已优先读取结构化关系事件和大纲节点状态；没有结构化记录时仍回退到原启发式巡检
+  - 连续性 API 新增关系事件记录和大纲节点状态更新入口
+  - 工作台 `连续性巡检` 面板新增结构化来源标签、关系事件录入、大纲节点状态录入和节点状态展示
+  - 新增 `docs/novelpro-continuity-structured-tracking.md` 记录使用流程与边界
 
 ## 验证状态
 
@@ -140,6 +146,8 @@
 - `cd frontend && npm run build`：先失败后通过（新增 `externalModelDraft / candidateDraftDiff` 类型校验，验证缺少 helper 时 `TS2307`；补完外部稿导入、外部提示复制和候选稿差异摘要后重新构建通过）
 - `.venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（19 passed）
 - `cd frontend && npm run build`：通过（战力系统、采纳影响提示、右栏异步拆包、生命周期告警清理后再次验证；仍有 Vite 大 chunk 提示，但主包已降到约 2.90MB）
+- `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
+- `cd frontend && npm run build`：通过（结构化连续性追踪接入后再次验证；仍有 Vite 大 chunk 提示）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端提交为 `7e926a8 feat: add power system guardrails`
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25039984499`：通过
@@ -156,4 +164,4 @@
 
 ## 待确认
 
-- 连续性面板里的“关系变化追踪”当前是启发式版本，后续是否要升级为基于显式关系事件表的精确追踪。
+- 结构化连续性追踪已具备手动记录入口；后续如要进一步自动化，可在章后记忆管线中从 `relationship_changes` 自动沉淀关系事件。

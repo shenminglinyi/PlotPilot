@@ -226,6 +226,71 @@
                     <n-text depth="3" style="font-size: 12px">
                       已跟踪 {{ overview.relationship_tracking.tracked_pairs }} 组 Bible 关系。
                     </n-text>
+                    <n-tag size="small" round :type="sourceTagType(overview.relationship_tracking.source)">
+                      {{ sourceLabel(overview.relationship_tracking.source) }}
+                    </n-tag>
+
+                    <div class="structured-form">
+                      <n-text strong style="font-size: 13px">记录关系事件</n-text>
+                      <n-space vertical :size="8" style="margin-top: 8px">
+                        <n-grid :cols="2" :x-gap="8" :y-gap="8">
+                          <n-grid-item>
+                            <n-input
+                              v-model:value="relationshipEventForm.source_character"
+                              size="small"
+                              placeholder="角色 A"
+                            />
+                          </n-grid-item>
+                          <n-grid-item>
+                            <n-input
+                              v-model:value="relationshipEventForm.target_character"
+                              size="small"
+                              placeholder="角色 B"
+                            />
+                          </n-grid-item>
+                          <n-grid-item>
+                            <n-input
+                              v-model:value="relationshipEventForm.relation"
+                              size="small"
+                              placeholder="关系，如盟友/师徒"
+                            />
+                          </n-grid-item>
+                          <n-grid-item>
+                            <n-select
+                              v-model:value="relationshipEventForm.severity"
+                              size="small"
+                              :options="relationshipSeverityOptions"
+                            />
+                          </n-grid-item>
+                        </n-grid>
+                        <n-input
+                          v-model:value="relationshipEventForm.event_type"
+                          size="small"
+                          placeholder="变化类型，如 trust_break / reconcile / alliance"
+                        />
+                        <n-input
+                          v-model:value="relationshipEventForm.description"
+                          type="textarea"
+                          size="small"
+                          :autosize="{ minRows: 2, maxRows: 3 }"
+                          placeholder="这条关系发生了什么变化"
+                        />
+                        <n-input
+                          v-model:value="relationshipEventForm.evidence"
+                          size="small"
+                          placeholder="证据摘录，可填关键句"
+                        />
+                        <n-button
+                          size="tiny"
+                          type="primary"
+                          secondary
+                          :loading="savingRelationshipEvent"
+                          @click="recordRelationshipEvent"
+                        >
+                          保存关系事件
+                        </n-button>
+                      </n-space>
+                    </div>
 
                     <div>
                       <n-text strong style="font-size: 13px">本章活跃信号</n-text>
@@ -249,6 +314,9 @@
                             </n-text>
                             <n-tag size="small" round :type="relationshipSeverityType(item.severity)">
                               {{ item.change_signal }}
+                            </n-tag>
+                            <n-tag v-if="item.source === 'structured'" size="small" round type="success">
+                              结构化
                             </n-tag>
                           </n-space>
                           <n-text depth="3" style="font-size: 12px">
@@ -278,6 +346,13 @@
                               @click="openSandbox(lookupCharacterId(item.source_character), item.source_character, buildRelationshipScenePrompt(item.source_character, item.target_character, item.change_signal))"
                             >
                               去对话沙盒
+                            </n-button>
+                            <n-button
+                              size="tiny"
+                              tertiary
+                              @click="fillRelationshipEventFromSignal(item)"
+                            >
+                              作为事件编辑
                             </n-button>
                           </n-space>
                         </div>
@@ -368,6 +443,9 @@
                   <n-tag round size="small" :type="outlineTagType(overview.outline_deviation.status)">
                     {{ outlineStatusLabel(overview.outline_deviation.status) }}
                   </n-tag>
+                  <n-tag size="small" round :type="sourceTagType(overview.outline_deviation.source)">
+                    {{ sourceLabel(overview.outline_deviation.source) }}
+                  </n-tag>
                   <n-text depth="3" style="font-size: 12px">
                     {{
                       overview.outline_deviation.overlap_score == null
@@ -413,6 +491,79 @@
                       </n-text>
                     </n-space>
                   </div>
+                  <div
+                    v-if="overview.outline_deviation.outline_nodes.length > 0"
+                    class="outline-row"
+                  >
+                    <n-text strong>结构化大纲节点</n-text>
+                    <n-space vertical :size="8">
+                      <div
+                        v-for="node in overview.outline_deviation.outline_nodes"
+                        :key="node.node_key"
+                        class="outline-node-row"
+                      >
+                        <n-space :size="8" align="center">
+                          <n-tag size="small" round :type="outlineNodeStatusType(node.status)">
+                            {{ outlineNodeStatusLabel(node.status) }}
+                          </n-tag>
+                          <n-text style="font-size: 12px">
+                            {{ node.outline_text }}
+                          </n-text>
+                        </n-space>
+                        <n-text v-if="node.note || node.evidence" depth="3" style="font-size: 12px">
+                          {{ node.note || node.evidence }}
+                        </n-text>
+                        <n-button size="tiny" tertiary @click="fillOutlineNodeStatus(node)">
+                          编辑状态
+                        </n-button>
+                      </div>
+                    </n-space>
+                  </div>
+                  <div class="structured-form">
+                    <n-text strong style="font-size: 13px">更新大纲节点状态</n-text>
+                    <n-space vertical :size="8" style="margin-top: 8px">
+                      <n-grid :cols="2" :x-gap="8" :y-gap="8">
+                        <n-grid-item>
+                          <n-input
+                            v-model:value="outlineNodeForm.node_key"
+                            size="small"
+                            placeholder="节点 key，如 node-1"
+                          />
+                        </n-grid-item>
+                        <n-grid-item>
+                          <n-select
+                            v-model:value="outlineNodeForm.status"
+                            size="small"
+                            :options="outlineStatusOptions"
+                          />
+                        </n-grid-item>
+                      </n-grid>
+                      <n-input
+                        v-model:value="outlineNodeForm.outline_text"
+                        size="small"
+                        placeholder="大纲节点内容"
+                      />
+                      <n-input
+                        v-model:value="outlineNodeForm.note"
+                        size="small"
+                        placeholder="处理备注，如已改写/缺失原因"
+                      />
+                      <n-input
+                        v-model:value="outlineNodeForm.evidence"
+                        size="small"
+                        placeholder="正文证据摘录"
+                      />
+                      <n-button
+                        size="tiny"
+                        type="primary"
+                        secondary
+                        :loading="savingOutlineNode"
+                        @click="upsertOutlineNodeStatus"
+                      >
+                        保存大纲节点状态
+                      </n-button>
+                    </n-space>
+                  </div>
                 </template>
               </n-space>
             </n-card>
@@ -444,7 +595,12 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
-import { continuityApi, type ContinuityOverviewResponse } from '@/api/continuity'
+import {
+  continuityApi,
+  type ContinuityOverviewResponse,
+  type OutlineNodeStatusItem,
+  type RelationshipSignalItem,
+} from '@/api/continuity'
 import { useWorkbenchContextStore } from '@/stores/workbenchContextStore'
 
 const props = defineProps<{
@@ -458,6 +614,40 @@ const loading = ref(false)
 const loadError = ref('')
 const overview = ref<ContinuityOverviewResponse | null>(null)
 const characters = ref<CharacterDTO[]>([])
+const savingRelationshipEvent = ref(false)
+const savingOutlineNode = ref(false)
+const relationshipEventForm = ref({
+  source_character: '',
+  target_character: '',
+  relation: '关系',
+  event_type: 'update',
+  description: '',
+  evidence: '',
+  severity: 'info',
+})
+const outlineNodeForm = ref({
+  node_key: '',
+  outline_text: '',
+  status: 'completed',
+  note: '',
+  evidence: '',
+})
+
+const relationshipSeverityOptions = [
+  { label: '信息', value: 'info' },
+  { label: '升温/修复', value: 'success' },
+  { label: '风险', value: 'warning' },
+  { label: '严重', value: 'error' },
+]
+
+const outlineStatusOptions = [
+  { label: '已完成', value: 'completed' },
+  { label: '自动命中', value: 'matched' },
+  { label: '待确认', value: 'pending' },
+  { label: '已变更', value: 'changed' },
+  { label: '缺失', value: 'missing' },
+  { label: '阻塞', value: 'blocked' },
+]
 
 const characterIdByName = computed(() => {
   const entries = characters.value
@@ -488,6 +678,32 @@ function relationshipSeverityType(value: string) {
   if (value === 'warning') return 'warning'
   if (value === 'success') return 'success'
   return 'info'
+}
+
+function sourceLabel(value: string) {
+  if (value === 'structured') return '结构化记录'
+  return '启发式巡检'
+}
+
+function sourceTagType(value: string) {
+  if (value === 'structured') return 'success'
+  return 'default'
+}
+
+function outlineNodeStatusLabel(value: string) {
+  if (value === 'completed') return '已完成'
+  if (value === 'matched') return '自动命中'
+  if (value === 'changed') return '已变更'
+  if (value === 'missing') return '缺失'
+  if (value === 'blocked') return '阻塞'
+  return '待确认'
+}
+
+function outlineNodeStatusType(value: string) {
+  if (value === 'completed' || value === 'matched') return 'success'
+  if (value === 'changed' || value === 'blocked') return 'warning'
+  if (value === 'missing') return 'error'
+  return 'default'
 }
 
 function dropoutScopeType(value: string) {
@@ -598,6 +814,72 @@ function queueCharacterRewrite(characterName: string, rationale: string, source:
   })
 }
 
+function fillRelationshipEventFromSignal(item: RelationshipSignalItem) {
+  relationshipEventForm.value = {
+    source_character: item.source_character,
+    target_character: item.target_character,
+    relation: item.relation || '关系',
+    event_type: item.change_signal || 'update',
+    description: item.description || '',
+    evidence: item.signal_excerpt || '',
+    severity: item.severity || 'info',
+  }
+}
+
+function fillOutlineNodeStatus(item: OutlineNodeStatusItem) {
+  outlineNodeForm.value = {
+    node_key: item.node_key,
+    outline_text: item.outline_text,
+    status: item.status || 'pending',
+    note: item.note || '',
+    evidence: item.evidence || '',
+  }
+}
+
+async function recordRelationshipEvent() {
+  if (!overview.value) return
+  if (!relationshipEventForm.value.source_character.trim()) {
+    message.warning('请先填写关系事件的主角色')
+    return
+  }
+  savingRelationshipEvent.value = true
+  try {
+    await continuityApi.recordRelationshipEvent(props.slug, {
+      chapter_number: overview.value.chapter_number,
+      ...relationshipEventForm.value,
+    })
+    message.success('关系事件已记录，会优先用于连续性巡检')
+    relationshipEventForm.value.description = ''
+    relationshipEventForm.value.evidence = ''
+    await loadOverview()
+  } catch {
+    message.error('保存关系事件失败，请稍后重试')
+  } finally {
+    savingRelationshipEvent.value = false
+  }
+}
+
+async function upsertOutlineNodeStatus() {
+  if (!overview.value) return
+  if (!outlineNodeForm.value.node_key.trim() || !outlineNodeForm.value.outline_text.trim()) {
+    message.warning('请先填写节点 key 和大纲节点内容')
+    return
+  }
+  savingOutlineNode.value = true
+  try {
+    await continuityApi.upsertOutlineNodeStatus(props.slug, {
+      chapter_number: overview.value.chapter_number,
+      ...outlineNodeForm.value,
+    })
+    message.success('大纲节点状态已更新')
+    await loadOverview()
+  } catch {
+    message.error('保存大纲节点状态失败，请稍后重试')
+  } finally {
+    savingOutlineNode.value = false
+  }
+}
+
 function lookupCharacterId(name: string) {
   return characterIdByName.value.get(name) || null
 }
@@ -699,6 +981,17 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.structured-form,
+.outline-node-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--aitext-split-border);
+  border-radius: 10px;
+  background: var(--app-surface);
 }
 
 .dropout-main {

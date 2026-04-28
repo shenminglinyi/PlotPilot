@@ -258,3 +258,184 @@ def test_get_overview_collects_dropouts_and_existing_signals():
     assert overview["relationship_tracking"]["stale_pairs"][0]["target_character"] == "苏晴"
     assert overview["outline_deviation"]["status"] == "warning"
     assert "审阅备注提示可能偏离大纲" in overview["outline_deviation"]["warning_reasons"]
+
+
+def test_get_overview_prefers_structured_relationship_events_and_outline_statuses():
+    db = _FakeDb()
+    db.execute(
+        """
+        CREATE TABLE chapters (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT,
+            number INTEGER,
+            title TEXT,
+            content TEXT,
+            outline TEXT,
+            status TEXT
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE story_nodes (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT,
+            node_type TEXT,
+            number INTEGER,
+            outline TEXT
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE chapter_elements (
+            id TEXT PRIMARY KEY,
+            chapter_id TEXT,
+            element_type TEXT,
+            element_id TEXT,
+            relation_type TEXT
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE continuity_relationship_events (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            chapter_number INTEGER NOT NULL,
+            source_character TEXT NOT NULL,
+            target_character TEXT NOT NULL DEFAULT '',
+            relation TEXT NOT NULL DEFAULT '关系',
+            event_type TEXT NOT NULL DEFAULT 'update',
+            description TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL DEFAULT '',
+            severity TEXT NOT NULL DEFAULT 'info',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE outline_node_statuses (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            chapter_number INTEGER NOT NULL,
+            node_key TEXT NOT NULL,
+            outline_text TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            note TEXT NOT NULL DEFAULT '',
+            evidence TEXT NOT NULL DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    db.execute(
+        """
+        INSERT INTO story_nodes (id, novel_id, node_type, number, outline)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            "sn-12",
+            "novel-1",
+            "chapter",
+            12,
+            "林羽与苏晴在码头确认合作；两人发现仓库暗门；严舟留下误导线索。",
+        ),
+    )
+    db.execute(
+        """
+        INSERT INTO chapters (id, novel_id, number, title, content, outline, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "ch-12",
+            "novel-1",
+            12,
+            "第12章",
+            "林羽独自行动。",
+            "林羽与苏晴在码头确认合作；两人发现仓库暗门；严舟留下误导线索。",
+            "draft",
+        ),
+    )
+    db.execute(
+        """
+        INSERT INTO chapter_elements (id, chapter_id, element_type, element_id, relation_type)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("elem-lin", "sn-12", "character", "char-lin", "appears"),
+    )
+    db.execute(
+        """
+        INSERT INTO continuity_relationship_events (
+            id, novel_id, chapter_number, source_character, target_character,
+            relation, event_type, description, evidence, severity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "rel-event-1",
+            "novel-1",
+            12,
+            "林羽",
+            "苏晴",
+            "盟友",
+            "trust_break",
+            "林羽隐瞒暗门线索，苏晴开始怀疑他。",
+            "苏晴收起地图，没有再回应林羽。",
+            "warning",
+        ),
+    )
+    db.execute(
+        """
+        INSERT INTO outline_node_statuses (
+            id, novel_id, chapter_number, node_key, outline_text, status, note, evidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "outline-1",
+            "novel-1",
+            12,
+            "node-1",
+            "林羽与苏晴在码头确认合作",
+            "changed",
+            "合作被改成隐瞒，关系方向发生变化。",
+            "林羽独自行动。",
+        ),
+    )
+    db.execute(
+        """
+        INSERT INTO outline_node_statuses (
+            id, novel_id, chapter_number, node_key, outline_text, status, note, evidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "outline-2",
+            "novel-1",
+            12,
+            "node-2",
+            "两人发现仓库暗门",
+            "missing",
+            "暗门节点未落地。",
+            "",
+        ),
+    )
+
+    service = ContinuityOverviewService(
+        bible_service=_FakeBibleService(),
+        chapter_service=_FakeChapterService(),
+        voice_drift_service=_FakeVoiceDriftService(),
+        timeline_repository=_FakeTimelineRepository(),
+        db_connection=db,
+    )
+
+    overview = service.get_overview("novel-1", 12, dropout_gap=5)
+
+    assert overview["relationship_tracking"]["source"] == "structured"
+    assert overview["relationship_tracking"]["active_signals"][0]["change_signal"] == "trust_break"
+    assert overview["relationship_tracking"]["active_signals"][0]["signal_excerpt"] == "苏晴收起地图，没有再回应林羽。"
+    assert overview["outline_deviation"]["source"] == "structured"
+    assert overview["outline_deviation"]["status"] == "warning"
+    assert overview["outline_deviation"]["overlap_score"] == 0
+    assert overview["outline_deviation"]["outline_nodes"][0]["status"] == "changed"
+    assert "结构化大纲节点存在变更或缺失" in overview["outline_deviation"]["warning_reasons"]

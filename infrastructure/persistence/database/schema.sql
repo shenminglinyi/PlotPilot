@@ -145,6 +145,47 @@ CREATE TABLE IF NOT EXISTS chapter_reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chapter_reviews_novel ON chapter_reviews(novel_id);
+
+-- ========== Continuity Structured Tracking（连续性结构化巡检记录） ==========
+CREATE TABLE IF NOT EXISTS continuity_relationship_events (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    source_character TEXT NOT NULL,
+    target_character TEXT NOT NULL DEFAULT '',
+    relation TEXT NOT NULL DEFAULT '关系',
+    event_type TEXT NOT NULL DEFAULT 'update',
+    description TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'info',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    FOREIGN KEY (novel_id, chapter_number) REFERENCES chapters(novel_id, number) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_continuity_relationship_events_novel_chapter
+ON continuity_relationship_events(novel_id, chapter_number);
+
+CREATE TABLE IF NOT EXISTS outline_node_statuses (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    node_key TEXT NOT NULL,
+    outline_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    note TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    FOREIGN KEY (novel_id, chapter_number) REFERENCES chapters(novel_id, number) ON DELETE CASCADE,
+    UNIQUE(novel_id, chapter_number, node_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_outline_node_statuses_novel_chapter
+ON outline_node_statuses(novel_id, chapter_number);
+
 CREATE INDEX IF NOT EXISTS idx_triples_entity_type ON triples(novel_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_triples_chapter ON triples(novel_id, chapter_number);
 CREATE INDEX IF NOT EXISTS idx_triples_source ON triples(novel_id, source_type);
@@ -704,4 +745,3 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
-

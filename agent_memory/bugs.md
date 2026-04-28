@@ -9,7 +9,7 @@
 - API 集成测试会触发现有向量存储初始化；当前 worktree 只安装了 `requirements.txt`，未装 `requirements-local.txt`，因此会看到 `faiss` 缺失告警。现阶段不影响候选稿闭环测试，但后续如果要测向量相关能力，需要补本地依赖或显式 mock 掉向量层。
 - 新建 worktree 默认没有 `frontend/node_modules`；前端改动验证前需要先在 worktree 下执行 `cd frontend && npm ci`，否则 `npm run build` 会因为缺少 `vue-tsc` 直接失败。
 - 当前 `tests/integration/interfaces/api/v1/conftest.py` 使用 `DatabaseConnection(\":memory:\")`，而连接对象内部又按线程缓存 SQLite 连接；如果测试先在主线程手动写库、再通过 `TestClient` 走请求线程读取，容易出现“主线程有表，请求线程 no such table” 的假失败。此类用例优先写成纯单元测试，或把数据创建动作也放到请求线程侧完成。
-- 连续性面板里的“关系变化追踪”和“大纲偏离提醒”当前是启发式聚合：关系信号依赖 `Bible 关系 + 同章共现 + 摘要/审阅关键词`，偏离提醒依赖 `outline/summary/review` 文本重合度。它适合写作巡检，但不能当成严格审计结论；后续如果要驱动自动阻断，需要再补更结构化的关系事件存储。
+- 连续性面板现在已有结构化关系事件和大纲节点状态入口，但章后记忆管线尚未自动写入这些表；目前仍需要作者在关键章节手动确认。后续若要自动化，优先复用 `relationship_changes` 和章节审阅结果，避免另起一套抽取逻辑。
 - 当前前端构建仍会给出主包体积过大的 Vite 提示；右栏重面板已拆成异步 chunk，主包已明显下降，但核心工作台仍然较大。后续如果继续加面板，应继续优先懒加载。
 
 ## 已解除

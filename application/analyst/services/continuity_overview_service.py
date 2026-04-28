@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 from typing import Any, Optional
+from uuid import uuid4
 
 from domain.novel.value_objects.novel_id import NovelId
 
@@ -115,6 +116,90 @@ class ContinuityOverviewService:
             "outline_deviation": outline_deviation,
         }
 
+    def record_relationship_event(self, novel_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        event_id = str(uuid4())
+        self.db_connection.execute(
+            """
+            INSERT INTO continuity_relationship_events (
+                id, novel_id, chapter_number, source_character, target_character,
+                relation, event_type, description, evidence, severity
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_id,
+                novel_id,
+                int(payload.get("chapter_number") or 0),
+                str(payload.get("source_character") or "").strip(),
+                str(payload.get("target_character") or "").strip(),
+                str(payload.get("relation") or "关系").strip() or "关系",
+                str(payload.get("event_type") or "update").strip() or "update",
+                str(payload.get("description") or "").strip(),
+                str(payload.get("evidence") or "").strip(),
+                str(payload.get("severity") or "info").strip() or "info",
+            ),
+        )
+        return {
+            "id": event_id,
+            "novel_id": novel_id,
+            "chapter_number": int(payload.get("chapter_number") or 0),
+            "source_character": str(payload.get("source_character") or "").strip(),
+            "target_character": str(payload.get("target_character") or "").strip(),
+            "relation": str(payload.get("relation") or "关系").strip() or "关系",
+            "event_type": str(payload.get("event_type") or "update").strip() or "update",
+            "description": str(payload.get("description") or "").strip(),
+            "evidence": str(payload.get("evidence") or "").strip(),
+            "severity": str(payload.get("severity") or "info").strip() or "info",
+        }
+
+    def upsert_outline_node_status(self, novel_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        row_id = str(uuid4())
+        chapter_number = int(payload.get("chapter_number") or 0)
+        node_key = str(payload.get("node_key") or "").strip()
+        self.db_connection.execute(
+            """
+            INSERT INTO outline_node_statuses (
+                id, novel_id, chapter_number, node_key, outline_text, status, note, evidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(novel_id, chapter_number, node_key) DO UPDATE SET
+                outline_text = excluded.outline_text,
+                status = excluded.status,
+                note = excluded.note,
+                evidence = excluded.evidence,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                row_id,
+                novel_id,
+                chapter_number,
+                node_key,
+                str(payload.get("outline_text") or "").strip(),
+                str(payload.get("status") or "pending").strip() or "pending",
+                str(payload.get("note") or "").strip(),
+                str(payload.get("evidence") or "").strip(),
+            ),
+        )
+        existing = self.db_connection.execute(
+            """
+            SELECT id
+            FROM outline_node_statuses
+            WHERE novel_id = ?
+              AND chapter_number = ?
+              AND node_key = ?
+            LIMIT 1
+            """,
+            (novel_id, chapter_number, node_key),
+        ).fetchone()
+        return {
+            "id": str(existing["id"] if existing else row_id),
+            "novel_id": novel_id,
+            "chapter_number": chapter_number,
+            "node_key": node_key,
+            "outline_text": str(payload.get("outline_text") or "").strip(),
+            "status": str(payload.get("status") or "pending").strip() or "pending",
+            "note": str(payload.get("note") or "").strip(),
+            "evidence": str(payload.get("evidence") or "").strip(),
+        }
+
     def _get_table_columns(self, table_name: str) -> set[str]:
         try:
             rows = self.db_connection.execute(f"PRAGMA table_info({table_name})").fetchall()
@@ -124,6 +209,8 @@ class ContinuityOverviewService:
 
     def _load_current_chapter_context(self, novel_id: str, chapter_number: int) -> dict[str, str]:
         context = {
+            "novel_id": novel_id,
+            "chapter_number": str(chapter_number),
             "content": "",
             "outline": "",
             "summary": "",
@@ -370,10 +457,17 @@ class ContinuityOverviewService:
         max_relationships: int,
         chapter_context: dict[str, str],
     ) -> dict[str, Any]:
+        structured_events = self._load_structured_relationship_events(
+            novel_id=novel_id,
+            current_chapter_number=current_chapter_number,
+            max_relationships=max_relationships,
+        ) if current_chapter_number > 0 else []
+
         if not bible or current_chapter_number <= 0:
             return {
+                "source": "structured" if structured_events else "heuristic",
                 "tracked_pairs": 0,
-                "active_signals": [],
+                "active_signals": structured_events,
                 "stale_pairs": [],
             }
 
@@ -458,6 +552,7 @@ class ContinuityOverviewService:
                             "change_signal": change_signal or "本章有关系推进",
                             "signal_excerpt": signal_excerpt,
                             "severity": severity or "info",
+                            "source": "heuristic",
                         }
                     )
                 elif chapters_since_joint is not None and chapters_since_joint >= 5:
@@ -486,11 +581,92 @@ class ContinuityOverviewService:
                 item["source_character"],
             )
         )
+        if structured_events:
+            seen_pairs = {
+                (
+                    item["source_character"],
+                    item["target_character"],
+                    item["change_signal"],
+                )
+                for item in structured_events
+            }
+            active_signals = structured_events + [
+                item
+                for item in active_signals
+                if (
+                    item["source_character"],
+                    item["target_character"],
+                    item["change_signal"],
+                ) not in seen_pairs
+            ]
+
         return {
+            "source": "structured" if structured_events else "heuristic",
             "tracked_pairs": tracked_pairs,
             "active_signals": active_signals[:max_relationships],
             "stale_pairs": stale_pairs[:max_relationships],
         }
+
+    def _load_structured_relationship_events(
+        self,
+        *,
+        novel_id: str,
+        current_chapter_number: int,
+        max_relationships: int,
+    ) -> list[dict[str, Any]]:
+        columns = self._get_table_columns("continuity_relationship_events")
+        required = {
+            "novel_id",
+            "chapter_number",
+            "source_character",
+            "target_character",
+            "relation",
+            "event_type",
+            "description",
+            "evidence",
+            "severity",
+        }
+        if not required.issubset(columns):
+            return []
+
+        rows = self.db_connection.execute(
+            """
+            SELECT
+                source_character,
+                target_character,
+                relation,
+                event_type,
+                description,
+                evidence,
+                severity,
+                chapter_number
+            FROM continuity_relationship_events
+            WHERE novel_id = ?
+              AND chapter_number <= ?
+            ORDER BY chapter_number DESC, updated_at DESC, created_at DESC
+            LIMIT ?
+            """,
+            (novel_id, current_chapter_number, max_relationships),
+        ).fetchall()
+
+        events: list[dict[str, Any]] = []
+        for row in rows:
+            chapter_number = int(row["chapter_number"] or current_chapter_number)
+            events.append(
+                {
+                    "source_character": str(row["source_character"] or ""),
+                    "target_character": str(row["target_character"] or ""),
+                    "relation": str(row["relation"] or "关系"),
+                    "description": str(row["description"] or ""),
+                    "last_joint_chapter": chapter_number,
+                    "joint_appearance_count": 0,
+                    "change_signal": str(row["event_type"] or "update"),
+                    "signal_excerpt": str(row["evidence"] or row["description"] or ""),
+                    "severity": str(row["severity"] or "info"),
+                    "source": "structured",
+                }
+            )
+        return events
 
     def _attach_dropout_relationship_context(
         self,
@@ -638,21 +814,36 @@ class ContinuityOverviewService:
         if not basis_text:
             basis_text = str(chapter_context.get("content", "") or "").strip()[:180]
 
+        structured_outline = self._load_structured_outline_statuses(
+            novel_id=str(chapter_context.get("novel_id", "") or ""),
+            chapter_number=int(chapter_context.get("chapter_number", 0) or 0),
+        )
+        if structured_outline:
+            return self._build_structured_outline_deviation(
+                outline=outline,
+                basis_text=basis_text,
+                outline_nodes=structured_outline,
+            )
+
         if not outline:
             return {
+                "source": "heuristic",
                 "status": "unavailable",
                 "overlap_score": None,
                 "outline_excerpt": "",
                 "summary_excerpt": basis_text,
                 "warning_reasons": ["当前章节还没有可用大纲"],
+                "outline_nodes": [],
             }
         if not basis_text:
             return {
+                "source": "heuristic",
                 "status": "unavailable",
                 "overlap_score": None,
                 "outline_excerpt": outline[:120],
                 "summary_excerpt": "",
                 "warning_reasons": ["当前章节缺少可用于比对的正文摘要"],
+                "outline_nodes": [],
             }
 
         outline_segments = self._split_outline_segments(outline)
@@ -685,11 +876,101 @@ class ContinuityOverviewService:
             status = "watch"
 
         return {
+            "source": "heuristic",
             "status": status,
             "overlap_score": overlap_score,
             "outline_excerpt": outline[:120],
             "summary_excerpt": basis_text[:120],
             "warning_reasons": warning_reasons,
+            "outline_nodes": [
+                {
+                    "node_key": f"segment-{index + 1}",
+                    "outline_text": segment,
+                    "status": "matched" if segment in matched_segments else "pending",
+                    "note": "",
+                    "evidence": "",
+                }
+                for index, segment in enumerate(outline_segments)
+            ],
+        }
+
+    def _load_structured_outline_statuses(
+        self,
+        *,
+        novel_id: str,
+        chapter_number: int,
+    ) -> list[dict[str, str]]:
+        columns = self._get_table_columns("outline_node_statuses")
+        required = {
+            "novel_id",
+            "chapter_number",
+            "node_key",
+            "outline_text",
+            "status",
+            "note",
+            "evidence",
+        }
+        if not novel_id or chapter_number <= 0 or not required.issubset(columns):
+            return []
+
+        rows = self.db_connection.execute(
+            """
+            SELECT node_key, outline_text, status, note, evidence
+            FROM outline_node_statuses
+            WHERE novel_id = ?
+              AND chapter_number = ?
+            ORDER BY node_key ASC, created_at ASC
+            """,
+            (novel_id, chapter_number),
+        ).fetchall()
+        return [
+            {
+                "node_key": str(row["node_key"] or ""),
+                "outline_text": str(row["outline_text"] or ""),
+                "status": str(row["status"] or "pending"),
+                "note": str(row["note"] or ""),
+                "evidence": str(row["evidence"] or ""),
+            }
+            for row in rows
+        ]
+
+    def _build_structured_outline_deviation(
+        self,
+        *,
+        outline: str,
+        basis_text: str,
+        outline_nodes: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        total = len(outline_nodes)
+        completed_statuses = {"completed", "matched", "done"}
+        risk_statuses = {"changed", "missing", "blocked", "deviated"}
+        completed_count = sum(1 for item in outline_nodes if item.get("status") in completed_statuses)
+        risk_nodes = [item for item in outline_nodes if item.get("status") in risk_statuses]
+        overlap_score = round(completed_count / total, 2) if total else None
+
+        warning_reasons: list[str] = []
+        if risk_nodes:
+            warning_reasons.append("结构化大纲节点存在变更或缺失")
+        if total and completed_count == 0:
+            warning_reasons.append("结构化大纲节点尚未确认完成")
+        elif total and overlap_score is not None and overlap_score < 0.55:
+            warning_reasons.append("结构化大纲节点完成比例偏低")
+
+        if any(item.get("status") in {"missing", "blocked", "deviated"} for item in risk_nodes):
+            status = "warning"
+        elif risk_nodes or warning_reasons:
+            status = "watch"
+        else:
+            status = "aligned"
+
+        return {
+            "source": "structured",
+            "status": status,
+            "overlap_score": overlap_score,
+            "outline_excerpt": outline[:120],
+            "summary_excerpt": basis_text[:120],
+            "warning_reasons": warning_reasons,
+            "outline_nodes": outline_nodes,
         }
 
     def _split_outline_segments(self, outline: str) -> list[str]:
