@@ -9,6 +9,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'continuity-outline': '大纲改稿',
   'continuity-dropout': '角色掉线',
   'continuity-relationship': '关系推进',
+  'precision-rewrite': '精细改稿',
 }
 
 const SOURCE_TYPES: Record<string, CandidateDraftTagType> = {
@@ -18,12 +19,14 @@ const SOURCE_TYPES: Record<string, CandidateDraftTagType> = {
   'continuity-outline': 'warning',
   'continuity-dropout': 'warning',
   'continuity-relationship': 'warning',
+  'precision-rewrite': 'warning',
 }
 
 const FOCUS_LABELS: Record<string, string> = {
   'voice-drift': '文风漂移',
   'outline-deviation': '大纲偏离',
   'character-continuity': '角色连续性',
+  'precision-rewrite': '精细改稿',
 }
 
 const REWRITE_TASK_SOURCES = new Set([
@@ -31,6 +34,7 @@ const REWRITE_TASK_SOURCES = new Set([
   'continuity-outline',
   'continuity-dropout',
   'continuity-relationship',
+  'precision-rewrite',
 ])
 
 function stringFromMetadata(value: unknown): string {

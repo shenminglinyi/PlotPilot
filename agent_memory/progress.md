@@ -81,6 +81,12 @@
   - 带有 `metadata.rewrite_task_id` 的候选稿会显示“任务生成”标签
   - 带有 `rewrite_task_id` 的结果稿不再显示“按任务生成 / 去工作台生成”，避免结果稿再次被当成任务循环执行
   - 工作台与单章页候选稿列表均已接入该展示规则
+- 已开始落地 `P2` 精细改稿模式的最小闭环：
+  - 新增 `frontend/src/utils/precisionRewriteTask.ts`，统一构造精修任务 rationale
+  - 工作台编辑区已新增“精细改稿”入口
+  - 精修弹窗支持选择改稿目标、填写重点片段和作者要求
+  - 创建后会生成 `precision-rewrite` 候选任务，进入现有候选稿列表
+  - 该任务可继续复用“按任务生成 → 结果候选稿 → 采纳主稿 → 章后记忆更新”的现有链路
 
 ## 验证状态
 
@@ -105,6 +111,7 @@
 - `cd frontend && npm run build`：先失败后通过（扩展候选稿展示 helper 类型校验，验证缺少 `candidateDraftRewritePrompt / isCandidateRewriteTask` 时 `TS2305` 报错；补完“按任务生成”后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（扩展 `workbenchContextStore.candidate-rewrite` 类型校验，验证缺少 `openCandidateRewriteExecution` 时 `TS2551` 报错；补完单章页跳转工作台生成后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（扩展候选稿展示 helper 类型校验，验证缺少 `candidateDraftLineageTags` 时 `TS2305` 报错；补完任务生成标签与循环保护后重新构建通过）
+- `cd frontend && npm run build`：先失败后通过（新增 `precisionRewriteTask` 类型校验，验证缺少精修任务 helper 时 `TS2307` 报错；补完工作台精修任务入口后重新构建通过）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过
