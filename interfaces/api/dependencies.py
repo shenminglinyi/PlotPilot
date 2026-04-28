@@ -322,6 +322,16 @@ def get_power_system_service() -> PowerSystemService:
     return PowerSystemService(get_power_system_repository())
 
 
+def get_obsidian_memory_service():
+    """Obsidian 长期记忆镜像；读取现有 Knowledge，不另建第二套记忆源。"""
+    from application.world.services.obsidian_memory_service import (
+        ObsidianMemoryService,
+        resolve_obsidian_vault_path,
+    )
+
+    return ObsidianMemoryService(resolve_obsidian_vault_path(), get_knowledge_service())
+
+
 @lru_cache
 def get_background_task_service():
     """单例后台任务队列（API 进程内）：文风；章末 bundle（叙事+三元组+伏笔+故事线+张力+对话+剧情点）与管线同源单次 LLM。"""
@@ -342,6 +352,7 @@ def get_background_task_service():
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
         narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        obsidian_memory_service=get_obsidian_memory_service(),
     )
 
 
@@ -364,6 +375,7 @@ def get_chapter_aftermath_pipeline():
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
         narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        obsidian_memory_service=get_obsidian_memory_service(),
     )
 
 

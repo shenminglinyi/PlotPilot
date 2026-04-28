@@ -202,6 +202,15 @@
   - 已通过干净发布仓库 `/tmp/PlotPilot-NovelPro-publish` 推送到 `origin/local/feature-p1-candidate-gate`
   - GitHub Actions `Backend CI` run `25054063931`：通过
   - GitHub Actions `Frontend CI` run `25054064074`：通过
+- 2026-04-28 继续收束主流程：
+  - 新增 Obsidian 长期记忆镜像服务，默认导出到 `data/obsidian-vault`，可用 `PLOTPILOT_OBSIDIAN_VAULT` 指向已有 Obsidian vault
+  - Obsidian 镜像已挂入 `ChapterAftermathPipeline` 和后台 `EXTRACT_BUNDLE`，章节保存、候选稿采纳、后台叙事同步后都会自动导出，不再手动复制维护
+  - Obsidian 只读取现有 PP Knowledge，PP/SQLite 仍是权威源，避免形成第二套记忆系统
+  - 工作台和单章页已移除可见“导入外部稿 / 复制外部提示”入口，主流程改为 PP AI 直接生成候选稿和采纳前检查
+  - 右栏“模型分工”改为“PP AI”，说明新增写作、审稿和记忆检查统一使用 LLM 控制台当前激活配置
+  - 新增 `docs/novelpro-obsidian-long-term-memory.md` 记录 Obsidian 长期记忆的路径、结构和使用边界
+  - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest ... -q --tb=short`：通过（38 passed）
+  - `cd frontend && npm run build`：通过；构建输出无大包 warning
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `434b5a5 feat: add configurable model roles`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042757111`：通过
@@ -218,10 +227,10 @@
 
 ## 下一步
 
-- 若继续开发，优先处理全量测试恢复和更严格的连续性/时间线推理；前端大包与审稿/记忆模型独立调用的第一版已完成。
+- 若继续开发，优先处理全量测试恢复和更严格的连续性/时间线推理；当前主流程已改为 PP AI 单线，Obsidian 作为 PP Knowledge 的长期记忆镜像。
 
 ## 待确认
 
 - 结构化连续性已具备手动记录和章后启发式自动沉淀；后续若要更准，应复用 LLM 章后 bundle 的 `relationship_changes`，不要另起一套抽取逻辑。
-- 直连模型写作已支持按模型分工绑定 LLM profile；审稿/记忆模型也已可在候选稿采纳前独立调用，但目前输出是检查文本，尚未自动写入所有结构化记忆表。
+- 直连写作和采纳前检查已收束为 PP 当前 AI 单线；旧模型标签仅用于兼容历史候选稿/台账，不再作为主流程分工依据。
 - A/B 对照、分支记忆差异和时间线冲突检测是最小可用版本，仍以启发式为主；后续可升级为专门对照工作台和严格时间推理。

@@ -2,9 +2,9 @@
   <div class="model-role-panel">
     <header class="panel-header">
       <div>
-        <h3 class="panel-title">模型分工</h3>
+        <h3 class="panel-title">PP AI 配置</h3>
         <p class="panel-lead">
-          配置“谁负责写正文、谁负责审稿/记忆/连续性检查”。写作模型不限定 Kimi，可按项目切换。
+          新增写作、审稿和记忆检查统一使用 LLM 控制台当前激活配置，不再要求复制到外部模型或维护双线 AI。
         </p>
       </div>
     </header>
@@ -12,30 +12,17 @@
     <div class="panel-content">
       <n-space vertical :size="14">
         <n-alert type="info" :show-icon="false">
-          当前分工：{{ roleSummary }}
-          <template v-if="writingProfileBinding">
-            <br />直连写作配置：{{ writingProfileBinding }}
-          </template>
+          当前主线：PP 当前 AI。候选稿生成、采纳前检查和章后记忆更新都走同一套 PP LLM 配置。
         </n-alert>
 
-        <n-card size="small" title="默认角色">
+        <n-card size="small" title="旧标签兼容">
           <n-space vertical :size="12">
-            <n-form-item label="写作模型" label-placement="top" :show-feedback="false">
-              <n-select
-                v-model:value="draftConfig.writingModel"
-                :options="writerOptions"
-                placeholder="选择负责写正文的模型"
-              />
-            </n-form-item>
-            <n-form-item label="审稿 / 记忆模型" label-placement="top" :show-feedback="false">
-              <n-select
-                v-model:value="draftConfig.supervisorModel"
-                :options="supervisorOptions"
-                placeholder="选择负责检查和生成约束的模型"
-              />
-            </n-form-item>
+            <n-text depth="3">
+              这里保留 Kimi / Claude / GPT / DeepSeek 等标签，仅用于识别旧候选稿和旧台账。
+              当前主流程不会按这里拆成写作模型与审稿模型。
+            </n-text>
             <n-button type="primary" secondary @click="saveConfig">
-              保存模型分工
+              保存兼容标签
             </n-button>
           </n-space>
         </n-card>
@@ -101,9 +88,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { llmControlApi, type LLMProfile } from '@/api/llmControl'
 import {
-  buildModelRoleSummary,
-  getModelProfile,
-  getModelOptions,
   loadModelRoleConfig,
   saveModelRoleConfig,
   upsertModelProfile,
@@ -123,23 +107,15 @@ const customModel = ref<ModelProfile>({
 })
 
 const roleOptions = [
-  { label: '写作模型', value: 'writer' },
-  { label: '审稿/记忆模型', value: 'supervisor' },
-  { label: '两者都可', value: 'both' },
+  { label: '旧写作标签', value: 'writer' },
+  { label: '旧检查标签', value: 'supervisor' },
+  { label: '旧通用标签', value: 'both' },
 ]
 
-const writerOptions = computed(() => getModelOptions(draftConfig.value, 'writer'))
-const supervisorOptions = computed(() => getModelOptions(draftConfig.value, 'supervisor'))
-const roleSummary = computed(() => buildModelRoleSummary(draftConfig.value))
 const llmProfileOptions = computed(() => llmProfiles.value.map(profile => ({
   label: `${profile.name}${profile.model ? ` · ${profile.model}` : ''}`,
   value: profile.id,
 })))
-const writingProfileBinding = computed(() => {
-  const writingProfile = getModelProfile(draftConfig.value, draftConfig.value.writingModel)
-  if (!writingProfile?.llmProfileId) return ''
-  return llmProfileOptions.value.find(item => item.value === writingProfile.llmProfileId)?.label || writingProfile.llmProfileId
-})
 
 function roleLabel(role: ModelRole) {
   if (role === 'writer') return '写作'
@@ -149,7 +125,7 @@ function roleLabel(role: ModelRole) {
 
 function saveConfig() {
   draftConfig.value = saveModelRoleConfig(draftConfig.value)
-  message.success('模型分工已保存')
+  message.success('PP AI 兼容标签已保存')
 }
 
 function addCustomModel() {

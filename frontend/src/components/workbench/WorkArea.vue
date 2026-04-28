@@ -110,15 +110,6 @@
                         size="small"
                         secondary
                         :disabled="isAssistedReadOnly"
-                        @click="openExternalModelDraftModal"
-                        title="把 Kimi 等外部模型正文导入候选稿"
-                      >
-                        导入外部稿
-                      </n-button>
-                      <n-button
-                        size="small"
-                        secondary
-                        :disabled="isAssistedReadOnly"
                         @click="openTensionModal"
                         title="诊断当前章节张力缺口"
                       >
@@ -546,61 +537,6 @@
     </n-modal>
 
     <n-modal
-      v-model:show="showExternalModelDraftModal"
-      preset="card"
-      title="导入外部模型稿"
-      style="width: min(760px, 96vw)"
-      :segmented="{ content: true, footer: 'soft' }"
-    >
-      <n-space vertical :size="16">
-        <n-alert type="info" :show-icon="true" style="font-size:13px">
-          适合把 Kimi 等外部大模型写好的正文粘进来。系统只保存为候选稿；你采纳后才会更新主稿和本地记忆。
-        </n-alert>
-
-        <n-form-item label="外部模型" label-placement="top" :show-feedback="false">
-          <n-select
-            v-model:value="externalModelDraftModel"
-            :options="externalModelOptions"
-            filterable
-            tag
-          />
-        </n-form-item>
-
-        <n-form-item label="作者要求 / 来源说明（可选）" label-placement="top" :show-feedback="false">
-          <n-input
-            v-model:value="externalModelDraftInstruction"
-            type="textarea"
-            placeholder="例：Kimi 根据第 12 章精修任务改写；保留事件，只改语气和节奏"
-            :autosize="{ minRows: 3, maxRows: 6 }"
-          />
-        </n-form-item>
-
-        <n-form-item label="外部模型正文" label-placement="top" :show-feedback="false">
-          <n-input
-            v-model:value="externalModelDraftContent"
-            type="textarea"
-            placeholder="把外部模型生成的整章正文粘贴到这里"
-            :autosize="{ minRows: 12, maxRows: 24 }"
-          />
-        </n-form-item>
-      </n-space>
-
-      <template #footer>
-        <n-space justify="end">
-          <n-button @click="showExternalModelDraftModal = false">取消</n-button>
-          <n-button
-            type="primary"
-            :loading="savingExternalModelDraft"
-            :disabled="!currentChapter || !externalModelDraftContent.trim()"
-            @click="createExternalModelDraft"
-          >
-            保存为候选稿
-          </n-button>
-        </n-space>
-      </template>
-    </n-modal>
-
-    <n-modal
       v-model:show="showCandidateDraftsModal"
       preset="card"
       title="章节候选稿"
@@ -630,7 +566,7 @@
               :disabled="!currentChapter"
               @click="generateDirectCandidateDraft"
             >
-              直连模型生成
+              PP AI 生成候选稿
             </n-button>
             <n-button
               size="small"
@@ -753,14 +689,6 @@
                         按任务生成
                       </n-button>
                       <n-button
-                        v-if="isCandidateRewriteTask(draft)"
-                        size="tiny"
-                        secondary
-                        @click="copyCandidateTaskExternalPrompt(draft)"
-                      >
-                        复制外部提示
-                      </n-button>
-                      <n-button
                         size="tiny"
                         type="primary"
                         :loading="acceptingCandidateDraftId === draft.id"
@@ -836,7 +764,7 @@
                 :show-icon="false"
                 style="font-size:12px;white-space:pre-wrap"
               >
-                审稿/记忆模型（{{ selectedCandidateSupervisorReview.model_label || '监督模型' }}）：
+                PP AI 检查：
                 {{ selectedCandidateSupervisorReview.review }}
               </n-alert>
               <n-card v-if="selectedCandidateDraft && selectedCandidateParagraphDiff.length" size="small" title="段落级 diff">
@@ -963,25 +891,7 @@ import {
   buildPartialCandidateContent,
   type CandidateDraftParagraphDiffType,
 } from '../../utils/candidateDraftDiff'
-import {
-  EXTERNAL_MODEL_DRAFT_SOURCE,
-  buildExternalModelDraftRationale,
-  buildExternalModelDraftTitle,
-  buildExternalModelPrompt,
-} from '../../utils/externalModelDraft'
-import {
-  markExternalModelTaskAccepted,
-  recordExternalModelPromptTask,
-  recordExternalModelResponse,
-} from '../../utils/externalModelTaskLedger'
-import {
-  MODEL_ROLE_CONFIG_UPDATED_EVENT,
-  getModelLabel,
-  getModelOptions,
-  getModelProfile,
-  loadModelRoleConfig,
-  type ModelRoleConfig,
-} from '../../utils/modelRoleConfig'
+import { markExternalModelTaskAccepted } from '../../utils/externalModelTaskLedger'
 import {
   buildPrecisionRewriteRationale,
   PRECISION_REWRITE_SOURCE,
@@ -1034,7 +944,6 @@ const workMode = ref<'assisted' | 'managed'>('managed')
 const activeTab = ref('editor')
 const showGenerateModal = ref(false)
 const showPrecisionRewriteModal = ref(false)
-const showExternalModelDraftModal = ref(false)
 const showCandidateDraftsModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
@@ -1057,7 +966,6 @@ const branchMemoryDiff = ref<BranchMemoryDiffResponse | null>(null)
 const externalModelTasks = ref<ExternalModelTaskDTO[]>([])
 const savingCandidateDraft = ref(false)
 const savingPrecisionRewriteTask = ref(false)
-const savingExternalModelDraft = ref(false)
 const savingPartialCandidateDraft = ref(false)
 const mergingBranch = ref(false)
 const generatingDirectCandidate = ref(false)
@@ -1083,12 +991,6 @@ const precisionRewriteObjectiveOptions = [
   { label: '更暧昧', value: '更暧昧' },
   { label: '保留事件只改表达', value: '保留事件只改表达' },
 ]
-const modelRoleConfig = ref<ModelRoleConfig>(loadModelRoleConfig())
-const externalModelOptions = computed(() => getModelOptions(modelRoleConfig.value, 'writer'))
-const externalModelDraftModel = ref(modelRoleConfig.value.writingModel)
-const externalModelDraftInstruction = ref('')
-const externalModelDraftContent = ref('')
-
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
 const isAutopilotRunning = computed(() => autopilotStatus.value?.autopilot_status === 'running')
@@ -1117,13 +1019,6 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     s.current_beat_index ?? 0,
     s.needs_review === true ? '1' : '0',
   ].join('|')
-}
-
-function refreshModelRoleConfig() {
-  modelRoleConfig.value = loadModelRoleConfig()
-  if (!externalModelOptions.value.some(option => option.value === externalModelDraftModel.value)) {
-    externalModelDraftModel.value = modelRoleConfig.value.writingModel
-  }
 }
 
 function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined) {
@@ -1243,13 +1138,11 @@ watch(
 
 onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
-  window.addEventListener(MODEL_ROLE_CONFIG_UPDATED_EVENT, refreshModelRoleConfig)
 })
 
 onUnmounted(() => {
   clearAssistedAutopilotPoll()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
-  window.removeEventListener(MODEL_ROLE_CONFIG_UPDATED_EVENT, refreshModelRoleConfig)
 })
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
@@ -1351,98 +1244,6 @@ const createPrecisionRewriteTask = async () => {
     message.error('创建精细改稿任务失败')
   } finally {
     savingPrecisionRewriteTask.value = false
-  }
-}
-
-const openExternalModelDraftModal = () => {
-  if (!currentChapter.value) return
-  modelRoleConfig.value = loadModelRoleConfig()
-  externalModelDraftModel.value = modelRoleConfig.value.writingModel
-  externalModelDraftInstruction.value = ''
-  externalModelDraftContent.value = ''
-  showExternalModelDraftModal.value = true
-}
-
-const createExternalModelDraft = async () => {
-  const chapter = currentChapter.value
-  if (!chapter) return
-  if (!externalModelDraftContent.value.trim()) {
-    message.warning('外部模型正文为空，无法保存为候选稿')
-    return
-  }
-
-  savingExternalModelDraft.value = true
-  try {
-    const prompt = buildExternalModelPrompt({
-      model: externalModelDraftModel.value,
-      supervisorModel: modelRoleConfig.value.supervisorModel,
-      chapterNumber: chapter.number,
-      taskPrompt: externalModelDraftInstruction.value || '直接导入外部模型回稿。',
-      currentContent: chapterContent.value,
-      modelConfig: modelRoleConfig.value,
-    })
-    const task = recordExternalModelPromptTask({
-      slug: props.slug,
-      chapterNumber: chapter.number,
-      model: externalModelDraftModel.value,
-      prompt,
-      instruction: externalModelDraftInstruction.value,
-    })
-    await chapterApi.upsertExternalModelTask(props.slug, {
-      id: task.id,
-      chapter_number: chapter.number,
-      model: externalModelDraftModel.value,
-      prompt,
-      instruction: externalModelDraftInstruction.value,
-      status: 'prompted',
-      execution_mode: 'copy_paste',
-    }).catch(() => undefined)
-    const draft = await chapterApi.createCandidateDraft(props.slug, chapter.number, {
-      source: EXTERNAL_MODEL_DRAFT_SOURCE,
-      title: buildExternalModelDraftTitle(chapter.number, externalModelDraftModel.value),
-      content: externalModelDraftContent.value,
-      rationale: buildExternalModelDraftRationale({
-        model: externalModelDraftModel.value,
-        instruction: externalModelDraftInstruction.value,
-      }),
-      branch_name: candidateBranchFilter.value.trim() || 'main',
-      metadata: {
-        external_model: externalModelDraftModel.value,
-        external_task_id: task.id,
-        external_prompt: prompt,
-        instruction: externalModelDraftInstruction.value,
-        triggered_by: 'external-model-import-modal',
-      },
-    })
-    recordExternalModelResponse({
-      slug: props.slug,
-      taskId: task.id,
-      chapterNumber: chapter.number,
-      model: externalModelDraftModel.value,
-      instruction: externalModelDraftInstruction.value,
-      content: externalModelDraftContent.value,
-      candidateDraftId: draft.id,
-    })
-    await chapterApi.upsertExternalModelTask(props.slug, {
-      id: task.id,
-      chapter_number: chapter.number,
-      model: externalModelDraftModel.value,
-      prompt,
-      instruction: externalModelDraftInstruction.value,
-      candidate_draft_id: draft.id,
-      response_preview: externalModelDraftContent.value.trim().slice(0, 160),
-      status: 'imported',
-      execution_mode: 'copy_paste',
-    }).catch(() => undefined)
-    showExternalModelDraftModal.value = false
-    await loadCandidateDrafts()
-    selectedCandidateDraftId.value = draft.id
-    showCandidateDraftsModal.value = true
-    message.success('已导入外部模型稿为候选稿')
-  } catch {
-    message.error('导入外部模型稿失败')
-  } finally {
-    savingExternalModelDraft.value = false
   }
 }
 
@@ -1788,8 +1589,6 @@ const generateDirectCandidateDraft = async () => {
   const chapter = currentChapter.value
   if (!chapter) return
   const outline = generateOutline.value.trim() || `第${chapter.number}章：${chapter.title || '承接前情，推进主线'}`
-  const writingProfile = getModelProfile(modelRoleConfig.value, modelRoleConfig.value.writingModel)
-  const modelLabel = getModelLabel(modelRoleConfig.value, modelRoleConfig.value.writingModel)
   generatingDirectCandidate.value = true
   try {
     const result = await chapterApi.generateCandidateDraft(props.slug, {
@@ -1797,10 +1596,10 @@ const generateDirectCandidateDraft = async () => {
       outline,
       current_content: chapterContent.value,
       branch_name: candidateBranchFilter.value.trim() || 'main',
-      title: `${chapter.title || `第${chapter.number}章`} 直连模型候选稿`,
+      title: `${chapter.title || `第${chapter.number}章`} PP AI 候选稿`,
       source: 'direct-model',
-      model_label: modelLabel,
-      llm_profile_id: writingProfile?.llmProfileId || '',
+      model_label: 'PP 当前 AI',
+      llm_profile_id: '',
       task_prompt: activeCandidateRewriteTask.value
         ? candidateDraftRewritePrompt(activeCandidateRewriteTask.value)
         : outline,
@@ -1808,9 +1607,9 @@ const generateDirectCandidateDraft = async () => {
     await loadCandidateDrafts()
     selectedCandidateDraftId.value = result.draft.id
     showCandidateDraftsModal.value = true
-    message.success('直连模型已生成候选稿')
+    message.success('PP AI 已生成候选稿')
   } catch {
-    message.error('直连模型生成候选稿失败，请检查 LLM 控制面板配置')
+    message.error('PP AI 生成候选稿失败，请检查 LLM 控制面板配置')
   } finally {
     generatingDirectCandidate.value = false
   }
@@ -1821,13 +1620,11 @@ const reviewSelectedCandidateDraft = async () => {
   const draft = selectedCandidateDraft.value
   if (!chapter || !draft) return
 
-  const supervisorProfile = getModelProfile(modelRoleConfig.value, modelRoleConfig.value.supervisorModel)
-  const modelLabel = getModelLabel(modelRoleConfig.value, modelRoleConfig.value.supervisorModel)
   reviewingCandidateDraft.value = true
   try {
     const result = await chapterApi.reviewCandidateDraft(props.slug, chapter.number, draft.id, {
-      model_label: modelLabel,
-      llm_profile_id: supervisorProfile?.llmProfileId || '',
+      model_label: 'PP 当前 AI',
+      llm_profile_id: '',
       focus: '检查记忆影响、连续性风险、战力崩坏风险、必须保留事实和采纳建议。',
     })
     selectedCandidateSupervisorReview.value = result
@@ -1835,9 +1632,9 @@ const reviewSelectedCandidateDraft = async () => {
       props.slug,
       chapter.number,
     ).catch(() => externalModelTasks.value)
-    message.success('审稿/记忆模型检查完成')
+    message.success('PP AI 检查完成')
   } catch {
-    message.error('审稿/记忆模型检查失败，请检查监督模型配置')
+    message.error('PP AI 检查失败，请检查 LLM 控制面板配置')
   } finally {
     reviewingCandidateDraft.value = false
   }
@@ -2002,33 +1799,6 @@ const handleGenerateFromCandidateTask = (draft: ChapterCandidateDraftDTO) => {
   blurSceneCache.value = undefined
   showCandidateDraftsModal.value = false
   showGenerateModal.value = true
-}
-
-const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
-  const chapter = currentChapter.value
-  if (!chapter || draft.chapter_number !== chapter.number) return
-
-  const prompt = buildExternalModelPrompt({
-    model: externalModelDraftModel.value || 'kimi',
-    supervisorModel: modelRoleConfig.value.supervisorModel,
-    chapterNumber: chapter.number,
-    taskPrompt: candidateDraftRewritePrompt(draft),
-    currentContent: chapterContent.value,
-    modelConfig: modelRoleConfig.value,
-  })
-  recordExternalModelPromptTask({
-    slug: props.slug,
-    chapterNumber: chapter.number,
-    model: externalModelDraftModel.value || 'kimi',
-    prompt,
-    instruction: candidateDraftRewritePrompt(draft),
-    sourceDraftId: draft.id,
-  })
-
-  void navigator.clipboard.writeText(prompt).then(
-    () => message.success('已复制外部模型提示词，并记录到外部模型台账'),
-    () => message.error('复制外部模型提示词失败'),
-  )
 }
 
 const applyCandidateRewriteExecution = () => {

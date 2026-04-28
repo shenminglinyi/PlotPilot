@@ -25,7 +25,7 @@
       >
         <span class="suite-eyebrow">新增功能</span>
         <strong>NovelPro 测试区</strong>
-        <span>连续性 · 口吻 · 战力 · 模型</span>
+        <span>连续性 · 口吻 · 战力 · PP AI</span>
       </button>
       <button
         class="suite-card"
@@ -56,7 +56,7 @@
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="power-system" tab="战力系统" display-directive="if">
         <PowerSystemPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
-      <n-tab-pane v-if="activeGroup === 'novelpro'" name="model-role" tab="模型分工" display-directive="if">
+      <n-tab-pane v-if="activeGroup === 'novelpro'" name="model-role" tab="PP AI" display-directive="if">
         <ModelRolePanel />
       </n-tab-pane>
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="sandbox" tab="对话沙盒" display-directive="if">
