@@ -45,6 +45,9 @@
       <n-tab-pane name="voice-lock" tab="口吻锁定" display-directive="if">
         <VoiceLockPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
+      <n-tab-pane name="power-system" tab="战力系统" display-directive="if">
+        <PowerSystemPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
+      </n-tab-pane>
       <n-tab-pane name="sandbox" tab="对话沙盒" display-directive="if">
         <SandboxDialoguePanel :slug="slug" />
       </n-tab-pane>
@@ -56,25 +59,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { defineAsyncComponent, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import BiblePanel from '../panels/BiblePanel.vue'
-import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
-import WorldbuildingPanel from './WorldbuildingPanel.vue'
-import StorylinePlotOverviewPanel from './StorylinePlotOverviewPanel.vue'
-import HolographicChroniclesPanel from './HolographicChroniclesPanel.vue'
-import ContinuityPanel from './ContinuityPanel.vue'
-import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
-import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
 import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
-import VoiceLockPanel from './VoiceLockPanel.vue'
 import { useWorkbenchContextStore } from '@/stores/workbenchContextStore'
+
+const BiblePanel = defineAsyncComponent(() => import('../panels/BiblePanel.vue'))
+const KnowledgePanel = defineAsyncComponent(() => import('../knowledge/KnowledgePanel.vue'))
+const WorldbuildingPanel = defineAsyncComponent(() => import('./WorldbuildingPanel.vue'))
+const StorylinePlotOverviewPanel = defineAsyncComponent(() => import('./StorylinePlotOverviewPanel.vue'))
+const HolographicChroniclesPanel = defineAsyncComponent(() => import('./HolographicChroniclesPanel.vue'))
+const ContinuityPanel = defineAsyncComponent(() => import('./ContinuityPanel.vue'))
+const ForeshadowLedgerPanel = defineAsyncComponent(() => import('./ForeshadowLedgerPanel.vue'))
+const SandboxDialoguePanel = defineAsyncComponent(() => import('./SandboxDialoguePanel.vue'))
+const VoiceLockPanel = defineAsyncComponent(() => import('./VoiceLockPanel.vue'))
+const PowerSystemPanel = defineAsyncComponent(() => import('./PowerSystemPanel.vue'))
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
-  'continuity', 'voice-lock', 'sandbox', 'foreshadow',
+  'continuity', 'voice-lock', 'power-system', 'sandbox', 'foreshadow',
 ])
 
 /** 旧版 tab 名映射到新 tab 名 */

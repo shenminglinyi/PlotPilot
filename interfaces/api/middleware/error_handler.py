@@ -18,7 +18,7 @@ logger = logging.getLogger("aitext.interfaces.api.middleware.error_handler")
 HTTP_422_STATUS = getattr(
     status,
     "HTTP_422_UNPROCESSABLE_CONTENT",
-    status.HTTP_422_UNPROCESSABLE_ENTITY,
+    422,
 )
 
 

@@ -42,6 +42,7 @@ from application.analyst.services.voice_sample_service import VoiceSampleService
 from application.analyst.services.voice_fingerprint_service import VoiceFingerprintService
 from application.analyst.services.voice_drift_service import VoiceDriftService
 from application.analyst.services.continuity_overview_service import ContinuityOverviewService
+from application.analyst.services.power_system_service import PowerSystemService
 from application.engine.services.context_builder import ContextBuilder
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
@@ -307,6 +308,18 @@ def get_chapter_candidate_draft_service() -> ChapterCandidateDraftService:
         get_chapter_candidate_draft_repository(),
         get_chapter_service(),
     )
+
+
+def get_power_system_repository():
+    from infrastructure.persistence.database.sqlite_power_system_repository import (
+        SqlitePowerSystemRepository,
+    )
+
+    return SqlitePowerSystemRepository(get_database())
+
+
+def get_power_system_service() -> PowerSystemService:
+    return PowerSystemService(get_power_system_repository())
 
 
 @lru_cache

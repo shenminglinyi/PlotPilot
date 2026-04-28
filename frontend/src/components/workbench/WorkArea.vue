@@ -747,6 +747,14 @@
                 {{ Math.abs(selectedCandidateDiffSummary.wordDelta) }} 字，
                 相似度 {{ selectedCandidateDiffSummary.similarityPercent }}%。
               </n-alert>
+              <n-alert
+                v-if="selectedCandidateDraft"
+                type="success"
+                :show-icon="false"
+                style="font-size:12px"
+              >
+                采纳影响：{{ candidateDraftMemoryImpactHints(selectedCandidateDraft).join('；') }}。
+              </n-alert>
               <n-input
                 :value="selectedCandidateDraft?.content || ''"
                 type="textarea"
@@ -788,6 +796,7 @@ import { useWorkbenchContextStore } from '../../stores/workbenchContextStore'
 import {
   candidateDraftFocusTags,
   candidateDraftLineageTags,
+  candidateDraftMemoryImpactHints,
   candidateDraftRewritePrompt,
   candidateDraftSourceLabel,
   candidateDraftSourceType,

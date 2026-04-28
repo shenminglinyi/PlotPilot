@@ -98,3 +98,26 @@ export function candidateDraftRewritePrompt(draft: ChapterCandidateDraftDTO): st
     '请在保留现有主线事实和关键事件的前提下，生成一版可直接进入候选稿区的修订正文。',
   ].filter(Boolean).join('\n\n')
 }
+
+export function candidateDraftMemoryImpactHints(draft: ChapterCandidateDraftDTO): string[] {
+  const hints = [
+    '写入主稿正文',
+    `创建 ${draft.branch_name || 'main'} 分支快照`,
+    '触发章后记忆更新',
+  ]
+  const focus = stringFromMetadata(draft.metadata?.rewrite_focus)
+  const externalModel = stringFromMetadata(draft.metadata?.external_model)
+  const rewriteTaskId = stringFromMetadata(draft.metadata?.rewrite_task_id)
+
+  if (focus) {
+    hints.push(`改稿焦点：${FOCUS_LABELS[focus] || focus}`)
+  }
+  if (externalModel) {
+    hints.push(`外部模型稿：${externalModel}`)
+  }
+  if (rewriteTaskId) {
+    hints.push('关联候选改稿任务')
+  }
+
+  return hints
+}

@@ -2,6 +2,7 @@ import {
   candidateDraftFocusTags,
   candidateDraftLineageTags,
   candidateDraftRewritePrompt,
+  candidateDraftMemoryImpactHints,
   candidateDraftSourceLabel,
   candidateDraftSourceType,
   isCandidateRewriteTask,
@@ -29,6 +30,7 @@ const lineageTags: string[] = candidateDraftLineageTags({
     rewrite_task_id: 'task-1',
   },
 })
+const memoryImpactHints: string[] = candidateDraftMemoryImpactHints(draft)
 
 void label
 void tags
@@ -36,3 +38,4 @@ void tagType
 void rewriteTask
 void prompt
 void lineageTags
+void memoryImpactHints

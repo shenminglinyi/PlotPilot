@@ -544,6 +544,57 @@ CREATE INDEX IF NOT EXISTS idx_candidate_drafts_chapter
 CREATE INDEX IF NOT EXISTS idx_candidate_drafts_branch
     ON chapter_candidate_drafts(novel_id, branch_name, status);
 
+-- ========== 战力系统守恒（NovelPro）==========
+-- 面向系统文 / 游戏文 / 玄幻升级流的战力规则、角色档案与战斗事件台账
+CREATE TABLE IF NOT EXISTS power_system_rules (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL UNIQUE,
+    genre_type TEXT NOT NULL DEFAULT 'system_game',
+    tier_schema TEXT NOT NULL DEFAULT '',
+    core_rules TEXT NOT NULL DEFAULT '',
+    taboo_rules TEXT NOT NULL DEFAULT '',
+    escalation_rules TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS power_character_profiles (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    character_name TEXT NOT NULL,
+    tier TEXT NOT NULL DEFAULT '',
+    rank_score INTEGER NOT NULL DEFAULT 0,
+    abilities TEXT NOT NULL DEFAULT '',
+    limitations TEXT NOT NULL DEFAULT '',
+    growth_stage TEXT NOT NULL DEFAULT '',
+    last_verified_chapter INTEGER,
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    UNIQUE(novel_id, character_name)
+);
+
+CREATE TABLE IF NOT EXISTS power_progression_events (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    character_name TEXT NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'battle',
+    opponent TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT '',
+    power_delta INTEGER NOT NULL DEFAULT 0,
+    evidence TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_power_profiles_novel
+    ON power_character_profiles(novel_id, rank_score DESC);
+CREATE INDEX IF NOT EXISTS idx_power_events_novel_chapter
+    ON power_progression_events(novel_id, chapter_number DESC);
+
 
 -- ========== 提示词广场系统（Prompt Plaza）==========
 -- 模板包：一组相关提示词的集合（如"内置"、"自定义工作流"）
@@ -653,5 +704,4 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
-
 
