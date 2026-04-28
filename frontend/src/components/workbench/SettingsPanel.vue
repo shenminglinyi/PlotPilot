@@ -25,7 +25,7 @@
       >
         <span class="suite-eyebrow">新增功能</span>
         <strong>NovelPro 测试区</strong>
-        <span>监控 · 记忆 · 连续性 · 战力</span>
+        <span>监控 · 候选 · 精修 · 连续性</span>
       </button>
       <button
         class="suite-card"
@@ -49,6 +49,9 @@
     >
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="novelpro-monitor" tab="监控中心" display-directive="if">
         <NovelProMonitorPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
+      </n-tab-pane>
+      <n-tab-pane v-if="activeGroup === 'novelpro'" name="candidate-refine" tab="候选/精修" display-directive="if">
+        <CandidateRefinePanel :slug="slug" :current-chapter="currentChapter" />
       </n-tab-pane>
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="continuity" tab="连续性巡检" display-directive="if">
         <ContinuityPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
@@ -99,6 +102,7 @@ const WorldbuildingPanel = defineAsyncComponent(() => import('./WorldbuildingPan
 const StorylinePlotOverviewPanel = defineAsyncComponent(() => import('./StorylinePlotOverviewPanel.vue'))
 const HolographicChroniclesPanel = defineAsyncComponent(() => import('./HolographicChroniclesPanel.vue'))
 const NovelProMonitorPanel = defineAsyncComponent(() => import('./NovelProMonitorPanel.vue'))
+const CandidateRefinePanel = defineAsyncComponent(() => import('./CandidateRefinePanel.vue'))
 const ContinuityPanel = defineAsyncComponent(() => import('./ContinuityPanel.vue'))
 const ForeshadowLedgerPanel = defineAsyncComponent(() => import('./ForeshadowLedgerPanel.vue'))
 const SandboxDialoguePanel = defineAsyncComponent(() => import('./SandboxDialoguePanel.vue'))
@@ -110,10 +114,10 @@ const ModelRolePanel = defineAsyncComponent(() => import('./ModelRolePanel.vue')
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
-  'novelpro-monitor',
+  'novelpro-monitor', 'candidate-refine',
   'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox', 'foreshadow',
 ])
-const NOVELPRO_TABS = new Set(['novelpro-monitor', 'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox'])
+const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox'])
 const BASE_TABS = new Set(['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'])
 const GROUP_DEFAULT_TAB = {
   novelpro: 'novelpro-monitor',

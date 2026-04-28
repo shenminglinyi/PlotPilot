@@ -228,6 +228,10 @@
   - 工作台与单章页精细改稿弹窗已支持 AI 生成改稿目标、重点片段和作者要求
   - 验证通过：`.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest ... -q --tb=short`（42 passed）
   - 验证通过：`cd frontend && npm run build`
+- 2026-04-28 修复候选稿/精修入口可见性：
+  - 右侧 NovelPro 测试区新增“候选/精修”页签，说明候选稿闭环绑定中间章节编辑区，而不是独立右栏正文
+  - 选中章节后可在右侧用 PP AI 生成精修建议，并一键发送到现有候选稿闭环；A/B、部分采纳、采纳、快照和章后记忆更新仍复用原链路
+  - 验证通过：`cd frontend && npm run build`
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `434b5a5 feat: add configurable model roles`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042757111`：通过
