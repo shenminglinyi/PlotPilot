@@ -157,8 +157,9 @@
 - `cd frontend && npm run build`：通过（结构化连续性追踪接入后再次验证；仍有 Vite 大 chunk 提示）
 - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
 - `cd frontend && npm run build`：通过（段落级 diff、部分采纳、外部模型台账、记忆影响预览、Autopilot 异步拆包接入后再次验证；仍有 Vite 大 chunk 提示，主包约 2.87MB）
-- GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `278a6f2 feat: add structured continuity tracking`
+- GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `2a0f399 feat: enhance candidate draft review workflow`
 - GitHub Actions 当前状态：
+  - `Frontend CI` push run `25042113363`：通过
   - `Backend CI` push run `25040959536`：通过
   - `Frontend CI` push run `25040959570`：通过
   - `Backend CI` push run `25039984499`：通过
