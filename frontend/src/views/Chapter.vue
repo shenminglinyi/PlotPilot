@@ -279,6 +279,14 @@
                                 预览
                               </n-button>
                               <n-button
+                                v-if="isCandidateRewriteTask(draft)"
+                                size="tiny"
+                                secondary
+                                @click="generateCandidateTaskInWorkbench(draft)"
+                              >
+                                去工作台生成
+                              </n-button>
+                              <n-button
                                 size="tiny"
                                 type="primary"
                                 :loading="acceptingCandidateDraftId === draft.id"
@@ -356,10 +364,12 @@ import type { ChapterCandidateDraftDTO } from '../api/chapter'
 import { knowledgeGraphApi, type InferenceFactBundle } from '../api/knowledgeGraph'
 import { useStatsStore } from '../stores/statsStore'
 import { useCandidateDraftBranchStore } from '../stores/candidateDraftBranchStore'
+import { useWorkbenchContextStore } from '../stores/workbenchContextStore'
 import {
   candidateDraftFocusTags,
   candidateDraftSourceLabel,
   candidateDraftSourceType,
+  isCandidateRewriteTask,
 } from '../utils/candidateDraftDisplay'
 import CandidateDraftBranchSwitcher from '../components/workbench/CandidateDraftBranchSwitcher.vue'
 
@@ -388,6 +398,7 @@ const message = useMessage()
 const dialog = useDialog()
 const statsStore = useStatsStore()
 const candidateDraftBranchStore = useCandidateDraftBranchStore()
+const workbenchContextStore = useWorkbenchContextStore()
 
 const inferenceLoading = ref(false)
 const inferenceFacts = ref<InferenceFactBundle[]>([])
@@ -593,6 +604,14 @@ const saveCurrentAsCandidate = async () => {
   } finally {
     savingCandidateDraft.value = false
   }
+}
+
+const generateCandidateTaskInWorkbench = (draft: ChapterCandidateDraftDTO) => {
+  workbenchContextStore.openCandidateRewriteExecution({
+    slug,
+    draft,
+  })
+  router.push({ path: `/book/${slug}/workbench`, query: { chapter: String(draft.chapter_number) } })
 }
 
 const acceptCandidateDraft = async (draftId: string) => {

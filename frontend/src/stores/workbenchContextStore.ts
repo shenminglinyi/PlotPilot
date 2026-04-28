@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { ChapterCandidateDraftDTO } from '@/api/chapter'
 
 export type WorkbenchTargetPanel = 'sandbox' | 'voice-lock' | null
 
@@ -27,6 +28,11 @@ export interface CandidateRewriteSeedContext {
   metadata?: Record<string, unknown>
 }
 
+export interface CandidateRewriteExecutionContext {
+  slug: string
+  draft: ChapterCandidateDraftDTO
+}
+
 export const useWorkbenchContextStore = defineStore('workbenchContext', () => {
   const targetPanel = ref<WorkbenchTargetPanel>(null)
   const voiceLockDraft = ref<VoiceLockDraftContext | null>(null)
@@ -35,6 +41,8 @@ export const useWorkbenchContextStore = defineStore('workbenchContext', () => {
   const sandboxDraftVersion = ref(0)
   const candidateRewriteSeed = ref<CandidateRewriteSeedContext | null>(null)
   const candidateRewriteSeedVersion = ref(0)
+  const candidateRewriteExecution = ref<CandidateRewriteExecutionContext | null>(null)
+  const candidateRewriteExecutionVersion = ref(0)
 
   function openVoiceLockForCharacter(payload: VoiceLockDraftContext) {
     targetPanel.value = 'voice-lock'
@@ -53,6 +61,11 @@ export const useWorkbenchContextStore = defineStore('workbenchContext', () => {
     candidateRewriteSeedVersion.value += 1
   }
 
+  function openCandidateRewriteExecution(payload: CandidateRewriteExecutionContext) {
+    candidateRewriteExecution.value = payload
+    candidateRewriteExecutionVersion.value += 1
+  }
+
   return {
     targetPanel,
     voiceLockDraft,
@@ -61,8 +74,11 @@ export const useWorkbenchContextStore = defineStore('workbenchContext', () => {
     sandboxDraftVersion,
     candidateRewriteSeed,
     candidateRewriteSeedVersion,
+    candidateRewriteExecution,
+    candidateRewriteExecutionVersion,
     openVoiceLockForCharacter,
     openSandboxWithDraft,
     openCandidateRewriteSeed,
+    openCandidateRewriteExecution,
   }
 })

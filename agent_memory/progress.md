@@ -71,6 +71,11 @@
   - 工作台候选稿卡片已对连续性来源候选稿显示“按任务生成”
   - 点击后会把改稿任务、处理目标和 rationale 带入现有 AI 生成弹窗
   - 生成结果保存为候选稿时会保留原连续性来源、metadata 和 `rewrite_task_id`，后续仍走现有候选稿采纳与章后记忆更新链路
+- 已把候选改稿任务执行入口补到单章页：
+  - `workbenchContextStore.ts` 已新增 `candidateRewriteExecution` 共享上下文
+  - 单章页 `Chapter.vue` 对连续性来源候选稿显示“去工作台生成”
+  - 点击后会带着当前候选改稿任务跳转到对应章节工作台
+  - `WorkArea.vue` 会消费该上下文，自动切回辅助撰稿并打开现有 AI 生成弹窗
 
 ## 验证状态
 
@@ -93,6 +98,7 @@
 - `cd frontend && npm run build`：先失败后通过（新增 `candidateRewriteSeed` 类型校验文件，验证缺少 store 能力时 `TS2339` 报错；补完联动后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（新增候选稿展示 helper 类型校验，验证缺少 `candidateDraftDisplay` 时 `TS2307` 报错；补完 helper 与两个候选稿入口后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（扩展候选稿展示 helper 类型校验，验证缺少 `candidateDraftRewritePrompt / isCandidateRewriteTask` 时 `TS2305` 报错；补完“按任务生成”后重新构建通过）
+- `cd frontend && npm run build`：先失败后通过（扩展 `workbenchContextStore.candidate-rewrite` 类型校验，验证缺少 `openCandidateRewriteExecution` 时 `TS2551` 报错；补完单章页跳转工作台生成后重新构建通过）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过

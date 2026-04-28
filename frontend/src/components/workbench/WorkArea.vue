@@ -700,6 +700,7 @@ const savingCandidateDraft = ref(false)
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
 const lastConsumedCandidateRewriteVersion = ref(0)
+const lastConsumedCandidateExecutionVersion = ref(0)
 const activeCandidateRewriteTask = ref<ChapterCandidateDraftDTO | null>(null)
 const candidateBranchFilter = computed({
   get: () => candidateDraftBranchStore.getActiveBranch(props.slug),
@@ -1038,6 +1039,13 @@ watch(
   },
 )
 
+watch(
+  () => [workbenchContextStore.candidateRewriteExecutionVersion, props.currentChapterId] as const,
+  () => {
+    applyCandidateRewriteExecution()
+  },
+)
+
 // 切换回正在生成的章节时，自动打开生成弹窗（让用户看到进度）
 watch(() => props.currentChapterId, (id) => {
   if (id !== null && id === generatingChapterId.value) {
@@ -1259,6 +1267,19 @@ const handleGenerateFromCandidateTask = (draft: ChapterCandidateDraftDTO) => {
   blurSceneCache.value = undefined
   showCandidateDraftsModal.value = false
   showGenerateModal.value = true
+}
+
+const applyCandidateRewriteExecution = () => {
+  const version = workbenchContextStore.candidateRewriteExecutionVersion
+  const execution = workbenchContextStore.candidateRewriteExecution
+  const chapter = currentChapter.value
+  if (!execution || !chapter) return
+  if (execution.slug !== props.slug || execution.draft.chapter_number !== chapter.number) return
+  if (version <= lastConsumedCandidateExecutionVersion.value) return
+
+  lastConsumedCandidateExecutionVersion.value = version
+  workMode.value = 'assisted'
+  handleGenerateFromCandidateTask(execution.draft)
 }
 
 function streamPhaseToProgress(phase: string): number {
