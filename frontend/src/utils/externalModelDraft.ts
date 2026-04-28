@@ -1,3 +1,10 @@
+import {
+  buildModelRoleSummary,
+  getModelLabel,
+  loadModelRoleConfig,
+  type ModelRoleConfig,
+} from './modelRoleConfig'
+
 export const EXTERNAL_MODEL_DRAFT_SOURCE = 'external-model'
 
 export const EXTERNAL_MODEL_OPTIONS = [
@@ -8,10 +15,8 @@ export const EXTERNAL_MODEL_OPTIONS = [
   { label: '其他模型', value: 'other' },
 ]
 
-const MODEL_LABELS = new Map(EXTERNAL_MODEL_OPTIONS.map((item) => [item.value, item.label]))
-
-export function externalModelLabel(model: string): string {
-  return MODEL_LABELS.get(model) || model || '外部模型'
+export function externalModelLabel(model: string, config: ModelRoleConfig = loadModelRoleConfig()): string {
+  return getModelLabel(config, model)
 }
 
 export function buildExternalModelDraftTitle(chapterNumber: number, model: string): string {
@@ -35,15 +40,28 @@ export function buildExternalModelDraftRationale(input: ExternalModelDraftRation
 
 export interface ExternalModelPromptInput {
   model: string
+  supervisorModel?: string
   chapterNumber: number
   taskPrompt: string
   currentContent: string
+  modelConfig?: ModelRoleConfig
 }
 
 export function buildExternalModelPrompt(input: ExternalModelPromptInput): string {
+  const config = input.modelConfig || loadModelRoleConfig()
+  const supervisorModel = input.supervisorModel || config.supervisorModel
   return [
     `你将作为 ${externalModelLabel(input.model)} 帮我改写第 ${input.chapterNumber} 章。`,
     '请只输出完整章节正文，不要输出解释、标题、分析或 Markdown 代码块。',
+    '',
+    '【模型分工】',
+    buildModelRoleSummary({
+      ...config,
+      writingModel: input.model,
+      supervisorModel,
+    }),
+    `- 写作模型只负责产出正文。`,
+    `- 审稿/记忆模型负责连续性、战力、事实、伏笔和采纳前检查，不直接替你改最终正文。`,
     '',
     '【本地记忆与任务约束】',
     input.taskPrompt.trim(),

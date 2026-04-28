@@ -881,7 +881,6 @@ import {
 } from '../../utils/candidateDraftDiff'
 import {
   EXTERNAL_MODEL_DRAFT_SOURCE,
-  EXTERNAL_MODEL_OPTIONS,
   buildExternalModelDraftRationale,
   buildExternalModelDraftTitle,
   buildExternalModelPrompt,
@@ -891,6 +890,12 @@ import {
   recordExternalModelPromptTask,
   recordExternalModelResponse,
 } from '../../utils/externalModelTaskLedger'
+import {
+  MODEL_ROLE_CONFIG_UPDATED_EVENT,
+  getModelOptions,
+  loadModelRoleConfig,
+  type ModelRoleConfig,
+} from '../../utils/modelRoleConfig'
 import {
   buildPrecisionRewriteRationale,
   PRECISION_REWRITE_SOURCE,
@@ -984,8 +989,9 @@ const precisionRewriteObjectiveOptions = [
   { label: '更暧昧', value: '更暧昧' },
   { label: '保留事件只改表达', value: '保留事件只改表达' },
 ]
-const externalModelOptions = EXTERNAL_MODEL_OPTIONS
-const externalModelDraftModel = ref('kimi')
+const modelRoleConfig = ref<ModelRoleConfig>(loadModelRoleConfig())
+const externalModelOptions = computed(() => getModelOptions(modelRoleConfig.value, 'writer'))
+const externalModelDraftModel = ref(modelRoleConfig.value.writingModel)
 const externalModelDraftInstruction = ref('')
 const externalModelDraftContent = ref('')
 
@@ -1017,6 +1023,13 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     s.current_beat_index ?? 0,
     s.needs_review === true ? '1' : '0',
   ].join('|')
+}
+
+function refreshModelRoleConfig() {
+  modelRoleConfig.value = loadModelRoleConfig()
+  if (!externalModelOptions.value.some(option => option.value === externalModelDraftModel.value)) {
+    externalModelDraftModel.value = modelRoleConfig.value.writingModel
+  }
 }
 
 function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined) {
@@ -1136,11 +1149,13 @@ watch(
 
 onMounted(() => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener(MODEL_ROLE_CONFIG_UPDATED_EVENT, refreshModelRoleConfig)
 })
 
 onUnmounted(() => {
   clearAssistedAutopilotPoll()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener(MODEL_ROLE_CONFIG_UPDATED_EVENT, refreshModelRoleConfig)
 })
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
@@ -1247,7 +1262,8 @@ const createPrecisionRewriteTask = async () => {
 
 const openExternalModelDraftModal = () => {
   if (!currentChapter.value) return
-  externalModelDraftModel.value = 'kimi'
+  modelRoleConfig.value = loadModelRoleConfig()
+  externalModelDraftModel.value = modelRoleConfig.value.writingModel
   externalModelDraftInstruction.value = ''
   externalModelDraftContent.value = ''
   showExternalModelDraftModal.value = true
@@ -1265,9 +1281,11 @@ const createExternalModelDraft = async () => {
   try {
     const prompt = buildExternalModelPrompt({
       model: externalModelDraftModel.value,
+      supervisorModel: modelRoleConfig.value.supervisorModel,
       chapterNumber: chapter.number,
       taskPrompt: externalModelDraftInstruction.value || '直接导入外部模型回稿。',
       currentContent: chapterContent.value,
+      modelConfig: modelRoleConfig.value,
     })
     const task = recordExternalModelPromptTask({
       slug: props.slug,
@@ -1760,9 +1778,11 @@ const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
 
   const prompt = buildExternalModelPrompt({
     model: externalModelDraftModel.value || 'kimi',
+    supervisorModel: modelRoleConfig.value.supervisorModel,
     chapterNumber: chapter.number,
     taskPrompt: candidateDraftRewritePrompt(draft),
     currentContent: chapterContent.value,
+    modelConfig: modelRoleConfig.value,
   })
   recordExternalModelPromptTask({
     slug: props.slug,

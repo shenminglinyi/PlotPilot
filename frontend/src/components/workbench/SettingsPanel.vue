@@ -48,6 +48,9 @@
       <n-tab-pane name="power-system" tab="战力系统" display-directive="if">
         <PowerSystemPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
+      <n-tab-pane name="model-role" tab="模型分工" display-directive="if">
+        <ModelRolePanel />
+      </n-tab-pane>
       <n-tab-pane name="sandbox" tab="对话沙盒" display-directive="if">
         <SandboxDialoguePanel :slug="slug" />
       </n-tab-pane>
@@ -74,12 +77,13 @@ const ForeshadowLedgerPanel = defineAsyncComponent(() => import('./ForeshadowLed
 const SandboxDialoguePanel = defineAsyncComponent(() => import('./SandboxDialoguePanel.vue'))
 const VoiceLockPanel = defineAsyncComponent(() => import('./VoiceLockPanel.vue'))
 const PowerSystemPanel = defineAsyncComponent(() => import('./PowerSystemPanel.vue'))
+const ModelRolePanel = defineAsyncComponent(() => import('./ModelRolePanel.vue'))
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
-  'continuity', 'voice-lock', 'power-system', 'sandbox', 'foreshadow',
+  'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox', 'foreshadow',
 ])
 
 /** 旧版 tab 名映射到新 tab 名 */

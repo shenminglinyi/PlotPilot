@@ -602,7 +602,6 @@ import {
 } from '../utils/candidateDraftDiff'
 import {
   EXTERNAL_MODEL_DRAFT_SOURCE,
-  EXTERNAL_MODEL_OPTIONS,
   buildExternalModelDraftRationale,
   buildExternalModelDraftTitle,
   buildExternalModelPrompt,
@@ -612,6 +611,12 @@ import {
   recordExternalModelPromptTask,
   recordExternalModelResponse,
 } from '../utils/externalModelTaskLedger'
+import {
+  MODEL_ROLE_CONFIG_UPDATED_EVENT,
+  getModelOptions,
+  loadModelRoleConfig,
+  type ModelRoleConfig,
+} from '../utils/modelRoleConfig'
 import {
   buildPrecisionRewriteRationale,
   PRECISION_REWRITE_SOURCE,
@@ -699,8 +704,9 @@ const precisionRewriteObjectiveOptions = CHAPTER_PRECISION_REWRITE_OBJECTIVES.ma
   label: value,
   value,
 }))
-const externalModelOptions = EXTERNAL_MODEL_OPTIONS
-const externalModelDraftModel = ref('kimi')
+const modelRoleConfig = ref<ModelRoleConfig>(loadModelRoleConfig())
+const externalModelOptions = computed(() => getModelOptions(modelRoleConfig.value, 'writer'))
+const externalModelDraftModel = ref(modelRoleConfig.value.writingModel)
 const externalModelDraftInstruction = ref('')
 const externalModelDraftContent = ref('')
 const acceptingCandidateDraftId = ref<string | null>(null)
@@ -815,6 +821,13 @@ function togglePartialParagraph(index: number, checked: boolean) {
   selectedPartialParagraphIndexes.value = selectedPartialParagraphIndexes.value.filter(
     item => item !== index,
   )
+}
+
+function refreshModelRoleConfig() {
+  modelRoleConfig.value = loadModelRoleConfig()
+  if (!externalModelOptions.value.some(option => option.value === externalModelDraftModel.value)) {
+    externalModelDraftModel.value = modelRoleConfig.value.writingModel
+  }
 }
 
 const toolOptions = [
@@ -960,7 +973,8 @@ const createPrecisionRewriteTask = async () => {
 }
 
 const openExternalModelDraftModal = () => {
-  externalModelDraftModel.value = 'kimi'
+  modelRoleConfig.value = loadModelRoleConfig()
+  externalModelDraftModel.value = modelRoleConfig.value.writingModel
   externalModelDraftInstruction.value = ''
   externalModelDraftContent.value = ''
   showExternalModelDraftModal.value = true
@@ -978,9 +992,11 @@ const createExternalModelDraft = async () => {
   try {
     const prompt = buildExternalModelPrompt({
       model: externalModelDraftModel.value,
+      supervisorModel: modelRoleConfig.value.supervisorModel,
       chapterNumber: cid,
       taskPrompt: externalModelDraftInstruction.value || '直接导入外部模型回稿。',
       currentContent: content.value,
+      modelConfig: modelRoleConfig.value,
     })
     const task = recordExternalModelPromptTask({
       slug,
@@ -1042,9 +1058,11 @@ const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
 
   const prompt = buildExternalModelPrompt({
     model: externalModelDraftModel.value || 'kimi',
+    supervisorModel: modelRoleConfig.value.supervisorModel,
     chapterNumber: cid,
     taskPrompt: `${draft.title || `第${cid}章候选改稿任务`}\n\n${draft.rationale || '根据候选改稿任务修订当前章节。'}`,
     currentContent: content.value,
+    modelConfig: modelRoleConfig.value,
   })
   recordExternalModelPromptTask({
     slug,
@@ -1393,6 +1411,7 @@ watch(selectedCandidateDraftId, () => {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeySave)
+  window.addEventListener(MODEL_ROLE_CONFIG_UPDATED_EVENT, refreshModelRoleConfig)
   try {
     await loadChapter()
   } catch (error) {
@@ -1405,6 +1424,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeySave)
+  window.removeEventListener(MODEL_ROLE_CONFIG_UPDATED_EVENT, refreshModelRoleConfig)
   if (saveTimer.value) clearTimeout(saveTimer.value)
   if (markdownDebounceTimer.value) clearTimeout(markdownDebounceTimer.value)
 })

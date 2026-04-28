@@ -15,6 +15,7 @@ const rationale: string = buildExternalModelDraftRationale({
 })
 const prompt: string = buildExternalModelPrompt({
   model,
+  supervisorModel: 'chatgpt',
   chapterNumber: 12,
   taskPrompt: '请降低 AI 味。',
   currentContent: '原始章节正文',

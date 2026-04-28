@@ -124,6 +124,12 @@
   - 采纳前记忆影响预览升级为结构化标签，提示正文事实、角色关系、大纲节点、出场记录、外部模型稿和部分采纳风险
   - 工作台 Autopilot 面板改为异步 chunk，前端主包进一步降到约 2.87MB
   - 新增 `docs/novelpro-candidate-draft-optimization.md` 记录候选稿与外部模型优化流程
+- 已新增可配置模型分工：
+  - 新增右栏 `模型分工` 页签，可选择写作模型和审稿/记忆模型
+  - 写作模型不再固定为 Kimi，支持 Claude、ChatGPT/GPT、DeepSeek、其他模型和自定义模型
+  - 外部提示词会写入当前模型分工，明确“写作模型产正文，审稿/记忆模型做约束和检查”
+  - 导入外部稿和外部模型台账继续复用当前写作模型配置
+  - 新增 `docs/novelpro-model-role-workflow.md` 记录使用方式
 
 ## 验证状态
 
@@ -157,6 +163,7 @@
 - `cd frontend && npm run build`：通过（结构化连续性追踪接入后再次验证；仍有 Vite 大 chunk 提示）
 - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
 - `cd frontend && npm run build`：通过（段落级 diff、部分采纳、外部模型台账、记忆影响预览、Autopilot 异步拆包接入后再次验证；仍有 Vite 大 chunk 提示，主包约 2.87MB）
+- `cd frontend && npm run build`：通过（可配置模型分工接入后再次验证；新增 `ModelRolePanel` 独立 chunk，仍有 Vite 大 chunk 提示）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `2a0f399 feat: enhance candidate draft review workflow`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042113363`：通过
@@ -178,3 +185,4 @@
 
 - 结构化连续性追踪已具备手动记录入口；后续如要进一步自动化，可在章后记忆管线中从 `relationship_changes` 自动沉淀关系事件。
 - 外部模型任务台账目前保存在浏览器本地；如后续需要跨设备同步，再升级为后端表。
+- 当前模型分工仍是 copy/paste 外部模型工作流；若后续接 API，应先做 provider 抽象和密钥配置，不把任何供应商写死。
