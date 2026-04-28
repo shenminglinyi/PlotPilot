@@ -140,8 +140,10 @@
 - `cd frontend && npm run build`：先失败后通过（新增 `externalModelDraft / candidateDraftDiff` 类型校验，验证缺少 helper 时 `TS2307`；补完外部稿导入、外部提示复制和候选稿差异摘要后重新构建通过）
 - `.venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（19 passed）
 - `cd frontend && npm run build`：通过（战力系统、采纳影响提示、右栏异步拆包、生命周期告警清理后再次验证；仍有 Vite 大 chunk 提示，但主包已降到约 2.90MB）
-- GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
+- GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端提交为 `7e926a8 feat: add power system guardrails`
 - GitHub Actions 当前状态：
+  - `Backend CI` push run `25039984499`：通过
+  - `Frontend CI` push run `25039984515`：通过
   - `Backend CI` push run `25006720081`：通过
   - `Frontend CI` push run `25006719997`：通过
   - `Backend CI` push run `25004405301`：通过
@@ -150,7 +152,6 @@
 
 ## 下一步
 
-- 将战力系统、采纳影响预览、右栏异步拆包和告警清理同步推送到 GitHub，并观察 CI
 - 若后续继续扩展，优先从真实写作体验里收集问题；当前 P1/P2 加战力系统的本地自用闭环已经形成可用版本
 
 ## 待确认
