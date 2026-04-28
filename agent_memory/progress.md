@@ -198,6 +198,10 @@
   - `.venv/bin/python -m pytest tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（5 passed）
   - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py tests/integration/test_novel_workflow.py tests/integration/test_storyline_integration.py -q --tb=short`：通过（36 passed）
   - `cd frontend && npm run build`：通过；构建输出已无大包 warning
+- 2026-04-28 GitHub 上传与 CI：
+  - 已通过干净发布仓库 `/tmp/PlotPilot-NovelPro-publish` 推送到 `origin/local/feature-p1-candidate-gate`
+  - GitHub Actions `Backend CI` run `25054063931`：通过
+  - GitHub Actions `Frontend CI` run `25054064074`：通过
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `434b5a5 feat: add configurable model roles`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042757111`：通过
