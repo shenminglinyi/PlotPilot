@@ -87,6 +87,10 @@
   - 精修弹窗支持选择改稿目标、填写重点片段和作者要求
   - 创建后会生成 `precision-rewrite` 候选任务，进入现有候选稿列表
   - 该任务可继续复用“按任务生成 → 结果候选稿 → 采纳主稿 → 章后记忆更新”的现有链路
+- 已把 `P2` 精细改稿入口补到单章页：
+  - 单章页工具菜单已新增“精细改稿”
+  - 单章页可创建 `precision-rewrite` 候选任务，复用同一套候选稿分支、候选稿列表和“去工作台生成”链路
+  - 新增 `frontend/src/utils/chapterPrecisionRewrite.ts`，让工作台与单章页共享精修目标选项
 
 ## 验证状态
 
@@ -112,6 +116,7 @@
 - `cd frontend && npm run build`：先失败后通过（扩展 `workbenchContextStore.candidate-rewrite` 类型校验，验证缺少 `openCandidateRewriteExecution` 时 `TS2551` 报错；补完单章页跳转工作台生成后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（扩展候选稿展示 helper 类型校验，验证缺少 `candidateDraftLineageTags` 时 `TS2305` 报错；补完任务生成标签与循环保护后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（新增 `precisionRewriteTask` 类型校验，验证缺少精修任务 helper 时 `TS2307` 报错；补完工作台精修任务入口后重新构建通过）
+- `cd frontend && npm run build`：先失败后通过（单章页模板先暴露缺少 `showPrecisionRewriteModal / createPrecisionRewriteTask` 等脚本状态的 `TS2339`；补完单章页精修入口后重新构建通过）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过
@@ -122,11 +127,8 @@
 
 ## 下一步
 
-- 将本轮 `P2` 关系变化追踪 / 大纲偏离提醒同步推送到 GitHub，并观察 CI
-- 继续向 `P2` 后半段推进：优先考虑把“出场/掉线提醒与关系视图联动”接到现有工作台，或把口吻锁定与对话沙盒做快捷跳转
-- 继续向 `P2` 后半段推进：优先考虑把口吻锁定与对话沙盒做快捷跳转，或给连续性面板补“跳到口吻锁定/对话沙盒”的上下文入口
-- 继续向 `P2` 后半段推进：优先考虑给连续性面板补“跳到口吻锁定/对话沙盒”的上下文入口，或把角色掉线卡片与口吻锁定直接联动
-- 继续向 `P2` 后半段推进：优先考虑把候选改稿任务进一步接到单章页或精修工作流，避免当前仅在工作台内消费
+- 将单章页精细改稿入口同步推送到 GitHub，并观察 CI
+- 继续向 `P2` 后续推进：优先考虑精修任务生成后的对比/采纳体验，或补一层更明确的“外部大模型写作 → 本地记忆管理”操作入口
 - 评估是否要把 GitHub Actions 使用的 `checkout/setup-*` action 版本前瞻升级到支持 Node 24，提前消除弃用告警
 
 ## 待确认

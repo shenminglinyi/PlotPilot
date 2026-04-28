@@ -362,6 +362,61 @@
     </n-split>
   </div>
   </n-spin>
+
+  <n-modal
+    v-model:show="showPrecisionRewriteModal"
+    preset="card"
+    title="精细改稿任务"
+    style="width: min(680px, 96vw)"
+    :segmented="{ content: true, footer: 'soft' }"
+  >
+    <n-space vertical :size="16">
+      <n-alert type="info" :show-icon="true" style="font-size:13px">
+        精修任务会先进入候选稿区；生成与采纳仍回到工作台和现有候选稿链路处理。
+      </n-alert>
+
+      <n-form-item label="改稿目标" label-placement="top" :show-feedback="false">
+        <n-select
+          v-model:value="precisionRewriteObjective"
+          :options="precisionRewriteObjectiveOptions"
+          filterable
+          tag
+        />
+      </n-form-item>
+
+      <n-form-item label="重点片段（可选）" label-placement="top" :show-feedback="false">
+        <n-input
+          v-model:value="precisionRewriteTargetExcerpt"
+          type="textarea"
+          placeholder="粘贴需要重点处理的段落；留空表示以整章为改稿范围"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+        />
+      </n-form-item>
+
+      <n-form-item label="作者要求（可选）" label-placement="top" :show-feedback="false">
+        <n-input
+          v-model:value="precisionRewriteInstruction"
+          type="textarea"
+          placeholder="例：保留事件顺序，增强角色压抑感，降低解释性句子"
+          :autosize="{ minRows: 3, maxRows: 6 }"
+        />
+      </n-form-item>
+    </n-space>
+
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="showPrecisionRewriteModal = false">取消</n-button>
+        <n-button
+          type="primary"
+          :loading="savingPrecisionRewriteTask"
+          :disabled="!content.trim()"
+          @click="createPrecisionRewriteTask"
+        >
+          创建任务
+        </n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -377,12 +432,20 @@ import { useStatsStore } from '../stores/statsStore'
 import { useCandidateDraftBranchStore } from '../stores/candidateDraftBranchStore'
 import { useWorkbenchContextStore } from '../stores/workbenchContextStore'
 import {
+  CHAPTER_PRECISION_REWRITE_OBJECTIVES,
+  defaultPrecisionRewriteObjective,
+} from '../utils/chapterPrecisionRewrite'
+import {
   candidateDraftFocusTags,
   candidateDraftLineageTags,
   candidateDraftSourceLabel,
   candidateDraftSourceType,
   isCandidateRewriteTask,
 } from '../utils/candidateDraftDisplay'
+import {
+  buildPrecisionRewriteRationale,
+  PRECISION_REWRITE_SOURCE,
+} from '../utils/precisionRewriteTask'
 import CandidateDraftBranchSwitcher from '../components/workbench/CandidateDraftBranchSwitcher.vue'
 
 // Status mapping: old API (pending/ok/revise) <-> new API (draft/reviewed/approved)
@@ -454,6 +517,15 @@ const reviewTab = ref('review')
 const candidateDrafts = ref<ChapterCandidateDraftDTO[]>([])
 const loadingCandidateDrafts = ref(false)
 const savingCandidateDraft = ref(false)
+const showPrecisionRewriteModal = ref(false)
+const savingPrecisionRewriteTask = ref(false)
+const precisionRewriteObjective = ref(defaultPrecisionRewriteObjective())
+const precisionRewriteTargetExcerpt = ref('')
+const precisionRewriteInstruction = ref('')
+const precisionRewriteObjectiveOptions = CHAPTER_PRECISION_REWRITE_OBJECTIVES.map((value) => ({
+  label: value,
+  value,
+}))
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
 const candidateBranchFilter = computed({
@@ -535,6 +607,7 @@ const toolOptions = [
   { label: '复制全文', key: 'copy' },
   { label: '清空正文', key: 'clear' },
   { label: '保存为候选稿', key: 'save-candidate' },
+  { label: '精细改稿', key: 'precision-rewrite' },
 ]
 
 const handleToolSelect = (key: string) => {
@@ -551,6 +624,9 @@ const handleToolSelect = (key: string) => {
   }
   if (key === 'save-candidate') {
     void saveCurrentAsCandidate()
+  }
+  if (key === 'precision-rewrite') {
+    openPrecisionRewriteModal()
   }
 }
 
@@ -615,6 +691,53 @@ const saveCurrentAsCandidate = async () => {
     message.error('保存候选稿失败')
   } finally {
     savingCandidateDraft.value = false
+  }
+}
+
+const openPrecisionRewriteModal = () => {
+  precisionRewriteObjective.value = defaultPrecisionRewriteObjective()
+  precisionRewriteTargetExcerpt.value = ''
+  precisionRewriteInstruction.value = ''
+  showPrecisionRewriteModal.value = true
+}
+
+const createPrecisionRewriteTask = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
+  if (!content.value.trim()) {
+    message.warning('当前正文为空，无法创建精细改稿任务')
+    return
+  }
+  savingPrecisionRewriteTask.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(slug, cid, {
+      source: PRECISION_REWRITE_SOURCE,
+      title: `第${cid}章 精细改稿任务`,
+      content: content.value,
+      rationale: buildPrecisionRewriteRationale({
+        objective: precisionRewriteObjective.value,
+        instruction: precisionRewriteInstruction.value,
+        targetExcerpt: precisionRewriteTargetExcerpt.value,
+      }),
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        rewrite_focus: 'precision-rewrite',
+        precision_objective: precisionRewriteObjective.value,
+        target_excerpt: precisionRewriteTargetExcerpt.value,
+        instruction: precisionRewriteInstruction.value,
+        triggered_by: 'chapter-precision-rewrite-modal',
+      },
+    })
+    showPrecisionRewriteModal.value = false
+    reviewTab.value = 'candidates'
+    message.success('已创建精细改稿任务')
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+  } catch (error) {
+    console.error('Failed to create precision rewrite task:', error)
+    message.error('创建精细改稿任务失败')
+  } finally {
+    savingPrecisionRewriteTask.value = false
   }
 }
 
