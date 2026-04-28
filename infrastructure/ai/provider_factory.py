@@ -41,6 +41,13 @@ class LLMProviderFactory:
     def create_active_provider(self) -> LLMService:
         return self.create_from_profile(self.control_service.resolve_active_profile())
 
+    def create_by_profile_id(self, profile_id: str) -> LLMService:
+        config = self.control_service.get_config()
+        for profile in config.profiles:
+            if profile.id == profile_id:
+                return self.create_from_profile(profile)
+        return self.create_active_provider()
+
     def _profile_to_settings(self, profile: LLMProfile) -> Settings:
         if profile.protocol == 'anthropic':
             normalized_base_url = normalize_anthropic_base_url(profile.base_url)

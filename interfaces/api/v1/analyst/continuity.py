@@ -71,11 +71,20 @@ class TimelineEventItem(BaseModel):
     timestamp_type: str
 
 
+class TimelineConflictItem(BaseModel):
+    type: str
+    severity: str
+    description: str
+    evidence: str = ""
+
+
 class TimelineSummary(BaseModel):
     total_events: int
     current_chapter_has_event: bool
     current_chapter_events: List[TimelineEventItem]
     recent_events: List[TimelineEventItem]
+    conflicts: List[TimelineConflictItem] = Field(default_factory=list)
+    conflict_count: int = 0
 
 
 class VoiceDriftSummary(BaseModel):

@@ -46,8 +46,8 @@ export function useWorkbench(options: UseWorkbenchOptions) {
   const chapterContent = ref('')
   const chapterLoading = ref(false)
 
-  /** 右栏子面板 id，与 SettingsPanel 中 foundation / narrative / tactical 的 tab name 一致 */
-  const rightPanel = ref<string>('bible')
+  /** 右栏子面板 id，默认进入二开新增功能测试区，便于快速验证 NovelPro 能力 */
+  const rightPanel = ref<string>('continuity')
   const biblePanelKey = ref(0)
   const currentJobId = ref<string | null>(null)
 

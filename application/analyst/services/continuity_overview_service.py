@@ -200,6 +200,36 @@ class ContinuityOverviewService:
             "evidence": str(payload.get("evidence") or "").strip(),
         }
 
+    def auto_record_chapter_signals(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        content: str,
+    ) -> dict[str, Any]:
+        """章后管线的轻量结构化沉淀。
+
+        不额外调用 LLM，只把可解释、可覆盖的关系/大纲节点写入结构化表。
+        """
+        bible = self.bible_service.get_bible_by_novel(novel_id)
+        chapter_context = self._load_current_chapter_context(novel_id, chapter_number)
+        outline = str(chapter_context.get("outline") or "")
+        relationship_count = self._auto_record_relationship_events(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            content=content,
+            bible=bible,
+        )
+        outline_count = self._auto_record_outline_statuses(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            content=content,
+        )
+        return {
+            "relationship_events": relationship_count,
+            "outline_nodes": outline_count,
+        }
+
     def _get_table_columns(self, table_name: str) -> set[str]:
         try:
             rows = self.db_connection.execute(f"PRAGMA table_info({table_name})").fetchall()
@@ -377,11 +407,14 @@ class ContinuityOverviewService:
                 "current_chapter_has_event": False,
                 "current_chapter_events": [],
                 "recent_events": [],
+                "conflicts": [],
+                "conflict_count": 0,
             }
 
         events = list(timeline_registry.get_all_events_sorted())
         current_events = [event for event in events if event.chapter_number == current_chapter_number]
         recent_events = [event for event in events if event.chapter_number <= current_chapter_number][-max_timeline_events:]
+        conflicts = self._detect_timeline_conflicts(current_events, recent_events)
 
         def _serialize(event) -> dict[str, Any]:
             return {
@@ -397,7 +430,46 @@ class ContinuityOverviewService:
             "current_chapter_has_event": len(current_events) > 0,
             "current_chapter_events": [_serialize(event) for event in current_events],
             "recent_events": [_serialize(event) for event in recent_events],
+            "conflicts": conflicts,
+            "conflict_count": len(conflicts),
         }
+
+    def _detect_timeline_conflicts(self, current_events: list[Any], recent_events: list[Any]) -> list[dict[str, Any]]:
+        conflicts: list[dict[str, Any]] = []
+        absolute_current = [
+            event for event in current_events
+            if str(getattr(event, "timestamp_type", "") or "").lower() == "absolute"
+            and str(getattr(event, "timestamp", "") or "").strip()
+        ]
+        absolute_values = {str(event.timestamp).strip() for event in absolute_current}
+        if len(absolute_values) > 1:
+            conflicts.append(
+                {
+                    "type": "multiple_absolute_times",
+                    "severity": "warning",
+                    "description": "同一章节出现多个绝对时间锚点，建议确认是否为闪回或时间跳切。",
+                    "evidence": "；".join(sorted(absolute_values)),
+                }
+            )
+
+        seen: dict[str, Any] = {}
+        for event in recent_events:
+            timestamp = str(getattr(event, "timestamp", "") or "").strip()
+            if not timestamp or str(getattr(event, "timestamp_type", "") or "").lower() == "vague":
+                continue
+            previous = seen.get(timestamp)
+            if previous and previous.chapter_number != event.chapter_number:
+                conflicts.append(
+                    {
+                        "type": "reused_time_anchor",
+                        "severity": "info",
+                        "description": "多个章节复用同一时间锚点，若不是同日并行线，需要补充时间推进说明。",
+                        "evidence": f"第{previous.chapter_number}章 / 第{event.chapter_number}章：{timestamp}",
+                    }
+                )
+                break
+            seen[timestamp] = event
+        return conflicts[:5]
 
     def _build_relationship_spotlights(
         self,
@@ -447,6 +519,100 @@ class ContinuityOverviewService:
                 if len(items) >= max_relationships:
                     return items
         return items
+
+    def _auto_record_relationship_events(
+        self,
+        *,
+        novel_id: str,
+        chapter_number: int,
+        content: str,
+        bible,
+    ) -> int:
+        if not bible or not content:
+            return 0
+
+        character_names = [
+            str(getattr(character, "name", "") or "").strip()
+            for character in list(getattr(bible, "characters", []) or [])
+            if str(getattr(character, "name", "") or "").strip()
+        ]
+        if len(character_names) < 2:
+            return 0
+
+        markers = {
+            "关系升温": ("和解", "信任", "默契", "亲近", "依赖", "联手", "暧昧", "升温"),
+            "关系趋紧": ("裂痕", "疏远", "争执", "冲突", "敌意", "不信任", "决裂", "对峙"),
+        }
+        recorded = 0
+        seen_pairs: set[tuple[str, str, str]] = set()
+        for line in re.split(r"[。！？\n]+", content):
+            text = line.strip()
+            if not text:
+                continue
+            present = [name for name in character_names if name in text]
+            if len(present) < 2:
+                continue
+            event_type = ""
+            severity = "info"
+            for label, words in markers.items():
+                if any(word in text for word in words):
+                    event_type = label
+                    severity = "success" if label == "关系升温" else "warning"
+                    break
+            if not event_type:
+                continue
+            source, target = sorted(present[:2])
+            key = (source, target, event_type)
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            self.record_relationship_event(
+                novel_id,
+                {
+                    "chapter_number": chapter_number,
+                    "source_character": source,
+                    "target_character": target,
+                    "relation": "自动关系事件",
+                    "event_type": event_type,
+                    "description": f"章后自动识别：{event_type}",
+                    "evidence": text[:160],
+                    "severity": severity,
+                },
+            )
+            recorded += 1
+            if recorded >= 5:
+                break
+        return recorded
+
+    def _auto_record_outline_statuses(
+        self,
+        *,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        content: str,
+    ) -> int:
+        segments = self._split_outline_segments(outline)
+        if not segments:
+            return 0
+        normalized_content = self._normalize_text(content)
+        recorded = 0
+        for index, segment in enumerate(segments[:8], start=1):
+            normalized_segment = self._normalize_text(segment)
+            status = "matched" if normalized_segment and normalized_segment in normalized_content else "pending"
+            self.upsert_outline_node_status(
+                novel_id,
+                {
+                    "chapter_number": chapter_number,
+                    "node_key": f"auto-segment-{index}",
+                    "outline_text": segment,
+                    "status": status,
+                    "note": "章后自动沉淀",
+                    "evidence": segment if status == "matched" else "",
+                },
+            )
+            recorded += 1
+        return recorded
 
     def _build_relationship_tracking(
         self,

@@ -13,6 +13,9 @@
       <n-space vertical :size="14">
         <n-alert type="info" :show-icon="false">
           当前分工：{{ roleSummary }}
+          <template v-if="writingProfileBinding">
+            <br />直连写作配置：{{ writingProfileBinding }}
+          </template>
         </n-alert>
 
         <n-card size="small" title="默认角色">
@@ -58,7 +61,7 @@
         <n-card size="small" title="模型列表">
           <n-space vertical :size="8">
             <div v-for="profile in draftConfig.profiles" :key="profile.value" class="model-row">
-              <n-space justify="space-between" align="center">
+              <n-space justify="space-between" align="start">
                 <div>
                   <n-text strong>{{ profile.label }}</n-text>
                   <n-text depth="3" style="font-size: 12px">
@@ -72,6 +75,19 @@
                   {{ roleLabel(profile.role) }}
                 </n-tag>
               </n-space>
+              <n-form-item
+                label="绑定 LLM 控制面板配置"
+                label-placement="top"
+                :show-feedback="false"
+                class="profile-binding"
+              >
+                <n-select
+                  v-model:value="profile.llmProfileId"
+                  :options="llmProfileOptions"
+                  clearable
+                  placeholder="不绑定时使用当前激活 LLM"
+                />
+              </n-form-item>
             </div>
           </n-space>
         </n-card>
@@ -81,10 +97,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
+import { llmControlApi, type LLMProfile } from '@/api/llmControl'
 import {
   buildModelRoleSummary,
+  getModelProfile,
   getModelOptions,
   loadModelRoleConfig,
   saveModelRoleConfig,
@@ -96,6 +114,7 @@ import {
 
 const message = useMessage()
 const draftConfig = ref<ModelRoleConfig>(loadModelRoleConfig())
+const llmProfiles = ref<LLMProfile[]>([])
 const customModel = ref<ModelProfile>({
   value: '',
   label: '',
@@ -112,6 +131,15 @@ const roleOptions = [
 const writerOptions = computed(() => getModelOptions(draftConfig.value, 'writer'))
 const supervisorOptions = computed(() => getModelOptions(draftConfig.value, 'supervisor'))
 const roleSummary = computed(() => buildModelRoleSummary(draftConfig.value))
+const llmProfileOptions = computed(() => llmProfiles.value.map(profile => ({
+  label: `${profile.name}${profile.model ? ` · ${profile.model}` : ''}`,
+  value: profile.id,
+})))
+const writingProfileBinding = computed(() => {
+  const writingProfile = getModelProfile(draftConfig.value, draftConfig.value.writingModel)
+  if (!writingProfile?.llmProfileId) return ''
+  return llmProfileOptions.value.find(item => item.value === writingProfile.llmProfileId)?.label || writingProfile.llmProfileId
+})
 
 function roleLabel(role: ModelRole) {
   if (role === 'writer') return '写作'
@@ -134,6 +162,15 @@ function addCustomModel() {
   customModel.value = { value: '', label: '', role: 'both', note: '' }
   message.success('已加入模型列表')
 }
+
+onMounted(async () => {
+  try {
+    const panel = await llmControlApi.getPanel()
+    llmProfiles.value = panel.config.profiles
+  } catch {
+    llmProfiles.value = []
+  }
+})
 </script>
 
 <style scoped>
@@ -175,5 +212,10 @@ function addCustomModel() {
   border: 1px solid var(--aitext-split-border);
   border-radius: 10px;
   background: var(--app-surface);
+}
+
+.profile-binding {
+  margin-top: 10px;
+  margin-bottom: 0;
 }
 </style>

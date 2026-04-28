@@ -130,6 +130,26 @@
   - 外部提示词会写入当前模型分工，明确“写作模型产正文，审稿/记忆模型做约束和检查”
   - 导入外部稿和外部模型台账继续复用当前写作模型配置
   - 新增 `docs/novelpro-model-role-workflow.md` 记录使用方式
+- 已优化右侧测试入口：
+  - `SettingsPanel.vue` 新增“NovelPro 测试区 / 基础面板”分组
+  - 连续性、口吻锁定、战力系统、模型分工、对话沙盒已集中到新增功能测试区
+  - 右侧页签改为按宽度自动换行，避免所有入口挤在单行横向滚动
+  - 工作台右侧默认打开 `连续性巡检`，便于优先测试二开功能
+- 已继续补齐未完成项的最小闭环：
+  - 新增后端持久化 `external_model_tasks` 台账，复制提示、导入回稿、直连生成、采纳状态均可落库；浏览器本地台账保留为前端兜底
+  - 工作台候选稿区新增“直连模型生成”，PP 内可直接调用现有 LLM 控制面板配置生成候选稿，不再只能复制给外部模型
+  - `模型分工` 面板支持把 Kimi/Claude/GPT/DeepSeek/自定义标签绑定到真实 LLM profile；直连写作优先使用写作模型绑定的 profile
+  - 候选稿 API 新增 A/B 对照、分支列表、分支合并到 main 候选稿、分支记忆差异预览接口；工作台候选稿弹窗已展示这些信息
+  - 候选稿采纳后会把后端外部模型任务标记为 `accepted`，并继续触发现有快照、章后记忆、连续性结构化沉淀链路
+  - 连续性服务新增章后自动沉淀：基于章节正文启发式写入关系事件与大纲节点状态；时间线摘要新增冲突列表与冲突数
+  - 为旧版 file repository 测试补了兼容层，恢复 legacy 小说/章节/故事线文件仓储测试可运行性
+  - 单章页外部模型导入与候选改稿复制提示也已同步写入后端外部模型台账，和工作台入口保持一致
+- 已继续补齐模型分工和前端性能：
+  - 候选稿新增“审稿/记忆检查”接口和工作台按钮，可用模型分工里的监督模型绑定 profile 独立调用 GPT/Claude 等模型
+  - 监督模型检查结果会写入后端外部模型任务台账，状态为 `reviewed`，并在候选稿预览区展示
+  - 前端路由改为懒加载，首页、工作台、单章页、图谱页不再全部进入首包
+  - Vite 增加 vendor 手动分包，拆出 `vendor-vue / vendor-naive / vendor-echarts / vendor-richtext / vendor-core`
+  - 前端构建最大 chunk 降到 `vendor-naive` 约 `1,150.21 kB`，已低于当前 `1200 kB` warning 阈值，构建不再出现大包告警
 
 ## 验证状态
 
@@ -164,6 +184,20 @@
 - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
 - `cd frontend && npm run build`：通过（段落级 diff、部分采纳、外部模型台账、记忆影响预览、Autopilot 异步拆包接入后再次验证；仍有 Vite 大 chunk 提示，主包约 2.87MB）
 - `cd frontend && npm run build`：通过（可配置模型分工接入后再次验证；新增 `ModelRolePanel` 独立 chunk，仍有 Vite 大 chunk 提示）
+- 2026-04-28 复测：
+  - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
+  - `cd frontend && npm run build`：通过；仍有 Vite 大 chunk 提示，主包约 `2,876.25 kB`
+  - `gh run list --repo frankmeng82/PlotPilot-NovelPro --limit 5`：最新 `Frontend CI` run `25042757111` 通过；最近一次 `Backend CI` run `25040959536` 通过
+- `cd frontend && npm run build`：通过（右侧 NovelPro 测试区与页签换行 UI 接入后再次验证；仍有 Vite 大 chunk 提示）
+- 2026-04-28 本轮开发验证：
+  - 新增红绿测试 `test_generate_candidate_draft_uses_requested_llm_profile`：先确认直连生成仍使用全局激活模型而失败，补完 profile 绑定后通过
+  - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py tests/integration/test_novel_workflow.py tests/integration/test_storyline_integration.py -q --tb=short`：通过（35 passed）
+  - `cd frontend && npm run build`：通过；仍有 Vite 大 chunk 提示，主包约 `2,883.02 kB`
+  - `.venv/bin/python -m pytest -q --tb=short`：已跑全量摸底，结果 `878 passed, 68 failed, 16 errors, 8 skipped`；主要是 v1.0.4 既有测试矩阵失配、缺少 `faiss` 扩展依赖、旧 API 错误响应格式、旧 workflow mock 接口等，不作为本轮功能完成条件
+- 2026-04-28 继续开发验证：
+  - `.venv/bin/python -m pytest tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（5 passed）
+  - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py tests/integration/test_novel_workflow.py tests/integration/test_storyline_integration.py -q --tb=short`：通过（36 passed）
+  - `cd frontend && npm run build`：通过；构建输出已无大包 warning
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `434b5a5 feat: add configurable model roles`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042757111`：通过
@@ -180,10 +214,10 @@
 
 ## 下一步
 
-- 若后续继续扩展，优先从真实写作体验里收集问题；当前 P1/P2 加战力系统的本地自用闭环已经形成可用版本
+- 若继续开发，优先处理全量测试恢复和更严格的连续性/时间线推理；前端大包与审稿/记忆模型独立调用的第一版已完成。
 
 ## 待确认
 
-- 结构化连续性追踪已具备手动记录入口；后续如要进一步自动化，可在章后记忆管线中从 `relationship_changes` 自动沉淀关系事件。
-- 外部模型任务台账目前保存在浏览器本地；如后续需要跨设备同步，再升级为后端表。
-- 当前模型分工仍是 copy/paste 外部模型工作流；若后续接 API，应先做 provider 抽象和密钥配置，不把任何供应商写死。
+- 结构化连续性已具备手动记录和章后启发式自动沉淀；后续若要更准，应复用 LLM 章后 bundle 的 `relationship_changes`，不要另起一套抽取逻辑。
+- 直连模型写作已支持按模型分工绑定 LLM profile；审稿/记忆模型也已可在候选稿采纳前独立调用，但目前输出是检查文本，尚未自动写入所有结构化记忆表。
+- A/B 对照、分支记忆差异和时间线冲突检测是最小可用版本，仍以启发式为主；后续可升级为专门对照工作台和严格时间推理。

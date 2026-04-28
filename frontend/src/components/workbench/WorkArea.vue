@@ -623,11 +623,63 @@
           </n-space>
           <n-space :size="8" align="center">
             <CandidateDraftBranchSwitcher :slug="slug" width="180px" />
+            <n-button
+              size="small"
+              secondary
+              :loading="generatingDirectCandidate"
+              :disabled="!currentChapter"
+              @click="generateDirectCandidateDraft"
+            >
+              直连模型生成
+            </n-button>
+            <n-button
+              size="small"
+              secondary
+              :loading="mergingBranch"
+              :disabled="!candidateBranchFilter.trim() || candidateBranchFilter.trim() === 'main'"
+              @click="mergeCurrentBranchToMain"
+            >
+              合并到 main
+            </n-button>
             <n-button size="small" secondary :loading="loadingCandidateDrafts" @click="loadCandidateDrafts">
               刷新
             </n-button>
           </n-space>
         </n-space>
+
+        <n-card size="small" :bordered="false" class="candidate-ops-card">
+          <n-space vertical :size="8">
+            <n-space :size="6" wrap>
+              <n-tag
+                v-for="branch in candidateBranches"
+                :key="`${branch.branch_name}-${branch.updated_at}`"
+                size="small"
+                round
+                :type="branch.branch_name === candidateBranchFilter ? 'success' : 'default'"
+              >
+                {{ branch.branch_name }} · {{ branch.draft_count }}稿 / 已采纳{{ branch.accepted_count }}
+              </n-tag>
+              <n-tag size="small" round type="info">
+                模型任务台账 {{ externalModelTasks.length }} 条
+              </n-tag>
+            </n-space>
+            <n-space v-if="branchMemoryDiff" :size="6" wrap>
+              <n-tag size="small" round type="warning">
+                分支记忆差异：相似度 {{ Math.round(branchMemoryDiff.similarity * 100) }}%
+              </n-tag>
+              <n-tag
+                v-for="item in branchMemoryDiff.memory_impacts"
+                :key="`${item.label}-${item.detail}`"
+                size="small"
+                round
+                :type="item.level === 'warning' ? 'warning' : item.level === 'error' ? 'error' : 'info'"
+                :title="item.detail"
+              >
+                {{ item.label }}
+              </n-tag>
+            </n-space>
+          </n-space>
+        </n-card>
 
         <n-empty
           v-if="!loadingCandidateDrafts && candidateDrafts.length === 0"
@@ -735,7 +787,18 @@
 
           <n-grid-item>
             <n-space vertical :size="10">
-              <n-text strong>候选稿预览</n-text>
+              <n-space justify="space-between" align="center">
+                <n-text strong>候选稿预览</n-text>
+                <n-button
+                  v-if="selectedCandidateDraft"
+                  size="tiny"
+                  secondary
+                  :loading="reviewingCandidateDraft"
+                  @click="reviewSelectedCandidateDraft"
+                >
+                  审稿/记忆检查
+                </n-button>
+              </n-space>
               <n-alert
                 v-if="selectedCandidateDraft && selectedCandidateDiffSummary"
                 :type="selectedCandidateDiffSummary.changed ? 'info' : 'default'"
@@ -767,8 +830,22 @@
                   {{ item.label }}
                 </n-tag>
               </n-space>
+              <n-alert
+                v-if="selectedCandidateSupervisorReview && selectedCandidateSupervisorReview.draft_id === selectedCandidateDraft?.id"
+                type="warning"
+                :show-icon="false"
+                style="font-size:12px;white-space:pre-wrap"
+              >
+                审稿/记忆模型（{{ selectedCandidateSupervisorReview.model_label || '监督模型' }}）：
+                {{ selectedCandidateSupervisorReview.review }}
+              </n-alert>
               <n-card v-if="selectedCandidateDraft && selectedCandidateParagraphDiff.length" size="small" title="段落级 diff">
                 <n-space vertical :size="8">
+                  <n-alert v-if="selectedCandidateCompare" type="info" :show-icon="false" style="font-size:12px">
+                    A/B 对照：主稿 {{ selectedCandidateCompare.primary_word_count }} 字，
+                    候选 {{ selectedCandidateCompare.candidate_word_count }} 字，
+                    相似度 {{ Math.round(selectedCandidateCompare.similarity * 100) }}%。
+                  </n-alert>
                   <n-space justify="space-between" align="center">
                     <n-text depth="3" style="font-size: 12px">
                       勾选候选段落后，可生成一版“部分采纳候选稿”，再走原采纳链路。
@@ -858,7 +935,14 @@ import {
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
-import type { ChapterCandidateDraftDTO } from '../../api/chapter'
+import type {
+  BranchMemoryDiffResponse,
+  CandidateBranchSummary,
+  CandidateDraftCompareResponse,
+  ChapterCandidateDraftDTO,
+  ExternalModelTaskDTO,
+  SupervisorReviewCandidateDraftResponse,
+} from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
 import { useCandidateDraftBranchStore } from '../../stores/candidateDraftBranchStore'
@@ -892,7 +976,9 @@ import {
 } from '../../utils/externalModelTaskLedger'
 import {
   MODEL_ROLE_CONFIG_UPDATED_EVENT,
+  getModelLabel,
   getModelOptions,
+  getModelProfile,
   loadModelRoleConfig,
   type ModelRoleConfig,
 } from '../../utils/modelRoleConfig'
@@ -964,10 +1050,18 @@ const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
 const candidateDrafts = ref<ChapterCandidateDraftDTO[]>([])
 const loadingCandidateDrafts = ref(false)
+const candidateBranches = ref<CandidateBranchSummary[]>([])
+const selectedCandidateCompare = ref<CandidateDraftCompareResponse | null>(null)
+const selectedCandidateSupervisorReview = ref<SupervisorReviewCandidateDraftResponse | null>(null)
+const branchMemoryDiff = ref<BranchMemoryDiffResponse | null>(null)
+const externalModelTasks = ref<ExternalModelTaskDTO[]>([])
 const savingCandidateDraft = ref(false)
 const savingPrecisionRewriteTask = ref(false)
 const savingExternalModelDraft = ref(false)
 const savingPartialCandidateDraft = ref(false)
+const mergingBranch = ref(false)
+const generatingDirectCandidate = ref(false)
+const reviewingCandidateDraft = ref(false)
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
 const selectedPartialParagraphIndexes = ref<number[]>([])
@@ -1294,6 +1388,15 @@ const createExternalModelDraft = async () => {
       prompt,
       instruction: externalModelDraftInstruction.value,
     })
+    await chapterApi.upsertExternalModelTask(props.slug, {
+      id: task.id,
+      chapter_number: chapter.number,
+      model: externalModelDraftModel.value,
+      prompt,
+      instruction: externalModelDraftInstruction.value,
+      status: 'prompted',
+      execution_mode: 'copy_paste',
+    }).catch(() => undefined)
     const draft = await chapterApi.createCandidateDraft(props.slug, chapter.number, {
       source: EXTERNAL_MODEL_DRAFT_SOURCE,
       title: buildExternalModelDraftTitle(chapter.number, externalModelDraftModel.value),
@@ -1320,6 +1423,17 @@ const createExternalModelDraft = async () => {
       content: externalModelDraftContent.value,
       candidateDraftId: draft.id,
     })
+    await chapterApi.upsertExternalModelTask(props.slug, {
+      id: task.id,
+      chapter_number: chapter.number,
+      model: externalModelDraftModel.value,
+      prompt,
+      instruction: externalModelDraftInstruction.value,
+      candidate_draft_id: draft.id,
+      response_preview: externalModelDraftContent.value.trim().slice(0, 160),
+      status: 'imported',
+      execution_mode: 'copy_paste',
+    }).catch(() => undefined)
     showExternalModelDraftModal.value = false
     await loadCandidateDrafts()
     selectedCandidateDraftId.value = draft.id
@@ -1494,6 +1608,7 @@ watch(candidateBranchFilter, () => {
 
 watch(selectedCandidateDraftId, () => {
   selectedPartialParagraphIndexes.value = []
+  void loadSelectedCandidateCompare()
 })
 
 watch(
@@ -1593,11 +1708,28 @@ const loadCandidateDrafts = async () => {
       candidateBranchFilter.value.trim() || undefined,
     )
     candidateDrafts.value = drafts
+    candidateBranches.value = await chapterApi.listCandidateBranches(
+      props.slug,
+      currentChapter.value.number,
+    ).catch(() => [])
+    externalModelTasks.value = await chapterApi.listExternalModelTasks(
+      props.slug,
+      currentChapter.value.number,
+    ).catch(() => [])
+    branchMemoryDiff.value = await chapterApi.getBranchMemoryDiff(
+      props.slug,
+      currentChapter.value.number,
+      candidateBranchFilter.value.trim() || 'main',
+      'main',
+    ).catch(() => null)
     if (!selectedCandidateDraftId.value || !drafts.some(d => d.id === selectedCandidateDraftId.value)) {
       selectedCandidateDraftId.value = drafts[0]?.id ?? null
     }
   } catch {
     candidateDrafts.value = []
+    candidateBranches.value = []
+    externalModelTasks.value = []
+    branchMemoryDiff.value = null
     selectedCandidateDraftId.value = null
     message.error('加载候选稿失败')
   } finally {
@@ -1609,6 +1741,106 @@ const openCandidateDrafts = async () => {
   if (!currentChapter.value) return
   showCandidateDraftsModal.value = true
   await loadCandidateDrafts()
+}
+
+const loadSelectedCandidateCompare = async () => {
+  const chapter = currentChapter.value
+  const draft = selectedCandidateDraft.value
+  if (!chapter || !draft) {
+    selectedCandidateCompare.value = null
+    return
+  }
+  selectedCandidateCompare.value = await chapterApi.compareCandidateDraft(
+    props.slug,
+    chapter.number,
+    draft.id,
+  ).catch(() => null)
+}
+
+const mergeCurrentBranchToMain = async () => {
+  const chapter = currentChapter.value
+  const sourceBranch = candidateBranchFilter.value.trim()
+  if (!chapter || !sourceBranch || sourceBranch === 'main') {
+    message.warning('请先切到非 main 分支再合并')
+    return
+  }
+  mergingBranch.value = true
+  try {
+    const draft = await chapterApi.mergeCandidateBranch(
+      props.slug,
+      chapter.number,
+      sourceBranch,
+      'main',
+      'latest_candidate',
+    )
+    candidateBranchFilter.value = 'main'
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+    message.success('已生成合并候选稿，请审阅后再采纳')
+  } catch {
+    message.error('分支合并失败')
+  } finally {
+    mergingBranch.value = false
+  }
+}
+
+const generateDirectCandidateDraft = async () => {
+  const chapter = currentChapter.value
+  if (!chapter) return
+  const outline = generateOutline.value.trim() || `第${chapter.number}章：${chapter.title || '承接前情，推进主线'}`
+  const writingProfile = getModelProfile(modelRoleConfig.value, modelRoleConfig.value.writingModel)
+  const modelLabel = getModelLabel(modelRoleConfig.value, modelRoleConfig.value.writingModel)
+  generatingDirectCandidate.value = true
+  try {
+    const result = await chapterApi.generateCandidateDraft(props.slug, {
+      chapter_number: chapter.number,
+      outline,
+      current_content: chapterContent.value,
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      title: `${chapter.title || `第${chapter.number}章`} 直连模型候选稿`,
+      source: 'direct-model',
+      model_label: modelLabel,
+      llm_profile_id: writingProfile?.llmProfileId || '',
+      task_prompt: activeCandidateRewriteTask.value
+        ? candidateDraftRewritePrompt(activeCandidateRewriteTask.value)
+        : outline,
+    })
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = result.draft.id
+    showCandidateDraftsModal.value = true
+    message.success('直连模型已生成候选稿')
+  } catch {
+    message.error('直连模型生成候选稿失败，请检查 LLM 控制面板配置')
+  } finally {
+    generatingDirectCandidate.value = false
+  }
+}
+
+const reviewSelectedCandidateDraft = async () => {
+  const chapter = currentChapter.value
+  const draft = selectedCandidateDraft.value
+  if (!chapter || !draft) return
+
+  const supervisorProfile = getModelProfile(modelRoleConfig.value, modelRoleConfig.value.supervisorModel)
+  const modelLabel = getModelLabel(modelRoleConfig.value, modelRoleConfig.value.supervisorModel)
+  reviewingCandidateDraft.value = true
+  try {
+    const result = await chapterApi.reviewCandidateDraft(props.slug, chapter.number, draft.id, {
+      model_label: modelLabel,
+      llm_profile_id: supervisorProfile?.llmProfileId || '',
+      focus: '检查记忆影响、连续性风险、战力崩坏风险、必须保留事实和采纳建议。',
+    })
+    selectedCandidateSupervisorReview.value = result
+    externalModelTasks.value = await chapterApi.listExternalModelTasks(
+      props.slug,
+      chapter.number,
+    ).catch(() => externalModelTasks.value)
+    message.success('审稿/记忆模型检查完成')
+  } catch {
+    message.error('审稿/记忆模型检查失败，请检查监督模型配置')
+  } finally {
+    reviewingCandidateDraft.value = false
+  }
 }
 
 const applyCandidateRewriteSeed = async () => {
@@ -2254,6 +2486,14 @@ defineExpose({ ensureAssistedMode })
   border-color: var(--primary-color);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-color) 28%, transparent);
   background: color-mix(in srgb, var(--primary-color) 4%, var(--card-color));
+}
+
+.candidate-ops-card {
+  background:
+    linear-gradient(135deg, rgba(31, 129, 255, 0.08), rgba(34, 197, 94, 0.05)),
+    var(--app-surface);
+  border: 1px solid var(--aitext-split-border);
+  border-radius: 12px;
 }
 
 .paragraph-diff-row {

@@ -1005,6 +1005,15 @@ const createExternalModelDraft = async () => {
       prompt,
       instruction: externalModelDraftInstruction.value,
     })
+    await chapterApi.upsertExternalModelTask(slug, {
+      id: task.id,
+      chapter_number: cid,
+      model: externalModelDraftModel.value,
+      prompt,
+      instruction: externalModelDraftInstruction.value,
+      status: 'prompted',
+      execution_mode: 'copy_paste',
+    }).catch(() => undefined)
     const draft = await chapterApi.createCandidateDraft(slug, cid, {
       source: EXTERNAL_MODEL_DRAFT_SOURCE,
       title: buildExternalModelDraftTitle(cid, externalModelDraftModel.value),
@@ -1031,6 +1040,17 @@ const createExternalModelDraft = async () => {
       content: externalModelDraftContent.value,
       candidateDraftId: draft.id,
     })
+    await chapterApi.upsertExternalModelTask(slug, {
+      id: task.id,
+      chapter_number: cid,
+      model: externalModelDraftModel.value,
+      prompt,
+      instruction: externalModelDraftInstruction.value,
+      candidate_draft_id: draft.id,
+      response_preview: externalModelDraftContent.value.trim().slice(0, 160),
+      status: 'imported',
+      execution_mode: 'copy_paste',
+    }).catch(() => undefined)
     showExternalModelDraftModal.value = false
     reviewTab.value = 'candidates'
     message.success('已导入外部模型稿为候选稿')
@@ -1064,7 +1084,7 @@ const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
     currentContent: content.value,
     modelConfig: modelRoleConfig.value,
   })
-  recordExternalModelPromptTask({
+  const task = recordExternalModelPromptTask({
     slug,
     chapterNumber: cid,
     model: externalModelDraftModel.value || 'kimi',
@@ -1072,6 +1092,16 @@ const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
     instruction: `${draft.title || `第${cid}章候选改稿任务`}\n\n${draft.rationale || '根据候选改稿任务修订当前章节。'}`,
     sourceDraftId: draft.id,
   })
+  void chapterApi.upsertExternalModelTask(slug, {
+    id: task.id,
+    chapter_number: cid,
+    model: externalModelDraftModel.value || 'kimi',
+    prompt,
+    instruction: `${draft.title || `第${cid}章候选改稿任务`}\n\n${draft.rationale || '根据候选改稿任务修订当前章节。'}`,
+    source_draft_id: draft.id,
+    status: 'prompted',
+    execution_mode: 'copy_paste',
+  }).catch(() => undefined)
 
   void navigator.clipboard.writeText(prompt).then(
     () => message.success('已复制外部模型提示词，并记录到外部模型台账'),

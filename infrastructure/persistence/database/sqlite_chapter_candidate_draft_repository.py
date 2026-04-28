@@ -96,6 +96,47 @@ class SqliteChapterCandidateDraftRepository:
         self.db.commit()
         return self.get(draft_id)
 
+    def list_branches(self, novel_id: str, chapter_number: int) -> List[Dict[str, Any]]:
+        rows = self.db.fetch_all(
+            """
+            SELECT
+                branch_name,
+                COUNT(*) AS draft_count,
+                SUM(CASE WHEN status = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
+                MAX(updated_at) AS updated_at
+            FROM chapter_candidate_drafts
+            WHERE novel_id = ? AND chapter_number = ?
+            GROUP BY branch_name
+            ORDER BY updated_at DESC
+            """,
+            (novel_id, int(chapter_number)),
+        )
+        return [dict(row) for row in rows]
+
+    def get_latest_by_branch(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        branch_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        row = self.db.fetch_one(
+            """
+            SELECT *
+            FROM chapter_candidate_drafts
+            WHERE novel_id = ?
+              AND chapter_number = ?
+              AND branch_name = ?
+              AND status IN ('draft', 'accepted')
+            ORDER BY
+              CASE WHEN status = 'accepted' THEN 0 ELSE 1 END,
+              updated_at DESC,
+              created_at DESC
+            LIMIT 1
+            """,
+            (novel_id, int(chapter_number), branch_name),
+        )
+        return self._row_to_dict(row) if row else None
+
     def delete(self, draft_id: str) -> None:
         self.db.execute(
             "DELETE FROM chapter_candidate_drafts WHERE id = ?",

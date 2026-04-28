@@ -186,6 +186,30 @@ CREATE TABLE IF NOT EXISTS outline_node_statuses (
 CREATE INDEX IF NOT EXISTS idx_outline_node_statuses_novel_chapter
 ON outline_node_statuses(novel_id, chapter_number);
 
+-- ========== External Model Task Ledger（外部/直连模型任务台账） ==========
+CREATE TABLE IF NOT EXISTS external_model_tasks (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    prompt TEXT NOT NULL DEFAULT '',
+    instruction TEXT NOT NULL DEFAULT '',
+    source_draft_id TEXT NOT NULL DEFAULT '',
+    candidate_draft_id TEXT NOT NULL DEFAULT '',
+    response_preview TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'prompted',
+    execution_mode TEXT NOT NULL DEFAULT 'copy_paste',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_model_tasks_novel_chapter
+ON external_model_tasks(novel_id, chapter_number, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_external_model_tasks_candidate
+ON external_model_tasks(novel_id, candidate_draft_id);
+
 CREATE INDEX IF NOT EXISTS idx_triples_entity_type ON triples(novel_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_triples_chapter ON triples(novel_id, chapter_number);
 CREATE INDEX IF NOT EXISTS idx_triples_source ON triples(novel_id, source_type);

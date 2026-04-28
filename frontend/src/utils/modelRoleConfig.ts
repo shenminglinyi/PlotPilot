@@ -5,6 +5,7 @@ export interface ModelProfile {
   label: string
   role: ModelRole
   note?: string
+  llmProfileId?: string
 }
 
 export interface ModelRoleConfig {
@@ -41,6 +42,7 @@ function normalizeProfile(profile: ModelProfile): ModelProfile {
     label: profile.label.trim() || value,
     role: profile.role || 'both',
     note: profile.note?.trim() || '',
+    llmProfileId: profile.llmProfileId?.trim() || '',
   }
 }
 
@@ -87,6 +89,10 @@ export function getModelOptions(config: ModelRoleConfig, role: 'writer' | 'super
 
 export function getModelLabel(config: ModelRoleConfig, model: string): string {
   return config.profiles.find(profile => profile.value === model)?.label || model || '外部模型'
+}
+
+export function getModelProfile(config: ModelRoleConfig, model: string): ModelProfile | null {
+  return config.profiles.find(profile => profile.value === model) || null
 }
 
 export function upsertModelProfile(config: ModelRoleConfig, profile: ModelProfile): ModelRoleConfig {
