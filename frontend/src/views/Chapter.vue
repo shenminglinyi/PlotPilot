@@ -298,6 +298,14 @@
                                 去工作台生成
                               </n-button>
                               <n-button
+                                v-if="isCandidateRewriteTask(draft)"
+                                size="tiny"
+                                secondary
+                                @click="copyCandidateTaskExternalPrompt(draft)"
+                              >
+                                复制外部提示
+                              </n-button>
+                              <n-button
                                 size="tiny"
                                 type="primary"
                                 :loading="acceptingCandidateDraftId === draft.id"
@@ -325,6 +333,17 @@
                   <n-grid-item>
                     <n-space vertical :size="10">
                       <n-text strong>候选稿预览</n-text>
+                      <n-alert
+                        v-if="selectedCandidateDraft && selectedCandidateDiffSummary"
+                        :type="selectedCandidateDiffSummary.changed ? 'info' : 'default'"
+                        :show-icon="false"
+                        style="font-size:12px"
+                      >
+                        与当前主稿对比：候选稿 {{ selectedCandidateDiffSummary.candidateWordCount }} 字，
+                        {{ selectedCandidateDiffSummary.wordDelta >= 0 ? '增加' : '减少' }}
+                        {{ Math.abs(selectedCandidateDiffSummary.wordDelta) }} 字，
+                        相似度 {{ selectedCandidateDiffSummary.similarityPercent }}%。
+                      </n-alert>
                       <n-input
                         :value="selectedCandidateDraft?.content || ''"
                         type="textarea"
@@ -417,6 +436,61 @@
       </n-space>
     </template>
   </n-modal>
+
+  <n-modal
+    v-model:show="showExternalModelDraftModal"
+    preset="card"
+    title="导入外部模型稿"
+    style="width: min(760px, 96vw)"
+    :segmented="{ content: true, footer: 'soft' }"
+  >
+    <n-space vertical :size="16">
+      <n-alert type="info" :show-icon="true" style="font-size:13px">
+        适合把 Kimi 等外部大模型写好的正文粘进来。系统只保存为候选稿；采纳后才更新主稿和本地记忆。
+      </n-alert>
+
+      <n-form-item label="外部模型" label-placement="top" :show-feedback="false">
+        <n-select
+          v-model:value="externalModelDraftModel"
+          :options="externalModelOptions"
+          filterable
+          tag
+        />
+      </n-form-item>
+
+      <n-form-item label="作者要求 / 来源说明（可选）" label-placement="top" :show-feedback="false">
+        <n-input
+          v-model:value="externalModelDraftInstruction"
+          type="textarea"
+          placeholder="例：Kimi 根据精修任务改写；保留事件，只改语气和节奏"
+          :autosize="{ minRows: 3, maxRows: 6 }"
+        />
+      </n-form-item>
+
+      <n-form-item label="外部模型正文" label-placement="top" :show-feedback="false">
+        <n-input
+          v-model:value="externalModelDraftContent"
+          type="textarea"
+          placeholder="把外部模型生成的整章正文粘贴到这里"
+          :autosize="{ minRows: 12, maxRows: 24 }"
+        />
+      </n-form-item>
+    </n-space>
+
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="showExternalModelDraftModal = false">取消</n-button>
+        <n-button
+          type="primary"
+          :loading="savingExternalModelDraft"
+          :disabled="!externalModelDraftContent.trim()"
+          @click="createExternalModelDraft"
+        >
+          保存为候选稿
+        </n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>
 
 <script setup lang="ts">
@@ -442,6 +516,14 @@ import {
   candidateDraftSourceType,
   isCandidateRewriteTask,
 } from '../utils/candidateDraftDisplay'
+import { buildCandidateDraftDiffSummary } from '../utils/candidateDraftDiff'
+import {
+  EXTERNAL_MODEL_DRAFT_SOURCE,
+  EXTERNAL_MODEL_OPTIONS,
+  buildExternalModelDraftRationale,
+  buildExternalModelDraftTitle,
+  buildExternalModelPrompt,
+} from '../utils/externalModelDraft'
 import {
   buildPrecisionRewriteRationale,
   PRECISION_REWRITE_SOURCE,
@@ -519,6 +601,8 @@ const loadingCandidateDrafts = ref(false)
 const savingCandidateDraft = ref(false)
 const showPrecisionRewriteModal = ref(false)
 const savingPrecisionRewriteTask = ref(false)
+const showExternalModelDraftModal = ref(false)
+const savingExternalModelDraft = ref(false)
 const precisionRewriteObjective = ref(defaultPrecisionRewriteObjective())
 const precisionRewriteTargetExcerpt = ref('')
 const precisionRewriteInstruction = ref('')
@@ -526,6 +610,10 @@ const precisionRewriteObjectiveOptions = CHAPTER_PRECISION_REWRITE_OBJECTIVES.ma
   label: value,
   value,
 }))
+const externalModelOptions = EXTERNAL_MODEL_OPTIONS
+const externalModelDraftModel = ref('kimi')
+const externalModelDraftInstruction = ref('')
+const externalModelDraftContent = ref('')
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
 const candidateBranchFilter = computed({
@@ -603,11 +691,17 @@ const selectedCandidateDraft = computed(() => {
   return candidateDrafts.value.find((draft) => draft.id === selectedCandidateDraftId.value) || null
 })
 
+const selectedCandidateDiffSummary = computed(() => {
+  if (!selectedCandidateDraft.value) return null
+  return buildCandidateDraftDiffSummary(content.value, selectedCandidateDraft.value.content || '')
+})
+
 const toolOptions = [
   { label: '复制全文', key: 'copy' },
   { label: '清空正文', key: 'clear' },
   { label: '保存为候选稿', key: 'save-candidate' },
   { label: '精细改稿', key: 'precision-rewrite' },
+  { label: '导入外部稿', key: 'external-model-draft' },
 ]
 
 const handleToolSelect = (key: string) => {
@@ -627,6 +721,9 @@ const handleToolSelect = (key: string) => {
   }
   if (key === 'precision-rewrite') {
     openPrecisionRewriteModal()
+  }
+  if (key === 'external-model-draft') {
+    openExternalModelDraftModal()
   }
 }
 
@@ -741,12 +838,74 @@ const createPrecisionRewriteTask = async () => {
   }
 }
 
+const openExternalModelDraftModal = () => {
+  externalModelDraftModel.value = 'kimi'
+  externalModelDraftInstruction.value = ''
+  externalModelDraftContent.value = ''
+  showExternalModelDraftModal.value = true
+}
+
+const createExternalModelDraft = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
+  if (!externalModelDraftContent.value.trim()) {
+    message.warning('外部模型正文为空，无法保存为候选稿')
+    return
+  }
+
+  savingExternalModelDraft.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(slug, cid, {
+      source: EXTERNAL_MODEL_DRAFT_SOURCE,
+      title: buildExternalModelDraftTitle(cid, externalModelDraftModel.value),
+      content: externalModelDraftContent.value,
+      rationale: buildExternalModelDraftRationale({
+        model: externalModelDraftModel.value,
+        instruction: externalModelDraftInstruction.value,
+      }),
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        external_model: externalModelDraftModel.value,
+        instruction: externalModelDraftInstruction.value,
+        triggered_by: 'chapter-external-model-import-modal',
+      },
+    })
+    showExternalModelDraftModal.value = false
+    reviewTab.value = 'candidates'
+    message.success('已导入外部模型稿为候选稿')
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+  } catch (error) {
+    console.error('Failed to import external model draft:', error)
+    message.error('导入外部模型稿失败')
+  } finally {
+    savingExternalModelDraft.value = false
+  }
+}
+
 const generateCandidateTaskInWorkbench = (draft: ChapterCandidateDraftDTO) => {
   workbenchContextStore.openCandidateRewriteExecution({
     slug,
     draft,
   })
   router.push({ path: `/book/${slug}/workbench`, query: { chapter: String(draft.chapter_number) } })
+}
+
+const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
+  const cid = chapterId.value
+  if (cid == null || draft.chapter_number !== cid) return
+
+  const prompt = buildExternalModelPrompt({
+    model: externalModelDraftModel.value || 'kimi',
+    chapterNumber: cid,
+    taskPrompt: `${draft.title || `第${cid}章候选改稿任务`}\n\n${draft.rationale || '根据候选改稿任务修订当前章节。'}`,
+    currentContent: content.value,
+  })
+
+  void navigator.clipboard.writeText(prompt).then(
+    () => message.success('已复制外部模型提示词'),
+    () => message.error('复制外部模型提示词失败'),
+  )
 }
 
 const acceptCandidateDraft = async (draftId: string) => {

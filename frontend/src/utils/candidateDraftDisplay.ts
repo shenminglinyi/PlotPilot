@@ -10,6 +10,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'continuity-dropout': '角色掉线',
   'continuity-relationship': '关系推进',
   'precision-rewrite': '精细改稿',
+  'external-model': '外部模型稿',
 }
 
 const SOURCE_TYPES: Record<string, CandidateDraftTagType> = {
@@ -20,6 +21,7 @@ const SOURCE_TYPES: Record<string, CandidateDraftTagType> = {
   'continuity-dropout': 'warning',
   'continuity-relationship': 'warning',
   'precision-rewrite': 'warning',
+  'external-model': 'info',
 }
 
 const FOCUS_LABELS: Record<string, string> = {

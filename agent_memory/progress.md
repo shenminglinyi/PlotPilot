@@ -91,6 +91,15 @@
   - 单章页工具菜单已新增“精细改稿”
   - 单章页可创建 `precision-rewrite` 候选任务，复用同一套候选稿分支、候选稿列表和“去工作台生成”链路
   - 新增 `frontend/src/utils/chapterPrecisionRewrite.ts`，让工作台与单章页共享精修目标选项
+- 已补完 `P2` 剩余候选稿收口体验：
+  - 工作台与单章页均新增“导入外部稿”入口，可把 Kimi / Claude / ChatGPT / DeepSeek 等外部模型正文保存为 `external-model` 候选稿
+  - 候选改稿任务已新增“复制外部提示”，可把本地任务约束和当前主稿整理为可粘贴给 Kimi 等外部模型的提示词
+  - 外部模型稿仍只进入候选稿层，采纳后才复用现有主稿、快照和章后记忆更新链路
+  - 候选稿预览区已新增与当前主稿的字数差异和相似度摘要，采纳前能快速判断改动幅度
+- 已升级 GitHub Actions 版本：
+  - `actions/checkout` 升级到 `v6`
+  - `actions/setup-node` 升级到 `v6`
+  - `actions/setup-python` 升级到 `v6`
 
 ## 验证状态
 
@@ -117,6 +126,8 @@
 - `cd frontend && npm run build`：先失败后通过（扩展候选稿展示 helper 类型校验，验证缺少 `candidateDraftLineageTags` 时 `TS2305` 报错；补完任务生成标签与循环保护后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（新增 `precisionRewriteTask` 类型校验，验证缺少精修任务 helper 时 `TS2307` 报错；补完工作台精修任务入口后重新构建通过）
 - `cd frontend && npm run build`：先失败后通过（单章页模板先暴露缺少 `showPrecisionRewriteModal / createPrecisionRewriteTask` 等脚本状态的 `TS2339`；补完单章页精修入口后重新构建通过）
+- `cd frontend && npm run build`：先失败后通过（新增 `externalModelDraft / candidateDraftDiff` 类型校验，验证缺少 helper 时 `TS2307`；补完外部稿导入、外部提示复制和候选稿差异摘要后重新构建通过）
+- `.venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（16 passed, 6 warnings）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25006720081`：通过
@@ -127,9 +138,8 @@
 
 ## 下一步
 
-- 将单章页精细改稿入口同步推送到 GitHub，并观察 CI
-- 继续向 `P2` 后续推进：优先考虑精修任务生成后的对比/采纳体验，或补一层更明确的“外部大模型写作 → 本地记忆管理”操作入口
-- 评估是否要把 GitHub Actions 使用的 `checkout/setup-*` action 版本前瞻升级到支持 Node 24，提前消除弃用告警
+- 将外部稿导入、候选稿差异摘要和 CI action 升级同步推送到 GitHub，并观察 CI
+- 若后续继续扩展，优先从真实写作体验里收集问题；当前 P1/P2 的候选稿、连续性、口吻锁定、精修、外部模型导入闭环已经形成可用版本
 
 ## 待确认
 

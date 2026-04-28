@@ -110,6 +110,15 @@
                         size="small"
                         secondary
                         :disabled="isAssistedReadOnly"
+                        @click="openExternalModelDraftModal"
+                        title="把 Kimi 等外部模型正文导入候选稿"
+                      >
+                        导入外部稿
+                      </n-button>
+                      <n-button
+                        size="small"
+                        secondary
+                        :disabled="isAssistedReadOnly"
                         @click="openTensionModal"
                         title="诊断当前章节张力缺口"
                       >
@@ -537,6 +546,61 @@
     </n-modal>
 
     <n-modal
+      v-model:show="showExternalModelDraftModal"
+      preset="card"
+      title="导入外部模型稿"
+      style="width: min(760px, 96vw)"
+      :segmented="{ content: true, footer: 'soft' }"
+    >
+      <n-space vertical :size="16">
+        <n-alert type="info" :show-icon="true" style="font-size:13px">
+          适合把 Kimi 等外部大模型写好的正文粘进来。系统只保存为候选稿；你采纳后才会更新主稿和本地记忆。
+        </n-alert>
+
+        <n-form-item label="外部模型" label-placement="top" :show-feedback="false">
+          <n-select
+            v-model:value="externalModelDraftModel"
+            :options="externalModelOptions"
+            filterable
+            tag
+          />
+        </n-form-item>
+
+        <n-form-item label="作者要求 / 来源说明（可选）" label-placement="top" :show-feedback="false">
+          <n-input
+            v-model:value="externalModelDraftInstruction"
+            type="textarea"
+            placeholder="例：Kimi 根据第 12 章精修任务改写；保留事件，只改语气和节奏"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+          />
+        </n-form-item>
+
+        <n-form-item label="外部模型正文" label-placement="top" :show-feedback="false">
+          <n-input
+            v-model:value="externalModelDraftContent"
+            type="textarea"
+            placeholder="把外部模型生成的整章正文粘贴到这里"
+            :autosize="{ minRows: 12, maxRows: 24 }"
+          />
+        </n-form-item>
+      </n-space>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showExternalModelDraftModal = false">取消</n-button>
+          <n-button
+            type="primary"
+            :loading="savingExternalModelDraft"
+            :disabled="!currentChapter || !externalModelDraftContent.trim()"
+            @click="createExternalModelDraft"
+          >
+            保存为候选稿
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
+    <n-modal
       v-model:show="showCandidateDraftsModal"
       preset="card"
       title="章节候选稿"
@@ -637,6 +701,14 @@
                         按任务生成
                       </n-button>
                       <n-button
+                        v-if="isCandidateRewriteTask(draft)"
+                        size="tiny"
+                        secondary
+                        @click="copyCandidateTaskExternalPrompt(draft)"
+                      >
+                        复制外部提示
+                      </n-button>
+                      <n-button
                         size="tiny"
                         type="primary"
                         :loading="acceptingCandidateDraftId === draft.id"
@@ -664,6 +736,17 @@
           <n-grid-item>
             <n-space vertical :size="10">
               <n-text strong>候选稿预览</n-text>
+              <n-alert
+                v-if="selectedCandidateDraft && selectedCandidateDiffSummary"
+                :type="selectedCandidateDiffSummary.changed ? 'info' : 'default'"
+                :show-icon="false"
+                style="font-size:12px"
+              >
+                与当前主稿对比：候选稿 {{ selectedCandidateDiffSummary.candidateWordCount }} 字，
+                {{ selectedCandidateDiffSummary.wordDelta >= 0 ? '增加' : '减少' }}
+                {{ Math.abs(selectedCandidateDiffSummary.wordDelta) }} 字，
+                相似度 {{ selectedCandidateDiffSummary.similarityPercent }}%。
+              </n-alert>
               <n-input
                 :value="selectedCandidateDraft?.content || ''"
                 type="textarea"
@@ -710,6 +793,14 @@ import {
   candidateDraftSourceType,
   isCandidateRewriteTask,
 } from '../../utils/candidateDraftDisplay'
+import { buildCandidateDraftDiffSummary } from '../../utils/candidateDraftDiff'
+import {
+  EXTERNAL_MODEL_DRAFT_SOURCE,
+  EXTERNAL_MODEL_OPTIONS,
+  buildExternalModelDraftRationale,
+  buildExternalModelDraftTitle,
+  buildExternalModelPrompt,
+} from '../../utils/externalModelDraft'
 import {
   buildPrecisionRewriteRationale,
   PRECISION_REWRITE_SOURCE,
@@ -762,6 +853,7 @@ const workMode = ref<'assisted' | 'managed'>('managed')
 const activeTab = ref('editor')
 const showGenerateModal = ref(false)
 const showPrecisionRewriteModal = ref(false)
+const showExternalModelDraftModal = ref(false)
 const showCandidateDraftsModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
@@ -779,6 +871,7 @@ const candidateDrafts = ref<ChapterCandidateDraftDTO[]>([])
 const loadingCandidateDrafts = ref(false)
 const savingCandidateDraft = ref(false)
 const savingPrecisionRewriteTask = ref(false)
+const savingExternalModelDraft = ref(false)
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
 const lastConsumedCandidateRewriteVersion = ref(0)
@@ -799,6 +892,10 @@ const precisionRewriteObjectiveOptions = [
   { label: '更暧昧', value: '更暧昧' },
   { label: '保留事件只改表达', value: '保留事件只改表达' },
 ]
+const externalModelOptions = EXTERNAL_MODEL_OPTIONS
+const externalModelDraftModel = ref('kimi')
+const externalModelDraftInstruction = ref('')
+const externalModelDraftContent = ref('')
 
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
@@ -1056,6 +1153,51 @@ const createPrecisionRewriteTask = async () => {
   }
 }
 
+const openExternalModelDraftModal = () => {
+  if (!currentChapter.value) return
+  externalModelDraftModel.value = 'kimi'
+  externalModelDraftInstruction.value = ''
+  externalModelDraftContent.value = ''
+  showExternalModelDraftModal.value = true
+}
+
+const createExternalModelDraft = async () => {
+  const chapter = currentChapter.value
+  if (!chapter) return
+  if (!externalModelDraftContent.value.trim()) {
+    message.warning('外部模型正文为空，无法保存为候选稿')
+    return
+  }
+
+  savingExternalModelDraft.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(props.slug, chapter.number, {
+      source: EXTERNAL_MODEL_DRAFT_SOURCE,
+      title: buildExternalModelDraftTitle(chapter.number, externalModelDraftModel.value),
+      content: externalModelDraftContent.value,
+      rationale: buildExternalModelDraftRationale({
+        model: externalModelDraftModel.value,
+        instruction: externalModelDraftInstruction.value,
+      }),
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        external_model: externalModelDraftModel.value,
+        instruction: externalModelDraftInstruction.value,
+        triggered_by: 'external-model-import-modal',
+      },
+    })
+    showExternalModelDraftModal.value = false
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+    showCandidateDraftsModal.value = true
+    message.success('已导入外部模型稿为候选稿')
+  } catch {
+    message.error('导入外部模型稿失败')
+  } finally {
+    savingExternalModelDraft.value = false
+  }
+}
+
 // 上下文预览
 const contextPreview = ref<ContextPreviewResult | null>(null)
 const loadingContext = ref(false)
@@ -1145,6 +1287,14 @@ const currentChapter = computed(() => {
 const selectedCandidateDraft = computed(() => {
   if (!selectedCandidateDraftId.value) return null
   return candidateDrafts.value.find(draft => draft.id === selectedCandidateDraftId.value) || null
+})
+
+const selectedCandidateDiffSummary = computed(() => {
+  if (!selectedCandidateDraft.value) return null
+  return buildCandidateDraftDiffSummary(
+    chapterContent.value,
+    selectedCandidateDraft.value.content || '',
+  )
 })
 
 const hasChanges = computed(() => {
@@ -1409,6 +1559,23 @@ const handleGenerateFromCandidateTask = (draft: ChapterCandidateDraftDTO) => {
   blurSceneCache.value = undefined
   showCandidateDraftsModal.value = false
   showGenerateModal.value = true
+}
+
+const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
+  const chapter = currentChapter.value
+  if (!chapter || draft.chapter_number !== chapter.number) return
+
+  const prompt = buildExternalModelPrompt({
+    model: externalModelDraftModel.value || 'kimi',
+    chapterNumber: chapter.number,
+    taskPrompt: candidateDraftRewritePrompt(draft),
+    currentContent: chapterContent.value,
+  })
+
+  void navigator.clipboard.writeText(prompt).then(
+    () => message.success('已复制外部模型提示词'),
+    () => message.error('复制外部模型提示词失败'),
+  )
 }
 
 const applyCandidateRewriteExecution = () => {
