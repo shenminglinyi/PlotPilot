@@ -6,6 +6,16 @@ export interface CandidateDraftDiffSummary {
   changed: boolean
 }
 
+export type CandidateDraftParagraphDiffType = 'unchanged' | 'added' | 'removed' | 'modified'
+
+export interface CandidateDraftParagraphDiffItem {
+  index: number
+  type: CandidateDraftParagraphDiffType
+  baseParagraph: string
+  candidateParagraph: string
+  similarityPercent: number
+}
+
 function compactChars(value: string): string[] {
   return Array.from(value.replace(/\s/g, ''))
 }
@@ -46,4 +56,66 @@ export function buildCandidateDraftDiffSummary(
     similarityPercent: Math.round(similarity * 100),
     changed: baseContent !== candidateContent,
   }
+}
+
+function splitParagraphs(content: string): string[] {
+  return content
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function paragraphSimilarityPercent(baseParagraph: string, candidateParagraph: string): number {
+  return Math.round(diceSimilarity(compactChars(baseParagraph), compactChars(candidateParagraph)) * 100)
+}
+
+export function buildCandidateDraftParagraphDiff(
+  baseContent: string,
+  candidateContent: string,
+): CandidateDraftParagraphDiffItem[] {
+  const baseParagraphs = splitParagraphs(baseContent)
+  const candidateParagraphs = splitParagraphs(candidateContent)
+  const maxLength = Math.max(baseParagraphs.length, candidateParagraphs.length)
+
+  return Array.from({ length: maxLength }, (_, index) => {
+    const baseParagraph = baseParagraphs[index] || ''
+    const candidateParagraph = candidateParagraphs[index] || ''
+    const similarityPercent = paragraphSimilarityPercent(baseParagraph, candidateParagraph)
+    let type: CandidateDraftParagraphDiffType = 'unchanged'
+
+    if (!baseParagraph && candidateParagraph) {
+      type = 'added'
+    } else if (baseParagraph && !candidateParagraph) {
+      type = 'removed'
+    } else if (baseParagraph !== candidateParagraph) {
+      type = 'modified'
+    }
+
+    return {
+      index,
+      type,
+      baseParagraph,
+      candidateParagraph,
+      similarityPercent,
+    }
+  })
+}
+
+export function buildPartialCandidateContent(
+  baseContent: string,
+  paragraphDiff: CandidateDraftParagraphDiffItem[],
+  selectedIndexes: number[],
+): string {
+  const selected = new Set(selectedIndexes)
+  const baseParagraphs = splitParagraphs(baseContent)
+  const mergedParagraphs = paragraphDiff
+    .map((item) => {
+      if (selected.has(item.index)) {
+        return item.type === 'removed' ? '' : item.candidateParagraph
+      }
+      return item.baseParagraph || baseParagraphs[item.index] || ''
+    })
+    .filter((item) => item.trim())
+
+  return mergedParagraphs.join('\n\n')
 }

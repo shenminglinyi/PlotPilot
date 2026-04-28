@@ -352,11 +352,79 @@
                       >
                         采纳影响：{{ candidateDraftMemoryImpactHints(selectedCandidateDraft).join('；') }}。
                       </n-alert>
+                      <n-space v-if="selectedCandidateDraft" :size="6" wrap>
+                        <n-tag
+                          v-for="item in candidateDraftMemoryImpactPreview(selectedCandidateDraft)"
+                          :key="`${selectedCandidateDraft.id}-impact-${item.label}`"
+                          size="small"
+                          round
+                          :type="item.type"
+                          :title="item.detail"
+                        >
+                          {{ item.label }}
+                        </n-tag>
+                      </n-space>
+                      <n-card v-if="selectedCandidateDraft && selectedCandidateParagraphDiff.length" size="small" title="段落级 diff">
+                        <n-space vertical :size="8">
+                          <n-space justify="space-between" align="center">
+                            <n-text depth="3" style="font-size: 12px">
+                              勾选候选段落后，会生成一版新的“部分采纳候选稿”。
+                            </n-text>
+                            <n-button
+                              size="tiny"
+                              type="primary"
+                              secondary
+                              :disabled="selectedPartialParagraphIndexes.length === 0"
+                              :loading="savingPartialCandidateDraft"
+                              @click="savePartialCandidateDraft"
+                            >
+                              保存所选段落
+                            </n-button>
+                          </n-space>
+                          <n-scrollbar style="max-height: 360px">
+                            <n-space vertical :size="8">
+                              <div
+                                v-for="item in selectedCandidateParagraphDiff"
+                                :key="`${selectedCandidateDraft.id}-${item.index}`"
+                                class="paragraph-diff-row"
+                              >
+                                <n-space :size="6" align="center">
+                                  <n-checkbox
+                                    :checked="selectedPartialParagraphIndexes.includes(item.index)"
+                                    :disabled="item.type === 'unchanged'"
+                                    @update:checked="togglePartialParagraph(item.index, $event)"
+                                  />
+                                  <n-tag size="small" round :type="paragraphDiffTagType(item.type)">
+                                    {{ paragraphDiffLabel(item.type) }}
+                                  </n-tag>
+                                  <n-text depth="3" style="font-size: 11px">
+                                    第 {{ item.index + 1 }} 段 · 相似度 {{ item.similarityPercent }}%
+                                  </n-text>
+                                </n-space>
+                                <n-grid :cols="2" :x-gap="8">
+                                  <n-grid-item>
+                                    <n-text depth="3" style="font-size: 11px">主稿</n-text>
+                                    <p class="paragraph-diff-text paragraph-diff-text--base">
+                                      {{ item.baseParagraph || '（无）' }}
+                                    </p>
+                                  </n-grid-item>
+                                  <n-grid-item>
+                                    <n-text depth="3" style="font-size: 11px">候选</n-text>
+                                    <p class="paragraph-diff-text paragraph-diff-text--candidate">
+                                      {{ item.candidateParagraph || '（删除该段）' }}
+                                    </p>
+                                  </n-grid-item>
+                                </n-grid>
+                              </div>
+                            </n-space>
+                          </n-scrollbar>
+                        </n-space>
+                      </n-card>
                       <n-input
                         :value="selectedCandidateDraft?.content || ''"
                         type="textarea"
                         readonly
-                        :autosize="{ minRows: 20, maxRows: 24 }"
+                        :autosize="{ minRows: 12, maxRows: 18 }"
                         placeholder="选择左侧候选稿查看正文"
                       />
                     </n-space>
@@ -521,11 +589,17 @@ import {
   candidateDraftFocusTags,
   candidateDraftLineageTags,
   candidateDraftMemoryImpactHints,
+  candidateDraftMemoryImpactPreview,
   candidateDraftSourceLabel,
   candidateDraftSourceType,
   isCandidateRewriteTask,
 } from '../utils/candidateDraftDisplay'
-import { buildCandidateDraftDiffSummary } from '../utils/candidateDraftDiff'
+import {
+  buildCandidateDraftDiffSummary,
+  buildCandidateDraftParagraphDiff,
+  buildPartialCandidateContent,
+  type CandidateDraftParagraphDiffType,
+} from '../utils/candidateDraftDiff'
 import {
   EXTERNAL_MODEL_DRAFT_SOURCE,
   EXTERNAL_MODEL_OPTIONS,
@@ -533,6 +607,11 @@ import {
   buildExternalModelDraftTitle,
   buildExternalModelPrompt,
 } from '../utils/externalModelDraft'
+import {
+  markExternalModelTaskAccepted,
+  recordExternalModelPromptTask,
+  recordExternalModelResponse,
+} from '../utils/externalModelTaskLedger'
 import {
   buildPrecisionRewriteRationale,
   PRECISION_REWRITE_SOURCE,
@@ -612,6 +691,7 @@ const showPrecisionRewriteModal = ref(false)
 const savingPrecisionRewriteTask = ref(false)
 const showExternalModelDraftModal = ref(false)
 const savingExternalModelDraft = ref(false)
+const savingPartialCandidateDraft = ref(false)
 const precisionRewriteObjective = ref(defaultPrecisionRewriteObjective())
 const precisionRewriteTargetExcerpt = ref('')
 const precisionRewriteInstruction = ref('')
@@ -625,6 +705,7 @@ const externalModelDraftInstruction = ref('')
 const externalModelDraftContent = ref('')
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
+const selectedPartialParagraphIndexes = ref<number[]>([])
 const candidateBranchFilter = computed({
   get: () => candidateDraftBranchStore.getActiveBranch(slug),
   set: (value: string) => candidateDraftBranchStore.setActiveBranch(slug, value),
@@ -704,6 +785,37 @@ const selectedCandidateDiffSummary = computed(() => {
   if (!selectedCandidateDraft.value) return null
   return buildCandidateDraftDiffSummary(content.value, selectedCandidateDraft.value.content || '')
 })
+
+const selectedCandidateParagraphDiff = computed(() => {
+  if (!selectedCandidateDraft.value) return []
+  return buildCandidateDraftParagraphDiff(content.value, selectedCandidateDraft.value.content || '')
+})
+
+function paragraphDiffLabel(type: CandidateDraftParagraphDiffType) {
+  if (type === 'added') return '新增'
+  if (type === 'removed') return '删除'
+  if (type === 'modified') return '改写'
+  return '未变'
+}
+
+function paragraphDiffTagType(type: CandidateDraftParagraphDiffType) {
+  if (type === 'added') return 'success'
+  if (type === 'removed') return 'error'
+  if (type === 'modified') return 'warning'
+  return 'default'
+}
+
+function togglePartialParagraph(index: number, checked: boolean) {
+  if (checked) {
+    selectedPartialParagraphIndexes.value = Array.from(
+      new Set([...selectedPartialParagraphIndexes.value, index]),
+    ).sort((a, b) => a - b)
+    return
+  }
+  selectedPartialParagraphIndexes.value = selectedPartialParagraphIndexes.value.filter(
+    item => item !== index,
+  )
+}
 
 const toolOptions = [
   { label: '复制全文', key: 'copy' },
@@ -864,6 +976,19 @@ const createExternalModelDraft = async () => {
 
   savingExternalModelDraft.value = true
   try {
+    const prompt = buildExternalModelPrompt({
+      model: externalModelDraftModel.value,
+      chapterNumber: cid,
+      taskPrompt: externalModelDraftInstruction.value || '直接导入外部模型回稿。',
+      currentContent: content.value,
+    })
+    const task = recordExternalModelPromptTask({
+      slug,
+      chapterNumber: cid,
+      model: externalModelDraftModel.value,
+      prompt,
+      instruction: externalModelDraftInstruction.value,
+    })
     const draft = await chapterApi.createCandidateDraft(slug, cid, {
       source: EXTERNAL_MODEL_DRAFT_SOURCE,
       title: buildExternalModelDraftTitle(cid, externalModelDraftModel.value),
@@ -875,9 +1000,20 @@ const createExternalModelDraft = async () => {
       branch_name: candidateBranchFilter.value.trim() || 'main',
       metadata: {
         external_model: externalModelDraftModel.value,
+        external_task_id: task.id,
+        external_prompt: prompt,
         instruction: externalModelDraftInstruction.value,
         triggered_by: 'chapter-external-model-import-modal',
       },
+    })
+    recordExternalModelResponse({
+      slug,
+      taskId: task.id,
+      chapterNumber: cid,
+      model: externalModelDraftModel.value,
+      instruction: externalModelDraftInstruction.value,
+      content: externalModelDraftContent.value,
+      candidateDraftId: draft.id,
     })
     showExternalModelDraftModal.value = false
     reviewTab.value = 'candidates'
@@ -910,9 +1046,17 @@ const copyCandidateTaskExternalPrompt = (draft: ChapterCandidateDraftDTO) => {
     taskPrompt: `${draft.title || `第${cid}章候选改稿任务`}\n\n${draft.rationale || '根据候选改稿任务修订当前章节。'}`,
     currentContent: content.value,
   })
+  recordExternalModelPromptTask({
+    slug,
+    chapterNumber: cid,
+    model: externalModelDraftModel.value || 'kimi',
+    prompt,
+    instruction: `${draft.title || `第${cid}章候选改稿任务`}\n\n${draft.rationale || '根据候选改稿任务修订当前章节。'}`,
+    sourceDraftId: draft.id,
+  })
 
   void navigator.clipboard.writeText(prompt).then(
-    () => message.success('已复制外部模型提示词'),
+    () => message.success('已复制外部模型提示词，并记录到外部模型台账'),
     () => message.error('复制外部模型提示词失败'),
   )
 }
@@ -923,6 +1067,7 @@ const acceptCandidateDraft = async (draftId: string) => {
   acceptingCandidateDraftId.value = draftId
   try {
     await chapterApi.acceptCandidateDraft(slug, cid, draftId)
+    markExternalModelTaskAccepted(slug, draftId)
     await loadChapter()
     saveStatus.value = 'saved'
     lastSaveTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
@@ -948,6 +1093,45 @@ const rejectCandidateDraft = async (draftId: string) => {
   } catch (error) {
     console.error('Failed to reject candidate draft:', error)
     message.error('拒绝候选稿失败')
+  }
+}
+
+const savePartialCandidateDraft = async () => {
+  const cid = chapterId.value
+  const draft = selectedCandidateDraft.value
+  if (cid == null || !draft) return
+  if (selectedPartialParagraphIndexes.value.length === 0) {
+    message.warning('请先勾选至少一个候选段落')
+    return
+  }
+
+  savingPartialCandidateDraft.value = true
+  try {
+    const partialContent = buildPartialCandidateContent(
+      content.value,
+      selectedCandidateParagraphDiff.value,
+      selectedPartialParagraphIndexes.value,
+    )
+    const partialDraft = await chapterApi.createCandidateDraft(slug, cid, {
+      source: 'partial-accept',
+      title: `${draft.title || `第${cid}章候选稿`} · 部分采纳`,
+      content: partialContent,
+      rationale: `从候选稿「${draft.title || draft.id}」中部分采纳第 ${selectedPartialParagraphIndexes.value.map(i => i + 1).join('、')} 段。`,
+      branch_name: draft.branch_name || candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        ...(draft.metadata || {}),
+        partial_source_draft_id: draft.id,
+        partial_paragraph_indexes: selectedPartialParagraphIndexes.value,
+      },
+    })
+    message.success('已保存部分采纳候选稿')
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = partialDraft.id
+  } catch (error) {
+    console.error('Failed to save partial candidate draft:', error)
+    message.error('保存部分采纳候选稿失败')
+  } finally {
+    savingPartialCandidateDraft.value = false
   }
 }
 
@@ -1203,6 +1387,10 @@ watch(candidateBranchFilter, () => {
   void loadCandidateDrafts()
 })
 
+watch(selectedCandidateDraftId, () => {
+  selectedPartialParagraphIndexes.value = []
+})
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeySave)
   try {
@@ -1366,5 +1554,30 @@ onUnmounted(() => {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
   word-break: break-all;
+}
+
+.paragraph-diff-row {
+  padding: 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.paragraph-diff-text {
+  min-height: 44px;
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.paragraph-diff-text--base {
+  background: rgba(208, 48, 80, 0.08);
+}
+
+.paragraph-diff-text--candidate {
+  background: rgba(24, 160, 88, 0.08);
 }
 </style>

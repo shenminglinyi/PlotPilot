@@ -117,6 +117,13 @@
   - 连续性 API 新增关系事件记录和大纲节点状态更新入口
   - 工作台 `连续性巡检` 面板新增结构化来源标签、关系事件录入、大纲节点状态录入和节点状态展示
   - 新增 `docs/novelpro-continuity-structured-tracking.md` 记录使用流程与边界
+- 已继续完成候选稿/外部模型/记忆预览优化：
+  - 候选稿预览新增段落级 diff，按段展示新增、删除、改写和段落相似度
+  - 工作台与单章页均支持勾选候选段落生成“部分采纳候选稿”，不直接绕过原采纳链路
+  - 新增浏览器本地外部模型任务台账，记录复制给 Kimi 等模型的提示词、导入回稿、候选稿 ID 与采纳状态
+  - 采纳前记忆影响预览升级为结构化标签，提示正文事实、角色关系、大纲节点、出场记录、外部模型稿和部分采纳风险
+  - 工作台 Autopilot 面板改为异步 chunk，前端主包进一步降到约 2.87MB
+  - 新增 `docs/novelpro-candidate-draft-optimization.md` 记录候选稿与外部模型优化流程
 
 ## 验证状态
 
@@ -148,6 +155,8 @@
 - `cd frontend && npm run build`：通过（战力系统、采纳影响提示、右栏异步拆包、生命周期告警清理后再次验证；仍有 Vite 大 chunk 提示，但主包已降到约 2.90MB）
 - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
 - `cd frontend && npm run build`：通过（结构化连续性追踪接入后再次验证；仍有 Vite 大 chunk 提示）
+- `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
+- `cd frontend && npm run build`：通过（段落级 diff、部分采纳、外部模型台账、记忆影响预览、Autopilot 异步拆包接入后再次验证；仍有 Vite 大 chunk 提示，主包约 2.87MB）
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `278a6f2 feat: add structured continuity tracking`
 - GitHub Actions 当前状态：
   - `Backend CI` push run `25040959536`：通过
@@ -167,3 +176,4 @@
 ## 待确认
 
 - 结构化连续性追踪已具备手动记录入口；后续如要进一步自动化，可在章后记忆管线中从 `relationship_changes` 自动沉淀关系事件。
+- 外部模型任务台账目前保存在浏览器本地；如后续需要跨设备同步，再升级为后端表。

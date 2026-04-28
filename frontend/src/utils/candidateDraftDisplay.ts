@@ -2,6 +2,12 @@ import type { ChapterCandidateDraftDTO } from '@/api/chapter'
 
 export type CandidateDraftTagType = 'default' | 'info' | 'success' | 'warning' | 'error'
 
+export interface CandidateDraftMemoryImpactItem {
+  label: string
+  detail: string
+  type: CandidateDraftTagType
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   'workbench-generate': '工作台生成',
   'chapter-editor': '章节页保存',
@@ -10,6 +16,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'continuity-dropout': '角色掉线',
   'continuity-relationship': '关系推进',
   'precision-rewrite': '精细改稿',
+  'partial-accept': '部分采纳',
   'external-model': '外部模型稿',
 }
 
@@ -21,6 +28,7 @@ const SOURCE_TYPES: Record<string, CandidateDraftTagType> = {
   'continuity-dropout': 'warning',
   'continuity-relationship': 'warning',
   'precision-rewrite': 'warning',
+  'partial-accept': 'success',
   'external-model': 'info',
 }
 
@@ -120,4 +128,64 @@ export function candidateDraftMemoryImpactHints(draft: ChapterCandidateDraftDTO)
   }
 
   return hints
+}
+
+export function candidateDraftMemoryImpactPreview(draft: ChapterCandidateDraftDTO): CandidateDraftMemoryImpactItem[] {
+  const metadata = draft.metadata || {}
+  const focus = stringFromMetadata(metadata.rewrite_focus)
+  const externalModel = stringFromMetadata(metadata.external_model)
+  const partialSourceDraftId = stringFromMetadata(metadata.partial_source_draft_id)
+  const warningReasons = Array.isArray(metadata.warning_reasons)
+    ? metadata.warning_reasons.filter((item): item is string => typeof item === 'string')
+    : []
+
+  const items: CandidateDraftMemoryImpactItem[] = [
+    {
+      label: '正文事实',
+      detail: '采纳后章后记忆会重新抽取本章事实、事件和实体证据。',
+      type: 'info',
+    },
+  ]
+
+  if (focus === 'character-continuity' || draft.source === 'continuity-relationship') {
+    items.push({
+      label: '角色关系',
+      detail: '可能更新角色共现、关系推进、掉线修复或冲突状态。',
+      type: 'warning',
+    })
+  }
+
+  if (focus === 'outline-deviation' || warningReasons.length > 0) {
+    items.push({
+      label: '大纲节点',
+      detail: warningReasons.length ? warningReasons.join('；') : '可能改变本章对大纲节点的完成状态。',
+      type: 'warning',
+    })
+  }
+
+  if (draft.source === 'continuity-dropout') {
+    items.push({
+      label: '出场记录',
+      detail: '可能修复角色长时间未出场造成的连续性缺口。',
+      type: 'warning',
+    })
+  }
+
+  if (externalModel) {
+    items.push({
+      label: '外部模型回稿',
+      detail: `来自 ${externalModel}，采纳前建议重点核对设定、事实和语气是否越权。`,
+      type: 'info',
+    })
+  }
+
+  if (partialSourceDraftId) {
+    items.push({
+      label: '部分采纳',
+      detail: '只会把所选候选段落混入主稿，其余段落保持当前主稿版本。',
+      type: 'success',
+    })
+  }
+
+  return items
 }

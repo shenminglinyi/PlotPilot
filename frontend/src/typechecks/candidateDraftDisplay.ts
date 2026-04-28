@@ -3,6 +3,7 @@ import {
   candidateDraftLineageTags,
   candidateDraftRewritePrompt,
   candidateDraftMemoryImpactHints,
+  candidateDraftMemoryImpactPreview,
   candidateDraftSourceLabel,
   candidateDraftSourceType,
   isCandidateRewriteTask,
@@ -31,6 +32,8 @@ const lineageTags: string[] = candidateDraftLineageTags({
   },
 })
 const memoryImpactHints: string[] = candidateDraftMemoryImpactHints(draft)
+const memoryImpactPreview = candidateDraftMemoryImpactPreview(draft)
+const firstImpact: string = memoryImpactPreview[0]?.label || ''
 
 void label
 void tags
@@ -39,3 +42,5 @@ void rewriteTask
 void prompt
 void lineageTags
 void memoryImpactHints
+void memoryImpactPreview
+void firstImpact

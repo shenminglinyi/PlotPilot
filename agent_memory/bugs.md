@@ -10,6 +10,7 @@
 - 新建 worktree 默认没有 `frontend/node_modules`；前端改动验证前需要先在 worktree 下执行 `cd frontend && npm ci`，否则 `npm run build` 会因为缺少 `vue-tsc` 直接失败。
 - 当前 `tests/integration/interfaces/api/v1/conftest.py` 使用 `DatabaseConnection(\":memory:\")`，而连接对象内部又按线程缓存 SQLite 连接；如果测试先在主线程手动写库、再通过 `TestClient` 走请求线程读取，容易出现“主线程有表，请求线程 no such table” 的假失败。此类用例优先写成纯单元测试，或把数据创建动作也放到请求线程侧完成。
 - 连续性面板现在已有结构化关系事件和大纲节点状态入口，但章后记忆管线尚未自动写入这些表；目前仍需要作者在关键章节手动确认。后续若要自动化，优先复用 `relationship_changes` 和章节审阅结果，避免另起一套抽取逻辑。
+- 外部模型任务台账当前使用浏览器本地存储，适合个人单机写作；如果后续要多设备或多人协作，需要迁移成后端持久表。
 - 当前前端构建仍会给出主包体积过大的 Vite 提示；右栏重面板已拆成异步 chunk，主包已明显下降，但核心工作台仍然较大。后续如果继续加面板，应继续优先懒加载。
 
 ## 已解除
