@@ -525,6 +525,14 @@
         <n-space justify="end">
           <n-button @click="showPrecisionRewriteModal = false">取消</n-button>
           <n-button
+            secondary
+            :loading="suggestingPrecisionRewriteTask"
+            :disabled="!currentChapter || !chapterContent.trim()"
+            @click="suggestPrecisionRewriteTask"
+          >
+            AI 生成建议
+          </n-button>
+          <n-button
             type="primary"
             :loading="savingPrecisionRewriteTask"
             :disabled="!currentChapter || !chapterContent.trim()"
@@ -863,6 +871,7 @@ import {
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
+import { novelproSuggestionsApi } from '../../api/novelproSuggestions'
 import type {
   BranchMemoryDiffResponse,
   CandidateBranchSummary,
@@ -966,6 +975,7 @@ const branchMemoryDiff = ref<BranchMemoryDiffResponse | null>(null)
 const externalModelTasks = ref<ExternalModelTaskDTO[]>([])
 const savingCandidateDraft = ref(false)
 const savingPrecisionRewriteTask = ref(false)
+const suggestingPrecisionRewriteTask = ref(false)
 const savingPartialCandidateDraft = ref(false)
 const mergingBranch = ref(false)
 const generatingDirectCandidate = ref(false)
@@ -1244,6 +1254,43 @@ const createPrecisionRewriteTask = async () => {
     message.error('创建精细改稿任务失败')
   } finally {
     savingPrecisionRewriteTask.value = false
+  }
+}
+
+function suggestionText(fields: Record<string, unknown>, key: string) {
+  const value = fields[key]
+  if (value == null) return ''
+  return String(value)
+}
+
+const suggestPrecisionRewriteTask = async () => {
+  const chapter = currentChapter.value
+  if (!chapter || !chapterContent.value.trim()) return
+  suggestingPrecisionRewriteTask.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'precision_rewrite',
+      chapter_number: chapter.number,
+      fields: ['objective', 'target_excerpt', 'instruction'],
+      target: {
+        chapter_title: chapter.title,
+        current_word_count: chapterContent.value.length,
+      },
+      current_values: {
+        objective: precisionRewriteObjective.value,
+        target_excerpt: precisionRewriteTargetExcerpt.value,
+        instruction: precisionRewriteInstruction.value,
+      },
+      instruction: '根据当前章节、连续性提醒、OOC 风险和战力提醒，生成精细改稿任务建议。不要改正文，只生成任务表单。',
+    })
+    precisionRewriteObjective.value = suggestionText(result.fields, 'objective') || precisionRewriteObjective.value
+    precisionRewriteTargetExcerpt.value = suggestionText(result.fields, 'target_excerpt') || precisionRewriteTargetExcerpt.value
+    precisionRewriteInstruction.value = suggestionText(result.fields, 'instruction') || precisionRewriteInstruction.value
+    message.success(result.rationale || '已生成精修任务建议')
+  } catch {
+    message.error('生成精修任务建议失败')
+  } finally {
+    suggestingPrecisionRewriteTask.value = false
   }
 }
 

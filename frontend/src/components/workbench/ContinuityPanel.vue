@@ -280,15 +280,25 @@
                           size="small"
                           placeholder="证据摘录，可填关键句"
                         />
-                        <n-button
-                          size="tiny"
-                          type="primary"
-                          secondary
-                          :loading="savingRelationshipEvent"
-                          @click="recordRelationshipEvent"
-                        >
-                          保存关系事件
-                        </n-button>
+                        <n-space :size="8">
+                          <n-button
+                            size="tiny"
+                            secondary
+                            :loading="suggestingRelationshipEvent"
+                            @click="suggestRelationshipEvent"
+                          >
+                            AI 生成事件
+                          </n-button>
+                          <n-button
+                            size="tiny"
+                            type="primary"
+                            secondary
+                            :loading="savingRelationshipEvent"
+                            @click="recordRelationshipEvent"
+                          >
+                            保存关系事件
+                          </n-button>
+                        </n-space>
                       </n-space>
                     </div>
 
@@ -553,15 +563,25 @@
                         size="small"
                         placeholder="正文证据摘录"
                       />
-                      <n-button
-                        size="tiny"
-                        type="primary"
-                        secondary
-                        :loading="savingOutlineNode"
-                        @click="upsertOutlineNodeStatus"
-                      >
-                        保存大纲节点状态
-                      </n-button>
+                      <n-space :size="8">
+                        <n-button
+                          size="tiny"
+                          secondary
+                          :loading="suggestingOutlineNode"
+                          @click="suggestOutlineNodeStatus"
+                        >
+                          AI 生成节点
+                        </n-button>
+                        <n-button
+                          size="tiny"
+                          type="primary"
+                          secondary
+                          :loading="savingOutlineNode"
+                          @click="upsertOutlineNodeStatus"
+                        >
+                          保存大纲节点状态
+                        </n-button>
+                      </n-space>
                     </n-space>
                   </div>
                 </template>
@@ -595,6 +615,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
+import { novelproSuggestionsApi } from '@/api/novelproSuggestions'
 import {
   continuityApi,
   type ContinuityOverviewResponse,
@@ -616,6 +637,8 @@ const overview = ref<ContinuityOverviewResponse | null>(null)
 const characters = ref<CharacterDTO[]>([])
 const savingRelationshipEvent = ref(false)
 const savingOutlineNode = ref(false)
+const suggestingRelationshipEvent = ref(false)
+const suggestingOutlineNode = ref(false)
 const relationshipEventForm = ref({
   source_character: '',
   target_character: '',
@@ -833,6 +856,78 @@ function fillOutlineNodeStatus(item: OutlineNodeStatusItem) {
     status: item.status || 'pending',
     note: item.note || '',
     evidence: item.evidence || '',
+  }
+}
+
+function suggestionText(fields: Record<string, unknown>, key: string) {
+  const value = fields[key]
+  if (value == null) return ''
+  return String(value)
+}
+
+async function suggestRelationshipEvent() {
+  if (!overview.value) return
+  suggestingRelationshipEvent.value = true
+  try {
+    const stale = overview.value.relationship_tracking.stale_pairs[0]
+    const active = overview.value.relationship_tracking.active_signals[0]
+    const target = active || stale || {}
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'relationship_event',
+      chapter_number: overview.value.chapter_number,
+      fields: ['source_character', 'target_character', 'relation', 'event_type', 'description', 'evidence', 'severity'],
+      target,
+      current_values: relationshipEventForm.value,
+      instruction: '根据掉线提醒、关系变化和当前章摘要，生成一条可保存的关系事件。优先处理沉默关系、掉线角色或明显关系变化。',
+    })
+    relationshipEventForm.value = {
+      source_character: suggestionText(result.fields, 'source_character') || relationshipEventForm.value.source_character,
+      target_character: suggestionText(result.fields, 'target_character') || relationshipEventForm.value.target_character,
+      relation: suggestionText(result.fields, 'relation') || relationshipEventForm.value.relation,
+      event_type: suggestionText(result.fields, 'event_type') || relationshipEventForm.value.event_type,
+      description: suggestionText(result.fields, 'description') || relationshipEventForm.value.description,
+      evidence: suggestionText(result.fields, 'evidence') || relationshipEventForm.value.evidence,
+      severity: suggestionText(result.fields, 'severity') || relationshipEventForm.value.severity,
+    }
+    message.success(result.rationale || '已生成关系事件建议')
+  } catch {
+    message.error('生成关系事件失败，请稍后重试')
+  } finally {
+    suggestingRelationshipEvent.value = false
+  }
+}
+
+async function suggestOutlineNodeStatus() {
+  if (!overview.value) return
+  suggestingOutlineNode.value = true
+  try {
+    const missingNode = overview.value.outline_deviation.outline_nodes.find(node =>
+      ['missing', 'blocked', 'changed', 'pending'].includes(node.status),
+    )
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'outline_node',
+      chapter_number: overview.value.chapter_number,
+      fields: ['node_key', 'outline_text', 'status', 'note', 'evidence'],
+      target: {
+        outline_status: overview.value.outline_deviation.status,
+        warning_reasons: overview.value.outline_deviation.warning_reasons,
+        selected_node: missingNode || null,
+      },
+      current_values: outlineNodeForm.value,
+      instruction: '根据大纲偏离提醒生成一个大纲节点状态建议；如果缺失就标 missing，如果正文已覆盖就标 completed/matched。',
+    })
+    outlineNodeForm.value = {
+      node_key: suggestionText(result.fields, 'node_key') || outlineNodeForm.value.node_key || `chapter-${overview.value.chapter_number}-node`,
+      outline_text: suggestionText(result.fields, 'outline_text') || outlineNodeForm.value.outline_text || overview.value.outline_deviation.outline_excerpt,
+      status: suggestionText(result.fields, 'status') || outlineNodeForm.value.status,
+      note: suggestionText(result.fields, 'note') || outlineNodeForm.value.note,
+      evidence: suggestionText(result.fields, 'evidence') || outlineNodeForm.value.evidence,
+    }
+    message.success(result.rationale || '已生成大纲节点建议')
+  } catch {
+    message.error('生成大纲节点失败，请稍后重试')
+  } finally {
+    suggestingOutlineNode.value = false
   }
 }
 

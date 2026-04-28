@@ -115,6 +115,9 @@
                     </div>
 
                     <n-space :size="8">
+                      <n-button size="small" secondary :loading="suggestingAnchors" @click="suggestVoiceAnchors">
+                        AI 生成锚点
+                      </n-button>
                       <n-button size="small" type="primary" :loading="saveLoading" @click="saveAnchors">
                         保存锚点
                       </n-button>
@@ -129,6 +132,17 @@
                     <n-alert type="default" :show-icon="false" class="section-alert">
                       更细的对白试写仍然在「对话沙盒」里；这里优先把口吻锚点固定下来。
                     </n-alert>
+
+                    <div class="field-group">
+                      <n-text class="field-label">OOC 禁忌 / 不要写成</n-text>
+                      <n-input
+                        v-model:value="oocGuardrails"
+                        type="textarea"
+                        size="small"
+                        :autosize="{ minRows: 2, maxRows: 4 }"
+                        placeholder="如：不要写成轻浮话痨，不要突然软弱求饶"
+                      />
+                    </div>
                   </n-space>
                 </n-card>
               </n-grid-item>
@@ -197,6 +211,15 @@
                 <n-space :size="8">
                   <n-button
                     size="small"
+                    secondary
+                    :loading="suggestingSample"
+                    :disabled="!selectedCharacter"
+                    @click="suggestVoiceSample"
+                  >
+                    AI 生成样本建议
+                  </n-button>
+                  <n-button
+                    size="small"
                     type="primary"
                     :loading="sampleSaving"
                     :disabled="!canSubmitSample"
@@ -225,6 +248,7 @@ import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
 import { sandboxApi } from '@/api/sandbox'
 import { voiceApi } from '@/api/voice'
+import { novelproSuggestionsApi } from '@/api/novelproSuggestions'
 import { useWorkbenchContextStore } from '@/stores/workbenchContextStore'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 
@@ -243,12 +267,15 @@ const loading = ref(false)
 const loadError = ref('')
 const saveLoading = ref(false)
 const sampleSaving = ref(false)
+const suggestingAnchors = ref(false)
+const suggestingSample = ref(false)
 
 const characters = ref<CharacterDTO[]>([])
 const selectedCharacterId = ref<string | null>(null)
 const editMental = ref('NORMAL')
 const editVerbal = ref('')
 const editIdle = ref('')
+const oocGuardrails = ref('')
 
 const aiOriginal = ref('')
 const authorRefined = ref('')
@@ -277,6 +304,7 @@ function syncSelectedCharacter(character: CharacterDTO | null) {
   editMental.value = character?.mental_state || 'NORMAL'
   editVerbal.value = character?.verbal_tic || ''
   editIdle.value = character?.idle_behavior || ''
+  oocGuardrails.value = ''
 }
 
 function anchorStrength(character: CharacterDTO) {
@@ -332,9 +360,9 @@ function buildSuggestedScenePrompt() {
   if (!character) return ''
   const scene = sceneType.value.trim()
   if (scene && scene !== 'general') {
-    return `请写一段${character.name}在“${scene}”场景中的对白，保留当前口吻锚点。`
+    return `请写一段${character.name}在“${scene}”场景中的对白，保留当前口吻锚点。${oocGuardrails.value ? `OOC 禁忌：${oocGuardrails.value}` : ''}`
   }
-  return `请写一段${character.name}在当前章节语境下的对白，保留当前口吻锚点。`
+  return `请写一段${character.name}在当前章节语境下的对白，保留当前口吻锚点。${oocGuardrails.value ? `OOC 禁忌：${oocGuardrails.value}` : ''}`
 }
 
 function jumpToSandbox() {
@@ -424,6 +452,83 @@ async function saveAnchors() {
     message.error('保存锚点失败')
   } finally {
     saveLoading.value = false
+  }
+}
+
+function suggestionText(fields: Record<string, unknown>, key: string) {
+  const value = fields[key]
+  if (value == null) return ''
+  return String(value)
+}
+
+async function suggestVoiceAnchors() {
+  const character = selectedCharacter.value
+  if (!character) {
+    message.warning('先选择角色再生成口吻建议')
+    return
+  }
+  suggestingAnchors.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'voice_anchor',
+      chapter_number: props.currentChapter,
+      fields: ['mental_state', 'verbal_tic', 'idle_behavior', 'ooc_guardrails'],
+      target: {
+        character_id: character.id,
+        character_name: character.name,
+      },
+      current_values: {
+        mental_state: editMental.value,
+        verbal_tic: editVerbal.value,
+        idle_behavior: editIdle.value,
+        ooc_guardrails: oocGuardrails.value,
+      },
+      instruction: '根据初始设定、当前章节、掉线/OOC 风险，生成可直接编辑的角色口吻锚点。',
+    })
+    editMental.value = suggestionText(result.fields, 'mental_state') || editMental.value
+    editVerbal.value = suggestionText(result.fields, 'verbal_tic') || editVerbal.value
+    editIdle.value = suggestionText(result.fields, 'idle_behavior') || editIdle.value
+    oocGuardrails.value = suggestionText(result.fields, 'ooc_guardrails') || oocGuardrails.value
+    message.success(result.rationale || '已生成口吻锚点建议')
+  } catch {
+    message.error('生成口吻建议失败，请稍后重试')
+  } finally {
+    suggestingAnchors.value = false
+  }
+}
+
+async function suggestVoiceSample() {
+  const character = selectedCharacter.value
+  if (!character) {
+    message.warning('先选择角色再生成样本建议')
+    return
+  }
+  suggestingSample.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'voice_sample',
+      chapter_number: currentSampleChapter.value,
+      fields: ['scene_type', 'ai_original', 'author_refined'],
+      target: {
+        character_id: character.id,
+        character_name: character.name,
+        ooc_guardrails: oocGuardrails.value,
+      },
+      current_values: {
+        scene_type: sceneType.value,
+        ai_original: aiOriginal.value,
+        author_refined: authorRefined.value,
+      },
+      instruction: '生成一组短样本对：AI 原文要有轻微可修问题，作者定稿要体现角色稳定口吻并避免 OOC。',
+    })
+    sceneType.value = suggestionText(result.fields, 'scene_type') || sceneType.value
+    aiOriginal.value = suggestionText(result.fields, 'ai_original') || aiOriginal.value
+    authorRefined.value = suggestionText(result.fields, 'author_refined') || authorRefined.value
+    message.success(result.rationale || '已生成作者样本建议')
+  } catch {
+    message.error('生成样本建议失败，请稍后重试')
+  } finally {
+    suggestingSample.value = false
   }
 }
 

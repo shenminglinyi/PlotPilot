@@ -219,6 +219,15 @@
   - 右侧 NovelPro 测试区新增默认页签“监控中心”，集中显示健康分、Obsidian 状态、关系图统计、连续性和战力告警
   - 验证通过：`.venv/bin/python -m compileall -q application interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_novelpro_monitor_service.py tests/unit/application/services/test_knowledge_service_obsidian_primary.py tests/unit/application/services/test_obsidian_memory_service.py -q --tb=short`（5 passed）
   - 验证通过：`cd frontend && npm run build`
+- 2026-04-28 继续补 AI 填表自动化：
+  - 新增 NovelPro AI 表单建议服务/API，统一使用 PP 当前激活 AI 配置，不引入外部模型双线
+  - 口吻锁定面板已支持“AI 生成锚点”和“OOC 禁忌”建议；作者样本沉淀已支持“AI 生成样本建议”
+  - 对话沙盒已支持“AI 生成语气/场景”，用于快速试写角色对白和 OOC 校准
+  - 连续性面板已支持 AI 生成关系事件与大纲节点状态，服务于掉线提醒、关系变化和大纲偏离记录
+  - 战力系统已支持 AI 生成战力规则、角色战力档案和战斗/升级事件建议
+  - 工作台与单章页精细改稿弹窗已支持 AI 生成改稿目标、重点片段和作者要求
+  - 验证通过：`.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest ... -q --tb=short`（42 passed）
+  - 验证通过：`cd frontend && npm run build`
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `434b5a5 feat: add configurable model roles`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042757111`：通过

@@ -916,6 +916,20 @@ def get_novelpro_monitor_service():
     )
 
 
+def get_novelpro_ai_suggestion_service():
+    from application.analyst.services.novelpro_ai_suggestion_service import (
+        NovelProAISuggestionService,
+    )
+
+    return NovelProAISuggestionService(
+        llm_service=get_llm_service(),
+        knowledge_service=get_knowledge_service(),
+        bible_service=get_bible_service(),
+        continuity_service=get_continuity_overview_service(),
+        power_system_service=get_power_system_service(),
+    )
+
+
 def get_macro_refactor_scanner():
     """获取宏观重构扫描器
 

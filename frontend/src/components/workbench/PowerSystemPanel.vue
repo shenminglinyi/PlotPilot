@@ -57,9 +57,14 @@
                 <n-form-item label="升级节奏" label-placement="top" :show-feedback="false">
                   <n-input v-model:value="rulesForm.escalation_rules" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" />
                 </n-form-item>
-                <n-button type="primary" secondary :loading="savingRules" @click="saveRules">
-                  保存战力规则
-                </n-button>
+                <n-space :size="8">
+                  <n-button secondary :loading="suggestingRules" @click="suggestRules">
+                    AI 生成规则
+                  </n-button>
+                  <n-button type="primary" secondary :loading="savingRules" @click="saveRules">
+                    保存战力规则
+                  </n-button>
+                </n-space>
               </n-space>
             </n-card>
 
@@ -82,9 +87,14 @@
                 <n-input v-model:value="profileForm.abilities" type="textarea" placeholder="能力 / 技能 / 装备" :autosize="{ minRows: 2, maxRows: 5 }" />
                 <n-input v-model:value="profileForm.limitations" type="textarea" placeholder="弱点 / 消耗 / 冷却 / 代价" :autosize="{ minRows: 2, maxRows: 5 }" />
                 <n-input v-model:value="profileForm.growth_stage" type="textarea" placeholder="成长阶段 / 下次突破条件" :autosize="{ minRows: 2, maxRows: 5 }" />
-                <n-button type="primary" secondary :loading="savingProfile" :disabled="!profileForm.character_name.trim()" @click="saveProfile">
-                  保存角色档案
-                </n-button>
+                <n-space :size="8">
+                  <n-button secondary :loading="suggestingProfile" @click="suggestProfile">
+                    AI 生成档案
+                  </n-button>
+                  <n-button type="primary" secondary :loading="savingProfile" :disabled="!profileForm.character_name.trim()" @click="saveProfile">
+                    保存角色档案
+                  </n-button>
+                </n-space>
 
                 <n-empty v-if="overview.profiles.length === 0" description="暂无角色战力档案" size="small" />
                 <n-space v-else vertical :size="8">
@@ -125,9 +135,14 @@
                 <n-input v-model:value="eventForm.opponent" placeholder="对手 / 副本 / 阶段目标" />
                 <n-input v-model:value="eventForm.outcome" type="textarea" placeholder="结果：例如越级击败但重伤" :autosize="{ minRows: 2, maxRows: 4 }" />
                 <n-input v-model:value="eventForm.evidence" type="textarea" placeholder="证据：代价、克制、底牌、环境、冷却、受伤等" :autosize="{ minRows: 2, maxRows: 5 }" />
-                <n-button type="primary" secondary :loading="savingEvent" :disabled="!eventForm.character_name.trim()" @click="saveEvent">
-                  记录战力事件
-                </n-button>
+                <n-space :size="8">
+                  <n-button secondary :loading="suggestingEvent" @click="suggestEvent">
+                    AI 生成事件
+                  </n-button>
+                  <n-button type="primary" secondary :loading="savingEvent" :disabled="!eventForm.character_name.trim()" @click="saveEvent">
+                    记录战力事件
+                  </n-button>
+                </n-space>
 
                 <n-empty v-if="overview.recent_events.length === 0" description="暂无战力事件" size="small" />
                 <n-timeline v-else size="small">
@@ -158,6 +173,7 @@
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { powerSystemApi, type PowerSystemOverview } from '@/api/powerSystem'
+import { novelproSuggestionsApi } from '@/api/novelproSuggestions'
 
 const props = defineProps<{
   slug: string
@@ -169,6 +185,9 @@ const loading = ref(false)
 const savingRules = ref(false)
 const savingProfile = ref(false)
 const savingEvent = ref(false)
+const suggestingRules = ref(false)
+const suggestingProfile = ref(false)
+const suggestingEvent = ref(false)
 const loadError = ref('')
 const overview = ref<PowerSystemOverview | null>(null)
 
@@ -231,6 +250,19 @@ function applyRulesForm() {
   rulesForm.escalation_rules = overview.value.rules.escalation_rules || ''
 }
 
+function suggestionText(fields: Record<string, unknown>, key: string) {
+  const value = fields[key]
+  if (value == null) return ''
+  return String(value)
+}
+
+function suggestionNumber(fields: Record<string, unknown>, key: string, fallback: number | null) {
+  const value = fields[key]
+  if (value == null || value === '') return fallback
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
 async function loadOverview() {
   if (!props.slug) return
   loading.value = true
@@ -246,6 +278,32 @@ async function loadOverview() {
   }
 }
 
+async function suggestRules() {
+  suggestingRules.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'power_rules',
+      chapter_number: props.currentChapter,
+      fields: ['genre_type', 'tier_schema', 'core_rules', 'taboo_rules', 'escalation_rules'],
+      target: {
+        warning_count: overview.value?.warnings.length || 0,
+      },
+      current_values: { ...rulesForm },
+      instruction: '根据初始设定和当前战力风险，生成适合系统文/游戏文的等级表、核心规则、禁忌规则和升级节奏。',
+    })
+    rulesForm.genre_type = suggestionText(result.fields, 'genre_type') || rulesForm.genre_type
+    rulesForm.tier_schema = suggestionText(result.fields, 'tier_schema') || rulesForm.tier_schema
+    rulesForm.core_rules = suggestionText(result.fields, 'core_rules') || rulesForm.core_rules
+    rulesForm.taboo_rules = suggestionText(result.fields, 'taboo_rules') || rulesForm.taboo_rules
+    rulesForm.escalation_rules = suggestionText(result.fields, 'escalation_rules') || rulesForm.escalation_rules
+    message.success(result.rationale || '已生成战力规则建议')
+  } catch {
+    message.error('生成战力规则失败，请稍后重试')
+  } finally {
+    suggestingRules.value = false
+  }
+}
+
 async function saveRules() {
   savingRules.value = true
   try {
@@ -256,6 +314,35 @@ async function saveRules() {
     message.error('保存战力规则失败')
   } finally {
     savingRules.value = false
+  }
+}
+
+async function suggestProfile() {
+  suggestingProfile.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'power_profile',
+      chapter_number: props.currentChapter,
+      fields: ['character_name', 'tier', 'rank_score', 'abilities', 'limitations', 'growth_stage', 'last_verified_chapter', 'notes'],
+      target: {
+        existing_profiles: overview.value?.profiles.map(profile => profile.character_name) || [],
+      },
+      current_values: { ...profileForm },
+      instruction: '根据当前设定和战力规则，为一个最需要补档案的角色生成战力档案，必须包含限制/代价，避免无解化。',
+    })
+    profileForm.character_name = suggestionText(result.fields, 'character_name') || profileForm.character_name
+    profileForm.tier = suggestionText(result.fields, 'tier') || profileForm.tier
+    profileForm.rank_score = suggestionNumber(result.fields, 'rank_score', profileForm.rank_score) || 0
+    profileForm.abilities = suggestionText(result.fields, 'abilities') || profileForm.abilities
+    profileForm.limitations = suggestionText(result.fields, 'limitations') || profileForm.limitations
+    profileForm.growth_stage = suggestionText(result.fields, 'growth_stage') || profileForm.growth_stage
+    profileForm.last_verified_chapter = suggestionNumber(result.fields, 'last_verified_chapter', profileForm.last_verified_chapter)
+    profileForm.notes = suggestionText(result.fields, 'notes') || profileForm.notes
+    message.success(result.rationale || '已生成角色战力档案建议')
+  } catch {
+    message.error('生成角色档案失败，请稍后重试')
+  } finally {
+    suggestingProfile.value = false
   }
 }
 
@@ -277,6 +364,39 @@ async function saveProfile() {
     message.error('保存角色战力档案失败')
   } finally {
     savingProfile.value = false
+  }
+}
+
+async function suggestEvent() {
+  suggestingEvent.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'power_event',
+      chapter_number: eventForm.chapter_number || props.currentChapter,
+      fields: ['chapter_number', 'character_name', 'event_type', 'opponent', 'outcome', 'power_delta', 'evidence'],
+      target: {
+        recent_warnings: overview.value?.warnings || [],
+        profiles: overview.value?.profiles.map(profile => ({
+          character_name: profile.character_name,
+          tier: profile.tier,
+          rank_score: profile.rank_score,
+        })) || [],
+      },
+      current_values: { ...eventForm },
+      instruction: '根据当前章节和战力风险生成一条战斗/升级事件。若涉及胜利或升级，必须写清代价、克制、环境、底牌或冷却。',
+    })
+    eventForm.chapter_number = suggestionNumber(result.fields, 'chapter_number', eventForm.chapter_number) || eventForm.chapter_number
+    eventForm.character_name = suggestionText(result.fields, 'character_name') || eventForm.character_name
+    eventForm.event_type = suggestionText(result.fields, 'event_type') || eventForm.event_type
+    eventForm.opponent = suggestionText(result.fields, 'opponent') || eventForm.opponent
+    eventForm.outcome = suggestionText(result.fields, 'outcome') || eventForm.outcome
+    eventForm.power_delta = suggestionNumber(result.fields, 'power_delta', eventForm.power_delta) || 0
+    eventForm.evidence = suggestionText(result.fields, 'evidence') || eventForm.evidence
+    message.success(result.rationale || '已生成战力事件建议')
+  } catch {
+    message.error('生成战力事件失败，请稍后重试')
+  } finally {
+    suggestingEvent.value = false
   }
 }
 
