@@ -232,6 +232,12 @@
   - 右侧 NovelPro 测试区新增“候选/精修”页签，说明候选稿闭环绑定中间章节编辑区，而不是独立右栏正文
   - 选中章节后可在右侧用 PP AI 生成精修建议，并一键发送到现有候选稿闭环；A/B、部分采纳、采纳、快照和章后记忆更新仍复用原链路
   - 验证通过：`cd frontend && npm run build`
+- 2026-04-28 增强 Obsidian 主记忆配置可见性：
+  - 监控中心的 Obsidian 卡片已显示当前 Vault 路径、默认/自定义路径状态、本机是否检测到 Obsidian 应用
+  - 前端新增“复制 Vault 路径”和“同步当前章”入口；同步当前章复用既有 Obsidian 导出服务，不绕开章后记忆格式
+  - `.env.example` 与 Obsidian 文档已补充 `PLOTPILOT_OBSIDIAN_VAULT` 配置说明
+  - 验证通过：`.venv/bin/python -m compileall -q application interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_novelpro_monitor_service.py tests/unit/application/services/test_obsidian_memory_service.py -q --tb=short`（5 passed）
+  - 验证通过：`cd frontend && npm run build`
 - GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `434b5a5 feat: add configurable model roles`
 - GitHub Actions 当前状态：
   - `Frontend CI` push run `25042757111`：通过

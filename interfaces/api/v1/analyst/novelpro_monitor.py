@@ -27,6 +27,9 @@ class ObsidianMemorySummary(BaseModel):
     fact_count: int
     chapter_count: int
     relationship_graph_path: str = ""
+    vault_path: str = ""
+    vault_configured: bool = False
+    obsidian_app_installed: bool = False
 
 
 class KnowledgeGraphSummary(BaseModel):
@@ -69,6 +72,14 @@ class NovelProMonitorOverview(BaseModel):
     alerts: List[NovelProMonitorAlert]
 
 
+class ObsidianSyncResponse(BaseModel):
+    synced: bool
+    reason: str = ""
+    vault_path: str = ""
+    chapter_note: str = ""
+    fact_count: int = 0
+
+
 @router.get(
     "/novels/{novel_id}/novelpro/monitor",
     response_model=NovelProMonitorOverview,
@@ -81,3 +92,16 @@ def get_novelpro_monitor(
     service: NovelProMonitorService = Depends(get_novelpro_monitor_service),
 ) -> NovelProMonitorOverview:
     return NovelProMonitorOverview(**service.get_overview(novel_id, chapter_number))
+
+
+@router.post(
+    "/novels/{novel_id}/novelpro/obsidian/sync",
+    response_model=ObsidianSyncResponse,
+    summary="手动同步当前章节到 Obsidian 长期记忆",
+)
+def sync_obsidian_memory(
+    novel_id: str = Path(..., description="小说 ID"),
+    chapter_number: int = Query(..., ge=1, description="要同步的章节号"),
+    service: NovelProMonitorService = Depends(get_novelpro_monitor_service),
+) -> ObsidianSyncResponse:
+    return ObsidianSyncResponse(**service.sync_obsidian_chapter(novel_id, chapter_number))

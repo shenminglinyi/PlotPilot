@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -156,6 +158,34 @@ class ObsidianMemoryService:
 
     def get_relationship_graph_path(self, novel_id: str) -> Path:
         return self.vault_root / _safe_segment(novel_id) / "03_Entities" / "Character_Relationships.md"
+
+    def is_vault_configured(self) -> bool:
+        return bool(os.getenv(OBSIDIAN_VAULT_ENV, "").strip())
+
+    def is_obsidian_installed(self) -> bool:
+        if shutil.which("obsidian"):
+            return True
+        if sys.platform == "darwin":
+            candidates = [
+                Path("/Applications/Obsidian.app"),
+                Path.home() / "Applications" / "Obsidian.app",
+            ]
+            return any(path.exists() for path in candidates)
+        if sys.platform.startswith("win"):
+            candidates = [
+                Path(os.getenv("LOCALAPPDATA", "")) / "Obsidian" / "Obsidian.exe",
+                Path(os.getenv("PROGRAMFILES", "")) / "Obsidian" / "Obsidian.exe",
+            ]
+            return any(path.exists() for path in candidates)
+        return any(
+            Path(path).exists()
+            for path in (
+                "/usr/bin/obsidian",
+                "/usr/local/bin/obsidian",
+                "/snap/bin/obsidian",
+                "/var/lib/flatpak/exports/bin/md.obsidian.Obsidian",
+            )
+        )
 
     def _write_index(self, novel_dir: Path, novel_id: str, knowledge: Any) -> None:
         chapters = sorted(getattr(knowledge, "chapters", []) or [], key=lambda item: item.chapter_id)

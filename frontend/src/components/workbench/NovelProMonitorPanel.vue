@@ -47,16 +47,61 @@
               <n-grid-item>
                 <n-card size="small" :bordered="false" title="Obsidian 主记忆">
                   <n-space vertical :size="8">
-                    <n-tag round size="small" :type="overview.obsidian.primary_memory ? 'success' : 'warning'">
-                      {{ overview.obsidian.primary_memory ? '已接管' : '待建立' }}
-                    </n-tag>
+                    <n-space :size="6" wrap>
+                      <n-tag round size="small" :type="overview.obsidian.primary_memory ? 'success' : 'warning'">
+                        {{ overview.obsidian.primary_memory ? '已接管' : '待建立' }}
+                      </n-tag>
+                      <n-tag round size="small" :type="overview.obsidian.obsidian_app_installed ? 'success' : 'default'">
+                        {{ overview.obsidian.obsidian_app_installed ? '已检测到 Obsidian' : '未检测到 Obsidian' }}
+                      </n-tag>
+                      <n-tag round size="small" :type="overview.obsidian.vault_configured ? 'info' : 'default'">
+                        {{ overview.obsidian.vault_configured ? '自定义 Vault' : '默认 Vault' }}
+                      </n-tag>
+                    </n-space>
                     <n-text depth="3" style="font-size: 12px">
                       章节 {{ overview.obsidian.chapter_count }} · 事实 {{ overview.obsidian.fact_count }} ·
                       {{ overview.obsidian.premise_locked ? '基调已锁定' : '基调待锁定' }}
                     </n-text>
+                    <n-alert
+                      v-if="!overview.obsidian.primary_memory"
+                      type="warning"
+                      :show-icon="false"
+                      class="mini-alert"
+                    >
+                      保存章节或采纳候选稿后，会自动生成 Obsidian Markdown 主记忆；仅生成但未保存不会写入。
+                    </n-alert>
+                    <n-alert
+                      v-if="!overview.obsidian.obsidian_app_installed"
+                      type="default"
+                      :show-icon="false"
+                      class="mini-alert"
+                    >
+                      未安装 Obsidian 也能写入 Markdown。安装后可在 Obsidian 中打开下方 Vault 路径查看图谱。
+                    </n-alert>
+                    <n-text v-if="overview.obsidian.vault_path" depth="3" class="path-text">
+                      Vault：{{ overview.obsidian.vault_path }}
+                    </n-text>
                     <n-text v-if="overview.obsidian.relationship_graph_path" depth="3" class="path-text">
                       关系图：{{ overview.obsidian.relationship_graph_path }}
                     </n-text>
+                    <n-text depth="3" class="config-text">
+                      自定义路径：在后端 `.env` 添加 `PLOTPILOT_OBSIDIAN_VAULT=/你的/Obsidian/Vault/路径`，然后重启后端。
+                    </n-text>
+                    <n-space :size="8" wrap>
+                      <n-button size="tiny" secondary :disabled="!overview.obsidian.vault_path" @click="copyVaultPath">
+                        复制 Vault 路径
+                      </n-button>
+                      <n-button
+                        size="tiny"
+                        type="primary"
+                        secondary
+                        :loading="syncingObsidian"
+                        :disabled="!currentChapter"
+                        @click="syncCurrentChapter"
+                      >
+                        同步当前章
+                      </n-button>
+                    </n-space>
                   </n-space>
                 </n-card>
               </n-grid-item>
@@ -137,6 +182,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useMessage } from 'naive-ui'
 import { novelproMonitorApi, type NovelProMonitorOverview } from '@/api/novelproMonitor'
 
 const props = defineProps<{
@@ -145,8 +191,10 @@ const props = defineProps<{
 }>()
 
 const loading = ref(false)
+const syncingObsidian = ref(false)
 const loadError = ref('')
 const overview = ref<NovelProMonitorOverview | null>(null)
+const message = useMessage()
 
 const healthType = computed(() => alertType(overview.value?.health.status || 'info'))
 const healthLabel = computed(() => {
@@ -167,6 +215,38 @@ async function loadOverview() {
     loadError.value = error?.message || '监控中心加载失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function copyVaultPath() {
+  const path = overview.value?.obsidian.vault_path || ''
+  if (!path) return
+  try {
+    await navigator.clipboard.writeText(path)
+    message.success('已复制 Obsidian Vault 路径')
+  } catch {
+    message.warning('复制失败，请手动选中路径复制')
+  }
+}
+
+async function syncCurrentChapter() {
+  if (!props.currentChapter) {
+    message.warning('先选择具体章节再同步 Obsidian')
+    return
+  }
+  syncingObsidian.value = true
+  try {
+    const result = await novelproMonitorApi.syncObsidianChapter(props.slug, props.currentChapter)
+    if (result.synced) {
+      message.success('当前章已同步到 Obsidian 主记忆')
+      await loadOverview()
+    } else {
+      message.warning(result.reason || '当前章暂未生成可同步的章后记忆')
+    }
+  } catch {
+    message.error('同步 Obsidian 失败，请先保存章节并确认章后管线已完成')
+  } finally {
+    syncingObsidian.value = false
   }
 }
 
@@ -251,6 +331,11 @@ onMounted(loadOverview)
   border-radius: 12px;
 }
 
+.mini-alert {
+  border-radius: 10px;
+  font-size: 12px;
+}
+
 .score-card {
   display: flex;
   justify-content: space-between;
@@ -290,5 +375,11 @@ onMounted(loadOverview)
   display: block;
   overflow-wrap: anywhere;
   font-size: 11px;
+}
+
+.config-text {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
 }
 </style>

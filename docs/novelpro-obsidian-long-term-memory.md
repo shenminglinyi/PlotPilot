@@ -28,6 +28,14 @@ data/obsidian-vault/<novel_id>/
 export PLOTPILOT_OBSIDIAN_VAULT="/你的/Obsidian/Vault/路径"
 ```
 
+也可以写入项目根目录 `.env`：
+
+```bash
+PLOTPILOT_OBSIDIAN_VAULT=/你的/Obsidian/Vault/路径
+```
+
+修改后需要重启后端。若不配置，PP 会使用默认目录 `data/obsidian-vault`。
+
 ## 目录结构
 
 每本书会生成独立目录：
@@ -64,9 +72,12 @@ export PLOTPILOT_OBSIDIAN_VAULT="/你的/Obsidian/Vault/路径"
 右侧 `NovelPro 测试区 -> 监控中心` 会聚合：
 
 - Obsidian 主记忆是否可回读。
+- 当前 Vault 路径、是否使用自定义路径，以及本机是否检测到 Obsidian 应用。
 - 长期事实、章节摘要和关系图数量。
 - 连续性巡检里的角色掉线、关系沉默、文风漂移、时间线冲突和大纲偏离。
 - 战力系统里的跳级过快、无代价越级和高战力缺限制等提醒。
+
+监控中心也提供“同步当前章”按钮。它不会直接生成正文，只会把当前章节已经完成的章后记忆导出到 Obsidian；如果当前章还没有保存或章后管线还没形成摘要，会提示暂时无法同步。
 
 ## AI 填表建议
 

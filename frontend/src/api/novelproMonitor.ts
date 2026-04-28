@@ -14,6 +14,9 @@ export interface ObsidianMemorySummary {
   fact_count: number
   chapter_count: number
   relationship_graph_path: string
+  vault_path: string
+  vault_configured: boolean
+  obsidian_app_installed: boolean
 }
 
 export interface KnowledgeGraphSummary {
@@ -56,6 +59,14 @@ export interface NovelProMonitorOverview {
   alerts: NovelProMonitorAlert[]
 }
 
+export interface ObsidianSyncResponse {
+  synced: boolean
+  reason: string
+  vault_path: string
+  chapter_note: string
+  fact_count: number
+}
+
 export const novelproMonitorApi = {
   getOverview: (novelId: string, chapterNumber?: number | null) =>
     apiClient.get<NovelProMonitorOverview>(
@@ -64,4 +75,12 @@ export const novelproMonitorApi = {
         params: chapterNumber ? { chapter_number: chapterNumber } : undefined,
       },
     ) as Promise<NovelProMonitorOverview>,
+  syncObsidianChapter: (novelId: string, chapterNumber: number) =>
+    apiClient.post<ObsidianSyncResponse>(
+      `/novels/${novelId}/novelpro/obsidian/sync`,
+      null,
+      {
+        params: { chapter_number: chapterNumber },
+      },
+    ) as Promise<ObsidianSyncResponse>,
 }

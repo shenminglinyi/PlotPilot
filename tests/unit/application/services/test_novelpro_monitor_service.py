@@ -16,12 +16,24 @@ class FakeKnowledgeService:
 class FakeObsidianMemoryService:
     def __init__(self, knowledge):
         self.knowledge = knowledge
+        self.vault_root = "/vault"
+        self.synced = []
 
     def load_knowledge(self, novel_id):
         return self.knowledge
 
     def get_relationship_graph_path(self, novel_id):
         return f"/vault/{novel_id}/03_Entities/Character_Relationships.md"
+
+    def is_obsidian_installed(self):
+        return True
+
+    def sync_chapter(self, novel_id, chapter_number):
+        self.synced.append((novel_id, chapter_number))
+        return {
+            "synced": True,
+            "chapter_note": f"/vault/{novel_id}/02_Chapters/Chapter_{chapter_number:04d}.md",
+        }
 
 
 class FakeContinuityService:
@@ -103,6 +115,8 @@ def test_novelpro_monitor_aggregates_obsidian_continuity_and_power_alerts():
     overview = service.get_overview("novel-monitor", chapter_number=3)
 
     assert overview["obsidian"]["primary_memory"] is True
+    assert overview["obsidian"]["vault_path"] == "/vault"
+    assert overview["obsidian"]["obsidian_app_installed"] is True
     assert overview["obsidian"]["relationship_graph_path"].endswith("Character_Relationships.md")
     assert overview["knowledge_graph"]["relationship_count"] == 1
     assert overview["continuity"]["timeline_conflict_count"] == 1
@@ -113,3 +127,23 @@ def test_novelpro_monitor_aggregates_obsidian_continuity_and_power_alerts():
     assert "大纲偏离提醒" in alert_titles
     assert "第3章战力跳升过快" in alert_titles
     assert overview["health"]["status"] == "error"
+
+
+def test_novelpro_monitor_can_sync_current_chapter_to_obsidian():
+    knowledge = StoryKnowledge(
+        novel_id="novel-monitor",
+        chapters=[ChapterSummary(3, summary="林夜打开黑塔密门。")],
+    )
+    obsidian = FakeObsidianMemoryService(knowledge)
+    service = NovelProMonitorService(
+        knowledge_service=FakeKnowledgeService(knowledge),
+        obsidian_memory_service=obsidian,
+        continuity_service=FakeContinuityService(),
+        power_system_service=FakePowerSystemService(),
+    )
+
+    result = service.sync_obsidian_chapter("novel-monitor", 3)
+
+    assert result["synced"] is True
+    assert result["chapter_note"].endswith("Chapter_0003.md")
+    assert obsidian.synced == [("novel-monitor", 3)]

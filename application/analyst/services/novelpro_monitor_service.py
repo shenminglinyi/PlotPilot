@@ -75,17 +75,31 @@ class NovelProMonitorService:
             "alerts": alerts,
         }
 
+    def sync_obsidian_chapter(self, novel_id: str, chapter_number: int) -> dict[str, Any]:
+        sync_chapter = getattr(self.obsidian_memory_service, "sync_chapter", None)
+        if not callable(sync_chapter):
+            return {
+                "synced": False,
+                "reason": "obsidian memory service unavailable",
+            }
+        return sync_chapter(novel_id, chapter_number)
+
     def _build_obsidian_summary(self, novel_id: str, knowledge: Any) -> dict[str, Any]:
         graph_path = ""
         get_graph_path = getattr(self.obsidian_memory_service, "get_relationship_graph_path", None)
         if callable(get_graph_path):
             graph_path = str(get_graph_path(novel_id))
+        is_installed = getattr(self.obsidian_memory_service, "is_obsidian_installed", None)
+        is_configured = getattr(self.obsidian_memory_service, "is_vault_configured", None)
         return {
             "primary_memory": knowledge is not None,
             "premise_locked": bool(getattr(knowledge, "premise_lock", "") if knowledge else ""),
             "fact_count": len(getattr(knowledge, "facts", []) or []) if knowledge else 0,
             "chapter_count": len(getattr(knowledge, "chapters", []) or []) if knowledge else 0,
             "relationship_graph_path": graph_path,
+            "vault_path": str(getattr(self.obsidian_memory_service, "vault_root", "") or ""),
+            "vault_configured": bool(is_configured()) if callable(is_configured) else False,
+            "obsidian_app_installed": bool(is_installed()) if callable(is_installed) else False,
         }
 
     def _build_knowledge_graph_summary(self, knowledge: Any) -> dict[str, Any]:
