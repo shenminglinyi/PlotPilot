@@ -148,8 +148,10 @@
 - `cd frontend && npm run build`：通过（战力系统、采纳影响提示、右栏异步拆包、生命周期告警清理后再次验证；仍有 Vite 大 chunk 提示，但主包已降到约 2.90MB）
 - `.venv/bin/python -m compileall -q application infrastructure interfaces && .venv/bin/python -m pytest tests/unit/application/services/test_continuity_overview_service.py tests/unit/application/services/test_power_system_service.py tests/integration/interfaces/api/v1/test_continuity_api.py tests/integration/interfaces/api/v1/test_power_system_api.py tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py tests/unit/application/services/test_chapter_candidate_draft_service.py tests/unit/application/services/test_chapter_service.py tests/unit/application/services/test_chronicles_service.py tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py -q --tb=short`：通过（22 passed）
 - `cd frontend && npm run build`：通过（结构化连续性追踪接入后再次验证；仍有 Vite 大 chunk 提示）
-- GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端提交为 `7e926a8 feat: add power system guardrails`
+- GitHub 仓库 `frankmeng82/PlotPilot-NovelPro` 已完成上传，最新远端功能提交为 `278a6f2 feat: add structured continuity tracking`
 - GitHub Actions 当前状态：
+  - `Backend CI` push run `25040959536`：通过
+  - `Frontend CI` push run `25040959570`：通过
   - `Backend CI` push run `25039984499`：通过
   - `Frontend CI` push run `25039984515`：通过
   - `Backend CI` push run `25006720081`：通过
