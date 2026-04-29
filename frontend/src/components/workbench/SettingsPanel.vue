@@ -40,6 +40,20 @@
     </div>
 
     <!-- 扁平化单层标签栏，使用 display-directive="if" 避免图表组件在 display:none 状态下挂载导致 width/height 为 0 -->
+    <div class="settings-tab-strip" role="tablist" aria-label="右侧功能页签">
+      <button
+        v-for="tab in visibleTabs"
+        :key="tab.name"
+        class="settings-tab-button"
+        :class="{ 'settings-tab-button--active': activeTab === tab.name }"
+        type="button"
+        role="tab"
+        :aria-selected="activeTab === tab.name"
+        @click="activeTab = tab.name"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
     <n-tabs
       v-model:value="activeTab"
       type="line"
@@ -94,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import CandidateDraftBranchSwitcher from './CandidateDraftBranchSwitcher.vue'
 import { useWorkbenchContextStore } from '@/stores/workbenchContextStore'
@@ -123,6 +137,26 @@ const ALL_TABS = new Set([
 ])
 const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox'])
 const BASE_TABS = new Set(['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'])
+const GROUP_TABS = {
+  novelpro: ['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox'],
+  base: ['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'],
+} as const
+const TAB_LABELS: Record<string, string> = {
+  'novelpro-monitor': '监控中心',
+  'candidate-refine': '候选/精修',
+  continuity: '连续性巡检',
+  'voice-lock': '口吻锁定',
+  'voice-drift': '文风监控',
+  'power-system': '战力系统',
+  'model-role': 'PP AI',
+  sandbox: '对话沙盒',
+  bible: '作品设定',
+  worldbuilding: '世界观',
+  knowledge: '知识库',
+  'storyline-arc': '故事线',
+  chronicles: '编年史',
+  foreshadow: '伏笔账本',
+}
 const GROUP_DEFAULT_TAB = {
   novelpro: 'novelpro-monitor',
   base: 'bible',
@@ -178,6 +212,10 @@ const emit = defineEmits<{
 
 const activeTab = ref(resolveTab(props.currentPanel))
 const activeGroup = ref<PanelGroup>(resolveGroup(activeTab.value))
+const visibleTabs = computed(() => GROUP_TABS[activeGroup.value].map(name => ({
+  name,
+  label: TAB_LABELS[name],
+})))
 const contextStore = useWorkbenchContextStore()
 const { targetPanel, voiceLockDraftVersion, voiceLockDraft, sandboxDraftVersion, sandboxDraft } = storeToRefs(contextStore)
 
@@ -325,6 +363,46 @@ watch(
   text-overflow: ellipsis;
 }
 
+.settings-tab-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+  gap: 6px;
+  padding: 7px 8px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--aitext-split-border);
+  flex-shrink: 0;
+}
+
+.settings-tab-button {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--aitext-panel-muted);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.settings-tab-button:hover {
+  border-color: rgba(31, 129, 255, 0.28);
+  color: var(--app-text-primary);
+}
+
+.settings-tab-button--active {
+  border-color: rgba(31, 129, 255, 0.45);
+  background: rgba(31, 129, 255, 0.10);
+  color: var(--color-brand);
+}
+
 .settings-tabs {
   flex: 1;
   min-height: 0;
@@ -333,10 +411,7 @@ watch(
 }
 
 .settings-tabs :deep(.n-tabs-nav) {
-  padding: 0 8px;
-  background: var(--app-surface);
-  border-bottom: 1px solid var(--aitext-split-border);
-  overflow: visible;
+  display: none;
 }
 
 .settings-tabs :deep(.n-tabs-nav-scroll-wrapper) {
