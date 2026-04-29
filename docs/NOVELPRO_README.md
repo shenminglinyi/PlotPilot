@@ -27,6 +27,252 @@ NovelPro 是一组面向长篇小说创作的工作台增强能力，目标是�
 - 选题生成、深化、评估、对比推荐。
 - 采纳选题为新书，并把立项报告写入新书 premise。
 
+#### 选题工作流
+
+推荐使用顺序：
+
+1. 打开首页的选题立项池。
+2. 在“市场观察”中手动导入观察文本，或在“公开来源采集”中选择榜单来源采集样本。
+3. 查看“市场摘要”，确认来源、类型、标签、漫画机会和近窗趋势。
+4. 在生成表单里填写补充说明、类型、关键词、规避模式，并勾选要引用的市场信号。
+5. 生成 3-5 个选题候选。
+6. 对候选执行“深化”和“评估”，生成结构化立项报告。
+7. 多选候选执行“对比推荐”。
+8. 采纳候选为新书，系统会把选题阶段沉淀的信息写入新书 premise，供后续世界观、人物和章节生成继承。
+
+#### 来源配置文件
+
+市场信号来源集中定义在：
+
+```text
+application/topic/services/topic_signal_sources.py
+```
+
+当前默认来源包括：
+
+| source key | 名称 | 类型 | 默认采集方式 | 榜单维度 |
+|---|---|---|---|---|
+| `qidian_rank` | 起点-小说榜 | 小说 | `public_page` | 热门榜 / 新书榜 / 快速上榜 |
+| `jjwxc_rank` | 晋江-小说榜 | 小说 | `public_page` | 热门榜 / 新书榜 / 快速上榜 |
+| `qimao_rank` | 七猫-小说榜 | 小说 | `public_page` | 热门榜 / 新书榜 / 快速上榜 |
+| `fanqie_rank` | 番茄-小说榜 | 小说 | `public_page` | 热门榜 / 新书榜 / 快速上榜 |
+| `qq_read` | 腾讯-QQ阅读 | 小说 | `api` | 热门榜 / 新书榜 / 快速上榜 |
+| `tencent_comic_rank` | 腾讯动漫-漫画榜 | 漫画 | `public_page` | 热门榜 / 新书榜 / 快速上榜 |
+| `kuaikan_comic` | 快看漫画-漫画 | 漫画 | `public_page` | 热门榜 / 新书榜 / 快速上榜 |
+
+新增来源时，维护者只需要在 `MARKET_SIGNAL_SOURCES` 中增加一个 `TopicMarketSignalSourceDTO`：
+
+```python
+"example_rank": TopicMarketSignalSourceDTO(
+    key="example_rank",
+    name="示例平台-小说榜",
+    url="https://example.com/rank",
+    category="novel",
+    source_type="public_page",
+    requires_auth=False,
+    rank_urls={
+        "热门榜": "https://example.com/rank/hot",
+        "新书榜": "https://example.com/rank/new",
+        "快速上榜": "https://example.com/rank/rise",
+    },
+)
+```
+
+字段说明：
+
+- `key`：来源唯一标识，会用于接口、数据库凭据、健康状态和平台权重。
+- `name`：前端展示名称。
+- `url`：默认采集入口。
+- `category`：`novel` 或 `comic`；漫画来源会参与“漫画转题机会”分析。
+- `source_type`：`public_page`、`api` 或 `authenticated_source`。
+- `requires_auth`：是否要求配置凭据后才允许采集。
+- `rank_urls`：按榜单维度配置多个采集入口；为空时使用 `url`。
+
+平台默认权重定义在同一文件的 `DEFAULT_MARKET_SIGNAL_SOURCE_WEIGHTS`。权重会影响市场摘要、选题评估和候选对比推荐。前端“自动采集设置”也可以保存用户自定义权重。
+
+#### 采集器配置
+
+采集器入口在：
+
+```text
+application/topic/services/topic_signal_collectors.py
+```
+
+内置三类 collector：
+
+- `public_page`：抓取 HTML 页面，使用平台适配解析器或通用标题解析。
+- `api`：请求 JSON API，优先解析 `books/items/list/records` 等常见榜单结构。
+- `authenticated_source`：需要登录态或自定义 headers 的来源入口。
+
+如果新增平台页面结构比较稳定，建议增加平台专用解析函数，并在 `PublicPageMarketSignalCollector` 中按 `source.key` 分发。这样可以提取更准确的标题、类型、标签、简介、排名和热度。
+
+#### 凭据和 Endpoint 配置
+
+前端配置入口：
+
+```text
+TopicIdeaPanel.vue -> 外部 API / 登录态
+```
+
+后端接口：
+
+```http
+GET   /api/v1/topics/signals/source-credentials
+PATCH /api/v1/topics/signals/sources/{source_key}/credentials
+```
+
+可配置字段：
+
+```json
+{
+  "api_key": "optional-api-key",
+  "cookie": "optional-cookie",
+  "endpoint_url": "https://example.com/custom/rank-api",
+  "headers": {
+    "User-Agent": "Mozilla/5.0",
+    "X-Custom-Header": "value"
+  }
+}
+```
+
+保存位置：
+
+```text
+topic_market_signal_credentials
+```
+
+安全边界：
+
+- API 只返回 `api_key_configured`、`cookie_configured`、`endpoint_configured` 和 `header_keys`。
+- 明文 API Key / Cookie 只在服务端内部读取，不通过查询接口返回。
+- 如果配置了 `endpoint_url`，采集时会优先使用该 Endpoint 覆盖来源默认 URL。
+- 如果配置了 `api_key` 且没有显式 `Authorization` header，采集器会自动补 `Authorization: Bearer <api_key>`。
+- 如果配置了 `cookie` 且没有显式 `Cookie` header，采集器会自动补 `Cookie`。
+
+#### 自动采集配置
+
+前端配置入口：
+
+```text
+TopicIdeaPanel.vue -> 自动采集设置
+```
+
+后端接口：
+
+```http
+GET   /api/v1/topics/signals/automation
+PATCH /api/v1/topics/signals/automation
+GET   /api/v1/topics/signals/source-health
+```
+
+可配置字段：
+
+```json
+{
+  "enabled": true,
+  "interval_minutes": 180,
+  "limit_per_source": 8,
+  "lookback_days": 30,
+  "selected_source_keys": ["qidian_rank", "fanqie_rank", "qq_read"],
+  "source_weights": {
+    "qidian_rank": 1.0,
+    "jjwxc_rank": 1.1,
+    "fanqie_rank": 1.05
+  }
+}
+```
+
+保存位置：
+
+```text
+topic_market_signal_settings
+topic_market_signal_source_health
+```
+
+API 进程启动后会创建轻量后台线程，按 `interval_minutes` 判断是否到期。也可以使用独立脚本脱离 API 进程运行：
+
+```bash
+python scripts/start_topic_signal_collector.py --once --force
+python scripts/start_topic_signal_collector.py --poll-interval 60
+```
+
+相关环境变量：
+
+| 变量 | 默认值 | 说明 |
+|---|---:|---|
+| `TOPIC_SIGNAL_POLL_INTERVAL_SECONDS` | `60` | 独立守护进程检查配置是否到期的轮询间隔，单位秒 |
+| `LOG_LEVEL` | `INFO` | 独立守护进程日志级别 |
+| `LOG_FILE` | `logs/aitext.log` | 独立守护进程日志文件 |
+| `DISABLE_SSL_VERIFY` | `false` | 调试网络证书问题时可临时关闭 SSL 校验，不建议生产使用 |
+
+如果部署环境不希望 API 进程内启动自动采集，可以在依赖注入或启动配置中关闭对应后台线程，并改用 `scripts/start_topic_signal_collector.py` 由 systemd、cron 或其他进程管理器运行。
+
+#### 数据库表
+
+选题模块新增或使用以下 SQLite 表：
+
+| 表 | 用途 |
+|---|---|
+| `topic_ideas` | 选题候选、立项报告、评估结果、采纳状态 |
+| `topic_market_signals` | 手动导入和采集得到的市场信号 |
+| `topic_market_signal_settings` | 自动采集开关、间隔、单源条数、趋势窗口、平台权重 |
+| `topic_market_signal_credentials` | 来源 API Key、Cookie、Endpoint 和自定义 headers |
+| `topic_market_signal_source_health` | 每个来源最近采集状态、条数、错误和下次执行时间 |
+
+这些表和必要列由 `infrastructure/persistence/database/connection.py` 在启动时幂等创建或补齐，旧库无需手动迁移。
+
+#### API 清单
+
+主要接口：
+
+```http
+POST /api/v1/topics/generate
+GET  /api/v1/topics/
+GET  /api/v1/topics/{topic_id}
+POST /api/v1/topics/{topic_id}/deepen
+POST /api/v1/topics/{topic_id}/evaluate
+POST /api/v1/topics/compare
+POST /api/v1/topics/{topic_id}/adopt
+
+POST /api/v1/topics/signals/import
+POST /api/v1/topics/signals/collect
+GET  /api/v1/topics/signals/summary
+GET  /api/v1/topics/signals/sources
+POST /api/v1/topics/signals/sources/test
+GET  /api/v1/topics/signals/source-health
+
+GET   /api/v1/topics/signals/automation
+PATCH /api/v1/topics/signals/automation
+GET   /api/v1/topics/signals/source-credentials
+PATCH /api/v1/topics/signals/sources/{source_key}/credentials
+```
+
+#### 验证选题功能
+
+推荐后端测试：
+
+```bash
+pytest \
+  tests/unit/domain/topic/test_topic_idea.py \
+  tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py \
+  tests/unit/application/services/test_topic_idea_service.py \
+  tests/unit/application/services/test_topic_signal_automation_service.py \
+  tests/unit/application/services/test_topic_signal_collectors.py \
+  tests/unit/interfaces/api/test_topic_ideas.py \
+  tests/unit/scripts/test_start_topic_signal_collector.py \
+  -q
+```
+
+推荐手工验收：
+
+1. `GET /api/v1/topics/signals/sources` 返回 7 个默认来源。
+2. `POST /api/v1/topics/signals/sources/test` 能返回每源样例标题或明确错误。
+3. `POST /api/v1/topics/signals/import` 可导入手动观察。
+4. `POST /api/v1/topics/signals/collect` 可采集至少一个来源并入库。
+5. `GET /api/v1/topics/signals/summary` 返回来源、类型、标签、日统计和漫画转题机会。
+6. `POST /api/v1/topics/generate` 能引用市场信号生成候选。
+7. `deepen / evaluate / compare / adopt` 全链路可用，采纳后创建新书。
+
 相关后端模块：
 
 - `domain/topic/`
