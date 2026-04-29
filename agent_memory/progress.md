@@ -10,6 +10,7 @@
 - 已将工作流章节生成接入提示词广场 `workflow-chapter-generation`，实际生成会优先读取可视配置，配置为空或不可用时回退内置模板。
 - 已扩充 AI 味俗套扫描规则，覆盖氛围凝固、模糊心理、宿命总结和抽象转折类表达。
 - 已在工作台「辅助撰稿 → 章节编辑」页签的快速生成旁新增「生成风格」入口，直接打开 `workflow-chapter-generation` 的编辑与版本历史。
+- 已优化「生成风格 / AI味抑制」弹窗：扩大编辑区域，顶部展示必填/可选变量和 System/User 字数，并高亮运行时必填变量。
 - 已在快速生成弹窗新增「慢写过程」开关；开启后请求会注入“避免 AI 压缩表达”约束，要求展开关键动作、对话、试探、停顿和信息增量。
 - 已扩充俗套扫描规则，识别“一番交谈后”“很快达成共识”“简单说明了情况”等压缩表达。
 - 已实现选题立项池：选题生成、保存、列表、归档/恢复、人工修订、采用为新书；采用后接入现有新书设置向导。
@@ -143,6 +144,11 @@
     - 已新增 3 个提示词节点：`anti-ai-style-rules`、`review-ai-flavor-audit`、`rewrite-ai-flavor-naturalizer`。
     - 已给运行时章节生成与新增节点补齐必填/可选变量标记；章节生成必填为 `context / length_rule / outline`，其他运行时块为可选。
     - 本地与宝塔提示词数据库均已导入新版本；线上 API 已验证 4 个节点详情和变量标记正常返回。
+  - 2026-04-30 生成风格弹窗优化验证：
+    - `npm run build`（frontend）：通过。
+    - 已部署到宝塔并重启 `plotpilot-novelpro.service`，服务状态 `active`。
+    - 线上构建包已包含 `prompt-health-strip / 运行时必填 / System 字数`。
+    - 线上 `/api/v1/llm-control/prompts/workflow-chapter-generation` 返回新版低 AI 味提示词，必填变量为 `context / length_rule / outline`。
 
 ## 下一步
 

@@ -14,6 +14,12 @@
         内置与自定义提示词<strong>均可直接修改</strong>；点「保存为新版本」写入数据库，历史保留在「版本历史」中，可随时回滚。
       </p>
       <p class="desc-text">{{ nodeDetail?.description || '（无描述）' }}</p>
+      <div class="prompt-health-strip" v-if="variables.length">
+        <span class="health-item health-item--required">必填 {{ requiredVariables.length }}</span>
+        <span class="health-item">可选 {{ optionalVariables.length }}</span>
+        <span class="health-item">System {{ systemCharCount }} 字</span>
+        <span class="health-item">User {{ userCharCount }} 字</span>
+      </div>
       <div class="source-line" v-if="nodeDetail?.source">
         <span class="source-icon">S</span>
         <code>{{ nodeDetail.source }}</code>
@@ -35,6 +41,12 @@
           <!-- 变量列表 -->
           <div class="section-block" v-if="variables.length">
             <h4 class="section-title">模板变量</h4>
+            <div class="variable-summary" v-if="requiredVariables.length">
+              <span class="summary-label">运行时必填</span>
+              <code v-for="v in requiredVariables" :key="`req-${v.name}`">
+                {{ '{' }}{{ v.name }}{{ '}' }}
+              </code>
+            </div>
             <div class="var-table">
               <div class="var-row var-header">
                 <span class="col-name">变量名</span>
@@ -42,7 +54,12 @@
                 <span class="col-desc">说明</span>
                 <span class="col-req">必填</span>
               </div>
-              <div class="var-row" v-for="v in variables" :key="v.name">
+              <div
+                class="var-row"
+                v-for="v in variables"
+                :key="v.name"
+                :class="{ 'var-row--required': v.required }"
+              >
                 <span class="col-name"><code>{{ '{' }}{{ v.name }}{{ '}' }}</code></span>
                 <span class="col-type">{{ v.type }}</span>
                 <span class="col-desc">{{ v.desc || '-' }}</span>
@@ -79,7 +96,7 @@
               <template #label>
                 <span class="form-label-with-hint">
                   System 提示词
-                  <span class="label-hint">角色与规则，一般较长</span>
+                  <span class="label-hint">{{ systemCharCount }} 字 · 角色、规则与硬约束</span>
                 </span>
               </template>
               <n-input
@@ -94,7 +111,7 @@
               <template #label>
                 <span class="form-label-with-hint">
                   User 模板
-                  <span class="label-hint">与变量列表一致，半角花括号包裹名称</span>
+                  <span class="label-hint">{{ userCharCount }} 字 · 任务输入，半角花括号包裹变量</span>
                 </span>
               </template>
               <n-input
@@ -232,6 +249,10 @@ const selectedVersionFull = ref<PromptVersionDetail | null>(null)
 // ---- 计算属性 ----
 
 const variables = computed<PromptVariable[]>(() => nodeDetail.value?.variables || [])
+const requiredVariables = computed(() => variables.value.filter(v => v.required))
+const optionalVariables = computed(() => variables.value.filter(v => !v.required))
+const systemCharCount = computed(() => editForm.value.system.length)
+const userCharCount = computed(() => editForm.value.user_template.length)
 
 // ---- 方法 ----
 
@@ -448,6 +469,30 @@ onMounted(() => { loadDetail() })
   line-height: 1.55;
   margin: 0 0 8px;
 }
+.prompt-health-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 8px;
+}
+.health-item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+.health-item--required {
+  border-color: var(--color-danger);
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
+}
 .source-line {
   display: flex;
   align-items: center;
@@ -507,6 +552,32 @@ onMounted(() => { loadDetail() })
 }
 
 /* ---- 变量表格 ---- */
+.variable-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-brand-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--color-brand-light);
+}
+.summary-label {
+  margin-right: 2px;
+  color: var(--app-text-secondary);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.variable-summary code {
+  padding: 2px 6px;
+  border: 1px solid var(--color-brand-border);
+  border-radius: 4px;
+  background: var(--app-surface);
+  color: var(--color-brand);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+}
 .var-table {
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-sm);
@@ -514,7 +585,8 @@ onMounted(() => { loadDetail() })
 }
 .var-row {
   display: grid;
-  grid-template-columns: 140px 70px 1fr 50px;
+  grid-template-columns: minmax(150px, 0.85fr) 72px minmax(280px, 1.6fr) 64px;
+  gap: 10px;
   align-items: center;
   padding: 8px 12px;
   font-size: 12px;
@@ -535,6 +607,9 @@ onMounted(() => { loadDetail() })
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.var-row--required {
+  background: var(--color-danger-dim);
+}
 .col-name code {
   font-size: 11.5px;
   background: linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(139, 92, 246, 0.06));
@@ -544,6 +619,11 @@ onMounted(() => { loadDetail() })
   font-family: var(--font-mono);
   border: 1px solid var(--color-brand-border);
 }
+.var-row--required .col-name code {
+  border-color: var(--color-danger);
+  background: var(--app-surface);
+  color: var(--color-danger);
+}
 .col-type {
   color: var(--app-text-muted);
   font-family: var(--font-mono);
@@ -552,6 +632,7 @@ onMounted(() => { loadDetail() })
 .col-desc {
   color: var(--app-text-secondary);
   font-size: 12.5px;
+  line-height: 1.45;
 }
 .optional-text {
   font-size: 11.5px;

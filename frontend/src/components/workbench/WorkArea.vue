@@ -432,11 +432,11 @@
       v-model:show="showGenerationStyleModal"
       preset="card"
       title="生成风格 / AI味抑制"
-      style="width: min(880px, 96vw); max-height: min(92vh, 900px)"
+      style="width: min(1080px, 96vw); max-height: min(94vh, 960px)"
       :segmented="{ content: true }"
       display-directive="if"
     >
-      <n-scrollbar style="max-height: min(78vh, 760px)">
+      <n-scrollbar style="max-height: min(82vh, 820px)">
         <PromptDetailPanel
           node-key="workflow-chapter-generation"
           @updated="message.success('生成风格配置已保存')"
