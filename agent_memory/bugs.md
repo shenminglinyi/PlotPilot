@@ -10,6 +10,7 @@
 - 线上 AI 章节生成当前依赖 LLM 控制台配置；API Key/模型名为空时会回退 MockProvider，接口可以返回 SSE，但内容可能是测试 JSON 而不是小说正文。已改为 Kimi + DS profile，地址与模型名已配置；补 API Key 前不要把试写结果判断为真实模型质量。
 - Kimi `coding-intl.dashscope.aliyuncs.com/v1` 网关支持 `/chat/completions`，但不支持 `/models`，拉模型列表会 404；后端已对该类网关做模型列表兜底，测试连接结果比模型列表更能代表真实可用性。
 - 真实 LLM 选题生成可用，但 `logline` 可能直接拼入过多市场信号原文，导致一句话卖点过长。后续优化应从 prompt 约束和保存前字段压缩入手，不影响当前链路可用性。
+- 新增全局悬浮 UI 组件后必须确认已在 `App.vue` 或路由根组件挂载；仅存在组件文件不代表生产构建会显示。右侧 AI 控制台/提示词广场 FAB 已恢复全局挂载。
 - 高频采集/全链路测试后曾出现 SQLite `database is locked`，重启 `plotpilot-novelpro.service` 后解除。后续若复现，需要优先检查是否有长事务或后台采集与章节生成并发写入。
 
 ## 已解除

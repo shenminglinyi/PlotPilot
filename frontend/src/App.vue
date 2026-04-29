@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN, darkTheme } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useThemeStore } from './stores/themeStore'
+import GlobalLLMFloatingButton from './components/global/GlobalLLMFloatingButton.vue'
+import PromptPlazaFAB from './components/global/PromptPlazaFAB.vue'
 
 const themeStore = useThemeStore()
 
@@ -150,6 +152,8 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
             <component :is="Component" />
           </transition>
         </router-view>
+        <GlobalLLMFloatingButton />
+        <PromptPlazaFAB />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>

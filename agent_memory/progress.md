@@ -111,6 +111,10 @@
     - 选题已采纳为测试小说 `novel-41cc891f269141759d7bceb2f6dc4b48`。
     - 第一章流式试写已跑通并保存，章节标题《第一章 榜单在凌晨改名》，SSE 事件 3209 个，正文长度 5219 字，预览为正常小说正文而非 Mock JSON。
     - 观察到选题 `logline` 仍会把市场信号拼得过长，后续可优化选题生成 prompt 或落库前摘要压缩。
+  - 2026-04-29 右侧悬浮入口恢复：
+    - `GlobalLLMFloatingButton` 与 `PromptPlazaFAB` 组件存在但未在 `App.vue` 全局挂载，重新构建部署后右侧悬浮新功能入口不可见。
+    - 已在 `App.vue` 挂载 AI 控制台与提示词广场 FAB，并把 AI 悬浮入口副标题更新为 `Kimi / DS / OpenAI-compatible`。
+    - 线上验证：当前 HTML 引用新构建 `/assets/index-CPSH3EXp.js` 与 `/assets/index-CC7Vbho-.css`，打包产物包含 `global-llm-shell` 与 `plaza-fab-shell`。
 
 ## 下一步
 

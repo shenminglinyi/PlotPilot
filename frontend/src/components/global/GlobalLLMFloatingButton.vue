@@ -54,7 +54,7 @@
               <span class="global-llm-title">AI 控制台</span>
               <span class="global-llm-status"></span>
             </span>
-            <span class="global-llm-subtitle">LLM Gateway · OpenAI / Claude / Gemini</span>
+            <span class="global-llm-subtitle">LLM Gateway · Kimi / DS / OpenAI-compatible</span>
           </span>
         </span>
       </button>
