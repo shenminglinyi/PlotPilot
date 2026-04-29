@@ -941,6 +941,7 @@ def get_novelpro_monitor_service():
     return NovelProMonitorService(
         knowledge_service=get_knowledge_service(),
         obsidian_memory_service=get_obsidian_primary_memory_service(),
+        obsidian_sync_service=get_obsidian_memory_service(),
         continuity_service=get_continuity_overview_service(),
         power_system_service=get_power_system_service(),
     )

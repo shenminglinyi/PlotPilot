@@ -14,6 +14,7 @@
 - 高频采集/全链路测试后曾出现 SQLite `database is locked`，重启 `plotpilot-novelpro.service` 后解除。后续若复现，需要优先检查是否有长事务或后台采集与章节生成并发写入。
 - NovelPro 测试区曾停留在 `local/feature-p1-candidate-gate` 分支，没有进入线上部署分支；排查“右侧新功能缺失”时必须同时检查当前部署分支、来源分支和线上 API/构建包。
 - NovelPro 候选稿、连续性、口吻锁定、战力系统、模型分工等右栏重面板依赖异步组件和新增 API；合并后验证要同时跑前端构建、后端编译和对应聚焦测试，避免只看页面入口。
+- NovelPro Obsidian 有两类服务：主记忆读取器不依赖 KnowledgeService，写入/同步器必须依赖 PP SQLite Knowledge 缓存。手动同步接口不能直接复用只读服务，否则会因 `knowledge_service=None` 报错。
 
 ## 已解除
 

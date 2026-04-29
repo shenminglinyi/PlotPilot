@@ -129,6 +129,10 @@
     - 合并后验证通过：`python3 -m compileall -q application domain infrastructure interfaces scripts`、NovelPro 聚焦测试 14 passed、选题聚焦测试 100 passed、`npm run build` 通过。
     - 已重新部署到宝塔；线上 dist 动态 chunk 包含 `NovelPro 测试区 / 监控中心 / 候选/精修 / 连续性巡检 / 口吻锁定 / 战力系统 / 生成风格 / AI味抑制 / 选题立项池`。
     - 线上 API 验证：选题信号源与健康状态仍返回 200；`/api/v1/novels/{id}/novelpro/monitor`、`/continuity/overview`、`/power-system/overview` 均返回 200。
+  - 2026-04-29 宝塔 Obsidian 长期记忆验证：
+    - 宝塔无需安装 Obsidian 桌面应用即可作为 Markdown Vault 使用；线上 Vault 路径已配置为 `/www/wwwroot/plotpilot-novelpro/data/obsidian-vault`。
+    - 已修复手动同步接口拿到只读 Obsidian 服务导致 `/novelpro/obsidian/sync` 报 `'NoneType' object has no attribute 'get_knowledge'` 的问题。
+    - 线上复测同步成功：写出 `00_Index.md / 01_Fact_Locks.md / 02_Chapters/Chapter_0001.md / 03_Entities/Character_Relationships.md / 04_Timelines/Timeline.md`，监控返回 `primary_memory=true`、`fact_count=11`、`chapter_count=1`、`vault_configured=true`。
 
 ## 下一步
 

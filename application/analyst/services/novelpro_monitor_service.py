@@ -35,11 +35,13 @@ class NovelProMonitorService:
         *,
         knowledge_service,
         obsidian_memory_service,
+        obsidian_sync_service=None,
         continuity_service,
         power_system_service,
     ) -> None:
         self.knowledge_service = knowledge_service
         self.obsidian_memory_service = obsidian_memory_service
+        self.obsidian_sync_service = obsidian_sync_service or obsidian_memory_service
         self.continuity_service = continuity_service
         self.power_system_service = power_system_service
 
@@ -76,7 +78,7 @@ class NovelProMonitorService:
         }
 
     def sync_obsidian_chapter(self, novel_id: str, chapter_number: int) -> dict[str, Any]:
-        sync_chapter = getattr(self.obsidian_memory_service, "sync_chapter", None)
+        sync_chapter = getattr(self.obsidian_sync_service, "sync_chapter", None)
         if not callable(sync_chapter):
             return {
                 "synced": False,
