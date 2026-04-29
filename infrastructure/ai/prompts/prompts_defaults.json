@@ -1,11 +1,11 @@
 {
   "_meta": {
-    "version": "2.0.0-anti-ai-v1",
+    "version": "2.1.0-anti-ai-natural-style",
     "description": "PlotPilot 提示词库 v2 - 反AI风/爽文沉浸式/上下文强一致性重写版",
     "author": "PlotPilot Team x Anti-AI Style Specialist",
-    "last_updated": "2026-04-18",
+    "last_updated": "2026-04-30",
     "engine": "jinja2",
-    "changelog": "v2: 全面重写核心生成/审阅提示词，消除模板感，强化爽文节奏与连贯性"
+    "changelog": "v2.1: 强化工作流章节生成的去AI味规则，新增AI味审稿、改写和可复用规则库，并补齐必填/可选变量标记。"
   },
   "categories": [
     {
@@ -555,18 +555,21 @@
       "variables": [
         {
           "name": "character_name",
-          "desc": "角色名称",
-          "type": "string"
+          "desc": "必填：角色名称",
+          "type": "string",
+          "required": true
         },
         {
           "name": "character_profile",
-          "desc": "角色设定（JSON）",
-          "type": "object"
+          "desc": "必填：角色设定（JSON 或文本）",
+          "type": "object",
+          "required": true
         },
         {
           "name": "chapter_content",
-          "desc": "章节内容",
-          "type": "string"
+          "desc": "必填：章节内容",
+          "type": "string",
+          "required": true
         }
       ]
     },
@@ -1217,12 +1220,37 @@
       "system": "",
       "user_template": "{directive}\n\n——\n📊 全局进度：第 {chapter_number} 章 / 约 {total_chapters} 章 ({progress_pct})\n🎯 当前阶段：{phase_name}\n{extra_hint}",
       "variables": [
-        {"name": "directive", "desc": "阶段基准指令文本", "type": "string"},
-        {"name": "chapter_number", "desc": "当前章节号", "type": "integer"},
-        {"name": "total_chapters", "desc": "预估总章节数", "type": "integer"},
-        {"name": "progress_pct", "desc": "进度百分比", "type": "string"},
-        {"name": "phase_name", "desc": "阶段名称", "type": "string"},
-        {"name": "extra_hint", "desc": "额外压力提示（收敛/终局时非空）", "type": "string", "default": ""}
+        {
+          "name": "directive",
+          "desc": "阶段基准指令文本",
+          "type": "string"
+        },
+        {
+          "name": "chapter_number",
+          "desc": "当前章节号",
+          "type": "integer"
+        },
+        {
+          "name": "total_chapters",
+          "desc": "预估总章节数",
+          "type": "integer"
+        },
+        {
+          "name": "progress_pct",
+          "desc": "进度百分比",
+          "type": "string"
+        },
+        {
+          "name": "phase_name",
+          "desc": "阶段名称",
+          "type": "string"
+        },
+        {
+          "name": "extra_hint",
+          "desc": "额外压力提示（收敛/终局时非空）",
+          "type": "string",
+          "default": ""
+        }
       ]
     },
     {
@@ -1263,42 +1291,237 @@
       "system": "",
       "user_template": "【节拍 {beat_index}/{total_beats}】\n目标字数：约 {target_words} 字\n聚焦点：{focus}\n\n{instruction}\n\n节拍内容：\n{description}\n\n密度与可检查要求：\n- {anchor_line}\n- {obligation}\n\n⚠️ 篇幅控制与收尾规则（必须遵守）：\n- 当剧情已交代完毕，立即用完整的句子结束本节拍，不要拖沓\n- 禁止无意义的对话重复或空洞感叹来凑字数\n- 若已达到目标字数附近，主动收束场景，给出干净利落的段落结尾\n- 结尾必须完整（有句号），绝不允许中途截断\n\n注意：\n- 这是完整章节的一部分，不要写章节标题\n- 不要在节拍结尾强行总结全章\n- 专注于当前节拍的内容，自然衔接到下一节拍",
       "variables": [
-        {"name": "beat_index", "desc": "节拍序号（从1开始）", "type": "integer"},
-        {"name": "total_beats", "desc": "总节拍数", "type": "integer"},
-        {"name": "target_words", "desc": "目标字数", "type": "integer"},
-        {"name": "focus", "desc": "聚焦类型", "type": "string"},
-        {"name": "instruction", "desc": "聚焦指令", "type": "string"},
-        {"name": "description", "desc": "节拍内容描述", "type": "string"},
-        {"name": "anchor_line", "desc": "环境锚点轮转行", "type": "string"},
-        {"name": "obligation", "desc": "叙事义务", "type": "string"}
+        {
+          "name": "beat_index",
+          "desc": "节拍序号（从1开始）",
+          "type": "integer"
+        },
+        {
+          "name": "total_beats",
+          "desc": "总节拍数",
+          "type": "integer"
+        },
+        {
+          "name": "target_words",
+          "desc": "目标字数",
+          "type": "integer"
+        },
+        {
+          "name": "focus",
+          "desc": "聚焦类型",
+          "type": "string"
+        },
+        {
+          "name": "instruction",
+          "desc": "聚焦指令",
+          "type": "string"
+        },
+        {
+          "name": "description",
+          "desc": "节拍内容描述",
+          "type": "string"
+        },
+        {
+          "name": "anchor_line",
+          "desc": "环境锚点轮转行",
+          "type": "string"
+        },
+        {
+          "name": "obligation",
+          "desc": "叙事义务",
+          "type": "string"
+        }
       ]
     },
     {
-      "id": "workflow-chapter-generation",
-      "name": "工作流章节生成（运行时组装）",
+      "id": "anti-ai-style-rules",
+      "name": "AI味抑制规则库（可复制到生成节点）",
+      "description": "一组可复用的自然化小说写作规则：具体动作、潜台词对白、慢写冲突、禁用套路总结。适合复制到任何正文生成提示词中。",
       "category": "generation",
-      "source": "application/workflows/auto_novel_generation_workflow.py::_build_prompt()",
-      "description": "AutoNovelGenerationWorkflow 运行时使用的 system/user 模板。与 chapter-generation-main 不同的是：此版本是代码中实际拼接的「轻量版」，用于流式生成和托管模式",
+      "source": "PlotPilot NovelPro synthesis, based on prompt-engineering clarity principles and fiction craft rules",
       "builtin": true,
       "tags": [
-        "核心",
-        "工作流",
-        "运行时",
-        "流式生成"
+        "AI味抑制",
+        "自然化",
+        "正文生成",
+        "规则库"
+      ],
+      "variables": [
+        {
+          "name": "genre",
+          "desc": "可选：类型，如都市幻想/仙侠/悬疑/现言",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "style_reference",
+          "desc": "可选：作者样本文风或目标口味描述",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
       ],
       "output_format": "text",
-      "system": "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。\n\n{planning_section}{voice_block}{context}\n\n{fact_lock}\n写作要求：\n1. 必须有多个人物互动（至少2-3个角色出场）\n2. 必须有对话（不能只有独白和叙述）\n3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）\n4. 保持人物性格一致\n5. 推进情节发展\n6. 使用生动的场景描写和细节\n{length_rule}\n8. 用中文写作，使用第三人称叙事{beat_extra}",
-      "user_template": "请根据以下大纲撰写本章内容：\n\n{outline}\n\n关键要求（必须遵守）：\n- 至少2-3个角色出场并互动\n- 必须包含对话场景（不少于3段对话）\n- 必须有明确的冲突或戏剧张力\n- 场景要具体生动，不要空泛叙述\n- 推进主线情节，不要原地踏步\n- 结尾要有悬念或转折{prior_draft}{beat_section}",
+      "system": "你是小说生成提示词的风格规则模块。请把下列规则作为正文生成时的硬约束，而不是建议。\n\n适用类型：{genre}\n参考风格：{style_reference}\n\n必选规则：\n1. 展示而非说明：情绪必须落在动作、物件、声音、视线、停顿和身体反应上。\n2. 对话有潜台词：角色不直接解释全部动机，允许遮掩、试探、误解、反问、答非所问。\n3. 场景细节有功能：每个细节必须服务于危险、关系、阶层、伏笔、时间压力或人物习惯。\n4. 冲突慢写：关键节点拆成动作链、信息递进、微反应和来回对白。\n5. 禁止模板总结：不用“命运齿轮”“一切才刚开始”“他知道再也回不去了”等段尾金句。\n6. 禁止万能比喻：少用“像刀/像雷/像重锤”；改用物理后果和具体感受。\n7. 不解释规则，不输出分析，只写目标文本。",
+      "user_template": "请把上述规则融合进当前写作任务；如果与具体剧情要求冲突，优先服从事实锁、人设和大纲。"
+    },
+    {
+      "id": "review-ai-flavor-audit",
+      "name": "AI味审稿报告（逐段定位）",
+      "description": "对章节正文做AI味扫描，定位抽象情绪、套路氛围、总结句、解释腔、对白直白、过程压缩等问题，并给出可执行修改建议。",
+      "category": "review",
+      "source": "PlotPilot NovelPro anti-AI review checklist",
+      "builtin": true,
+      "tags": [
+        "AI味检测",
+        "审稿",
+        "逐段问题",
+        "可执行建议"
+      ],
       "variables": [
-        {"name": "planning_section", "desc": "故事线/张力/风格约束块", "type": "string", "default": ""},
-        {"name": "voice_block", "desc": "角色声线与肢体语言锚点", "type": "string", "default": ""},
-        {"name": "context", "desc": "完整上下文（Bible摘要+前情提要）", "type": "string"},
-        {"name": "fact_lock", "desc": "记忆引擎事实锁块", "type": "string", "default": ""},
-        {"name": "length_rule", "desc": "字数规则（第7条）", "type": "string"},
-        {"name": "beat_extra", "desc": "节拍模式附加说明（第9条）", "type": "string", "default": ""},
-        {"name": "outline", "desc": "章节大纲", "type": "string"},
-        {"name": "prior_draft", "desc": "本章已生成正文（续写模式）", "type": "string", "default": ""},
-        {"name": "beat_section", "desc": "当前节拍说明", "type": "string", "default": ""}
+        {
+          "name": "chapter_content",
+          "desc": "必填：要审稿的章节正文",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "novel_context",
+          "desc": "可选：小说类型、人设、前情或本章目标",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
+      ],
+      "output_format": "json",
+      "system": "你是严苛的中文网文主编，专门识别AI生成文本的模板感。你只指出会影响阅读沉浸的问题，不做泛泛表扬。\n\n重点检查：\n- 抽象情绪说明：复杂情绪、说不清的东西、心里一震等。\n- 套路氛围：空气凝固、时间静止、夜幕降临华灯初上等。\n- 总结句/宿命句：一切才刚开始、命运齿轮、再也回不去了。\n- 对话直白：角色把动机、信息和情绪一次性解释完。\n- 过程压缩：一番交谈后、很快、简单说明、转眼之间等跳过付费看点。\n- 说明文腔：每段都解释意义，而不是让动作和场景承担意义。\n\n只输出 JSON。",
+      "user_template": "【小说上下文】\n{novel_context}\n\n【待审章节】\n{chapter_content}\n\n请输出：\n{{\n  \"overall_score\": 0-100,\n  \"risk_level\": \"low/medium/high\",\n  \"must_fix\": [\n    {{\"location\": \"段落或原句\", \"issue\": \"问题\", \"reason\": \"为什么有AI味\", \"rewrite_direction\": \"怎么改\"}}\n  ],\n  \"optional_polish\": [\n    {{\"location\": \"段落或原句\", \"suggestion\": \"可选润色建议\"}}\n  ],\n  \"keep\": [\"值得保留的自然表达或有效场景\"]\n}}"
+    },
+    {
+      "id": "rewrite-ai-flavor-naturalizer",
+      "name": "AI味改写器（自然化正文）",
+      "description": "把已有章节或片段改成更像人工写作：保留剧情事实，增加动作链、潜台词、场景压力和细节功能，删除模板总结。",
+      "category": "creative",
+      "source": "PlotPilot NovelPro anti-AI rewrite pass",
+      "builtin": true,
+      "tags": [
+        "AI味改写",
+        "自然化",
+        "潜台词",
+        "慢写"
+      ],
+      "variables": [
+        {
+          "name": "draft",
+          "desc": "必填：需要自然化改写的原文",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "must_keep",
+          "desc": "可选：必须保留的事实、台词、节拍或伏笔",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "rewrite_goal",
+          "desc": "可选：改写重点，如更克制/更爽/更悬疑/更口语",
+          "type": "string",
+          "default": "降低AI味，保留剧情事实，增强阅读沉浸",
+          "required": false
+        },
+        {
+          "name": "taboo_phrases",
+          "desc": "可选：禁止出现的词句或表达习惯",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
+      ],
+      "output_format": "text",
+      "system": "你是中文小说改稿编辑。你的目标是降低文本的AI味，而不是重写成另一段剧情。\n\n改稿原则：\n1. 保留事实、出场人物、因果顺序、伏笔和关键台词。\n2. 删除抽象解释、模板总结和万能比喻。\n3. 把情绪改成动作、物件、声音、停顿、身体反应和旁人反应。\n4. 把被压缩的过程展开成动作链和对白来回。\n5. 对话更像人说话：允许停顿、回避、半句、反问和误解。\n6. 不输出修改说明，只输出改写后的正文。",
+      "user_template": "【改写目标】\n{rewrite_goal}\n\n【必须保留】\n{must_keep}\n\n【禁用表达】\n{taboo_phrases}\n\n【原文】\n{draft}\n\n请输出改写后的正文："
+    },
+    {
+      "id": "workflow-chapter-generation",
+      "name": "工作流章节生成（低AI味自然化版）",
+      "category": "generation",
+      "source": "PlotPilot NovelPro prompts_defaults.json v2.1",
+      "description": "AutoNovelGenerationWorkflow 实际使用的章节生成模板。v2.1 强制具体场景、潜台词对白、冲突慢写、禁用模板总结与抽象情绪。",
+      "builtin": true,
+      "tags": [
+        "章节生成",
+        "AI味抑制",
+        "自然化",
+        "慢写过程",
+        "工作流"
+      ],
+      "output_format": "text",
+      "system": "你是长期连载型中文商业小说作者，同时也是一名严苛的去AI味行文编辑。你的任务不是“概括剧情”，而是把本章写成可直接发布的小说正文。\n\n{planning_section}{voice_block}{context}\n\n{fact_lock}\n\n【必守边界】\n1. 绝对服从上下文、Bible、人设、事实锁和已完成节拍；不能新造核心角色、组织、能力或设定来解决问题。\n2. 本章必须推进一个可指认的变化：信息差被打破、关系变动、目标受阻、代价出现、选择落地，至少满足其一。\n3. {length_rule}\n4. 用中文写作，默认第三人称限制视角；只写 POV 能看见、听见、触到、闻到、误解到或推断到的东西。{beat_extra}\n\n【去AI味硬规则】\n1. 用“动作/物件/声音/反应”承载情绪，不用抽象情绪说明。少写“他很愤怒/她心里复杂/空气凝固”，改成手指、呼吸、视线、停顿、物件变化。\n2. 对话必须有潜台词。角色可以回避、试探、误解、岔开话题、说半句、反问；不要让每个人都把动机解释清楚。\n3. 场景细节只写会改变阅读判断的东西：能暴露阶层、关系、危险、时间压力、人物习惯的细节。不要堆漂亮形容词。\n4. 核心冲突慢写。摊牌、发现、打脸、危机、心动、背叛等节点要拆成动作链、微反应、对话来回和信息递进，不能一句话跳过。\n5. 句子长短要随压力变化。紧张处短句、断句、动作前置；缓和处允许长句，但每句都要有信息增量。\n6. 不要在段尾替读者总结意义。禁止“他知道一切才刚刚开始”“命运的齿轮开始转动”“这一刻改变了所有人”等宿命总结。\n7. 少用万能比喻和套路氛围。禁止把冲击写成“像刀/像雷/像巨石压下”，优先写身体感、物理后果和旁人反应。\n8. 不要解释你在写什么，不要输出分析、提纲、标题说明、规则说明；只输出正文。\n\n【质量自检后再输出】\n输出前在内部检查：是否有至少一场互动、至少三段有来回的对白、一个明确阻力或张力点、一个结尾钩子；若缺失，直接补进正文，不要说明。",
+      "user_template": "请根据以下大纲撰写本章正文：\n\n{outline}\n\n写作执行清单（必须遵守）：\n- 开头从具体动作、声音、物件异常或人物正在做的事切入，不要先介绍背景。\n- 至少 2-3 个角色出场并发生互动；如果上下文只允许少角色，则用环境压力或信息差制造对抗。\n- 必须有不少于 3 段来回对白，对白要带试探、遮掩、反问或未说出口的信息。\n- 每个场景至少同时完成两件事：推进情节 + 改变关系/暴露性格/埋下风险。\n- 冲突节点要慢写，不要用“一番交谈后”“很快达成共识”“简单说明情况”压缩过程。\n- 结尾用动作、画面、未完成对白、突发信息或选择后果收束，不要哲理化总结。\n{prior_draft}{beat_section}",
+      "variables": [
+        {
+          "name": "planning_section",
+          "desc": "可选：故事线、张力曲线、文风约束等运行时规划块",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "voice_block",
+          "desc": "可选：角色声线、口癖、肢体语言锚点",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "context",
+          "desc": "必填：完整上下文（Bible摘要、前情、章节记忆等）",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "fact_lock",
+          "desc": "可选：记忆引擎事实锁块；存在时优先级最高",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "length_rule",
+          "desc": "必填：字数/篇幅规则，会作为硬约束写入 System",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "beat_extra",
+          "desc": "可选：节拍模式附加说明，例如续写、节拍聚焦",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "outline",
+          "desc": "必填：本章大纲或生成目标",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "prior_draft",
+          "desc": "可选：本章已生成正文；续写/重写时使用",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "beat_section",
+          "desc": "可选：当前微观节拍说明",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
       ]
     }
   ]

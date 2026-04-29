@@ -138,6 +138,11 @@
     - 已安装 macOS LaunchAgent `com.plotpilot.novelpro.obsidian-sync`，每 1800 秒自动同步一次；日志在 `~/Library/Logs/PlotPilot/obsidian-sync.launchd.log`。
     - 因 macOS LaunchAgent 无法直接访问/执行 `~/Documents/小说/...` 内脚本，实际定时入口放在 `~/.local/bin/plotpilot-novelpro-sync-obsidian`；本地 `.env` 已配置 `PLOTPILOT_OBSIDIAN_VAULT=/Users/frank/PlotPilot-Obsidian-Vault`。
     - 验证通过：LaunchAgent `last exit code = 0`，本地 Obsidian 服务读取 `primary_memory=True`、`fact_count=11`、`chapter_count=1`。
+  - 2026-04-30 低 AI 味提示词库更新：
+    - 已将 `workflow-chapter-generation` 替换为“低AI味自然化版”，强化具体动作、潜台词对白、冲突慢写、禁用模板总结与抽象情绪。
+    - 已新增 3 个提示词节点：`anti-ai-style-rules`、`review-ai-flavor-audit`、`rewrite-ai-flavor-naturalizer`。
+    - 已给运行时章节生成与新增节点补齐必填/可选变量标记；章节生成必填为 `context / length_rule / outline`，其他运行时块为可选。
+    - 本地与宝塔提示词数据库均已导入新版本；线上 API 已验证 4 个节点详情和变量标记正常返回。
 
 ## 下一步
 
@@ -145,10 +150,10 @@
 - 外部 API / 登录态数据已完成基础接入、真实连接测试、小批量真实入库验证和采集健康状态。
 - 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
-- 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
+- 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`；当前默认已切到低 AI 味自然化版，并保留版本历史可回滚。
 - 线上 Kimi 与 DS API Key 已配置且连接测试通过；后续可继续复测选题生成与章节试写质量。
 - 线上真实 LLM 选题生成与章节试写已通过；后续可优先优化选题 `logline` 过长、市场信号压缩和章节生成风格质量。
 
 ## 待确认
 
-- 是否需要把 `workflow-chapter-generation` 的默认文案进一步改成更强的“自然化/低 AI 味”版本。
+- 是否需要继续把“AI味审稿报告”和“AI味改写器”接到候选/精修面板的一键按钮中。
