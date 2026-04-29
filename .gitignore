@@ -40,6 +40,8 @@ frontend/dist/
 .playwright-mcp/
 .claude/
 .trae/
+agent_memory/
+LOCAL_DEVELOPMENT.md
 
 # ── 覆盖率 / 测试产物 ──
 .coverage
@@ -92,6 +94,8 @@ data/llm_configs.json
 data/obsidian-vault/
 data/obsidian-vault-backups/
 .obsidian-sync.lock/
+scripts/sync_obsidian_from_server.sh
+scripts/launchd/com.plotpilot.novelpro.obsidian-sync.plist
 
 # ── 日志 ──
 logs/
@@ -159,3 +163,9 @@ mcps/
 *.rs.bk
 *.orig
 *.rej
+
+# ── 本地执行计划 / Agent 过程文档 ──
+docs/superpowers/plans/2026-04-27-p1-candidate-drafts.md
+docs/superpowers/plans/2026-04-29-topic-idea-incubation.md
+docs/superpowers/plans/2026-04-29-topic-idea-report.md
+docs/superpowers/specs/2026-04-29-topic-idea-incubation-design.md

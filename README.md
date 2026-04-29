@@ -18,6 +18,7 @@
 - **知识图谱**：自动提取故事三元组，语义检索历史内容。
 - **伏笔台账**：追踪并自动闭合叙事钩子。
 - **风格分析**：作者声音漂移检测与文体指纹。
+- **NovelPro 作者工作台**：选题立项、候选稿、连续性巡检、战力系统、Obsidian 长期记忆与监控中心。详见 [docs/NOVELPRO_README.md](docs/NOVELPRO_README.md)。
 - **节拍表与故事结构**：三幕式、章节节拍规划。
 - **DDD 四层架构**：`domain` / `application` / `infrastructure` / `interfaces`
 
