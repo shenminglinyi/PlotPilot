@@ -83,6 +83,16 @@
   - 宝塔部署验证：公网 `http://45.197.149.138:39100/` 返回前端 HTML；`/api/v1/topics/signals/sources` 返回 7 个来源；服务器侧 7 个来源连接测试全成功；已开启自动采集，间隔 180 分钟，每源 8 条；手动采集 7 个来源各 1 条后健康状态均为 `success`。
   - 榜单维度采集验证：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/domain/topic/test_topic_idea.py tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/application/services/test_topic_idea_service.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/application/services/test_topic_signal_collectors.py tests/unit/interfaces/api/test_topic_ideas.py tests/unit/scripts/test_start_topic_signal_collector.py -q`：通过，99 passed，2 个既有 422 常量弃用 warning；`python3 -m compileall -q application/topic interfaces/api/v1/topic scripts/start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_collectors.py`：通过；`npm run build`（frontend）：通过，仅有既有大 chunk 警告。
   - 榜单维度真实连接测试：7 个来源按每榜 1 条测试均成功；起点、晋江、七猫、番茄、QQ 阅读、腾讯动漫、快看漫画均返回 3 条样例，覆盖热门/新书/快速上榜维度。
+  - 2026-04-29 全功能回归：
+    - 原始 `pytest tests -q` 在收集阶段被 3 个历史/手动测试阻断：`tests/integration/test_novel_workflow.py`、`tests/integration/test_storyline_integration.py` 缺少旧文件仓储模块，`tests/manual/test_voice_api_manual.py` 缺少 `requests`。
+    - 排除上述 3 个文件后运行全量测试：953 passed，68 failed，16 errors，7 skipped；失败集中在历史上下文/向量库/旧 API 断言/AI 配置预期，选题相关测试通过。
+    - 选题与数据库迁移聚焦测试：`tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/application/services/test_topic_idea_service.py tests/unit/interfaces/api/test_topic_ideas.py` 通过，70 passed。
+    - `npm run build`（frontend）通过，仅有既有大 chunk 警告。
+    - 已修复并部署线上旧库 `topic_ideas` 缺列问题：启动前幂等补齐 `status / selling_points_json / market_tags_json / score / adopted_novel_id` 等当前列，避免宝塔旧库生成选题时报 `no column named selling_points_json`。
+    - 宝塔全链路验证：7 个来源均有热门/新书/快速上榜维度；连接测试 7 个来源全成功且每源 3 条；采集健康状态 7 个来源均为 `success`、`last_count=3`。
+    - 线上已创建测试选题 `topic-dfad56300f6640318a72c8215c3f93f7`，题名 `Codex全链路测试-20260429-223024-逆风开局的隐藏王牌`，评分 100，并采纳为测试小说 `novel-5b70142adf6849afb44f97796a64bc6c`。
+    - 测试小说第一章已保存可读试写稿《第一章 旧榜单的新名字》，验证章节创建、手动/接口保存通路可用。
+    - 线上 AI 流式章节生成接口重启服务释放 SQLite 锁后可返回 SSE 并保存，但当前 LLM 配置缺少 API Key/模型名，运行时回退 MockProvider，输出为 JSON 风格测试内容，不算小说正文质量通过。
 
 ## 下一步
 
@@ -90,6 +100,7 @@
 - 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
 - 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
+- 如要让线上 AI 试写真正产出小说正文，需要先在 AI 控制台或 `llm_profiles` 中配置可用 API Key 与模型名；当前线上 active profile 为空配置，会回退 MockProvider。
 
 ## 待确认
 
