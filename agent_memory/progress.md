@@ -7,16 +7,77 @@
 - 已保留原始冻结基线：`local/base-v1.0.3`
 - 已补齐 `v1.0.4` 变更到二开主线，提交为 `1166ceb upstream: sync v1.0.4 changes`
 - 已更新 `LOCAL_DEVELOPMENT.md`，记录本地二开策略、分支约定和上游吸收方式。
+- 已将工作流章节生成接入提示词广场 `workflow-chapter-generation`，实际生成会优先读取可视配置，配置为空或不可用时回退内置模板。
+- 已扩充 AI 味俗套扫描规则，覆盖氛围凝固、模糊心理、宿命总结和抽象转折类表达。
+- 已在工作台「辅助撰稿 → 章节编辑」页签的快速生成旁新增「生成风格」入口，直接打开 `workflow-chapter-generation` 的编辑与版本历史。
+- 已在快速生成弹窗新增「慢写过程」开关；开启后请求会注入“避免 AI 压缩表达”约束，要求展开关键动作、对话、试探、停顿和信息增量。
+- 已扩充俗套扫描规则，识别“一番交谈后”“很快达成共识”“简单说明了情况”等压缩表达。
+- 已实现选题立项池：选题生成、保存、列表、归档/恢复、人工修订、采用为新书；采用后接入现有新书设置向导。
+- 已增强选题立项池：支持单条深化、单条评估、2-5 个选题对比推荐；前端支持多选对比、推荐结果展示和单卡片深化/评估操作。
+- 已增强选题立项池结构化立项报告：选题候选可保存 `development_notes` 与 `evaluation`，深化/评估会沉淀立项案和评估维度；前端卡片可展示结构化报告，旧库会幂等补列。
+- 已打通选题采用上下文：采用为新书时会把结构化立项案和评估维度格式化进新书 `premise`，后续世界观、人物与主线向导可继承选题阶段沉淀的信息。
+- 已新增选题采用确认预览：点击「采用为新书」会先展示标题、梗概、类型、钩子、立项案和评估风险；可在确认前微调标题与核心梗概，确认后再保存并创建新书。
+- 已新增选题市场观察导入池：支持手动粘贴「标题 | 类型 | 标签 | 摘要」或普通观察文本，保存为 `topic_market_signals`，并在选题池内查看最近市场信号。
+- 已打通市场信号引用生成：选题生成保留手动补充说明，同时可勾选最近市场信号一起进入 LLM prompt；新导入的市场信号默认选中，便于立即作为参考。
+- 已新增市场信号手动触发采集：可从起点、晋江、七猫、番茄、腾讯/QQ阅读、腾讯动漫、快看漫画等公开入口采集标题级信号；采集结果进入市场观察池，仍可手动勾选是否参与选题生成。
+- 已补齐市场信号去重与趋势摘要：市场观察按 `source + title` 或 `source + summary` 轻量去重；新增 `/api/v1/topics/signals/summary` 汇总近 100 条信号的来源、类型、标签、小说/漫画分类与最近样本；前端选题池新增“市场摘要”紧凑展示，并在打开面板、查看信号、手动导入和自动采集后自动刷新。
+- 已新增市场信号自动采集设置与后台线程：新增自动采集配置表、`/api/v1/topics/signals/automation` 读写接口，以及随 API 启动/关闭的轻量后台线程；可配置启用状态、采集间隔、单源条数、趋势窗口、选定来源和平台权重。
+- 已把平台权重与趋势窗口接入市场摘要：`/api/v1/topics/signals/summary` 现在除原始计数外，还返回近窗加权来源/类型/标签分数和按天统计；前端摘要优先展示加权 Top 结果。
+- 已把市场信号自动评估接入选题评估/对比：`evaluate` 现在会自动补入 `市场匹配度 / 平台权重摘要 / 趋势窗口 / 漫画转题机会`；`compare` 会把市场匹配度轻量纳入排序与推荐理由。
+- 已补市场信号来源抽象层：新增统一 collector 入口，现有公开页面来源改走 `public_page` 采集器；来源 DTO 已补 `source_type / requires_auth` 元信息，前端来源列表可显示“公开页 / API / 登录态”的轻量提示，为后续接入真正外部 API 与登录态源预留边界。
+- 已进一步整理市场信号采集边界：来源配置已下沉到独立 `topic_signal_sources.py`，采集器注册层已补齐 `public_page / api / authenticated_source` 三类 collector；当前只有公开页 collector 真正执行，API 与登录态 collector 先作为占位入口，避免未来接入真实源时继续膨胀 `TopicIdeaService`。
+- 已增强起点单源适配器：`qidian_rank` 公开页采集现在优先解析起点榜单常见的 `book-mid-info` 结构，可提取书名、一级/二级分类标签和简介；解析不到时仍回退通用公开页标题级采集。
+- 已增强番茄单源适配器：`fanqie_rank` 公开页采集现在优先解析番茄榜单卡片结构，可提取书名、分类标签和简介；解析不到时仍回退通用公开页标题级采集。
+- 已增强腾讯动漫单源适配器：`tencent_comic_rank` 公开页采集现在优先解析腾讯动漫榜单作品行，可提取作品名、榜单名、排名和票数/热度信息；漫画信号会沉淀为“漫画 + 榜单名”标签，便于后续反推小说题材机会。
+- 已增强晋江单源适配器：`jjwxc_rank` 公开页采集现在优先解析晋江移动榜单的 `/book2/...` 作品链接，可提取作品名、榜单名和排名；默认网页抓取会优先使用响应头 charset，避免 GB18030 页面被 UTF-8 解码成乱码。
+- 已增强七猫单源适配器：`qimao_rank` 公开页采集入口改为七猫榜单页 `/paihang`，并优先解析 `rank-list-item` 作品卡，可提取书名、类型/细分标签、榜单名、排名、简介和热度。
+- 已增强快看漫画单源适配器：`kuaikan_comic` 公开页采集入口改为快看排行榜 `/ranking/`，并优先解析 `rankList/listItem` 榜单结构，可提取作品名、榜单名、排名、作者、简介和更新信息。
+- 已增强漫画信号转译规则：选题评估里的“漫画转题机会”现在会识别漫画信号中的总裁/豪门/职场、错撩/误会/替身、重生/改命、契约/先婚、萌宝/团宠等模式，输出更可落地的小说题材机会，并过滤“人气榜”等纯榜单标签。
+- 已把漫画信号转译接入市场摘要：`/api/v1/topics/signals/summary` 会返回 `comic_opportunities`，前端选题池“市场摘要”可直接展示漫画反推出来的小说题材机会。
+- 已新增外部 API / 登录态数据接入配置边界：新增 `topic_market_signal_credentials` 本地配置表、来源凭据脱敏状态 DTO、GET/PATCH 凭据接口，以及前端“外部 API / 登录态”配置区；接口只返回是否已配置，不回传 API Key/Cookie 明文。
+- 已把外部 API / 登录态凭据接入采集链路：采集时会按来源读取已保存凭据，公开页/API/登录态 collector 都可拿到对应 API Key、Cookie 与自定义 headers；公开页来源也会带凭据请求，且凭据 PATCH 只更新提交字段，不再把未提交的 Cookie/headers 清空。
+- 已补通用 API JSON 采集能力：`api` 类型 collector 会优先解析 JSON 榜单中的 `books/items/list/records` 等结构，提取 `title/bookName/name`、类型、标签、简介、热度和榜单名生成市场信号；前端凭据区已支持一行一个 `Header-Name: value` 的自定义 headers。
+- 已补各来源 API Endpoint 覆盖与连接诊断：每个来源可配置独立 Endpoint URL，采集时优先用该 Endpoint 并走 JSON 优先解析；新增 `/api/v1/topics/signals/sources/test` 连接测试接口，前端“公开来源采集”区可批量测试选中来源且不入库，返回样例标题和失败信息。
+- 已将用户提供的起点、晋江、七猫、番茄、QQ 阅读、腾讯动漫、快看漫画登录态保存到本地 SQLite 凭据表；记忆文件不保存任何登录态明文。
+- 已完成真实来源连接修正与测试：起点改走移动榜单并补移动榜单解析；晋江补无 charset 页面 GB18030 解码；QQ 阅读改走榜单 JSON API；底层抓取允许读取有正文的 HTTPError 响应。
+- 已修复番茄当前榜单字体混淆：对 `dc027189e0ba4cd` 对应的私有码位做本地映射，真实连接样例已从 `惹枝 / 指挥掌谋妻` 还原为 `惹金枝 / 指挥使的掌心谋妻`。
+- 已完成 7 个真实来源小批量入库验证：每个平台采集 5 条，共 35 条写入市场观察池；修正后趋势摘要不再把番茄作者名或 QQ 阅读数字分类混入题材分布。
+- 已补采集健康状态：新增来源健康 DTO、SQLite 健康表、仓储读写、`/api/v1/topics/signals/source-health` 接口；手动采集与后台采集共用 `collect_market_signals`，每个来源会记录最近成功/失败、最近采集条数、错误原因和下次运行时间。
+- 已在选题面板“自动采集设置”下方展示各平台健康状态，并在加载设置和手动采集后刷新。
 
 ## 验证状态
 
-- `git status --short --branch`：工作区干净，仅显示当前分支。
-- `python3 -m compileall -q application domain infrastructure interfaces scripts`：通过。
+- 本次章节生成风格控制与选题市场信号工作已整理成本地提交。
+- 历史验证：`python3 -m compileall -q application domain infrastructure interfaces scripts`：通过。
+- `uv run --with-requirements requirements.txt python -m pytest tests/unit/application/workflows/test_auto_novel_generation_workflow.py::TestBuildPrompt tests/unit/application/services/test_cliche_scanner.py`：通过，16 passed。
+- `uv run --with-requirements requirements.txt python -m pytest tests/integration/interfaces/api/v1/test_generation_api.py::TestGenerateChapterEndpoint tests/unit/application/services/test_cliche_scanner.py tests/unit/application/workflows/test_auto_novel_generation_workflow.py::TestBuildPrompt`：通过，22 passed。
+- `python3 -m json.tool infrastructure/ai/prompts/prompts_defaults.json >/dev/null`：通过。
+- `python3 -m compileall -q application infrastructure interfaces tests/unit/application/workflows/test_auto_novel_generation_workflow.py tests/unit/application/services/test_cliche_scanner.py`：通过。
+- `npm ci && npm run build`（frontend）：通过；验证后已删除生成的 `node_modules` 与 `dist`。
+- 选题立项池验证：
+  - `uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/domain/topic/test_topic_idea.py tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/application/services/test_topic_idea_service.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/application/services/test_topic_signal_collectors.py tests/unit/interfaces/api/test_topic_ideas.py -q`：通过，84 passed，1 个既有 422 常量弃用 warning。
+  - `python3 -m compileall -q domain/topic application/topic infrastructure/persistence/database/sqlite_topic_idea_repository.py infrastructure/persistence/database/connection.py interfaces/api/v1/topic interfaces/main.py interfaces/api/dependencies.py`：通过。
+  - 登录态接入后真实来源连接测试：起点、晋江、七猫、番茄、QQ 阅读、腾讯动漫、快看漫画均可返回样例；番茄样例仍存在平台字体混淆字符。
+  - 修正后选题相关测试：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/domain/topic/test_topic_idea.py tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/application/services/test_topic_idea_service.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/application/services/test_topic_signal_collectors.py tests/unit/interfaces/api/test_topic_ideas.py -q`：通过，86 passed，1 个既有 422 常量弃用 warning。
+  - `python3 -m compileall -q domain/topic application/topic infrastructure/persistence/database/sqlite_topic_idea_repository.py infrastructure/persistence/database/connection.py interfaces/api/v1/topic interfaces/main.py interfaces/api/dependencies.py tests/unit/application/services/test_topic_signal_collectors.py`：通过。
+  - 番茄字体混淆修复后真实连接测试：7 个来源均成功；番茄样例为 `惹金枝 / 指挥使的掌心谋妻 / 阴差阳错，侯府庶子迎娶县主`。
+  - 真实入库验证：清理本轮旧样本后重采 35 条，来源各 5 条；加权题材样例为 `漫画 / 玄幻 / 都市 / 玄幻奇幻 / 历史 / 月度排行榜 / 仙侠`。
+  - 最新选题相关测试：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/domain/topic/test_topic_idea.py tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/application/services/test_topic_idea_service.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/application/services/test_topic_signal_collectors.py tests/unit/interfaces/api/test_topic_ideas.py -q`：通过，88 passed，1 个既有 422 常量弃用 warning。
+  - 最新编译检查：`python3 -m compileall -q domain/topic application/topic infrastructure/persistence/database/sqlite_topic_idea_repository.py infrastructure/persistence/database/connection.py interfaces/api/v1/topic interfaces/main.py interfaces/api/dependencies.py tests/unit/application/services/test_topic_signal_collectors.py`：通过。
+  - 采集健康状态后端验证：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/domain/topic/test_topic_idea.py tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/application/services/test_topic_idea_service.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/application/services/test_topic_signal_collectors.py tests/unit/interfaces/api/test_topic_ideas.py -q`：通过，92 passed，1 个既有 422 常量弃用 warning。
+  - 采集健康状态编译检查：`python3 -m compileall -q domain/topic application/topic infrastructure/persistence/database/sqlite_topic_idea_repository.py infrastructure/persistence/database/connection.py interfaces/api/v1/topic interfaces/main.py interfaces/api/dependencies.py tests/unit/application/services/test_topic_idea_service.py tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/interfaces/api/test_topic_ideas.py`：通过。
+  - 前端验证：`npm run build`（frontend）：通过；仍只有既有大 chunk 警告。
+  - 真实本地库健康状态验证：7 个来源各采 1 条后，`qidian_rank / jjwxc_rank / qimao_rank / fanqie_rank / qq_read / tencent_comic_rank / kuaikan_comic` 均为 `success`。
+  - 最近一次前端改动验证：`npm run build`（frontend）：通过；仅有既有大 chunk 警告。
+  - 子任务最终代码质量审查：APPROVED。
 
 ## 下一步
 
-优先从 v1.1 规划中选择第一个可落地功能。建议先做“剧情分支与回滚”，因为它会成为章节 A/B 对照、精细改稿、按目标修文等能力的底层安全网。
+- 外部 API / 登录态数据已完成基础接入、真实连接测试、小批量真实入库验证和采集健康状态。
+- 独立市场采集守护进程仍未做，当前自动采集仍是 API 进程内后台线程。
+- 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
+- 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
 
 ## 待确认
 
-- 是否先从后端数据结构与迁移开始，还是先做最薄的本地 UI 验证闭环。
+- 是否需要把 `workflow-chapter-generation` 的默认文案进一步改成更强的“自然化/低 AI 味”版本。
