@@ -44,6 +44,7 @@
 - 已完成 7 个真实来源小批量入库验证：每个平台采集 5 条，共 35 条写入市场观察池；修正后趋势摘要不再把番茄作者名或 QQ 阅读数字分类混入题材分布。
 - 已补采集健康状态：新增来源健康 DTO、SQLite 健康表、仓储读写、`/api/v1/topics/signals/source-health` 接口；手动采集与后台采集共用 `collect_market_signals`，每个来源会记录最近成功/失败、最近采集条数、错误原因和下次运行时间。
 - 已在选题面板“自动采集设置”下方展示各平台健康状态，并在加载设置和手动采集后刷新。
+- 已新增独立市场信号采集守护进程入口：`scripts/start_topic_signal_collector.py` 可脱离 API 进程单独常驻轮询，也支持 `--once --force` 做一次立即采集；API 内后台线程与独立脚本共用 `TopicSignalAutomationService.run_forever()`。
 
 ## 验证状态
 
@@ -70,11 +71,12 @@
   - 真实本地库健康状态验证：7 个来源各采 1 条后，`qidian_rank / jjwxc_rank / qimao_rank / fanqie_rank / qq_read / tencent_comic_rank / kuaikan_comic` 均为 `success`。
   - 最近一次前端改动验证：`npm run build`（frontend）：通过；仅有既有大 chunk 警告。
   - 子任务最终代码质量审查：APPROVED。
+  - 独立采集守护进程验证：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/scripts/test_start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_automation_service.py -q`：通过，5 passed，2 个既有 422 常量弃用 warning；`python3 scripts/start_topic_signal_collector.py --help`：通过；`python3 -m compileall -q application/topic/services/topic_signal_automation_service.py scripts/start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/scripts/test_start_topic_signal_collector.py`：通过。
 
 ## 下一步
 
 - 外部 API / 登录态数据已完成基础接入、真实连接测试、小批量真实入库验证和采集健康状态。
-- 独立市场采集守护进程仍未做，当前自动采集仍是 API 进程内后台线程。
+- 独立市场采集守护进程已可用；后续如需开机自启，可再补 launchd/系统服务配置。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
 - 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
 

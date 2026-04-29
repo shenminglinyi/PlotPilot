@@ -34,6 +34,16 @@ class FakeTopicIdeaService:
         return []
 
 
+class FakeStopEvent:
+    def __init__(self, stop_after_waits=1):
+        self.stop_after_waits = stop_after_waits
+        self.wait_calls = []
+
+    def wait(self, timeout):
+        self.wait_calls.append(timeout)
+        return len(self.wait_calls) >= self.stop_after_waits
+
+
 def test_run_pending_once_collects_and_records_success():
     topic_service = FakeTopicIdeaService()
     service = TopicSignalAutomationService(topic_service)
@@ -60,3 +70,19 @@ def test_run_pending_once_skips_when_disabled():
 
     assert ran is False
     assert topic_service.collected == []
+
+
+def test_run_forever_runs_immediately_and_stops_after_wait():
+    topic_service = FakeTopicIdeaService()
+    service = TopicSignalAutomationService(topic_service, poll_interval_seconds=1)
+    stop_event = FakeStopEvent(stop_after_waits=1)
+
+    service.run_forever(stop_event=stop_event, run_immediately=True)
+
+    assert topic_service.collected == [
+        TopicMarketSignalCollectRequestDTO(
+            source_keys=["qidian_rank"],
+            limit_per_source=5,
+        )
+    ]
+    assert stop_event.wait_calls == [10]

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from datetime import datetime, timezone
 
 from application.topic.dtos import TopicMarketSignalCollectRequestDTO
@@ -76,7 +75,18 @@ class TopicSignalAutomationService:
             return False
 
     def _worker_loop(self) -> None:
-        while not self._stop_event.wait(self._poll_interval_seconds):
+        self.run_forever(stop_event=self._stop_event, run_immediately=False)
+
+    def run_forever(self, stop_event: threading.Event | None = None, run_immediately: bool = True) -> None:
+        """按配置持续采集，供独立守护进程复用。"""
+        active_stop_event = stop_event or self._stop_event
+        if run_immediately:
+            try:
+                self.run_pending_once(force=False)
+            except Exception as exc:
+                logger.warning("topic signal automation loop failed: %s", exc)
+
+        while not active_stop_event.wait(self._poll_interval_seconds):
             try:
                 self.run_pending_once(force=False)
             except Exception as exc:
