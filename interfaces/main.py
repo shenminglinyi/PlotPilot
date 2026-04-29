@@ -79,12 +79,16 @@ from interfaces.api.v1 import system as system_routes
 # Reader Simulation module
 from interfaces.api.v1 import reader as reader_module
 
+# Topic module
+from interfaces.api.v1.topic import topic_ideas
+
 # Workbench module
 from interfaces.api.v1.workbench import sandbox, writer_block, monitor, llm_control
 from interfaces.api.stats.routers.stats import create_stats_router
 from interfaces.api.stats.services.stats_service import StatsService
 from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import SqliteStatsRepositoryAdapter
 from infrastructure.persistence.database.connection import get_database
+from interfaces.api.dependencies import get_topic_signal_automation_service
 
 # 产品发布版本（与前端 / 安装包一致）
 APP_RELEASE_VERSION = "1.0.2"
@@ -169,6 +173,7 @@ async def startup_event():
 
     # 启动自动驾驶守护进程（后台线程）
     _start_autopilot_daemon_thread()
+    get_topic_signal_automation_service().start()
 
 def _checkpoint_sqlite_wal_safe() -> None:
     """桌面端优雅退出时尽量将 WAL 落盘，降低异常断电时的损坏概率。"""
@@ -189,6 +194,7 @@ def _checkpoint_sqlite_wal_safe() -> None:
 
 def _run_backend_shutdown_hooks() -> None:
     """与 shutdown 生命周期钩子共用：守护进程停止 + WAL + 日志。"""
+    get_topic_signal_automation_service().stop()
     _stop_autopilot_daemon_thread()
     _checkpoint_sqlite_wal_safe()
 
@@ -554,6 +560,9 @@ app.include_router(system_routes.router, prefix="/api/v1")
 
 # Reader Simulation module routes
 app.include_router(reader_module.router, prefix="/api/v1")
+
+# Topic module routes
+app.include_router(topic_ideas.router, prefix="/api/v1")
 
 # Workbench module routes
 app.include_router(writer_block.router, prefix="/api/v1")

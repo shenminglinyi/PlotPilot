@@ -248,6 +248,15 @@ def get_story_node_repository() -> StoryNodeRepository:
     return StoryNodeRepository(db_path)
 
 
+def get_topic_idea_repository():
+    """获取选题立项池仓储（SQLite）。"""
+    from infrastructure.persistence.database.sqlite_topic_idea_repository import (
+        SqliteTopicIdeaRepository,
+    )
+
+    return SqliteTopicIdeaRepository(get_database())
+
+
 # Service 依赖
 def get_novel_service() -> NovelService:
     """获取 Novel 服务
@@ -260,6 +269,27 @@ def get_novel_service() -> NovelService:
         get_chapter_repository(),
         get_story_node_repository()
     )
+
+
+def get_topic_idea_service():
+    """获取选题立项池服务。"""
+    from application.topic.services.topic_idea_service import TopicIdeaService
+
+    return TopicIdeaService(
+        get_topic_idea_repository(),
+        get_llm_service(),
+        get_novel_service(),
+    )
+
+
+@lru_cache
+def get_topic_signal_automation_service():
+    """获取市场信号自动采集后台服务。"""
+    from application.topic.services.topic_signal_automation_service import (
+        TopicSignalAutomationService,
+    )
+
+    return TopicSignalAutomationService(get_topic_idea_service())
 
 
 def get_chapter_renumber_coordinator():
@@ -974,4 +1004,3 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
-

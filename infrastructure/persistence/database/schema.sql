@@ -53,6 +53,83 @@ CREATE TABLE IF NOT EXISTS beat_sheets (
 
 CREATE INDEX IF NOT EXISTS idx_beat_sheets_chapter_id ON beat_sheets(chapter_id);
 
+-- 选题立项池（候选内部展示字段允许 JSON 弱结构化）
+CREATE TABLE IF NOT EXISTS topic_ideas (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'draft'
+      CHECK(status IN ('draft', 'adopted', 'archived')),
+    title TEXT NOT NULL,
+    genre TEXT DEFAULT '',
+    world_preset TEXT DEFAULT '',
+    length_tier TEXT DEFAULT '',
+    logline TEXT DEFAULT '',
+    premise TEXT DEFAULT '',
+    protagonist_hook TEXT DEFAULT '',
+    core_conflict TEXT DEFAULT '',
+    opening_hook TEXT DEFAULT '',
+    selling_points_json TEXT DEFAULT '[]',
+    long_term_potential TEXT DEFAULT '',
+    risk_notes_json TEXT DEFAULT '[]',
+    market_tags_json TEXT DEFAULT '[]',
+    score INTEGER DEFAULT 0,
+    adopted_novel_id TEXT,
+    source_brief_json TEXT DEFAULT '{}',
+    development_notes_json TEXT DEFAULT '{}',
+    evaluation_json TEXT DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_topic_ideas_status ON topic_ideas(status);
+CREATE INDEX IF NOT EXISTS idx_topic_ideas_created_at ON topic_ideas(created_at);
+
+CREATE TABLE IF NOT EXISTS topic_market_signals (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL DEFAULT '手动观察',
+    title TEXT DEFAULT '',
+    genre TEXT DEFAULT '',
+    tags_json TEXT DEFAULT '[]',
+    summary TEXT DEFAULT '',
+    raw_text TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_topic_market_signals_created_at
+ON topic_market_signals(created_at);
+
+CREATE TABLE IF NOT EXISTS topic_market_signal_settings (
+    id TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    interval_minutes INTEGER NOT NULL DEFAULT 180,
+    limit_per_source INTEGER NOT NULL DEFAULT 8,
+    lookback_days INTEGER NOT NULL DEFAULT 30,
+    source_weights_json TEXT DEFAULT '{}',
+    selected_source_keys_json TEXT DEFAULT '[]',
+    last_run_at TEXT DEFAULT '',
+    last_status TEXT DEFAULT 'idle',
+    last_error TEXT DEFAULT '',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS topic_market_signal_credentials (
+    source_key TEXT PRIMARY KEY,
+    api_key TEXT DEFAULT '',
+    cookie TEXT DEFAULT '',
+    endpoint_url TEXT DEFAULT '',
+    headers_json TEXT DEFAULT '{}',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS topic_market_signal_source_health (
+    source_key TEXT PRIMARY KEY,
+    status TEXT DEFAULT 'unknown',
+    last_run_at TEXT DEFAULT '',
+    last_success_at TEXT DEFAULT '',
+    last_count INTEGER DEFAULT 0,
+    last_error TEXT DEFAULT '',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 三元组主行（无 JSON 列）
 CREATE TABLE IF NOT EXISTS triples (
     id TEXT PRIMARY KEY,
@@ -630,6 +707,3 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
-
-
-

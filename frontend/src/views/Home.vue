@@ -115,6 +115,9 @@
             </div>
 
             <n-space justify="end">
+              <n-button size="large" secondary round @click="showTopicPanel = true">
+                选题立项池
+              </n-button>
               <n-button
                 type="primary"
                 size="large"
@@ -320,6 +323,11 @@
       @skip="handleSetupSkip"
     />
 
+    <TopicIdeaPanel
+      v-model:show="showTopicPanel"
+      @adopted="handleTopicAdopted"
+    />
+
     <!-- LLM Settings Modal -->
     <LLMSettingsModal v-model:show="showLLMSettings" />
 
@@ -417,6 +425,7 @@ import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
+import TopicIdeaPanel from '@/components/topic/TopicIdeaPanel.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
 import { useStatsStore } from '@/stores/statsStore'
 
@@ -471,6 +480,7 @@ const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
 const showLLMSettings = ref(false)
 const showAllModal = ref(false)
+const showTopicPanel = ref(false)
 const modalSearchQuery = ref('')
 /** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */
 const setupWizard = ref<{ novelId: string; targetChapters: number } | null>(null)
@@ -680,6 +690,14 @@ const handleSetupSkip = () => {
   const id = setupWizard.value?.novelId
   setupWizard.value = null
   if (id) router.push(`/book/${id}/workbench`)
+}
+
+const handleTopicAdopted = async (novel: NovelDTO) => {
+  setupWizard.value = {
+    novelId: novel.id,
+    targetChapters: novel.target_chapters,
+  }
+  await fetchBooks()
 }
 
 const navigateToBook = (slug: string) => {

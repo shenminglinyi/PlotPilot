@@ -228,6 +228,90 @@ def _apply_chapter_summaries_enhancements(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_topic_ideas_report_columns(conn: sqlite3.Connection) -> None:
+    """为已存在的 topic_ideas 表补齐结构化立项报告列（幂等）。"""
+    cur = conn.execute("PRAGMA table_info(topic_ideas)")
+    cols = {row[1] for row in cur.fetchall()}
+    if not cols:
+        return
+    migrations = {
+        "development_notes_json": (
+            "ALTER TABLE topic_ideas ADD COLUMN development_notes_json TEXT DEFAULT '{}'"
+        ),
+        "evaluation_json": (
+            "ALTER TABLE topic_ideas ADD COLUMN evaluation_json TEXT DEFAULT '{}'"
+        ),
+    }
+    for col, sql in migrations.items():
+        if col not in cols:
+            try:
+                conn.execute(sql)
+                logger.info("topic_ideas migration: added column %s", col)
+            except sqlite3.OperationalError as e:
+                logger.warning("topic_ideas migration skip %s: %s", col, e)
+    conn.commit()
+
+
+def _ensure_topic_market_signal_settings_table(conn: sqlite3.Connection) -> None:
+    """旧库补齐市场信号自动采集配置表。"""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS topic_market_signal_settings (
+            id TEXT PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            interval_minutes INTEGER NOT NULL DEFAULT 180,
+            limit_per_source INTEGER NOT NULL DEFAULT 8,
+            lookback_days INTEGER NOT NULL DEFAULT 30,
+            source_weights_json TEXT DEFAULT '{}',
+            selected_source_keys_json TEXT DEFAULT '[]',
+            last_run_at TEXT DEFAULT '',
+            last_status TEXT DEFAULT 'idle',
+            last_error TEXT DEFAULT '',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+
+
+def _ensure_topic_market_signal_credentials_table(conn: sqlite3.Connection) -> None:
+    """旧库补齐市场信号来源凭据配置表。"""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS topic_market_signal_credentials (
+            source_key TEXT PRIMARY KEY,
+            api_key TEXT DEFAULT '',
+            cookie TEXT DEFAULT '',
+            endpoint_url TEXT DEFAULT '',
+            headers_json TEXT DEFAULT '{}',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(topic_market_signal_credentials)").fetchall()}
+    if "endpoint_url" not in cols:
+        conn.execute("ALTER TABLE topic_market_signal_credentials ADD COLUMN endpoint_url TEXT DEFAULT ''")
+    conn.commit()
+
+
+def _ensure_topic_market_signal_source_health_table(conn: sqlite3.Connection) -> None:
+    """旧库补齐市场信号来源健康状态表。"""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS topic_market_signal_source_health (
+            source_key TEXT PRIMARY KEY,
+            status TEXT DEFAULT 'unknown',
+            last_run_at TEXT DEFAULT '',
+            last_success_at TEXT DEFAULT '',
+            last_count INTEGER DEFAULT 0,
+            last_error TEXT DEFAULT '',
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+
+
 
 def _apply_migration_files(conn: sqlite3.Connection) -> None:
     """应用 migrations 目录下全部 .sql（幂等执行，顺序按文件名稳定排序）。"""
@@ -329,6 +413,10 @@ class DatabaseConnection:
         _apply_last_chapter_audit_columns(conn)
         _apply_character_enhancements(conn)
         _apply_chapter_summaries_enhancements(conn)
+        _migrate_topic_ideas_report_columns(conn)
+        _ensure_topic_market_signal_settings_table(conn)
+        _ensure_topic_market_signal_credentials_table(conn)
+        _ensure_topic_market_signal_source_health_table(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
         conn.close()
