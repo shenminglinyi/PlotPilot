@@ -177,11 +177,12 @@ def test_collect_market_signals_fetches_public_source_and_persists_titles():
         TopicMarketSignalCollectRequestDTO(source_keys=["qidian_rank"], limit_per_source=2)
     )
 
-    assert len(result) == 2
+    assert len(result) == 6
     assert result[0].source == "起点-小说榜"
     assert result[0].title == "没钱修什么仙？"
     assert result[1].title == "苟在初圣魔门当人材"
-    assert service.list_market_signals(limit=2)[0].title == "苟在初圣魔门当人材"
+    assert {tag for item in result for tag in item.tags} >= {"热门榜", "新书榜", "快速上榜"}
+    assert len(service.list_market_signals(limit=6)) == 6
 
 
 def test_fetch_url_text_uses_response_charset(monkeypatch):
@@ -542,7 +543,7 @@ def test_collect_market_signals_records_source_health_for_success_and_empty_sour
     health = service.list_market_signal_source_health()
     by_key = {item.source_key: item for item in health}
     assert by_key["qidian_rank"].status == "success"
-    assert by_key["qidian_rank"].last_count == 1
+    assert by_key["qidian_rank"].last_count == 3
     assert by_key["qidian_rank"].last_run_at
     assert by_key["qidian_rank"].last_success_at
     assert by_key["qidian_rank"].last_error == ""

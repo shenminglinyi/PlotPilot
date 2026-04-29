@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import replace
 from datetime import datetime, timezone
 from html import unescape
 import inspect
@@ -110,6 +111,34 @@ class PublicPageMarketSignalCollector(MarketSignalCollector):
         limit: int,
         credentials: TopicMarketSignalSourceCredentialDTO | None = None,
     ) -> list[TopicMarketSignalDTO]:
+        rank_urls = _rank_urls_for_source(source)
+        if rank_urls:
+            signals: list[TopicMarketSignalDTO] = []
+            seen: set[tuple[str, str]] = set()
+            for rank_label, rank_url in rank_urls:
+                rank_source = replace(source, url=rank_url)
+                for signal in self._collect_single_url(
+                    rank_source,
+                    fetch_text,
+                    limit,
+                    credentials,
+                ):
+                    signal = _signal_with_rank_label(signal, rank_label)
+                    signal_key = (rank_label, signal.title or signal.summary)
+                    if signal_key in seen:
+                        continue
+                    seen.add(signal_key)
+                    signals.append(signal)
+            return signals
+        return self._collect_single_url(source, fetch_text, limit, credentials)
+
+    def _collect_single_url(
+        self,
+        source: TopicMarketSignalSourceDTO,
+        fetch_text: Callable[[str], str],
+        limit: int,
+        credentials: TopicMarketSignalSourceCredentialDTO | None = None,
+    ) -> list[TopicMarketSignalDTO]:
         try:
             html = _fetch_with_optional_headers(
                 fetch_text,
@@ -147,7 +176,7 @@ class PublicPageMarketSignalCollector(MarketSignalCollector):
 
 
 class ApiMarketSignalCollector(MarketSignalCollector):
-    """未来 API 采集器占位。"""
+    """API 采集器。"""
 
     source_type = "api"
 
@@ -161,6 +190,35 @@ class ApiMarketSignalCollector(MarketSignalCollector):
         if not _has_credentials(credentials):
             logger.info("market signal api source %s is not configured yet", source.key)
             return []
+        rank_urls = _rank_urls_for_source(source)
+        if rank_urls:
+            signals: list[TopicMarketSignalDTO] = []
+            seen: set[tuple[str, str]] = set()
+            for rank_label, rank_url in rank_urls:
+                rank_source = replace(source, url=rank_url)
+                for signal in self._collect_single_url(
+                    rank_source,
+                    fetch_text,
+                    limit,
+                    credentials,
+                ):
+                    signal = _signal_with_rank_label(signal, rank_label)
+                    signal_key = (rank_label, signal.title or signal.summary)
+                    if signal_key in seen:
+                        continue
+                    seen.add(signal_key)
+                    signals.append(signal)
+            return signals
+
+        return self._collect_single_url(source, fetch_text, limit, credentials)
+
+    def _collect_single_url(
+        self,
+        source: TopicMarketSignalSourceDTO,
+        fetch_text: Callable[[str], str],
+        limit: int,
+        credentials: TopicMarketSignalSourceCredentialDTO | None = None,
+    ) -> list[TopicMarketSignalDTO]:
         try:
             text = _fetch_with_optional_headers(
                 fetch_text,
@@ -246,6 +304,33 @@ def _has_credentials(credentials: TopicMarketSignalSourceCredentialDTO | None) -
             or str(credentials.endpoint_url or "").strip()
             or credentials.headers
         )
+    )
+
+
+def _rank_urls_for_source(source: TopicMarketSignalSourceDTO) -> list[tuple[str, str]]:
+    return [
+        (str(label).strip(), str(url).strip())
+        for label, url in (source.rank_urls or {}).items()
+        if str(label).strip() and str(url).strip()
+    ]
+
+
+def _signal_with_rank_label(signal: TopicMarketSignalDTO, rank_label: str) -> TopicMarketSignalDTO:
+    tags = list(signal.tags or [])
+    if rank_label and rank_label not in tags:
+        tags.append(rank_label)
+    summary = str(signal.summary or "")
+    if rank_label and rank_label not in summary:
+        summary = f"{rank_label}：{summary}" if summary else rank_label
+    return TopicMarketSignalDTO(
+        id=signal.id,
+        source=signal.source,
+        title=signal.title,
+        genre=signal.genre,
+        tags=tags[:5],
+        summary=summary,
+        raw_text=signal.raw_text,
+        created_at=signal.created_at,
     )
 
 
@@ -374,7 +459,7 @@ def _json_first_text_recursive(value: object, keys: tuple[str, ...]) -> str:
 
 def _json_tags(item: dict[str, object], rank_name: str) -> list[str]:
     tags: list[str] = []
-    for key in ("tags", "tag", "keywords", "labels", "categories"):
+    for key in ("categoryName", "category_name", "tags", "tag", "keywords", "labels", "categories"):
         value = item.get(key)
         if isinstance(value, list):
             candidates = value
@@ -390,7 +475,10 @@ def _json_tags(item: dict[str, object], rank_name: str) -> list[str]:
 
 
 def _json_genre(item: dict[str, object]) -> str:
-    genre = _json_first_text(item, ("category", "genre", "type", "className", "class_name"))
+    genre = _json_first_text(
+        item,
+        ("category", "categoryName", "category_name", "genre", "type", "className", "class_name"),
+    )
     if genre and not genre.isdigit():
         return genre
     categories = item.get("categories")
@@ -745,6 +833,14 @@ def _signals_from_kuaikan_comic_rank_html(
             flags=re.I | re.S,
         )
     )
+    if not item_starts:
+        item_starts = list(
+            re.finditer(
+                r'<div[^>]+class=["\'][^"\']*IdItems[^"\']*["\'][^>]*>',
+                html or "",
+                flags=re.I | re.S,
+            )
+        )
     blocks = [
         (html or "")[
             match.start():item_starts[index + 1].start()
@@ -960,6 +1056,13 @@ def _tencent_rank_metric(block: str) -> str:
 
 
 def _nearest_kuaikan_rank_title(html: str, offset: int) -> str:
+    active_nav_match = re.search(
+        r'<a[^>]+title=["\']([^"\']+)["\'][^>]+class=["\'][^"\']*active[^"\']*["\']',
+        html or "",
+        flags=re.I | re.S,
+    )
+    if active_nav_match:
+        return _clean_html_text(active_nav_match.group(1))
     headings = list(
         re.finditer(
             r'<h3[^>]+class=["\'][^"\']*title[^"\']*["\'][^>]*>(.*?)</h3>',
@@ -974,6 +1077,13 @@ def _nearest_kuaikan_rank_title(html: str, offset: int) -> str:
 
 
 def _kuaikan_title(block: str) -> str:
+    span_texts = [
+        _clean_html_text(item)
+        for item in re.findall(r"<span[^>]*>([^<>]+)</span>", block or "", flags=re.I | re.S)
+    ]
+    for text in span_texts:
+        if text and not text.isdigit() and _is_signal_title(text):
+            return text
     normal_match = re.search(
         r'<span[^>]+class=["\'][^"\']*title[^"\']*["\'][^>]*>(.*?)</span>',
         block or "",
@@ -991,7 +1101,7 @@ def _kuaikan_title(block: str) -> str:
 
 def _kuaikan_rank_text(block: str) -> str:
     rank_match = re.search(
-        r'<span[^>]+class=["\'][^"\']*top[^"\']*["\'][^>]*>(.*?)</span>',
+        r'<span[^>]+class=["\'][^"\']*(?:top|iconText)[^"\']*["\'][^>]*>(.*?)</span>',
         block or "",
         flags=re.I | re.S,
     )
@@ -1000,7 +1110,7 @@ def _kuaikan_rank_text(block: str) -> str:
 
 def _kuaikan_author(block: str) -> str:
     author_match = re.search(
-        r'<(?:span|p)[^>]+class=["\'][^"\']*author[^"\']*["\'][^>]*>(.*?)</(?:span|p)>',
+        r'<(?:span|p|div)[^>]+class=["\'][^"\']*author[^"\']*["\'][^>]*>(.*?)</(?:span|p|div)>',
         block or "",
         flags=re.I | re.S,
     )
@@ -1009,7 +1119,7 @@ def _kuaikan_author(block: str) -> str:
 
 def _kuaikan_description(block: str) -> str:
     description_match = re.search(
-        r'<p[^>]+class=["\'][^"\']*description[^"\']*["\'][^>]*>(.*?)</p>',
+        r'<(?:p|div)[^>]+class=["\'][^"\']*(?:description|desc)[^"\']*["\'][^>]*>(.*?)</(?:p|div)>',
         block or "",
         flags=re.I | re.S,
     )

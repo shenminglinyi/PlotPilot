@@ -9,6 +9,7 @@ from application.topic.services.topic_signal_collectors import (
     build_market_signal_collectors,
     collect_market_signals_from_source,
 )
+from application.topic.services.topic_signal_sources import MARKET_SIGNAL_SOURCES
 
 
 def test_collect_market_signals_from_public_page_source():
@@ -35,6 +36,104 @@ def test_collect_market_signals_from_public_page_source():
     )
 
     assert [item.title for item in signals] == ["债务修仙", "契约少女"]
+
+
+def test_collect_public_page_source_fetches_rank_dimensions():
+    html_by_url = {
+        "https://example.com/hot": "<html><h2>热榜修仙</h2></html>",
+        "https://example.com/new": "<html><h2>新书神探</h2></html>",
+        "https://example.com/rising": "<html><h2>飙升赘婿</h2></html>",
+    }
+    fetched_urls = []
+
+    def fetch_text(url):
+        fetched_urls.append(url)
+        return html_by_url[url]
+
+    source = TopicMarketSignalSourceDTO(
+        key="example_rank",
+        name="示例榜",
+        url="https://example.com/rank",
+        category="novel",
+        source_type="public_page",
+        rank_urls={
+            "热门榜": "https://example.com/hot",
+            "新书榜": "https://example.com/new",
+            "快速上榜": "https://example.com/rising",
+        },
+    )
+
+    signals = collect_market_signals_from_source(
+        source=source,
+        fetch_text=fetch_text,
+        limit=1,
+        collectors=build_market_signal_collectors(),
+    )
+
+    assert fetched_urls == [
+        "https://example.com/hot",
+        "https://example.com/new",
+        "https://example.com/rising",
+    ]
+    assert [item.title for item in signals] == ["热榜修仙", "新书神探", "飙升赘婿"]
+    assert signals[0].tags == ["热门榜"]
+    assert "热门榜" in signals[0].summary
+    assert signals[1].tags == ["新书榜"]
+    assert "新书榜" in signals[1].summary
+    assert signals[2].tags == ["快速上榜"]
+    assert "快速上榜" in signals[2].summary
+
+
+def test_collect_api_source_fetches_rank_dimensions():
+    payload_by_url = {
+        "https://api.example.com/hot": '{"books":[{"bookName":"热榜长生","categoryName":"仙侠"}]}',
+        "https://api.example.com/new": '{"books":[{"bookName":"新书诡案","categoryName":"悬疑"}]}',
+        "https://api.example.com/rising": '{"books":[{"bookName":"飙升豪门","categoryName":"现言"}]}',
+    }
+    fetched_urls = []
+
+    def fetch_text(url, _headers=None):
+        fetched_urls.append(url)
+        return payload_by_url[url]
+
+    source = TopicMarketSignalSourceDTO(
+        key="example_api",
+        name="示例 API 榜",
+        url="https://api.example.com/rank",
+        category="novel",
+        source_type="api",
+        rank_urls={
+            "热门榜": "https://api.example.com/hot",
+            "新书榜": "https://api.example.com/new",
+            "快速上榜": "https://api.example.com/rising",
+        },
+    )
+
+    signals = collect_market_signals_from_source(
+        source=source,
+        fetch_text=fetch_text,
+        limit=1,
+        collectors=build_market_signal_collectors(),
+        credentials=TopicMarketSignalSourceCredentialDTO(source_key="example_api", api_key="token"),
+    )
+
+    assert fetched_urls == [
+        "https://api.example.com/hot",
+        "https://api.example.com/new",
+        "https://api.example.com/rising",
+    ]
+    assert [item.title for item in signals] == ["热榜长生", "新书诡案", "飙升豪门"]
+    assert signals[0].tags == ["仙侠", "热门榜"]
+    assert "热门榜" in signals[0].summary
+    assert signals[1].tags == ["悬疑", "新书榜"]
+    assert "新书榜" in signals[1].summary
+    assert signals[2].tags == ["现言", "快速上榜"]
+    assert "快速上榜" in signals[2].summary
+
+
+def test_default_market_sources_cover_hot_new_and_rising_ranks():
+    for source in MARKET_SIGNAL_SOURCES.values():
+        assert {"热门榜", "新书榜", "快速上榜"}.issubset(source.rank_urls)
 
 
 def test_collect_qidian_rank_extracts_book_metadata():
@@ -303,6 +402,50 @@ def test_collect_kuaikan_comic_rank_extracts_rank_metadata():
     assert "泡总裁计划" in signals[0].summary
     assert "周日更新" in signals[0].summary
     assert signals[1].title == "风之誓，恋之咒"
+
+
+def test_collect_kuaikan_single_rank_page_extracts_item_titles():
+    html = """
+    <title>人气榜_漫画排行榜_快看漫画</title>
+    <div class="RankingNav"><a title="人气榜" class="active">人气榜</a></div>
+    <div class="IdItems fl">
+      <a href="/web/topic/27584" class="itemLink cls">
+        <div class="details fl">
+          <div class="title cls">
+            <span class="text"><div class="RankIcon icons"><span class="iconText bg_4">4</span></div><span>飘飘</span></span>
+          </div>
+          <div class="author">红鲤</div>
+          <div class="desc">都市恋爱与职场成长。</div>
+        </div>
+      </a>
+    </div>
+    <div class="IdItems fl">
+      <a href="/web/topic/15710" class="itemLink cls">
+        <div class="details fl">
+          <div class="title cls"><span class="text"><span>偏偏宠爱</span></span></div>
+          <div class="author">藤萝为枝</div>
+        </div>
+      </a>
+    </div>
+    """
+    source = TopicMarketSignalSourceDTO(
+        key="kuaikan_comic",
+        name="快看漫画-漫画",
+        url="https://www.kuaikanmanhua.com/ranking/9",
+        category="comic",
+        source_type="public_page",
+    )
+
+    signals = collect_market_signals_from_source(
+        source=source,
+        fetch_text=lambda _url: html,
+        limit=2,
+        collectors=build_market_signal_collectors(),
+    )
+
+    assert [item.title for item in signals] == ["飘飘", "偏偏宠爱"]
+    assert signals[0].tags == ["漫画", "人气榜"]
+    assert "都市恋爱与职场成长" in signals[0].summary
 
 
 def test_collect_jjwxc_rank_extracts_book_links_and_rank_name():

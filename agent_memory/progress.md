@@ -45,6 +45,7 @@
 - 已补采集健康状态：新增来源健康 DTO、SQLite 健康表、仓储读写、`/api/v1/topics/signals/source-health` 接口；手动采集与后台采集共用 `collect_market_signals`，每个来源会记录最近成功/失败、最近采集条数、错误原因和下次运行时间。
 - 已在选题面板“自动采集设置”下方展示各平台健康状态，并在加载设置和手动采集后刷新。
 - 已新增独立市场信号采集守护进程入口：`scripts/start_topic_signal_collector.py` 可脱离 API 进程单独常驻轮询，也支持 `--once --force` 做一次立即采集；API 内后台线程与独立脚本共用 `TopicSignalAutomationService.run_forever()`。
+- 已补榜单维度采集：默认来源现在按“热门榜 / 新书榜 / 快速上榜”分别采集，公开页与 API JSON 来源都会把榜单维度写入标签和摘要；快看漫画单榜页已适配 `IdItems` 结构，避免把“人气榜”等榜单名误当作品标题。
 - 已部署到宝塔服务器：
   - SSH 入口：`root@45.197.149.138:7806`，使用本机部署密钥；密钥路径不写入项目文件。
   - 线上目录：`/www/wwwroot/plotpilot-novelpro`
@@ -80,6 +81,8 @@
   - 子任务最终代码质量审查：APPROVED。
   - 独立采集守护进程验证：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/scripts/test_start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_automation_service.py -q`：通过，5 passed，2 个既有 422 常量弃用 warning；`python3 scripts/start_topic_signal_collector.py --help`：通过；`python3 -m compileall -q application/topic/services/topic_signal_automation_service.py scripts/start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/scripts/test_start_topic_signal_collector.py`：通过。
   - 宝塔部署验证：公网 `http://45.197.149.138:39100/` 返回前端 HTML；`/api/v1/topics/signals/sources` 返回 7 个来源；服务器侧 7 个来源连接测试全成功；已开启自动采集，间隔 180 分钟，每源 8 条；手动采集 7 个来源各 1 条后健康状态均为 `success`。
+  - 榜单维度采集验证：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/domain/topic/test_topic_idea.py tests/unit/infrastructure/database/test_sqlite_topic_idea_repository.py tests/unit/application/services/test_topic_idea_service.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/application/services/test_topic_signal_collectors.py tests/unit/interfaces/api/test_topic_ideas.py tests/unit/scripts/test_start_topic_signal_collector.py -q`：通过，99 passed，2 个既有 422 常量弃用 warning；`python3 -m compileall -q application/topic interfaces/api/v1/topic scripts/start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_collectors.py`：通过；`npm run build`（frontend）：通过，仅有既有大 chunk 警告。
+  - 榜单维度真实连接测试：7 个来源按每榜 1 条测试均成功；起点、晋江、七猫、番茄、QQ 阅读、腾讯动漫、快看漫画均返回 3 条样例，覆盖热门/新书/快速上榜维度。
 
 ## 下一步
 

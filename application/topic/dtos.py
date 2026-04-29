@@ -162,6 +162,7 @@ class TopicMarketSignalSourceDTO:
     category: str = "novel"
     source_type: str = "public_page"
     requires_auth: bool = False
+    rank_urls: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

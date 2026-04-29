@@ -63,6 +63,7 @@ export interface TopicMarketSignalSource {
   category: string
   source_type?: TopicMarketSignalSourceType
   requires_auth?: boolean
+  rank_urls?: Record<string, string>
 }
 
 export interface TopicMarketSignalSummary {

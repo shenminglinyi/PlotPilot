@@ -12,6 +12,11 @@ MARKET_SIGNAL_SOURCES = {
         category="novel",
         source_type="public_page",
         requires_auth=False,
+        rank_urls={
+            "热门榜": "https://m.qidian.com/rank/",
+            "新书榜": "https://m.qidian.com/rank/newbook/",
+            "快速上榜": "https://m.qidian.com/rank/sign/",
+        },
     ),
     "jjwxc_rank": TopicMarketSignalSourceDTO(
         key="jjwxc_rank",
@@ -20,6 +25,11 @@ MARKET_SIGNAL_SOURCES = {
         category="novel",
         source_type="public_page",
         requires_auth=False,
+        rank_urls={
+            "热门榜": "https://m.jjwxc.net/rank/naturalmore/64",
+            "新书榜": "https://m.jjwxc.net/rank/naturalmore/29",
+            "快速上榜": "https://m.jjwxc.net/rank/naturalmore/36",
+        },
     ),
     "qimao_rank": TopicMarketSignalSourceDTO(
         key="qimao_rank",
@@ -28,6 +38,11 @@ MARKET_SIGNAL_SOURCES = {
         category="novel",
         source_type="public_page",
         requires_auth=False,
+        rank_urls={
+            "热门榜": "https://www.qimao.com/paihang/boy/hot/date/",
+            "新书榜": "https://www.qimao.com/paihang/boy/new/date/",
+            "快速上榜": "https://www.qimao.com/paihang/boy/leap/date/",
+        },
     ),
     "fanqie_rank": TopicMarketSignalSourceDTO(
         key="fanqie_rank",
@@ -36,6 +51,11 @@ MARKET_SIGNAL_SOURCES = {
         category="novel",
         source_type="public_page",
         requires_auth=False,
+        rank_urls={
+            "热门榜": "https://fanqienovel.com/rank/1_2_1141",
+            "新书榜": "https://fanqienovel.com/rank/1_1_1141",
+            "快速上榜": "https://fanqienovel.com/rank/1_2_1140",
+        },
     ),
     "qq_read": TopicMarketSignalSourceDTO(
         key="qq_read",
@@ -44,6 +64,11 @@ MARKET_SIGNAL_SOURCES = {
         category="novel",
         source_type="api",
         requires_auth=False,
+        rank_urls={
+            "热门榜": "https://ubook.reader.qq.com/api/book/rank?columnId=535193&pageIndex=1&pageSize=20",
+            "新书榜": "https://ubook.reader.qq.com/api/book/rank?columnId=535194&pageIndex=1&pageSize=20",
+            "快速上榜": "https://ubook.reader.qq.com/api/book/rank?columnId=535189&pageIndex=1&pageSize=20",
+        },
     ),
     "tencent_comic_rank": TopicMarketSignalSourceDTO(
         key="tencent_comic_rank",
@@ -52,6 +77,11 @@ MARKET_SIGNAL_SOURCES = {
         category="comic",
         source_type="public_page",
         requires_auth=False,
+        rank_urls={
+            "热门榜": "https://ac.qq.com/Rank/comicRank/type/pgv",
+            "新书榜": "https://ac.qq.com/Rank/comicRank/type/new",
+            "快速上榜": "https://ac.qq.com/Rank/comicRank/type/rise",
+        },
     ),
     "kuaikan_comic": TopicMarketSignalSourceDTO(
         key="kuaikan_comic",
@@ -60,6 +90,11 @@ MARKET_SIGNAL_SOURCES = {
         category="comic",
         source_type="public_page",
         requires_auth=False,
+        rank_urls={
+            "热门榜": "https://www.kuaikanmanhua.com/ranking/9",
+            "新书榜": "https://www.kuaikanmanhua.com/ranking/2",
+            "快速上榜": "https://www.kuaikanmanhua.com/ranking/7",
+        },
     ),
 }
 
