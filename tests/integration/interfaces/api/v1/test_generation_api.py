@@ -164,6 +164,32 @@ class TestGenerateChapterEndpoint:
         assert "data:" in body
         assert '"type": "done"' in body or '"done"' in body
 
+    def test_generate_chapter_stream_can_enable_anti_compression_directive(
+        self, client, mock_workflow
+    ):
+        """开启避免压缩表达时，后端应把慢写约束注入实际生成大纲。"""
+        captured = {}
+
+        async def stream_with_capture(*args, **kwargs):
+            captured.update(kwargs)
+            yield {"type": "done", "content": "", "consistency_report": {}, "token_count": 0}
+
+        mock_workflow.generate_chapter_stream = stream_with_capture
+
+        response = client.post(
+            "/api/v1/novels/novel-1/generate-chapter-stream",
+            json={
+                "chapter_number": 1,
+                "outline": "主角和同伴讨论下一步行动。",
+                "avoid_compressed_expression": True,
+            },
+        )
+
+        assert response.status_code == 200
+        assert "主角和同伴讨论下一步行动。" in captured["outline"]
+        assert "避免 AI 压缩表达" in captured["outline"]
+        assert "不要用一句概括跳过" in captured["outline"]
+
     def test_hosted_write_stream_sse(self, client):
         """托管连写 SSE"""
         response = client.post(
@@ -247,4 +273,3 @@ class TestPlotArcEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "key_points" in data
-

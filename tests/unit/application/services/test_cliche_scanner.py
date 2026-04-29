@@ -111,3 +111,24 @@ class TestClicheScanner:
 
         # 应该检测到多个俗套
         assert len(hits) >= 2
+
+    def test_detects_ai_flavor_summary_and_atmosphere_patterns(self, scanner):
+        """测试检测常见 AI 味总结句和氛围套话"""
+        text = "空气仿佛凝固了。他知道，自己再也回不去了。命运的齿轮开始转动。"
+
+        hits = scanner.scan_cliches(text)
+
+        assert len(hits) >= 3
+        assert any("空气" in hit.text and "凝固" in hit.text for hit in hits)
+        assert any("再也回不去" in hit.text for hit in hits)
+        assert any("命运的齿轮" in hit.text for hit in hits)
+
+    def test_detects_compressed_expression_patterns(self, scanner):
+        """测试检测把情节压成概括句的表达"""
+        text = "一番交谈后，两人很快达成共识。随后他简单说明了情况。"
+
+        hits = scanner.scan_cliches(text)
+
+        assert len(hits) >= 2
+        assert any("一番交谈后" in hit.text for hit in hits)
+        assert any("简单说明了情况" in hit.text for hit in hits)

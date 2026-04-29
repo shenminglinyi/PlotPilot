@@ -290,6 +290,50 @@ class TestBuildPrompt:
         assert "HIGH" in prompt.system
         assert "CTX" in prompt.system
 
+    def test_build_prompt_uses_visible_prompt_config(self, workflow, monkeypatch):
+        """工作流章节生成应优先读取提示词广场中的可视配置。"""
+        class FakePromptManager:
+            def ensure_seeded(self):
+                return True
+
+            def render(self, node_key, variables):
+                assert node_key == "workflow-chapter-generation"
+                assert variables["context"] == "CTX"
+                assert variables["outline"] == "OL"
+                return {
+                    "system": "VISIBLE SYSTEM {unused}",
+                    "user": "VISIBLE USER",
+                }
+
+        monkeypatch.setattr(
+            "infrastructure.ai.prompt_manager.get_prompt_manager",
+            lambda: FakePromptManager(),
+        )
+
+        prompt = workflow._build_prompt(context="CTX", outline="OL")
+
+        assert prompt.system == "VISIBLE SYSTEM {unused}"
+        assert prompt.user == "VISIBLE USER\n\n开始撰写："
+
+    def test_build_prompt_falls_back_when_visible_config_is_empty(self, workflow, monkeypatch):
+        """提示词广场节点为空时应回退到内置模板，避免生成请求缺 System。"""
+        class FakePromptManager:
+            def ensure_seeded(self):
+                return True
+
+            def render(self, node_key, variables):
+                return {"system": "", "user": "VISIBLE USER"}
+
+        monkeypatch.setattr(
+            "infrastructure.ai.prompt_manager.get_prompt_manager",
+            lambda: FakePromptManager(),
+        )
+
+        prompt = workflow._build_prompt(context="CTX", outline="OL")
+
+        assert "你是一位专业的网络小说作家" in prompt.system
+        assert "请根据以下大纲撰写本章内容" in prompt.user
+
 class TestConflictDetectionIntegration:
     """测试冲突检测集成"""
 

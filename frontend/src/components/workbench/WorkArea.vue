@@ -72,6 +72,15 @@
                   <n-space :size="8" align="center" justify="space-between" style="width: 100%">
                     <n-text depth="3">字数: {{ wordCount }}</n-text>
                     <n-space :size="8">
+                      <n-button
+                        size="small"
+                        secondary
+                        @click="showGenerationStyleModal = true"
+                        :disabled="generateInProgress"
+                        title="编辑章节生成提示词"
+                      >
+                        生成风格
+                      </n-button>
                       <n-tooltip trigger="hover" :disabled="!isAutopilotRunning && !isAssistedReadOnly">
                         <template #trigger>
                           <n-button
@@ -227,6 +236,19 @@
                 </n-space>
               </n-form-item>
 
+              <n-form-item label="慢写过程" label-placement="left" label-width="80" :show-feedback="false">
+                <n-space align="center" :size="8">
+                  <n-switch
+                    v-model:value="avoidCompressedExpression"
+                    :disabled="generateInProgress"
+                    size="small"
+                  />
+                  <n-text depth="3" style="font-size: 12px">
+                    避免把对话、动作和心理转折压成一句概括
+                  </n-text>
+                </n-space>
+              </n-form-item>
+
               <n-alert v-if="sceneDirectorError" type="warning" :show-icon="true" style="font-size: 12px">
                 场记分析失败（不影响生成）：{{ sceneDirectorError }}
               </n-alert>
@@ -375,6 +397,24 @@
       </template>
     </n-modal>
 
+    <!-- 章节生成风格配置：直接打开提示词广场中的工作流生成节点 -->
+    <n-modal
+      v-model:show="showGenerationStyleModal"
+      preset="card"
+      title="生成风格 / AI味抑制"
+      style="width: min(880px, 96vw); max-height: min(92vh, 900px)"
+      :segmented="{ content: true }"
+      display-directive="if"
+    >
+      <n-scrollbar style="max-height: min(78vh, 760px)">
+        <PromptDetailPanel
+          node-key="workflow-chapter-generation"
+          @updated="message.success('生成风格配置已保存')"
+          @close="showGenerationStyleModal = false"
+        />
+      </n-scrollbar>
+    </n-modal>
+
     <!-- 张力诊断弹窗 -->
     <n-modal
       v-model:show="showTensionModal"
@@ -472,6 +512,7 @@ import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
+import PromptDetailPanel from './promptPlaza/PromptDetailPanel.vue'
 
 interface Chapter {
   id: number
@@ -511,6 +552,7 @@ const workMode = ref<'assisted' | 'managed'>('managed')
 // Tab 状态（仅辅助撰稿）
 const activeTab = ref('editor')
 const showGenerateModal = ref(false)
+const showGenerationStyleModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
 /** 弹窗内选中的目标章节（与 useWorkbench 映射一致：id === number） */
@@ -696,6 +738,7 @@ const saving = ref(false)
 
 // Scene Director 开关
 const useSceneDirector = ref(false)
+const avoidCompressedExpression = ref(true)
 const analyzingScene = ref(false)
 const sceneDirectorError = ref('')
 
@@ -960,6 +1003,7 @@ const handleStartGenerate = async () => {
         chapter_number: targetChapterNumber,
         outline: generateOutline.value || defaultOutline,
         scene_director_result: sceneDirectorResult,
+        avoid_compressed_expression: avoidCompressedExpression.value,
       },
       {
         signal: ctrl.signal,

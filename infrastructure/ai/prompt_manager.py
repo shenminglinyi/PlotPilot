@@ -312,6 +312,7 @@ class PromptManager:
             "SELECT id FROM prompt_templates WHERE is_builtin=1 LIMIT 1"
         ).fetchone()
         if row:
+            self._repair_builtin_seed_aliases(conn)
             self._seeded = True
             logger.info("PromptManager: 内置种子已存在，跳过初始化")
             return True
@@ -376,7 +377,7 @@ class PromptManager:
                 ver_id, now, now,
             ))
 
-            system_content = p.get("system", "")
+            system_content = p.get("system", p.get("system_template", ""))
 
             conn.execute("""
                 INSERT INTO prompt_versions
@@ -390,6 +391,49 @@ class PromptManager:
         count = len(prompts)
         logger.info("PromptManager: 已导入 %d 个内置提示词种子", count)
         return True
+
+    def _repair_builtin_seed_aliases(self, conn) -> None:
+        """兼容早期种子中的 system_template 字段，修复空的内置 System 版本。"""
+        seed_path = _DEFAULT_SEED_PATH
+        if not seed_path.exists():
+            return
+        try:
+            seed_data = json.loads(seed_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("读取种子文件用于兼容修复失败: %s", exc)
+            return
+
+        repaired = 0
+        for prompt in seed_data.get("prompts", []):
+            node_key = prompt.get("id")
+            system_content = prompt.get("system", prompt.get("system_template", ""))
+            if not node_key or not system_content:
+                continue
+            row = conn.execute(
+                """
+                SELECT v.id, v.system_prompt, v.created_by
+                FROM prompt_nodes n
+                INNER JOIN prompt_versions v ON n.active_version_id = v.id
+                WHERE n.node_key = ? AND n.is_builtin = 1
+                LIMIT 1
+                """,
+                (node_key,),
+            ).fetchone()
+            if not row:
+                continue
+            if (row["system_prompt"] or "").strip():
+                continue
+            if row["created_by"] != "system":
+                continue
+            conn.execute(
+                "UPDATE prompt_versions SET system_prompt = ? WHERE id = ?",
+                (system_content, row["id"]),
+            )
+            repaired += 1
+
+        if repaired:
+            conn.commit()
+            logger.info("PromptManager: 已修复 %d 个内置提示词 System 字段", repaired)
 
     # ------------------------------------------------------------------
     # 模板包 CRUD

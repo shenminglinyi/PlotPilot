@@ -84,6 +84,26 @@ class GenerateChapterRequest(BaseModel):
     chapter_number: int = Field(..., gt=0, description="章节号（必须 > 0）")
     outline: str = Field(..., min_length=1, description="章节大纲")
     scene_director_result: Optional[dict] = Field(None, description="可选的场记分析结果")
+    avoid_compressed_expression: bool = Field(
+        False,
+        description="是否注入避免 AI 压缩表达的慢写约束",
+    )
+
+
+ANTI_COMPRESSION_DIRECTIVE = """【避免 AI 压缩表达】
+- 不要用一句概括跳过本该展开的动作、对话、试探、沉默和身体反应。
+- 禁止用“经过一番交谈后”“很快达成共识”“他意识到事情不简单”“随后简单说明了情况”这类总结句替代场景。
+- 关键交流至少写出具体台词、停顿、动作和信息增量；让读者看到过程，而不是只看到结论。"""
+
+
+def apply_anti_compression_directive(outline: str, enabled: bool) -> str:
+    """按需给章节大纲追加慢写约束，避免模型把场景压成摘要。"""
+    base = outline.strip()
+    if not enabled:
+        return base
+    if "【避免 AI 压缩表达】" in base:
+        return base
+    return f"{base}\n\n{ANTI_COMPRESSION_DIRECTIVE}"
 
 
 class StorylineMilestoneResponse(BaseModel):
@@ -246,10 +266,15 @@ async def generate_chapter_stream(
         if request.scene_director_result:
             scene_director = SceneDirectorAnalysis(**request.scene_director_result)
 
+        outline = apply_anti_compression_directive(
+            request.outline,
+            request.avoid_compressed_expression,
+        )
+
         async for event in workflow.generate_chapter_stream(
             novel_id=novel_id,
             chapter_number=request.chapter_number,
-            outline=request.outline,
+            outline=outline,
             scene_director=scene_director
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"

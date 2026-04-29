@@ -857,9 +857,49 @@ class AutoNovelGenerationWorkflow:
             except Exception as e:
                 logger.warning(f"MemoryEngine fact_lock 构建失败: {e}")
 
-        # ⚡ 提示词集中管理说明：
-        # 此模板对应 prompts_defaults.json 中的 id=workflow-chapter-generation
-        # 如需修改提示词内容，请编辑 JSON 文件而非此代码文件
+        prior_draft_block = ""
+        if beat_mode and prior_in_chapter:
+            prior_draft_block = f"""
+
+【本章已生成正文（仅承接；禁止复述、改写或重复已交代的情节与对白；勿写章节标题）】
+{prior_in_chapter}
+"""
+
+        beat_section = ""
+        if beat_mode:
+            bi = beat_index if beat_index is not None else 0
+            tb = total_beats if total_beats is not None else 1
+            beat_tail = (
+                "本段只写该节拍对应正文，紧接上文已写正文之后继续，衔接自然。"
+                if prior_in_chapter
+                else "本段只写该节拍对应正文，与全章其它节拍情节连贯。"
+            )
+            beat_section = f"""
+
+【节拍 {bi + 1}/{tb}】
+{(beat_prompt or '').strip()}
+
+{beat_tail}"""
+
+        render_variables = {
+            "planning_section": planning_section,
+            "voice_block": voice_block,
+            "context": context,
+            "fact_lock": fact_lock,
+            "length_rule": length_rule,
+            "beat_extra": beat_extra,
+            "outline": outline,
+            "prior_draft": prior_draft_block,
+            "beat_section": beat_section,
+        }
+
+        visible_prompt = self._render_visible_workflow_prompt(render_variables)
+        if visible_prompt:
+            return Prompt(
+                system=visible_prompt["system"],
+                user=self._ensure_generation_start_suffix(visible_prompt["user"]),
+            )
+
         system_message = f"""你是一位专业的网络小说作家。根据以下上下文撰写章节内容。
 
 {planning_section}{voice_block}{context}
@@ -887,31 +927,41 @@ class AutoNovelGenerationWorkflow:
 - 推进主线情节，不要原地踏步
 - 结尾要有悬念或转折"""
 
-        if beat_mode and prior_in_chapter:
-            user_message += f"""
-
-【本章已生成正文（仅承接；禁止复述、改写或重复已交代的情节与对白；勿写章节标题）】
-{prior_in_chapter}
-"""
-
-        if beat_mode:
-            bi = beat_index if beat_index is not None else 0
-            tb = total_beats if total_beats is not None else 1
-            beat_tail = (
-                "本段只写该节拍对应正文，紧接上文已写正文之后继续，衔接自然。"
-                if prior_in_chapter
-                else "本段只写该节拍对应正文，与全章其它节拍情节连贯。"
-            )
-            user_message += f"""
-
-【节拍 {bi + 1}/{tb}】
-{(beat_prompt or '').strip()}
-
-{beat_tail}"""
+        user_message += prior_draft_block
+        user_message += beat_section
 
         user_message += "\n\n开始撰写："
 
         return Prompt(system=system_message, user=user_message)
+
+    @staticmethod
+    def _ensure_generation_start_suffix(user_message: str) -> str:
+        """给可视配置渲染出的 user prompt 补上统一的生成起笔标记。"""
+        text = (user_message or "").rstrip()
+        if text.endswith("开始撰写：") or text.endswith("开始撰写:"):
+            return text
+        return f"{text}\n\n开始撰写："
+
+    @staticmethod
+    def _render_visible_workflow_prompt(variables: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """读取提示词广场中的工作流章节生成配置；不可用时返回 None 走内置兜底。"""
+        try:
+            from infrastructure.ai.prompt_manager import get_prompt_manager
+
+            manager = get_prompt_manager()
+            manager.ensure_seeded()
+            rendered = manager.render("workflow-chapter-generation", variables)
+        except Exception as e:
+            logger.warning("workflow prompt config unavailable, using built-in fallback: %s", e)
+            return None
+
+        if not rendered:
+            return None
+        system = (rendered.get("system") or "").strip()
+        user = (rendered.get("user") or "").strip()
+        if not system or not user:
+            return None
+        return {"system": system, "user": user}
 
     async def _extract_chapter_state(self, content: str, chapter_number: int) -> ChapterState:
         """从生成的内容中提取章节状态

@@ -403,7 +403,7 @@ async def import_prompts(payload: ImportPayload) -> Dict[str, Any]:
         try:
             node_key = p.get("id", "") or p.get("node_key", "")
             name = p.get("name", f"导入提示词-{idx + 1}")
-            system_content = p.get("system", "")
+            system_content = p.get("system", p.get("system_template", ""))
             user_content = p.get("user_template", "")
 
             if not node_key:

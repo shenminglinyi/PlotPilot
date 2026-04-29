@@ -1287,7 +1287,7 @@
         "流式生成"
       ],
       "output_format": "text",
-      "system_template": "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。\n\n{planning_section}{voice_block}{context}\n\n{fact_lock}\n写作要求：\n1. 必须有多个人物互动（至少2-3个角色出场）\n2. 必须有对话（不能只有独白和叙述）\n3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）\n4. 保持人物性格一致\n5. 推进情节发展\n6. 使用生动的场景描写和细节\n{length_rule}\n8. 用中文写作，使用第三人称叙事{beat_extra}",
+      "system": "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。\n\n{planning_section}{voice_block}{context}\n\n{fact_lock}\n写作要求：\n1. 必须有多个人物互动（至少2-3个角色出场）\n2. 必须有对话（不能只有独白和叙述）\n3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）\n4. 保持人物性格一致\n5. 推进情节发展\n6. 使用生动的场景描写和细节\n{length_rule}\n8. 用中文写作，使用第三人称叙事{beat_extra}",
       "user_template": "请根据以下大纲撰写本章内容：\n\n{outline}\n\n关键要求（必须遵守）：\n- 至少2-3个角色出场并互动\n- 必须包含对话场景（不少于3段对话）\n- 必须有明确的冲突或戏剧张力\n- 场景要具体生动，不要空泛叙述\n- 推进主线情节，不要原地踏步\n- 结尾要有悬念或转折{prior_draft}{beat_section}",
       "variables": [
         {"name": "planning_section", "desc": "故事线/张力/风格约束块", "type": "string", "default": ""},
