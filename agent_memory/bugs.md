@@ -9,6 +9,7 @@
 - 宝塔旧库可能缺少最新 `topic_ideas` 列；已在 `DatabaseConnection` 启动前迁移中补齐当前列。后续新增选题表列时，应同步补启动前迁移，避免 `CREATE INDEX` 或仓储保存时被旧库阻断。
 - 线上 AI 章节生成当前依赖 LLM 控制台配置；API Key/模型名为空时会回退 MockProvider，接口可以返回 SSE，但内容可能是测试 JSON 而不是小说正文。已改为 Kimi + DS profile，地址与模型名已配置；补 API Key 前不要把试写结果判断为真实模型质量。
 - Kimi `coding-intl.dashscope.aliyuncs.com/v1` 网关支持 `/chat/completions`，但不支持 `/models`，拉模型列表会 404；后端已对该类网关做模型列表兜底，测试连接结果比模型列表更能代表真实可用性。
+- 真实 LLM 选题生成可用，但 `logline` 可能直接拼入过多市场信号原文，导致一句话卖点过长。后续优化应从 prompt 约束和保存前字段压缩入手，不影响当前链路可用性。
 - 高频采集/全链路测试后曾出现 SQLite `database is locked`，重启 `plotpilot-novelpro.service` 后解除。后续若复现，需要优先检查是否有长事务或后台采集与章节生成并发写入。
 
 ## 已解除

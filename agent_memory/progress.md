@@ -105,6 +105,12 @@
     - 线上实际 Kimi 配置为 `https://coding-intl.dashscope.aliyuncs.com/v1` + `kimi-k2.5`，聊天测试可成功，但该网关 `GET /v1/models` 返回 404，导致前端“拉取模型”显示 502。
     - 已为已知 Kimi 网关补模型列表兜底：当 `/models` 404 时返回当前模型和 Kimi 候选模型，不再误报 502。
     - 线上复测通过：Kimi 模型列表返回 `kimi-k2.5 / kimi-k2.6`，测试连接返回“连接成功”；DeepSeek 模型列表返回 `deepseek-v4-flash / deepseek-v4-pro`，测试连接返回“连接成功”。
+  - 2026-04-29 线上真实 LLM 选题与试写验证：
+    - `/api/v1/llm-control` 显示 active profile 为 `kimi-moonshot-default`，`using_mock=false`。
+    - 选题生成已跑通，使用 8 条真实市场信号，生成测试选题 `topic-2c30ae88e4d2460984192d0b3d6e34f1`，标题 `Codex线上LLM测试-20260429-231056-逆风开局的隐藏王牌`。
+    - 选题已采纳为测试小说 `novel-41cc891f269141759d7bceb2f6dc4b48`。
+    - 第一章流式试写已跑通并保存，章节标题《第一章 榜单在凌晨改名》，SSE 事件 3209 个，正文长度 5219 字，预览为正常小说正文而非 Mock JSON。
+    - 观察到选题 `logline` 仍会把市场信号拼得过长，后续可优化选题生成 prompt 或落库前摘要压缩。
 
 ## 下一步
 
@@ -113,6 +119,7 @@
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
 - 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
 - 线上 Kimi 与 DS API Key 已配置且连接测试通过；后续可继续复测选题生成与章节试写质量。
+- 线上真实 LLM 选题生成与章节试写已通过；后续可优先优化选题 `logline` 过长、市场信号压缩和章节生成风格质量。
 
 ## 待确认
 
