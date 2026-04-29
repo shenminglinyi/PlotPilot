@@ -78,6 +78,7 @@ export interface FetchModelsPayload {
   protocol: string
   base_url: string
   api_key: string
+  model?: string
   timeout_ms?: number
 }
 

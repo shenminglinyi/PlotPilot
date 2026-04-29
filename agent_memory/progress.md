@@ -101,6 +101,10 @@
     - 本地与线上均已新增 `kimi-moonshot-default`：OpenAI-compatible，`base_url=https://api.moonshot.cn/v1`，`model=kimi-k2.6`，并设为 active profile。
     - 本地与线上均已新增 `deepseek-default`：OpenAI-compatible，`base_url=https://api.deepseek.com`，`model=deepseek-v4-flash`。
     - 当前 Kimi 与 DS 的 API Key 都为空，接口运行时仍显示 `using_mock=true`；补 Key 后需要重新测试 `/api/v1/llm-control/test` 与章节流式生成。
+  - 2026-04-29 LLM 面板修复：
+    - 线上实际 Kimi 配置为 `https://coding-intl.dashscope.aliyuncs.com/v1` + `kimi-k2.5`，聊天测试可成功，但该网关 `GET /v1/models` 返回 404，导致前端“拉取模型”显示 502。
+    - 已为已知 Kimi 网关补模型列表兜底：当 `/models` 404 时返回当前模型和 Kimi 候选模型，不再误报 502。
+    - 线上复测通过：Kimi 模型列表返回 `kimi-k2.5 / kimi-k2.6`，测试连接返回“连接成功”；DeepSeek 模型列表返回 `deepseek-v4-flash / deepseek-v4-pro`，测试连接返回“连接成功”。
 
 ## 下一步
 
@@ -108,7 +112,7 @@
 - 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
 - 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
-- 如要让线上 AI 试写真正产出小说正文，需要补 Kimi 或 DS 的 API Key；当前 Kimi/DS profile 的地址与模型名已配置，缺 Key 会继续回退 MockProvider。
+- 线上 Kimi 与 DS API Key 已配置且连接测试通过；后续可继续复测选题生成与章节试写质量。
 
 ## 待确认
 

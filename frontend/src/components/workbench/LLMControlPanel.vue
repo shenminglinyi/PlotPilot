@@ -340,6 +340,7 @@ async function handleFetchModels() {
       protocol: selectedProfile.value.protocol,
       base_url: selectedProfile.value.base_url,
       api_key: selectedProfile.value.api_key,
+      model: selectedProfile.value.model,
     })
     if (result.success && result.items.length > 0) {
       fetchedModels.value = result.items

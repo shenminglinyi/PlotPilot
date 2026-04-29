@@ -34,6 +34,7 @@ class ModelListRequest(BaseModel):
     protocol: str = 'openai'
     base_url: str = ''
     api_key: str = ''
+    model: str = ''
     timeout_ms: int = 30000
 
 
@@ -89,6 +90,30 @@ def _normalize_model_items(data: Dict[str, Any]) -> List[ModelItem]:
     return items
 
 
+def _fallback_model_items_for_gateway(base_url: str, current_model: str = '') -> List[ModelItem]:
+    """部分 OpenAI 兼容网关支持 chat/completions，但不提供 /models。
+
+    这种情况下“测试连接”可以成功，而“拉取模型”会 404。对已知网关返回保守候选，
+    避免把可用配置误判为坏配置。
+    """
+    raw = (base_url or '').strip().lower()
+    candidates: list[str] = []
+    if 'coding-intl.dashscope.aliyuncs.com' in raw:
+        candidates = ['kimi-k2.5', 'kimi-k2.6']
+    elif 'moonshot.cn' in raw or 'moonshot.ai' in raw:
+        candidates = ['kimi-k2.6', 'kimi-k2.5', 'kimi-latest']
+
+    current = (current_model or '').strip()
+    if current:
+        candidates = [current, *[item for item in candidates if item != current]]
+
+    return [
+        ModelItem(id=model, name=model, owned_by='fallback')
+        for model in candidates
+        if model
+    ]
+
+
 @router.post('/models', response_model=ModelListResponse)
 async def list_models(payload: ModelListRequest) -> ModelListResponse:
     """根据当前配置的 endpoint 拉取模型列表（OpenAI / Anthropic 兼容）。"""
@@ -105,6 +130,7 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
         raise HTTPException(status_code=400, detail='API key is required to fetch model list')
 
     base_url = (candidate.get('base_url') or '').strip()
+    current_model = (candidate.get('model') or '').strip()
     timeout = max(1.0, (candidate.get('timeout_ms') or 30000) / 1000)
 
     if api_format == 'anthropic':
@@ -143,6 +169,14 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
     except HTTPException:
         raise
     except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            fallback_items = _fallback_model_items_for_gateway(base_url, current_model)
+            if fallback_items:
+                return ModelListResponse(
+                    success=True,
+                    items=fallback_items,
+                    count=len(fallback_items),
+                )
         body = (exc.response.text or '')[:400].replace('\n', ' ')
         raise HTTPException(
             status_code=502,
