@@ -222,6 +222,71 @@ CREATE TABLE IF NOT EXISTS chapter_reviews (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chapter_reviews_novel ON chapter_reviews(novel_id);
+
+-- ========== Continuity Structured Tracking（连续性结构化巡检记录） ==========
+CREATE TABLE IF NOT EXISTS continuity_relationship_events (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    source_character TEXT NOT NULL,
+    target_character TEXT NOT NULL DEFAULT '',
+    relation TEXT NOT NULL DEFAULT '关系',
+    event_type TEXT NOT NULL DEFAULT 'update',
+    description TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '',
+    severity TEXT NOT NULL DEFAULT 'info',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    FOREIGN KEY (novel_id, chapter_number) REFERENCES chapters(novel_id, number) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_continuity_relationship_events_novel_chapter
+ON continuity_relationship_events(novel_id, chapter_number);
+
+CREATE TABLE IF NOT EXISTS outline_node_statuses (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    node_key TEXT NOT NULL,
+    outline_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    note TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    FOREIGN KEY (novel_id, chapter_number) REFERENCES chapters(novel_id, number) ON DELETE CASCADE,
+    UNIQUE(novel_id, chapter_number, node_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_outline_node_statuses_novel_chapter
+ON outline_node_statuses(novel_id, chapter_number);
+
+-- ========== External Model Task Ledger（外部/直连模型任务台账） ==========
+CREATE TABLE IF NOT EXISTS external_model_tasks (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    prompt TEXT NOT NULL DEFAULT '',
+    instruction TEXT NOT NULL DEFAULT '',
+    source_draft_id TEXT NOT NULL DEFAULT '',
+    candidate_draft_id TEXT NOT NULL DEFAULT '',
+    response_preview TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'prompted',
+    execution_mode TEXT NOT NULL DEFAULT 'copy_paste',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_external_model_tasks_novel_chapter
+ON external_model_tasks(novel_id, chapter_number, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_external_model_tasks_candidate
+ON external_model_tasks(novel_id, candidate_draft_id);
+
 CREATE INDEX IF NOT EXISTS idx_triples_entity_type ON triples(novel_id, entity_type);
 CREATE INDEX IF NOT EXISTS idx_triples_chapter ON triples(novel_id, chapter_number);
 CREATE INDEX IF NOT EXISTS idx_triples_source ON triples(novel_id, source_type);
@@ -597,6 +662,80 @@ CREATE TABLE IF NOT EXISTS novel_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_novel ON novel_snapshots(novel_id);
 CREATE INDEX IF NOT EXISTS idx_novel_snapshots_branch ON novel_snapshots(novel_id, branch_name);
+
+-- ========== 章节候选稿（NovelPro P1）==========
+-- 外部模型或局部改稿产生的候选正文；只有采纳后才写入 chapters 主稿并触发现有章后管线
+CREATE TABLE IF NOT EXISTS chapter_candidate_drafts (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    branch_name TEXT NOT NULL DEFAULT 'main',
+    source TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    title TEXT DEFAULT '',
+    content TEXT NOT NULL,
+    rationale TEXT DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_candidate_drafts_chapter
+    ON chapter_candidate_drafts(novel_id, chapter_number, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_candidate_drafts_branch
+    ON chapter_candidate_drafts(novel_id, branch_name, status);
+
+-- ========== 战力系统守恒（NovelPro）==========
+-- 面向系统文 / 游戏文 / 玄幻升级流的战力规则、角色档案与战斗事件台账
+CREATE TABLE IF NOT EXISTS power_system_rules (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL UNIQUE,
+    genre_type TEXT NOT NULL DEFAULT 'system_game',
+    tier_schema TEXT NOT NULL DEFAULT '',
+    core_rules TEXT NOT NULL DEFAULT '',
+    taboo_rules TEXT NOT NULL DEFAULT '',
+    escalation_rules TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS power_character_profiles (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    character_name TEXT NOT NULL,
+    tier TEXT NOT NULL DEFAULT '',
+    rank_score INTEGER NOT NULL DEFAULT 0,
+    abilities TEXT NOT NULL DEFAULT '',
+    limitations TEXT NOT NULL DEFAULT '',
+    growth_stage TEXT NOT NULL DEFAULT '',
+    last_verified_chapter INTEGER,
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    UNIQUE(novel_id, character_name)
+);
+
+CREATE TABLE IF NOT EXISTS power_progression_events (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    character_name TEXT NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'battle',
+    opponent TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT '',
+    power_delta INTEGER NOT NULL DEFAULT 0,
+    evidence TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_power_profiles_novel
+    ON power_character_profiles(novel_id, rank_score DESC);
+CREATE INDEX IF NOT EXISTS idx_power_events_novel_chapter
+    ON power_progression_events(novel_id, chapter_number DESC);
 
 
 -- ========== 提示词广场系统（Prompt Plaza）==========

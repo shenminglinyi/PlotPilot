@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 _CHAPTER_IN_TEXT = re.compile(r"第\s*(\d+)\s*章")
+_CANDIDATE_ACCEPT_IN_NAME = re.compile(r"^\[候选稿采纳\]\s*第\s*\d+\s*章\s*[·•]\s*(.+?)\s*$")
 
 
 def infer_chapter_from_texts(*parts: str) -> Optional[int]:
@@ -26,6 +27,20 @@ def anchor_chapter_from_pointers(
 ) -> Optional[int]:
     nums = [id_to_number[i] for i in pointer_ids if i in id_to_number]
     return max(nums) if nums else None
+
+
+def infer_snapshot_origin(name: str) -> Dict[str, Optional[str]]:
+    raw_name = (name or "").strip()
+    match = _CANDIDATE_ACCEPT_IN_NAME.match(raw_name)
+    if match:
+        return {
+            "origin_type": "candidate_accept",
+            "candidate_source": match.group(1).strip() or None,
+        }
+    return {
+        "origin_type": "snapshot",
+        "candidate_source": None,
+    }
 
 
 def build_chronicles_rows(
@@ -77,6 +92,7 @@ def build_chronicles_rows(
                 "created_at": snap.get("created_at"),
                 "description": (snap.get("description") or "").strip() or None,
                 "anchor_chapter": anchor,
+                **infer_snapshot_origin(snap.get("name") or ""),
             }
         )
 

@@ -15,6 +15,7 @@ from pathlib import Path
 import sys
 import time
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 # 必须在其他 aitext 模块导入前执行：将仓库根目录 `.env` 写入 os.environ
@@ -48,7 +49,14 @@ import multiprocessing
 import signal
 
 # Core module
-from interfaces.api.v1.core import novels, chapters, scene_generation_routes, settings as llm_settings, export
+from interfaces.api.v1.core import (
+    novels,
+    chapters,
+    chapter_candidate_drafts,
+    scene_generation_routes,
+    settings as llm_settings,
+    export,
+)
 
 # World module
 from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_routes, worldbuilding_routes
@@ -71,7 +79,7 @@ from interfaces.api.v1.engine import (
 from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes
 
 # Analyst module
-from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger
+from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger, continuity, power_system, novelpro_monitor, novelpro_suggestions
 
 # System module (internal tooling)
 from interfaces.api.v1 import system as system_routes
@@ -109,12 +117,22 @@ logger.info(f"   Python: {sys.version.split()[0]}")
 logger.info(f"   Working Dir: {Path.cwd()}")
 logger.info("=" * 80)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await startup_event()
+    try:
+        yield
+    finally:
+        await shutdown_event()
+
+
 # 创建 FastAPI 应用
 app = FastAPI(
     title="PlotPilot API",
     version="1.0.2",
     description="PlotPilot（墨枢）AI 小说创作平台 API",
     redirect_slashes=True,  # 自动将 /api/v1/novels 重定向到 /api/v1/novels/
+    lifespan=lifespan,
 )
 
 # ── 前端静态文件托管 ──
@@ -156,7 +174,6 @@ async def fix_redirect_host(request, call_next):
     return response
 
 
-@app.on_event("startup")
 async def startup_event():
     """应用启动事件"""
     logger.info("📦 Loading modules and routes...")
@@ -205,7 +222,6 @@ def _run_backend_shutdown_hooks() -> None:
     logger.info("=" * 80)
 
 
-@app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭事件（uvicorn 优雅退出时触发；Windows 桌面专用路径见 /internal/shutdown）。"""
     _run_backend_shutdown_hooks()
@@ -519,6 +535,7 @@ add_error_handlers(app)
 # Core module routes
 app.include_router(novels.router, prefix="/api/v1")
 app.include_router(chapters.router, prefix="/api/v1/novels")
+app.include_router(chapter_candidate_drafts.router, prefix="/api/v1")
 app.include_router(scene_generation_routes.router)
 app.include_router(llm_settings.router, prefix="/api/v1")
 app.include_router(llm_settings.embedding_router, prefix="/api/v1")
@@ -552,6 +569,10 @@ app.include_router(chapter_element_routes.router)
 
 # Analyst module routes
 app.include_router(voice.router, prefix="/api/v1")
+app.include_router(continuity.router, prefix="/api/v1")
+app.include_router(power_system.router, prefix="/api/v1")
+app.include_router(novelpro_monitor.router, prefix="/api/v1")
+app.include_router(novelpro_suggestions.router, prefix="/api/v1")
 app.include_router(narrative_state.router, prefix="/api/v1")
 app.include_router(foreshadow_ledger.router, prefix="/api/v1")
 

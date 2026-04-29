@@ -17,6 +17,8 @@
       </n-space>
 
       <n-space :size="8" :wrap="false">
+        <CandidateDraftBranchSwitcher :slug="slug" width="150px" />
+
         <n-button-group>
           <n-button size="small" @click="prevChapter" :disabled="!canPrev">
             <template #icon>
@@ -35,6 +37,11 @@
         <n-dropdown :options="toolOptions" @select="handleToolSelect">
           <n-button size="small" secondary>工具</n-button>
         </n-dropdown>
+
+        <n-button size="small" secondary @click="reviewTab = 'candidates'">
+          候选稿
+          <template v-if="candidateDrafts.length">（{{ candidateDrafts.length }}）</template>
+        </n-button>
 
         <n-button size="small" quaternary @click="goCastGraph">关系图</n-button>
 
@@ -79,7 +86,7 @@
 
       <template #2>
         <div class="review-panel">
-          <n-tabs type="segment" animated class="review-tabs">
+          <n-tabs v-model:value="reviewTab" type="segment" animated class="review-tabs">
             <n-tab-pane name="review" tab="审定">
               <n-form label-placement="top" class="review-form">
                 <n-form-item label="状态">
@@ -187,6 +194,237 @@
               </n-spin>
             </n-tab-pane>
 
+            <n-tab-pane name="candidates" tab="候选稿">
+              <n-space vertical :size="12" style="width: 100%">
+                <n-alert type="info" :show-icon="true" style="font-size: 12px">
+                  当前页的候选稿与工作台共用同一套数据和采纳链路。采纳后会进入现有主稿、快照和章后记忆更新流程。
+                </n-alert>
+                <n-space justify="space-between" align="center">
+                  <n-space vertical :size="4">
+                    <n-text depth="3" style="font-size: 12px">
+                      当前章节：第 {{ chapterId }} 章
+                    </n-text>
+                    <n-text depth="3" style="font-size: 11px">
+                      候选稿分支与全局切换保持同步；留空表示查看全部，新建时会回落到 `main`。
+                    </n-text>
+                  </n-space>
+                  <n-space :size="8">
+                    <CandidateDraftBranchSwitcher :slug="slug" width="180px" />
+                    <n-button
+                      size="small"
+                      secondary
+                      :loading="savingCandidateDraft"
+                      :disabled="!content.trim()"
+                      @click="saveCurrentAsCandidate"
+                    >
+                      保存当前稿为候选稿
+                    </n-button>
+                    <n-button size="small" secondary :loading="loadingCandidateDrafts" @click="loadCandidateDrafts">
+                      刷新
+                    </n-button>
+                  </n-space>
+                </n-space>
+
+                <n-empty
+                  v-if="!loadingCandidateDrafts && candidateDrafts.length === 0"
+                  description="当前章节还没有候选稿"
+                  size="small"
+                />
+
+                <n-grid v-else :cols="2" :x-gap="12">
+                  <n-grid-item>
+                    <n-scrollbar style="max-height: 520px">
+                      <n-space vertical :size="10">
+                        <n-card
+                          v-for="draft in candidateDrafts"
+                          :key="draft.id"
+                          size="small"
+                          :bordered="true"
+                          :class="{ 'candidate-card--active': selectedCandidateDraftId === draft.id }"
+                        >
+                          <n-space vertical :size="8">
+                            <n-space justify="space-between" align="center">
+                              <n-space :size="6" align="center">
+                                <n-tag size="small" round :type="candidateDraftSourceType(draft.source)">
+                                  {{ candidateDraftSourceLabel(draft.source) }}
+                                </n-tag>
+                                <n-tag size="small" round type="default">{{ draft.branch_name }}</n-tag>
+                                <n-tag
+                                  size="small"
+                                  round
+                                  :type="draft.status === 'accepted' ? 'success' : draft.status === 'rejected' ? 'error' : 'warning'"
+                                >
+                                  {{ draft.status }}
+                                </n-tag>
+                              </n-space>
+                              <n-text depth="3" style="font-size: 11px">{{ formatDraftTime(draft.created_at) }}</n-text>
+                            </n-space>
+                            <n-text strong>{{ draft.title || `第${draft.chapter_number}章候选稿` }}</n-text>
+                            <n-space v-if="candidateDraftFocusTags(draft).length" :size="6" wrap>
+                              <n-tag
+                                v-for="tag in candidateDraftFocusTags(draft)"
+                                :key="`${draft.id}-${tag}`"
+                                size="small"
+                                round
+                                type="info"
+                              >
+                                {{ tag }}
+                              </n-tag>
+                            </n-space>
+                            <n-space v-if="candidateDraftLineageTags(draft).length" :size="6" wrap>
+                              <n-tag
+                                v-for="tag in candidateDraftLineageTags(draft)"
+                                :key="`${draft.id}-lineage-${tag}`"
+                                size="small"
+                                round
+                                type="success"
+                              >
+                                {{ tag }}
+                              </n-tag>
+                            </n-space>
+                            <n-text depth="3" style="font-size: 12px; line-height: 1.6">
+                              {{ draft.rationale || '无说明' }}
+                            </n-text>
+                            <n-space :size="8">
+                              <n-button size="tiny" secondary @click="selectedCandidateDraftId = draft.id">
+                                预览
+                              </n-button>
+                              <n-button
+                                v-if="isCandidateRewriteTask(draft)"
+                                size="tiny"
+                                secondary
+                                @click="generateCandidateTaskInWorkbench(draft)"
+                              >
+                                去工作台生成
+                              </n-button>
+                              <n-button
+                                size="tiny"
+                                type="primary"
+                                :loading="acceptingCandidateDraftId === draft.id"
+                                :disabled="draft.status === 'accepted'"
+                                @click="acceptCandidateDraft(draft.id)"
+                              >
+                                采纳为主稿
+                              </n-button>
+                              <n-button
+                                size="tiny"
+                                type="error"
+                                secondary
+                                :disabled="draft.status === 'rejected'"
+                                @click="rejectCandidateDraft(draft.id)"
+                              >
+                                拒绝
+                              </n-button>
+                            </n-space>
+                          </n-space>
+                        </n-card>
+                      </n-space>
+                    </n-scrollbar>
+                  </n-grid-item>
+
+                  <n-grid-item>
+                    <n-space vertical :size="10">
+                      <n-text strong>候选稿预览</n-text>
+                      <n-alert
+                        v-if="selectedCandidateDraft && selectedCandidateDiffSummary"
+                        :type="selectedCandidateDiffSummary.changed ? 'info' : 'default'"
+                        :show-icon="false"
+                        style="font-size:12px"
+                      >
+                        与当前主稿对比：候选稿 {{ selectedCandidateDiffSummary.candidateWordCount }} 字，
+                        {{ selectedCandidateDiffSummary.wordDelta >= 0 ? '增加' : '减少' }}
+                        {{ Math.abs(selectedCandidateDiffSummary.wordDelta) }} 字，
+                        相似度 {{ selectedCandidateDiffSummary.similarityPercent }}%。
+                      </n-alert>
+                      <n-alert
+                        v-if="selectedCandidateDraft"
+                        type="success"
+                        :show-icon="false"
+                        style="font-size:12px"
+                      >
+                        采纳影响：{{ candidateDraftMemoryImpactHints(selectedCandidateDraft).join('；') }}。
+                      </n-alert>
+                      <n-space v-if="selectedCandidateDraft" :size="6" wrap>
+                        <n-tag
+                          v-for="item in candidateDraftMemoryImpactPreview(selectedCandidateDraft)"
+                          :key="`${selectedCandidateDraft.id}-impact-${item.label}`"
+                          size="small"
+                          round
+                          :type="item.type"
+                          :title="item.detail"
+                        >
+                          {{ item.label }}
+                        </n-tag>
+                      </n-space>
+                      <n-card v-if="selectedCandidateDraft && selectedCandidateParagraphDiff.length" size="small" title="段落级 diff">
+                        <n-space vertical :size="8">
+                          <n-space justify="space-between" align="center">
+                            <n-text depth="3" style="font-size: 12px">
+                              勾选候选段落后，会生成一版新的“部分采纳候选稿”。
+                            </n-text>
+                            <n-button
+                              size="tiny"
+                              type="primary"
+                              secondary
+                              :disabled="selectedPartialParagraphIndexes.length === 0"
+                              :loading="savingPartialCandidateDraft"
+                              @click="savePartialCandidateDraft"
+                            >
+                              保存所选段落
+                            </n-button>
+                          </n-space>
+                          <n-scrollbar style="max-height: 360px">
+                            <n-space vertical :size="8">
+                              <div
+                                v-for="item in selectedCandidateParagraphDiff"
+                                :key="`${selectedCandidateDraft.id}-${item.index}`"
+                                class="paragraph-diff-row"
+                              >
+                                <n-space :size="6" align="center">
+                                  <n-checkbox
+                                    :checked="selectedPartialParagraphIndexes.includes(item.index)"
+                                    :disabled="item.type === 'unchanged'"
+                                    @update:checked="togglePartialParagraph(item.index, $event)"
+                                  />
+                                  <n-tag size="small" round :type="paragraphDiffTagType(item.type)">
+                                    {{ paragraphDiffLabel(item.type) }}
+                                  </n-tag>
+                                  <n-text depth="3" style="font-size: 11px">
+                                    第 {{ item.index + 1 }} 段 · 相似度 {{ item.similarityPercent }}%
+                                  </n-text>
+                                </n-space>
+                                <n-grid :cols="2" :x-gap="8">
+                                  <n-grid-item>
+                                    <n-text depth="3" style="font-size: 11px">主稿</n-text>
+                                    <p class="paragraph-diff-text paragraph-diff-text--base">
+                                      {{ item.baseParagraph || '（无）' }}
+                                    </p>
+                                  </n-grid-item>
+                                  <n-grid-item>
+                                    <n-text depth="3" style="font-size: 11px">候选</n-text>
+                                    <p class="paragraph-diff-text paragraph-diff-text--candidate">
+                                      {{ item.candidateParagraph || '（删除该段）' }}
+                                    </p>
+                                  </n-grid-item>
+                                </n-grid>
+                              </div>
+                            </n-space>
+                          </n-scrollbar>
+                        </n-space>
+                      </n-card>
+                      <n-input
+                        :value="selectedCandidateDraft?.content || ''"
+                        type="textarea"
+                        readonly
+                        :autosize="{ minRows: 12, maxRows: 18 }"
+                        placeholder="选择左侧候选稿查看正文"
+                      />
+                    </n-space>
+                  </n-grid-item>
+                </n-grid>
+              </n-space>
+            </n-tab-pane>
+
             <n-tab-pane name="info" tab="信息">
               <n-space vertical :size="16" class="info-stats">
                 <n-statistic label="字数" :value="wordCount" />
@@ -211,6 +449,70 @@
     </n-split>
   </div>
   </n-spin>
+
+  <n-modal
+    v-model:show="showPrecisionRewriteModal"
+    preset="card"
+    title="精细改稿任务"
+    style="width: min(680px, 96vw)"
+    :segmented="{ content: true, footer: 'soft' }"
+  >
+    <n-space vertical :size="16">
+      <n-alert type="info" :show-icon="true" style="font-size:13px">
+        精修任务会先进入候选稿区；生成与采纳仍回到工作台和现有候选稿链路处理。
+      </n-alert>
+
+      <n-form-item label="改稿目标" label-placement="top" :show-feedback="false">
+        <n-select
+          v-model:value="precisionRewriteObjective"
+          :options="precisionRewriteObjectiveOptions"
+          filterable
+          tag
+        />
+      </n-form-item>
+
+      <n-form-item label="重点片段（可选）" label-placement="top" :show-feedback="false">
+        <n-input
+          v-model:value="precisionRewriteTargetExcerpt"
+          type="textarea"
+          placeholder="粘贴需要重点处理的段落；留空表示以整章为改稿范围"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+        />
+      </n-form-item>
+
+      <n-form-item label="作者要求（可选）" label-placement="top" :show-feedback="false">
+        <n-input
+          v-model:value="precisionRewriteInstruction"
+          type="textarea"
+          placeholder="例：保留事件顺序，增强角色压抑感，降低解释性句子"
+          :autosize="{ minRows: 3, maxRows: 6 }"
+        />
+      </n-form-item>
+    </n-space>
+
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="showPrecisionRewriteModal = false">取消</n-button>
+        <n-button
+          secondary
+          :loading="suggestingPrecisionRewriteTask"
+          :disabled="!content.trim()"
+          @click="suggestPrecisionRewriteTask"
+        >
+          AI 生成建议
+        </n-button>
+        <n-button
+          type="primary"
+          :loading="savingPrecisionRewriteTask"
+          :disabled="!content.trim()"
+          @click="createPrecisionRewriteTask"
+        >
+          创建任务
+        </n-button>
+      </n-space>
+    </template>
+  </n-modal>
+
 </template>
 
 <script setup lang="ts">
@@ -220,8 +522,37 @@ import { useMessage, useDialog } from 'naive-ui'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { chapterApi } from '../api/chapter'
+import { novelproSuggestionsApi } from '../api/novelproSuggestions'
+import type { ChapterCandidateDraftDTO } from '../api/chapter'
 import { knowledgeGraphApi, type InferenceFactBundle } from '../api/knowledgeGraph'
 import { useStatsStore } from '../stores/statsStore'
+import { useCandidateDraftBranchStore } from '../stores/candidateDraftBranchStore'
+import { useWorkbenchContextStore } from '../stores/workbenchContextStore'
+import {
+  CHAPTER_PRECISION_REWRITE_OBJECTIVES,
+  defaultPrecisionRewriteObjective,
+} from '../utils/chapterPrecisionRewrite'
+import {
+  candidateDraftFocusTags,
+  candidateDraftLineageTags,
+  candidateDraftMemoryImpactHints,
+  candidateDraftMemoryImpactPreview,
+  candidateDraftSourceLabel,
+  candidateDraftSourceType,
+  isCandidateRewriteTask,
+} from '../utils/candidateDraftDisplay'
+import {
+  buildCandidateDraftDiffSummary,
+  buildCandidateDraftParagraphDiff,
+  buildPartialCandidateContent,
+  type CandidateDraftParagraphDiffType,
+} from '../utils/candidateDraftDiff'
+import { markExternalModelTaskAccepted } from '../utils/externalModelTaskLedger'
+import {
+  buildPrecisionRewriteRationale,
+  PRECISION_REWRITE_SOURCE,
+} from '../utils/precisionRewriteTask'
+import CandidateDraftBranchSwitcher from '../components/workbench/CandidateDraftBranchSwitcher.vue'
 
 // Status mapping: old API (pending/ok/revise) <-> new API (draft/reviewed/approved)
 const statusToNew = (oldStatus: string): string => {
@@ -247,6 +578,8 @@ const router = useRouter()
 const message = useMessage()
 const dialog = useDialog()
 const statsStore = useStatsStore()
+const candidateDraftBranchStore = useCandidateDraftBranchStore()
+const workbenchContextStore = useWorkbenchContextStore()
 
 const inferenceLoading = ref(false)
 const inferenceFacts = ref<InferenceFactBundle[]>([])
@@ -286,6 +619,28 @@ const saving = ref(false)
 const saveStatus = ref<'unsaved' | 'saving' | 'saved'>('saved')
 const lastSaveTime = ref('')
 const saveTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const reviewTab = ref('review')
+const candidateDrafts = ref<ChapterCandidateDraftDTO[]>([])
+const loadingCandidateDrafts = ref(false)
+const savingCandidateDraft = ref(false)
+const showPrecisionRewriteModal = ref(false)
+const savingPrecisionRewriteTask = ref(false)
+const suggestingPrecisionRewriteTask = ref(false)
+const savingPartialCandidateDraft = ref(false)
+const precisionRewriteObjective = ref(defaultPrecisionRewriteObjective())
+const precisionRewriteTargetExcerpt = ref('')
+const precisionRewriteInstruction = ref('')
+const precisionRewriteObjectiveOptions = CHAPTER_PRECISION_REWRITE_OBJECTIVES.map((value) => ({
+  label: value,
+  value,
+}))
+const acceptingCandidateDraftId = ref<string | null>(null)
+const selectedCandidateDraftId = ref<string | null>(null)
+const selectedPartialParagraphIndexes = ref<number[]>([])
+const candidateBranchFilter = computed({
+  get: () => candidateDraftBranchStore.getActiveBranch(slug),
+  set: (value: string) => candidateDraftBranchStore.setActiveBranch(slug, value),
+})
 
 const reviewStatus = ref('pending')
 const reviewMemo = ref('')
@@ -352,9 +707,52 @@ const canNext = computed(() => {
 const createTime = ref('—')
 const updateTime = ref('—')
 
+const selectedCandidateDraft = computed(() => {
+  if (!selectedCandidateDraftId.value) return null
+  return candidateDrafts.value.find((draft) => draft.id === selectedCandidateDraftId.value) || null
+})
+
+const selectedCandidateDiffSummary = computed(() => {
+  if (!selectedCandidateDraft.value) return null
+  return buildCandidateDraftDiffSummary(content.value, selectedCandidateDraft.value.content || '')
+})
+
+const selectedCandidateParagraphDiff = computed(() => {
+  if (!selectedCandidateDraft.value) return []
+  return buildCandidateDraftParagraphDiff(content.value, selectedCandidateDraft.value.content || '')
+})
+
+function paragraphDiffLabel(type: CandidateDraftParagraphDiffType) {
+  if (type === 'added') return '新增'
+  if (type === 'removed') return '删除'
+  if (type === 'modified') return '改写'
+  return '未变'
+}
+
+function paragraphDiffTagType(type: CandidateDraftParagraphDiffType) {
+  if (type === 'added') return 'success'
+  if (type === 'removed') return 'error'
+  if (type === 'modified') return 'warning'
+  return 'default'
+}
+
+function togglePartialParagraph(index: number, checked: boolean) {
+  if (checked) {
+    selectedPartialParagraphIndexes.value = Array.from(
+      new Set([...selectedPartialParagraphIndexes.value, index]),
+    ).sort((a, b) => a - b)
+    return
+  }
+  selectedPartialParagraphIndexes.value = selectedPartialParagraphIndexes.value.filter(
+    item => item !== index,
+  )
+}
+
 const toolOptions = [
   { label: '复制全文', key: 'copy' },
   { label: '清空正文', key: 'clear' },
+  { label: '保存为候选稿', key: 'save-candidate' },
+  { label: '精细改稿', key: 'precision-rewrite' },
 ]
 
 const handleToolSelect = (key: string) => {
@@ -368,6 +766,243 @@ const handleToolSelect = (key: string) => {
     content.value = ''
     onInput()
     updatePreview(false)
+  }
+  if (key === 'save-candidate') {
+    void saveCurrentAsCandidate()
+  }
+  if (key === 'precision-rewrite') {
+    openPrecisionRewriteModal()
+  }
+}
+
+const formatDraftTime = (value: string) => {
+  if (!value) return '未知时间'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+const loadCandidateDrafts = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
+  loadingCandidateDrafts.value = true
+  try {
+    const drafts = await chapterApi.listCandidateDrafts(
+      slug,
+      cid,
+      candidateBranchFilter.value.trim() || undefined,
+    )
+    candidateDrafts.value = drafts
+    if (!selectedCandidateDraftId.value || !drafts.some((d) => d.id === selectedCandidateDraftId.value)) {
+      selectedCandidateDraftId.value = drafts[0]?.id ?? null
+    }
+  } catch (error) {
+    console.error('Failed to load candidate drafts:', error)
+    candidateDrafts.value = []
+    selectedCandidateDraftId.value = null
+    message.error('加载候选稿失败')
+  } finally {
+    loadingCandidateDrafts.value = false
+  }
+}
+
+const saveCurrentAsCandidate = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
+  if (!content.value.trim()) {
+    message.warning('当前正文为空，无法保存为候选稿')
+    return
+  }
+  savingCandidateDraft.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(slug, cid, {
+      source: 'chapter-editor',
+      title: `第${cid}章 当前编辑稿`,
+      content: content.value,
+      rationale: '来自单章页当前编辑稿',
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+    })
+    reviewTab.value = 'candidates'
+    message.success('已保存为候选稿')
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+  } catch (error) {
+    console.error('Failed to save candidate draft:', error)
+    message.error('保存候选稿失败')
+  } finally {
+    savingCandidateDraft.value = false
+  }
+}
+
+const openPrecisionRewriteModal = () => {
+  precisionRewriteObjective.value = defaultPrecisionRewriteObjective()
+  precisionRewriteTargetExcerpt.value = ''
+  precisionRewriteInstruction.value = ''
+  showPrecisionRewriteModal.value = true
+}
+
+const createPrecisionRewriteTask = async () => {
+  const cid = chapterId.value
+  if (cid == null) return
+  if (!content.value.trim()) {
+    message.warning('当前正文为空，无法创建精细改稿任务')
+    return
+  }
+  savingPrecisionRewriteTask.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(slug, cid, {
+      source: PRECISION_REWRITE_SOURCE,
+      title: `第${cid}章 精细改稿任务`,
+      content: content.value,
+      rationale: buildPrecisionRewriteRationale({
+        objective: precisionRewriteObjective.value,
+        instruction: precisionRewriteInstruction.value,
+        targetExcerpt: precisionRewriteTargetExcerpt.value,
+      }),
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        rewrite_focus: 'precision-rewrite',
+        precision_objective: precisionRewriteObjective.value,
+        target_excerpt: precisionRewriteTargetExcerpt.value,
+        instruction: precisionRewriteInstruction.value,
+        triggered_by: 'chapter-precision-rewrite-modal',
+      },
+    })
+    showPrecisionRewriteModal.value = false
+    reviewTab.value = 'candidates'
+    message.success('已创建精细改稿任务')
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+  } catch (error) {
+    console.error('Failed to create precision rewrite task:', error)
+    message.error('创建精细改稿任务失败')
+  } finally {
+    savingPrecisionRewriteTask.value = false
+  }
+}
+
+function suggestionText(fields: Record<string, unknown>, key: string) {
+  const value = fields[key]
+  if (value == null) return ''
+  return String(value)
+}
+
+const suggestPrecisionRewriteTask = async () => {
+  const cid = chapterId.value
+  if (cid == null || !content.value.trim()) return
+  suggestingPrecisionRewriteTask.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(slug, {
+      suggestion_type: 'precision_rewrite',
+      chapter_number: cid,
+      fields: ['objective', 'target_excerpt', 'instruction'],
+      target: {
+        chapter_number: cid,
+        title: `第${cid}章`,
+        current_word_count: content.value.length,
+      },
+      current_values: {
+        objective: precisionRewriteObjective.value,
+        target_excerpt: precisionRewriteTargetExcerpt.value,
+        instruction: precisionRewriteInstruction.value,
+      },
+      instruction: '根据当前章节、连续性提醒、OOC 风险和战力提醒，生成精细改稿任务建议。不要改正文，只生成任务表单。',
+    })
+    precisionRewriteObjective.value = suggestionText(result.fields, 'objective') || precisionRewriteObjective.value
+    precisionRewriteTargetExcerpt.value = suggestionText(result.fields, 'target_excerpt') || precisionRewriteTargetExcerpt.value
+    precisionRewriteInstruction.value = suggestionText(result.fields, 'instruction') || precisionRewriteInstruction.value
+    message.success(result.rationale || '已生成精修任务建议')
+  } catch {
+    message.error('生成精修任务建议失败')
+  } finally {
+    suggestingPrecisionRewriteTask.value = false
+  }
+}
+
+const generateCandidateTaskInWorkbench = (draft: ChapterCandidateDraftDTO) => {
+  workbenchContextStore.openCandidateRewriteExecution({
+    slug,
+    draft,
+  })
+  router.push({ path: `/book/${slug}/workbench`, query: { chapter: String(draft.chapter_number) } })
+}
+
+const acceptCandidateDraft = async (draftId: string) => {
+  const cid = chapterId.value
+  if (cid == null) return
+  acceptingCandidateDraftId.value = draftId
+  try {
+    await chapterApi.acceptCandidateDraft(slug, cid, draftId)
+    markExternalModelTaskAccepted(slug, draftId)
+    await loadChapter()
+    saveStatus.value = 'saved'
+    lastSaveTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    updateTime.value = new Date().toLocaleString('zh-CN', { hour12: false })
+    updatePreview(false)
+    message.success('候选稿已采纳为主稿')
+    statsStore.onChapterSaved(slug, cid)
+  } catch (error) {
+    console.error('Failed to accept candidate draft:', error)
+    message.error('采纳候选稿失败')
+  } finally {
+    acceptingCandidateDraftId.value = null
+  }
+}
+
+const rejectCandidateDraft = async (draftId: string) => {
+  const cid = chapterId.value
+  if (cid == null) return
+  try {
+    await chapterApi.rejectCandidateDraft(slug, cid, draftId)
+    message.success('候选稿已标记为拒绝')
+    await loadCandidateDrafts()
+  } catch (error) {
+    console.error('Failed to reject candidate draft:', error)
+    message.error('拒绝候选稿失败')
+  }
+}
+
+const savePartialCandidateDraft = async () => {
+  const cid = chapterId.value
+  const draft = selectedCandidateDraft.value
+  if (cid == null || !draft) return
+  if (selectedPartialParagraphIndexes.value.length === 0) {
+    message.warning('请先勾选至少一个候选段落')
+    return
+  }
+
+  savingPartialCandidateDraft.value = true
+  try {
+    const partialContent = buildPartialCandidateContent(
+      content.value,
+      selectedCandidateParagraphDiff.value,
+      selectedPartialParagraphIndexes.value,
+    )
+    const partialDraft = await chapterApi.createCandidateDraft(slug, cid, {
+      source: 'partial-accept',
+      title: `${draft.title || `第${cid}章候选稿`} · 部分采纳`,
+      content: partialContent,
+      rationale: `从候选稿「${draft.title || draft.id}」中部分采纳第 ${selectedPartialParagraphIndexes.value.map(i => i + 1).join('、')} 段。`,
+      branch_name: draft.branch_name || candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        ...(draft.metadata || {}),
+        partial_source_draft_id: draft.id,
+        partial_paragraph_indexes: selectedPartialParagraphIndexes.value,
+      },
+    })
+    message.success('已保存部分采纳候选稿')
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = partialDraft.id
+  } catch (error) {
+    console.error('Failed to save partial candidate draft:', error)
+    message.error('保存部分采纳候选稿失败')
+  } finally {
+    savingPartialCandidateDraft.value = false
   }
 }
 
@@ -525,7 +1160,7 @@ const loadChapter = async () => {
   }
 
   saveStatus.value = 'saved'
-  await loadInferenceEvidence()
+  await Promise.all([loadInferenceEvidence(), loadCandidateDrafts()])
 }
 
 const loadInferenceEvidence = async () => {
@@ -617,6 +1252,15 @@ watch(
     }
   }
 )
+
+watch(candidateBranchFilter, () => {
+  if (chapterId.value == null) return
+  void loadCandidateDrafts()
+})
+
+watch(selectedCandidateDraftId, () => {
+  selectedPartialParagraphIndexes.value = []
+})
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeySave)
@@ -781,5 +1425,30 @@ onUnmounted(() => {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
   word-break: break-all;
+}
+
+.paragraph-diff-row {
+  padding: 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface);
+}
+
+.paragraph-diff-text {
+  min-height: 44px;
+  margin: 4px 0 0;
+  padding: 8px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.paragraph-diff-text--base {
+  background: rgba(208, 48, 80, 0.08);
+}
+
+.paragraph-diff-text--candidate {
+  background: rgba(24, 160, 88, 0.08);
 }
 </style>

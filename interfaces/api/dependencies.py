@@ -34,12 +34,15 @@ from application.ai.llm_control_service import LLMControlService
 
 from application.core.services.novel_service import NovelService
 from application.core.services.chapter_service import ChapterService
+from application.core.services.chapter_candidate_draft_service import ChapterCandidateDraftService
 from application.world.services.bible_service import BibleService
 from application.world.services.cast_service import CastService
 from application.world.services.knowledge_service import KnowledgeService
 from application.analyst.services.voice_sample_service import VoiceSampleService
 from application.analyst.services.voice_fingerprint_service import VoiceFingerprintService
 from application.analyst.services.voice_drift_service import VoiceDriftService
+from application.analyst.services.continuity_overview_service import ContinuityOverviewService
+from application.analyst.services.power_system_service import PowerSystemService
 from application.engine.services.context_builder import ContextBuilder
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
@@ -322,6 +325,53 @@ def get_chapter_service() -> ChapterService:
     )
 
 
+def get_chapter_candidate_draft_repository():
+    from infrastructure.persistence.database.sqlite_chapter_candidate_draft_repository import (
+        SqliteChapterCandidateDraftRepository,
+    )
+
+    return SqliteChapterCandidateDraftRepository(get_database())
+
+
+def get_chapter_candidate_draft_service() -> ChapterCandidateDraftService:
+    return ChapterCandidateDraftService(
+        get_chapter_candidate_draft_repository(),
+        get_chapter_service(),
+    )
+
+
+def get_power_system_repository():
+    from infrastructure.persistence.database.sqlite_power_system_repository import (
+        SqlitePowerSystemRepository,
+    )
+
+    return SqlitePowerSystemRepository(get_database())
+
+
+def get_power_system_service() -> PowerSystemService:
+    return PowerSystemService(get_power_system_repository())
+
+
+def get_obsidian_memory_service():
+    """Obsidian 长期记忆镜像；导出时读取 PP 缓存，避免被尚未同步的 Obsidian 内容遮挡。"""
+    from application.world.services.obsidian_memory_service import (
+        ObsidianMemoryService,
+        resolve_obsidian_vault_path,
+    )
+
+    return ObsidianMemoryService(resolve_obsidian_vault_path(), get_cached_knowledge_service())
+
+
+def get_obsidian_primary_memory_service():
+    """Obsidian 主记忆读取器；不依赖 KnowledgeService，避免读取时递归。"""
+    from application.world.services.obsidian_memory_service import (
+        ObsidianMemoryService,
+        resolve_obsidian_vault_path,
+    )
+
+    return ObsidianMemoryService(resolve_obsidian_vault_path(), None)
+
+
 @lru_cache
 def get_background_task_service():
     """单例后台任务队列（API 进程内）：文风；章末 bundle（叙事+三元组+伏笔+故事线+张力+对话+剧情点）与管线同源单次 LLM。"""
@@ -342,6 +392,7 @@ def get_background_task_service():
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
         narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        obsidian_memory_service=get_obsidian_memory_service(),
     )
 
 
@@ -364,6 +415,7 @@ def get_chapter_aftermath_pipeline():
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
         narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        obsidian_memory_service=get_obsidian_memory_service(),
     )
 
 
@@ -436,6 +488,14 @@ def get_knowledge_service() -> KnowledgeService:
     Returns:
         KnowledgeService 实例
     """
+    return KnowledgeService(
+        get_knowledge_repository(),
+        primary_memory_service=get_obsidian_primary_memory_service(),
+    )
+
+
+def get_cached_knowledge_service() -> KnowledgeService:
+    """获取 PP SQLite Knowledge 缓存服务；用于写后导出等不能优先读 Obsidian 的链路。"""
     return KnowledgeService(get_knowledge_repository())
 
 
@@ -863,6 +923,41 @@ def get_voice_drift_service() -> VoiceDriftService:
     )
     score_repo = SqliteChapterStyleScoreRepository(get_database())
     return VoiceDriftService(score_repo, get_voice_fingerprint_repository())
+
+
+def get_continuity_overview_service() -> ContinuityOverviewService:
+    return ContinuityOverviewService(
+        bible_service=get_bible_service(),
+        chapter_service=get_chapter_service(),
+        voice_drift_service=get_voice_drift_service(),
+        timeline_repository=get_timeline_repository(),
+        db_connection=get_database(),
+    )
+
+
+def get_novelpro_monitor_service():
+    from application.analyst.services.novelpro_monitor_service import NovelProMonitorService
+
+    return NovelProMonitorService(
+        knowledge_service=get_knowledge_service(),
+        obsidian_memory_service=get_obsidian_primary_memory_service(),
+        continuity_service=get_continuity_overview_service(),
+        power_system_service=get_power_system_service(),
+    )
+
+
+def get_novelpro_ai_suggestion_service():
+    from application.analyst.services.novelpro_ai_suggestion_service import (
+        NovelProAISuggestionService,
+    )
+
+    return NovelProAISuggestionService(
+        llm_service=get_llm_service(),
+        knowledge_service=get_knowledge_service(),
+        bible_service=get_bible_service(),
+        continuity_service=get_continuity_overview_service(),
+        power_system_service=get_power_system_service(),
+    )
 
 
 def get_macro_refactor_scanner():

@@ -61,6 +61,7 @@ class BackgroundTaskService:
         chapter_repository=None,
         plot_arc_repository=None,
         narrative_event_repository=None,
+        obsidian_memory_service=None,
     ):
         self.voice_drift_service = voice_drift_service
         self.llm_service = llm_service
@@ -72,6 +73,7 @@ class BackgroundTaskService:
         self.chapter_repository = chapter_repository
         self.plot_arc_repository = plot_arc_repository
         self.narrative_event_repository = narrative_event_repository
+        self.obsidian_memory_service = obsidian_memory_service
 
         self._queue = queue.Queue(maxsize=200)  # 防队列无限增长
         self._worker = threading.Thread(target=self._worker_loop, daemon=True, name="bg-task-worker")
@@ -193,4 +195,14 @@ class BackgroundTaskService:
                 )
             finally:
                 loop.close()
+        if self.obsidian_memory_service:
+            try:
+                self.obsidian_memory_service.sync_chapter(task.novel_id.value, chapter_number)
+            except Exception as e:
+                logger.warning(
+                    "[BG] Obsidian 长期记忆同步失败：novel=%s ch=%s err=%s",
+                    task.novel_id.value,
+                    chapter_number,
+                    e,
+                )
         logger.info(f"[BG] extract_bundle 完成：第 {chapter_number} 章")

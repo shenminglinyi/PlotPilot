@@ -174,6 +174,13 @@ class NovelService:
             return False
 
     def _check_has_outline(self, novel_id: str) -> bool:
+        storage = getattr(self.novel_repository, "storage", None)
+        if storage is not None and hasattr(storage, "exists"):
+            try:
+                return bool(storage.exists(f"novels/{novel_id}/outline.json"))
+            except Exception:
+                pass
+
         if not self.story_node_repository:
             return False
         try:

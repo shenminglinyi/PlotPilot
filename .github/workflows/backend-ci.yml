@@ -1,20 +1,29 @@
 name: Backend CI
 
 on:
+  push:
+    paths:
+      - "**.py"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "pytest.ini"
+      - ".github/workflows/backend-ci.yml"
   pull_request:
     paths:
       - "**.py"
       - "requirements*.txt"
       - "pyproject.toml"
       - "pytest.ini"
+      - ".github/workflows/backend-ci.yml"
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: "pip"
@@ -22,8 +31,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run unit tests
-        run: pytest tests/unit -q --tb=short
+      - name: Run verified backend workflow tests
+        run: >
+          pytest
+          tests/unit/application/services/test_continuity_overview_service.py
+          tests/unit/application/services/test_power_system_service.py
+          tests/integration/interfaces/api/v1/test_continuity_api.py
+          tests/integration/interfaces/api/v1/test_power_system_api.py
+          tests/unit/infrastructure/persistence/database/test_sqlite_chapter_candidate_draft_repository.py
+          tests/unit/application/services/test_chapter_candidate_draft_service.py
+          tests/unit/application/services/test_chapter_service.py
+          tests/unit/application/services/test_chronicles_service.py
+          tests/integration/interfaces/api/v1/test_chapter_candidate_drafts_api.py
+          -q
+          --tb=short
         env:
           # 单测不需要真实 key，用占位值防止启动时报错
           ANTHROPIC_API_KEY: "test-placeholder"

@@ -122,9 +122,14 @@
     - 本地与远端关键文件 checksum 一致：`App.vue`、`WorkArea.vue`、`GlobalLLMFloatingButton.vue`、`PromptPlazaFAB.vue`、`prompts_defaults.json`、章节生成 API 与俗套扫描器均已同步。
     - 线上构建包 `/assets/index-CPSH3EXp.js` 包含 `生成风格 / AI味抑制`、`慢写过程`、`global-llm-shell`、`plaza-fab-shell`、`提示词广场`、`AI 控制台`、`workflow-chapter-generation`。
     - Playwright 浏览器二进制下载受网络超时影响，未完成页面截图级验证；当前已用源码 checksum、线上构建包关键词和 API 结果完成非浏览器层验证。
+  - 2026-04-29 NovelPro 缺失根因确认：
+    - 用户提到的 `NovelPro 测试区` 不在当前线上部署分支 `local/novel-pro`，而在本地分支 `local/feature-p1-candidate-gate`。
+    - 该分支包含候选稿闭环、连续性巡检、口吻锁定、战力系统、模型分工、NovelPro 监控中心、AI 表单建议、Obsidian 长期记忆等右侧功能。
+    - 已开始把 `local/feature-p1-candidate-gate` 合并回当前部署分支，冲突集中在项目记忆文件和 `WorkArea.vue`；解析原则是保留选题/AI味抑制，同时恢复 NovelPro 右侧功能。
 
 ## 下一步
 
+- 完成 NovelPro 分支合并、运行前后端聚焦验证、重新部署到宝塔，并在线上确认 `NovelPro 测试区` 与相关 API 可见。
 - 外部 API / 登录态数据已完成基础接入、真实连接测试、小批量真实入库验证和采集健康状态。
 - 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。

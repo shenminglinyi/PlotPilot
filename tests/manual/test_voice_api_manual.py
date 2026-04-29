@@ -1,7 +1,10 @@
 """Manual test script for Voice API"""
-import requests
 import json
 import uuid
+
+import pytest
+
+requests = pytest.importorskip("requests")
 
 BASE_URL = "http://localhost:8000/api/v1"
 

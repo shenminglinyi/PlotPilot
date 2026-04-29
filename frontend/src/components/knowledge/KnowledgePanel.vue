@@ -7,6 +7,9 @@
           可在「检索与编辑」「叙事知识」「关系图」间切换：检索与编辑含全书知识检索、三元组图谱与表格编辑；叙事含<strong>分章叙事</strong>与实体状态；<strong>梗概锁定已迁至右侧「剧本基建 → 作品设定」</strong>。<strong>关系图从知识库三元组自动生成</strong>（人物网 / 地点图全页与工作台均可打开「三元组表格」编辑）。书目级梗概以
           <strong>manifest</strong> 为准。
         </p>
+        <p class="kp-lead">
+          Obsidian 长期记忆会在章节保存和候选稿采纳后的章后管线中自动同步；PP 知识库仍是权威源，Obsidian 只作为可阅读、可链接的长期记忆镜像。
+        </p>
       </div>
       <n-space v-show="sideTab === 'narrative'" :size="8" align="center" style="flex-shrink:0">
         <n-button

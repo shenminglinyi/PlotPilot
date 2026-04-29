@@ -66,6 +66,7 @@ class ChapterAftermathPipeline:
         chapter_repository: Any = None,
         plot_arc_repository: Any = None,
         narrative_event_repository: Any = None,
+        obsidian_memory_service: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -77,6 +78,7 @@ class ChapterAftermathPipeline:
         self._chapter_repository = chapter_repository
         self._plot_arc_repository = plot_arc_repository
         self._narrative_event_repository = narrative_event_repository
+        self._obsidian_memory = obsidian_memory_service
 
     async def run_after_chapter_saved(
         self,
@@ -95,6 +97,8 @@ class ChapterAftermathPipeline:
             "vector_stored": False,
             "foreshadow_stored": False,
             "triples_extracted": False,
+            "obsidian_memory_synced": False,
+            "obsidian_memory_path": None,
         }
 
         if not content or not str(content).strip():
@@ -162,5 +166,14 @@ class ChapterAftermathPipeline:
 
         # 3) 结构树 KG 推断
         await infer_kg_from_chapter(novel_id, chapter_number)
+
+        # 4) Obsidian 长期记忆镜像：SQLite Knowledge 仍是唯一权威数据源。
+        if self._obsidian_memory:
+            try:
+                sync_result = self._obsidian_memory.sync_chapter(novel_id, chapter_number)
+                out["obsidian_memory_synced"] = bool(sync_result.get("synced"))
+                out["obsidian_memory_path"] = sync_result.get("chapter_note")
+            except Exception as e:
+                logger.warning("Obsidian 长期记忆同步失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
         return out

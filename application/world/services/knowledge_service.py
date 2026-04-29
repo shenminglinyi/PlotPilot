@@ -16,13 +16,14 @@ class KnowledgeService:
     处理知识图谱的业务逻辑
     """
 
-    def __init__(self, knowledge_repository: KnowledgeRepository):
+    def __init__(self, knowledge_repository: KnowledgeRepository, primary_memory_service: Any = None):
         """初始化服务
 
         Args:
             knowledge_repository: 知识仓储
         """
         self.knowledge_repository = knowledge_repository
+        self.primary_memory_service = primary_memory_service
 
     def get_knowledge(self, novel_id: str) -> StoryKnowledge:
         """获取知识图谱
@@ -36,12 +37,36 @@ class KnowledgeService:
         Raises:
             EntityNotFoundError: 如果知识图谱不存在
         """
+        primary_knowledge = self._load_primary_memory(novel_id)
+        if primary_knowledge is not None:
+            self._cache_primary_memory(primary_knowledge)
+            return primary_knowledge
+
         knowledge = self.knowledge_repository.get_by_novel_id(novel_id)
         if knowledge is None:
             # 返回空的知识图谱而不是抛出异常，保持向后兼容
             logger.info(f"Knowledge not found for {novel_id}, returning empty knowledge")
             return StoryKnowledge(novel_id=novel_id)
         return knowledge
+
+    def _load_primary_memory(self, novel_id: str) -> Optional[StoryKnowledge]:
+        if self.primary_memory_service is None:
+            return None
+        try:
+            knowledge = self.primary_memory_service.load_knowledge(novel_id)
+            if knowledge and (knowledge.chapters or knowledge.facts or knowledge.premise_lock):
+                return knowledge
+        except Exception as exc:
+            logger.warning("读取 Obsidian 主记忆失败 novel=%s: %s", novel_id, exc)
+        return None
+
+    def _cache_primary_memory(self, knowledge: StoryKnowledge) -> None:
+        try:
+            save = getattr(self.knowledge_repository, "save", None)
+            if callable(save):
+                save(knowledge)
+        except Exception as exc:
+            logger.warning("同步 Obsidian 主记忆到 PP 缓存失败 novel=%s: %s", knowledge.novel_id, exc)
 
     def update_knowledge(self, novel_id: str, data: Dict[str, Any]) -> StoryKnowledge:
         """更新知识图谱

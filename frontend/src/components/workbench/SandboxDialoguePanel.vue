@@ -68,6 +68,14 @@
                     />
                     <n-space :size="8">
                       <n-button
+                        size="small"
+                        secondary
+                        :loading="suggestLoading"
+                        @click="suggestSandboxSetup"
+                      >
+                        AI 生成语气/场景
+                      </n-button>
+                      <n-button
                         type="primary"
                         size="small"
                         :loading="genLoading"
@@ -170,14 +178,18 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { useWorkbenchContextStore } from '../../stores/workbenchContextStore'
 import { useMessage } from 'naive-ui'
 import { sandboxApi } from '../../api/sandbox'
 import type { DialogueWhitelistResponse, DialogueEntry, CharacterAnchor } from '../../api/sandbox'
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO } from '../../api/bible'
+import { novelproSuggestionsApi } from '../../api/novelproSuggestions'
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()
+const contextStore = useWorkbenchContextStore()
+const { sandboxDraft, sandboxDraftVersion } = storeToRefs(contextStore)
 
 // 状态
 const loading = ref(false)
@@ -193,15 +205,21 @@ const anchor = ref<CharacterAnchor | null>(null)
 const anchorLoading = ref(false)
 const genLoading = ref(false)
 const saveLoading = ref(false)
+const suggestLoading = ref(false)
 const editMental = ref('')
 const editVerbal = ref('')
 const editIdle = ref('')
 const scenePrompt = ref('')
 const generatedLine = ref('')
+const lastConsumedSandboxVersion = ref(0)
 
 // 角色选项
 const characterOptions = computed(() =>
   characters.value.map(c => ({ label: c.name || c.id, value: c.id }))
+)
+
+const selectedCharacter = computed(() =>
+  characters.value.find(character => character.id === selectedCharacterId.value) || null,
 )
 
 // 章节选项（从已有对话中提取）
@@ -287,6 +305,21 @@ async function onCharacterSelect(charId: string | null) {
   }
 }
 
+async function applySandboxDraftContext() {
+  const draft = sandboxDraft.value
+  if (!draft || draft.slug !== props.slug) return
+  if (sandboxDraftVersion.value === lastConsumedSandboxVersion.value) return
+
+  lastConsumedSandboxVersion.value = sandboxDraftVersion.value
+  selectedCharacterId.value = draft.characterId
+  await onCharacterSelect(draft.characterId)
+
+  editMental.value = draft.mentalState || editMental.value || 'NORMAL'
+  editVerbal.value = draft.verbalTic || editVerbal.value || ''
+  editIdle.value = draft.idleBehavior || editIdle.value || ''
+  scenePrompt.value = draft.scenePrompt || scenePrompt.value
+}
+
 // 保存锚点
 async function saveAnchors() {
   const id = selectedCharacterId.value
@@ -304,6 +337,47 @@ async function saveAnchors() {
     message.error('保存失败')
   } finally {
     saveLoading.value = false
+  }
+}
+
+function suggestionText(fields: Record<string, unknown>, key: string) {
+  const value = fields[key]
+  if (value == null) return ''
+  return String(value)
+}
+
+async function suggestSandboxSetup() {
+  const id = selectedCharacterId.value
+  if (!id) {
+    message.warning('先选择角色再生成语气和场景')
+    return
+  }
+  suggestLoading.value = true
+  try {
+    const result = await novelproSuggestionsApi.suggestFields(props.slug, {
+      suggestion_type: 'voice_anchor',
+      fields: ['mental_state', 'verbal_tic', 'idle_behavior', 'scene_prompt'],
+      target: {
+        character_id: id,
+        character_name: selectedCharacter.value?.name || id,
+      },
+      current_values: {
+        mental_state: editMental.value,
+        verbal_tic: editVerbal.value,
+        idle_behavior: editIdle.value,
+        scene_prompt: scenePrompt.value,
+      },
+      instruction: '根据当前设定、掉线提醒和 OOC 风险，生成角色语气锚点和一条适合试写的对话场景。',
+    })
+    editMental.value = suggestionText(result.fields, 'mental_state') || editMental.value
+    editVerbal.value = suggestionText(result.fields, 'verbal_tic') || editVerbal.value
+    editIdle.value = suggestionText(result.fields, 'idle_behavior') || editIdle.value
+    scenePrompt.value = suggestionText(result.fields, 'scene_prompt') || scenePrompt.value
+    message.success(result.rationale || '已生成语气和场景建议')
+  } catch {
+    message.error('生成语气和场景失败，请稍后重试')
+  } finally {
+    suggestLoading.value = false
   }
 }
 
@@ -362,6 +436,7 @@ watch(
 onMounted(() => {
   loadCharacters()
   loadWhitelist()
+  void applySandboxDraftContext()
 })
 
 // 刷新监听
@@ -371,6 +446,13 @@ watch(deskTick, () => {
   loadCharacters()
   loadWhitelist()
 })
+
+watch(
+  [sandboxDraftVersion, () => props.slug],
+  () => {
+    void applySandboxDraftContext()
+  },
+)
 </script>
 
 <style scoped>

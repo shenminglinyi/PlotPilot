@@ -400,6 +400,83 @@ def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _ensure_external_model_tasks_table(conn: sqlite3.Connection) -> None:
+    """补齐外部模型任务台账，并迁移掉早期误加的 chapter 外键。"""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_model_tasks (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            chapter_number INTEGER NOT NULL,
+            model TEXT NOT NULL DEFAULT '',
+            prompt TEXT NOT NULL DEFAULT '',
+            instruction TEXT NOT NULL DEFAULT '',
+            source_draft_id TEXT NOT NULL DEFAULT '',
+            candidate_draft_id TEXT NOT NULL DEFAULT '',
+            response_preview TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'prompted',
+            execution_mode TEXT NOT NULL DEFAULT 'copy_paste',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+        )
+        """
+    )
+    fk_rows = conn.execute("PRAGMA foreign_key_list(external_model_tasks)").fetchall()
+    has_chapter_fk = any(str(row[2]) == "chapters" for row in fk_rows)
+    if has_chapter_fk:
+        conn.execute("ALTER TABLE external_model_tasks RENAME TO external_model_tasks_old")
+        conn.execute(
+            """
+            CREATE TABLE external_model_tasks (
+                id TEXT PRIMARY KEY,
+                novel_id TEXT NOT NULL,
+                chapter_number INTEGER NOT NULL,
+                model TEXT NOT NULL DEFAULT '',
+                prompt TEXT NOT NULL DEFAULT '',
+                instruction TEXT NOT NULL DEFAULT '',
+                source_draft_id TEXT NOT NULL DEFAULT '',
+                candidate_draft_id TEXT NOT NULL DEFAULT '',
+                response_preview TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'prompted',
+                execution_mode TEXT NOT NULL DEFAULT 'copy_paste',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO external_model_tasks (
+                id, novel_id, chapter_number, model, prompt, instruction,
+                source_draft_id, candidate_draft_id, response_preview,
+                status, execution_mode, created_at, updated_at
+            )
+            SELECT
+                id, novel_id, chapter_number, model, prompt, instruction,
+                source_draft_id, candidate_draft_id, response_preview,
+                status, execution_mode, created_at, updated_at
+            FROM external_model_tasks_old
+            """
+        )
+        conn.execute("DROP TABLE external_model_tasks_old")
+        logger.info("external_model_tasks migration: removed chapter foreign key")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_external_model_tasks_novel_chapter
+        ON external_model_tasks(novel_id, chapter_number, updated_at)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_external_model_tasks_candidate
+        ON external_model_tasks(novel_id, candidate_draft_id)
+        """
+    )
+    conn.commit()
+
+
 class DatabaseConnection:
     """SQLite 数据库连接管理器（线程本地存储，每线程独立连接）"""
 
@@ -437,6 +514,7 @@ class DatabaseConnection:
         _ensure_topic_market_signal_credentials_table(conn)
         _ensure_topic_market_signal_source_health_table(conn)
         _ensure_triple_provenance_table(conn)
+        _ensure_external_model_tasks_table(conn)
         _apply_migration_files(conn)
         conn.close()
 
