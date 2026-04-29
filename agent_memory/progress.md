@@ -93,6 +93,10 @@
     - 线上已创建测试选题 `topic-dfad56300f6640318a72c8215c3f93f7`，题名 `Codex全链路测试-20260429-223024-逆风开局的隐藏王牌`，评分 100，并采纳为测试小说 `novel-5b70142adf6849afb44f97796a64bc6c`。
     - 测试小说第一章已保存可读试写稿《第一章 旧榜单的新名字》，验证章节创建、手动/接口保存通路可用。
     - 线上 AI 流式章节生成接口重启服务释放 SQLite 锁后可返回 SSE 并保存，但当前 LLM 配置缺少 API Key/模型名，运行时回退 MockProvider，输出为 JSON 风格测试内容，不算小说正文质量通过。
+  - 2026-04-29 LLM 配置核对与同步：
+    - 本地 active profile 为 `gemini-official-default`，API Key 已配置，但模型名为空。
+    - 线上原 active profile 为 `openai-compatible-default` 且 API Key 为空；已将本地 LLM profiles 与 active profile 同步到线上，线上当前 active profile 已为 `gemini-official-default`，Key 状态为 `SET`。
+    - 本地与宝塔服务器侧调用 Gemini 模型列表均返回 `User location is not supported for the API use`；因此即使补模型名，当前 Gemini 官方接口也无法从现有网络环境稳定用于真实生成。
 
 ## 下一步
 
@@ -100,7 +104,7 @@
 - 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
 - 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
-- 如要让线上 AI 试写真正产出小说正文，需要先在 AI 控制台或 `llm_profiles` 中配置可用 API Key 与模型名；当前线上 active profile 为空配置，会回退 MockProvider。
+- 如要让线上 AI 试写真正产出小说正文，需要在 AI 控制台或 `llm_profiles` 中切到宝塔服务器可访问的 OpenAI 兼容模型/API Key/模型名；当前同步过去的 Gemini Key 受地区限制，不能作为可用线上生成通道。
 
 ## 待确认
 
