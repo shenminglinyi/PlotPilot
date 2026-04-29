@@ -99,6 +99,42 @@ def test_database_connection_migrates_existing_topic_ideas_report_columns(tmp_pa
     assert reloaded.evaluation == {"score_detail": {"hook": 7}}
 
 
+def test_database_connection_migrates_minimal_legacy_topic_ideas_table(tmp_path):
+    db_path = tmp_path / "minimal-legacy-topic.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE topic_ideas (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("INSERT INTO topic_ideas (id, title) VALUES ('topic-minimal', '极旧选题')")
+    conn.commit()
+    conn.close()
+
+    db = DatabaseConnection(str(db_path))
+    repo = SqliteTopicIdeaRepository(db)
+
+    loaded = repo.get_by_id("topic-minimal")
+    assert loaded is not None
+    assert loaded.title == "极旧选题"
+    assert loaded.selling_points == []
+    assert loaded.risk_notes == []
+    assert loaded.market_tags == []
+
+    loaded.selling_points = ["强开局"]
+    loaded.market_tags = ["热门榜"]
+    loaded.score = 76
+    repo.save(loaded)
+
+    reloaded = repo.get_by_id("topic-minimal")
+    assert reloaded.selling_points == ["强开局"]
+    assert reloaded.market_tags == ["热门榜"]
+    assert reloaded.score == 76
+
+
 def test_sqlite_topic_idea_repository_persists_market_signals(tmp_path):
     db = DatabaseConnection(str(tmp_path / "topic-signals.db"))
     repo = SqliteTopicIdeaRepository(db)

@@ -229,18 +229,36 @@ def _apply_chapter_summaries_enhancements(conn: sqlite3.Connection) -> None:
 
 
 def _migrate_topic_ideas_report_columns(conn: sqlite3.Connection) -> None:
-    """为已存在的 topic_ideas 表补齐结构化立项报告列（幂等）。"""
+    """为已存在的 topic_ideas 表补齐当前选题立项列（幂等）。"""
     cur = conn.execute("PRAGMA table_info(topic_ideas)")
     cols = {row[1] for row in cur.fetchall()}
     if not cols:
         return
     migrations = {
+        "status": "ALTER TABLE topic_ideas ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'",
+        "genre": "ALTER TABLE topic_ideas ADD COLUMN genre TEXT DEFAULT ''",
+        "world_preset": "ALTER TABLE topic_ideas ADD COLUMN world_preset TEXT DEFAULT ''",
+        "length_tier": "ALTER TABLE topic_ideas ADD COLUMN length_tier TEXT DEFAULT ''",
+        "logline": "ALTER TABLE topic_ideas ADD COLUMN logline TEXT DEFAULT ''",
+        "premise": "ALTER TABLE topic_ideas ADD COLUMN premise TEXT DEFAULT ''",
+        "protagonist_hook": "ALTER TABLE topic_ideas ADD COLUMN protagonist_hook TEXT DEFAULT ''",
+        "core_conflict": "ALTER TABLE topic_ideas ADD COLUMN core_conflict TEXT DEFAULT ''",
+        "opening_hook": "ALTER TABLE topic_ideas ADD COLUMN opening_hook TEXT DEFAULT ''",
+        "selling_points_json": "ALTER TABLE topic_ideas ADD COLUMN selling_points_json TEXT DEFAULT '[]'",
+        "long_term_potential": "ALTER TABLE topic_ideas ADD COLUMN long_term_potential TEXT DEFAULT ''",
+        "risk_notes_json": "ALTER TABLE topic_ideas ADD COLUMN risk_notes_json TEXT DEFAULT '[]'",
+        "market_tags_json": "ALTER TABLE topic_ideas ADD COLUMN market_tags_json TEXT DEFAULT '[]'",
+        "score": "ALTER TABLE topic_ideas ADD COLUMN score INTEGER DEFAULT 0",
+        "adopted_novel_id": "ALTER TABLE topic_ideas ADD COLUMN adopted_novel_id TEXT",
+        "source_brief_json": "ALTER TABLE topic_ideas ADD COLUMN source_brief_json TEXT DEFAULT '{}'",
         "development_notes_json": (
             "ALTER TABLE topic_ideas ADD COLUMN development_notes_json TEXT DEFAULT '{}'"
         ),
         "evaluation_json": (
             "ALTER TABLE topic_ideas ADD COLUMN evaluation_json TEXT DEFAULT '{}'"
         ),
+        "created_at": "ALTER TABLE topic_ideas ADD COLUMN created_at TIMESTAMP DEFAULT ''",
+        "updated_at": "ALTER TABLE topic_ideas ADD COLUMN updated_at TIMESTAMP DEFAULT ''",
     }
     for col, sql in migrations.items():
         if col not in cols:
@@ -400,6 +418,7 @@ class DatabaseConnection:
         schema_path = _database_asset_dir() / "schema.sql"
         if schema_path.exists():
             _migrate_novels_columns_before_schema_script(conn)
+            _migrate_topic_ideas_report_columns(conn)
             with open(schema_path, 'r', encoding='utf-8') as f:
                 schema_sql = f.read()
                 conn.executescript(schema_sql)
