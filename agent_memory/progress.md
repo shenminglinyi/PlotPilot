@@ -97,6 +97,10 @@
     - 本地 active profile 为 `gemini-official-default`，API Key 已配置，但模型名为空。
     - 线上原 active profile 为 `openai-compatible-default` 且 API Key 为空；已将本地 LLM profiles 与 active profile 同步到线上，线上当前 active profile 已为 `gemini-official-default`，Key 状态为 `SET`。
     - 本地与宝塔服务器侧调用 Gemini 模型列表均返回 `User location is not supported for the API use`；因此即使补模型名，当前 Gemini 官方接口也无法从现有网络环境稳定用于真实生成。
+  - 2026-04-29 已按用户确认改为 Kimi + DS：
+    - 本地与线上均已新增 `kimi-moonshot-default`：OpenAI-compatible，`base_url=https://api.moonshot.cn/v1`，`model=kimi-k2.6`，并设为 active profile。
+    - 本地与线上均已新增 `deepseek-default`：OpenAI-compatible，`base_url=https://api.deepseek.com`，`model=deepseek-v4-flash`。
+    - 当前 Kimi 与 DS 的 API Key 都为空，接口运行时仍显示 `using_mock=true`；补 Key 后需要重新测试 `/api/v1/llm-control/test` 与章节流式生成。
 
 ## 下一步
 
@@ -104,7 +108,7 @@
 - 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
 - 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
-- 如要让线上 AI 试写真正产出小说正文，需要在 AI 控制台或 `llm_profiles` 中切到宝塔服务器可访问的 OpenAI 兼容模型/API Key/模型名；当前同步过去的 Gemini Key 受地区限制，不能作为可用线上生成通道。
+- 如要让线上 AI 试写真正产出小说正文，需要补 Kimi 或 DS 的 API Key；当前 Kimi/DS profile 的地址与模型名已配置，缺 Key 会继续回退 MockProvider。
 
 ## 待确认
 
