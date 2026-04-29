@@ -158,6 +158,15 @@
     - 本轮测试小说：`novel-063fee1b959143caba6b01b7309a10ce`；章节试写保存 5698 字；候选稿 `37ff4469-87fb-45e4-9717-c22a0b5ec257`。
     - NovelPro 监控返回 `health=error/58` 是业务内容告警：自动识别到第 1 章多个绝对时间锚点，并非接口失败；同时 Obsidian 主记忆、关系事件、战力档案、文风评分均已写入。
     - 线上构建包验证包含 `NovelPro 测试区 / settings-tab-strip / 生成风格 / AI味抑制 / prompt-health-strip / 选题立项池 / AI 控制台 / 提示词广场` 等入口关键字。
+  - 2026-04-30 新功能详细验收：
+    - 本地新功能聚焦测试通过：选题/市场信号/自动采集/LLM 控制/低 AI 味提示词/候选稿/连续性/战力/文风/NovelPro/Obsidian 共 181 passed；`npm run build` 通过；后端编译通过。
+    - 验收中发现并修复文风指纹持久化问题：`voice_fingerprint` upsert 后未 commit，导致 10 条样本重算后跨请求读取仍为 `sample_count=0`；已补提交并调整无样本空状态测试。
+    - 验收中发现并修复宝塔服务重启 shutdown 报错：`_stop_autopilot_daemon_thread()` 内局部 `import os` 导致 `UnboundLocalError`；部署后再次重启无 Traceback，服务 `active`。
+    - 线上详细链路通过：前端首页、Kimi 模型列表兜底与连接测试、提示词广场 4 个低 AI 味节点、7 源诊断/采集/健康/趋势摘要/漫画转译、选题生成/深化/评估/对比/采纳、章节保存/审阅/结构统计、候选稿创建/列表/分支/对比/监督审稿/拒绝、外部模型任务台账、连续性关系事件与大纲节点、战力规则/档案/事件/总览、文风样本/指纹/漂移、Obsidian 同步、NovelPro 监控、对话沙盒白名单、AI 表单建议。
+    - 本轮线上测试选题：`topic-b320751aac354df6bd0deb59bc860488`；测试小说：`novel-4ec16e41eef84038b96eaf3eee62b6b5`；候选稿：`fcc67c4e-801b-48e9-9bbe-caa0ed0d7283`。
+    - 注意：`generate-chapter-stream` 会产出 SSE 正文并执行章后知识回写，但接口本身不创建/保存章节；当前可用链路是前端拿到正文后再走章节保存接口。验收已用章节保存接口确认写作链路可闭环。
+    - NovelPro 监控对测试小说返回 `health=error/58`，属于内容/业务告警：Obsidian 主记忆已接管，战力无警告，但关系图缺少结构化关系且时间线有冲突提醒。
+    - 本地 Obsidian 自动同步仍正常：LaunchAgent `last exit code=0`，本地 vault 已可看到线上同步的历史小说 Markdown。
 
 ## 下一步
 

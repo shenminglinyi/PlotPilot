@@ -487,7 +487,6 @@ def _stop_autopilot_daemon_thread():
                 logger.warning("⚠️  守护进程仍未停止，使用 SIGKILL")
                 try:
                     import signal
-                    import os
                     os.kill(_daemon_process.pid, signal.SIGKILL)
                 except Exception as e:
                     logger.error(f"强制终止守护进程失败: {e}")

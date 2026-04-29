@@ -101,4 +101,5 @@ class SQLiteVoiceFingerprintRepository(VoiceFingerprintRepository):
                 ),
             )
 
+        self.db.commit()
         return fingerprint_id
