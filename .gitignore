@@ -88,6 +88,9 @@ scripts/evaluation/results/
 data/chromadb/
 data/logs/
 data/llm_configs.json
+data/obsidian-vault/
+data/obsidian-vault-backups/
+.obsidian-sync.lock/
 
 # ── 日志 ──
 logs/

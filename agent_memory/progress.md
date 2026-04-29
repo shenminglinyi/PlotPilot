@@ -133,6 +133,11 @@
     - 宝塔无需安装 Obsidian 桌面应用即可作为 Markdown Vault 使用；线上 Vault 路径已配置为 `/www/wwwroot/plotpilot-novelpro/data/obsidian-vault`。
     - 已修复手动同步接口拿到只读 Obsidian 服务导致 `/novelpro/obsidian/sync` 报 `'NoneType' object has no attribute 'get_knowledge'` 的问题。
     - 线上复测同步成功：写出 `00_Index.md / 01_Fact_Locks.md / 02_Chapters/Chapter_0001.md / 03_Entities/Character_Relationships.md / 04_Timelines/Timeline.md`，监控返回 `primary_memory=true`、`fact_count=11`、`chapter_count=1`、`vault_configured=true`。
+  - 2026-04-30 本地 Obsidian 自动同步：
+    - 已新增 `scripts/sync_obsidian_from_server.sh`，默认从宝塔 `/www/wwwroot/plotpilot-novelpro/data/obsidian-vault` 拉取到本机 `~/PlotPilot-Obsidian-Vault`，并保留覆盖/删除备份到 `data/obsidian-vault-backups`。
+    - 已安装 macOS LaunchAgent `com.plotpilot.novelpro.obsidian-sync`，每 1800 秒自动同步一次；日志在 `~/Library/Logs/PlotPilot/obsidian-sync.launchd.log`。
+    - 因 macOS LaunchAgent 无法直接访问/执行 `~/Documents/小说/...` 内脚本，实际定时入口放在 `~/.local/bin/plotpilot-novelpro-sync-obsidian`；本地 `.env` 已配置 `PLOTPILOT_OBSIDIAN_VAULT=/Users/frank/PlotPilot-Obsidian-Vault`。
+    - 验证通过：LaunchAgent `last exit code = 0`，本地 Obsidian 服务读取 `primary_memory=True`、`fact_count=11`、`chapter_count=1`。
 
 ## 下一步
 
