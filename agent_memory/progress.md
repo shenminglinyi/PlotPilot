@@ -115,6 +115,13 @@
     - `GlobalLLMFloatingButton` 与 `PromptPlazaFAB` 组件存在但未在 `App.vue` 全局挂载，重新构建部署后右侧悬浮新功能入口不可见。
     - 已在 `App.vue` 挂载 AI 控制台与提示词广场 FAB，并把 AI 悬浮入口副标题更新为 `Kimi / DS / OpenAI-compatible`。
     - 线上验证：当前 HTML 引用新构建 `/assets/index-CPSH3EXp.js` 与 `/assets/index-CC7Vbho-.css`，打包产物包含 `global-llm-shell` 与 `plaza-fab-shell`。
+  - 2026-04-29 整项目线上同步核对：
+    - 远端 `/www/wwwroot/plotpilot-novelpro/app` 是完整项目目录，包含 `application / domain / infrastructure / interfaces / frontend/src / frontend/dist / scripts / tests`，不是单独选题模块。
+    - 线上服务仍由 `plotpilot-novelpro.service` 运行 `interfaces.main:app`，公网入口 `http://45.197.149.138:39100` 返回整站 SPA。
+    - 线上 API 核对：`/api/v1/novels/` 返回 3 本小说，`/api/stats/global` 返回 3 books / 3 chapters / 4294 words，`/api/v1/topics/signals/*` 正常返回信号源、健康状态和趋势摘要。
+    - 本地与远端关键文件 checksum 一致：`App.vue`、`WorkArea.vue`、`GlobalLLMFloatingButton.vue`、`PromptPlazaFAB.vue`、`prompts_defaults.json`、章节生成 API 与俗套扫描器均已同步。
+    - 线上构建包 `/assets/index-CPSH3EXp.js` 包含 `生成风格 / AI味抑制`、`慢写过程`、`global-llm-shell`、`plaza-fab-shell`、`提示词广场`、`AI 控制台`、`workflow-chapter-generation`。
+    - Playwright 浏览器二进制下载受网络超时影响，未完成页面截图级验证；当前已用源码 checksum、线上构建包关键词和 API 结果完成非浏览器层验证。
 
 ## 下一步
 
