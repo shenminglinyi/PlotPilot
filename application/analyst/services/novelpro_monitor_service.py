@@ -210,13 +210,28 @@ class NovelProMonitorService:
                 "打开口吻锁定面板校准作者样本和角色锚点。",
             ))
         timeline = continuity.get("timeline") or {}
-        if int(timeline.get("conflict_count") or 0) > 0:
+        timeline_conflict_count = int(timeline.get("conflict_count") or 0)
+        if timeline_conflict_count > 0:
+            has_current_event = bool(timeline.get("current_chapter_has_event"))
+            is_hard_blocker = timeline_conflict_count >= 3 or not has_current_event
+            severity = "error" if is_hard_blocker else "warning"
+            title = "时间线冲突提醒" if is_hard_blocker else "时间线需确认"
+            message = (
+                "当前时间线存在冲突或顺序异常，需要先确认事件先后再继续写。"
+                if is_hard_blocker
+                else "当前时间线有可疑冲突，但本章已登记时间事件，优先作为内容复核项处理。"
+            )
+            action = (
+                "打开连续性巡检查看冲突证据。"
+                if is_hard_blocker
+                else "打开连续性巡检核对时间锚点；确认无误后可继续写作。"
+            )
             alerts.append(self._alert(
-                "error",
+                severity,
                 "continuity",
-                "时间线冲突提醒",
-                "当前时间线存在冲突或顺序异常，需要先确认事件先后再继续写。",
-                "打开连续性巡检查看冲突证据。",
+                title,
+                message,
+                action,
             ))
         elif not timeline.get("current_chapter_has_event") and int(continuity.get("chapter_number") or 0) > 0:
             alerts.append(self._alert(

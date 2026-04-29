@@ -90,6 +90,29 @@ class FakePowerSystemService:
         }
 
 
+class SoftTimelineContinuityService:
+    def get_overview(self, novel_id, chapter_number=None):
+        return {
+            "novel_id": novel_id,
+            "chapter_number": chapter_number or 1,
+            "relationship_tracking": {
+                "active_signals": [{"source_character": "林夜", "target_character": "苏晚"}],
+                "stale_pairs": [],
+            },
+            "voice_drift": {"drift_alert": False},
+            "timeline": {
+                "conflict_count": 1,
+                "current_chapter_has_event": True,
+            },
+            "outline_deviation": {"status": "aligned"},
+        }
+
+
+class EmptyPowerSystemService:
+    def get_overview(self, novel_id):
+        return {"profiles": [{"character_name": "林夜"}], "warnings": []}
+
+
 def test_novelpro_monitor_aggregates_obsidian_continuity_and_power_alerts():
     knowledge = StoryKnowledge(
         novel_id="novel-monitor",
@@ -127,6 +150,39 @@ def test_novelpro_monitor_aggregates_obsidian_continuity_and_power_alerts():
     assert "大纲偏离提醒" in alert_titles
     assert "第3章战力跳升过快" in alert_titles
     assert overview["health"]["status"] == "error"
+
+
+def test_novelpro_monitor_keeps_soft_timeline_conflict_as_warning():
+    knowledge = StoryKnowledge(
+        novel_id="novel-monitor",
+        premise_lock="黑塔城禁止灵脉外泄。",
+        chapters=[ChapterSummary(1, summary="林夜潜入黑塔城。")],
+        facts=[
+            KnowledgeTriple(
+                id="fact-1",
+                subject="林夜",
+                predicate="敌对",
+                object="黑塔会",
+                tags=["角色关系"],
+            )
+        ],
+    )
+    service = NovelProMonitorService(
+        knowledge_service=FakeKnowledgeService(knowledge),
+        obsidian_memory_service=FakeObsidianMemoryService(knowledge),
+        continuity_service=SoftTimelineContinuityService(),
+        power_system_service=EmptyPowerSystemService(),
+    )
+
+    overview = service.get_overview("novel-monitor", chapter_number=1)
+
+    assert overview["continuity"]["timeline_conflict_count"] == 1
+    assert overview["health"]["status"] == "warning"
+    assert overview["health"]["error_count"] == 0
+    assert any(
+        alert["title"] == "时间线需确认" and alert["severity"] == "warning"
+        for alert in overview["alerts"]
+    )
 
 
 def test_novelpro_monitor_can_sync_current_chapter_to_obsidian():

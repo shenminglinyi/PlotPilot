@@ -128,8 +128,8 @@
                     <n-tag round size="small" :type="overview.continuity.stale_relationship_count ? 'warning' : 'success'">
                       沉默关系 {{ overview.continuity.stale_relationship_count }}
                     </n-tag>
-                    <n-tag round size="small" :type="overview.continuity.timeline_conflict_count ? 'error' : 'success'">
-                      时间冲突 {{ overview.continuity.timeline_conflict_count }}
+                    <n-tag round size="small" :type="overview.continuity.timeline_conflict_count ? 'warning' : 'success'">
+                      时间需确认 {{ overview.continuity.timeline_conflict_count }}
                     </n-tag>
                     <n-tag round size="small" :type="outlineType(overview.continuity.outline_status)">
                       大纲 {{ outlineLabel(overview.continuity.outline_status) }}
