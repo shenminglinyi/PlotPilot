@@ -59,6 +59,9 @@
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="voice-lock" tab="口吻锁定" display-directive="if">
         <VoiceLockPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
+      <n-tab-pane v-if="activeGroup === 'novelpro'" name="voice-drift" tab="文风监控" display-directive="if">
+        <VoiceDriftPanel :slug="slug" />
+      </n-tab-pane>
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="power-system" tab="战力系统" display-directive="if">
         <PowerSystemPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
@@ -107,6 +110,7 @@ const ContinuityPanel = defineAsyncComponent(() => import('./ContinuityPanel.vue
 const ForeshadowLedgerPanel = defineAsyncComponent(() => import('./ForeshadowLedgerPanel.vue'))
 const SandboxDialoguePanel = defineAsyncComponent(() => import('./SandboxDialoguePanel.vue'))
 const VoiceLockPanel = defineAsyncComponent(() => import('./VoiceLockPanel.vue'))
+const VoiceDriftPanel = defineAsyncComponent(() => import('./VoiceDriftPanel.vue'))
 const PowerSystemPanel = defineAsyncComponent(() => import('./PowerSystemPanel.vue'))
 const ModelRolePanel = defineAsyncComponent(() => import('./ModelRolePanel.vue'))
 
@@ -115,9 +119,9 @@ const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
   'novelpro-monitor', 'candidate-refine',
-  'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox', 'foreshadow',
+  'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'foreshadow',
 ])
-const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'power-system', 'model-role', 'sandbox'])
+const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox'])
 const BASE_TABS = new Set(['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'])
 const GROUP_DEFAULT_TAB = {
   novelpro: 'novelpro-monitor',
