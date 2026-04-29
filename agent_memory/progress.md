@@ -45,6 +45,13 @@
 - 已补采集健康状态：新增来源健康 DTO、SQLite 健康表、仓储读写、`/api/v1/topics/signals/source-health` 接口；手动采集与后台采集共用 `collect_market_signals`，每个来源会记录最近成功/失败、最近采集条数、错误原因和下次运行时间。
 - 已在选题面板“自动采集设置”下方展示各平台健康状态，并在加载设置和手动采集后刷新。
 - 已新增独立市场信号采集守护进程入口：`scripts/start_topic_signal_collector.py` 可脱离 API 进程单独常驻轮询，也支持 `--once --force` 做一次立即采集；API 内后台线程与独立脚本共用 `TopicSignalAutomationService.run_forever()`。
+- 已部署到宝塔服务器：
+  - SSH 入口：`root@45.197.149.138:7806`，使用本机部署密钥；密钥路径不写入项目文件。
+  - 线上目录：`/www/wwwroot/plotpilot-novelpro`
+  - systemd 服务：`plotpilot-novelpro.service`
+  - 后端内网端口：`127.0.0.1:39101`
+  - 宝塔/Nginx 公网入口：`http://45.197.149.138:39100`
+  - 运行数据库：`/www/wwwroot/plotpilot-novelpro/data/aitext.db`，已继承本地采集凭据；记忆文件不保存 Cookie 明文。
 
 ## 验证状态
 
@@ -72,11 +79,12 @@
   - 最近一次前端改动验证：`npm run build`（frontend）：通过；仅有既有大 chunk 警告。
   - 子任务最终代码质量审查：APPROVED。
   - 独立采集守护进程验证：`uv run --with-requirements requirements.txt --with pytest python -m pytest tests/unit/scripts/test_start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_automation_service.py -q`：通过，5 passed，2 个既有 422 常量弃用 warning；`python3 scripts/start_topic_signal_collector.py --help`：通过；`python3 -m compileall -q application/topic/services/topic_signal_automation_service.py scripts/start_topic_signal_collector.py tests/unit/application/services/test_topic_signal_automation_service.py tests/unit/scripts/test_start_topic_signal_collector.py`：通过。
+  - 宝塔部署验证：公网 `http://45.197.149.138:39100/` 返回前端 HTML；`/api/v1/topics/signals/sources` 返回 7 个来源；服务器侧 7 个来源连接测试全成功；已开启自动采集，间隔 180 分钟，每源 8 条；手动采集 7 个来源各 1 条后健康状态均为 `success`。
 
 ## 下一步
 
 - 外部 API / 登录态数据已完成基础接入、真实连接测试、小批量真实入库验证和采集健康状态。
-- 独立市场采集守护进程已可用；后续如需开机自启，可再补 launchd/系统服务配置。
+- 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
 - 可继续在「生成风格」入口或提示词广场中调整 `workflow-chapter-generation`，把“减少 AI 味”的具体偏好写成可见、可回滚的配置。
 
