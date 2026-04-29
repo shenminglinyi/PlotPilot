@@ -125,11 +125,14 @@
   - 2026-04-29 NovelPro 缺失根因确认：
     - 用户提到的 `NovelPro 测试区` 不在当前线上部署分支 `local/novel-pro`，而在本地分支 `local/feature-p1-candidate-gate`。
     - 该分支包含候选稿闭环、连续性巡检、口吻锁定、战力系统、模型分工、NovelPro 监控中心、AI 表单建议、Obsidian 长期记忆等右侧功能。
-    - 已开始把 `local/feature-p1-candidate-gate` 合并回当前部署分支，冲突集中在项目记忆文件和 `WorkArea.vue`；解析原则是保留选题/AI味抑制，同时恢复 NovelPro 右侧功能。
+    - 已把 `local/feature-p1-candidate-gate` 合并回当前部署分支，提交 `ac18e7b feat: merge NovelPro workbench features`；冲突已按“保留选题/AI味抑制，同时恢复 NovelPro 右侧功能”处理。
+    - 合并后验证通过：`python3 -m compileall -q application domain infrastructure interfaces scripts`、NovelPro 聚焦测试 14 passed、选题聚焦测试 100 passed、`npm run build` 通过。
+    - 已重新部署到宝塔；线上 dist 动态 chunk 包含 `NovelPro 测试区 / 监控中心 / 候选/精修 / 连续性巡检 / 口吻锁定 / 战力系统 / 生成风格 / AI味抑制 / 选题立项池`。
+    - 线上 API 验证：选题信号源与健康状态仍返回 200；`/api/v1/novels/{id}/novelpro/monitor`、`/continuity/overview`、`/power-system/overview` 均返回 200。
 
 ## 下一步
 
-- 完成 NovelPro 分支合并、运行前后端聚焦验证、重新部署到宝塔，并在线上确认 `NovelPro 测试区` 与相关 API 可见。
+- 在浏览器中硬刷新线上工作台，确认右侧 `NovelPro 测试区` 的各页签可以手动打开；如页面仍不可见，优先排查浏览器缓存和当前打开路由。
 - 外部 API / 登录态数据已完成基础接入、真实连接测试、小批量真实入库验证和采集健康状态。
 - 宝塔部署已可用；后续如绑定域名，需要新增域名站点/SSL，并把 `CORS_ORIGINS` 从 IP 端口切到正式域名。
 - 选题立项池后续仍可接入更深的外部榜单/竞品数据，或在采用后自动生成 Bible/卷纲；当前版本暂不扩大到这些链路。
