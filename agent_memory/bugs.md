@@ -16,6 +16,7 @@
 - NovelPro 候选稿、连续性、口吻锁定、战力系统、模型分工等右栏重面板依赖异步组件和新增 API；合并后验证要同时跑前端构建、后端编译和对应聚焦测试，避免只看页面入口。
 - NovelPro Obsidian 有两类服务：主记忆读取器不依赖 KnowledgeService，写入/同步器必须依赖 PP SQLite Knowledge 缓存。手动同步接口不能直接复用只读服务，否则会因 `knowledge_service=None` 报错。
 - macOS LaunchAgent 直接执行 `~/Documents/小说/...` 下脚本会遇到 TCC/路径编码问题；定时同步类任务优先使用 `~/.local/bin` 里的 ASCII 启动脚本，把项目目录仅作为数据路径。
+- 选题 LLM 深化/评估返回的字段形状不稳定，字符串字段可能返回对象或数组；服务层必须在写回领域模型前按字段类型归一化，避免对象进入 `premise/protagonist_hook` 等字符串字段后触发 `.strip()` 崩溃。
 
 ## 已解除
 

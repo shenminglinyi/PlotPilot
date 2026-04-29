@@ -121,6 +121,14 @@ class DeepenLLM:
         )
 
 
+class NestedStringFieldDeepenLLM:
+    async def generate(self, prompt, config):
+        return GenerationResult(
+            content='{"topic_idea":{"premise":{"一句话定位":"榜单异常引发身份追杀","首章切入":"主角发现自己上榜"},"protagonist_hook":{"身份":"匿名作者","代价":"删除马甲"},"score":86,"selling_points":["榜单异动",{"钩子":"自己追杀自己"}],"development_notes":{"首卷目标":["确认异常","锁定幕后"]}}}',
+            token_usage=TokenUsage(1, 1),
+        )
+
+
 class EvaluateLLM:
     async def generate(self, prompt, config):
         return GenerationResult(
@@ -904,6 +912,21 @@ async def test_deepen_uses_llm_payload_when_available():
     assert result.score == 88
     assert result.selling_points == ["强钩子", "系列潜力"]
     assert result.development_notes == {"定位": "升级流", "首卷目标": ["入局", "破局"]}
+
+
+@pytest.mark.asyncio
+async def test_deepen_normalizes_nested_string_fields_from_llm_payload():
+    repo = InMemoryTopicIdeaRepository()
+    idea = TopicIdea(title="嵌套字段深化选题", premise="原始设定")
+    repo.save(idea)
+    service = TopicIdeaService(repo, llm_service=NestedStringFieldDeepenLLM())
+
+    result = await service.deepen(idea.id)
+
+    assert "一句话定位=榜单异常引发身份追杀" in result.premise
+    assert "身份=匿名作者" in result.protagonist_hook
+    assert result.selling_points == ["榜单异动", "钩子=自己追杀自己"]
+    assert result.development_notes == {"首卷目标": ["确认异常", "锁定幕后"]}
 
 
 @pytest.mark.asyncio

@@ -57,6 +57,15 @@ ENRICHMENT_FIELDS = {
     "development_notes",
     "evaluation",
 }
+TEXT_ENRICHMENT_FIELDS = {
+    "premise",
+    "protagonist_hook",
+    "core_conflict",
+    "opening_hook",
+    "long_term_potential",
+}
+LIST_ENRICHMENT_FIELDS = {"selling_points", "risk_notes", "market_tags"}
+DICT_ENRICHMENT_FIELDS = {"development_notes", "evaluation"}
 
 class TopicIdeaGenerationError(RuntimeError):
     """LLM 选题生成调用失败。"""
@@ -586,13 +595,31 @@ class TopicIdeaService:
         for key in ENRICHMENT_FIELDS:
             if key not in payload:
                 continue
-            value = payload[key]
+            value = self._normalize_enrichment_value(key, payload[key])
             if fill_missing and getattr(idea, key):
                 continue
             setattr(idea, key, value)
         idea.__post_init__()
         idea.updated_at = datetime.now(timezone.utc)
         return self._repository.update(idea)
+
+    @staticmethod
+    def _normalize_enrichment_value(key: str, value: Any) -> Any:
+        if key in TEXT_ENRICHMENT_FIELDS:
+            return TopicIdeaService._format_report_value(value)
+        if key in LIST_ENRICHMENT_FIELDS:
+            if isinstance(value, list):
+                return [
+                    text
+                    for item in value
+                    for text in [TopicIdeaService._format_report_value(item)]
+                    if text
+                ]
+            text = TopicIdeaService._format_report_value(value)
+            return [text] if text else []
+        if key in DICT_ENRICHMENT_FIELDS:
+            return value if isinstance(value, dict) else {}
+        return value
 
     @staticmethod
     def _fallback_deepen_payload(idea: TopicIdea) -> dict[str, Any]:

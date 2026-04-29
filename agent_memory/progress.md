@@ -149,6 +149,15 @@
     - 已部署到宝塔并重启 `plotpilot-novelpro.service`，服务状态 `active`。
     - 线上构建包已包含 `prompt-health-strip / 运行时必填 / System 字数`。
     - 线上 `/api/v1/llm-control/prompts/workflow-chapter-generation` 返回新版低 AI 味提示词，必填变量为 `context / length_rule / outline`。
+  - 2026-04-30 线上全链路回归：
+    - 本地验证：`python3 -m compileall -q application domain infrastructure interfaces scripts` 通过；选题/采集/章节提示词/俗套扫描聚焦测试 118 passed；`npm run build`（frontend）通过。
+    - 首轮线上回归发现真实阻断：选题“深化”接口遇到 LLM 返回对象型 `premise` 时 500，根因为服务层未按字段类型归一化 LLM enrichment payload。
+    - 已修复并补回归测试：`test_deepen_normalizes_nested_string_fields_from_llm_payload`；选题聚焦测试从 117 增至 118 项并通过。
+    - 修复后已部署宝塔，`plotpilot-novelpro.service` 为 `active`。
+    - 线上复跑通过：前端首页、统计/小说列表、LLM Kimi 连接与模型列表、提示词广场、市场信号来源/健康/摘要/连接诊断、手动导入、7 源真实采集、选题生成/深化/评估/对比/采纳、章节流式试写保存、候选稿/分支/对比/监督审稿、NovelPro 监控/连续性/战力/文风/Obsidian、对话沙盒与 AI 表单建议。
+    - 本轮测试小说：`novel-063fee1b959143caba6b01b7309a10ce`；章节试写保存 5698 字；候选稿 `37ff4469-87fb-45e4-9717-c22a0b5ec257`。
+    - NovelPro 监控返回 `health=error/58` 是业务内容告警：自动识别到第 1 章多个绝对时间锚点，并非接口失败；同时 Obsidian 主记忆、关系事件、战力档案、文风评分均已写入。
+    - 线上构建包验证包含 `NovelPro 测试区 / settings-tab-strip / 生成风格 / AI味抑制 / prompt-health-strip / 选题立项池 / AI 控制台 / 提示词广场` 等入口关键字。
 
 ## 下一步
 
