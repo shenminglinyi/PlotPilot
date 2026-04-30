@@ -1,6 +1,7 @@
 """写作手法档案生成服务。"""
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Optional
 
 from application.style_bible.dtos import (
@@ -25,6 +26,7 @@ from domain.style_bible.repositories import StyleBibleRepository
 
 
 LlmExtractor = Callable[[list[StyleSample], dict[str, Any]], dict[str, Any]]
+logger = logging.getLogger(__name__)
 
 
 class StyleProfileService:
@@ -214,13 +216,24 @@ class StyleProfileService:
             return None
         try:
             payload = self.llm_extractor(samples, metrics)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Style Bible LLM extraction failed: %s", exc, exc_info=True)
             return None
         if not isinstance(payload, dict):
+            logger.warning(
+                "Style Bible LLM extraction returned non-object payload: %s",
+                type(payload).__name__,
+            )
             return None
         normalized = self.normalize_llm_profile_payload(payload)
         if normalized["profile_summary"] and normalized["technique_cards"]:
             return normalized
+        logger.warning(
+            "Style Bible LLM extraction payload incomplete: keys=%s summary=%s cards=%s",
+            sorted(payload.keys()),
+            bool(normalized["profile_summary"]),
+            len(normalized["technique_cards"]),
+        )
         return None
 
     def _fallback_summary(self, metrics: dict[str, Any]) -> str:
