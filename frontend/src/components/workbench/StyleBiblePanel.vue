@@ -15,6 +15,21 @@
             <n-input v-model:value="sceneType" size="small" placeholder="场景类型，如悬疑/情感" />
             <n-checkbox v-model:checked="allowedForGeneration">允许用于生成</n-checkbox>
           </n-space>
+          <n-space justify="space-between" align="center" wrap class="sample-source-row">
+            <n-text depth="3" style="font-size: 12px">
+              可粘贴文本，也可上传 .txt / .md
+            </n-text>
+            <n-upload
+              accept=".txt,.md,.markdown,text/plain,text/markdown"
+              :max="1"
+              :show-file-list="false"
+              @change="handleSampleFileSelect"
+            >
+              <n-button size="tiny" secondary :loading="readingSampleFile">
+                上传文件
+              </n-button>
+            </n-upload>
+          </n-space>
           <n-input
             v-model:value="sampleContent"
             type="textarea"
@@ -263,6 +278,7 @@ const props = defineProps<{
 const message = useMessage()
 const loading = ref(false)
 const importing = ref(false)
+const readingSampleFile = ref(false)
 const generatingProfile = ref(false)
 const previewingOverlay = ref(false)
 const updatingCardId = ref<string | null>(null)
@@ -345,6 +361,46 @@ async function importOnly() {
 
 async function importAndProfile() {
   await importSample(true)
+}
+
+async function handleSampleFileSelect(data: {
+  file: { file?: File | null; name?: string }
+  fileList: Array<{ file?: File | null }>
+}) {
+  const file = data.file?.file
+  if (!file) return
+  readingSampleFile.value = true
+  try {
+    const text = await readTextFile(file)
+    const content = text.trim()
+    if (!content) {
+      message.warning('文件内容为空')
+      return
+    }
+    sampleContent.value = content
+    if (!sampleTitle.value.trim()) {
+      sampleTitle.value = file.name.replace(/\.(txt|md|markdown)$/i, '')
+    }
+    message.success(`已读取 ${file.name}`)
+  } catch {
+    message.error('文件读取失败')
+  } finally {
+    readingSampleFile.value = false
+  }
+}
+
+async function readTextFile(file: File) {
+  const buffer = await file.arrayBuffer()
+  const utf8 = new TextDecoder('utf-8').decode(buffer)
+  const replacementCount = (utf8.match(/\uFFFD/g) || []).length
+  if (replacementCount <= Math.max(3, utf8.length * 0.01)) {
+    return utf8
+  }
+  try {
+    return new TextDecoder('gb18030').decode(buffer)
+  } catch {
+    return utf8
+  }
 }
 
 async function importSample(createProfile: boolean) {
@@ -496,11 +552,23 @@ onMounted(() => {
 
 <style scoped>
 .style-bible-panel {
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 10px 12px 16px;
 }
 
 .compact-card {
   background: rgba(255, 255, 255, 0.78);
+}
+
+.analysis-config-row {
+  min-width: 0;
+}
+
+.sample-source-row {
+  min-width: 0;
 }
 
 .profile-row {
@@ -526,6 +594,13 @@ onMounted(() => {
 .profile-row strong,
 .profile-row small {
   display: block;
+}
+
+.profile-row strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-row small {
