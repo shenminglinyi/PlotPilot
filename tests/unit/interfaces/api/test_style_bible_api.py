@@ -99,6 +99,20 @@ def test_style_bible_api_generates_profile_updates_card_and_previews_overlay(tmp
     assert "【写作手法库】" in overlay_response.json()["prompt"]
     assert "不复刻样本文字" in overlay_response.json()["prompt"]
 
+    match_response = client.post(
+        f"/api/v1/style-bible/profiles/{profile_id}/match",
+        json={
+            "novel_id": "novel-1",
+            "content": "他眼中闪过一丝复杂，心中五味杂陈。空气仿佛凝固。",
+        },
+    )
+
+    assert match_response.status_code == 200
+    match_body = match_response.json()
+    assert match_body["profile_id"] == profile_id
+    assert match_body["score"] < 100
+    assert match_body["issues"]
+
 
 def test_style_bible_api_returns_404_for_missing_profile(tmp_path):
     client = _client(tmp_path)

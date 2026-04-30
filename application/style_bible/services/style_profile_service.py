@@ -8,6 +8,7 @@ from application.style_bible.dtos import (
     StyleProfileDTO,
     StyleProfileGenerateRequestDTO,
     StyleProfileGenerateResultDTO,
+    StyleProfileMatchReportDTO,
     StyleSampleDTO,
     StyleSampleImportRequestDTO,
     StyleSampleImportResultDTO,
@@ -134,6 +135,31 @@ class StyleProfileService:
         return StyleProfileGenerateResultDTO(
             profile=self._profile_to_dto(saved_profile),
             cards=[self._card_to_dto(card) for card in saved_cards],
+        )
+
+    def match_text(
+        self,
+        profile_id: str,
+        content: str,
+        novel_id: str = "",
+    ) -> StyleProfileMatchReportDTO:
+        """评估正文与指定写作手法档案的匹配度。"""
+        profile = self.repository.get_profile(profile_id)
+        if profile is None:
+            raise ValueError("style profile not found")
+        if novel_id and profile.novel_id and profile.novel_id != novel_id:
+            raise ValueError("style profile not found")
+
+        report = self.analyzer.match_profile(
+            content,
+            profile.metrics,
+            profile.forbidden_patterns,
+        )
+        return StyleProfileMatchReportDTO(
+            profile_id=profile.id,
+            score=float(report["score"]),
+            metrics=report["metrics"],
+            issues=report["issues"],
         )
 
     def normalize_llm_profile_payload(self, payload: dict[str, Any]) -> dict[str, Any]:

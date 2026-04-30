@@ -70,6 +70,13 @@ export interface StyleProfileGenerateResultDTO {
   cards: StyleTechniqueCardDTO[]
 }
 
+export interface StyleProfileMatchReportDTO {
+  profile_id: string
+  score: number
+  metrics: Record<string, any>
+  issues: string[]
+}
+
 export interface StylePromptOverlayDTO {
   prompt: string
   profile_id: string
@@ -110,6 +117,11 @@ export interface UpdateTechniqueCardPayload {
   weight?: number
 }
 
+export interface MatchStyleProfilePayload {
+  novel_id?: string
+  content: string
+}
+
 export const styleBibleApi = {
   importSample: (payload: ImportStyleSamplePayload) =>
     apiClient.post<StyleSampleImportResultDTO>('/style-bible/samples', payload) as Promise<StyleSampleImportResultDTO>,
@@ -128,6 +140,9 @@ export const styleBibleApi = {
 
   updateCard: (cardId: string, payload: UpdateTechniqueCardPayload) =>
     apiClient.patch<StyleTechniqueCardDTO>(`/style-bible/cards/${cardId}`, payload) as Promise<StyleTechniqueCardDTO>,
+
+  matchProfile: (profileId: string, payload: MatchStyleProfilePayload) =>
+    apiClient.post<StyleProfileMatchReportDTO>(`/style-bible/profiles/${profileId}/match`, payload) as Promise<StyleProfileMatchReportDTO>,
 
   previewOverlay: (payload: { novel_id?: string; style_profile_id: string; scene_type?: string; max_cards?: number }) =>
     apiClient.post<StylePromptOverlayDTO>('/style-bible/overlay/preview', payload) as Promise<StylePromptOverlayDTO>,

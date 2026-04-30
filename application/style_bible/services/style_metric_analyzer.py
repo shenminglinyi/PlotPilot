@@ -93,6 +93,60 @@ class StyleMetricAnalyzer:
             "hook_score": self._weighted_average(valid_metrics, "hook_score"),
         }
 
+    def match_profile(
+        self,
+        text: str,
+        profile_metrics: dict[str, Any],
+        forbidden_patterns: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """计算正文与风格档案的基础匹配度。"""
+        metrics = self.analyze(text)
+        issues: list[str] = []
+        score = 100.0
+
+        score -= self._metric_penalty(
+            metrics,
+            profile_metrics,
+            "avg_sentence_length",
+            tolerance=0.35,
+            label="平均句长",
+            issues=issues,
+        )
+        score -= self._metric_penalty(
+            metrics,
+            profile_metrics,
+            "avg_paragraph_length",
+            tolerance=0.45,
+            label="段落长度",
+            issues=issues,
+        )
+        score -= self._metric_penalty(
+            metrics,
+            profile_metrics,
+            "dialogue_ratio",
+            tolerance=0.4,
+            label="对白占比",
+            issues=issues,
+            max_penalty=14.0,
+        )
+
+        if metrics["cliche_hit_count"] > 0:
+            penalty = min(18.0, metrics["cliche_hit_count"] * 4.0)
+            score -= penalty
+            issues.append(f"AI 套话命中 {metrics['cliche_hit_count']} 处")
+
+        forbidden_hits = self._forbidden_hits(text, forbidden_patterns or [])
+        if forbidden_hits:
+            score -= min(20.0, len(forbidden_hits) * 5.0)
+            issues.append("命中禁用表达：" + "、".join(forbidden_hits[:5]))
+
+        return {
+            "score": round(max(0.0, min(100.0, score)), 1),
+            "metrics": metrics,
+            "issues": issues,
+            "forbidden_hits": forbidden_hits,
+        }
+
     def _split_paragraphs(self, text: str) -> list[str]:
         return [
             paragraph.strip()
@@ -143,6 +197,36 @@ class StyleMetricAnalyzer:
             for metrics in metrics_list
         )
         return round(total / total_weight, 4)
+
+    @staticmethod
+    def _metric_penalty(
+        metrics: dict[str, Any],
+        baseline: dict[str, Any],
+        key: str,
+        *,
+        tolerance: float,
+        label: str,
+        issues: list[str],
+        max_penalty: float = 16.0,
+    ) -> float:
+        current = float(metrics.get(key) or 0.0)
+        expected = float(baseline.get(key) or 0.0)
+        if current <= 0 or expected <= 0:
+            return 0.0
+        drift = abs(current - expected) / max(expected, 1e-6)
+        if drift <= tolerance:
+            return 0.0
+        issues.append(f"{label}偏离样本：当前 {current:.2f}，目标 {expected:.2f}")
+        return min(max_penalty, (drift - tolerance) * 30.0)
+
+    @staticmethod
+    def _forbidden_hits(text: str, patterns: list[str]) -> list[str]:
+        hits: list[str] = []
+        for pattern in patterns:
+            item = str(pattern or "").strip()
+            if item and item in text and item not in hits:
+                hits.append(item)
+        return hits
 
     @staticmethod
     def _empty_metrics(sample_count: int) -> dict[str, Any]:

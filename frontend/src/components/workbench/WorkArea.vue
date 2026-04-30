@@ -426,6 +426,29 @@
                 </n-text>
               </n-space>
             </n-space>
+            <n-alert
+              v-if="styleMatchLoading || styleMatchReport"
+              :type="styleMatchReport && styleMatchReport.score < 78 ? 'warning' : 'success'"
+              :show-icon="true"
+              style="margin: 10px 0; font-size: 12px"
+            >
+              <template v-if="styleMatchLoading">
+                正在评估手法匹配度…
+              </template>
+              <template v-else-if="styleMatchReport">
+                <n-space vertical :size="4">
+                  <n-space align="center" :size="8">
+                    <strong>手法匹配 {{ styleMatchReport.score.toFixed(1) }} 分</strong>
+                    <n-tag size="tiny" :type="styleMatchReport.score >= 85 ? 'success' : styleMatchReport.score >= 78 ? 'warning' : 'error'" round>
+                      {{ styleMatchReport.score >= 85 ? '贴合' : styleMatchReport.score >= 78 ? '需微调' : '偏离明显' }}
+                    </n-tag>
+                  </n-space>
+                  <n-text v-if="styleMatchIssueText" depth="3" style="font-size: 12px">
+                    {{ styleMatchIssueText }}
+                  </n-text>
+                </n-space>
+              </template>
+            </n-alert>
             <n-scrollbar style="max-height: 500px">
               <n-input
                 v-model:value="generatedContent"
@@ -932,7 +955,7 @@ import {
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
 import { novelproSuggestionsApi } from '../../api/novelproSuggestions'
-import { styleBibleApi, type StyleProfileDetail } from '../../api/styleBible'
+import { styleBibleApi, type StyleProfileDetail, type StyleProfileMatchReportDTO } from '../../api/styleBible'
 import type {
   BranchMemoryDiffResponse,
   CandidateBranchSummary,
@@ -1025,6 +1048,8 @@ const generateStyleProfileId = ref<string | null>(null)
 const generateSceneType = ref('')
 const styleProfiles = ref<StyleProfileDetail[]>([])
 const loadingStyleProfiles = ref(false)
+const styleMatchReport = ref<StyleProfileMatchReportDTO | null>(null)
+const styleMatchLoading = ref(false)
 const generateInProgress = ref(false)
 const lastWorkflowResult = ref<GenerateChapterWorkflowResponse | null>(null)
 const lastQcChapterNumber = ref<number | null>(null)
@@ -1380,6 +1405,11 @@ const styleProfileOptions = computed(() =>
   }))
 )
 
+const styleMatchIssueText = computed(() => {
+  const issues = styleMatchReport.value?.issues ?? []
+  return issues.slice(0, 3).join('；')
+})
+
 const modalTargetChapter = computed(() => {
   const id = generateTargetChapterId.value
   if (id == null) return null
@@ -1438,6 +1468,7 @@ function clearWorkflowQc() {
 
 function clearGeneratedDraft() {
   generatedContent.value = ''
+  styleMatchReport.value = null
   clearWorkflowQc()
 }
 
@@ -1989,6 +2020,7 @@ const handleStartGenerate = async () => {
   generatingChapterId.value = targetChapterId
   generateInProgress.value = true
   generatedContent.value = ''
+  styleMatchReport.value = null
   sceneDirectorError.value = ''
   lastWorkflowResult.value = null
   lastQcChapterNumber.value = null
@@ -2044,6 +2076,7 @@ const handleStartGenerate = async () => {
           generatedContent.value = result.content
           streamProgressPct.value = 100
           streamPhaseLabel.value = '已完成'
+          void updateStyleMatchReport(result.content)
           if (props.currentChapterId === targetChapterId) {
             message.success('生成完成，质检已同步到「章节状态」')
           } else {
@@ -2070,6 +2103,26 @@ const handleStartGenerate = async () => {
       streamPhaseLabel.value = ''
       streamProgressPct.value = 0
     }
+  }
+}
+
+async function updateStyleMatchReport(content: string) {
+  const profileId = generateStyleProfileId.value
+  if (!profileId || !content.trim()) {
+    styleMatchReport.value = null
+    return
+  }
+
+  styleMatchLoading.value = true
+  try {
+    styleMatchReport.value = await styleBibleApi.matchProfile(profileId, {
+      novel_id: props.slug,
+      content,
+    })
+  } catch {
+    styleMatchReport.value = null
+  } finally {
+    styleMatchLoading.value = false
   }
 }
 

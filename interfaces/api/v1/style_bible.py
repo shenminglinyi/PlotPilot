@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from application.style_bible.dtos import (
     StyleProfileGenerateRequestDTO,
     StyleProfileGenerateResultDTO,
+    StyleProfileMatchReportDTO,
     StylePromptOverlayDTO,
     StyleSampleDTO,
     StyleSampleImportRequestDTO,
@@ -72,6 +73,11 @@ class BuildStyleOverlayRequest(BaseModel):
     style_profile_id: str
     scene_type: str = ""
     max_cards: int = Field(default=6, ge=1, le=12)
+
+
+class MatchStyleProfileRequest(BaseModel):
+    novel_id: str = ""
+    content: str
 
 
 @router.post("/samples", response_model=StyleSampleImportResultDTO)
@@ -145,6 +151,19 @@ def get_style_profile(
     if profile is None:
         raise HTTPException(status_code=404, detail="style profile not found")
     return _profile_detail(repository, profile)
+
+
+@router.post("/profiles/{profile_id}/match", response_model=StyleProfileMatchReportDTO)
+def match_style_profile(
+    profile_id: str,
+    request: MatchStyleProfileRequest,
+    service: StyleProfileService = Depends(get_style_profile_service),
+):
+    """评估正文与写作手法档案的匹配度。"""
+    try:
+        return service.match_text(profile_id, request.content, novel_id=request.novel_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.patch("/cards/{card_id}", response_model=StyleTechniqueCardDTO)

@@ -58,3 +58,28 @@ def test_style_metric_analyzer_aggregates_multiple_metric_dicts():
     assert metrics["char_count"] == first["char_count"] + second["char_count"]
     assert metrics["paragraph_count"] == first["paragraph_count"] + second["paragraph_count"]
     assert metrics["dialogue_ratio"] > 0
+
+
+def test_style_metric_analyzer_matches_profile_with_high_score():
+    analyzer = StyleMetricAnalyzer()
+    text = "雨落在窗上。\n\n林晚推开门，看见桌边的人影。\n\n“你来了？”他低声问。"
+    baseline = analyzer.analyze(text)
+
+    report = analyzer.match_profile(text, baseline, [])
+
+    assert report["score"] == 100.0
+    assert report["issues"] == []
+    assert report["metrics"]["avg_sentence_length"] == baseline["avg_sentence_length"]
+
+
+def test_style_metric_analyzer_penalizes_cliches_and_forbidden_patterns():
+    analyzer = StyleMetricAnalyzer()
+    baseline = analyzer.analyze("雨落在窗上。\n\n林晚推开门。\n\n“你来了？”他低声问。")
+    text = "他眼中闪过一丝复杂，心中五味杂陈。空气仿佛凝固。"
+
+    report = analyzer.match_profile(text, baseline, ["空气仿佛凝固"])
+
+    assert report["score"] < 90
+    assert "空气仿佛凝固" in report["forbidden_hits"]
+    assert any("AI 套话" in issue for issue in report["issues"])
+    assert any("命中禁用表达" in issue for issue in report["issues"])

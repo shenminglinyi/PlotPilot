@@ -115,3 +115,32 @@ def test_style_profile_service_analyzes_samples_not_allowed_for_generation(tmp_p
     assert imported.chunks[0].metrics["environment_ratio"] > 0
     assert result.profile.id
     assert result.cards
+
+
+def test_style_profile_service_matches_text_against_profile(tmp_path):
+    service = _service(tmp_path)
+    imported = service.import_sample(
+        StyleSampleImportRequestDTO(
+            title="克制样本",
+            content="雨落在窗上。\n\n林晚推开门。\n\n“你来了？”他低声问。",
+            novel_id="novel-1",
+        )
+    )
+    generated = service.generate_profile_from_samples(
+        StyleProfileGenerateRequestDTO(
+            novel_id="novel-1",
+            name="克制短句",
+            sample_ids=[imported.sample.id],
+        )
+    )
+
+    report = service.match_text(
+        generated.profile.id,
+        "他眼中闪过一丝复杂，心中五味杂陈。空气仿佛凝固。",
+        novel_id="novel-1",
+    )
+
+    assert report.profile_id == generated.profile.id
+    assert report.score < 100
+    assert report.metrics["cliche_hit_count"] > 0
+    assert report.issues
