@@ -690,6 +690,71 @@ class TestStyleIntegration:
         assert rewrite_prompt.user.startswith("来自提示词广场的去AI味用户提示")
 
     @pytest.mark.asyncio
+    async def test_naturalizer_applies_human_texture_pass_for_over_polished_output(
+        self,
+        mock_context_builder,
+        mock_consistency_checker,
+        mock_storyline_manager,
+        mock_plot_arc_repository,
+        mock_llm_service,
+        monkeypatch
+    ):
+        """自然化后仍过度工整时，应再走句式节奏破整节点。"""
+        from application.services.cliche_scanner import ClicheScanner, ClicheHit
+
+        ai_draft = "空气仿佛凝固了，他心中五味杂陈。" * 40
+        polished_but_risky = (
+            "不是榜单数据，是操作日志。像某种旧证据。\n\n"
+            "不是待机绿光，是读写橙光。像某种呼吸。\n\n"
+            "不是逃生，是保留证据。像某种被提前埋好的路。\n\n"
+        ) * 10
+        textured = (
+            "沈铎把日志窗口往下拖了两行。鼠标垫边缘卷起来，刮着他的手腕。\n\n"
+            "第三排机柜亮了一下。他没说话，先看苏晚。苏晚也正看那盏灯。\n\n"
+        ) * 10
+        mock_llm_service.generate = AsyncMock(side_effect=[
+            LLMResult(content=polished_but_risky, token_usage=TokenUsage(input_tokens=300, output_tokens=300)),
+            LLMResult(content=textured, token_usage=TokenUsage(input_tokens=300, output_tokens=300)),
+        ])
+
+        class FakePromptManager:
+            def ensure_seeded(self):
+                return True
+
+            def render(self, node_key, variables):
+                if node_key == "rewrite-ai-flavor-naturalizer":
+                    return {"system": "自然化", "user": variables["draft"]}
+                if node_key == "rewrite-prose-irregularity":
+                    assert variables["draft"] == polished_but_risky.strip()
+                    assert "过度工整" in variables["rhythm_goal"]
+                    return {"system": "句式节奏破整", "user": variables["draft"]}
+                raise AssertionError(f"unexpected node: {node_key}")
+
+        monkeypatch.setattr(
+            "infrastructure.ai.prompt_manager.get_prompt_manager",
+            lambda: FakePromptManager(),
+        )
+        mock_scanner = Mock(spec=ClicheScanner)
+        mock_scanner.scan_cliches.return_value = [
+            ClicheHit(pattern="氛围凝固系列", text="空气仿佛凝固", start=0, end=6, severity="warning")
+        ]
+        workflow = AutoNovelGenerationWorkflow(
+            context_builder=mock_context_builder,
+            consistency_checker=mock_consistency_checker,
+            storyline_manager=mock_storyline_manager,
+            plot_arc_repository=mock_plot_arc_repository,
+            llm_service=mock_llm_service,
+            cliche_scanner=mock_scanner,
+        )
+
+        result = await workflow._naturalize_ai_flavor_if_needed(content=ai_draft, outline="测试大纲")
+
+        assert result == textured.strip()
+        assert mock_llm_service.generate.await_count == 2
+        rhythm_prompt = mock_llm_service.generate.await_args_list[1].args[0]
+        assert rhythm_prompt.system == "句式节奏破整"
+
+    @pytest.mark.asyncio
     async def test_long_streamed_chapter_is_naturalized_even_without_cliche_hits(
         self,
         mock_context_builder,

@@ -3,6 +3,7 @@
 整合所有子项目组件，实现完整的章节生成流程。
 """
 import logging
+import re
 from typing import Tuple, Dict, Any, AsyncIterator, Optional, List
 from application.engine.services.context_builder import ContextBuilder
 from application.analyst.services.state_extractor import StateExtractor
@@ -717,7 +718,93 @@ class AutoNovelGenerationWorkflow:
         if len(revised) < max(80, len(draft) * 0.45):
             logger.warning("AI味自然化改写疑似过度压缩，保留原文")
             return content
+        revised = await self._apply_human_texture_pass_if_needed(
+            content=revised,
+            outline=outline,
+        )
         return revised
+
+    async def _apply_human_texture_pass_if_needed(self, *, content: str, outline: str) -> str:
+        """对外部检测器常判为 AI 的“过度工整精修稿”做一次节奏破整。"""
+        draft = (content or "").strip()
+        if not draft or not self._needs_human_texture_pass(draft):
+            return content
+
+        prompt = self._build_human_texture_rewrite_prompt(draft=draft, outline=outline)
+        max_tokens = max(1024, min(12000, int(len(draft) * 1.25)))
+        try:
+            result = await self.llm_service.generate(
+                prompt,
+                GenerationConfig(max_tokens=max_tokens, temperature=0.95),
+            )
+            textured = strip_reasoning_artifacts(result.content or "").strip()
+        except Exception as e:
+            logger.warning("人工纹理破整改写失败，保留自然化正文: %s", e)
+            return content
+
+        if not textured:
+            return content
+        if len(textured) < max(80, len(draft) * 0.45):
+            logger.warning("人工纹理破整疑似过度压缩，保留自然化正文")
+            return content
+        return textured
+
+    @staticmethod
+    def _needs_human_texture_pass(text: str) -> bool:
+        """识别外部 AI 检测常抓的过度对称、过度精修行文。"""
+        if len(text) < 500:
+            return False
+
+        score = 0
+        score += min(len(re.findall(r"不是[^。！？\n]{1,28}[，,]是", text)), 4)
+        score += min(text.count("像某种"), 4)
+        score += min(len(re.findall(r"没有[^。！？\n]{1,24}[，,]?(?:只是|而是)", text)), 2)
+        score += min(len(re.findall(r"不是[^。！？\n]{1,24}(?:而是|而是在)", text)), 2)
+
+        paragraphs = [p.strip() for p in text.splitlines() if p.strip()]
+        if len(paragraphs) >= 18:
+            short_ratio = sum(1 for p in paragraphs if len(p) <= 18) / len(paragraphs)
+            if short_ratio >= 0.28:
+                score += 1
+
+        return score >= 5
+
+    @staticmethod
+    def _build_human_texture_rewrite_prompt(*, draft: str, outline: str) -> Prompt:
+        variables = {
+            "draft": draft,
+            "rhythm_goal": (
+                "保留剧情事实和本章大纲，重点削弱过度工整、过度对称、过度镜头化的AI式精修感；"
+                "减少连续的“不是X，是Y”“像某种”结构，让段落更像人工作者现场取舍后的表达。"
+            ),
+        }
+        try:
+            from infrastructure.ai.prompt_manager import get_prompt_manager
+
+            manager = get_prompt_manager()
+            manager.ensure_seeded()
+            rendered = manager.render("rewrite-prose-irregularity", variables)
+            if rendered and (rendered.get("system") or "").strip() and (rendered.get("user") or "").strip():
+                return Prompt(
+                    system=rendered["system"].strip(),
+                    user=rendered["user"].strip(),
+                )
+        except Exception as e:
+            logger.warning("句式节奏破整提示词节点不可用，回退内置提示词: %s", e)
+
+        return Prompt(
+            system=(
+                "你是中文小说行文节奏编辑。请保留原剧情事实、人物、时间线和伏笔，"
+                "只削弱过度工整、过度对称、过度解释的AI式精修感。减少连续的固定句式，"
+                "让句长、停顿、段落和细节取舍更像人工作者写作。只输出改写后的正文。"
+            ),
+            user=(
+                f"【本章大纲】\n{outline.strip()}\n\n"
+                "【需要破整的正文】\n"
+                f"{draft}\n\n"
+                "请只输出调整后的小说正文："
+            ),
+        )
 
     @staticmethod
     def _build_ai_flavor_rewrite_prompt(*, draft: str, outline: str) -> Prompt:
