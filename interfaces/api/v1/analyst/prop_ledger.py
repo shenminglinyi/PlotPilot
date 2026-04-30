@@ -61,6 +61,9 @@ class PropLedgerEventSuggestion(BaseModel):
     evidence: str
     reason: str
     confidence: float
+    is_new_prop: bool = False
+    category: str = ""
+    importance: str = "normal"
 
 
 class PropLedgerOverview(BaseModel):

@@ -90,9 +90,48 @@ def test_prop_ledger_suggests_events_from_chapter_without_writing(tmp_path):
             "evidence": "周砚沉默片刻，把青铜钥匙装进证物袋，锁进警局证物柜。林晚没有再看它。",
             "reason": "正文出现已登记道具，并命中封存/证物相关表达。",
             "confidence": 0.82,
+            "is_new_prop": False,
+            "category": "钥匙",
+            "importance": "major",
         }
     ]
 
     overview = service.get_overview("novel-1")
     assert overview["recent_events"] == []
     assert overview["items"][0]["status"] == "未使用"
+
+
+def test_prop_ledger_discovers_new_plot_props_without_ordinary_objects(tmp_path):
+    db = DatabaseConnection(str(tmp_path / "prop-ledger-discovery.db"))
+    db.execute(
+        "INSERT INTO novels (id, title, slug) VALUES (?, ?, ?)",
+        ("novel-1", "测试小说", "novel-1"),
+    )
+    db.commit()
+    service = PropLedgerService(SqlitePropLedgerRepository(db))
+
+    suggestions = service.suggest_events_from_chapter(
+        novel_id="novel-1",
+        chapter_number=8,
+        content="她拿起杯子放回桌上，又把染血的录音笔塞进抽屉。门外的脚步声停了。",
+    )
+
+    assert suggestions == [
+        {
+            "prop_name": "染血的录音笔",
+            "chapter_number": 8,
+            "event_type": "acquire",
+            "status": "被取得",
+            "holder": "",
+            "location": "抽屉",
+            "evidence": "她拿起杯子放回桌上，又把染血的录音笔塞进抽屉。",
+            "reason": "正文出现疑似关键新道具，并命中取得/带走相关表达。",
+            "confidence": 0.62,
+            "is_new_prop": True,
+            "category": "证物",
+            "importance": "major",
+        }
+    ]
+
+    overview = service.get_overview("novel-1")
+    assert overview["items"] == []

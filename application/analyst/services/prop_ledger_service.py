@@ -5,6 +5,37 @@ import re
 from typing import Any, Optional
 
 
+DISCOVERABLE_PROP_CATEGORIES: dict[str, str] = {
+    "录音笔": "证物",
+    "钥匙": "钥匙",
+    "信": "信物",
+    "信件": "信物",
+    "遗书": "信物",
+    "照片": "证物",
+    "相片": "证物",
+    "玉佩": "信物",
+    "戒指": "信物",
+    "项链": "信物",
+    "芯片": "证物",
+    "U盘": "证物",
+    "u盘": "证物",
+    "账本": "证物",
+    "名单": "证物",
+    "合同": "证物",
+    "药瓶": "药物",
+    "药剂": "药物",
+    "匕首": "武器",
+    "短刀": "武器",
+    "手枪": "武器",
+    "令牌": "信物",
+    "徽章": "信物",
+    "地图": "线索",
+    "档案": "证物",
+    "盒子": "容器",
+    "匣子": "容器",
+}
+
+
 class PropLedgerService:
     """管理关键道具的当前状态与历史事件。"""
 
@@ -114,8 +145,11 @@ class PropLedgerService:
             return []
 
         suggestions: list[dict[str, Any]] = []
-        for item in self.repository.list_items(novel_id):
+        items = self.repository.list_items(novel_id)
+        known_names: set[str] = set()
+        for item in items:
             name = str(item.get("name") or "").strip()
+            known_names.add(name)
             if not name or name not in clean_content:
                 continue
             evidence = self._build_evidence_snippet(clean_content, name)
@@ -130,7 +164,15 @@ class PropLedgerService:
                 "evidence": evidence,
                 "reason": reason,
                 "confidence": confidence,
+                "is_new_prop": False,
+                "category": str(item.get("category") or ""),
+                "importance": str(item.get("importance") or "normal"),
             })
+        suggestions.extend(self._discover_new_prop_suggestions(
+            content=clean_content,
+            chapter_number=chapter,
+            known_names=known_names,
+        ))
         return suggestions[:12]
 
     @staticmethod
@@ -197,11 +239,94 @@ class PropLedgerService:
                 return event_type, status, reason, confidence
         return "mention", "", "正文提到已登记道具，建议确认当前状态是否变化。", 0.48
 
+    @classmethod
+    def _discover_new_prop_suggestions(
+        cls,
+        *,
+        content: str,
+        chapter_number: int,
+        known_names: set[str],
+    ) -> list[dict[str, Any]]:
+        suggestions: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for sentence in cls._split_sentences(content):
+            event_type, status, _, confidence = cls._classify_event(sentence)
+            if event_type == "mention":
+                continue
+            for prop_name, category in cls._extract_plot_prop_names(sentence):
+                if prop_name in known_names or prop_name in seen:
+                    continue
+                seen.add(prop_name)
+                suggestions.append({
+                    "prop_name": prop_name,
+                    "chapter_number": chapter_number,
+                    "event_type": event_type,
+                    "status": status,
+                    "holder": "",
+                    "location": cls._extract_location(sentence),
+                    "evidence": sentence,
+                    "reason": cls._new_prop_reason(event_type),
+                    "confidence": round(max(0.5, confidence - 0.06), 2),
+                    "is_new_prop": True,
+                    "category": category,
+                    "importance": "major" if category in {"证物", "钥匙", "信物", "武器"} else "normal",
+                })
+        return suggestions
+
+    @staticmethod
+    def _split_sentences(content: str) -> list[str]:
+        return [
+            part.strip()
+            for part in re.findall(r"[^。！？!?\n]+[。！？!?]?", content)
+            if part.strip()
+        ]
+
+    @staticmethod
+    def _extract_plot_prop_names(sentence: str) -> list[tuple[str, str]]:
+        results: list[tuple[str, str]] = []
+        ordered_items = sorted(
+            DISCOVERABLE_PROP_CATEGORIES.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        )
+        for noun, category in ordered_items:
+            escaped = re.escape(noun)
+            patterns = (
+                rf"((?:[\u4e00-\u9fff]{{1,6}}的){escaped})",
+                rf"([\u4e00-\u9fff]{{1,4}}{escaped})",
+                rf"({escaped})",
+            )
+            for pattern in patterns:
+                for match in re.finditer(pattern, sentence):
+                    name = PropLedgerService._clean_discovered_name(match.group(1))
+                    if name and not any(existing == name for existing, _ in results):
+                        results.append((name, category))
+                if results and results[-1][0].endswith(noun):
+                    break
+        return results
+
+    @staticmethod
+    def _clean_discovered_name(name: str) -> str:
+        cleaned = re.sub(r"^[她他它我你们的了把将又再正刚才却并便就那这一个一只一枚一张一支一把一封]+", "", name)
+        return cleaned.strip(" ，。；;、")
+
+    @staticmethod
+    def _new_prop_reason(event_type: str) -> str:
+        labels = {
+            "sealed": "封存/证物",
+            "lost_or_broken": "丢失/损坏",
+            "transfer": "转交",
+            "use": "使用",
+            "acquire": "取得/带走",
+        }
+        label = labels.get(event_type, "剧情动作")
+        return f"正文出现疑似关键新道具，并命中{label}相关表达。"
+
     @staticmethod
     def _extract_location(evidence: str) -> str:
         patterns = [
             r"(警局证物柜|证物柜|保险柜|证物袋)",
-            r"(?:锁进|放进|装进|塞进|收入|放入)([^，。；;、\s]{2,20}(?:柜|箱|袋|盒|室|库|房|抽屉))",
+            r"(?:锁进|放进|装进|塞进|收入|放入)([^，。；;、\s]{0,20}(?:柜|箱|袋|盒|室|库|房|抽屉))",
         ]
         matches: list[str] = []
         for pattern in patterns:

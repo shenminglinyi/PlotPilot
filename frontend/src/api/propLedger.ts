@@ -55,6 +55,9 @@ export interface PropLedgerEventSuggestion {
   evidence: string
   reason: string
   confidence: number
+  is_new_prop: boolean
+  category: string
+  importance: string
 }
 
 export interface UpsertPropItemRequest {

@@ -121,9 +121,14 @@
                   >
                     <n-space justify="space-between" align="center">
                       <strong>{{ suggestion.prop_name }}</strong>
-                      <n-tag size="small" round type="info">
-                        {{ eventTypeLabel(suggestion.event_type) }} · {{ Math.round(suggestion.confidence * 100) }}%
-                      </n-tag>
+                      <n-space :size="6" align="center">
+                        <n-tag v-if="suggestion.is_new_prop" size="small" round type="warning">
+                          新道具
+                        </n-tag>
+                        <n-tag size="small" round type="info">
+                          {{ eventTypeLabel(suggestion.event_type) }} · {{ Math.round(suggestion.confidence * 100) }}%
+                        </n-tag>
+                      </n-space>
                     </n-space>
                     <n-text depth="3" style="font-size:12px">
                       {{ suggestion.reason }}
@@ -295,6 +300,19 @@ function fillItemForm(item: PropLedgerItem) {
 }
 
 function fillEventSuggestion(suggestion: PropLedgerEventSuggestion) {
+  if (suggestion.is_new_prop) {
+    itemForm.name = suggestion.prop_name
+    itemForm.category = suggestion.category
+    itemForm.status = suggestion.status
+    itemForm.current_holder = suggestion.holder
+    itemForm.current_location = suggestion.location
+    itemForm.first_seen_chapter = suggestion.chapter_number
+    itemForm.last_seen_chapter = suggestion.chapter_number
+    itemForm.importance = suggestion.importance || 'normal'
+    itemForm.description = suggestion.evidence
+    itemForm.notes = suggestion.reason
+    message.info('已预填新道具登记信息，确认后可先保存道具状态')
+  }
   eventForm.prop_name = suggestion.prop_name
   eventForm.chapter_number = suggestion.chapter_number
   eventForm.event_type = suggestion.event_type
