@@ -330,6 +330,91 @@ def _ensure_topic_market_signal_source_health_table(conn: sqlite3.Connection) ->
     conn.commit()
 
 
+def _ensure_style_bible_tables(conn: sqlite3.Connection) -> None:
+    """旧库补齐写作手法知识库表。"""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS style_samples (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL DEFAULT '',
+            profile_id TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL,
+            source_type TEXT NOT NULL DEFAULT 'reference',
+            genre TEXT NOT NULL DEFAULT '',
+            scene_type TEXT NOT NULL DEFAULT '',
+            pov TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            char_count INTEGER NOT NULL DEFAULT 0,
+            allowed_for_generation INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_style_samples_novel_hash
+        ON style_samples(novel_id, content_hash);
+
+        CREATE INDEX IF NOT EXISTS idx_style_samples_novel_profile
+        ON style_samples(novel_id, profile_id);
+
+        CREATE TABLE IF NOT EXISTS style_sample_chunks (
+            id TEXT PRIMARY KEY,
+            sample_id TEXT NOT NULL,
+            chunk_type TEXT NOT NULL CHECK(chunk_type IN ('chapter', 'scene', 'paragraph')),
+            sequence INTEGER NOT NULL DEFAULT 0,
+            chapter_number INTEGER NOT NULL DEFAULT 0,
+            title TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL,
+            char_count INTEGER NOT NULL DEFAULT 0,
+            metrics_json TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sample_id) REFERENCES style_samples(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_style_sample_chunks_sample
+        ON style_sample_chunks(sample_id, sequence);
+
+        CREATE TABLE IF NOT EXISTS style_profiles (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+            profile_json TEXT NOT NULL DEFAULT '{}',
+            metrics_json TEXT NOT NULL DEFAULT '{}',
+            rules_json TEXT NOT NULL DEFAULT '[]',
+            forbidden_patterns_json TEXT NOT NULL DEFAULT '[]',
+            version INTEGER NOT NULL DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_style_profiles_novel_status
+        ON style_profiles(novel_id, status);
+
+        CREATE TABLE IF NOT EXISTS style_technique_cards (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT '',
+            scene_type TEXT NOT NULL DEFAULT '',
+            rule_text TEXT NOT NULL,
+            example_summary TEXT NOT NULL DEFAULT '',
+            prompt_instruction TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            weight REAL NOT NULL DEFAULT 1.0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (profile_id) REFERENCES style_profiles(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_style_technique_cards_profile_enabled
+        ON style_technique_cards(profile_id, enabled);
+        """
+    )
+    conn.commit()
+
+
 
 def _apply_migration_files(conn: sqlite3.Connection) -> None:
     """应用 migrations 目录下全部 .sql（幂等执行，顺序按文件名稳定排序）。"""
@@ -513,6 +598,7 @@ class DatabaseConnection:
         _ensure_topic_market_signal_settings_table(conn)
         _ensure_topic_market_signal_credentials_table(conn)
         _ensure_topic_market_signal_source_health_table(conn)
+        _ensure_style_bible_tables(conn)
         _ensure_triple_provenance_table(conn)
         _ensure_external_model_tasks_table(conn)
         _apply_migration_files(conn)
