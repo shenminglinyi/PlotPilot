@@ -325,7 +325,11 @@ def _build_style_bible_llm_extractor():
         async def run():
             result = await llm_service.generate(
                 prompt,
-                GenerationConfig(max_tokens=2200, temperature=0.25),
+                GenerationConfig(
+                    max_tokens=3200,
+                    temperature=0.05,
+                    response_format={"type": "json_object"},
+                ),
             )
             return _parse_style_bible_llm_json(result.content)
 
@@ -375,6 +379,8 @@ def _build_style_bible_llm_prompt(samples, metrics) -> str:
             "要求：",
             "- technique_cards 输出 4-8 张。",
             "- prompt_instruction 必须是可执行约束，不要空泛形容。",
+            "- 所有 JSON 字符串必须是单行字符串，字符串内部不要换行。",
+            "- 不要尾随逗号，不要注释，不要输出 JSON 之外的任何字符。",
             "- 不要输出样本文字长句，不要续写样本。",
             "- forbidden_patterns 优先给“AI味、总结式、抽象情绪、模板转折”。",
             "",

@@ -175,6 +175,8 @@ class OpenAIProvider(BaseProvider):
             "extra_body": self.settings.extra_body or None,
             "timeout": self.settings.timeout_seconds,
         }
+        if config.response_format:
+            kwargs["response_format"] = config.response_format
         if stream:
             kwargs["stream"] = True
         return kwargs
