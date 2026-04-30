@@ -748,13 +748,24 @@ class AutoNovelGenerationWorkflow:
         if len(textured) < max(80, len(draft) * 0.45):
             logger.warning("人工纹理破整疑似过度压缩，保留自然化正文")
             return content
+        if self._human_texture_risk_score(textured) >= self._human_texture_risk_score(draft):
+            logger.warning("人工纹理破整未降低检测风险，保留自然化正文")
+            return content
+        if textured.count("不是") > draft.count("不是"):
+            logger.warning("人工纹理破整增加了高风险句式，保留自然化正文")
+            return content
         return textured
 
     @staticmethod
     def _needs_human_texture_pass(text: str) -> bool:
         """识别外部 AI 检测常抓的过度对称、过度精修行文。"""
+        return AutoNovelGenerationWorkflow._human_texture_risk_score(text) >= 5
+
+    @staticmethod
+    def _human_texture_risk_score(text: str) -> int:
+        """给二次改写前后做同一把尺子的轻量风险评分。"""
         if len(text) < 500:
-            return False
+            return 0
 
         score = 0
         score += min(len(re.findall(r"不是[^。！？\n]{1,28}[，,]是", text)), 4)
@@ -773,15 +784,17 @@ class AutoNovelGenerationWorkflow:
             if short_ratio >= 0.28:
                 score += 1
 
-        return score >= 5
+        return score
 
     @staticmethod
     def _build_human_texture_rewrite_prompt(*, draft: str, outline: str) -> Prompt:
+        target_not_count = min(4, max(1, draft.count("不是") // 2))
         variables = {
             "draft": draft,
             "rhythm_goal": (
                 "保留剧情事实和本章大纲，重点削弱过度工整、过度对称、过度镜头化的AI式精修感；"
-                "减少连续的“不是X，是Y”“像某种”结构，让段落更像人工作者现场取舍后的表达。"
+                "减少连续的“不是X，是Y”“像某种”结构，让段落更像人工作者现场取舍后的表达；"
+                f"全文“不是”不超过{target_not_count}次，不要新增新的排比式否定句。"
             ),
         }
         try:
@@ -820,7 +833,8 @@ class AutoNovelGenerationWorkflow:
             "rewrite_goal": "降低AI味，保留剧情事实，增强阅读沉浸",
             "taboo_phrases": (
                 "空气凝固、时间静止、心中五味杂陈、某种说不清的东西、"
-                "命运齿轮、一切才刚刚开始、再也回不去了、一番交谈后、很快达成共识"
+                "命运齿轮、一切才刚刚开始、再也回不去了、一番交谈后、很快达成共识、"
+                "不是X，是Y、像某种、连续排比式否定句"
             ),
         }
         try:

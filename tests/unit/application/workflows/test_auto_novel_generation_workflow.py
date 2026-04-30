@@ -674,6 +674,7 @@ class TestStyleIntegration:
                 assert variables["draft"] == ai_draft
                 assert "测试大纲" in variables["must_keep"]
                 assert variables["rewrite_goal"] == "降低AI味，保留剧情事实，增强阅读沉浸"
+                assert "不是X，是Y" in variables["taboo_phrases"]
                 return {
                     "system": "来自提示词广场的去AI味系统提示",
                     "user": "来自提示词广场的去AI味用户提示：{draft}",
@@ -766,6 +767,52 @@ class TestStyleIntegration:
         assert mock_llm_service.generate.await_count == 2
         rhythm_prompt = mock_llm_service.generate.await_args_list[1].args[0]
         assert rhythm_prompt.system == "句式节奏破整"
+
+    @pytest.mark.asyncio
+    async def test_human_texture_pass_discards_detector_risk_regression(
+        self,
+        mock_context_builder,
+        mock_consistency_checker,
+        mock_storyline_manager,
+        mock_plot_arc_repository,
+        mock_llm_service,
+    ):
+        """二次破整如果让检测风险升高，应保留上一轮自然化稿。"""
+        naturalized = (
+            "沈铎把日志窗口往下拖了两行。鼠标垫边缘卷起来，刮着他的手腕。\n\n"
+            "不是榜单数据，是操作日志。\n\n"
+            "第三排机柜亮了一下。他没说话，先看苏晚。\n\n"
+            "苏晚也正看那盏灯。\n\n"
+            "不是逃生，是保留证据。\n\n"
+        ) * 12
+        worse_textured = (
+            "不是提示。\n\n"
+            "不是同步。\n\n"
+            "不是刷量。\n\n"
+            "不是老周。\n\n"
+            "不是绿光，是橙光。\n\n"
+            "不是结束，是开始。\n\n"
+        ) * 18
+        mock_llm_service.generate = AsyncMock(return_value=LLMResult(
+            content=worse_textured,
+            token_usage=TokenUsage(input_tokens=300, output_tokens=300),
+        ))
+        workflow = AutoNovelGenerationWorkflow(
+            context_builder=mock_context_builder,
+            consistency_checker=mock_consistency_checker,
+            storyline_manager=mock_storyline_manager,
+            plot_arc_repository=mock_plot_arc_repository,
+            llm_service=mock_llm_service,
+            cliche_scanner=Mock(),
+        )
+
+        result = await workflow._apply_human_texture_pass_if_needed(
+            content=naturalized,
+            outline="测试大纲",
+        )
+
+        assert result == naturalized
+        assert mock_llm_service.generate.await_count == 1
 
     @pytest.mark.asyncio
     async def test_long_streamed_chapter_is_naturalized_even_without_cliche_hits(
