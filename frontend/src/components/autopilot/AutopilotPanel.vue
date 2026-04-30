@@ -426,8 +426,16 @@ async function start() {
     if (res.ok) {
       const modeText = startConfig.value.auto_approve_mode ? '（全自动模式）' : ''
       message.success(`自动驾驶已启动${modeText}`)
+    } else {
+      let detail = '启动失败'
+      try {
+        const err = await res.json()
+        detail = err?.detail || err?.message || detail
+      } catch {
+        // ignore parse errors and keep fallback message
+      }
+      message.error(detail)
     }
-    else message.error('启动失败')
     await fetchStatus()
   } finally {
     toggling.value = false

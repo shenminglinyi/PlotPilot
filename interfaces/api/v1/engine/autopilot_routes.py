@@ -22,12 +22,21 @@ from application.engine.services.autopilot_log_ring import (
     shorten_log_message,
     snapshot_for_novel,
 )
+from application.engine.services.autopilot_runtime_state import get_autopilot_runtime_state
 
 logger = logging.getLogger(__name__)
 
 
 def _chapter_status_str(c) -> str:
     return c.status.value if hasattr(c.status, "value") else c.status
+
+
+def _chapter_has_content(c) -> bool:
+    wc = c.word_count
+    if hasattr(wc, 'value'):
+        wc = wc.value
+    content_len = len(c.content) if hasattr(c, 'content') and c.content else 0
+    return (wc or 0) > 0 or content_len > 0
 
 
 def resolve_autopilot_current_chapter_number(chapters) -> Optional[int]:
@@ -39,17 +48,9 @@ def resolve_autopilot_current_chapter_number(chapters) -> Optional[int]:
         return None
     try:
         # 只考虑有实际内容的 draft（字数 > 0）
-        def has_content(c) -> bool:
-            wc = c.word_count
-            if hasattr(wc, 'value'):
-                wc = wc.value
-            # 也检查 content 长度（兼容 word_count 为空的情况）
-            content_len = len(c.content) if hasattr(c, 'content') and c.content else 0
-            return (wc or 0) > 0 or content_len > 0
-
         drafts_with_content = [
             c for c in chapters
-            if _chapter_status_str(c) == "draft" and has_content(c)
+            if _chapter_status_str(c) == "draft" and _chapter_has_content(c)
         ]
         if drafts_with_content:
             return max(int(c.number) for c in drafts_with_content)
@@ -101,12 +102,12 @@ PER_NOVEL_FAILURE_THRESHOLD = 3
 def _stage_name_zh(stage: str) -> str:
     """阶段枚举值 → 中文（与前端驾驶舱一致）"""
     m = {
-        "planning": "规划（旧）",
+        "planning": "规划准备",
         "macro_planning": "宏观规划",
         "act_planning": "幕级规划",
         "writing": "正文撰写",
         "auditing": "章节审计",
-        "reviewing": "审阅（旧）",
+        "reviewing": "审阅",
         "paused_for_review": "待审阅确认",
         "completed": "全书完成",
     }
@@ -129,6 +130,18 @@ class StartRequest(BaseModel):
 @router.post("/{novel_id}/start")
 async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
     """启动自动驾驶"""
+    runtime = get_autopilot_runtime_state()
+    if runtime.disabled:
+        raise HTTPException(
+            status_code=503,
+            detail=runtime.reason or "自动驾驶守护进程已禁用，无法启动全托管",
+        )
+    if not runtime.running:
+        raise HTTPException(
+            status_code=503,
+            detail=runtime.reason or "自动驾驶守护进程未运行，请先重启后端服务",
+        )
+
     repo = get_novel_repository()
     novel = repo.get_by_id(NovelId(novel_id))
     if not novel:
@@ -210,7 +223,10 @@ async def get_autopilot_status(novel_id: str):
     )
     _status = lambda c: c.status.value if hasattr(c.status, 'value') else c.status
     completed = [c for c in chapters if _status(c) == "completed"]
-    in_manuscript = [c for c in chapters if _status(c) in ("draft", "completed")]
+    in_manuscript = [
+        c for c in chapters
+        if _status(c) in ("draft", "completed") and _chapter_has_content(c)
+    ]
     current_chapter_number = resolve_autopilot_current_chapter_number(chapters)
     target = novel.target_chapters or 1
     twpc = getattr(novel, "target_words_per_chapter", None) or 2500

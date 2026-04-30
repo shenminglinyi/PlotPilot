@@ -98,6 +98,10 @@ from interfaces.api.stats.services.stats_service import StatsService
 from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import SqliteStatsRepositoryAdapter
 from infrastructure.persistence.database.connection import get_database
 from interfaces.api.dependencies import get_topic_signal_automation_service
+from application.engine.services.autopilot_runtime_state import (
+    get_autopilot_runtime_state,
+    set_autopilot_runtime_state,
+)
 
 # 产品发布版本（与前端 / 安装包一致）
 APP_RELEASE_VERSION = "1.0.2"
@@ -384,11 +388,22 @@ def _start_autopilot_daemon_thread():
     
     if _daemon_process is not None and _daemon_process.is_alive():
         logger.warning("⚠️  守护进程已在运行，跳过重复启动")
+        set_autopilot_runtime_state(
+            running=True,
+            pid=_daemon_process.pid,
+            reason="守护进程已在运行",
+        )
         return
     
     # 检查环境变量是否禁用自动启动守护进程
     if os.getenv("DISABLE_AUTO_DAEMON", "").lower() in ("1", "true", "yes"):
         logger.info("🔒 守护进程自动启动已禁用（DISABLE_AUTO_DAEMON=1）")
+        set_autopilot_runtime_state(
+            running=False,
+            pid=None,
+            disabled=True,
+            reason="DISABLE_AUTO_DAEMON=1，自动驾驶守护进程未启动",
+        )
         return
     
     # 重要：在启动守护进程前初始化 StreamingBus 的队列
@@ -407,6 +422,11 @@ def _start_autopilot_daemon_thread():
         daemon=True,
     )
     _daemon_process.start()
+    set_autopilot_runtime_state(
+        running=True,
+        pid=_daemon_process.pid,
+        reason="守护进程已启动",
+    )
     logger.info("✅ 守护进程已创建并启动（独立进程模式，流式队列已传递）")
 
 
@@ -496,6 +516,12 @@ def _stop_autopilot_daemon_thread():
 
     _daemon_process = None
     _daemon_stop_event = None
+    set_autopilot_runtime_state(
+        running=False,
+        pid=None,
+        disabled=os.getenv("DISABLE_AUTO_DAEMON", "").lower() in ("1", "true", "yes"),
+        reason="守护进程已停止",
+    )
 
     # Windows: 额外清理可能残留的 Python 子进程
     if os.name == "nt":
@@ -617,6 +643,7 @@ async def health_check():
     """
     uptime = time.time() - STARTUP_TIME
     daemon_alive = _daemon_process is not None and _daemon_process.is_alive()
+    daemon_state = get_autopilot_runtime_state()
     return {
         "status": "healthy",
         "version": APP_RELEASE_VERSION,
@@ -624,7 +651,9 @@ async def health_check():
         "uptime_seconds": round(uptime, 2),
         "daemon_process": {
             "running": daemon_alive,
-            "pid": _daemon_process.pid if _daemon_process else None
+            "pid": _daemon_process.pid if _daemon_process else None,
+            "disabled": daemon_state.disabled,
+            "reason": daemon_state.reason,
         }
     }
 
