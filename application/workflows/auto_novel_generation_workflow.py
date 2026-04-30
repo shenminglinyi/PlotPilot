@@ -730,6 +730,7 @@ class AutoNovelGenerationWorkflow:
         if not draft or not self._needs_human_texture_pass(draft):
             return content
 
+        logger.info("  → 触发人工纹理破整：降低过度工整/对称句式风险")
         prompt = self._build_human_texture_rewrite_prompt(draft=draft, outline=outline)
         max_tokens = max(1024, min(12000, int(len(draft) * 1.25)))
         try:
@@ -760,10 +761,15 @@ class AutoNovelGenerationWorkflow:
         score += min(text.count("像某种"), 4)
         score += min(len(re.findall(r"没有[^。！？\n]{1,24}[，,]?(?:只是|而是)", text)), 2)
         score += min(len(re.findall(r"不是[^。！？\n]{1,24}(?:而是|而是在)", text)), 2)
+        score += min(text.count("不是") // 4, 2)
 
         paragraphs = [p.strip() for p in text.splitlines() if p.strip()]
         if len(paragraphs) >= 18:
             short_ratio = sum(1 for p in paragraphs if len(p) <= 18) / len(paragraphs)
+            if short_ratio >= 0.45:
+                score += 2
+            elif short_ratio >= 0.35:
+                score += 1
             if short_ratio >= 0.28:
                 score += 1
 

@@ -581,6 +581,19 @@ class TestStyleIntegration:
         # 验证扫描器至少扫描了初稿
         mock_scanner.scan_cliches.assert_any_call("Generated chapter content")
 
+    def test_human_texture_risk_detects_short_polished_not_structures(self):
+        """短段比例过高且“不是”结构密集时，应判定为过度工整风险。"""
+        text = (
+            "不是同步。\n\n"
+            "不是刷量。\n\n"
+            "不是老周。\n\n"
+            "沈铎没说话。\n\n"
+            "苏晚看着屏幕。\n\n"
+            "不是提示音，是屏幕右下角闪了一下。\n\n"
+        ) * 10
+
+        assert AutoNovelGenerationWorkflow._needs_human_texture_pass(text) is True
+
     @pytest.mark.asyncio
     async def test_generate_chapter_naturalizes_ai_flavored_draft_before_returning(
         self,
