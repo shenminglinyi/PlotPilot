@@ -93,6 +93,7 @@ class AutoNovelGenerationWorkflow:
         voice_fingerprint_service: Optional['VoiceFingerprintService'] = None,
         cliche_scanner: Optional['ClicheScanner'] = None,
         memory_engine: Optional['MemoryEngine'] = None,
+        style_prompt_overlay_service: Optional[Any] = None,
     ):
         """初始化工作流
 
@@ -110,6 +111,7 @@ class AutoNovelGenerationWorkflow:
             voice_fingerprint_service: 风格指纹服务（可选）
             cliche_scanner: 俗套扫描器（可选）
             memory_engine: V6 记忆引擎（可选，提供 FACT_LOCK / BEATS / CLUES 注入与章后回写）
+            style_prompt_overlay_service: 写作手法知识库 overlay 服务（可选）
         """
         self.context_builder = context_builder
         self.consistency_checker = consistency_checker
@@ -154,6 +156,7 @@ class AutoNovelGenerationWorkflow:
         self.conflict_detection_service = conflict_detection_service
         self.voice_fingerprint_service = voice_fingerprint_service
         self.cliche_scanner = cliche_scanner
+        self.style_prompt_overlay_service = style_prompt_overlay_service
 
     def prepare_chapter_generation(
         self,
@@ -305,7 +308,9 @@ class AutoNovelGenerationWorkflow:
         chapter_number: int,
         outline: str,
         scene_director: Optional[SceneDirectorAnalysis] = None,
-        enable_beats: bool = True
+        enable_beats: bool = True,
+        style_profile_id: str = "",
+        scene_type: str = "",
     ) -> GenerationResult:
         """生成章节（完整工作流）
 
@@ -314,6 +319,7 @@ class AutoNovelGenerationWorkflow:
             chapter_number: 章节号
             outline: 章节大纲
             scene_director: 可选的场记分析结果，用于过滤角色和地点
+            style_profile_id: 可选写作手法档案 ID
 
         Returns:
             GenerationResult 包含内容、一致性报告、上下文和 token 数
@@ -343,6 +349,7 @@ class AutoNovelGenerationWorkflow:
         )
         context = bundle["context"]
         context_tokens = bundle["context_tokens"]
+        style_overlay = self._build_style_overlay(novel_id, style_profile_id, scene_type)
         logger.info(f"  ✓ 上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
 
         logger.info("阶段 3: 生成 - 调用 LLM")
@@ -376,6 +383,7 @@ class AutoNovelGenerationWorkflow:
                     beat_target_words=beat.target_words,
                     voice_anchors=bundle.get("voice_anchors") or "",
                     chapter_draft_so_far=prior_draft,
+                    style_overlay=style_overlay,
                 )
                 
                 llm_result = await self.llm_service.generate(prompt, config)
@@ -393,6 +401,7 @@ class AutoNovelGenerationWorkflow:
                 plot_tension=bundle["plot_tension"],
                 style_summary=bundle["style_summary"],
                 voice_anchors=bundle.get("voice_anchors") or "",
+                style_overlay=style_overlay,
             )
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
             llm_result = await self.llm_service.generate(prompt, config)
@@ -442,7 +451,9 @@ class AutoNovelGenerationWorkflow:
         chapter_number: int,
         outline: str,
         scene_director: Optional[SceneDirectorAnalysis] = None,
-        enable_beats: bool = True
+        enable_beats: bool = True,
+        style_profile_id: str = "",
+        scene_type: str = "",
     ) -> AsyncIterator[Dict[str, Any]]:
         """流式生成章节：阶段事件 + 正文 token 流 + 最终 done（含一致性报告）。
 
@@ -470,6 +481,7 @@ class AutoNovelGenerationWorkflow:
             )
             context = bundle["context"]
             context_tokens = bundle["context_tokens"]
+            style_overlay = self._build_style_overlay(novel_id, style_profile_id, scene_type)
             logger.info(f"  ✓ 上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
 
             yield {"type": "phase", "phase": "llm"}
@@ -517,6 +529,7 @@ class AutoNovelGenerationWorkflow:
                         beat_target_words=beat.target_words,
                         voice_anchors=bundle.get("voice_anchors") or "",
                         chapter_draft_so_far=prior_draft,
+                        style_overlay=style_overlay,
                     )
                     
                     beat_content = ""
@@ -543,6 +556,7 @@ class AutoNovelGenerationWorkflow:
                     plot_tension=bundle["plot_tension"],
                     style_summary=bundle["style_summary"],
                     voice_anchors=bundle.get("voice_anchors") or "",
+                    style_overlay=style_overlay,
                 )
                 
                 logger.info(f"  → 发送流式请求到 LLM")
@@ -744,6 +758,7 @@ class AutoNovelGenerationWorkflow:
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
         chapter_draft_so_far: str = "",
+        style_overlay: str = "",
     ) -> Prompt:
         """构建与 HTTP 单章 / 流式 / 托管按节拍写作一致的 Prompt（对外 API）。"""
         return self._build_prompt(
@@ -758,7 +773,27 @@ class AutoNovelGenerationWorkflow:
             beat_target_words=beat_target_words,
             voice_anchors=voice_anchors,
             chapter_draft_so_far=chapter_draft_so_far,
+            style_overlay=style_overlay,
         )
+
+    def _build_style_overlay(
+        self,
+        novel_id: str,
+        style_profile_id: str,
+        scene_type: str = "",
+    ) -> str:
+        if not self.style_prompt_overlay_service or not (style_profile_id or "").strip():
+            return ""
+        try:
+            overlay = self.style_prompt_overlay_service.build_overlay(
+                novel_id,
+                style_profile_id,
+                scene_type=scene_type,
+            )
+            return overlay.prompt
+        except Exception as e:
+            logger.warning("style bible overlay unavailable: %s", e)
+            return ""
 
     def _build_prompt(
         self,
@@ -774,6 +809,7 @@ class AutoNovelGenerationWorkflow:
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
         chapter_draft_so_far: str = "",
+        style_overlay: str = "",
     ) -> Prompt:
         """构建 LLM 提示词
 
@@ -788,6 +824,7 @@ class AutoNovelGenerationWorkflow:
             beat_target_words: 本段目标字数（分节拍时覆盖「整章 2000-3000 字」说明）
             voice_anchors: Bible 角色声线/小动作锚点（高优先级 System 提示）
             chapter_draft_so_far: 同章内当前节拍之前已生成的正文（拼接后传入，避免后续节拍重复）
+            style_overlay: 写作手法知识库提示词片段
 
         Returns:
             Prompt 对象
@@ -796,6 +833,7 @@ class AutoNovelGenerationWorkflow:
         pt = (plot_tension or "").strip()
         ss = (style_summary or "").strip()
         va = (voice_anchors or "").strip()
+        so = (style_overlay or "").strip()
         planning_parts: list[str] = []
         if sc and sc not in ("Storyline context unavailable",):
             planning_parts.append(f"【故事线 / 里程碑】\n{sc}")
@@ -803,6 +841,8 @@ class AutoNovelGenerationWorkflow:
             planning_parts.append(f"【情节节奏 / 期望张力】\n{pt}")
         if ss:
             planning_parts.append(f"【风格约束】\n{ss}")
+        if so:
+            planning_parts.append(so)
         planning_section = ""
         if planning_parts:
             planning_section = (
@@ -891,6 +931,7 @@ class AutoNovelGenerationWorkflow:
             "outline": outline,
             "prior_draft": prior_draft_block,
             "beat_section": beat_section,
+            "style_overlay": so,
         }
 
         visible_prompt = self._render_visible_workflow_prompt(render_variables)

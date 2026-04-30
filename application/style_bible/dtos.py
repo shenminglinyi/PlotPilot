@@ -106,3 +106,11 @@ class StyleProfileMatchReportDTO:
     score: float
     metrics: dict[str, Any] = field(default_factory=dict)
     issues: list[str] = field(default_factory=list)
+
+
+@dataclass
+class StylePromptOverlayDTO:
+    prompt: str
+    profile_id: str = ""
+    profile_name: str = ""
+    card_ids: list[str] = field(default_factory=list)

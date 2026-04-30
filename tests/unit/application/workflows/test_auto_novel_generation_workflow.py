@@ -290,6 +290,18 @@ class TestBuildPrompt:
         assert "HIGH" in prompt.system
         assert "CTX" in prompt.system
 
+    def test_build_prompt_includes_style_bible_overlay(self, workflow):
+        """选中写作手法档案时，overlay 应进入 system。"""
+        prompt = workflow._build_prompt(
+            context="CTX",
+            outline="OL",
+            style_overlay="【写作手法库】\n使用风格包：克制悬疑\n- 不复刻样本文字",
+        )
+
+        assert "【写作手法库】" in prompt.system
+        assert "克制悬疑" in prompt.system
+        assert "不复刻样本文字" in prompt.system
+
     def test_build_prompt_uses_visible_prompt_config(self, workflow, monkeypatch):
         """工作流章节生成应优先读取提示词广场中的可视配置。"""
         class FakePromptManager:

@@ -1521,8 +1521,48 @@
           "type": "string",
           "default": "",
           "required": false
+        },
+        {
+          "name": "style_overlay",
+          "desc": "可选：写作手法库 overlay，通常已合入 planning_section；可视化模板可直接引用",
+          "type": "string",
+          "default": "",
+          "required": false
         }
       ]
+    },
+    {
+      "id": "style-bible-chapter-overlay",
+      "name": "写作手法库章节 Overlay",
+      "description": "把用户样本文风提炼出的节奏约束、技法卡和禁用项压缩为章节生成可复用提示词片段。",
+      "category": "generation",
+      "source": "application/style_bible/services/style_prompt_overlay_service.py",
+      "builtin": true,
+      "tags": [
+        "写作手法库",
+        "文风学习",
+        "章节生成",
+        "去AI味"
+      ],
+      "variables": [
+        {
+          "name": "style_overlay",
+          "desc": "必填：StylePromptOverlayService 生成的完整写作手法库片段",
+          "type": "string",
+          "default": "",
+          "required": true
+        },
+        {
+          "name": "scene_type",
+          "desc": "可选：当前场景类型，用于优先匹配技法卡",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
+      ],
+      "output_format": "text",
+      "system": "你是章节生成提示词中的写作手法库模块。请把 style_overlay 作为本章写作的局部风格约束，但不得覆盖 Bible、事实锁、大纲和连续性要求。\n\n当前场景类型：{scene_type}",
+      "user_template": "{style_overlay}"
     }
   ]
 }
