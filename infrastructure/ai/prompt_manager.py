@@ -393,7 +393,7 @@ class PromptManager:
         return True
 
     def _repair_builtin_seed_aliases(self, conn) -> None:
-        """兼容早期种子中的 system_template 字段，修复空的内置 System 版本。"""
+        """修复或补齐内置种子，兼容已存在的旧数据库。"""
         seed_path = _DEFAULT_SEED_PATH
         if not seed_path.exists():
             return
@@ -434,6 +434,76 @@ class PromptManager:
         if repaired:
             conn.commit()
             logger.info("PromptManager: 已修复 %d 个内置提示词 System 字段", repaired)
+
+        self._insert_missing_builtin_seed_nodes(conn, seed_data)
+
+    def _insert_missing_builtin_seed_nodes(self, conn, seed_data: Dict[str, Any]) -> None:
+        """旧库已有内置模板包时，把新版新增的内置节点补进去。"""
+        template_row = conn.execute(
+            "SELECT id FROM prompt_templates WHERE is_builtin=1 ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+        if not template_row:
+            return
+
+        template_id = template_row["id"]
+        existing_rows = conn.execute("SELECT node_key FROM prompt_nodes").fetchall()
+        existing_keys = {row["node_key"] for row in existing_rows}
+        now = datetime.now().isoformat()
+        inserted = 0
+
+        for idx, prompt in enumerate(seed_data.get("prompts", [])):
+            node_key = prompt.get("id")
+            if not node_key or node_key in existing_keys:
+                continue
+
+            node_id = _uid()
+            ver_id = _uid()
+            tags_json = json.dumps(prompt.get("tags", []), ensure_ascii=False)
+            vars_json = json.dumps(prompt.get("variables", []), ensure_ascii=False)
+            system_content = prompt.get("system", prompt.get("system_template", ""))
+
+            conn.execute("""
+                INSERT INTO prompt_nodes
+                (id, template_id, node_key, name, description, category, source,
+                 output_format, contract_module, contract_model, tags, variables,
+                 system_file, is_builtin, sort_order, active_version_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+            """, (
+                node_id, template_id,
+                node_key,
+                prompt.get("name", ""),
+                prompt.get("description", ""),
+                prompt.get("category", "generation"),
+                prompt.get("source", ""),
+                prompt.get("output_format", "text"),
+                prompt.get("contract_module"),
+                prompt.get("contract_model"),
+                tags_json,
+                vars_json,
+                prompt.get("system_file"),
+                idx,
+                ver_id,
+                now,
+                now,
+            ))
+            conn.execute("""
+                INSERT INTO prompt_versions
+                (id, node_id, version_number, system_prompt, user_template,
+                 change_summary, created_by, created_at)
+                VALUES (?, ?, 1, ?, ?, '新增内置种子', 'system', ?)
+            """, (
+                ver_id,
+                node_id,
+                system_content,
+                prompt.get("user_template", ""),
+                now,
+            ))
+            existing_keys.add(node_key)
+            inserted += 1
+
+        if inserted:
+            conn.commit()
+            logger.info("PromptManager: 已补齐 %d 个新增内置提示词节点", inserted)
 
     # ------------------------------------------------------------------
     # 模板包 CRUD

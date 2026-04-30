@@ -700,6 +700,50 @@ class AutoNovelGenerationWorkflow:
         if not should_naturalize:
             return content
 
+        rewrite_prompt = self._build_ai_flavor_rewrite_prompt(draft=draft, outline=outline)
+        max_tokens = max(1024, min(12000, int(len(draft) * 1.4)))
+        try:
+            result = await self.llm_service.generate(
+                rewrite_prompt,
+                GenerationConfig(max_tokens=max_tokens, temperature=0.9),
+            )
+            revised = strip_reasoning_artifacts(result.content or "").strip()
+        except Exception as e:
+            logger.warning("AI味自然化改写失败，保留原文: %s", e)
+            return content
+
+        if not revised:
+            return content
+        if len(revised) < max(80, len(draft) * 0.45):
+            logger.warning("AI味自然化改写疑似过度压缩，保留原文")
+            return content
+        return revised
+
+    @staticmethod
+    def _build_ai_flavor_rewrite_prompt(*, draft: str, outline: str) -> Prompt:
+        variables = {
+            "draft": draft,
+            "must_keep": f"本章大纲：{outline.strip()}",
+            "rewrite_goal": "降低AI味，保留剧情事实，增强阅读沉浸",
+            "taboo_phrases": (
+                "空气凝固、时间静止、心中五味杂陈、某种说不清的东西、"
+                "命运齿轮、一切才刚刚开始、再也回不去了、一番交谈后、很快达成共识"
+            ),
+        }
+        try:
+            from infrastructure.ai.prompt_manager import get_prompt_manager
+
+            manager = get_prompt_manager()
+            manager.ensure_seeded()
+            rendered = manager.render("rewrite-ai-flavor-naturalizer", variables)
+            if rendered and (rendered.get("system") or "").strip() and (rendered.get("user") or "").strip():
+                return Prompt(
+                    system=rendered["system"].strip(),
+                    user=rendered["user"].strip(),
+                )
+        except Exception as e:
+            logger.warning("AI味改写提示词节点不可用，回退内置提示词: %s", e)
+
         system = (
             "你是中文商业小说自然化改稿编辑。目标是降低AI味，保留原剧情事实、人物、地点、"
             "因果顺序、伏笔和关键信息，不新增剧情，不解释修改过程。\n\n"
@@ -716,23 +760,7 @@ class AutoNovelGenerationWorkflow:
             f"{draft}\n\n"
             "请在不改变剧情事实的前提下降低AI味，只输出正文："
         )
-        max_tokens = max(1024, min(12000, int(len(draft) * 1.4)))
-        try:
-            result = await self.llm_service.generate(
-                Prompt(system=system, user=user),
-                GenerationConfig(max_tokens=max_tokens, temperature=0.9),
-            )
-            revised = strip_reasoning_artifacts(result.content or "").strip()
-        except Exception as e:
-            logger.warning("AI味自然化改写失败，保留原文: %s", e)
-            return content
-
-        if not revised:
-            return content
-        if len(revised) < max(80, len(draft) * 0.45):
-            logger.warning("AI味自然化改写疑似过度压缩，保留原文")
-            return content
-        return revised
+        return Prompt(system=system, user=user)
 
     async def generate_chapter_with_review(
         self,

@@ -630,8 +630,64 @@ class TestStyleIntegration:
         assert result.style_warnings == []
         assert mock_llm_service.generate.await_count == 2
         rewrite_prompt = mock_llm_service.generate.await_args_list[1].args[0]
-        assert "降低AI味" in rewrite_prompt.system
+        assert "AI味" in rewrite_prompt.system
         assert ai_draft in rewrite_prompt.user
+
+    @pytest.mark.asyncio
+    async def test_naturalizer_uses_prompt_plaza_node_when_available(
+        self,
+        mock_context_builder,
+        mock_consistency_checker,
+        mock_storyline_manager,
+        mock_plot_arc_repository,
+        mock_llm_service,
+        monkeypatch
+    ):
+        """AI 味改写应优先读取提示词广场节点，便于用户在线调参。"""
+        from application.services.cliche_scanner import ClicheScanner, ClicheHit
+
+        ai_draft = "空气仿佛凝固了。他心中五味杂陈。" * 20
+        mock_llm_service.generate = AsyncMock(return_value=LLMResult(
+            content="改写后的自然正文。" * 50,
+            token_usage=TokenUsage(input_tokens=300, output_tokens=300),
+        ))
+
+        class FakePromptManager:
+            def ensure_seeded(self):
+                return True
+
+            def render(self, node_key, variables):
+                assert node_key == "rewrite-ai-flavor-naturalizer"
+                assert variables["draft"] == ai_draft
+                assert "测试大纲" in variables["must_keep"]
+                assert variables["rewrite_goal"] == "降低AI味，保留剧情事实，增强阅读沉浸"
+                return {
+                    "system": "来自提示词广场的去AI味系统提示",
+                    "user": "来自提示词广场的去AI味用户提示：{draft}",
+                }
+
+        monkeypatch.setattr(
+            "infrastructure.ai.prompt_manager.get_prompt_manager",
+            lambda: FakePromptManager(),
+        )
+        mock_scanner = Mock(spec=ClicheScanner)
+        mock_scanner.scan_cliches.return_value = [
+            ClicheHit(pattern="氛围凝固系列", text="空气仿佛凝固", start=0, end=6, severity="warning")
+        ]
+        workflow = AutoNovelGenerationWorkflow(
+            context_builder=mock_context_builder,
+            consistency_checker=mock_consistency_checker,
+            storyline_manager=mock_storyline_manager,
+            plot_arc_repository=mock_plot_arc_repository,
+            llm_service=mock_llm_service,
+            cliche_scanner=mock_scanner,
+        )
+
+        await workflow._naturalize_ai_flavor_if_needed(content=ai_draft, outline="测试大纲")
+
+        rewrite_prompt = mock_llm_service.generate.await_args.args[0]
+        assert rewrite_prompt.system == "来自提示词广场的去AI味系统提示"
+        assert rewrite_prompt.user.startswith("来自提示词广场的去AI味用户提示")
 
     @pytest.mark.asyncio
     async def test_long_streamed_chapter_is_naturalized_even_without_cliche_hits(

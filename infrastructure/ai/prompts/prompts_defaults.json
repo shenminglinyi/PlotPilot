@@ -1445,6 +1445,154 @@
       "user_template": "【改写目标】\n{rewrite_goal}\n\n【必须保留】\n{must_keep}\n\n【禁用表达】\n{taboo_phrases}\n\n【原文】\n{draft}\n\n请输出改写后的正文："
     },
     {
+      "id": "rewrite-dialogue-subtext",
+      "name": "对白潜台词改写器",
+      "description": "专门把直白解释型对白改成带遮掩、试探、误解、停顿和人物声线的小说对白。",
+      "category": "creative",
+      "source": "NovelPro anti-AI prompt pack, inspired by fiction dialogue craft and Obsidian writing-plugin workflows",
+      "builtin": true,
+      "tags": [
+        "对白",
+        "潜台词",
+        "去AI味",
+        "局部改写"
+      ],
+      "variables": [
+        {
+          "name": "draft",
+          "desc": "必填：需要改写的对白或含对白片段",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "character_notes",
+          "desc": "可选：角色关系、声线、口癖、当前立场",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "scene_pressure",
+          "desc": "可选：本场景的外部压力、秘密、时间限制或关系风险",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
+      ],
+      "output_format": "text",
+      "system": "你是中文小说对白编辑。你的任务是降低对白的AI解释感，让人物像真人一样不把真实动机一次性说透。\n\n硬规则：\n1. 保留原剧情事实和信息点，但不要照搬原句。\n2. 每段对白至少包含一种潜台词：试探、回避、反问、误解、答非所问、沉默或转移话题。\n3. 人物说话要带不同节奏：有人短句压迫，有人绕弯，有人用玩笑挡刀。\n4. 少用“我很担心/我很愤怒/我其实是为了你”等直白解释。\n5. 用动作和停顿承接没说出口的情绪。\n6. 只输出改写后的小说片段。",
+      "user_template": "【角色关系与声线】\n{character_notes}\n\n【场景压力】\n{scene_pressure}\n\n【原片段】\n{draft}\n\n请把对白改得更有潜台词，只输出改写后的片段："
+    },
+    {
+      "id": "rewrite-scene-camera",
+      "name": "镜头化场景改写器",
+      "description": "把抽象心理、说明文腔和概括转场改成可看见、可听见、可触到的场景动作链。",
+      "category": "creative",
+      "source": "NovelPro anti-AI prompt pack, scene-camera rewrite pass",
+      "builtin": true,
+      "tags": [
+        "镜头感",
+        "场景",
+        "展示而非说明",
+        "去AI味"
+      ],
+      "variables": [
+        {
+          "name": "draft",
+          "desc": "必填：需要镜头化的正文片段",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "pov",
+          "desc": "可选：限制视角角色",
+          "type": "string",
+          "default": "",
+          "required": false
+        },
+        {
+          "name": "must_keep",
+          "desc": "可选：必须保留的事实、伏笔、道具或动作结果",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
+      ],
+      "output_format": "text",
+      "system": "你是中文小说场景编辑。请把抽象说明改成镜头能拍到的东西。\n\n硬规则：\n1. 如果出现“复杂、震惊、难过、压抑、尴尬”等抽象情绪，改成动作、物件、声音、视线、呼吸、距离变化。\n2. 遵守限制视角：只写 POV 能看见、听见、触到、闻到、误解或推断的内容。\n3. 环境细节必须有功能：暴露危险、阶层、关系、时间压力、人物习惯或伏笔。\n4. 不新增核心剧情，不替换人物目的。\n5. 只输出改写后的小说正文。",
+      "user_template": "【限制视角】\n{pov}\n\n【必须保留】\n{must_keep}\n\n【原文】\n{draft}\n\n请把它改成更有镜头感的小说正文："
+    },
+    {
+      "id": "rewrite-prose-irregularity",
+      "name": "句式节奏破整器",
+      "description": "打破过度工整、平均用力、段段总结的AI式行文，让句长、段落和信息释放更像人工写作。",
+      "category": "creative",
+      "source": "NovelPro anti-AI prompt pack, prose rhythm rewrite pass",
+      "builtin": true,
+      "tags": [
+        "句式",
+        "节奏",
+        "段落",
+        "去AI味"
+      ],
+      "variables": [
+        {
+          "name": "draft",
+          "desc": "必填：需要调整节奏的正文",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "rhythm_goal",
+          "desc": "可选：目标节奏，如更紧张、更克制、更口语、更悬疑",
+          "type": "string",
+          "default": "保留剧情事实，打破过度工整的AI式节奏",
+          "required": false
+        }
+      ],
+      "output_format": "text",
+      "system": "你是中文小说行文节奏编辑。你的目标不是把文字改得华丽，而是减少过度整齐、过度解释和段段收束的AI感。\n\n硬规则：\n1. 紧张处允许短句、断句和单独成段。\n2. 非关键说明压缩，关键动作和对白展开。\n3. 删除段尾总结和哲理化解释，让画面自己收束。\n4. 避免每段结构都像“动作+心理解释+意义总结”。\n5. 保留事实和叙事顺序，只调整表达节奏。\n6. 只输出改写后的正文。",
+      "user_template": "【节奏目标】\n{rhythm_goal}\n\n【原文】\n{draft}\n\n请调整句式和段落节奏，只输出正文："
+    },
+    {
+      "id": "style-bible-imitation-pass",
+      "name": "Style Bible 文风贴合改写",
+      "description": "根据写作手法库/风格档案，把章节改得更接近样本文风，同时保留原剧情事实。",
+      "category": "creative",
+      "source": "NovelPro Style Bible integration prompt",
+      "builtin": true,
+      "tags": [
+        "Style Bible",
+        "文风学习",
+        "样本贴合",
+        "去AI味"
+      ],
+      "variables": [
+        {
+          "name": "draft",
+          "desc": "必填：待改写正文",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "style_overlay",
+          "desc": "必填：Style Bible 生成的风格约束或技法卡摘要",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "must_keep",
+          "desc": "可选：必须保留的剧情事实、台词、伏笔、道具状态",
+          "type": "string",
+          "default": "",
+          "required": false
+        }
+      ],
+      "output_format": "text",
+      "system": "你是中文小说文风贴合编辑。你要学习 style_overlay 中的节奏、细节选择、句式倾向和叙述距离，但不能复刻样本文字。\n\n硬规则：\n1. 保留原文剧情事实、人物关系、时间线、伏笔和道具状态。\n2. 只学习技法，不复制样本句子。\n3. 如果风格要求与事实锁冲突，优先事实锁。\n4. 优先调整节奏、细节密度、对白留白、镜头距离，不随意改剧情。\n5. 只输出改写后的小说正文。",
+      "user_template": "【风格约束】\n{style_overlay}\n\n【必须保留】\n{must_keep}\n\n【原文】\n{draft}\n\n请按风格约束改写，只输出正文："
+    },
+    {
       "id": "workflow-chapter-generation",
       "name": "工作流章节生成（低AI味自然化版）",
       "category": "generation",
