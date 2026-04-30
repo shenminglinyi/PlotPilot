@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import AsyncIterator
+import logging
+from typing import AsyncIterator, Optional
 
 from application.ai.llm_control_service import LLMControlService, LLMProfile
 from domain.ai.services.llm_service import GenerationConfig, GenerationResult, LLMService
@@ -17,6 +18,7 @@ from infrastructure.ai.url_utils import (
 )
 
 _DEFAULT_CONFIG = GenerationConfig()
+logger = logging.getLogger(__name__)
 
 
 class LLMProviderFactory:
@@ -103,6 +105,7 @@ class DynamicLLMService(LLMService):
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
+            response_format=config.response_format,
         )
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
@@ -115,3 +118,23 @@ class DynamicLLMService(LLMService):
         effective_config = self._merge_config(config, provider)
         async for chunk in provider.stream_generate(prompt, effective_config):
             yield chunk
+
+
+class ProfilePinnedLLMService(DynamicLLMService):
+    """每次调用时固定读取某个 PP LLM 配置，用于写作/分析任务分流。"""
+
+    def __init__(
+        self,
+        factory: Optional[LLMProviderFactory] = None,
+        profile_id: str = "",
+        role_name: str = "",
+    ):
+        super().__init__(factory)
+        self.profile_id = (profile_id or "").strip()
+        self.role_name = (role_name or "").strip() or self.profile_id or "profile"
+
+    def _resolve_provider(self) -> LLMService:
+        if not self.profile_id:
+            logger.warning("LLM task route %s has no profile_id, using active profile", self.role_name)
+            return self.factory.create_active_provider()
+        return self.factory.create_by_profile_id(self.profile_id)

@@ -27,3 +27,7 @@ def test_prompt_manager_adds_new_builtin_seed_nodes_to_existing_database(tmp_pat
     assert node is not None
     assert node.is_builtin is True
     assert "潜台词" in node.get_active_system()
+
+    workflow_node = manager.get_node("workflow-chapter-generation")
+    assert workflow_node is not None
+    assert "调查动作 → 物证出现 → 对白试探" in workflow_node.get_active_system()

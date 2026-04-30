@@ -33,7 +33,11 @@ from infrastructure.persistence.database.sqlite_cast_repository import SqliteCas
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
 from infrastructure.ai.config.settings import Settings
-from infrastructure.ai.provider_factory import DynamicLLMService, LLMProviderFactory
+from infrastructure.ai.provider_factory import (
+    DynamicLLMService,
+    LLMProviderFactory,
+    ProfilePinnedLLMService,
+)
 from application.ai.llm_control_service import LLMControlService
 
 from application.core.services.novel_service import NovelService
@@ -293,7 +297,7 @@ def get_topic_idea_service():
 
     return TopicIdeaService(
         get_topic_idea_repository(),
-        get_llm_service(),
+        get_writing_llm_service(),
         get_novel_service(),
     )
 
@@ -327,7 +331,9 @@ def _build_style_bible_llm_extractor():
             llm_service = (
                 provider_factory.create_by_profile_id(selected_profile_id)
                 if selected_profile_id
-                else provider_factory.create_active_provider()
+                else provider_factory.create_by_profile_id(
+                    _task_profile_id("PLOTPILOT_ANALYSIS_LLM_PROFILE_ID", "deepseek-default")
+                )
             )
             result = await llm_service.generate(
                 prompt,
@@ -536,7 +542,7 @@ def get_background_task_service():
 
     return BackgroundTaskService(
         voice_drift_service=get_voice_drift_service(),
-        llm_service=get_llm_service(),
+        llm_service=get_analysis_llm_service(),
         foreshadowing_repo=get_foreshadowing_repository(),
         triple_repository=TripleRepository(),
         knowledge_service=get_knowledge_service(),
@@ -560,7 +566,7 @@ def get_chapter_aftermath_pipeline():
     return ChapterAftermathPipeline(
         knowledge_service=get_knowledge_service(),
         chapter_indexing_service=get_chapter_indexing_service(),
-        llm_service=get_llm_service(),
+        llm_service=get_analysis_llm_service(),
         voice_drift_service=get_voice_drift_service(),
         triple_repository=TripleRepository(),
         foreshadowing_repository=get_foreshadowing_repository(),
@@ -592,6 +598,30 @@ def get_llm_service():
     return DynamicLLMService(get_llm_provider_factory())
 
 
+def _task_profile_id(env_name: str, default: str) -> str:
+    return (os.getenv(env_name) or default).strip()
+
+
+@lru_cache
+def get_writing_llm_service():
+    """正文/创意生成：默认固定走 Kimi。"""
+    return ProfilePinnedLLMService(
+        get_llm_provider_factory(),
+        profile_id=_task_profile_id("PLOTPILOT_WRITING_LLM_PROFILE_ID", "kimi-moonshot-default"),
+        role_name="writing",
+    )
+
+
+@lru_cache
+def get_analysis_llm_service():
+    """检查/记忆/结构化分析：默认固定走 DeepSeek。"""
+    return ProfilePinnedLLMService(
+        get_llm_provider_factory(),
+        profile_id=_task_profile_id("PLOTPILOT_ANALYSIS_LLM_PROFILE_ID", "deepseek-default"),
+        role_name="analysis",
+    )
+
+
 def get_setup_main_plot_suggestion_service():
     """向导 Step 4：主线候选推演服务。"""
     from application.blueprint.services.setup_main_plot_suggestion_service import (
@@ -599,7 +629,7 @@ def get_setup_main_plot_suggestion_service():
     )
 
     return SetupMainPlotSuggestionService(
-        llm_service=get_llm_service(),
+        llm_service=get_writing_llm_service(),
         bible_service=get_bible_service(),
         novel_service=get_novel_service(),
     )
@@ -874,7 +904,7 @@ def get_auto_workflow() -> AutoNovelGenerationWorkflow:
     Returns:
         AutoNovelGenerationWorkflow 实例
     """
-    llm_service = get_llm_service()
+    llm_service = get_writing_llm_service()
     if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for workflow")
     else:
@@ -889,7 +919,7 @@ def get_auto_bible_generator() -> AutoBibleGenerator:
     Returns:
         AutoBibleGenerator 实例
     """
-    llm_service = get_llm_service()
+    llm_service = get_writing_llm_service()
     if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for Bible generation")
     else:
@@ -920,7 +950,7 @@ def get_state_extractor() -> StateExtractor:
     Returns:
         StateExtractor 实例
     """
-    return StateExtractor(llm_service=get_llm_service())
+    return StateExtractor(llm_service=get_analysis_llm_service())
 
 
 def get_auto_knowledge_generator() -> AutoKnowledgeGenerator:
@@ -930,7 +960,7 @@ def get_auto_knowledge_generator() -> AutoKnowledgeGenerator:
         AutoKnowledgeGenerator 实例
     """
     return AutoKnowledgeGenerator(
-        llm_service=get_llm_service(),
+        llm_service=get_analysis_llm_service(),
         knowledge_service=get_knowledge_service()
     )
 
@@ -958,7 +988,7 @@ def get_beat_sheet_service():
     """
     from application.blueprint.services.beat_sheet_service import BeatSheetService
 
-    llm_service = get_llm_service()
+    llm_service = get_writing_llm_service()
     if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for beat sheet generation")
     else:
@@ -982,7 +1012,7 @@ def get_scene_generation_service():
     """
     from application.core.services.scene_generation_service import SceneGenerationService
 
-    llm_service = get_llm_service()
+    llm_service = get_writing_llm_service()
     if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for scene generation")
     else:
@@ -1004,7 +1034,7 @@ def get_scene_director_service() -> "SceneDirectorService":
     """
     from application.engine.services.scene_director_service import SceneDirectorService
 
-    llm_service = get_llm_service()
+    llm_service = get_writing_llm_service()
     if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for scene director")
     else:
@@ -1108,7 +1138,7 @@ def get_novelpro_ai_suggestion_service():
     )
 
     return NovelProAISuggestionService(
-        llm_service=get_llm_service(),
+        llm_service=get_analysis_llm_service(),
         knowledge_service=get_knowledge_service(),
         bible_service=get_bible_service(),
         continuity_service=get_continuity_overview_service(),
@@ -1137,7 +1167,7 @@ def get_macro_refactor_proposal_service():
     """
     from application.audit.services.macro_refactor_proposal_service import MacroRefactorProposalService
 
-    llm_service = get_llm_service()
+    llm_service = get_analysis_llm_service()
     if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for macro refactor proposals")
     else:
@@ -1185,7 +1215,7 @@ def get_tension_analyzer():
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
     from infrastructure.ai.llm_client import LLMClient
 
-    llm_provider = get_llm_service()
+    llm_provider = get_analysis_llm_service()
     if llm_runtime_is_mock(llm_provider):
         logger.warning("No API key found, using MockProvider for tension analyzer")
     else:
@@ -1234,7 +1264,7 @@ def get_chapter_review_service():
     storyline_repo = SqliteStorylineRepository(db)
     foreshadowing_repo = SqliteForeshadowingRepository(db)
     vector_store = get_vector_store()
-    llm_service = get_llm_service()
+    llm_service = get_analysis_llm_service()
 
     return ChapterReviewService(
         chapter_repo=chapter_repo,
