@@ -132,13 +132,21 @@
                   <n-tag size="tiny" round>{{ card.category || 'rule' }}</n-tag>
                   <strong>{{ card.title }}</strong>
                 </n-space>
-                <n-switch
-                  size="small"
-                  :value="card.enabled"
-                  :loading="updatingCardId === card.id"
-                  @update:value="(enabled: boolean) => updateCard(card.id, { enabled })"
-                />
+                <n-space :size="6" align="center">
+                  <n-button size="tiny" secondary @click="openCardEditor(card)">
+                    编辑
+                  </n-button>
+                  <n-switch
+                    size="small"
+                    :value="card.enabled"
+                    :loading="updatingCardId === card.id"
+                    @update:value="(enabled: boolean) => updateCard(card.id, { enabled })"
+                  />
+                </n-space>
               </n-space>
+              <n-text v-if="card.rule_text" depth="3" style="font-size: 12px; line-height: 1.6">
+                {{ card.rule_text }}
+              </n-text>
               <n-text depth="3" style="font-size: 12px; line-height: 1.6">
                 {{ card.prompt_instruction }}
               </n-text>
@@ -155,16 +163,78 @@
         </n-space>
       </n-card>
     </n-space>
+
+    <n-modal
+      v-model:show="showCardEditor"
+      preset="card"
+      title="编辑技法卡"
+      style="width: min(760px, 94vw)"
+      :segmented="{ content: true, footer: 'soft' }"
+      :mask-closable="!updatingCardId"
+    >
+      <n-space vertical :size="12">
+        <n-space :size="8">
+          <n-input v-model:value="cardEditForm.title" size="small" placeholder="标题" />
+          <n-input v-model:value="cardEditForm.category" size="small" placeholder="分类，如 pacing/dialogue/anti_ai" />
+        </n-space>
+        <n-space :size="8">
+          <n-input v-model:value="cardEditForm.scene_type" size="small" placeholder="适用场景，可留空" />
+          <n-input-number
+            v-model:value="cardEditForm.weight"
+            size="small"
+            :min="0"
+            :max="2"
+            :step="0.05"
+            placeholder="权重"
+            style="width: 150px"
+          />
+        </n-space>
+        <n-input
+          v-model:value="cardEditForm.rule_text"
+          type="textarea"
+          placeholder="手法规则：描述这张卡要捕捉的写法"
+          :autosize="{ minRows: 3, maxRows: 6 }"
+        />
+        <n-input
+          v-model:value="cardEditForm.example_summary"
+          type="textarea"
+          placeholder="样本依据：说明它来自哪些样本现象"
+          :autosize="{ minRows: 2, maxRows: 5 }"
+        />
+        <n-input
+          v-model:value="cardEditForm.prompt_instruction"
+          type="textarea"
+          placeholder="生成指令：会注入章节生成提示词，尽量写成可执行约束"
+          :autosize="{ minRows: 4, maxRows: 8 }"
+        />
+        <n-checkbox v-model:checked="cardEditForm.enabled">启用这张技法卡</n-checkbox>
+      </n-space>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showCardEditor = false" :disabled="Boolean(updatingCardId)">取消</n-button>
+          <n-button
+            type="primary"
+            :loading="Boolean(updatingCardId)"
+            :disabled="!canSaveCardEdit"
+            @click="saveCardEditor"
+          >
+            保存
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
   styleBibleApi,
   type StyleProfileDetail,
   type StyleSampleDTO,
+  type StyleTechniqueCardDTO,
   type UpdateTechniqueCardPayload,
 } from '@/api/styleBible'
 
@@ -189,9 +259,24 @@ const profiles = ref<StyleProfileDetail[]>([])
 const selectedSampleIds = ref<string[]>([])
 const selectedProfileId = ref('')
 const overlayText = ref('')
+const showCardEditor = ref(false)
+const editingCardId = ref('')
+const cardEditForm = reactive({
+  title: '',
+  category: '',
+  scene_type: '',
+  rule_text: '',
+  example_summary: '',
+  prompt_instruction: '',
+  enabled: true,
+  weight: 1,
+})
 
 const canImport = computed(() => sampleTitle.value.trim() && sampleContent.value.trim())
 const selectedProfile = computed(() => profiles.value.find(item => item.profile.id === selectedProfileId.value) || null)
+const canSaveCardEdit = computed(() =>
+  Boolean(editingCardId.value && cardEditForm.title.trim() && cardEditForm.prompt_instruction.trim())
+)
 
 async function loadAll() {
   loading.value = true
@@ -280,11 +365,44 @@ async function updateCard(cardId: string, payload: UpdateTechniqueCardPayload) {
   updatingCardId.value = cardId
   try {
     await styleBibleApi.updateCard(cardId, payload)
+    overlayText.value = ''
     await loadAll()
+    return true
   } catch {
     message.error('技法卡更新失败')
+    return false
   } finally {
     updatingCardId.value = null
+  }
+}
+
+function openCardEditor(card: StyleTechniqueCardDTO) {
+  editingCardId.value = card.id
+  cardEditForm.title = card.title
+  cardEditForm.category = card.category
+  cardEditForm.scene_type = card.scene_type
+  cardEditForm.rule_text = card.rule_text
+  cardEditForm.example_summary = card.example_summary
+  cardEditForm.prompt_instruction = card.prompt_instruction
+  cardEditForm.enabled = card.enabled
+  cardEditForm.weight = Number(card.weight || 1)
+  showCardEditor.value = true
+}
+
+async function saveCardEditor() {
+  if (!editingCardId.value || !canSaveCardEdit.value) return
+  const saved = await updateCard(editingCardId.value, {
+    title: cardEditForm.title.trim(),
+    category: cardEditForm.category.trim(),
+    scene_type: cardEditForm.scene_type.trim(),
+    rule_text: cardEditForm.rule_text.trim(),
+    example_summary: cardEditForm.example_summary.trim(),
+    prompt_instruction: cardEditForm.prompt_instruction.trim(),
+    enabled: cardEditForm.enabled,
+    weight: Number(cardEditForm.weight || 1),
+  })
+  if (saved) {
+    showCardEditor.value = false
   }
 }
 
