@@ -92,6 +92,57 @@ def test_style_profile_service_normalizes_llm_payload_shapes(tmp_path):
     assert payload["technique_cards"][0]["scene_type"] == "悬疑"
 
 
+def test_style_profile_service_uses_llm_payload_when_available(tmp_path):
+    calls = []
+
+    def extractor(samples, metrics):
+        calls.append((samples, metrics))
+        return {
+            "profile_summary": "DS 提炼：短句、留白、动作推进。",
+            "rhythm_rules": ["短段落承接动作", "对白必须释放信息"],
+            "forbidden_patterns": ["五味杂陈"],
+            "technique_cards": [
+                {
+                    "title": "动作留白",
+                    "category": "pacing",
+                    "scene_type": "悬疑",
+                    "rule_text": "用动作替代解释。",
+                    "example_summary": "样本多用动作推进。",
+                    "prompt_instruction": "每段至少保留一个可见动作，不要总结情绪。",
+                }
+            ],
+        }
+
+    db = DatabaseConnection(str(tmp_path / "style-profile-llm.db"))
+    service = StyleProfileService(
+        SqliteStyleBibleRepository(db),
+        llm_extractor=extractor,
+    )
+    imported = service.import_sample(
+        StyleSampleImportRequestDTO(
+            title="LLM 样本",
+            content="雨落在窗上。\n\n林晚推开门。\n\n“你来了？”他低声问。",
+            novel_id="novel-1",
+            scene_type="悬疑",
+        )
+    )
+
+    result = service.generate_profile_from_samples(
+        StyleProfileGenerateRequestDTO(
+            novel_id="novel-1",
+            name="DS 手法档案",
+            sample_ids=[imported.sample.id],
+            use_llm=True,
+        )
+    )
+
+    assert calls
+    assert result.profile.description == "DS 提炼：短句、留白、动作推进。"
+    assert result.profile.rules == ["短段落承接动作", "对白必须释放信息"]
+    assert result.cards[0].title == "动作留白"
+    assert result.cards[0].prompt_instruction == "每段至少保留一个可见动作，不要总结情绪。"
+
+
 def test_style_profile_service_analyzes_samples_not_allowed_for_generation(tmp_path):
     service = _service(tmp_path)
     imported = service.import_sample(

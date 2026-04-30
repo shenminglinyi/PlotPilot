@@ -2,13 +2,17 @@
 
 提供 FastAPI 依赖注入函数，用于创建服务和仓储实例。
 """
+import asyncio
+import json
 import logging
 import os
+import re
 from pathlib import Path
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
 
-from domain.ai.services.llm_service import LLMService
+from domain.ai.services.llm_service import GenerationConfig, LLMService
+from domain.ai.value_objects.prompt import Prompt
 
 if TYPE_CHECKING:
     from application.engine.services.scene_director_service import SceneDirectorService
@@ -298,7 +302,105 @@ def get_style_profile_service():
     """获取写作手法档案服务。"""
     from application.style_bible.services.style_profile_service import StyleProfileService
 
-    return StyleProfileService(get_style_bible_repository())
+    return StyleProfileService(
+        get_style_bible_repository(),
+        llm_extractor=_build_style_bible_llm_extractor(),
+    )
+
+
+def _build_style_bible_llm_extractor():
+    """构造写作手法档案的 LLM 提炼器，使用当前激活的 PP AI 配置。"""
+    llm_service = get_llm_service()
+
+    def extract(samples, metrics):
+        prompt = Prompt(
+            system=(
+                "你是小说写作手法分析师，只学习文本的节奏、句法、镜头、对白与禁用表达，"
+                "不得复刻样本文字、人物、世界观或具体情节。"
+                "必须只输出 JSON，不要 Markdown，不要解释。"
+            ),
+            user=_build_style_bible_llm_prompt(samples, metrics),
+        )
+
+        async def run():
+            result = await llm_service.generate(
+                prompt,
+                GenerationConfig(max_tokens=2200, temperature=0.25),
+            )
+            return _parse_style_bible_llm_json(result.content)
+
+        return asyncio.run(run())
+
+    return extract
+
+
+def _build_style_bible_llm_prompt(samples, metrics) -> str:
+    sample_blocks = []
+    for index, sample in enumerate(samples[:4], start=1):
+        content = (sample.content or "").strip()
+        if len(content) > 2200:
+            content = content[:2200] + "\n...[已截断]"
+        sample_blocks.append(
+            "\n".join(
+                [
+                    f"样本 {index}：{sample.title}",
+                    f"场景：{sample.scene_type or '未标注'}",
+                    f"类型：{sample.genre or '未标注'}",
+                    content,
+                ]
+            )
+        )
+
+    return "\n\n".join(
+        [
+            "请从以下样本中提炼可迁移的写作手法，输出严格 JSON：",
+            json.dumps(
+                {
+                    "profile_summary": "一句话总结风格手法",
+                    "rhythm_rules": ["3-6 条节奏/句法/段落规则"],
+                    "forbidden_patterns": ["样本或低质生成中应避免的套话/抽象表达"],
+                    "technique_cards": [
+                        {
+                            "title": "技法卡标题",
+                            "category": "pacing/dialogue/action/anti_ai/hook 等",
+                            "scene_type": "适用场景，可为空",
+                            "rule_text": "手法规则",
+                            "example_summary": "样本依据，只概括不引用长句",
+                            "prompt_instruction": "可直接注入章节生成提示词的执行指令",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            "要求：",
+            "- technique_cards 输出 4-8 张。",
+            "- prompt_instruction 必须是可执行约束，不要空泛形容。",
+            "- 不要输出样本文字长句，不要续写样本。",
+            "- forbidden_patterns 优先给“AI味、总结式、抽象情绪、模板转折”。",
+            "",
+            "确定性指标：",
+            json.dumps(metrics, ensure_ascii=False),
+            "",
+            "样本：",
+            "\n\n---\n\n".join(sample_blocks),
+        ]
+    )
+
+
+def _parse_style_bible_llm_json(content: str) -> dict:
+    text = (content or "").strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        text = match.group(1)
+    else:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            text = text[start:end + 1]
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict):
+        raise ValueError("style bible llm payload must be an object")
+    return parsed
 
 
 def get_style_prompt_overlay_service():
