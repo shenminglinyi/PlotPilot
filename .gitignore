@@ -40,6 +40,7 @@ frontend/dist/
 .playwright-mcp/
 .claude/
 .trae/
+.worktrees/
 agent_memory/
 LOCAL_DEVELOPMENT.md
 
