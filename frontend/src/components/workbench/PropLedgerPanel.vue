@@ -13,6 +13,9 @@
       <n-button size="small" type="primary" secondary :loading="loading" @click="loadOverview">
         刷新
       </n-button>
+      <n-button size="small" secondary :loading="suggesting" :disabled="!props.currentChapter" @click="suggestFromCurrentChapter">
+        识别本章
+      </n-button>
       <n-button size="small" secondary :disabled="!overview?.items.length" @click="copyPropPrompt">
         复制道具约束
       </n-button>
@@ -105,6 +108,31 @@
 
             <n-card size="small" title="记录道具事件" :bordered="false">
               <n-space vertical :size="12">
+                <n-alert v-if="suggestions.length" type="info" :show-icon="true" class="section-alert">
+                  发现 {{ suggestions.length }} 条候选道具事件。点击候选会预填到下方表单，确认后再保存。
+                </n-alert>
+                <n-space v-if="suggestions.length" vertical :size="8">
+                  <button
+                    v-for="suggestion in suggestions"
+                    :key="`${suggestion.prop_name}-${suggestion.chapter_number}-${suggestion.evidence}`"
+                    class="suggestion-row"
+                    type="button"
+                    @click="fillEventSuggestion(suggestion)"
+                  >
+                    <n-space justify="space-between" align="center">
+                      <strong>{{ suggestion.prop_name }}</strong>
+                      <n-tag size="small" round type="info">
+                        {{ eventTypeLabel(suggestion.event_type) }} · {{ Math.round(suggestion.confidence * 100) }}%
+                      </n-tag>
+                    </n-space>
+                    <n-text depth="3" style="font-size:12px">
+                      {{ suggestion.reason }}
+                    </n-text>
+                    <n-text depth="3" style="font-size:12px">
+                      {{ suggestion.evidence }}
+                    </n-text>
+                  </button>
+                </n-space>
                 <n-grid :cols="2" :x-gap="8" :y-gap="8">
                   <n-grid-item>
                     <n-input v-model:value="eventForm.prop_name" placeholder="道具名" />
@@ -159,7 +187,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
-import { propLedgerApi, type PropLedgerItem, type PropLedgerOverview } from '@/api/propLedger'
+import { chapterApi } from '@/api/chapter'
+import { propLedgerApi, type PropLedgerEventSuggestion, type PropLedgerItem, type PropLedgerOverview } from '@/api/propLedger'
 
 const props = defineProps<{
   slug: string
@@ -170,8 +199,10 @@ const message = useMessage()
 const loading = ref(false)
 const savingItem = ref(false)
 const savingEvent = ref(false)
+const suggesting = ref(false)
 const loadError = ref('')
 const overview = ref<PropLedgerOverview | null>(null)
+const suggestions = ref<PropLedgerEventSuggestion[]>([])
 
 const importanceOptions = [
   { label: '关键道具', value: 'major' },
@@ -263,6 +294,17 @@ function fillItemForm(item: PropLedgerItem) {
   eventForm.status = item.status
 }
 
+function fillEventSuggestion(suggestion: PropLedgerEventSuggestion) {
+  eventForm.prop_name = suggestion.prop_name
+  eventForm.chapter_number = suggestion.chapter_number
+  eventForm.event_type = suggestion.event_type
+  eventForm.holder = suggestion.holder
+  eventForm.location = suggestion.location
+  eventForm.status = suggestion.status
+  eventForm.evidence = suggestion.evidence
+  eventForm.notes = suggestion.reason
+}
+
 function resetItemForm() {
   itemForm.name = ''
   itemForm.category = ''
@@ -297,11 +339,42 @@ async function saveEvent() {
     message.success('道具事件已记录')
     eventForm.evidence = ''
     eventForm.notes = ''
+    suggestions.value = suggestions.value.filter(item => item.prop_name !== eventForm.prop_name)
     await loadOverview()
   } catch {
     message.error('记录道具事件失败')
   } finally {
     savingEvent.value = false
+  }
+}
+
+async function suggestFromCurrentChapter() {
+  if (!props.currentChapter) {
+    message.warning('请先选择一个章节')
+    return
+  }
+  suggesting.value = true
+  try {
+    const chapter = await chapterApi.getChapter(props.slug, props.currentChapter)
+    const content = chapter.content || ''
+    if (!content.trim()) {
+      suggestions.value = []
+      message.warning('当前章节还没有正文')
+      return
+    }
+    suggestions.value = await propLedgerApi.suggestEvents(props.slug, {
+      chapter_number: props.currentChapter,
+      content,
+    })
+    if (suggestions.value.length) {
+      message.success(`发现 ${suggestions.value.length} 条候选道具事件`)
+    } else {
+      message.info('本章没有识别到已登记道具的明显变化')
+    }
+  } catch {
+    message.error('识别本章道具事件失败')
+  } finally {
+    suggesting.value = false
   }
 }
 
@@ -326,6 +399,7 @@ watch(() => props.currentChapter, value => {
   if (value) {
     eventForm.chapter_number = value
   }
+  suggestions.value = []
 })
 
 onMounted(() => {
@@ -399,6 +473,24 @@ onMounted(() => {
   background: var(--app-surface);
   text-align: left;
   cursor: pointer;
+}
+
+.suggestion-row {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.06);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggestion-row:hover {
+  border-color: rgba(99, 102, 241, 0.38);
+  background: rgba(99, 102, 241, 0.1);
 }
 
 .prop-row:hover {

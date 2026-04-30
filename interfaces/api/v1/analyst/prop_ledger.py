@@ -51,6 +51,18 @@ class PropLedgerWarning(BaseModel):
     message: str
 
 
+class PropLedgerEventSuggestion(BaseModel):
+    prop_name: str
+    chapter_number: int
+    event_type: str
+    holder: str
+    location: str
+    status: str
+    evidence: str
+    reason: str
+    confidence: float
+
+
 class PropLedgerOverview(BaseModel):
     novel_id: str
     items: List[PropLedgerItem]
@@ -80,6 +92,11 @@ class CreatePropEventRequest(BaseModel):
     status: str = Field(default="", max_length=100)
     evidence: str = Field(default="", max_length=4000)
     notes: str = Field(default="", max_length=4000)
+
+
+class SuggestPropEventsRequest(BaseModel):
+    chapter_number: int = Field(..., ge=1)
+    content: str = Field(default="", max_length=120000)
 
 
 def _ensure_novel_exists(novel_id: str, novel_service) -> None:
@@ -132,5 +149,27 @@ def create_prop_event(
     _ensure_novel_exists(novel_id, novel_service)
     try:
         return PropLedgerEvent(**service.create_event(novel_id=novel_id, **request.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/novels/{novel_id}/prop-ledger/events/suggestions",
+    response_model=List[PropLedgerEventSuggestion],
+)
+def suggest_prop_events(
+    request: SuggestPropEventsRequest,
+    novel_id: str = Path(...),
+    novel_service=Depends(get_novel_service),
+    service: PropLedgerService = Depends(get_prop_ledger_service),
+) -> List[PropLedgerEventSuggestion]:
+    _ensure_novel_exists(novel_id, novel_service)
+    try:
+        suggestions = service.suggest_events_from_chapter(
+            novel_id=novel_id,
+            chapter_number=request.chapter_number,
+            content=request.content,
+        )
+        return [PropLedgerEventSuggestion(**item) for item in suggestions]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

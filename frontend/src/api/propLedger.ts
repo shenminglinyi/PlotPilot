@@ -45,6 +45,18 @@ export interface PropLedgerOverview {
   warnings: PropLedgerWarning[]
 }
 
+export interface PropLedgerEventSuggestion {
+  prop_name: string
+  chapter_number: number
+  event_type: string
+  holder: string
+  location: string
+  status: string
+  evidence: string
+  reason: string
+  confidence: number
+}
+
 export interface UpsertPropItemRequest {
   name: string
   category?: string
@@ -69,6 +81,11 @@ export interface CreatePropEventRequest {
   notes?: string
 }
 
+export interface SuggestPropEventsRequest {
+  chapter_number: number
+  content: string
+}
+
 export const propLedgerApi = {
   getOverview: (novelId: string) =>
     apiClient.get<PropLedgerOverview>(`/novels/${novelId}/prop-ledger/overview`) as Promise<PropLedgerOverview>,
@@ -78,4 +95,7 @@ export const propLedgerApi = {
 
   createEvent: (novelId: string, data: CreatePropEventRequest) =>
     apiClient.post<PropLedgerEvent>(`/novels/${novelId}/prop-ledger/events`, data) as Promise<PropLedgerEvent>,
+
+  suggestEvents: (novelId: string, data: SuggestPropEventsRequest) =>
+    apiClient.post<PropLedgerEventSuggestion[]>(`/novels/${novelId}/prop-ledger/events/suggestions`, data) as Promise<PropLedgerEventSuggestion[]>,
 }

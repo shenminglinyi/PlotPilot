@@ -1,6 +1,7 @@
 """道具账本服务。"""
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 
@@ -97,6 +98,41 @@ class PropLedgerService:
             notes=notes.strip(),
         )
 
+    def suggest_events_from_chapter(
+        self,
+        *,
+        novel_id: str,
+        chapter_number: int,
+        content: str,
+    ) -> list[dict[str, Any]]:
+        """从章节正文中提示可能需要人工确认的道具事件。"""
+        chapter = int(chapter_number)
+        if chapter < 1:
+            raise ValueError("chapter_number must be greater than 0")
+        clean_content = (content or "").strip()
+        if not clean_content:
+            return []
+
+        suggestions: list[dict[str, Any]] = []
+        for item in self.repository.list_items(novel_id):
+            name = str(item.get("name") or "").strip()
+            if not name or name not in clean_content:
+                continue
+            evidence = self._build_evidence_snippet(clean_content, name)
+            event_type, status, reason, confidence = self._classify_event(evidence)
+            suggestions.append({
+                "prop_name": name,
+                "chapter_number": chapter,
+                "event_type": event_type,
+                "status": status or str(item.get("status") or ""),
+                "holder": "",
+                "location": self._extract_location(evidence),
+                "evidence": evidence,
+                "reason": reason,
+                "confidence": confidence,
+            })
+        return suggestions[:12]
+
     @staticmethod
     def _positive_or_none(value: Optional[int]) -> Optional[int]:
         if value is None:
@@ -107,6 +143,72 @@ class PropLedgerService:
     @staticmethod
     def _normalize_importance(value: str) -> str:
         return value if value in {"major", "normal", "minor"} else "normal"
+
+    @staticmethod
+    def _build_evidence_snippet(content: str, prop_name: str, radius: int = 36) -> str:
+        index = content.find(prop_name)
+        if index < 0:
+            return ""
+        start = max(0, index - radius)
+        end = min(len(content), index + len(prop_name) + radius)
+        return content[start:end].strip()
+
+    @staticmethod
+    def _classify_event(evidence: str) -> tuple[str, str, str, float]:
+        rules = [
+            (
+                "sealed",
+                "被封存",
+                0.82,
+                "正文出现已登记道具，并命中封存/证物相关表达。",
+                ("封存", "证物袋", "证物柜", "保险柜", "锁进", "收押"),
+            ),
+            (
+                "lost_or_broken",
+                "疑似丢失/损坏",
+                0.78,
+                "正文出现已登记道具，并命中丢失/损坏相关表达。",
+                ("丢失", "不见", "遗失", "摔碎", "碎裂", "折断", "损坏", "烧毁"),
+            ),
+            (
+                "transfer",
+                "疑似转交",
+                0.74,
+                "正文出现已登记道具，并命中转交相关表达。",
+                ("递给", "交给", "交到", "递到", "塞给", "转交", "给了"),
+            ),
+            (
+                "use",
+                "已使用",
+                0.70,
+                "正文出现已登记道具，并命中使用相关表达。",
+                ("使用", "打开", "启动", "点燃", "按下", "照亮", "刺入", "割开", "解开"),
+            ),
+            (
+                "acquire",
+                "被取得",
+                0.68,
+                "正文出现已登记道具，并命中取得/带走相关表达。",
+                ("拿到", "拿起", "取出", "接过", "收下", "获得", "捡起", "握住", "攥住", "带走"),
+            ),
+        ]
+        for event_type, status, confidence, reason, keywords in rules:
+            if any(keyword in evidence for keyword in keywords):
+                return event_type, status, reason, confidence
+        return "mention", "", "正文提到已登记道具，建议确认当前状态是否变化。", 0.48
+
+    @staticmethod
+    def _extract_location(evidence: str) -> str:
+        patterns = [
+            r"(警局证物柜|证物柜|保险柜|证物袋)",
+            r"(?:锁进|放进|装进|塞进|收入|放入)([^，。；;、\s]{2,20}(?:柜|箱|袋|盒|室|库|房|抽屉))",
+        ]
+        matches: list[str] = []
+        for pattern in patterns:
+            matches.extend(match.group(1) for match in re.finditer(pattern, evidence))
+        if not matches:
+            return ""
+        return max(matches, key=len)
 
     @staticmethod
     def _build_warnings(items: list[dict[str, Any]]) -> list[dict[str, str]]:

@@ -51,3 +51,48 @@ def test_prop_ledger_tracks_current_state_after_events(tmp_path):
     assert current["status"] == "被封存"
     assert current["last_seen_chapter"] == 5
     assert overview["recent_events"][0]["evidence"] == "第5章周砚把钥匙放入证物袋。"
+
+
+def test_prop_ledger_suggests_events_from_chapter_without_writing(tmp_path):
+    db = DatabaseConnection(str(tmp_path / "prop-ledger-suggestions.db"))
+    db.execute(
+        "INSERT INTO novels (id, title, slug) VALUES (?, ?, ?)",
+        ("novel-1", "测试小说", "novel-1"),
+    )
+    db.commit()
+    service = PropLedgerService(SqlitePropLedgerRepository(db))
+    service.upsert_item(
+        novel_id="novel-1",
+        name="青铜钥匙",
+        category="钥匙",
+        status="未使用",
+        current_holder="林晚",
+        current_location="旧公寓",
+        first_seen_chapter=2,
+        last_seen_chapter=2,
+        importance="major",
+    )
+
+    suggestions = service.suggest_events_from_chapter(
+        novel_id="novel-1",
+        chapter_number=6,
+        content="周砚沉默片刻，把青铜钥匙装进证物袋，锁进警局证物柜。林晚没有再看它。",
+    )
+
+    assert suggestions == [
+        {
+            "prop_name": "青铜钥匙",
+            "chapter_number": 6,
+            "event_type": "sealed",
+            "status": "被封存",
+            "holder": "",
+            "location": "警局证物柜",
+            "evidence": "周砚沉默片刻，把青铜钥匙装进证物袋，锁进警局证物柜。林晚没有再看它。",
+            "reason": "正文出现已登记道具，并命中封存/证物相关表达。",
+            "confidence": 0.82,
+        }
+    ]
+
+    overview = service.get_overview("novel-1")
+    assert overview["recent_events"] == []
+    assert overview["items"][0]["status"] == "未使用"
