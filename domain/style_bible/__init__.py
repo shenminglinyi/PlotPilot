@@ -1,0 +1,2 @@
+"""Style Bible domain package."""
+
