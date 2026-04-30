@@ -89,6 +89,7 @@ from interfaces.api.v1 import reader as reader_module
 
 # Topic module
 from interfaces.api.v1.topic import topic_ideas
+from interfaces.api.v1 import style_bible
 
 # Workbench module
 from interfaces.api.v1.workbench import sandbox, writer_block, monitor, llm_control
@@ -583,6 +584,7 @@ app.include_router(reader_module.router, prefix="/api/v1")
 
 # Topic module routes
 app.include_router(topic_ideas.router, prefix="/api/v1")
+app.include_router(style_bible.router, prefix="/api/v1")
 
 # Workbench module routes
 app.include_router(writer_block.router, prefix="/api/v1")

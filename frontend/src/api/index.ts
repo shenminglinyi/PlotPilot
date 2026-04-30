@@ -12,6 +12,7 @@ export type {
 export * from './bible'
 export * from './workflow'
 export * from './chronicles'
+export * from './styleBible'
 
 // Legacy API exports
 export * from './book'

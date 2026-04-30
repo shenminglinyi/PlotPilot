@@ -69,6 +69,8 @@ export interface GenerateChapterWithContextPayload {
   chapter_number: number
   outline: string
   scene_director_result?: Record<string, unknown>
+  style_profile_id?: string
+  scene_type?: string
   avoid_compressed_expression?: boolean
 }
 

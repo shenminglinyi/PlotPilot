@@ -269,6 +269,26 @@
                 </n-space>
               </n-form-item>
 
+              <n-form-item label="手法档案" label-placement="left" label-width="80" :show-feedback="false">
+                <n-space vertical :size="8" style="width: 100%">
+                  <n-select
+                    v-model:value="generateStyleProfileId"
+                    :options="styleProfileOptions"
+                    placeholder="可选：选择写作手法库档案"
+                    clearable
+                    filterable
+                    :loading="loadingStyleProfiles"
+                    :disabled="generateInProgress"
+                  />
+                  <n-input
+                    v-model:value="generateSceneType"
+                    size="small"
+                    placeholder="可选：场景类型，如悬疑/情感，用于优先匹配技法卡"
+                    :disabled="generateInProgress"
+                  />
+                </n-space>
+              </n-form-item>
+
               <n-alert v-if="sceneDirectorError" type="warning" :show-icon="true" style="font-size: 12px">
                 场记分析失败（不影响生成）：{{ sceneDirectorError }}
               </n-alert>
@@ -912,6 +932,7 @@ import {
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
 import { novelproSuggestionsApi } from '../../api/novelproSuggestions'
+import { styleBibleApi, type StyleProfileDetail } from '../../api/styleBible'
 import type {
   BranchMemoryDiffResponse,
   CandidateBranchSummary,
@@ -1000,6 +1021,10 @@ const generateOutline = ref('')
 const generatedContent = ref('')
 /** 弹窗内选中的目标章节（与 useWorkbench 映射一致：id === number） */
 const generateTargetChapterId = ref<number | null>(null)
+const generateStyleProfileId = ref<string | null>(null)
+const generateSceneType = ref('')
+const styleProfiles = ref<StyleProfileDetail[]>([])
+const loadingStyleProfiles = ref(false)
 const generateInProgress = ref(false)
 const lastWorkflowResult = ref<GenerateChapterWorkflowResponse | null>(null)
 const lastQcChapterNumber = ref<number | null>(null)
@@ -1348,11 +1373,29 @@ const chapterSelectOptions = computed(() =>
   }))
 )
 
+const styleProfileOptions = computed(() =>
+  styleProfiles.value.map(item => ({
+    label: `${item.profile.name} · ${item.cards.filter(card => card.enabled).length}卡`,
+    value: item.profile.id,
+  }))
+)
+
 const modalTargetChapter = computed(() => {
   const id = generateTargetChapterId.value
   if (id == null) return null
   return props.chapters.find(ch => ch.id === id) ?? null
 })
+
+async function loadStyleProfilesForGeneration() {
+  loadingStyleProfiles.value = true
+  try {
+    styleProfiles.value = await styleBibleApi.listProfiles({ novel_id: props.slug, status: 'active' })
+  } catch {
+    styleProfiles.value = []
+  } finally {
+    loadingStyleProfiles.value = false
+  }
+}
 
 const previewContext = async () => {
   const chNum = modalTargetChapter.value?.number
@@ -1401,6 +1444,12 @@ function clearGeneratedDraft() {
 watch(generateTargetChapterId, () => {
   blurSceneCache.value = undefined
   contextPreview.value = null
+})
+
+watch(showGenerateModal, (shown) => {
+  if (shown) {
+    void loadStyleProfilesForGeneration()
+  }
 })
 
 // AbortController：点「停止」时真正取消后端 SSE 流
@@ -1973,6 +2022,8 @@ const handleStartGenerate = async () => {
         chapter_number: targetChapterNumber,
         outline: generateOutline.value || defaultOutline,
         scene_director_result: sceneDirectorResult,
+        style_profile_id: generateStyleProfileId.value || '',
+        scene_type: generateSceneType.value.trim(),
         avoid_compressed_expression: avoidCompressedExpression.value,
       },
       {

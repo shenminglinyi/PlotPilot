@@ -260,6 +260,15 @@ def get_topic_idea_repository():
     return SqliteTopicIdeaRepository(get_database())
 
 
+def get_style_bible_repository():
+    """获取写作手法知识库仓储（SQLite）。"""
+    from infrastructure.persistence.database.sqlite_style_bible_repository import (
+        SqliteStyleBibleRepository,
+    )
+
+    return SqliteStyleBibleRepository(get_database())
+
+
 # Service 依赖
 def get_novel_service() -> NovelService:
     """获取 Novel 服务
@@ -283,6 +292,22 @@ def get_topic_idea_service():
         get_llm_service(),
         get_novel_service(),
     )
+
+
+def get_style_profile_service():
+    """获取写作手法档案服务。"""
+    from application.style_bible.services.style_profile_service import StyleProfileService
+
+    return StyleProfileService(get_style_bible_repository())
+
+
+def get_style_prompt_overlay_service():
+    """获取写作手法库章节 overlay 服务。"""
+    from application.style_bible.services.style_prompt_overlay_service import (
+        StylePromptOverlayService,
+    )
+
+    return StylePromptOverlayService(get_style_bible_repository())
 
 
 @lru_cache
@@ -710,6 +735,7 @@ def build_auto_workflow(llm_service: LLMService) -> AutoNovelGenerationWorkflow:
         voice_fingerprint_service=get_voice_fingerprint_service(),
         conflict_detection_service=ConflictDetectionService(),
         cliche_scanner=ClicheScanner(),
+        style_prompt_overlay_service=get_style_prompt_overlay_service(),
     )
 
 

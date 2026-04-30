@@ -84,6 +84,8 @@ class GenerateChapterRequest(BaseModel):
     chapter_number: int = Field(..., gt=0, description="章节号（必须 > 0）")
     outline: str = Field(..., min_length=1, description="章节大纲")
     scene_director_result: Optional[dict] = Field(None, description="可选的场记分析结果")
+    style_profile_id: str = Field("", description="可选写作手法档案 ID")
+    scene_type: str = Field("", description="可选场景类型，用于匹配写作手法技法卡")
     avoid_compressed_expression: bool = Field(
         False,
         description="是否注入避免 AI 压缩表达的慢写约束",
@@ -275,7 +277,9 @@ async def generate_chapter_stream(
             novel_id=novel_id,
             chapter_number=request.chapter_number,
             outline=outline,
-            scene_director=scene_director
+            scene_director=scene_director,
+            style_profile_id=request.style_profile_id,
+            scene_type=request.scene_type,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

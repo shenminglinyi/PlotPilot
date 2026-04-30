@@ -85,6 +85,9 @@
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="sandbox" tab="对话沙盒" display-directive="if">
         <SandboxDialoguePanel :slug="slug" />
       </n-tab-pane>
+      <n-tab-pane v-if="activeGroup === 'novelpro'" name="style-bible" tab="手法库" display-directive="if">
+        <StyleBiblePanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
+      </n-tab-pane>
       <n-tab-pane v-if="activeGroup === 'base'" name="bible" tab="作品设定" display-directive="if">
         <BiblePanel :key="bibleKey" :slug="slug" />
       </n-tab-pane>
@@ -127,18 +130,19 @@ const VoiceLockPanel = defineAsyncComponent(() => import('./VoiceLockPanel.vue')
 const VoiceDriftPanel = defineAsyncComponent(() => import('./VoiceDriftPanel.vue'))
 const PowerSystemPanel = defineAsyncComponent(() => import('./PowerSystemPanel.vue'))
 const ModelRolePanel = defineAsyncComponent(() => import('./ModelRolePanel.vue'))
+const StyleBiblePanel = defineAsyncComponent(() => import('./StyleBiblePanel.vue'))
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
   'novelpro-monitor', 'candidate-refine',
-  'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'foreshadow',
+  'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'style-bible', 'foreshadow',
 ])
-const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox'])
+const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'style-bible'])
 const BASE_TABS = new Set(['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'])
 const GROUP_TABS = {
-  novelpro: ['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox'],
+  novelpro: ['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'style-bible'],
   base: ['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'],
 } as const
 const TAB_LABELS: Record<string, string> = {
@@ -150,6 +154,7 @@ const TAB_LABELS: Record<string, string> = {
   'power-system': '战力系统',
   'model-role': 'PP AI',
   sandbox: '对话沙盒',
+  'style-bible': '手法库',
   bible: '作品设定',
   worldbuilding: '世界观',
   knowledge: '知识库',

@@ -121,6 +121,7 @@ def test_sqlite_style_bible_repository_saves_profiles_and_cards(tmp_path):
 
     enabled_cards = repo.list_technique_cards(profile.id, enabled=True)
     assert [card.title for card in enabled_cards] == ["对白试探"]
+    assert repo.get_technique_card(cards[0].id).title == "对白试探"
 
     cards[0].disable()
     repo.update_technique_card(cards[0])

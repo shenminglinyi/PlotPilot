@@ -68,5 +68,9 @@ class StyleBibleRepository(ABC):
         pass
 
     @abstractmethod
+    def get_technique_card(self, card_id: str) -> Optional[StyleTechniqueCard]:
+        pass
+
+    @abstractmethod
     def update_technique_card(self, card: StyleTechniqueCard) -> StyleTechniqueCard:
         pass

@@ -210,6 +210,13 @@ class SqliteStyleBibleRepository(StyleBibleRepository):
             )
         return [self._row_to_card(row) for row in rows]
 
+    def get_technique_card(self, card_id: str) -> Optional[StyleTechniqueCard]:
+        row = self.db.fetch_one(
+            "SELECT * FROM style_technique_cards WHERE id = ?",
+            (card_id,),
+        )
+        return self._row_to_card(row) if row else None
+
     def update_technique_card(self, card: StyleTechniqueCard) -> StyleTechniqueCard:
         self.db.execute(
             """
