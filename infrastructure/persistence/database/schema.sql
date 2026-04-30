@@ -815,6 +815,49 @@ CREATE INDEX IF NOT EXISTS idx_power_profiles_novel
 CREATE INDEX IF NOT EXISTS idx_power_events_novel_chapter
     ON power_progression_events(novel_id, chapter_number DESC);
 
+-- ========== 道具账本（NovelPro）==========
+-- 记录关键道具的当前持有人、位置、状态与最近出场，防止后期遗忘或状态错乱
+CREATE TABLE IF NOT EXISTS prop_ledger_items (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    current_holder TEXT NOT NULL DEFAULT '',
+    current_location TEXT NOT NULL DEFAULT '',
+    first_seen_chapter INTEGER,
+    last_seen_chapter INTEGER,
+    importance TEXT NOT NULL DEFAULT 'normal',
+    description TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    UNIQUE(novel_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS prop_ledger_events (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    prop_id TEXT NOT NULL,
+    prop_name TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'mention',
+    holder TEXT NOT NULL DEFAULT '',
+    location TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    FOREIGN KEY (prop_id) REFERENCES prop_ledger_items(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_prop_ledger_items_novel
+    ON prop_ledger_items(novel_id, importance, last_seen_chapter DESC);
+CREATE INDEX IF NOT EXISTS idx_prop_ledger_events_novel_chapter
+    ON prop_ledger_events(novel_id, chapter_number DESC, created_at DESC);
+
 
 -- ========== 提示词广场系统（Prompt Plaza）==========
 -- 模板包：一组相关提示词的集合（如"内置"、"自定义工作流"）

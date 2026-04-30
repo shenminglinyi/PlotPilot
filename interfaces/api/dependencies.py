@@ -491,6 +491,20 @@ def get_power_system_service() -> PowerSystemService:
     return PowerSystemService(get_power_system_repository())
 
 
+def get_prop_ledger_repository():
+    from infrastructure.persistence.database.sqlite_prop_ledger_repository import (
+        SqlitePropLedgerRepository,
+    )
+
+    return SqlitePropLedgerRepository(get_database())
+
+
+def get_prop_ledger_service():
+    from application.analyst.services.prop_ledger_service import PropLedgerService
+
+    return PropLedgerService(get_prop_ledger_repository())
+
+
 def get_obsidian_memory_service():
     """Obsidian 长期记忆镜像；导出时读取 PP 缓存，避免被尚未同步的 Obsidian 内容遮挡。"""
     from application.world.services.obsidian_memory_service import (
@@ -850,6 +864,7 @@ def build_auto_workflow(llm_service: LLMService) -> AutoNovelGenerationWorkflow:
         conflict_detection_service=ConflictDetectionService(),
         cliche_scanner=ClicheScanner(),
         style_prompt_overlay_service=get_style_prompt_overlay_service(),
+        prop_ledger_service=get_prop_ledger_service(),
     )
 
 

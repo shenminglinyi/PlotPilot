@@ -79,6 +79,9 @@
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="power-system" tab="战力系统" display-directive="if">
         <PowerSystemPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
+      <n-tab-pane v-if="activeGroup === 'novelpro'" name="prop-ledger" tab="道具账本" display-directive="if">
+        <PropLedgerPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
+      </n-tab-pane>
       <n-tab-pane v-if="activeGroup === 'novelpro'" name="model-role" tab="PP AI" display-directive="if">
         <ModelRolePanel />
       </n-tab-pane>
@@ -129,6 +132,7 @@ const SandboxDialoguePanel = defineAsyncComponent(() => import('./SandboxDialogu
 const VoiceLockPanel = defineAsyncComponent(() => import('./VoiceLockPanel.vue'))
 const VoiceDriftPanel = defineAsyncComponent(() => import('./VoiceDriftPanel.vue'))
 const PowerSystemPanel = defineAsyncComponent(() => import('./PowerSystemPanel.vue'))
+const PropLedgerPanel = defineAsyncComponent(() => import('./PropLedgerPanel.vue'))
 const ModelRolePanel = defineAsyncComponent(() => import('./ModelRolePanel.vue'))
 const StyleBiblePanel = defineAsyncComponent(() => import('./StyleBiblePanel.vue'))
 
@@ -137,12 +141,12 @@ const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
   'novelpro-monitor', 'candidate-refine',
-  'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'style-bible', 'foreshadow',
+  'continuity', 'voice-lock', 'voice-drift', 'power-system', 'prop-ledger', 'model-role', 'sandbox', 'style-bible', 'foreshadow',
 ])
-const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'style-bible'])
+const NOVELPRO_TABS = new Set(['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'prop-ledger', 'model-role', 'sandbox', 'style-bible'])
 const BASE_TABS = new Set(['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'])
 const GROUP_TABS = {
-  novelpro: ['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'model-role', 'sandbox', 'style-bible'],
+  novelpro: ['novelpro-monitor', 'candidate-refine', 'continuity', 'voice-lock', 'voice-drift', 'power-system', 'prop-ledger', 'model-role', 'sandbox', 'style-bible'],
   base: ['bible', 'worldbuilding', 'knowledge', 'storyline-arc', 'chronicles', 'foreshadow'],
 } as const
 const TAB_LABELS: Record<string, string> = {
@@ -152,6 +156,7 @@ const TAB_LABELS: Record<string, string> = {
   'voice-lock': '口吻锁定',
   'voice-drift': '文风监控',
   'power-system': '战力系统',
+  'prop-ledger': '道具账本',
   'model-role': 'PP AI',
   sandbox: '对话沙盒',
   'style-bible': '手法库',

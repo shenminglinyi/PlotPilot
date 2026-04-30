@@ -94,6 +94,7 @@ class AutoNovelGenerationWorkflow:
         cliche_scanner: Optional['ClicheScanner'] = None,
         memory_engine: Optional['MemoryEngine'] = None,
         style_prompt_overlay_service: Optional[Any] = None,
+        prop_ledger_service: Optional[Any] = None,
     ):
         """初始化工作流
 
@@ -112,6 +113,7 @@ class AutoNovelGenerationWorkflow:
             cliche_scanner: 俗套扫描器（可选）
             memory_engine: V6 记忆引擎（可选，提供 FACT_LOCK / BEATS / CLUES 注入与章后回写）
             style_prompt_overlay_service: 写作手法知识库 overlay 服务（可选）
+            prop_ledger_service: 道具账本服务（可选，用于章节生成前注入当前道具状态）
         """
         self.context_builder = context_builder
         self.consistency_checker = consistency_checker
@@ -157,6 +159,7 @@ class AutoNovelGenerationWorkflow:
         self.voice_fingerprint_service = voice_fingerprint_service
         self.cliche_scanner = cliche_scanner
         self.style_prompt_overlay_service = style_prompt_overlay_service
+        self.prop_ledger_service = prop_ledger_service
 
     def prepare_chapter_generation(
         self,
@@ -834,6 +837,7 @@ class AutoNovelGenerationWorkflow:
         ss = (style_summary or "").strip()
         va = (voice_anchors or "").strip()
         so = (style_overlay or "").strip()
+        prop_overlay = self._build_prop_ledger_overlay()
         planning_parts: list[str] = []
         if sc and sc not in ("Storyline context unavailable",):
             planning_parts.append(f"【故事线 / 里程碑】\n{sc}")
@@ -843,6 +847,8 @@ class AutoNovelGenerationWorkflow:
             planning_parts.append(f"【风格约束】\n{ss}")
         if so:
             planning_parts.append(so)
+        if prop_overlay:
+            planning_parts.append(prop_overlay)
         planning_section = ""
         if planning_parts:
             planning_section = (
@@ -974,6 +980,33 @@ class AutoNovelGenerationWorkflow:
         user_message += "\n\n开始撰写："
 
         return Prompt(system=system_message, user=user_message)
+
+    def _build_prop_ledger_overlay(self) -> str:
+        if not self.prop_ledger_service or not self._current_novel_id:
+            return ""
+        try:
+            overview = self.prop_ledger_service.get_overview(self._current_novel_id)
+        except Exception as e:
+            logger.warning("prop ledger overlay unavailable: %s", e)
+            return ""
+        items = overview.get("items") or []
+        if not items:
+            return ""
+        lines = [
+            "【道具账本（必须保持一致）】",
+            "写到相关道具时，必须遵守当前持有人、位置、状态；未在本章合理交代前，不得凭空改变去向或用途。",
+        ]
+        for item in items[:12]:
+            chapter = item.get("last_seen_chapter") or item.get("first_seen_chapter") or "未登记"
+            lines.append(
+                "- "
+                f"{item.get('name') or '未命名'}"
+                f"｜状态：{item.get('status') or '未记录'}"
+                f"｜持有人：{item.get('current_holder') or '未记录'}"
+                f"｜位置：{item.get('current_location') or '未记录'}"
+                f"｜最近：第{chapter}章"
+            )
+        return "\n".join(lines)
 
     @staticmethod
     def _ensure_generation_start_suffix(user_message: str) -> str:

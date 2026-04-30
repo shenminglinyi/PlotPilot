@@ -79,7 +79,7 @@ from interfaces.api.v1.engine import (
 from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes
 
 # Analyst module
-from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger, continuity, power_system, novelpro_monitor, novelpro_suggestions
+from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger, continuity, power_system, prop_ledger, novelpro_monitor, novelpro_suggestions
 
 # System module (internal tooling)
 from interfaces.api.v1 import system as system_routes
@@ -571,6 +571,7 @@ app.include_router(chapter_element_routes.router)
 app.include_router(voice.router, prefix="/api/v1")
 app.include_router(continuity.router, prefix="/api/v1")
 app.include_router(power_system.router, prefix="/api/v1")
+app.include_router(prop_ledger.router, prefix="/api/v1")
 app.include_router(novelpro_monitor.router, prefix="/api/v1")
 app.include_router(novelpro_suggestions.router, prefix="/api/v1")
 app.include_router(narrative_state.router, prefix="/api/v1")
