@@ -27,6 +27,7 @@ class StyleProfileGenerateRequestDTO:
     description: str = ""
     sample_ids: list[str] = field(default_factory=list)
     use_llm: bool = False
+    llm_profile_id: str = ""
 
 
 @dataclass

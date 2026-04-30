@@ -309,10 +309,10 @@ def get_style_profile_service():
 
 
 def _build_style_bible_llm_extractor():
-    """构造写作手法档案的 LLM 提炼器，使用当前激活的 PP AI 配置。"""
-    llm_service = get_llm_service()
+    """构造写作手法档案的 LLM 提炼器，支持按请求指定 PP AI 配置。"""
+    provider_factory = get_llm_provider_factory()
 
-    def extract(samples, metrics):
+    def extract(samples, metrics, llm_profile_id: str = ""):
         prompt = Prompt(
             system=(
                 "你是小说写作手法分析师，只学习文本的节奏、句法、镜头、对白与禁用表达，"
@@ -323,6 +323,12 @@ def _build_style_bible_llm_extractor():
         )
 
         async def run():
+            selected_profile_id = (llm_profile_id or "").strip()
+            llm_service = (
+                provider_factory.create_by_profile_id(selected_profile_id)
+                if selected_profile_id
+                else provider_factory.create_active_provider()
+            )
             result = await llm_service.generate(
                 prompt,
                 GenerationConfig(

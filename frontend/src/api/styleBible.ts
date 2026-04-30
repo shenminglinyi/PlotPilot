@@ -104,6 +104,7 @@ export interface GenerateStyleProfilePayload {
   description?: string
   sample_ids?: string[]
   use_llm?: boolean
+  llm_profile_id?: string
 }
 
 export interface UpdateTechniqueCardPayload {

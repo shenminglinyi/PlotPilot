@@ -52,6 +52,7 @@ class GenerateStyleProfileRequest(BaseModel):
     description: str = ""
     sample_ids: List[str] = Field(default_factory=list)
     use_llm: bool = False
+    llm_profile_id: str = ""
 
 
 class UpdateTechniqueCardRequest(BaseModel):

@@ -95,8 +95,8 @@ def test_style_profile_service_normalizes_llm_payload_shapes(tmp_path):
 def test_style_profile_service_uses_llm_payload_when_available(tmp_path):
     calls = []
 
-    def extractor(samples, metrics):
-        calls.append((samples, metrics))
+    def extractor(samples, metrics, llm_profile_id):
+        calls.append((samples, metrics, llm_profile_id))
         return {
             "profile_summary": "DS 提炼：短句、留白、动作推进。",
             "rhythm_rules": ["短段落承接动作", "对白必须释放信息"],
@@ -133,10 +133,11 @@ def test_style_profile_service_uses_llm_payload_when_available(tmp_path):
             name="DS 手法档案",
             sample_ids=[imported.sample.id],
             use_llm=True,
+            llm_profile_id="deepseek-default",
         )
     )
 
-    assert calls
+    assert calls[0][2] == "deepseek-default"
     assert result.profile.description == "DS 提炼：短句、留白、动作推进。"
     assert result.profile.rules == ["短段落承接动作", "对白必须释放信息"]
     assert result.cards[0].title == "动作留白"

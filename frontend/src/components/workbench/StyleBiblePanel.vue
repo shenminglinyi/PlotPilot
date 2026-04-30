@@ -62,6 +62,22 @@
 
         <n-space vertical :size="10">
           <n-input v-model:value="profileName" size="small" placeholder="新档案名称" />
+          <n-space :size="8" align="center" wrap class="analysis-config-row">
+            <n-checkbox v-model:checked="useLlmAnalysis">AI分析</n-checkbox>
+            <n-select
+              v-model:value="analysisLlmProfileId"
+              size="small"
+              :options="llmProfileOptions"
+              :loading="loadingLlmProfiles"
+              :disabled="!useLlmAnalysis"
+              clearable
+              placeholder="选择分析模型配置"
+              style="min-width: 220px; flex: 1"
+            />
+            <n-button size="tiny" secondary :loading="loadingLlmProfiles" @click="loadLlmProfiles">
+              刷新配置
+            </n-button>
+          </n-space>
           <n-space v-if="samples.length" :size="6" wrap>
             <n-tag
               v-for="sample in samples"
@@ -237,6 +253,7 @@ import {
   type StyleTechniqueCardDTO,
   type UpdateTechniqueCardPayload,
 } from '@/api/styleBible'
+import { llmControlApi, type LLMProfile } from '@/api/llmControl'
 
 const props = defineProps<{
   slug: string
@@ -254,6 +271,10 @@ const sampleContent = ref('')
 const sceneType = ref('')
 const allowedForGeneration = ref(true)
 const profileName = ref('我的写作手法档案')
+const useLlmAnalysis = ref(true)
+const analysisLlmProfileId = ref('')
+const llmProfiles = ref<LLMProfile[]>([])
+const loadingLlmProfiles = ref(false)
 const samples = ref<StyleSampleDTO[]>([])
 const profiles = ref<StyleProfileDetail[]>([])
 const selectedSampleIds = ref<string[]>([])
@@ -277,6 +298,12 @@ const selectedProfile = computed(() => profiles.value.find(item => item.profile.
 const canSaveCardEdit = computed(() =>
   Boolean(editingCardId.value && cardEditForm.title.trim() && cardEditForm.prompt_instruction.trim())
 )
+const llmProfileOptions = computed(() =>
+  llmProfiles.value.map(profile => ({
+    label: `${profile.name}${profile.model ? ` · ${profile.model}` : ''}`,
+    value: profile.id,
+  }))
+)
 
 async function loadAll() {
   loading.value = true
@@ -297,6 +324,21 @@ async function loadAll() {
   }
 }
 
+async function loadLlmProfiles() {
+  loadingLlmProfiles.value = true
+  try {
+    const panel = await llmControlApi.getPanel()
+    llmProfiles.value = panel.config.profiles
+    if (!analysisLlmProfileId.value && panel.config.active_profile_id) {
+      analysisLlmProfileId.value = panel.config.active_profile_id
+    }
+  } catch {
+    message.error('AI配置加载失败')
+  } finally {
+    loadingLlmProfiles.value = false
+  }
+}
+
 async function importOnly() {
   await importSample(false)
 }
@@ -314,14 +356,18 @@ async function importSample(createProfile: boolean) {
       novel_id: props.slug,
       scene_type: sceneType.value.trim(),
       allowed_for_generation: allowedForGeneration.value,
-      create_profile: createProfile,
+      create_profile: false,
       profile_name: profileName.value.trim() || sampleTitle.value.trim(),
     })
     sampleTitle.value = ''
     sampleContent.value = ''
     selectedSampleIds.value = [result.sample.id]
-    if (result.profile) {
-      selectedProfileId.value = result.profile.id
+    if (createProfile) {
+      const profileResult = await generateProfileForSamples(
+        [result.sample.id],
+        profileName.value.trim() || result.sample.title
+      )
+      selectedProfileId.value = profileResult.profile.id
     }
     message.success(createProfile ? '已导入并生成风格档案' : '样本已导入')
     await loadAll()
@@ -341,11 +387,7 @@ function toggleSample(sampleId: string, checked: boolean) {
 async function generateProfileFromSelected() {
   generatingProfile.value = true
   try {
-    const result = await styleBibleApi.generateProfile({
-      novel_id: props.slug,
-      name: profileName.value.trim() || '我的写作手法档案',
-      sample_ids: selectedSampleIds.value,
-    })
+    const result = await generateProfileForSamples(selectedSampleIds.value)
     selectedProfileId.value = result.profile.id
     message.success('风格档案已生成')
     await loadAll()
@@ -354,6 +396,16 @@ async function generateProfileFromSelected() {
   } finally {
     generatingProfile.value = false
   }
+}
+
+async function generateProfileForSamples(sampleIds: string[], name?: string) {
+  return styleBibleApi.generateProfile({
+    novel_id: props.slug,
+    name: name || profileName.value.trim() || '我的写作手法档案',
+    sample_ids: sampleIds,
+    use_llm: useLlmAnalysis.value,
+    llm_profile_id: useLlmAnalysis.value ? (analysisLlmProfileId.value || '') : '',
+  })
 }
 
 function selectProfile(profileId: string) {
@@ -438,6 +490,7 @@ watch(() => props.slug, () => {
 
 onMounted(() => {
   void loadAll()
+  void loadLlmProfiles()
 })
 </script>
 

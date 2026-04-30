@@ -25,7 +25,7 @@ from domain.style_bible.entities import (
 from domain.style_bible.repositories import StyleBibleRepository
 
 
-LlmExtractor = Callable[[list[StyleSample], dict[str, Any]], dict[str, Any]]
+LlmExtractor = Callable[[list[StyleSample], dict[str, Any], str], dict[str, Any]]
 logger = logging.getLogger(__name__)
 
 
@@ -215,7 +215,7 @@ class StyleProfileService:
         if not request.use_llm or self.llm_extractor is None:
             return None
         try:
-            payload = self.llm_extractor(samples, metrics)
+            payload = self.llm_extractor(samples, metrics, request.llm_profile_id)
         except Exception as exc:
             logger.warning("Style Bible LLM extraction failed: %s", exc, exc_info=True)
             return None
