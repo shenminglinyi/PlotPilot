@@ -363,6 +363,9 @@ class AutoNovelGenerationWorkflow:
         if enable_beats:
             logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
             beats = self.context_builder.magnify_outline_to_beats(chapter_number, outline)
+            if not isinstance(beats, list):
+                logger.warning("  ⚠ 微观节拍拆分返回异常，回退到单段生成")
+                beats = []
             logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍")
         
         # 根据是否使用节拍选择不同的生成策略
@@ -410,6 +413,11 @@ class AutoNovelGenerationWorkflow:
             llm_result = await self.llm_service.generate(prompt, config)
             content = strip_reasoning_artifacts(llm_result.content or "")
             logger.info(f"  ✓ LLM 响应已接收: {len(content)} 字符")
+
+        content = await self._naturalize_ai_flavor_if_needed(
+            content=content,
+            outline=outline,
+        )
         
         # 保存微观节拍用于后续处理
         if beats:
@@ -497,6 +505,9 @@ class AutoNovelGenerationWorkflow:
             if enable_beats:
                 logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
                 beats = self.context_builder.magnify_outline_to_beats(chapter_number, outline)
+                if not isinstance(beats, list):
+                    logger.warning("  ⚠ 微观节拍拆分返回异常，回退到单段生成")
+                    beats = []
                 logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍")
                 
                 # 发送节拍信息用于前端展示
@@ -589,6 +600,11 @@ class AutoNovelGenerationWorkflow:
                 yield {"type": "error", "message": "模型返回空内容"}
                 return
 
+            content = await self._naturalize_ai_flavor_if_needed(
+                content=content,
+                outline=outline,
+            )
+
             yield {"type": "phase", "phase": "post"}
             logger.info("阶段 4: post_process_generated_chapter")
             post = await self.post_process_generated_chapter(
@@ -665,6 +681,58 @@ class AutoNovelGenerationWorkflow:
         except Exception as e:
             logger.warning("suggest_outline failed: %s", e)
         return seed
+
+    async def _naturalize_ai_flavor_if_needed(self, *, content: str, outline: str) -> str:
+        """对生成正文做一次自然化改写，避免只停留在事后告警。"""
+        draft = (content or "").strip()
+        if not draft or not self.cliche_scanner:
+            return content
+
+        try:
+            initial_hits = self.cliche_scanner.scan_cliches(draft)
+        except Exception as e:
+            logger.warning("AI味预扫描失败，跳过自然化改写: %s", e)
+            return content
+
+        # 长正文即使未命中有限正则，也常会被检测器判定为“整齐、解释、模板化”。
+        # 因此生产链路默认对长章节做一次编辑型自然化；短文本只在明确命中俗套时处理。
+        should_naturalize = bool(initial_hits) or len(draft) >= 500
+        if not should_naturalize:
+            return content
+
+        system = (
+            "你是中文商业小说自然化改稿编辑。目标是降低AI味，保留原剧情事实、人物、地点、"
+            "因果顺序、伏笔和关键信息，不新增剧情，不解释修改过程。\n\n"
+            "硬要求：\n"
+            "1. 删除抽象情绪说明、模板总结、万能比喻和说明文腔。\n"
+            "2. 把情绪落到动作、物件、声音、停顿、视线和身体反应。\n"
+            "3. 对话更像真人：允许半句、回避、反问、误解和沉默，不要人人把动机说透。\n"
+            "4. 保留章节长度与节奏，不能压缩成摘要。\n"
+            "5. 只输出改写后的小说正文。"
+        )
+        user = (
+            f"【本章大纲】\n{outline.strip()}\n\n"
+            "【需要自然化改写的正文】\n"
+            f"{draft}\n\n"
+            "请在不改变剧情事实的前提下降低AI味，只输出正文："
+        )
+        max_tokens = max(1024, min(12000, int(len(draft) * 1.4)))
+        try:
+            result = await self.llm_service.generate(
+                Prompt(system=system, user=user),
+                GenerationConfig(max_tokens=max_tokens, temperature=0.9),
+            )
+            revised = strip_reasoning_artifacts(result.content or "").strip()
+        except Exception as e:
+            logger.warning("AI味自然化改写失败，保留原文: %s", e)
+            return content
+
+        if not revised:
+            return content
+        if len(revised) < max(80, len(draft) * 0.45):
+            logger.warning("AI味自然化改写疑似过度压缩，保留原文")
+            return content
+        return revised
 
     async def generate_chapter_with_review(
         self,

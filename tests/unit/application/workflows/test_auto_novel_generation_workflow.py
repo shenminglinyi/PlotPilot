@@ -578,8 +578,108 @@ class TestStyleIntegration:
         assert result.style_warnings[0].text == "熊熊烈火"
         assert result.style_warnings[1].pattern == "眼神闪过系列"
 
-        # 验证扫描器被调用
-        mock_scanner.scan_cliches.assert_called_once_with("Generated chapter content")
+        # 验证扫描器至少扫描了初稿
+        mock_scanner.scan_cliches.assert_any_call("Generated chapter content")
+
+    @pytest.mark.asyncio
+    async def test_generate_chapter_naturalizes_ai_flavored_draft_before_returning(
+        self,
+        mock_context_builder,
+        mock_consistency_checker,
+        mock_storyline_manager,
+        mock_plot_arc_repository,
+        mock_llm_service
+    ):
+        """命中 AI 味后，应先自然化改写，再把结果返回给前端。"""
+        from application.services.cliche_scanner import ClicheScanner, ClicheHit
+
+        ai_draft = "空气仿佛凝固了，他心中五味杂陈。" * 20
+        naturalized = "雨水顺着窗缝渗进来。他把杯子往里推了半寸，没接那句话。" * 20
+        mock_llm_service.generate = AsyncMock(side_effect=[
+            LLMResult(content=ai_draft, token_usage=TokenUsage(input_tokens=500, output_tokens=500)),
+            LLMResult(content=naturalized, token_usage=TokenUsage(input_tokens=300, output_tokens=300)),
+        ])
+
+        mock_scanner = Mock(spec=ClicheScanner)
+        mock_scanner.scan_cliches.side_effect = [
+            [
+                ClicheHit(pattern="氛围凝固系列", text="空气仿佛凝固", start=0, end=6, severity="warning"),
+                ClicheHit(pattern="五味杂陈系列", text="心中五味杂陈", start=8, end=14, severity="warning"),
+            ],
+            [],
+        ]
+
+        workflow = AutoNovelGenerationWorkflow(
+            context_builder=mock_context_builder,
+            consistency_checker=mock_consistency_checker,
+            storyline_manager=mock_storyline_manager,
+            plot_arc_repository=mock_plot_arc_repository,
+            llm_service=mock_llm_service,
+            cliche_scanner=mock_scanner,
+            state_extractor=Mock(extract_chapter_state=AsyncMock(return_value=ChapterState([], [], [], [], [], []))),
+        )
+
+        result = await workflow.generate_chapter(
+            novel_id="novel-1",
+            chapter_number=1,
+            outline="测试大纲",
+            enable_beats=False,
+        )
+
+        assert result.content == naturalized
+        assert result.style_warnings == []
+        assert mock_llm_service.generate.await_count == 2
+        rewrite_prompt = mock_llm_service.generate.await_args_list[1].args[0]
+        assert "降低AI味" in rewrite_prompt.system
+        assert ai_draft in rewrite_prompt.user
+
+    @pytest.mark.asyncio
+    async def test_long_streamed_chapter_is_naturalized_even_without_cliche_hits(
+        self,
+        mock_context_builder,
+        mock_consistency_checker,
+        mock_storyline_manager,
+        mock_plot_arc_repository
+    ):
+        """长正文即使未命中正则俗套，也要走一次自然化改写。"""
+        from application.services.cliche_scanner import ClicheScanner
+
+        class FakeLLM:
+            def __init__(self):
+                self.generate = AsyncMock(return_value=LLMResult(
+                    content="改写后的正文。" * 80,
+                    token_usage=TokenUsage(input_tokens=300, output_tokens=300),
+                ))
+
+            async def stream_generate(self, prompt, config):
+                yield "原始正文。" * 120
+
+        mock_scanner = Mock(spec=ClicheScanner)
+        mock_scanner.scan_cliches.return_value = []
+        llm = FakeLLM()
+        workflow = AutoNovelGenerationWorkflow(
+            context_builder=mock_context_builder,
+            consistency_checker=mock_consistency_checker,
+            storyline_manager=mock_storyline_manager,
+            plot_arc_repository=mock_plot_arc_repository,
+            llm_service=llm,
+            cliche_scanner=mock_scanner,
+            state_extractor=Mock(extract_chapter_state=AsyncMock(return_value=ChapterState([], [], [], [], [], []))),
+        )
+
+        events = []
+        async for event in workflow.generate_chapter_stream(
+            "novel-1",
+            1,
+            "测试大纲",
+            enable_beats=False,
+        ):
+            events.append(event)
+
+        done = events[-1]
+        assert done["type"] == "done"
+        assert done["content"] == "改写后的正文。" * 80
+        assert llm.generate.await_count == 1
 
     @pytest.mark.asyncio
     async def test_generate_chapter_injects_fingerprint_summary(
@@ -627,9 +727,12 @@ class TestStyleIntegration:
         # 验证 LLM 被调用
         assert mock_llm_service.generate.called
 
-        # 获取传递给 LLM 的 prompt
-        call_args = mock_llm_service.generate.call_args
-        prompt = call_args[0][0]
+        # 获取章节正文生成 prompt。后处理阶段也可能调用 LLM，不能依赖最后一次调用。
+        prompt = next(
+            call.args[0]
+            for call in mock_llm_service.generate.await_args_list
+            if call.args
+        )
 
         # 验证 prompt 包含风格指纹摘要
         assert "形容词密度" in prompt.system or "平均句长" in prompt.system
