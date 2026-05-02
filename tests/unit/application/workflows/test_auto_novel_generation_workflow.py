@@ -640,6 +640,30 @@ class TestBuildPrompt:
         assert smoothed.endswith("。")
         assert "第三句前半段" not in smoothed
 
+    def test_remove_repeated_leading_paragraph_block_from_expansion(self, workflow):
+        """续写若从开头复述整段，应剔除重复块并保留真正新增内容。"""
+        first = "顾知寒的手电筒光圈在防火卷帘上停住。"
+        source_paragraphs = [
+            first,
+            "不是切割痕迹。是熔穿。",
+            "“卷帘编号C-17。”周正明说。",
+            "她没回头。脚下积水没过鞋帮。",
+            "“你跟踪我？”",
+            "“你拿了证物科的备用钥匙。”",
+        ]
+        repeated = "\n\n".join(
+            source_paragraphs
+            + ["又像在标记位置。" + first]
+            + source_paragraphs[1:]
+            + ["顾知寒没有立即动身。"]
+        )
+
+        cleaned = workflow._remove_repeated_leading_paragraph_block(repeated)
+
+        assert cleaned.count(first) == 1
+        assert "又像在标记位置。" in cleaned
+        assert cleaned.endswith("顾知寒没有立即动身。")
+
     def test_build_prompt_includes_visible_chapter_strategy(self, workflow):
         prompt = workflow._build_prompt(
             context="CTX",

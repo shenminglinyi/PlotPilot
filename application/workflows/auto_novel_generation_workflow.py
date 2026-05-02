@@ -775,6 +775,44 @@ class AutoNovelGenerationWorkflow:
         return trimmed[:-1] + "。"
 
     @staticmethod
+    def _remove_repeated_leading_paragraph_block(text: str) -> str:
+        """删除续写阶段偶发的“从开头重写一遍”段落块。"""
+        normalized = (text or "").strip()
+        paragraphs = [part.strip() for part in re.split(r"\n\s*\n", normalized) if part.strip()]
+        if len(paragraphs) < 6:
+            return normalized
+
+        first = paragraphs[0]
+        if len(first) < 12:
+            return normalized
+
+        for start in range(1, len(paragraphs)):
+            current = paragraphs[start]
+            first_index = current.find(first)
+            if first_index < 0:
+                continue
+
+            repeat_count = 1
+            while (
+                start + repeat_count < len(paragraphs)
+                and repeat_count < len(paragraphs)
+                and paragraphs[start + repeat_count] == paragraphs[repeat_count]
+            ):
+                repeat_count += 1
+
+            if repeat_count < 4:
+                continue
+
+            prefix = current[:first_index].strip()
+            cleaned = paragraphs[:start]
+            if prefix and (not cleaned or cleaned[-1] != prefix):
+                cleaned.append(prefix)
+            cleaned.extend(paragraphs[start + repeat_count:])
+            return "\n\n".join(cleaned).strip()
+
+        return normalized
+
+    @staticmethod
     def _extract_tail_segment(text: str, *, window_chars: int = 460) -> tuple[str, str]:
         source = text or ""
         if not source:
@@ -920,7 +958,7 @@ class AutoNovelGenerationWorkflow:
             if not appendix:
                 return content
             merged = (content.rstrip() + "\n\n" + appendix.lstrip()).strip()
-            return merged
+            return self._remove_repeated_leading_paragraph_block(merged)
         except Exception as exc:
             logger.warning("word target expansion skipped: %s", exc)
             return content
