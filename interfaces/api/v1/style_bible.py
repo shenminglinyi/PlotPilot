@@ -139,6 +139,8 @@ def list_style_profiles(
     repository: StyleBibleRepository = Depends(get_style_bible_repository),
 ):
     """列出写作手法档案。"""
+    if hasattr(repository, "ensure_default_profiles"):
+        repository.ensure_default_profiles()
     return [_profile_detail(repository, profile) for profile in repository.list_profiles(novel_id, status)]
 
 

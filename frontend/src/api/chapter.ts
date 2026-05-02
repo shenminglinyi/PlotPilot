@@ -158,6 +158,48 @@ export interface GenerateCandidateDraftResponse {
   task: ExternalModelTaskDTO
 }
 
+export interface EditorialReviewForPolishDTO {
+  summary: string
+  scores: {
+    opening: number
+    conflict: number
+    character: number
+    dialogue: number
+    hook: number
+    pacing: number
+  }
+  strengths: string[]
+  problems: string[]
+  actions: string[]
+  verdict: string
+}
+
+export interface GenerateEditorialPolishCandidateRequest {
+  chapter_number: number
+  outline: string
+  current_content: string
+  editorial_review: EditorialReviewForPolishDTO
+  target_word_count?: number
+  branch_name?: string
+  title?: string
+  model_label?: string
+  max_tokens?: number
+  temperature?: number
+}
+
+export interface CreateWebWritingPromptRequest {
+  chapter_number: number
+  outline: string
+  current_content?: string
+  model_label?: string
+  task_prompt?: string
+}
+
+export interface WebWritingPromptResponse {
+  prompt: string
+  task: ExternalModelTaskDTO
+}
+
 export interface SupervisorReviewCandidateDraftRequest {
   model_label?: string
   llm_profile_id?: string
@@ -288,6 +330,12 @@ export const chapterApi = {
 
   generateCandidateDraft: (novelId: string, data: GenerateCandidateDraftRequest) =>
     apiClient.post<GenerateCandidateDraftResponse>(`/novels/${novelId}/candidate-drafts/generate`, data) as Promise<GenerateCandidateDraftResponse>,
+
+  generateEditorialPolishCandidate: (novelId: string, data: GenerateEditorialPolishCandidateRequest) =>
+    apiClient.post<GenerateCandidateDraftResponse>(`/novels/${novelId}/candidate-drafts/editorial-polish`, data) as Promise<GenerateCandidateDraftResponse>,
+
+  createWebWritingPrompt: (novelId: string, data: CreateWebWritingPromptRequest) =>
+    apiClient.post<WebWritingPromptResponse>(`/novels/${novelId}/candidate-drafts/web-writing-prompt`, data) as Promise<WebWritingPromptResponse>,
 
   reviewCandidateDraft: (
     novelId: string,

@@ -130,6 +130,24 @@ def test_sqlite_style_bible_repository_saves_profiles_and_cards(tmp_path):
     assert [card.enabled for card in repo.list_technique_cards(profile.id)] == [False, False]
 
 
+def test_sqlite_style_bible_repository_seeds_default_profiles_for_empty_library(tmp_path):
+    db = DatabaseConnection(str(tmp_path / "style-bible-defaults.db"))
+    repo = SqliteStyleBibleRepository(db)
+
+    repo.ensure_default_profiles()
+
+    profiles = repo.list_profiles(novel_id="novel-1", status="active")
+    assert profiles
+    assert profiles[0].id == "style-profile-default-low-ai-webnovel"
+    assert profiles[0].novel_id == ""
+    assert "低AI味" in profiles[0].name
+
+    cards = repo.list_technique_cards(profiles[0].id, enabled=True)
+    assert len(cards) >= 5
+    assert any(card.category == "anti_ai" for card in cards)
+    assert any("证据" in card.prompt_instruction for card in cards)
+
+
 def test_database_connection_creates_style_bible_tables_for_empty_database(tmp_path):
     db = DatabaseConnection(str(tmp_path / "empty-style-bible.db"))
 

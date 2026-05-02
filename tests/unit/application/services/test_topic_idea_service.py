@@ -630,6 +630,33 @@ async def test_generate_fallback_can_fill_five_ideas():
 
 
 @pytest.mark.asyncio
+async def test_generate_fallback_uses_market_signals_for_distinct_topics():
+    repo = InMemoryTopicIdeaRepository()
+    service = TopicIdeaService(repo, llm_service=InvalidJsonLLM())
+
+    ideas = await service.generate(
+        TopicGenerateRequestDTO(
+            genre="都市爽文",
+            market_signals=[
+                {
+                    "title": "扔掉的渣男，绝不再捡！",
+                    "genre": "漫画",
+                    "tags": ["漫画", "快速上榜"],
+                    "summary": "未婚夫归来却抱着怀孕女人，女主当场切割。",
+                }
+            ],
+            count=3,
+        )
+    )
+
+    assert ideas[0].title != "逆风开局的隐藏王牌"
+    assert "扔掉的渣男" in ideas[0].title
+    assert "漫画" in ideas[0].market_tags
+    assert "首卷大纲" in ideas[0].development_notes
+    assert ideas[0].evaluation["市场匹配度"]["依据"][0] == "扔掉的渣男，绝不再捡！"
+
+
+@pytest.mark.asyncio
 async def test_generate_uses_llm_and_fills_shortage():
     repo = InMemoryTopicIdeaRepository()
     service = TopicIdeaService(repo, llm_service=PartialLLM())
@@ -638,6 +665,8 @@ async def test_generate_uses_llm_and_fills_shortage():
 
     assert len(ideas) == 3
     assert ideas[0].title == "AI 选题"
+    assert "首卷大纲" in ideas[0].development_notes
+    assert "综合评分" in ideas[0].evaluation
     assert len(repo.items) == 3
 
 
@@ -667,6 +696,9 @@ async def test_generate_prompt_includes_manual_brief_and_market_signals():
     assert "市场观察" in llm.prompt.user
     assert "灵气复苏债务流" in llm.prompt.user
     assert "负债" in llm.prompt.user
+    assert "development_notes" in llm.prompt.system
+    assert "evaluation" in llm.prompt.system
+    assert "首卷大纲" in llm.prompt.system
 
 
 def test_adopt_is_idempotent_when_already_adopted():

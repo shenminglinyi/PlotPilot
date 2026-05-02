@@ -19,6 +19,7 @@ from application.ai.llm_control_service import (
 )
 from infrastructure.ai.provider_factory import LLMProviderFactory
 from infrastructure.ai.prompt_manager import get_prompt_manager
+from infrastructure.ai.url_utils import should_trust_env_proxy_for_openai_base
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/llm-control', tags=['llm-control'])
@@ -147,9 +148,11 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
         }
 
     try:
-        # 不向子进程继承 HTTP(S)_PROXY：本机 Clash/V2 等监听 127.0.0.1 时，httpx 走代理易导致
-        # start_tls / BrokenResourceError，而国内直连 API 域名通常无需系统代理。
-        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        # 国产 OpenAI-compatible 网关通常直连更稳；官方 OpenAI 在部分本地网络下需要系统代理。
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            trust_env=should_trust_env_proxy_for_openai_base(base_url),
+        ) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             try:

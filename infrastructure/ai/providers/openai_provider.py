@@ -10,6 +10,7 @@ from domain.ai.services.llm_service import GenerationConfig, GenerationResult
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.ai.config.settings import Settings
+from infrastructure.ai.url_utils import should_trust_env_proxy_for_openai_base
 from .base import BaseProvider
 from .model_resolution import require_resolved_model_id
 
@@ -46,7 +47,7 @@ class OpenAIProvider(BaseProvider):
 
         self._http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(settings.timeout_seconds),
-            trust_env=False,
+            trust_env=should_trust_env_proxy_for_openai_base(settings.base_url),
         )
         client_kwargs["http_client"] = self._http_client
         self.async_client = AsyncOpenAI(**client_kwargs)
@@ -63,7 +64,7 @@ class OpenAIProvider(BaseProvider):
             if use_responses:
                 try:
                     return await self._generate_via_responses(prompt, config)
-                except (openai.NotFoundError, openai.BadRequestError, RuntimeError) as e:
+                except (openai.NotFoundError, openai.BadRequestError) as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
                 except Exception as e:
@@ -76,7 +77,7 @@ class OpenAIProvider(BaseProvider):
 
             # 使用降级的 Chat Completions API
             return await self._generate_via_chat(prompt, config)
-        except RuntimeError:
+        except (RuntimeError, ValueError):
             raise
         except Exception as e:
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e
@@ -214,20 +215,26 @@ class OpenAIProvider(BaseProvider):
 
         output = getattr(response, "output", None)
         content_parts: list[str] = []
+        output_text = getattr(response, "output_text", None)
+        if isinstance(output_text, str) and output_text.strip():
+            content_parts.append(output_text.strip())
         if output:
             for item in output:
                 if getattr(item, "type", "") == "message":
                     for part in getattr(item, "content", []):
-                        if getattr(part, "type", "") == "text":
-                            piece = str(getattr(part, "text", "")).strip()
+                        if getattr(part, "type", "") in ("text", "output_text"):
+                            text_value = getattr(part, "text", "")
+                            if not isinstance(text_value, str):
+                                text_value = getattr(text_value, "value", "")
+                            piece = str(text_value).strip()
                             if piece:
                                 content_parts.append(piece)
         content = "\n".join(content_parts).strip()
         if not content:
             raise RuntimeError("Responses API returned empty content")
 
-        input_tokens = response.usage.prompt_tokens if response.usage else 0
-        output_tokens = response.usage.completion_tokens if response.usage else 0
+        input_tokens = self._usage_value(response.usage, "prompt_tokens", "input_tokens")
+        output_tokens = self._usage_value(response.usage, "completion_tokens", "output_tokens")
 
         return GenerationResult(
             content=content,
@@ -235,13 +242,27 @@ class OpenAIProvider(BaseProvider):
         )
 
     @staticmethod
+    def _usage_value(usage: Any, *names: str) -> int:
+        if usage is None:
+            return 0
+        for name in names:
+            value = getattr(usage, name, None)
+            if isinstance(value, int):
+                return value
+        return 0
+
+    @staticmethod
     def _extract_text_from_responses_chunk(chunk: Any) -> str:
         """原生 Responses stream 解析封装"""
         try:
             event_type = getattr(chunk, "type", "")
+            if event_type == "response.output_text.delta":
+                delta = getattr(chunk, "delta", "")
+                if isinstance(delta, str):
+                    return delta
             if event_type == "response.content_part.added":
                 part = getattr(chunk, "part", None)
-                if part and getattr(part, "type", "") == "text":
+                if part and getattr(part, "type", "") in ("text", "output_text"):
                     return getattr(part, "text", "")
             elif event_type == "message.delta":
                 delta = getattr(chunk, "delta", None)

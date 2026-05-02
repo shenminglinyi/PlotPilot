@@ -3,6 +3,70 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 import interfaces.api.dependencies as dependencies
+from infrastructure.ai.provider_factory import DynamicLLMService
+
+
+def test_topic_idea_service_uses_analysis_llm_route():
+    """选题/市场判断属于分析决策任务，应固定走 DS 分析模型路由。"""
+    analysis_llm = MagicMock(name="analysis-llm")
+    writing_llm = MagicMock(name="writing-llm")
+    repository = MagicMock(name="topic-repository")
+    novel_service = MagicMock(name="novel-service")
+
+    with patch.object(dependencies, "get_analysis_llm_service", return_value=analysis_llm) as analysis_mock:
+        with patch.object(dependencies, "get_writing_llm_service", return_value=writing_llm) as writing_mock:
+            with patch.object(dependencies, "get_topic_idea_repository", return_value=repository):
+                with patch.object(dependencies, "get_novel_service", return_value=novel_service):
+                    service = dependencies.get_topic_idea_service()
+
+    assert service._llm is analysis_llm
+    analysis_mock.assert_called_once_with()
+    writing_mock.assert_not_called()
+
+
+def test_auto_bible_generator_uses_analysis_llm_route():
+    """新书向导 Bible 是结构化规划/记忆种子，应走 DS 分析模型路由，避免 GPT 写作模型长思考超时。"""
+    analysis_llm = MagicMock(name="analysis-llm")
+    writing_llm = MagicMock(name="writing-llm")
+    bible_service = MagicMock(name="bible-service")
+
+    with patch.object(dependencies, "get_analysis_llm_service", return_value=analysis_llm) as analysis_mock:
+        with patch.object(dependencies, "get_writing_llm_service", return_value=writing_llm) as writing_mock:
+            with patch.object(dependencies, "get_bible_service", return_value=bible_service):
+                generator = dependencies.get_auto_bible_generator()
+
+    assert generator.llm_service is analysis_llm
+    analysis_mock.assert_called_once_with()
+    writing_mock.assert_not_called()
+
+
+def test_setup_main_plot_suggestion_service_uses_analysis_llm_route():
+    """向导主线候选推演也是结构化规划任务，应走 DS 分析模型路由。"""
+    analysis_llm = MagicMock(name="analysis-llm")
+    writing_llm = MagicMock(name="writing-llm")
+    bible_service = MagicMock(name="bible-service")
+    novel_service = MagicMock(name="novel-service")
+
+    with patch.object(dependencies, "get_analysis_llm_service", return_value=analysis_llm) as analysis_mock:
+        with patch.object(dependencies, "get_writing_llm_service", return_value=writing_llm) as writing_mock:
+            with patch.object(dependencies, "get_bible_service", return_value=bible_service):
+                with patch.object(dependencies, "get_novel_service", return_value=novel_service):
+                    service = dependencies.get_setup_main_plot_suggestion_service()
+
+    assert service._llm is analysis_llm
+    analysis_mock.assert_called_once_with()
+    writing_mock.assert_not_called()
+
+
+def test_get_writing_llm_service_uses_dynamic_profile_runtime():
+    """写作路由应跟随后台激活配置，不再固定 profile_id。"""
+    dependencies.get_writing_llm_service.cache_clear()
+    factory = MagicMock(name="factory")
+    with patch.object(dependencies, "get_llm_provider_factory", return_value=factory):
+        service = dependencies.get_writing_llm_service()
+    assert isinstance(service, DynamicLLMService)
+    assert service.factory is factory
+    dependencies.get_writing_llm_service.cache_clear()
 
 
 class TestGetVectorStore:
@@ -10,6 +74,7 @@ class TestGetVectorStore:
 
     def setup_method(self):
         dependencies._vector_store_singleton = None
+        dependencies._vector_store_init_failed = False
 
     def test_get_vector_store_returns_none_when_no_env(self):
         """未设置环境变量时默认返回 ChromaDB 实例。"""

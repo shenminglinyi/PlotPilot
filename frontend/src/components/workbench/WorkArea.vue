@@ -237,15 +237,175 @@
                     </n-tag>
                   </n-space>
                 </template>
-                <n-input
-                  v-model:value="generateOutline"
-                  type="textarea"
-                  placeholder="输入大纲（可选，留空则使用默认）；失焦后自动预分析场景（供生成时复用）"
-                  :autosize="{ minRows: 3, maxRows: 8 }"
-                  :disabled="generateInProgress"
-                  @blur="onOutlineBlurAnalyze"
-                />
+                <n-space vertical :size="8" style="width: 100%">
+                  <n-space :size="8">
+                    <n-button
+                      size="tiny"
+                      secondary
+                      type="info"
+                      :disabled="generateInProgress"
+                      @click="applyCocManualStructureTemplate"
+                    >
+                      套用CoC结构模板
+                    </n-button>
+                    <n-text depth="3" style="font-size: 12px">
+                      手动规划会随生成一起读取 Bible、正典、线索和道具账本。
+                    </n-text>
+                  </n-space>
+                  <n-input
+                    v-model:value="generateOutline"
+                    type="textarea"
+                    placeholder="输入大纲（可选，留空则使用默认）；失焦后自动预分析场景（供生成时复用）"
+                    :autosize="{ minRows: 3, maxRows: 12 }"
+                    :disabled="generateInProgress"
+                    @blur="onOutlineBlurAnalyze"
+                  />
+                </n-space>
               </n-form-item>
+
+              <n-card size="small" :bordered="false" class="coc-precheck-card">
+                <n-space vertical :size="8">
+                  <n-space justify="space-between" align="center" style="width: 100%">
+                    <n-space align="center" :size="8">
+                      <n-text strong style="font-size: 13px">CoC 认知预检</n-text>
+                      <n-tag
+                        size="tiny"
+                        round
+                        :type="
+                          cocPrecheckResult?.risk_level === 'block'
+                            ? 'error'
+                            : cocPrecheckResult?.risk_level === 'warning'
+                              ? 'warning'
+                              : cocPrecheckResult?.checked
+                                ? 'success'
+                                : 'default'
+                        "
+                      >
+                        {{
+                          cocPrecheckResult?.risk_level === 'block'
+                            ? '阻断'
+                            : cocPrecheckResult?.risk_level === 'warning'
+                              ? '提醒'
+                              : cocPrecheckResult?.checked
+                                ? '通过'
+                                : '未检查'
+                        }}
+                      </n-tag>
+                    </n-space>
+                    <n-space :size="8">
+                      <n-select
+                        v-model:value="cocRewriteMode"
+                        :options="cocRewriteModeOptions"
+                        size="tiny"
+                        style="width: 112px"
+                        :disabled="generateInProgress || cocRewriteLoading"
+                      />
+                      <n-select
+                        v-model:value="cocRewriteStyle"
+                        :options="cocRewriteStyleOptions"
+                        size="tiny"
+                        style="width: 92px"
+                        :disabled="generateInProgress || cocRewriteLoading"
+                      />
+                      <n-button
+                        size="tiny"
+                        secondary
+                        :loading="cocPrecheckLoading"
+                        :disabled="generateInProgress || generateTargetChapterId == null"
+                        @click="runCocPrecheckForModal()"
+                      >
+                        立即预检
+                      </n-button>
+                      <n-button
+                        size="tiny"
+                        type="warning"
+                        secondary
+                        :loading="cocRewriteLoading"
+                        :disabled="generateInProgress || generateTargetChapterId == null"
+                        @click="rewriteOutlineForCocBoundaryForModal"
+                      >
+                        一键安全改写
+                      </n-button>
+                    </n-space>
+                  </n-space>
+
+                  <n-text depth="3" style="font-size: 12px">
+                    生成前检查是否越过“读者已知 / 角色已知 / 作者真相”边界，命中阻断项会默认禁止生成。
+                  </n-text>
+
+                  <n-alert
+                    v-if="cocPrecheckResult?.blocking_issues?.length"
+                    type="error"
+                    :show-icon="true"
+                    style="font-size: 12px"
+                  >
+                    <n-space vertical :size="4">
+                      <n-text v-for="(item, idx) in cocPrecheckResult.blocking_issues" :key="`precheck-block-${idx}`" depth="3">
+                        - {{ item }}
+                      </n-text>
+                    </n-space>
+                  </n-alert>
+                  <n-alert
+                    v-else-if="cocPrecheckResult?.warnings?.length"
+                    type="warning"
+                    :show-icon="true"
+                    style="font-size: 12px"
+                  >
+                    <n-space vertical :size="4">
+                      <n-text v-for="(item, idx) in cocPrecheckResult.warnings" :key="`precheck-warn-${idx}`" depth="3">
+                        - {{ item }}
+                      </n-text>
+                    </n-space>
+                  </n-alert>
+
+                  <n-form-item
+                    v-if="cocPrecheckResult?.blocking_issues?.length"
+                    label="强制继续"
+                    label-placement="left"
+                    label-width="80"
+                    :show-feedback="false"
+                  >
+                    <n-space align="center" :size="8">
+                      <n-switch
+                        v-model:value="ignoreCocPrecheckBlockOnce"
+                        :disabled="generateInProgress"
+                        size="small"
+                      />
+                      <n-text depth="3" style="font-size: 12px">
+                        仅本次生成忽略阻断（建议仅用于实验）
+                      </n-text>
+                    </n-space>
+                  </n-form-item>
+
+                  <n-alert
+                    v-if="cocRewriteResult?.applied_rules?.length"
+                    type="info"
+                    :show-icon="true"
+                    style="font-size: 12px"
+                  >
+                    <n-space vertical :size="4">
+                      <n-space :size="6" align="center">
+                        <n-text depth="3">本次改写模式</n-text>
+                        <n-tag size="tiny" round :type="cocRewriteResult.rewrite_mode === 'aggressive' ? 'warning' : 'info'">
+                          {{ cocRewriteResult.rewrite_mode === 'aggressive' ? '激进' : '保守' }}
+                        </n-tag>
+                        <n-tag size="tiny" round type="default">
+                          {{
+                            cocRewriteResult.rewrite_style === 'coc'
+                              ? 'CoC向'
+                              : cocRewriteResult.rewrite_style === 'suspense'
+                                ? '悬疑向'
+                                : '通用'
+                          }}
+                        </n-tag>
+                      </n-space>
+                      <n-text v-for="(item, idx) in cocRewriteResult.applied_rules" :key="`precheck-rewrite-${idx}`" depth="3">
+                        - {{ item }}
+                      </n-text>
+                    </n-space>
+                  </n-alert>
+                </n-space>
+              </n-card>
 
               <n-form-item label="场记分析" label-placement="left" label-width="80" :show-feedback="false">
                 <n-space align="center" :size="8">
@@ -265,6 +425,93 @@
                   />
                   <n-text depth="3" style="font-size: 12px">
                     避免把对话、动作和心理转折压成一句概括
+                  </n-text>
+                </n-space>
+              </n-form-item>
+
+              <n-form-item label="目标字数" label-placement="left" label-width="80" :show-feedback="false">
+                <n-space align="center" :size="8">
+                  <n-input-number
+                    v-model:value="targetWordCount"
+                    :min="800"
+                    :max="12000"
+                    :step="100"
+                    :disabled="generateInProgress"
+                    size="small"
+                    style="width: 140px"
+                  />
+                  <n-input-number
+                    v-model:value="wordTolerancePercent"
+                    :min="2"
+                    :max="20"
+                    :step="1"
+                    :disabled="generateInProgress"
+                    size="small"
+                    style="width: 100px"
+                  >
+                    <template #suffix>%</template>
+                  </n-input-number>
+                  <n-text depth="3" style="font-size: 12px">
+                    {{ targetWordRangeHint }}
+                  </n-text>
+                </n-space>
+              </n-form-item>
+
+              <n-form-item label="长稿母本" label-placement="left" label-width="80" :show-feedback="false">
+                <n-space align="center" :size="8">
+                  <n-switch
+                    v-model:value="longDraftMode"
+                    :disabled="generateInProgress"
+                    size="small"
+                  />
+                  <n-input-number
+                    v-if="longDraftMode"
+                    v-model:value="longDraftSplitCount"
+                    :min="2"
+                    :max="4"
+                    :step="1"
+                    :disabled="generateInProgress"
+                    size="small"
+                    style="width: 96px"
+                  />
+                  <n-text depth="3" style="font-size: 12px">
+                    {{ longDraftMode ? `先写连续母稿，预计拆成 ${longDraftSplitCount || 2} 章` : '灰度功能：先写长稿再拆章（默认关闭）' }}
+                  </n-text>
+                </n-space>
+              </n-form-item>
+
+              <n-form-item label="直接写作" label-placement="left" label-width="80" :show-feedback="false">
+                <n-space align="center" :size="8">
+                  <n-switch
+                    v-model:value="directWritingMode"
+                    :disabled="generateInProgress"
+                    size="small"
+                  />
+                  <n-text depth="3" style="font-size: 12px">
+                    对照测试：跳过节拍拆分、AI味后处理和章后质检，只让模型按上下文直接写一版
+                  </n-text>
+                </n-space>
+              </n-form-item>
+
+              <n-alert v-if="directWritingMode" type="warning" :show-icon="true" style="font-size: 12px">
+                直接写作模式不会自动生成一致性报告，也不会套用手法档案后处理；适合拿去检测，判断 PP 流程是否影响正文质感。
+              </n-alert>
+
+              <n-form-item
+                v-if="directWritingMode"
+                label="轻修"
+                label-placement="left"
+                label-width="80"
+                :show-feedback="false"
+              >
+                <n-space align="center" :size="8">
+                  <n-switch
+                    v-model:value="directLightPolish"
+                    :disabled="generateInProgress"
+                    size="small"
+                  />
+                  <n-text depth="3" style="font-size: 12px">
+                    直接写完后只做 10%-20% 局部编辑，压低 AI 特征但不进入完整 PP 后处理
                   </n-text>
                 </n-space>
               </n-form-item>
@@ -292,6 +539,105 @@
               <n-alert v-if="sceneDirectorError" type="warning" :show-icon="true" style="font-size: 12px">
                 场记分析失败（不影响生成）：{{ sceneDirectorError }}
               </n-alert>
+
+              <n-space vertical :size="8" style="width: 100%">
+                <n-space justify="space-between" align="center" style="width: 100%">
+                  <n-space align="center" :size="8">
+                    <n-text strong style="font-size: 13px">本章写作策略</n-text>
+                    <n-tag v-if="chapterStrategy" size="tiny" type="success" round>已预览</n-tag>
+                  </n-space>
+                  <n-space :size="8">
+                    <n-button
+                      size="tiny"
+                      secondary
+                      :loading="loadingChapterStrategy"
+                      :disabled="generateInProgress || generateTargetChapterId == null"
+                      @click="previewChapterStrategyForModal"
+                    >
+                      {{ chapterStrategy ? '重新生成策略' : '生成策略预览' }}
+                    </n-button>
+                    <n-button
+                      v-if="chapterStrategy"
+                      size="tiny"
+                      quaternary
+                      :disabled="generateInProgress"
+                      @click="clearChapterStrategy"
+                    >
+                      清空策略
+                    </n-button>
+                  </n-space>
+                </n-space>
+                <div v-if="chapterStrategy" class="generate-strategy-preview">
+                  <n-alert
+                    v-if="chapterStrategy.chapter_contract"
+                    type="info"
+                    title="章节合同"
+                    :bordered="false"
+                    class="chapter-contract-card"
+                  >
+                    <n-space vertical :size="6">
+                      <n-text depth="3">本章问题：{{ chapterStrategy.chapter_contract.chapter_question }}</n-text>
+                      <n-text depth="3">主角想要：{{ chapterStrategy.chapter_contract.protagonist_want }}</n-text>
+                      <n-text depth="3">阻力来源：{{ chapterStrategy.chapter_contract.opposition }}</n-text>
+                      <n-text depth="3">信息变化：{{ chapterStrategy.chapter_contract.required_information_change }}</n-text>
+                      <n-text depth="3">章末追问：{{ chapterStrategy.chapter_contract.ending_question }}</n-text>
+                      <n-space vertical :size="2">
+                        <n-text strong depth="2">展示优先</n-text>
+                        <n-text
+                          v-for="(rule, index) in chapterStrategy.chapter_contract.show_dont_tell_rules"
+                          :key="`show-rule-${index}`"
+                          depth="3"
+                        >
+                          - {{ rule }}
+                        </n-text>
+                      </n-space>
+                    </n-space>
+                  </n-alert>
+                  <div class="generate-strategy-grid">
+                    <div class="strategy-chip">
+                      <span class="strategy-chip__label">角色想要</span>
+                      <strong>{{ chapterStrategy.dramatic_task.goal }}</strong>
+                    </div>
+                    <div class="strategy-chip">
+                      <span class="strategy-chip__label">主要阻碍</span>
+                      <strong>{{ chapterStrategy.dramatic_task.obstacle }}</strong>
+                    </div>
+                    <div class="strategy-chip">
+                      <span class="strategy-chip__label">读者期待</span>
+                      <strong>{{ chapterStrategy.dramatic_task.reader_expectation }}</strong>
+                    </div>
+                    <div class="strategy-chip">
+                      <span class="strategy-chip__label">章末钩子</span>
+                      <strong>{{ chapterStrategy.dramatic_task.ending_hook }}</strong>
+                    </div>
+                  </div>
+                  <n-space vertical :size="8">
+                    <div
+                      v-for="(scene, index) in chapterStrategy.scene_plan"
+                      :key="`${scene.label}-${index}`"
+                      class="strategy-scene-row"
+                    >
+                      <n-space justify="space-between" align="center" style="width: 100%">
+                        <strong>{{ index + 1 }}. {{ scene.label }}</strong>
+                        <n-tag size="tiny" round>{{ scene.target_words }} 字</n-tag>
+                      </n-space>
+                      <n-text depth="3">任务：{{ scene.task }}</n-text>
+                      <n-text depth="3">阻力：{{ scene.resistance }}</n-text>
+                      <n-text depth="3">变化：{{ scene.info_shift }}</n-text>
+                      <n-text depth="3">关系：{{ scene.relationship_shift }}</n-text>
+                      <n-text depth="3">锚点：{{ scene.anchor }}</n-text>
+                      <n-text v-if="scene.visible_action" depth="3">动作：{{ scene.visible_action }}</n-text>
+                      <n-text v-if="scene.subtext_dialogue" depth="3">潜台词：{{ scene.subtext_dialogue }}</n-text>
+                      <n-text v-if="scene.unspoken_emotion" depth="3">不直说：{{ scene.unspoken_emotion }}</n-text>
+                      <n-text v-if="scene.object_or_clue_change" depth="3">线索/道具：{{ scene.object_or_clue_change }}</n-text>
+                      <n-text depth="3">钩子：{{ scene.hook }}</n-text>
+                    </div>
+                  </n-space>
+                </div>
+                <n-text v-else depth="3" style="font-size: 12px">
+                  先生成一份可见策略，再让正文按“戏剧任务 + 场景推进”写，会比只丢大纲更稳。
+                </n-text>
+              </n-space>
 
               <n-button
                 type="primary"
@@ -458,6 +804,77 @@
                 placeholder="生成的内容将在此显示..."
               />
             </n-scrollbar>
+            <div v-if="loadingEditorialReview || editorialReview" class="editorial-review-card">
+              <n-space vertical :size="8">
+                <n-space align="center" justify="space-between" style="width: 100%">
+                  <n-space align="center" :size="8">
+                    <strong>主编审稿</strong>
+                    <n-tag
+                      v-if="editorialReview"
+                      size="tiny"
+                      round
+                      :type="editorialReview.verdict === '保留' ? 'success' : editorialReview.verdict === '建议重写' ? 'error' : 'warning'"
+                    >
+                      {{ editorialReview.verdict }}
+                    </n-tag>
+                  </n-space>
+                  <n-button
+                    v-if="generatedContent && !generateInProgress"
+                    size="tiny"
+                    secondary
+                    :loading="loadingEditorialReview"
+                    @click="rerunEditorialReview"
+                  >
+                    重新审稿
+                  </n-button>
+                  <n-button
+                    v-if="editorialReview && generatedContent && !generateInProgress"
+                    size="tiny"
+                    type="primary"
+                    secondary
+                    :loading="generatingEditorialPolishCandidate"
+                    :disabled="isAssistedReadOnly"
+                    @click="generateEditorialPolishCandidate"
+                  >
+                    按审稿精修候选稿
+                  </n-button>
+                </n-space>
+                <n-text v-if="loadingEditorialReview" depth="3" style="font-size: 12px">
+                  正在按开篇、冲突、人物、对白、追读、节奏做主编审稿…
+                </n-text>
+                <template v-else-if="editorialReview">
+                  <n-text depth="3">{{ editorialReview.summary }}</n-text>
+                  <div class="editorial-score-grid">
+                    <div
+                      v-for="(value, key) in editorialReview.scores"
+                      :key="key"
+                      class="editorial-score-item"
+                    >
+                      <span>{{ editorialScoreLabel(String(key)) }}</span>
+                      <strong>{{ value }}</strong>
+                    </div>
+                  </div>
+                  <n-space vertical :size="4">
+                    <n-text strong>亮点</n-text>
+                    <n-text v-for="(item, index) in editorialReview.strengths" :key="`strength-${index}`" depth="3">
+                      - {{ item }}
+                    </n-text>
+                  </n-space>
+                  <n-space vertical :size="4">
+                    <n-text strong>问题</n-text>
+                    <n-text v-for="(item, index) in editorialReview.problems" :key="`problem-${index}`" depth="3">
+                      - {{ item }}
+                    </n-text>
+                  </n-space>
+                  <n-space vertical :size="4">
+                    <n-text strong>修改动作</n-text>
+                    <n-text v-for="(item, index) in editorialReview.actions" :key="`action-${index}`" depth="3">
+                      - {{ item }}
+                    </n-text>
+                  </n-space>
+                </template>
+              </n-space>
+            </div>
           </n-card>
         </n-space>
       </n-scrollbar>
@@ -658,6 +1075,14 @@
               @click="generateDirectCandidateDraft"
             >
               PP AI 生成候选稿
+            </n-button>
+            <n-button
+              size="small"
+              secondary
+              :disabled="!currentChapter"
+              @click="openWebWritingModal"
+            >
+              Web 写作
             </n-button>
             <n-button
               size="small"
@@ -940,6 +1365,98 @@
       </template>
     </n-modal>
 
+    <n-modal
+      v-model:show="showWebWritingModal"
+      preset="card"
+      title="Web 写作模式"
+      style="width: min(920px, 96vw)"
+      :segmented="{ content: true, footer: 'soft' }"
+    >
+      <n-space vertical :size="14">
+        <n-alert type="info" :show-icon="true" style="font-size: 13px">
+          PP 只生成提示词和管理候选稿，不调用写作 API。你把提示词复制到 ChatGPT / Kimi / DeepSeek 网页，生成后把正文粘回这里保存为候选稿。
+        </n-alert>
+
+        <n-grid :cols="2" :x-gap="12">
+          <n-grid-item>
+            <n-form-item label="Web 模型标记" label-placement="top" :show-feedback="false">
+              <n-input v-model:value="webWritingModelLabel" placeholder="例如 ChatGPT Web / Kimi Web / DeepSeek Web" />
+            </n-form-item>
+          </n-grid-item>
+          <n-grid-item>
+            <n-form-item label="候选分支" label-placement="top" :show-feedback="false">
+              <n-input v-model:value="candidateBranchFilter" placeholder="main" />
+            </n-form-item>
+          </n-grid-item>
+        </n-grid>
+
+        <n-form-item label="给网页模型的额外要求" label-placement="top" :show-feedback="false">
+          <n-input
+            v-model:value="webWritingTaskPrompt"
+            type="textarea"
+            placeholder="例：按 2500 字左右写完整章节，保持 CoC 限制视角，少解释，多用物证推进。"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+          />
+        </n-form-item>
+
+        <n-space justify="space-between" align="center">
+          <n-text depth="3" style="font-size: 12px">
+            当前章节：{{ currentChapter ? `第${currentChapter.number}章 ${currentChapter.title || ''}` : '未选择章节' }}
+          </n-text>
+          <n-space :size="8">
+            <n-button
+              secondary
+              :loading="creatingWebWritingPrompt"
+              :disabled="!currentChapter"
+              @click="createWebWritingPrompt"
+            >
+              生成提示词
+            </n-button>
+            <n-button
+              secondary
+              :disabled="!webWritingPrompt.trim()"
+              @click="copyWebWritingPrompt"
+            >
+              复制提示词
+            </n-button>
+          </n-space>
+        </n-space>
+
+        <n-form-item label="网页提示词" label-placement="top" :show-feedback="false">
+          <n-input
+            v-model:value="webWritingPrompt"
+            type="textarea"
+            readonly
+            placeholder="点击“生成提示词”后出现，可复制到网页模型。"
+            :autosize="{ minRows: 8, maxRows: 14 }"
+          />
+        </n-form-item>
+
+        <n-form-item label="网页回稿正文" label-placement="top" :show-feedback="false">
+          <n-input
+            v-model:value="webWritingResponse"
+            type="textarea"
+            placeholder="把网页模型生成的完整章节正文粘贴到这里，再保存为候选稿。"
+            :autosize="{ minRows: 8, maxRows: 16 }"
+          />
+        </n-form-item>
+      </n-space>
+
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="showWebWritingModal = false">关闭</n-button>
+          <n-button
+            type="primary"
+            :loading="importingWebWritingDraft"
+            :disabled="!currentChapter || !webWritingResponse.trim()"
+            @click="importWebWritingResponseAsCandidate"
+          >
+            保存回稿为候选稿
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
+
   </div>
 </template>
 
@@ -951,8 +1468,19 @@ import {
   consumeGenerateChapterStream,
   analyzeScene,
   retrieveContext,
+  previewChapterStrategy,
+  reviewGeneratedChapterEditorially,
+  precheckCocCognitionBoundary,
+  rewriteOutlineByCocBoundary,
 } from '../../api/workflow'
-import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
+import type {
+  CocCognitionPrecheckDTO,
+  CocCognitionRewriteResultDTO,
+  ChapterEditorialReviewDTO,
+  ChapterStrategyPreviewDTO,
+  ContextPreviewResult,
+  GenerateChapterWorkflowResponse,
+} from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
 import { novelproSuggestionsApi } from '../../api/novelproSuggestions'
 import { styleBibleApi, type StyleProfileDetail, type StyleProfileMatchReportDTO } from '../../api/styleBible'
@@ -1040,6 +1568,7 @@ const showGenerateModal = ref(false)
 const showGenerationStyleModal = ref(false)
 const showPrecisionRewriteModal = ref(false)
 const showCandidateDraftsModal = ref(false)
+const showWebWritingModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
 /** 弹窗内选中的目标章节（与 useWorkbench 映射一致：id === number） */
@@ -1053,11 +1582,28 @@ const styleMatchLoading = ref(false)
 const generateInProgress = ref(false)
 const lastWorkflowResult = ref<GenerateChapterWorkflowResponse | null>(null)
 const lastQcChapterNumber = ref<number | null>(null)
+const chapterStrategy = ref<ChapterStrategyPreviewDTO | null>(null)
+const loadingChapterStrategy = ref(false)
+const cocPrecheckLoading = ref(false)
+const cocRewriteLoading = ref(false)
+const cocPrecheckResult = ref<CocCognitionPrecheckDTO | null>(null)
+const cocRewriteResult = ref<CocCognitionRewriteResultDTO | null>(null)
+const cocRewriteMode = ref<'conservative' | 'aggressive'>('conservative')
+const cocRewriteStyle = ref<'generic' | 'suspense' | 'coc'>('generic')
+const ignoreCocPrecheckBlockOnce = ref(false)
+const editorialReview = ref<ChapterEditorialReviewDTO | null>(null)
+const loadingEditorialReview = ref(false)
 const blurSceneCache = ref<Record<string, unknown> | undefined>(undefined)
 const outlineBlurAnalyzing = ref(false)
 const streamPhaseLabel = ref('')
 const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
+const targetWordCount = ref(2500)
+const wordTolerancePercent = ref(5)
+const longDraftMode = ref(false)
+const longDraftSplitCount = ref(2)
+const directWritingMode = ref(false)
+const directLightPolish = ref(false)
 const candidateDrafts = ref<ChapterCandidateDraftDTO[]>([])
 const loadingCandidateDrafts = ref(false)
 const candidateBranches = ref<CandidateBranchSummary[]>([])
@@ -1065,12 +1611,20 @@ const selectedCandidateCompare = ref<CandidateDraftCompareResponse | null>(null)
 const selectedCandidateSupervisorReview = ref<SupervisorReviewCandidateDraftResponse | null>(null)
 const branchMemoryDiff = ref<BranchMemoryDiffResponse | null>(null)
 const externalModelTasks = ref<ExternalModelTaskDTO[]>([])
+const webWritingModelLabel = ref('ChatGPT Web')
+const webWritingTaskPrompt = ref('')
+const webWritingPrompt = ref('')
+const webWritingResponse = ref('')
+const webWritingTask = ref<ExternalModelTaskDTO | null>(null)
 const savingCandidateDraft = ref(false)
 const savingPrecisionRewriteTask = ref(false)
 const suggestingPrecisionRewriteTask = ref(false)
 const savingPartialCandidateDraft = ref(false)
 const mergingBranch = ref(false)
 const generatingDirectCandidate = ref(false)
+const generatingEditorialPolishCandidate = ref(false)
+const creatingWebWritingPrompt = ref(false)
+const importingWebWritingDraft = ref(false)
 const reviewingCandidateDraft = ref(false)
 const acceptingCandidateDraftId = ref<string | null>(null)
 const selectedCandidateDraftId = ref<string | null>(null)
@@ -1093,6 +1647,21 @@ const precisionRewriteObjectiveOptions = [
   { label: '更暧昧', value: '更暧昧' },
   { label: '保留事件只改表达', value: '保留事件只改表达' },
 ]
+const cocRewriteModeOptions = [
+  { label: '保守改写', value: 'conservative' },
+  { label: '激进改写', value: 'aggressive' },
+]
+const cocRewriteStyleOptions = [
+  { label: '通用', value: 'generic' },
+  { label: '悬疑向', value: 'suspense' },
+  { label: 'CoC向', value: 'coc' },
+]
+const targetWordRangeHint = computed(() => {
+  const target = Math.max(800, Math.min(12000, Number(targetWordCount.value || 2500)))
+  const tolerance = Math.max(2, Math.min(20, Number(wordTolerancePercent.value || 5)))
+  const delta = Math.max(80, Math.floor(target * (tolerance / 100)))
+  return `容差 ${tolerance}%：约 ${Math.max(500, target - delta)}-${target + delta} 字`
+})
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
 const isAutopilotRunning = computed(() => autopilotStatus.value?.autopilot_status === 'running')
@@ -1444,6 +2013,205 @@ const previewContext = async () => {
   }
 }
 
+function applyCocManualStructureTemplate() {
+  const chapter = modalTargetChapter.value || currentChapter.value
+  const chapterNumber = chapter?.number || 1
+  const chapterTitle = chapter?.title || '未命名章节'
+  generateOutline.value = [
+    `第${chapterNumber}章：${chapterTitle}`,
+    '',
+    '【Bible一致性核对（写作前必须遵守）】',
+    '- 只使用 Bible 中已存在的主角团、地点、世界规则与人物关系；如果需要新增人物/地点，先写成临时角色/临时地点，不直接改主角团固定席位。',
+    '- 白雨翔、许照、周闻笙、陈泊舟为固定主角团；可失联、受伤、互疑或遗忘关系，但不能无铺垫替换成员。',
+    '- 每名主角的固定核心道具必须保持当前持有人、状态与代价规则；非核心道具只能在本任务内使用，带出前必须转为证物。',
+    '',
+    '【本章戏剧任务】',
+    '- 角色目标：',
+    '- 主要阻碍：',
+    '- 读者期待：',
+    '- 本章结尾钩子：',
+    '',
+    '【场景推进表】',
+    '1. 场景一：',
+    '   - 目标：',
+    '   - 阻力：',
+    '   - 信息变化：',
+    '   - 人物关系变化：',
+    '   - 道具变化：',
+    '   - 钩子：',
+    '2. 场景二：',
+    '   - 目标：',
+    '   - 阻力：',
+    '   - 信息变化：',
+    '   - 人物关系变化：',
+    '   - 道具变化：',
+    '   - 钩子：',
+    '',
+    '【CoC线索与认知边界】',
+    '- 本章新增线索候选：',
+    '- 读者可知道：',
+    '- 角色可知道：',
+    '- 作者真相/禁止直出：',
+    '- 误导点：',
+    '- 需要章后确认是否登记到 CoC线索/正典：',
+    '',
+    '【理智/认知代价】',
+    '- 谁受到影响：',
+    '- 具体表现：记忆缺口 / 感官错位 / 熟人陌生化 / 时间感错误 / 判断偏移',
+    '- 是否影响下章：',
+    '',
+    '【写作限制】',
+    '- 限制视角，不全知解释。',
+    '- 不直接说出作者真相，只写角色能看见、听见、推断或误解的证据。',
+    '- 正文必须服务于冲突、线索、人物关系和结尾追读。',
+  ].join('\n')
+  cocPrecheckResult.value = null
+  cocRewriteResult.value = null
+  blurSceneCache.value = undefined
+  message.success('已套用 CoC 手动结构规划模板')
+}
+
+function editorialScoreLabel(key: string) {
+  const map: Record<string, string> = {
+    opening: '开头',
+    conflict: '冲突',
+    character: '人物',
+    dialogue: '对白',
+    hook: '追读',
+    pacing: '节奏',
+    showing: '展示',
+  }
+  return map[key] || key
+}
+
+async function resolveSceneDirectorResultForModal(chapterNumber: number) {
+  let sceneDirectorResult: Record<string, unknown> | undefined = blurSceneCache.value
+  if (useSceneDirector.value && !sceneDirectorResult) {
+    analyzingScene.value = true
+    try {
+      const outline = generateOutline.value || `第${chapterNumber}章：承接前情，推进主线`
+      const analysis = await analyzeScene(props.slug, chapterNumber, outline)
+      sceneDirectorResult = analysis as Record<string, unknown>
+      blurSceneCache.value = sceneDirectorResult
+    } catch (e: unknown) {
+      sceneDirectorError.value = e instanceof Error ? e.message : '分析失败'
+    } finally {
+      analyzingScene.value = false
+    }
+  }
+  return sceneDirectorResult
+}
+
+async function runCocPrecheckForModal(options?: { silent?: boolean }) {
+  const target = modalTargetChapter.value
+  if (!target) return null
+  const outline = generateOutline.value.trim() || `第${target.number}章：承接前情，推进主线`
+  cocPrecheckLoading.value = true
+  try {
+    const result = await precheckCocCognitionBoundary(props.slug, target.number, outline)
+    cocPrecheckResult.value = result
+    if (!options?.silent) {
+      if (result.checked && result.allow_generate === false) {
+        const detail = result.blocking_issues?.[0] || '命中认知边界阻断规则'
+        message.error(`预检阻断：${detail}`)
+      } else if (result.checked && (result.warnings?.length || 0) > 0) {
+        message.warning(`预检提醒：${result.warnings[0]}`)
+      } else {
+        message.success('预检通过')
+      }
+    }
+    return result
+  } catch {
+    cocPrecheckResult.value = null
+    if (!options?.silent) {
+      message.warning('预检失败，已跳过')
+    }
+    return null
+  } finally {
+    cocPrecheckLoading.value = false
+  }
+}
+
+async function rewriteOutlineForCocBoundaryForModal() {
+  const target = modalTargetChapter.value
+  if (!target) return
+  const outline = generateOutline.value.trim() || `第${target.number}章：承接前情，推进主线`
+  cocRewriteLoading.value = true
+  try {
+    const result = await rewriteOutlineByCocBoundary(
+      props.slug,
+      target.number,
+      outline,
+      cocRewriteMode.value,
+      cocRewriteStyle.value,
+    )
+    cocRewriteResult.value = result
+    if (result.changed) {
+      generateOutline.value = result.rewritten_outline
+      cocPrecheckResult.value = result.precheck_after
+      ignoreCocPrecheckBlockOnce.value = false
+      message.success(`已完成${result.rewrite_mode === 'aggressive' ? '激进' : '保守'}安全改写，并复检通过`)
+    } else {
+      cocPrecheckResult.value = result.precheck_after
+      message.success('当前大纲无需改写')
+    }
+  } catch {
+    message.error('安全改写失败，请稍后重试')
+  } finally {
+    cocRewriteLoading.value = false
+  }
+}
+
+async function previewChapterStrategyForModal() {
+  const target = modalTargetChapter.value
+  if (!target) {
+    message.warning('请选择目标章节')
+    return
+  }
+  loadingChapterStrategy.value = true
+  try {
+    const sceneDirectorResult = await resolveSceneDirectorResultForModal(target.number)
+    const defaultOutline = `第${target.number}章：承接前情，推进主线`
+    chapterStrategy.value = await previewChapterStrategy(props.slug, target.number, {
+      outline: generateOutline.value || defaultOutline,
+      scene_director_result: sceneDirectorResult,
+      style_profile_id: generateStyleProfileId.value || '',
+      scene_type: generateSceneType.value.trim(),
+      target_word_count: targetWordCount.value || undefined,
+      word_tolerance_percent: wordTolerancePercent.value || 5,
+    })
+    message.success('本章写作策略已生成')
+  } catch {
+    message.error('生成写作策略失败，请检查模型配置')
+  } finally {
+    loadingChapterStrategy.value = false
+  }
+}
+
+async function runEditorialReviewForModal(chapterNumber: number, outline: string, content: string) {
+  if (!content.trim()) return
+  loadingEditorialReview.value = true
+  try {
+    editorialReview.value = await reviewGeneratedChapterEditorially(props.slug, chapterNumber, {
+      outline,
+      content,
+      chapter_strategy: chapterStrategy.value,
+    })
+  } catch {
+    editorialReview.value = null
+    message.warning('主编审稿失败，请稍后重试')
+  } finally {
+    loadingEditorialReview.value = false
+  }
+}
+
+async function rerunEditorialReview() {
+  const target = modalTargetChapter.value
+  if (!target || !generatedContent.value.trim()) return
+  const defaultOutline = `第${target.number}章：承接前情，推进主线`
+  await runEditorialReviewForModal(target.number, generateOutline.value || defaultOutline, generatedContent.value)
+}
+
 async function onOutlineBlurAnalyze() {
   const ch = modalTargetChapter.value
   const outline = generateOutline.value.trim()
@@ -1459,6 +2227,7 @@ async function onOutlineBlurAnalyze() {
   } finally {
     outlineBlurAnalyzing.value = false
   }
+  void runCocPrecheckForModal({ silent: true })
 }
 
 function clearWorkflowQc() {
@@ -1466,20 +2235,57 @@ function clearWorkflowQc() {
   lastQcChapterNumber.value = null
 }
 
+function clearChapterStrategy() {
+  chapterStrategy.value = null
+}
+
 function clearGeneratedDraft() {
   generatedContent.value = ''
   styleMatchReport.value = null
+  editorialReview.value = null
   clearWorkflowQc()
 }
 
 watch(generateTargetChapterId, () => {
   blurSceneCache.value = undefined
   contextPreview.value = null
+  chapterStrategy.value = null
+  editorialReview.value = null
+  cocPrecheckResult.value = null
+  cocRewriteResult.value = null
+  cocRewriteMode.value = 'conservative'
+  cocRewriteStyle.value = 'generic'
+  ignoreCocPrecheckBlockOnce.value = false
 })
+
+watch(
+  () =>
+    [
+      generateOutline.value,
+      generateSceneType.value,
+      generateStyleProfileId.value,
+      targetWordCount.value,
+      wordTolerancePercent.value,
+      longDraftMode.value,
+      longDraftSplitCount.value,
+    ] as const,
+  () => {
+    chapterStrategy.value = null
+    editorialReview.value = null
+    cocPrecheckResult.value = null
+    cocRewriteResult.value = null
+    ignoreCocPrecheckBlockOnce.value = false
+  }
+)
 
 watch(showGenerateModal, (shown) => {
   if (shown) {
     void loadStyleProfilesForGeneration()
+    cocPrecheckResult.value = null
+    cocRewriteResult.value = null
+    cocRewriteMode.value = 'conservative'
+    cocRewriteStyle.value = 'generic'
+    ignoreCocPrecheckBlockOnce.value = false
   }
 })
 
@@ -1651,6 +2457,13 @@ const handleGenerateChapter = async () => {
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
+  chapterStrategy.value = null
+  editorialReview.value = null
+  cocPrecheckResult.value = null
+  cocRewriteResult.value = null
+  cocRewriteMode.value = 'conservative'
+  cocRewriteStyle.value = 'generic'
+  ignoreCocPrecheckBlockOnce.value = false
   activeCandidateRewriteTask.value = null
   contextPreview.value = null
   blurSceneCache.value = undefined
@@ -1782,6 +2595,135 @@ const generateDirectCandidateDraft = async () => {
     message.error('PP AI 生成候选稿失败，请检查 LLM 控制面板配置')
   } finally {
     generatingDirectCandidate.value = false
+  }
+}
+
+const generateEditorialPolishCandidate = async () => {
+  const target = modalTargetChapter.value
+  if (!target || !generatedContent.value.trim() || !editorialReview.value) {
+    message.warning('需要先完成正文生成和主编审稿')
+    return
+  }
+
+  const outline = generateOutline.value.trim() || `第${target.number}章：${target.title || '承接前情，推进主线'}`
+  generatingEditorialPolishCandidate.value = true
+  try {
+    const result = await chapterApi.generateEditorialPolishCandidate(props.slug, {
+      chapter_number: target.number,
+      outline,
+      current_content: generatedContent.value,
+      editorial_review: editorialReview.value,
+      target_word_count: targetWordCount.value || 2500,
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      title: `${target.title || `第${target.number}章`} 主编精修候选稿`,
+      model_label: 'PP 写作 AI',
+      max_tokens: Math.min(4096, Math.max(1800, Math.ceil((targetWordCount.value || 2500) * 1.6))),
+    })
+    message.success('已按主编审稿生成精修候选稿')
+    if (currentChapter.value?.number === target.number) {
+      await loadCandidateDrafts()
+      selectedCandidateDraftId.value = result.draft.id
+      showCandidateDraftsModal.value = true
+    }
+  } catch {
+    message.error('生成精修候选稿失败，请检查写作模型配置')
+  } finally {
+    generatingEditorialPolishCandidate.value = false
+  }
+}
+
+const openWebWritingModal = () => {
+  const chapter = currentChapter.value
+  if (!chapter) {
+    message.warning('请先选择章节')
+    return
+  }
+  if (!webWritingTaskPrompt.value.trim()) {
+    webWritingTaskPrompt.value = `生成一版约 ${targetWordCount.value || 2500} 字的完整章节正文；保留既有设定、角色口吻、伏笔和道具状态。`
+  }
+  webWritingPrompt.value = ''
+  webWritingResponse.value = ''
+  webWritingTask.value = null
+  showWebWritingModal.value = true
+}
+
+const createWebWritingPrompt = async () => {
+  const chapter = currentChapter.value
+  if (!chapter) return
+  const outline = generateOutline.value.trim() || `第${chapter.number}章：${chapter.title || '承接前情，推进主线'}`
+  creatingWebWritingPrompt.value = true
+  try {
+    const result = await chapterApi.createWebWritingPrompt(props.slug, {
+      chapter_number: chapter.number,
+      outline,
+      current_content: chapterContent.value,
+      model_label: webWritingModelLabel.value.trim() || 'Web 写作',
+      task_prompt: webWritingTaskPrompt.value.trim(),
+    })
+    webWritingPrompt.value = result.prompt
+    webWritingTask.value = result.task
+    externalModelTasks.value = await chapterApi.listExternalModelTasks(
+      props.slug,
+      chapter.number,
+    ).catch(() => externalModelTasks.value)
+    message.success('Web 写作提示词已生成')
+  } catch {
+    message.error('生成 Web 写作提示词失败')
+  } finally {
+    creatingWebWritingPrompt.value = false
+  }
+}
+
+const copyWebWritingPrompt = async () => {
+  if (!webWritingPrompt.value.trim()) return
+  try {
+    await navigator.clipboard.writeText(webWritingPrompt.value)
+    message.success('提示词已复制')
+  } catch {
+    message.error('复制失败，请手动选中复制')
+  }
+}
+
+const importWebWritingResponseAsCandidate = async () => {
+  const chapter = currentChapter.value
+  if (!chapter || !webWritingResponse.value.trim()) return
+
+  importingWebWritingDraft.value = true
+  try {
+    const draft = await chapterApi.createCandidateDraft(props.slug, chapter.number, {
+      source: 'external-model',
+      title: `${chapter.title || `第${chapter.number}章`} ${webWritingModelLabel.value || 'Web'} 回稿`,
+      content: webWritingResponse.value.trim(),
+      rationale: `Web 写作回稿：${webWritingModelLabel.value || 'Web 写作'}`,
+      branch_name: candidateBranchFilter.value.trim() || 'main',
+      metadata: {
+        external_model: webWritingModelLabel.value || 'Web 写作',
+        web_writing_task_id: webWritingTask.value?.id || '',
+        prompt: webWritingPrompt.value,
+      },
+    })
+    if (webWritingTask.value?.id) {
+      await chapterApi.upsertExternalModelTask(props.slug, {
+        id: webWritingTask.value.id,
+        chapter_number: chapter.number,
+        model: webWritingModelLabel.value || webWritingTask.value.model || 'Web 写作',
+        prompt: webWritingPrompt.value || webWritingTask.value.prompt,
+        instruction: webWritingTaskPrompt.value || webWritingTask.value.instruction,
+        candidate_draft_id: draft.id,
+        response_preview: draft.content.slice(0, 160),
+        status: 'imported',
+        execution_mode: 'web_copy_paste',
+      })
+    }
+    await loadCandidateDrafts()
+    selectedCandidateDraftId.value = draft.id
+    showWebWritingModal.value = false
+    showCandidateDraftsModal.value = true
+    message.success('Web 回稿已保存为候选稿')
+  } catch {
+    message.error('保存 Web 回稿失败')
+  } finally {
+    importingWebWritingDraft.value = false
   }
 }
 
@@ -1965,6 +2907,8 @@ const handleGenerateFromCandidateTask = (draft: ChapterCandidateDraftDTO) => {
   generateTargetChapterId.value = chapter.id
   generateOutline.value = candidateDraftRewritePrompt(draft)
   generatedContent.value = ''
+  chapterStrategy.value = null
+  editorialReview.value = null
   contextPreview.value = null
   blurSceneCache.value = undefined
   showCandidateDraftsModal.value = false
@@ -1989,6 +2933,7 @@ function streamPhaseToProgress(phase: string): number {
     planning: 18,
     context: 40,
     llm: 72,
+    polish: 86,
     post: 92,
   }
   return map[phase] ?? 12
@@ -1999,6 +2944,7 @@ function streamPhaseToLabel(phase: string): string {
     planning: '规划节拍…',
     context: '组装上下文…',
     llm: '撰写正文…',
+    polish: '轻修正文…',
     post: '质检与收尾…',
   }
   return map[phase] ?? phase
@@ -2015,11 +2961,25 @@ const handleStartGenerate = async () => {
     return
   }
 
+  const defaultOutline = `第${target.number}章：承接前情，推进主线`
+  const outlineForGenerate = generateOutline.value || defaultOutline
+  const precheck = await runCocPrecheckForModal({ silent: true })
+  if (precheck?.checked && precheck.allow_generate === false && !ignoreCocPrecheckBlockOnce.value) {
+    const reason = precheck.blocking_issues?.[0] || '命中 CoC 认知边界阻断规则'
+    message.error(`预检阻断：${reason}`)
+    return
+  }
+  if (precheck?.checked && (precheck.warnings?.length || 0) > 0) {
+    message.warning(`预检提醒：${precheck.warnings[0]}`)
+  }
+
   const targetChapterId = target.id
   const targetChapterNumber = target.number
+  ignoreCocPrecheckBlockOnce.value = false
   generatingChapterId.value = targetChapterId
   generateInProgress.value = true
   generatedContent.value = ''
+  editorialReview.value = null
   styleMatchReport.value = null
   sceneDirectorError.value = ''
   lastWorkflowResult.value = null
@@ -2031,32 +2991,25 @@ const handleStartGenerate = async () => {
   const ctrl = new AbortController()
   generateAbortCtrl.value = ctrl
 
-  let sceneDirectorResult: Record<string, unknown> | undefined = blurSceneCache.value
-  if (useSceneDirector.value && !sceneDirectorResult) {
-    analyzingScene.value = true
-    try {
-      const outline = generateOutline.value || `第${targetChapterNumber}章：承接前情，推进主线`
-      const analysis = await analyzeScene(props.slug, targetChapterNumber, outline)
-      sceneDirectorResult = analysis as Record<string, unknown>
-    } catch (e: unknown) {
-      sceneDirectorError.value = e instanceof Error ? e.message : '分析失败'
-    } finally {
-      analyzingScene.value = false
-    }
-  }
-
-  const defaultOutline = `第${targetChapterNumber}章：承接前情，推进主线`
+  const sceneDirectorResult = await resolveSceneDirectorResultForModal(targetChapterNumber)
 
   try {
     await consumeGenerateChapterStream(
       props.slug,
       {
         chapter_number: targetChapterNumber,
-        outline: generateOutline.value || defaultOutline,
+        outline: outlineForGenerate,
         scene_director_result: sceneDirectorResult,
         style_profile_id: generateStyleProfileId.value || '',
         scene_type: generateSceneType.value.trim(),
         avoid_compressed_expression: avoidCompressedExpression.value,
+        target_word_count: targetWordCount.value || undefined,
+        word_tolerance_percent: wordTolerancePercent.value || 5,
+        direct_writing_mode: directWritingMode.value,
+        direct_light_polish: directWritingMode.value && directLightPolish.value,
+        chapter_strategy: chapterStrategy.value || undefined,
+        long_draft_mode: longDraftMode.value,
+        long_draft_split_count: longDraftMode.value ? (longDraftSplitCount.value || 2) : undefined,
       },
       {
         signal: ctrl.signal,
@@ -2074,15 +3027,29 @@ const handleStartGenerate = async () => {
           lastWorkflowResult.value = result
           lastQcChapterNumber.value = targetChapterNumber
           generatedContent.value = result.content
+          streamStats.value = {
+            chars: result.content.length,
+            estimated_tokens: Math.floor(result.content.length / 1.5),
+            chunks: streamStats.value.chunks || 0,
+          }
           streamProgressPct.value = 100
           streamPhaseLabel.value = '已完成'
           void updateStyleMatchReport(result.content)
-          if (props.currentChapterId === targetChapterId) {
+          void runEditorialReviewForModal(
+            targetChapterNumber,
+            outlineForGenerate,
+            result.content,
+          )
+          if (result.direct_writing_mode) {
+            message.success('直接写作完成，可先复制去检测或保存为候选稿')
+          } else if (props.currentChapterId === targetChapterId) {
             message.success('生成完成，质检已同步到「章节状态」')
           } else {
             message.success(`第 ${targetChapterNumber} 章生成完成，质检在对应章的「章节状态」查看`)
           }
-          activeTab.value = 'chapter-status'
+          if (!result.direct_writing_mode) {
+            activeTab.value = 'chapter-status'
+          }
         },
         onError: (err) => {
           if (!ctrl.signal.aborted) {
@@ -2484,5 +3451,72 @@ defineExpose({ ensureAssistedMode })
 
 .paragraph-diff-text--candidate {
   background: rgba(24, 160, 88, 0.08);
+}
+
+.generate-strategy-preview,
+.editorial-review-card {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--aitext-split-border);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(248, 250, 252, 0.94)),
+    var(--app-surface);
+}
+
+.chapter-contract-card {
+  margin-bottom: 12px;
+}
+
+.coc-precheck-card {
+  border: 1px solid var(--aitext-split-border);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.generate-strategy-grid,
+.editorial-score-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.strategy-chip,
+.editorial-score-item,
+.strategy-scene-row {
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.strategy-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.strategy-chip__label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.strategy-scene-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.editorial-score-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+@media (max-width: 900px) {
+  .generate-strategy-grid,
+  .editorial-score-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

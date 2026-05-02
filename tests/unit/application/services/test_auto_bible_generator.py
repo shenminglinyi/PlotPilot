@@ -1,9 +1,26 @@
 import pytest
+import json
 from unittest.mock import AsyncMock, Mock
 
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from domain.ai.services.llm_service import GenerationResult
 from domain.ai.value_objects.token_usage import TokenUsage
+from infrastructure.ai.providers.mock_provider import MockProvider
+
+
+@pytest.mark.asyncio
+async def test_mock_provider_character_stage_returns_characters_when_prompt_mentions_worldbuilding():
+    """人物阶段 prompt 会带已有世界观，MockProvider 仍应返回 characters。"""
+    svc = AutoBibleGenerator(llm_service=MockProvider(), bible_service=Mock())
+
+    result = await svc._generate_characters(
+        "测试故事",
+        100,
+        {"society": {"class_system": "都市阶层"}},
+    )
+
+    assert result["characters"]
+    assert result["characters"][0]["name"] == "张三"
 
 
 @pytest.mark.asyncio
@@ -44,7 +61,7 @@ async def test_call_llm_and_parse_repairs_truncated_locations_json():
 
 
 @pytest.mark.asyncio
-async def test_call_llm_and_parse_returns_empty_dict_when_content_is_unrecoverable():
+async def test_call_llm_and_parse_raises_when_content_is_unrecoverable():
     llm = Mock()
     llm.generate = AsyncMock(
         return_value=GenerationResult(
@@ -54,9 +71,8 @@ async def test_call_llm_and_parse_returns_empty_dict_when_content_is_unrecoverab
     )
     svc = AutoBibleGenerator(llm_service=llm, bible_service=Mock())
 
-    result = await svc._call_llm_and_parse("system", "user")
-
-    assert result == {}
+    with pytest.raises(json.JSONDecodeError):
+        await svc._call_llm_and_parse("system", "user")
 
 
 @pytest.mark.asyncio

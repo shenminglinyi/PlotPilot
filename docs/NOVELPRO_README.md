@@ -88,7 +88,7 @@ application/topic/services/topic_signal_sources.py
 - `requires_auth`：是否要求配置凭据后才允许采集。
 - `rank_urls`：按榜单维度配置多个采集入口；为空时使用 `url`。
 
-平台默认权重定义在同一文件的 `DEFAULT_MARKET_SIGNAL_SOURCE_WEIGHTS`。权重会影响市场摘要、选题评估和候选对比推荐。前端“自动采集设置”也可以保存用户自定义权重。
+平台默认权重定义在同一文件的 `DEFAULT_MARKET_SIGNAL_SOURCE_WEIGHTS`。权重会影响市场摘要、选题评估和候选对比推荐。
 
 #### 采集器配置
 
@@ -149,27 +149,37 @@ topic_market_signal_credentials
 - 如果配置了 `api_key` 且没有显式 `Authorization` header，采集器会自动补 `Authorization: Bearer <api_key>`。
 - 如果配置了 `cookie` 且没有显式 `Cookie` header，采集器会自动补 `Cookie`。
 
-#### 自动采集配置
+#### 手动采集配置
 
 前端配置入口：
 
 ```text
-TopicIdeaPanel.vue -> 自动采集设置
+TopicIdeaPanel.vue -> 公开来源采集 -> 立即采集
 ```
 
 后端接口：
 
 ```http
+POST  /api/v1/topics/signals/collect
 GET   /api/v1/topics/signals/automation
 PATCH /api/v1/topics/signals/automation
 GET   /api/v1/topics/signals/source-health
 ```
 
-可配置字段：
+手动采集请求：
 
 ```json
 {
-  "enabled": true,
+  "source_keys": ["qidian_rank", "fanqie_rank", "qq_read"],
+  "limit_per_source": 8
+}
+```
+
+保留的采集设置字段：
+
+```json
+{
+  "enabled": false,
   "interval_minutes": 180,
   "limit_per_source": 8,
   "lookback_days": 30,
@@ -189,7 +199,7 @@ topic_market_signal_settings
 topic_market_signal_source_health
 ```
 
-API 进程启动后会创建轻量后台线程，按 `interval_minutes` 判断是否到期。也可以使用独立脚本脱离 API 进程运行：
+当前本地应用默认不在 API 进程启动时创建市场信号定时采集线程，只在用户点击“立即采集”或调用 `/api/v1/topics/signals/collect` 后执行。独立脚本仍保留给需要一次性命令行采集或未来自行接入进程管理器的场景：
 
 ```bash
 python scripts/start_topic_signal_collector.py --once --force
@@ -205,7 +215,7 @@ python scripts/start_topic_signal_collector.py --poll-interval 60
 | `LOG_FILE` | `logs/aitext.log` | 独立守护进程日志文件 |
 | `DISABLE_SSL_VERIFY` | `false` | 调试网络证书问题时可临时关闭 SSL 校验，不建议生产使用 |
 
-如果部署环境不希望 API 进程内启动自动采集，可以在依赖注入或启动配置中关闭对应后台线程，并改用 `scripts/start_topic_signal_collector.py` 由 systemd、cron 或其他进程管理器运行。
+当前默认不建议配置 systemd、cron 或其他定时任务；需要采集时优先使用前端“立即采集”按钮。
 
 #### 数据库表
 
@@ -215,9 +225,9 @@ python scripts/start_topic_signal_collector.py --poll-interval 60
 |---|---|
 | `topic_ideas` | 选题候选、立项报告、评估结果、采纳状态 |
 | `topic_market_signals` | 手动导入和采集得到的市场信号 |
-| `topic_market_signal_settings` | 自动采集开关、间隔、单源条数、趋势窗口、平台权重 |
+| `topic_market_signal_settings` | 采集偏好、单源条数、趋势窗口、平台权重 |
 | `topic_market_signal_credentials` | 来源 API Key、Cookie、Endpoint 和自定义 headers |
-| `topic_market_signal_source_health` | 每个来源最近采集状态、条数、错误和下次执行时间 |
+| `topic_market_signal_source_health` | 每个来源最近采集状态、条数和错误 |
 
 这些表和必要列由 `infrastructure/persistence/database/connection.py` 在启动时幂等创建或补齐，旧库无需手动迁移。
 
@@ -433,7 +443,7 @@ Obsidian 集成把 PlotPilot 的章后知识沉淀导出为 Markdown Vault，并
 主要新增数据区域：
 
 - 选题候选与市场信号。
-- 市场信号自动采集设置。
+- 市场信号手动采集设置。
 - 市场信号来源健康状态。
 - 来源凭据状态。
 - 候选稿与候选稿分支。

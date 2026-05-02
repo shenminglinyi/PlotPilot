@@ -384,7 +384,10 @@ class MockProvider(LLMService):
                     }
                 ]
             }, ensure_ascii=False)
-        elif "世界观" in user_prompt or "worldbuilding" in user_prompt:
+        elif (
+            ("世界观" in user_prompt or "worldbuilding" in user_prompt)
+            and not ('"characters": []' in user_prompt and '"locations": []' not in user_prompt)
+        ):
             # Worldbuilding generation
             content = json.dumps({
                 "style": "第三人称有限视角，以主角视角为主。基调轻松幽默，节奏明快。避免过度描写。营造轻松愉快的阅读氛围。",

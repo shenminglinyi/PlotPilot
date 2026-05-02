@@ -79,7 +79,7 @@ from interfaces.api.v1.engine import (
 from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes
 
 # Analyst module
-from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger, continuity, power_system, prop_ledger, novelpro_monitor, novelpro_suggestions
+from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger, continuity, power_system, prop_ledger, coc_canon, coc_clue, novelpro_monitor, novelpro_suggestions
 
 # System module (internal tooling)
 from interfaces.api.v1 import system as system_routes
@@ -195,7 +195,7 @@ async def startup_event():
 
     # 启动自动驾驶守护进程（后台线程）
     _start_autopilot_daemon_thread()
-    get_topic_signal_automation_service().start()
+    logger.info("市场信号采集为手动触发模式，启动时不启动定时采集线程")
 
 def _checkpoint_sqlite_wal_safe() -> None:
     """桌面端优雅退出时尽量将 WAL 落盘，降低异常断电时的损坏概率。"""
@@ -598,6 +598,8 @@ app.include_router(voice.router, prefix="/api/v1")
 app.include_router(continuity.router, prefix="/api/v1")
 app.include_router(power_system.router, prefix="/api/v1")
 app.include_router(prop_ledger.router, prefix="/api/v1")
+app.include_router(coc_canon.router, prefix="/api/v1")
+app.include_router(coc_clue.router, prefix="/api/v1")
 app.include_router(novelpro_monitor.router, prefix="/api/v1")
 app.include_router(novelpro_suggestions.router, prefix="/api/v1")
 app.include_router(narrative_state.router, prefix="/api/v1")

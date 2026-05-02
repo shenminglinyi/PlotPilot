@@ -38,6 +38,14 @@
             <n-alert type="info" :show-icon="true" class="section-alert">
               当前作者样本 {{ fingerprint.sample_count }} 组。样本达到 10 组以后，现有文风漂移检测会更稳定。
             </n-alert>
+            <n-alert
+              v-if="fingerprintLoadWarning"
+              type="warning"
+              :show-icon="true"
+              class="section-alert"
+            >
+              {{ fingerprintLoadWarning }}
+            </n-alert>
 
             <n-grid :cols="2" :x-gap="12">
               <n-grid-item>
@@ -265,6 +273,7 @@ const { voiceLockDraft, voiceLockDraftVersion } = storeToRefs(contextStore)
 
 const loading = ref(false)
 const loadError = ref('')
+const fingerprintLoadWarning = ref('')
 const saveLoading = ref(false)
 const sampleSaving = ref(false)
 const suggestingAnchors = ref(false)
@@ -409,13 +418,19 @@ async function reloadAll() {
   if (!props.slug) return
   loading.value = true
   loadError.value = ''
+  fingerprintLoadWarning.value = ''
   try {
-    await Promise.all([loadCharacters(), loadFingerprint()])
+    await loadCharacters()
+    try {
+      await loadFingerprint()
+    } catch {
+      fingerprintLoadWarning.value = '文风样本统计暂时不可用，不影响角色口吻锚点编辑。'
+    }
     if (!sampleChapter.value) {
       sampleChapter.value = props.currentChapter || 1
     }
   } catch {
-    loadError.value = '加载口吻锁定面板失败，请稍后重试'
+    loadError.value = '加载角色口吻锚点失败，请确认本书 Bible 已生成后重试。'
   } finally {
     loading.value = false
   }

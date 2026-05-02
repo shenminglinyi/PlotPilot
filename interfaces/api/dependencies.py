@@ -274,7 +274,9 @@ def get_style_bible_repository():
         SqliteStyleBibleRepository,
     )
 
-    return SqliteStyleBibleRepository(get_database())
+    repo = SqliteStyleBibleRepository(get_database())
+    repo.ensure_default_profiles()
+    return repo
 
 
 # Service 依赖
@@ -297,7 +299,7 @@ def get_topic_idea_service():
 
     return TopicIdeaService(
         get_topic_idea_repository(),
-        get_writing_llm_service(),
+        get_analysis_llm_service(),
         get_novel_service(),
     )
 
@@ -511,6 +513,44 @@ def get_prop_ledger_service():
     return PropLedgerService(get_prop_ledger_repository())
 
 
+def get_coc_canon_repository():
+    from infrastructure.persistence.database.sqlite_coc_canon_repository import (
+        SqliteCocCanonRepository,
+    )
+
+    return SqliteCocCanonRepository(get_database())
+
+
+def get_coc_canon_service():
+    from application.analyst.services.coc_canon_service import CocCanonService
+
+    return CocCanonService(get_coc_canon_repository())
+
+
+def get_coc_clue_repository():
+    from infrastructure.persistence.database.sqlite_coc_clue_repository import (
+        SqliteCocClueRepository,
+    )
+
+    return SqliteCocClueRepository(get_database())
+
+
+def get_coc_clue_service():
+    from application.analyst.services.coc_clue_service import CocClueService
+
+    return CocClueService(get_coc_clue_repository())
+
+
+def get_coc_preset_service():
+    from application.analyst.services.coc_preset_service import CocPresetService
+
+    return CocPresetService(
+        canon_service=get_coc_canon_service(),
+        clue_service=get_coc_clue_service(),
+        prop_ledger_service=get_prop_ledger_service(),
+    )
+
+
 def get_obsidian_memory_service():
     """Obsidian 长期记忆镜像；导出时读取 PP 缓存，避免被尚未同步的 Obsidian 内容遮挡。"""
     from application.world.services.obsidian_memory_service import (
@@ -604,12 +644,8 @@ def _task_profile_id(env_name: str, default: str) -> str:
 
 @lru_cache
 def get_writing_llm_service():
-    """正文/创意生成：默认固定走 Kimi。"""
-    return ProfilePinnedLLMService(
-        get_llm_provider_factory(),
-        profile_id=_task_profile_id("PLOTPILOT_WRITING_LLM_PROFILE_ID", "kimi-moonshot-default"),
-        role_name="writing",
-    )
+    """正文/创意生成：跟随后台当前激活模型配置。"""
+    return DynamicLLMService(get_llm_provider_factory())
 
 
 @lru_cache
@@ -629,7 +665,7 @@ def get_setup_main_plot_suggestion_service():
     )
 
     return SetupMainPlotSuggestionService(
-        llm_service=get_writing_llm_service(),
+        llm_service=get_analysis_llm_service(),
         bible_service=get_bible_service(),
         novel_service=get_novel_service(),
     )
@@ -804,11 +840,14 @@ _vector_store_init_failed: bool = False
 def get_vector_store() -> Optional[VectorStore]:
     """获取向量存储（单例，整个进程共享同一实例）
 
-    使用本地 FAISS 向量存储（ChromaDBVectorStore），无需外部服务。
+    默认使用本地 FAISS 向量存储（ChromaDBVectorStore），也可通过
+    VECTOR_STORE_TYPE=qdrant 或旧版 QDRANT_ENABLED=true 切到远程 Qdrant。
 
     环境变量配置：
     - VECTOR_STORE_ENABLED: 是否启用（"true" 启用，默认 "true"）
+    - VECTOR_STORE_TYPE: chromadb/qdrant（默认 chromadb）
     - VECTOR_STORE_PATH: 本地存储路径（默认 "./data/chromadb"）
+    - QDRANT_HOST/QDRANT_PORT/QDRANT_API_KEY: Qdrant 连接配置
 
     Returns:
         VectorStore 实例或 None
@@ -826,8 +865,24 @@ def get_vector_store() -> Optional[VectorStore]:
         _vector_store_init_failed = True
         return None
 
+    store_type = os.getenv("VECTOR_STORE_TYPE", "chromadb").strip().lower()
+    legacy_qdrant_enabled = os.getenv("QDRANT_ENABLED", "").strip().lower() == "true"
+    if legacy_qdrant_enabled:
+        store_type = "qdrant"
+
     try:
+        if store_type == "qdrant":
+            from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
+
+            host = os.getenv("QDRANT_HOST", "localhost")
+            port = int(os.getenv("QDRANT_PORT", "6333"))
+            api_key = os.getenv("QDRANT_API_KEY") or None
+            _vector_store_singleton = QdrantVectorStore(host=host, port=port, api_key=api_key)
+            logger.info("Qdrant 向量存储初始化成功: %s:%s", host, port)
+            return _vector_store_singleton
+
         from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
+
         persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
         _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
         logger.info("向量存储初始化成功: %s", persist_dir)
@@ -895,6 +950,8 @@ def build_auto_workflow(llm_service: LLMService) -> AutoNovelGenerationWorkflow:
         cliche_scanner=ClicheScanner(),
         style_prompt_overlay_service=get_style_prompt_overlay_service(),
         prop_ledger_service=get_prop_ledger_service(),
+        coc_canon_service=get_coc_canon_service(),
+        coc_clue_service=get_coc_clue_service(),
     )
 
 
@@ -919,7 +976,7 @@ def get_auto_bible_generator() -> AutoBibleGenerator:
     Returns:
         AutoBibleGenerator 实例
     """
-    llm_service = get_writing_llm_service()
+    llm_service = get_analysis_llm_service()
     if llm_runtime_is_mock(llm_service):
         logger.warning("No API key found, using MockProvider for Bible generation")
     else:

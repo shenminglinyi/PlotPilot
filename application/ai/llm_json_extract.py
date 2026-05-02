@@ -89,7 +89,7 @@ def repair_json(text: str) -> str:
 
         if in_string:
             res += '"'
-        res = res.strip()
+        res = ''.join(res).strip()
         while res.endswith(','):
             res = res[:-1].strip()
         while stack:

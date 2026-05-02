@@ -44,6 +44,41 @@ def mock_workflow():
     """Mock AutoNovelGenerationWorkflow"""
     workflow = Mock(spec=AutoNovelGenerationWorkflow)
     workflow.generate_chapter_stream = _mock_generate_chapter_stream
+    workflow.precheck_coc_cognition_boundary = Mock(return_value={
+        "checked": True,
+        "allow_generate": True,
+        "risk_level": "none",
+        "blocking_issues": [],
+        "warnings": [],
+        "matched_tokens": [],
+        "chapter_number": 1,
+    })
+    workflow.rewrite_outline_for_coc_boundary = Mock(return_value={
+        "original_outline": "原始大纲",
+        "rewritten_outline": "改写后大纲",
+        "changed": True,
+        "rewrite_mode": "conservative",
+        "rewrite_style": "generic",
+        "applied_rules": ["替换敏感片段：ledger_owner"],
+        "precheck_before": {
+            "checked": True,
+            "allow_generate": False,
+            "risk_level": "block",
+            "blocking_issues": ["命中 author_only 线索键：ledger_owner"],
+            "warnings": [],
+            "matched_tokens": ["ledger_owner"],
+            "chapter_number": 1,
+        },
+        "precheck_after": {
+            "checked": True,
+            "allow_generate": True,
+            "risk_level": "none",
+            "blocking_issues": [],
+            "warnings": [],
+            "matched_tokens": [],
+            "chapter_number": 1,
+        },
+    })
     return workflow
 
 
@@ -111,6 +146,7 @@ def app(mock_workflow, mock_storyline_manager, mock_plot_arc_repository, mock_ho
     # Override dependencies
     from interfaces.api.v1.engine import generation
     test_app.dependency_overrides[generation.get_auto_workflow] = lambda: mock_workflow
+    test_app.dependency_overrides[generation.get_analysis_workflow] = lambda: mock_workflow
     test_app.dependency_overrides[generation.get_hosted_write_service] = lambda: mock_hosted_service
     test_app.dependency_overrides[generation.get_storyline_manager] = lambda: mock_storyline_manager
     test_app.dependency_overrides[generation.get_plot_arc_repository] = lambda: mock_plot_arc_repository
@@ -164,6 +200,74 @@ class TestGenerateChapterEndpoint:
         assert "data:" in body
         assert '"type": "done"' in body or '"done"' in body
 
+    def test_generate_chapter_stream_blocked_by_coc_precheck(self, client, mock_workflow):
+        mock_workflow.precheck_coc_cognition_boundary.return_value = {
+            "checked": True,
+            "allow_generate": False,
+            "risk_level": "block",
+            "blocking_issues": ["命中 author_only 线索键：clue-zhou-origin"],
+            "warnings": [],
+            "matched_tokens": ["clue-zhou-origin"],
+            "chapter_number": 1,
+        }
+
+        response = client.post(
+            "/api/v1/novels/novel-1/generate-chapter-stream",
+            json={
+                "chapter_number": 1,
+                "outline": "主角直接确认 clue-zhou-origin 的真相。",
+            },
+        )
+        assert response.status_code == 200
+        assert '"type": "error"' in response.text
+        assert "CoC 认知边界阻断" in response.text
+
+    def test_coc_cognition_precheck_endpoint(self, client, mock_workflow):
+        mock_workflow.precheck_coc_cognition_boundary.return_value = {
+            "checked": True,
+            "allow_generate": False,
+            "risk_level": "block",
+            "blocking_issues": ["命中 author_only 线索键：ledger_owner"],
+            "warnings": [],
+            "matched_tokens": ["ledger_owner"],
+            "chapter_number": 6,
+        }
+
+        response = client.post(
+            "/api/v1/novels/novel-1/chapters/6/coc-cognition-precheck",
+            json={"outline": "主角确认 ledger_owner 的真实身份。"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["checked"] is True
+        assert data["allow_generate"] is False
+        assert data["risk_level"] == "block"
+        assert len(data["blocking_issues"]) == 1
+
+    def test_coc_cognition_rewrite_outline_endpoint(self, client):
+        response = client.post(
+            "/api/v1/novels/novel-1/chapters/6/coc-cognition-rewrite-outline",
+            json={"outline": "主角确认 ledger_owner 的真实身份。", "rewrite_mode": "aggressive"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["changed"] is True
+        assert data["rewritten_outline"] == "改写后大纲"
+        assert data["rewrite_mode"] == "conservative"
+        assert data["rewrite_style"] == "generic"
+        assert data["precheck_before"]["risk_level"] == "block"
+
+    def test_coc_cognition_rewrite_outline_passes_mode_to_workflow(self, client, mock_workflow):
+        response = client.post(
+            "/api/v1/novels/novel-1/chapters/8/coc-cognition-rewrite-outline",
+            json={"outline": "测试大纲", "rewrite_mode": "aggressive", "rewrite_style": "coc"},
+        )
+        assert response.status_code == 200
+        mock_workflow.rewrite_outline_for_coc_boundary.assert_called_once()
+        kwargs = mock_workflow.rewrite_outline_for_coc_boundary.call_args.kwargs
+        assert kwargs["rewrite_mode"] == "aggressive"
+        assert kwargs["rewrite_style"] == "coc"
+
     def test_generate_chapter_stream_can_enable_anti_compression_directive(
         self, client, mock_workflow
     ):
@@ -189,6 +293,83 @@ class TestGenerateChapterEndpoint:
         assert "主角和同伴讨论下一步行动。" in captured["outline"]
         assert "避免 AI 压缩表达" in captured["outline"]
         assert "不要用一句概括跳过" in captured["outline"]
+
+    def test_strategy_preview_returns_chapter_contract_and_showing_scene_fields(self, client, mock_workflow):
+        async def strategy_with_showing_fields(*args, **kwargs):
+            return {
+                "chapter_contract": {
+                    "chapter_question": "灰卡为什么能刷开门禁？",
+                    "protagonist_want": "白雨翔要确认写卡器来源。",
+                    "opposition": "许照只给半份证据。",
+                    "reader_expectation": "看到两人互相试探。",
+                    "required_information_change": "签收记录暴露伪造痕迹。",
+                    "required_relationship_change": "两人形成有限合作。",
+                    "ending_question": "谁借用了审计流程？",
+                    "show_dont_tell_rules": ["不能直写怀疑，只写扣住证物。"],
+                },
+                "dramatic_task": {
+                    "goal": "确认写卡器来源",
+                    "obstacle": "许照保留证据",
+                    "reader_expectation": "看到试探",
+                    "ending_hook": "审计流程异常",
+                },
+                "scene_plan": [
+                    {
+                        "label": "核对签收单",
+                        "task": "确认签名真伪",
+                        "resistance": "许照不交原件",
+                        "info_shift": "签名疑点出现",
+                        "relationship_shift": "有限合作",
+                        "anchor": "证物袋",
+                        "visible_action": "白雨翔按住证物袋封口。",
+                        "subtext_dialogue": "表面问流程，实际逼许照露底。",
+                        "unspoken_emotion": "怀疑不能直说。",
+                        "object_or_clue_change": "灰卡变成伪造链条证据。",
+                        "hook": "审计流程异常",
+                        "target_words": 800,
+                    }
+                ],
+                "writing_focus": ["少解释，多展示。"],
+            }
+
+        mock_workflow.generate_chapter_strategy = strategy_with_showing_fields
+        response = client.post(
+            "/api/v1/novels/novel-1/chapters/2/strategy-preview",
+            json={"outline": "白雨翔追查灰卡。"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["chapter_contract"]["chapter_question"].startswith("灰卡")
+        assert data["scene_plan"][0]["visible_action"].startswith("白雨翔")
+
+    def test_editorial_review_returns_showing_score(self, client, mock_workflow):
+        async def editorial_with_showing(*args, **kwargs):
+            return {
+                "summary": "对白有张力，但解释略多。",
+                "scores": {
+                    "opening": 88,
+                    "conflict": 90,
+                    "character": 86,
+                    "dialogue": 84,
+                    "hook": 92,
+                    "pacing": 87,
+                    "showing": 79,
+                },
+                "strengths": ["证物动作具体。"],
+                "problems": ["部分情绪仍被直接命名。"],
+                "actions": ["把解释改成动作。"],
+                "verdict": "可优化后使用",
+            }
+
+        mock_workflow.review_generated_chapter_editorially = editorial_with_showing
+        response = client.post(
+            "/api/v1/novels/novel-1/chapters/2/editorial-review",
+            json={"outline": "白雨翔追查灰卡。", "content": "白雨翔按住证物袋。"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["scores"]["showing"] == 79
 
     def test_hosted_write_stream_sse(self, client):
         """托管连写 SSE"""

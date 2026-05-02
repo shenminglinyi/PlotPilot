@@ -17,6 +17,8 @@ from interfaces.api.dependencies import (
     get_chapter_aftermath_pipeline,
     get_chapter_candidate_draft_service,
     get_database,
+    get_analysis_llm_service,
+    get_writing_llm_service,
     get_llm_service,
     get_llm_provider_factory,
     get_novel_service,
@@ -190,6 +192,50 @@ class GenerateCandidateDraftResponse(BaseModel):
     task: ExternalModelTaskResponse
 
 
+class EditorialReviewScores(BaseModel):
+    opening: int = 0
+    conflict: int = 0
+    character: int = 0
+    dialogue: int = 0
+    hook: int = 0
+    pacing: int = 0
+
+
+class EditorialReviewPayload(BaseModel):
+    summary: str = ""
+    scores: EditorialReviewScores = Field(default_factory=EditorialReviewScores)
+    strengths: List[str] = Field(default_factory=list)
+    problems: List[str] = Field(default_factory=list)
+    actions: List[str] = Field(default_factory=list)
+    verdict: str = ""
+
+
+class GenerateEditorialPolishCandidateRequest(BaseModel):
+    chapter_number: int = Field(..., ge=1)
+    outline: str = Field(..., min_length=1)
+    current_content: str = Field(..., min_length=1)
+    editorial_review: EditorialReviewPayload
+    target_word_count: int = Field(default=2500, ge=800, le=12000)
+    branch_name: str = "main"
+    title: str = ""
+    model_label: str = ""
+    max_tokens: int = Field(default=4096, ge=256, le=16000)
+    temperature: float = Field(default=0.55, ge=0, le=2)
+
+
+class CreateWebWritingPromptRequest(BaseModel):
+    chapter_number: int = Field(..., ge=1)
+    outline: str = Field(..., min_length=1)
+    current_content: str = ""
+    model_label: str = "ChatGPT Web"
+    task_prompt: str = ""
+
+
+class WebWritingPromptResponse(BaseModel):
+    prompt: str
+    task: ExternalModelTaskResponse
+
+
 class SupervisorReviewCandidateDraftRequest(BaseModel):
     model_label: str = ""
     llm_profile_id: str = ""
@@ -294,6 +340,75 @@ def _mark_external_task_status(db, novel_id: str, candidate_draft_id: str, statu
     db.commit()
 
 
+def _format_editorial_review_for_prompt(review: EditorialReviewPayload) -> str:
+    scores = review.scores
+    score_lines = [
+        f"开头 {scores.opening}",
+        f"冲突 {scores.conflict}",
+        f"人物 {scores.character}",
+        f"对白 {scores.dialogue}",
+        f"追读 {scores.hook}",
+        f"节奏 {scores.pacing}",
+    ]
+
+    def lines(title: str, items: List[str]) -> List[str]:
+        if not items:
+            return [title, "- 无"]
+        return [title, *[f"- {item}" for item in items]]
+
+    return "\n".join(
+        [
+            f"审稿结论：{review.verdict or '可优化后使用'}",
+            f"审稿摘要：{review.summary or '无'}",
+            "评分：",
+            *score_lines,
+            "",
+            *lines("亮点（必须保留）", review.strengths),
+            "",
+            *lines("问题（只针对这些问题动刀）", review.problems),
+            "",
+            *lines("修改动作（逐条落实）", review.actions),
+        ]
+    )
+
+
+def _build_web_writing_prompt(novel_id: str, request: CreateWebWritingPromptRequest) -> str:
+    task = request.task_prompt.strip() or "生成一版可直接进入候选稿区的完整章节正文。"
+    current_content = request.current_content.strip() or "（当前正文为空，请根据大纲生成完整章节正文。）"
+    return "\n".join(
+        [
+            "你现在是中文商业小说作者，请根据 PlotPilot 提供的上下文写作。",
+            "",
+            "【输出要求】",
+            "只输出完整章节正文，不要输出标题、解释、提纲、分析、Markdown 代码块或改稿说明。",
+            "",
+            "【小说 ID】",
+            novel_id,
+            "",
+            "【章节】",
+            f"第 {request.chapter_number} 章",
+            "",
+            "【本次任务】",
+            task,
+            "",
+            "【章节大纲】",
+            request.outline.strip(),
+            "",
+            "【当前正文/上一版草稿】",
+            current_content,
+            "",
+            "【写作规则】",
+            "1. 以动作、物件异常、对话或正在发生的麻烦开头，不要先解释世界观。",
+            "2. 每个场景都要同时推进情节和人物关系/信息差/风险。",
+            "3. 对话要有试探、回避、反问或未说出口的信息，不要把动机讲透。",
+            "4. 冲突节点慢写，展开动作链、停顿、反应和信息递进。",
+            "5. 保留现有事实、角色关系、伏笔、道具状态和章节钩子。",
+            "6. 不新增核心角色，不提前揭露作者真相，不用总结句替读者解释意义。",
+            "7. 如果是改稿，只局部修正文风、节奏和衔接，不改变核心剧情。",
+        ]
+    )
+
+
 @router.post(
     "/{novel_id}/chapters/{chapter_number}/candidate-drafts",
     response_model=ChapterCandidateDraftResponse,
@@ -332,7 +447,7 @@ async def generate_candidate_draft(
     request: GenerateCandidateDraftRequest,
     novel_service=Depends(get_novel_service),
     service=Depends(get_chapter_candidate_draft_service),
-    llm_service: LLMService = Depends(get_llm_service),
+    llm_service: LLMService = Depends(get_writing_llm_service),
     llm_provider_factory=Depends(get_llm_provider_factory),
     db=Depends(get_database),
 ):
@@ -413,6 +528,136 @@ async def generate_candidate_draft(
         draft=ChapterCandidateDraftResponse.from_dto(draft),
         task=_task_row_to_response(task_row),
     )
+
+
+@router.post(
+    "/{novel_id}/candidate-drafts/editorial-polish",
+    response_model=GenerateCandidateDraftResponse,
+    status_code=201,
+)
+async def generate_editorial_polish_candidate(
+    novel_id: str,
+    request: GenerateEditorialPolishCandidateRequest,
+    novel_service=Depends(get_novel_service),
+    service=Depends(get_chapter_candidate_draft_service),
+    llm_service: LLMService = Depends(get_writing_llm_service),
+    db=Depends(get_database),
+):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=404, detail="Novel not found")
+
+    review_text = _format_editorial_review_for_prompt(request.editorial_review)
+    lower_words = max(600, int(request.target_word_count * 0.9))
+    upper_words = int(request.target_word_count * 1.1)
+    max_tokens = min(request.max_tokens, max(1800, int(request.target_word_count * 1.6)))
+    system = (
+        "你是中文商业小说主编兼改稿作者。你只输出完整精修后的章节正文，"
+        "不要输出解释、标题、审稿意见、Markdown 代码块或改稿说明。"
+    )
+    user = "\n".join(
+        [
+            f"小说 ID：{novel_id}",
+            f"章节：第 {request.chapter_number} 章",
+            "",
+            "【任务】",
+            "根据主编审稿做编辑型精修，生成一份候选稿。不要重写成另一章，不要覆盖主稿。",
+            "",
+            "【章节大纲】",
+            request.outline.strip(),
+            "",
+            "【主编审稿】",
+            review_text,
+            "",
+            "【篇幅约束】",
+            f"目标字数：约 {request.target_word_count} 字；允许范围 {lower_words}-{upper_words} 字。",
+            "这是硬约束。只做编辑型精修，不要因为补细节把篇幅扩写成超长章节；若原文过长，优先压缩绕口句、重复动作和解释性段落。",
+            "",
+            "【当前正文】",
+            request.current_content.strip(),
+            "",
+            "【改稿边界】",
+            "1. 保留审稿中列出的亮点、核心剧情、伏笔、角色关系和章节结尾钩子。",
+            "2. 只围绕“问题”和“修改动作”局部精修：压紧开头、顺滑出场、修剪绕口句、强化动作链。",
+            "3. 不新增核心角色，不提前解释真相，不把线索总结给读者。",
+            "4. 保持原章节叙事顺序；必要时可小幅调整段落顺序增强可读性，但必须服从篇幅约束。",
+            "5. 输出完整正文，不要附带任何说明。",
+        ]
+    )
+    try:
+        result = await llm_service.generate(
+            Prompt(system=system, user=user),
+            GenerationConfig(max_tokens=max_tokens, temperature=request.temperature),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"模型精修失败：{exc}") from exc
+
+    content = result.content.strip()
+    draft = service.create_draft(
+        novel_id=novel_id,
+        chapter_number=request.chapter_number,
+        source="editorial-polish",
+        title=request.title or f"第{request.chapter_number}章 主编审稿精修候选稿",
+        content=content,
+        rationale="按主编审稿生成精修候选稿",
+        metadata={
+            "editorial_polish": True,
+            "editorial_review": request.editorial_review.model_dump(),
+            "outline": request.outline,
+            "target_word_count": request.target_word_count,
+            "model_label": request.model_label,
+            "execution_mode": "editorial_polish_api",
+        },
+        branch_name=request.branch_name or "main",
+    )
+    task_row = _upsert_external_model_task(
+        db,
+        novel_id,
+        ExternalModelTaskRequest(
+            chapter_number=request.chapter_number,
+            model=request.model_label or "writing-llm",
+            prompt=user,
+            instruction="按主编审稿生成精修候选稿",
+            candidate_draft_id=draft.id,
+            response_preview=content[:160],
+            status="imported",
+            execution_mode="editorial_polish_api",
+        ),
+    )
+    return GenerateCandidateDraftResponse(
+        draft=ChapterCandidateDraftResponse.from_dto(draft),
+        task=_task_row_to_response(task_row),
+    )
+
+
+@router.post(
+    "/{novel_id}/candidate-drafts/web-writing-prompt",
+    response_model=WebWritingPromptResponse,
+    status_code=201,
+)
+async def create_web_writing_prompt(
+    novel_id: str,
+    request: CreateWebWritingPromptRequest,
+    novel_service=Depends(get_novel_service),
+    db=Depends(get_database),
+):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=404, detail="Novel not found")
+
+    prompt = _build_web_writing_prompt(novel_id, request)
+    task_row = _upsert_external_model_task(
+        db,
+        novel_id,
+        ExternalModelTaskRequest(
+            chapter_number=request.chapter_number,
+            model=request.model_label or "Web 写作",
+            prompt=prompt,
+            instruction=request.task_prompt or request.outline,
+            response_preview="",
+            status="prompted",
+            execution_mode="web_copy_paste",
+        ),
+    )
+    return WebWritingPromptResponse(prompt=prompt, task=_task_row_to_response(task_row))
 
 
 @router.get(
@@ -545,7 +790,7 @@ async def review_candidate_draft_with_supervisor(
     chapter_number: int = Path(..., ge=1),
     novel_service=Depends(get_novel_service),
     service=Depends(get_chapter_candidate_draft_service),
-    llm_service: LLMService = Depends(get_llm_service),
+    llm_service: LLMService = Depends(get_analysis_llm_service),
     llm_provider_factory=Depends(get_llm_provider_factory),
     db=Depends(get_database),
 ):
@@ -568,6 +813,8 @@ async def review_candidate_draft_with_supervisor(
     system = (
         "你是 PlotPilot 的审稿/记忆监督模型。你不改写正文，只做采纳前检查。"
         "请用中文输出结构化意见，重点指出需要作者确认或写入记忆系统的事项。"
+        "你还要专门识别 AI味：抽象情绪说明、对白直白、过程压缩、段尾总结、"
+        "万能比喻和过度整齐的句式。"
     )
     user = "\n".join(
         [
@@ -577,6 +824,13 @@ async def review_candidate_draft_with_supervisor(
             "",
             "【检查重点】",
             request.focus.strip() or "检查记忆、连续性、战力崩坏和采纳建议。",
+            "",
+            "【AI味专项检查】",
+            "- 抽象情绪说明：复杂情绪、说不清的东西、心里一震等是否过多。",
+            "- 对白直白：角色是否一次性解释动机、信息和情绪，缺少试探/回避/停顿。",
+            "- 过程压缩：是否用“一番交谈后、很快、简单说明、转眼之间”等跳过付费看点。",
+            "- 段尾总结：是否频繁替读者总结意义或使用宿命式收束。",
+            "- 句式过整：是否连续出现“不是X，是Y”“像某种”等检测器高风险结构。",
             "",
             "【当前主稿】",
             primary_text.strip() or "（当前主稿为空）",

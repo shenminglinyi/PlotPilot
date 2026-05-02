@@ -90,17 +90,23 @@
           <div class="collector-block">
             <div class="block-label">公开来源采集</div>
             <div class="collector-source-list">
-              <label
+              <div
                 v-for="source in signalSources"
                 :key="source.key"
                 class="collector-source-item"
+                :class="{ selected: isSourceSelected(source.key) }"
+                role="button"
+                tabindex="0"
+                @click="toggleSourceCard(source.key)"
+                @keydown.enter.prevent="toggleSourceCard(source.key)"
+                @keydown.space.prevent="toggleSourceCard(source.key)"
               >
                 <n-checkbox
-                  :checked="selectedSourceKeys.includes(source.key)"
+                  :checked="isSourceSelected(source.key)"
+                  @click.stop
                   @update:checked="toggleSourceSelection(source.key, $event)"
-                >
-                  {{ source.name }}
-                </n-checkbox>
+                />
+                <span class="collector-source-name">{{ source.name }}</span>
                 <span class="source-type-label">{{ sourceTypeLabel(source) }}</span>
                 <n-tag
                   v-if="source.requires_auth"
@@ -110,9 +116,20 @@
                 >
                   需登录
                 </n-tag>
-              </label>
+              </div>
             </div>
-            <n-space justify="end" :size="8">
+            <div class="collector-action-row">
+              <label class="manual-limit-field">
+                <span class="automation-label">单源条数</span>
+                <n-input-number
+                  v-model:value="manualCollectLimit"
+                  size="small"
+                  :min="1"
+                  :max="30"
+                  :show-button="false"
+                />
+              </label>
+              <n-space justify="end" :size="8">
               <n-button size="small" secondary :loading="loadingSources" @click="loadSignalSources">
                 刷新来源
               </n-button>
@@ -133,9 +150,10 @@
                 :disabled="selectedSourceKeys.length === 0"
                 @click="collectMarketSignals"
               >
-                自动采集
+                立即采集
               </n-button>
-            </n-space>
+              </n-space>
+            </div>
             <div v-if="sourceConnectionResults.length" class="source-test-list">
               <div
                 v-for="result in sourceConnectionResults"
@@ -153,33 +171,17 @@
           </div>
           <div class="collector-block">
             <div class="signal-summary-head">
-              <div class="block-label">自动采集设置</div>
-              <n-button size="small" secondary :loading="savingAutomationSettings" @click="saveAutomationSettings">
-                保存设置
+              <div>
+                <div class="block-label">采集状态</div>
+                <div class="manual-mode-note">当前只在点击“立即采集”后执行。</div>
+              </div>
+              <n-button size="small" secondary @click="loadSourceHealth">
+                刷新状态
               </n-button>
             </div>
-            <div class="automation-grid">
-              <label class="automation-field automation-toggle">
-                <span class="automation-label">启用定时采集</span>
-                <n-switch v-model:value="automationSettings.enabled" />
-              </label>
-              <label class="automation-field">
-                <span class="automation-label">间隔（分钟）</span>
-                <n-input-number v-model:value="automationSettings.interval_minutes" :min="15" :max="1440" />
-              </label>
-              <label class="automation-field">
-                <span class="automation-label">单源条数</span>
-                <n-input-number v-model:value="automationSettings.limit_per_source" :min="1" :max="30" />
-              </label>
-              <label class="automation-field">
-                <span class="automation-label">趋势窗口（天）</span>
-                <n-input-number v-model:value="automationSettings.lookback_days" :min="1" :max="90" />
-              </label>
-            </div>
             <div class="automation-status">
-              <span>状态：{{ automationStatusLabel }}</span>
-              <span v-if="automationSettings.last_run_at">最近执行：{{ automationSettings.last_run_at }}</span>
-              <span v-if="automationSettings.last_error" class="automation-error">{{ automationSettings.last_error }}</span>
+              <span>后台定时：已关闭</span>
+              <span>趋势窗口：{{ automationSettings.lookback_days }} 天</span>
             </div>
             <div v-if="sourceHealth.length" class="source-health-list">
               <div
@@ -193,7 +195,6 @@
                 <span class="source-health-name">{{ health.source_name }}</span>
                 <span>最近 {{ health.last_count }} 条</span>
                 <span v-if="health.last_run_at">执行：{{ health.last_run_at }}</span>
-                <span v-if="health.next_run_at">下次：{{ health.next_run_at }}</span>
                 <span v-if="health.last_error" class="automation-error">{{ health.last_error }}</span>
               </div>
             </div>
@@ -335,14 +336,40 @@
 
         <div v-if="marketSignals.length" class="signal-strip">
           <div class="signal-strip-header">
-            <div class="block-label">最近市场信号</div>
-            <n-button size="tiny" quaternary @click="marketSignals = []">收起</n-button>
+            <div>
+              <div class="block-label">最近市场信号</div>
+              <div class="signal-selection-hint">
+                已选市场信号 {{ selectedSignalIds.length }} 条，点击卡片可切换
+              </div>
+            </div>
+            <n-space :size="8">
+              <n-button
+                size="tiny"
+                type="primary"
+                :loading="generating"
+                @click="generateFromMarketSignals"
+              >
+                用信号生成评分/大纲
+              </n-button>
+              <n-button size="tiny" quaternary @click="marketSignals = []">收起</n-button>
+            </n-space>
           </div>
           <div class="signal-list">
-            <div v-for="signal in marketSignals" :key="signal.id" class="signal-item">
+            <div
+              v-for="signal in marketSignals"
+              :key="signal.id"
+              class="signal-item"
+              :class="{ selected: isSignalSelected(signal.id) }"
+              role="button"
+              tabindex="0"
+              @click="toggleSignalCard(signal.id)"
+              @keydown.enter.prevent="toggleSignalCard(signal.id)"
+              @keydown.space.prevent="toggleSignalCard(signal.id)"
+            >
               <div class="signal-head">
                 <n-checkbox
-                  :checked="selectedSignalIds.includes(signal.id)"
+                  :checked="isSignalSelected(signal.id)"
+                  @click.stop
                   @update:checked="toggleSignalSelection(signal.id, $event)"
                 />
                 <div class="signal-title">{{ signal.title || signal.summary }}</div>
@@ -359,7 +386,7 @@
         </div>
 
         <div v-if="canCompareCurrentTab" class="compare-toolbar">
-          <span class="compare-count">已选 {{ selectedTopicIds.length }} / 5</span>
+          <span class="compare-count">已选选题 {{ selectedTopicIds.length }} / 5</span>
           <n-space :size="8">
             <n-button size="small" quaternary :disabled="selectedTopicIds.length === 0" @click="clearCompare">
               清空
@@ -736,9 +763,9 @@ const loadingSignals = ref(false)
 const loadingSources = ref(false)
 const collectingSignals = ref(false)
 const testingSourceConnections = ref(false)
-const savingAutomationSettings = ref(false)
 const loadingSourceCredentials = ref(false)
 const savingSourceCredentials = ref(false)
+const manualCollectLimit = ref(8)
 const adoptPreviewVisible = ref(false)
 const pendingAdoptIdea = ref<TopicIdea | null>(null)
 const confirmingAdopt = ref(false)
@@ -784,13 +811,6 @@ const credentialSourceOptions = computed(() => signalSources.value.map(source =>
 const selectedCredentialStatus = computed(() => sourceCredentials.value.find(
   item => item.source_key === credentialForm.source_key,
 ))
-const automationStatusLabel = computed(() => {
-  if (automationSettings.last_status === 'success') return '最近执行成功'
-  if (automationSettings.last_status === 'error') return '最近执行失败'
-  if (automationSettings.enabled) return '已启用，等待执行'
-  return '未启用'
-})
-
 const genreOptions = [
   { label: '玄幻升级', value: '玄幻升级' },
   { label: '都市爽文', value: '都市爽文' },
@@ -926,9 +946,13 @@ function clearCompare() {
   compareResult.value = null
 }
 
+function isSignalSelected(signalId: string) {
+  return selectedSignalIds.value.includes(signalId)
+}
+
 function toggleSignalSelection(signalId: string, checked: boolean) {
   if (checked) {
-    if (!selectedSignalIds.value.includes(signalId)) {
+    if (!isSignalSelected(signalId)) {
       selectedSignalIds.value = [...selectedSignalIds.value, signalId]
     }
     return
@@ -936,14 +960,26 @@ function toggleSignalSelection(signalId: string, checked: boolean) {
   selectedSignalIds.value = selectedSignalIds.value.filter(id => id !== signalId)
 }
 
+function toggleSignalCard(signalId: string) {
+  toggleSignalSelection(signalId, !isSignalSelected(signalId))
+}
+
+function isSourceSelected(sourceKey: string) {
+  return selectedSourceKeys.value.includes(sourceKey)
+}
+
 function toggleSourceSelection(sourceKey: string, checked: boolean) {
   if (checked) {
-    if (!selectedSourceKeys.value.includes(sourceKey)) {
+    if (!isSourceSelected(sourceKey)) {
       selectedSourceKeys.value = [...selectedSourceKeys.value, sourceKey]
     }
     return
   }
   selectedSourceKeys.value = selectedSourceKeys.value.filter(key => key !== sourceKey)
+}
+
+function toggleSourceCard(sourceKey: string) {
+  toggleSourceSelection(sourceKey, !isSourceSelected(sourceKey))
 }
 
 function sourceTypeLabel(source: TopicMarketSignalSource) {
@@ -956,14 +992,18 @@ function sourceTypeLabel(source: TopicMarketSignalSource) {
 function selectedMarketSignals() {
   return marketSignals.value
     .filter(signal => selectedSignalIds.value.includes(signal.id))
-    .map(signal => ({
-      id: signal.id,
-      source: signal.source,
-      title: signal.title,
-      genre: signal.genre,
-      tags: signal.tags,
-      summary: signal.summary,
-    }))
+    .map(signalToGeneratePayload)
+}
+
+function signalToGeneratePayload(signal: TopicMarketSignal): Record<string, unknown> {
+  return {
+    id: signal.id,
+    source: signal.source,
+    title: signal.title,
+    genre: signal.genre,
+    tags: signal.tags,
+    summary: signal.summary,
+  }
 }
 
 function openAdoptPreview(idea: TopicIdea) {
@@ -993,13 +1033,13 @@ async function loadTopics() {
   }
 }
 
-async function handleGenerate() {
+async function handleGenerate(marketSignalsOverride?: Array<Record<string, unknown>>) {
   generating.value = true
   try {
     topics.value = await topicApi.generate({
       ...form,
       brief: form.brief.trim(),
-      market_signals: selectedMarketSignals(),
+      market_signals: marketSignalsOverride || selectedMarketSignals(),
       count: 3,
     })
     activeStatus.value = 'draft'
@@ -1010,6 +1050,21 @@ async function handleGenerate() {
   } finally {
     generating.value = false
   }
+}
+
+async function generateFromMarketSignals() {
+  const selectedSignals = selectedMarketSignals()
+  const signals = selectedSignals.length > 0
+    ? selectedSignals
+    : marketSignals.value.slice(0, 5).map(signalToGeneratePayload)
+  if (signals.length === 0) {
+    message.warning('请先查看或采集市场信号')
+    return
+  }
+  if (selectedSignals.length === 0) {
+    selectedSignalIds.value = marketSignals.value.slice(0, 5).map(signal => signal.id)
+  }
+  await handleGenerate(signals)
 }
 
 async function loadSignals() {
@@ -1039,12 +1094,13 @@ async function loadAutomationSettings() {
   try {
     const settings = await topicApi.getAutomationSettings()
     Object.assign(automationSettings, settings)
+    manualCollectLimit.value = settings.limit_per_source || manualCollectLimit.value
     if (settings.selected_source_keys.length > 0) {
       selectedSourceKeys.value = [...settings.selected_source_keys]
     }
     await loadSourceHealth(true)
   } catch (_error) {
-    message.warning('自动采集设置暂不可用，不影响手动采集和选题功能')
+    message.warning('采集设置暂不可用，不影响手动采集和选题功能')
   }
 }
 
@@ -1140,29 +1196,6 @@ function parseHeadersText(text: string): Record<string, string> {
   return headers
 }
 
-async function saveAutomationSettings() {
-  savingAutomationSettings.value = true
-  try {
-    const settings = await topicApi.updateAutomationSettings({
-      enabled: automationSettings.enabled,
-      interval_minutes: automationSettings.interval_minutes,
-      limit_per_source: automationSettings.limit_per_source,
-      lookback_days: automationSettings.lookback_days,
-      selected_source_keys: selectedSourceKeys.value,
-      source_weights: automationSettings.source_weights,
-    })
-    Object.assign(automationSettings, settings)
-    if (settings.selected_source_keys.length > 0) {
-      selectedSourceKeys.value = [...settings.selected_source_keys]
-    }
-    message.success('自动采集设置已保存')
-  } catch (error: any) {
-    message.error(errorMessage(error, '自动采集设置保存失败'))
-  } finally {
-    savingAutomationSettings.value = false
-  }
-}
-
 async function collectMarketSignals() {
   if (selectedSourceKeys.value.length === 0) {
     message.warning('请选择至少一个采集来源')
@@ -1172,7 +1205,7 @@ async function collectMarketSignals() {
   try {
     const collected = await topicApi.collectSignals({
       source_keys: selectedSourceKeys.value,
-      limit_per_source: 8,
+      limit_per_source: manualCollectLimit.value,
     })
     marketSignals.value = [...collected, ...marketSignals.value].slice(0, 12)
     selectedSignalIds.value = [
@@ -1183,7 +1216,7 @@ async function collectMarketSignals() {
     await loadSourceHealth(true)
     message.success(`已采集 ${collected.length} 条市场信号`)
   } catch (error: any) {
-    message.error(errorMessage(error, '自动采集失败'))
+    message.error(errorMessage(error, '采集失败'))
   } finally {
     collectingSignals.value = false
   }
@@ -1387,6 +1420,30 @@ watch(
   padding-top: 8px;
 }
 
+.collector-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.manual-limit-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.manual-limit-field :deep(.n-input-number) {
+  width: 72px;
+}
+
+.manual-mode-note {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .automation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1434,7 +1491,7 @@ watch(
 .collector-source-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 6px;
   font-size: 12px;
 }
 
@@ -1442,6 +1499,26 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--app-border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.collector-source-item:hover,
+.collector-source-item.selected {
+  border-color: rgba(79, 70, 229, 0.45);
+  background: rgba(79, 70, 229, 0.08);
+}
+
+.collector-source-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-type-label {
@@ -1564,7 +1641,14 @@ watch(
 .signal-strip-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.signal-selection-hint {
+  margin-top: 2px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
 }
 
 .signal-list {
@@ -1580,6 +1664,18 @@ watch(
   padding: 8px;
   border: 1px solid var(--app-border-color);
   border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.signal-item:hover,
+.signal-item.selected {
+  border-color: rgba(79, 70, 229, 0.45);
+  background: rgba(79, 70, 229, 0.07);
+}
+
+.signal-item.selected {
+  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.2);
 }
 
 .signal-title {

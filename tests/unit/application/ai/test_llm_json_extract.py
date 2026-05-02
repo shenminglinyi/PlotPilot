@@ -11,3 +11,10 @@ def test_parse_llm_json_to_dict_with_junk():
     data, errs = parse_llm_json_to_dict(raw)
     assert errs == []
     assert data == {"k": "v"}
+
+
+def test_parse_llm_json_to_dict_repairs_unclosed_string():
+    raw = '{"chapter_contract": {"chapter_question": "灰卡为什么能刷开门禁？'
+    data, errs = parse_llm_json_to_dict(raw)
+    assert errs == []
+    assert data["chapter_contract"]["chapter_question"].startswith("灰卡")

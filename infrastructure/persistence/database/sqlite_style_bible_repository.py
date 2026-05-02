@@ -127,7 +127,7 @@ class SqliteStyleBibleRepository(StyleBibleRepository):
         clauses: list[str] = []
         params: list[Any] = []
         if novel_id:
-            clauses.append("novel_id = ?")
+            clauses.append("(novel_id = ? OR novel_id = '')")
             params.append(novel_id)
         if status:
             clauses.append("status = ?")
@@ -249,6 +249,104 @@ class SqliteStyleBibleRepository(StyleBibleRepository):
         self.db.commit()
         row = self.db.fetch_one("SELECT * FROM style_technique_cards WHERE id = ?", (card.id,))
         return self._row_to_card(row) if row else card
+
+    def ensure_default_profiles(self) -> None:
+        """为空库提供可直接选择的全局手法档案。"""
+        profile_id = "style-profile-default-low-ai-webnovel"
+        if self.get_profile(profile_id) and len(self.list_technique_cards(profile_id)) >= 5:
+            return
+        profile = StyleProfile(
+            id=profile_id,
+            name="默认低AI味网文手法",
+            description="内置全局档案：用于没有导入样本前的章节生成，强调行动链、证据链、潜台词和追读钩子。",
+            novel_id="",
+            status="active",
+            profile={
+                "summary": "商业网文通用低AI味写法：少解释，多用现场动作、证据推进、对白试探和具体选择制造阅读黏性。",
+                "source": "builtin_default",
+            },
+            metrics={
+                "avg_sentence_length": 18,
+                "dialogue_ratio": 0.28,
+                "action_density": 0.7,
+                "max_like_metaphor_per_1k": 3,
+            },
+            rules=[
+                "先写角色正在做的事，再释放解释信息。",
+                "每个场景同时推进情节和关系/风险。",
+                "章尾留下未解决问题或选择后果。",
+                "比喻和场景母题要限量；不要让雨、水、冷、潮湿、铁锈味等词反复接管整章。",
+            ],
+            forbidden_patterns=[
+                "空气凝固",
+                "心中五味杂陈",
+                "命运齿轮",
+                "一切才刚刚开始",
+                "很快达成共识",
+                "一番交谈后",
+            ],
+        )
+        self.save_profile(profile)
+        self.save_technique_cards(
+            profile_id,
+            [
+                StyleTechniqueCard(
+                    id="style-card-default-evidence-chain",
+                    profile_id=profile_id,
+                    title="证据链推进",
+                    category="structure",
+                    scene_type="悬疑/调查",
+                    rule_text="不要让人物站着解释设定；让线索在角色接触、误判、核对和选择中逐步出现。",
+                    example_summary="适合悬疑、都市、系统等需要信息递进的章节。",
+                    prompt_instruction="本章至少写出一个可触摸或可验证的证据变化，并按“发现证据、误判或试错、对白核对、临场选择”的顺序推进。",
+                    weight=1.0,
+                ),
+                StyleTechniqueCard(
+                    id="style-card-default-subtext-dialogue",
+                    profile_id=profile_id,
+                    title="对白潜台词",
+                    category="dialogue",
+                    scene_type="通用",
+                    rule_text="对白不负责把动机讲完，要承担试探、遮掩、反问、误会或露出破绽。",
+                    example_summary="减少说明文腔和人物互相念设定。",
+                    prompt_instruction="每段关键对白至少有一处未说透的信息：角色可以回避、反问、打断、改口或用动作替代回答。",
+                    weight=1.0,
+                ),
+                StyleTechniqueCard(
+                    id="style-card-default-action-emotion",
+                    profile_id=profile_id,
+                    title="动作承载情绪",
+                    category="anti_ai",
+                    scene_type="通用",
+                    rule_text="不用抽象情绪总结，把情绪落到手、眼神、停顿、物件、声音和身体反应上。",
+                    example_summary="针对外部检测器常抓的抽象心理说明。",
+                    prompt_instruction="删除“心情复杂、说不清、空气凝固”等抽象句；改用动作、物件变化、停顿或旁人反应表现情绪。",
+                    weight=1.0,
+                ),
+                StyleTechniqueCard(
+                    id="style-card-default-scene-friction",
+                    profile_id=profile_id,
+                    title="现场摩擦",
+                    category="texture",
+                    scene_type="通用",
+                    rule_text="给场景加入少量真实阻滞，同时避免同一组氛围词反复复现。",
+                    example_summary="降低文本过于顺滑、意象过度统一和精准服务悬念的机器感。",
+                    prompt_instruction="每个重要场景加入一个不改变主线的小摩擦；若雨、水、冷、潮湿、铁锈味或“像……”比喻过密，改成光线、设备、纸张、脚步、手部动作或对白反应。",
+                    weight=0.9,
+                ),
+                StyleTechniqueCard(
+                    id="style-card-default-chase-hook",
+                    profile_id=profile_id,
+                    title="追读钩子",
+                    category="pacing",
+                    scene_type="通用",
+                    rule_text="章节末尾不做哲理总结，用动作、未完成对白、突发信息或选择后果收束。",
+                    example_summary="替代“命运齿轮/一切才刚刚开始”等模板句。",
+                    prompt_instruction="结尾必须留下一个具体未完成问题、关系裂口、危险升级或证据反转；不要用哲理化总结收尾。",
+                    weight=1.0,
+                ),
+            ],
+        )
 
     def _find_sample_by_hash(
         self,

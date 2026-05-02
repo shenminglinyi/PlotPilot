@@ -5,8 +5,10 @@ from domain.ai.services.llm_service import GenerationResult
 from domain.ai.value_objects.token_usage import TokenUsage
 from interfaces.api.dependencies import (
     get_chapter_aftermath_pipeline,
+    get_analysis_llm_service,
     get_llm_provider_factory,
     get_llm_service,
+    get_writing_llm_service,
 )
 from interfaces.main import app
 
@@ -280,6 +282,97 @@ class TestChapterCandidateDraftsAPI:
         assert payload["task"]["model"] == "Kimi"
         assert factory.requested_profiles == ["writer-profile"]
 
+    def test_generate_editorial_polish_candidate_uses_review_actions(self):
+        novel_id = f"test-novel-editorial-polish-{uuid.uuid4().hex[:8]}"
+        create_novel = self.client.post(
+            "/api/v1/novels",
+            json={
+                "novel_id": novel_id,
+                "title": "主编审稿精修测试",
+                "author": "测试作者",
+                "target_chapters": 12,
+                "premise": "测试 premise",
+            },
+        )
+        assert create_novel.status_code == 201
+
+        writing_service = _FakeLLMService("按主编审稿精修后的候选正文")
+        app.dependency_overrides[get_writing_llm_service] = lambda: writing_service
+
+        response = self.client.post(
+            f"/api/v1/novels/{novel_id}/candidate-drafts/editorial-polish",
+            json={
+                "chapter_number": 2,
+                "outline": "第二章主角继续调查灰卡。",
+                "current_content": "旧正文里许照突然出现，黑线发现过程偏散。",
+                "branch_name": "editorial",
+                "target_word_count": 2500,
+                "editorial_review": {
+                    "summary": "可优化后使用",
+                    "verdict": "可优化后使用",
+                    "scores": {
+                        "opening": 90,
+                        "conflict": 92,
+                        "character": 88,
+                        "dialogue": 90,
+                        "hook": 95,
+                        "pacing": 87,
+                    },
+                    "strengths": ["物证层层递进", "对白潜台词丰富"],
+                    "problems": ["许照出场缺少铺垫", "开头一两段偏散文化"],
+                    "actions": ["许照出场前增加极简暗示", "压紧前300字"],
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["draft"]["source"] == "editorial-polish"
+        assert payload["draft"]["content"] == "按主编审稿精修后的候选正文"
+        assert payload["draft"]["branch_name"] == "editorial"
+        assert payload["draft"]["metadata"]["editorial_review"]["verdict"] == "可优化后使用"
+        assert payload["task"]["execution_mode"] == "editorial_polish_api"
+        assert "许照出场缺少铺垫" in writing_service.calls[0]["prompt"].user
+        assert "许照出场前增加极简暗示" in writing_service.calls[0]["prompt"].user
+        assert "旧正文里许照突然出现" in writing_service.calls[0]["prompt"].user
+        assert "目标字数：约 2500 字" in writing_service.calls[0]["prompt"].user
+        assert writing_service.calls[0]["config"].max_tokens <= 4096
+
+    def test_create_web_writing_prompt_records_copy_paste_task(self):
+        novel_id = f"test-novel-web-writing-{uuid.uuid4().hex[:8]}"
+        create_novel = self.client.post(
+            "/api/v1/novels",
+            json={
+                "novel_id": novel_id,
+                "title": "Web 写作测试",
+                "author": "测试作者",
+                "target_chapters": 12,
+                "premise": "测试 premise",
+            },
+        )
+        assert create_novel.status_code == 201
+
+        response = self.client.post(
+            f"/api/v1/novels/{novel_id}/candidate-drafts/web-writing-prompt",
+            json={
+                "chapter_number": 6,
+                "outline": "第六章，主角在灯塔里发现旧记录。",
+                "current_content": "上一版正文开头偏慢。",
+                "model_label": "ChatGPT Web",
+                "task_prompt": "生成一版 2500 字左右的商业悬疑正文。",
+            },
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["task"]["model"] == "ChatGPT Web"
+        assert payload["task"]["status"] == "prompted"
+        assert payload["task"]["execution_mode"] == "web_copy_paste"
+        assert payload["prompt"] == payload["task"]["prompt"]
+        assert "第六章，主角在灯塔里发现旧记录" in payload["prompt"]
+        assert "上一版正文开头偏慢" in payload["prompt"]
+        assert "只输出完整章节正文" in payload["prompt"]
+
     def test_supervisor_review_uses_requested_llm_profile_and_records_task(self):
         novel_id = f"test-novel-supervisor-review-{uuid.uuid4().hex[:8]}"
         create_novel = self.client.post(
@@ -326,3 +419,50 @@ class TestChapterCandidateDraftsAPI:
         assert payload["task"]["execution_mode"] == "supervisor_api"
         assert factory.requested_profiles == ["supervisor-profile"]
         assert "甲突然击败高阶敌人" in factory.supervisor_service.calls[0]["prompt"].user
+
+    def test_supervisor_review_defaults_to_analysis_llm_when_no_profile_requested(self):
+        novel_id = f"test-novel-supervisor-default-{uuid.uuid4().hex[:8]}"
+        create_novel = self.client.post(
+            "/api/v1/novels",
+            json={
+                "novel_id": novel_id,
+                "title": "默认审稿模型测试",
+                "author": "测试作者",
+                "target_chapters": 12,
+                "premise": "测试 premise",
+            },
+        )
+        assert create_novel.status_code == 201
+
+        create_draft = self.client.post(
+            f"/api/v1/novels/{novel_id}/chapters/4/candidate-drafts",
+            json={
+                "source": "direct-model",
+                "title": "第4章候选",
+                "content": "甲突然击败高阶敌人，但没有付出代价。",
+                "branch_name": "main",
+            },
+        )
+        assert create_draft.status_code == 201
+        draft = create_draft.json()
+
+        active_service = _FakeLLMService("当前激活 Kimi 检查结果")
+        analysis_service = _FakeLLMService("DS 分析模型检查结果")
+        app.dependency_overrides[get_llm_service] = lambda: active_service
+        app.dependency_overrides[get_analysis_llm_service] = lambda: analysis_service
+
+        response = self.client.post(
+            f"/api/v1/novels/{novel_id}/chapters/4/candidate-drafts/{draft['id']}/supervisor-review",
+            json={
+                "model_label": "PP 当前 AI",
+                "focus": "检查记忆、连续性、战力崩坏和采纳建议。",
+            },
+        )
+
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["review"] == "DS 分析模型检查结果"
+        assert len(analysis_service.calls) == 1
+        assert active_service.calls == []
+        assert "AI味" in analysis_service.calls[0]["prompt"].user
+        assert "对白直白" in analysis_service.calls[0]["prompt"].user

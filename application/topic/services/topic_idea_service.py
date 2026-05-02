@@ -482,7 +482,10 @@ class TopicIdeaService:
                 "你是华语类型小说选题编辑。请输出严格 JSON，根字段为 topic_ideas。"
                 "每个候选包含 title、genre、world_preset、length_tier、logline、premise、"
                 "protagonist_hook、core_conflict、opening_hook、selling_points、"
-                "long_term_potential、risk_notes、market_tags、score。"
+                "long_term_potential、risk_notes、market_tags、score、development_notes、evaluation。"
+                "development_notes 必须包含 立项定位、首卷大纲、前三章切入、角色关系、连载策略；"
+                "evaluation 必须包含 综合评分、市场匹配度、开篇钩子、大纲完整度、主要风险。"
+                "score 和 综合评分 必须是 0-100 的整数。不要创建 Bible 或章节正文。"
             ),
             user=json.dumps(
                 {
@@ -808,7 +811,7 @@ class TopicIdeaService:
         item: dict[str, Any],
         request: TopicGenerateRequestDTO,
     ) -> TopicIdea:
-        return TopicIdea(
+        idea = TopicIdea(
             title=str(item.get("title") or "未命名选题"),
             genre=str(item.get("genre") or request.genre or ""),
             world_preset=str(item.get("world_preset") or request.world_preset or ""),
@@ -827,13 +830,85 @@ class TopicIdeaService:
             development_notes=item.get("development_notes") or {},
             evaluation=item.get("evaluation") or {},
         )
+        if not idea.development_notes:
+            idea.development_notes = TopicIdeaService._generated_development_notes(idea, request)
+        if not idea.evaluation:
+            idea.evaluation = TopicIdeaService._generated_evaluation(idea, request)
+        idea.__post_init__()
+        return idea
+
+    @staticmethod
+    def _generated_development_notes(
+        idea: TopicIdea,
+        request: TopicGenerateRequestDTO,
+    ) -> dict[str, Any]:
+        genre = idea.genre or request.genre or "类型小说"
+        opening = idea.opening_hook or "第一章用一次公开误判、交易崩盘或突发追捕把主角推到台前。"
+        conflict = idea.core_conflict or "主角的短期求生目标与既有规则、利益集团持续碰撞。"
+        long_term = idea.long_term_potential or "从个人危机扩展到组织、规则和终局真相三层结构。"
+        market_basis = TopicIdeaService._market_basis_from_request(request)
+        positioning_suffix = f"参考市场信号：{'、'.join(market_basis[:3])}。" if market_basis else "参考当前类型市场的强钩子与追读反馈。"
+        return {
+            "立项定位": f"{genre}方向，优先突出可视化开局、明确代价和连续升级反馈。{positioning_suffix}",
+            "首卷大纲": [
+                f"第1-3章：{opening}",
+                f"第4-10章：围绕「{conflict}」制造第一次可见胜利，同时暴露更高代价。",
+                "第11-20章：引入关键对手或同盟，让主角优势从单点能力变成可复用策略。",
+                f"卷末：用一次选择把短期目标推向长期主线，落到「{long_term}」。",
+            ],
+            "前三章切入": [
+                "第一章先给具体事件和损失，不先解释设定。",
+                "第二章让主角做一次带代价的判断，验证核心钩子。",
+                "第三章给出榜单/组织/对手的反馈，明确追读目标。",
+            ],
+            "角色关系": "围绕主角建立短期盟友、利益对手、规则知情者三角张力。",
+            "连载策略": "每 3-5 章兑现一个小目标，同时保留一个未兑现承诺或新风险。",
+        }
+
+    @staticmethod
+    def _generated_evaluation(
+        idea: TopicIdea,
+        request: TopicGenerateRequestDTO,
+    ) -> dict[str, Any]:
+        score = TopicIdeaService._fallback_score(idea)
+        market_basis = TopicIdeaService._market_basis_from_request(request)
+        market_score = max(55, min(92, score + min(10, len(market_basis) * 3)))
+        risks = list(idea.risk_notes or [])
+        if not risks:
+            risks = ["需要避免只复用榜单表层标签，必须落到主角目标、代价和第一章事件。"]
+        return {
+            "综合评分": score,
+            "市场匹配度": {
+                "score": market_score,
+                "level": "高" if market_score >= 78 else "中高" if market_score >= 65 else "中",
+                "依据": market_basis[:5] or ["类型钩子完整度", "开篇事件可视化", "连载延展性"],
+            },
+            "开篇钩子": "已具备" if idea.opening_hook else "需补一个第一章可直接呈现的强事件",
+            "大纲完整度": "已生成首卷大纲和前三章切入，可继续深化为章节节拍",
+            "主要风险": risks,
+        }
+
+    @staticmethod
+    def _market_basis_from_request(request: TopicGenerateRequestDTO) -> list[str]:
+        basis: list[str] = []
+        for signal in request.market_signals or []:
+            if not isinstance(signal, dict):
+                continue
+            title = str(signal.get("title") or "").strip()
+            tags = signal.get("tags") or []
+            if title:
+                basis.append(title)
+            if isinstance(tags, list):
+                basis.extend(str(tag).strip() for tag in tags if str(tag).strip())
+        return TopicIdeaService._merge_unique([], basis)
 
     @staticmethod
     def _fallback_payloads(request: TopicGenerateRequestDTO) -> list[dict[str, Any]]:
         genre = request.genre or "类型小说"
         world = request.world_preset or "可扩展世界观"
-        brief = TopicIdeaService._brief_text(request) or "一个具备商业潜力的新故事"
-        return [
+        brief = TopicIdeaService._manual_brief_text(request) or "一个具备商业潜力的新故事"
+        signal_payloads = TopicIdeaService._fallback_payloads_from_signals(request)
+        base_payloads = [
             {
                 "title": "逆风开局的隐藏王牌",
                 "genre": genre,
@@ -915,6 +990,103 @@ class TopicIdeaService:
                 "score": 76,
             },
         ]
+        return [*signal_payloads, *base_payloads]
+
+    @staticmethod
+    def _fallback_payloads_from_signals(request: TopicGenerateRequestDTO) -> list[dict[str, Any]]:
+        payloads: list[dict[str, Any]] = []
+        for signal in request.market_signals or []:
+            if not isinstance(signal, dict):
+                continue
+            title = str(signal.get("title") or "").strip()
+            summary = str(signal.get("summary") or "").strip()
+            tags = [str(tag).strip() for tag in (signal.get("tags") or []) if str(tag).strip()]
+            if not title and not summary:
+                continue
+            signal_name = title or summary[:18]
+            genre = TopicIdeaService._genre_from_signal(signal, request)
+            opportunity = TopicIdeaService._signal_opportunity_text(signal_name, tags, summary)
+            payloads.append(
+                {
+                    "title": f"榜单反推：{signal_name}的小说机会",
+                    "genre": genre,
+                    "world_preset": request.world_preset or "市场热点反推",
+                    "length_tier": request.length_tier,
+                    "logline": f"参考《{signal_name}》的{TopicIdeaService._compact_tags(tags)}信号，改写成主角在高压关系中切割旧秩序、夺回主动权的连载开局。",
+                    "premise": opportunity,
+                    "protagonist_hook": "主角不是被动受害者，而是能把公开羞辱、背叛或榜单压力转化为反击筹码的人。",
+                    "core_conflict": "主角的自我翻盘与旧关系、旧评价体系、旧利益网络之间的正面碰撞。",
+                    "opening_hook": TopicIdeaService._opening_from_signal(signal_name, summary),
+                    "selling_points": TopicIdeaService._merge_unique(
+                        ["榜单热点反推", "第一章冲突明确", "情绪代偿强"],
+                        tags[:3],
+                    ),
+                    "long_term_potential": "可从第一场关系切割扩展到事业、身份、资源和幕后规则的多层反击线。",
+                    "risk_notes": ["不能照搬原作品设定，只保留市场信号里的情绪结构和冲突模型。"],
+                    "market_tags": TopicIdeaService._merge_unique([genre], tags),
+                    "score": 78,
+                }
+            )
+            if len(payloads) >= 5:
+                break
+        return payloads
+
+    @staticmethod
+    def _manual_brief_text(request: TopicGenerateRequestDTO) -> str:
+        parts = []
+        if request.brief.strip():
+            parts.append(request.brief.strip())
+        if request.keywords:
+            parts.append("关键词：" + "、".join(request.keywords))
+        if request.desired_selling_points:
+            parts.append("目标爽点：" + "、".join(request.desired_selling_points))
+        if request.avoid_patterns:
+            parts.append("避雷套路：" + "、".join(request.avoid_patterns))
+        return "；".join(parts)
+
+    @staticmethod
+    def _genre_from_signal(signal: dict[str, Any], request: TopicGenerateRequestDTO) -> str:
+        if request.genre:
+            return request.genre
+        content = " ".join(
+            str(value or "")
+            for value in (
+                signal.get("title"),
+                signal.get("genre"),
+                signal.get("summary"),
+                " ".join(str(tag) for tag in (signal.get("tags") or [])),
+            )
+        )
+        if any(word in content for word in ("渣男", "未婚夫", "告白", "丈夫", "淑女", "闺女")):
+            return "现代言情"
+        if any(word in content for word in ("亡灵", "仙子", "鼎炉", "怪物", "罪恶之城")):
+            return "玄幻奇幻"
+        if any(word in content for word in ("检察官", "档案", "罪", "调查")):
+            return "都市悬疑"
+        return str(signal.get("genre") or "类型小说")
+
+    @staticmethod
+    def _signal_opportunity_text(signal_name: str, tags: list[str], summary: str) -> str:
+        clue = summary or f"围绕《{signal_name}》暴露出的市场情绪展开。"
+        return (
+            f"从《{signal_name}》提炼市场机会：保留“{TopicIdeaService._compact_tags(tags)}”背后的情绪张力，"
+            f"把「{clue[:90]}」转译为小说第一章的公开冲突。主角先遭遇关系或身份层面的失衡，"
+            "随后用一次明确选择切断旧评价体系，并引出更大的利益网络。"
+        )
+
+    @staticmethod
+    def _opening_from_signal(signal_name: str, summary: str) -> str:
+        if "渣男" in signal_name or "未婚夫" in summary or "怀孕" in summary:
+            return "第一章从未婚夫带着另一个女人公开归来写起，主角当场切割关系并抛出第一张证据。"
+        if "亡灵" in signal_name or "怪物" in signal_name:
+            return "第一章从主角获得被所有人误判为废物的危险能力写起，立刻用它解决一场近身危机。"
+        if "检察官" in signal_name or "罪" in signal_name:
+            return "第一章从一份足以翻案的证据突然落到主角手里写起，对手当天就开始灭口。"
+        return f"第一章以《{signal_name}》对应的高压事件开场，让主角在众目睽睽下做出不可回头的选择。"
+
+    @staticmethod
+    def _compact_tags(tags: list[str]) -> str:
+        return "、".join(tags[:3]) if tags else "快速上榜"
 
     @staticmethod
     def _compose_premise(idea: TopicIdea) -> str:

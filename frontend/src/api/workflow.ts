@@ -72,6 +72,93 @@ export interface GenerateChapterWithContextPayload {
   style_profile_id?: string
   scene_type?: string
   avoid_compressed_expression?: boolean
+  target_word_count?: number
+  word_tolerance_percent?: number
+  direct_writing_mode?: boolean
+  direct_light_polish?: boolean
+  chapter_strategy?: ChapterStrategyPreviewDTO
+  long_draft_mode?: boolean
+  long_draft_split_count?: number
+}
+
+export interface ChapterStrategyDramaticTaskDTO {
+  goal: string
+  obstacle: string
+  reader_expectation: string
+  ending_hook: string
+}
+
+export interface ChapterContractDTO {
+  chapter_question: string
+  protagonist_want: string
+  opposition: string
+  reader_expectation: string
+  required_information_change: string
+  required_relationship_change: string
+  ending_question: string
+  show_dont_tell_rules: string[]
+}
+
+export interface ChapterStrategySceneDTO {
+  label: string
+  task: string
+  resistance: string
+  info_shift: string
+  relationship_shift: string
+  anchor: string
+  visible_action?: string
+  subtext_dialogue?: string
+  unspoken_emotion?: string
+  object_or_clue_change?: string
+  hook: string
+  target_words: number
+}
+
+export interface ChapterStrategyPreviewDTO {
+  chapter_contract: ChapterContractDTO
+  dramatic_task: ChapterStrategyDramaticTaskDTO
+  scene_plan: ChapterStrategySceneDTO[]
+  writing_focus: string[]
+}
+
+export interface ChapterEditorialReviewScoresDTO {
+  opening: number
+  conflict: number
+  character: number
+  dialogue: number
+  hook: number
+  pacing: number
+  showing: number
+}
+
+export interface ChapterEditorialReviewDTO {
+  summary: string
+  scores: ChapterEditorialReviewScoresDTO
+  strengths: string[]
+  problems: string[]
+  actions: string[]
+  verdict: string
+}
+
+export interface CocCognitionPrecheckDTO {
+  checked: boolean
+  allow_generate: boolean
+  risk_level: 'none' | 'warning' | 'block' | string
+  blocking_issues: string[]
+  warnings: string[]
+  matched_tokens: string[]
+  chapter_number: number
+}
+
+export interface CocCognitionRewriteResultDTO {
+  original_outline: string
+  rewritten_outline: string
+  changed: boolean
+  rewrite_mode: 'conservative' | 'aggressive' | string
+  rewrite_style: 'generic' | 'suspense' | 'coc' | string
+  applied_rules: string[]
+  precheck_before: CocCognitionPrecheckDTO
+  precheck_after: CocCognitionPrecheckDTO
 }
 
 export interface SceneDirectorAnalysis {
@@ -97,6 +184,63 @@ export async function analyzeScene(
     `/novels/${novelId}/scene-director/analyze`,
     { chapter_number: chapterNumber, outline }
   ) as unknown as Promise<SceneDirectorAnalysis>
+}
+
+export async function previewChapterStrategy(
+  novelId: string,
+  chapterNumber: number,
+  data: {
+    outline: string
+    scene_director_result?: Record<string, unknown>
+    style_profile_id?: string
+    scene_type?: string
+    target_word_count?: number
+    word_tolerance_percent?: number
+  }
+): Promise<ChapterStrategyPreviewDTO> {
+  return apiClient.post<ChapterStrategyPreviewDTO>(
+    `/novels/${novelId}/chapters/${chapterNumber}/strategy-preview`,
+    data
+  ) as unknown as Promise<ChapterStrategyPreviewDTO>
+}
+
+export async function reviewGeneratedChapterEditorially(
+  novelId: string,
+  chapterNumber: number,
+  data: {
+    outline: string
+    content: string
+    chapter_strategy?: ChapterStrategyPreviewDTO | null
+  }
+): Promise<ChapterEditorialReviewDTO> {
+  return apiClient.post<ChapterEditorialReviewDTO>(
+    `/novels/${novelId}/chapters/${chapterNumber}/editorial-review`,
+    data
+  ) as unknown as Promise<ChapterEditorialReviewDTO>
+}
+
+export async function precheckCocCognitionBoundary(
+  novelId: string,
+  chapterNumber: number,
+  outline: string,
+): Promise<CocCognitionPrecheckDTO> {
+  return apiClient.post<CocCognitionPrecheckDTO>(
+    `/novels/${novelId}/chapters/${chapterNumber}/coc-cognition-precheck`,
+    { outline },
+  ) as unknown as Promise<CocCognitionPrecheckDTO>
+}
+
+export async function rewriteOutlineByCocBoundary(
+  novelId: string,
+  chapterNumber: number,
+  outline: string,
+  rewriteMode: 'conservative' | 'aggressive' = 'conservative',
+  rewriteStyle: 'generic' | 'suspense' | 'coc' = 'generic',
+): Promise<CocCognitionRewriteResultDTO> {
+  return apiClient.post<CocCognitionRewriteResultDTO>(
+    `/novels/${novelId}/chapters/${chapterNumber}/coc-cognition-rewrite-outline`,
+    { outline, rewrite_mode: rewriteMode, rewrite_style: rewriteStyle },
+  ) as unknown as Promise<CocCognitionRewriteResultDTO>
 }
 
 /** 与 `interfaces/api/v1/generation.py` GenerateChapterResponse 对齐 */
@@ -127,6 +271,10 @@ export interface GenerateChapterWorkflowResponse {
   token_count: number
   style_warnings?: StyleWarning[]
   ghost_annotations?: unknown[]
+  direct_writing_mode?: boolean
+  direct_light_polish?: boolean
+  long_draft_mode?: boolean
+  long_draft_split_count?: number | null
 }
 
 export interface ChunkStats {
@@ -136,9 +284,10 @@ export interface ChunkStats {
 }
 
 export type GenerateChapterStreamEvent =
-  | { type: 'phase'; phase: 'planning' | 'context' | 'llm' | 'post' }
+  | { type: 'phase'; phase: 'planning' | 'context' | 'llm' | 'polish' | 'post' }
+  | { type: 'long_draft_plan'; enabled: boolean; split_count: number; target_word_count: number }
   | { type: 'chunk'; text: string; stats: ChunkStats }
-  | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number; output_tokens: number; total_tokens: number; chars: number; style_warnings?: StyleWarning[]; ghost_annotations?: unknown[] }
+  | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number; output_tokens: number; total_tokens: number; chars: number; style_warnings?: StyleWarning[]; ghost_annotations?: unknown[]; long_draft_mode?: boolean; long_draft_split_count?: number | null }
   | { type: 'error'; message: string }
 
 function parseSseDataLine(line: string): unknown | null {
@@ -199,6 +348,14 @@ export async function consumeGenerateChapterStream(
             const ev: GenerateChapterStreamEvent = { type: 'phase', phase: ph as 'planning' | 'context' | 'llm' | 'post' }
             handlers.onEvent?.(ev)
             handlers.onPhase?.(ph)
+          } else if (typ === 'long_draft_plan') {
+            const ev: GenerateChapterStreamEvent = {
+              type: 'long_draft_plan',
+              enabled: Boolean(o.enabled ?? false),
+              split_count: Number(o.split_count ?? 2),
+              target_word_count: Number(o.target_word_count ?? 0),
+            }
+            handlers.onEvent?.(ev)
           } else if (typ === 'chunk') {
             const text = String(o.text ?? '')
             const stats = o.stats as ChunkStats | undefined
@@ -215,6 +372,10 @@ export async function consumeGenerateChapterStream(
               content: String(o.content ?? ''),
               consistency_report,
               token_count: Number(o.token_count ?? 0),
+              direct_writing_mode: Boolean(o.direct_writing_mode ?? false),
+              direct_light_polish: Boolean(o.direct_light_polish ?? false),
+              long_draft_mode: Boolean(o.long_draft_mode ?? false),
+              long_draft_split_count: o.long_draft_split_count == null ? null : Number(o.long_draft_split_count),
             }
             if (Array.isArray(o.style_warnings)) {
               result.style_warnings = o.style_warnings as StyleWarning[]

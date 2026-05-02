@@ -3,7 +3,7 @@
 from application.style_bible.services.style_prompt_overlay_service import (
     StylePromptOverlayService,
 )
-from domain.style_bible.entities import StyleProfile, StyleTechniqueCard
+from domain.style_bible.entities import StyleProfile, StyleSample, StyleTechniqueCard
 from infrastructure.persistence.database.connection import DatabaseConnection
 from infrastructure.persistence.database.sqlite_style_bible_repository import (
     SqliteStyleBibleRepository,
@@ -121,3 +121,44 @@ def test_style_prompt_overlay_ranks_scene_type_cards_first(tmp_path):
 
     assert overlay.card_ids[0] == cards[1].id
     assert overlay.prompt.index("先给异常细节") < overlay.prompt.index("先写情绪余波")
+
+
+def test_style_prompt_overlay_includes_style_anchors_from_allowed_samples(tmp_path):
+    repo = _repo(tmp_path)
+    sample = repo.save_sample(
+        StyleSample(
+            title="样本A",
+            content=(
+                "白雨翔把灰卡在指间转了一圈，没立刻答话。\n"
+                "“你再说一遍时间。”许照没有抬头，笔尖却停住了。\n"
+                "走廊尽头的灯管嗡了一下，门缝里先伸出一截白手套。"
+            ),
+            novel_id="novel-1",
+            allowed_for_generation=True,
+        ),
+        [],
+    )
+    profile = repo.save_profile(
+        StyleProfile(
+            name="锚点档案",
+            novel_id="novel-1",
+            profile={"source_sample_ids": [sample.id], "anchor_max": 3},
+        )
+    )
+    repo.save_technique_cards(
+        profile.id,
+        [
+            StyleTechniqueCard(
+                profile_id=profile.id,
+                title="动作优先",
+                category="pacing",
+                rule_text="动作先行",
+                prompt_instruction="先写动作再给判断。",
+            )
+        ],
+    )
+
+    overlay = StylePromptOverlayService(repo).build_overlay("novel-1", profile.id)
+
+    assert "风格锚点（检索，不可复刻原句）" in overlay.prompt
+    assert "灰卡在指间转了一圈" in overlay.prompt

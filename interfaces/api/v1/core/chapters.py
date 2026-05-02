@@ -12,10 +12,12 @@ from application.core.dtos.novel_dto import NovelDTO
 from application.audit.dtos.chapter_review_dto import ChapterReviewDTO
 from application.core.dtos.chapter_structure_dto import ChapterStructureDTO
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
+from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 from interfaces.api.dependencies import (
     get_chapter_service,
     get_novel_service,
     get_chapter_aftermath_pipeline,
+    get_auto_workflow,
 )
 from domain.shared.exceptions import EntityNotFoundError
 logger = logging.getLogger(__name__)
@@ -172,8 +174,24 @@ async def update_chapter(
     chapter_number: int = Path(..., gt=0, description="章节编号"),
     service: ChapterService = Depends(get_chapter_service),
     pipeline: ChapterAftermathPipeline = Depends(get_chapter_aftermath_pipeline),
+    workflow: AutoNovelGenerationWorkflow = Depends(get_auto_workflow),
 ):
     """更新章节内容，保存成功后后台执行统一章后管线（见 ChapterAftermathPipeline）。"""
+    coc_guard = workflow.validate_coc_content_boundary(
+        novel_id=novel_id,
+        chapter_number=chapter_number,
+        content=request.content,
+    )
+    if not coc_guard.get("allow_save", True):
+        reasons = coc_guard.get("blocking_issues") or []
+        detail = {
+            "message": "命中 CoC 硬约束，章节保存已阻断",
+            "blocking_issues": reasons,
+            "chapter_number": chapter_number,
+            "risk_level": coc_guard.get("risk_level", "block"),
+        }
+        raise HTTPException(status_code=422, detail=detail)
+
     try:
         chapter = service.update_chapter_by_novel_and_number(
             novel_id,

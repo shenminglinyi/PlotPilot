@@ -20,6 +20,7 @@ from domain.novel.value_objects.tension_level import TensionLevel
 from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
 from domain.novel.entities.plot_arc import PlotArc
 from interfaces.api.dependencies import (
+    build_auto_workflow,
     get_auto_workflow,
     get_hosted_write_service,
     get_storyline_manager,
@@ -30,6 +31,7 @@ from interfaces.api.dependencies import (
     get_auto_bible_generator,
     get_auto_knowledge_generator,
     get_setup_main_plot_suggestion_service,
+    get_analysis_llm_service,
 )
 # from application.services.story_structure_ai_service import StoryStructureAIService  # 已废弃，使用 ContinuousPlanningService
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
@@ -78,6 +80,11 @@ def get_continuous_planning_service() -> ContinuousPlanningService:
     )
 
 
+def get_analysis_workflow() -> AutoNovelGenerationWorkflow:
+    """获取用于策略预览 / 主编审稿的分析工作流。"""
+    return build_auto_workflow(get_analysis_llm_service())
+
+
 # Request/Response Models
 class GenerateChapterRequest(BaseModel):
     """生成章节请求"""
@@ -90,6 +97,151 @@ class GenerateChapterRequest(BaseModel):
         False,
         description="是否注入避免 AI 压缩表达的慢写约束",
     )
+    target_word_count: Optional[int] = Field(
+        None,
+        ge=800,
+        le=12000,
+        description="可选：本章目标字数",
+    )
+    word_tolerance_percent: Optional[float] = Field(
+        5.0,
+        ge=2.0,
+        le=20.0,
+        description="可选：目标字数容差百分比（2-20）；例如 5 表示 2500 字允许约 2375-2625",
+    )
+    direct_writing_mode: bool = Field(
+        False,
+        description="直接写作对照模式：跳过节拍拆分、自然化后处理与章后质检",
+    )
+    direct_light_polish: bool = Field(
+        False,
+        description="直接写作后轻修：只局部降低 AI 特征，不进入完整后处理",
+    )
+    chapter_strategy: Optional[dict] = Field(
+        None,
+        description="可选：生成前确认的章节写作策略，会作为硬约束注入正文生成",
+    )
+    long_draft_mode: bool = Field(
+        False,
+        description="长稿母本灰度模式：先按更长目标字数连续写，再用于后续拆章",
+    )
+    long_draft_split_count: Optional[int] = Field(
+        2,
+        ge=2,
+        le=4,
+        description="长稿母本预计拆章数（2-4）",
+    )
+
+
+class ChapterStrategyPreviewRequest(BaseModel):
+    outline: str = Field(..., min_length=1, description="章节大纲")
+    scene_director_result: Optional[dict] = Field(None, description="可选场记分析结果")
+    style_profile_id: str = Field("", description="可选写作手法档案 ID")
+    scene_type: str = Field("", description="可选场景类型")
+    target_word_count: Optional[int] = Field(None, ge=800, le=12000)
+    word_tolerance_percent: Optional[float] = Field(5.0, ge=2.0, le=20.0)
+
+
+class CocCognitionPrecheckRequest(BaseModel):
+    outline: str = Field(..., min_length=1, description="章节大纲")
+
+
+class CocCognitionRewriteRequest(BaseModel):
+    outline: str = Field(..., min_length=1, description="章节大纲")
+    rewrite_mode: str = Field(
+        default="conservative",
+        description="改写强度：conservative(保守) / aggressive(激进)",
+    )
+    rewrite_style: str = Field(
+        default="generic",
+        description="改写风格：generic(通用) / suspense(悬疑) / coc(CoC)",
+    )
+
+
+class CocCognitionPrecheckResponse(BaseModel):
+    checked: bool
+    allow_generate: bool
+    risk_level: str
+    blocking_issues: List[str]
+    warnings: List[str]
+    matched_tokens: List[str]
+    chapter_number: int
+
+
+class CocCognitionRewriteResponse(BaseModel):
+    original_outline: str
+    rewritten_outline: str
+    changed: bool
+    rewrite_mode: str
+    rewrite_style: str
+    applied_rules: List[str]
+    precheck_before: CocCognitionPrecheckResponse
+    precheck_after: CocCognitionPrecheckResponse
+
+
+class ChapterStrategyDramaticTaskResponse(BaseModel):
+    goal: str
+    obstacle: str
+    reader_expectation: str
+    ending_hook: str
+
+
+class ChapterContractResponse(BaseModel):
+    chapter_question: str
+    protagonist_want: str
+    opposition: str
+    reader_expectation: str
+    required_information_change: str
+    required_relationship_change: str
+    ending_question: str
+    show_dont_tell_rules: List[str]
+
+
+class ChapterStrategySceneResponse(BaseModel):
+    label: str
+    task: str
+    resistance: str
+    info_shift: str
+    relationship_shift: str
+    anchor: str
+    visible_action: str = ""
+    subtext_dialogue: str = ""
+    unspoken_emotion: str = ""
+    object_or_clue_change: str = ""
+    hook: str
+    target_words: int
+
+
+class ChapterStrategyPreviewResponse(BaseModel):
+    chapter_contract: ChapterContractResponse
+    dramatic_task: ChapterStrategyDramaticTaskResponse
+    scene_plan: List[ChapterStrategySceneResponse]
+    writing_focus: List[str]
+
+
+class ChapterEditorialReviewRequest(BaseModel):
+    outline: str = Field(..., min_length=1, description="章节大纲")
+    content: str = Field(..., min_length=1, description="章节正文")
+    chapter_strategy: Optional[dict] = Field(None, description="可选：本章写作策略")
+
+
+class ChapterEditorialReviewScoresResponse(BaseModel):
+    opening: int
+    conflict: int
+    character: int
+    dialogue: int
+    hook: int
+    pacing: int
+    showing: int = Field(0, description="展示优先：少解释、多动作细节、潜台词对白")
+
+
+class ChapterEditorialReviewResponse(BaseModel):
+    summary: str
+    scores: ChapterEditorialReviewScoresResponse
+    strengths: List[str]
+    problems: List[str]
+    actions: List[str]
+    verdict: str
 
 
 ANTI_COMPRESSION_DIRECTIVE = """【避免 AI 压缩表达】
@@ -242,6 +394,103 @@ class HostedWriteStreamRequest(BaseModel):
 
 # Endpoints
 @router.post(
+    "/{novel_id}/chapters/{chapter_number}/strategy-preview",
+    response_model=ChapterStrategyPreviewResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def preview_chapter_strategy(
+    novel_id: str,
+    chapter_number: int,
+    request: ChapterStrategyPreviewRequest,
+    workflow: AutoNovelGenerationWorkflow = Depends(get_analysis_workflow),
+):
+    """生成本章可见写作策略。"""
+    scene_director = None
+    if request.scene_director_result:
+        scene_director = SceneDirectorAnalysis(**request.scene_director_result)
+    payload = await workflow.generate_chapter_strategy(
+        novel_id=novel_id,
+        chapter_number=chapter_number,
+        outline=request.outline,
+        scene_director=scene_director,
+        style_profile_id=request.style_profile_id,
+        scene_type=request.scene_type,
+        target_word_count=request.target_word_count,
+        word_tolerance_ratio=(request.word_tolerance_percent or 5.0) / 100.0,
+    )
+    return ChapterStrategyPreviewResponse(**payload)
+
+
+@router.post(
+    "/{novel_id}/chapters/{chapter_number}/coc-cognition-precheck",
+    response_model=CocCognitionPrecheckResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def precheck_coc_cognition_boundary(
+    novel_id: str,
+    chapter_number: int,
+    request: CocCognitionPrecheckRequest,
+    workflow: AutoNovelGenerationWorkflow = Depends(get_auto_workflow),
+):
+    payload = workflow.precheck_coc_cognition_boundary(
+        novel_id=novel_id,
+        chapter_number=chapter_number,
+        outline=request.outline,
+    )
+    payload.setdefault("chapter_number", chapter_number)
+    payload.setdefault("blocking_issues", [])
+    payload.setdefault("warnings", [])
+    payload.setdefault("matched_tokens", [])
+    payload.setdefault("risk_level", "none")
+    payload.setdefault("checked", False)
+    payload.setdefault("allow_generate", True)
+    return CocCognitionPrecheckResponse(**payload)
+
+
+@router.post(
+    "/{novel_id}/chapters/{chapter_number}/coc-cognition-rewrite-outline",
+    response_model=CocCognitionRewriteResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def rewrite_outline_by_coc_boundary(
+    novel_id: str,
+    chapter_number: int,
+    request: CocCognitionRewriteRequest,
+    workflow: AutoNovelGenerationWorkflow = Depends(get_auto_workflow),
+):
+    payload = workflow.rewrite_outline_for_coc_boundary(
+        novel_id=novel_id,
+        chapter_number=chapter_number,
+        outline=request.outline,
+        rewrite_mode=request.rewrite_mode,
+        rewrite_style=request.rewrite_style,
+    )
+    return CocCognitionRewriteResponse(**payload)
+
+
+@router.post(
+    "/{novel_id}/chapters/{chapter_number}/editorial-review",
+    response_model=ChapterEditorialReviewResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def review_generated_chapter_editorially(
+    novel_id: str,
+    chapter_number: int,
+    request: ChapterEditorialReviewRequest,
+    workflow: AutoNovelGenerationWorkflow = Depends(get_analysis_workflow),
+):
+    """按开篇/冲突/人物/对白/追读/节奏做主编审稿。"""
+    payload = await workflow.review_generated_chapter_editorially(
+        novel_id=novel_id,
+        chapter_number=chapter_number,
+        outline=request.outline,
+        content=request.content,
+        chapter_strategy=request.chapter_strategy,
+    )
+    return ChapterEditorialReviewResponse(**payload)
+
+
+@router.post(
     "/{novel_id}/generate-chapter-stream",
     status_code=status.HTTP_200_OK,
 )
@@ -273,6 +522,16 @@ async def generate_chapter_stream(
             request.avoid_compressed_expression,
         )
 
+        coc_precheck = workflow.precheck_coc_cognition_boundary(
+            novel_id=novel_id,
+            chapter_number=request.chapter_number,
+            outline=outline,
+        )
+        if coc_precheck.get("risk_level") == "block":
+            reasons = coc_precheck.get("blocking_issues") or []
+            yield f"data: {json.dumps({'type': 'error', 'message': 'CoC 认知边界阻断：请先改写大纲后再生成', 'blocking_issues': reasons, 'chapter_number': request.chapter_number}, ensure_ascii=False)}\n\n"
+            return
+
         async for event in workflow.generate_chapter_stream(
             novel_id=novel_id,
             chapter_number=request.chapter_number,
@@ -280,6 +539,14 @@ async def generate_chapter_stream(
             scene_director=scene_director,
             style_profile_id=request.style_profile_id,
             scene_type=request.scene_type,
+            enable_beats=not request.direct_writing_mode,
+            direct_writing_mode=request.direct_writing_mode,
+            direct_light_polish=request.direct_light_polish,
+            chapter_strategy=request.chapter_strategy,
+            target_word_count=request.target_word_count,
+            word_tolerance_ratio=(request.word_tolerance_percent or 5.0) / 100.0,
+            long_draft_mode=request.long_draft_mode,
+            long_draft_split_count=request.long_draft_split_count,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

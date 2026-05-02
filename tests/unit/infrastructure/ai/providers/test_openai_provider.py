@@ -238,6 +238,66 @@ class TestOpenAIProviderResponses:
             assert result.content == "Line1\nLine2"
 
     @pytest.mark.anyio
+    async def test_generate_responses_accepts_output_text_parts(self, provider):
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="gpt-5.2", temperature=0, max_tokens=32)
+        response = SimpleNamespace(
+            output=[
+                SimpleNamespace(
+                    type="message",
+                    content=[SimpleNamespace(type="output_text", text="正常")],
+                ),
+            ],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            result = await provider.generate(prompt, config)
+
+            assert result.content == "正常"
+
+    @pytest.mark.anyio
+    async def test_generate_responses_accepts_responses_usage_names(self, provider):
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="gpt-5.2", temperature=0, max_tokens=32)
+        response = SimpleNamespace(
+            output=[
+                SimpleNamespace(
+                    type="message",
+                    content=[SimpleNamespace(type="output_text", text="正常")],
+                ),
+            ],
+            usage=SimpleNamespace(input_tokens=11, output_tokens=7),
+        )
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            result = await provider.generate(prompt, config)
+
+            assert result.token_usage.input_tokens == 11
+            assert result.token_usage.output_tokens == 7
+
+    @pytest.mark.anyio
+    async def test_generate_responses_accepts_response_output_text_property(self, provider):
+        prompt = Prompt(system="s", user="u")
+        config = GenerationConfig(model="gpt-5.2", temperature=0, max_tokens=32)
+        response = SimpleNamespace(
+            output_text="写作正常",
+            output=[],
+            usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1),
+        )
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = response
+
+            result = await provider.generate(prompt, config)
+
+            assert result.content == "写作正常"
+
+    @pytest.mark.anyio
     async def test_stream_generate(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="gpt-4o", temperature=0.7, max_tokens=32)
@@ -256,6 +316,23 @@ class TestOpenAIProviderResponses:
 
             assert chunks == ["Hello"]
             assert mock_create.await_args.kwargs["stream"] is True
+
+    @pytest.mark.anyio
+    async def test_stream_generate_accepts_output_text_delta(self, provider):
+        prompt = Prompt(system="You are helpful", user="Hello")
+        config = GenerationConfig(model="gpt-5.2", temperature=0.7, max_tokens=32)
+        stream = _FakeStream([
+            SimpleNamespace(type="response.output_text.delta", delta="正"),
+            SimpleNamespace(type="response.output_text.delta", delta="常"),
+            SimpleNamespace(type="response.completed"),
+        ])
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = stream
+
+            chunks = [chunk async for chunk in provider.stream_generate(prompt, config)]
+
+            assert chunks == ["正", "常"]
 
     @pytest.mark.anyio
     async def test_generate_empty_responses_raises(self, provider):

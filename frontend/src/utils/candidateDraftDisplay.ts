@@ -16,6 +16,7 @@ const SOURCE_LABELS: Record<string, string> = {
   'continuity-dropout': '角色掉线',
   'continuity-relationship': '关系推进',
   'precision-rewrite': '精细改稿',
+  'editorial-polish': '主编精修',
   'partial-accept': '部分采纳',
   'external-model': '外部模型稿',
 }
@@ -28,6 +29,7 @@ const SOURCE_TYPES: Record<string, CandidateDraftTagType> = {
   'continuity-dropout': 'warning',
   'continuity-relationship': 'warning',
   'precision-rewrite': 'warning',
+  'editorial-polish': 'success',
   'partial-accept': 'success',
   'external-model': 'info',
 }

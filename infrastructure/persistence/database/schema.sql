@@ -858,6 +858,79 @@ CREATE INDEX IF NOT EXISTS idx_prop_ledger_items_novel
 CREATE INDEX IF NOT EXISTS idx_prop_ledger_events_novel_chapter
     ON prop_ledger_events(novel_id, chapter_number DESC, created_at DESC);
 
+-- ========== CoC 正典注册表（NovelPro）==========
+-- 记录固定设定及其章节证据，供写作约束 overlay 使用
+CREATE TABLE IF NOT EXISTS coc_canon_entries (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    canon_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    public_facts TEXT NOT NULL DEFAULT '',
+    hidden_truth TEXT NOT NULL DEFAULT '',
+    lock_level TEXT NOT NULL DEFAULT 'soft',
+    mutable_notes TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    UNIQUE(novel_id, canon_type, title)
+);
+
+CREATE TABLE IF NOT EXISTS coc_canon_events (
+    id TEXT PRIMARY KEY,
+    entry_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'mention',
+    evidence TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (entry_id) REFERENCES coc_canon_entries(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_coc_canon_entries_novel
+    ON coc_canon_entries(novel_id, status, canon_type, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coc_canon_events_entry_chapter
+    ON coc_canon_events(entry_id, chapter_number DESC, created_at DESC);
+
+-- ========== CoC 线索账本（NovelPro）==========
+-- 记录线索条目与章节证据，维持读者/主角/作者的信息边界
+CREATE TABLE IF NOT EXISTS coc_clue_items (
+    id TEXT PRIMARY KEY,
+    novel_id TEXT NOT NULL,
+    clue_key TEXT NOT NULL,
+    clue_text TEXT NOT NULL DEFAULT '',
+    visibility TEXT NOT NULL DEFAULT 'reader_known'
+        CHECK(visibility IN ('reader_known', 'protagonist_known', 'author_only')),
+    reveal_chapter INTEGER,
+    known_by TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL DEFAULT 0.5,
+    lock_level TEXT NOT NULL DEFAULT 'soft'
+        CHECK(lock_level IN ('soft', 'strict', 'absolute')),
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK(status IN ('active', 'resolved', 'refuted')),
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    UNIQUE(novel_id, clue_key)
+);
+
+CREATE TABLE IF NOT EXISTS coc_clue_events (
+    id TEXT PRIMARY KEY,
+    clue_id TEXT NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'mention',
+    evidence TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (clue_id) REFERENCES coc_clue_items(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_coc_clue_items_novel
+    ON coc_clue_items(novel_id, status, visibility, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coc_clue_events_clue_chapter
+    ON coc_clue_events(clue_id, chapter_number DESC, created_at DESC);
+
 
 -- ========== 提示词广场系统（Prompt Plaza）==========
 -- 模板包：一组相关提示词的集合（如"内置"、"自定义工作流"）
