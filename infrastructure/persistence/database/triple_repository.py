@@ -352,9 +352,26 @@ class TripleRepository:
         self._kr.save_triple(triple.novel_id, _triple_to_fact_dict(triple))
         return triple
 
-    async def save_batch(self, triples: List[Triple]) -> List[Triple]:
-        for t in triples:
-            await self.save(t)
+    async def save_batch(self, triples: List[Triple], batch_size: int = 50) -> List[Triple]:
+        """批量保存三元组，拆分为 micro-transactions 避免长事务锁表。
+
+        Args:
+            triples: 三元组列表
+            batch_size: 每批提交数量，默认 50。WAL 模式下小批量可让读请求"插队"。
+        """
+        import time
+        total = len(triples)
+        if total == 0:
+            return triples
+
+        for i in range(0, total, batch_size):
+            batch = triples[i:i + batch_size]
+            for t in batch:
+                await self.save(t)
+            # 🔥 微事务间隙主动让出时间片，允许 API 进程的读请求插队
+            if i + batch_size < total:
+                time.sleep(0.01)
+
         return triples
 
     async def get_by_id(self, triple_id: str) -> Optional[Triple]:

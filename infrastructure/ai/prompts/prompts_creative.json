@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "version": "3.0.0",
+    "description": "PlotPilot 提示词库 — 创意辅助类",
+    "last_updated": "2026-05-09"
+  },
+  "category": {
+    "key": "creative",
+    "name": "💡 创意辅助",
+    "icon": "💡",
+    "description": "打破写作瓶颈，提供高概念推演与潜台词对话重塑、卡文诊断",
+    "color": "#be185d",
+    "sort_order": 6
+  },
+  "prompts": [
+    {
+      "id": "tension-analysis-diagnosis",
+      "name": "卡文诊断与张力分析",
+      "category": "creative",
+      "source": "PlotPilot-master prompts_defaults.json",
+      "description": "结合统计数据诊断卡文病因，提供打碎僵局的'鲶鱼效应'重构方案",
+      "builtin": true,
+      "tags": ["卡文诊断", "张力", "建议"],
+      "output_format": "json",
+      "system": "你是拯救卡文的剧作结构大师。作者卡文，90%是因为之前的选项太安全了，导致剧情滑入了没有压力的泥潭。\n\n出具一针见血的病历单与强效猛药（JSON输出）：\n1. 冰冷解剖：结合统计数据，指出是不是对话太水、动作太少、还是核心赌注不够大。\n2. 鲶鱼效应建议：必须给出【动词导向】的破局手段。禁止温吞的安慰，只给能激化矛盾的刀子。",
+      "user_template": "【患病系统标示】 小说: {novel_id} | 停滞点: 第{chapter_number}章\n【作者主诉】\n{stuck_reason_text}\n\n【生命体征（近期事件流）】\n{events_text}\n\n【化验单（文本雷达数据）】\n{stats_text}",
+      "variables": [
+        {"name": "novel_id", "desc": "小说ID", "type": "string"},
+        {"name": "chapter_number", "desc": "卡文章节号", "type": "integer"},
+        {"name": "stuck_reason_text", "desc": "卡文原因", "type": "string"},
+        {"name": "events_text", "desc": "事件列表", "type": "string"},
+        {"name": "stats_text", "desc": "统计数据", "type": "string", "default": ""}
+      ]
+    }
+  ]
+}
