@@ -13,7 +13,7 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.bible.repositories.bible_repository import BibleRepository
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
-from domain.shared.exceptions import EntityNotFoundError
+from domain.shared.exceptions import EntityNotFoundError, InvalidOperationError
 from application.world.dtos.bible_dto import BibleDTO, CharacterDTO
 
 if TYPE_CHECKING:
@@ -105,7 +105,7 @@ class BibleService:
         description: str,
         relationships: list = None
     ) -> BibleDTO:
-        """添加人物
+        """添加人物（增量写入，不触碰已有角色和关系）
 
         Args:
             novel_id: 小说 ID
@@ -124,15 +124,41 @@ class BibleService:
         if bible is None:
             raise EntityNotFoundError("Bible", f"for novel {novel_id}")
 
-        character = Character(
-            id=CharacterId(character_id),
-            name=name,
-            description=description,
-            relationships=relationships or [],
-        )
-        bible.add_character(character)
-        self.bible_repository.save(bible)
+        # 检查角色是否已存在
+        if bible.get_character(CharacterId(character_id)) is not None:
+            raise InvalidOperationError(
+                f"Character with id '{character_id}' already exists"
+            )
 
+        # 增量写入：只 INSERT 新角色及其关系，不 DELETE 其他数据
+        repo = self.bible_repository
+        if hasattr(repo, "add_character_incremental"):
+            rel_dicts = []
+            for rel in (relationships or []):
+                if isinstance(rel, dict):
+                    rel_dicts.append(rel)
+                elif hasattr(rel, "model_dump"):
+                    rel_dicts.append(rel.model_dump())
+                elif hasattr(rel, "dict"):
+                    rel_dicts.append(rel.dict())
+                else:
+                    rel_dicts.append({"target": str(rel), "relation": "", "description": ""})
+            repo.add_character_incremental(
+                novel_id, character_id, name, description, rel_dicts,
+            )
+        else:
+            # fallback：非 SQLite 仓储走原路径
+            character = Character(
+                id=CharacterId(character_id),
+                name=name,
+                description=description,
+                relationships=relationships or [],
+            )
+            bible.add_character(character)
+            repo.save(bible)
+
+        # 重新加载最新状态返回
+        bible = self.bible_repository.get_by_novel_id(NovelId(novel_id))
         return BibleDTO.from_domain(bible)
 
     def update_character_voice_anchors(

@@ -40,9 +40,13 @@ class TestBibleService:
 
     def test_add_character(self, service, mock_repository):
         """测试添加人物"""
-        # 准备 mock 数据
-        bible = Bible(id="bible-1", novel_id=NovelId("novel-1"))
-        mock_repository.get_by_novel_id.return_value = bible
+        # 准备 mock 数据：第一次返回空 Bible，第二次返回含角色的 Bible（模拟增量写入后）
+        bible_empty = Bible(id="bible-1", novel_id=NovelId("novel-1"))
+        bible_with_char = Bible(id="bible-1", novel_id=NovelId("novel-1"))
+        bible_with_char.add_character(
+            Character(id=CharacterId("char-1"), name="主角", description="主角描述")
+        )
+        mock_repository.get_by_novel_id.side_effect = [bible_empty, bible_with_char]
 
         bible_dto = service.add_character(
             novel_id="novel-1",
@@ -56,8 +60,8 @@ class TestBibleService:
         assert bible_dto.characters[0].id == "char-1"
         assert bible_dto.characters[0].name == "主角"
 
-        # 验证调用了 save
-        mock_repository.save.assert_called_once()
+        # 验证调用了增量写入
+        mock_repository.add_character_incremental.assert_called_once()
 
     def test_add_character_bible_not_found(self, service, mock_repository):
         """测试向不存在的 Bible 添加人物"""

@@ -315,6 +315,51 @@ class SqliteBibleRepository(BibleRepository):
         r = self.db.fetch_one("SELECT 1 AS o FROM bibles WHERE id = ?", (bible_id,))
         return r is not None
 
+    def add_character_incremental(
+        self,
+        novel_id: str,
+        character_id: str,
+        name: str,
+        description: str,
+        relationships: List[Dict[str, str]],
+        *,
+        mental_state: str = "NORMAL",
+        verbal_tic: str = "",
+        idle_behavior: str = "",
+    ) -> None:
+        """增量添加单个角色及其关系（不触碰其他角色）。"""
+        now = self._now()
+        conn = self._conn()
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO bible_characters (
+                    id, novel_id, name, description,
+                    mental_state, mental_state_reason, verbal_tic, idle_behavior,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)
+                """,
+                (character_id, novel_id, name, description,
+                 mental_state, verbal_tic, idle_behavior, now, now),
+            )
+            for i, rel in enumerate(relationships):
+                rid = f"{character_id}-rel-{i}-{uuid.uuid4().hex[:6]}"
+                target_name = rel.get("target", "") or ""
+                relation = rel.get("relation", "") or ""
+                desc = rel.get("description", "") or ""
+                conn.execute(
+                    """
+                    INSERT INTO bible_character_relationships
+                    (id, character_id, target_name, relation, description)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (rid, character_id, target_name, relation, desc),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
     def update_character_anchors(
         self,
         novel_id: str,
