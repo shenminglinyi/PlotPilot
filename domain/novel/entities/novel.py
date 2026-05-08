@@ -47,6 +47,7 @@ class Novel(BaseEntity):
         last_chapter_tension: int = 0,
         consecutive_error_count: int = 0,
         current_beat_index: int = 0,
+        beats_completed: bool = False,  # 当前章节所有节拍是否已完成
         last_audit_chapter_number: Optional[int] = None,
         last_audit_similarity: Optional[float] = None,
         last_audit_drift_alert: bool = False,
@@ -85,6 +86,7 @@ class Novel(BaseEntity):
         self.last_chapter_tension = last_chapter_tension
         self.consecutive_error_count = consecutive_error_count
         self.current_beat_index = current_beat_index
+        self.beats_completed = beats_completed
 
         # 全托管章末审阅快照
         self.last_audit_chapter_number = last_audit_chapter_number

@@ -13,6 +13,11 @@ class NovelRepository(ABC):
         pass
 
     @abstractmethod
+    def patch(self, novel_id: NovelId, **fields) -> None:
+        """增量更新小说字段（只写传入的字段，减少锁竞争）"""
+        pass
+
+    @abstractmethod
     async def async_save(self, novel: Novel) -> None:
         """异步保存小说（守护进程使用）"""
         pass

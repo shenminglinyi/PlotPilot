@@ -20,6 +20,7 @@ class Scene:
     tone: Optional[str]  # 情绪基调（例如：紧张、温馨、悲伤）
     estimated_words: int  # 预估字数
     order_index: int  # 场景顺序（从 0 开始）
+    transition_from_prev: Optional[str] = None  # 🔗 从上一节拍如何过渡（对话延续/动作接续/情绪过渡/场景切换）
 
     def __post_init__(self):
         """验证场景数据"""
