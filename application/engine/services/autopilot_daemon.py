@@ -722,6 +722,49 @@ class AutopilotDaemon:
             hits=report.hits,
         )
 
+        # 4. 持久化审计结果到数据库
+        try:
+            from infrastructure.persistence.database.sqlite_anti_ai_audit_repository import SqliteAntiAiAuditRepository
+            from infrastructure.persistence.database.connection import get_database
+
+            db = get_database()
+            repo = SqliteAntiAiAuditRepository(db)
+            repo.upsert(
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                total_hits=report.metrics.total_hits,
+                critical_hits=report.metrics.critical_hits,
+                warning_hits=report.metrics.warning_hits,
+                info_hits=report.metrics.info_hits,
+                severity_score=report.metrics.severity_score,
+                overall_assessment=report.metrics.overall_assessment,
+                hit_density=snapshot.hit_density,
+                critical_density=snapshot.critical_density,
+                category_distribution=report.metrics.category_distribution,
+                top_patterns=report.metrics.top_patterns,
+                recommendations=report.recommendations,
+                improvement_suggestions=report.improvement_suggestions,
+                hits_detail=[
+                    {
+                        "pattern": h.pattern,
+                        "text": h.text,
+                        "start": h.start,
+                        "end": h.end,
+                        "severity": h.severity,
+                        "category": h.category,
+                        "replacement_hint": h.replacement_hint,
+                    }
+                    for h in report.hits
+                ],
+            )
+            logger.debug(
+                f"[{novel_id}] 🛡️ Anti-AI 审计结果已持久化 ch={chapter_number}"
+            )
+        except Exception as persist_err:
+            logger.warning(
+                f"[{novel_id}] Anti-AI 审计结果持久化失败（不影响主流程）ch={chapter_number}: {persist_err}"
+            )
+
         return report
 
     async def _continuity_self_check(
