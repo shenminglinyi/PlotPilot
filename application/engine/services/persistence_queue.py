@@ -213,18 +213,36 @@ class PersistenceQueue:
             self._stats["failed"] += 1
 
     def _process_single_command(self, command_type: str, payload: Dict) -> None:
-        """处理单个命令（带超时保护，DB 被锁时快速失败）"""
+        """处理单个命令（DB 被锁时重试，最多 3 次退避）"""
         handler = self._handlers.get(command_type)
-        if handler:
+        if not handler:
+            logger.warning(f"未注册的命令类型: {command_type}")
+            return
+
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
                 handler(payload)
+                return  # 成功，直接返回
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
-                    logger.warning(f"DB 被锁，跳过命令: {command_type}")
+                    if attempt < max_retries - 1:
+                        wait = 0.3 * (attempt + 1)
+                        logger.warning(
+                            "DB 被锁，重试 %d/%d (等待%.1fs): %s",
+                            attempt + 1, max_retries, wait, command_type,
+                        )
+                        time.sleep(wait)
+                        continue
+                    else:
+                        logger.error(
+                            "DB 被锁，重试耗尽，丢弃命令: %s", command_type
+                        )
                 else:
                     raise
-        else:
-            logger.warning(f"未注册的命令类型: {command_type}")
+            except Exception as e:
+                # 非 DB 锁错误，不重试
+                raise
 
     def _drain_queue(self) -> None:
         """排空队列（带超时保护，避免 DB 被锁时无限等待）"""

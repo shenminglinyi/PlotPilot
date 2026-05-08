@@ -1017,45 +1017,93 @@ class StartRequest(BaseModel):
 
 @router.post("/{novel_id}/start")
 async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
-    """启动自动驾驶"""
-    repo = get_novel_repository()
-    novel = repo.get_by_id(NovelId(novel_id))
-    if not novel:
-        raise HTTPException(404, "小说不存在")
+    """启动自动驾驶（非阻塞版：共享内存先行，DB 持久化异步）
 
-    novel.autopilot_status = AutopilotStatus.RUNNING
-    novel.max_auto_chapters = body.max_auto_chapters
-    novel.current_auto_chapters = novel.current_auto_chapters or 0
-    novel.consecutive_error_count = 0
+    架构优化：
+    1. 先写共享内存（前端立即可见状态变更）
+    2. 再异步持久化到 DB（不阻塞事件循环，守护进程 DB 被锁时不卡 API）
+    3. 最后发布 IPC 启动信号（守护进程亚毫秒级感知）
 
-    # 如果是全新小说，从宏观规划开始
-    fresh_stages = {NovelStage.PLANNING, NovelStage.MACRO_PLANNING}
-    if novel.current_stage in fresh_stages:
-        novel.current_stage = NovelStage.MACRO_PLANNING
+    即使 DB 暂时被锁，前端和守护进程也能通过共享内存和 IPC 立即开始工作。
+    """
+    loop = asyncio.get_running_loop()
 
-    # 如果之前处于审阅等待：幕下已有章节节点则直接写作，否则幕级规划（避免重复弹确认）
-    if novel.current_stage == NovelStage.PAUSED_FOR_REVIEW:
-        novel.current_stage = _stage_after_review(novel)
+    # ── 第一步：从共享内存快速校验小说是否存在（优先）──
+    next_stage = None
+    current_act = 0
+    current_chapter_in_act = 0
+    target_chapters = 1
+    current_stage_str = "macro_planning"
 
-    repo.save(novel)
+    shared = _get_shared_state_for_novel(novel_id)
+    if shared and shared.get("_updated_at"):
+        # 共享内存有数据：零 DB IO 路径
+        current_stage_str = shared.get("current_stage", "macro_planning")
+        current_act = shared.get("current_act", 0) or 0
+        current_chapter_in_act = shared.get("current_chapter_in_act", 0) or 0
+        target_chapters = shared.get("target_chapters", 1) or 1
 
-    # 清除守护进程侧的本地停止信号（通过 mp.Queue 发送 start 信号）
-    try:
-        from application.engine.services.novel_stop_signal import publish_start_signal
-        publish_start_signal(novel_id)
-    except Exception as e:
-        logger.debug("发布启动信号失败（可忽略，守护进程将通过 DB 降级路径感知）: %s", e)
+        # 计算下一阶段
+        fresh_stages = {"planning", "macro_planning"}
+        if current_stage_str in fresh_stages:
+            next_stage = NovelStage.MACRO_PLANNING.value
+        elif current_stage_str == "paused_for_review":
+            # 幕下已有章节节点则直接写作，否则幕级规划
+            if _has_chapter_nodes_under_current_act(novel_id, current_act):
+                next_stage = NovelStage.WRITING.value
+            else:
+                next_stage = NovelStage.ACT_PLANNING.value
+        else:
+            next_stage = current_stage_str
+    else:
+        # ── 降级路径：共享内存无数据，必须读 DB（在线程池中执行）──
+        def _start_read_sync():
+            repo = get_novel_repository()
+            n = repo.get_by_id(NovelId(novel_id))
+            if not n:
+                return None
+            return {
+                "current_stage": n.current_stage.value if hasattr(n.current_stage, 'value') else str(n.current_stage),
+                "current_act": n.current_act or 0,
+                "current_chapter_in_act": n.current_chapter_in_act or 0,
+                "target_chapters": n.target_chapters or 1,
+            }
 
-    # 🔥 关键修复：同时清除共享内存中的过期状态，防止前端显示"后端处理中"
-    # 场景：停止后共享内存中的 _updated_at 不再更新，30秒后前端判断 daemonAlive=false
-    # 重新启动时需要刷新共享内存，让前端立即感知到守护进程已恢复
+        try:
+            novel_data = await asyncio.wait_for(
+                loop.run_in_executor(_SSE_THREAD_POOL, _start_read_sync),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(503, "数据库繁忙，请稍后重试")
+
+        if novel_data is None:
+            raise HTTPException(404, "小说不存在")
+
+        current_stage_str = novel_data["current_stage"]
+        current_act = novel_data["current_act"]
+        current_chapter_in_act = novel_data["current_chapter_in_act"]
+        target_chapters = novel_data["target_chapters"]
+
+        fresh_stages = {"planning", "macro_planning"}
+        if current_stage_str in fresh_stages:
+            next_stage = NovelStage.MACRO_PLANNING.value
+        elif current_stage_str == "paused_for_review":
+            if _has_chapter_nodes_under_current_act(novel_id, current_act):
+                next_stage = NovelStage.WRITING.value
+            else:
+                next_stage = NovelStage.ACT_PLANNING.value
+        else:
+            next_stage = current_stage_str
+
+    # ── 第二步：立即写入共享内存（前端立即可见）──
     try:
         from interfaces.main import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="running",
-            current_stage=novel.current_stage.value,
-            current_act=novel.current_act,
-            current_chapter_in_act=novel.current_chapter_in_act or 0,
+            current_stage=next_stage,
+            current_act=current_act,
+            current_chapter_in_act=current_chapter_in_act,
             current_beat_index=0,
             consecutive_error_count=0,
         )
@@ -1063,12 +1111,45 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
     except Exception as e:
         logger.debug("刷新共享内存失败（可忽略）: %s", e)
 
+    # ── 第三步：异步持久化到 DB（不阻塞 API 返回）──
+    def _start_persist_sync():
+        """线程池中执行：DB 读取 + 写入（不阻塞事件循环）"""
+        try:
+            repo = get_novel_repository()
+            novel = repo.get_by_id(NovelId(novel_id))
+            if not novel:
+                return
+            novel.autopilot_status = AutopilotStatus.RUNNING
+            novel.max_auto_chapters = body.max_auto_chapters
+            novel.current_auto_chapters = novel.current_auto_chapters or 0
+            novel.consecutive_error_count = 0
+
+            fresh_stages_obj = {NovelStage.PLANNING, NovelStage.MACRO_PLANNING}
+            if novel.current_stage in fresh_stages_obj:
+                novel.current_stage = NovelStage.MACRO_PLANNING
+            if novel.current_stage == NovelStage.PAUSED_FOR_REVIEW:
+                novel.current_stage = _stage_after_review(novel)
+
+            repo.save(novel)
+            logger.info("autopilot start: novel_id=%s persisted RUNNING (DB)", novel_id)
+        except Exception as e:
+            logger.warning("autopilot start DB 持久化失败（共享内存已生效）: %s", e)
+
+    loop.run_in_executor(_SSE_THREAD_POOL, _start_persist_sync)  # 🔥 不 await，fire-and-forget
+
+    # ── 第四步：发布 IPC 启动信号 ──
+    try:
+        from application.engine.services.novel_stop_signal import publish_start_signal
+        publish_start_signal(novel_id)
+    except Exception as e:
+        logger.debug("发布启动信号失败（可忽略，守护进程将通过 DB 降级路径感知）: %s", e)
+
     return {
         "success": True,
-        "message": f"自动驾驶已启动，目标 {novel.target_chapters} 章（保护上限 {body.max_auto_chapters} 章）",
-        "autopilot_status": novel.autopilot_status.value,
-        "current_stage": novel.current_stage.value,
-        "target_chapters": novel.target_chapters,
+        "message": f"自动驾驶已启动，目标 {target_chapters} 章（保护上限 {body.max_auto_chapters} 章）",
+        "autopilot_status": "running",
+        "current_stage": next_stage,
+        "target_chapters": target_chapters,
     }
 
 
@@ -1164,24 +1245,100 @@ async def stop_autopilot(novel_id: str):
 
 @router.post("/{novel_id}/resume")
 async def resume_from_review(novel_id: str):
-    """从人工审阅点恢复（PAUSED_FOR_REVIEW → RUNNING）"""
-    repo = get_novel_repository()
-    novel = repo.get_by_id(NovelId(novel_id))
-    if not novel:
-        raise HTTPException(404, "小说不存在")
-    if novel.current_stage != NovelStage.PAUSED_FOR_REVIEW:
-        raise HTTPException(400, f"当前不在审阅等待状态（当前：{novel.current_stage.value}）")
+    """从人工审阅点恢复（PAUSED_FOR_REVIEW → RUNNING）（非阻塞版）
 
-    novel.autopilot_status = AutopilotStatus.RUNNING
-    next_stage = _stage_after_review(novel)
-    novel.current_stage = next_stage
-    repo.save(novel)
-    if next_stage == NovelStage.WRITING:
+    架构优化：与 start_autopilot 一致
+    1. 先从共享内存校验 + 计算下一阶段
+    2. 立即写入共享内存（前端立即可见）
+    3. 异步持久化到 DB（不阻塞事件循环）
+    4. 发布 IPC 启动信号
+    """
+    loop = asyncio.get_running_loop()
+
+    # ── 第一步：从共享内存校验当前状态 ──
+    current_act = 0
+    current_stage_str = ""
+
+    shared = _get_shared_state_for_novel(novel_id)
+    if shared and shared.get("_updated_at"):
+        current_stage_str = shared.get("current_stage", "")
+        current_act = shared.get("current_act", 0) or 0
+
+        if current_stage_str != "paused_for_review":
+            raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
+    else:
+        # 降级路径：共享内存无数据，读 DB（在线程池中）
+        def _resume_read_sync():
+            repo = get_novel_repository()
+            n = repo.get_by_id(NovelId(novel_id))
+            if not n:
+                return None
+            return {
+                "current_stage": n.current_stage.value if hasattr(n.current_stage, 'value') else str(n.current_stage),
+                "current_act": n.current_act or 0,
+            }
+
+        try:
+            novel_data = await asyncio.wait_for(
+                loop.run_in_executor(_SSE_THREAD_POOL, _resume_read_sync),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(503, "数据库繁忙，请稍后重试")
+
+        if novel_data is None:
+            raise HTTPException(404, "小说不存在")
+
+        current_stage_str = novel_data["current_stage"]
+        current_act = novel_data["current_act"]
+
+        if current_stage_str != "paused_for_review":
+            raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
+
+    # 计算下一阶段
+    if _has_chapter_nodes_under_current_act(novel_id, current_act):
+        next_stage = NovelStage.WRITING.value
         msg = "已恢复：当前幕已有章节规划，进入正文撰写"
     else:
+        next_stage = NovelStage.ACT_PLANNING.value
         msg = "已恢复：继续幕级规划"
-    logger.info("autopilot resume novel=%s -> %s", novel_id, next_stage.value)
-    return {"success": True, "message": msg, "current_stage": novel.current_stage.value}
+
+    # ── 第二步：立即写入共享内存（前端立即可见）──
+    try:
+        from interfaces.main import update_shared_novel_state
+        update_shared_novel_state(novel_id,
+            autopilot_status="running",
+            current_stage=next_stage,
+            current_act=current_act,
+        )
+    except Exception as e:
+        logger.debug("刷新共享内存失败（可忽略）: %s", e)
+
+    # ── 第三步：异步持久化到 DB ──
+    def _resume_persist_sync():
+        try:
+            repo = get_novel_repository()
+            novel = repo.get_by_id(NovelId(novel_id))
+            if not novel:
+                return
+            novel.autopilot_status = AutopilotStatus.RUNNING
+            novel.current_stage = _stage_after_review(novel)
+            repo.save(novel)
+            logger.info("autopilot resume: novel_id=%s persisted (DB)", novel_id)
+        except Exception as e:
+            logger.warning("autopilot resume DB 持久化失败（共享内存已生效）: %s", e)
+
+    loop.run_in_executor(_SSE_THREAD_POOL, _resume_persist_sync)  # 🔥 fire-and-forget
+
+    # ── 第四步：发布 IPC 启动信号 ──
+    try:
+        from application.engine.services.novel_stop_signal import publish_start_signal
+        publish_start_signal(novel_id)
+    except Exception as e:
+        logger.debug("发布启动信号失败（可忽略）: %s", e)
+
+    logger.info("autopilot resume novel=%s -> %s", novel_id, next_stage)
+    return {"success": True, "message": msg, "current_stage": next_stage}
 
 
 @router.get("/{novel_id}/status")
