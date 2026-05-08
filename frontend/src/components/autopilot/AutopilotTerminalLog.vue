@@ -25,7 +25,12 @@
         </n-tag>
       </div>
     </div>
-    <div v-if="progressHint" class="progress-strip">{{ progressHint }}</div>
+    <div v-if="progressHint" class="progress-strip">
+      <span class="progress-text">{{ progressHint }}</span>
+      <div v-if="wordProgressPct > 0" class="progress-bar-mini">
+        <div class="progress-bar-fill" :style="{ width: wordProgressPct + '%' }"></div>
+      </div>
+    </div>
     <div
       ref="bodyRef"
       class="terminal-body"
@@ -75,6 +80,7 @@ const bodyRef = ref<HTMLElement | null>(null)
 const connectionStatus = ref<'connected' | 'reconnecting' | 'disconnected'>('disconnected')
 const lastLogSeq = ref(0)
 const progressHint = ref('')
+const progressMeta = ref<Record<string, unknown> | undefined>(undefined)
 const autoScroll = ref(true)
 
 /** 程序设置 scrollTop 时仍会触发 scroll；此期间忽略 onScroll，避免误判为「用户离开底部」 */
@@ -87,6 +93,16 @@ const behaviorStageKey = ref('')
 const behaviorAutopilotStatus = ref('')
 /** 工具栏右侧主标签：阶段中文或「运行中/已停止」等 */
 const behaviorLabel = ref('—')
+
+/** 字数进度百分比（用于迷你进度条） */
+const wordProgressPct = computed(() => {
+  const m = progressMeta.value
+  if (!m) return 0
+  const acc = Number(m.accumulated_words || 0)
+  const target = Number(m.chapter_target_words || 0)
+  if (target <= 0 || acc <= 0) return 0
+  return Math.min(100, Math.round(acc / target * 100))
+})
 
 const stageTagType = computed(() => {
   const ap = behaviorAutopilotStatus.value
@@ -207,6 +223,58 @@ function clipForUi(s: string) {
   return t.slice(0, DISPLAY_MSG_MAX - 1) + '…'
 }
 
+/** 构建细化的进度提示：子步骤 + 节拍进度 + 字数进度 */
+function buildDetailedProgressHint(message: string, meta?: Record<string, unknown>): string {
+  if (!meta) return clipForUi(message)
+
+  const substepLabel = String(meta.writing_substep_label || '')
+  const totalBeats = Number(meta.total_beats || 0)
+  const beatIdx = Number(meta.current_beat_index_1based || 0)
+  const accumulatedWords = Number(meta.accumulated_words || 0)
+  const chapterTargetWords = Number(meta.chapter_target_words || 0)
+  const beatFocus = String(meta.beat_focus || '')
+  const contextTokens = Number(meta.context_tokens || 0)
+  const stage = String(meta.stage || '')
+
+  const parts: string[] = []
+
+  // 子步骤（所有阶段通用）
+  if (substepLabel) {
+    parts.push(substepLabel)
+  }
+
+  // writing 阶段特有信息
+  if (stage === 'writing') {
+    // 节拍进度
+    if (totalBeats > 0 && beatIdx > 0) {
+      parts.push(`节拍 ${beatIdx}/${totalBeats}`)
+    }
+
+    // 字数进度
+    if (accumulatedWords > 0 && chapterTargetWords > 0) {
+      const pct = Math.min(100, Math.round(accumulatedWords / chapterTargetWords * 100))
+      parts.push(`${accumulatedWords}/${chapterTargetWords}字(${pct}%)`)
+    }
+
+    // 节拍焦点
+    if (beatFocus) {
+      const focusClip = beatFocus.length > 16 ? beatFocus.slice(0, 15) + '…' : beatFocus
+      parts.push(`[${focusClip}]`)
+    }
+
+    // 上下文 tokens
+    if (contextTokens > 0) {
+      parts.push(`${contextTokens}tok`)
+    }
+  }
+
+  if (parts.length === 0) {
+    return clipForUi(message)
+  }
+
+  return parts.join(' · ')
+}
+
 /** 与后端过滤互补：漏网的 StreamingBus 行不再入列 */
 function isNoiseMessage(msg: string) {
   const m = msg || ''
@@ -235,7 +303,8 @@ function pushRow(data: Record<string, unknown>) {
   const meta = data.metadata as Record<string, unknown> | undefined
 
   if (t === 'progress') {
-    progressHint.value = clipForUi(message)
+    progressHint.value = buildDetailedProgressHint(message, meta)
+    progressMeta.value = meta
     applyBehaviorFromMeta(meta)
     return
   }
@@ -557,9 +626,32 @@ onUnmounted(() => {
   color: #a5b4fc;
   background: rgba(30, 41, 59, 0.9);
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-text {
+  flex-shrink: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.progress-bar-mini {
+  flex-shrink: 0;
+  width: 60px;
+  height: 4px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #818cf8, #a78bfa);
+  border-radius: 2px;
+  transition: width 0.4s ease;
 }
 
 .terminal-body {

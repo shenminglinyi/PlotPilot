@@ -4,11 +4,18 @@
       <span class="stream-info">
         正在生成第 {{ writingChapterNumber }} 章
         <span v-if="writingChapterNumber > 0" class="beat-badge">节拍 {{ (writingBeatIndex || 0) + 1 }}</span>
+        <!-- ★ V9 子步骤徽章 -->
+        <span v-if="substepLabel" class="substep-indicator" :class="substepClass">{{ substepLabel }}</span>
       </span>
       <span class="stream-stats">
         {{ writingWordCount }} 字
         <span v-if="writingSpeed > 0" class="speed">· {{ writingSpeed }} 字/秒</span>
       </span>
+    </div>
+    <!-- ★ V9 细化进度条 -->
+    <div v-if="progressPct > 0" class="stream-progress-bar">
+      <div class="stream-progress-fill" :style="{ width: progressPct + '%' }"></div>
+      <span class="stream-progress-label">{{ progressPct }}%</span>
     </div>
     <div ref="scrollContainer" class="stream-content-preview">
       <pre class="content-text">{{ displayedText }}<span class="cursor-inline">▋</span></pre>
@@ -23,6 +30,14 @@ const props = defineProps<{
   writingContent?: string
   writingChapterNumber?: number
   writingBeatIndex?: number
+  /** ★ V9 细化字段 */
+  writingSubstep?: string
+  writingSubstepLabel?: string
+  totalBeats?: number
+  accumulatedWords?: number
+  chapterTargetWords?: number
+  beatFocus?: string
+  contextTokens?: number
 }>()
 
 const scrollContainer = ref<HTMLElement | null>(null)
@@ -46,6 +61,28 @@ const isWritingContent = computed(
 const writingWordCount = computed(() => props.writingContent?.length || 0)
 const writingChapterNumber = computed(() => props.writingChapterNumber || 0)
 const writingBeatIndex = computed(() => props.writingBeatIndex || 0)
+
+/** ★ V9 子步骤标签 */
+const substepLabel = computed(() => props.writingSubstepLabel || '')
+
+/** ★ V9 子步骤配色 */
+const substepClass = computed(() => {
+  const sub = props.writingSubstep || ''
+  if (sub === 'llm_calling') return 'substep-active'
+  if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
+  if (sub === 'soft_landing' || sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
+  if (sub.startsWith('audit_')) return 'substep-audit'
+  if (sub.endsWith('_planning')) return 'substep-plan'
+  return ''
+})
+
+/** ★ V9 字数进度百分比 */
+const progressPct = computed(() => {
+  const acc = props.accumulatedWords || 0
+  const target = props.chapterTargetWords || 0
+  if (target <= 0 || acc <= 0) return 0
+  return Math.min(100, Math.round(acc / target * 100))
+})
 
 // 🔥 打字机效果：从 displayedText 逐字追赶到 writingContent
 function startTypewriter() {
@@ -165,15 +202,83 @@ onUnmounted(() => {
 .stream-info {
   flex: 1;
   color: var(--text-color-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .beat-badge {
-  margin-left: 6px;
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--color-success-light, rgba(34, 197, 94, 0.15));
   color: var(--color-success, #22c55e);
   font-size: 12px;
+}
+
+/* ★ V9 子步骤徽章 */
+.substep-indicator {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+}
+
+.substep-indicator.substep-active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  animation: pulse-sub 2s infinite;
+}
+
+.substep-indicator.substep-prepare {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.substep-indicator.substep-finish {
+  background: rgba(249, 115, 22, 0.12);
+  color: #f97316;
+}
+
+.substep-indicator.substep-audit {
+  background: rgba(234, 179, 8, 0.12);
+  color: #ca8a04;
+}
+
+.substep-indicator.substep-plan {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+@keyframes pulse-sub {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+/* ★ V9 字数进度条 */
+.stream-progress-bar {
+  position: relative;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+.stream-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.25), rgba(34, 197, 94, 0.45));
+  transition: width 0.5s ease;
+}
+
+.stream-progress-label {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.4);
+  font-variant-numeric: tabular-nums;
 }
 
 .stream-stats {

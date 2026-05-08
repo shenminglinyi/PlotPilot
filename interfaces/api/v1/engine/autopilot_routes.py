@@ -688,6 +688,15 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "_from_shared_memory": True,  # 前端可据此显示「实时同步中」提示
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
+        # ★ V9 细化字段
+        "writing_substep": shared.get("writing_substep", ""),
+        "writing_substep_label": shared.get("writing_substep_label", ""),
+        "total_beats": shared.get("total_beats", 0),
+        "beat_focus": shared.get("beat_focus", ""),
+        "beat_target_words": shared.get("beat_target_words", 0),
+        "accumulated_words": shared.get("accumulated_words", 0),
+        "chapter_target_words": shared.get("chapter_target_words", 0),
+        "context_tokens": shared.get("context_tokens", 0),
     }
 
 
@@ -1592,11 +1601,30 @@ async def autopilot_log_stream(
                     stage_zh = _stage_name_zh(current_stage)
                     act_display = (novel.current_act or 0) + 1
                     beat_1based = int(current_beat) + 1
+                    # ★ 从共享内存读取细化子步骤字段
+                    _shared_sub = _get_shared_state_for_novel_cached(novel_id) or {}
+                    writing_substep = _shared_sub.get("writing_substep", "")
+                    writing_substep_label = _shared_sub.get("writing_substep_label", "")
+                    total_beats = _shared_sub.get("total_beats", 0)
+                    beat_focus = _shared_sub.get("beat_focus", "")
+                    beat_target_words = _shared_sub.get("beat_target_words", 0)
+                    accumulated_words = _shared_sub.get("accumulated_words", 0)
+                    chapter_target_words = _shared_sub.get("chapter_target_words", 0)
+                    context_tokens = _shared_sub.get("context_tokens", 0)
+
+                    # 构建细化的进度消息
+                    substep_hint = f" · {writing_substep_label}" if writing_substep_label else ""
+                    beat_progress = f"节拍 {beat_1based}/{total_beats}" if total_beats else f"节拍 {beat_1based}"
+                    word_progress = ""
+                    if accumulated_words and chapter_target_words:
+                        word_pct = min(100, int(accumulated_words / chapter_target_words * 100))
+                        word_progress = f" · {accumulated_words}/{chapter_target_words}字({word_pct}%)"
+
                     progress_event = {
                         "type": "progress",
                         "message": (
                             f"全书 {n_done}/{tgt} 章 · 约 {tw} 字 · "
-                            f"第 {act_display} 幕 · 节拍 {beat_1based} · {stage_zh}"
+                            f"第 {act_display} 幕 · {beat_progress} · {stage_zh}{substep_hint}"
                         ),
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
@@ -1615,6 +1643,15 @@ async def autopilot_log_stream(
                             "autopilot_status_label": _autopilot_status_zh(
                                 novel.autopilot_status.value
                             ),
+                            # ★ V9 细化字段
+                            "writing_substep": writing_substep,
+                            "writing_substep_label": writing_substep_label,
+                            "total_beats": int(total_beats or 0),
+                            "beat_focus": beat_focus,
+                            "beat_target_words": int(beat_target_words or 0),
+                            "accumulated_words": int(accumulated_words or 0),
+                            "chapter_target_words": int(chapter_target_words or 0),
+                            "context_tokens": int(context_tokens or 0),
                         },
                     }
                     yield f"data: {json.dumps(progress_event, ensure_ascii=False)}\n\n"
