@@ -337,6 +337,18 @@ def get_chapter_aftermath_pipeline():
     )
 
 
+def get_chapter_repair_service():
+    """章节修复：扫描短章节 + AI 扩写 + 批量修复。"""
+    from application.audit.services.chapter_repair_service import ChapterRepairService
+    return ChapterRepairService(
+        chapter_repository=get_chapter_repository(),
+        novel_repository=get_novel_repository(),
+        llm_service=get_llm_service(),
+        chapter_service=get_chapter_service(),
+        aftermath_pipeline=get_chapter_aftermath_pipeline(),
+    )
+
+
 def get_hosted_write_service() -> HostedWriteService:
     """托管连写：自动大纲 + 多章流式生成 + 可选落库。"""
     return HostedWriteService(

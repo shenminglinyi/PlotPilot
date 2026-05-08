@@ -85,6 +85,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { NTooltip, NSpin, NDropdown, NButton, useMessage } from 'naive-ui'
 import { useStatsStore } from '@/stores/statsStore'
+import { useRouter, useRoute } from 'vue-router'
 import { novelApi } from '@/api/novel'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
@@ -98,6 +99,8 @@ defineEmits<{
 }>()
 
 const message = useMessage()
+const router = useRouter()
+const route = useRoute()
 
 // AI 工具组件引用（用于以编程方式触发各组件内部按钮）
 const llmRef = ref<{ $el: HTMLElement } | null>(null)
@@ -106,6 +109,8 @@ const plazaRef = ref<{ $el: HTMLElement } | null>(null)
 const aiToolsOptions = [
   { label: '⚙️ AI 控制台', key: 'llm' },
   { label: '✦ 提示词广场', key: 'plaza' },
+  { type: 'divider', key: 'd1' },
+  { label: '🔧 章节修复', key: 'repair' },
 ]
 
 function handleAiToolSelect(key: string) {
@@ -113,6 +118,9 @@ function handleAiToolSelect(key: string) {
     llmRef.value?.$el?.querySelector('button')?.click()
   } else if (key === 'plaza') {
     plazaRef.value?.$el?.querySelector('button')?.click()
+  } else if (key === 'repair') {
+    const slug = route.params.slug as string
+    router.push(`/book/${slug}/chapter-repair`)
   }
 }
 

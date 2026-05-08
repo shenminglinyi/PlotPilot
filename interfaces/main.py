@@ -68,7 +68,7 @@ from interfaces.api.v1.engine import (
 )
 
 # Audit module
-from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes
+from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes, chapter_repair_routes
 
 # Analyst module
 from interfaces.api.v1.analyst import voice, narrative_state, foreshadow_ledger
@@ -543,6 +543,7 @@ app.include_router(character_scheduler_routes.router, prefix="/api/v1")  # è§’è‰
 app.include_router(chapter_review_routes.router)
 app.include_router(macro_refactor.router, prefix="/api/v1")
 app.include_router(chapter_element_routes.router)
+app.include_router(chapter_repair_routes.router, prefix="/api/v1")
 
 # Analyst module routes
 app.include_router(voice.router, prefix="/api/v1")
