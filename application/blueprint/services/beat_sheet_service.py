@@ -448,7 +448,8 @@ class BeatSheetService:
                     location=scene_data.get("location"),
                     tone=scene_data.get("tone"),
                     estimated_words=scene_data.get("estimated_words", 800),
-                    order_index=i
+                    order_index=i,
+                    transition_from_prev=scene_data.get("transition_from_prev"),
                 )
                 scenes.append(scene)
 

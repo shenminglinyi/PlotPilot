@@ -110,68 +110,119 @@ async def build_workbench_context_bundle(
     triple_repository,
     db_connection,
 ) -> Dict[str, Any]:
-    """与各独立 GET 使用相同仓储/领域逻辑，供单次 BFF 拉取。"""
-    if novel_service.get_novel(novel_id) is None:
-        return {"error": "novel_not_found", "novel_id": novel_id}
+    """与各独立 GET 使用相同仓储/领域逻辑，供单次 BFF 拉取。
 
-    # —— 全息编年史（与 chronicles 路由一致）——
-    bible = bible_service.get_bible_by_novel(novel_id)
-    notes_tuples: List[tuple] = []
-    if bible and bible.timeline_notes:
-        for n in bible.timeline_notes:
-            notes_tuples.append((n.id, n.time_point or "", n.event or "", n.description or ""))
+    🔥 架构优化：所有同步 DB 调用包装到线程池，避免阻塞事件循环。
+    SQLite WAL 模式下，跨进程写操作会持有锁，同步读取会被阻塞。
+    """
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
 
-    chapters = chapter_repo.list_by_novel(NovelId(novel_id))
-    id_to_number = {c.id: c.number for c in chapters}
-    max_ch = max((c.number for c in chapters), default=1)
-    chapter_digest = []
-    for c in sorted(chapters, key=lambda x: x.number):
-        wc = getattr(c, "word_count", None)
-        wv = int(wc.value) if wc is not None and hasattr(wc, "value") else 0
-        chapter_digest.append(
-            {
-                "id": c.id,
-                "number": c.number,
-                "title": getattr(c, "title", "") or "",
-                "word_count": wv,
-            }
-        )
+    # 使用共享线程池（与 SSE 相同）
+    loop = asyncio.get_running_loop()
+
+    # 🔥 同步 DB 操作包装到线程池
+    def _sync_db_operations():
+        if novel_service.get_novel(novel_id) is None:
+            return None
+
+        # —— 全息编年史（与 chronicles 路由一致）——
+        bible = bible_service.get_bible_by_novel(novel_id)
+        notes_tuples: List[tuple] = []
+        if bible and bible.timeline_notes:
+            for n in bible.timeline_notes:
+                notes_tuples.append((n.id, n.time_point or "", n.event or "", n.description or ""))
+
+        chapters = chapter_repo.list_by_novel(NovelId(novel_id))
+        id_to_number = {c.id: c.number for c in chapters}
+        max_ch = max((c.number for c in chapters), default=1)
+        chapter_digest = []
+        for c in sorted(chapters, key=lambda x: x.number):
+            wc = getattr(c, "word_count", None)
+            wv = int(wc.value) if wc is not None and hasattr(wc, "value") else 0
+            chapter_digest.append(
+                {
+                    "id": c.id,
+                    "number": c.number,
+                    "title": getattr(c, "title", "") or "",
+                    "word_count": wv,
+                }
+            )
+
+        try:
+            snapshots_raw: List[Dict[str, Any]] = snapshot_service.list_snapshots_with_pointers(novel_id)
+        except sqlite3.OperationalError as e:
+            logger.warning("workbench-context: novel_snapshots unreadable: %s", e)
+            snapshots_raw = []
+
+        raw_rows = build_chronicles_rows(notes_tuples, snapshots_raw, id_to_number)
+        chronicle_rows: List[Dict[str, Any]] = []
+        for r in raw_rows:
+            chronicle_rows.append(
+                {
+                    "chapter_index": r["chapter_index"],
+                    "story_events": list(r["story_events"]),
+                    "snapshots": list(r["snapshots"]),
+                }
+            )
+
+        # —— 故事线 · 弧光 ——
+        storylines = storyline_manager.repository.get_by_novel_id(NovelId(novel_id))
+        storyline_list = [_storyline_dict(s) for s in storylines]
+
+        plot_arc = plot_arc_repo.get_by_novel_id(NovelId(novel_id))
+        plot_arc_payload: Optional[Dict[str, Any]] = None
+        if plot_arc is not None:
+            plot_arc_payload = _plot_arc_dict(plot_arc)
+
+        # —— 叙事知识 ——
+        knowledge = knowledge_service.get_knowledge(novel_id)
+        knowledge_payload = _knowledge_dict(knowledge)
+
+        # —— 伏笔账本 ——
+        foreshadow_entries: List[Dict[str, Any]] = []
+        registry = foreshadowing_repo.get_by_novel_id(NovelId(novel_id))
+        if registry and registry.subtext_entries:
+            foreshadow_entries = [_foreshadow_entry_dict(e) for e in registry.subtext_entries]
+
+        return {
+            "chronicle_rows": chronicle_rows,
+            "max_ch": max_ch,
+            "storyline_list": storyline_list,
+            "plot_arc_payload": plot_arc_payload,
+            "knowledge_payload": knowledge_payload,
+            "foreshadow_entries": foreshadow_entries,
+            "chapter_digest": chapter_digest,
+            "bible": bible,
+            "macro_events": _count_narrative_events(db_connection, novel_id),
+        }
 
     try:
-        snapshots_raw: List[Dict[str, Any]] = snapshot_service.list_snapshots_with_pointers(novel_id)
-    except sqlite3.OperationalError as e:
-        logger.warning("workbench-context: novel_snapshots unreadable: %s", e)
-        snapshots_raw = []
-
-    raw_rows = build_chronicles_rows(notes_tuples, snapshots_raw, id_to_number)
-    chronicle_rows: List[Dict[str, Any]] = []
-    for r in raw_rows:
-        chronicle_rows.append(
-            {
-                "chapter_index": r["chapter_index"],
-                "story_events": list(r["story_events"]),
-                "snapshots": list(r["snapshots"]),
-            }
+        # 🔥 2 秒超时保护，避免 DB 被锁时长时间阻塞
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _sync_db_operations),
+            timeout=2.0
         )
+    except asyncio.TimeoutError:
+        logger.warning("workbench-context DB 操作超时 novel=%s", novel_id)
+        return {
+            "error": "db_timeout",
+            "novel_id": novel_id,
+            "message": "数据库繁忙，请稍后重试",
+        }
 
-    # —— 故事线 · 弧光 ——
-    storylines = storyline_manager.repository.get_by_novel_id(NovelId(novel_id))
-    storyline_list = [_storyline_dict(s) for s in storylines]
+    if result is None:
+        return {"error": "novel_not_found", "novel_id": novel_id}
 
-    plot_arc = plot_arc_repo.get_by_novel_id(NovelId(novel_id))
-    plot_arc_payload: Optional[Dict[str, Any]] = None
-    if plot_arc is not None:
-        plot_arc_payload = _plot_arc_dict(plot_arc)
-
-    # —— 叙事知识 ——
-    knowledge = knowledge_service.get_knowledge(novel_id)
-    knowledge_payload = _knowledge_dict(knowledge)
-
-    # —— 伏笔账本 ——
-    foreshadow_entries: List[Dict[str, Any]] = []
-    registry = foreshadowing_repo.get_by_novel_id(NovelId(novel_id))
-    if registry and registry.subtext_entries:
-        foreshadow_entries = [_foreshadow_entry_dict(e) for e in registry.subtext_entries]
+    chronicle_rows = result["chronicle_rows"]
+    max_ch = result["max_ch"]
+    storyline_list = result["storyline_list"]
+    plot_arc_payload = result["plot_arc_payload"]
+    knowledge_payload = result["knowledge_payload"]
+    foreshadow_entries = result["foreshadow_entries"]
+    chapter_digest = result["chapter_digest"]
+    bible = result["bible"]
+    macro_events = result["macro_events"]
 
     # —— 关系图（三元组统计，与 statistics 路由同口径）——
     kg: Dict[str, Any] = {"total_triples": 0, "by_source": {}}
@@ -185,9 +236,6 @@ async def build_workbench_context_bundle(
         kg["by_source"] = by_src
     except Exception as e:
         logger.warning("workbench-context kg stats: %s", e)
-
-    # —— 宏观诊断：叙事事件条数（SQLite）——
-    macro_events = _count_narrative_events(db_connection, novel_id)
 
     # —— 对话沙盒：Bible 角色数 ——
     bible_character_count = 0

@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
-from application.ai.llm_json_extract import parse_llm_json_to_dict
+from application.ai.llm_json_extract import parse_llm_json_to_dict  # noqa: F401 — 保留向后兼容（外部可能 import）
 
 # ---------------------------------------------------------------------------
 # 与 LLM 约定的形状（字段越少越好，其余由持久化层补全）
@@ -99,38 +99,28 @@ def initial_knowledge_openai_function_tool() -> Dict[str, Any]:
 
 
 def parse_json_from_response(rsp: str):
-    """从LLM响应中解析JSON，支持```json包裹格式"""
-    pattern = r"```json(.*?)```"
-    rsp_json = None
-    try:
-        match = re.search(pattern, rsp, re.DOTALL)
-        if match is not None:
-            try:
-                rsp_json = json.loads(match.group(1).strip())
-            except (json.JSONDecodeError, ValueError):
-                pass
-        else:
-            rsp_json = json.loads(rsp)
-        return rsp_json
-    except json.JSONDecodeError as e:
-        try:
-            match = re.search(r"\{(.*?)\}", rsp, re.DOTALL)
-            if match:
-                content = "{" + match.group(1) + "}"
-                return json.loads(content)
-        except (json.JSONDecodeError, ValueError):
-            pass
-        raise e
+    """从LLM响应中解析JSON。
+
+    🔥 已废弃：此函数是旧版简易 JSON 解析器，无法处理 DeepSeek 等模型的
+    中文引号、思考链、截断输出等问题。
+    请使用 parse_llm_json_to_dict() 或 structured_json_generate()。
+    保留此函数仅为向后兼容（setup_main_plot_suggestion_service 等仍在引用）。
+    """
+    data, errs = parse_llm_json_to_dict(rsp)
+    if data is not None:
+        return data
+    # 兼容旧调用方：抛出 JSONDecodeError
+    raise json.JSONDecodeError(errs[0] if errs else "parse failed", rsp, 0)
 
 
 def parse_initial_knowledge_llm_response(
     raw: str,
 ) -> Tuple[Optional[LlmInitialKnowledgePayload], List[str]]:
     """解析并校验 LLM 返回文本。成功返回 (payload, [])；失败返回 (None, [人类可读错误…])。"""
-    try:
-        data = parse_json_from_response(raw)
-    except json.JSONDecodeError as e:
-        return None, [f"JSON parse failed: {str(e)}"]
+    # 🔥 使用统一管线（json_repair + 思考链清洗）
+    data, errs = parse_llm_json_to_dict(raw)
+    if data is None:
+        return None, errs
 
     try:
         payload = LlmInitialKnowledgePayload.model_validate(data)

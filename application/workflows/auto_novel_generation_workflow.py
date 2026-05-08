@@ -25,6 +25,7 @@ from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.workflows.beat_continuation import format_prior_draft_for_prompt
+from application.engine.services.beat_coherence_enhancer import BeatCoherenceEnhancer, BeatContext
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,81 @@ logger = logging.getLogger(__name__)
 # 段名与语义对齐，避免「SMART RETRIEVAL」贴在近期正文等历史误标
 CHAPTER_CONTEXT_LAYER2_HEADER = "RECENT CHAPTERS"  # T2 近期章节正文
 CHAPTER_CONTEXT_LAYER3_HEADER = "VECTOR RECALL"  # T3 向量召回
+
+
+def _build_dynamic_coherence_rules(anchor) -> str:
+    """基于前节拍尾部锚点动态生成连贯性要求
+
+    核心思想：不是泛泛地说"保持连贯"，而是根据上一节拍
+    最后停在什么状态（对话/动作/悬念/叙述/场景转换），
+    给出精确的衔接约束。
+
+    Args:
+        anchor: BeatTailAnchor 实例
+
+    Returns:
+        格式化的连贯性规则文本
+    """
+    # 基础规则（所有情况都适用）
+    base_rules = [
+        "1. 紧接上文最后的情节发展，保持时间线和逻辑的连续性",
+    ]
+
+    # 根据尾部状态追加精确规则
+    state_rules = {
+        "对话中": [
+            "2. 上文停在对白中间——本节拍开头必须先回应/延续该对话",
+            "3. 对话中的情绪弦外之音必须承接（不能突然变成另一种语气）",
+            "4. 对话自然结束后再推进新情节，不要跳过对话的收尾",
+        ],
+        "动作中": [
+            "2. 上文停在动作进行中——本节拍开头必须展示该动作的完成或结果",
+            "3. 动作完成后写角色的反应（表情/心理/下一步）",
+            "4. 不能假装动作已经结束——读者在等动作的后续",
+        ],
+        "悬念中": [
+            "2. 上文留下了悬念——本节拍开头必须延续悬念的紧张感",
+            "3. 不要立刻揭晓答案，让角色和读者多悬一会",
+            "4. 前三句必须让读者感觉到'有什么事情要发生了'",
+        ],
+        "叙述中": [
+            "2. 承接叙述的情绪惯性，不要突然切换节奏",
+            "3. 从叙述自然过渡到具体场景或对话",
+            "4. 用环境细节或角色动作作为过渡桥梁",
+        ],
+        "场景转换": [
+            "2. 新场景第一段必须有感官细节（画面/声音/温度）",
+            "3. 先在新场景中站稳脚跟——写环境、写角色位置",
+            "4. 不能跳过场景建立直接开始对话",
+        ],
+    }
+
+    extra = state_rules.get(anchor.tail_state, [
+        "2. 保持相同的场景设置，除非节拍明确要求转换场景",
+        "3. 人物情绪和状态应与上文保持一致并合理发展",
+        "4. 如果上文以对话结尾，继续该对话；如果以动作结尾，展示后续",
+    ])
+    base_rules.extend(extra)
+
+    # 情绪基调规则
+    mood_hints = {
+        '紧张': "5. ⚠ 情绪基调=紧张：不能突然轻松，紧张感至少延续到本节拍第一段结束",
+        '愤怒': "5. ⚠ 情绪基调=愤怒：余怒未消，角色不能立刻冷静",
+        '悲伤': "5. ⚠ 情绪基调=悲伤：悲伤有惯性，沉默或低落至少持续到第一段结束",
+        '悬疑': "5. ⚠ 情绪基调=悬疑：不要急于揭晓，让困惑多飞一会",
+    }
+    mood_hint = mood_hints.get(anchor.mood_tone)
+    if mood_hint:
+        base_rules.append(mood_hint)
+
+    # 最后画面精确衔接
+    if anchor.last_moment:
+        base_rules.append(
+            f"6. 📍 上文最后画面：……{anchor.last_moment}\n"
+            f"   → 本节拍开头必须从这之后自然接续"
+        )
+
+    return "\n".join(base_rules)
 
 
 def assemble_chapter_bundle_context_text(payload: Dict[str, Any]) -> str:
@@ -154,6 +230,34 @@ class AutoNovelGenerationWorkflow:
         self.conflict_detection_service = conflict_detection_service
         self.voice_fingerprint_service = voice_fingerprint_service
         self.cliche_scanner = cliche_scanner
+
+        # 初始化节拍连贯性增强器
+        self.coherence_enhancer = BeatCoherenceEnhancer()
+
+        # ★ Theme 集成器（延迟初始化）
+        self._theme_integrator = None
+        self._genre: Optional[str] = None
+
+    def set_genre(self, genre: str) -> None:
+        """设置小说题材，激活对应的 Theme Agent"""
+        self._genre = genre
+        self._initialize_theme()
+
+    def _initialize_theme(self) -> None:
+        """延迟初始化 Theme 集成器"""
+        if self._theme_integrator is not None:
+            return
+
+        try:
+            from application.engine.theme.theme_integrator import ThemeIntegrator
+            self._theme_integrator = ThemeIntegrator()
+            if self._theme_integrator.initialize(self._genre):
+                logger.info(f"✓ Theme 集成器已初始化，题材: {self._genre or 'default'}")
+            else:
+                self._theme_integrator = None
+        except Exception as e:
+            logger.warning(f"Theme 集成器初始化失败: {e}")
+            self._theme_integrator = None
 
     def prepare_chapter_generation(
         self,
@@ -359,9 +463,40 @@ class AutoNovelGenerationWorkflow:
         if enable_beats and beats:
             # 按节拍生成
             content_parts: list[str] = []
+            previous_context: Optional[BeatContext] = None
+            
             for i, beat in enumerate(beats):
                 prior_draft = "\n\n".join(content_parts)
                 beat_prompt_text = self.context_builder.build_beat_prompt(beat, i, len(beats))
+                
+                # 连贯性增强：分析前一个节拍的上下文
+                coherence_instructions = ""
+                if previous_context and prior_draft:
+                    # 分析当前节拍的连贯性要求
+                    coherence_instructions = self.coherence_enhancer.generate_coherence_instructions(
+                        previous_content=content_parts[-1] if content_parts else "",
+                        current_beat_description=beat.description,
+                        previous_context=previous_context,
+                        beat_index=i,
+                        total_beats=len(beats)
+                    )
+                    
+                    # 如果检测到了连贯性问题，在提示词中增加修复指导
+                    current_content_preview = f"将生成关于'{beat.description}'的内容"
+                    issues = self.coherence_enhancer.check_coherence_between_beats(
+                        previous_content=content_parts[-1] if content_parts else "",
+                        current_content=current_content_preview,
+                        previous_context=previous_context,
+                        current_context=self.coherence_enhancer.analyze_beat_context(
+                            current_content_preview, beat.focus
+                        )
+                    )
+                    
+                    if issues:
+                        issue_descriptions = [f"- {issue.description}" for issue in issues if issue.severity in ['high', 'medium']]
+                        if issue_descriptions:
+                            coherence_instructions += "\n\n【连贯性修复要求】\n" + "\n".join(issue_descriptions[:3])  # 最多显示3个问题
+                
                 logger.info(f"生成节拍 {i+1}/{len(beats)}: {beat.focus} - {beat.description[:50]}...")
                 
                 prompt = self._build_prompt(
@@ -370,7 +505,7 @@ class AutoNovelGenerationWorkflow:
                     storyline_context=bundle["storyline_context"],
                     plot_tension=bundle["plot_tension"],
                     style_summary=bundle["style_summary"],
-                    beat_prompt=beat_prompt_text,
+                    beat_prompt=beat_prompt_text + ("\n\n" + coherence_instructions if coherence_instructions else ""),
                     beat_index=i,
                     total_beats=len(beats),
                     beat_target_words=beat.target_words,
@@ -380,6 +515,12 @@ class AutoNovelGenerationWorkflow:
                 
                 llm_result = await self.llm_service.generate(prompt, config)
                 beat_content = llm_result.content
+                
+                # 分析并保存当前节拍的上下文，为下一个节拍做准备
+                if beat_content:
+                    previous_context = self.coherence_enhancer.analyze_beat_context(beat_content, beat.focus)
+                    logger.debug(f"节拍 {i+1} 上下文分析: 角色={previous_context.characters}, 场景={previous_context.scene}")
+                
                 content_parts.append(beat_content)
             
             content = strip_reasoning_artifacts("".join(content_parts))
@@ -500,9 +641,23 @@ class AutoNovelGenerationWorkflow:
             if enable_beats and beats:
                 # 按节拍生成
                 content_parts: list[str] = []
+                previous_context: Optional[BeatContext] = None
+                
                 for i, beat in enumerate(beats):
                     prior_draft = "\n\n".join(content_parts)
                     beat_prompt_text = self.context_builder.build_beat_prompt(beat, i, len(beats))
+                    
+                    # 连贯性增强：为流式生成添加连贯性指导
+                    coherence_instructions = ""
+                    if previous_context and prior_draft:
+                        coherence_instructions = self.coherence_enhancer.generate_coherence_instructions(
+                            previous_content=content_parts[-1] if content_parts else "",
+                            current_beat_description=beat.description,
+                            previous_context=previous_context,
+                            beat_index=i,
+                            total_beats=len(beats)
+                        )
+                    
                     logger.info(f"生成节拍 {i+1}/{len(beats)}: {beat.focus} - {beat.description[:50]}...")
                     
                     prompt = self._build_prompt(
@@ -511,7 +666,7 @@ class AutoNovelGenerationWorkflow:
                         storyline_context=bundle["storyline_context"],
                         plot_tension=bundle["plot_tension"],
                         style_summary=bundle["style_summary"],
-                        beat_prompt=beat_prompt_text,
+                        beat_prompt=beat_prompt_text + ("\n\n" + coherence_instructions if coherence_instructions else ""),
                         beat_index=i,
                         total_beats=len(beats),
                         beat_target_words=beat.target_words,
@@ -529,6 +684,10 @@ class AutoNovelGenerationWorkflow:
                             "beat_index": i,
                             "beat_focus": beat.focus
                         }
+                    
+                    # 分析并保存当前节拍的上下文，为下一个节拍做准备
+                    if beat_content:
+                        previous_context = self.coherence_enhancer.analyze_beat_context(beat_content, beat.focus)
                     
                     content_parts.append(beat_content)
                     yield {"type": "beat_done", "beat_index": i, "beat_content_length": len(beat_content)}
@@ -705,30 +864,114 @@ class AutoNovelGenerationWorkflow:
             return "Storyline context unavailable"
 
     def _get_plot_tension(self, novel_id: str, chapter_number: int) -> str:
-        """获取情节张力信息
+        """获取情节张力信息——融合预设锚点 + 前章实际张力评分，形成闭环反馈。
 
         Args:
             novel_id: 小说 ID
             chapter_number: 章节号
 
         Returns:
-            情节张力描述
+            情节张力描述（含预设期望 + 前章实际 + 调整指令）
         """
+        parts: list[str] = []
+
+        # 1. 预设张力（来自 PlotArc 锚点）
         try:
             plot_arc = self.plot_arc_repository.get_by_novel_id(NovelId(novel_id))
-            if plot_arc:
+            if plot_arc and plot_arc.key_points:
                 tension = plot_arc.get_expected_tension(chapter_number)
                 next_point = plot_arc.get_next_plot_point(chapter_number)
-
-                tension_info = f"Expected tension: {tension.value}"
+                # ★ Phase 3: 使用 PlotArc 的 get_expected_tension_100 方法（含非线性插值）
+                tension_100 = plot_arc.get_expected_tension_100(chapter_number)
+                parts.append(f"预设期望张力等级：{tension_100}/100（{tension.display_name}）")
                 if next_point:
-                    tension_info += f"\nNext plot point at chapter {next_point.chapter_number}: {next_point.description}"
-
-                return tension_info
-            return "No plot arc defined"
+                    parts.append(
+                        f"下一个锚点：第{next_point.chapter_number}章 - {next_point.description}"
+                    )
         except Exception as e:
-            logger.warning(f"Failed to get plot tension: {e}")
-            return "Plot tension unavailable"
+            logger.warning(f"Failed to get plot arc tension: {e}")
+
+        # 2. 前章实际张力评分（闭环反馈的核心）
+        prev_actual_tension = None
+        try:
+            from interfaces.api.dependencies import get_chapter_repository
+            from domain.novel.value_objects.novel_id import NovelId as NId
+            chapter_repo = get_chapter_repository()
+            db = chapter_repo.db if hasattr(chapter_repo, 'db') else None
+            if db is not None and chapter_number > 1:
+                row = db.fetch_one(
+                    "SELECT tension_score, plot_tension, emotional_tension, pacing_tension "
+                    "FROM chapters WHERE novel_id = ? AND number = ?",
+                    (novel_id, chapter_number - 1)
+                )
+                if row and row['tension_score'] is not None and row['tension_score'] != -1:
+                    prev_actual_tension = float(row['tension_score'])
+                    parts.append(
+                        f"前章（第{chapter_number - 1}章）实际张力评分：{prev_actual_tension:.0f}/100"
+                        f"（情节={float(row['plot_tension'] or 0):.0f} "
+                        f"情绪={float(row['emotional_tension'] or 0):.0f} "
+                        f"节奏={float(row['pacing_tension'] or 0):.0f}）"
+                    )
+        except Exception as e:
+            logger.debug(f"Failed to get prev chapter tension: {e}")
+
+        # 3. 张力调整指令（基于预设与实际的差距）
+        # ★ Phase 1: 前三章硬编码高张力指令（冷启动保护）
+        if chapter_number <= 3:
+            early_chapter_directives = {
+                1: (
+                    "🔥【首章铁律】本章是读者决定是否继续阅读的关键！"
+                    "综合张力目标：≥65。"
+                    "必须在第一个节拍就制造强烈冲突/悬念/反转——"
+                    "绝对禁止大段背景介绍、设定灌输、平淡日常！"
+                    "主角必须在被压制/轻视后展露底牌，给读者第一次爽感冲击！"
+                ),
+                2: (
+                    "⚡【次章加速】读者已被首章吸引，但不能松劲！"
+                    "综合张力目标：≥55。"
+                    "本章必须有至少一次实力验证/身份暗示/新冲突爆发。"
+                    "继续升温，扩大主角展现出的特殊之处引发的反响。"
+                ),
+                3: (
+                    "⚡【三章定乾坤】前三章决定了读者是否追读！"
+                    "综合张力目标：≥60。"
+                    "本章必须有一次真正的高潮场景——"
+                    "第一次正式对抗/博弈/危机中的大逆转！"
+                    "读者在这里应该获得明确的'这书好看'的正反馈！"
+                ),
+            }
+            early_directive = early_chapter_directives.get(chapter_number, "")
+            if early_directive:
+                parts.append(early_directive)
+        elif prev_actual_tension is not None:
+            if prev_actual_tension <= 30:
+                parts.append(
+                    "⚠ 紧急指令：前章张力严重不足！本章必须制造至少一次核心冲突/反转/悬念，"
+                    "将综合张力拉升到 55 以上。建议：引入新威胁、暴露隐藏信息、"
+                    "让角色做出痛苦选择。"
+                )
+            elif prev_actual_tension <= 45:
+                parts.append(
+                    "⚡ 调整指令：前章张力偏低，读者可能正在流失。"
+                    "本章应逐步升温——增加信息不对称、加深角色矛盾、"
+                    "让阻碍变得更加紧迫。目标张力：50-65。"
+                )
+            elif prev_actual_tension >= 80:
+                parts.append(
+                    "📊 缓冲指令：前章已是高潮，本章应给读者喘息空间。"
+                    "可以写角色消化冲击、盟友互动、新线索浮现，"
+                    "但结尾要留一个钩子暗示更大的风暴即将到来。目标张力：40-55。"
+                )
+            elif prev_actual_tension >= 65:
+                parts.append(
+                    "📊 维持指令：前章张力较高，本章可以保持高压推进，"
+                    "也可以适当喘息后再次攀升。避免连续高压导致读者疲劳。"
+                )
+
+        if not parts:
+            return "No plot arc defined"
+
+        return "\n".join(parts)
 
     def build_chapter_prompt(
         self,
@@ -799,8 +1042,8 @@ class AutoNovelGenerationWorkflow:
         planning_parts: list[str] = []
         if sc and sc not in ("Storyline context unavailable",):
             planning_parts.append(f"【故事线 / 里程碑】\n{sc}")
-        if pt and pt not in ("Plot tension unavailable",):
-            planning_parts.append(f"【情节节奏 / 期望张力】\n{pt}")
+        if pt and pt not in ("Plot tension unavailable", "No plot arc defined"):
+            planning_parts.append(f"【情节节奏 / 张力控制（必须遵守）】\n{pt}")
         if ss:
             planning_parts.append(f"【风格约束】\n{ss}")
         planning_section = ""
@@ -819,9 +1062,10 @@ class AutoNovelGenerationWorkflow:
 
         beat_mode = bool((beat_prompt or "").strip())
         prior_in_chapter = format_prior_draft_for_prompt(chapter_draft_so_far)
-        # 字数控制：硬性上限，超出将被截断
+        # 字数控制：像小说家一样自然收束，而非粗暴截断
         length_rule = (
-            f"7. 【硬性字数上限】本段最多 {beat_target_words} 字，超出将被截断，请精炼叙述。"
+            f"7. 【字数指引】本节拍约 {beat_target_words} 字。"
+            f"铺陈时尽情展开，到目标字数附近自然收束——用完整的句子结尾，不要拖沓，也不要戛然而止。"
             if beat_target_words
             else ("7. 章节长度：3000-4000字" if not beat_mode else "7. 按下方节拍说明控制篇幅，勿写章节标题")
         )
@@ -857,14 +1101,48 @@ class AutoNovelGenerationWorkflow:
             except Exception as e:
                 logger.warning(f"MemoryEngine fact_lock 构建失败: {e}")
 
+        # ★ Theme 集成：获取系统人设和写作规则
+        theme_persona = ""
+        theme_rules = ""
+        format_rules = ""
+        battle_enhancement = ""
+
+        if self._theme_integrator:
+            try:
+                theme_persona = self._theme_integrator.build_system_persona()
+                theme_rules = self._theme_integrator.build_writing_rules()
+                format_rules = self._theme_integrator.build_format_rules()
+
+                # 战斗场景检测和增强
+                if beat_mode and beat_prompt:
+                    battle_enhancement = self._theme_integrator.build_beat_enhancement(
+                        beat_prompt, beat_focus="", chapter_number=self._current_chapter_number or 0, outline=outline
+                    )
+            except Exception as e:
+                logger.debug(f"Theme 增强构建失败: {e}")
+
+        # ★★★ 爽文引擎: 动态 Prompt 模板方案 ★★★
+        # 架构决策：不在 autopilot_daemon 中硬编码规则引擎，
+        # 而是在 workflow 的 Prompt 构建层注入动态爽文约束。
+        # 这样 LLM 在强约束下自行发挥爽点呈现形式，比硬编码更灵活。
+        shuangwen_directive = self._build_shuangwen_directive(
+            chapter_number=self._current_chapter_number or 0,
+            beat_mode=beat_mode,
+            beat_index=beat_index,
+            total_beats=total_beats,
+            beat_prompt=beat_prompt or "",
+            outline=outline,
+        )
+
         # ⚡ 提示词集中管理说明：
         # 此模板对应 prompts_defaults.json 中的 id=workflow-chapter-generation
         # 如需修改提示词内容，请编辑 JSON 文件而非此代码文件
         system_message = f"""你是一位专业的网络小说作家。根据以下上下文撰写章节内容。
-
+{theme_persona}{theme_rules}
 {planning_section}{voice_block}{context}
 
 {fact_lock}
+{shuangwen_directive}
 写作要求：
 1. 必须有多个人物互动（至少2-3个角色出场）
 2. 必须有对话（不能只有独白和叙述）
@@ -873,7 +1151,8 @@ class AutoNovelGenerationWorkflow:
 5. 推进情节发展
 6. 使用生动的场景描写和细节
 {length_rule}
-8. 用中文写作，使用第三人称叙事{beat_extra}"""
+8. 用中文写作，使用第三人称叙事{beat_extra}
+{format_rules}"""
 
         user_message = f"""请根据以下大纲撰写本章内容：
 
@@ -888,10 +1167,27 @@ class AutoNovelGenerationWorkflow:
 - 结尾要有悬念或转折"""
 
         if beat_mode and prior_in_chapter:
+            # V2：基于锚点的动态连贯性要求
+            try:
+                from application.workflows.beat_continuation import extract_beat_tail_anchor
+                anchor = extract_beat_tail_anchor(prior_in_chapter)
+                coherence_rules = _build_dynamic_coherence_rules(anchor)
+            except Exception:
+                coherence_rules = (
+                    "1. 紧接上文最后的情节发展，保持时间线和逻辑的连续性\n"
+                    "2. 如果上文以对话结尾，本节拍应继续该对话或自然过渡\n"
+                    "3. 如果上文以动作结尾，本节拍应展示该动作的结果\n"
+                    "4. 保持相同的场景设置，除非节拍明确要求转换场景\n"
+                    "5. 人物情绪和状态应与上文保持一致并合理发展"
+                )
+
             user_message += f"""
 
-【本章已生成正文（仅承接；禁止复述、改写或重复已交代的情节与对白；勿写章节标题）】
+【本章上文（近期全文精确衔接 + 远期回溯避免重复；禁止复述、改写或重复已交代的情节与对白；勿写章节标题）】
 {prior_in_chapter}
+
+【🔗 连贯性要求（基于上文尾部状态动态生成）】
+{coherence_rules}
 """
 
         if beat_mode:
@@ -902,12 +1198,35 @@ class AutoNovelGenerationWorkflow:
                 if prior_in_chapter
                 else "本段只写该节拍对应正文，与全章其它节拍情节连贯。"
             )
+
+            # 节拍间过渡指导（V2：基于前节拍尾部锚点的精确衔接指令）
+            transition_guide = ""
+            if prior_in_chapter and bi > 0:
+                try:
+                    from application.workflows.beat_continuation import (
+                        extract_beat_tail_anchor,
+                        build_beat_transition_directive,
+                    )
+                    anchor = extract_beat_tail_anchor(prior_in_chapter)
+                    next_beat_desc = (beat_prompt or "").strip()[:80] if beat_prompt else ""
+                    transition_guide = "\n\n" + build_beat_transition_directive(
+                        anchor, bi, tb, next_beat_desc,
+                    )
+                except Exception as e:
+                    logger.debug(f"节拍衔接锚点提取失败，降级通用过渡: {e}")
+                    transition_guide = f"\n\n【节拍过渡指导（第{bi}/{tb}节拍）】\n- 从上一节拍的结尾自然过渡到本节拍的焦点\n- 保持叙事的流畅性，避免突兀的情节跳跃\n- 如果场景改变，提供合理的过渡说明"
+
+            # ★ 战斗场景增强
+            battle_hint = ""
+            if battle_enhancement:
+                battle_hint = f"\n\n{battle_enhancement}"
+
             user_message += f"""
 
 【节拍 {bi + 1}/{tb}】
 {(beat_prompt or '').strip()}
 
-{beat_tail}"""
+{beat_tail}{transition_guide}{battle_hint}"""
 
         user_message += "\n\n开始撰写："
 
@@ -939,6 +1258,209 @@ class AutoNovelGenerationWorkflow:
             foreshadowing_planted=[],
             foreshadowing_resolved=[],
             events=[]
+        )
+
+    # ──────────────────────────────────────────────────────────
+    # ★★★ 爽文引擎: 动态 Prompt 模板方案 ★★★
+    # ──────────────────────────────────────────────────────────
+
+    # 爽点类型关键词检测表
+    _SHUANGWEN_BEAT_PATTERNS = {
+        "power_reveal": {
+            "keywords": ["实力", "底牌", "爆发", "力量", "实力展现", "压倒性", "碾压", "秒杀",
+                         "一招", "击败", "战胜", "震惊全场", "不可置信"],
+            "directive": (
+                "⚡【爽文引擎·实力爆发指令】本节拍为核心爽点——主角展现压倒性实力！\n"
+                "必须遵守：\n"
+                "① 蓄力充分：之前的轻视/质疑/压制必须让读者替主角憋着一口气\n"
+                "② 爆发震撼：用最短的句子、最快的节奏、最有画面感的动作展现实力\n"
+                "③ 反应炸裂：旁观者从轻视→震惊→敬畏的180度态度转变是爽感核心\n"
+                "   - 至少3个具体人物的反应：瞳孔骤缩、倒吸凉气、双腿发软、脸色煞白\n"
+                "④ 主角态度：云淡风轻/不以为意/波澜不惊——反差越大越爽\n"
+                "⑤ 禁止一笔带过！这是读者付费的核心体验，字数宁多勿少！"
+            ),
+        },
+        "identity_reveal": {
+            "keywords": ["身份", "真实身份", "揭露", "曝光", "隐藏身份", "背景", "来历",
+                         "竟然是", "原来", "家世", "师承", "传承"],
+            "directive": (
+                "⚡【爽文引擎·身份反转指令】本节拍为身份曝光瞬间！\n"
+                "必须遵守：\n"
+                "① 铺垫清晰：之前的误解/低估/忽视必须完整呈现\n"
+                "② 揭露戏剧性：一个动作、一句话、一枚信物——让真相轰然揭晓\n"
+                "③ 震动全场：周围人态度180度反转——嘲讽者脸色煞白、高傲者弯腰行礼\n"
+                "   - 至少3个具体人物的态度变化\n"
+                "④ 反派懊悔：之前的对手/打压者必须表现出极度后悔和恐惧\n"
+                "⑤ 主角态度：漫不经心、云淡风轻——身份含金量通过他人反应呈现\n"
+                "⑥ 禁止一笔带过！认知冲击的时刻必须充分展开！"
+            ),
+        },
+        "face_slap": {
+            "keywords": ["打脸", "啪啪", "反转", "逆转", "实力证明", "出乎意料",
+                         "不敢相信", "目瞪口呆", "瞠目结舌", "自食其果"],
+            "directive": (
+                "⚡【爽文引擎·打脸反转指令】本节拍为经典打脸场景！\n"
+                "必须遵守：\n"
+                "① 先扬后抑：让对手的嚣张达到顶峰，再狠狠打脸\n"
+                "② 打脸要响：不是暗中的胜利，而是让所有人亲眼看到、亲耳听到\n"
+                "③ 链式反应：一个人的震惊引发第二个人的怀疑，第二个人的证实引发第三个人的恐惧\n"
+                "④ 对手反应：从不屑→怀疑→震惊→恐惧→崩溃，要有层次递进\n"
+                "⑤ 打脸之后主角不要得意洋洋——淡然处之更让人心生敬畏"
+            ),
+        },
+    }
+
+    # 前三章专属的强力爽文指令
+    _EARLY_CHAPTER_SHUANGWEN = {
+        1: (
+            "🔥【首章爽文铁律】这是读者决定去留的关键！\n"
+            "① 第一段必须是动作或对话，绝不能是背景介绍\n"
+            "② 主角在300字内必须遭遇不公/质疑/压制\n"
+            "③ 章节过半时主角必须展露第一张底牌——哪怕是冰山一角\n"
+            "④ 结尾必须留下强烈的悬念钩子\n"
+            "⑤ 全章张力不低于65/100——没有'平淡'的资格！"
+        ),
+        2: (
+            "⚡【次章加速铁律】首章的爽感必须延续！\n"
+            "① 承接首章悬念，不能重新铺垫\n"
+            "② 主角必须有一次'小爆发'——让轻视者开始动摇\n"
+            "③ 引入更大威胁/更强对手——爽点升级\n"
+            "④ 结尾暗示主角真正的实力远不止于此\n"
+            "⑤ 张力不低于55/100——读者耐心在流失！"
+        ),
+        3: (
+            "⚡【三章定乾坤】这是决定追读率的关键章！\n"
+            "① 必须有一次真正的高潮——第一次正式对抗中的大逆转\n"
+            "② 轻视者必须付出代价——打脸要响、要彻底\n"
+            "③ 主角的特殊之处必须让至少3个关键人物重新评估\n"
+            "④ 结尾留下更大的悬念——更强大的对手、更深的秘密\n"
+            "⑤ 读者看完必须产生'这书真爽'的明确正反馈！"
+        ),
+    }
+
+    def _build_shuangwen_directive(
+        self,
+        chapter_number: int,
+        beat_mode: bool,
+        beat_index: Optional[int],
+        total_beats: Optional[int],
+        beat_prompt: str,
+        outline: str,
+    ) -> str:
+        """★★★ 爽文引擎: 动态构建爽文约束指令
+
+        架构决策核心实现：
+        - 不在 autopilot_daemon 中硬编码规则引擎
+        - 而是在 workflow 的 Prompt 构建层注入动态爽文约束
+        - LLM 在强约束下自行发挥爽点呈现形式
+        - 约束来自：章节位置、节拍类型、大纲关键词匹配
+
+        Args:
+            chapter_number: 当前章节号
+            beat_mode: 是否为节拍模式
+            beat_index: 节拍索引
+            total_beats: 总节拍数
+            beat_prompt: 节拍 Prompt
+            outline: 章节大纲
+
+        Returns:
+            爽文引擎约束指令文本（注入 system_message）
+        """
+        parts: list[str] = []
+
+        # ── 1. 前三章强力指令（冷启动保护）──
+        if 1 <= chapter_number <= 3:
+            early_directive = self._EARLY_CHAPTER_SHUANGWEN.get(chapter_number, "")
+            if early_directive:
+                parts.append(early_directive)
+
+        # ── 2. 节拍级爽点检测与指令注入 ──
+        if beat_mode and beat_prompt:
+            beat_directive = self._detect_and_build_beat_directive(
+                beat_prompt, outline
+            )
+            if beat_directive:
+                parts.append(beat_directive)
+
+        # ── 3. 节拍位置约束（基于 STEP 阶跃） ──
+        if beat_mode and beat_index is not None and total_beats and total_beats > 0:
+            position_hint = self._build_beat_position_hint(
+                beat_index, total_beats, chapter_number
+            )
+            if position_hint:
+                parts.append(position_hint)
+
+        # ── 4. 通用爽文节奏约束（所有章节） ──
+        parts.append(self._build_general_shuangwen_rules())
+
+        if parts:
+            return "\n\n━━━ ★ 爽文引擎约束（必须遵守）━━━\n\n" + "\n\n".join(parts)
+
+        return ""
+
+    def _detect_and_build_beat_directive(self, beat_prompt: str, outline: str) -> str:
+        """检测节拍/大纲中的爽点关键词，返回对应的约束指令"""
+        combined_text = f"{beat_prompt} {outline}"
+
+        best_match = None
+        best_score = 0
+
+        for pattern_name, pattern_config in self._SHUANGWEN_BEAT_PATTERNS.items():
+            score = sum(1 for kw in pattern_config["keywords"] if kw in combined_text)
+            if score > best_score:
+                best_score = score
+                best_match = pattern_config
+
+        if best_match and best_score >= 1:
+            return best_match["directive"]
+
+        return ""
+
+    def _build_beat_position_hint(
+        self, beat_index: int, total_beats: int, chapter_number: int
+    ) -> str:
+        """根据节拍在章节中的位置，返回节奏约束"""
+        progress = beat_index / max(total_beats, 1)
+
+        if progress < 0.2:
+            return (
+                "📍【节奏: 章节开篇】前20%篇幅——\n"
+                "- 用画面/动作/对话抓住读者，禁止大段叙述\n"
+                "- 埋下本章冲突的种子\n"
+                "- 如果有前章悬念，必须在前三句内接住"
+            )
+        elif progress < 0.5:
+            return (
+                "📍【节奏: 升温蓄力】20%-50%篇幅——\n"
+                "- 冲突逐步升级，每段都有信息增量\n"
+                "- 读者应该感到'有什么大事要发生了'\n"
+                "- 主角遭遇的压制要越来越让人憋屈"
+            )
+        elif progress < 0.8:
+            return (
+                "📍【节奏: 爽点爆发】50%-80%篇幅——核心爽区！\n"
+                "- 这是本章最关键的部分——爽点必须在这里爆发\n"
+                "- 节奏加快，短句为主，画面快速切换\n"
+                "- 旁观者反应、对手崩溃——充分展开！"
+            )
+        else:
+            return (
+                "📍【节奏: 收尾钩子】最后20%篇幅——\n"
+                "- 爽感余韵：让读者在满足中回味\n"
+                "- 简洁收尾，不要拖沓\n"
+                "- 必须留一个钩子：一个未解的悬念/一个更大的挑战/一句意味深长的话"
+            )
+
+    def _build_general_shuangwen_rules(self) -> str:
+        """通用爽文节奏约束（适用于所有章节）"""
+        return (
+            "🎯【爽文核心法则】\n"
+            "① 蓄力→爆发→余韵——每章必须有这个节奏循环\n"
+            "② 读者的爽感 = 压抑程度 × 释放力度——没有足够的压抑就没有爽感\n"
+            "③ 旁观者反应 > 直接描写——通过他人的震惊来间接呈现主角的强大\n"
+            "④ 打脸要响、反转要快、悬念要紧——爽文三宝\n"
+            "⑤ 主角永远不能主动炫耀——但实力总会不自觉地流露\n"
+            "⑥ 每章至少一次让读者产生'好爽'的瞬间——否则这章就是失败的"
         )
 
     def _check_consistency(
