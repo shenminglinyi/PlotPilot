@@ -56,7 +56,16 @@ class GeminiProvider(BaseProvider):
             input_tokens=int(usage.get('promptTokenCount') or 0),
             output_tokens=int(usage.get('candidatesTokenCount') or 0),
         )
-        return GenerationResult(content=content, token_usage=token_usage)
+
+        # 提取 finishReason
+        stop_reason = ""
+        for candidate in data.get('candidates') or []:
+            fr = candidate.get('finishReason')
+            if fr:
+                stop_reason = fr
+                break
+
+        return GenerationResult(content=content, token_usage=token_usage, stop_reason=stop_reason)
 
     async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
         model_id = require_resolved_model_id(
@@ -69,6 +78,7 @@ class GeminiProvider(BaseProvider):
         url = self._build_url(model_id, 'streamGenerateContent')
         timeout = httpx.Timeout(self.settings.timeout_seconds)
 
+        self.last_stream_stop_reason = ""
         async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             async with client.stream(
                 'POST',
@@ -86,6 +96,10 @@ class GeminiProvider(BaseProvider):
                         text = self._parse_sse_event(event_text)
                         if text:
                             yield text
+                        # 提取 finishReason
+                        fr = self._extract_finish_reason_from_sse(event_text)
+                        if fr:
+                            self.last_stream_stop_reason = fr
 
     def _build_url(self, model: str, action: str) -> str:
         model_name = model.strip()
@@ -167,4 +181,28 @@ class GeminiProvider(BaseProvider):
             return ''.join(self._extract_text(item) for item in payload if isinstance(item, dict))
         if isinstance(payload, dict):
             return self._extract_text(payload)
+        return ''
+
+    def _extract_finish_reason_from_sse(self, event_text: str) -> str:
+        """从 SSE 事件中提取 finishReason。"""
+        data_lines: list[str] = []
+        for line in event_text.splitlines():
+            if line.startswith('data:'):
+                data_lines.append(line[5:].strip())
+        if not data_lines:
+            return ''
+        raw_payload = ''.join(data_lines).strip()
+        if not raw_payload or raw_payload == '[DONE]':
+            return ''
+        try:
+            payload = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            return ''
+        items = payload if isinstance(payload, list) else [payload]
+        for item in items:
+            if isinstance(item, dict):
+                for candidate in item.get('candidates') or []:
+                    fr = candidate.get('finishReason')
+                    if fr:
+                        return fr
         return ''

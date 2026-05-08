@@ -17,3 +17,4 @@ class BaseProvider(LLMService, ABC):
             settings: AI 配置设置
         """
         self.settings = settings
+        self.last_stream_stop_reason: str = ""

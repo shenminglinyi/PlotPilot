@@ -30,9 +30,10 @@ class GenerationConfig:
 
 class GenerationResult:
     """生成结果"""
-    def __init__(self, content: str, token_usage: TokenUsage):
+    def __init__(self, content: str, token_usage: TokenUsage, stop_reason: str = ""):
         self.content = content
         self.token_usage = token_usage
+        self.stop_reason = stop_reason  # "stop"/"length"(OpenAI), "end_turn"/"max_tokens"(Anthropic), "STOP"/"MAX_TOKENS"(Gemini)
         self.__post_init__()
 
     def __post_init__(self):

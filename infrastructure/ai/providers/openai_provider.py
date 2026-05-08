@@ -99,9 +99,13 @@ class OpenAIProvider(BaseProvider):
 
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
+        finish_reason = ""
+        if getattr(response, "choices", None):
+            finish_reason = getattr(response.choices[0], "finish_reason", "") or ""
         return GenerationResult(
             content=content,
             token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+            stop_reason=finish_reason,
         )
 
     async def stream_generate(
@@ -116,12 +120,19 @@ class OpenAIProvider(BaseProvider):
             if use_responses:
                 try:
                     # 尝试走 Responses 流式 API
+                    self.last_stream_stop_reason = ""
                     request_kwargs = self._build_responses_request_kwargs(prompt, config, stream=True)
                     stream = await self.async_client.responses.create(**request_kwargs)
                     async for chunk in stream:
                         content = self._extract_text_from_responses_chunk(chunk)
                         if content:
                             yield content
+                        # Responses API: response.completed 事件携带 status
+                        event_type = getattr(chunk, "type", "")
+                        if event_type == "response.completed":
+                            resp = getattr(chunk, "response", None)
+                            if resp:
+                                self.last_stream_stop_reason = getattr(resp, "status", "") or ""
                     return  # 正常完成则结束 generator
                 except (openai.NotFoundError, openai.BadRequestError):
                     self.__class__._fallback_to_chat_cache.add(base_url)
@@ -135,6 +146,7 @@ class OpenAIProvider(BaseProvider):
                         raise
 
             # 降级：走原来的 Chat Completions 流式 API
+            self.last_stream_stop_reason = ""
             messages = self._build_messages(prompt)
             request_kwargs = self._build_chat_request_kwargs(messages, config, stream=True)
             stream = await self.async_client.chat.completions.create(**request_kwargs)
@@ -142,6 +154,11 @@ class OpenAIProvider(BaseProvider):
                 content = self._extract_text_from_stream_chunk(chunk)
                 if content:
                     yield content
+                # 记录 finish_reason（最后一个非空 chunk 的 choices[0].finish_reason）
+                if getattr(chunk, "choices", None):
+                    fr = getattr(chunk.choices[0], "finish_reason", None)
+                    if fr:
+                        self.last_stream_stop_reason = fr
         except Exception as e:
             logger.error(f"[Stream] Failed: {e}")
             raise RuntimeError(f"Failed to stream text: {str(e)}") from e
@@ -227,9 +244,20 @@ class OpenAIProvider(BaseProvider):
         input_tokens = response.usage.prompt_tokens if response.usage else 0
         output_tokens = response.usage.completion_tokens if response.usage else 0
 
+        # Responses API: stop_reason 在 output message 上
+        stop_reason = ""
+        if output:
+            for item in output:
+                if getattr(item, "type", "") == "message":
+                    stop_reason = getattr(item, "stop_reason", "") or ""
+                    break
+        if not stop_reason:
+            stop_reason = getattr(response, "status", "") or ""
+
         return GenerationResult(
             content=content,
-            token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+            token_usage=TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens),
+            stop_reason=stop_reason,
         )
 
     @staticmethod

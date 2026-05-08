@@ -659,9 +659,9 @@ class AutopilotDaemon:
                     # - 最终输出应接近 prompt 目标，略低于原始目标
                     max_tokens = int(beat.target_words * 1.1)
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
-                    beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
+                    beat_content, beat_stop_reason = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
-                    beat_content = await self._stream_one_beat(
+                    beat_content, beat_stop_reason = await self._stream_one_beat(
                         outline,
                         context,
                         beat_prompt,
@@ -672,9 +672,10 @@ class AutopilotDaemon:
                     )
 
                 if beat_content.strip():
-                    # V8: 截断检测与自动续写（软着陆）
+                    # V9: 截断检测与自动续写（基于 stop_reason）
                     beat_content = await self._ensure_complete_ending(
-                        beat_content, beat, outline, chapter_content, novel
+                        beat_content, beat, outline, chapter_content, novel,
+                        stop_reason=beat_stop_reason,
                     )
                     chapter_content += ("\n\n" if chapter_content else "") + beat_content
                     await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="draft")
@@ -711,9 +712,9 @@ class AutopilotDaemon:
                     voice_anchors=voice_anchors,
                 )
                 cfg = GenerationConfig(max_tokens=3000, temperature=0.85)
-                beat_content = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
+                beat_content, _ = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
             else:
-                beat_content = await self._stream_one_beat(
+                beat_content, _ = await self._stream_one_beat(
                     outline, context, None, None, novel=novel, voice_anchors=voice_anchors
                 )
             if not self._is_still_running(novel):
@@ -1273,10 +1274,13 @@ class AutopilotDaemon:
 
     async def _stream_llm_with_stop_watch(
         self, prompt: Prompt, config: GenerationConfig, novel=None
-    ) -> str:
+    ) -> tuple[str, str]:
         """与 workflow 共用同一套 Prompt + LLM；novel 传入时并行轮询 DB 是否已停止。
-        
+
         流式生成时会实时推送增量文字到 streaming_callback（如果设置）。
+
+        Returns:
+            (content, stop_reason) 元组，stop_reason 为 LLM API 返回的停止原因。
         """
         content = ""
         stop_detected = asyncio.Event()
@@ -1301,11 +1305,11 @@ class AutopilotDaemon:
                 if novel is not None and stop_detected.is_set():
                     break
                 content += chunk
-                
+
                 # 实时推送增量文字到全局流式队列
                 if novel is not None and chunk:
                     await self._push_streaming_chunk(novel.novel_id.value, chunk)
-                
+
                 if novel is not None and stop_detected.is_set():
                     break
         finally:
@@ -1320,7 +1324,12 @@ class AutopilotDaemon:
         if novel is not None:
             self._merge_autopilot_status_from_db(novel)
 
-        return strip_reasoning_artifacts(content)
+        # 从 provider 读取 stream 的 stop_reason
+        stop_reason = ""
+        if hasattr(self.llm_service, "last_stream_stop_reason"):
+            stop_reason = self.llm_service.last_stream_stop_reason or ""
+
+        return strip_reasoning_artifacts(content), stop_reason
 
     async def _push_streaming_chunk(self, novel_id: str, chunk: str):
         """推送增量文字到全局流式队列，供 SSE 接口消费"""
@@ -1334,11 +1343,14 @@ class AutopilotDaemon:
         outline: str,
         chapter_draft_so_far: str,
         novel=None,
+        stop_reason: str = "",
     ) -> str:
-        """V8: 截断检测与自动续写（软着陆）
+        """V9: 截断检测与自动续写（基于 stop_reason + 文本兜底）
 
-        检测内容是否被截断（没有以句号等结束符结尾），
-        如果被截断，自动发起续写请求完成收尾。
+        优先使用 LLM API 返回的 stop_reason 判断是否截断：
+        - stop_reason 为 "length"/"max_tokens"/"MAX_TOKENS" → 确认截断，发起续写
+        - stop_reason 为其他值（"stop"/"end_turn"/"STOP" 等）→ LLM 正常结束，不续写
+        - stop_reason 为空（无法获取时）→ 降级到文本匹配兜底
 
         Args:
             content: 已生成的内容
@@ -1346,6 +1358,7 @@ class AutopilotDaemon:
             outline: 章节大纲
             chapter_draft_so_far: 本章已生成的正文
             novel: 小说对象
+            stop_reason: LLM API 返回的停止原因
 
         Returns:
             完整的内容（可能包含续写部分）
@@ -1355,17 +1368,23 @@ class AutopilotDaemon:
         if not content or not content.strip():
             return content
 
-        # 检测是否以句子结束符结尾
-        # 中文句号、英文句号、叹号、问号、引号、省略号
-        ending_pattern = r'[。！？…）】》"\'』」]$'
         stripped = content.rstrip()
 
-        if re.search(ending_pattern, stripped):
-            # 结尾完整，无需续写
-            return content
+        # 判断是否需要续写
+        truncated_by_token = stop_reason in ("length", "max_tokens", "MAX_TOKENS")
 
-        # 检测是否被截断
-        logger.warning(f"[截断检测] 内容未以结束符结尾，可能被截断，发起自动续写")
+        if not truncated_by_token:
+            if stop_reason:
+                # LLM 明确报告正常结束，不续写
+                return content
+            # stop_reason 为空（无法获取），降级到文本匹配
+            ending_pattern = r'[。！？…）】》"\'』」]$'
+            if re.search(ending_pattern, stripped):
+                return content
+            # 文本也不匹配结束符，可能是截断
+            logger.warning(f"[截断检测] stop_reason 未知且内容未以结束符结尾，尝试续写")
+        else:
+            logger.warning(f"[截断检测] stop_reason={stop_reason}，确认 token 耗尽截断，发起续写")
 
         # 构建续写 Prompt
         continuation_prompt = Prompt(
@@ -1387,7 +1406,7 @@ class AutopilotDaemon:
 
         try:
             config = GenerationConfig(max_tokens=300, temperature=0.7)
-            continuation = await self._stream_llm_with_stop_watch(
+            continuation, _ = await self._stream_llm_with_stop_watch(
                 continuation_prompt, config, novel=novel
             )
 
@@ -1412,7 +1431,7 @@ class AutopilotDaemon:
         novel=None,
         voice_anchors: str = "",
         chapter_draft_so_far: str = "",
-    ) -> str:
+    ) -> tuple[str, str]:
         """无 AutoNovelGenerationWorkflow 时的降级：爽文短 Prompt + 流式。"""
         va = (voice_anchors or "").strip()
         voice_block = ""

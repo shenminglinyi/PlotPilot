@@ -17,7 +17,7 @@ class MockProvider(LLMService):
 
         No settings or API key needed.
         """
-        pass
+        self.last_stream_stop_reason: str = ""
 
     async def generate(
         self,
@@ -529,7 +529,7 @@ class MockProvider(LLMService):
             output_tokens=len(content)
         )
 
-        return GenerationResult(content=content, token_usage=token_usage)
+        return GenerationResult(content=content, token_usage=token_usage, stop_reason="stop")
 
     async def stream_generate(
         self,
@@ -546,6 +546,7 @@ class MockProvider(LLMService):
             Mock response chunks
         """
         result = await self.generate(prompt, config)
+        self.last_stream_stop_reason = result.stop_reason
         # Simulate streaming by yielding the content in chunks
         chunk_size = 50
         for i in range(0, len(result.content), chunk_size):

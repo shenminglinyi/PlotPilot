@@ -160,7 +160,7 @@ class AnthropicProvider(BaseProvider):
                 output_tokens=response.usage.output_tokens
             )
 
-            return GenerationResult(content=content, token_usage=token_usage)
+            return GenerationResult(content=content, token_usage=token_usage, stop_reason=response.stop_reason or "")
 
         except RuntimeError:
             raise
@@ -208,6 +208,7 @@ class AnthropicProvider(BaseProvider):
 
         logger.debug(f"[Stream] Calling {url}")
 
+        self.last_stream_stop_reason = ""
         try:
             async with httpx.AsyncClient(
                 timeout=self.settings.timeout_seconds,
@@ -234,6 +235,10 @@ class AnthropicProvider(BaseProvider):
                             text_content = self._parse_sse_event(event_text)
                             if text_content:
                                 yield text_content
+                            # 从 message_delta 事件提取 stop_reason
+                            stop = self._extract_stop_reason_from_sse(event_text)
+                            if stop:
+                                self.last_stream_stop_reason = stop
 
         except Exception as e:
             logger.error(f"[Stream] Failed: {e}")
@@ -265,4 +270,23 @@ class AnthropicProvider(BaseProvider):
             if delta.get("type") == "text_delta":
                 return delta.get("text", "")
 
+        return ""
+
+    def _extract_stop_reason_from_sse(self, event_text: str) -> str:
+        """从 message_delta 事件中提取 stop_reason。"""
+        lines = event_text.strip().split("\n")
+        data = None
+        for line in lines:
+            if line.startswith("data:"):
+                data = line[5:].strip()
+                break
+        if not data:
+            return ""
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            return ""
+        if parsed.get("type") == "message_delta":
+            delta = parsed.get("delta", {})
+            return delta.get("stop_reason", "") or ""
         return ""
