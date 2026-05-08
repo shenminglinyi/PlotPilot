@@ -375,6 +375,123 @@ class AutopilotDaemon:
             logger.error("_write_db_ephemeral: 写入失败: %s", e)
             return False
 
+    def _patch_novel_ephemeral(
+        self, novel_id: NovelId, fields: Dict[str, Any], timeout: float = 10.0, max_retries: int = 3
+    ) -> bool:
+        """🔥 用独立短连接执行增量 UPDATE（与 _write_db_ephemeral 同模式）。
+
+        替代 self.novel_repository.patch()：守护进程不应复用 API 进程的
+        DatabaseConnection 长连接，否则与 API 进程写操作交叉导致 "database is locked"。
+
+        流程：独立连接 → PRAGMA WAL → PRAGMA busy_timeout → BEGIN IMMEDIATE →
+              UPDATE → COMMIT → 关闭。带重试（最多 3 次，退避 0.5/1.0/1.5 秒）。
+
+        Args:
+            novel_id: 小说 ID
+            fields: 要更新的字段键值对（自动处理枚举/bool/JSON 转换）
+            timeout: SQLite 连接超时（秒）
+            max_retries: 最大重试次数
+
+        Returns:
+            True 写入成功，False 写入失败（调用方应降级到持久化队列）
+        """
+        from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
+        from application.paths import get_db_path
+
+        if not fields:
+            return True
+
+        # 自动处理枚举类型转换（与 SqliteNovelRepository.patch 一致）
+        processed = {}
+        for key, value in fields.items():
+            if isinstance(value, _APS):
+                processed[key] = value.value
+            elif isinstance(value, _NS):
+                processed[key] = value.value
+            elif isinstance(value, bool):
+                processed[key] = 1 if value else 0
+            elif isinstance(value, (dict, list)):
+                import json as _json
+                processed[key] = _json.dumps(value, ensure_ascii=False)
+            else:
+                processed[key] = value
+
+        # 始终更新 updated_at
+        processed["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        set_clauses = [f"{key} = ?" for key in processed.keys()]
+        values = list(processed.values())
+        values.append(novel_id.value)
+
+        sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
+
+        path = get_db_path()
+        for attempt in range(max_retries):
+            conn = None
+            try:
+                conn = sqlite3.connect(path, timeout=timeout)
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(sql, tuple(values))
+                conn.commit()
+                return True
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() or "busy" in str(e).lower():
+                    logger.warning(
+                        "_patch_novel_ephemeral: DB 被锁 (attempt %d/%d novel=%s): %s",
+                        attempt + 1, max_retries, novel_id.value, e,
+                    )
+                    # 退避重试
+                    if attempt < max_retries - 1:
+                        time.sleep(0.5 * (attempt + 1))
+                    continue
+                # 非 DB 锁的 OperationalError，不重试
+                logger.error("_patch_novel_ephemeral: 写入失败 novel=%s: %s", novel_id.value, e)
+                return False
+            except Exception as e:
+                logger.error("_patch_novel_ephemeral: 写入失败 novel=%s: %s", novel_id.value, e)
+                return False
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        logger.warning("_patch_novel_ephemeral: 重试耗尽，降级到持久化队列 novel=%s", novel_id.value)
+        return False
+
+    def _push_patch_to_queue(self, novel_id: NovelId, fields: Dict[str, Any]) -> None:
+        """将增量更新推入持久化队列（_patch_novel_ephemeral 失败时的降级路径）。
+
+        由 API 进程的 PersistenceQueue 消费者线程异步执行写入，
+        彻底避免守护进程与 API 进程的 DB 锁竞争。
+        """
+        from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
+
+        # 枚举转换（与 _patch_novel_ephemeral 一致，确保队列中的值是原始类型）
+        processed = {}
+        for key, value in fields.items():
+            if isinstance(value, _APS):
+                processed[key] = value.value
+            elif isinstance(value, _NS):
+                processed[key] = value.value
+            elif isinstance(value, bool):
+                processed[key] = 1 if value else 0
+            elif isinstance(value, (dict, list)):
+                import json as _json
+                processed[key] = _json.dumps(value, ensure_ascii=False)
+            else:
+                processed[key] = value
+
+        self._push_persistence_command(
+            PersistenceCommandType.PATCH_NOVEL.value,
+            {"novel_id": novel_id.value, "fields": processed},
+        )
+        logger.info("[novel-%s] 短连接写入失败，已降级到持久化队列", novel_id.value)
+
     def _read_chapter_stats_ephemeral(
         self, novel_id: str, timeout: float = 5.0
     ) -> Optional[Tuple[int, int, int]]:
@@ -527,7 +644,11 @@ class AutopilotDaemon:
 
         使用 patch 增量更新（仅写入变化的字段），减少写事务持锁时间。
 
-        🔥 关键改进：同步非统计字段到共享内存，避免 /status 长期读到过时阶段信息。
+        🔥 关键修复：改用短连接写库（与 _write_db_ephemeral 同模式），避免守护进程
+        （multiprocessing.Process）复用 API 进程的 DatabaseConnection 长连接导致
+        "database is locked"。短连接写完即关，不持有写锁，不会阻塞 API 进程。
+
+        同步非统计字段到共享内存，避免 /status 长期读到过时阶段信息。
         章节聚合（完稿/书稿/总字数）由章节落库与审计完成路径写入 _cached_*。
         """
         self._merge_autopilot_status_from_db(novel)
@@ -555,7 +676,12 @@ class AutopilotDaemon:
         # 张力值
         if getattr(novel, "last_chapter_tension", None) is not None:
             patch_fields["last_chapter_tension"] = novel.last_chapter_tension
-        self.novel_repository.patch(novel.novel_id, **patch_fields)
+
+        # 🔥 核心修复：使用短连接写库，避免长连接锁竞争
+        ok = self._patch_novel_ephemeral(novel.novel_id, patch_fields)
+        if not ok:
+            # 降级：推入持久化队列，由 API 进程的消费者线程异步写入
+            self._push_patch_to_queue(novel.novel_id, patch_fields)
 
         # 同步阶段、节拍等非聚合字段到共享内存（完稿/书稿/总字数仅在落库与审计节点写入 _cached_*）
         self._cache_stats_to_shared_memory(novel)

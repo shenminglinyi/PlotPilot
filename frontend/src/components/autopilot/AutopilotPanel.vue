@@ -249,6 +249,20 @@ const writingContent = ref('')
 const writingChapterNumber = ref(0)
 const writingBeatIndex = ref(0)
 
+// 🔥 新增：操作节流保护——防止用户快速连续点击导致请求堆积
+// toggling 为 true 时按钮已禁用，但需要额外保护异步操作的竞态
+let lastToggleTime = 0
+const TOGGLE_THROTTLE_MS = 1000  // 1 秒内不允许重复操作
+
+function isToggleThrottled(): boolean {
+  const now = Date.now()
+  if (now - lastToggleTime < TOGGLE_THROTTLE_MS) {
+    return true
+  }
+  lastToggleTime = now
+  return false
+}
+
 // 状态轮询
 let statusPollTimer = null
 const statusPollDisabled = ref(false)
@@ -482,9 +496,18 @@ function formatWords(n) {
 // API 调用
 const autopilotApiRoot = () => `/api/v1/autopilot/${props.novelId}`
 
-const STATUS_FETCH_TIMEOUT_MS = 25_000
+// 🔥 优化：缩短超时从 25s → 10s，减少前端等待时间
+// 后端 /status 已改为纯共享内存读取（纳秒级响应），10s 已非常宽裕
+// 如果 10s 还没返回，说明后端事件循环被阻塞，继续等也没意义
+const STATUS_FETCH_TIMEOUT_MS = 10_000
+
+// 🔥 新增：请求去重——如果上一次 fetchStatus 还没返回，不重复发起
+let statusFetchInFlight = false
 
 async function fetchStatus() {
+  // 请求去重：上一次还在飞就不重复发
+  if (statusFetchInFlight) return
+
   statusFetchSeq += 1
   const seq = statusFetchSeq
   if (statusLastAbort) {
@@ -493,6 +516,7 @@ async function fetchStatus() {
   const ac = new AbortController()
   statusLastAbort = ac
   const t = window.setTimeout(() => ac.abort(), STATUS_FETCH_TIMEOUT_MS)
+  statusFetchInFlight = true
   try {
     const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`), {
       signal: ac.signal,
@@ -541,6 +565,7 @@ async function fetchStatus() {
     }
   } finally {
     window.clearTimeout(t)
+    statusFetchInFlight = false
   }
 }
 
@@ -668,21 +693,31 @@ function stopChapterStream() {
   writingContent.value = ''
 }
 
-// 🔧 优化：状态变化时的处理
-watch(
-  () => [isRunning.value, needsReview.value, statusPollDisabled.value],
-  ([running, review, disabled]) => {
-    clearStatusPoll()
-    if (disabled) return
+// 🔧 优化：自适应状态轮询 + SSE 协同
+// 策略：
+// - SSE 已连接时：轮询降到 15s 兜底（SSE 已实时驱动刷新，轮询仅防断连漏检）
+// - SSE 未连接但运行中：5s（需要轮询补偿 SSE 的缺失）
+// - 非运行中：3s（用户可能刚操作，需要快速看到状态变化）
+// - 审阅等待中：10s（用户在看大纲，不需要高频刷新）
+function getAdaptivePollInterval() {
+  if (needsReview.value) return 10000
+  if (!isRunning.value) return 3000
+  if (sseConnected.value) return 15000  // SSE 已覆盖实时刷新
+  return 5000  // SSE 断连时需要轮询补偿
+}
 
-    // 🔥 状态轮询：运行中时 SSE 已驱动关键刷新，轮询仅作兜底，降到 8 秒
-    // 非运行中保持 3 秒（用户可能刚启动需要快速看到状态变化）
-    const pollInterval = isRunning.value ? 8000 : 3000
+watch(
+  () => [isRunning.value, needsReview.value, statusPollDisabled.value, sseConnected.value],
+  () => {
+    clearStatusPoll()
+    if (statusPollDisabled.value) return
+
+    const pollInterval = getAdaptivePollInterval()
     statusPollTimer = setInterval(() => fetchStatus(), pollInterval)
     void fetchStatus()
 
     // SSE 连接管理（主动拉流时清零重连计数，避免此前误判耗尽后永久无法再连）
-    if (running && !review) {
+    if (isRunning.value && !needsReview.value) {
       reconnectAttempts = 0
       startChapterStream()
     } else {
@@ -722,6 +757,7 @@ function updateProtectionLimit() {
 }
 
 async function start() {
+  if (isToggleThrottled()) return
   toggling.value = true
   try {
     const currentTarget = status.value?.target_chapters
@@ -731,6 +767,24 @@ async function start() {
     const currentAutoApprove = status.value?.auto_approve_mode ?? false
     const newAutoApprove = startConfig.value.auto_approve_mode
 
+    // 🔥 乐观更新：立即更新本地状态，用户无需等待后端响应
+    const prevStatus = status.value
+    status.value = {
+      ...status.value,
+      autopilot_status: 'running',
+      current_stage: prevStatus?.current_stage === 'paused_for_review'
+        ? 'writing'  // 审阅恢复时立即显示写作状态
+        : (prevStatus?.current_stage || 'macro_planning'),
+      target_chapters: newTarget,
+      target_words_per_chapter: newWpc,
+      auto_approve_mode: newAutoApprove,
+      consecutive_error_count: 0,
+    }
+    emit('status-change', status.value)
+    reconnectAttempts = 0
+    message.success('自动驾驶已启动')
+
+    // 🔥 非阻塞：配置更新和启动请求并行发送，不等待
     const novelPatch = {}
     if (currentTarget !== newTarget) {
       novelPatch.target_chapters = newTarget
@@ -739,49 +793,77 @@ async function start() {
       novelPatch.target_words_per_chapter = newWpc
     }
 
+    // 并行发送所有请求
+    const requests = []
+
     if (Object.keys(novelPatch).length > 0) {
-      const updateRes = await fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}`), {
+      requests.push(
+        fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(novelPatch),
-        },
+        }).catch(err => {
+          console.warn('[AutopilotPanel] 更新书目配置失败:', err)
+          message.error('更新书目目标章数或每章字数失败')
+        })
       )
-      if (!updateRes.ok) {
-        message.error('更新书目目标章数或每章字数失败')
-        return
-      }
     }
 
     if (currentAutoApprove !== newAutoApprove) {
-      await fetch(
-        resolveHttpUrl(`/api/v1/novels/${props.novelId}/auto-approve-mode`),
-        {
+      requests.push(
+        fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}/auto-approve-mode`), {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ auto_approve_mode: newAutoApprove }),
-        },
+        }).catch(err => {
+          console.warn('[AutopilotPanel] 更新自动审阅模式失败:', err)
+        })
       )
     }
 
-    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ max_auto_chapters: startConfig.value.max_auto_chapters }),
+    requests.push(
+      fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_auto_chapters: startConfig.value.max_auto_chapters }),
+      }).then(res => {
+        if (!res.ok) {
+          // 🔥 启动失败时回滚乐观更新
+          status.value = prevStatus
+          emit('status-change', prevStatus)
+          message.error('启动失败')
+        }
+      }).catch(err => {
+        console.warn('[AutopilotPanel] 启动请求失败:', err)
+        // 网络错误时回滚
+        status.value = prevStatus
+        emit('status-change', prevStatus)
+        message.error('启动请求失败，请重试')
+      })
+    )
+
+    // 🔥 不 await 所有请求完成，用户已经看到"已启动"的反馈
+    // 后续 fetchStatus 轮询会自动校准状态
+    Promise.allSettled(requests).then(() => {
+      void fetchStatus()  // 请求全部结束后拉一次真实状态
     })
-    if (res.ok) {
-      message.success('自动驾驶已启动')
-      // 🔧 新增：启动后立即重置 SSE 状态
-      reconnectAttempts = 0
-    }
-    else message.error('启动失败')
-    await fetchStatus()
   } finally {
     toggling.value = false
   }
 }
 
 async function stop() {
+  if (isToggleThrottled()) return
+  // 🔥 乐观更新：立即更新本地状态，用户无需等待后端响应
+  const prevStatus = status.value
+  status.value = {
+    ...status.value,
+    autopilot_status: 'stopped',
+  }
+  emit('status-change', status.value)
+  message.info('已停止')
   toggling.value = true
+
   try {
     // 先关闭 SSE 连接，避免阻塞
     stopChapterStream()
@@ -794,44 +876,85 @@ async function stop() {
         signal: controller.signal
       })
       clearTimeout(timeoutId)
-      message.info('已停止')
     } catch (e) {
       clearTimeout(timeoutId)
       if (e.name === 'AbortError') {
         message.warning('停止请求超时，但后台可能已处理')
       } else {
+        // 🔥 网络错误时回滚乐观更新
+        status.value = prevStatus
+        emit('status-change', prevStatus)
         throw e
       }
     }
-    await fetchStatus()
+    void fetchStatus()
   } finally {
     toggling.value = false
   }
 }
 
 async function resume() {
-  toggling.value = true
+  if (isToggleThrottled()) return
+  // 🔥 乐观更新：立即更新本地状态
+  const prevStatus = status.value
+  status.value = {
+    ...status.value,
+    autopilot_status: 'running',
+    current_stage: 'writing',
+    needs_review: false,
+  }
+  emit('status-change', status.value)
   reconnectAttempts = 0
-  const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), { method: 'POST' })
-  if (res.ok) message.success('已确认大纲，开始写作')
-  else { const e = await res.json(); message.error(e.detail || '恢复失败') }
-  await fetchStatus()
-  toggling.value = false
+  message.success('已确认大纲，开始写作')
+  toggling.value = true
+
+  try {
+    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), { method: 'POST' })
+    if (!res.ok) {
+      // 🔥 恢复失败时回滚乐观更新
+      status.value = prevStatus
+      emit('status-change', prevStatus)
+      const e = await res.json()
+      message.error(e.detail || '恢复失败')
+    }
+    void fetchStatus()
+  } catch (err) {
+    // 网络错误时回滚
+    status.value = prevStatus
+    emit('status-change', prevStatus)
+    message.error('恢复请求失败，请重试')
+  } finally {
+    toggling.value = false
+  }
 }
 
 async function clearCircuitBreaker() {
+  // 🔥 乐观更新：立即清零失败计数
+  const prevStatus = status.value
+  status.value = {
+    ...status.value,
+    autopilot_status: 'stopped',  // 挂起 → 停止（需用户重新启动）
+    consecutive_error_count: 0,
+  }
+  emit('status-change', status.value)
+  message.success('已解除挂起并清零失败计数')
   toggling.value = true
+
   try {
     const res = await fetch(
       resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
       { method: 'POST' },
     )
-    if (res.ok) {
-      message.success('已解除挂起并清零失败计数')
-      await fetchStatus()
-    } else {
+    if (!res.ok) {
+      status.value = prevStatus
+      emit('status-change', prevStatus)
       message.error('操作失败')
     }
+    void fetchStatus()
+  } catch (err) {
+    status.value = prevStatus
+    emit('status-change', prevStatus)
+    message.error('操作失败，请重试')
   } finally {
     toggling.value = false
   }
@@ -840,6 +963,7 @@ async function clearCircuitBreaker() {
 onMounted(() => { fetchStatus() })
 onUnmounted(() => {
   statusFetchSeq += 1
+  statusFetchInFlight = false  // 🔥 重置请求去重标志
   if (statusLastAbort) {
     statusLastAbort.abort()
     statusLastAbort = null
