@@ -56,6 +56,43 @@
       </div>
     </div>
 
+    <!-- ★ V9 细化状态条：运行中时展示子步骤、节拍进度、字数进度 -->
+    <div v-if="isRunning && writingSubstepDetail" class="ap-detail-strip">
+      <div class="detail-row">
+        <span class="detail-label">子步骤</span>
+        <span class="detail-value">
+          <span class="substep-badge" :class="substepBadgeClass">{{ writingSubstepDetail.substepLabel }}</span>
+        </span>
+      </div>
+      <div class="detail-row" v-if="writingSubstepDetail.totalBeats > 0">
+        <span class="detail-label">节拍进度</span>
+        <span class="detail-value">
+          {{ writingSubstepDetail.beatIndex }}/{{ writingSubstepDetail.totalBeats }}
+          <div class="mini-progress">
+            <div class="mini-progress-fill" :style="{ width: writingSubstepDetail.beatPct + '%' }"></div>
+          </div>
+        </span>
+      </div>
+      <div class="detail-row" v-if="writingSubstepDetail.accumulatedWords > 0">
+        <span class="detail-label">字数进度</span>
+        <span class="detail-value">
+          {{ writingSubstepDetail.accumulatedWords }}/{{ writingSubstepDetail.chapterTargetWords }}字
+          <span class="pct-tag">{{ writingSubstepDetail.wordPct }}%</span>
+          <div class="mini-progress">
+            <div class="mini-progress-fill word-fill" :style="{ width: writingSubstepDetail.wordPct + '%' }"></div>
+          </div>
+        </span>
+      </div>
+      <div class="detail-row" v-if="writingSubstepDetail.beatFocus">
+        <span class="detail-label">节拍焦点</span>
+        <span class="detail-value focus-text">{{ writingSubstepDetail.beatFocus }}</span>
+      </div>
+      <div class="detail-row" v-if="writingSubstepDetail.contextTokens > 0">
+        <span class="detail-label">上下文</span>
+        <span class="detail-value">{{ writingSubstepDetail.contextTokens }} tokens</span>
+      </div>
+    </div>
+
     <!-- 单本挂起 / 失败计数过高 -->
     <n-alert v-if="needsRecovery" type="error" :show-icon="true" style="margin: 4px 0; font-size: 12px">
       <div class="recovery-hint">
@@ -92,6 +129,13 @@
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
       :writing-beat-index="writingBeatIndex"
+      :writing-substep="status?.writing_substep"
+      :writing-substep-label="status?.writing_substep_label"
+      :total-beats="status?.total_beats"
+      :accumulated-words="status?.accumulated_words"
+      :chapter-target-words="status?.chapter_target_words"
+      :beat-focus="status?.beat_focus"
+      :context-tokens="status?.context_tokens"
     />
 
     <!-- 操作按钮 -->
@@ -356,9 +400,58 @@ const stageTagClass = computed(() => ({
 }))
 
 const beatLabel = computed(() => {
-  if (!isWriting.value) return ''
-  const b = status.value?.current_beat_index ?? 0
-  return `节拍 ${Number(b) + 1}`
+if (!isWriting.value) return ''
+const b = status.value?.current_beat_index ?? 0
+return `节拍 ${Number(b) + 1}`
+})
+
+/** ★ V9 细化状态：写作/审计/规划子步骤详情 */
+const writingSubstepDetail = computed(() => {
+  if (!status.value) return null
+  const s = status.value
+  const substep = String(s.writing_substep || '')
+  const substepLabel = String(s.writing_substep_label || '')
+  if (!substep && !substepLabel) return null
+
+  const totalBeats = Number(s.total_beats || 0)
+  const beatIndex = Number(s.current_beat_index ?? 0) + 1
+  const beatPct = totalBeats > 0 ? Math.min(100, Math.round(beatIndex / totalBeats * 100)) : 0
+
+  const accumulatedWords = Number(s.accumulated_words || 0)
+  const chapterTargetWords = Number(s.chapter_target_words || 0)
+  const wordPct = chapterTargetWords > 0 && accumulatedWords > 0
+    ? Math.min(100, Math.round(accumulatedWords / chapterTargetWords * 100))
+    : 0
+
+  return {
+    substep,
+    substepLabel: substepLabel || substep,
+    totalBeats,
+    beatIndex,
+    beatPct,
+    accumulatedWords,
+    chapterTargetWords,
+    wordPct,
+    beatFocus: String(s.beat_focus || ''),
+    contextTokens: Number(s.context_tokens || 0),
+  }
+})
+
+/** 子步骤徽章配色 */
+const substepBadgeClass = computed(() => {
+  const sub = status.value?.writing_substep || ''
+  // 写作阶段
+  if (sub === 'llm_calling') return 'substep-active'
+  if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
+  if (sub === 'soft_landing' || sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
+  // 审计阶段
+  if (sub === 'audit_voice_check') return 'substep-audit'
+  if (sub === 'audit_aftermath') return 'substep-audit'
+  if (sub === 'audit_tension') return 'substep-audit'
+  // 规划阶段
+  if (sub === 'macro_planning') return 'substep-plan'
+  if (sub === 'act_planning') return 'substep-plan'
+  return ''
 })
 
 const tensionLabel = computed(() => {
@@ -858,6 +951,121 @@ onUnmounted(() => {
   color: var(--n-text-color);
   font-variant-numeric: tabular-nums;
   word-break: break-word;
+}
+
+/* ★ V9 细化状态条 */
+.ap-detail-strip {
+  margin: 2px 0;
+  padding: 6px 8px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-label {
+  flex-shrink: 0;
+  width: 56px;
+  color: var(--n-text-color-3);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.detail-value {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--n-text-color);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.substep-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+}
+
+.substep-badge.substep-active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  animation: pulse-subtle 2s infinite;
+}
+
+.substep-badge.substep-prepare {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.substep-badge.substep-finish {
+  background: rgba(249, 115, 22, 0.12);
+  color: #f97316;
+}
+
+.substep-badge.substep-audit {
+  background: rgba(234, 179, 8, 0.12);
+  color: #ca8a04;
+}
+
+.substep-badge.substep-plan {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.pct-tag {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.mini-progress {
+  width: 50px;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mini-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #818cf8);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.mini-progress-fill.word-fill {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.focus-text {
+  font-size: 11px;
+  color: var(--n-text-color-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
 @media (max-width: 720px) {

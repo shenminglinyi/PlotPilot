@@ -920,6 +920,13 @@ class AutopilotDaemon:
         if not self._is_still_running(novel):
             return
 
+        # ★ 子步骤状态：宏观规划
+        self._update_shared_state(
+            novel.novel_id.value,
+            writing_substep="macro_planning",
+            writing_substep_label="宏观规划",
+        )
+
         target_chapters = novel.target_chapters or 30
 
         # 使用极速模式：structure_preference=None，让 AI 根据目标章节数智能决定结构
@@ -960,6 +967,13 @@ class AutopilotDaemon:
         """处理幕级规划（插入缓冲章策略 + 动态幕生成）"""
         if not self._is_still_running(novel):
             return
+
+        # ★ 子步骤状态：幕级规划
+        self._update_shared_state(
+            novel.novel_id.value,
+            writing_substep="act_planning",
+            writing_substep_label=f"第 {novel.current_act + 1} 幕规划",
+        )
 
         novel_id = novel.novel_id.value
         target_act_number = novel.current_act + 1  # 1-indexed
@@ -1215,6 +1229,14 @@ class AutopilotDaemon:
         logger.info(f"[{novel.novel_id}] 📖 开始写第 {chapter_num} 章：{outline[:60]}...")
         logger.info(f"[{novel.novel_id}]    进度: {current_chapters}/{target_chapters} 章（目标 {target_word_count} 字/章）")
 
+        # ★ 子步骤状态：找到下一章
+        self._update_shared_state(
+            novel.novel_id.value,
+            writing_substep="chapter_found",
+            writing_substep_label="章节定位",
+            current_chapter_number=chapter_num,
+        )
+
         if not self._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 用户已停止，跳过本章（上下文组装前）")
             return
@@ -1223,6 +1245,14 @@ class AutopilotDaemon:
         beat_sheet = await self._get_beat_sheet_for_chapter(novel.novel_id.value, chapter_num)
         if beat_sheet:
             logger.info(f"[{novel.novel_id}] 📋 使用规划阶段的 BeatSheet：{len(beat_sheet.scenes)} 个场景")
+
+        # ★ 子步骤状态：开始组装上下文
+        self._update_shared_state(
+            novel.novel_id.value,
+            writing_substep="context_assembly",
+            writing_substep_label="组装上下文",
+            current_chapter_number=chapter_num,
+        )
 
         # 5. 组装上下文
         bundle = None
@@ -1276,6 +1306,15 @@ class AutopilotDaemon:
                 target_chapter_words=target_word_count,
                 beat_sheet=beat_sheet,  # 传递规划阶段的 BeatSheet
             )
+
+        # ★ 子步骤状态：节拍拆分完成
+        self._update_shared_state(
+            novel.novel_id.value,
+            writing_substep="beat_magnification",
+            writing_substep_label=f"节拍拆分（{len(beats)}个）",
+            total_beats=len(beats),
+            context_tokens=bundle.get('context_tokens', 0) if bundle else 0,
+        )
 
         if not self._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 用户已停止（节拍拆分后）")
@@ -1408,9 +1447,19 @@ class AutopilotDaemon:
                     continue  # 跳过已生成的节拍
 
                 # 🔥 节拍开始前，立即更新共享状态（前端实时看到当前节拍）
+                beat_focus = getattr(beat, 'focus', '') or ''
+                beat_target_words = getattr(beat, 'target_words', 0) or 0
                 self._update_shared_state(
                     novel.novel_id.value,
                     current_beat_index=i,
+                    writing_substep="llm_calling",
+                    writing_substep_label=f"节拍 {i+1}/{len(beats)} 撰写",
+                    total_beats=len(beats),
+                    beat_focus=beat_focus,
+                    beat_target_words=beat_target_words,
+                    accumulated_words=len(accumulated_content),
+                    chapter_target_words=target_word_count,
+                    context_tokens=bundle.get('context_tokens', 0) if bundle else 0,
                 )
 
                 if not self._is_still_running(novel):
@@ -1499,6 +1548,13 @@ class AutopilotDaemon:
                             f"(硬上限 {signal.hard_cap} 字)"
                         )
 
+                    # ★ 子步骤状态：软着陆
+                    self._update_shared_state(
+                        novel.novel_id.value,
+                        writing_substep="soft_landing",
+                        writing_substep_label=f"节拍 {i+1}/{len(beats)} 收尾修整",
+                    )
+
                     # 软着陆：截断检测与自然续写
                     beat_content = await self._soft_landing(
                         beat_content, beat, outline, accumulated_content, novel,
@@ -1573,6 +1629,12 @@ class AutopilotDaemon:
 
                     # 批量写入（每 BATCH_WRITE_INTERVAL 个节拍或最后一个节拍时写入）
                     if write_counter >= BATCH_WRITE_INTERVAL or i == len(beats) - 1:
+                        # ★ 子步骤状态：批量持久化
+                        self._update_shared_state(
+                            novel.novel_id.value,
+                            writing_substep="persisting",
+                            writing_substep_label="节拍内容落盘",
+                        )
                         await self._upsert_chapter_content(
                             novel, next_chapter_node, accumulated_content, status="draft"
                         )
@@ -1587,6 +1649,7 @@ class AutopilotDaemon:
                 self._update_shared_state(
                     novel.novel_id.value,
                     current_beat_index=i + 1,
+                    accumulated_words=len(accumulated_content),
                 )
 
                 # 如果是最后一个节拍，标记完成
@@ -1747,6 +1810,12 @@ class AutopilotDaemon:
         # 🔗 衔接引擎：章节完成后自检衔接度（非第 1 章）
         # 如果衔接度 < 0.6，自动修整首段（最多 2 轮）
         if chapter_num > 1:
+            # ★ 子步骤状态：衔接自检
+            self._update_shared_state(
+                novel.novel_id.value,
+                writing_substep="continuity_check",
+                writing_substep_label="衔接度自检",
+            )
             chapter_content = await self._continuity_self_check(
                 novel.novel_id.value, chapter_num, chapter_content
             )
@@ -1764,6 +1833,12 @@ class AutopilotDaemon:
         )
 
         # 标记章节完成（DB 写入，可能阻塞）
+        # ★ 子步骤状态：章节落盘
+        self._update_shared_state(
+            novel.novel_id.value,
+            writing_substep="chapter_persist",
+            writing_substep_label="章节落盘",
+        )
         await self._upsert_chapter_content(novel, next_chapter_node, chapter_content, status="completed")
 
         # 🔥 落库后用短连接读真实聚合，刷新 /status 缓存（与接口 SQL 一致）
@@ -1981,6 +2056,8 @@ class AutopilotDaemon:
             current_stage="auditing",
             audit_progress="voice_check",
             last_chapter_number=chapter_num,
+            writing_substep="audit_voice_check",
+            writing_substep_label="文风预检",
         )
         # 🔥 发布文风预检事件
         self._publish_audit_event(
@@ -2017,6 +2094,8 @@ class AutopilotDaemon:
         self._update_shared_state(
             novel.novel_id.value,
             audit_progress="aftermath_pipeline",
+            writing_substep="audit_aftermath",
+            writing_substep_label="章后管线（叙事/向量/KG）",
         )
         # 🔥 发布章后管线事件
         self._publish_audit_event(
@@ -2062,6 +2141,8 @@ class AutopilotDaemon:
         self._update_shared_state(
             novel.novel_id.value,
             audit_progress="tension_scoring",
+            writing_substep="audit_tension",
+            writing_substep_label="张力打分",
         )
         # 🔥 发布张力打分事件
         self._publish_audit_event(
