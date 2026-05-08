@@ -5,7 +5,7 @@
 - 文风既入队 VOICE_ANALYSIS 又同步 score_chapter 重复计算。
 
 顺序（重要产物均落库）：
-1. 分章叙事同步：一次 LLM 产出摘要/事件/埋线 + 三元组 + 伏笔 → StoryKnowledge + triples + ForeshadowingRegistry，再向量索引（chapter_narrative_sync）
+1. 分章叙事同步：一次 LLM 产出摘要/事件/埋线 + 三元组 + 伏笔 + 因果边 + 人物状态突变 → StoryKnowledge + triples + ForeshadowingRegistry + CausalEdges + CharacterStates + NarrativeDebts，再向量索引（chapter_narrative_sync）
 2. 文风评分：写入 chapter_style_scores（仅一次，不再入队 VOICE_ANALYSIS）
 3. 结构树知识图谱推断：KnowledgeGraphService.infer_from_chapter（与 LLM 三元组互补，非重复）
 """
@@ -52,7 +52,10 @@ async def infer_kg_from_chapter(novel_id: str, chapter_number: int) -> None:
 
 
 class ChapterAftermathPipeline:
-    """章节保存后分析与落库的统一入口。"""
+    """章节保存后分析与落库的统一入口。
+
+    V8 Feed-forward 升级：集成因果边提取、人物状态突变评估、叙事债务更新。
+    """
 
     def __init__(
         self,
@@ -66,6 +69,11 @@ class ChapterAftermathPipeline:
         chapter_repository: Any = None,
         plot_arc_repository: Any = None,
         narrative_event_repository: Any = None,
+        # ★ V8 Feed-forward: 新增仓储
+        causal_edge_repository: Any = None,
+        character_state_repository: Any = None,
+        debt_repository: Any = None,
+        bible_repository: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -77,6 +85,11 @@ class ChapterAftermathPipeline:
         self._chapter_repository = chapter_repository
         self._plot_arc_repository = plot_arc_repository
         self._narrative_event_repository = narrative_event_repository
+        # ★ V8 Feed-forward: 因果图谱 / 人物状态机 / 叙事债务
+        self._causal_edge_repository = causal_edge_repository
+        self._character_state_repository = character_state_repository
+        self._debt_repository = debt_repository
+        self._bible_repository = bible_repository
 
     async def run_after_chapter_saved(
         self,
@@ -86,7 +99,8 @@ class ChapterAftermathPipeline:
     ) -> Dict[str, Any]:
         """保存正文后执行完整管线。返回文风结果供托管/审计门控使用。
 
-        三元组与伏笔、故事线、张力、对话已在 narrative_sync 单次 LLM 中落库。
+        三元组与伏笔、故事线、张力、对话、因果边、人物状态、债务
+        已在 narrative_sync 单次 LLM 中落库。
         """
         out: Dict[str, Any] = {
             "drift_alert": False,
@@ -95,13 +109,16 @@ class ChapterAftermathPipeline:
             "vector_stored": False,
             "foreshadow_stored": False,
             "triples_extracted": False,
+            "causal_edges_stored": False,
+            "character_mutations_stored": False,
+            "debt_updated": False,
         }
 
         if not content or not str(content).strip():
             logger.debug("aftermath 跳过：正文为空 novel=%s ch=%s", novel_id, chapter_number)
             return out
 
-        # 1) 叙事 + 向量 + 故事线 + 张力 + 对话（与 chapter_narrative_sync 一致）
+        # 1) 叙事 + 向量 + 故事线 + 张力 + 对话 + 因果边 + 人物状态 + 债务
         try:
             from application.world.services.chapter_narrative_sync import (
                 sync_chapter_narrative_after_save,
@@ -120,11 +137,20 @@ class ChapterAftermathPipeline:
                 chapter_repository=self._chapter_repository,
                 plot_arc_repository=self._plot_arc_repository,
                 narrative_event_repository=self._narrative_event_repository,
+                causal_edge_repository=self._causal_edge_repository,
+                character_state_repository=self._character_state_repository,
+                debt_repository=self._debt_repository,
+                bible_repository=self._bible_repository,
             )
             out["narrative_sync_ok"] = True
             out["vector_stored"] = bool(sync_flags.get("vector_stored"))
             out["foreshadow_stored"] = bool(sync_flags.get("foreshadow_stored"))
             out["triples_extracted"] = bool(sync_flags.get("triples_extracted"))
+            out["causal_edges_stored"] = bool(sync_flags.get("causal_edges_stored"))
+            out["character_mutations_stored"] = bool(sync_flags.get("character_mutations_stored"))
+            out["debt_updated"] = bool(sync_flags.get("debt_updated"))
+            # 🔥 传递多维张力评分（0-100），供审计流程替代旧式 _score_tension
+            out["tension_composite"] = sync_flags.get("tension_composite")
         except Exception as e:
             logger.warning(
                 "叙事同步/向量失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
