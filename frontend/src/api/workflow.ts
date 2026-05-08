@@ -1,6 +1,5 @@
 /**
- * 子项目 8：工作流 / 长任务 / 一致性 / 故事线
- * 后端路由实现见 `docs/superpowers/plans/2026-04-02-subproject-8-frontend-extensions.md`
+ * 工作流 / 长任务 / 一致性 / 故事线
  */
 import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
 import { apiClient, resolveHttpUrl } from './config'
