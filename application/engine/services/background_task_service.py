@@ -5,12 +5,16 @@
 2. 副线扇出：分析任务在后台线程异步执行
 3. 最终一致性：分析结果最终会更新到数据库
 4. 熔断保护：队列满时丢弃任务，避免内存爆炸
+
+改进（v3）：
+- 多工作线程（3 个），避免单线程瓶颈
+- 持久事件循环，避免每次 asyncio.run() 重建 httpx 资源
+- 异步重试等待，不阻塞工作线程
 """
 import logging
 import asyncio
 import threading
 import queue
-import time
 import uuid
 from typing import Dict, Any, Optional
 from enum import Enum
@@ -19,6 +23,9 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
 
 logger = logging.getLogger(__name__)
+
+# 工作线程数量
+_WORKER_COUNT = 3
 
 
 class TaskType(Enum):
@@ -47,7 +54,13 @@ class BackgroundTask:
 
 
 class BackgroundTaskService:
-    """后台任务服务（工作线程模式）"""
+    """后台任务服务（多工作线程 + 持久事件循环模式）
+
+    改进：
+    - 3 个工作线程并行处理任务，避免单线程瓶颈
+    - 每个工作线程持有持久事件循环，避免 asyncio.run() 每次重建资源
+    - 重试使用 asyncio.sleep 异步等待，不阻塞工作线程
+    """
 
     def __init__(
         self,
@@ -74,9 +87,12 @@ class BackgroundTaskService:
         self.narrative_event_repository = narrative_event_repository
 
         self._queue = queue.Queue(maxsize=200)  # 防队列无限增长
-        self._worker = threading.Thread(target=self._worker_loop, daemon=True, name="bg-task-worker")
-        self._worker.start()
-        logger.info("BackgroundTaskService worker thread started")
+        self._workers: list[threading.Thread] = []
+        for i in range(_WORKER_COUNT):
+            w = threading.Thread(target=self._worker_loop, daemon=True, name=f"bg-task-worker-{i}")
+            w.start()
+            self._workers.append(w)
+        logger.info("BackgroundTaskService started with %d worker threads", _WORKER_COUNT)
 
     def submit_task(self, task_type, novel_id, chapter_id, payload):
         """提交后台任务（非阻塞）"""
@@ -94,22 +110,27 @@ class BackgroundTaskService:
             logger.warning(f"[BG] 后台任务队列已满，丢弃任务：{task_type.value}")
 
     def _worker_loop(self):
-        """工作线程主循环"""
-        while True:
-            try:
-                task = self._queue.get(timeout=2)
-                self._execute_with_retry(task)
-                self._queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception as e:
-                logger.error(f"[BG] Worker loop error: {e}", exc_info=True)
+        """工作线程主循环（持有持久事件循环，避免 asyncio.run() 每次重建）"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            while True:
+                try:
+                    task = self._queue.get(timeout=2)
+                    loop.run_until_complete(self._execute_with_retry_async(task))
+                    self._queue.task_done()
+                except queue.Empty:
+                    continue
+                except Exception as e:
+                    logger.error(f"[BG] Worker loop error: {e}", exc_info=True)
+        finally:
+            loop.close()
 
-    def _execute_with_retry(self, task, max_retries=2):
-        """执行任务（带重试）"""
+    async def _execute_with_retry_async(self, task, max_retries=2):
+        """执行任务（带异步重试，不阻塞工作线程）"""
         for attempt in range(max_retries + 1):
             try:
-                self._execute_task(task)
+                await self._execute_task_async(task)
                 return
             except Exception as e:
                 if attempt == max_retries:
@@ -117,14 +138,14 @@ class BackgroundTaskService:
                 else:
                     wait = 2 ** attempt  # 指数退避：1s, 2s
                     logger.warning(f"[BG] 任务失败，{wait}s 后重试：{e}")
-                    time.sleep(wait)
+                    await asyncio.sleep(wait)  # 异步等待，不阻塞工作线程
 
-    def _execute_task(self, task):
-        """分发任务到具体处理器"""
+    async def _execute_task_async(self, task):
+        """分发任务到具体处理器（异步）"""
         if task.task_type == TaskType.VOICE_ANALYSIS:
             self._handle_voice_analysis(task)
         elif task.task_type == TaskType.EXTRACT_BUNDLE:
-            self._handle_extract_bundle(task)
+            await self._handle_extract_bundle_async(task)
 
     def _handle_voice_analysis(self, task):
         """文风分析处理器"""
@@ -142,8 +163,11 @@ class BackgroundTaskService:
         )
         logger.info(f"[BG] 文风分析完成：第 {chapter_number} 章")
 
-    def _handle_extract_bundle(self, task):
-        """章末 bundle：一次 LLM → 叙事落库 + 三元组 + 伏笔 + 故事线 + 张力 + 对话 + 向量（与管线 narrative_sync 一致）。"""
+    async def _handle_extract_bundle_async(self, task):
+        """章末 bundle：一次 LLM → 叙事落库 + 三元组 + 伏笔 + 故事线 + 张力 + 对话 + 向量。
+
+        使用当前线程的持久事件循环直接 await，不再 asyncio.run()。
+        """
         if not self.llm_service or not self.knowledge_service:
             return
         content = (task.payload.get("content") or "").strip()
@@ -153,44 +177,22 @@ class BackgroundTaskService:
 
         from application.world.services.chapter_narrative_sync import sync_chapter_narrative_after_save
 
-        try:
-            asyncio.run(
-                sync_chapter_narrative_after_save(
-                    task.novel_id.value,
-                    chapter_number,
-                    content,
-                    self.knowledge_service,
-                    self.chapter_indexing_service,
-                    self.llm_service,
-                    triple_repository=self.triple_repository,
-                    foreshadowing_repo=self.foreshadowing_repo,
-                    storyline_repository=self.storyline_repository,
-                    chapter_repository=self.chapter_repository,
-                    plot_arc_repository=self.plot_arc_repository,
-                    narrative_event_repository=self.narrative_event_repository,
-                )
-            )
-        except RuntimeError as e:
-            if "asyncio.run() cannot be called from a running event loop" not in str(e):
-                raise
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(
-                    sync_chapter_narrative_after_save(
-                        task.novel_id.value,
-                        chapter_number,
-                        content,
-                        self.knowledge_service,
-                        self.chapter_indexing_service,
-                        self.llm_service,
-                        triple_repository=self.triple_repository,
-                        foreshadowing_repo=self.foreshadowing_repo,
-                        storyline_repository=self.storyline_repository,
-                        chapter_repository=self.chapter_repository,
-                        plot_arc_repository=self.plot_arc_repository,
-                        narrative_event_repository=self.narrative_event_repository,
-                    )
-                )
-            finally:
-                loop.close()
+        await sync_chapter_narrative_after_save(
+            task.novel_id.value,
+            chapter_number,
+            content,
+            self.knowledge_service,
+            self.chapter_indexing_service,
+            self.llm_service,
+            triple_repository=self.triple_repository,
+            foreshadowing_repo=self.foreshadowing_repo,
+            storyline_repository=self.storyline_repository,
+            chapter_repository=self.chapter_repository,
+            plot_arc_repository=self.plot_arc_repository,
+            narrative_event_repository=self.narrative_event_repository,
+            causal_edge_repository=getattr(self, 'causal_edge_repository', None),
+            character_state_repository=getattr(self, 'character_state_repository', None),
+            debt_repository=getattr(self, 'debt_repository', None),
+            bible_repository=getattr(self, 'bible_repository', None),
+        )
         logger.info(f"[BG] extract_bundle 完成：第 {chapter_number} 章")
