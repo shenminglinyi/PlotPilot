@@ -27,28 +27,16 @@ USER_PROMPT_SUFFIX = """
 
 
 def parse_json_from_response(rsp: str):
-    """从LLM响应中解析JSON，支持```json包裹格式"""
-    pattern = r"```json(.*?)```"
-    rsp_json = None
-    try:
-        match = re.search(pattern, rsp, re.DOTALL)
-        if match is not None:
-            try:
-                rsp_json = json.loads(match.group(1).strip())
-            except (json.JSONDecodeError, ValueError):
-                pass
-        else:
-            rsp_json = json.loads(rsp)
-        return rsp_json
-    except json.JSONDecodeError as e:
-        try:
-            match = re.search(r"\{(.*?)\}", rsp, re.DOTALL)
-            if match:
-                content = "{" + match.group(1) + "}"
-                return json.loads(content)
-        except (json.JSONDecodeError, ValueError):
-            pass
-        raise e
+    """从LLM响应中解析JSON。
+
+    🔥 已废弃：此函数是旧版简易解析器。请使用 llm_json_extract.parse_llm_json_to_dict()。
+    保留此函数仅为 auto_bible_generator 内部向后兼容。
+    """
+    from application.ai.llm_json_extract import parse_llm_json_to_dict as _unified_parse
+    data, errs = _unified_parse(rsp)
+    if data is not None:
+        return data
+    raise json.JSONDecodeError(errs[0] if errs else "parse failed", rsp, 0)
 
 
 def _sanitize_llm_json_output(raw: str) -> str:
@@ -216,10 +204,16 @@ def _repair_json_string(text: str) -> str:
 
 
 def _parse_llm_json_to_dict(raw: str) -> Dict[str, Any]:
-    data = parse_json_from_response(raw)
-    if not isinstance(data, dict):
-        raise json.JSONDecodeError("Root node is not a JSON object", raw, 0)
-    return data
+    """解析 LLM JSON 输出（委托统一管线）。
+
+    🔥 之前自造了 parse_json_from_response + _repair_json_string，只覆盖 3-4 种情况，
+    DeepSeek 的中文引号、思考链等处理不了。现在统一用 llm_json_extract 管线。
+    """
+    from application.ai.llm_json_extract import parse_llm_json_to_dict as _unified_parse
+    data, errs = _unified_parse(raw)
+    if data is not None:
+        return data
+    raise json.JSONDecodeError(errs[0] if errs else "parse failed", raw, 0)
 
 
 def _infer_character_importance(char_data: Dict[str, Any]) -> str:

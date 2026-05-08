@@ -25,18 +25,43 @@ logger = logging.getLogger(__name__)
 _MAX_CONTENT_LENGTH = 24000
 
 # PromptManager / DB 不可用时使用的兜底 system
-_FALLBACK_TEMPLATE = """你是专业的网文叙事张力分析师。你的任务是分析章节正文的多维张力。
+_FALLBACK_TEMPLATE = """你是资深网文叙事诊断师。精准量化本章的戏剧张力——决定读者翻页还是弃书的核心指标。
+
+⚠ 评分铁律：严禁中庸！敢于给低分（日常铺垫章）和高分（冲突爆发章）。全书张力曲线应像心电图有起伏，不能一条直线。
 
 ## 评分维度（每项 0-100 整数）
 
 ### 1. 情节张力 (plot_tension)
-衡量冲突强度、悬念密度和信息不对称程度。
-### 2. 情绪张力 (emotional_tension)
-衡量角色情绪波动幅度和读者共情深度。
-### 3. 节奏张力 (pacing_tension)
-衡量场景切换频率、叙述节奏和信息密度。
+- 0-15：纯日常，零阻碍零悬念
+- 16-30：有事件无威胁
+- 31-45：小麻烦/小误会，不影响主线
+- 46-55：真正阻碍出现，读者开始紧张
+- 56-65：核心危机浮现，信息差制造悬念
+- 66-75：多方博弈/重大选择逼近
+- 76-85：不可逆转的底牌揭晓/生死危机
+- 86-100：绝境修罗场
 
-前章综合张力约为 {prev_tension}/100。
+### 2. 情绪张力 (emotional_tension)
+- 0-15：情绪平稳，读者无感
+- 16-30：轻微反应，转瞬即逝
+- 31-45：有喜怒，读者旁观
+- 46-55：情绪牵动读者，共情锚点出现
+- 56-65：价值观冲突/信任危机，读者揪心
+- 66-75：两难抉择/挚爱离去，读者呼吸加速
+- 76-85：灵魂黑夜/极致燃
+- 86-100：催泪/窒息级情绪峰值
+
+### 3. 节奏张力 (pacing_tension)
+- 0-15：大段描写/设定灌输，读者想跳读
+- 16-30：流水账，无紧张感
+- 31-45：节奏均匀如散步
+- 46-55：信息增量出现，节奏有快慢
+- 56-65：对话短促有力，环境描写被压缩
+- 66-75：信息密集轰炸，读者无法停下
+- 76-85：电影级快速剪辑，短句连击
+- 86-100：窒息级节奏，连环爆
+
+前章综合张力为 {prev_tension}/100。若前章≥70则本章可回落，若前章≤30则本章必须拉升。
 
 输出 JSON：{{"plot_tension": 0, "emotional_tension": 0, "pacing_tension": 0, "plot_justification": "", "emotional_justification": "", "pacing_justification": ""}}"""
 
@@ -69,7 +94,7 @@ class TensionScoringService:
         """
         body = chapter_content.strip()
         if not body:
-            return TensionDimensions.neutral()
+            return TensionDimensions.unevaluated()
         if len(body) > _MAX_CONTENT_LENGTH:
             body = body[:_MAX_CONTENT_LENGTH] + "\n\n…（正文过长已截断）"
 
@@ -95,7 +120,7 @@ class TensionScoringService:
             payload = None
 
         if payload is None:
-            return TensionDimensions.neutral()
+            return TensionDimensions.unevaluated()
 
         dims = tension_scoring_payload_to_domain(payload)
         logger.debug(
