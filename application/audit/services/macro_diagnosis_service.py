@@ -19,27 +19,63 @@ def build_silent_context_patch(
     breakpoints: List[LogicBreakpoint],
     trait: str,
 ) -> str:
-    """由断点生成「系统叙事校准」短指令，注入生成 Context 头部；对用户透明、非交互。"""
+    """由断点生成「系统叙事校准」短指令，注入生成 Context 头部；对用户透明、非交互。
+
+    ★ V2 升级：区分 OOC / Breakout / Scar Triggered
+
+    - OOC 断点：注入"强化人设"指令（与原逻辑相同）
+    - Breakout 断点：不注入校准，反而注入"保持张力"指令
+    - Scar Triggered 断点：注入"延续情绪"指令
+    """
     if not breakpoints:
         return ""
-    reasons: List[str] = []
-    tags_set: set = set()
-    for bp in breakpoints[:12]:
-        r = (bp.reason or "").strip()
-        if r:
-            reasons.append(r)
-        for t in bp.tags or []:
-            if t:
-                tags_set.add(str(t))
-    if not reasons:
-        return ""
-    tags_str = "、".join(sorted(tags_set)[:8]) if tags_set else (trait or "预设人设")
-    reason_part = "；".join(reasons[:3])
-    return (
-        "【系统叙事校准】注意：" + reason_part
-        + "。后续生成须强化「" + tags_str
-        + "」所要求的行为倾向，避免继续偏离预设标签。"
-    )
+
+    from domain.novel.value_objects.character_state import BreakpointType
+
+    # 分类断点
+    ooc_breakpoints = [bp for bp in breakpoints if bp.breakpoint_type == BreakpointType.OOC]
+    breakout_breakpoints = [bp for bp in breakpoints if bp.breakpoint_type == BreakpointType.CHARACTER_BREAKOUT]
+    scar_breakpoints = [bp for bp in breakpoints if bp.breakpoint_type == BreakpointType.SCAR_TRIGGERED]
+
+    patches = []
+
+    # 1. OOC 断点：强化人设
+    if ooc_breakpoints:
+        reasons: List[str] = []
+        tags_set: set = set()
+        for bp in ooc_breakpoints[:8]:
+            r = (bp.reason or "").strip()
+            if r:
+                reasons.append(r)
+            for t in bp.tags or []:
+                if t:
+                    tags_set.add(str(t))
+        if reasons:
+            tags_str = "、".join(sorted(tags_set)[:8]) if tags_set else (trait or "预设人设")
+            reason_part = "；".join(reasons[:3])
+            patches.append(
+                "【系统叙事校准】注意：" + reason_part
+                + "。后续生成须强化「" + tags_str
+                + "」所要求的行为倾向，避免继续偏离预设标签。"
+            )
+
+    # 2. Breakout 断点：保持张力，不拉回
+    for bp in breakout_breakpoints[:3]:
+        if bp.breakout_reason:
+            patches.append(
+                f"【人物突破时刻】{bp.breakout_reason}——这是高光时刻，"
+                f"保持情绪张力，不要强行拉回原人设。角色的改变是成长的证明。"
+            )
+
+    # 3. Scar Triggered 断点：延续情绪
+    for bp in scar_breakpoints[:3]:
+        if bp.breakout_reason:
+            patches.append(
+                f"【伤疤触发】{bp.breakout_reason}——"
+                f"此行为是角色伤疤的应激反应，应延续情绪强度，不要立即恢复冷静。"
+            )
+
+    return "\n".join(patches)
 
 
 class MacroDiagnosisResult:
@@ -409,9 +445,9 @@ class MacroDiagnosisService:
         total_words_at_run: int = 0,
     ) -> None:
         """保存诊断结果到数据库（含静默注入用 context_patch）。"""
+        # ★ V2: 保存完整的断点信息（含 breakpoint_type, scar_id, breakout_reason）
         breakpoints_json = json.dumps(
-            [{"event_id": bp.event_id, "chapter": bp.chapter, "reason": bp.reason, "tags": bp.tags}
-             for bp in result.breakpoints],
+            [bp.to_dict() for bp in result.breakpoints],
             ensure_ascii=False
         )
         conflict_tags_json = json.dumps(result.conflict_tags, ensure_ascii=False)
