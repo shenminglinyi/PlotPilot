@@ -155,3 +155,7 @@ mcps/
 *.rs.bk
 *.orig
 *.rej
+
+
+docs/
+drafts
