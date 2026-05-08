@@ -1,15 +1,47 @@
 """Macro Refactor DTOs"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
+from domain.novel.value_objects.character_state import BreakpointType
 
 
 @dataclass
 class LogicBreakpoint:
-    """逻辑断点 - 人设冲突点"""
+    """逻辑断点 - 人设冲突点
+
+    ★ V2 升级：区分 OOC vs Character Breakout
+    - OOC: 真正的人设崩塌（无合理原因的偏离）→ 注入 context_patch 拉回
+    - BREAKOUT: 人物突破/高光时刻（有触发原因的偏离）→ 保持张力，不拉回
+    - SCAR_TRIGGERED: 伤疤触发后的应激反应 → 延续情绪，不阻断
+    """
     event_id: str
     chapter: int
     reason: str  # 冲突原因描述
     tags: List[str]  # 匹配的冲突标签
+
+    # ★ V2: 断点类型（区分 OOC 和 Character Breakout）
+    breakpoint_type: BreakpointType = BreakpointType.OOC
+
+    # ★ V2: 关联的伤疤 ID（如果是 SCAR_TRIGGERED 类型）
+    related_scar_id: Optional[str] = None
+
+    # ★ V2: 突破原因（如果是 BREAKOUT 类型）
+    breakout_reason: Optional[str] = None
+
+    # ★ V2: 涉及的角色 ID
+    character_id: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        """序列化为字典"""
+        return {
+            "event_id": self.event_id,
+            "chapter": self.chapter,
+            "reason": self.reason,
+            "tags": self.tags,
+            "breakpoint_type": self.breakpoint_type.value,
+            "related_scar_id": self.related_scar_id,
+            "breakout_reason": self.breakout_reason,
+            "character_id": self.character_id,
+        }
 
 
 @dataclass
