@@ -1,8 +1,11 @@
 """Bible API 路由"""
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Union
 import logging
+import json
+import asyncio
 
 from application.world.services.bible_service import BibleService
 from application.world.services.auto_bible_generator import AutoBibleGenerator
@@ -225,6 +228,264 @@ async def generate_bible(
         "novel_id": novel_id,
         "status_url": f"/api/v1/bible/novels/{novel_id}/bible/status"
     }
+
+
+# ---------------------------------------------------------------------------
+# SSE 流式生成接口：逐步推送每个维度的生成进度和数据
+# ---------------------------------------------------------------------------
+
+def _sse_fmt(event: str, data: dict) -> str:
+    """格式化单条 SSE 消息。"""
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _sse_bible_generator(
+    novel_id: str,
+    stage: str,
+    bible_generator: AutoBibleGenerator,
+    knowledge_generator: AutoKnowledgeGenerator,
+):
+    """SSE 生成器：逐步推送 Bible 生成进度和数据片段。"""
+    from interfaces.api.dependencies import get_novel_service
+
+    # ── 起始 ──
+    yield _sse_fmt("phase", {"phase": "init", "message": "正在准备生成环境..."})
+    await asyncio.sleep(0)
+
+    clear_bible_generation_state(novel_id)
+
+    # 获取小说信息
+    try:
+        novel_service = get_novel_service()
+        novel = novel_service.get_novel(novel_id)
+        if not novel:
+            yield _sse_fmt("error", {"message": "小说不存在，无法生成 Bible"})
+            return
+        premise = novel.premise if novel.premise else novel.title
+    except Exception as e:
+        yield _sse_fmt("error", {"message": f"获取小说信息失败: {e}"})
+        return
+
+    # 确保Bible记录存在
+    try:
+        existing_bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
+        if not existing_bible:
+            bible_generator.bible_service.create_bible(f"{novel_id}-bible", novel_id)
+    except Exception:
+        try:
+            bible_generator.bible_service.create_bible(f"{novel_id}-bible", novel_id)
+        except Exception as e:
+            yield _sse_fmt("error", {"message": f"创建 Bible 记录失败: {e}"})
+            return
+
+    try:
+        if stage in ("all", "worldbuilding"):
+            # ── 世界观生成 ──
+            yield _sse_fmt("phase", {"phase": "worldbuilding", "message": "AI 正在构建世界观（5维度框架）..."})
+            await asyncio.sleep(0)
+
+            wb_data = await bible_generator._generate_worldbuilding_and_style(
+                premise, novel.target_chapters
+            )
+
+            # 推送文风
+            if "style" in wb_data:
+                yield _sse_fmt("data", {"type": "style", "content": wb_data["style"]})
+                # 保存文风
+                try:
+                    bible_generator.bible_service.add_style_note(
+                        novel_id=novel_id,
+                        note_id=f"{novel_id}-style-1",
+                        category="文风公约",
+                        content=wb_data["style"],
+                    )
+                except Exception:
+                    pass
+
+            # 逐步推送每个世界观维度（每个维度间加入延迟，前端可逐个渲染）
+            dim_labels = {
+                "core_rules": "核心法则",
+                "geography": "地理生态",
+                "society": "社会结构",
+                "culture": "历史文化",
+                "daily_life": "沉浸感细节",
+            }
+            if "worldbuilding" in wb_data:
+                for dim_key, dim_label in dim_labels.items():
+                    dim_data = wb_data["worldbuilding"].get(dim_key, {})
+                    if dim_data:
+                        # 先通知前端"即将生成该维度"，让骨架屏进入 loading 态
+                        yield _sse_fmt("phase", {"phase": f"worldbuilding_{dim_key}", "message": f"正在构建{dim_label}..."})
+                        await asyncio.sleep(0.3)  # 给前端渲染骨架屏的时间
+                        # 再推送实际数据
+                        yield _sse_fmt("data", {
+                            "type": "worldbuilding_dimension",
+                            "dimension": dim_key,
+                            "label": dim_label,
+                            "content": dim_data,
+                        })
+                        await asyncio.sleep(0.5)  # 给前端渲染数据的时间
+                # 保存世界观
+                if bible_generator.worldbuilding_service:
+                    try:
+                        await bible_generator._save_worldbuilding(novel_id, wb_data["worldbuilding"])
+                    except Exception as e:
+                        logger.warning("Failed to save worldbuilding via SSE: %s", e)
+
+            yield _sse_fmt("phase", {"phase": "worldbuilding_done", "message": "世界观生成完成！"})
+
+        if stage in ("all", "characters"):
+            # ── 人物生成 ──
+            yield _sse_fmt("phase", {"phase": "characters", "message": "AI 正在生成主要角色..."})
+            await asyncio.sleep(0)
+
+            existing_worldbuilding = bible_generator._load_worldbuilding(novel_id)
+            chars_data = await bible_generator._generate_characters(
+                premise, novel.target_chapters, existing_worldbuilding
+            )
+            chars_payload = chars_data.get("characters") or []
+
+            # 逐个人物推送（每个角色间加入延迟，前端可逐个渲染）
+            for idx, char in enumerate(chars_payload):
+                yield _sse_fmt("phase", {"phase": f"character_{idx}", "message": f"正在生成角色：{char.get('name', '...')}..."})
+                await asyncio.sleep(0.2)
+                yield _sse_fmt("data", {
+                    "type": "character",
+                    "index": idx,
+                    "content": char,
+                })
+                await asyncio.sleep(0.4)
+
+            # 保存人物
+            if chars_payload:
+                character_ids = []
+                used_char_ids = set()
+                for idx, char_data in enumerate(chars_payload):
+                    character_id = f"{novel_id}-char-{idx+1}"
+                    if character_id in used_char_ids:
+                        character_id = f"{novel_id}-char-{idx+1}-{len(used_char_ids)}"
+                    used_char_ids.add(character_id)
+                    try:
+                        bible_generator.bible_service.add_character(
+                            novel_id=novel_id,
+                            character_id=character_id,
+                            name=char_data["name"],
+                            description=f"{char_data.get('role', '')} - {char_data.get('description', '')}",
+                            relationships=char_data.get("relationships", []),
+                        )
+                        character_ids.append((character_id, char_data))
+                    except Exception:
+                        pass
+
+                # 生成人物关系三元组
+                if bible_generator.triple_repository and character_ids:
+                    await bible_generator._generate_character_triples(novel_id, character_ids)
+
+            yield _sse_fmt("phase", {"phase": "characters_done", "message": f"人物生成完成！共 {len(chars_payload)} 个角色"})
+
+        if stage in ("all", "locations"):
+            # ── 地点生成 ──
+            yield _sse_fmt("phase", {"phase": "locations", "message": "AI 正在生成地图系统..."})
+            await asyncio.sleep(0)
+
+            existing_worldbuilding = bible_generator._load_worldbuilding(novel_id)
+            existing_characters = bible_generator._load_characters(novel_id)
+            locs_data = await bible_generator._generate_locations(
+                premise, novel.target_chapters, existing_worldbuilding, existing_characters
+            )
+            locs_payload = locs_data.get("locations") or []
+
+            # 逐个地点推送（每个地点间加入延迟，前端可逐个渲染）
+            for idx, loc in enumerate(locs_payload):
+                yield _sse_fmt("phase", {"phase": f"location_{idx}", "message": f"正在生成地点：{loc.get('name', '...')}..."})
+                await asyncio.sleep(0.2)
+                yield _sse_fmt("data", {
+                    "type": "location",
+                    "index": idx,
+                    "content": loc,
+                })
+                await asyncio.sleep(0.4)
+
+            # 保存地点
+            if locs_payload:
+                location_ids = []
+                prepared_locs = bible_generator._prepare_locations_for_save(novel_id, locs_payload)
+                for loc_data in prepared_locs:
+                    try:
+                        bible_generator.bible_service.add_location(
+                            novel_id=novel_id,
+                            location_id=loc_data["location_id"],
+                            name=loc_data["name"],
+                            description=loc_data["description"],
+                            location_type=loc_data["location_type"],
+                            connections=loc_data.get("connections", []),
+                            parent_id=loc_data.get("parent_id"),
+                        )
+                        location_ids.append((loc_data["location_id"], loc_data))
+                    except Exception:
+                        pass
+
+                if bible_generator.triple_repository and location_ids:
+                    await bible_generator._generate_location_triples(novel_id, location_ids)
+
+            yield _sse_fmt("phase", {"phase": "locations_done", "message": f"地图生成完成！共 {len(locs_payload)} 个地点"})
+
+        # ── 知识库生成 ──
+        yield _sse_fmt("phase", {"phase": "knowledge", "message": "正在构建知识库..."})
+        await asyncio.sleep(0)
+
+        try:
+            bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
+            if bible:
+                chars = bible.characters or []
+                locs = bible.locations or []
+                char_desc = "、".join(f"{c.name}" for c in chars[:5])
+                loc_desc = "、".join(c.name for c in locs[:3])
+                style_notes = bible.style_notes or []
+                style_text = "；".join(n.content for n in style_notes if n.content)
+                bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{style_text}。"
+                await knowledge_generator.generate_and_save(novel_id, novel.title, bible_summary)
+        except Exception as e:
+            logger.warning("Knowledge generation failed (non-fatal): %s", e)
+
+        clear_bible_generation_state(novel_id)
+        yield _sse_fmt("done", {"message": "全部生成完成！", "novel_id": novel_id})
+
+    except Exception as e:
+        import traceback
+        logger.error("SSE Bible generation failed for %s: %s", novel_id, e)
+        logger.error(traceback.format_exc())
+        record_bible_generation_failure(novel_id, stage, str(e))
+        yield _sse_fmt("error", {"message": f"生成失败: {e}"})
+
+
+@router.post("/novels/{novel_id}/generate-stream/")
+@router.post("/novels/{novel_id}/generate-stream")
+async def generate_bible_stream(
+    novel_id: str,
+    stage: str = "worldbuilding",
+    bible_generator: AutoBibleGenerator = Depends(get_auto_bible_generator),
+    knowledge_generator: AutoKnowledgeGenerator = Depends(get_auto_knowledge_generator),
+):
+    """SSE 流式 Bible 生成接口。
+
+    逐步推送每个维度的生成进度和数据片段，前端可实时渲染。
+
+    事件类型：
+    - phase: 阶段变更（init / worldbuilding / characters / locations / knowledge / *_done）
+    - data: 数据片段（style / worldbuilding_dimension / character / location）
+    - done: 全部完成
+    - error: 错误
+    """
+    return StreamingResponse(
+        _sse_bible_generator(novel_id, stage, bible_generator, knowledge_generator),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/novels/{novel_id}/bible", response_model=BibleDTO, status_code=201)

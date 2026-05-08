@@ -242,10 +242,9 @@ def get_story_node_repository() -> StoryNodeRepository:
     """获取 StoryNode 仓储
 
     Returns:
-        StoryNodeRepository 实例
+        StoryNodeRepository 实例（复用 DatabaseConnection 线程本地连接）
     """
-    db_path = str(DATA_DIR / "aitext.db")
-    return StoryNodeRepository(db_path)
+    return StoryNodeRepository(get_database())
 
 
 # Service 依赖
@@ -301,39 +300,83 @@ def get_background_task_service():
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
     from infrastructure.persistence.database.connection import get_database
 
+    db = get_database()
     return BackgroundTaskService(
         voice_drift_service=get_voice_drift_service(),
         llm_service=get_llm_service(),
         foreshadowing_repo=get_foreshadowing_repository(),
-        triple_repository=TripleRepository(),
+        triple_repository=TripleRepository(db),
         knowledge_service=get_knowledge_service(),
         chapter_indexing_service=get_chapter_indexing_service(),
-        storyline_repository=SqliteStorylineRepository(get_database()),
+        storyline_repository=SqliteStorylineRepository(db),
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
-        narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        narrative_event_repository=SqliteNarrativeEventRepository(db),
     )
 
 
+@lru_cache
 def get_chapter_aftermath_pipeline():
-    """章节保存后统一管线：叙事/向量、文风、KG 推断；三元组与伏笔、故事线、张力、对话、剧情点在叙事同步中一次 LLM 落库。"""
+    """章节保存后统一管线（单例缓存，避免每次 PUT 请求重建 Pipeline + 8 个 Repository）。
+    
+    叙事/向量、文风、KG 推断；三元组与伏笔、故事线、张力、对话、剧情点、因果边、人物状态、债务在叙事同步中一次 LLM 落库。
+    """
     from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
     from infrastructure.persistence.database.triple_repository import TripleRepository
     from infrastructure.persistence.database.sqlite_storyline_repository import SqliteStorylineRepository
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
+    from infrastructure.persistence.database.sqlite_causal_edge_repository import SqliteCausalEdgeRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
     from infrastructure.persistence.database.connection import get_database
+
+    db = get_database()
+
+    # ★ V8 Feed-forward: 因果边 / 人物状态 / 叙事债务 仓储
+    causal_edge_repo = None
+    character_state_repo = None
+    debt_repo = None
+    bible_repo = None
+
+    try:
+        causal_edge_repo = SqliteCausalEdgeRepository(db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("CausalEdgeRepository 初始化失败: %s", e)
+
+    try:
+        character_state_repo = SqliteCharacterStateRepository(db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("CharacterStateRepository 初始化失败: %s", e)
+
+    try:
+        debt_repo = SqliteNarrativeDebtRepository(db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("NarrativeDebtRepository 初始化失败: %s", e)
+
+    try:
+        bible_repo = get_bible_repository()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("BibleRepository 初始化失败: %s", e)
 
     return ChapterAftermathPipeline(
         knowledge_service=get_knowledge_service(),
         chapter_indexing_service=get_chapter_indexing_service(),
         llm_service=get_llm_service(),
         voice_drift_service=get_voice_drift_service(),
-        triple_repository=TripleRepository(),
+        triple_repository=TripleRepository(db),
         foreshadowing_repository=get_foreshadowing_repository(),
-        storyline_repository=SqliteStorylineRepository(get_database()),
+        storyline_repository=SqliteStorylineRepository(db),
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
-        narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        narrative_event_repository=SqliteNarrativeEventRepository(db),
+        causal_edge_repository=causal_edge_repo,
+        character_state_repository=character_state_repo,
+        debt_repository=debt_repo,
+        bible_repository=bible_repo,
     )
 
 

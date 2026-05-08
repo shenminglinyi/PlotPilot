@@ -115,6 +115,36 @@ def build_daemon() -> AutopilotDaemon:
 
     aftermath_pipeline = None
     try:
+        # ★ V8 Feed-forward: 因果边 / 人物状态 / 叙事债务 仓储
+        causal_edge_repo = None
+        character_state_repo = None
+        debt_repo = None
+        bible_repo = None
+
+        try:
+            from infrastructure.persistence.database.sqlite_causal_edge_repository import SqliteCausalEdgeRepository
+            causal_edge_repo = SqliteCausalEdgeRepository(get_database())
+        except Exception as e:
+            logger.warning(f"CausalEdgeRepository 初始化失败: {e}")
+
+        try:
+            from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+            character_state_repo = SqliteCharacterStateRepository(get_database())
+        except Exception as e:
+            logger.warning(f"CharacterStateRepository 初始化失败: {e}")
+
+        try:
+            from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+            debt_repo = SqliteNarrativeDebtRepository(get_database())
+        except Exception as e:
+            logger.warning(f"NarrativeDebtRepository 初始化失败: {e}")
+
+        try:
+            from interfaces.api.dependencies import get_bible_repository
+            bible_repo = get_bible_repository()
+        except Exception as e:
+            logger.warning(f"BibleRepository 初始化失败: {e}")
+
         aftermath_pipeline = ChapterAftermathPipeline(
             knowledge_service=get_knowledge_service(),
             chapter_indexing_service=get_chapter_indexing_service(),
@@ -126,8 +156,12 @@ def build_daemon() -> AutopilotDaemon:
             chapter_repository=get_chapter_repository(),
             plot_arc_repository=SqlitePlotArcRepository(get_database()),
             narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+            causal_edge_repository=causal_edge_repo,
+            character_state_repository=character_state_repo,
+            debt_repository=debt_repo,
+            bible_repository=bible_repo,
         )
-        logger.info("ChapterAftermathPipeline 已注入（叙事/向量/文风/KG；三元组与伏笔、故事线、张力、对话、剧情点单次 LLM）")
+        logger.info("ChapterAftermathPipeline 已注入（叙事/向量/文风/KG；三元组/伏笔/故事线/张力/对话/因果边/人物状态/债务 单次 LLM）")
     except Exception as e:
         logger.warning("ChapterAftermathPipeline 初始化失败，审计将降级：%s", e)
 
