@@ -1,7 +1,6 @@
 <template>
   <div v-if="isWritingContent" class="writing-stream-bar">
     <div class="stream-header-line">
-      <span class="stream-cursor">▋</span>
       <span class="stream-info">
         正在生成第 {{ writingChapterNumber }} 章
         <span v-if="writingChapterNumber > 0" class="beat-badge">节拍 {{ (writingBeatIndex || 0) + 1 }}</span>
@@ -12,13 +11,13 @@
       </span>
     </div>
     <div ref="scrollContainer" class="stream-content-preview">
-      <pre class="content-text">{{ streamingText }}<span class="cursor-inline">▋</span></pre>
+      <pre class="content-text">{{ displayedText }}<span class="cursor-inline">▋</span></pre>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 
 const props = defineProps<{
   writingContent?: string
@@ -27,11 +26,16 @@ const props = defineProps<{
 }>()
 
 const scrollContainer = ref<HTMLElement | null>(null)
-const lastWordCount = ref(0)
-const lastTimestamp = ref(0)
+const sessionStartTime = ref(0)
+const sessionStartWordCount = ref(0)
 const writingSpeed = ref(0)
 const lastContentLength = ref(0)
-const streamingText = ref('')
+
+// 🔥 打字机效果
+const displayedText = ref('')
+const pendingText = ref('')
+let typewriterTimer: ReturnType<typeof setInterval> | null = null
+const TYPEWRITER_SPEED = 30 // 每 30ms 显示一个字符
 
 const isWritingContent = computed(
   () =>
@@ -43,64 +47,86 @@ const writingWordCount = computed(() => props.writingContent?.length || 0)
 const writingChapterNumber = computed(() => props.writingChapterNumber || 0)
 const writingBeatIndex = computed(() => props.writingBeatIndex || 0)
 
-watch(
-  () => props.writingContent,
-  (content) => {
-    if (!content) {
-      lastWordCount.value = 0
-      lastTimestamp.value = 0
-      writingSpeed.value = 0
-      lastContentLength.value = 0
-      streamingText.value = ''
-      return
-    }
-    const now = Date.now()
-    const currentCount = content.length
+// 🔥 打字机效果：从 displayedText 逐字追赶到 writingContent
+function startTypewriter() {
+  if (typewriterTimer) return
+  typewriterTimer = setInterval(() => {
+    if (!props.writingContent) return
+    const target = props.writingContent
+    const current = displayedText.value
 
-    if (lastTimestamp.value > 0 && lastWordCount.value > 0) {
-      const timeDiff = (now - lastTimestamp.value) / 1000
-      const wordDiff = currentCount - lastWordCount.value
-      if (timeDiff > 0 && wordDiff > 0) {
-        writingSpeed.value = Math.round(wordDiff / timeDiff)
-      }
-    }
+    if (current.length < target.length) {
+      // 每次追加 1-3 个字符（加快追赶速度）
+      const charsToAdd = Math.min(3, target.length - current.length)
+      displayedText.value = target.slice(0, current.length + charsToAdd)
 
-    const displayLimit = 1200
-    if (currentCount > lastContentLength.value) {
-      if (currentCount > displayLimit) {
-        streamingText.value = '...' + content.slice(-displayLimit)
-      } else {
-        streamingText.value = content
-      }
-      lastContentLength.value = currentCount
+      // 自动滚动
       nextTick(() => {
         if (scrollContainer.value) {
           scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
         }
       })
-    } else if (currentCount < lastContentLength.value) {
-      if (currentCount > displayLimit) {
-        streamingText.value = '...' + content.slice(-displayLimit)
-      } else {
-        streamingText.value = content
-      }
-      lastTimestamp.value = 0
+    }
+  }, TYPEWRITER_SPEED)
+}
+
+function stopTypewriter() {
+  if (typewriterTimer) {
+    clearInterval(typewriterTimer)
+    typewriterTimer = null
+  }
+}
+
+watch(
+  () => props.writingContent,
+  (content) => {
+    if (!content) {
+      sessionStartTime.value = 0
+      sessionStartWordCount.value = 0
       writingSpeed.value = 0
-      lastContentLength.value = currentCount
+      lastContentLength.value = 0
+      displayedText.value = ''
+      stopTypewriter()
+      return
     }
 
-    lastWordCount.value = currentCount
-    lastTimestamp.value = now
+    const now = Date.now()
+    const currentCount = content.length
+
+    if (sessionStartTime.value === 0) {
+      sessionStartTime.value = now
+      sessionStartWordCount.value = currentCount
+    }
+
+    const totalSeconds = (now - sessionStartTime.value) / 1000
+    const totalWords = currentCount - sessionStartWordCount.value
+    if (totalSeconds >= 1 && totalWords > 0) {
+      writingSpeed.value = Math.round(totalWords / totalSeconds)
+    }
+
+    // 🔥 启动打字机效果
+    if (currentCount > lastContentLength.value) {
+      startTypewriter()
+    }
+    lastContentLength.value = currentCount
   }
 )
 
 watch(
   () => props.writingChapterNumber,
   () => {
-    streamingText.value = ''
+    displayedText.value = ''
     lastContentLength.value = 0
+    sessionStartTime.value = 0
+    sessionStartWordCount.value = 0
+    writingSpeed.value = 0
+    stopTypewriter()
   }
 )
+
+onUnmounted(() => {
+  stopTypewriter()
+})
 </script>
 
 <style scoped>

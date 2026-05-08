@@ -68,8 +68,6 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            // IPC 端口：就绪前为 0，前端轮询直至 >0（避免在 setup 里阻塞导致 WebView 白屏）
-            app.manage(std::sync::Mutex::new(0u16));
             let manager = BackendManager::new(handle.clone());
             app.manage(std::sync::Mutex::new(manager));
 
@@ -91,14 +89,12 @@ pub fn run() {
                 };
 
                 match BackendManager::wait_for_ready(port, 120) {
-                    Ok(()) => {
-                        let ipc_port = app_handle.state::<Mutex<u16>>();
-                        if let Ok(mut g) = ipc_port.lock() {
-                            *g = port;
-                        }
-                        log::info!("✅ 后端已就绪，端口: {}", port);
-                    }
-                    Err(e) => log::error!("❌ 后端就绪超时或失败: {}", e),
+                    Ok(()) => log::info!("✅ 后端已就绪，端口: {}", port),
+                    Err(e) => log::error!(
+                        "❌ 后端就绪超时或失败: {}（子进程端口 {}，请查 aitext 日志）",
+                        e,
+                        port
+                    ),
                 }
             });
 
@@ -109,6 +105,7 @@ pub fn run() {
             commands::get_backend_status,
             commands::restart_backend,
             commands::open_in_browser,
+            commands::toggle_devtools,
             commands::run_installation,
             commands::check_environment,
             commands::extract_embedded_python,

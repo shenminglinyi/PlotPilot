@@ -19,8 +19,12 @@
     </header>
 
     <div class="work-body">
-      <!-- 辅助撰稿：编辑区 + 章节状态 + 章节元素（无全托管驾驶、无监控大盘） -->
-      <template v-if="workMode === 'assisted'">
+      <!--
+        辅助撰稿与托管撰稿须同时保留在 DOM（v-show，勿用 v-if）：
+        切到辅助撰稿时若卸载 AutopilotPanel，其 onUnmounted 会 stopChapterStream()，
+        章节 SSE 断开会导致全托管写作异常/重连后重复写。
+      -->
+      <div v-show="workMode === 'assisted'" class="assisted-stack">
         <n-alert
           v-if="isAssistedReadOnly"
           type="warning"
@@ -58,7 +62,12 @@
                 </div>
 
                 <div class="editor-body">
+                  <!-- 🔥 流式打字机效果：autopilot 正在写当前章节时展示 -->
+                  <div v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent" class="streaming-editor">
+                    <pre class="streaming-text">{{ streamingContent }}<span class="cursor-blink">▋</span></pre>
+                  </div>
                   <n-input
+                    v-else
                     v-model:value="chapterContent"
                     type="textarea"
                     placeholder="章节内容..."
@@ -141,10 +150,10 @@
             </div>
           </n-tab-pane>
         </n-tabs>
-      </template>
+      </div>
 
-      <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会切回辅助撰稿） -->
-      <div v-else class="managed-stack">
+      <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会显示辅助撰稿面板，托管组件仍挂载以保持 SSE） -->
+      <div v-show="workMode === 'managed'" class="managed-stack">
         <n-alert type="success" :show-icon="true" class="managed-daemon-hint">
           <strong>全托管模式</strong>：后端已自动启动守护进程线程，点击「启动全托管」即可开始自动写作。
           系统将自动进行宏观规划、幕级规划、章节撰写和审计。
@@ -154,6 +163,7 @@
             :novel-id="slug"
             @status-change="handleAutopilotStatusChange"
             @chapter-content-update="handleChapterContentUpdate"
+            @desk-refresh="handleAutopilotDeskRefreshFromStream"
           />
         </div>
         <div class="managed-monitor">
@@ -554,6 +564,16 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
   ].join('|')
 }
 
+/** 🔥 去抖 desk 刷新：300ms 内多次调用只执行一次 emit，避免 SSE 事件 + 轮询同时触发时重复 loadDesk */
+let deskRefreshDebounce: ReturnType<typeof setTimeout> | null = null
+function emitDeskRefreshDebounced() {
+  if (deskRefreshDebounce) return  // 已有待执行的，跳过
+  deskRefreshDebounce = setTimeout(() => {
+    deskRefreshDebounce = null
+    emit('chapterUpdated')
+  }, 300)
+}
+
 function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined) {
   const next = deskSnapFromAutopilot(status)
   if (next === '') return
@@ -563,7 +583,7 @@ function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined
   }
   if (lastAutopilotDeskSnap.value === next) return
   lastAutopilotDeskSnap.value = next
-  emit('chapterUpdated')
+  emitDeskRefreshDebounced()
 }
 
 const handleAutopilotStatusChange = (status: any) => {
@@ -571,14 +591,9 @@ const handleAutopilotStatusChange = (status: any) => {
   maybeEmitDeskRefresh(status)
 }
 
-/** SSE 已广播「进入待审阅」时立即拉 desk/结构树；与 /status 轮询并行，避免日志先变、侧栏仍旧 */
-let autopilotStreamDeskDebounce: ReturnType<typeof setTimeout> | null = null
+/** SSE 已广播刷新信号时去抖触发 desk 刷新（与 maybeEmitDeskRefresh 共用去抖逻辑） */
 function handleAutopilotDeskRefreshFromStream() {
-  if (autopilotStreamDeskDebounce) clearTimeout(autopilotStreamDeskDebounce)
-  autopilotStreamDeskDebounce = setTimeout(() => {
-    autopilotStreamDeskDebounce = null
-    emit('chapterUpdated')
-  }, 400)
+  emitDeskRefreshDebounced()
 }
 
 /** 自动驾驶章节内容流更新：实时显示正在写作的内容 */
@@ -1084,6 +1099,14 @@ defineExpose({ ensureAssistedMode })
   margin: 0 16px 8px;
 }
 
+.assisted-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .assisted-tabs {
   flex: 1;
   min-height: 0;
@@ -1325,5 +1348,37 @@ defineExpose({ ensureAssistedMode })
 .editor-footer {
   padding-top: 12px;
   border-top: 1px solid var(--border-color);
+}
+
+/* 🔥 流式打字机效果 */
+.streaming-editor {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding: 12px 16px;
+  background: rgba(24, 160, 88, 0.02);
+  border: 1px solid rgba(24, 160, 88, 0.1);
+  border-radius: 6px;
+}
+
+.streaming-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--app-text-primary);
+}
+
+.cursor-blink {
+  color: #18a058;
+  animation: cursor-blink-anim 1s step-end infinite;
+  font-size: 14px;
+}
+
+@keyframes cursor-blink-anim {
+  50% { opacity: 0; }
 }
 </style>

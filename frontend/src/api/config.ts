@@ -186,7 +186,14 @@ export interface ApiClient {
 export const apiClient: ApiClient = axiosInstance as unknown as ApiClient
 
 export interface ChapterStreamEvent {
-  type: 'connected' | 'chapter_start' | 'chapter_chunk' | 'chapter_content' | 'autopilot_stopped' | 'heartbeat'
+  type:
+    | 'connected'
+    | 'chapter_start'
+    | 'chapter_chunk'
+    | 'chapter_content'
+    | 'autopilot_stopped'
+    | 'paused_for_review'
+    | 'heartbeat'
   message: string
   timestamp: string
   metadata?: {
@@ -205,6 +212,8 @@ export function subscribeChapterStream(
     onChapterChunk?: (chunk: string, beatIndex: number) => void
     onChapterContent?: (data: { chapterNumber: number; content: string; wordCount: number; beatIndex: number }) => void
     onAutopilotStopped?: (status: string) => void
+    /** 服务端因待审阅关闭章节流时触发，应尽快拉取 /status 同步 needs_review，避免误判断线重连 */
+    onPausedForReview?: () => void
     onError?: (error: Error) => void
     onConnected?: () => void
     onDisconnected?: () => void
@@ -235,41 +244,58 @@ export function subscribeChapterStream(
       const decoder = new TextDecoder()
       let buffer = ''
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      const dispatchSseEvent = (event: ChapterStreamEvent) => {
+        if (event.type === 'chapter_start' && event.metadata?.chapter_number) {
+          handlers.onChapterStart?.(event.metadata.chapter_number)
+        } else if (event.type === 'chapter_chunk' && event.metadata?.chunk) {
+          handlers.onChapterChunk?.(event.metadata.chunk, event.metadata.beat_index || 0)
+        } else if (event.type === 'chapter_content' && event.metadata) {
+          handlers.onChapterContent?.({
+            chapterNumber: event.metadata.chapter_number!,
+            content: event.metadata.content || '',
+            wordCount: event.metadata.word_count || 0,
+            beatIndex: event.metadata.beat_index || 0,
+          })
+        } else if (event.type === 'autopilot_stopped') {
+          handlers.onAutopilotStopped?.(event.message)
+        } else if (event.type === 'paused_for_review') {
+          handlers.onPausedForReview?.()
+        }
+      }
 
-        buffer += decoder.decode(value, { stream: true })
-        let sep: number
-        while ((sep = buffer.indexOf('\n\n')) >= 0) {
-          const block = buffer.slice(0, sep)
-          buffer = buffer.slice(sep + 2)
-
+      const flushBlocks = (buf: string): string => {
+        let sepIdx: number
+        let rest = buf
+        while ((sepIdx = rest.indexOf('\n\n')) >= 0) {
+          const block = rest.slice(0, sepIdx)
+          rest = rest.slice(sepIdx + 2)
           for (const line of block.split('\n')) {
             if (!line.startsWith('data: ')) continue
             try {
-              const event = JSON.parse(line.slice(6)) as ChapterStreamEvent
-
-              if (event.type === 'chapter_start' && event.metadata?.chapter_number) {
-                handlers.onChapterStart?.(event.metadata.chapter_number)
-              } else if (event.type === 'chapter_chunk' && event.metadata?.chunk) {
-                handlers.onChapterChunk?.(event.metadata.chunk, event.metadata.beat_index || 0)
-              } else if (event.type === 'chapter_content' && event.metadata) {
-                handlers.onChapterContent?.({
-                  chapterNumber: event.metadata.chapter_number!,
-                  content: event.metadata.content || '',
-                  wordCount: event.metadata.word_count || 0,
-                  beatIndex: event.metadata.beat_index || 0,
-                })
-              } else if (event.type === 'autopilot_stopped') {
-                handlers.onAutopilotStopped?.(event.message)
-              }
+              dispatchSseEvent(JSON.parse(line.slice(6)) as ChapterStreamEvent)
             } catch {
-              // 忽略解析错误
+              /* 忽略残缺行 */
             }
           }
         }
+        return rest
       }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          buffer += decoder.decode()
+          break
+        }
+
+        buffer += decoder.decode(value, { stream: true })
+        buffer = flushBlocks(buffer)
+      }
+
+      buffer = flushBlocks(buffer)
+
+      // 服务端正常结束 SSE（审阅暂停、停止全托管等）时也要走断开逻辑，否则会一直认为「仍连接」且不重拉状态
+      handlers.onDisconnected?.()
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return
       handlers.onError?.(e instanceof Error ? e : new Error('Stream error'))

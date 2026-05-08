@@ -25,16 +25,9 @@
           <n-button v-if="autopilotEmptyMode" type="primary" @click="loadTree">
             刷新结构树
           </n-button>
-          <n-button
-            v-if="!autopilotEmptyMode"
-            type="primary"
-            @click="emit('openPlanModal')"
-          >
-            🎯 启动结构规划
-          </n-button>
-          <n-button v-else secondary size="small" @click="emit('openPlanModal')">
-            手动打开结构规划…
-          </n-button>
+          <n-alert v-else type="info" :show-icon="false" style="font-size: 12px; max-width: 240px; text-align: center;">
+            <strong>提示</strong>：切换到「托管撰稿」模式，点击「启动全托管」即可自动生成大纲与正文
+          </n-alert>
         </n-space>
       </template>
     </n-empty>
@@ -102,7 +95,7 @@ const message = useMessage()
 const dialog = useDialog()
 
 const loading = ref(false)
-/** 全托管时空侧栏提示：避免与「启动结构规划」主按钮混淆 */
+/** 全托管时空侧栏提示：引导用户使用全托管 */
 const autopilotEmptyMode = ref<null | 'planning' | 'review'>(null)
 const structureEmptyDescription = computed(() => {
   if (autopilotEmptyMode.value === 'planning') {
@@ -111,7 +104,7 @@ const structureEmptyDescription = computed(() => {
   if (autopilotEmptyMode.value === 'review') {
     return '待审阅状态下若结构未显示，请点「刷新结构树」并确认守护进程已运行'
   }
-  return '暂无叙事结构'
+  return '暂无叙事结构，请使用「全托管」自动生成'
 })
 const treeData = ref<any[]>([])
 const selectedKeys = ref<string[]>([])

@@ -22,7 +22,10 @@
     <n-scrollbar class="sidebar-scroll">
       <!-- 平铺视图：分页显示章节列表，避免大量章节一次性渲染 -->
       <div v-if="viewMode === 'flat'">
-        <div v-if="!chapters.length" class="sidebar-empty">暂无章节，请先在底部执行「启动结构规划」创建章节大纲</div>
+        <div v-if="!chapters.length" class="sidebar-empty">
+          <p>暂无章节</p>
+          <p class="hint">请切换到「托管撰稿」模式，启动全托管自动生成大纲与正文</p>
+        </div>
         <template v-else>
           <n-list hoverable clickable>
             <n-list-item
@@ -65,16 +68,11 @@
       </div>
     </n-scrollbar>
 
-    <!-- 底部操作区：仅在平铺视图或树形视图有数据时显示 -->
-    <div v-if="viewMode === 'flat' || (viewMode === 'tree' && hasStructure)" class="sidebar-foot">
-      <n-button
-        size="small"
-        secondary
-        block
-        @click="showMacroPlan = true"
-      >
-        🎯 启动结构规划
-      </n-button>
+    <!-- 引导用户使用全托管 -->
+    <div v-if="!chapters.length && viewMode === 'flat'" class="sidebar-foot-hint">
+      <n-alert type="info" :show-icon="false" style="font-size: 12px">
+        <strong>提示</strong>：切换到「托管撰稿」模式，点击「启动全托管」即可自动生成大纲与正文
+      </n-alert>
     </div>
   </aside>
 
@@ -133,7 +131,7 @@ function loadMoreChapters() {
 }
 
 const showMacroPlan = ref(false)
-const hasStructure = ref(true) // 默认假设有结构，由 StoryStructureTree 更新
+const hasStructure = ref(true)
 
 const storyTreeRef = ref<ComponentPublicInstance<{ loadTree: () => Promise<void> }> | null>(null)
 
@@ -213,8 +211,8 @@ const handleTreeLoaded = (hasData: boolean) => {
   min-height: 0;
 }
 
-.sidebar-foot {
-  padding: 8px 10px;
+.sidebar-foot-hint {
+  padding: 8px 4px;
   border-top: 1px solid var(--n-divider-color, rgba(0,0,0,.06));
 }
 
@@ -222,7 +220,13 @@ const handleTreeLoaded = (hasData: boolean) => {
   padding: 12px;
   font-size: 13px;
   color: var(--app-muted);
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+.sidebar-empty .hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-brand, #18a058);
 }
 
 .sidebar :deep(.n-list-item) {

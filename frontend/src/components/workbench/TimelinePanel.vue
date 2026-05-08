@@ -89,9 +89,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useMessage } from 'naive-ui'
 import { bibleApi } from '../../api/bible'
 import type { TimelineNoteDTO } from '../../api/bible'
+import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 
 interface Props {
   slug: string
@@ -191,6 +193,11 @@ const saveTimeline = async () => {
 watch(() => props.slug, (slug) => {
   if (slug) loadTimeline()
 })
+
+// 🔥 监听 chroniclesTick：autopilot 审计完成后刷新时间线（Bible timeline_notes 变化时同步）
+const refreshStore = useWorkbenchRefreshStore()
+const { chroniclesTick } = storeToRefs(refreshStore)
+watch(chroniclesTick, () => void loadTimeline())
 
 onMounted(() => {
   loadTimeline()
