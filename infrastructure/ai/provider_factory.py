@@ -70,9 +70,16 @@ class DynamicLLMService(LLMService):
 
     def __init__(self, factory: Optional[LLMProviderFactory] = None):
         self.factory = factory or LLMProviderFactory()
+        self._last_provider: Optional[LLMService] = None
 
     def _resolve_provider(self) -> LLMService:
         return self.factory.create_active_provider()
+
+    @property
+    def last_stream_stop_reason(self) -> str:
+        if self._last_provider and hasattr(self._last_provider, "last_stream_stop_reason"):
+            return self._last_provider.last_stream_stop_reason  # type: ignore[union-attr]
+        return ""
 
     @staticmethod
     def _merge_config(config: GenerationConfig, provider: LLMService) -> GenerationConfig:
@@ -100,11 +107,13 @@ class DynamicLLMService(LLMService):
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
         provider = self._resolve_provider()
+        self._last_provider = provider
         effective_config = self._merge_config(config, provider)
         return await provider.generate(prompt, effective_config)
 
     async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
         provider = self._resolve_provider()
+        self._last_provider = provider
         effective_config = self._merge_config(config, provider)
         async for chunk in provider.stream_generate(prompt, effective_config):
             yield chunk
