@@ -289,17 +289,20 @@ class ChapterBridgeService:
         self,
         prev_bridge: Optional[ChapterBridge],
     ) -> str:
-        """构建章首衔接指令（注入到 T0 层的强制内容）
+        """构建章首衔接建议（V9 减法改革：铁律→建议）
 
-        这是衔接引擎的核心输出——一段精心设计的"承上启下"指令，
-        告诉 AI 本章开头必须做什么、不能做什么。
+        V9 设计哲学（减法改革）：
+          原来的"首段必须物理接续上一幕"是反文学的——
+          高级的章间过渡往往是时间和空间的跳跃（"第二天清晨"、"与此同时的京城"）。
 
-        设计哲学（顶级作家视角）：
-          - 悬念钩子 → 必须呼应（不能当没发生过）
-          - 情感余韵 → 必须延续（情绪有惯性）
-          - 场景状态 → 必须接续（物理世界不会突然变化）
-          - 角色位置 → 必须合理（人不会瞬移）
-          - 未完成动作 → 必须延续（动作在继续）
+          新设计：
+          - 悬念钩子 → 建议呼应（但不强迫方式）
+          - 情感余韵 → 建议延续（但允许冷却或转折）
+          - 场景状态 → 仅供参考（时间跳跃完全合法）
+          - 角色位置 → 仅供参考（视角切换完全合法）
+          - 未完成动作 → 可选延续（新视角开篇也是高级写法）
+
+          关键变化：删除了原来的"首段衔接铁律"4 条禁令。
         """
         if not prev_bridge:
             return ""
@@ -313,36 +316,35 @@ class ChapterBridgeService:
         ]):
             return ""
 
-        parts = ["【🔗 章节衔接指令（T0 强制约束，不可删减）】"]
+        parts = ["【🔗 前章桥段（参考信息，非强制约束）】"]
         parts.append(f"上一章（第 {prev_bridge.chapter_number} 章）结束时：\n")
 
         if prev_bridge.suspense_hook:
-            parts.append(f"⚠ 悬念钩子：{prev_bridge.suspense_hook}")
-            parts.append("→ 本章开头必须呼应此悬念：或直接回应、或侧面映射、或加深谜团。绝不能装作没发生过。\n")
+            parts.append(f"💡 悬念：{prev_bridge.suspense_hook}")
+            parts.append("  如果合适，可以呼应此悬念；也可以加深谜团、或从其他视角侧面映射。\n")
 
         if prev_bridge.emotional_residue:
             intensity_label = "强烈" if prev_bridge.emotional_intensity >= 7 else "中等" if prev_bridge.emotional_intensity >= 4 else "微弱"
             parts.append(f"💭 情感余韵：{prev_bridge.emotional_residue}（{intensity_label}，{prev_bridge.emotional_intensity}/10）")
-            parts.append(f"→ 本章首段 POV 角色的情绪必须从「{prev_bridge.emotional_residue}」延续或演变。情绪有惯性——不会瞬间切换。\n")
+            parts.append("  情绪有惯性，但也会冷却——你可以延续，也可以让时间冲淡它。\n")
 
         if prev_bridge.scene_state:
-            parts.append(f"🏔 场景状态：{prev_bridge.scene_state}")
-            parts.append("→ 本章开头的物理环境必须与前章末尾一致或自然过渡（时间流逝、场景转换需有明确交代）。\n")
+            parts.append(f"🏔 场景：{prev_bridge.scene_state}")
+            parts.append("  如果你在同一场景继续，这些信息有帮助。但场景切换（如'第二天清晨'）完全合法。\n")
 
         if prev_bridge.character_positions:
             parts.append(f"👤 角色位置：{prev_bridge.character_positions}")
-            parts.append("→ 本章开头各角色的位置必须与前章末尾一致。人不会瞬移——如果角色在门口，下一章他要么进门、要么转身，不会突然在另一个城市。\n")
+            parts.append("  如果继续同一视角，保持位置一致。视角切换时，这些仅供参考。\n")
 
         if prev_bridge.unfinished_actions:
-            parts.append(f"🎬 未完成动作：{prev_bridge.unfinished_actions}")
-            parts.append("→ 本章必须延续此动作的完成过程，或解释为何中断。\n")
+            parts.append(f"🎬 未完成：{prev_bridge.unfinished_actions}")
+            parts.append("  你可以选择延续此动作，也可以暂且搁置、从另一条线开篇。\n")
 
-        # 衔接铁律
-        parts.append("━━━ 首段衔接铁律 ━━━")
-        parts.append("① 本章首段必须是上一章的延续，而非新的开始。")
-        parts.append("② 前三句话之内必须出现与前章结尾的连接点（情绪/画面/动作）。")
-        parts.append("③ 如果场景转换，必须用过渡句（如'两个小时后'、'天亮了'），不能用空行跳转。")
-        parts.append("④ 不许用'第二天'开头然后当上一章没发生过——上一章的情绪和事件必须在本章有涟漪。")
+        # V9: 删除了原来的"首段衔接铁律"4条禁令
+        # 替换为一段开放性的创作引导
+        parts.append("━━━ 衔接建议 ━━━")
+        parts.append("你可以在前三句内建立与前章的连接（情绪/画面/悬念），也可以用时间跳跃或视角切换开篇。")
+        parts.append("两种写法都是好的小说技法——选择最适合当前叙事节奏的方式。")
 
         return "\n".join(parts)
 
@@ -402,8 +404,8 @@ class ChapterBridgeService:
 - 0.9-1.0：完美衔接，首段直接呼应前章的悬念/情绪/场景
 - 0.7-0.9：良好衔接，有明确的过渡但可以更紧密
 - 0.5-0.7：弱衔接，读者能感觉到两章属于同一本书但过渡生硬
-- 0.3-0.5：割裂感明显，像是两个独立的故事拼在一起
-- 0-0.3：完全断裂，没有任何承接
+- 0.3-0.5：割裂感明显，但时间跳跃/视角切换也是合法的文学技法
+- 0-0.3：完全断裂，且无文学意图
 
 输出 JSON：
 {
@@ -473,7 +475,7 @@ class ChapterBridgeService:
         策略：用 LLM 重写首段（前 300 字），保持后文不变。
         最多修整 max_rounds 轮。
         """
-        if check_result.score >= 0.6 or not self._llm:
+        if check_result.score >= 0.4 or not self._llm:  # V9: 从 0.6 降至 0.4，降低强制修整门槛
             return content
 
         head_size = min(300, len(content.strip()))
@@ -577,12 +579,8 @@ class ChapterBridgeService:
         issues = []
 
         # 检测1：跳跃词检测
-        jump_words = ['后来', '之后', '后来呢', '到了', '转眼', '不知不觉']
-        for jw in jump_words:
-            if new_head.startswith(jw) or f'\n{jw}' in new_head[:50]:
-                score -= 0.2
-                issues.append(f"开头使用了跳跃词「{jw}」，节拍间应有连续过渡")
-                break
+        # V9: 删除跳跃词检测——"后来"、"之后"、"转眼" 等时间跳跃词是合法的文学技法
+        # 节拍间的时间跳跃不是 bug，而是 feature
 
         # 检测2：对话断裂——前节拍在对话中，新节拍没有回应
         if anchor.tail_state == "对话中":

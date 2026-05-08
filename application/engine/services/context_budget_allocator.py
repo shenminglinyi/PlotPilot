@@ -158,12 +158,13 @@ class ContextBudgetAllocator:
     CHARS_PER_TOKEN_EN = 4.0  # 英文：1 token ≈ 4 字符
     
     # 默认配额比例
-    # ★ V8 Feed-forward: T0 提权至 35%，确保因果图谱和动态状态完整传入
-    # 宁可牺牲 T3（向量召回泡沫），也必须保住 T0 核心资产
-    T0_BUDGET_RATIO = 0.35   # 35% 给 T0（强制内容：因果/伤疤/债务/锚点）
-    T1_BUDGET_RATIO = 0.25   # 25% 给 T1（可压缩：因果链/已完结卷）
-    T2_BUDGET_RATIO = 0.30   # 30% 给 T2（动态：最近章节）
-    T3_BUDGET_RATIO = 0.10   # 10% 给 T3（可牺牲：向量召回，因果双路后此槽够用）
+    # ★ V9 减法改革: T0 从 35% 降至 20% — 约束是药不是饭
+    # 过多的 T0 强制内容导致注意力坍塌，AI 从"写故事"变成"满足约束条件"
+    # 把叙事债务、因果链、伤疤执念等降级到 T1，用自然语言的"编辑手记"替代结构化槽位
+    T0_BUDGET_RATIO = 0.20   # 20% 给 T0（仅保留：FACT_LOCK + ANCHOR + 角色锚点 + 编辑手记）
+    T1_BUDGET_RATIO = 0.30   # 30% 给 T1（降级内容：伤疤/债务/因果链/已完成节拍/线索）
+    T2_BUDGET_RATIO = 0.35   # 35% 给 T2（动态：最近章节——这才是 AI 应该关注的重点）
+    T3_BUDGET_RATIO = 0.15   # 15% 给 T3（向量召回）
     
     # 各槽位的默认上限
     MAX_FORESHADOWING_TOKENS = 2000
@@ -381,10 +382,13 @@ class ContextBudgetAllocator:
     ) -> Dict[str, ContextSlot]:
         """收集所有上下文槽位"""
         slots = {}
-        
-        # ==================== T0: 强制内容 ====================
 
-        # ★ V7 T0-Ω: 生命周期行为准则（全局收敛沙漏）—— 最高优先级 priority=130
+        # ==================== T0: 强制内容（V9 减法改革：14→4 核心 + 编辑手记） ====================
+        # 原则：约束是药不是饭。T0 只保留"不可违背的基础事实"和"创作引导"。
+        # 伤疤/债务/因果链/节拍锁/线索等降级到 T1——可参考但不强制。
+
+        # ── T0-1: 生命周期行为准则（全局收敛沙漏）—— priority=130 ──
+        # 保留：这是宏观创作节奏的引导，不属于"约束过载"
         lifecycle_directive = self._build_lifecycle_directive(novel_id, chapter_number)
         slots["lifecycle_directive"] = ContextSlot(
             name="⏳生命周期行为准则(SANDGLASS)",
@@ -395,7 +399,8 @@ class ContextBudgetAllocator:
             priority=130,
         )
 
-        # ★ V8 T0-ε: 全书主线锚点(ANCHOR) —— priority=125
+        # ── T0-2: 全书主线锚点(ANCHOR) —— priority=125 ──
+        # 保留：一句话主线，极低 token 消耗，极高价值
         anchor_content = ""
         if self.context_assembler:
             try:
@@ -407,11 +412,12 @@ class ContextBudgetAllocator:
             tier=PriorityTier.T0_CRITICAL,
             content=anchor_content,
             tokens=self.estimate_tokens(anchor_content),
-            max_tokens=500,
+            max_tokens=300,  # V9: 从 500 砍到 300——一句话主线，不需要更多
             priority=125,
         )
 
-        # ★ V6 T0-α: FACT_LOCK（不可篡改事实块）—— priority=120
+        # ── T0-3: FACT_LOCK（不可篡改事实块）—— priority=120 ──
+        # 保留但瘦身：只保留角色白名单 + 死亡名单 + 核心关系，删除时间线锁定（交给 T1）
         fact_lock_content = ""
         if self.memory_engine:
             try:
@@ -425,11 +431,53 @@ class ContextBudgetAllocator:
             tier=PriorityTier.T0_CRITICAL,
             content=fact_lock_content,
             tokens=self.estimate_tokens(fact_lock_content),
-            max_tokens=2500,
+            max_tokens=1500,  # V9: 从 2500 砍到 1500
             priority=120,
         )
 
-        # ★ V8 T0-η: 角色伤疤与执念(SCARS) —— priority=118
+        # ── T0-4: 角色锚点（核心人设）—— priority=110 ──
+        # 保留：角色声线和习惯动作是写作的基石
+        character_anchors = self._get_character_anchors(novel_id, chapter_number, scene_director, outline)
+        slots["character_anchors"] = ContextSlot(
+            name="角色锚点",
+            tier=PriorityTier.T0_CRITICAL,
+            content=character_anchors,
+            tokens=self.estimate_tokens(character_anchors),
+            max_tokens=self.MAX_CHARACTER_ANCHORS_TOKENS,
+            priority=110,
+        )
+
+        # ── T0-5: 编辑手记（CONTEXT_BRIEF）—— priority=100 ──
+        # V9 核心创新：用一段自然语言"编辑手记"替代 8 个结构化 T0 槽位
+        # 合并：SCARS + DEBT_DUE + BRIDGE_DIRECTIVE + PREVIOUSLY_ON +
+        #        COMPLETED_BEATS(精简) + REVEALED_CLUES(精简) +
+        #        ACTIVE_ENTITY_MEMORY + CHARACTER_STATE_LOCK
+        # 设计哲学：一段自然语言比 8 个 === xxx === 分隔符更容易被 LLM 融入创作
+        context_brief = self._build_context_brief(novel_id, chapter_number, outline)
+        slots["context_brief"] = ContextSlot(
+            name="📝编辑手记(CONTEXT_BRIEF)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=context_brief,
+            tokens=self.estimate_tokens(context_brief),
+            max_tokens=800,  # V9: 800 tokens 的自然语言手记，替代原来 10,000+ tokens 的结构化槽位
+            priority=100,
+        )
+
+        # ── T0-6: 当前幕摘要 —— priority=95 ──
+        act_summary = self._get_current_act_summary(novel_id, chapter_number)
+        slots["current_act_summary"] = ContextSlot(
+            name="当前幕摘要",
+            tier=PriorityTier.T0_CRITICAL,
+            content=act_summary,
+            tokens=self.estimate_tokens(act_summary),
+            max_tokens=600,  # V9: 增加上限控制
+            priority=95,
+        )
+        
+        # ==================== T1: 可压缩内容（V9: 从 T0 降级的内容 + 原有 T1） ====================
+        # 降级原则：这些内容是"参考"而非"约束"，AI 可以选择性采纳
+        
+        # ── V9 降级: 角色伤疤与执念(SCARS) —— 从 T0(p=118) → T1(p=78) ──
         scars_content = ""
         if self.context_assembler:
             try:
@@ -438,14 +486,14 @@ class ContextBudgetAllocator:
                 logger.warning(f"SCARS_AND_MOTIVATIONS 构建失败: {e}")
         slots["scars_and_motivations"] = ContextSlot(
             name="💔角色伤疤与执念(SCARS)",
-            tier=PriorityTier.T0_CRITICAL,
+            tier=PriorityTier.T1_COMPRESSIBLE,
             content=scars_content,
             tokens=self.estimate_tokens(scars_content),
-            max_tokens=1500,
-            priority=118,
+            max_tokens=800,  # V9: 从 1500 砍到 800
+            priority=78,
         )
 
-        # ★ V6 T0-β: COMPLETED_BEATS（已完成节拍锁）—— priority=115
+        # ── V9 降级: 已完成节拍锁(COMPLETED_BEATS) —— 从 T0(p=115) → T1(p=76) ──
         beats_content = ""
         if self.memory_engine:
             try:
@@ -454,48 +502,14 @@ class ContextBudgetAllocator:
                 logger.warning(f"COMPLETED_BEATS 构建失败: {e}")
         slots["completed_beats"] = ContextSlot(
             name="✅已完成节拍(COMPLETED_BEATS)",
-            tier=PriorityTier.T0_CRITICAL,
+            tier=PriorityTier.T1_COMPRESSIBLE,
             content=beats_content,
             tokens=self.estimate_tokens(beats_content),
-            max_tokens=2000,
-            priority=115,
+            max_tokens=1000,  # V9: 从 2000 砍到 1000
+            priority=76,
         )
 
-        # ★ V6 T0-γ: REVEALED_CLUES（已揭露线索清单）—— priority=110
-        clues_content = ""
-        if self.memory_engine:
-            try:
-                clues_content = self.memory_engine.get_revealed_clues_section(novel_id)
-            except Exception as e:
-                logger.warning(f"REVEALED_CLUES 构建失败: {e}")
-        slots["revealed_clues"] = ContextSlot(
-            name="🔍已揭露线索(REVEALED_CLUES)",
-            tier=PriorityTier.T0_CRITICAL,
-            content=clues_content,
-            tokens=self.estimate_tokens(clues_content),
-            max_tokens=2000,
-            priority=110,
-        )
-
-        # ★ V8 T0-ι: 活跃实体记忆(ACTIVE_ENTITY_MEMORY) —— priority=112
-        active_entity_content = ""
-        if self.context_assembler:
-            try:
-                active_entity_content = self.context_assembler.build_active_entity_memory(
-                    novel_id, chapter_number, outline
-                )
-            except Exception as e:
-                logger.warning(f"ACTIVE_ENTITY_MEMORY 构建失败: {e}")
-        slots["active_entity_memory"] = ContextSlot(
-            name="🧠活跃实体记忆(ACTIVE_ENTITY_MEMORY)",
-            tier=PriorityTier.T0_CRITICAL,
-            content=active_entity_content,
-            tokens=self.estimate_tokens(active_entity_content),
-            max_tokens=1000,
-            priority=112,
-        )
-
-        # ★ V8 T0-κ: 叙事债务到期提醒(DEBT_DUE) —— priority=108
+        # ── V9 降级: 叙事债务到期提醒(DEBT_DUE) —— 从 T0(p=108) → T1(p=74) ──
         debt_due_content = ""
         if self.context_assembler:
             try:
@@ -505,114 +519,55 @@ class ContextBudgetAllocator:
             except Exception as e:
                 logger.warning(f"DEBT_DUE 构建失败: {e}")
         slots["debt_due"] = ContextSlot(
-            name="🚨叙事债务到期(DEBT_DUE)",
-            tier=PriorityTier.T0_CRITICAL,
+            name="📋叙事备忘(DEBT_DUE)",
+            tier=PriorityTier.T1_COMPRESSIBLE,
             content=debt_due_content,
             tokens=self.estimate_tokens(debt_due_content),
-            max_tokens=800,
-            priority=108,
+            max_tokens=500,  # V9: 从 800 砍到 500
+            priority=74,
         )
 
-        # ★ V8 T0-λ: Previously On 卷级记忆 —— priority=107
-        previously_on_content = ""
-        if self.context_assembler:
+        # ── V9 降级: 已揭露线索清单(REVEALED_CLUES) —— 从 T0(p=110) → T1(p=72) ──
+        clues_content = ""
+        if self.memory_engine:
             try:
-                previously_on_content = self.context_assembler.build_previously_on(
-                    novel_id, chapter_number
-                )
+                clues_content = self.memory_engine.get_revealed_clues_section(novel_id)
             except Exception as e:
-                logger.warning(f"PREVIOUSLY_ON 构建失败: {e}")
-        slots["previously_on"] = ContextSlot(
-            name="📺 Previously On(卷级记忆)",
-            tier=PriorityTier.T0_CRITICAL,
-            content=previously_on_content,
-            tokens=self.estimate_tokens(previously_on_content),
-            max_tokens=1500,
-            priority=107,
+                logger.warning(f"REVEALED_CLUES 构建失败: {e}")
+        slots["revealed_clues"] = ContextSlot(
+            name="🔍已揭露线索(REVEALED_CLUES)",
+            tier=PriorityTier.T1_COMPRESSIBLE,
+            content=clues_content,
+            tokens=self.estimate_tokens(clues_content),
+            max_tokens=800,  # V9: 从 2000 砍到 800
+            priority=72,
         )
 
-        # ★ Anti-AI T0-μ: Anti-AI 行为协议（ANTI_AI_PROTOCOL）—— priority=135
-        # Layer 1+2+3 的核心约束，绝对不可压缩
-        anti_ai_protocol_content = self._build_anti_ai_protocol_block(novel_id, chapter_number)
-        slots["anti_ai_protocol"] = ContextSlot(
-            name="🛡️ Anti-AI 行为协议(ANTI_AI_PROTOCOL)",
-            tier=PriorityTier.T0_CRITICAL,
-            content=anti_ai_protocol_content,
-            tokens=self.estimate_tokens(anti_ai_protocol_content),
-            max_tokens=2000,
-            priority=135,
-        )
-
-        # ★ Anti-AI T0-ν: 角色状态锁向量（CHARACTER_STATE_LOCK）—— priority=128
-        # Layer 4 的角色锚点，防止记忆漂移
-        character_state_lock_content = self._build_character_state_lock_block(novel_id)
-        slots["character_state_lock"] = ContextSlot(
-            name="🔒 角色状态锁(CHARACTER_STATE_LOCK)",
-            tier=PriorityTier.T0_CRITICAL,
-            content=character_state_lock_content,
-            tokens=self.estimate_tokens(character_state_lock_content),
-            max_tokens=1000,
-            priority=128,
-        )
-
-        # ★ 衔接引擎 T0-δ: 章节衔接指令（BRIDGE_DIRECTIVE）—— priority=105
-        # 从 chapter_bridge_service 读取前章桥段，生成首段衔接约束
-        bridge_directive = self._get_chapter_bridge_directive(novel_id, chapter_number)
-        slots["bridge_directive"] = ContextSlot(
-            name="🔗章节衔接指令(BRIDGE_DIRECTIVE)",
-            tier=PriorityTier.T0_CRITICAL,
-            content=bridge_directive,
-            tokens=self.estimate_tokens(bridge_directive),
-            max_tokens=800,
-            priority=105,
-        )
-
-        # 1. 当前幕摘要
-        act_summary = self._get_current_act_summary(novel_id, chapter_number)
-        slots["current_act_summary"] = ContextSlot(
-            name="当前幕摘要",
-            tier=PriorityTier.T0_CRITICAL,
-            content=act_summary,
-            tokens=self.estimate_tokens(act_summary),
-            priority=100,
-        )
-        
-        # 2. 待回收伏笔（绝对优先级）
+        # ── V9 降级: 待回收伏笔 —— 从 T0(p=90) → T1(p=70) ──
         foreshadowing_content = self._get_pending_foreshadowings(novel_id, chapter_number)
         slots["pending_foreshadowings"] = ContextSlot(
             name="待回收伏笔",
-            tier=PriorityTier.T0_CRITICAL,
+            tier=PriorityTier.T1_COMPRESSIBLE,
             content=foreshadowing_content,
             tokens=self.estimate_tokens(foreshadowing_content),
-            max_tokens=self.MAX_FORESHADOWING_TOKENS,
-            priority=90,
+            max_tokens=1000,  # V9: 从 2000 砍到 1000
+            priority=70,
         )
-        
-        # 3. 本章角色锚点（传入大纲用于智能调度）
-        character_anchors = self._get_character_anchors(novel_id, chapter_number, scene_director, outline)
-        slots["character_anchors"] = ContextSlot(
-            name="角色锚点",
-            tier=PriorityTier.T0_CRITICAL,
-            content=character_anchors,
-            tokens=self.estimate_tokens(character_anchors),
-            max_tokens=self.MAX_CHARACTER_ANCHORS_TOKENS,
-            priority=80,
+
+        # ── V9 降级: Anti-AI 行为协议 —— 从 T0(p=135) → T1(p=69) ──
+        # 降级理由：Anti-AI 规则虽然重要，但放在 T0 最高优先级会严重占用注意力；
+        # 放在 T1 仍然会被注入，只是可以被压缩，防止约束过载
+        anti_ai_protocol_content = self._build_anti_ai_protocol_block(novel_id, chapter_number)
+        slots["anti_ai_protocol"] = ContextSlot(
+            name="🛡️ Anti-AI 行为协议(ANTI_AI_PROTOCOL)",
+            tier=PriorityTier.T1_COMPRESSIBLE,
+            content=anti_ai_protocol_content,
+            tokens=self.estimate_tokens(anti_ai_protocol_content),
+            max_tokens=1000,  # V9: 从 2000 砍到 1000
+            priority=69,
         )
-        
-        # 4. 宏观诊断断点（人设冲突提醒）
-        diagnosis_breakpoints = self._get_diagnosis_breakpoints(novel_id, chapter_number)
-        slots["diagnosis_breakpoints"] = ContextSlot(
-            name="人设冲突提醒",
-            tier=PriorityTier.T0_CRITICAL,
-            content=diagnosis_breakpoints,
-            tokens=self.estimate_tokens(diagnosis_breakpoints),
-            max_tokens=1500,  # 最大 1500 tokens
-            priority=85,  # 介于角色锚点和伏笔之间
-        )
-        
-        # ==================== T1: 可压缩内容 ====================
-        
-        # 4. 图谱子网（一度关系）
+
+        # ── 图谱子网（一度关系）──
         graph_content = self._get_graph_subnetwork(novel_id, chapter_number, outline)
         slots["graph_subnetwork"] = ContextSlot(
             name="图谱子网",
@@ -620,10 +575,10 @@ class ContextBudgetAllocator:
             content=graph_content,
             tokens=self.estimate_tokens(graph_content),
             max_tokens=self.MAX_GRAPH_SUBNETWORK_TOKENS,
-            priority=70,
+            priority=68,
         )
 
-        # ★ V8 T1: 未闭环因果链(CAUSAL_CHAINS) —— priority=68
+        # ── V8 T1: 未闭环因果链(CAUSAL_CHAINS) ──
         causal_chains_content = ""
         if self.context_assembler:
             try:
@@ -636,10 +591,21 @@ class ContextBudgetAllocator:
             content=causal_chains_content,
             tokens=self.estimate_tokens(causal_chains_content),
             max_tokens=800,
-            priority=68,
+            priority=67,
         )
-        
-        # 5. 近期幕摘要
+
+        # ── V9 降级: 人设冲突提醒 —— 从 T0(p=85) → T1(p=65) ──
+        diagnosis_breakpoints = self._get_diagnosis_breakpoints(novel_id, chapter_number)
+        slots["diagnosis_breakpoints"] = ContextSlot(
+            name="人设冲突提醒",
+            tier=PriorityTier.T1_COMPRESSIBLE,
+            content=diagnosis_breakpoints,
+            tokens=self.estimate_tokens(diagnosis_breakpoints),
+            max_tokens=800,  # V9: 从 1500 砍到 800
+            priority=65,
+        )
+
+        # ── 近期幕摘要 ──
         recent_acts = self._get_recent_act_summaries(novel_id, chapter_number, limit=3)
         slots["recent_act_summaries"] = ContextSlot(
             name="近期幕摘要",
@@ -649,16 +615,27 @@ class ContextBudgetAllocator:
             max_tokens=self.MAX_ACT_SUMMARIES_TOKENS,
             priority=60,
         )
+
+        # ── V9 降级: 角色状态锁向量 —— 从 T0(p=128) → T1(p=58) ──
+        character_state_lock_content = self._build_character_state_lock_block(novel_id)
+        slots["character_state_lock"] = ContextSlot(
+            name="🔒 角色状态锁(CHARACTER_STATE_LOCK)",
+            tier=PriorityTier.T1_COMPRESSIBLE,
+            content=character_state_lock_content,
+            tokens=self.estimate_tokens(character_state_lock_content),
+            max_tokens=600,  # V9: 从 1000 砍到 600
+            priority=58,
+        )
         
-        # ★ 爽文引擎: T1 层级 — 被剥离的冗长 pending 伏笔（低优先级参考）
+        # ── 冗余伏笔参考 ──
         deferred_foreshadowing_content = self._get_deferred_foreshadowings(novel_id, chapter_number)
         slots["deferred_foreshadowings"] = ContextSlot(
             name="冗余伏笔参考(爽文GC降级)",
             tier=PriorityTier.T1_COMPRESSIBLE,
             content=deferred_foreshadowing_content,
             tokens=self.estimate_tokens(deferred_foreshadowing_content),
-            max_tokens=800,  # 最多 800 tokens，可压缩
-            priority=55,  # 低于近期幕摘要
+            max_tokens=800,
+            priority=55,
         )
         
         # ==================== T2: 动态内容 ====================
@@ -759,8 +736,132 @@ class ContextBudgetAllocator:
     
     # ==================== 内容收集方法 ====================
     
+    def _build_context_brief(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+    ) -> str:
+        """V9 减法改革核心：构建自然语言编辑手记
+
+        替代原来 8 个独立的 T0 结构化槽位（SCARS/DEBT/BRIDGE/PREVIOUSLY_ON/
+        COMPLETED_BEATS/REVEALED_CLUES/ACTIVE_ENTITY_MEMORY/CHARACTER_STATE_LOCK），
+        用一段 200-400 字的自然语言"编辑手记"告诉 AI 当前状态。
+
+        设计哲学：
+          一段自然语言比 8 个 === xxx === 分隔符更容易被 LLM 自然地融入创作。
+          这不是"约束列表"，而是"编辑的转场笔记"——像真人的责编告诉你：
+          "注意，上一章留了个悬念，有两个坑快到期了。"
+        """
+        parts = []
+
+        # ── 1. 衔接信息（替代 BRIDGE_DIRECTIVE + PREVIOUSLY_ON）──
+        if chapter_number > 1:
+            bridge_hint = self._get_bridge_hint(novel_id, chapter_number)
+            if bridge_hint:
+                parts.append(bridge_hint)
+
+        # ── 2. 角色状态概要（替代 SCARS + CHARACTER_STATE_LOCK）──
+        character_state_hint = self._get_character_state_hint(novel_id)
+        if character_state_hint:
+            parts.append(character_state_hint)
+
+        # ── 3. 叙事备忘（替代 DEBT_DUE）──
+        debt_hint = self._get_debt_hint(novel_id, chapter_number, outline)
+        if debt_hint:
+            parts.append(debt_hint)
+
+        if not parts:
+            return ""
+
+        return "【编辑手记】\n" + "\n".join(parts)
+
+    def _get_bridge_hint(self, novel_id: str, chapter_number: int) -> str:
+        """获取前章衔接提示（柔性建议，非铁律）"""
+        try:
+            from application.engine.services.chapter_bridge_service import ChapterBridgeService
+            from application.paths import get_db_path
+
+            svc = ChapterBridgeService(db_path=str(get_db_path()))
+            prev_bridge = svc.get_prev_chapter_bridge(novel_id, chapter_number)
+            if not prev_bridge:
+                return ""
+
+            hints = []
+            if prev_bridge.suspense_hook:
+                hints.append(f"上一章留了悬念：{prev_bridge.suspense_hook}")
+            if prev_bridge.emotional_residue:
+                hints.append(f"主角情绪：{prev_bridge.emotional_residue}")
+            if prev_bridge.scene_state:
+                hints.append(f"场景：{prev_bridge.scene_state}")
+            if prev_bridge.unfinished_actions:
+                hints.append(f"未完成：{prev_bridge.unfinished_actions}")
+
+            if not hints:
+                return ""
+
+            return "衔接：" + "；".join(hints) + "。你可以自然接续，也可以时间跳跃或视角切换。"
+
+        except Exception as e:
+            logger.debug("衔接提示获取失败: %s", e)
+            return ""
+
+    def _get_character_state_hint(self, novel_id: str) -> str:
+        """获取角色状态概要（精简版，替代详细的结构化 SCARS 锁）"""
+        if not self.context_assembler:
+            return ""
+
+        try:
+            # 尝试获取伤疤/执念，但压缩为自然语言
+            scars_content = self.context_assembler.build_scars_and_motivations(novel_id)
+            if not scars_content or not scars_content.strip():
+                return ""
+
+            # 从结构化文本中提取关键信息，压缩为 2-3 句话
+            lines = [l.strip() for l in scars_content.split('\n') if l.strip()]
+            # 过滤掉标题行和分隔符
+            content_lines = [l for l in lines if not l.startswith('【') and not l.startswith('═') and not l.startswith('━━')]
+
+            if not content_lines:
+                return ""
+
+            # 只保留前 3 行关键信息（防止膨胀）
+            brief_lines = content_lines[:3]
+            return "角色状态：" + "；".join(l.rstrip('。') for l in brief_lines if l) + "。"
+
+        except Exception as e:
+            logger.debug("角色状态概要获取失败: %s", e)
+            return ""
+
+    def _get_debt_hint(self, novel_id: str, chapter_number: int, outline: str) -> str:
+        """获取叙事债务温和提醒（替代强制收束令）"""
+        if not self.context_assembler:
+            return ""
+
+        try:
+            debt_content = self.context_assembler.build_debt_due_block(
+                novel_id, chapter_number, outline
+            )
+            if not debt_content or not debt_content.strip():
+                return ""
+
+            # 从结构化文本中提取债务描述
+            lines = [l.strip() for l in debt_content.split('\n') if l.strip()]
+            debt_lines = [l for l in lines if l.startswith('-') or l.startswith('•')]
+
+            if not debt_lines:
+                return ""
+
+            # 只保留前 2 条债务（防止膨胀）
+            brief_debts = [l.lstrip('-• ').rstrip() for l in debt_lines[:2]]
+            return "叙事备忘：" + "；".join(brief_debts) + "。如果合适可以推进，不必强求回收。"
+
+        except Exception as e:
+            logger.debug("叙事备忘获取失败: %s", e)
+            return ""
+
     def _get_chapter_bridge_directive(self, novel_id: str, chapter_number: int) -> str:
-        """🔥 衔接引擎：从 DB 读取前章桥段，生成首段衔接指令（T0 注入）"""
+        """🔥 衔接引擎：从 DB 读取前章桥段，生成首段衔接指令（V9: 降级为 T1 参考）"""
         if chapter_number <= 1:
             return ""
 
