@@ -2,17 +2,21 @@
 
 端点：
 - POST /api/v1/anti-ai/scan — 扫描章节 AI 味
-- GET /api/v1/anti-ai/metrics/{chapter_id} — 获取章节 AI 味指标
 - GET /api/v1/anti-ai/categories — 获取分类信息
 - GET /api/v1/anti-ai/rules — 获取规则列表
 - POST /api/v1/anti-ai/allowlist — 更新白名单
+- GET /api/v1/anti-ai/allowlist/scenes — 获取白名单场景
+- GET /api/v1/anti-ai/stats — 获取系统统计
+- GET /api/v1/anti-ai/audits/{novel_id} — 获取小说审计历史
+- GET /api/v1/anti-ai/audits/{novel_id}/{chapter_number} — 获取章节审计详情
+- GET /api/v1/anti-ai/trend/{novel_id} — 获取审计趋势
 """
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from application.audit.services.anti_ai_audit import get_anti_ai_auditor, AntiAIAuditReport
@@ -74,6 +78,20 @@ class AllowlistUpdateRequest(BaseModel):
     allowed_patterns: List[str] = []
     max_density_per_1000: float = 1.0
     description: str = ""
+
+
+# ─── 辅助函数 ───
+
+def _get_audit_repo():
+    """获取 Anti-AI 审计仓储。"""
+    try:
+        from infrastructure.persistence.database.sqlite_anti_ai_audit_repository import SqliteAntiAiAuditRepository
+        from infrastructure.persistence.database.connection import get_database
+        db = get_database()
+        return SqliteAntiAiAuditRepository(db)
+    except Exception as e:
+        logger.warning(f"获取审计仓储失败: {e}")
+        return None
 
 
 # ─── 端点 ───
@@ -201,3 +219,39 @@ async def get_stats():
             "L7_audit": "active",
         },
     }
+
+
+@router.get("/audits/{novel_id}")
+async def get_audit_history(
+    novel_id: str,
+    limit: int = Query(50, ge=1, le=200, description="返回条数上限"),
+):
+    """获取小说的 Anti-AI 审计历史。"""
+    repo = _get_audit_repo()
+    if not repo:
+        raise HTTPException(status_code=503, detail="审计仓储暂不可用")
+    return repo.list_by_novel(novel_id, limit=limit)
+
+
+@router.get("/audits/{novel_id}/{chapter_number}")
+async def get_chapter_audit(novel_id: str, chapter_number: int):
+    """获取指定章节的 Anti-AI 审计详情。"""
+    repo = _get_audit_repo()
+    if not repo:
+        raise HTTPException(status_code=503, detail="审计仓储暂不可用")
+    result = repo.get_by_chapter(novel_id, chapter_number)
+    if not result:
+        raise HTTPException(status_code=404, detail="未找到该章节的审计结果")
+    return result
+
+
+@router.get("/trend/{novel_id}")
+async def get_audit_trend(
+    novel_id: str,
+    last_n: int = Query(20, ge=1, le=100, description="最近 N 章的趋势数据"),
+):
+    """获取 Anti-AI 审计趋势数据。"""
+    repo = _get_audit_repo()
+    if not repo:
+        raise HTTPException(status_code=503, detail="审计仓储暂不可用")
+    return repo.get_trend_data(novel_id, last_n=last_n)
