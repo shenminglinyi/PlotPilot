@@ -1,8 +1,19 @@
 """人物可变状态值对象 - Scars / Motivations / Emotional Arc
 
-核心设计理念：
+V9 减法改革：角色不是状态机
+
+核心设计理念（V9 改革前）：
   传统人设：Character.traits = ["冷酷", "理性"]  —— 静态标签，永不改变
   人物状态机：CharacterState.scars + motivations  —— 动态状态，随剧情演进
+
+V9 改革后：
+  把角色定义为 伤疤(8/10) + 执念(P9) 会让角色退化成触发式 NPC。
+  AI 为了完成"不 OOC"的指令，会机械地在每一章复读这些伤疤，导致"角色弧光冻结"。
+
+  新增遗忘曲线：
+  - Scar 的 intensity 会随章节自然衰减（时间是最好的解药）
+  - Motivation 可以被 resolve（执念是可以放下的）或 dissolve（自然消解）
+  - get_active_scars() 现在考虑衰减后的有效强度
 
 三大连贯性问题的解决方案：
   1. 情感失忆症：Scars 记录"伤疤"，AI 不会忘记主角经历过什么
@@ -84,6 +95,21 @@ class Scar:
             faded_chapter=chapter,
         )
 
+    def effective_intensity(self, current_chapter: int) -> int:
+        """V9: 计算衰减后的有效强度
+
+        遗忘曲线：intensity 每经过 10 章衰减 1 点（最低 1）。
+        这不是"忘记"，而是"不再主动影响行为"——
+        伤疤永远存在，但它对角色行为的驱动力会随时间自然减弱。
+
+        例：intensity=9 的伤疤，经过 30 章后，有效强度为 6。
+        """
+        if not self.is_active:
+            return 0
+        chapters_elapsed = current_chapter - self.source_chapter
+        decay = max(0, chapters_elapsed // 10)
+        return max(1, self.intensity - decay)
+
     def deactivate(self) -> "Scar":
         return Scar(
             id=self.id,
@@ -160,6 +186,22 @@ class Motivation:
             priority=self.priority,
             is_active=False,
             resolved_chapter=chapter,
+        )
+
+    def dissolve(self) -> "Motivation":
+        """V9: 执念自然消解（不是被完成，而是被时间或新事物冲淡）
+
+        与 resolve 不同：resolve 意味着目标达成，dissolve 意味着不再在乎。
+        例："为赵宇复仇"的执念，在角色找到新的人生意义后自然消解。
+        """
+        return Motivation(
+            id=self.id,
+            description=self.description,
+            source_event=self.source_event,
+            source_chapter=self.source_chapter,
+            priority=1,  # V9: 降到最低
+            is_active=False,
+            resolved_chapter=-1,  # -1 表示自然消解（区别于 None=未结算）
         )
 
 
@@ -251,8 +293,17 @@ class CharacterState:
     def add_emotional_arc_node(self, node: EmotionalArcNode) -> None:
         self.emotional_arc.append(node)
 
-    def get_active_scars(self) -> List[Scar]:
-        return [s for s in self.scars if s.is_active]
+    def get_active_scars(self, current_chapter: int = 0) -> List[Scar]:
+        """V9: 获取活跃伤疤，考虑遗忘曲线衰减。
+
+        只有有效强度 >= 2 的伤疤才视为"活跃"。
+        有效强度为 1 的伤疤虽未 deactivate，但已不再主动影响角色行为。
+        """
+        active = [s for s in self.scars if s.is_active]
+        if current_chapter <= 0:
+            return active
+        # V9: 过滤掉有效强度低于 2 的伤疤（它们已经"愈合"了）
+        return [s for s in active if s.effective_intensity(current_chapter) >= 2]
 
     def get_active_motivations(self) -> List[Motivation]:
         return [m for m in self.motivations if m.is_active]
@@ -317,41 +368,32 @@ class CharacterState:
             last_updated_chapter=data.get("last_updated_chapter", 0),
         )
 
-    def build_context_injection(self) -> str:
-        """构建 T0 注入文本（供 ContextBudgetAllocator 使用）"""
+    def build_context_injection(self, current_chapter: int = 0) -> str:
+        """构建注入文本（V9: 从 T0 降级到编辑手记，语气从铁律变为参考）"""
         if not self.scars and not self.motivations:
             return ""
 
-        lines = ["【💔 角色伤疤与执念（写作此角色时必须参考）】"]
-        lines.append(f"  {self.character_id}:")
+        lines = [f"  {self.character_id}："]
 
-        # 伤疤
-        for scar in self.get_active_scars():
+        # 伤疤（V9: 显示衰减后的有效强度）
+        for scar in self.get_active_scars(current_chapter):
+            eff = scar.effective_intensity(current_chapter) if current_chapter > 0 else scar.intensity
             lines.append(
-                f"    伤疤: [第{scar.source_chapter}章] {scar.source_event} "
-                f"→ {scar.impact}({scar.intensity}/10)"
+                f"    经历过：[第{scar.source_chapter}章] {scar.source_event} "
+                f"→ {scar.impact}(强度{eff}/10)"
             )
             if scar.sensitivity_tags:
                 tags_str = "/".join(scar.sensitivity_tags[:3])
-                lines.append(f"           敏感触发词: {tags_str}")
+                lines.append(f"      触发词: {tags_str}")
 
         # 执念
         for motivation in self.get_top_motivations(3):
             lines.append(
-                f"    执念: [第{motivation.source_chapter}章] "
-                f"{motivation.description}(优先级{motivation.priority})"
+                f"    当前驱动力：{motivation.description}(P{motivation.priority})"
             )
 
         # 当前状态摘要
         if self.current_state_summary:
-            lines.append(f"    当前状态: {self.current_state_summary}")
-
-        # 关键警告
-        active_scars = self.get_active_scars()
-        if active_scars:
-            lines.append(
-                "    ⚠️ 注意：此角色的偏离行为不是OOC，"
-                "而是伤疤被触发后的应激反应——这是高光时刻，不要强行拉回原人设。"
-            )
+            lines.append(f"    状态: {self.current_state_summary}")
 
         return "\n".join(lines)
