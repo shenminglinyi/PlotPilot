@@ -655,9 +655,9 @@ class AutopilotDaemon:
                     )
                     # 字数控制策略：
                     # - prompt 中要求目标的 75%（在 context_builder 中处理）
-                    # - max_tokens = prompt 目标 × 1.1（硬性上限，超出会被截断）
+                    # - max_tokens = prompt 目标 × 2.0（中文 1 字 ≈ 1-2 token，留足余量）
                     # - 最终输出应接近 prompt 目标，略低于原始目标
-                    max_tokens = int(beat.target_words * 1.1)
+                    max_tokens = int(beat.target_words * 2.0)
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                     beat_content, beat_stop_reason = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
