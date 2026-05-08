@@ -208,14 +208,23 @@ async def llm_chapter_extract_bundle(
         "summary": str(data.get("summary", "")).strip(),
         "key_events": str(data.get("key_events", "")).strip(),
         "open_threads": str(data.get("open_threads", "")).strip(),
-        "relation_triples": triples_raw[:8],
-        "foreshadow_hints": hints_raw[:4],
+        # V9: 所有 LLM 提取的元数据默认标记为 "pending"，需要人类校准器确认
+        # 原来直接截断不验证（[:8], [:4], [:3]），现在至少增加了状态标记
+        # 后续 UI 界面可以展示 pending 项让作者确认/修改
+        "relation_triples": [{"data": t, "status": "pending"} for t in triples_raw[:8]],
+        "foreshadow_hints": [{"data": h, "status": "pending"} for h in hints_raw[:4]],
         "consumed_foreshadows": [str(c).strip() for c in consumed_raw[:5] if str(c).strip()],
         "storyline_progress": storyline_raw[:5],
         "dialogues": dialogues_raw[:10],
         "timeline_events": timeline_raw[:5],
-        "causal_edges": causal_raw[:3],
-        "character_mutations": mutations_raw[:3],
+        "causal_edges": [{"data": c, "status": "pending"} for c in causal_raw[:3]],
+        "character_mutations": [{"data": m, "status": "pending"} for m in mutations_raw[:3]],
+        # V9: 新增提取元数据，记录提取时的元信息
+        "_meta": {
+            "extract_version": "v9",
+            "extraction_method": "llm",
+            "needs_human_review": True,  # 默认需要人类审核
+        },
     }
 
 
@@ -283,11 +292,20 @@ def persist_bundle_triples_and_foreshadows(
             logger.warning("triple_repository 无 _kr，跳过三元组落库")
         else:
             for item in triples:
-                if not isinstance(item, dict):
+                # V9: 兼容新格式 {"data": t, "status": "pending"} 和旧格式（直接 dict）
+                if isinstance(item, dict) and "data" in item:
+                    actual_item = item["data"]
+                    item_status = item.get("status", "pending")
+                    # V9: pending 状态的项也落库，但 confidence 标记为 0.5（待人类确认）
+                    confidence = 0.5 if item_status == "pending" else 0.7
+                else:
+                    actual_item = item
+                    confidence = 0.7
+                if not isinstance(actual_item, dict):
                     continue
-                s = str(item.get("subject", "")).strip()
-                p = str(item.get("predicate", "")).strip()
-                o = str(item.get("object", "")).strip()
+                s = str(actual_item.get("subject", "")).strip()
+                p = str(actual_item.get("predicate", "")).strip()
+                o = str(actual_item.get("object", "")).strip()
                 if not (s and p and o):
                     continue
                 row = {
@@ -297,7 +315,7 @@ def persist_bundle_triples_and_foreshadows(
                     "object": o,
                     "chapter_number": chapter_number,
                     "source_type": "autopilot_extract",
-                    "confidence": 0.7,
+                    "confidence": confidence,  # V9: pending=0.5, confirmed=0.7
                     "entity_type": "character",
                     "note": "",
                 }
@@ -338,6 +356,9 @@ def persist_bundle_triples_and_foreshadows(
                     logger.warning("伏笔 TTL 降级失败: %s", e)
 
             for h in hints:
+                # V9: 兼容新格式 {"data": h, "status": "pending"}
+                if isinstance(h, dict) and "data" in h:
+                    h = h["data"]
                 if not isinstance(h, dict):
                     desc = str(h).strip()
                     resolve_offset = 5  # 默认 5 章后回收
@@ -492,6 +513,9 @@ def persist_causal_edges(
 
     saved = 0
     for item in edges_raw:
+        # V9: 兼容新格式 {"data": c, "status": "pending"}
+        if isinstance(item, dict) and "data" in item:
+            item = item["data"]
         if not isinstance(item, dict):
             continue
 
@@ -650,6 +674,9 @@ def persist_character_mutations(
 
     processed = 0
     for item in mutations_raw:
+        # V9: 兼容新格式 {"data": m, "status": "pending"}
+        if isinstance(item, dict) and "data" in item:
+            item = item["data"]
         if not isinstance(item, dict):
             continue
 
@@ -821,6 +848,9 @@ def update_narrative_debts(
     # ---- 1. 因果类债务：从 bundle 的 causal_edges 生成 ----
     causal_edges_raw = bundle.get("causal_edges") or []
     for edge_item in causal_edges_raw:
+        # V9: 兼容新格式 {"data": c, "status": "pending"}
+        if isinstance(edge_item, dict) and "data" in edge_item:
+            edge_item = edge_item["data"]
         if not isinstance(edge_item, dict):
             continue
         source_event = str(edge_item.get("source_event", "")).strip()
@@ -866,6 +896,9 @@ def update_narrative_debts(
     # ---- 2. 角色弧债务：从 character_mutations 中的高优先级执念 ----
     mutations_raw = bundle.get("character_mutations") or []
     for mut_item in mutations_raw:
+        # V9: 兼容新格式 {"data": m, "status": "pending"}
+        if isinstance(mut_item, dict) and "data" in mut_item:
+            mut_item = mut_item["data"]
         if not isinstance(mut_item, dict):
             continue
         mutation_type = str(mut_item.get("mutation_type", "")).strip().lower()
