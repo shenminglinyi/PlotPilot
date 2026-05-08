@@ -341,15 +341,46 @@ async def suggest_main_plot_options(
     response_model=List[StorylineResponse],
     status_code=status.HTTP_200_OK
 )
-def get_storylines(
-    novel_id: str,
-    manager: StorylineManager = Depends(get_storyline_manager)
-):
-    """获取小说的所有故事线"""
-    try:
-        storylines = manager.repository.get_by_novel_id(NovelId(novel_id))
+def get_storylines(novel_id: str):
+    """获取小说的所有故事线
 
-        return [_storyline_to_response(storyline) for storyline in storylines]
+    🔥 优化：从共享内存读取，不阻塞事件循环。
+    """
+    from application.engine.services.query_service import get_query_service
+
+    try:
+        query = get_query_service()
+        storylines_raw = query.get_storylines(novel_id)
+
+        # 转换为响应格式
+        responses = []
+        for sl in storylines_raw:
+            responses.append(StorylineResponse(
+                id=sl.get("id", ""),
+                storyline_type=sl.get("storyline_type", "main"),
+                status=sl.get("status", "active"),
+                estimated_chapter_start=sl.get("estimated_chapter_start", 1),
+                estimated_chapter_end=sl.get("estimated_chapter_end", 10),
+                name=sl.get("name", ""),
+                description=sl.get("description", ""),
+                milestones=[
+                    StorylineMilestoneResponse(
+                        order=ms.get("order", 0),
+                        title=ms.get("title", ""),
+                        description=ms.get("description", ""),
+                        target_chapter_start=ms.get("target_chapter_start", 1),
+                        target_chapter_end=ms.get("target_chapter_end", 1),
+                        prerequisites=ms.get("prerequisites", []),
+                        triggers=ms.get("triggers", []),
+                    )
+                    for ms in sl.get("milestones", [])
+                ],
+                current_milestone_index=sl.get("current_milestone_index", 0),
+                last_active_chapter=sl.get("last_active_chapter", 0),
+                progress_summary=sl.get("progress_summary", ""),
+            ))
+
+        return responses
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -362,14 +393,33 @@ def get_storylines(
     response_model=StorylineGraphData,
     status_code=status.HTTP_200_OK
 )
-def get_storyline_graph_data(
-    novel_id: str,
-    manager: StorylineManager = Depends(get_storyline_manager)
-):
-    """获取 Git Graph 视图所需的全量数据（故事线 + 合并点）"""
+def get_storyline_graph_data(novel_id: str):
+    """获取 Git Graph 视图所需的全量数据（故事线 + 合并点）
+
+    🔥 优化：从共享内存读取，不阻塞事件循环。
+    """
+    from application.engine.services.query_service import get_query_service
+
     try:
-        storylines = manager.repository.get_by_novel_id(NovelId(novel_id))
-        sl_responses = [_storyline_to_response(sl) for sl in storylines]
+        query = get_query_service()
+        storylines_raw = query.get_storylines(novel_id)
+
+        # 转换为响应格式
+        sl_responses = []
+        for sl in storylines_raw:
+            sl_responses.append(StorylineResponse(
+                id=sl.get("id", ""),
+                storyline_type=sl.get("storyline_type", "main"),
+                status=sl.get("status", "active"),
+                estimated_chapter_start=sl.get("estimated_chapter_start", 1),
+                estimated_chapter_end=sl.get("estimated_chapter_end", 10),
+                name=sl.get("name", ""),
+                description=sl.get("description", ""),
+                milestones=[],
+                current_milestone_index=0,
+                last_active_chapter=0,
+                progress_summary="",
+            ))
 
         # 自动计算合并点：多条故事线章节范围重叠的区间
         merge_points = _compute_merge_points(sl_responses)
@@ -564,32 +614,37 @@ def delete_storyline(
     response_model=PlotArcResponse,
     status_code=status.HTTP_200_OK
 )
-def get_plot_arc(
-    novel_id: str,
-    repository: PlotArcRepository = Depends(get_plot_arc_repository)
-):
-    """获取小说的情节弧"""
-    try:
-        plot_arc = repository.get_by_novel_id(NovelId(novel_id))
+def get_plot_arc(novel_id: str):
+    """获取小说的情节弧
 
-        if plot_arc is None:
+    🔥 优化：从共享内存读取，不阻塞事件循环。
+    """
+    from application.engine.services.query_service import get_query_service
+
+    try:
+        query = get_query_service()
+        plot_arc_raw = query.get_plot_arc(novel_id)
+
+        if plot_arc_raw is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Plot arc not found for novel {novel_id}"
             )
 
+        # 转换关键点
+        key_points = []
+        for point in plot_arc_raw.get("key_points", []):
+            key_points.append(PlotPointResponse(
+                chapter_number=point.get("chapter_number", 1),
+                tension=point.get("tension", 2),
+                description=point.get("description", ""),
+                point_type=point.get("point_type", "rising"),
+            ))
+
         return PlotArcResponse(
-            id=plot_arc.id,
+            id=plot_arc_raw.get("id", f"{novel_id}-arc"),
             novel_id=novel_id,
-            key_points=[
-                PlotPointResponse(
-                    chapter_number=point.chapter_number,
-                    tension=point.tension.value,
-                    description=point.description,
-                    point_type=point.point_type.value if hasattr(point.point_type, 'value') else str(point.point_type)
-                )
-                for point in plot_arc.key_points
-            ]
+            key_points=key_points,
         )
     except HTTPException:
         raise

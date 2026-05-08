@@ -37,14 +37,6 @@
 
 ---
 
-## 合规与免责声明
-
-1. 本开源项目仅提供大模型工作流的调度架构与前端 UI，**不提供任何 AI 算力及大模型接口 (API Key)**。
-2. 用户需自行配置第三方模型 API。用户在使用本项目生成的任何内容，其版权与法律责任均由**用户本人及对应的第三方大模型服务商**承担。
-3. 严禁使用本项目框架生成违反国家法律法规、涉政、涉黄或煽动性内容。开发者不对用户的不当使用行为承担任何直接或间接的法律责任。
-
----
-
 ## 一键启动（Windows）
 
 项目提供开箱即用的图形化启动器，**无需提前安装 Python、无需命令行**：
@@ -60,6 +52,7 @@
 
 ## 桌面安装版（Windows · Tauri）
 
+- **当前版本**：[v1.0.2](https://github.com/shenminglinyi/PlotPilot/releases/tag/v1.0.2) · 安装包：[`PlotPilot_1.0.2_x64-setup.exe`](https://github.com/shenminglinyi/PlotPilot/releases/download/v1.0.2/PlotPilot_1.0.2_x64-setup.exe)（NSIS）
 - **全部发行版**：[GitHub Releases](https://github.com/shenminglinyi/PlotPilot/releases)
 - **说明**：安装包内含冻结后端，无需单独装 Python；构建流程见 [docs/BUILD_INSTALLER.md](docs/BUILD_INSTALLER.md)。
 

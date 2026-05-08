@@ -172,32 +172,35 @@ async def get_novel_triples(
     novel_id: str,
     source_type: Optional[str] = None,
     min_confidence: float = 0.0,
-    repo: TripleRepository = Depends(get_triple_repo)
 ):
     """
     获取小说的所有三元组
+
+    🔥 优化：从共享内存读取，不阻塞事件循环。
 
     可选参数：
     - source_type: 过滤来源类型 (manual/auto_inferred/ai_generated)
     - min_confidence: 最低置信度阈值 (0.0-1.0)
     """
+    from application.engine.services.query_service import get_query_service
+
     try:
+        query = get_query_service()
+        triples_raw = query.get_triples(novel_id)
+
+        # 过滤来源类型
         if source_type:
-            triples = await repo.get_by_source_type(
-                novel_id,
-                SourceType(source_type),
-                min_confidence
-            )
-        else:
-            triples = await repo.get_by_novel(novel_id)
-            # 过滤置信度
-            triples = [t for t in triples if t.confidence >= min_confidence]
+            triples_raw = [t for t in triples_raw if t.get("source_type") == source_type]
+
+        # 过滤置信度
+        if min_confidence > 0:
+            triples_raw = [t for t in triples_raw if t.get("confidence", 1.0) >= min_confidence]
 
         return {
             "success": True,
             "data": {
-                "total": len(triples),
-                "triples": [triple.to_dict() for triple in triples]
+                "total": len(triples_raw),
+                "triples": triples_raw
             }
         }
     except Exception as e:
@@ -325,22 +328,25 @@ async def get_element_relations(
 
 
 @router.get("/novels/{novel_id}/statistics")
-async def get_knowledge_graph_statistics(
-    novel_id: str,
-    repo: TripleRepository = Depends(get_triple_repo)
-):
+async def get_knowledge_graph_statistics(novel_id: str):
     """
     获取知识图谱统计信息
 
+    🔥 优化：从共享内存读取，不阻塞事件循环。
+
     返回三元组的统计数据，包括总数、来源分布、置信度分布等。
     """
+    from application.engine.services.query_service import get_query_service
+
     try:
-        all_triples = await repo.get_by_novel(novel_id)
+        query = get_query_service()
+        kg_data = query.get_knowledge_graph(novel_id)
+        triples_raw = query.get_triples(novel_id)
 
         # 统计来源类型
         source_stats = {}
-        for triple in all_triples:
-            source = triple.source_type.value
+        for triple in triples_raw:
+            source = triple.get("source_type", "unknown")
             source_stats[source] = source_stats.get(source, 0) + 1
 
         # 统计置信度分布
@@ -349,24 +355,25 @@ async def get_knowledge_graph_statistics(
             "medium": 0,    # 0.6 - 0.8
             "low": 0        # < 0.6
         }
-        for triple in all_triples:
-            if triple.confidence >= 0.8:
+        for triple in triples_raw:
+            conf = triple.get("confidence", 1.0)
+            if conf >= 0.8:
                 confidence_ranges["high"] += 1
-            elif triple.confidence >= 0.6:
+            elif conf >= 0.6:
                 confidence_ranges["medium"] += 1
             else:
                 confidence_ranges["low"] += 1
 
         # 统计关系类型
         predicate_stats = {}
-        for triple in all_triples:
-            pred = triple.predicate
+        for triple in triples_raw:
+            pred = triple.get("predicate", "")
             predicate_stats[pred] = predicate_stats.get(pred, 0) + 1
 
         return {
             "success": True,
             "data": {
-                "total_triples": len(all_triples),
+                "total_triples": kg_data.get("total_triples", len(triples_raw)),
                 "source_distribution": source_stats,
                 "confidence_distribution": confidence_ranges,
                 "predicate_distribution": predicate_stats
