@@ -655,9 +655,9 @@ class AutopilotDaemon:
                     )
                     # 字数控制策略：
                     # - prompt 中要求目标的 75%（在 context_builder 中处理）
-                    # - max_tokens = prompt 目标 × 2.0（中文 1 字 ≈ 1-2 token，留足余量）
-                    # - 最终输出应接近 prompt 目标，略低于原始目标
-                    max_tokens = int(beat.target_words * 2.0)
+                    # - max_tokens 设为足够大的固定值，让模型自然结束
+                    # - 依赖 stop_reason 判断是否真正截断，而非用 max_tokens 硬卡字数
+                    max_tokens = 8192
                     cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                     beat_content, beat_stop_reason = await self._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
                 else:
@@ -1462,8 +1462,8 @@ class AutopilotDaemon:
             user_parts.append(f"\n{beat_prompt}")
         user_parts.append("\n\n开始撰写：")
 
-        # 字数控制策略（与主流程一致）
-        max_tokens = int(beat.target_words * 1.1) if beat else 3000
+        # 字数控制策略（与主流程一致）：固定上限，依赖 stop_reason 判断截断
+        max_tokens = 8192
 
         prompt = Prompt(system=system, user="\n".join(user_parts))
         config = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
