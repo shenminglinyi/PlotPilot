@@ -254,7 +254,7 @@ const writingBeatIndex = ref(0)
 let lastToggleTime = 0
 const TOGGLE_THROTTLE_MS = 1000  // 1 秒内不允许重复操作
 
-function isToggleThrottled(): boolean {
+function isToggleThrottled() {
   const now = Date.now()
   if (now - lastToggleTime < TOGGLE_THROTTLE_MS) {
     return true
