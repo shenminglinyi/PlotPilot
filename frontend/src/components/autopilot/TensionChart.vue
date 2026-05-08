@@ -1,20 +1,30 @@
 <template>
   <n-card title="📈 张力心电图" size="small" :bordered="true">
     <template #header-extra>
-      <n-tag v-if="hasLowTension" type="warning" size="small">
+      <n-text
+        v-if="loading && tensionData.length > 0"
+        depth="3"
+        style="font-size: 10px; margin-right: 6px"
+      >
+        同步中…
+      </n-text>
+      <n-tag v-if="curveStats?.is_flat" type="error" size="small">
+        📉 曲线过于平缓
+      </n-tag>
+      <n-tag v-else-if="hasLowTension" type="warning" size="small">
         ⚠️ 检测到低张力章节
       </n-tag>
       <n-button v-if="tensionData.length > 0" size="tiny" quaternary @click="loadTensionData">↻</n-button>
     </template>
 
-    <!-- 加载态 -->
-    <div v-if="loading" class="chart-container chart-loading">
+    <!-- 仅首轮无数据时占满卡片；有数据时保留图表 DOM，避免反复卸载导致「刚出来就没了」 -->
+    <div v-if="showInitialLoading" class="chart-container chart-loading">
       <n-spin size="small" />
       <span class="chart-loading-text">加载张力曲线…</span>
     </div>
 
     <!-- 空状态 -->
-    <div v-else-if="!tensionData.length" class="chart-container chart-empty">
+    <div v-else-if="!evaluatedData.length" class="chart-container chart-empty">
       <n-empty description="暂无张力数据" size="small">
         <template #icon><span style="font-size:36px">📈</span></template>
         <template #extra>
@@ -26,22 +36,62 @@
     <!-- 图表 -->
     <div v-else ref="chartRef" class="chart-container" />
 
+    <!-- 曲线平缓警告（优先级最高） -->
+    <n-alert
+      v-if="curveStats?.is_flat && evaluatedData.length >= 3"
+      type="error"
+      :show-icon="false"
+      style="margin-top: 8px; font-size: 12px"
+    >
+      📉 张力方差仅 {{ curveStats.variance.toFixed(2) }}，曲线过于平缓！
+      评分可能需要校准，或写作引擎需注入更多冲突。
+    </n-alert>
+
+    <!-- 连续低张力警告 -->
+    <n-alert
+      v-else-if="curveStats && curveStats.consecutive_low >= 2"
+      type="warning"
+      :show-icon="false"
+      style="margin-top: 8px; font-size: 12px"
+    >
+      ⚠️ 连续 {{ curveStats.consecutive_low }} 章低张力（&lt;4.0）· 读者可能正在流失，建议尽快制造冲突
+    </n-alert>
+
     <!-- 低张力警告 -->
-    <n-alert v-if="hasLowTension && !loading" type="warning" :show-icon="false" style="margin-top: 8px; font-size: 12px">
+    <n-alert
+      v-else-if="hasLowTension && evaluatedData.length > 0"
+      type="warning"
+      :show-icon="false"
+      style="margin-top: 8px; font-size: 12px"
+    >
       第 {{ lowTensionChapters.join('、') }} 章张力偏低 · 建议插入缓冲章或调整剧情节奏
     </n-alert>
 
+    <!-- 未评估提示 -->
+    <n-alert
+      v-if="curveStats && curveStats.unevaluated_count > 0"
+      type="info"
+      :show-icon="false"
+      style="margin-top: 4px; font-size: 11px"
+    >
+      ℹ️ {{ curveStats.unevaluated_count }} 章尚未完成张力评估（图中以虚线标记）
+    </n-alert>
+
     <!-- 底部统计 -->
-    <div v-if="tensionData.length > 0" class="chart-stats">
+    <div v-if="evaluatedData.length > 0" class="chart-stats">
       <n-space :size="12" align="center">
         <n-text depth="3" style="font-size:10px">
-          {{ tensionData.length }} 章 · 均值 {{ avgTension.toFixed(1) }} · 峰值 {{ maxTension.toFixed(1) }}
+          {{ evaluatedData.length }} 章 · 均值 {{ avgTension.toFixed(1) }} · 峰值 {{ maxTension.toFixed(1) }}
         </n-text>
         <n-divider vertical style="margin:0" />
         <n-text
           :style="{ fontSize: '10px', color: getTensionColor(avgTension) }"
         >
           {{ getTensionLabel(avgTension) }}
+        </n-text>
+        <n-divider vertical style="margin:0" />
+        <n-text depth="3" style="font-size:10px">
+          方差 {{ curveStats?.variance.toFixed(2) ?? '—' }}
         </n-text>
       </n-space>
     </div>
@@ -52,16 +102,20 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { monitorApi } from '../../api/monitor'
+import type { TensionCurveStats } from '../../api/monitor'
+import { isRequestCanceled } from '../../utils/requestCancel'
 
 interface TensionData {
   chapter_number: number
-  tension_score: number
+  tension_score: number  // 0-10 刻度
   title?: string
+  evaluated: boolean     // 是否已完成真实评估
 }
 
 const props = defineProps<{
   novelId: string
   threshold?: number
+  refreshKey?: number
 }>()
 
 const emit = defineEmits<{
@@ -71,6 +125,7 @@ const emit = defineEmits<{
 
 const chartRef = ref<HTMLElement | null>(null)
 const tensionData = ref<TensionData[]>([])
+const curveStats = ref<TensionCurveStats | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -79,46 +134,77 @@ let chartInstance: echarts.ECharts | null = null
 let renderDimensionAttempts = 0
 const RENDER_DIMENSION_ATTEMPTS_MAX = 40
 
+/** 新拉取开始前取消上一轮，避免后端忙时并发堆积；取消不算错误，不清空已有曲线 */
+let tensionLoadAbort: AbortController | null = null
+const TENSION_FETCH_TIMEOUT_MS = 60_000
+
 // 张力警戒线
 const tensionThreshold = computed(() => props.threshold ?? 5.0)
 
-// 是否有低张力章节
+/** 有缓存数据时刷新不再接管整个卡片，避免 loading 触发的 v-if 拆掉图表容器 */
+const showInitialLoading = computed(
+  () => loading.value && tensionData.value.length === 0,
+)
+
+// 只包含已评估章节的数据
+const evaluatedData = computed(() =>
+  tensionData.value.filter(d => d.evaluated)
+)
+
+// 是否有低张力章节（仅已评估）
 const hasLowTension = computed(() =>
-  tensionData.value.some(d => d.tension_score < tensionThreshold.value)
+  evaluatedData.value.some(d => d.tension_score < tensionThreshold.value)
 )
 
 // 低张力章节列表
 const lowTensionChapters = computed(() =>
-  tensionData.value
+  evaluatedData.value
     .filter(d => d.tension_score < tensionThreshold.value)
     .map(d => d.chapter_number)
 )
 
-// 统计
+// 统计（仅已评估章节）
 const avgTension = computed(() => {
-  if (!tensionData.value.length) return 0
-  const sum = tensionData.value.reduce((s, d) => s + d.tension_score, 0)
-  return sum / tensionData.value.length
+  if (!evaluatedData.value.length) return 0
+  const sum = evaluatedData.value.reduce((s, d) => s + d.tension_score, 0)
+  return sum / evaluatedData.value.length
 })
 
 const maxTension = computed(() => {
-  if (!tensionData.value.length) return 0
-  return Math.max(...tensionData.value.map(d => d.tension_score))
+  if (!evaluatedData.value.length) return 0
+  return Math.max(...evaluatedData.value.map(d => d.tension_score))
 })
 
 // ==================== 加载 ====================
 async function loadTensionData() {
+  if (tensionLoadAbort) {
+    tensionLoadAbort.abort()
+  }
+  const ac = new AbortController()
+  tensionLoadAbort = ac
+
   loading.value = true
   error.value = null
   renderDimensionAttempts = 0
+  const timeoutId = window.setTimeout(() => ac.abort(), TENSION_FETCH_TIMEOUT_MS)
   try {
-    // 使用 apiClient（走 Vite proxy）而非裸 fetch
-    const data = await monitorApi.getTensionCurve(props.novelId)
+    const data = await monitorApi.getTensionCurve(props.novelId, {
+      signal: ac.signal,
+      timeout: TENSION_FETCH_TIMEOUT_MS,
+    })
+    if (ac.signal.aborted) {
+      return
+    }
+
     tensionData.value = (data.points || []).map((p) => ({
       chapter_number: p.chapter,
       tension_score: p.tension,
       title: p.title,
+      evaluated: p.evaluated !== false,  // 默认为 true
     }))
+
+    // 保存后端统计信息
+    curveStats.value = data.stats ?? null
 
     if (lowTensionChapters.value.length > 0) {
       emit('low-tension-alert', lowTensionChapters.value)
@@ -128,11 +214,17 @@ async function loadTensionData() {
     await nextTick()
     // 再等一帧确保容器尺寸已计算
     setTimeout(() => renderChart(), 50)
-  } catch (err: any) {
+  } catch (err: unknown) {
+    if (isRequestCanceled(err)) {
+      return
+    }
     console.error('[TensionChart] Failed to load:', err)
-    error.value = err?.message || String(err)
-    tensionData.value = []
+    error.value = err instanceof Error ? err.message : String(err)
   } finally {
+    window.clearTimeout(timeoutId)
+    if (tensionLoadAbort === ac) {
+      tensionLoadAbort = null
+    }
     loading.value = false
   }
 }
@@ -160,6 +252,9 @@ function renderChart() {
 
   const chapterNumbers = tensionData.value.map((d) => d.chapter_number)
   const tensionScores = tensionData.value.map((d) => d.tension_score)
+
+  // 未评估章节用虚线连接，已评估用实线
+  const evaluatedFlags = tensionData.value.map((d) => d.evaluated)
 
   const option: echarts.EChartsOption = {
     grid: {
@@ -200,18 +295,27 @@ function renderChart() {
     series: [
       {
         type: 'line',
-        data: tensionScores,
+        data: tensionScores.map((val, idx) => ({
+          value: val,
+          itemStyle: {
+            color: evaluatedFlags[idx] ? getTensionColor(val) : '#999',
+            borderColor: evaluatedFlags[idx] ? '#fff' : '#999',
+            borderWidth: evaluatedFlags[idx] ? 2 : 1,
+          },
+        })),
         smooth: 0.4,
         symbol: 'circle',
-        symbolSize: (value: number[], params: any) => {
-          // 当前点高亮
-          return params.dataIndex === tensionScores.length - 1 ? 8 : 5
+        symbolSize: (_value: unknown, params: any) => {
+          const idx = params.dataIndex
+          const isLast = idx === tensionScores.length - 1
+          const isEval = evaluatedFlags[idx]
+          if (!isEval) return 3  // 未评估用小圆点
+          return isLast ? 8 : 5
         },
-        lineStyle: { width: 2.5, color: '#18a058' },
-        itemStyle: {
+        lineStyle: {
+          width: 2.5,
           color: '#18a058',
-          borderWidth: 2,
-          borderColor: '#fff',
+          type: 'solid',
         },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -247,18 +351,25 @@ function renderChart() {
       backgroundColor: 'rgba(0, 0, 0, 0.85)',
       borderColor: '#444',
       textStyle: { color: '#fff', fontSize: 12 },
-      confine: true, // 防止 tooltip 超出画布
+      confine: true,
       formatter: (params: any) => {
         const pt = params[0]
         const chNum = pt.name
         const tension = pt.value as number
+        const idx = pt.dataIndex
+        const isEval = evaluatedFlags[idx]
         const ch = tensionData.value.find((d) => d.chapter_number === Number(chNum))
 
         let html = `<div style="padding:4px 8px"><b>第 ${chNum} 章</b>`
         if (ch?.title) html += `<br/><span style="color:#aaa;font-size:11px">${ch.title}</span>`
-        html += `<br/><span style="color:${getTensionColor(tension)}">▲ ${tension.toFixed(1)}</span>`
-        html += ` <span style="color:#666">${getTensionLabel(tension)}</span>`
-        if (tension < tensionThreshold.value) html += `<br/><span style="color:#f0a020">⚠️ 低于警戒</span>`
+
+        if (!isEval) {
+          html += `<br/><span style="color:#999">⏳ 尚未评估</span>`
+        } else {
+          html += `<br/><span style="color:${getTensionColor(tension)}">▲ ${tension.toFixed(1)}</span>`
+          html += ` <span style="color:#666">${getTensionLabel(tension)}</span>`
+          if (tension < tensionThreshold.value) html += `<br/><span style="color:#f0a020">⚠️ 低于警戒</span>`
+        }
         html += `</div>`
         return html
       },
@@ -280,14 +391,16 @@ function renderChart() {
 
 function getTensionColor(t: number): string {
   if (t >= 8) return '#d03050'
-  if (t >= 5) return '#f0a020'
-  return '#18a058'
+  if (t >= 6) return '#f0a020'
+  if (t >= 4) return '#18a058'
+  return '#36ad6a'
 }
 
 function getTensionLabel(t: number): string {
   if (t >= 8) return '🔥 高潮'
-  if (t >= 5) return '⚡ 冲突'
-  return '🌊 平缓'
+  if (t >= 6) return '⚡ 冲突'
+  if (t >= 4) return '🌊 暗流'
+  return '💤 平缓'
 }
 
 function handleResize() {
@@ -296,6 +409,11 @@ function handleResize() {
 
 // ==================== 监听 ====================
 watch(() => props.novelId, () => void loadTensionData())
+
+// 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动）
+watch(() => props.refreshKey, (newKey) => {
+  if (newKey && newKey > 0) void loadTensionData()
+})
 
 // 数据变化时重新渲染（防抖）
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
@@ -314,6 +432,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  tensionLoadAbort?.abort()
+  tensionLoadAbort = null
   window.removeEventListener('resize', handleResize)
   if (resizeTimer) clearTimeout(resizeTimer)
   chartInstance?.dispose()

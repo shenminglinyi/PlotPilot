@@ -11,7 +11,7 @@ name = "plotpilot_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }

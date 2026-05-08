@@ -9,25 +9,31 @@
     <div class="monitor-grid">
       <!-- 第一行：张力图表 + 实时日志 -->
       <div class="grid-cell span-2">
-        <TensionChart :novel-id="novelId" />
+        <TensionChart :novel-id="novelId" :refresh-key="chapterMetricsRefreshKey" />
       </div>
       <div class="grid-cell span-1 grid-cell--terminal">
-        <AutopilotTerminalLog :novel-id="novelId" @desk-refresh="emit('desk-refresh')" />
+        <AutopilotTerminalLog
+          :novel-id="novelId"
+          @desk-refresh="handleMonitorRefresh"
+          @chapter-metrics-refresh="handleChapterMetricsRefresh"
+        />
       </div>
 
       <!-- 第二行：文风警报 + 伏笔账本 + 熔断器 -->
       <div class="grid-cell">
         <VoiceDriftIndicator
           :novel-id="novelId"
+          :refresh-key="monitorRefreshKey"
           @drift-alert="handleDriftAlert"
         />
       </div>
       <div class="grid-cell">
-        <ForeshadowLedger :novel-id="novelId" />
+        <ForeshadowLedger :novel-id="novelId" :refresh-key="monitorRefreshKey" />
       </div>
       <div class="grid-cell">
         <CircuitBreakerStatus
           :novel-id="novelId"
+          :refresh-key="monitorRefreshKey"
           @breaker-open="handleBreakerOpen"
           @breaker-reset="handleBreakerReset"
         />
@@ -55,6 +61,20 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+
+// 🔥 监控面板统一刷新信号：SSE 事件驱动子组件重新拉数据
+const monitorRefreshKey = ref(0)
+/** 张力曲线等：按章刷新即可（审计落库 / 全书结束），不与 beat_complete 同步 */
+const chapterMetricsRefreshKey = ref(0)
+
+function handleMonitorRefresh() {
+  monitorRefreshKey.value++
+  emit('desk-refresh')
+}
+
+function handleChapterMetricsRefresh() {
+  chapterMetricsRefreshKey.value++
+}
 
 // 文风偏移警报
 function handleDriftAlert(score: number, status: string) {

@@ -163,9 +163,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useMessage, useDialog } from 'naive-ui'
 import { workflowApi } from '../../api/workflow'
 import type { StorylineDTO } from '../../api/workflow'
+import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import StorylineGitGraph from './StorylineGitGraph.vue'
 
 interface Props {
@@ -323,6 +325,11 @@ const deleteStoryline = (id: string) => {
 watch(() => props.slug, (slug) => {
   if (slug) loadStorylines()
 })
+
+// 🔥 监听 deskTick：autopilot 写作/规划完成后刷新故事线列表
+const refreshStore = useWorkbenchRefreshStore()
+const { deskTick } = storeToRefs(refreshStore)
+watch(deskTick, () => void loadStorylines())
 
 onMounted(() => {
   loadStorylines()

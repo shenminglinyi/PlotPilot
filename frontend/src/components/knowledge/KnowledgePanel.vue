@@ -210,6 +210,7 @@
         class="kp-subtabs"
       >
         <n-tab-pane name="chapters" tab="分章叙事">
+        <div class="kp-tab-scroll">
         <section class="kp-section">
         <div class="kp-section-head">
           <span class="kp-section-icon">◇</span>
@@ -310,9 +311,11 @@
 
         <n-button dashed block class="kp-add-ch" @click="addChapter">+ 添加一章叙事块</n-button>
         </section>
+        </div>
       </n-tab-pane>
 
       <n-tab-pane name="entity-state" tab="实体状态">
+        <div class="kp-tab-scroll">
         <section class="kp-section">
           <div class="kp-section-head">
             <span class="kp-section-icon">◈</span>
@@ -360,6 +363,7 @@
             </n-space>
           </n-card>
         </section>
+        </div>
       </n-tab-pane>
     </n-tabs>
     </div>
@@ -836,14 +840,49 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   margin-top: 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .kp-subtabs :deep(.n-tabs-nav) {
   padding: 0 2px 6px;
+  flex-shrink: 0;
+}
+
+.kp-subtabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .kp-subtabs :deep(.n-tab-pane) {
   padding-top: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.kp-tab-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.kp-tab-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.kp-tab-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kp-tab-scroll::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 2px;
 }
 
 .kp-section {

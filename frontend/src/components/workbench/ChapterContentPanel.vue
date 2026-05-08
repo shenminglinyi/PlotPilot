@@ -106,19 +106,24 @@
             </div>
             <div class="review-row">
               <n-text depth="3">文风相似度</n-text>
-              <n-text>
-                {{
-                  autopilotChapterReview.similarity_score != null
-                    ? Number(autopilotChapterReview.similarity_score).toFixed(3)
-                    : '—'
-                }}
+              <n-text v-if="autopilotChapterReview.similarity_score != null">
+                {{ Number(autopilotChapterReview.similarity_score).toFixed(3) }}
+              </n-text>
+              <n-text v-else depth="3" style="font-size: 12px">
+                指纹不足（需 ≥10 样本）
               </n-text>
             </div>
             <div class="review-row">
               <n-text depth="3">漂移告警</n-text>
-              <n-tag :type="autopilotChapterReview.drift_alert ? 'error' : 'success'" size="small" round>
+              <n-tag
+                v-if="autopilotChapterReview.similarity_score != null"
+                :type="autopilotChapterReview.drift_alert ? 'error' : 'success'"
+                size="small"
+                round
+              >
                 {{ autopilotChapterReview.drift_alert ? '是' : '否' }}
               </n-tag>
+              <n-tag v-else type="default" size="small" round>待采样</n-tag>
             </div>
             <div v-if="autopilotChapterReview.at" class="review-row">
               <n-text depth="3">审阅时间</n-text>

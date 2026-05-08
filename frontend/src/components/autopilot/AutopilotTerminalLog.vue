@@ -54,6 +54,8 @@ const props = defineProps<{ novelId: string }>()
 
 const emit = defineEmits<{
   'desk-refresh': []
+  /** 单章审计落库等：驱动张力曲线等「按章更新即可」的指标，避免 beat_complete 级别刷屏 */
+  'chapter-metrics-refresh': []
 }>()
 
 const MAX_ROWS = 100
@@ -160,6 +162,28 @@ const statusHint = computed(() => {
 
 let eventSource: EventSource | null = null
 let reconnectTimer: number | null = null
+/** 日志 SSE 重连退避（onerror 在部分浏览器上较频繁，避免打满连接） */
+let logStreamReconnectFailCount = 0
+const LOG_STREAM_MAX_BACKOFF_MS = 30_000
+
+// 🔥 desk-refresh 去抖：300ms 内多次事件只触发一次 emit，避免短时间内连续 loadDesk
+let deskRefreshDebounceTimer: number | null = null
+function scheduleDeskRefresh() {
+  if (deskRefreshDebounceTimer != null) return  // 已有待执行的，跳过
+  deskRefreshDebounceTimer = window.setTimeout(() => {
+    deskRefreshDebounceTimer = null
+    emit('desk-refresh')
+  }, 300)
+}
+
+function scheduleLogStreamReconnect() {
+  logStreamReconnectFailCount = Math.min(logStreamReconnectFailCount + 1, 12)
+  const delay = Math.min(3000 * 2 ** (logStreamReconnectFailCount - 1), LOG_STREAM_MAX_BACKOFF_MS)
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null
+    connect()
+  }, delay)
+}
 
 const pending: Array<{ data: Record<string, unknown> }> = []
 let flushScheduled = false
@@ -235,11 +259,25 @@ function pushRow(data: Record<string, unknown>) {
     rows.value.splice(0, rows.value.length - MAX_ROWS)
   }
 
-  if (t === 'stage_change' && meta?.to_stage === 'paused_for_review') {
-    emit('desk-refresh')
+  // 🔥 统一刷新策略：所有「会改变侧栏结构/章节列表」的事件都触发 desk-refresh
+  // 使用去抖合并，避免短时间内（如幕级规划↔审阅来回）连续触发多次 loadDesk
+  const needsDeskRefresh =
+    t === 'stage_change' ||           // 阶段变更（规划→写作→审计→审阅）
+    t === 'beat_complete' ||          // 节拍完成（字数变化）
+    t === 'autopilot_complete'        // 全书完成/停止
+  if (needsDeskRefresh) {
+    scheduleDeskRefresh()
   }
-  if (t === 'beat_complete') {
-    emit('desk-refresh')
+  if (t === 'autopilot_complete') {
+    emit('chapter-metrics-refresh')
+  }
+  // 🔥 审计完成（单章落库）：立即刷新，让前端立刻看到「已收稿」
+  if (t === 'audit_event') {
+    const evtType = meta?.event_type ?? (data as Record<string, unknown>).event_type
+    if (evtType === 'audit_complete') {
+      scheduleDeskRefresh()
+      emit('chapter-metrics-refresh')
+    }
   }
 }
 
@@ -304,6 +342,7 @@ function connect() {
 
   eventSource.onopen = () => {
     connectionStatus.value = 'connected'
+    logStreamReconnectFailCount = 0
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
@@ -352,9 +391,19 @@ function connect() {
 
   eventSource.onerror = () => {
     connectionStatus.value = 'reconnecting'
-    if (!reconnectTimer) {
-      reconnectTimer = window.setTimeout(() => connect(), 3000)
+    if (eventSource) {
+      try {
+        eventSource.close()
+      } catch {
+        /* ignore */
+      }
+      eventSource = null
     }
+    if (reconnectTimer != null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    scheduleLogStreamReconnect()
   }
 }
 
@@ -372,6 +421,7 @@ watch(
     behaviorLabel.value = '—'
     lastLogSeq.value = 0
     connectionStatus.value = 'disconnected'
+    logStreamReconnectFailCount = 0
     pending.length = 0
     if (eventSource) {
       eventSource.close()
@@ -393,6 +443,10 @@ onUnmounted(() => {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
+  }
+  if (deskRefreshDebounceTimer) {
+    clearTimeout(deskRefreshDebounceTimer)
+    deskRefreshDebounceTimer = null
   }
 })
 </script>
