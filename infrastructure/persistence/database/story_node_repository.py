@@ -4,24 +4,49 @@
 
 import sqlite3
 import json
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime
 
 from domain.structure.story_node import StoryNode, NodeType, StoryTree, PlanningStatus, PlanningSource
 
 
 class StoryNodeRepository:
-    """故事结构节点仓储"""
+    """故事结构节点仓储
 
-    def __init__(self, db_path: str):
-        self.db_path = db_path
+    改进：接受 DatabaseConnection 实例，复用线程本地连接（WAL 模式 + busy_timeout），
+    避免每个方法 connect→close 短连接模式。
+    向后兼容：仍接受 db_path 字符串（使用临时连接）。
+    """
+
+    def __init__(self, db: Union[str, "DatabaseConnection"]):
+        # 延迟导入避免循环引用
+        from infrastructure.persistence.database.connection import DatabaseConnection
+
+        if isinstance(db, DatabaseConnection):
+            self._db = db
+            self.db_path = db.db_path
+        elif isinstance(db, str):
+            self._db = None
+            self.db_path = db
+        else:
+            self._db = None
+            self.db_path = str(db)
 
     def _get_connection(self) -> sqlite3.Connection:
-        """获取数据库连接"""
+        """获取数据库连接（优先复用 DatabaseConnection 线程本地连接）。"""
+        if self._db is not None:
+            return self._db.get_connection()
+        # 降级：旧路径，每次创建临时连接
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         return conn
+
+    def _should_close_after_use(self) -> bool:
+        """是否在使用后关闭连接（仅旧路径临时连接需要）。"""
+        return self._db is None
 
     def save_sync(self, node: StoryNode) -> StoryNode:
         """同步保存（供 NovelService 等非 async 调用链使用）。"""
@@ -71,7 +96,8 @@ class StoryNodeRepository:
             conn.commit()
             return node
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def save(self, node: StoryNode) -> StoryNode:
         """保存节点"""
@@ -142,7 +168,8 @@ class StoryNodeRepository:
             conn.commit()
             return node
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def save_batch(self, nodes: List[StoryNode]) -> List[StoryNode]:
         """批量保存节点"""
@@ -193,7 +220,8 @@ class StoryNodeRepository:
             conn.commit()
             return nodes
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def get_by_id(self, node_id: str) -> Optional[StoryNode]:
         """根据 ID 获取节点"""
@@ -204,7 +232,8 @@ class StoryNodeRepository:
             row = cursor.fetchone()
             return self._row_to_entity(row) if row else None
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     def get_by_novel_sync(self, novel_id: str) -> List[StoryNode]:
         """同步列出某小说的全部结构节点。"""
@@ -219,7 +248,8 @@ class StoryNodeRepository:
             rows = cursor.fetchall()
             return [self._row_to_entity(row) for row in rows]
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def get_by_novel(self, novel_id: str) -> List[StoryNode]:
         """获取小说的所有节点"""
@@ -246,7 +276,8 @@ class StoryNodeRepository:
             rows = cursor.fetchall()
             return [self._row_to_entity(row) for row in rows]
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def get_children(self, parent_id: str) -> List[StoryNode]:
         """获取子节点"""
@@ -265,7 +296,8 @@ class StoryNodeRepository:
             rows = cursor.fetchall()
             return [self._row_to_entity(row) for row in rows]
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def delete(self, node_id: str) -> bool:
         """删除节点（级联删除子节点）"""
@@ -276,7 +308,8 @@ class StoryNodeRepository:
             conn.commit()
             return cursor.rowcount > 0
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def delete_by_novel(self, novel_id: str) -> int:
         """删除小说的所有节点"""
@@ -287,7 +320,8 @@ class StoryNodeRepository:
             conn.commit()
             return cursor.rowcount
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     async def apply_merge_plan(self, creates: List[dict], updates: List[dict], deletes: List[str]) -> None:
         """应用宏观规划合并计划（原子性事务）
@@ -325,8 +359,6 @@ class StoryNodeRepository:
             # 3. 批量插入
             if creates:
                 for c in creates:
-                    # 调试日志
-                    print(f"[DEBUG] Inserting node: id={c['id']}, planning_status={c.get('planning_status', 'ai_generated')!r}, planning_source={c.get('planning_source', 'ai_macro')!r}")
                     cursor.execute("""
                         INSERT INTO story_nodes (
                             id, novel_id, parent_id, node_type, number, title, description, order_index,
@@ -373,7 +405,8 @@ class StoryNodeRepository:
             conn.rollback()
             raise e
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()
 
     def _row_to_entity(self, row: sqlite3.Row) -> StoryNode:
         """将数据库行转换为实体"""
@@ -456,4 +489,5 @@ class StoryNodeRepository:
             conn.rollback()
             raise e
         finally:
-            conn.close()
+            if self._should_close_after_use():
+                conn.close()

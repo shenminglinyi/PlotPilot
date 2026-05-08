@@ -24,7 +24,7 @@ class SqliteNovelRepository(NovelRepository):
                 id, title, slug, author, target_chapters, premise,
                 autopilot_status, auto_approve_mode, current_stage, current_act, current_chapter_in_act,
                 max_auto_chapters, current_auto_chapters, last_chapter_tension,
-                consecutive_error_count, current_beat_index,
+                consecutive_error_count, current_beat_index, beats_completed,
                 last_audit_chapter_number, last_audit_similarity, last_audit_drift_alert,
                 last_audit_narrative_ok, last_audit_at,
                 last_audit_vector_stored, last_audit_foreshadow_stored,
@@ -32,7 +32,7 @@ class SqliteNovelRepository(NovelRepository):
                 target_words_per_chapter, audit_progress,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 slug = excluded.slug,
@@ -49,6 +49,7 @@ class SqliteNovelRepository(NovelRepository):
                 last_chapter_tension = excluded.last_chapter_tension,
                 consecutive_error_count = excluded.consecutive_error_count,
                 current_beat_index = excluded.current_beat_index,
+                beats_completed = excluded.beats_completed,
                 last_audit_chapter_number = excluded.last_audit_chapter_number,
                 last_audit_similarity = excluded.last_audit_similarity,
                 last_audit_drift_alert = excluded.last_audit_drift_alert,
@@ -80,6 +81,7 @@ class SqliteNovelRepository(NovelRepository):
         last_chapter_tension = getattr(novel, 'last_chapter_tension', 0)
         consecutive_error_count = getattr(novel, 'consecutive_error_count', 0)
         current_beat_index = getattr(novel, 'current_beat_index', 0)
+        beats_completed = 1 if getattr(novel, 'beats_completed', False) else 0
         lacn = getattr(novel, "last_audit_chapter_number", None)
         lasim = getattr(novel, "last_audit_similarity", None)
         ladr = 1 if getattr(novel, "last_audit_drift_alert", False) else 0
@@ -113,6 +115,7 @@ class SqliteNovelRepository(NovelRepository):
             last_chapter_tension,
             consecutive_error_count,
             current_beat_index,
+            beats_completed,
             lacn,
             lasim,
             ladr,
@@ -133,6 +136,50 @@ class SqliteNovelRepository(NovelRepository):
     async def async_save(self, novel: Novel) -> None:
         """异步保存小说（守护进程使用）"""
         self.save(novel)
+
+    def patch(self, novel_id: NovelId, **fields) -> None:
+        """增量更新小说字段（只写传入的字段，减少锁竞争时间）
+
+        适用场景：守护进程频繁更新 current_beat_index、current_stage 等少量字段时，
+        无需全量 save 30+ 字段，缩短写事务持锁时间。
+
+        Args:
+            novel_id: 小说 ID
+            **fields: 要更新的字段键值对，键为列名，值为目标值
+                自动处理枚举类型转换（AutopilotStatus → str, NovelStage → str, bool → int）
+
+        Examples:
+            repo.patch(novel_id, current_beat_index=3, current_stage=NovelStage.WRITING)
+            repo.patch(novel_id, autopilot_status=AutopilotStatus.STOPPED)
+        """
+        if not fields:
+            return
+
+        # 自动处理枚举类型转换
+        processed = {}
+        for key, value in fields.items():
+            if isinstance(value, AutopilotStatus):
+                processed[key] = value.value
+            elif isinstance(value, NovelStage):
+                processed[key] = value.value
+            elif isinstance(value, bool):
+                processed[key] = 1 if value else 0
+            elif isinstance(value, (dict, list)):
+                processed[key] = json.dumps(value)
+            else:
+                processed[key] = value
+
+        # 始终更新 updated_at
+        processed["updated_at"] = datetime.utcnow().isoformat()
+
+        # 构建 UPDATE SQL
+        set_clauses = [f"{key} = ?" for key in processed.keys()]
+        values = list(processed.values())
+        values.append(novel_id.value)
+
+        sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
+        self.db.execute(sql, tuple(values))
+        self.db.get_connection().commit()
 
     def get_by_id(self, novel_id: NovelId) -> Optional[Novel]:
         """根据 ID 获取小说"""
@@ -205,6 +252,7 @@ class SqliteNovelRepository(NovelRepository):
             last_chapter_tension=row.get('last_chapter_tension', 0),
             consecutive_error_count=row.get('consecutive_error_count', 0),
             current_beat_index=row.get('current_beat_index', 0),
+            beats_completed=bool(row.get('beats_completed', 0)),
             last_audit_chapter_number=row.get("last_audit_chapter_number"),
             last_audit_similarity=row.get("last_audit_similarity"),
             last_audit_drift_alert=bool(_lad) if _lad is not None else False,

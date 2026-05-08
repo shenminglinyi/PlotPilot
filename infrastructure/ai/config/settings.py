@@ -17,6 +17,10 @@ class Settings:
     #: 兼容自建/转发网关，与官方 provider base_url 一致；未设则走官方默认
     base_url: Optional[str] = None
     timeout_seconds: float = 300.0
+    #: 连接超时（秒）：建立 TCP 连接的最大等待时间。设短可快速发现网络不可达
+    connect_timeout: float = 30.0
+    #: 读取超时（秒）：等待服务端响应（首个字节）的最大时间。流式场景下指两个 chunk 之间的间隔
+    read_timeout: float = 120.0
     extra_headers: dict[str, str] = field(default_factory=dict)
     extra_query: dict[str, Any] = field(default_factory=dict)
     extra_body: dict[str, Any] = field(default_factory=dict)
@@ -34,3 +38,7 @@ class Settings:
 
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if self.connect_timeout <= 0:
+            raise ValueError("connect_timeout must be positive")
+        if self.read_timeout <= 0:
+            raise ValueError("read_timeout must be positive")

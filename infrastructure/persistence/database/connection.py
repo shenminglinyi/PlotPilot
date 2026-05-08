@@ -175,6 +175,9 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
         "audit_progress": (
             "ALTER TABLE novels ADD COLUMN audit_progress TEXT"
         ),
+        "beats_completed": (
+            "ALTER TABLE novels ADD COLUMN beats_completed INTEGER DEFAULT 0"
+        ),
     }
     for col, sql in migrations.items():
         if col not in cols:
@@ -203,6 +206,19 @@ def _apply_character_enhancements(conn: sqlite3.Connection) -> None:
                 logger.info(f"Added character field: {col}")
             except sqlite3.OperationalError as e:
                 logger.warning(f"Character migration skip {col}: {e}")
+    conn.commit()
+
+
+def _apply_chapters_word_count_migration(conn: sqlite3.Connection) -> None:
+    """为 chapters 表补齐 word_count 列（persistence_queue 依赖此列）"""
+    cur = conn.execute("PRAGMA table_info(chapters)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "word_count" not in cols:
+        try:
+            conn.execute("ALTER TABLE chapters ADD COLUMN word_count INTEGER DEFAULT 0")
+            logger.info("chapters migration: added column word_count")
+        except sqlite3.OperationalError as e:
+            logger.warning("chapters migration skip word_count: %s", e)
     conn.commit()
 
 
@@ -299,11 +315,24 @@ def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
 
 
 class DatabaseConnection:
-    """SQLite 数据库连接管理器（线程本地存储，每线程独立连接）"""
+    """SQLite 数据库连接管理器（线程本地存储，每线程独立连接）
+
+    改进：
+    - 定期 WAL checkpoint（每 20 次写操作自动触发），防止 WAL 文件无限增长
+    - 应用关闭时 close_all() 清理所有线程连接
+    """
+
+    # WAL checkpoint 阈值：每 N 次写操作触发一次 PRAGMA wal_checkpoint(TRUNCATE)
+    _WAL_CHECKPOINT_INTERVAL = 20
 
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
+        self._write_counter = 0
+        self._write_counter_lock = threading.Lock()
+        # 记录所有线程连接，以便 close_all() 时统一清理
+        self._all_connections: list[sqlite3.Connection] = []
+        self._all_connections_lock = threading.Lock()
         self._ensure_database_exists()
 
     def _ensure_database_exists(self) -> None:
@@ -329,20 +358,36 @@ class DatabaseConnection:
         _apply_last_chapter_audit_columns(conn)
         _apply_character_enhancements(conn)
         _apply_chapter_summaries_enhancements(conn)
+        _apply_chapters_word_count_migration(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
         conn.close()
 
     def get_connection(self) -> sqlite3.Connection:
         if not hasattr(self._local, 'connection') or self._local.connection is None:
-            self._local.connection = sqlite3.connect(
+            conn = sqlite3.connect(
                 self.db_path, check_same_thread=False, timeout=30.0
             )
-            self._local.connection.row_factory = sqlite3.Row
-            self._local.connection.execute("PRAGMA foreign_keys = ON")
-            self._local.connection.execute("PRAGMA journal_mode=WAL")
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA journal_mode=WAL")
             # 与 API/守护进程并发写时延长等待（毫秒）
-            self._local.connection.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA busy_timeout=30000")
+            # WAL auto-checkpoint 设为 1000 页（约 4MB），SQLite 自动触发增量 checkpoint
+            conn.execute("PRAGMA wal_autocheckpoint=1000")
+            # ── 并发性能优化（安装包版本多进程竞争关键）──
+            # synchronous=NORMAL：WAL 模式下安全性足够，写入性能提升 2-5 倍
+            # 减少 fsync 次数 → 写事务持锁时间缩短 → 读请求阻塞减少
+            conn.execute("PRAGMA synchronous=NORMAL")
+            # temp_store=MEMORY：临时表和索引放内存，减少磁盘 I/O
+            conn.execute("PRAGMA temp_store=MEMORY")
+            # mmap_size=256MB：内存映射读取，提升大表查询性能
+            conn.execute("PRAGMA mmap_size=268435456")
+            # cache_size=-32768：32MB 页面缓存（负值表示 KB）
+            conn.execute("PRAGMA cache_size=-32768")
+            self._local.connection = conn
+            with self._all_connections_lock:
+                self._all_connections.append(conn)
         return self._local.connection
 
     @contextmanager
@@ -388,8 +433,9 @@ class DatabaseConnection:
         conn.commit()
 
     def commit(self) -> None:
-        """提交当前线程连接上的事务（与 execute() 成对使用）。"""
+        """提交当前线程连接上的事务（与 execute() 成对使用），并检查是否需要 WAL checkpoint。"""
         self.get_connection().commit()
+        self._maybe_checkpoint()
 
     def fetch_one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         """查询单条记录
@@ -420,10 +466,59 @@ class DatabaseConnection:
         return [dict(row) for row in rows]
 
     def close(self) -> None:
+        """关闭当前线程的数据库连接。"""
         if hasattr(self._local, 'connection') and self._local.connection is not None:
-            self._local.connection.close()
+            conn = self._local.connection
+            try:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
+            conn.close()
+            with self._all_connections_lock:
+                try:
+                    self._all_connections.remove(conn)
+                except ValueError:
+                    pass
             self._local.connection = None
             logger.info("Database connection closed (thread-local)")
+
+    def close_all(self, skip_checkpoint: bool = False) -> None:
+        """关闭所有线程的数据库连接（应用关闭时调用）。
+
+        Args:
+            skip_checkpoint: 跳过 WAL checkpoint（关闭时 DB 可能被守护进程锁住，
+                checkpoint 会无限等待导致进程卡死）。WAL 模式下不 checkpoint
+                只会导致 WAL 文件稍大，下次启动时会自动恢复。
+        """
+        with self._all_connections_lock:
+            connections = list(self._all_connections)
+            self._all_connections.clear()
+        for conn in connections:
+            if not skip_checkpoint:
+                try:
+                    conn.execute("PRAGMA busy_timeout=2000")
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception:
+                    pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+        logger.info("All database connections closed (%d, skip_checkpoint=%s)", len(connections), skip_checkpoint)
+
+    def _maybe_checkpoint(self) -> None:
+        """定期 WAL checkpoint：每 _WAL_CHECKPOINT_INTERVAL 次写操作触发 TRUNCATE。"""
+        with self._write_counter_lock:
+            self._write_counter += 1
+            if self._write_counter < self._WAL_CHECKPOINT_INTERVAL:
+                return
+            self._write_counter = 0
+        try:
+            conn = self.get_connection()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            logger.debug("WAL checkpoint triggered (interval=%d)", self._WAL_CHECKPOINT_INTERVAL)
+        except Exception as e:
+            logger.debug("WAL checkpoint skipped: %s", e)
 
 
 # 全局数据库实例

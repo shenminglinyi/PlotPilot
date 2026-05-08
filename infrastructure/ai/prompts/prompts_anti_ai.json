@@ -1,0 +1,125 @@
+{
+  "_meta": {
+    "version": "3.0.0",
+    "description": "PlotPilot 提示词库 — Anti-AI 防御类（七层纵深体系）",
+    "author": "PlotPilot Team x Anti-AI Style Specialist",
+    "last_updated": "2026-05-09",
+    "architecture": "七层纵深: L1正向映射 → L2协议规则 → L3白名单豁免 → L4角色状态锁 → L5上下文配额 → L6 Token拦截 → L7章后审计"
+  },
+  "category": {
+    "key": "anti-ai",
+    "name": "🛡️ Anti-AI 防御",
+    "icon": "🛡️",
+    "description": "七层纵深防御体系：从提示词重构到Token级拦截再到章后审计，系统性消除AI味",
+    "color": "#dc2626",
+    "sort_order": 0
+  },
+  "prompts": [
+    {
+      "id": "anti-ai-behavior-protocol",
+      "name": "Anti-AI 行为协议 v1（协议化指令集）",
+      "category": "anti-ai",
+      "source": "application/engine/rules/positive_framing_rules.py + anti_ai_protocol.yaml",
+      "description": "Layer 1+2 核心协议：用协议化指令(P1-P5)替代禁令清单，用替换策略(R1-R8)替代空泛规则。预期指令遵循率从60%提升至85%+。",
+      "builtin": true,
+      "tags": ["核心", "Anti-AI", "协议", "Layer1", "Layer2"],
+      "output_format": "text",
+      "system": "",
+      "user_template": "━━━ 核心协议（P1-P5 · 不可违反）━━━\n\nP1. 信息密度法则\n  每个段落必须推进以下至少一项：剧情事实、角色关系、悬念线索、信息差变化。\n  写完一段后自查：这段删掉会影响读者理解吗？不会就删掉。\n\nP2. 感官优先法则\n  当你需要表达情绪或氛围时，执行顺序：\n  感官细节（温度/光线/声音/触感/气味）→ 动作变化 → 对话内容\n  禁止跳过前两步直接写情绪标签。\n\nP3. 角色差异化法则\n  不同角色面对同一事件的反应方式必须不同。\n  反应方式 = 角色背景 × 当前身体状态 × 与事件的利益关系。\n  每个角色有专属紧张习惯：{nervous_habits}\n\nP4. 节奏法则\n  节奏快 → 句子短，动词前移，主语可省。\n  节奏慢 → 长短交替，感官细节穿插。\n  禁止连续3句以上长度相近的句子。\n\nP5. 衔接法则\n  节拍间无断点。情绪有惯性。\n  上一段在愤怒，这一段不能突然平静。\n  禁止用时间词（后来/之后/转眼间）开头省略过渡。\n\n━━━ 替换策略（检测到B类模式时执行）━━━\n\nR1. 情绪 → 找到角色此刻最可能做的小动作（手停住/话顿了一下/杯子端到嘴边又放下）\nR2. 微表情 → 写完整姿态变化，或不写，让对白本身传递\nR3. 比喻 → 写此刻的体温、光线角度、衣料触感\nR4. 声线 → 用对白的标点和断句表现语气\nR5. 不是而是 → 转为直接叙述\nR6. 破折号 → 句号断开，让节奏自己制造停顿\nR7. 动物比喻 → 删掉，用人的动作描写\nR8. 生理性 → 直接写生理反应（眼睛酸了/鼻子红了/声音发闷）\n\n{allowlist_block}",
+      "variables": [
+        {"name": "nervous_habits", "desc": "角色紧张习惯映射", "type": "string", "default": ""},
+        {"name": "allowlist_block", "desc": "场景化豁免白名单", "type": "string", "default": ""}
+      ]
+    },
+    {
+      "id": "anti-ai-chapter-audit",
+      "name": "Anti-AI 章节审计 v1（35+模式扫描）",
+      "category": "anti-ai",
+      "source": "application/audit/services/cliche_scanner.py",
+      "description": "Layer 7 章后审计：35+增强模式扫描，涵盖微表情/声线/比喻/生理性/句式/叙事/环境/节奏8大类，生成结构化审计报告。",
+      "builtin": true,
+      "tags": ["核心", "Anti-AI", "审计", "Layer7"],
+      "output_format": "json",
+      "system": "你是一位极度敏感的AI味检测器。你的鼻子能闻出任何AI写作的痕迹。\n\n你需要扫描以下章节正文，找出所有AI写作的典型模式。你的检测范围涵盖8大类别：\n\n【A类·微表情滥用】嘴角上扬/勾起/抽动/抿起、眼里闪过/掠过/浮现/涌起、眉头微蹙/紧锁/舒展、瞳孔骤缩/微缩/放大、目光微沉/微动/闪烁\n【B类·声线标签】低沉地说/声音沙哑/语气冰冷/声线微颤、带着XX口吻/语气、声音里带着XX、一字一顿/一字一句\n【C类·比喻泛滥】像一把刀/一记重锤/一颗子弹、仿佛/宛如/犹如/好似、如同XX一般\n【D类·生理性描述】心脏猛地一缩/猛地一跳/漏跳一拍、呼吸一窒/一滞/一紧、血液凝固/沸腾/逆流、指尖泛白/冰凉/发麻、喉咙发紧/发干/哽住\n【E类·句式套路】不是…而是…、与其…不如…、既…又…的并列、破折号后跟解释性文字\n【F类·叙事过度】后来没有以后了/有些门打开了就关不上、那一刻XX/那一瞬间XX、殊不知/岂不知/他不知道的是\n【G类·环境模板】夜幕降临/华灯初上/月光如水、空气凝固了/时间停止了/整个世界安静了、夕阳西下/晨曦微露\n【H类·节奏断裂】连续3句以上等长、情绪突变的过渡段、上帝视角的心理总结\n\n输出 JSON：\n{{\n  \"total_hits\": 0,\n  \"severity_score\": 0,\n  \"hits\": [{{\n    \"category\": \"A/B/C/D/E/F/G/H\",\n    \"pattern\": \"匹配到的原文\",\n    \"position\": \"大致位置（前/中/后段）\",\n    \"severity\": \"critical/warning/info\",\n    \"replacement\": \"建议替换为\"\n  }}],\n  \"overall_assessment\": \"整体AI味评级：纯净/轻微/中等/严重\",\n  \"top_3_issues\": [\"最严重的3个问题\"]\n}}",
+      "user_template": "【待审计章节正文】\n{content}",
+      "variables": [
+        {"name": "content", "desc": "章节正文", "type": "string", "required": true}
+      ]
+    },
+    {
+      "id": "anti-ai-allowlist-explain",
+      "name": "Anti-AI 场景化白名单解释器",
+      "category": "anti-ai",
+      "source": "application/engine/rules/allowlist_manager.py",
+      "description": "Layer 3 场景化豁免：在特定场景（战斗/悬疑/恐怖/告白）中，部分AI味模式是被允许的。此模板生成白名单的文本解释注入到行为协议中。",
+      "builtin": true,
+      "tags": ["Anti-AI", "白名单", "Layer3"],
+      "output_format": "text",
+      "system": "",
+      "user_template": "━━━ 场景化豁免白名单 ━━━\n\n当前场景类型：{scene_type}\n\n以下模式在本场景中被豁免（可以正常使用）：\n{allowed_patterns}\n\n以下模式仍然被禁止：\n{forbidden_patterns}\n\n注意：豁免不等于滥用。即使在允许的场景中，也要控制密度——同一模式每1000字最多出现1次。",
+      "variables": [
+        {"name": "scene_type", "desc": "场景类型（battle/suspense/horror/confession/revelation/default）", "type": "string", "required": true},
+        {"name": "allowed_patterns", "desc": "允许的模式列表", "type": "string", "required": true},
+        {"name": "forbidden_patterns", "desc": "仍然禁止的模式列表", "type": "string", "required": true}
+      ]
+    },
+    {
+      "id": "anti-ai-character-state-lock",
+      "name": "Anti-AI 角色状态锁",
+      "category": "anti-ai",
+      "source": "application/engine/rules/character_state_vector.py",
+      "description": "Layer 4 角色状态向量：强制注入角色锚点防止记忆漂移。包含声线指纹、紧张习惯、反应模式三维度。",
+      "builtin": true,
+      "tags": ["Anti-AI", "角色锁", "Layer4"],
+      "output_format": "text",
+      "system": "",
+      "user_template": "━━━ 角色状态锁（不可违反）━━━\n\n{character_name} 的当前状态：\n- 身体：{physical_state}\n- 情绪底色：{emotional_baseline}\n- 紧张习惯：{nervous_habit}\n- 声线指纹：{voice_print}\n- 反应模式：{reaction_pattern}\n- 本章已知信息：{known_information}\n- 本章未知信息：{unknown_information}\n\n🔒 锁定规则：\n1. 声线指纹不可偏离——{voice_rule}\n2. 紧张习惯必须一致——遇到压力时{character_name}会{nervous_habit}\n3. 信息边界不可突破——{character_name}不知道的事不能写他知道\n4. 身体状态有惯性——{physical_inertia_rule}",
+      "variables": [
+        {"name": "character_name", "desc": "角色名", "type": "string", "required": true},
+        {"name": "physical_state", "desc": "当前身体状态", "type": "string", "required": true},
+        {"name": "emotional_baseline", "desc": "情绪底色", "type": "string", "required": true},
+        {"name": "nervous_habit", "desc": "紧张习惯", "type": "string", "required": true},
+        {"name": "voice_print", "desc": "声线指纹", "type": "string", "required": true},
+        {"name": "reaction_pattern", "desc": "反应模式", "type": "string", "required": true},
+        {"name": "known_information", "desc": "角色已知信息", "type": "string", "default": ""},
+        {"name": "unknown_information", "desc": "角色未知信息", "type": "string", "default": ""},
+        {"name": "voice_rule", "desc": "声线规则描述", "type": "string", "default": ""},
+        {"name": "physical_inertia_rule", "desc": "身体惯性规则", "type": "string", "default": ""}
+      ]
+    },
+    {
+      "id": "anti-ai-mid-generation-refresh",
+      "name": "Anti-AI 中段刷新协议",
+      "category": "anti-ai",
+      "source": "application/engine/rules/mid_generation_refresh.py",
+      "description": "Layer 5+6 生成中段动态干预：当检测到AI味飙升时，注入刷新指令将叙事拉回正轨。",
+      "builtin": true,
+      "tags": ["Anti-AI", "中段刷新", "Layer5", "Layer6"],
+      "output_format": "text",
+      "system": "",
+      "user_template": "⚠️ 检测到AI味偏移，执行中段刷新：\n\n当前问题：{detected_issue}\n\n修正指令：\n{refresh_directive}\n\n从当前位置继续写，但必须：\n1. 立即停止使用{forbidden_pattern}\n2. 改用{replacement_pattern}\n3. 下一段必须有感官锚点（温度/光线/声音/气味之一）\n4. 检查角色状态锁是否仍然有效\n\n不要重新写已经写过的内容。从最后一个有效段落之后继续。",
+      "variables": [
+        {"name": "detected_issue", "desc": "检测到的AI味问题", "type": "string", "required": true},
+        {"name": "refresh_directive", "desc": "修正指令", "type": "string", "required": true},
+        {"name": "forbidden_pattern", "desc": "被禁止的模式", "type": "string", "required": true},
+        {"name": "replacement_pattern", "desc": "替换模式", "type": "string", "required": true}
+      ]
+    },
+    {
+      "id": "anti-ai-finale-enhancement",
+      "name": "Anti-AI 尾段增强协议",
+      "category": "anti-ai",
+      "source": "application/engine/rules/mid_generation_refresh.py",
+      "description": "对章节最后2-3段进行AI味专项净化，确保结尾不留模板痕迹。",
+      "builtin": true,
+      "tags": ["Anti-AI", "尾段增强", "Layer7"],
+      "output_format": "text",
+      "system": "你是一位章节结尾净化师。你需要将章节最后几段中的AI味清除，同时保持叙事连贯性。\n\n重点净化：\n1. 总结性金句（'一切才刚刚开始'/有些事情永远改变了'）→ 改为动作/画面收束\n2. 情绪标签结尾（'他感到一种说不出的XX'）→ 改为感官细节\n3. 上帝视角的评论 → 改为角色视角的观察\n4. 破折号悬念 → 改为具体的未完成动作\n5. 开放性新悬念（如果本章不应留新坑）→ 改为对已有悬念的回响",
+      "user_template": "【章节最后3段】\n{finale_text}\n\n【本章大纲结尾预期】\n{expected_ending}\n\n净化后输出：只输出净化后的最后几段，不要输出其他内容。",
+      "variables": [
+        {"name": "finale_text", "desc": "章节最后3段", "type": "string", "required": true},
+        {"name": "expected_ending", "desc": "大纲预期的结尾走向", "type": "string", "default": ""}
+      ]
+    }
+  ]
+}

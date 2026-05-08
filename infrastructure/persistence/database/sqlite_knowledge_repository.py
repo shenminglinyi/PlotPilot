@@ -459,6 +459,54 @@ class SqliteKnowledgeRepository:
             conn.rollback()
             raise
 
+    def save_triples_batch(
+        self,
+        novel_id: str,
+        triples: List[dict],
+        *,
+        batch_size: int = 50,
+        provenance_rows_map: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    ) -> None:
+        """批量保存三元组，拆分为 micro-transactions 避免长事务锁表。
+
+        🔥 关键优化：将大批量 INSERT 拆分为多次小批量提交，
+        每批之间主动释放 DB 锁，允许 API 进程的读请求"插队"。
+
+        Args:
+            novel_id: 小说 ID
+            triples: 三元组字典列表
+            batch_size: 每批提交数量，默认 50
+            provenance_rows_map: triple_id -> provenance_rows 的映射
+        """
+        import time
+
+        now = datetime.utcnow().isoformat()
+        total = len(triples)
+        if total == 0:
+            return
+
+        for i in range(0, total, batch_size):
+            batch = triples[i:i + batch_size]
+            conn = self.db.get_connection()
+            try:
+                for triple in batch:
+                    self._insert_triple_row(conn, novel_id, triple, now)
+                    if provenance_rows_map:
+                        rows = provenance_rows_map.get(triple["id"])
+                        if rows:
+                            self._replace_triple_provenance(conn, rows)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                # 注意：不关闭连接（连接池管理），但确保事务已提交
+                pass
+
+            # 🔥 微事务间隙主动让出时间片，允许读请求插队
+            if i + batch_size < total:
+                time.sleep(0.01)
+
     def append_triple_provenance_only(self, novel_id: str, triple_id: str, rows: List[Dict[str, Any]]) -> None:
         """仅追加溯源行（三元组行已存在）。"""
         if not rows:

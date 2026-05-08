@@ -25,6 +25,17 @@ class GeminiProvider(BaseProvider):
         if not settings.api_key:
             raise ValueError('API key is required for GeminiProvider')
         self.base_url = (settings.base_url or DEFAULT_BASE_URL).rstrip('/')
+        # 长生命周期 httpx client（跨请求复用连接池）
+        # 🔥 分层超时：避免 API 卡住时整个进程挂起
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=settings.connect_timeout,
+                read=settings.read_timeout,
+                write=60.0,
+                pool=30.0,
+            ),
+            trust_env=False,
+        )
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
         model_id = require_resolved_model_id(
@@ -35,17 +46,15 @@ class GeminiProvider(BaseProvider):
         payload = self._build_payload(prompt, config)
         query = self._build_query()
         url = self._build_url(model_id, 'generateContent')
-        timeout = httpx.Timeout(self.settings.timeout_seconds)
 
-        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            response = await client.post(
-                url,
-                params=query,
-                headers=self._build_headers(stream=False),
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await self._http_client.post(
+            url,
+            params=query,
+            headers=self._build_headers(stream=False),
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
 
         content = self._extract_text(data)
         if not content.strip():
@@ -67,25 +76,23 @@ class GeminiProvider(BaseProvider):
         payload = self._build_payload(prompt, config)
         query = self._build_query({'alt': 'sse'})
         url = self._build_url(model_id, 'streamGenerateContent')
-        timeout = httpx.Timeout(self.settings.timeout_seconds)
 
-        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            async with client.stream(
-                'POST',
-                url,
-                params=query,
-                headers=self._build_headers(stream=True),
-                json=payload,
-            ) as response:
-                response.raise_for_status()
-                buffer = ''
-                async for chunk in response.aiter_text():
-                    buffer += chunk.replace('\r\n', '\n')
-                    while '\n\n' in buffer:
-                        event_text, buffer = buffer.split('\n\n', 1)
-                        text = self._parse_sse_event(event_text)
-                        if text:
-                            yield text
+        async with self._http_client.stream(
+            'POST',
+            url,
+            params=query,
+            headers=self._build_headers(stream=True),
+            json=payload,
+        ) as response:
+            response.raise_for_status()
+            buffer = ''
+            async for chunk in response.aiter_text():
+                buffer += chunk.replace('\r\n', '\n')
+                while '\n\n' in buffer:
+                    event_text, buffer = buffer.split('\n\n', 1)
+                    text = self._parse_sse_event(event_text)
+                    if text:
+                        yield text
 
     def _build_url(self, model: str, action: str) -> str:
         model_name = model.strip()
@@ -112,6 +119,21 @@ class GeminiProvider(BaseProvider):
             'temperature': config.temperature,
             'maxOutputTokens': config.max_tokens,
         }
+        # 🔥 response_format 自适应：
+        # Gemini 支持 responseMimeType 但不支持 json_schema 结构定义
+        # OpenAI 的 json_object → Gemini 的 responseMimeType: application/json
+        # OpenAI 的 json_schema → Gemini 的 responseMimeType + responseSchema
+        if config.response_format:
+            fmt = config.response_format
+            if fmt.get("type") == "json_object":
+                generation_config["responseMimeType"] = "application/json"
+            elif fmt.get("type") == "json_schema":
+                generation_config["responseMimeType"] = "application/json"
+                # 如果 json_schema 中有 schema 定义，传递给 Gemini
+                schema = fmt.get("json_schema", {}).get("schema")
+                if schema:
+                    generation_config["responseSchema"] = schema
+
         payload: dict[str, Any] = {
             'contents': [
                 {

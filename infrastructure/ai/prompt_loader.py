@@ -1,14 +1,23 @@
-"""PromptLoader — 轻量级提示词直接读取器（JSON 文件驱动）。
+"""PromptLoader — 轻量级提示词直接读取器（多 JSON 文件驱动）。
 
-与 PromptManager（数据库驱动、面向 UI 编辑）不同，本模块专注于：
-- 从 prompts_defaults.json 直接读取提示词内容
+v3.0 重构：
+- 从单个 prompts_defaults.json 拆分为多个分类 JSON 文件
+- 支持多文件加载：prompts_*.json 均自动扫描
+- 保留对旧版 prompts_defaults.json 的向后兼容
 - 提供类型安全的访问接口（dict / list / str）
 - 零依赖：不需要数据库连接，启动即用
 - 单例缓存：只读一次 JSON，后续全内存
 
-适用场景：
-  代码中的硬编码提示词 → 统一从此模块获取
-  运行时需要提示词文本/模板/指令字典的任何地方
+文件结构：
+  infrastructure/ai/prompts/
+    prompts_generation.json   — 内容生成类
+    prompts_extraction.json   — 信息提取类
+    prompts_review.json       — 审稿质检类
+    prompts_planning.json     — 规划设计类
+    prompts_world.json        — 世界设定类
+    prompts_creative.json     — 创意辅助类
+    prompts_anti_ai.json      — Anti-AI 防御类
+    prompts_defaults.json     — (旧版兼容，不再主动加载)
 """
 from __future__ import annotations
 
@@ -19,18 +28,26 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# JSON 种子文件路径
-_DEFAULTS_PATH = (
-    Path(__file__).resolve().parent / "prompts" / "prompts_defaults.json"
-)
+# 提示词目录
+_PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
+
+# 分类 JSON 文件的 glob 模式
+_CATEGORY_GLOB = "prompts_*.json"
+
+# 旧版单文件路径（向后兼容）
+_LEGACY_DEFAULTS_PATH = _PROMPTS_DIR / "prompts_defaults.json"
+
+# 加载优先级：分类文件 > 旧版单文件
+# 分类文件中的提示词会覆盖旧版中同 ID 的提示词
 
 
 class PromptLoader:
-    """轻量级提示词加载器 — 直接从 JSON 读取，无 DB 依赖。"""
+    """轻量级提示词加载器 — 多 JSON 文件读取，无 DB 依赖。"""
 
     _instance: Optional["PromptLoader"] = None
-    _data: Dict[str, Any] = {}
+    _data: Dict[str, Any] = {"_meta": {}, "categories": [], "prompts": []}
     _index: Dict[str, Dict[str, Any]] = {}  # id -> prompt entry
+    _categories: Dict[str, Dict[str, Any]] = {}  # key -> category definition
 
     def __new__(cls) -> "PromptLoader":
         if cls._instance is None:
@@ -39,31 +56,106 @@ class PromptLoader:
         return cls._instance
 
     def _load(self) -> None:
-        """加载并索引 prompts_defaults.json。"""
-        path = _DEFAULTS_PATH
-        if not path.exists():
-            logger.warning("PromptLoader: 种子文件不存在 %s", path)
-            self._data = {}
-            self._index = {}
+        """加载所有提示词 JSON 文件（分类文件 + 旧版兼容）。"""
+        self._data = {"_meta": {"version": "3.0.0"}, "categories": [], "prompts": []}
+        self._index = {}
+        self._categories = {}
+
+        prompts_dir = _PROMPTS_DIR
+        if not prompts_dir.exists():
+            logger.warning("PromptLoader: 提示词目录不存在 %s", prompts_dir)
             return
 
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            logger.error("PromptLoader: 读取种子文件失败 %s", exc)
-            self._data = {}
-            self._index = {}
-            return
+        # Phase 1: 加载旧版 prompts_defaults.json（低优先级）
+        legacy_prompts = self._load_single_file(_LEGACY_DEFAULTS_PATH)
 
-        self._data = raw
-        # 按 id 建立快速索引
-        self._index = {
-            p["id"]: p for p in raw.get("prompts", []) if "id" in p
-        }
+        # Phase 2: 加载所有分类 JSON 文件（高优先级，覆盖旧版）
+        category_files = sorted(prompts_dir.glob(_CATEGORY_GLOB))
+        category_prompts: Dict[str, Dict[str, Any]] = {}  # id -> prompt
+
+        for cat_file in category_files:
+            file_data = self._load_single_file(cat_file)
+            if not file_data:
+                continue
+
+            # 提取分类定义
+            cat_def = file_data.get("category", {})
+            if cat_def and "key" in cat_def:
+                self._categories[cat_def["key"]] = cat_def
+
+            # 提取提示词
+            for p in file_data.get("prompts", []):
+                if "id" in p:
+                    category_prompts[p["id"]] = p
+
+        # Phase 3: 合并：旧版 + 分类覆盖
+        all_prompts: Dict[str, Dict[str, Any]] = {}
+
+        # 先放入旧版
+        for p in legacy_prompts:
+            if "id" in p:
+                all_prompts[p["id"]] = p
+
+        # 分类文件覆盖旧版
+        for pid, p in category_prompts.items():
+            all_prompts[pid] = p
+
+        # 构建索引和数据
+        self._index = all_prompts
+        self._data["prompts"] = list(all_prompts.values())
+
+        # 构建分类列表
+        # 如果分类文件有定义则用分类文件的，否则从提示词中推断
+        if self._categories:
+            self._data["categories"] = sorted(
+                list(self._categories.values()),
+                key=lambda c: c.get("sort_order", 99)
+            )
+        elif legacy_prompts:
+            # 旧版兼容：从旧版 _meta/categories 提取
+            legacy_data = self._load_raw_json(_LEGACY_DEFAULTS_PATH)
+            if legacy_data:
+                self._data["categories"] = legacy_data.get("categories", [])
+                self._data["_meta"] = legacy_data.get("_meta", {})
+
+        # 补充：收集提示词中出现的分类但不在 categories 列表中的
+        existing_cat_keys = {c.get("key") for c in self._data["categories"]}
+        for p in all_prompts.values():
+            cat_key = p.get("category", "")
+            if cat_key and cat_key not in existing_cat_keys:
+                self._data["categories"].append({
+                    "key": cat_key,
+                    "name": cat_key,
+                    "icon": "📝",
+                    "description": "",
+                    "color": "#6b7280",
+                })
+                existing_cat_keys.add(cat_key)
+
         logger.info(
-            "PromptLoader: 已加载 %d 个提示词模板",
+            "PromptLoader: 已加载 %d 个提示词模板（%d 个分类文件），%d 个分类",
             len(self._index),
+            len(category_files),
+            len(self._data["categories"]),
         )
+
+    @staticmethod
+    def _load_raw_json(path: Path) -> Optional[Dict[str, Any]]:
+        """加载 JSON 文件的原始数据。"""
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.error("PromptLoader: 读取 JSON 失败 %s — %s", path, exc)
+            return None
+
+    def _load_single_file(self, path: Path) -> List[Dict[str, Any]]:
+        """从单个 JSON 文件加载提示词列表。"""
+        data = self._load_raw_json(path)
+        if not data:
+            return []
+        return data.get("prompts", [])
 
     def reload(self) -> None:
         """重新加载（编辑 JSON 后调用）。"""
@@ -115,7 +207,6 @@ class PromptLoader:
             return {}
         raw = entry.get(directives_key, {})
         if isinstance(raw, dict):
-            # 确保所有 value 都是 str
             return {k: str(v) for k, v in raw.items()}
         return {}
 
@@ -144,10 +235,10 @@ class PromptLoader:
         """简单渲染模板（{variable} 替换）。
 
         Args:
-            prompt_id: 提示词 ID
-            template_field: 要渲染的字段名（默认 user_template，
-                           也可传 system_template 等）
-            variables: 变量字典
+          prompt_id: 提示词 ID
+          template_field: 要渲染的字段名（默认 user_template，
+                         也可传 system_template 等）
+          variables: 变量字典
 
         Returns:
           渲染后的字符串。
@@ -164,6 +255,18 @@ class PromptLoader:
             return raw.format_map(SafeDict(variables))
         except (KeyError, ValueError, IndexError):
             return raw
+
+    # ------------------------------------------------------------------
+    # 分类信息
+    # ------------------------------------------------------------------
+
+    def get_categories(self) -> List[Dict[str, Any]]:
+        """获取所有分类定义（含 sort_order 排序）。"""
+        return self._data.get("categories", [])
+
+    def get_category(self, key: str) -> Optional[Dict[str, Any]]:
+        """获取单个分类定义。"""
+        return self._categories.get(key)
 
     # ------------------------------------------------------------------
     # 元信息
@@ -188,6 +291,11 @@ class PromptLoader:
     def exists(self, prompt_id: str) -> bool:
         """检查提示词是否存在。"""
         return prompt_id in self._index
+
+    @property
+    def total_count(self) -> int:
+        """已加载的提示词总数。"""
+        return len(self._index)
 
 
 # ------------------------------------------------------------------
