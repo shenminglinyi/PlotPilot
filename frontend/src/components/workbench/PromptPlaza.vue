@@ -466,7 +466,18 @@ onMounted(() => {
   loadData()
 })
 
-defineExpose({ loadData })
+// ★ 供外部联动调用：按 CPMS node_key 选中并打开提示词详情
+function selectNodeByKey(nodeKey: string) {
+  const node = allNodes.value.find(n => n.node_key === nodeKey)
+  if (node) {
+    openDetail(node)
+  } else {
+    // 未找到精确匹配，尝试搜索
+    searchQuery.value = nodeKey
+  }
+}
+
+defineExpose({ loadData, selectNodeByKey })
 </script>
 
 <style scoped>
