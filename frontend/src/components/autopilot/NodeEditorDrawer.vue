@@ -1,169 +1,106 @@
 <template>
+  <!-- DAG 节点配置抽屉 — 仅用于运行参数调整，提示词编辑走提示词广场 -->
   <n-drawer
-    :show="editorStore.isOpen"
-    :width="640"
+    :show="isOpen"
+    :width="480"
     placement="right"
     @update:show="handleClose"
   >
     <n-drawer-content :title="drawerTitle">
-      <!-- ─── Prompt 模板编辑 ─── -->
-      <n-collapse :default-expanded-names="['prompt', 'variables', 'preview']">
-        <!-- Prompt 模板 -->
-        <n-collapse-item title="📝 Prompt 模板" name="prompt">
-          <n-input
-            v-model:value="editorStore.promptTemplate"
-            type="textarea"
-            :rows="12"
-            placeholder="输入 Prompt 模板，使用 {{变量名}} 插入变量..."
-            font="monospace"
-            @update:value="editorStore.renderLocalPreview"
+      <!-- 提示词关联信息 + 跳转广场 -->
+      <div v-if="cpmsNodeKey" class="cpms-section">
+        <div class="cpms-header">
+          <span class="cpms-icon">🏪</span>
+          <div class="cpms-info">
+            <span class="cpms-label">关联提示词</span>
+            <code class="cpms-key">{{ cpmsNodeKey }}</code>
+          </div>
+          <n-button size="small" type="primary" secondary @click="handleOpenPlaza">
+            在广场编辑
+          </n-button>
+        </div>
+        <p class="cpms-hint">
+          点击「在广场编辑」打开提示词广场，支持编辑、版本管理、回滚。
+        </p>
+      </div>
+
+      <!-- 运行参数 -->
+      <n-form label-placement="left" label-width="100" size="small" class="config-form">
+        <n-form-item label="温度">
+          <n-slider
+            v-model:value="localConfig.temperature"
+            :min="0"
+            :max="2"
+            :step="0.1"
+            style="flex: 1; margin-right: 12px"
           />
-          <div class="template-toolbar">
-            <n-text depth="3" style="font-size: 11px">
-              使用 &#123;&#123;变量名&#125;&#125; 插入动态内容
-            </n-text>
-            <n-button size="tiny" quaternary @click="editorStore.resetToDefault">
-              🔄 恢复默认
-            </n-button>
-          </div>
-        </n-collapse-item>
+          <n-input-number
+            v-model:value="localConfig.temperature"
+            size="tiny"
+            :min="0"
+            :max="2"
+            :step="0.1"
+            style="width: 80px"
+          />
+        </n-form-item>
 
-        <!-- 变量注入 -->
-        <n-collapse-item v-if="variableKeys.length > 0" title="🔌 变量注入" name="variables">
-          <div class="variable-list">
-            <div v-for="key in variableKeys" :key="key" class="variable-item">
-              <n-text class="variable-key">{{ key }}</n-text>
-              <n-input
-                v-model:value="editorStore.variables[key]"
-                size="small"
-                :placeholder="`输入 ${key} 的值`"
-                @update:value="editorStore.renderLocalPreview"
-              />
-            </div>
-          </div>
-        </n-collapse-item>
+        <n-form-item label="最大 Tokens">
+          <n-input-number
+            v-model:value="localConfig.maxTokens"
+            size="small"
+            :min="100"
+            :max="16000"
+            :step="100"
+            placeholder="默认"
+            clearable
+            style="width: 160px"
+          />
+        </n-form-item>
 
-        <!-- 预览 -->
-        <n-collapse-item title="👁️ 预览" name="preview">
-          <n-card size="small" embedded>
-            <n-scrollbar style="max-height: 200px">
-              <pre class="prompt-preview">{{ editorStore.renderedPrompt || '（无预览内容）' }}</pre>
-            </n-scrollbar>
-          </n-card>
-        </n-collapse-item>
+        <n-form-item label="超时时间">
+          <n-input-number
+            v-model:value="localConfig.timeoutSeconds"
+            size="small"
+            :min="10"
+            :max="600"
+            :step="10"
+            style="width: 160px"
+          />
+          <n-text depth="3" style="margin-left: 8px; font-size: 12px">秒</n-text>
+        </n-form-item>
 
-        <!-- 阈值配置 -->
-        <n-collapse-item title="⚙️ 阈值与参数" name="thresholds">
-          <n-form label-placement="left" label-width="100" size="small">
-            <!-- 阈值 -->
-            <n-form-item v-if="isValidationNode" label="阈值配置">
-              <div class="threshold-list">
-                <div v-for="(value, key) in localThresholds" :key="key" class="threshold-item">
-                  <n-text class="threshold-key">{{ key }}</n-text>
-                  <n-slider
-                    v-model:value="localThresholds[key]"
-                    :min="0"
-                    :max="1"
-                    :step="0.05"
-                    style="flex: 1"
-                  />
-                  <n-input-number
-                    v-model:value="localThresholds[key]"
-                    size="tiny"
-                    :min="0"
-                    :max="1"
-                    :step="0.05"
-                    style="width: 80px"
-                  />
-                </div>
-                <n-button size="tiny" dashed @click="addThreshold">
-                  + 添加阈值
-                </n-button>
-              </div>
-            </n-form-item>
+        <n-form-item label="最大重试">
+          <n-input-number
+            v-model:value="localConfig.maxRetries"
+            size="small"
+            :min="0"
+            :max="5"
+            style="width: 160px"
+          />
+        </n-form-item>
 
-            <!-- 模型参数 -->
-            <n-form-item label="温度">
-              <n-slider
-                v-model:value="localConfig.temperature"
-                :min="0"
-                :max="2"
-                :step="0.1"
-                style="flex: 1; margin-right: 12px"
-              />
-              <n-input-number
-                v-model:value="localConfig.temperature"
-                size="tiny"
-                :min="0"
-                :max="2"
-                :step="0.1"
-                style="width: 80px"
-              />
-            </n-form-item>
-
-            <n-form-item label="最大 Tokens">
-              <n-input-number
-                v-model:value="localConfig.maxTokens"
-                size="small"
-                :min="100"
-                :max="16000"
-                :step="100"
-                placeholder="默认"
-                clearable
-                style="width: 160px"
-              />
-            </n-form-item>
-
-            <n-form-item label="超时时间">
-              <n-input-number
-                v-model:value="localConfig.timeoutSeconds"
-                size="small"
-                :min="10"
-                :max="600"
-                :step="10"
-                style="width: 160px"
-              />
-              <n-text depth="3" style="margin-left: 8px; font-size: 12px">秒</n-text>
-            </n-form-item>
-
-            <n-form-item label="最大重试">
-              <n-input-number
-                v-model:value="localConfig.maxRetries"
-                size="small"
-                :min="0"
-                :max="5"
-                style="width: 160px"
-              />
-            </n-form-item>
-
-            <n-form-item label="模型覆盖">
-              <n-input
-                v-model:value="localConfig.modelOverride"
-                size="small"
-                placeholder="留空使用默认模型"
-                clearable
-                style="width: 240px"
-              />
-            </n-form-item>
-          </n-form>
-        </n-collapse-item>
-      </n-collapse>
+        <n-form-item label="模型覆盖">
+          <n-input
+            v-model:value="localConfig.modelOverride"
+            size="small"
+            placeholder="留空使用默认模型"
+            clearable
+            style="width: 240px"
+          />
+        </n-form-item>
+      </n-form>
 
       <!-- 操作按钮 -->
       <template #footer>
         <div class="drawer-footer">
-          <n-button @click="editorStore.resetToDefault" :disabled="!editorStore.hasUnsavedChanges">
-            🔄 恢复默认
-          </n-button>
+          <n-button @click="handleClose(false)">关闭</n-button>
           <div class="footer-right">
-            <n-button @click="handleClose(false)">取消</n-button>
             <n-button
               type="primary"
-              :loading="editorStore.isSaving"
-              :disabled="!hasAnyChanges"
-              @click="handleSave"
+              :disabled="!hasConfigChanges"
+              @click="handleSaveConfig"
             >
-              💾 保存并生效
+              保存参数
             </n-button>
           </div>
         </div>
@@ -173,13 +110,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
-import { useNodeEditorStore } from '@/stores/nodeEditorStore'
 import { useDAGStore } from '@/stores/dagStore'
+import { usePromptPlazaBridge, DAG_TYPE_TO_CPMS_KEY } from '@/stores/promptPlazaBridge'
 
-const editorStore = useNodeEditorStore()
 const dagStore = useDAGStore()
+const plazaBridge = usePromptPlazaBridge()
 const message = useMessage()
 
 // ─── 本地配置状态 ───
@@ -191,77 +128,64 @@ const localConfig = reactive({
   modelOverride: '',
 })
 
-const localThresholds = reactive<Record<string, number>>({})
+const editingNodeId = ref<string | null>(null)
+const isOpen = ref(false)
+const cpmsNodeKeyValue = ref<string | null>(null)
 
 // ─── 计算属性 ───
 
-const variableKeys = computed(() => Object.keys(editorStore.variables))
+const cpmsNodeKey = computed(() => cpmsNodeKeyValue.value)
 
 const drawerTitle = computed(() => {
-  const nodeId = editorStore.nodeId || ''
-  const node = dagStore.dagDefinition?.nodes.find(n => n.id === nodeId)
-  const meta = node ? dagStore.nodeTypeRegistry[node.type] : null
-  return `✏️ ${meta?.display_name || nodeId} — 节点配置`
+  if (cpmsNodeKeyValue.value) {
+    return `节点配置 — ${cpmsNodeKeyValue.value}`
+  }
+  return '节点配置'
 })
 
-const isValidationNode = computed(() => {
-  const nodeId = editorStore.nodeId
-  const node = dagStore.dagDefinition?.nodes.find(n => n.id === nodeId)
-  return node?.type.startsWith('val_') || node?.type === 'gw_circuit'
-})
-
-const hasAnyChanges = computed(() => {
-  if (editorStore.hasUnsavedChanges) return true
-  const node = dagStore.dagDefinition?.nodes.find(n => n.id === editorStore.nodeId)
-  if (!node) return false
+const hasConfigChanges = computed(() => {
   return (
-    localConfig.temperature !== (node.config.temperature ?? 0.7) ||
-    localConfig.maxTokens !== (node.config.max_tokens ?? null) ||
-    localConfig.timeoutSeconds !== (node.config.timeout_seconds ?? 60) ||
-    localConfig.maxRetries !== (node.config.max_retries ?? 1) ||
-    localConfig.modelOverride !== (node.config.model_override ?? '') ||
-    JSON.stringify(localThresholds) !== JSON.stringify(node.config.thresholds ?? {})
+    localConfig.temperature !== 0.7 ||
+    localConfig.maxTokens !== null ||
+    localConfig.timeoutSeconds !== 60 ||
+    localConfig.maxRetries !== 1 ||
+    localConfig.modelOverride !== ''
   )
 })
 
+// ─── 打开抽屉（供外部调用） ───
+
+function open(nodeId: string, dagId: string) {
+  const dag = dagStore.dagDefinition
+  if (!dag) return
+
+  const node = dag.nodes.find(n => n.id === nodeId)
+  if (!node) return
+
+  editingNodeId.value = nodeId
+  const cpmsKey = DAG_TYPE_TO_CPMS_KEY[node.type] || null
+  cpmsNodeKeyValue.value = cpmsKey
+  loadLocalConfig(node)
+  isOpen.value = true
+}
+
 // ─── 初始化本地配置 ───
 
-watch(() => editorStore.isOpen, (open) => {
-  if (open) {
-    editorStore.renderLocalPreview()
-    loadLocalConfig()
-  }
-})
-
-function loadLocalConfig() {
-  const node = dagStore.dagDefinition?.nodes.find(n => n.id === editorStore.nodeId)
-  if (node) {
-    localConfig.temperature = node.config.temperature ?? 0.7
-    localConfig.maxTokens = node.config.max_tokens ?? null
-    localConfig.timeoutSeconds = node.config.timeout_seconds ?? 60
-    localConfig.maxRetries = node.config.max_retries ?? 1
-    localConfig.modelOverride = node.config.model_override ?? ''
-
-    Object.keys(localThresholds).forEach(k => delete localThresholds[k])
-    if (node.config.thresholds) {
-      Object.assign(localThresholds, node.config.thresholds)
-    }
-  }
+function loadLocalConfig(node: { config: Record<string, unknown> }) {
+  const config = node.config || {}
+  localConfig.temperature = (config.temperature as number) ?? 0.7
+  localConfig.maxTokens = (config.max_tokens as number | null) ?? null
+  localConfig.timeoutSeconds = (config.timeout_seconds as number) ?? 60
+  localConfig.maxRetries = (config.max_retries as number) ?? 1
+  localConfig.modelOverride = (config.model_override as string) ?? ''
 }
 
-function addThreshold() {
-  const key = prompt('输入阈值名称:')
-  if (key && !(key in localThresholds)) {
-    localThresholds[key] = 0.5
-  }
-}
+// ─── 保存配置 ───
 
-// ─── 保存 ───
+async function handleSaveConfig() {
+  if (!editingNodeId.value || !dagStore.dagDefinition) return
 
-async function handleSave() {
   try {
-    await editorStore.save()
-
     const config: Record<string, unknown> = {
       temperature: localConfig.temperature,
       timeout_seconds: localConfig.timeoutSeconds,
@@ -273,83 +197,90 @@ async function handleSave() {
     if (localConfig.modelOverride) {
       config.model_override = localConfig.modelOverride
     }
-    if (Object.keys(localThresholds).length > 0) {
-      config.thresholds = { ...localThresholds }
-    }
 
-    if (editorStore.novelId && editorStore.nodeId) {
-      await dagStore.updateNodeConfig(editorStore.novelId, editorStore.nodeId, config)
-    }
-
-    message.success('节点配置保存成功')
+    await dagStore.updateNodeConfig(dagStore.dagDefinition.id, editingNodeId.value, config)
+    message.success('节点参数保存成功')
   } catch {
-    message.error('节点配置保存失败')
+    message.error('节点参数保存失败')
   }
 }
 
-function handleClose(show: boolean) {
-  if (!show) {
-    editorStore.close()
+function handleOpenPlaza() {
+  if (cpmsNodeKeyValue.value) {
+    plazaBridge.openPromptInPlaza(cpmsNodeKeyValue.value)
+  } else {
+    plazaBridge.openPromptInPlaza('', false)
   }
 }
+
+function handleClose(val: boolean | ((show: boolean) => void)) {
+  if (typeof val === 'boolean' && !val) {
+    isOpen.value = false
+  } else if (typeof val === 'function') {
+    isOpen.value = false
+  }
+}
+
+defineExpose({ open })
 </script>
 
 <style scoped>
-.variable-list {
+.cpms-section {
+  margin-bottom: 16px;
+}
+
+.cpms-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--app-surface-subtle);
+  border-radius: var(--app-radius-md);
+  border: 1px solid var(--app-border);
+}
+
+.cpms-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.cpms-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 100%;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
-.variable-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.cpms-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
 }
 
-.variable-key {
-  min-width: 120px;
+.cpms-key {
+  font-size: 11px;
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  color: var(--dag-port-json);
+  color: var(--color-brand);
+  background: var(--color-brand-light);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-brand-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
 }
 
-.prompt-preview {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin: 0;
-  color: var(--dag-preview-text);
+.cpms-hint {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  margin: 8px 0 0;
+  line-height: 1.45;
 }
 
-.template-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 8px;
-}
-
-.threshold-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.threshold-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.threshold-key {
-  min-width: 100px;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--dag-port-score);
+.config-form {
+  padding-bottom: 8px;
 }
 
 .drawer-footer {

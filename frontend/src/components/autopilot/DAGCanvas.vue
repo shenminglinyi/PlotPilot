@@ -48,7 +48,7 @@ import '@vue-flow/minimap/dist/style.css'
 
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
-import { useNodeEditorStore } from '@/stores/nodeEditorStore'
+import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
 import { useDAGSSE } from '@/composables/useDAGSSE'
 import CustomNode from './CustomNode.vue'
 import CustomEdge from './CustomEdge.vue'
@@ -63,7 +63,7 @@ const emit = defineEmits<{
 
 const dagStore = useDAGStore()
 const runStore = useDAGRunStore()
-const editorStore = useNodeEditorStore()
+const plazaBridge = usePromptPlazaBridge()
 
 // SSE 连接（自动管理生命周期）
 useDAGSSE(toRef(props, 'novelId'))
@@ -92,14 +92,10 @@ function handleNodeDoubleClick(event: { node: { id: string } }) {
   const nodeId = event.node.id
   const node = dagStore.dagDefinition?.nodes.find(n => n.id === nodeId)
   if (node) {
+    // ★ 双击节点 → 跳转提示词广场（而不是本地编辑器）
     const meta = dagStore.nodeTypeRegistry[node.type]
     if (meta?.is_configurable) {
-      editorStore.open(
-        props.novelId,
-        nodeId,
-        node.config.prompt_template || meta?.prompt_template || '',
-        node.config.prompt_variables || {},
-      )
+      plazaBridge.openPromptInPlaza(node.type, true)
     }
   }
 }

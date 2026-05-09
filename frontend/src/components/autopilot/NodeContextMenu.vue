@@ -14,10 +14,10 @@
 
       <!-- 操作项 -->
       <div class="menu-item" @click="$emit('edit', nodeId)">
-        ✏️ 编辑 Prompt
+        🏪 在广场编辑提示词
       </div>
-      <div class="menu-item" @click="$emit('rerun', nodeId)">
-        🔄 从此节点重跑
+      <div class="menu-item menu-item-secondary" @click="$emit('rerun', nodeId)">
+        🔄 托管模式重跑
       </div>
       <div class="menu-divider" />
       <div class="menu-item" :class="{ 'menu-item-warning': nodeEnabled }" @click="$emit('toggle', nodeId)">
@@ -113,6 +113,11 @@ const menuStyle = computed(() => {
 .menu-item-warning:hover {
   background: var(--color-warning-dim);
   color: var(--color-warning);
+}
+
+.menu-item-secondary {
+  color: var(--app-text-secondary);
+  font-size: 11px;
 }
 
 .menu-divider {

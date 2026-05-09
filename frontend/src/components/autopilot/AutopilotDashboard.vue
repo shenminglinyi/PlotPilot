@@ -1,7 +1,7 @@
 <template>
   <div class="autopilot-dashboard" :class="{ 'dashboard--dag': viewMode === 'dag' }">
-    <!-- 顶部栏：标题 + Switch -->
-    <div class="dashboard-topbar">
+    <!-- 顶部栏：标题 + Switch（仅卡片模式显示，DAG模式由 DAGToolbar 接管） -->
+    <div v-if="viewMode !== 'dag'" class="dashboard-topbar">
       <n-text strong class="topbar-title">🧭 工作流监控</n-text>
       <n-switch
         v-model:value="isDagMode"
@@ -17,6 +17,7 @@
       v-if="viewMode === 'dag'"
       :novel-id="novelId"
       @desk-refresh="handleMonitorRefresh"
+      @switch-view="handleSwitchView"
     />
 
     <!-- 卡片视图（原有） -->
@@ -135,6 +136,10 @@ function handleBreakerOpen() {
 
 function handleBreakerReset() {
   message.success('🔄 熔断器已重置，可以重新启动 Autopilot')
+}
+
+function handleSwitchView(mode: 'card' | 'dag') {
+  viewMode.value = mode
 }
 </script>
 

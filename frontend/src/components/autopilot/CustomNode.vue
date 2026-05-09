@@ -18,8 +18,8 @@
       <div v-if="isRunning" class="node-running-indicator">
         <n-spin :size="14" />
         <span class="running-text">执行中...</span>
-        <div v-if="runState?.progress > 0" class="progress-bar">
-          <div class="progress-fill" :style="{ width: `${runState.progress * 100}%` }" />
+        <div v-if="runState && runState.progress > 0" class="progress-bar">
+          <div class="progress-fill" :style="{ width: `${(runState?.progress ?? 0) * 100}%` }" />
         </div>
       </div>
 
@@ -29,18 +29,24 @@
           <span class="metric-key">{{ m.label }}</span>
           <span class="metric-value" :style="{ color: m.color }">{{ m.value }}</span>
         </div>
-        <!-- ★ 编辑提示词快捷入口（指标下方） -->
+        <!-- ★ 编辑提示词 → 提示词广场联动 -->
         <div v-if="isConfigurable" class="node-edit-hint" @click.stop="handleEditPrompt">
-          ✏️ 编辑提示词
+          🏪 在广场编辑
+        </div>
+        <div v-if="cpmsNodeKey" class="node-cpms-key" :title="cpmsNodeKey">
+          <code>{{ cpmsNodeKey }}</code>
         </div>
       </div>
 
-      <!-- 默认：类型描述 + 编辑入口 -->
+      <!-- 默认：类型描述 + 广场编辑入口 -->
       <div v-else class="node-desc">
         <n-text depth="3" style="font-size: 11px">{{ meta?.display_name || data.type }}</n-text>
-        <!-- ★ 可配置节点：显示编辑提示词按钮 -->
+        <!-- ★ 可配置节点：跳转提示词广场 -->
         <div v-if="isConfigurable" class="node-edit-hint" @click.stop="handleEditPrompt">
-          ✏️ 编辑提示词
+          🏪 在广场编辑
+        </div>
+        <div v-if="cpmsNodeKey" class="node-cpms-key" :title="cpmsNodeKey">
+          <code>{{ cpmsNodeKey }}</code>
         </div>
       </div>
     </div>
@@ -72,7 +78,7 @@ import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
 import { useDAGStore } from '@/stores/dagStore'
-import { useNodeEditorStore } from '@/stores/nodeEditorStore'
+import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
 import type { NodeMeta, NodeStatus, PortDataType } from '@/types/dag'
 import { STATUS_COLORS, STATUS_BG_COLORS, STATUS_LABELS, CATEGORY_COLORS } from '@/types/dag'
 
@@ -194,7 +200,9 @@ const displayMetrics = computed(() => {
   return items.slice(0, 3)
 })
 
-// ─── 编辑提示词 ───
+// ─── 编辑提示词 → 跳转提示词广场 ───
+
+const plazaBridge = usePromptPlazaBridge()
 
 function handleEditPrompt() {
   const nodeId = data.value.id
@@ -203,15 +211,15 @@ function handleEditPrompt() {
   const node = dag.nodes.find(n => n.id === nodeId)
   if (!node) return
 
-  const nodeMeta = dagStore.nodeTypeRegistry[node.type]
-  const editorStore = useNodeEditorStore()
-  editorStore.open(
-    dag.id || '',
-    nodeId,
-    node.config.prompt_template || nodeMeta?.prompt_template || '',
-    node.config.prompt_variables || {},
-  )
+  // 通过 DAG 节点类型映射到 CPMS 提示词节点 key，打开提示词广场
+  plazaBridge.openPromptInPlaza(node.type, true)
 }
+
+/** 获取当前节点对应的 CPMS 提示词节点 key（用于显示提示词链接） */
+const cpmsNodeKey = computed(() => {
+  const nodeType = data.value.type
+  return plazaBridge.getCpmsKey(nodeType) || null
+})
 
 // ─── 端口样式（数据类型 → CSS 变量映射）───
 
@@ -391,6 +399,25 @@ function portStyle(dataType: PortDataType) {
 .node-edit-hint:hover {
   background: var(--color-brand);
   color: #fff;
+}
+
+/* ── CPMS 提示词节点 key 标识 ── */
+.node-cpms-key {
+  margin-top: 2px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-cpms-key code {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--app-text-muted);
+  background: var(--app-surface-subtle);
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid var(--app-border);
 }
 
 .node-ports {

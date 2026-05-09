@@ -1,7 +1,7 @@
 <template>
   <div class="dag-toolbar">
     <div class="toolbar-left">
-      <n-text strong class="toolbar-title-text">🧭 DAG 工作流</n-text>
+      <n-text strong class="toolbar-title-text">🧭 DAG 可视化</n-text>
       <!-- DAG 统计 -->
       <n-tag v-if="dagStats" size="small" round>
         {{ dagStats.total }} 节点 · {{ dagStats.enabled }} 启用
@@ -12,9 +12,10 @@
           · <n-text type="error">{{ dagStats.error }} 错误</n-text>
         </template>
       </n-tag>
-      <!-- 运行状态指示 -->
+
+      <!-- ★ 托管模式状态指示（替代原来的DAG运行状态） -->
       <n-tag
-        v-if="runStatus === 'running'"
+        v-if="autopilotStatus === 'running'"
         size="small"
         type="info"
         round
@@ -23,26 +24,45 @@
         <template #icon>
           <n-spin :size="12" />
         </template>
-        运行中
+        托管运行中
       </n-tag>
       <n-tag
-        v-else-if="runStatus === 'completed'"
+        v-else-if="autopilotStatus === 'paused'"
+        size="small"
+        type="warning"
+        round
+        :bordered="false"
+      >
+        ⏸️ 等待审阅
+      </n-tag>
+      <n-tag
+        v-else-if="autopilotStatus === 'completed'"
         size="small"
         type="success"
         round
         :bordered="false"
       >
-        ✅ 已完成
+        ✅ 全书完成
       </n-tag>
       <n-tag
-        v-else-if="runStatus === 'error'"
+        v-else-if="autopilotStatus === 'error'"
         size="small"
         type="error"
         round
         :bordered="false"
       >
-        ❌ 错误
+        ❌ 托管异常
       </n-tag>
+      <n-tag
+        v-else
+        size="small"
+        type="default"
+        round
+        :bordered="false"
+      >
+        ⏹ 空闲
+      </n-tag>
+
       <!-- SSE 连接状态 -->
       <n-tooltip trigger="hover">
         <template #trigger>
@@ -68,6 +88,10 @@
         <template #unchecked>卡片</template>
       </n-switch>
 
+      <!-- ★ 提示词广场入口 -->
+      <n-button size="small" quaternary type="primary" @click="$emit('openPlaza')">
+        🏪 广场
+      </n-button>
       <!-- 验证 -->
       <n-button size="small" quaternary @click="$emit('validate')">
         ✅ 校验
@@ -76,32 +100,12 @@
       <n-button size="small" quaternary @click="$emit('save')">
         💾 保存
       </n-button>
-      <!-- 运行/停止 -->
-      <n-button
-        v-if="runStatus !== 'running'"
-        size="small"
-        type="primary"
-        :disabled="runStatus === 'stopping'"
-        @click="$emit('run')"
-      >
-        ▶ 启动
-      </n-button>
-      <n-button
-        v-else
-        size="small"
-        type="warning"
-        :loading="runStatus === 'stopping'"
-        @click="$emit('stop')"
-      >
-        ⏹ 停止
-      </n-button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { DAGRunStatus } from '@/stores/dagRunStore'
 
 const props = defineProps<{
   novelId: string
@@ -115,7 +119,8 @@ const props = defineProps<{
     bypassed: number
     version?: number
   }
-  runStatus: DAGRunStatus
+  /** ★ 托管模式状态（从 AutopilotDaemon 获取，替代原来的 DAG 运行状态） */
+  autopilotStatus: 'idle' | 'running' | 'paused' | 'completed' | 'error'
   sseConnected: boolean
 }>()
 
@@ -123,8 +128,8 @@ defineEmits<{
   switchView: [mode: 'card' | 'dag']
   save: []
   validate: []
-  run: []
-  stop: []
+  /** ★ 打开提示词广场 */
+  openPlaza: []
 }>()
 
 const isDagMode = computed(() => props.viewMode === 'dag')
