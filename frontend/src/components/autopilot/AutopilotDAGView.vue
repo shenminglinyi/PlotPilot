@@ -7,7 +7,7 @@
       :dag-stats="dagStore.dagStats"
       :autopilot-status="autopilotStatus"
       :sse-connected="runStore.sseConnected"
-      @switch-view="handleSwitchView"
+      :has-unsaved-changes="dagStore.hasUnsavedChanges"
       @save="handleSave"
       @validate="handleValidate"
       @open-plaza="handleOpenPlaza"
@@ -68,7 +68,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'desk-refresh': []
-  'switch-view': [mode: 'card' | 'dag']
 }>()
 
 const dagStore = useDAGStore()
@@ -126,12 +125,6 @@ async function handleValidate() {
 /** ★ 打开提示词广场 */
 function handleOpenPlaza() {
   plazaBridge.openPromptInPlaza('', false)
-}
-
-/** ★ 切换视图模式 → 通知 Dashboard */
-function handleSwitchView(mode: 'card' | 'dag') {
-  dagStore.switchView(mode)
-  emit('switch-view', mode)
 }
 
 // ─── 画布右键菜单 ───
