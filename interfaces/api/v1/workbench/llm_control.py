@@ -628,3 +628,307 @@ async def render_prompt(
     if result is None:
         raise HTTPException(status_code=404, detail=f"Prompt '{node_key}' not found")
     return result
+
+
+# ======================================================================
+# CPMS 增强端点：单节点调试 / COT 展示 / 沙盒渲染校验 / 变量注册表 / 绑定管理
+# ======================================================================
+
+
+class PromptDebugRequest(BaseModel):
+    """请求体：单节点调试渲染（含诊断信息）。"""
+
+    variables: Dict[str, Any] = Field(default_factory=dict)
+    validate_schemas: bool = True
+
+
+class PromptSandboxRequest(BaseModel):
+    """请求体：沙盒渲染校验（保存前预检）。"""
+
+    system: str = ""
+    user_template: str = ""
+    variables: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post('/prompts/{node_key}/debug')
+async def debug_prompt_node(
+    node_key: str,
+    payload: PromptDebugRequest,
+) -> Dict[str, Any]:
+    """单节点调试：渲染 + 完整诊断信息（缺失变量、类型校验、渲染耗时）。
+
+    用于提示词广场的"调试模式"——用户输入变量后实时查看渲染结果和诊断。
+    """
+    from infrastructure.ai.prompt_registry import get_prompt_registry
+
+    registry = get_prompt_registry()
+
+    # 获取节点
+    node = registry.get_node(node_key)
+    if node is None:
+        # 尝试按 ID
+        mgr = get_prompt_manager()
+        mgr.ensure_seeded()
+        node = mgr.get_node(node_key, by_key=False)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Prompt node '{node_key}' not found")
+
+    # 使用 PromptRegistry.render 获取完整 RenderResult
+    import time as _time
+    t0 = _time.monotonic()
+    result = registry.render(
+        node_key if registry.get_node(node_key) else node.node_key,
+        variables=payload.variables,
+        validate_schemas=payload.validate_schemas,
+    )
+    elapsed_ms = int((_time.monotonic() - t0) * 1000)
+
+    if result is None:
+        return {
+            "success": False,
+            "error": "渲染失败：模板引擎返回 None",
+            "node_key": node_key,
+            "elapsed_ms": elapsed_ms,
+        }
+
+    return {
+        "success": result.success,
+        "system": result.system,
+        "user": result.user,
+        "diagnostics": {
+            "errors": result.errors,
+            "warnings": result.warnings,
+            "missing_variables": result.missing_variables,
+            "rendered_variables": result.rendered_variables,
+            "missing_required": result.missing_required,
+        },
+        "node_key": node_key,
+        "node_name": node.name,
+        "variables_provided": list(payload.variables.keys()),
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+@router.get('/prompts/{node_key}/chain')
+async def get_prompt_chain(node_key: str) -> Dict[str, Any]:
+    """COT 展示：获取节点的完整调用链（绑定关系 + 上下游依赖）。
+
+    返回：
+    - 节点本身信息
+    - 绑定的工作流/服务
+    - 被哪些其他节点引用（依赖图）
+    - 变量来源追踪
+    """
+    from infrastructure.ai.prompt_registry import get_prompt_registry
+
+    registry = get_prompt_registry()
+
+    node = registry.get_node(node_key)
+    if node is None:
+        mgr = get_prompt_manager()
+        mgr.ensure_seeded()
+        node = mgr.get_node(node_key, by_key=False)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Prompt node '{node_key}' not found")
+
+    # 获取绑定信息（遍历所有工作流查找引用此节点的绑定）
+    bindings = []
+    reverse_deps = []
+    try:
+        from infrastructure.ai.prompt_binding_store import get_binding_store
+        store = get_binding_store()
+        for wf in store.list_workflows():
+            for b in wf.bindings:
+                if b.node_key == node.node_key:
+                    bindings.append({
+                        "workflow_id": b.workflow_id,
+                        "workflow_name": wf.name,
+                        "slot": b.slot,
+                        "priority": b.priority,
+                        "enabled": b.enabled,
+                    })
+                    reverse_deps.append({
+                        "workflow_id": b.workflow_id,
+                        "workflow_name": wf.name,
+                        "slot": b.slot,
+                    })
+    except Exception as exc:
+        logger.debug("绑定查询失败: %s", exc)
+
+    # 变量来源追踪
+    variable_sources = []
+    for var_def in node.variables:
+        var_name = var_def.get("name", "")
+        var_source = var_def.get("source", "seed")
+        variable_sources.append({
+            "name": var_name,
+            "type": var_def.get("type", "string"),
+            "source": var_source,
+            "required": var_def.get("required", False),
+            "default": var_def.get("default"),
+        })
+
+    return {
+        "node_key": node.node_key,
+        "node_name": node.name,
+        "category": node.category,
+        "source": node.source,
+        "bindings": bindings,
+        "reverse_dependencies": reverse_deps,
+        "variables": variable_sources,
+        "version_count": len(node.versions) if hasattr(node, 'versions') and node.versions else 1,
+    }
+
+
+@router.post('/prompts/{node_key}/sandbox')
+async def sandbox_render(
+    node_key: str,
+    payload: PromptSandboxRequest,
+) -> Dict[str, Any]:
+    """沙盒渲染校验：保存前预检。
+
+    用户在提示词广场编辑模板后，保存前先用沙盒渲染验证：
+    - 语法是否正确（Jinja2 / format_map）
+    - 变量引用是否匹配
+    - 渲染结果预览
+    """
+    from infrastructure.ai.prompt_template_engine import get_template_engine
+
+    engine = get_template_engine()
+
+    # 使用传入的 system/user_template 进行沙盒渲染
+    import time as _time
+    t0 = _time.monotonic()
+    try:
+        result = engine.render(
+            system_template=payload.system,
+            user_template=payload.user_template,
+            variables=payload.variables,
+        )
+    except Exception as exc:
+        return {
+            "valid": False,
+            "error": f"模板语法错误: {exc}",
+            "system_preview": "",
+            "user_preview": "",
+        }
+    elapsed_ms = int((_time.monotonic() - t0) * 1000)
+
+    # 提取模板中引用的变量名
+    import re
+    system_vars = set(re.findall(r'\{(\w+)\}', payload.system))
+    user_vars = set(re.findall(r'\{(\w+)\}', payload.user_template))
+    all_template_vars = system_vars | user_vars
+    provided_vars = set(payload.variables.keys())
+    missing_vars = all_template_vars - provided_vars
+
+    return {
+        "valid": result.success and len(result.errors) == 0,
+        "errors": result.errors,
+        "warnings": result.warnings,
+        "missing_variables": list(missing_vars),
+        "missing_required": result.missing_required,
+        "system_preview": (result.system or "")[:2000],
+        "user_preview": (result.user or "")[:2000],
+        "template_variables": {
+            "system": list(system_vars),
+            "user": list(user_vars),
+            "all": list(all_template_vars),
+        },
+        "provided_variables": list(provided_vars),
+        "elapsed_ms": elapsed_ms,
+    }
+
+
+@router.get('/prompts/variables')
+async def list_variables(
+    node_key: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """全局变量注册表：列出所有变量 Schema。
+
+    可选按 node_key 过滤特定节点的变量。
+    """
+    from infrastructure.ai.variable_registry import get_variable_registry
+
+    vreg = get_variable_registry()
+    vreg.seed_builtin_variables()
+
+    if node_key:
+        # 过滤特定节点
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+        registry = get_prompt_registry()
+        node = registry.get_node(node_key)
+        if node is None:
+            return []
+        return [
+            {
+                "name": var_def.get("name", ""),
+                "display_name": var_def.get("display_name", var_def.get("desc", "")),
+                "type": var_def.get("type", "string"),
+                "required": var_def.get("required", False),
+                "default": var_def.get("default"),
+                "description": var_def.get("desc", ""),
+                "source": var_def.get("source", ""),
+                "scope": var_def.get("scope", "chapter"),
+                "enum_values": var_def.get("enum_values", []),
+            }
+            for var_def in node.variables
+        ]
+
+    # 返回全部已注册的变量
+    all_schemas = vreg.get_all_schemas()
+    return [
+        {
+            "name": s.name,
+            "display_name": s.display_name,
+            "type": s.type.value if hasattr(s.type, 'value') else str(s.type),
+            "required": s.required,
+            "default": s.default,
+            "description": s.description,
+            "source": s.source,
+            "scope": s.scope.value if hasattr(s.scope, 'value') else str(s.scope),
+            "enum_values": s.enum_values,
+        }
+        for s in all_schemas.values()
+    ]
+
+
+@router.get('/prompts/{node_key}/bindings')
+async def get_node_bindings(node_key: str) -> Dict[str, Any]:
+    """获取节点的绑定关系（哪些工作流/服务使用了此提示词）。"""
+    from infrastructure.ai.prompt_registry import get_prompt_registry
+
+    registry = get_prompt_registry()
+    node = registry.get_node(node_key)
+    if node is None:
+        mgr = get_prompt_manager()
+        mgr.ensure_seeded()
+        node = mgr.get_node(node_key, by_key=False)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Prompt node '{node_key}' not found")
+
+    bindings = []
+    try:
+        from infrastructure.ai.prompt_binding_store import get_binding_store
+        store = get_binding_store()
+        for wf in store.list_workflows():
+            for b in wf.bindings:
+                if b.node_key == node.node_key:
+                    bindings.append({
+                        "id": b.id,
+                        "workflow_id": b.workflow_id,
+                        "workflow_name": wf.name,
+                        "node_key": b.node_key,
+                        "slot": b.slot,
+                        "priority": b.priority,
+                        "enabled": b.enabled,
+                    })
+    except Exception as exc:
+        logger.debug("绑定查询失败: %s", exc)
+
+    return {
+        "node_key": node.node_key,
+        "node_name": node.name,
+        "bindings": bindings,
+        "binding_count": len(bindings),
+    }
