@@ -1,8 +1,10 @@
 <template>
   <div class="autopilot-dashboard" :class="{ 'dashboard--dag': viewMode === 'dag' }">
-    <!-- 顶部栏：标题 + Switch（仅卡片模式显示，DAG模式由 DAGToolbar 接管） -->
-    <div v-if="viewMode !== 'dag'" class="dashboard-topbar">
-      <n-text strong class="topbar-title">🧭 工作流监控</n-text>
+    <!-- 顶部栏：标题 + Switch -->
+    <div class="dashboard-topbar">
+      <n-text strong class="topbar-title">
+        {{ viewMode === 'dag' ? '🧭 DAG 可视化' : '🧭 工作流监控' }}
+      </n-text>
       <n-switch
         v-model:value="isDagMode"
         size="small"
@@ -70,6 +72,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGRunStore } from '@/stores/dagRunStore'
+import { useDAGStore } from '@/stores/dagStore'
 import TensionChart from './TensionChart.vue'
 import AutopilotTerminalLog from './AutopilotTerminalLog.vue'
 import VoiceDriftIndicator from './VoiceDriftIndicator.vue'
@@ -87,12 +90,14 @@ const emit = defineEmits<{
 
 const message = useMessage()
 const runStore = useDAGRunStore()
+const dagStore = useDAGStore()
 
-// 视图模式：卡片 / DAG
-const viewMode = ref<'card' | 'dag'>('card')
+// 使用 dagStore 的 viewMode 作为单一状态源
+const viewMode = computed(() => dagStore.viewMode)
+
 const isDagMode = computed({
-  get: () => viewMode.value === 'dag',
-  set: (val: boolean) => { viewMode.value = val ? 'dag' : 'card' },
+  get: () => dagStore.viewMode === 'dag',
+  set: (val: boolean) => { dagStore.switchView(val ? 'dag' : 'card') },
 })
 
 // 🔥 监控面板统一刷新信号
@@ -139,7 +144,7 @@ function handleBreakerReset() {
 }
 
 function handleSwitchView(mode: 'card' | 'dag') {
-  viewMode.value = mode
+  dagStore.switchView(mode)
 }
 </script>
 
