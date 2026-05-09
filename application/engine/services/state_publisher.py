@@ -20,11 +20,6 @@ from application.engine.services.shared_state_repository import (
     NovelState,
     get_shared_state_repository,
 )
-from application.engine.services.persistence_queue import (
-    PersistenceQueue,
-    PersistenceCommandType,
-    get_persistence_queue,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +28,31 @@ class StatePublisher:
     """状态发布器 - 守护进程的唯一写入入口
 
     🔥 核心原则：先写共享内存（立即可见），再推送持久化命令（异步）
+
+    ✅ 使用适配器模式，透明切换新旧队列实现
     """
 
     def __init__(
         self,
         shared_state: Optional[SharedStateRepository] = None,
-        persistence_queue: Optional[PersistenceQueue] = None,
+        persistence_queue=None,  # 支持注入队列实例
     ):
         self._shared = shared_state or get_shared_state_repository()
-        self._queue = persistence_queue or get_persistence_queue()
+
+        # 使用适配器模式
+        if persistence_queue is None:
+            from application.engine.services.persistence_queue_adapter import get_persistence_queue_adapter
+            self._queue = get_persistence_queue_adapter()
+        else:
+            self._queue = persistence_queue
+
+        # 导入命令类型（兼容新旧实现）
+        try:
+            from application.engine.services.persistence_queue_v2 import PersistenceCommandType
+        except ImportError:
+            from application.engine.services.persistence_queue import PersistenceCommandType
+
+        self._command_types = PersistenceCommandType
 
     # ==================== 小说状态 ====================
 
@@ -84,7 +95,7 @@ class StatePublisher:
 
         # 4. 推送持久化命令（异步）
         self._queue.push(
-            PersistenceCommandType.UPDATE_NOVEL_STATE.value,
+            self._command_types.UPDATE_NOVEL_STATE.value,
             {"novel_id": novel_id, **state.to_dict()},
         )
 
@@ -142,7 +153,7 @@ class StatePublisher:
 
         # 4. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPSERT_CHAPTER.value,
+            self._command_types.UPSERT_CHAPTER.value,
             {
                 "novel_id": novel_id,
                 "id": chapter_id,
@@ -165,7 +176,7 @@ class StatePublisher:
 
         # 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_CHAPTER_STATUS.value,
+            self._command_types.UPDATE_CHAPTER_STATUS.value,
             {
                 "novel_id": novel_id,
                 "chapter_number": chapter_number,
@@ -189,7 +200,7 @@ class StatePublisher:
 
         # 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_CHAPTER_WORD_COUNT.value,
+            self._command_types.UPDATE_CHAPTER_WORD_COUNT.value,
             {
                 "novel_id": novel_id,
                 "chapter_number": chapter_number,
@@ -210,7 +221,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_FORESHADOWS.value,
+            self._command_types.UPDATE_FORESHADOWS.value,
             {"novel_id": novel_id, "entries": entries},
         )
 
@@ -227,7 +238,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_STORYLINES.value,
+            self._command_types.UPDATE_STORYLINES.value,
             {"novel_id": novel_id, "storylines": storylines},
         )
 
@@ -244,7 +255,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_PLOT_ARC.value,
+            self._command_types.UPDATE_PLOT_ARC.value,
             {"novel_id": novel_id, "arc": arc},
         )
 
@@ -261,7 +272,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_CHRONICLES.value,
+            self._command_types.UPDATE_CHRONICLES.value,
             {"novel_id": novel_id, "rows": rows},
         )
 
@@ -278,7 +289,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_KNOWLEDGE.value,
+            self._command_types.UPDATE_KNOWLEDGE.value,
             {"novel_id": novel_id, "knowledge": knowledge},
         )
 
@@ -338,7 +349,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_BIBLE.value,
+            self._command_types.UPDATE_BIBLE.value,
             {"novel_id": novel_id, "bible": bible},
         )
 
@@ -351,7 +362,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_TRIPLES.value,
+            self._command_types.UPDATE_TRIPLES.value,
             {"novel_id": novel_id, "triples": triples},
         )
 
@@ -364,7 +375,7 @@ class StatePublisher:
 
         # 2. 推送持久化命令
         self._queue.push(
-            PersistenceCommandType.UPDATE_SNAPSHOTS.value,
+            self._command_types.UPDATE_SNAPSHOTS.value,
             {"novel_id": novel_id, "snapshots": snapshots},
         )
 
