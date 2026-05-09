@@ -70,8 +70,8 @@ export const useDAGStore = defineStore('dag', () => {
           condition: edgeDef.condition,
           isActive,
         },
+        // 条件边：虚线样式（具体色值由 CustomEdge 组件 CSS 驱动，此处仅标记）
         style: {
-          stroke: edgeDef.condition !== 'always' ? '#94a3b8' : undefined,
           strokeDasharray: edgeDef.condition !== 'always' ? '5 5' : undefined,
         },
       }

@@ -242,6 +242,53 @@ export const useDAGRunStore = defineStore('dagRun', () => {
     _runCompleteCallbacks.forEach(cb => cb(result))
   }
 
+  // ─── 托管模式日志流连接（桥接到 DAG 节点状态） ───
+
+  let _autopilotLogSource: EventSource | null = null
+  let _autopilotLogCallback: ((data: { type: string; message: string; metadata?: Record<string, unknown> }) => void) | null = null
+
+  function connectAutopilotLog(
+    novelId: string,
+    callback: (data: { type: string; message: string; metadata?: Record<string, unknown> }) => void,
+  ) {
+    disconnectAutopilotLog()
+    _autopilotLogCallback = callback
+
+    const url = resolveHttpUrl(`/api/v1/autopilot/${novelId}/log-stream`)
+    try {
+      _autopilotLogSource = new EventSource(url)
+
+      _autopilotLogSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (_autopilotLogCallback && data.type !== 'heartbeat' && data.type !== 'connected') {
+            _autopilotLogCallback({
+              type: data.type || 'log',
+              message: data.message || '',
+              metadata: data.metadata || data.meta || {},
+            })
+          }
+        } catch {
+          // 忽略解析错误
+        }
+      }
+
+      _autopilotLogSource.onerror = () => {
+        // 静默失败，不重连（DAG SSE 已有自己的重连机制）
+      }
+    } catch {
+      // 连接失败，静默
+    }
+  }
+
+  function disconnectAutopilotLog() {
+    if (_autopilotLogSource) {
+      _autopilotLogSource.close()
+      _autopilotLogSource = null
+    }
+    _autopilotLogCallback = null
+  }
+
   // ─── 重置 ───
 
   function resetForNovel(novelId: string) {
@@ -251,6 +298,7 @@ export const useDAGRunStore = defineStore('dagRun', () => {
     nodeStates.value = {}
     sseError.value = null
     disconnectSSE()
+    disconnectAutopilotLog()
   }
 
   return {
@@ -283,5 +331,9 @@ export const useDAGRunStore = defineStore('dagRun', () => {
     onNodeOutput,
     onEdgeFlow,
     onRunComplete,
+
+    // Autopilot log bridge
+    connectAutopilotLog,
+    disconnectAutopilotLog,
   }
 })

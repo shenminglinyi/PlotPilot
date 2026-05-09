@@ -1,5 +1,8 @@
 /**
  * DAG 工作流类型定义 — 前后端共享 Schema
+ *
+ * 颜色策略：所有 UI 色值统一走 CSS 自定义属性（--dag-* / --color-* / --app-*），
+ * 此文件仅保留语义标签，具体色值由 main.css 三套主题变量层驱动。
  */
 
 // ─── 枚举 ───
@@ -167,13 +170,14 @@ export interface DAGStatusResponse {
   node_states: Record<string, { status: NodeStatus; enabled: boolean }>
 }
 
-// ─── 节点分类颜色映射 ───
+// ─── 节点分类 → CSS 变量名映射 ───
+// 不再硬编码色值，由组件通过 var() 读取
 
 export const CATEGORY_COLORS: Record<NodeCategory, string> = {
-  context: '#6366f1',
-  execution: '#3b82f6',
-  validation: '#f59e0b',
-  gateway: '#ef4444',
+  context:  'var(--color-purple)',
+  execution: 'var(--color-info)',
+  validation: 'var(--color-warning)',
+  gateway:  'var(--color-danger)',
 }
 
 export const CATEGORY_LABELS: Record<NodeCategory, string> = {
@@ -183,30 +187,30 @@ export const CATEGORY_LABELS: Record<NodeCategory, string> = {
   gateway: '🚦 网关与熔断',
 }
 
-// ─── 节点状态视觉映射 ───
+// ─── 节点状态 → CSS 变量名映射 ───
 
 export const STATUS_COLORS: Record<NodeStatus, string> = {
-  idle: '#94a3b8',
-  pending: '#94a3b8',
-  running: '#3b82f6',
-  success: '#22c55e',
-  warning: '#f59e0b',
-  error: '#ef4444',
-  bypassed: '#6b7280',
-  disabled: '#d1d5db',
-  completed: '#22c55e',
+  idle:      'var(--app-text-muted)',
+  pending:   'var(--app-text-muted)',
+  running:   'var(--color-brand)',
+  success:   'var(--color-success)',
+  warning:   'var(--color-warning)',
+  error:     'var(--color-danger)',
+  bypassed:  'var(--app-text-muted)',
+  disabled:  'var(--app-border-strong)',
+  completed: 'var(--color-success)',
 }
 
 export const STATUS_BG_COLORS: Record<NodeStatus, string> = {
-  idle: 'transparent',
-  pending: 'transparent',
-  running: 'rgba(59,130,246,0.08)',
-  success: 'rgba(34,197,94,0.06)',
-  warning: 'rgba(245,158,11,0.06)',
-  error: 'rgba(239,68,68,0.08)',
-  bypassed: 'rgba(107,114,128,0.04)',
-  disabled: 'rgba(209,213,219,0.04)',
-  completed: 'rgba(34,197,94,0.06)',
+  idle:      'transparent',
+  pending:   'transparent',
+  running:   'var(--color-brand-light)',
+  success:   'var(--color-success-dim)',
+  warning:   'var(--color-warning-dim)',
+  error:     'var(--color-danger-dim)',
+  bypassed:  'var(--app-divider)',
+  disabled:  'var(--app-divider)',
+  completed: 'var(--color-success-dim)',
 }
 
 export const STATUS_LABELS: Record<NodeStatus, string> = {
