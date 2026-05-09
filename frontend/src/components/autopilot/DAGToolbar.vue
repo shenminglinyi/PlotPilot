@@ -78,6 +78,16 @@
         v{{ dagStats.version || 1 }}
       </n-text>
 
+      <!-- Switch 视图切换 -->
+      <n-switch
+        :value="viewMode === 'dag'"
+        size="small"
+        @update:value="$emit('switchView', $event ? 'dag' : 'card')"
+      >
+        <template #checked>DAG</template>
+        <template #unchecked>卡片</template>
+      </n-switch>
+
       <!-- ★ 提示词广场入口 -->
       <n-button size="small" quaternary type="primary" @click="$emit('openPlaza')">
         🏪 广场
@@ -100,6 +110,7 @@
 <script setup lang="ts">
 const props = defineProps<{
   novelId: string
+  viewMode: 'card' | 'dag'
   dagStats: {
     total: number
     enabled: number
@@ -117,6 +128,7 @@ const props = defineProps<{
 }>()
 
 defineEmits<{
+  switchView: [mode: 'card' | 'dag']
   save: []
   validate: []
   /** ★ 打开提示词广场 */
