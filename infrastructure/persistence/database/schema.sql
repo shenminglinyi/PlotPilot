@@ -704,4 +704,35 @@ CREATE TABLE IF NOT EXISTS llm_profiles (
 CREATE INDEX IF NOT EXISTS idx_llm_profiles_sort ON llm_profiles(sort_order);
 
 
+-- ========== DAG 版本管理（替代文件系统存储）==========
+-- DAG 版本历史表：存储 DAG 定义的完整版本历史
+CREATE TABLE IF NOT EXISTS dag_versions (
+    id TEXT PRIMARY KEY,  -- UUID
+    novel_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    dag_id TEXT NOT NULL,  -- dag_novel_xxx
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+
+    -- DAG 结构数据（JSON 字符串）
+    nodes_json TEXT NOT NULL,  -- JSON array of NodeDefinition
+    edges_json TEXT NOT NULL,  -- JSON array of EdgeDefinition
+
+    -- 元数据
+    fingerprint TEXT NOT NULL,  -- SHA256 hash (16 chars)
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+
+    FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
+    UNIQUE(novel_id, version)  -- 确保同一 novel 下版本号唯一
+);
+
+-- 索引：按 novel_id 查询版本列表
+CREATE INDEX IF NOT EXISTS idx_dag_versions_novel ON dag_versions(novel_id);
+-- 索引：按 novel_id + version 查询特定版本
+CREATE INDEX IF NOT EXISTS idx_dag_versions_novel_version ON dag_versions(novel_id, version);
+-- 索引：按更新时间排序（用于清理旧版本）
+CREATE INDEX IF NOT EXISTS idx_dag_versions_updated_at ON dag_versions(novel_id, updated_at DESC);
+
+
 
