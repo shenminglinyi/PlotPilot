@@ -253,6 +253,9 @@ class ThemeAgent(ABC):
     3. magnify_outline_to_beats() → get_beat_templates()
     4. _handle_writing() buffer → get_buffer_chapter_template()
 
+    CPMS 改造：所有方法优先从 PromptRegistry 获取（广场可编辑），
+    子类的硬编码返回值作为回退。
+
     实现者只需覆盖想要定制的方法，其余使用基类默认值。
     """
 
@@ -277,6 +280,36 @@ class ThemeAgent(ABC):
         """题材描述（可选）"""
         return ""
 
+    # ─── CPMS 数据驱动支持 ───
+
+    def _get_from_registry(self, method: str, fallback: str = "") -> str:
+        """从 PromptRegistry 获取题材提示词（CPMS 数据驱动）。
+
+        命名规则：theme-{genre_key}-{method}
+        如：theme-romance-system_persona
+
+        Args:
+            method: 方法名（如 "system_persona", "writing_rules"）
+            fallback: 回退文本
+
+        Returns:
+            从 Registry 获取的文本，或回退值
+        """
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            node_key = f"theme-{self.genre_key}-{method}"
+            system = registry.get_system(node_key)
+            if system:
+                return system
+            # 也尝试 user_template
+            user = registry.get_user_template(node_key)
+            if user:
+                return user
+        except Exception:
+            pass
+        return fallback
+
     # ─── 1. 人设注入（_build_prompt 系统消息开头） ───
 
     def get_system_persona(self) -> str:
@@ -285,13 +318,21 @@ class ThemeAgent(ABC):
         替换默认的「你是一位专业的网络小说作家」，
         注入题材专项的写作身份和核心写作理念。
 
+        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
+        子类硬编码返回值作为回退。
+
         Returns:
             人设描述文本。返回空字符串则使用默认人设。
-
-        Example:
-            "你是一位精通东方仙侠体系的玄幻小说大师，擅长..."
         """
         return ""
+
+    def get_effective_system_persona(self) -> str:
+        """获取生效的人设文本（CPMS 统一入口）。
+
+        优先级：PromptRegistry > 子类硬编码 > 默认空值
+        """
+        hardcoded = self.get_system_persona()
+        return self._get_from_registry("system_persona", fallback=hardcoded)
 
     # ─── 2. 写作规则注入（_build_prompt 写作要求部分） ───
 
@@ -301,16 +342,23 @@ class ThemeAgent(ABC):
         追加到默认 8 条写作规则之后。每条规则为一个字符串，
         会自动编号（从 9 开始，或紧跟现有规则）。
 
+        CPMS: 优先从 PromptRegistry 获取（支持换行分隔的多条规则），
+        子类硬编码返回值作为回退。
+
         Returns:
             规则列表。空列表则不追加。
-
-        Example:
-            [
-                "战斗场景必须有具体的招式/功法描写，不能只写'一拳打去'",
-                "修炼突破时必须描写身体变化和境界感悟",
-            ]
         """
         return []
+
+    def get_effective_writing_rules(self) -> List[str]:
+        """获取生效的写作规则列表（CPMS 统一入口）。"""
+        registry_text = self._get_from_registry("writing_rules")
+        if registry_text:
+            # 从文本解析规则列表（按换行分隔，过滤空行）
+            rules = [line.strip() for line in registry_text.split("\n") if line.strip()]
+            if rules:
+                return rules
+        return self.get_writing_rules()
 
     # ─── 3. 上下文指令注入（_collect_all_slots T0 槽位） ───
 
@@ -334,6 +382,28 @@ class ThemeAgent(ABC):
             ThemeDirectives 对象
         """
         return ThemeDirectives()
+
+    def get_effective_context_directives(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+    ) -> ThemeDirectives:
+        """获取生效的上下文指令（CPMS 统一入口）。
+
+        优先从 PromptRegistry 获取各维度文本，
+        子类硬编码返回值作为回退。
+        """
+        base = self.get_context_directives(novel_id, chapter_number, outline)
+
+        # 逐维度尝试从 Registry 获取
+        for field_name in ["world_rules", "atmosphere", "taboos",
+                           "tropes_to_use", "tropes_to_avoid"]:
+            registry_text = self._get_from_registry(f"ctx_{field_name}")
+            if registry_text:
+                setattr(base, field_name, registry_text)
+
+        return base
 
     # ─── 4. 节拍模板注入（magnify_outline_to_beats） ───
 
