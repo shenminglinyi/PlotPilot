@@ -3,10 +3,12 @@
     <!-- 顶部工具栏 -->
     <DAGToolbar
       :novel-id="novelId"
+      :view-mode="dagStore.viewMode"
       :dag-stats="dagStore.dagStats"
       :autopilot-status="autopilotStatus"
       :sse-connected="runStore.sseConnected"
       :has-unsaved-changes="dagStore.hasUnsavedChanges"
+      @switch-view="handleSwitchView"
       @save="handleSave"
       @validate="handleValidate"
       @open-plaza="handleOpenPlaza"
@@ -106,6 +108,10 @@ watch(() => runStore.runStatus, (status) => {
 })
 
 // ─── 工具栏事件 ───
+
+function handleSwitchView(mode: 'card' | 'dag') {
+  dagStore.switchView(mode)
+}
 
 async function handleSave() {
   const success = await dagStore.saveDAG(props.novelId)
