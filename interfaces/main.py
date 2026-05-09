@@ -174,6 +174,9 @@ async def startup_event():
     # 启动自动驾驶守护进程（后台线程）
     _start_autopilot_daemon_thread()
 
+    # 初始化 DAG 节点注册表（加载所有 V1 节点实现）
+    _init_dag_node_registry()
+
 def _checkpoint_sqlite_wal_safe() -> None:
     """桌面端优雅退出时尽量将 WAL 落盘，降低异常断电时的损坏概率。"""
     try:
@@ -576,6 +579,17 @@ def _run_daemon_in_process(
         logger.info("🛑 守护进程已停止")
 
 
+def _init_dag_node_registry():
+    """初始化 DAG 节点注册表 — 加载所有 V1 节点实现"""
+    try:
+        # 导入所有节点模块，触发 @NodeRegistry.register 装饰器
+        from application.engine.dag.nodes import context_nodes, execution_nodes, validation_nodes, gateway_nodes  # noqa: F401
+        from application.engine.dag.registry import NodeRegistry
+        logger.info(f"✅ DAG 节点注册表已初始化: {sorted(NodeRegistry.all_types())}")
+    except Exception as e:
+        logger.warning(f"⚠️ DAG 节点注册表初始化失败（DAG 引擎将不可用）: {e}")
+
+
 def _start_autopilot_daemon_thread():
     """启动自动驾驶守护进程（独立进程，不阻塞主事件循环）"""
     global _daemon_process, _daemon_stop_event
@@ -825,6 +839,10 @@ app.include_router(snapshot_routes.router, prefix="/api/v1")
 app.include_router(autopilot_routes.router, prefix="/api/v1")
 app.include_router(workbench_context_routes.router, prefix="/api/v1")
 app.include_router(character_scheduler_routes.router, prefix="/api/v1")  # 角色调度服务
+
+# DAG workflow engine routes
+from interfaces.api.v1.engine.dag.dag_routes import router as dag_router
+app.include_router(dag_router, prefix="/api/v1")
 
 # Audit module routes
 app.include_router(chapter_review_routes.router)
