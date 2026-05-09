@@ -170,3 +170,6 @@ data/*.db-wal
 
 # 草稿文件
 data/drafts/
+
+
+*.md
