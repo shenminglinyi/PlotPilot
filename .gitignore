@@ -159,3 +159,14 @@ mcps/
 
 docs/
 drafts
+# DAG 版本数据（已迁移到数据库）
+data/dag_definitions/
+data/dag_versions/
+
+# 数据库文件
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# 草稿文件
+data/drafts/
