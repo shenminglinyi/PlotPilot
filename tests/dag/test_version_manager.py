@@ -1,97 +1,113 @@
 """DAG 版本管理器测试"""
-import json
-import os
-import tempfile
 import pytest
-from application.engine.dag.models import DAGDefinition, NodeDefinition, EdgeDefinition, get_default_dag
+from unittest.mock import Mock, MagicMock
+from application.engine.dag.models import DAGDefinition, NodeDefinition, get_default_dag
 from application.engine.dag.version_manager import DAGVersionManager
+from domain.engine.dag.repositories.dag_version_repository import DAGVersionRepository
 
 
 class TestDAGVersionManager:
-    """DAG 版本管理器测试"""
+    """DAG 版本管理器测试（数据库存储）"""
 
     def setup_method(self):
-        """使用临时目录作为数据根"""
-        self._tmpdir = tempfile.mkdtemp()
-        self._mgr = DAGVersionManager(data_root=self._tmpdir)
-
-    def test_init_creates_dirs(self):
-        assert os.path.exists(os.path.join(self._tmpdir, "dag_definitions"))
-        assert os.path.exists(os.path.join(self._tmpdir, "dag_versions"))
+        """使用 Mock Repository"""
+        self.mock_repo = Mock(spec=DAGVersionRepository)
+        self._mgr = DAGVersionManager(repository=self.mock_repo)
 
     def test_load_latest_returns_none_when_not_exists(self):
+        self.mock_repo.get_latest.return_value = None
         result = self._mgr.load_latest("novel_001")
         assert result is None
+        self.mock_repo.get_latest.assert_called_once_with("novel_001")
 
     def test_init_default_dag(self):
+        self.mock_repo.get_latest.return_value = None
+        self.mock_repo.save.return_value = 1
+
         dag = self._mgr.init_default_dag("novel_001")
         assert dag is not None
         assert len(dag.nodes) > 0
+        self.mock_repo.save.assert_called_once()
 
     def test_init_default_dag_idempotent(self):
-        dag1 = self._mgr.init_default_dag("novel_001")
-        dag2 = self._mgr.init_default_dag("novel_001")
-        # 第二次应返回已存在的，不创建新版本
-        assert dag1.version == dag2.version
+        # 第一次创建
+        existing_dag = get_default_dag()
+        existing_dag.id = "dag_novel_001"
+        existing_dag.version = 1
+
+        self.mock_repo.get_latest.return_value = existing_dag
+
+        # 第二次应返回已存在的
+        dag = self._mgr.init_default_dag("novel_001")
+        assert dag.version == 1
+        # 不应该调用 save
+        self.mock_repo.save.assert_not_called()
 
     def test_save_version(self):
-        dag = self._mgr.init_default_dag("novel_001")
-        version = self._mgr.save_version("novel_001", dag)
-        assert version >= 1
+        dag = get_default_dag()
+        dag.id = "dag_novel_001"
+        self.mock_repo.save.return_value = 2
 
-    def test_save_version_increments(self):
-        dag = self._mgr.init_default_dag("novel_001")
-        v1 = dag.version
-        # 修改结构后保存（fingerprint 变化才会触发版本递增）
-        dag.name = "修改后"
-        # 需要同时修改节点/边结构以改变 fingerprint
-        dag.nodes.append(
-            NodeDefinition(id="val_narrative", type="val_narrative", label="叙事同步")
-        )
-        v2 = self._mgr.save_version("novel_001", dag)
-        assert v2 > v1
+        version = self._mgr.save_version("novel_001", dag)
+        assert version == 2
+        self.mock_repo.save.assert_called_once_with("novel_001", dag)
+
+    def test_save_version_fingerprint_unchanged(self):
+        dag = get_default_dag()
+        dag.id = "dag_novel_001"
+        dag.version = 1
+
+        # Mock 返回当前版本（fingerprint 相同）
+        self.mock_repo.get_latest.return_value = dag
+        self.mock_repo.save.return_value = 1  # 返回当前版本号
+
+        # 不修改结构，fingerprint 不变
+        dag.name = "修改名称"
+        version = self._mgr.save_version("novel_001", dag)
+
+        # save 方法会被调用，但内部会检测 fingerprint 并返回当前版本
+        assert version == 1
 
     def test_list_versions(self):
-        dag = self._mgr.init_default_dag("novel_001")
+        self.mock_repo.list_versions.return_value = [
+            {"version": 2, "name": "版本2", "updated_at": "2024-01-02", "node_count": 5, "edge_count": 4},
+            {"version": 1, "name": "版本1", "updated_at": "2024-01-01", "node_count": 4, "edge_count": 3},
+        ]
+
         versions = self._mgr.list_versions("novel_001")
-        assert len(versions) >= 1
-        assert versions[0]["version"] >= 1
+        assert len(versions) == 2
+        assert versions[0]["version"] == 2
+        self.mock_repo.list_versions.assert_called_once_with("novel_001")
 
     def test_rollback(self):
-        dag = self._mgr.init_default_dag("novel_001")
-        original_name = dag.name
+        # Mock 目标版本
+        target_dag = get_default_dag()
+        target_dag.id = "dag_novel_001"
+        target_dag.version = 1
+        target_dag.name = "原始版本"
 
-        # 修改并保存
-        dag.name = "修改后"
-        self._mgr.save_version("novel_001", dag)
+        self.mock_repo.get_by_version.return_value = target_dag
+        self.mock_repo.save.return_value = 3
 
-        # 回滚到 v1
+        # Mock 最新版本
+        rolled_dag = get_default_dag()
+        rolled_dag.version = 3
+        rolled_dag.name = "原始版本"
+        self.mock_repo.get_latest.return_value = rolled_dag
+
         rolled = self._mgr.rollback("novel_001", 1)
-        assert rolled.name == original_name
+        assert rolled.name == "原始版本"
+        self.mock_repo.get_by_version.assert_called_once_with("novel_001", 1)
+        self.mock_repo.save.assert_called_once()
 
     def test_rollback_nonexistent_version(self):
-        self._mgr.init_default_dag("novel_001")
+        self.mock_repo.get_by_version.return_value = None
         with pytest.raises(ValueError, match="不存在"):
             self._mgr.rollback("novel_001", 999)
 
     def test_cleanup_old_versions(self):
-        dag = self._mgr.init_default_dag("novel_001")
+        self.mock_repo.delete_old_versions.return_value = 10
 
-        # 创建多个版本（需要改变结构才能创建新版本）
-        for i in range(15):
-            dag.name = f"版本_{i}"
-            # 修改结构以改变 fingerprint
-            if i % 2 == 0 and len(dag.edges) > 0:
-                # 移除最后一条边再添加回来（改变 fingerprint）
-                last_edge = dag.edges.pop()
-                last_edge.id = f"edge_modified_{i}"
-                dag.edges.append(last_edge)
-            self._mgr.save_version("novel_001", dag)
-
-        # 清理，保留最近 5 个
         deleted = self._mgr.cleanup_old_versions("novel_001", keep_count=5)
-        assert deleted > 0
-
-        # 验证只剩 5 个版本文件
-        versions = self._mgr.list_versions("novel_001")
-        assert len(versions) <= 5
+        assert deleted == 10
+        self.mock_repo.delete_old_versions.assert_called_once_with("novel_001", 5)
