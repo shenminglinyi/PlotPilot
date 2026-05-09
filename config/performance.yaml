@@ -1,0 +1,61 @@
+# 性能配置文件 - 集中管理所有性能参数
+
+# ─── 自动驾驶配置 ───
+autopilot:
+  voice_rewrite:
+    max_attempts: 3
+    threshold: 0.68
+    warning_threshold: 0.75
+
+  poll_interval: 5  # 轮询间隔（秒）
+  max_auto_chapters: 9999  # 保护上限
+  consecutive_error_limit: 3  # 连续错误上限
+
+# ─── 数据库配置 ───
+database:
+  connection_pool:
+    size: 5
+    timeout: 5.0  # 秒
+    busy_timeout: 3000  # 毫秒
+
+  wal:
+    auto_checkpoint: 100
+    checkpoint_interval: 20  # 每 20 次写操作
+
+  performance:
+    synchronous: "NORMAL"  # WAL 模式下足够安全
+    temp_store: "MEMORY"
+    mmap_size: 268435456  # 256MB
+    cache_size: -32768  # 32MB（负值表示 KB）
+
+# ─── 持久化队列配置 ───
+persistence_queue:
+  batch_size: 10
+  cleanup_threshold: 1000
+  cleanup_days: 7  # 清理 7 天前的已完成任务
+  max_retries: 3
+
+# ─── 监控配置 ───
+monitoring:
+  metrics:
+    retention_seconds: 3600  # 1 小时
+
+  alerts:
+    db_lock_wait_time: 1.0  # 秒
+    api_response_time: 0.5  # 秒
+    persistence_queue_depth: 100
+    daemon_loop_time: 10.0  # 秒
+
+# ─── 前端 SSE 配置 ───
+frontend:
+  sse:
+    message_throttle_ms: 100
+    max_queue_size: 50
+    reconnect_base_delay_ms: 1000
+    reconnect_max_delay_ms: 30000
+
+# ─── DAG 引擎配置 ───
+dag_engine:
+  use_langgraph: false  # 是否使用 LangGraph
+  checkpoint_enabled: true
+  max_parallel_nodes: 5
