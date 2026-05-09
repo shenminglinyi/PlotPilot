@@ -125,7 +125,7 @@ export const useDAGStore = defineStore('dag', () => {
   }
 
   async function saveDAG(novelId: string) {
-    if (!dagDefinition.value) return
+    if (!dagDefinition.value) return false
 
     isLoading.value = true
     currentNovelId.value = novelId
