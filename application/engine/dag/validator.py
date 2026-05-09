@@ -138,16 +138,18 @@ class DAGValidator:
 
             for neighbor in adj[node_id]:
                 if color.get(neighbor) == GRAY:
-                    cycle_start = path.index(neighbor)
-                    cycle = path[cycle_start:] + [neighbor]
-                    errors.append(
-                        f"检测到环: {' → '.join(cycle)}。"
-                        f"如需循环重写，请使用 gw_retry 网关节点。"
-                    )
-                    return True
+                    # 检测到环：neighbor 在当前路径中
+                    if neighbor in path:
+                        cycle_start = path.index(neighbor)
+                        cycle = path[cycle_start:] + [neighbor]
+                        errors.append(
+                            f"检测到环: {' → '.join(cycle)}。"
+                            f"如需循环重写，请使用 gw_retry 网关节点。"
+                        )
+                    # 即使检测到环也继续遍历，确保正确清理状态
+
                 if color.get(neighbor, WHITE) == WHITE:
-                    if dfs(neighbor, path):
-                        return True
+                    dfs(neighbor, path)
 
             path.pop()
             color[node_id] = BLACK
