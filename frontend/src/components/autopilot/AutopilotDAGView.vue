@@ -108,8 +108,12 @@ watch(() => runStore.runStatus, (status) => {
 // ─── 工具栏事件 ───
 
 async function handleSave() {
-  await dagStore.saveDAG(props.novelId)
-  message.success('DAG 保存成功')
+  const success = await dagStore.saveDAG(props.novelId)
+  if (success) {
+    message.success('DAG 保存成功')
+  }
+  // Error message is already set in dagStore.saveDAG via error.value
+  // User will see error state in UI
 }
 
 async function handleValidate() {

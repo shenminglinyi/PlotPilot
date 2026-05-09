@@ -111,7 +111,7 @@ function handleCustomNodeContextmenu(event: MouseEvent) {
   // CustomNode 内部触发 contextmenu 时的事件
 }
 
-function handleConnect(params: Connection) {
+async function handleConnect(params: Connection) {
   if (!params.source || !params.target) return
 
   const dag = dagStore.dagDefinition
@@ -131,7 +131,15 @@ function handleConnect(params: Connection) {
   }
 
   dag.edges.push(newEdge)
-  dagStore.saveDAG(props.novelId)
+  const success = await dagStore.saveDAG(props.novelId)
+
+  if (!success) {
+    // Save failed, remove the newly added edge
+    const idx = dag.edges.findIndex(e => e.id === edgeId)
+    if (idx !== -1) {
+      dag.edges.splice(idx, 1)
+    }
+  }
 }
 
 function handleEdgeUpdate(event: EdgeChangeEvent) {
