@@ -30,6 +30,24 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# CPMS: 审稿提示词节点 key 映射
+_REVIEW_PROMPT_KEYS = {
+    "character": "review-character-consistency",
+    "timeline": "review-timeline-consistency",
+    "storyline": "review-storyline-consistency",
+    "foreshadowing": "review-foreshadowing-usage",
+    "improvement": "review-improvement-suggestions",
+}
+
+# 硬编码回退（仅在 PromptRegistry 不可用时使用）
+_FALLBACK_REVIEW_SYSTEMS = {
+    "character": "你是小说审稿助手，专门检查人物一致性。",
+    "timeline": "你是小说审稿助手，专门检查时间线一致性。",
+    "storyline": "你是小说审稿助手，专门检查故事线连贯性。",
+    "foreshadowing": "你是小说审稿助手，专门检查伏笔使用。",
+    "improvement": "你是小说审稿助手，专门提供改进建议。",
+}
+
 
 class ConsistencyIssue:
     """一致性问题"""
@@ -111,6 +129,30 @@ class ChapterReviewService:
         self.llm_service = llm_service
         self.model = model or os.getenv("SYSTEM_MODEL", "")
 
+    # ─── CPMS 提示词获取 ───
+
+    @staticmethod
+    def _get_review_system(review_type: str) -> str:
+        """获取审稿 system prompt。
+
+        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
+        如果 Registry 不可用则回退到硬编码默认值。
+        """
+        node_key = _REVIEW_PROMPT_KEYS.get(review_type, "")
+        fallback = _FALLBACK_REVIEW_SYSTEMS.get(review_type, "")
+
+        if node_key:
+            try:
+                from infrastructure.ai.prompt_registry import get_prompt_registry
+                registry = get_prompt_registry()
+                system = registry.get_system(node_key)
+                if system:
+                    return system
+            except Exception as exc:
+                logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
+
+        return fallback
+
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
         """审稿章节"""
         chapter = self.chapter_repo.get_by_number(novel_id, chapter_number)
@@ -180,7 +222,7 @@ class ChapterReviewService:
                 chapter_content=chapter.content
             )
 
-            prompt = Prompt(system="你是小说审稿助手，专门检查人物一致性。", user=prompt_text)
+            prompt = Prompt(system=self._get_review_system("character"), user=prompt_text)
             config = GenerationConfig(
                 model=self.model,
                 max_tokens=self._DEFAULT_MAX_TOKENS,
@@ -232,7 +274,7 @@ class ChapterReviewService:
                 chapter_content=chapter.content
             )
 
-            prompt = Prompt(system="你是小说审稿助手，专门检查时间线一致性。", user=prompt_text)
+            prompt = Prompt(system=self._get_review_system("timeline"), user=prompt_text)
             config = GenerationConfig(
                 model=self.model,
                 max_tokens=self._DEFAULT_MAX_TOKENS,
@@ -277,7 +319,7 @@ class ChapterReviewService:
             chapter_content=chapter.content
         )
 
-        prompt = Prompt(system="你是小说审稿助手，专门检查故事线连贯性。", user=prompt_text)
+        prompt = Prompt(system=self._get_review_system("storyline"), user=prompt_text)
         config = GenerationConfig(
             model=self.model,
             max_tokens=self._DEFAULT_MAX_TOKENS,
@@ -329,7 +371,7 @@ class ChapterReviewService:
                 chapter_content=chapter.content
             )
 
-            prompt = Prompt(system="你是小说审稿助手，专门检查伏笔使用。", user=prompt_text)
+            prompt = Prompt(system=self._get_review_system("foreshadowing"), user=prompt_text)
             config = GenerationConfig(
                 model=self.model,
                 max_tokens=self._DEFAULT_MAX_TOKENS,
@@ -376,7 +418,7 @@ class ChapterReviewService:
         if issues:
             prompt_text = self._build_improvement_suggestions_prompt(chapter, issues)
 
-            prompt = Prompt(system="你是小说审稿助手，专门提供改进建议。", user=prompt_text)
+            prompt = Prompt(system=self._get_review_system("improvement"), user=prompt_text)
             config = GenerationConfig(
                 model=self.model,
                 max_tokens=self._DEFAULT_MAX_TOKENS,
