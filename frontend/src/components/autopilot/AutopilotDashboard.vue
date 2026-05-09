@@ -2,8 +2,8 @@
   <div class="autopilot-dashboard" :class="{ 'dashboard--dag': viewMode === 'dag' }">
     <!-- 顶部栏：标题 + Switch -->
     <div class="dashboard-topbar">
-      <n-text strong class="topbar-title">
-        {{ viewMode === 'dag' ? '🧭 DAG 可视化' : '🧭 工作流监控' }}
+      <n-text strong class="topbar-title" v-if="viewMode !== 'dag'">
+        🧭 工作流监控
       </n-text>
       <n-switch
         v-model:value="isDagMode"
