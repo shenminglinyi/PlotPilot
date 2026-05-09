@@ -78,16 +78,6 @@
         v{{ dagStats.version || 1 }}
       </n-text>
 
-      <!-- DAG 视图开关 -->
-      <n-switch
-        :value="isDagMode"
-        size="small"
-        @update:value="$emit('switchView', $event ? 'dag' : 'card')"
-      >
-        <template #checked>DAG</template>
-        <template #unchecked>卡片</template>
-      </n-switch>
-
       <!-- ★ 提示词广场入口 -->
       <n-button size="small" quaternary type="primary" @click="$emit('openPlaza')">
         🏪 广场
@@ -98,6 +88,9 @@
       </n-button>
       <!-- 保存 -->
       <n-button size="small" quaternary @click="$emit('save')">
+        <template #icon>
+          <span v-if="hasUnsavedChanges" class="unsaved-dot">●</span>
+        </template>
         💾 保存
       </n-button>
     </div>
@@ -105,11 +98,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-
 const props = defineProps<{
   novelId: string
-  viewMode: 'card' | 'dag'
   dagStats: {
     total: number
     enabled: number
@@ -122,17 +112,16 @@ const props = defineProps<{
   /** ★ 托管模式状态（从 AutopilotDaemon 获取，替代原来的 DAG 运行状态） */
   autopilotStatus: 'idle' | 'running' | 'paused' | 'completed' | 'error'
   sseConnected: boolean
+  /** ★ 是否有未保存的更改 */
+  hasUnsavedChanges: boolean
 }>()
 
 defineEmits<{
-  switchView: [mode: 'card' | 'dag']
   save: []
   validate: []
   /** ★ 打开提示词广场 */
   openPlaza: []
 }>()
-
-const isDagMode = computed(() => props.viewMode === 'dag')
 </script>
 
 <style scoped>
@@ -184,6 +173,19 @@ const isDagMode = computed(() => props.viewMode === 'dag')
 }
 
 @keyframes dag-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ── 未保存指示灯 ── */
+.unsaved-dot {
+  color: var(--color-danger);
+  font-size: 10px;
+  animation: pulse 1.5s ease-in-out infinite;
+  margin-right: 4px;
+}
+
+@keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
