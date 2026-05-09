@@ -17,14 +17,17 @@ from application.ai.tension_scoring_contract import (
     tension_scoring_response_format,
 )
 from application.ai.structured_json_pipeline import structured_json_generate
-from infrastructure.ai.prompt_manager import get_prompt_manager
+from infrastructure.ai.prompt_utils import get_prompt_system, render_prompt
 
 logger = logging.getLogger(__name__)
 
 # 章节正文最大长度（与 llm_chapter_extract_bundle 保持一致）
 _MAX_CONTENT_LENGTH = 24000
 
-# PromptManager / DB 不可用时使用的兜底 system
+# CPMS: 提示词节点 key
+_TENSION_SCORING_NODE_KEY = "tension-scoring"
+
+# PromptRegistry 不可用时使用的回退 system
 _FALLBACK_TEMPLATE = """你是资深网文叙事诊断师。精准量化本章的戏剧张力——决定读者翻页还是弃书的核心指标。
 
 ⚠ 评分铁律：严禁中庸！敢于给低分（日常铺垫章）和高分（冲突爆发章）。全书张力曲线应像心电图有起伏，不能一条直线。
@@ -138,10 +141,12 @@ class TensionScoringService:
 
     @staticmethod
     def _build_system_prompt(prev_tension: float) -> str:
-        mgr = get_prompt_manager()
-        mgr.ensure_seeded()
         prev = f"{prev_tension:.0f}"
-        rendered = mgr.render("tension-scoring", {"prev_tension": prev})
+        rendered = render_prompt(
+            _TENSION_SCORING_NODE_KEY,
+            variables={"prev_tension": prev},
+            fallback_system=_FALLBACK_TEMPLATE,
+        )
         if rendered and (rendered.get("system") or "").strip():
             return rendered["system"]
         return _FALLBACK_TEMPLATE.format(prev_tension=prev)

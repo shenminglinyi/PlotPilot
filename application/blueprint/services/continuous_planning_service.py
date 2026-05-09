@@ -292,6 +292,26 @@ class ContinuousPlanningService:
         self.bible_service = bible_service
         self.chapter_repository = chapter_repository
 
+    # ─── CPMS 提示词获取 ───
+
+    @staticmethod
+    def _get_cpms_system(node_key: str, fallback: str = "") -> str:
+        """获取 system prompt。
+
+        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
+        如果 Registry 不可用则回退到硬编码默认值。
+        """
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            system = registry.get_system(node_key)
+            if system:
+                return system
+        except Exception as exc:
+            logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
+
+        return fallback
+
     # ==================== 宏观规划 ====================
 
     async def generate_macro_plan(
@@ -2406,13 +2426,10 @@ class ContinuousPlanningService:
     ) -> Prompt:
         """构建双轨融合的下一幕生成 Prompt"""
         
-        system = """你是一位资深的小说结构设计师，擅长在长篇叙事中推进剧情。
-你的任务是为下一幕设计详细的内容规划，确保：
-1. 与前文保持连贯，不出现时间线或人物状态矛盾
-2. 有意识地回收或推进已有伏笔
-3. 设置新的冲突和悬念
-
-请直接输出 JSON 格式，不要添加解释性文字。"""
+        system = self._get_cpms_system(
+            "continuous-planning-next-act",
+            "你是一位资深的小说结构设计师，擅长在长篇叙事中推进剧情。\n你的任务是为下一幕设计详细的内容规划，确保：\n1. 与前文保持连贯，不出现时间线或人物状态矛盾\n2. 有意识地回收或推进已有伏笔\n3. 设置新的冲突和悬念\n\n请直接输出 JSON 格式，不要添加解释性文字。",
+        )
         
         # 组装双轨上下文
         context_parts = []
