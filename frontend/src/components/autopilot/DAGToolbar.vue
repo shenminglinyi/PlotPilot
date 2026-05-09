@@ -1,22 +1,7 @@
 <template>
   <div class="dag-toolbar">
     <div class="toolbar-left">
-      <!-- 视图切换 -->
-      <n-button-group size="small">
-        <n-button
-          :type="viewMode === 'card' ? 'primary' : 'default'"
-          @click="$emit('switchView', 'card')"
-        >
-          📊 卡片
-        </n-button>
-        <n-button
-          :type="viewMode === 'dag' ? 'primary' : 'default'"
-          @click="$emit('switchView', 'dag')"
-        >
-          🧭 DAG
-        </n-button>
-      </n-button-group>
-
+      <n-text strong class="toolbar-title-text">🧭 DAG 工作流</n-text>
       <!-- DAG 统计 -->
       <n-tag v-if="dagStats" size="small" round>
         {{ dagStats.total }} 节点 · {{ dagStats.enabled }} 启用
@@ -27,57 +12,61 @@
           · <n-text type="error">{{ dagStats.error }} 错误</n-text>
         </template>
       </n-tag>
-    </div>
-
-    <div class="toolbar-center">
-      <div class="toolbar-title">
-        <n-text strong style="font-size: 14px">🧭 DAG 工作流</n-text>
-        <!-- 运行状态指示 -->
-        <n-tag
-          v-if="runStatus === 'running'"
-          size="small"
-          type="info"
-          round
-          :bordered="false"
-        >
-          <template #icon>
-            <n-spin :size="12" />
-          </template>
-          运行中
-        </n-tag>
-        <n-tag
-          v-else-if="runStatus === 'completed'"
-          size="small"
-          type="success"
-          round
-          :bordered="false"
-        >
-          ✅ 已完成
-        </n-tag>
-        <n-tag
-          v-else-if="runStatus === 'error'"
-          size="small"
-          type="error"
-          round
-          :bordered="false"
-        >
-          ❌ 错误
-        </n-tag>
-        <!-- SSE 连接状态 -->
-        <n-tooltip trigger="hover">
-          <template #trigger>
-            <div class="sse-indicator" :class="{ connected: sseConnected }" />
-          </template>
-          {{ sseConnected ? 'SSE 实时连接正常' : 'SSE 连接断开' }}
-        </n-tooltip>
-      </div>
+      <!-- 运行状态指示 -->
+      <n-tag
+        v-if="runStatus === 'running'"
+        size="small"
+        type="info"
+        round
+        :bordered="false"
+      >
+        <template #icon>
+          <n-spin :size="12" />
+        </template>
+        运行中
+      </n-tag>
+      <n-tag
+        v-else-if="runStatus === 'completed'"
+        size="small"
+        type="success"
+        round
+        :bordered="false"
+      >
+        ✅ 已完成
+      </n-tag>
+      <n-tag
+        v-else-if="runStatus === 'error'"
+        size="small"
+        type="error"
+        round
+        :bordered="false"
+      >
+        ❌ 错误
+      </n-tag>
+      <!-- SSE 连接状态 -->
+      <n-tooltip trigger="hover">
+        <template #trigger>
+          <div class="sse-indicator" :class="{ connected: sseConnected }" />
+        </template>
+        {{ sseConnected ? 'SSE 实时连接正常' : 'SSE 连接断开' }}
+      </n-tooltip>
     </div>
 
     <div class="toolbar-right">
       <!-- 版本信息 -->
-      <n-text depth="3" style="font-size: 11px" v-if="dagStats">
+      <n-text depth="3" class="toolbar-version" v-if="dagStats">
         v{{ dagStats.version || 1 }}
       </n-text>
+
+      <!-- DAG 视图开关 -->
+      <n-switch
+        :value="isDagMode"
+        size="small"
+        @update:value="$emit('switchView', $event ? 'dag' : 'card')"
+      >
+        <template #checked>DAG</template>
+        <template #unchecked>卡片</template>
+      </n-switch>
 
       <!-- 验证 -->
       <n-button size="small" quaternary @click="$emit('validate')">
@@ -111,9 +100,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { DAGRunStatus } from '@/stores/dagRunStore'
 
-defineProps<{
+const props = defineProps<{
   novelId: string
   viewMode: 'card' | 'dag'
   dagStats: {
@@ -136,6 +126,8 @@ defineEmits<{
   run: []
   stop: []
 }>()
+
+const isDagMode = computed(() => props.viewMode === 'dag')
 </script>
 
 <style scoped>
@@ -143,43 +135,50 @@ defineEmits<{
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--n-border-color);
-  background: var(--n-color);
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--dag-toolbar-border);
+  background: var(--dag-toolbar-bg);
   gap: 12px;
+  min-height: 40px;
 }
 
-.toolbar-left,
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .toolbar-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.toolbar-center {
+.toolbar-title-text {
+  font-size: 14px;
+  color: var(--app-text-primary);
+}
+
+.toolbar-version {
+  font-size: 11px;
+}
+
+/* ── SSE 连接指示灯 ── */
+.sse-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  transition: background 0.3s;
   flex-shrink: 0;
 }
 
-.toolbar-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sse-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ef4444;
-  transition: background 0.3s;
-}
-
 .sse-indicator.connected {
-  background: #22c55e;
-  animation: pulse 2s ease-in-out infinite;
+  background: var(--color-success);
+  animation: dag-pulse 2s ease-in-out infinite;
 }
 
-@keyframes pulse {
+@keyframes dag-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }

@@ -83,36 +83,41 @@ const menuStyle = computed(() => {
 .node-context-menu {
   position: fixed;
   z-index: 9999;
-  background: var(--n-color-popover, #2d2d3f);
-  border: 1px solid var(--n-border-color, #3f3f5f);
-  border-radius: 8px;
+  background: var(--dag-menu-bg);
+  border: 1px solid var(--dag-menu-border);
+  border-radius: var(--app-radius-sm);
   padding: 4px 0;
   min-width: 180px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--app-shadow-lg);
+  backdrop-filter: blur(8px);
 }
 
 .menu-header {
   padding: 8px 16px 4px;
+  color: var(--app-text-primary);
 }
 
 .menu-item {
   padding: 8px 16px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
+  color: var(--app-text-primary);
   transition: background 0.15s;
 }
 
 .menu-item:hover {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--dag-menu-hover);
+  color: var(--color-brand);
 }
 
 .menu-item-warning:hover {
-  background: rgba(245, 158, 11, 0.1);
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
 }
 
 .menu-divider {
   height: 1px;
-  background: var(--n-border-color, #3f3f5f);
+  background: var(--app-divider);
   margin: 4px 0;
 }
 </style>
