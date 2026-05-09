@@ -524,6 +524,9 @@ class DatabaseConnection:
 # 全局数据库实例
 _db_instance: Optional[DatabaseConnection] = None
 
+# 全局连接池实例
+_connection_pool_instance: Optional["SQLiteConnectionPool"] = None
+
 
 def get_database(db_path: Optional[str] = None) -> DatabaseConnection:
     """获取全局数据库实例（默认使用仓库内 data/aitext.db 绝对路径）。"""
@@ -535,3 +538,24 @@ def get_database(db_path: Optional[str] = None) -> DatabaseConnection:
             db_path = get_db_path()
         _db_instance = DatabaseConnection(db_path)
     return _db_instance
+
+
+def get_connection_pool(db_path: Optional[str] = None):
+    """获取全局连接池实例（推荐使用）。
+
+    优势：
+    - 连接复用，避免频繁创建/销毁
+    - 短连接模式，降低持锁时间
+    - 更好的并发性能
+    """
+    global _connection_pool_instance
+    if _connection_pool_instance is None:
+        if db_path is None:
+            from application.paths import get_db_path
+            db_path = get_db_path()
+
+        from infrastructure.persistence.database.connection_pool import SQLiteConnectionPool
+        _connection_pool_instance = SQLiteConnectionPool(db_path)
+        _connection_pool_instance.initialize()
+
+    return _connection_pool_instance
