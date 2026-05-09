@@ -1,56 +1,86 @@
 <template>
   <div class="autopilot-dashboard">
-    <n-alert type="default" :show-icon="false" class="monitor-copy-hint">
-      <n-text depth="3" style="font-size: 12px; line-height: 1.5">
-        <strong>监控说明</strong>：「文风」卡片为按<strong>角色声线</strong>的偏离监测。全书<strong>作者文风指纹</strong>与侧栏「剧本基建」规划为不同能力，与此处互补。
-      </n-text>
-    </n-alert>
-    <!-- 监控网格 -->
-    <div class="monitor-grid">
-      <!-- 第一行：张力图表 + 实时日志 -->
-      <div class="grid-cell span-2">
-        <TensionChart :novel-id="novelId" :refresh-key="chapterMetricsRefreshKey" />
-      </div>
-      <div class="grid-cell span-1 grid-cell--terminal">
-        <AutopilotTerminalLog
-          :novel-id="novelId"
-          @desk-refresh="handleMonitorRefresh"
-          @chapter-metrics-refresh="handleChapterMetricsRefresh"
-        />
-      </div>
-
-      <!-- 第二行：文风警报 + 伏笔账本 + 熔断器 -->
-      <div class="grid-cell">
-        <VoiceDriftIndicator
-          :novel-id="novelId"
-          :refresh-key="monitorRefreshKey"
-          @drift-alert="handleDriftAlert"
-        />
-      </div>
-      <div class="grid-cell">
-        <ForeshadowLedger :novel-id="novelId" :refresh-key="monitorRefreshKey" />
-      </div>
-      <div class="grid-cell">
-        <CircuitBreakerStatus
-          :novel-id="novelId"
-          :refresh-key="monitorRefreshKey"
-          @breaker-open="handleBreakerOpen"
-          @breaker-reset="handleBreakerReset"
-        />
-      </div>
+    <!-- 视图切换按钮 -->
+    <div class="view-toggle-bar">
+      <n-button-group size="small">
+        <n-button
+          :type="viewMode === 'card' ? 'primary' : 'default'"
+          @click="viewMode = 'card'"
+        >
+          📊 卡片视图
+        </n-button>
+        <n-button
+          :type="viewMode === 'dag' ? 'primary' : 'default'"
+          @click="viewMode = 'dag'"
+        >
+          🧭 DAG 视图
+        </n-button>
+      </n-button-group>
     </div>
+
+    <!-- DAG 视图 -->
+    <AutopilotDAGView
+      v-if="viewMode === 'dag'"
+      :novel-id="novelId"
+      @desk-refresh="handleMonitorRefresh"
+    />
+
+    <!-- 卡片视图（原有） -->
+    <template v-else>
+      <n-alert type="default" :show-icon="false" class="monitor-copy-hint">
+        <n-text depth="3" style="font-size: 12px; line-height: 1.5">
+          <strong>监控说明</strong>：「文风」卡片为按<strong>角色声线</strong>的偏离监测。全书<strong>作者文风指纹</strong>与侧栏「剧本基建」规划为不同能力，与此处互补。
+        </n-text>
+      </n-alert>
+      <!-- 监控网格 -->
+      <div class="monitor-grid">
+        <!-- 第一行：张力图表 + 实时日志 -->
+        <div class="grid-cell span-2">
+          <TensionChart :novel-id="novelId" :refresh-key="chapterMetricsRefreshKey" />
+        </div>
+        <div class="grid-cell span-1 grid-cell--terminal">
+          <AutopilotTerminalLog
+            :novel-id="novelId"
+            @desk-refresh="handleMonitorRefresh"
+            @chapter-metrics-refresh="handleChapterMetricsRefresh"
+          />
+        </div>
+
+        <!-- 第二行：文风警报 + 伏笔账本 + 熔断器 -->
+        <div class="grid-cell">
+          <VoiceDriftIndicator
+            :novel-id="novelId"
+            :refresh-key="monitorRefreshKey"
+            @drift-alert="handleDriftAlert"
+          />
+        </div>
+        <div class="grid-cell">
+          <ForeshadowLedger :novel-id="novelId" :refresh-key="monitorRefreshKey" />
+        </div>
+        <div class="grid-cell">
+          <CircuitBreakerStatus
+            :novel-id="novelId"
+            :refresh-key="monitorRefreshKey"
+            @breaker-open="handleBreakerOpen"
+            @breaker-reset="handleBreakerReset"
+          />
+        </div>
+      </div>
+    </template>
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
+import { useDAGRunStore } from '@/stores/dagRunStore'
 import TensionChart from './TensionChart.vue'
 import AutopilotTerminalLog from './AutopilotTerminalLog.vue'
 import VoiceDriftIndicator from './VoiceDriftIndicator.vue'
 import ForeshadowLedger from './ForeshadowLedger.vue'
 import CircuitBreakerStatus from './CircuitBreakerStatus.vue'
+import AutopilotDAGView from './AutopilotDAGView.vue'
 
 const props = defineProps<{
   novelId: string
@@ -61,11 +91,29 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const runStore = useDAGRunStore()
+
+// 视图模式：卡片 / DAG
+const viewMode = ref<'card' | 'dag'>('card')
 
 // 🔥 监控面板统一刷新信号：SSE 事件驱动子组件重新拉数据
 const monitorRefreshKey = ref(0)
 /** 张力曲线等：按章刷新即可（审计落库 / 全书结束），不与 beat_complete 同步 */
 const chapterMetricsRefreshKey = ref(0)
+
+// DAG 运行完成时自动刷新监控数据
+runStore.onRunComplete(() => {
+  monitorRefreshKey.value++
+  chapterMetricsRefreshKey.value++
+})
+
+onMounted(() => {
+  runStore.fetchStatus(props.novelId)
+})
+
+onUnmounted(() => {
+  runStore.disconnectSSE()
+})
 
 function handleMonitorRefresh() {
   monitorRefreshKey.value++
@@ -100,6 +148,11 @@ function handleBreakerReset() {
 .autopilot-dashboard {
   height: 100%;
   overflow-y: auto;
+}
+
+.view-toggle-bar {
+  margin-bottom: 12px;
+  padding: 0 4px;
 }
 
 .monitor-copy-hint {
