@@ -135,6 +135,35 @@ class TestDAGValidator:
         result = validator.validate(dag)
         assert any("熔断网关" in e for e in result.errors)
 
+    def test_cycle_detection_with_multiple_dfs_trees(self):
+        """测试多个 DFS 树场景下的环检测（修复 GRAY 节点不在 path 中的 bug）"""
+        # 场景：第一个 DFS 树检测到环后返回，节点保持 GRAY 状态
+        # 第二个 DFS 树遇到这些 GRAY 节点时，不应触发 ValueError
+        dag = DAGDefinition(
+            id="dag_multi_dfs",
+            name="多 DFS 树测试",
+            nodes=[
+                NodeDefinition(id="node_a", type="ctx_blueprint"),
+                NodeDefinition(id="node_b", type="exec_writer"),
+                NodeDefinition(id="node_c", type="val_style"),
+                NodeDefinition(id="node_d", type="ctx_memory"),  # 独立的树
+            ],
+            edges=[
+                # 第一个 DFS 树：node_a -> node_b -> node_c -> node_a（环）
+                EdgeDefinition(id="edge_ab", source="node_a", target="node_b"),
+                EdgeDefinition(id="edge_bc", source="node_b", target="node_c"),
+                EdgeDefinition(id="edge_ca", source="node_c", target="node_a"),
+                # 第二个 DFS 树：node_d -> node_a
+                # node_a 仍为 GRAY，但 path 是新的 []
+                EdgeDefinition(id="edge_da", source="node_d", target="node_a"),
+            ],
+        )
+        validator = DAGValidator()
+        # 不应抛出 ValueError
+        result = validator.validate(dag)
+        assert not result.is_valid
+        assert any("环" in e for e in result.errors)
+
 
 class TestValidationResult:
     """验证结果模型测试"""
