@@ -3,7 +3,6 @@
     <!-- 顶部工具栏 -->
     <DAGToolbar
       :novel-id="novelId"
-      :view-mode="dagStore.viewMode"
       :dag-stats="dagStore.dagStats"
       :autopilot-status="autopilotStatus"
       :sse-connected="runStore.sseConnected"
