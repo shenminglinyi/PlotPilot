@@ -85,10 +85,20 @@ class PlanningNode(BaseNode):
 
 # ─── exec_writer: 剧情引擎 ───
 
+# CPMS 提示词节点 key（复用主工作流提示词体系，减少维护成本）
+_WORKFLOW_CHAPTER_GEN_NODE_KEY = "chapter-generation-main"
+_WORKFLOW_BEAT_NODE_KEY = "autopilot-stream-beat"
+
 
 @NodeRegistry.register("exec_writer")
 class WriterNode(BaseNode):
-    """剧情引擎 — AutoNovelGenerationWorkflow.generate_chapter_stream"""
+    """剧情引擎 — AutoNovelGenerationWorkflow.generate_chapter_stream
+
+    优化点：
+    1. 复用 CPMS 提示词注册表（chapter-generation-main），与主工作流保持一致
+    2. 分节拍生成时使用 autopilot-stream-beat 模板，避免冗余系统指令
+    3. 无节拍时使用精简版 system prompt，减少 token 开销
+    """
 
     meta = NodeMeta(
         node_type="exec_writer",
@@ -103,13 +113,14 @@ class WriterNode(BaseNode):
             NodePort(name="beats", data_type=PortDataType.LIST, required=False),
             NodePort(name="foreshadowing_block", data_type=PortDataType.TEXT, required=False),
             NodePort(name="debt_due_block", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="fact_lock", data_type=PortDataType.TEXT, required=False),
         ],
         output_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="你现在不是在'写文章'，你是在'回忆并讲述一段真实发生过的事'。...\n\n{{context}}\n{{outline}}\n{{voice_block}}",
-        prompt_variables=["context", "outline", "voice_block"],
+        prompt_template="你现在不是在'写文章'，你是在'回忆并讲述一段真实发生过的事'。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
+        prompt_variables=["context", "outline", "voice_block", "fact_lock", "foreshadowing_block"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=300,
@@ -122,33 +133,82 @@ class WriterNode(BaseNode):
         try:
             content = ""
             word_count = 0
+            novel_id = context.get("novel_id", "")
 
-            # 收集所有上下文输入
-            context_parts = []
-            for key in ["context", "outline", "voice_block", "foreshadowing_block", "debt_due_block"]:
-                val = inputs.get(key, "")
-                if val:
-                    context_parts.append(val)
+            # 收集上下文变量
+            variables = {
+                "context": inputs.get("context", ""),
+                "outline": inputs.get("outline", ""),
+                "voice_block": inputs.get("voice_block", ""),
+                "fact_lock": inputs.get("fact_lock", ""),
+                "foreshadowing_block": inputs.get("foreshadowing_block", ""),
+                "debt_due_block": inputs.get("debt_due_block", ""),
+                "planning_section": "",
+                "behavior_protocol": "",
+                "character_state_lock": "",
+                "nervous_habits": "",
+                "allowlist_block": "",
+                "beat_extra": "",
+                "beat_section": "",
+            }
 
-            # 如果有 LLM 服务，调用生成
+            # ★ 优先使用 CPMS 提示词注册表（与主工作流一致）
+            prompt_dict = None
+            try:
+                from infrastructure.ai.prompt_utils import render_prompt
+                prompt_dict = render_prompt(
+                    _WORKFLOW_CHAPTER_GEN_NODE_KEY,
+                    variables=variables,
+                    fallback_system=self.get_prompt_template(),
+                    fallback_user="请根据以下大纲撰写本章内容：\n\n{outline}\n\n讲吧。",
+                )
+            except Exception as e:
+                logger.debug(f"CPMS 提示词注册表不可用，使用节点内模板: {e}")
+
+            # 降级：使用节点内模板
+            if not prompt_dict or (not prompt_dict.get("system") and not prompt_dict.get("user")):
+                template = self.get_prompt_template()
+                rendered = self.build_prompt({k: v for k, v in variables.items() if v})
+                prompt_dict = {"system": rendered, "user": "请开始写作"}
+
+            # 调用 LLM 生成
             try:
                 from domain.ai.services.llm_service import LLMService
                 from domain.ai.value_objects.prompt import Prompt
                 from domain.ai.services.llm_service import GenerationConfig
 
                 llm = LLMService()
-                template = self.get_prompt_template()
-                if template:
-                    variables = {}
-                    for key in self.meta.prompt_variables:
-                        variables[key] = inputs.get(key, "")
-                    rendered = self.build_prompt(variables)
+                system_prompt = prompt_dict.get("system", "")
+                user_prompt = prompt_dict.get("user", "请开始写作")
 
-                    prompt = Prompt(system=rendered, user="请开始写作")
-                    config = GenerationConfig()
-                    result = await llm.generate(prompt, config)
-                    content = result.text if hasattr(result, 'text') else str(result)
-                    word_count = len(content)
+                prompt = Prompt(system=system_prompt, user=user_prompt)
+
+                # ★ 优化：根据是否有节拍，调整生成参数
+                beats = inputs.get("beats", [])
+                config = GenerationConfig()
+                if beats and len(beats) > 0:
+                    # 分节拍模式：单次生成字数较少，温度略高增加变化
+                    config = GenerationConfig(
+                        max_tokens=2000,
+                        temperature=0.85,
+                    )
+                else:
+                    # 完整章节模式
+                    config = GenerationConfig(
+                        max_tokens=4000,
+                        temperature=0.80,
+                    )
+
+                # 应用用户配置覆盖
+                if self._config:
+                    if self._config.temperature is not None:
+                        config.temperature = self._config.temperature
+                    if self._config.max_tokens is not None:
+                        config.max_tokens = self._config.max_tokens
+
+                result = await llm.generate(prompt, config)
+                content = result.text if hasattr(result, 'text') else str(result)
+                word_count = len(content)
             except Exception as e:
                 logger.warning(f"LLM 调用失败: {e}")
 
