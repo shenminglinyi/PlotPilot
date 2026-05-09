@@ -182,7 +182,7 @@ const editorStore = useNodeEditorStore()
 const dagStore = useDAGStore()
 const message = useMessage()
 
-// ─── 本地配置状态（独立于 prompt 的模型参数）───
+// ─── 本地配置状态 ───
 const localConfig = reactive({
   temperature: 0.7,
   maxTokens: null as number | null,
@@ -212,7 +212,6 @@ const isValidationNode = computed(() => {
 
 const hasAnyChanges = computed(() => {
   if (editorStore.hasUnsavedChanges) return true
-  // 检查配置是否有变化
   const node = dagStore.dagDefinition?.nodes.find(n => n.id === editorStore.nodeId)
   if (!node) return false
   return (
@@ -243,7 +242,6 @@ function loadLocalConfig() {
     localConfig.maxRetries = node.config.max_retries ?? 1
     localConfig.modelOverride = node.config.model_override ?? ''
 
-    // 加载阈值
     Object.keys(localThresholds).forEach(k => delete localThresholds[k])
     if (node.config.thresholds) {
       Object.assign(localThresholds, node.config.thresholds)
@@ -262,10 +260,8 @@ function addThreshold() {
 
 async function handleSave() {
   try {
-    // 保存 Prompt（通过 editorStore）
     await editorStore.save()
 
-    // 保存其他配置（通过 dagStore）
     const config: Record<string, unknown> = {
       temperature: localConfig.temperature,
       timeout_seconds: localConfig.timeoutSeconds,
@@ -314,19 +310,19 @@ function handleClose(show: boolean) {
 
 .variable-key {
   min-width: 120px;
-  font-family: monospace;
-  font-size: 13px;
-  color: #8b5cf6;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--dag-port-json);
 }
 
 .prompt-preview {
-  font-family: monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
-  color: #e2e8f0;
+  color: var(--dag-preview-text);
 }
 
 .template-toolbar {
@@ -351,9 +347,9 @@ function handleClose(show: boolean) {
 
 .threshold-key {
   min-width: 100px;
-  font-family: monospace;
-  font-size: 12px;
-  color: #f59e0b;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--dag-port-score);
 }
 
 .drawer-footer {
