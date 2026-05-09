@@ -40,7 +40,9 @@ const conditionLabel = computed(() => {
 })
 
 const edgeStyle = computed(() => ({
-  stroke: props.data?.condition && props.data.condition !== 'always' ? '#94a3b8' : '#555',
+  stroke: props.data?.condition && props.data.condition !== 'always'
+    ? 'var(--dag-edge-conditional)'
+    : 'var(--dag-edge-default)',
   strokeWidth: isActive.value ? 2 : 1,
 }))
 
@@ -63,22 +65,24 @@ const labelPos = computed(() => ({
 </script>
 
 <style scoped>
+/* ── 活跃边流动动画 ── */
 .edge-flow-dot {
   fill: none;
-  stroke: #3b82f6;
+  stroke: var(--dag-edge-active);
   stroke-width: 3;
   stroke-dasharray: 8 4;
-  animation: flow-dash 1s linear infinite;
+  animation: dag-flow-dash 1s linear infinite;
   opacity: 0.7;
 }
 
+/* ── 条件标签 ── */
 .edge-label-text {
   font-size: 10px;
-  fill: #94a3b8;
+  fill: var(--app-text-muted);
   pointer-events: none;
 }
 
-@keyframes flow-dash {
+@keyframes dag-flow-dash {
   to {
     stroke-dashoffset: -12;
   }
