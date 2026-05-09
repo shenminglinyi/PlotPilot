@@ -221,7 +221,14 @@ class DAGEngine:
         dag: DAGDefinition,
         initial_state: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """使用自研拓扑排序执行器（LangGraph 不可用时的降级方案）"""
+        """使用自研拓扑排序执行器（LangGraph 不可用时的降级方案）
+
+        优化：
+        1. 同层无依赖节点并行执行（asyncio.gather）
+        2. Context 节点层内并行，减少上下文组装耗时
+        3. 验证节点层内并行，审计不再串行等待
+        4. 快速路径：如果只有单个链式依赖，跳过并行调度开销
+        """
         state = dict(initial_state)
 
         # 获取拓扑层级
@@ -229,7 +236,9 @@ class DAGEngine:
         logger.info(f"DAG 拓扑层级: {[len(l) for l in layers]}")
 
         for layer_idx, layer in enumerate(layers):
-            logger.info(f"执行层级 {layer_idx}: {[n.id for n in layer]}")
+            layer_node_ids = [n.id for n in layer]
+            layer_types = [n.type for n in layer]
+            logger.info(f"执行层级 {layer_idx}: {layer_node_ids} (types: {layer_types})")
 
             if len(layer) == 1:
                 # 串行节点
@@ -237,8 +246,10 @@ class DAGEngine:
                 result = await self._execute_node(node_def, state)
                 state.update(result)
             else:
-                # 并行节点
-                tasks = [self._execute_node(n, state) for n in layer]
+                # ★ 并行节点 — 同层无依赖节点并发执行
+                # 使用共享 state 的只读快照，避免并发写入冲突
+                state_snapshot = dict(state)
+                tasks = [self._execute_node(n, state_snapshot) for n in layer]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for node_def, result in zip(layer, results):
