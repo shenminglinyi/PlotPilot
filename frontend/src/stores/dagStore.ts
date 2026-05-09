@@ -2,7 +2,8 @@
  * DAG 画布核心状态管理
  */
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { useDebounceFn } from '@vueuse/core'
+import { ref, computed, watch } from 'vue'
 import type {
   DAGDefinition,
   DAGVersionSummary,
@@ -32,6 +33,19 @@ export const useDAGStore = defineStore('dag', () => {
   const viewMode = ref<'card' | 'dag'>('card')
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+
+  // ─── 校验状态和未保存追踪 ───
+  const validationStatus = ref<{
+    isValid: boolean
+    message: string
+    errors?: string[]
+  }>({
+    isValid: true,
+    message: '',
+    errors: [],
+  })
+
+  const hasUnsavedChanges = ref(false)
 
   // ─── 计算属性：Vue Flow 节点数据 ───
   const vueFlowNodes = computed(() => {
@@ -98,6 +112,8 @@ export const useDAGStore = defineStore('dag', () => {
   async function loadDAG(novelId: string) {
     isLoading.value = true
     error.value = null
+    currentNovelId.value = novelId
+    hasUnsavedChanges.value = false
     try {
       const dag = await dagApi.getDAG(novelId)
       dagDefinition.value = dag
@@ -110,15 +126,31 @@ export const useDAGStore = defineStore('dag', () => {
 
   async function saveDAG(novelId: string) {
     if (!dagDefinition.value) return
+
     isLoading.value = true
+    currentNovelId.value = novelId
+
+    // ★ 保存前先校验
+    const result = await validateDAG(novelId)
+    if (!result.is_valid) {
+      error.value = `保存失败：${result.summary}`
+      isLoading.value = false
+      return false
+    }
+
+    // ★ 校验通过才保存
     try {
-      const result = await dagApi.updateDAG(novelId, {
+      const updated = await dagApi.updateDAG(novelId, {
         nodes: dagDefinition.value.nodes as unknown as Record<string, unknown>[],
         edges: dagDefinition.value.edges as unknown as Record<string, unknown>[],
       })
-      dagDefinition.value = result.dag
+      dagDefinition.value = updated.dag
+      hasUnsavedChanges.value = false
+      error.value = null
+      return true
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : '保存 DAG 失败'
+      return false
     } finally {
       isLoading.value = false
     }
@@ -167,6 +199,44 @@ export const useDAGStore = defineStore('dag', () => {
       return { errors: ['验证请求失败'], warnings: [], is_valid: false, summary: '❌ 验证失败' }
     }
   }
+
+  // ─── 自动校验逻辑 ───
+  const currentNovelId = ref<string | null>(null)
+
+  const debouncedValidate = useDebounceFn(async () => {
+    if (!currentNovelId.value) return
+
+    try {
+      const result = await dagApi.validateDAG(currentNovelId.value)
+
+      if (!result.is_valid) {
+        validationStatus.value = {
+          isValid: false,
+          message: result.summary,
+          errors: result.errors,
+        }
+      } else {
+        validationStatus.value = {
+          isValid: true,
+          message: result.summary,
+          errors: [],
+        }
+      }
+    } catch (e) {
+      console.error('自动校验失败:', e)
+    }
+  }, 1000)
+
+  // 监听 DAG 变更，自动触发校验
+  watch(
+    () => dagDefinition.value,
+    () => {
+      if (dagDefinition.value && currentNovelId.value) {
+        debouncedValidate()
+      }
+    },
+    { deep: true }
+  )
 
   // ─── SSE 事件处理 ───
 
@@ -245,6 +315,7 @@ export const useDAGStore = defineStore('dag', () => {
     const node = dagDefinition.value.nodes.find(n => n.id === nodeId)
     if (node) {
       node.position = position
+      hasUnsavedChanges.value = true
     }
   }
 
@@ -260,6 +331,8 @@ export const useDAGStore = defineStore('dag', () => {
     viewMode,
     isLoading,
     error,
+    validationStatus,
+    hasUnsavedChanges,
 
     // Computed
     vueFlowNodes,
