@@ -124,8 +124,8 @@
       <n-empty v-if="Object.keys(groupedNodes).length === 0 && !loading" description="暂无提示词数据" />
     </div>
 
-    <!-- 加载状态 -->
-    <div class="loading-wrap" v-else>
+    <!-- 加载状态（仅提示词广场模式下加载中显示） -->
+    <div class="loading-wrap" v-if="loading && mainTab === 'plaza'">
       <n-spin size="medium">正在加载提示词库...</n-spin>
     </div>
 
