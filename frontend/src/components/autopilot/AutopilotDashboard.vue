@@ -1,21 +1,15 @@
 <template>
-  <div class="autopilot-dashboard">
-    <!-- 视图切换按钮 -->
-    <div class="view-toggle-bar">
-      <n-button-group size="small">
-        <n-button
-          :type="viewMode === 'card' ? 'primary' : 'default'"
-          @click="viewMode = 'card'"
-        >
-          📊 卡片视图
-        </n-button>
-        <n-button
-          :type="viewMode === 'dag' ? 'primary' : 'default'"
-          @click="viewMode = 'dag'"
-        >
-          🧭 DAG 视图
-        </n-button>
-      </n-button-group>
+  <div class="autopilot-dashboard" :class="{ 'dashboard--dag': viewMode === 'dag' }">
+    <!-- 顶部栏：标题 + Switch -->
+    <div class="dashboard-topbar">
+      <n-text strong class="topbar-title">🧭 工作流监控</n-text>
+      <n-switch
+        v-model:value="isDagMode"
+        size="small"
+      >
+        <template #checked>DAG</template>
+        <template #unchecked>卡片</template>
+      </n-switch>
     </div>
 
     <!-- DAG 视图 -->
@@ -72,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGRunStore } from '@/stores/dagRunStore'
 import TensionChart from './TensionChart.vue'
@@ -95,10 +89,13 @@ const runStore = useDAGRunStore()
 
 // 视图模式：卡片 / DAG
 const viewMode = ref<'card' | 'dag'>('card')
+const isDagMode = computed({
+  get: () => viewMode.value === 'dag',
+  set: (val: boolean) => { viewMode.value = val ? 'dag' : 'card' },
+})
 
-// 🔥 监控面板统一刷新信号：SSE 事件驱动子组件重新拉数据
+// 🔥 监控面板统一刷新信号
 const monitorRefreshKey = ref(0)
-/** 张力曲线等：按章刷新即可（审计落库 / 全书结束），不与 beat_complete 同步 */
 const chapterMetricsRefreshKey = ref(0)
 
 // DAG 运行完成时自动刷新监控数据
@@ -124,7 +121,6 @@ function handleChapterMetricsRefresh() {
   chapterMetricsRefreshKey.value++
 }
 
-// 文风偏移警报
 function handleDriftAlert(score: number, status: string) {
   if (status === 'danger') {
     message.error(`⚠️ 文风严重偏离 (${score.toFixed(1)})，建议立即处理`)
@@ -133,12 +129,10 @@ function handleDriftAlert(score: number, status: string) {
   }
 }
 
-// 熔断器打开
 function handleBreakerOpen() {
   message.error('🔌 熔断器已触发，连续错误过多，Autopilot 已自动停止')
 }
 
-// 熔断器重置
 function handleBreakerReset() {
   message.success('🔄 熔断器已重置，可以重新启动 Autopilot')
 }
@@ -147,12 +141,29 @@ function handleBreakerReset() {
 <style scoped>
 .autopilot-dashboard {
   height: 100%;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
 }
 
-.view-toggle-bar {
-  margin-bottom: 12px;
-  padding: 0 4px;
+/* DAG 视图：禁止外层滚动，画布自行平移/缩放 */
+.dashboard--dag {
+  overflow: hidden;
+}
+
+.dashboard-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface);
+  min-height: 40px;
+}
+
+.topbar-title {
+  font-size: 14px;
+  color: var(--app-text-primary);
 }
 
 .monitor-copy-hint {
@@ -171,7 +182,6 @@ function handleBreakerReset() {
   min-height: 280px;
 }
 
-/* 实时日志：固定视口高度，内容仅在面板内滚动（避免 Grid 行被日志撑到整页） */
 .grid-cell--terminal {
   display: flex;
   flex-direction: column;
@@ -190,7 +200,6 @@ function handleBreakerReset() {
   grid-column: span 2;
 }
 
-/* 响应式布局 */
 @media (max-width: 1400px) {
   .monitor-grid {
     grid-template-columns: repeat(2, 1fr);

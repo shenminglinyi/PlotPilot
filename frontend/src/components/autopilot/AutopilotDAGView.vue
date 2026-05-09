@@ -23,7 +23,7 @@
       />
       <div v-else-if="dagStore.isLoading" class="dag-loading">
         <n-spin size="large" />
-        <span>加载 DAG 画布...</span>
+        <span class="dag-loading-text">加载 DAG 画布...</span>
       </div>
       <div v-else-if="dagStore.error" class="dag-error">
         <n-result status="error" :title="dagStore.error">
@@ -143,7 +143,6 @@ function handleCanvasContextMenu(event: MouseEvent, nodeId: string, enabled: boo
   contextMenu.nodeEnabled = enabled
   contextMenu.nodeType = node?.type || ''
 
-  // 点击其他地方关闭菜单
   const closeHandler = () => {
     contextMenu.visible = false
     document.removeEventListener('click', closeHandler)
@@ -187,7 +186,6 @@ async function handleRerunNode(nodeId: string) {
 
 function handleViewUpstream(nodeId: string) {
   dagStore.selectNode(nodeId)
-  // 高亮上游节点
   const dag = dagStore.dagDefinition
   if (dag) {
     const predecessors = dag.get_predecessors(nodeId)
@@ -201,7 +199,6 @@ function handleViewUpstream(nodeId: string) {
 
 function handleViewDownstream(nodeId: string) {
   dagStore.selectNode(nodeId)
-  // 高亮下游节点
   const dag = dagStore.dagDefinition
   if (dag) {
     const successors = dag.get_successors(nodeId)
@@ -219,7 +216,7 @@ function handleViewDownstream(nodeId: string) {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--n-color);
+  background: var(--dag-canvas-bg);
 }
 
 .dag-canvas-wrapper {
@@ -236,5 +233,10 @@ function handleViewDownstream(nodeId: string) {
   justify-content: center;
   height: 100%;
   gap: 16px;
+}
+
+.dag-loading-text {
+  color: var(--app-text-muted);
+  font-size: var(--font-size-sm);
 }
 </style>
