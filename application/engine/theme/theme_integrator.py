@@ -278,7 +278,7 @@ class ThemeAwarePromptBuilder:
             return ""
 
         try:
-            persona = self._theme_agent.get_system_persona()
+            persona = self._theme_agent.get_effective_system_persona()
             if persona and persona.strip():
                 return f"\n【作家风格】\n{persona}\n"
         except Exception as e:
@@ -299,9 +299,11 @@ class ThemeAwarePromptBuilder:
             return ""
 
         try:
-            rules = self._theme_agent.get_writing_rules()
-            if rules and rules.strip():
-                return f"\n【题材专项规则】\n{rules}\n"
+            rules = self._theme_agent.get_effective_writing_rules()
+            if rules:
+                rules_text = "\n".join(f"- {r}" for r in rules)
+                if rules_text.strip():
+                    return f"\n【题材专项规则】\n{rules_text}\n"
         except Exception as e:
             logger.debug(f"[ThemeIntegrator] 获取写作规则失败: {e}")
 
