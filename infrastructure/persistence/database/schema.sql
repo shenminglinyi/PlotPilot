@@ -584,6 +584,77 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
 CREATE INDEX IF NOT EXISTS idx_prompt_versions_node ON prompt_versions(node_id);
 CREATE INDEX IF NOT EXISTS idx_prompt_versions_node_ver ON prompt_versions(node_id, version_number DESC);
 
+-- ========== CPMS: 提示词工作流定义 ==========
+CREATE TABLE IF NOT EXISTS prompt_workflows (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    is_builtin INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ========== CPMS: 提示词工作流绑定 ==========
+CREATE TABLE IF NOT EXISTS prompt_bindings (
+    id TEXT PRIMARY KEY,
+    workflow_id TEXT NOT NULL,
+    node_key TEXT NOT NULL,
+    slot TEXT NOT NULL DEFAULT 'system_main',
+    priority INTEGER NOT NULL DEFAULT 50,
+    is_required INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (workflow_id) REFERENCES prompt_workflows(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_bindings_workflow ON prompt_bindings(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_bindings_node ON prompt_bindings(node_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prompt_bindings_wf_node_slot
+    ON prompt_bindings(workflow_id, node_key, slot);
+
+-- ========== CPMS: 全局变量注册表 ==========
+CREATE TABLE IF NOT EXISTS variable_registry (
+    name TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
+    type TEXT NOT NULL DEFAULT 'string',
+    scope TEXT NOT NULL DEFAULT 'chapter',
+    is_required INTEGER NOT NULL DEFAULT 0,
+    default_value TEXT,
+    description TEXT DEFAULT '',
+    source TEXT DEFAULT '',
+    enum_values TEXT DEFAULT '[]',
+    examples TEXT DEFAULT '[]',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_variable_registry_scope ON variable_registry(scope);
+CREATE INDEX IF NOT EXISTS idx_variable_registry_type ON variable_registry(type);
+
+-- ========== CPMS: 提示词调试日志 ==========
+CREATE TABLE IF NOT EXISTS prompt_debug_logs (
+    id TEXT PRIMARY KEY,
+    node_key TEXT NOT NULL,
+    workflow_id TEXT,
+    variables_json TEXT DEFAULT '{}',
+    rendered_system TEXT DEFAULT '',
+    rendered_user TEXT DEFAULT '',
+    llm_response TEXT DEFAULT '',
+    cot_trace TEXT DEFAULT '',
+    token_usage TEXT DEFAULT '{}',
+    duration_ms INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending',
+    error_message TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_debug_node ON prompt_debug_logs(node_key);
+CREATE INDEX IF NOT EXISTS idx_prompt_debug_workflow ON prompt_debug_logs(workflow_id);
+CREATE INDEX IF NOT EXISTS idx_prompt_debug_status ON prompt_debug_logs(status);
+CREATE INDEX IF NOT EXISTS idx_prompt_debug_created ON prompt_debug_logs(created_at DESC);
+
 
 -- ========== 嵌入模型配置（Embedding Config）==========
 -- 全局唯一的嵌入服务配置（本地模型 / OpenAI 云端）
