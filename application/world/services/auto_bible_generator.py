@@ -25,6 +25,55 @@ USER_PROMPT_SUFFIX = """
 ```json
 """
 
+# ============================================================================
+# CPMS 回退常量 — 当 PromptRegistry 不可用时使用
+# ============================================================================
+
+_FALLBACK_BIBLE_ALL_SYSTEM = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
+
+**重要：description 字段必须是单行文本，不能有换行符。**
+
+要求：
+1. 深入理解故事梗概，提取核心冲突、主题、世界观
+2. 至少 3-5 个主要人物（主角、配角、对手、导师等），确保人物之间有冲突和互动
+3. 每个人物：姓名、定位（主角/配角/对手/导师）、性格特点、目标动机
+4. 至少 2-3 个重要地点，符合故事背景
+5. 明确的文风公约（叙事视角、人称、基调、节奏）
+6. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
+7. 人物和地点要符合故事类型（现代都市/古代/玄幻/科幻等）
+8. **所有 description 字段必须是单行文本**
+"""
+
+_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
+
+要求：
+1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
+2. 明确的文风公约（叙事视角、人称、基调、节奏）
+3. 符合故事类型（现代都市/古代/玄幻/科幻等）
+"""
+
+_FALLBACK_BIBLE_CHARACTERS_SYSTEM = """你是资深网文策划编辑。基于已有世界观生成主要人物。
+
+**重要：description 字段必须是单行文本。**
+
+要求：
+1. 至少 3-5 个主要人物（主角、配角、对手、导师等）
+2. 人物要符合世界观设定
+3. 确保人物之间有冲突和互动
+4. 每个人物：姓名、定位、性格特点、目标动机
+5. 明确定义人物之间的关系（敌对、合作、师徒、亲属、暧昧等）
+"""
+
+_FALLBACK_BIBLE_LOCATIONS_SYSTEM = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
+
+要求：
+1. 至少 5-10 个重要地点，构成完整地图
+2. 地点要符合世界观设定
+3. 考虑人物的活动范围和故事需要
+4. 包含不同类型：城市、建筑、区域、特殊场所等
+5. 空间层级用 parent_id 表达
+"""
+
 
 def parse_json_from_response(rsp: str):
     """从LLM响应中解析JSON。
@@ -535,7 +584,10 @@ class AutoBibleGenerator:
     async def _generate_bible_data(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """使用 LLM 生成 Bible 数据和世界观"""
 
-        system_prompt = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system_prompt = get_prompt_system("bible-all", fallback=_FALLBACK_BIBLE_ALL_SYSTEM)
+        # CPMS: 原硬编码已提取为回退常量 _FALLBACK_BIBLE_ALL_SYSTEM
+        _cpms_placeholder = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
 **重要：description 字段必须是单行文本，不能有换行符。**
 
@@ -846,7 +898,10 @@ JSON 格式（不要有其他文字）：
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风"""
-        system_prompt = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system_prompt = get_prompt_system("bible-worldbuilding", fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM)
+        # CPMS: 原硬编码已提取为回退常量
+        _cpms_placeholder = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
 
 要求：
 1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
@@ -906,7 +961,10 @@ JSON 格式：
         """基于世界观生成人物"""
         wb_summary = self._summarize_worldbuilding(worldbuilding)
 
-        system_prompt = """你是资深网文策划编辑。基于已有世界观生成主要人物。
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system_prompt = get_prompt_system("bible-characters", fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
+        # CPMS: 原硬编码已提取为回退常量
+        _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观生成主要人物。
 
 **重要：description 字段必须是单行文本。**
 
@@ -956,7 +1014,10 @@ JSON 格式：
         wb_summary = self._summarize_worldbuilding(worldbuilding)
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
-        system_prompt = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system_prompt = get_prompt_system("bible-locations", fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
+        # CPMS: 原硬编码已提取为回退常量
+        _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
 
 要求：
 1. 至少 5-10 个重要地点，构成完整地图

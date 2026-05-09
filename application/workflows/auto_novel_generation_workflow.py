@@ -29,6 +29,69 @@ from application.engine.services.beat_coherence_enhancer import BeatCoherenceEnh
 
 logger = logging.getLogger(__name__)
 
+
+# ─── 模板安全渲染工具 ───
+
+class _SafeDict(dict):
+    """format_map 专用字典：未匹配的变量保留为 {name} 占位符，不抛 KeyError。"""
+
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
+def _safe_format(template: str, variables: Dict[str, Any]) -> str:
+    """安全模板渲染：缺失变量保留占位符，不抛异常。
+
+    Args:
+        template: 含 {variable} 占位符的模板字符串
+        variables: 变量字典
+
+    Returns:
+        渲染后的字符串
+    """
+    if not template:
+        return ""
+    try:
+        return template.format_map(_SafeDict(variables))
+    except (KeyError, ValueError, IndexError):
+        return template
+
+
+# CPMS: 主工作流提示词节点 key（与 prompts_defaults.json 中 id 一致）
+_WORKFLOW_CHAPTER_GEN_NODE_KEY = "chapter-generation-main"
+
+# 硬编码回退：system 模板框架（仅在 PromptRegistry 不可用时使用）
+_FALLBACK_SYSTEM_TEMPLATE = (
+    "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。\n"
+    "{theme_persona}{theme_rules}\n"
+    "{planning_section}{voice_block}{context}\n\n"
+    "{fact_lock}\n"
+    "{shuangwen_directive}"
+    "写作要求：\n"
+    "1. 必须有多个人物互动（至少2-3个角色出场）\n"
+    "2. 必须有对话（不能只有独白和叙述）\n"
+    "3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）\n"
+    "4. 保持人物性格一致\n"
+    "5. 推进情节发展\n"
+    "6. 使用生动的场景描写和细节\n"
+    "{length_rule}\n"
+    "8. 用中文写作，使用第三人称叙事{beat_extra}\n"
+    "{format_rules}"
+)
+
+# 硬编码回退：user 模板框架
+_FALLBACK_USER_TEMPLATE = (
+    "请根据以下大纲撰写本章内容：\n\n{outline}\n\n"
+    "关键要求（必须遵守）：\n"
+    "- 至少2-3个角色出场并互动\n"
+    "- 必须包含对话场景（不少于3段对话）\n"
+    "- 必须有明确的冲突或戏剧张力\n"
+    "- 场景要具体生动，不要空泛叙述\n"
+    "- 推进主线情节，不要原地踏步\n"
+    "- 结尾要有悬念或转折\n\n"
+    "{beat_section}"
+)
+
 # 与 ContextBuilder.build_structured_context 映射：Layer1≈T0+T1，Layer2=T2，Layer3=T3
 # 段名与语义对齐，避免「SMART RETRIEVAL」贴在近期正文等历史误标
 CHAPTER_CONTEXT_LAYER2_HEADER = "RECENT CHAPTERS"  # T2 近期章节正文
@@ -1134,35 +1197,28 @@ class AutoNovelGenerationWorkflow:
 
         # ⚡ 提示词集中管理说明：
         # 此模板对应 prompts_defaults.json 中的 id=workflow-chapter-generation
-        # 如需修改提示词内容，请编辑 JSON 文件而非此代码文件
-        system_message = f"""你是一位专业的网络小说作家。根据以下上下文撰写章节内容。
-{theme_persona}{theme_rules}
-{planning_section}{voice_block}{context}
+        # CPMS: 优先从 PromptRegistry 获取模板，不可用时使用硬编码回退
+        system_template = self._get_workflow_system_template()
+        user_template = self._get_workflow_user_template()
 
-{fact_lock}
-{shuangwen_directive}
-写作要求：
-1. 必须有多个人物互动（至少2-3个角色出场）
-2. 必须有对话（不能只有独白和叙述）
-3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）
-4. 保持人物性格一致
-5. 推进情节发展
-6. 使用生动的场景描写和细节
-{length_rule}
-8. 用中文写作，使用第三人称叙事{beat_extra}
-{format_rules}"""
+        # 使用模板渲染（兼容 CPMS 模板和硬编码回退）
+        # SafeDict: 用户在提示词广场编辑模板时可能引入未知变量，
+        # 需要安全降级——未匹配的变量保留为 {name} 占位符，而非抛出 KeyError
+        system_vars = {
+            "theme_persona": theme_persona,
+            "theme_rules": theme_rules,
+            "planning_section": planning_section,
+            "voice_block": voice_block,
+            "context": context,
+            "fact_lock": fact_lock,
+            "shuangwen_directive": shuangwen_directive,
+            "length_rule": length_rule,
+            "beat_extra": beat_extra,
+            "format_rules": format_rules,
+        }
+        system_message = _safe_format(system_template, system_vars)
 
-        user_message = f"""请根据以下大纲撰写本章内容：
-
-{outline}
-
-关键要求（必须遵守）：
-- 至少2-3个角色出场并互动
-- 必须包含对话场景（不少于3段对话）
-- 必须有明确的冲突或戏剧张力
-- 场景要具体生动，不要空泛叙述
-- 推进主线情节，不要原地踏步
-- 结尾要有悬念或转折"""
+        user_message = _safe_format(user_template, {"outline": outline, "beat_section": ""})
 
         if beat_mode and prior_in_chapter:
             # V2：基于锚点的动态连贯性要求
@@ -1229,6 +1285,65 @@ class AutoNovelGenerationWorkflow:
         user_message += "\n\n开始撰写："
 
         return Prompt(system=system_message, user=user_message)
+
+    # ─── CPMS 模板获取辅助方法 ───
+
+    def _get_workflow_system_template(self) -> str:
+        """获取主工作流 system 模板（CPMS 优先 -> 硬编码回退）。
+
+        设计决策：
+        - 主工作流的 system prompt 包含大量动态变量（theme_persona, fact_lock 等），
+          不适合直接用 Registry.render() 一步渲染，而是获取模板后由 _build_prompt 手动 format。
+        - 如果 PromptRegistry 中注册了 workflow-chapter-generation 节点，
+          用户可在提示词广场直接编辑此模板并实时生效。
+        - 降级时使用模块级 _FALLBACK_SYSTEM_TEMPLATE 常量。
+
+        Returns:
+            system prompt 模板字符串（含 {variable} 占位符）
+        """
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            system = registry.get_system(_WORKFLOW_CHAPTER_GEN_NODE_KEY)
+            if system:
+                logger.debug(
+                    "CPMS: 使用 Registry 模板 (node_key=%s)", _WORKFLOW_CHAPTER_GEN_NODE_KEY
+                )
+                return system
+        except Exception as exc:
+            logger.debug(
+                "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
+            )
+
+        logger.debug("CPMS: 使用硬编码回退 system 模板")
+        return _FALLBACK_SYSTEM_TEMPLATE
+
+    def _get_workflow_user_template(self) -> str:
+        """获取主工作流 user 模板（CPMS 优先 -> 硬编码回退）。
+
+        同 _get_workflow_system_template 的设计决策：
+        - 获取模板文本，后续由 _build_prompt 根据节拍模式追加更多段落。
+        - 降级时使用模块级 _FALLBACK_USER_TEMPLATE 常量。
+
+        Returns:
+            user prompt 模板字符串（含 {variable} 占位符）
+        """
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            user_template = registry.get_user_template(_WORKFLOW_CHAPTER_GEN_NODE_KEY)
+            if user_template:
+                logger.debug(
+                    "CPMS: 使用 Registry user_template (node_key=%s)", _WORKFLOW_CHAPTER_GEN_NODE_KEY
+                )
+                return user_template
+        except Exception as exc:
+            logger.debug(
+                "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
+            )
+
+        logger.debug("CPMS: 使用硬编码回退 user_template")
+        return _FALLBACK_USER_TEMPLATE
 
     async def _extract_chapter_state(self, content: str, chapter_number: int) -> ChapterState:
         """从生成的内容中提取章节状态
