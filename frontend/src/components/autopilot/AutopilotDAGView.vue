@@ -5,13 +5,12 @@
       :novel-id="novelId"
       :view-mode="dagStore.viewMode"
       :dag-stats="dagStore.dagStats"
-      :run-status="runStore.runStatus"
+      :autopilot-status="autopilotStatus"
       :sse-connected="runStore.sseConnected"
-      @switch-view="dagStore.switchView"
+      @switch-view="handleSwitchView"
       @save="handleSave"
       @validate="handleValidate"
-      @run="handleRun"
-      @stop="handleStop"
+      @open-plaza="handleOpenPlaza"
     />
 
     <!-- DAG 画布 -->
@@ -34,9 +33,6 @@
       </div>
     </div>
 
-    <!-- 节点编辑器抽屉 -->
-    <NodeEditorDrawer />
-
     <!-- 右键菜单 -->
     <NodeContextMenu
       v-if="contextMenu.visible"
@@ -56,15 +52,14 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
-import { useNodeEditorStore } from '@/stores/nodeEditorStore'
+import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
 import { dagApi } from '@/api/dag'
 import DAGToolbar from './DAGToolbar.vue'
 import DAGCanvas from './DAGCanvas.vue'
-import NodeEditorDrawer from './NodeEditorDrawer.vue'
 import NodeContextMenu from './NodeContextMenu.vue'
 
 const props = defineProps<{
@@ -73,12 +68,16 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'desk-refresh': []
+  'switch-view': [mode: 'card' | 'dag']
 }>()
 
 const dagStore = useDAGStore()
 const runStore = useDAGRunStore()
-const editorStore = useNodeEditorStore()
+const plazaBridge = usePromptPlazaBridge()
 const message = useMessage()
+
+// ★ 托管模式状态（从后端获取，DAG只是展示层）
+const autopilotStatus = ref<'idle' | 'running' | 'paused' | 'completed' | 'error'>('idle')
 
 // 右键菜单状态
 const contextMenu = reactive({
@@ -94,6 +93,18 @@ onMounted(async () => {
   await dagStore.loadDAG(props.novelId)
   await dagStore.loadNodeTypeRegistry()
   await runStore.fetchStatus(props.novelId)
+  await fetchAutopilotStatus()
+})
+
+// ★ 监听托管模式 SSE 日志更新状态
+watch(() => runStore.runStatus, (status) => {
+  if (status === 'running') {
+    autopilotStatus.value = 'running'
+  } else if (status === 'completed') {
+    autopilotStatus.value = 'completed'
+  } else if (status === 'error') {
+    autopilotStatus.value = 'error'
+  }
 })
 
 // ─── 工具栏事件 ───
@@ -112,23 +123,15 @@ async function handleValidate() {
   }
 }
 
-async function handleRun() {
-  try {
-    await runStore.startRun(props.novelId)
-    message.info('DAG 运行已启动')
-  } catch {
-    message.error('启动 DAG 运行失败')
-  }
+/** ★ 打开提示词广场 */
+function handleOpenPlaza() {
+  plazaBridge.openPromptInPlaza('', false)
 }
 
-async function handleStop() {
-  try {
-    await runStore.stopRun(props.novelId)
-    message.info('DAG 运行已停止')
-    emit('desk-refresh')
-  } catch {
-    message.error('停止 DAG 运行失败')
-  }
+/** ★ 切换视图模式 → 通知 Dashboard */
+function handleSwitchView(mode: 'card' | 'dag') {
+  dagStore.switchView(mode)
+  emit('switch-view', mode)
 }
 
 // ─── 画布右键菜单 ───
@@ -156,16 +159,11 @@ function handleCanvasContextMenu(event: MouseEvent, nodeId: string, enabled: boo
 
 // ─── 右键菜单事件 ───
 
+/** ★ 编辑节点 → 跳转提示词广场 */
 function handleEditNode(nodeId: string) {
   const node = dagStore.dagDefinition?.nodes.find(n => n.id === nodeId)
   if (node) {
-    const meta = dagStore.nodeTypeRegistry[node.type]
-    editorStore.open(
-      props.novelId,
-      nodeId,
-      node.config.prompt_template || meta?.prompt_template || '',
-      node.config.prompt_variables || {},
-    )
+    plazaBridge.openPromptInPlaza(node.type, true)
   }
 }
 
@@ -176,12 +174,8 @@ async function handleToggleNode(nodeId: string) {
 }
 
 async function handleRerunNode(nodeId: string) {
-  try {
-    await dagApi.rerunFromNode(props.novelId, nodeId)
-    message.info(`从节点 ${nodeId} 重新执行已启动`)
-  } catch {
-    message.error('重新执行失败')
-  }
+  // ★ DAG 是纯展示层，"从此节点重跑"走的是托管模式
+  message.info('提示：DAG 为可视化展示，重跑请使用全托管面板')
 }
 
 function handleViewUpstream(nodeId: string) {
@@ -207,6 +201,23 @@ function handleViewDownstream(nodeId: string) {
     } else {
       message.info(`下游节点: ${successors.join(', ')}`)
     }
+  }
+}
+
+// ─── 获取托管模式状态 ───
+
+async function fetchAutopilotStatus() {
+  try {
+    const { apiClient } = await import('@/api/config')
+    const result = await apiClient.get(`/autopilot/${props.novelId}/status`) as Record<string, unknown>
+    const status = String(result.autopilot_status || result.status || 'idle')
+    if (['running', 'paused_for_review', 'completed', 'error'].includes(status)) {
+      autopilotStatus.value = status === 'paused_for_review' ? 'paused' : status as typeof autopilotStatus.value
+    } else {
+      autopilotStatus.value = 'idle'
+    }
+  } catch {
+    autopilotStatus.value = 'idle'
   }
 }
 </script>
