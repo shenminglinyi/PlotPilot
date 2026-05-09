@@ -133,6 +133,11 @@ export const useDAGStore = defineStore('dag', () => {
     // ★ 保存前先校验
     const result = await validateDAG(novelId)
     if (!result.is_valid) {
+      validationStatus.value = {
+        isValid: false,
+        message: result.summary,
+        errors: result.errors,
+      }
       error.value = `保存失败：${result.summary}`
       isLoading.value = false
       return false
@@ -224,6 +229,11 @@ export const useDAGStore = defineStore('dag', () => {
       }
     } catch (e) {
       console.error('自动校验失败:', e)
+      validationStatus.value = {
+        isValid: false,
+        message: '校验失败：网络错误或服务不可用',
+        errors: ['无法连接到验证服务'],
+      }
     }
   }, 1000)
 
@@ -231,7 +241,7 @@ export const useDAGStore = defineStore('dag', () => {
   watch(
     () => dagDefinition.value,
     () => {
-      if (dagDefinition.value && currentNovelId.value) {
+      if (dagDefinition.value && currentNovelId.value && hasUnsavedChanges.value) {
         debouncedValidate()
       }
     },
