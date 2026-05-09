@@ -29,11 +29,19 @@
           <span class="metric-key">{{ m.label }}</span>
           <span class="metric-value" :style="{ color: m.color }">{{ m.value }}</span>
         </div>
+        <!-- ★ 编辑提示词快捷入口（指标下方） -->
+        <div v-if="isConfigurable" class="node-edit-hint" @click.stop="handleEditPrompt">
+          ✏️ 编辑提示词
+        </div>
       </div>
 
-      <!-- 默认：类型描述 -->
+      <!-- 默认：类型描述 + 编辑入口 -->
       <div v-else class="node-desc">
         <n-text depth="3" style="font-size: 11px">{{ meta?.display_name || data.type }}</n-text>
+        <!-- ★ 可配置节点：显示编辑提示词按钮 -->
+        <div v-if="isConfigurable" class="node-edit-hint" @click.stop="handleEditPrompt">
+          ✏️ 编辑提示词
+        </div>
       </div>
     </div>
 
@@ -64,13 +72,9 @@ import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
 import { useDAGStore } from '@/stores/dagStore'
+import { useNodeEditorStore } from '@/stores/nodeEditorStore'
 import type { NodeMeta, NodeStatus, PortDataType } from '@/types/dag'
-import {
-  STATUS_COLORS,
-  STATUS_BG_COLORS,
-  STATUS_LABELS,
-  CATEGORY_COLORS,
-} from '@/types/dag'
+import { STATUS_COLORS, STATUS_BG_COLORS, STATUS_LABELS, CATEGORY_COLORS } from '@/types/dag'
 
 const props = defineProps<NodeProps>()
 
@@ -122,9 +126,11 @@ const statusTagType = computed(() => {
   return map[status.value] || 'default'
 })
 
+const isConfigurable = computed(() => meta.value?.is_configurable && data.value.enabled)
+
 const categoryColor = computed(() => {
   const cat = meta.value?.category
-  return cat ? CATEGORY_COLORS[cat] : '#6366f1'
+  return cat ? CATEGORY_COLORS[cat] : 'var(--color-brand)'
 })
 
 // ─── 指标展示 ───
@@ -134,7 +140,6 @@ const displayMetrics = computed(() => {
   const metrics = runState.value.metrics
   const items: { key: string; label: string; value: string; color: string }[] = []
 
-  // 根据节点类型选择展示的指标
   const type = data.value.type
   if (type === 'val_style') {
     if (metrics.drift_score !== undefined) {
@@ -142,7 +147,7 @@ const displayMetrics = computed(() => {
         key: 'drift_score',
         label: '偏离度',
         value: metrics.drift_score.toFixed(2),
-        color: metrics.drift_score > 0.5 ? '#f59e0b' : '#22c55e',
+        color: metrics.drift_score > 0.5 ? 'var(--color-warning)' : 'var(--color-success)',
       })
     }
   } else if (type === 'val_tension') {
@@ -151,7 +156,7 @@ const displayMetrics = computed(() => {
         key: 'composite',
         label: '综合张力',
         value: metrics.composite.toFixed(0),
-        color: metrics.composite < 30 ? '#f59e0b' : '#22c55e',
+        color: metrics.composite < 30 ? 'var(--color-warning)' : 'var(--color-success)',
       })
     }
   } else if (type === 'val_anti_ai') {
@@ -160,7 +165,7 @@ const displayMetrics = computed(() => {
         key: 'severity_score',
         label: 'AI味',
         value: metrics.severity_score.toFixed(1),
-        color: metrics.severity_score > 5 ? '#ef4444' : '#22c55e',
+        color: metrics.severity_score > 5 ? 'var(--color-danger)' : 'var(--color-success)',
       })
     }
   } else if (type === 'exec_writer') {
@@ -169,7 +174,7 @@ const displayMetrics = computed(() => {
         key: 'word_count',
         label: '字数',
         value: String(Math.round(metrics.word_count)),
-        color: '#3b82f6',
+        color: 'var(--color-info)',
       })
     }
   }
@@ -182,29 +187,48 @@ const displayMetrics = computed(() => {
       value: runState.value.duration_ms > 1000
         ? `${(runState.value.duration_ms / 1000).toFixed(1)}s`
         : `${runState.value.duration_ms}ms`,
-      color: '#94a3b8',
+      color: 'var(--app-text-muted)',
     })
   }
 
-  return items.slice(0, 3) // 最多展示3个指标
+  return items.slice(0, 3)
 })
 
-// ─── 端口样式 ───
+// ─── 编辑提示词 ───
+
+function handleEditPrompt() {
+  const nodeId = data.value.id
+  const dag = dagStore.dagDefinition
+  if (!dag) return
+  const node = dag.nodes.find(n => n.id === nodeId)
+  if (!node) return
+
+  const nodeMeta = dagStore.nodeTypeRegistry[node.type]
+  const editorStore = useNodeEditorStore()
+  editorStore.open(
+    dag.id || '',
+    nodeId,
+    node.config.prompt_template || nodeMeta?.prompt_template || '',
+    node.config.prompt_variables || {},
+  )
+}
+
+// ─── 端口样式（数据类型 → CSS 变量映射）───
 
 function portStyle(dataType: PortDataType) {
-  const colors: Record<string, string> = {
-    text: '#3b82f6',
-    json: '#8b5cf6',
-    score: '#f59e0b',
-    boolean: '#22c55e',
-    list: '#ec4899',
-    prompt: '#6366f1',
+  const varMap: Record<string, string> = {
+    text:    'var(--dag-port-text)',
+    json:    'var(--dag-port-json)',
+    score:   'var(--dag-port-score)',
+    boolean: 'var(--dag-port-boolean)',
+    list:    'var(--dag-port-list)',
+    prompt:  'var(--dag-port-prompt)',
   }
   return {
-    background: colors[dataType] || '#94a3b8',
+    background: varMap[dataType] || 'var(--app-text-muted)',
     width: '8px',
     height: '8px',
-    border: '2px solid var(--n-color, #1a1a2e)',
+    border: '2px solid var(--dag-node-bg)',
   }
 }
 </script>
@@ -213,58 +237,67 @@ function portStyle(dataType: PortDataType) {
 .dag-custom-node {
   min-width: 160px;
   max-width: 220px;
-  border-radius: 8px;
-  border: 2px solid #94a3b8;
-  background: var(--n-color, #1e1e2e);
-  font-size: 12px;
-  transition: border-color 0.3s, box-shadow 0.3s;
+  border-radius: var(--app-radius-sm);
+  border: 2px solid var(--dag-node-border);
+  background: var(--dag-node-bg);
+  font-size: var(--font-size-xs);
+  transition: border-color var(--app-transition), box-shadow var(--app-transition), background var(--app-transition);
   position: relative;
+  box-shadow: var(--dag-node-shadow);
 }
 
+/* ── 选中态 ── */
 .dag-custom-node.node-selected {
-  box-shadow: 0 0 0 2px #3b82f6;
+  box-shadow: 0 0 0 2px var(--dag-node-selected-ring), var(--dag-node-shadow);
 }
 
+/* ── 运行态 ── */
 .dag-custom-node.node-running {
-  border-color: #3b82f6;
-  background: rgba(59,130,246,0.08);
-  animation: pulse-border 2s ease-in-out infinite;
+  border-color: var(--color-brand);
+  background: var(--color-brand-light);
+  animation: dag-pulse-border 2s ease-in-out infinite;
 }
 
+/* ── 成功态 ── */
 .dag-custom-node.node-success {
-  border-color: #22c55e;
-  background: rgba(34,197,94,0.06);
+  border-color: var(--color-success);
+  background: var(--color-success-dim);
 }
 
+/* ── 警告态 ── */
 .dag-custom-node.node-warning {
-  border-color: #f59e0b;
-  background: rgba(245,158,11,0.06);
+  border-color: var(--color-warning);
+  background: var(--color-warning-dim);
 }
 
+/* ── 错误态 ── */
 .dag-custom-node.node-error {
-  border-color: #ef4444;
-  background: rgba(239,68,68,0.08);
-  animation: blink-border 1s ease-in-out infinite;
+  border-color: var(--color-danger);
+  background: var(--color-danger-dim);
+  animation: dag-blink-border 1s ease-in-out infinite;
 }
 
+/* ── 旁路态 ── */
 .dag-custom-node.node-bypassed {
-  border-color: #6b7280;
+  border-color: var(--app-text-muted);
   border-style: dashed;
-  background: rgba(107,114,128,0.04);
+  background: var(--app-divider);
 }
 
+/* ── 禁用态 ── */
 .dag-custom-node.node-disabled {
-  border-color: #d1d5db;
-  background: rgba(209,213,219,0.04);
+  border-color: var(--app-border-strong);
+  background: var(--app-divider);
   opacity: 0.6;
 }
 
+/* ── 节点头部 ── */
 .node-header {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--app-divider);
   border-top: 3px solid;
 }
 
@@ -275,12 +308,14 @@ function portStyle(dataType: PortDataType) {
 .node-label {
   flex: 1;
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
+  color: var(--app-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* ── 节点主体 ── */
 .node-body {
   padding: 6px 10px;
   min-height: 24px;
@@ -294,24 +329,25 @@ function portStyle(dataType: PortDataType) {
 
 .running-text {
   font-size: 11px;
-  color: #3b82f6;
+  color: var(--color-brand);
 }
 
 .progress-bar {
   flex: 1;
   height: 3px;
-  background: rgba(59,130,246,0.2);
+  background: var(--color-brand-light);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .progress-fill {
   height: 100%;
-  background: #3b82f6;
+  background: var(--color-brand);
   border-radius: 2px;
   transition: width 0.3s;
 }
 
+/* ── 指标区域 ── */
 .node-metrics {
   display: flex;
   flex-direction: column;
@@ -326,7 +362,7 @@ function portStyle(dataType: PortDataType) {
 }
 
 .metric-key {
-  color: #94a3b8;
+  color: var(--app-text-muted);
 }
 
 .metric-value {
@@ -338,17 +374,37 @@ function portStyle(dataType: PortDataType) {
   padding: 2px 0;
 }
 
+/* ── 编辑提示词入口 ── */
+.node-edit-hint {
+  margin-top: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: var(--color-brand);
+  background: var(--color-brand-light);
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.node-edit-hint:hover {
+  background: var(--color-brand);
+  color: #fff;
+}
+
 .node-ports {
   position: relative;
 }
 
-@keyframes pulse-border {
-  0%, 100% { border-color: #3b82f6; }
-  50% { border-color: rgba(59,130,246,0.4); }
+/* ── 动画关键帧（使用 CSS 变量） ── */
+@keyframes dag-pulse-border {
+  0%, 100% { border-color: var(--color-brand); }
+  50%      { border-color: var(--color-brand-light); }
 }
 
-@keyframes blink-border {
-  0%, 100% { border-color: #ef4444; }
-  50% { border-color: rgba(239,68,68,0.3); }
+@keyframes dag-blink-border {
+  0%, 100% { border-color: var(--color-danger); }
+  50%      { border-color: var(--color-danger-dim); }
 }
 </style>

@@ -26,7 +26,7 @@
       </template>
 
       <!-- 背景 -->
-      <Background :gap="20" :size="1" />
+      <Background :gap="20" :size="1" :style="{ backgroundColor: 'transparent' }" />
       <!-- 控制面板 -->
       <Controls position="bottom-right" />
       <!-- 小地图 -->
@@ -113,22 +113,17 @@ function handleNodeContextMenu(event: { event: MouseEvent; node: { id: string } 
 
 function handleCustomNodeContextmenu(event: MouseEvent) {
   // CustomNode 内部触发 contextmenu 时的事件
-  // 这个事件不携带 nodeId，需要通过其他方式获取
-  // 主要的右键菜单通过 handleNodeContextMenu 处理
 }
 
 function handleConnect(params: Connection) {
-  // 新建连线
   if (!params.source || !params.target) return
 
   const dag = dagStore.dagDefinition
   if (!dag) return
 
-  // 生成新边 ID
   const edgeCount = dag.edges.length + 1
   const edgeId = `edge_${String(edgeCount).padStart(2, '0')}_${params.source}_${params.target}`
 
-  // 添加新边到 DAG
   const newEdge = {
     id: edgeId,
     source: params.source,
@@ -140,17 +135,14 @@ function handleConnect(params: Connection) {
   }
 
   dag.edges.push(newEdge)
-  // 保存更新
   dagStore.saveDAG(props.novelId)
 }
 
 function handleEdgeUpdate(event: EdgeChangeEvent) {
-  // 边更新（拖拽重新连接）
   // TODO: 实现边更新逻辑
 }
 
 function handleNodesChange(changes: NodeChange[]) {
-  // 节点位置变化 — 只处理位置拖拽
   for (const change of changes) {
     if (change.type === 'position' && change.position) {
       dagStore.updateNodePosition(change.id, change.position)
@@ -163,26 +155,73 @@ function handleNodesChange(changes: NodeChange[]) {
 .dag-canvas {
   width: 100%;
   height: 100%;
+  background: var(--dag-canvas-bg);
 }
 
+/* ── Vue Flow 画布主体 ── */
 :deep(.vue-flow) {
-  background: var(--n-color-modal, #1a1a2e);
+  background: var(--dag-canvas-bg);
 }
 
+/* ── 背景网格点 ── */
+:deep(.vue-flow__background) {
+  background: transparent;
+}
+:deep(.vue-flow__background line) {
+  stroke: var(--dag-canvas-grid);
+}
+
+/* ── 小地图 ── */
 :deep(.vue-flow__minimap) {
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   overflow: hidden;
+  border: 1px solid var(--app-border);
+  background: var(--dag-node-bg);
+  box-shadow: var(--app-shadow-md);
 }
 
+/* ── 控制面板 ── */
 :deep(.vue-flow__controls) {
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   overflow: hidden;
+  border: 1px solid var(--app-border);
+  background: var(--dag-toolbar-bg);
+  box-shadow: var(--app-shadow-md);
+}
+:deep(.vue-flow__controls-button) {
+  background: var(--dag-toolbar-bg);
+  border-bottom: 1px solid var(--app-divider);
+  fill: var(--app-text-secondary);
+}
+:deep(.vue-flow__controls-button:hover) {
+  background: var(--dag-menu-hover);
+}
+:deep(.vue-flow__controls-button svg) {
+  fill: var(--app-text-secondary);
 }
 
-/* 连接桩样式 */
+/* ── 连接桩（Handle） ── */
 :deep(.vue-flow__handle) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  border: 2px solid var(--dag-node-bg);
+}
+
+/* ── 连线拖拽预览 ── */
+:deep(.vue-flow__connection-line) {
+  stroke: var(--color-brand);
+  stroke-width: 2;
+}
+
+/* ── 选中框 ── */
+:deep(.vue-flow__selection) {
+  border: 1px dashed var(--color-brand);
+  background: var(--color-brand-light);
+}
+
+/* ── 画布视口过渡 ── */
+:deep(.vue-flow__transformationpane) {
+  transition: none;
 }
 </style>
