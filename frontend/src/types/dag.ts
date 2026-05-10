@@ -1,5 +1,10 @@
 /**
- * DAG 工作流类型定义 — 前后端共享 Schema
+ * DAG 工作流类型定义 — 纯展示层
+ *
+ * 设计原则：
+ * - DAG 不需要判断能否执行 — 执行权在全托管，DAG 只是展示状态流转
+ * - 节点注册是代码行为 — 写一个节点就注册一个，不存在"同步"一说
+ * - 保存/校验/广场按钮都是多余的 — DAG 是纯展示层
  *
  * 颜色策略：所有 UI 色值统一走 CSS 自定义属性（--dag-* / --color-* / --app-*），
  * 此文件仅保留语义标签，具体色值由 main.css 三套主题变量层驱动。
@@ -38,6 +43,10 @@ export interface NodeMeta {
   can_disable: boolean
   default_timeout_seconds: number
   default_max_retries: number
+  // ★ CPMS 关联字段
+  cpms_node_key: string
+  description: string
+  default_edges: string[]
 }
 
 // ─── 节点配置 ───
@@ -129,7 +138,16 @@ export interface NodeEvent {
   data_size?: number
 }
 
-// ─── DAG 运行结果 ───
+// ─── DAG 状态响应 ───
+
+export interface DAGStatusResponse {
+  novel_id: string
+  dag_enabled: boolean
+  current_version: number
+  node_states: Record<string, { status: NodeStatus; enabled: boolean }>
+}
+
+// ─── DAG 运行结果（dagRunStore 使用） ───
 
 export interface DAGRunResult {
   dag_run_id: string
@@ -142,36 +160,19 @@ export interface DAGRunResult {
   completed_at: string
 }
 
-// ─── 验证结果 ───
+// ─── 节点实时提示词 ───
 
-export interface DAGValidationResult {
-  errors: string[]
-  warnings: string[]
-  is_valid: boolean
-  summary: string
-}
-
-// ─── 版本摘要 ───
-
-export interface DAGVersionSummary {
-  version: number
-  name: string
-  updated_at: string
-  node_count: number
-  edge_count: number
-}
-
-// ─── DAG 状态响应 ───
-
-export interface DAGStatusResponse {
-  novel_id: string
-  dag_enabled: boolean
-  current_version: number
-  node_states: Record<string, { status: NodeStatus; enabled: boolean }>
+export interface NodePromptLive {
+  node_id: string
+  node_type: string
+  cpms_node_key: string
+  system: string
+  user_template: string
+  source: 'cpms' | 'config' | 'meta' | 'none'
+  variables: string[]
 }
 
 // ─── 节点分类 → CSS 变量名映射 ───
-// 不再硬编码色值，由组件通过 var() 读取
 
 export const CATEGORY_COLORS: Record<NodeCategory, string> = {
   context:  'var(--color-purple)',
