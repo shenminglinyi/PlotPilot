@@ -1124,6 +1124,81 @@ JSON 格式：
             logger.error("Failed to generate dimension %s: %s", dim_key, e)
             return {}
 
+    async def _stream_single_dimension(
+        self,
+        premise: str,
+        target_chapters: int,
+        dim_key: str,
+        existing_worldbuilding: Dict[str, Any] | None = None,
+    ):
+        """流式生成单个世界观维度：逐 token yield LLM 输出。
+
+        复用 _generate_single_dimension 的 prompt 构建，但用 stream_generate 逐 token 输出。
+        SSE 路由层收集完整输出后解析 JSON 得到字段值。
+
+        Args:
+            premise: 故事创意
+            target_chapters: 目标章节数
+            dim_key: 维度 key
+            existing_worldbuilding: 已生成的其他维度数据
+
+        Yields:
+            str: LLM 逐 token 输出的文本片段
+        """
+        dim_def = self._DIMENSION_DEFS.get(dim_key)
+        if not dim_def:
+            logger.warning("Unknown dimension key: %s", dim_key)
+            return
+
+        dim_label = dim_def["label"]
+        fields = dim_def["fields"]
+
+        fields_desc = "\n".join(
+            f'    "{k}": "{v}"' for k, v in fields.items()
+        )
+
+        context_block = ""
+        if existing_worldbuilding:
+            context_parts = []
+            for dk, dv in existing_worldbuilding.items():
+                if dv and isinstance(dv, dict):
+                    items = ", ".join(f"{fk}: {fv}" for fk, fv in dv.items() if fv)
+                    if items:
+                        context_parts.append(f"- {dk}: {items}")
+            if context_parts:
+                context_block = f"\n\n已生成的其他维度（请保持一致性）：\n" + "\n".join(context_parts)
+
+        system_prompt = f"""你是资深网文策划编辑。根据故事创意生成世界观的「{dim_label}」维度。
+
+**关键要求：**
+1. 必须严格按照指定的字段名输出，不要自创字段名
+2. 每个字段都必须填写具体、生动、有细节的内容（至少50字），不要写「待生成」或留空
+3. 内容要符合故事类型，有沉浸感和张力
+4. 字段值是纯文本字符串，不要嵌套对象
+5. 只输出JSON，不要有任何其他文字"""
+
+        user_prompt = f"""故事创意：{premise}
+
+目标章节数：{target_chapters}章
+
+请生成世界观的「{dim_label}」维度。{context_block}
+
+请严格按照以下JSON格式输出，字段名不要修改，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+{fields_desc}
+}}
+```"""
+
+        try:
+            prompt = Prompt(system=system_prompt, user=user_prompt)
+            config = GenerationConfig(max_tokens=4096, temperature=0.7)
+            async for chunk in self.llm_service.stream_generate(prompt, config):
+                yield chunk
+        except Exception as e:
+            logger.error("Failed to stream dimension %s: %s", dim_key, e)
+            return
+
     async def _generate_single_field(
         self,
         premise: str,

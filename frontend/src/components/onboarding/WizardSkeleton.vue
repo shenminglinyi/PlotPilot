@@ -26,15 +26,9 @@
           </n-tag>
           <n-tag v-else size="tiny" type="default">等待中</n-tag>
         </div>
-        <!-- 生成中：同时显示已到达的字段数据和剩余字段骨架 -->
+        <!-- 生成中：显示 slot 内容（流式文本预览或字段卡片） -->
         <div v-if="activeDimension === dim.key && !completedDimensions.has(dim.key)" class="skeleton-dimension__body">
           <slot :name="dim.key" />
-          <!-- 字段级骨架条：显示当前正在生成的字段的加载状态 -->
-          <div v-if="activeField && activeDimension === dim.key" class="skeleton-dimension__field-loading">
-            <div class="skeleton-field-bar skeleton-field-bar--title"></div>
-            <div class="skeleton-field-bar skeleton-field-bar--line1"></div>
-            <div class="skeleton-field-bar skeleton-field-bar--line2"></div>
-          </div>
         </div>
         <!-- 已完成：显示完整字段数据 -->
         <div v-else-if="completedDimensions.has(dim.key)" class="skeleton-dimension__content">
@@ -109,18 +103,12 @@ const props = withDefaults(
     activeDimension?: string
     /** 世界观：已完成的维度 key 集合 */
     completedDimensions?: Set<string>
-    /** 世界观：当前正在生成的字段 key（如 power_system, terrain） */
-    activeField?: string
-    /** 世界观：已到达的字段 key 集合（当前维度内） */
-    arrivedFields?: Set<string>
     /** 人物/地点：已完成的数量 */
     completedCount?: number
   }>(),
   {
     activeDimension: '',
     completedDimensions: () => new Set<string>(),
-    activeField: '',
-    arrivedFields: () => new Set<string>(),
     completedCount: 0,
   }
 )
@@ -171,49 +159,9 @@ const dimensions = [
   flex: 1;
 }
 
-.skeleton-dimension__bars {
-  margin-top: 12px;
-  padding-left: 26px;
-}
-
 .skeleton-dimension__body {
   margin-top: 8px;
   padding-left: 26px;
-}
-
-.skeleton-dimension__field-loading {
-  margin-top: 10px;
-  padding: 10px 14px;
-  border: 1px dashed #2080f040;
-  border-radius: 8px;
-  background: #2080f006;
-}
-
-.skeleton-field-bar {
-  border-radius: 4px;
-  margin-bottom: 6px;
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-.skeleton-field-bar:last-child {
-  margin-bottom: 0;
-}
-
-.skeleton-field-bar--title {
-  width: 30%;
-  height: 12px;
-}
-
-.skeleton-field-bar--line1 {
-  width: 90%;
-  height: 10px;
-}
-
-.skeleton-field-bar--line2 {
-  width: 65%;
-  height: 10px;
 }
 
 .skeleton-dimension__content {

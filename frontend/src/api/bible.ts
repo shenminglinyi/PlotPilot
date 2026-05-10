@@ -225,6 +225,8 @@ export async function consumeBibleGenerateStream(
     onWorldbuildingFieldChunk?: (dimension: string, field: string, chunk: string) => void
     /** 字段级完成回调：该字段 LLM 流式输出结束 */
     onWorldbuildingFieldDone?: (dimension: string, field: string, value: string) => void
+    /** 维度级 chunk 回调：LLM 逐 token 输出维度 JSON 时触发 */
+    onWorldbuildingDimChunk?: (dimension: string, chunk: string) => void
     onCharacter?: (char: Record<string, unknown>, index: number) => void
     onLocation?: (loc: Record<string, unknown>, index: number) => void
     onDone?: (novelId: string) => void
@@ -305,6 +307,12 @@ export async function consumeBibleGenerateStream(
               String(payload?.dimension ?? ''),
               String(payload?.field ?? ''),
               String(payload?.value ?? ''),
+            )
+          } else if (dataType === 'worldbuilding_dim_chunk') {
+            // 维度级流式 chunk：LLM 逐 token 输出维度 JSON
+            handlers.onWorldbuildingDimChunk?.(
+              String(payload?.dimension ?? ''),
+              String(payload?.chunk ?? ''),
             )
           } else if (dataType === 'worldbuilding_field') {
             // 字段级流式推送：每个字段单独到达
