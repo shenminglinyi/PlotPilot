@@ -143,11 +143,15 @@
       <n-button v-if="needsReview" type="warning" size="small" :loading="toggling" @click="resume">
         确认大纲，继续写作
       </n-button>
-      <n-button v-if="!isRunning && !needsReview" type="primary" size="small" :loading="toggling" @click="openStartModal">
+      <n-button v-if="!isRunning && !needsReview && !needsRecovery" type="primary" size="small" :loading="toggling" @click="openStartModal">
         🚀 启动全托管
       </n-button>
       <n-button v-if="isRunning" type="error" ghost size="small" :loading="toggling" @click="stop">
         ⏹ 停止
+      </n-button>
+      <!-- 🔥 error 状态下显示强制停止按钮（解除挂起 + 停止） -->
+      <n-button v-if="needsRecovery && !isRunning" type="error" size="small" :loading="toggling" @click="forceStopFromError">
+        ⏹ 强制停止
       </n-button>
     </n-space>
 
@@ -968,6 +972,45 @@ async function clearCircuitBreaker() {
     status.value = prevStatus
     emit('status-change', prevStatus)
     message.error('操作失败，请重试')
+  } finally {
+    toggling.value = false
+  }
+}
+
+async function forceStopFromError() {
+  if (isToggleThrottled()) return
+  // 🔥 乐观更新：立即设置停止状态
+  const prevStatus = status.value
+  status.value = {
+    ...status.value,
+    autopilot_status: 'stopped',
+    consecutive_error_count: 0,
+  }
+  emit('status-change', status.value)
+  message.info('正在强制停止...')
+  toggling.value = true
+
+  try {
+    // 先关闭 SSE 连接
+    stopChapterStream()
+    // 并行发送：stop 请求 + circuit-breaker/reset 请求
+    const stopPromise = fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
+      method: 'POST',
+    }).catch(err => {
+      console.warn('[AutopilotPanel] 强制停止请求失败:', err)
+    })
+    const resetPromise = fetch(
+      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
+      { method: 'POST' },
+    ).catch(err => {
+      console.warn('[AutopilotPanel] 重置熔断器失败:', err)
+    })
+    await Promise.allSettled([stopPromise, resetPromise])
+    void fetchStatus()
+  } catch (err) {
+    // 即使失败也保持 stopped 状态（强制停止的含义）
+    console.warn('[AutopilotPanel] 强制停止异常:', err)
+    void fetchStatus()
   } finally {
     toggling.value = false
   }
