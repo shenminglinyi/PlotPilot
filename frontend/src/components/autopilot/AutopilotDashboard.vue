@@ -1,8 +1,8 @@
 <template>
   <div class="autopilot-dashboard" :class="{ 'dashboard--dag': viewMode === 'dag' }">
-    <!-- 顶部栏：标题 + Switch（始终显示） -->
-    <div class="dashboard-topbar">
-      <n-text strong class="topbar-title" v-if="viewMode !== 'dag'">
+    <!-- 顶部栏：标题 + Switch（仅在卡片模式下显示，DAG 模式下 Switch 在 DAGToolbar 里） -->
+    <div class="dashboard-topbar" v-if="viewMode !== 'dag'">
+      <n-text strong class="topbar-title">
         🧭 工作流监控
       </n-text>
       <n-switch
