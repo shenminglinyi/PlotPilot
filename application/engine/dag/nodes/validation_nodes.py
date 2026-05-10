@@ -51,6 +51,9 @@ class StyleNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=180,
+        cpms_node_key="voice-drift",
+        description="VoiceDriftService 文风偏离检测",
+        default_edges=["gw_circuit"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -117,6 +120,9 @@ class TensionNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
+        cpms_node_key="tension-scoring",
+        description="TensionScoringService 叙事张力评估",
+        default_edges=["gw_circuit"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -187,6 +193,9 @@ class AntiAINode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
+        cpms_node_key="cliche-scan",
+        description="ClicheScanner AI 模式检测与审计",
+        default_edges=["gw_circuit"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -250,6 +259,9 @@ class ForeshadowCheckNode(BaseNode):
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=30,
+        cpms_node_key="foreshadow-check",
+        description="ForeshadowingRegistry 伏笔回收检测",
+        default_edges=["val_kg_infer"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -315,6 +327,9 @@ class NarrativeNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=180,
+        cpms_node_key="chapter-aftermath",
+        description="ChapterAftermathPipeline 叙事同步",
+        default_edges=["val_foreshadow"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -378,6 +393,9 @@ class KGInferNode(BaseNode):
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=120,
+        cpms_node_key="kg-inference",
+        description="KnowledgeGraphService.infer_from_chapter",
+        default_edges=["gw_review"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:

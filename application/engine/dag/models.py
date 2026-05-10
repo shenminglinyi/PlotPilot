@@ -76,7 +76,12 @@ class NodePort(BaseModel):
 
 
 class NodeMeta(BaseModel):
-    """节点元数据 — 注册表中的类型描述"""
+    """节点元数据 — 注册表中的类型描述
+
+    cpms_node_key: 关联 CPMS 提示词注册表的 node_key，用于 DAG ↔ 广场双向联动
+    description: 节点功能描述（前端详情面板展示）
+    default_edges: 默认下游节点类型列表（DAGSyncService 自动连线用）
+    """
     node_type: str
     display_name: str
     category: NodeCategory
@@ -90,6 +95,10 @@ class NodeMeta(BaseModel):
     can_disable: bool = True
     default_timeout_seconds: int = 60
     default_max_retries: int = 1
+    # ★ CPMS 关联字段
+    cpms_node_key: str = ""           # 对应提示词广场的 node_key
+    description: str = ""             # 节点功能描述（展示用）
+    default_edges: List[str] = Field(default_factory=list)  # 默认下游节点类型
 
 
 # ─── 节点配置 ───
@@ -122,15 +131,14 @@ class NodeDefinition(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, v: str) -> str:
-        valid_types = {
-            "ctx_blueprint", "ctx_foreshadow", "ctx_voice", "ctx_memory", "ctx_debt",
-            "exec_planning", "exec_writer", "exec_beat", "exec_scene",
-            "val_style", "val_tension", "val_anti_ai", "val_foreshadow",
-            "val_narrative", "val_kg_infer",
-            "gw_circuit", "gw_review", "gw_condition", "gw_retry",
-        }
-        if v not in valid_types:
-            raise ValueError(f"未知节点类型: {v}，合法值: {sorted(valid_types)}")
+        # ★ 动态校验：从注册表获取合法类型，消除硬编码白名单
+        try:
+            from application.engine.dag.registry import NodeRegistry
+            registered = NodeRegistry.all_types()
+            if registered and v not in registered:
+                raise ValueError(f"未知节点类型: {v}，已注册: {sorted(registered)}")
+        except ImportError:
+            pass  # 注册表未加载时跳过校验（测试/迁移场景）
         return v
 
 

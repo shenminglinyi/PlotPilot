@@ -60,13 +60,52 @@ class BaseNode(ABC):
             template = template.replace(f"{{{{{key}}}}}", str(value))
         return template
 
-    def get_prompt_template(self) -> str:
-        """获取生效的 Prompt 模板（考虑用户覆盖）"""
+    def get_effective_prompt(self) -> Dict[str, str]:
+        """获取生效的提示词（三级降级：CPMS → Config → Meta）
+
+        Returns:
+            {"system": str, "user_template": str, "source": str}
+            source: "cpms" | "config" | "meta" | "none"
+        """
+        cpms_key = self.meta.cpms_node_key if self.meta else ""
+
+        # 1. CPMS 优先
+        if cpms_key:
+            try:
+                from infrastructure.ai.prompt_registry import get_prompt_registry
+                registry = get_prompt_registry()
+                system = registry.get_system(cpms_key)
+                user_template = registry.get_user_template(cpms_key)
+                if system or user_template:
+                    return {
+                        "system": system or "",
+                        "user_template": user_template or "",
+                        "source": "cpms",
+                    }
+            except Exception:
+                pass
+
+        # 2. Config 覆盖
         if self._config and self._config.prompt_template:
-            return self._config.prompt_template
+            return {
+                "system": self._config.prompt_template,
+                "user_template": "",
+                "source": "config",
+            }
+
+        # 3. Meta 默认
         if self.meta and self.meta.prompt_template:
-            return self.meta.prompt_template
-        return ""
+            return {
+                "system": self.meta.prompt_template,
+                "user_template": "",
+                "source": "meta",
+            }
+
+        return {"system": "", "user_template": "", "source": "none"}
+
+    def get_prompt_template(self) -> str:
+        """获取生效的 Prompt 模板（向后兼容，内部走 get_effective_prompt）"""
+        return self.get_effective_prompt()["system"]
 
     def get_timeout(self) -> float:
         """获取超时时间（秒），支持配置覆盖"""

@@ -48,6 +48,9 @@ class CircuitNode(BaseNode):
         is_configurable=False,
         can_disable=False,
         default_timeout_seconds=5,
+        cpms_node_key="circuit-breaker",
+        description="CircuitBreaker 熔断保护网关",
+        default_edges=["val_narrative"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -99,6 +102,9 @@ class ReviewNode(BaseNode):
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=10,
+        cpms_node_key="review-gateway",
+        description="PAUSED_FOR_REVIEW 审阅网关",
+        default_edges=[],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -154,6 +160,9 @@ class ConditionNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=5,
+        cpms_node_key="condition-gateway",
+        description="条件路由网关",
+        default_edges=[],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -213,6 +222,9 @@ class RetryNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=10,
+        cpms_node_key="retry-gateway",
+        description="文风检查失败时触发重写的重试网关",
+        default_edges=["exec_writer"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:

@@ -49,6 +49,9 @@ class PlanningNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=120,
+        cpms_node_key="macro-planning",
+        description="PlanningService.generate_macro_plan",
+        default_edges=["exec_beat"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -124,6 +127,9 @@ class WriterNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=300,
+        cpms_node_key="chapter-generation-main",
+        description="AutoNovelGenerationWorkflow.generate_chapter_stream",
+        default_edges=["val_style", "val_tension", "val_anti_ai"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -249,6 +255,9 @@ class BeatNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
+        cpms_node_key="autopilot-stream-beat",
+        description="ContextBuilder.magnify_outline_to_beats",
+        default_edges=["exec_writer"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -306,6 +315,9 @@ class SceneNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
+        cpms_node_key="scene-director",
+        description="SceneDirectorService 场景分析",
+        default_edges=["exec_beat"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
