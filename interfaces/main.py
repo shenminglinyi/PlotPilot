@@ -66,6 +66,7 @@ from interfaces.api.v1.engine import (
     snapshot_routes,
     workbench_context_routes,
     character_scheduler_routes,  # 角色调度API（正式功能）
+    checkpoint_routes,  # Checkpoint + QualityGuardrail + StoryPhase
 )
 
 # Audit module
@@ -839,6 +840,7 @@ app.include_router(snapshot_routes.router, prefix="/api/v1")
 app.include_router(autopilot_routes.router, prefix="/api/v1")
 app.include_router(workbench_context_routes.router, prefix="/api/v1")
 app.include_router(character_scheduler_routes.router, prefix="/api/v1")  # 角色调度服务
+app.include_router(checkpoint_routes.router, prefix="/api/v1")  # Checkpoint + QualityGuardrail + StoryPhase
 
 # DAG workflow engine routes
 from interfaces.api.v1.engine.dag.dag_routes import router as dag_router

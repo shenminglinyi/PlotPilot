@@ -1,0 +1,211 @@
+/**
+ * 引擎内核 API — Checkpoint / QualityGuardrail / StoryPhase / CharacterSoul
+ *
+ * 与后端 interfaces/api/v1/engine/checkpoint_routes.py 一一对应。
+ */
+import { apiClient } from './config'
+
+// ─── Checkpoint ────────────────────────────────────────────────
+
+export interface CheckpointDTO {
+  id: string
+  story_id: string
+  trigger_type: string
+  trigger_reason: string
+  parent_id: string | null
+  chapter_number: number | null
+  created_at: string
+  is_head: boolean
+}
+
+export interface CheckpointListResponse {
+  checkpoints: CheckpointDTO[]
+  head_id: string | null
+}
+
+export interface CreateCheckpointRequest {
+  reason?: string
+  chapter_number?: number | null
+}
+
+export interface CreateCheckpointResponse {
+  checkpoint_id: string
+  message: string
+}
+
+export interface RollbackResponse {
+  checkpoint_id: string
+  trigger_reason: string
+  message: string
+}
+
+export interface BranchDTO {
+  branch_point_id: string
+  reason: string
+  children: Array<{ id: string; reason: string }>
+}
+
+export interface BranchesResponse {
+  branches: BranchDTO[]
+}
+
+export interface HeadStateResponse {
+  head_id: string | null
+  state: {
+    trigger_type: string
+    trigger_reason: string
+    story_state: Record<string, unknown>
+    active_foreshadows: string[]
+  } | null
+}
+
+export const checkpointApi = {
+  /** GET /novels/{novel_id}/checkpoints */
+  list: (novelId: string, limit = 50) =>
+    apiClient.get<CheckpointListResponse>(
+      `/novels/${novelId}/checkpoints`,
+      { params: { limit } },
+    ) as unknown as Promise<CheckpointListResponse>,
+
+  /** POST /novels/{novel_id}/checkpoints */
+  create: (novelId: string, body: CreateCheckpointRequest = {}) =>
+    apiClient.post<CreateCheckpointResponse>(
+      `/novels/${novelId}/checkpoints`,
+      body,
+    ) as unknown as Promise<CreateCheckpointResponse>,
+
+  /** POST /novels/{novel_id}/checkpoints/{id}/rollback */
+  rollback: (novelId: string, checkpointId: string) =>
+    apiClient.post<RollbackResponse>(
+      `/novels/${novelId}/checkpoints/${checkpointId}/rollback`,
+      {},
+    ) as unknown as Promise<RollbackResponse>,
+
+  /** GET /novels/{novel_id}/checkpoints/branches */
+  listBranches: (novelId: string) =>
+    apiClient.get<BranchesResponse>(
+      `/novels/${novelId}/checkpoints/branches`,
+    ) as unknown as Promise<BranchesResponse>,
+
+  /** GET /novels/{novel_id}/checkpoints/head */
+  getHead: (novelId: string) =>
+    apiClient.get<HeadStateResponse>(
+      `/novels/${novelId}/checkpoints/head`,
+    ) as unknown as Promise<HeadStateResponse>,
+}
+
+// ─── QualityGuardrail ──────────────────────────────────────────
+
+export interface GuardrailCheckRequest {
+  text: string
+  character_names?: string[]
+  chapter_goal?: string
+  era?: string
+  scene_type?: string
+  mode?: 'advise' | 'enforce'
+}
+
+export interface GuardrailDimensionScore {
+  name: string
+  key: string
+  score: number
+  weight: number
+}
+
+export interface GuardrailViolationDTO {
+  dimension: string
+  type: string
+  severity: string
+  description: string
+  original: string
+  suggestion: string
+  character: string
+}
+
+export interface GuardrailCheckResponse {
+  overall_score: number
+  passed: boolean
+  dimensions: GuardrailDimensionScore[]
+  violations: GuardrailViolationDTO[]
+}
+
+export const guardrailApi = {
+  /** POST /novels/{novel_id}/guardrail/check */
+  check: (novelId: string, body: GuardrailCheckRequest) =>
+    apiClient.post<GuardrailCheckResponse>(
+      `/novels/${novelId}/guardrail/check`,
+      body,
+    ) as unknown as Promise<GuardrailCheckResponse>,
+}
+
+// ─── StoryPhase ────────────────────────────────────────────────
+
+export interface StoryPhaseDTO {
+  phase: string
+  progress: number
+  description: string
+  can_advance: boolean
+}
+
+export const storyPhaseApi = {
+  /** GET /novels/{novel_id}/story-phase */
+  get: (novelId: string) =>
+    apiClient.get<StoryPhaseDTO>(
+      `/novels/${novelId}/story-phase`,
+    ) as unknown as Promise<StoryPhaseDTO>,
+
+  /** PUT /novels/{novel_id}/story-phase */
+  update: (novelId: string, body: StoryPhaseDTO) =>
+    apiClient.put<StoryPhaseDTO>(
+      `/novels/${novelId}/story-phase`,
+      body,
+    ) as unknown as Promise<StoryPhaseDTO>,
+}
+
+// ─── CharacterSoul ─────────────────────────────────────────────
+
+export interface CharacterSoulDTO {
+  name: string
+  role: string
+  core_belief: string
+  taboo: string
+  voice_tag: string
+  wound: string
+  trauma_count: number
+}
+
+export interface CharacterSoulDetailDTO extends CharacterSoulDTO {
+  emotion_ledger: Record<string, unknown>
+  mask_summary: string
+}
+
+export interface ValidateBehaviorRequest {
+  action: string
+}
+
+export interface ValidateBehaviorResponse {
+  valid: boolean
+  warnings: string[]
+  suggestions: string[]
+}
+
+export const characterSoulApi = {
+  /** GET /novels/{novel_id}/character-souls */
+  list: (novelId: string) =>
+    apiClient.get<{ characters: CharacterSoulDTO[] }>(
+      `/novels/${novelId}/character-souls`,
+    ) as unknown as Promise<{ characters: CharacterSoulDTO[] }>,
+
+  /** GET /novels/{novel_id}/character-souls/{name} */
+  get: (novelId: string, name: string) =>
+    apiClient.get<CharacterSoulDetailDTO>(
+      `/novels/${novelId}/character-souls/${encodeURIComponent(name)}`,
+    ) as unknown as Promise<CharacterSoulDetailDTO>,
+
+  /** POST /novels/{novel_id}/character-souls/{name}/validate */
+  validate: (novelId: string, name: string, body: ValidateBehaviorRequest) =>
+    apiClient.post<ValidateBehaviorResponse>(
+      `/novels/${novelId}/character-souls/${encodeURIComponent(name)}/validate`,
+      body,
+    ) as unknown as Promise<ValidateBehaviorResponse>,
+}
