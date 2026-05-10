@@ -149,6 +149,14 @@
               />
             </div>
           </n-tab-pane>
+
+          <n-tab-pane name="quality-guardrail" tab="🛡️ 质量护栏" display-directive="if">
+            <QualityGuardrailPanel
+              :slug="slug"
+              :chapter="currentChapter"
+              :read-only="isAssistedReadOnly"
+            />
+          </n-tab-pane>
         </n-tabs>
       </div>
 
@@ -480,6 +488,7 @@ import type { TensionDiagnosis } from '../../api/tools'
 import ChapterElementPanel from './ChapterElementPanel.vue'
 import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
+import QualityGuardrailPanel from './QualityGuardrailPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
 

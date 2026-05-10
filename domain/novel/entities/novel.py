@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from domain.shared.base_entity import BaseEntity
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.entities.chapter import Chapter, ChapterStatus
+from domain.novel.value_objects.story_phase import StoryPhase
 from domain.shared.exceptions import InvalidOperationError
 
 
@@ -130,3 +131,39 @@ class Novel(BaseEntity):
     def get_expected_total_words(self) -> int:
         """获取预期总字数"""
         return self.target_chapters * self.target_words_per_chapter
+
+    # ─── StoryPhase 收敛沙漏（从engine核心注入）───
+
+    def get_story_phase(self) -> StoryPhase:
+        """根据写作进度计算当前故事阶段（全局收敛沙漏）
+
+        收敛沙漏是剧情引擎的核心状态机：
+        - 开局期(0-25%)：允许一切，铺陈悬念
+        - 发展期(25-75%)：允许新伏笔，激化矛盾
+        - 收敛期(75-90%)：禁止新伏笔，强制填坑
+        - 终局期(90-100%)：终极对决，切断日常
+        """
+        if self.target_chapters <= 0:
+            return StoryPhase.OPENING
+        progress = self.completed_chapters / self.target_chapters
+        return StoryPhase.from_progress(progress)
+
+    def is_new_foreshadow_allowed(self) -> bool:
+        """当前阶段是否允许新伏笔"""
+        return self.get_story_phase().allow_new_foreshadow
+
+    def is_new_plot_arc_allowed(self) -> bool:
+        """当前阶段是否允许新剧情弧线"""
+        return self.get_story_phase().allow_new_plot_arc
+
+    # ─── Checkpoint HEAD指针（从engine核心注入）───
+
+    current_checkpoint_id: Optional[str] = None
+
+    def set_checkpoint_head(self, checkpoint_id: str) -> None:
+        """设置当前Checkpoint HEAD指针"""
+        self.current_checkpoint_id = checkpoint_id
+
+    def get_checkpoint_head(self) -> Optional[str]:
+        """获取当前Checkpoint HEAD指针"""
+        return self.current_checkpoint_id

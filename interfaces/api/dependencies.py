@@ -1018,3 +1018,33 @@ def get_foreshadow_ledger_service():
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
 
+
+def get_checkpoint_store():
+    """获取 Checkpoint 持久化存储（SQLite）
+
+    Returns:
+        CheckpointStore 实例
+    """
+    from engine.infrastructure.persistence.checkpoint_store import CheckpointStore
+    return CheckpointStore(get_database())
+
+
+def get_checkpoint_manager():
+    """获取 Checkpoint 管理器
+
+    Returns:
+        CheckpointManager 实例
+    """
+    from engine.application.checkpoint_manager.manager import CheckpointManager
+    return CheckpointManager(get_checkpoint_store())
+
+
+def get_quality_guardrail():
+    """获取质量护栏总控
+
+    Returns:
+        QualityGuardrail 实例
+    """
+    from engine.application.quality_guardrails.quality_guardrail import QualityGuardrail
+    return QualityGuardrail()
+
