@@ -897,7 +897,7 @@ JSON 格式（不要有其他文字）：
             return []
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
-        """只生成世界观和文风"""
+        """只生成世界观和文风（一次性生成全部5维度，向后兼容非SSE场景）"""
         from infrastructure.ai.prompt_utils import get_prompt_system
         system_prompt = get_prompt_system("bible-worldbuilding", fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量
@@ -956,6 +956,173 @@ JSON 格式：
 ```"""
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+
+    # ── 逐维度流式生成（SSE专用） ──────────────────────────────────────
+
+    async def _generate_style(self, premise: str, target_chapters: int) -> str:
+        """单独生成文风公约"""
+        system_prompt = """你是资深网文策划编辑。根据故事创意生成文风公约。
+
+要求：
+1. 明确的文风公约：叙事视角、人称、基调、节奏、氛围
+2. 符合故事类型（现代都市/古代/玄幻/科幻等）
+3. 文风公约应该是一段完整描述，不是JSON
+
+直接输出文风公约文本，不要输出JSON，不要任何解释。"""
+
+        user_prompt = f"""故事创意：{premise}
+
+目标章节数：{target_chapters}章
+
+请生成文风公约。直接输出文本即可。"""
+
+        prompt = Prompt(system=system_prompt, user=user_prompt)
+        config = GenerationConfig(max_tokens=1024, temperature=0.7)
+        result = await self.llm_service.generate(prompt, config)
+        return (result.content or "").strip()
+
+    # 维度定义：key → (label, field_definitions)
+    _DIMENSION_DEFS = {
+        "core_rules": {
+            "label": "核心法则",
+            "fields": {
+                "power_system": "力量体系/科技树的描述",
+                "physics_rules": "物理规律的特殊之处",
+                "magic_tech": "魔法或科技的运作机制",
+                "cost_and_limitation": "力量使用的代价与限制（修炼消耗、越级代价、禁忌代价）",
+                "resource_scarcity": "稀缺资源及其分配（硬通货、垄断情况）",
+            },
+        },
+        "geography": {
+            "label": "地理生态",
+            "fields": {
+                "terrain": "主要地形特征",
+                "climate": "气候特点与环境",
+                "resources": "自然资源分布",
+                "ecology": "生态系统与生物链",
+                "forbidden_zones": "禁区/危险区域",
+                "urban_core": "核心城市/聚居地",
+                "hidden_realms": "秘境/隐藏空间",
+            },
+        },
+        "society": {
+            "label": "社会结构",
+            "fields": {
+                "politics": "政治体制与权力架构",
+                "economy": "经济模式与贸易",
+                "class_system": "阶级/等级系统",
+                "power_structure": "明暗权力结构（明面与暗面的统治体系）",
+                "oppression_mechanism": "压迫/控制机制（强者如何压制弱者）",
+                "class_division": "阶层划分与流动壁垒",
+            },
+        },
+        "culture": {
+            "label": "历史文化",
+            "fields": {
+                "history": "关键历史事件与时代背景",
+                "religion": "宗教信仰体系",
+                "taboos": "文化禁忌与违逆后果",
+                "worship": "崇拜对象与祭祀仪式",
+                "oaths_and_curses": "誓言体系与诅咒",
+            },
+        },
+        "daily_life": {
+            "label": "沉浸感细节",
+            "fields": {
+                "food_clothing": "衣食住行的日常细节",
+                "language_slang": "俚语、口音与方言",
+                "entertainment": "娱乐方式与消遣",
+                "survival_tactics": "底层/弱者的生存策略",
+                "market_reality": "市场/交易的真实状况",
+                "food_and_drink": "饮食文化与特色食物",
+                "slang_and_profanity": "粗话、黑话与市井语言",
+            },
+        },
+    }
+
+    async def _generate_single_dimension(
+        self,
+        premise: str,
+        target_chapters: int,
+        dim_key: str,
+        existing_worldbuilding: Dict[str, Any] | None = None,
+    ) -> Dict[str, str]:
+        """逐维度生成：独立调用 LLM 生成单个世界观维度，确保字段名和内容完整。
+
+        Args:
+            premise: 故事创意
+            target_chapters: 目标章节数
+            dim_key: 维度 key（core_rules / geography / society / culture / daily_life）
+            existing_worldbuilding: 已生成的其他维度数据（用于上下文连贯性）
+
+        Returns:
+            该维度的字段字典 {field_key: field_value}
+        """
+        dim_def = self._DIMENSION_DEFS.get(dim_key)
+        if not dim_def:
+            logger.warning("Unknown dimension key: %s", dim_key)
+            return {}
+
+        dim_label = dim_def["label"]
+        fields = dim_def["fields"]
+
+        # 构建字段说明
+        fields_desc = "\n".join(
+            f'    "{k}": "{v}"' for k, v in fields.items()
+        )
+
+        # 构建已生成维度的上下文（帮助 LLM 保持一致性）
+        context_block = ""
+        if existing_worldbuilding:
+            context_parts = []
+            for dk, dv in existing_worldbuilding.items():
+                if dv and isinstance(dv, dict):
+                    items = ", ".join(f"{fk}: {fv}" for fk, fv in dv.items() if fv)
+                    if items:
+                        context_parts.append(f"- {dk}: {items}")
+            if context_parts:
+                context_block = f"\n\n已生成的其他维度（请保持一致性）：\n" + "\n".join(context_parts)
+
+        system_prompt = f"""你是资深网文策划编辑。根据故事创意生成世界观的「{dim_label}」维度。
+
+**关键要求：**
+1. 必须严格按照指定的字段名输出，不要自创字段名
+2. 每个字段都必须填写具体、生动、有细节的内容（至少50字），不要写「待生成」或留空
+3. 内容要符合故事类型，有沉浸感和张力
+4. 字段值是纯文本字符串，不要嵌套对象
+5. 只输出JSON，不要有任何其他文字"""
+
+        user_prompt = f"""故事创意：{premise}
+
+目标章节数：{target_chapters}章
+
+请生成世界观的「{dim_label}」维度。{context_block}
+
+请严格按照以下JSON格式输出，字段名不要修改，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+{fields_desc}
+}}
+```"""
+
+        try:
+            result = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt, max_retries=2)
+            # 确保返回的是 dict 且字段名正确
+            if not isinstance(result, dict):
+                logger.warning("Dimension %s LLM returned non-dict: %s", dim_key, type(result))
+                return {}
+            # 标准化：只保留已定义的字段，但也不丢弃 LLM 生成的有效额外字段
+            normalized = {}
+            for k, v in result.items():
+                if isinstance(v, str) and v.strip():
+                    normalized[k] = v.strip()
+                elif isinstance(v, (list, dict)):
+                    # LLM 偶尔返回嵌套结构，扁平化处理
+                    normalized[k] = str(v)
+            return normalized
+        except Exception as e:
+            logger.error("Failed to generate dimension %s: %s", dim_key, e)
+            return {}
 
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
