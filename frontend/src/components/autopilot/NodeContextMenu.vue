@@ -12,23 +12,13 @@
       </div>
       <div class="menu-divider" />
 
-      <!-- 操作项 -->
-      <div class="menu-item" @click="$emit('edit', nodeId)">
-        🏪 在广场编辑提示词
-      </div>
-      <div class="menu-item menu-item-secondary" @click="$emit('rerun', nodeId)">
-        🔄 托管模式重跑
+      <!-- ★ 精简操作项：只保留"查看详情"和"启禁用" -->
+      <div class="menu-item" @click="$emit('detail', nodeId)">
+        📋 查看详情
       </div>
       <div class="menu-divider" />
       <div class="menu-item" :class="{ 'menu-item-warning': nodeEnabled }" @click="$emit('toggle', nodeId)">
         {{ nodeEnabled ? '⛔ 禁用此节点' : '✅ 启用此节点' }}
-      </div>
-      <div class="menu-divider" />
-      <div class="menu-item" @click="$emit('viewUpstream', nodeId)">
-        🔗 查看上游
-      </div>
-      <div class="menu-item" @click="$emit('viewDownstream', nodeId)">
-        🔗 查看下游
       </div>
     </div>
   </Teleport>
@@ -49,14 +39,13 @@ const props = defineProps<{
 
 defineEmits<{
   close: []
-  edit: [nodeId: string]
+  detail: [nodeId: string]
   toggle: [nodeId: string]
-  rerun: [nodeId: string]
-  viewUpstream: [nodeId: string]
-  viewDownstream: [nodeId: string]
 }>()
 
 const dagStore = useDAGStore()
+
+const visible = computed(() => true)
 
 const nodeTypeLabel = computed(() => {
   if (!props.nodeType) return props.nodeId
@@ -71,7 +60,7 @@ const nodeTypeLabel = computed(() => {
 // 确保菜单不超出视口
 const menuStyle = computed(() => {
   const maxX = window.innerWidth - 200
-  const maxY = window.innerHeight - 250
+  const maxY = window.innerHeight - 150
   return {
     left: `${Math.min(props.x, maxX)}px`,
     top: `${Math.min(props.y, maxY)}px`,
@@ -87,7 +76,7 @@ const menuStyle = computed(() => {
   border: 1px solid var(--dag-menu-border);
   border-radius: var(--app-radius-sm);
   padding: 4px 0;
-  min-width: 180px;
+  min-width: 160px;
   box-shadow: var(--app-shadow-lg);
   backdrop-filter: blur(8px);
 }
@@ -113,11 +102,6 @@ const menuStyle = computed(() => {
 .menu-item-warning:hover {
   background: var(--color-warning-dim);
   color: var(--color-warning);
-}
-
-.menu-item-secondary {
-  color: var(--app-text-secondary);
-  font-size: 11px;
 }
 
 .menu-divider {

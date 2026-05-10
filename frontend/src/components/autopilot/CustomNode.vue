@@ -29,25 +29,12 @@
           <span class="metric-key">{{ m.label }}</span>
           <span class="metric-value" :style="{ color: m.color }">{{ m.value }}</span>
         </div>
-        <!-- ★ 编辑提示词 → 提示词广场联动 -->
-        <div v-if="isConfigurable" class="node-edit-hint" @click.stop="handleEditPrompt">
-          🏪 在广场编辑
-        </div>
-        <div v-if="cpmsNodeKey" class="node-cpms-key" :title="cpmsNodeKey">
-          <code>{{ cpmsNodeKey }}</code>
-        </div>
       </div>
 
-      <!-- 默认：类型描述 + 广场编辑入口 -->
+      <!-- 默认：类型描述 -->
       <div v-else class="node-desc">
         <n-text depth="3" style="font-size: 11px">{{ meta?.display_name || data.type }}</n-text>
-        <!-- ★ 可配置节点：跳转提示词广场 -->
-        <div v-if="isConfigurable" class="node-edit-hint" @click.stop="handleEditPrompt">
-          🏪 在广场编辑
-        </div>
-        <div v-if="cpmsNodeKey" class="node-cpms-key" :title="cpmsNodeKey">
-          <code>{{ cpmsNodeKey }}</code>
-        </div>
+        <div v-if="meta?.description" class="node-description">{{ meta.description }}</div>
       </div>
     </div>
 
@@ -78,11 +65,14 @@ import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import type { NodeProps } from '@vue-flow/core'
 import { useDAGStore } from '@/stores/dagStore'
-import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
 import type { NodeMeta, NodeStatus, PortDataType } from '@/types/dag'
-import { STATUS_COLORS, STATUS_BG_COLORS, STATUS_LABELS, CATEGORY_COLORS } from '@/types/dag'
+import { STATUS_LABELS, CATEGORY_COLORS } from '@/types/dag'
 
 const props = defineProps<NodeProps>()
+
+defineEmits<{
+  contextmenu: [event: MouseEvent]
+}>()
 
 const dagStore = useDAGStore()
 
@@ -94,7 +84,6 @@ const data = computed(() => props.data as {
   label: string
   enabled: boolean
   runState?: { status: NodeStatus; metrics: Record<string, number>; progress: number; duration_ms: number }
-  isEditing: boolean
   isSelected: boolean
   [key: string]: unknown
 })
@@ -131,8 +120,6 @@ const statusTagType = computed(() => {
   }
   return map[status.value] || 'default'
 })
-
-const isConfigurable = computed(() => meta.value?.is_configurable && data.value.enabled)
 
 const categoryColor = computed(() => {
   const cat = meta.value?.category
@@ -200,27 +187,6 @@ const displayMetrics = computed(() => {
   return items.slice(0, 3)
 })
 
-// ─── 编辑提示词 → 跳转提示词广场 ───
-
-const plazaBridge = usePromptPlazaBridge()
-
-function handleEditPrompt() {
-  const nodeId = data.value.id
-  const dag = dagStore.dagDefinition
-  if (!dag) return
-  const node = dag.nodes.find(n => n.id === nodeId)
-  if (!node) return
-
-  // 通过 DAG 节点类型映射到 CPMS 提示词节点 key，打开提示词广场
-  plazaBridge.openPromptInPlaza(node.type, true)
-}
-
-/** 获取当前节点对应的 CPMS 提示词节点 key（用于显示提示词链接） */
-const cpmsNodeKey = computed(() => {
-  const nodeType = data.value.type
-  return plazaBridge.getCpmsKey(nodeType) || null
-})
-
 // ─── 端口样式（数据类型 → CSS 变量映射）───
 
 function portStyle(dataType: PortDataType) {
@@ -252,6 +218,7 @@ function portStyle(dataType: PortDataType) {
   transition: border-color var(--app-transition), box-shadow var(--app-transition), background var(--app-transition);
   position: relative;
   box-shadow: var(--dag-node-shadow);
+  cursor: pointer;
 }
 
 /* ── 选中态 ── */
@@ -382,42 +349,18 @@ function portStyle(dataType: PortDataType) {
   padding: 2px 0;
 }
 
-/* ── 编辑提示词入口 ── */
-.node-edit-hint {
-  margin-top: 4px;
-  padding: 2px 6px;
+/* ── 节点描述 ── */
+.node-description {
   font-size: 10px;
-  color: var(--color-brand);
-  background: var(--color-brand-light);
-  border-radius: 3px;
-  cursor: pointer;
-  text-align: center;
-  transition: background 0.15s, color 0.15s;
-  user-select: none;
-}
-
-.node-edit-hint:hover {
-  background: var(--color-brand);
-  color: #fff;
-}
-
-/* ── CPMS 提示词节点 key 标识 ── */
-.node-cpms-key {
+  color: var(--app-text-muted);
   margin-top: 2px;
-  text-align: center;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.node-cpms-key code {
-  font-size: 9px;
-  font-family: var(--font-mono);
-  color: var(--app-text-muted);
-  background: var(--app-surface-subtle);
-  padding: 1px 4px;
-  border-radius: 2px;
-  border: 1px solid var(--app-border);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .node-ports {

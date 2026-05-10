@@ -7,13 +7,13 @@
       :min-zoom="0.3"
       :max-zoom="2"
       :connect-on-click="false"
+      :nodes-draggable="false"
+      :nodes-connectable="false"
+      :edges-deletable="false"
+      :elements-selectable="false"
       fit-view-on-init
       @node-click="handleNodeClick"
-      @node-double-click="handleNodeDoubleClick"
-      @node-context-menu="handleNodeContextMenu"
-      @connect="handleConnect"
-      @edge-update="handleEdgeUpdate"
-      @nodes-change="handleNodesChange"
+      @node-context-menu="handleNodeContextMenu as any"
     >
       <!-- 自定义节点类型 -->
       <template #node-dagCustom="nodeProps">
@@ -37,7 +37,7 @@
 
 <script setup lang="ts">
 import { computed, toRef } from 'vue'
-import { VueFlow, type Connection, type EdgeChangeEvent, type NodeChange } from '@vue-flow/core'
+import { VueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -48,7 +48,6 @@ import '@vue-flow/minimap/dist/style.css'
 
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
-import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
 import { useDAGSSE } from '@/composables/useDAGSSE'
 import CustomNode from './CustomNode.vue'
 import CustomEdge from './CustomEdge.vue'
@@ -59,48 +58,31 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   contextmenu: [event: MouseEvent, nodeId: string, enabled: boolean]
+  /** ★ 单击节点 → 打开详情弹窗 */
+  nodeDetail: [nodeId: string]
 }>()
 
 const dagStore = useDAGStore()
 const runStore = useDAGRunStore()
-const plazaBridge = usePromptPlazaBridge()
 
 // SSE 连接（自动管理生命周期）
 useDAGSSE(toRef(props, 'novelId'))
 
 // ─── 响应式节点/边 ───
 
-const flowNodes = computed({
-  get: () => dagStore.vueFlowNodes,
-  set: (val) => {
-    // 更新节点位置
-    for (const node of val) {
-      dagStore.updateNodePosition(node.id, node.position)
-    }
-  },
-})
+const flowNodes = computed(() => dagStore.vueFlowNodes)
 
 const flowEdges = computed(() => dagStore.vueFlowEdges)
 
 // ─── 事件处理 ───
 
+/** ★ 单击节点 → 直接打开详情弹窗（仿 Dify） */
 function handleNodeClick(event: { node: { id: string } }) {
   dagStore.selectNode(event.node.id)
+  emit('nodeDetail', event.node.id)
 }
 
-function handleNodeDoubleClick(event: { node: { id: string } }) {
-  const nodeId = event.node.id
-  const node = dagStore.dagDefinition?.nodes.find(n => n.id === nodeId)
-  if (node) {
-    // ★ 双击节点 → 跳转提示词广场（而不是本地编辑器）
-    const meta = dagStore.nodeTypeRegistry[node.type]
-    if (meta?.is_configurable) {
-      plazaBridge.openPromptInPlaza(node.type, true)
-    }
-  }
-}
-
-function handleNodeContextMenu(event: { event: MouseEvent; node: { id: string } }) {
+function handleNodeContextMenu(event: any) {
   const node = dagStore.dagDefinition?.nodes.find(n => n.id === event.node.id)
   if (node) {
     emit('contextmenu', event.event, node.id, node.enabled)
@@ -109,49 +91,6 @@ function handleNodeContextMenu(event: { event: MouseEvent; node: { id: string } 
 
 function handleCustomNodeContextmenu(event: MouseEvent) {
   // CustomNode 内部触发 contextmenu 时的事件
-}
-
-async function handleConnect(params: Connection) {
-  if (!params.source || !params.target) return
-
-  const dag = dagStore.dagDefinition
-  if (!dag) return
-
-  const edgeCount = dag.edges.length + 1
-  const edgeId = `edge_${String(edgeCount).padStart(2, '0')}_${params.source}_${params.target}`
-
-  const newEdge = {
-    id: edgeId,
-    source: params.source,
-    source_port: params.sourceHandle || undefined,
-    target: params.target,
-    target_port: params.targetHandle || undefined,
-    condition: 'always' as const,
-    animated: false,
-  }
-
-  dag.edges.push(newEdge)
-  const success = await dagStore.saveDAG(props.novelId)
-
-  if (!success) {
-    // Save failed, remove the newly added edge
-    const idx = dag.edges.findIndex(e => e.id === edgeId)
-    if (idx !== -1) {
-      dag.edges.splice(idx, 1)
-    }
-  }
-}
-
-function handleEdgeUpdate(event: EdgeChangeEvent) {
-  // TODO: 实现边更新逻辑
-}
-
-function handleNodesChange(changes: NodeChange[]) {
-  for (const change of changes) {
-    if (change.type === 'position' && change.position) {
-      dagStore.updateNodePosition(change.id, change.position)
-    }
-  }
 }
 </script>
 
