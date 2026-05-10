@@ -11,12 +11,14 @@ import logging
 from typing import Any, Dict
 
 from application.engine.dag.models import (
+    CPMSInjectionPoint,
     NodeCategory,
     NodeMeta,
     NodePort,
     NodeResult,
     NodeStatus,
     PortDataType,
+    PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
 
@@ -117,18 +119,30 @@ class WriterNode(BaseNode):
             NodePort(name="foreshadowing_block", data_type=PortDataType.TEXT, required=False),
             NodePort(name="debt_due_block", data_type=PortDataType.TEXT, required=False),
             NodePort(name="fact_lock", data_type=PortDataType.TEXT, required=False),
+            # ★ Anti-AI 子注入点变量槽
+            NodePort(name="behavior_protocol", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="character_state_lock", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="allowlist_block", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="nervous_habits", data_type=PortDataType.TEXT, required=False),
         ],
         output_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
         prompt_template="你现在不是在'写文章'，你是在'回忆并讲述一段真实发生过的事'。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
-        prompt_variables=["context", "outline", "voice_block", "fact_lock", "foreshadowing_block"],
+        prompt_variables=["context", "outline", "voice_block", "fact_lock", "foreshadowing_block", "behavior_protocol", "character_state_lock", "allowlist_block", "nervous_habits"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=300,
         cpms_node_key="chapter-generation-main",
-        description="AutoNovelGenerationWorkflow.generate_chapter_stream",
+        # ★ CPMS 子提示词自动注入（Anti-AI 层）
+        cpms_sub_keys=[
+            CPMSInjectionPoint(cpms_node_key="anti-ai-behavior-protocol", target_variable="behavior_protocol", description="Anti-AI 行为协议 P1-P5+R1-R8"),
+            CPMSInjectionPoint(cpms_node_key="anti-ai-character-state-lock", target_variable="character_state_lock", description="角色状态锁 L4"),
+            CPMSInjectionPoint(cpms_node_key="anti-ai-allowlist-explain", target_variable="allowlist_block", description="场景化白名单 L3"),
+        ],
+        prompt_mode=PromptMode.CPMS_FIRST,
+        description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成",
         default_edges=["val_style", "val_tension", "val_anti_ai"],
     )
 
@@ -150,32 +164,17 @@ class WriterNode(BaseNode):
                 "foreshadowing_block": inputs.get("foreshadowing_block", ""),
                 "debt_due_block": inputs.get("debt_due_block", ""),
                 "planning_section": "",
-                "behavior_protocol": "",
-                "character_state_lock": "",
-                "nervous_habits": "",
-                "allowlist_block": "",
+                # ★ Anti-AI 子注入变量（优先使用上游传来的，缺失时由 cpms_sub_keys 自动拉取）
+                "behavior_protocol": inputs.get("behavior_protocol", ""),
+                "character_state_lock": inputs.get("character_state_lock", ""),
+                "allowlist_block": inputs.get("allowlist_block", ""),
+                "nervous_habits": inputs.get("nervous_habits", ""),
                 "beat_extra": "",
                 "beat_section": "",
             }
 
-            # ★ 优先使用 CPMS 提示词注册表（与主工作流一致）
-            prompt_dict = None
-            try:
-                from infrastructure.ai.prompt_utils import render_prompt
-                prompt_dict = render_prompt(
-                    _WORKFLOW_CHAPTER_GEN_NODE_KEY,
-                    variables=variables,
-                    fallback_system=self.get_prompt_template(),
-                    fallback_user="请根据以下大纲撰写本章内容：\n\n{outline}\n\n讲吧。",
-                )
-            except Exception as e:
-                logger.debug(f"CPMS 提示词注册表不可用，使用节点内模板: {e}")
-
-            # 降级：使用节点内模板
-            if not prompt_dict or (not prompt_dict.get("system") and not prompt_dict.get("user")):
-                template = self.get_prompt_template()
-                rendered = self.build_prompt({k: v for k, v in variables.items() if v})
-                prompt_dict = {"system": rendered, "user": "请开始写作"}
+            # ★ 使用 resolve_prompt 统一获取提示词（自动走 CPMS → Config → Meta + 子注入）
+            resolved = self.resolve_prompt(variables)
 
             # 调用 LLM 生成
             try:
@@ -184,22 +183,20 @@ class WriterNode(BaseNode):
                 from domain.ai.services.llm_service import GenerationConfig
 
                 llm = LLMService()
-                system_prompt = prompt_dict.get("system", "")
-                user_prompt = prompt_dict.get("user", "请开始写作")
+                system_prompt = resolved["system"]
+                user_prompt = resolved["user"] or "请开始写作"
 
                 prompt = Prompt(system=system_prompt, user=user_prompt)
 
-                # ★ 优化：根据是否有节拍，调整生成参数
+                # 根据是否有节拍，调整生成参数
                 beats = inputs.get("beats", [])
                 config = GenerationConfig()
                 if beats and len(beats) > 0:
-                    # 分节拍模式：单次生成字数较少，温度略高增加变化
                     config = GenerationConfig(
                         max_tokens=2000,
                         temperature=0.85,
                     )
                 else:
-                    # 完整章节模式
                     config = GenerationConfig(
                         max_tokens=4000,
                         temperature=0.80,
