@@ -50,6 +50,9 @@ class BlueprintNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=30,
+        cpms_node_key="context-blueprint",
+        description="从 BibleService 提取世界规则、禁忌、氛围",
+        default_edges=["ctx_memory", "exec_beat"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -118,6 +121,9 @@ class ForeshadowNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=30,
+        cpms_node_key="context-foreshadow",
+        description="从 ContextBudgetAllocator T0 槽提取伏笔信息",
+        default_edges=["exec_writer"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -185,6 +191,9 @@ class VoiceNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=30,
+        cpms_node_key="context-voice-style",
+        description="style_constraint_builder + character_state_vector",
+        default_edges=["exec_writer"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -245,6 +254,9 @@ class MemoryNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=30,
+        cpms_node_key="context-memory",
+        description="ContextAssembler (feed-forward) 记忆注入",
+        default_edges=["exec_beat"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -304,6 +316,9 @@ class DebtNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=20,
+        cpms_node_key="context-debt",
+        description="ContextAssembler DEBT_DUE 槽注入",
+        default_edges=["exec_writer"],
     )
 
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
