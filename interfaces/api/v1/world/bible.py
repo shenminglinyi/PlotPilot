@@ -304,7 +304,7 @@ async def _sse_bible_generator(
             except Exception as e:
                 logger.warning("Style generation failed (non-fatal): %s", e)
 
-            # 2. 逐维度生成世界观（每生成一个维度立即推送，实现"出一个渲染一个"）
+            # 2. 逐维度逐字段生成世界观（每生成一个字段立即推送，实现"出一个渲染一个"）
             dim_keys = ["core_rules", "geography", "society", "culture", "daily_life"]
             dim_labels = {
                 "core_rules": "核心法则",
@@ -317,31 +317,46 @@ async def _sse_bible_generator(
 
             for dim_key in dim_keys:
                 dim_label = dim_labels[dim_key]
+                dim_fields_def = bible_generator._DIMENSION_DEFS.get(dim_key, {}).get("fields", {})
+                field_keys = list(dim_fields_def.keys())
+
                 # 通知前端"即将生成该维度"
                 yield _sse_fmt("phase", {"phase": f"worldbuilding_{dim_key}", "message": f"正在构建{dim_label}..."})
                 await asyncio.sleep(0)  # 让事件循环有机会发送 SSE
 
-                # 独立调用 LLM 生成该维度
-                try:
-                    dim_data = await bible_generator._generate_single_dimension(
-                        premise, novel.target_chapters, dim_key, accumulated_wb
-                    )
-                except Exception as e:
-                    logger.error("Failed to generate dimension %s: %s", dim_key, e)
-                    dim_data = {}
+                # 逐字段独立调用 LLM 生成，每完成一个立即推送
+                dim_data: dict = {}
+                for field_key in field_keys:
+                    field_label_cn = bible_generator._FIELD_LABELS.get(field_key, field_key)
+
+                    # 通知前端正在生成该字段
+                    yield _sse_fmt("phase", {
+                        "phase": f"worldbuilding_{dim_key}_{field_key}",
+                        "message": f"正在生成{dim_label} · {field_label_cn}...",
+                    })
+                    await asyncio.sleep(0)
+
+                    try:
+                        field_value = await bible_generator._generate_single_field(
+                            premise, novel.target_chapters, dim_key, field_key,
+                            accumulated_wb, dim_data,
+                        )
+                    except Exception as e:
+                        logger.error("Failed to generate field %s.%s: %s", dim_key, field_key, e)
+                        field_value = ""
+
+                    if field_value:
+                        dim_data[field_key] = field_value
+                        # 立即推送该字段
+                        yield _sse_fmt("data", {
+                            "type": "worldbuilding_field",
+                            "dimension": dim_key,
+                            "field": field_key,
+                            "value": field_value,
+                        })
+                        await asyncio.sleep(0.05)  # 短暂延迟让前端逐字段渲染
 
                 if dim_data:
-                    # 逐字段推送（每个字段间加入延迟，实现字段级流式渲染）
-                    for field_key, field_value in dim_data.items():
-                        if field_value:
-                            yield _sse_fmt("data", {
-                                "type": "worldbuilding_field",
-                                "dimension": dim_key,
-                                "field": field_key,
-                                "value": field_value,
-                            })
-                            await asyncio.sleep(0.15)  # 给前端逐字段渲染的时间
-
                     # 累积已生成数据，供后续维度参考
                     accumulated_wb[dim_key] = dim_data
 
@@ -351,7 +366,7 @@ async def _sse_bible_generator(
                     except Exception as e:
                         logger.warning("Failed to save dimension %s via SSE: %s", dim_key, e)
 
-                await asyncio.sleep(0.2)  # 给前端渲染数据的时间
+                await asyncio.sleep(0.1)  # 给前端渲染数据的时间
 
             yield _sse_fmt("phase", {"phase": "worldbuilding_done", "message": "世界观生成完成！"})
 
@@ -490,11 +505,11 @@ async def generate_bible_stream(
 ):
     """SSE 流式 Bible 生成接口。
 
-    逐步推送每个维度的生成进度和数据片段，前端可实时渲染。
+    逐维度逐字段推送生成进度和数据片段，每生成一个字段立即推送，前端可实时渲染。
 
     事件类型：
-    - phase: 阶段变更（init / worldbuilding / characters / locations / knowledge / *_done）
-    - data: 数据片段（style / worldbuilding_dimension / character / location）
+    - phase: 阶段变更（init / worldbuilding / worldbuilding_{dim} / worldbuilding_{dim}_{field} / characters / locations / knowledge / *_done）
+    - data: 数据片段（style / worldbuilding_field / character / location）
     - done: 全部完成
     - error: 错误
     """
