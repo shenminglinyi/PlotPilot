@@ -47,47 +47,62 @@
             type="worldbuilding"
             :active-dimension="activeDimension"
             :completed-dimensions="completedDimensions"
-            :active-field="activeField"
-            :arrived-fields="arrivedFields"
           >
             <template #core_rules>
+              <!-- 字段数据已到达 → 显示小卡片 -->
               <div class="dimension-fields" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
-                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === key }">
+                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key" class="field-card">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'core_rules' && activeField === key" class="streaming-cursor">▎</span></div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
+              </div>
+              <!-- LLM 流式输出中 → 显示逐字文本预览 -->
+              <div v-else-if="activeDimension === 'core_rules' && streamingDimText" class="streaming-preview">
+                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #geography>
               <div class="dimension-fields" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
-                <div v-for="(val, key) in worldbuildingData.geography" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === key }">
+                <div v-for="(val, key) in worldbuildingData.geography" :key="key" class="field-card">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'geography' && activeField === key" class="streaming-cursor">▎</span></div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'geography' && streamingDimText" class="streaming-preview">
+                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #society>
               <div class="dimension-fields" v-if="worldbuildingData.society && Object.keys(worldbuildingData.society).length">
-                <div v-for="(val, key) in worldbuildingData.society" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === key }">
+                <div v-for="(val, key) in worldbuildingData.society" :key="key" class="field-card">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'society' && activeField === key" class="streaming-cursor">▎</span></div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'society' && streamingDimText" class="streaming-preview">
+                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #culture>
               <div class="dimension-fields" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
-                <div v-for="(val, key) in worldbuildingData.culture" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === key }">
+                <div v-for="(val, key) in worldbuildingData.culture" :key="key" class="field-card">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'culture' && activeField === key" class="streaming-cursor">▎</span></div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'culture' && streamingDimText" class="streaming-preview">
+                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #daily_life>
               <div class="dimension-fields" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
-                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === key }">
+                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key" class="field-card">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'daily_life' && activeField === key" class="streaming-cursor">▎</span></div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'daily_life' && streamingDimText" class="streaming-preview">
+                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
           </WizardSkeleton>
@@ -701,6 +716,8 @@ const activeDimension = ref('')
 const completedDimensions = ref<Set<string>>(new Set())
 const activeField = ref('')
 const arrivedFields = ref<Set<string>>(new Set())
+/** 维度级流式文本：LLM 逐 token 输出时暂存，字段解析完成后清空 */
+const streamingDimText = ref('')
 const sseAbortController = ref<AbortController | null>(null)
 
 const styleConventionDisplay = computed(() => {
@@ -1090,6 +1107,7 @@ bibleError.value = ''
   completedDimensions.value = new Set()
   activeField.value = ''
   arrivedFields.value = new Set()
+  streamingDimText.value = ''
   worldbuildingData.value = emptyWorldbuildingShape()
   styleText.value = ''
 
@@ -1121,29 +1139,14 @@ bibleError.value = ''
           // 切换到新维度时重置字段状态
           activeField.value = ''
           arrivedFields.value = new Set()
+          streamingDimText.value = ''
         } else if (dimKey === 'style') {
           // worldbuilding_style phase：文风公约生成中，清除 activeDimension
           // 让所有维度都显示"等待中"，文风信息通过 phaseMessage 显示
           activeDimension.value = ''
           activeField.value = ''
         } else {
-          // 字段级 phase：worldbuilding_core_rules_power_system
-          // 尝试匹配 worldbuilding_{dim}_{field} 格式
-          for (const dk of WB_DIMS) {
-            if (dimKey.startsWith(dk + '_')) {
-              const fk = dimKey.slice(dk.length + 1)
-              // 确保维度正确
-              if (activeDimension.value !== dk) {
-                if (activeDimension.value) {
-                  completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-                }
-                activeDimension.value = dk
-                arrivedFields.value = new Set()
-              }
-              activeField.value = fk
-              break
-            }
-          }
+          // 其他 worldbuilding_* phase 事件（如 worldbuilding_done），忽略
         }
       }
       if (phase === 'worldbuilding') {
@@ -1156,18 +1159,21 @@ bibleError.value = ''
         completedDimensions.value = new Set(WB_DIMS)
         activeDimension.value = ''
         activeField.value = ''
+        streamingDimText.value = ''
       }
     },
     onStyle: (content) => {
       styleText.value = content
     },
     onWorldbuildingField: (dimension, field, value) => {
-      // 兼容旧的整字段推送（非流式降级场景）
+      // 字段级推送：维度流式完成后逐字段推送最终值
       const dim = dimension as keyof typeof worldbuildingData.value
       worldbuildingData.value = {
         ...worldbuildingData.value,
         [dimension]: { ...worldbuildingData.value[dim], [field]: value },
       }
+      // 第一个字段到达时清空流式预览文本
+      streamingDimText.value = ''
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
           completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
@@ -1178,13 +1184,14 @@ bibleError.value = ''
       activeField.value = ''
     },
     onWorldbuildingFieldChunk: (dimension, field, chunk) => {
-      // 逐 token 流式 chunk：追加到字段内容
-      const dim = dimension as keyof typeof worldbuildingData.value
-      const currentVal = worldbuildingData.value[dim]?.[field] ?? ''
-      worldbuildingData.value = {
-        ...worldbuildingData.value,
-        [dimension]: { ...worldbuildingData.value[dim], [field]: currentVal + chunk },
-      }
+      // 已弃用，保留空实现以兼容旧版
+    },
+    onWorldbuildingFieldDone: (dimension, field, value) => {
+      // 已弃用，保留空实现以兼容旧版
+    },
+    onWorldbuildingDimChunk: (dimension, chunk) => {
+      // 维度级流式 chunk：追加到临时文本，逐字显示
+      streamingDimText.value += chunk
       // 确保当前维度标记为 active
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
@@ -1192,18 +1199,6 @@ bibleError.value = ''
         }
         activeDimension.value = dimension
       }
-    },
-    onWorldbuildingFieldDone: (dimension, field, value) => {
-      // 字段流式输出完成：用最终完整值替换（清理尾部空白等）
-      const dim = dimension as keyof typeof worldbuildingData.value
-      worldbuildingData.value = {
-        ...worldbuildingData.value,
-        [dimension]: { ...worldbuildingData.value[dim], [field]: value },
-      }
-      // 标记该字段已到达
-      arrivedFields.value = new Set([...arrivedFields.value, field])
-      // 该字段已生成完毕，清除 activeField
-      activeField.value = ''
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value
@@ -1888,9 +1883,22 @@ const handleComplete = () => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.field-card--streaming {
-  border-color: #2080f060;
-  background: #2080f008;
+.streaming-preview {
+  padding: 12px;
+  background: #2080f006;
+  border: 1px dashed #2080f030;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #555;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.streaming-preview__text {
+  color: #333;
 }
 
 .streaming-cursor {

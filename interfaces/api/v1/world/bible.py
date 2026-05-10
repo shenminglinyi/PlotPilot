@@ -239,6 +239,47 @@ def _sse_fmt(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _parse_dimension_json(raw_text: str, dim_key: str) -> dict:
+    """解析 LLM 流式输出的维度 JSON，返回 {field_key: field_value} 字典。"""
+    from application.world.services.auto_bible_generator import (
+        _sanitize_llm_json_output,
+        _repair_json_string,
+    )
+
+    content = _sanitize_llm_json_output(raw_text)
+    if not content:
+        return {}
+
+    # 尝试解析 JSON
+    parsed = None
+    for attempt in range(3):
+        try:
+            parsed = json.loads(content)
+            break
+        except (json.JSONDecodeError, ValueError):
+            if attempt == 0:
+                content = _repair_json_string(content)
+            elif attempt == 1:
+                # 尝试提取最外层 JSON 对象
+                start = content.find("{")
+                end = content.rfind("}")
+                if start != -1 and end > start:
+                    content = content[start:end + 1]
+                    content = _repair_json_string(content)
+
+    if not isinstance(parsed, dict):
+        return {}
+
+    # 标准化：只保留字符串字段
+    normalized = {}
+    for k, v in parsed.items():
+        if isinstance(v, str) and v.strip():
+            normalized[k] = v.strip()
+        elif isinstance(v, (list, dict)):
+            normalized[k] = str(v)
+    return normalized
+
+
 async def _sse_bible_generator(
     novel_id: str,
     stage: str,
@@ -304,7 +345,7 @@ async def _sse_bible_generator(
             except Exception as e:
                 logger.warning("Style generation failed (non-fatal): %s", e)
 
-            # 2. 逐维度逐字段流式生成世界观（LLM 逐 token 输出，逐 chunk 推送 SSE）
+            # 2. 逐维度流式生成世界观（每维度一次 LLM 流式请求，边接收 token 边推送）
             dim_keys = ["core_rules", "geography", "society", "culture", "daily_life"]
             dim_labels = {
                 "core_rules": "核心法则",
@@ -317,61 +358,46 @@ async def _sse_bible_generator(
 
             for dim_key in dim_keys:
                 dim_label = dim_labels[dim_key]
-                dim_fields_def = bible_generator._DIMENSION_DEFS.get(dim_key, {}).get("fields", {})
-                field_keys = list(dim_fields_def.keys())
 
                 # 通知前端"即将生成该维度"
                 yield _sse_fmt("phase", {"phase": f"worldbuilding_{dim_key}", "message": f"正在构建{dim_label}..."})
                 await asyncio.sleep(0)
 
-                # 逐字段流式生成：LLM 逐 token 输出 → 逐 chunk 推送 SSE
-                dim_data: dict = {}
-                for field_key in field_keys:
-                    field_label_cn = bible_generator._FIELD_LABELS.get(field_key, field_key)
-
-                    # 通知前端正在生成该字段
-                    yield _sse_fmt("phase", {
-                        "phase": f"worldbuilding_{dim_key}_{field_key}",
-                        "message": f"正在生成{dim_label} · {field_label_cn}...",
-                    })
-                    await asyncio.sleep(0)
-
-                    # ── 流式调用 LLM，逐 token 推送 ──
-                    try:
-                        parts: list[str] = []
-                        async for chunk in bible_generator._stream_single_field(
-                            premise, novel.target_chapters, dim_key, field_key,
-                            accumulated_wb, dim_data,
-                        ):
-                            parts.append(chunk)
-                            # 逐 chunk 推送 SSE
-                            yield _sse_fmt("data", {
-                                "type": "worldbuilding_field_chunk",
-                                "dimension": dim_key,
-                                "field": field_key,
-                                "chunk": chunk,
-                            })
-                            await asyncio.sleep(0)  # 让事件循环发送 SSE
-
-                        field_value = "".join(parts).strip()
-                    except Exception as e:
-                        logger.error("Failed to stream field %s.%s: %s", dim_key, field_key, e)
-                        field_value = ""
-
-                    if field_value:
-                        dim_data[field_key] = field_value
-                        # 字段完成事件（告诉前端这个字段生成完了）
+                # ── 维度级流式：一次 LLM 调用流式输出整个维度 JSON ──
+                # 逐 token 推送 worldbuilding_dim_chunk（前端可逐字看到内容）
+                # 维度完成后推送每个字段的 worldbuilding_field 事件
+                try:
+                    parts: list[str] = []
+                    async for chunk in bible_generator._stream_single_dimension(
+                        premise, novel.target_chapters, dim_key, accumulated_wb,
+                    ):
+                        parts.append(chunk)
+                        # 逐 token 推送 SSE（让前端看到逐字生成）
                         yield _sse_fmt("data", {
-                            "type": "worldbuilding_field_done",
+                            "type": "worldbuilding_dim_chunk",
                             "dimension": dim_key,
-                            "field": field_key,
-                            "value": field_value,
+                            "chunk": chunk,
                         })
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(0)
+
+                    full_text = "".join(parts).strip()
+                    dim_data = _parse_dimension_json(full_text, dim_key)
+                except Exception as e:
+                    logger.error("Failed to stream dimension %s: %s", dim_key, e)
+                    dim_data = {}
 
                 if dim_data:
-                    # 累积已生成数据，供后续维度参考
                     accumulated_wb[dim_key] = dim_data
+                    # 逐字段推送完整的字段值（前端更新最终状态）
+                    for field_key, field_value in dim_data.items():
+                        if field_value:
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_field",
+                                "dimension": dim_key,
+                                "field": field_key,
+                                "value": field_value,
+                            })
+                            await asyncio.sleep(0.05)
 
                     # 即时保存该维度到数据库
                     try:
