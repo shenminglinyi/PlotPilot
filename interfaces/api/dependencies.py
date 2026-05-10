@@ -1035,7 +1035,7 @@ def get_checkpoint_manager():
     Returns:
         CheckpointManager 实例
     """
-    from engine.application.checkpoint_manager.manager import CheckpointManager
+    from engine.runtime.checkpoint_manager.manager import CheckpointManager
     return CheckpointManager(get_checkpoint_store())
 
 
@@ -1045,6 +1045,6 @@ def get_quality_guardrail():
     Returns:
         QualityGuardrail 实例
     """
-    from engine.application.quality_guardrails.quality_guardrail import QualityGuardrail
+    from engine.runtime.quality_guardrails.quality_guardrail import QualityGuardrail
     return QualityGuardrail()
 

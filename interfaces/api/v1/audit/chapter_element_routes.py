@@ -12,7 +12,7 @@ from application.paths import get_db_path
 import uuid
 
 
-router = APIRouter(prefix="/api/v1/chapters", tags=["chapter-elements"])
+router = APIRouter(prefix="/chapters", tags=["chapter-elements"])
 
 
 # ==================== DTOs ====================

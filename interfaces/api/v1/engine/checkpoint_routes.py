@@ -1,4 +1,4 @@
-"""Checkpoint + QualityGuardrail + StoryPhase + CharacterSoul 统一路由
+"""Checkpoint + QualityGuardrail + StoryPhase + CharacterPsyche 统一路由
 
 前端新增面板的统一 API 出口：
 - GET  /novels/{novel_id}/checkpoints         → 列出时间线
@@ -13,9 +13,9 @@
 - GET  /novels/{novel_id}/story-phase          → 获取故事阶段
 - PUT  /novels/{novel_id}/story-phase          → 更新故事阶段
 
-- GET  /novels/{novel_id}/character-souls       → 获取角色灵魂概览
-- GET  /novels/{novel_id}/character-souls/{name}→ 单角色灵魂详情
-- POST /novels/{novel_id}/character-souls/{name}/validate → 行为验证
+- GET  /novels/{novel_id}/character-psyches       → 获取角色灵魂概览
+- GET  /novels/{novel_id}/character-psyches/{name}→ 单角色灵魂详情
+- POST /novels/{novel_id}/character-psyches/{name}/validate → 行为验证
 """
 from __future__ import annotations
 
@@ -114,7 +114,7 @@ class StoryPhaseDTO(BaseModel):
     can_advance: bool = False
 
 
-class CharacterSoulDTO(BaseModel):
+class CharacterPsycheDTO(BaseModel):
     name: str
     role: str = ""
     core_belief: str = ""
@@ -124,11 +124,11 @@ class CharacterSoulDTO(BaseModel):
     trauma_count: int = 0
 
 
-class CharacterSoulListResponse(BaseModel):
-    characters: List[CharacterSoulDTO] = Field(default_factory=list)
+class CharacterPsycheListResponse(BaseModel):
+    characters: List[CharacterPsycheDTO] = Field(default_factory=list)
 
 
-class CharacterSoulDetailDTO(BaseModel):
+class CharacterPsycheDetailDTO(BaseModel):
     name: str
     role: str = ""
     core_belief: str = ""
@@ -171,12 +171,12 @@ def _get_cast_graph(novel_id: str):
     return cast_service.get_cast(novel_id)
 
 
-def _get_character_soul_engine():
-    """获取 CharacterSoulEngine 实例"""
+def _get_character_psyche_engine():
+    """获取 CharacterPsycheEngine 实例"""
     try:
         from interfaces.api.dependencies import get_database
-        from engine.infrastructure.memory.character_soul import CharacterSoulEngine
-        return CharacterSoulEngine(get_database())
+        from engine.infrastructure.memory.character_psyche import CharacterPsycheEngine
+        return CharacterPsycheEngine(get_database())
     except Exception:
         return None
 
@@ -498,40 +498,40 @@ async def update_story_phase(novel_id: str, body: StoryPhaseDTO):
     return body
 
 
-# ─── Character Soul Endpoints ──────────────────────────────────────
+# ─── Character Psyche Endpoints ──────────────────────────────────
 
-@router.get("/{novel_id}/character-souls", response_model=CharacterSoulListResponse)
-async def list_character_souls(novel_id: str):
-    """获取角色灵魂概览列表"""
+@router.get("/{novel_id}/character-psyches", response_model=CharacterPsycheListResponse)
+async def list_character_psyches(novel_id: str):
+    """获取角色心理画像概览列表"""
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        # 优先从 CharacterSoulEngine 获取四维数据
-        soul_engine = _get_character_soul_engine()
-        if soul_engine:
+        # 优先从 CharacterPsycheEngine 获取四维数据
+        psyche_engine = _get_character_psyche_engine()
+        if psyche_engine:
             cast_graph = _get_cast_graph(novel_id)
             characters = []
             for ch in (cast_graph.characters or []):
                 char_id = getattr(ch, 'id', '') or ch.name
-                soul_data = None
+                psyche_data = None
                 try:
-                    soul_data = await soul_engine.load_character(str(char_id))
+                    psyche_data = await psyche_engine.load_character(str(char_id))
                 except Exception:
                     pass
 
-                if soul_data:
-                    characters.append(CharacterSoulDTO(
-                        name=soul_data.name,
-                        role=getattr(soul_data, 'role', '') or ch.role,
-                        core_belief=soul_data.core_belief,
-                        taboo="、".join(soul_data.moral_taboos) if soul_data.moral_taboos else "",
-                        voice_tag=soul_data.voice_profile.style if soul_data.voice_profile else "",
-                        wound=soul_data.active_wounds[0].description if soul_data.active_wounds else "",
-                        trauma_count=len(soul_data.evolution_patches),
+                if psyche_data:
+                    characters.append(CharacterPsycheDTO(
+                        name=psyche_data.name,
+                        role=getattr(psyche_data, 'role', '') or ch.role,
+                        core_belief=psyche_data.core_belief,
+                        taboo="、".join(psyche_data.moral_taboos) if psyche_data.moral_taboos else "",
+                        voice_tag=psyche_data.voice_profile.style if psyche_data.voice_profile else "",
+                        wound=psyche_data.active_wounds[0].description if psyche_data.active_wounds else "",
+                        trauma_count=len(psyche_data.evolution_patches),
                     ))
                 else:
-                    characters.append(CharacterSoulDTO(
+                    characters.append(CharacterPsycheDTO(
                         name=ch.name,
                         role=ch.role,
                         core_belief="",
@@ -540,13 +540,13 @@ async def list_character_souls(novel_id: str):
                         wound="",
                         trauma_count=0,
                     ))
-            return CharacterSoulListResponse(characters=characters)
+            return CharacterPsycheListResponse(characters=characters)
 
         # 回退：从 Cast 图谱获取基础信息
         cast_graph = _get_cast_graph(novel_id)
         characters = []
         for ch in (cast_graph.characters or []):
-            characters.append(CharacterSoulDTO(
+            characters.append(CharacterPsycheDTO(
                 name=ch.name,
                 role=ch.role,
                 core_belief="",
@@ -555,44 +555,44 @@ async def list_character_souls(novel_id: str):
                 wound="",
                 trauma_count=0,
             ))
-        return CharacterSoulListResponse(characters=characters)
+        return CharacterPsycheListResponse(characters=characters)
     except Exception as e:
-        logger.warning("获取角色灵魂列表失败: %s", e)
-        return CharacterSoulListResponse()
+        logger.warning("获取角色心理画像列表失败: %s", e)
+        return CharacterPsycheListResponse()
 
 
-@router.get("/{novel_id}/character-souls/{character_name}", response_model=CharacterSoulDetailDTO)
-async def get_character_soul(novel_id: str, character_name: str):
-    """获取单个角色灵魂详情"""
+@router.get("/{novel_id}/character-psyches/{character_name}", response_model=CharacterPsycheDetailDTO)
+async def get_character_psyche(novel_id: str, character_name: str):
+    """获取单个角色心理画像详情"""
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        # 优先从 CharacterSoulEngine 获取四维详细数据
-        soul_engine = _get_character_soul_engine()
-        if soul_engine:
+        # 优先从 CharacterPsycheEngine 获取四维详细数据
+        psyche_engine = _get_character_psyche_engine()
+        if psyche_engine:
             cast_graph = _get_cast_graph(novel_id)
             for ch in (cast_graph.characters or []):
                 if ch.name == character_name:
                     char_id = getattr(ch, 'id', '') or ch.name
                     try:
-                        soul_data = await soul_engine.load_character(str(char_id))
-                        if soul_data:
-                            mask = await soul_engine.compute_mask(str(char_id), 0)
+                        psyche_data = await psyche_engine.load_character(str(char_id))
+                        if psyche_data:
+                            mask = await psyche_engine.compute_mask(str(char_id), 0)
                             mask_summary = mask.to_t0_fact_lock() if mask else ""
-                            return CharacterSoulDetailDTO(
-                                name=soul_data.name,
-                                role=getattr(soul_data, 'role', '') or ch.role,
-                                core_belief=soul_data.core_belief,
-                                taboo="、".join(soul_data.moral_taboos) if soul_data.moral_taboos else "",
-                                voice_tag=soul_data.voice_profile.style if soul_data.voice_profile else "",
-                                wound=soul_data.active_wounds[0].description if soul_data.active_wounds else "",
-                                trauma_count=len(soul_data.evolution_patches),
+                            return CharacterPsycheDetailDTO(
+                                name=psyche_data.name,
+                                role=getattr(psyche_data, 'role', '') or ch.role,
+                                core_belief=psyche_data.core_belief,
+                                taboo="、".join(psyche_data.moral_taboos) if psyche_data.moral_taboos else "",
+                                voice_tag=psyche_data.voice_profile.style if psyche_data.voice_profile else "",
+                                wound=psyche_data.active_wounds[0].description if psyche_data.active_wounds else "",
+                                trauma_count=len(psyche_data.evolution_patches),
                                 emotion_ledger={},
                                 mask_summary=mask_summary,
                             )
                     except Exception as e:
-                        logger.warning("从SoulEngine获取角色详情失败: %s", e)
+                        logger.warning("从PsycheEngine获取角色详情失败: %s", e)
                     break
 
         # 回退：从 Cast 图谱获取
@@ -606,7 +606,7 @@ async def get_character_soul(novel_id: str, character_name: str):
         if not target:
             raise HTTPException(status_code=404, detail=f"Character '{character_name}' not found")
 
-        return CharacterSoulDetailDTO(
+        return CharacterPsycheDetailDTO(
             name=target.name,
             role=target.role,
             core_belief="",
@@ -620,26 +620,26 @@ async def get_character_soul(novel_id: str, character_name: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("获取角色灵魂详情失败: %s", e)
+        logger.error("获取角色心理画像详情失败: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{novel_id}/character-souls/{character_name}/validate", response_model=ValidateBehaviorResponse)
+@router.post("/{novel_id}/character-psyches/{character_name}/validate", response_model=ValidateBehaviorResponse)
 async def validate_character_behavior(novel_id: str, character_name: str, body: ValidateBehaviorRequest):
-    """验证角色行为是否符合灵魂设定"""
+    """验证角色行为是否符合心理画像设定"""
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        # 优先使用 CharacterSoulEngine 获取面具并验证
-        soul_engine = _get_character_soul_engine()
-        if soul_engine:
+        # 优先使用 CharacterPsycheEngine 获取面具并验证
+        psyche_engine = _get_character_psyche_engine()
+        if psyche_engine:
             cast_graph = _get_cast_graph(novel_id)
             for ch in (cast_graph.characters or []):
                 if ch.name == character_name:
                     char_id = getattr(ch, 'id', '') or ch.name
                     try:
-                        mask = await soul_engine.compute_mask(str(char_id), 0)
+                        mask = await psyche_engine.compute_mask(str(char_id), 0)
                         if mask:
                             result = mask.validate_behavior(body.action)
                             if isinstance(result, dict):
@@ -649,7 +649,7 @@ async def validate_character_behavior(novel_id: str, character_name: str, body: 
                                     suggestions=result.get("suggestions", []),
                                 )
                     except Exception as e:
-                        logger.warning("SoulEngine验证失败: %s", e)
+                        logger.warning("PsycheEngine验证失败: %s", e)
                     break
 
         # 回退：使用空面具进行基础验证
