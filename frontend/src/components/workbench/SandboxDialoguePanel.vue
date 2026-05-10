@@ -163,6 +163,13 @@
         </div>
       </n-spin>
     </n-card>
+
+    <!-- 角色灵魂档案 -->
+    <n-collapse class="soul-collapse">
+      <n-collapse-item title="🔮 角色灵魂档案" name="soul">
+        <CharacterSoulPanel :slug="slug" />
+      </n-collapse-item>
+    </n-collapse>
   </div>
 </template>
 
@@ -175,6 +182,7 @@ import { sandboxApi } from '../../api/sandbox'
 import type { DialogueWhitelistResponse, DialogueEntry, CharacterAnchor } from '../../api/sandbox'
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO } from '../../api/bible'
+import CharacterSoulPanel from './CharacterSoulPanel.vue'
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()
@@ -473,5 +481,23 @@ watch(deskTick, () => {
 
 .sandbox-panel :deep(.n-empty) {
   padding: 20px 0;
+}
+
+.soul-collapse {
+  margin-top: 12px;
+  border: 1px solid var(--app-divider, #e0e0e6);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--n-color-modal);
+}
+
+.soul-collapse :deep(.n-collapse-item__header) {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.soul-collapse :deep(.n-collapse-item__content-wrapper) {
+  max-height: 400px;
+  overflow-y: auto;
 }
 </style>
