@@ -6,7 +6,7 @@
     :closable="true"
     preset="card"
     title="新书设置向导"
-    style="width: 90%; max-width: 680px; max-height: 90vh"
+    style="width: 94%; max-width: 960px; max-height: 92vh"
     :segmented="{ content: true, footer: true }"
   >
     <n-steps :current="currentStep" :status="stepStatus" size="small">
@@ -49,37 +49,42 @@
             :completed-dimensions="completedDimensions"
           >
             <template #core_rules>
-              <div class="dimension-preview" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
-                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key" class="dim-item">
-                  <strong>{{ dimKeyLabels[key] || key }}：</strong>{{ val }}
+              <div class="dimension-fields" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
+                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key" class="field-card">
+                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
               </div>
             </template>
             <template #geography>
-              <div class="dimension-preview" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
-                <div v-for="(val, key) in worldbuildingData.geography" :key="key" class="dim-item">
-                  <strong>{{ dimKeyLabels[key] || key }}：</strong>{{ val }}
+              <div class="dimension-fields" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
+                <div v-for="(val, key) in worldbuildingData.geography" :key="key" class="field-card">
+                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
               </div>
             </template>
             <template #society>
-              <div class="dimension-preview" v-if="worldbuildingData.society && Object.keys(worldbuildingData.society).length">
-                <div v-for="(val, key) in worldbuildingData.society" :key="key" class="dim-item">
-                  <strong>{{ dimKeyLabels[key] || key }}：</strong>{{ val }}
+              <div class="dimension-fields" v-if="worldbuildingData.society && Object.keys(worldbuildingData.society).length">
+                <div v-for="(val, key) in worldbuildingData.society" :key="key" class="field-card">
+                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
               </div>
             </template>
             <template #culture>
-              <div class="dimension-preview" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
-                <div v-for="(val, key) in worldbuildingData.culture" :key="key" class="dim-item">
-                  <strong>{{ dimKeyLabels[key] || key }}：</strong>{{ val }}
+              <div class="dimension-fields" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
+                <div v-for="(val, key) in worldbuildingData.culture" :key="key" class="field-card">
+                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
               </div>
             </template>
             <template #daily_life>
-              <div class="dimension-preview" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
-                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key" class="dim-item">
-                  <strong>{{ dimKeyLabels[key] || key }}：</strong>{{ val }}
+              <div class="dimension-fields" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
+                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key" class="field-card">
+                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
+                  <div class="field-card__content">{{ val }}</div>
                 </div>
               </div>
             </template>
@@ -104,11 +109,11 @@
 
           <n-collapse :default-expanded-names="['worldbuilding', 'style']">
             <n-collapse-item title="世界观（5维度框架）" name="worldbuilding">
-              <n-space vertical>
+              <n-space vertical size="small">
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
-                  <n-space vertical size="small">
-                    <div v-for="(_val, key) in dim.data" :key="key" class="editable-field">
-                      <div class="editable-field__label">{{ dimKeyLabels[key] || key }}</div>
+                  <div class="dimension-fields">
+                    <div v-for="(_val, key) in dim.data" :key="key" class="field-card field-card--editable">
+                      <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
                       <n-input
                         v-model:value="worldbuildingData[dim.key][key]"
                         type="textarea"
@@ -116,7 +121,7 @@
                         size="small"
                       />
                     </div>
-                  </n-space>
+                  </div>
                 </n-card>
               </n-space>
             </n-collapse-item>
@@ -1697,18 +1702,54 @@ const handleComplete = () => {
   color: #888;
 }
 
-/* ── 维度预览 ── */
-.dimension-preview {
+/* ── 维度字段卡片 ── */
+.dimension-fields {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
-.dim-item {
+.field-card {
+  background: var(--n-color-modal);
+  border: 1px solid var(--n-border-color);
+  border-radius: 8px;
+  padding: 10px 14px;
+  animation: field-appear 0.35s ease;
+  transition: border-color 0.2s ease;
+}
+
+.field-card:hover {
+  border-color: #2080f060;
+}
+
+.field-card--editable {
+  padding: 8px 12px;
+}
+
+.field-card--editable .field-card__title {
+  margin-bottom: 4px;
+}
+
+.field-card__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.field-card__content {
   font-size: 13px;
-  line-height: 1.5;
-  color: #444;
-  animation: fade-in 0.4s ease;
+  line-height: 1.65;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@keyframes field-appear {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* 文风公约实时预览（生成中） */
@@ -1891,18 +1932,7 @@ const handleComplete = () => {
   font-size: 14px;
 }
 
-.editable-field {
-  margin-bottom: 8px;
-}
-.editable-field:last-child {
-  margin-bottom: 0;
-}
-.editable-field__label {
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 2px;
-  font-weight: 500;
-}
+/* (editable-field 已替换为 field-card) */
 
 .editable-character,
 .editable-location {
