@@ -469,6 +469,7 @@ class AutopilotDaemon:
         由 API 进程的 PersistenceQueue 消费者线程异步执行写入，
         彻底避免守护进程与 API 进程的 DB 锁竞争。
         """
+        from application.engine.services.persistence_queue import PersistenceCommandType
         from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
 
         # 枚举转换（与 _patch_novel_ephemeral 一致，确保队列中的值是原始类型）
@@ -3110,6 +3111,11 @@ class AutopilotDaemon:
         import re
 
         if not content or not content.strip():
+            return content
+
+        # 🔥 停止信号检查：用户已停止时不发起续写 LLM 调用，直接返回已有内容
+        if novel is not None and not self._is_still_running(novel):
+            logger.info(f"[{novel.novel_id}] 软着陆跳过：用户已停止自动驾驶")
             return content
 
         stripped = content.rstrip()
