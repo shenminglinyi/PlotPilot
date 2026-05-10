@@ -285,16 +285,38 @@ async def get_node_prompt_live(novel_id: str, node_id: str):
         raise HTTPException(status_code=404, detail=f"节点 {node_id} 不存在")
 
     try:
-        node_class = NodeRegistry.get(node_def.type)
-        base_node = node_class(node_id=node_id, config=node_def.config)
+        base_node = NodeRegistry.create_instance(node_def.type, config=node_def.config)
         prompt_dict = base_node.get_effective_prompt()
+
+        cpms_node_key = ""
+        if base_node.meta and base_node.meta.cpms_node_key:
+            cpms_node_key = base_node.meta.cpms_node_key
+
+        # 收集 CPMS 子注入点信息
+        cpms_sub_keys = []
+        if base_node.meta and base_node.meta.cpms_sub_keys:
+            cpms_sub_keys = [
+                {
+                    "cpms_node_key": inj.cpms_node_key,
+                    "target_variable": inj.target_variable,
+                    "description": inj.description,
+                    "required": inj.required,
+                }
+                for inj in base_node.meta.cpms_sub_keys
+            ]
+
+        prompt_mode = ""
+        if base_node.meta and base_node.meta.prompt_mode:
+            prompt_mode = base_node.meta.prompt_mode.value
 
         return {
             "node_id": node_id,
             "system": prompt_dict["system"],
             "user_template": prompt_dict["user_template"],
             "source": prompt_dict["source"],
-            "cpms_node_key": prompt_dict.get("cpms_node_key", ""),
+            "cpms_node_key": cpms_node_key,
+            "cpms_sub_keys": cpms_sub_keys,
+            "prompt_mode": prompt_mode,
         }
     except KeyError:
         raise HTTPException(status_code=404, detail=f"节点类型 {node_def.type} 未注册")

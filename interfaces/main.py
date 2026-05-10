@@ -584,7 +584,18 @@ def _init_dag_node_registry():
     """初始化 DAG 节点注册表 — 加载所有 V1 节点实现"""
     try:
         # 导入所有节点模块，触发 @NodeRegistry.register 装饰器
-        from application.engine.dag.nodes import context_nodes, execution_nodes, validation_nodes, gateway_nodes  # noqa: F401
+        from application.engine.dag.nodes import (  # noqa: F401
+            context_nodes,
+            execution_nodes,
+            validation_nodes,
+            gateway_nodes,
+            world_nodes,
+            review_nodes,
+            anti_ai_nodes,
+            planning_nodes,
+            gen_supplement_nodes,
+            ext_supplement_nodes,
+        )
         from application.engine.dag.registry import NodeRegistry
         logger.info(f"✅ DAG 节点注册表已初始化: {sorted(NodeRegistry.all_types())}")
     except Exception as e:
