@@ -16,7 +16,7 @@ from infrastructure.persistence.database.sqlite_knowledge_repository import Sqli
 from interfaces.api.dependencies import get_knowledge_repository
 
 
-router = APIRouter(prefix="/api/v1/knowledge-graph", tags=["knowledge-graph"])
+router = APIRouter(prefix="/knowledge-graph", tags=["knowledge-graph"])
 
 
 # ==================== 依赖注入 ====================

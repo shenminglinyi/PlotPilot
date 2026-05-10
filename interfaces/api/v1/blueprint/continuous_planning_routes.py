@@ -22,7 +22,7 @@ from application.paths import get_db_path
 from interfaces.api.dependencies import get_database
 
 
-router = APIRouter(prefix="/api/v1/planning", tags=["continuous-planning"])
+router = APIRouter(prefix="/planning", tags=["continuous-planning"])
 
 
 # ==================== DTOs ====================

@@ -280,29 +280,32 @@ async def _sse_bible_generator(
 
     try:
         if stage in ("all", "worldbuilding"):
-            # ── 世界观生成 ──
+            # ── 世界观生成（逐维度流式） ──
             yield _sse_fmt("phase", {"phase": "worldbuilding", "message": "AI 正在构建世界观（5维度框架）..."})
             await asyncio.sleep(0)
 
-            wb_data = await bible_generator._generate_worldbuilding_and_style(
-                premise, novel.target_chapters
-            )
+            # 1. 先生成文风公约（快速，独立调用）
+            yield _sse_fmt("phase", {"phase": "worldbuilding_style", "message": "正在生成文风公约..."})
+            await asyncio.sleep(0)
+            try:
+                style_text = await bible_generator._generate_style(premise, novel.target_chapters)
+                if style_text:
+                    yield _sse_fmt("data", {"type": "style", "content": style_text})
+                    # 保存文风
+                    try:
+                        bible_generator.bible_service.add_style_note(
+                            novel_id=novel_id,
+                            note_id=f"{novel_id}-style-1",
+                            category="文风公约",
+                            content=style_text,
+                        )
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning("Style generation failed (non-fatal): %s", e)
 
-            # 推送文风
-            if "style" in wb_data:
-                yield _sse_fmt("data", {"type": "style", "content": wb_data["style"]})
-                # 保存文风
-                try:
-                    bible_generator.bible_service.add_style_note(
-                        novel_id=novel_id,
-                        note_id=f"{novel_id}-style-1",
-                        category="文风公约",
-                        content=wb_data["style"],
-                    )
-                except Exception:
-                    pass
-
-            # 逐步推送每个世界观维度（每个维度间加入延迟，前端可逐个渲染）
+            # 2. 逐维度生成世界观（每生成一个维度立即推送，实现"出一个渲染一个"）
+            dim_keys = ["core_rules", "geography", "society", "culture", "daily_life"]
             dim_labels = {
                 "core_rules": "核心法则",
                 "geography": "地理生态",
@@ -310,27 +313,45 @@ async def _sse_bible_generator(
                 "culture": "历史文化",
                 "daily_life": "沉浸感细节",
             }
-            if "worldbuilding" in wb_data:
-                for dim_key, dim_label in dim_labels.items():
-                    dim_data = wb_data["worldbuilding"].get(dim_key, {})
-                    if dim_data:
-                        # 先通知前端"即将生成该维度"，让骨架屏进入 loading 态
-                        yield _sse_fmt("phase", {"phase": f"worldbuilding_{dim_key}", "message": f"正在构建{dim_label}..."})
-                        await asyncio.sleep(0.3)  # 给前端渲染骨架屏的时间
-                        # 再推送实际数据
-                        yield _sse_fmt("data", {
-                            "type": "worldbuilding_dimension",
-                            "dimension": dim_key,
-                            "label": dim_label,
-                            "content": dim_data,
-                        })
-                        await asyncio.sleep(0.5)  # 给前端渲染数据的时间
-                # 保存世界观
-                if bible_generator.worldbuilding_service:
+            accumulated_wb: dict = {}  # 已生成的维度数据，用于上下文传递
+
+            for dim_key in dim_keys:
+                dim_label = dim_labels[dim_key]
+                # 通知前端"即将生成该维度"
+                yield _sse_fmt("phase", {"phase": f"worldbuilding_{dim_key}", "message": f"正在构建{dim_label}..."})
+                await asyncio.sleep(0)  # 让事件循环有机会发送 SSE
+
+                # 独立调用 LLM 生成该维度
+                try:
+                    dim_data = await bible_generator._generate_single_dimension(
+                        premise, novel.target_chapters, dim_key, accumulated_wb
+                    )
+                except Exception as e:
+                    logger.error("Failed to generate dimension %s: %s", dim_key, e)
+                    dim_data = {}
+
+                if dim_data:
+                    # 逐字段推送（每个字段间加入延迟，实现字段级流式渲染）
+                    for field_key, field_value in dim_data.items():
+                        if field_value:
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_field",
+                                "dimension": dim_key,
+                                "field": field_key,
+                                "value": field_value,
+                            })
+                            await asyncio.sleep(0.15)  # 给前端逐字段渲染的时间
+
+                    # 累积已生成数据，供后续维度参考
+                    accumulated_wb[dim_key] = dim_data
+
+                    # 即时保存该维度到数据库
                     try:
-                        await bible_generator._save_worldbuilding(novel_id, wb_data["worldbuilding"])
+                        await bible_generator._save_worldbuilding(novel_id, {dim_key: dim_data})
                     except Exception as e:
-                        logger.warning("Failed to save worldbuilding via SSE: %s", e)
+                        logger.warning("Failed to save dimension %s via SSE: %s", dim_key, e)
+
+                await asyncio.sleep(0.2)  # 给前端渲染数据的时间
 
             yield _sse_fmt("phase", {"phase": "worldbuilding_done", "message": "世界观生成完成！"})
 

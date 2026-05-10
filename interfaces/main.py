@@ -812,71 +812,81 @@ add_error_handlers(app)
 
 # HTTP 访问日志由 uvicorn.access 输出（与 uvicorn 默认格式一致：IP + 请求行 + 状态码）
 
-# Core module routes
-app.include_router(novels.router, prefix="/api/v1")
-app.include_router(chapters.router, prefix="/api/v1/novels")
-app.include_router(scene_generation_routes.router)
-app.include_router(llm_settings.router, prefix="/api/v1")
-app.include_router(llm_settings.embedding_router, prefix="/api/v1")
-app.include_router(export.router, prefix="/api/v1")
+# ════════════════════════════════════════════════════════════════════════════
+# 路由注册
+#
+# 约定：
+#   1. 所有 API 路由统一使用 /api/v1 前缀，在 include_router 处一次性注入
+#   2. 各 router 模块内部只声明语义路径（如 /novels、/bible），不得硬编码 /api/v1
+#   3. 前端 apiClient.baseURL = '/api/v1'，调用时使用相对路径（如 /novels/{id}）
+# ════════════════════════════════════════════════════════════════════════════
 
-# World module routes
-app.include_router(bible.router, prefix="/api/v1")
-app.include_router(cast.router, prefix="/api/v1")
-app.include_router(knowledge.router, prefix="/api/v1")
-app.include_router(knowledge_graph_routes.router)
-app.include_router(worldbuilding_routes.router)
+_V1 = "/api/v1"
 
-# Blueprint module routes
-app.include_router(continuous_planning_routes.router)
-app.include_router(beat_sheet_routes.router)
-app.include_router(story_structure.router, prefix="/api/v1")
+# ── Core：小说 / 章节 / 导出 / 设置 ──
+app.include_router(novels.router,                   prefix=_V1)
+app.include_router(chapters.router,                 prefix="/api/v1/novels")  # chapters 路由无自身 prefix，挂在 /novels 下
+app.include_router(export.router,                   prefix=_V1)
+app.include_router(llm_settings.router,             prefix=_V1)
+app.include_router(llm_settings.embedding_router,   prefix=_V1)
+app.include_router(scene_generation_routes.router,  prefix=_V1)  # /scenes
 
-# Engine module routes
-app.include_router(generation.router, prefix="/api/v1")
-app.include_router(context_intelligence.router, prefix="/api/v1")
-app.include_router(chronicles.router, prefix="/api/v1")
-app.include_router(snapshot_routes.router, prefix="/api/v1")
-app.include_router(autopilot_routes.router, prefix="/api/v1")
-app.include_router(workbench_context_routes.router, prefix="/api/v1")
-app.include_router(character_scheduler_routes.router, prefix="/api/v1")  # 角色调度服务
-app.include_router(checkpoint_routes.router, prefix="/api/v1")  # Checkpoint + QualityGuardrail + StoryPhase + CharacterSoul
+# ── World：世界观 / 人物谱 / 知识库 / 知识图谱 ──
+app.include_router(bible.router,                    prefix=_V1)  # /bible
+app.include_router(cast.router,                     prefix=_V1)  # 无 prefix，路由自身含 /novels/{id}/cast
+app.include_router(knowledge.router,                prefix=_V1)  # /novels/{id}/knowledge
+app.include_router(knowledge_graph_routes.router,   prefix=_V1)  # /knowledge-graph
+app.include_router(worldbuilding_routes.router,     prefix=_V1)  # /novels/{id}/worldbuilding
 
-# Engine trace (溯源) routes
+# ── Blueprint：规划 / 节拍表 / 故事结构 ──
+app.include_router(continuous_planning_routes.router, prefix=_V1)  # /planning
+app.include_router(beat_sheet_routes.router,          prefix=_V1)  # /beat-sheets
+app.include_router(story_structure.router,             prefix=_V1)  # 无 prefix，路由自身含 /novels/{id}/structure
+
+# ── Engine：生成 / 上下文 / 编年史 / 快照 / 自动驾驶 / 工作台 / 角色调度 / 检查点 ──
+app.include_router(generation.router,                     prefix=_V1)
+app.include_router(context_intelligence.router,           prefix=_V1)
+app.include_router(chronicles.router,                     prefix=_V1)
+app.include_router(snapshot_routes.router,                prefix=_V1)
+app.include_router(autopilot_routes.router,               prefix=_V1)  # /autopilot
+app.include_router(workbench_context_routes.router,       prefix=_V1)
+app.include_router(character_scheduler_routes.router,     prefix=_V1)  # /character-scheduler
+app.include_router(checkpoint_routes.router,              prefix=_V1)  # Checkpoint + QualityGuardrail + StoryPhase + CharacterPsyche
+
+# ── Engine：溯源 / DAG 工作流 ──
 from interfaces.api.v1.engine.trace_routes import router as trace_router
-app.include_router(trace_router, prefix="/api/v1")
+app.include_router(trace_router,                          prefix=_V1)
 
-# DAG workflow engine routes
 from interfaces.api.v1.engine.dag.dag_routes import router as dag_router
-app.include_router(dag_router, prefix="/api/v1")
+app.include_router(dag_router,                            prefix=_V1)  # /dag
 
-# Audit module routes
-app.include_router(chapter_review_routes.router)
-app.include_router(macro_refactor.router, prefix="/api/v1")
-app.include_router(chapter_element_routes.router)
+# ── Audit：审稿 / 宏观重构 / 章节元素 ──
+app.include_router(chapter_review_routes.router,          prefix=_V1)  # /chapter-reviews
+app.include_router(macro_refactor.router,                 prefix=_V1)
+app.include_router(chapter_element_routes.router,         prefix=_V1)  # /chapters (元素关联)
 
-# Analyst module routes
-app.include_router(voice.router, prefix="/api/v1")
-app.include_router(narrative_state.router, prefix="/api/v1")
-app.include_router(foreshadow_ledger.router, prefix="/api/v1")
+# ── Analyst：文风 / 叙事状态 / 伏笔 ──
+app.include_router(voice.router,                          prefix=_V1)
+app.include_router(narrative_state.router,                prefix=_V1)
+app.include_router(foreshadow_ledger.router,              prefix=_V1)
 
-# System module routes (internal tooling)
-app.include_router(system_routes.router, prefix="/api/v1")
+# ── System：内部工具（不暴露到 OpenAPI 文档）──
+app.include_router(system_routes.router,                  prefix=_V1)
 
-# Reader Simulation module routes
-app.include_router(reader_module.router, prefix="/api/v1")
+# ── Reader Simulation：读者模拟 ──
+app.include_router(reader_module.router,                  prefix=_V1)  # /reader
 
-# Workbench module routes
-app.include_router(writer_block.router, prefix="/api/v1")
-app.include_router(sandbox.router, prefix="/api/v1")
-app.include_router(monitor.router, prefix="/api/v1")
-app.include_router(llm_control.router, prefix="/api/v1")
+# ── Workbench：写作工具 ──
+app.include_router(writer_block.router,                   prefix=_V1)
+app.include_router(sandbox.router,                        prefix=_V1)
+app.include_router(monitor.router,                        prefix=_V1)
+app.include_router(llm_control.router,                    prefix=_V1)  # /llm-control
 
-# Anti-AI 防御系统路由
+# ── Anti-AI：防御系统 ──
 from interfaces.api.v1 import anti_ai as anti_ai_routes
-app.include_router(anti_ai_routes.router, prefix="/api/v1")
+app.include_router(anti_ai_routes.router,                 prefix=_V1)  # /anti-ai
 
-# 注册统计路由（使用 SQLite 适配器）
+# ── Stats：统计（独立前缀 /api/stats，不走 /api/v1）──
 stats_repository = SqliteStatsRepositoryAdapter(get_database())
 stats_service = StatsService(stats_repository)
 stats_router = create_stats_router(stats_service)
