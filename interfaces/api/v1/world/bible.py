@@ -410,32 +410,29 @@ async def _sse_bible_generator(
             yield _sse_fmt("phase", {"phase": "worldbuilding_done", "message": "世界观生成完成！"})
 
         if stage in ("all", "characters"):
-            # ── 人物生成 ──
+            # ── 人物生成（流式 LLM） ──
             yield _sse_fmt("phase", {"phase": "characters", "message": "AI 正在生成主要角色..."})
             await asyncio.sleep(0)
 
             existing_worldbuilding = bible_generator._load_worldbuilding(novel_id)
-            chars_data = await bible_generator._generate_characters(
+            chars_payload = []
+            character_ids = []
+            used_char_ids = set()
+
+            async for item in bible_generator._stream_generate_characters(
                 premise, novel.target_chapters, existing_worldbuilding
-            )
-            chars_payload = chars_data.get("characters") or []
-
-            # 逐个人物推送（每个角色间加入延迟，前端可逐个渲染）
-            for idx, char in enumerate(chars_payload):
-                yield _sse_fmt("phase", {"phase": f"character_{idx}", "message": f"正在生成角色：{char.get('name', '...')}..."})
-                await asyncio.sleep(0.2)
-                yield _sse_fmt("data", {
-                    "type": "character",
-                    "index": idx,
-                    "content": char,
-                })
-                await asyncio.sleep(0.4)
-
-            # 保存人物
-            if chars_payload:
-                character_ids = []
-                used_char_ids = set()
-                for idx, char_data in enumerate(chars_payload):
+            ):
+                if item["type"] == "character":
+                    char_data = item["content"]
+                    chars_payload.append(char_data)
+                    idx = item["index"]
+                    yield _sse_fmt("phase", {"phase": f"character_{idx}", "message": f"正在生成角色：{char_data.get('name', '...')}..."})
+                    yield _sse_fmt("data", {
+                        "type": "character",
+                        "index": idx,
+                        "content": char_data,
+                    })
+                    # 即时落库
                     character_id = f"{novel_id}-char-{idx+1}"
                     if character_id in used_char_ids:
                         character_id = f"{novel_id}-char-{idx+1}-{len(used_char_ids)}"
@@ -451,57 +448,67 @@ async def _sse_bible_generator(
                         character_ids.append((character_id, char_data))
                     except Exception:
                         pass
+                elif item["type"] == "chunk":
+                    # 透传 LLM 原始 chunk（前端可用于打字效果）
+                    yield _sse_fmt("data", {
+                        "type": "character_chunk",
+                        "chunk": item["text"],
+                    })
 
-                # 生成人物关系三元组
-                if bible_generator.triple_repository and character_ids:
-                    await bible_generator._generate_character_triples(novel_id, character_ids)
+            # 生成人物关系三元组
+            if bible_generator.triple_repository and character_ids:
+                await bible_generator._generate_character_triples(novel_id, character_ids)
 
             yield _sse_fmt("phase", {"phase": "characters_done", "message": f"人物生成完成！共 {len(chars_payload)} 个角色"})
 
         if stage in ("all", "locations"):
-            # ── 地点生成 ──
+            # ── 地点生成（流式 LLM） ──
             yield _sse_fmt("phase", {"phase": "locations", "message": "AI 正在生成地图系统..."})
             await asyncio.sleep(0)
 
             existing_worldbuilding = bible_generator._load_worldbuilding(novel_id)
             existing_characters = bible_generator._load_characters(novel_id)
-            locs_data = await bible_generator._generate_locations(
+            locs_payload = []
+            location_ids = []
+
+            async for item in bible_generator._stream_generate_locations(
                 premise, novel.target_chapters, existing_worldbuilding, existing_characters
-            )
-            locs_payload = locs_data.get("locations") or []
+            ):
+                if item["type"] == "location":
+                    loc_data = item["content"]
+                    locs_payload.append(loc_data)
+                    idx = item["index"]
+                    yield _sse_fmt("phase", {"phase": f"location_{idx}", "message": f"正在生成地点：{loc_data.get('name', '...')}..."})
+                    yield _sse_fmt("data", {
+                        "type": "location",
+                        "index": idx,
+                        "content": loc_data,
+                    })
+                    # 即时落库
+                    prepared = bible_generator._prepare_locations_for_save(novel_id, [loc_data])
+                    for pd in prepared:
+                        try:
+                            bible_generator.bible_service.add_location(
+                                novel_id=novel_id,
+                                location_id=pd["location_id"],
+                                name=pd["name"],
+                                description=pd["description"],
+                                location_type=pd["location_type"],
+                                connections=pd.get("connections", []),
+                                parent_id=pd.get("parent_id"),
+                            )
+                            location_ids.append((pd["location_id"], pd))
+                        except Exception:
+                            pass
+                elif item["type"] == "chunk":
+                    yield _sse_fmt("data", {
+                        "type": "location_chunk",
+                        "chunk": item["text"],
+                    })
 
-            # 逐个地点推送（每个地点间加入延迟，前端可逐个渲染）
-            for idx, loc in enumerate(locs_payload):
-                yield _sse_fmt("phase", {"phase": f"location_{idx}", "message": f"正在生成地点：{loc.get('name', '...')}..."})
-                await asyncio.sleep(0.2)
-                yield _sse_fmt("data", {
-                    "type": "location",
-                    "index": idx,
-                    "content": loc,
-                })
-                await asyncio.sleep(0.4)
-
-            # 保存地点
-            if locs_payload:
-                location_ids = []
-                prepared_locs = bible_generator._prepare_locations_for_save(novel_id, locs_payload)
-                for loc_data in prepared_locs:
-                    try:
-                        bible_generator.bible_service.add_location(
-                            novel_id=novel_id,
-                            location_id=loc_data["location_id"],
-                            name=loc_data["name"],
-                            description=loc_data["description"],
-                            location_type=loc_data["location_type"],
-                            connections=loc_data.get("connections", []),
-                            parent_id=loc_data.get("parent_id"),
-                        )
-                        location_ids.append((loc_data["location_id"], loc_data))
-                    except Exception:
-                        pass
-
-                if bible_generator.triple_repository and location_ids:
-                    await bible_generator._generate_location_triples(novel_id, location_ids)
+            # 生成地点关系三元组
+            if bible_generator.triple_repository and location_ids:
+                await bible_generator._generate_location_triples(novel_id, location_ids)
 
             yield _sse_fmt("phase", {"phase": "locations_done", "message": f"地图生成完成！共 {len(locs_payload)} 个地点"})
 

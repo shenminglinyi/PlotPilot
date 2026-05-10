@@ -246,7 +246,90 @@ def _apply_chapter_summaries_enhancements(conn: sqlite3.Connection) -> None:
 
 
 def _apply_migration_files(conn: sqlite3.Connection) -> None:
-    """应用 migrations 目录下全部 .sql（幂等执行，顺序按文件名稳定排序）。"""
+    """应用 migrations 目录下全部 .sql（幂等执行，顺序按文件名稳定排序）。
+
+    优化：使用 migrations_applied 表跟踪已应用的迁移，避免重复执行。
+    """
+    # 尝试创建迁移跟踪表（如果不存在），带重试和错误处理
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS migrations_applied (
+                    migration_file TEXT PRIMARY KEY,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+            break
+        except sqlite3.OperationalError as e:
+            if "database is locked" in str(e) and attempt < max_retries - 1:
+                logger.warning(f"Database locked, retrying... (attempt {attempt + 1}/{max_retries})")
+                import time
+                time.sleep(0.5 * (attempt + 1))  # 递增等待时间
+                continue
+            elif "already exists" in str(e):
+                break  # 表已存在，继续
+            else:
+                # 如果无法创建跟踪表，回退到旧逻辑
+                logger.warning(f"Cannot create migrations_applied table: {e}, using legacy mode")
+                _apply_migration_files_legacy(conn)
+                return
+
+    # 获取已应用的迁移列表
+    applied = set()
+    try:
+        cursor = conn.execute("SELECT migration_file FROM migrations_applied")
+        applied = {row[0] for row in cursor.fetchall()}
+    except Exception:
+        pass  # 表不存在，继续执行
+
+    migrations_dir = _database_asset_dir() / "migrations"
+    if not migrations_dir.is_dir():
+        logger.warning("未找到迁移目录（将仅依赖 schema.sql 与代码内补丁）: %s", migrations_dir)
+        return
+
+    new_migrations = 0
+    for migration_path in sorted(migrations_dir.glob("*.sql")):
+        migration_file = migration_path.name
+
+        # 跳过已应用的迁移
+        if migration_file in applied:
+            continue
+
+        try:
+            migration_sql = migration_path.read_text(encoding="utf-8")
+            conn.executescript(migration_sql)
+            conn.execute(
+                "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
+                (migration_file,)
+            )
+            conn.commit()
+            logger.info("Applied migration: %s", migration_file)
+            new_migrations += 1
+        except sqlite3.OperationalError as e:
+            if "already exists" in str(e) or "duplicate column" in str(e):
+                # 即使失败也记录为已应用，避免下次重试
+                try:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
+                        (migration_file,)
+                    )
+                    conn.commit()
+                except:
+                    pass
+                logger.debug("Migration %s already applied: %s", migration_file, e)
+            else:
+                logger.warning("Migration %s failed: %s", migration_file, e)
+        except Exception as e:
+            logger.warning("Failed to apply migration %s: %s", migration_file, e)
+
+    if new_migrations == 0 and applied:
+        logger.debug("All %d migrations already applied, skipped", len(applied))
+
+
+def _apply_migration_files_legacy(conn: sqlite3.Connection) -> None:
+    """旧版迁移逻辑（无跟踪表，每次都尝试执行所有迁移）。"""
     migrations_dir = _database_asset_dir() / "migrations"
     if not migrations_dir.is_dir():
         logger.warning("未找到迁移目录（将仅依赖 schema.sql 与代码内补丁）: %s", migrations_dir)

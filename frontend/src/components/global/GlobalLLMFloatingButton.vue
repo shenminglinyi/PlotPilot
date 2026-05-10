@@ -113,8 +113,9 @@
           </div>
         </div>
       </template>
-      <div class="modal-body fab-llm-modal-body">
+      <div v-show="showPanel" class="modal-body fab-llm-modal-body">
         <LLMControlPanel
+          v-if="panelInitialized"
           scroll-state-key="global-fab-modal"
           @panel-updated="handlePanelUpdated"
         />
@@ -161,6 +162,7 @@ const BOTTOM_SAFE_GAP = 24
 const CLICK_THRESHOLD = 6
 
 const showPanel = ref(false)
+const panelInitialized = ref(false) // 缓存面板是否已初始化
 const dragging = ref(false)
 const hovering = ref(false)
 const runtimeLoading = ref(false)
@@ -310,6 +312,7 @@ function restoreState() {
 
 function openPanel() {
   void refreshRuntimeSummary()
+  panelInitialized.value = true // 首次打开时初始化，之后保持
   showPanel.value = true
 }
 
@@ -332,6 +335,7 @@ function handlePanelUpdated(data: LLMControlPanelData) {
 function handleModalShowChange(value: boolean) {
   showPanel.value = value
   if (value) {
+    panelInitialized.value = true // 确保面板已初始化
     void refreshRuntimeSummary()
   }
 }

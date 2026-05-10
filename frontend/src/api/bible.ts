@@ -234,7 +234,11 @@ export async function consumeBibleGenerateStream(
     /** 维度级 chunk 回调：LLM 逐 token 输出维度 JSON 时触发 */
     onWorldbuildingDimChunk?: (dimension: string, chunk: string) => void
     onCharacter?: (char: Record<string, unknown>, index: number) => void
+    /** 人物生成时 LLM 逐 token chunk（打字效果/进度） */
+    onCharacterChunk?: (chunk: string) => void
     onLocation?: (loc: Record<string, unknown>, index: number) => void
+    /** 地点生成时 LLM 逐 token chunk（打字效果/进度） */
+    onLocationChunk?: (chunk: string) => void
     onDone?: (novelId: string) => void
     onError?: (message: string) => void
     signal?: AbortSignal
@@ -335,8 +339,12 @@ export async function consumeBibleGenerateStream(
             })
           } else if (dataType === 'character') {
             handlers.onCharacter?.((payload?.content ?? {}) as Record<string, unknown>, Number(payload?.index ?? 0))
+          } else if (dataType === 'character_chunk') {
+            handlers.onCharacterChunk?.(String(payload?.chunk ?? ''))
           } else if (dataType === 'location') {
             handlers.onLocation?.((payload?.content ?? {}) as Record<string, unknown>, Number(payload?.index ?? 0))
+          } else if (dataType === 'location_chunk') {
+            handlers.onLocationChunk?.(String(payload?.chunk ?? ''))
           }
         } else if (event === 'done') {
           handlers.onDone?.(String(payload?.novel_id ?? novelId))

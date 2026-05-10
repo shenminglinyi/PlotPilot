@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS character_voice_samples (
     embedding TEXT,                          -- 向量嵌入（JSON数组）
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (character_id) REFERENCES characters(id),
-    UNIQUE(character_id, chapter_number, content(200))
+    UNIQUE(character_id, chapter_number)
 );
 
 CREATE INDEX IF NOT EXISTS idx_voice_samples_character
