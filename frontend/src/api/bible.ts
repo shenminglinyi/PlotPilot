@@ -219,6 +219,8 @@ export async function consumeBibleGenerateStream(
     onPhase?: (phase: string, message: string) => void
     onStyle?: (content: string) => void
     onWorldbuildingDimension?: (data: WorldbuildingDimensionData) => void
+    /** 字段级流式回调：每个世界观字段到达时触发 */
+    onWorldbuildingField?: (dimension: string, field: string, value: string) => void
     onCharacter?: (char: Record<string, unknown>, index: number) => void
     onLocation?: (loc: Record<string, unknown>, index: number) => void
     onDone?: (novelId: string) => void
@@ -286,6 +288,13 @@ export async function consumeBibleGenerateStream(
           const dataType = String(payload?.type ?? '')
           if (dataType === 'style') {
             handlers.onStyle?.(String(payload?.content ?? ''))
+          } else if (dataType === 'worldbuilding_field') {
+            // 字段级流式推送：每个字段单独到达
+            handlers.onWorldbuildingField?.(
+              String(payload?.dimension ?? ''),
+              String(payload?.field ?? ''),
+              String(payload?.value ?? ''),
+            )
           } else if (dataType === 'worldbuilding_dimension') {
             handlers.onWorldbuildingDimension?.({
               dimension: String(payload?.dimension ?? ''),

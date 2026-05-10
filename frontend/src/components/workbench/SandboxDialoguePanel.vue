@@ -167,7 +167,7 @@
     <!-- 角色灵魂档案 -->
     <n-collapse class="soul-collapse">
       <n-collapse-item title="🔮 角色灵魂档案" name="soul">
-        <CharacterSoulPanel :slug="slug" />
+        <CharacterPsychePanel :slug="slug" />
       </n-collapse-item>
     </n-collapse>
   </div>
@@ -182,7 +182,7 @@ import { sandboxApi } from '../../api/sandbox'
 import type { DialogueWhitelistResponse, DialogueEntry, CharacterAnchor } from '../../api/sandbox'
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO } from '../../api/bible'
-import CharacterSoulPanel from './CharacterSoulPanel.vue'
+import CharacterPsychePanel from './CharacterPsychePanel.vue'
 
 const props = defineProps<{ slug: string }>()
 const message = useMessage()

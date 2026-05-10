@@ -1,5 +1,5 @@
 /**
- * 引擎内核 API — Checkpoint / QualityGuardrail / StoryPhase / CharacterSoul
+ * 引擎内核 API — Checkpoint / QualityGuardrail / StoryPhase / CharacterPsyche
  *
  * 与后端 interfaces/api/v1/engine/checkpoint_routes.py 一一对应。
  */
@@ -169,9 +169,9 @@ export const storyPhaseApi = {
     ) as unknown as Promise<StoryPhaseDTO>,
 }
 
-// ─── CharacterSoul ─────────────────────────────────────────────
+// ─── CharacterPsyche（原 CharacterSoul）───────────────────────
 
-export interface CharacterSoulDTO {
+export interface CharacterPsycheDTO {
   name: string
   role: string
   core_belief: string
@@ -181,7 +181,7 @@ export interface CharacterSoulDTO {
   trauma_count: number
 }
 
-export interface CharacterSoulDetailDTO extends CharacterSoulDTO {
+export interface CharacterPsycheDetailDTO extends CharacterPsycheDTO {
   emotion_ledger: Record<string, unknown>
   mask_summary: string
 }
@@ -196,26 +196,34 @@ export interface ValidateBehaviorResponse {
   suggestions: string[]
 }
 
-export const characterSoulApi = {
-  /** GET /novels/{novel_id}/character-souls */
+export const characterPsycheApi = {
+  /** GET /novels/{novel_id}/character-psyches */
   list: (novelId: string) =>
-    apiClient.get<{ characters: CharacterSoulDTO[] }>(
-      `/novels/${novelId}/character-souls`,
-    ) as unknown as Promise<{ characters: CharacterSoulDTO[] }>,
+    apiClient.get<{ characters: CharacterPsycheDTO[] }>(
+      `/novels/${novelId}/character-psyches`,
+    ) as unknown as Promise<{ characters: CharacterPsycheDTO[] }>,
 
-  /** GET /novels/{novel_id}/character-souls/{name} */
+  /** GET /novels/{novel_id}/character-psyches/{name} */
   get: (novelId: string, name: string) =>
-    apiClient.get<CharacterSoulDetailDTO>(
-      `/novels/${novelId}/character-souls/${encodeURIComponent(name)}`,
-    ) as unknown as Promise<CharacterSoulDetailDTO>,
+    apiClient.get<CharacterPsycheDetailDTO>(
+      `/novels/${novelId}/character-psyches/${encodeURIComponent(name)}`,
+    ) as unknown as Promise<CharacterPsycheDetailDTO>,
 
-  /** POST /novels/{novel_id}/character-souls/{name}/validate */
+  /** POST /novels/{novel_id}/character-psyches/{name}/validate */
   validate: (novelId: string, name: string, body: ValidateBehaviorRequest) =>
     apiClient.post<ValidateBehaviorResponse>(
-      `/novels/${novelId}/character-souls/${encodeURIComponent(name)}/validate`,
+      `/novels/${novelId}/character-psyches/${encodeURIComponent(name)}/validate`,
       body,
     ) as unknown as Promise<ValidateBehaviorResponse>,
 }
+
+// ─── 向后兼容别名（v3.x 保留，v4.0 移除）──────────────────────
+/** @deprecated Use CharacterPsycheDTO instead */
+export type CharacterSoulDTO = CharacterPsycheDTO
+/** @deprecated Use CharacterPsycheDetailDTO instead */
+export type CharacterSoulDetailDTO = CharacterPsycheDetailDTO
+/** @deprecated Use characterPsycheApi instead */
+export const characterSoulApi = characterPsycheApi
 
 // ─── Trace (溯源) ──────────────────────────────────────────────────
 
