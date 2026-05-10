@@ -153,7 +153,7 @@ async function loadCharacterNames() {
   if (!props.slug) return
 
   try {
-    const bible = await bibleApi.get(props.slug)
+    const bible = await bibleApi.getBible(props.slug)
     characterNames.value = new Set(bible.characters?.map(c => c.name) || [])
   } catch {
     characterNames.value = new Set()

@@ -101,7 +101,7 @@ async function loadCharacters() {
 
   loading.value = true
   try {
-    const bible = await bibleApi.get(props.slug)
+    const bible = await bibleApi.getBible(props.slug)
     characters.value = bible.characters || []
   } catch (err: any) {
     message.error(err.message || '加载角色失败')

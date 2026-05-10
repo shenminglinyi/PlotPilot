@@ -262,7 +262,7 @@ const validateResult = ref<ValidateBehaviorResponse | null>(null)
 
 async function getCharacterName(id: string): Promise<string> {
   try {
-    const bible = await bibleApi.get(props.slug)
+    const bible = await bibleApi.getBible(props.slug)
     const char = bible.characters?.find(c => c.id === id)
     return char?.name || ''
   } catch {
@@ -297,7 +297,7 @@ async function loadCharacterData() {
     if (anchorRes) {
       editMental.value = anchorRes.mental_state || ''
       editVerbal.value = anchorRes.verbal_tic || ''
-      editIdle.value = anchorRes.idle_motion || ''
+      editIdle.value = anchorRes.idle_behavior || ''
     }
   } catch (err: any) {
     message.error(err.message || '加载角色数据失败')
@@ -313,7 +313,7 @@ function startEditAnchor() {
   if (anchor.value) {
     editMental.value = anchor.value.mental_state || ''
     editVerbal.value = anchor.value.verbal_tic || ''
-    editIdle.value = anchor.value.idle_motion || ''
+    editIdle.value = anchor.value.idle_behavior || ''
   }
 }
 
@@ -322,7 +322,7 @@ function cancelEditAnchor() {
   if (anchor.value) {
     editMental.value = anchor.value.mental_state || ''
     editVerbal.value = anchor.value.verbal_tic || ''
-    editIdle.value = anchor.value.idle_motion || ''
+    editIdle.value = anchor.value.idle_behavior || ''
   }
   scenePrompt.value = ''
   generatedLine.value = ''
@@ -333,10 +333,10 @@ async function saveAnchor() {
 
   savingAnchor.value = true
   try {
-    await sandboxApi.saveCharacterAnchor(props.slug, props.selectedCharacterId, {
+    await sandboxApi.patchCharacterAnchor(props.slug, props.selectedCharacterId, {
       mental_state: editMental.value,
       verbal_tic: editVerbal.value,
-      idle_motion: editIdle.value,
+      idle_behavior: editIdle.value,
     })
     message.success('锚点已保存')
     editingAnchor.value = false
@@ -355,8 +355,15 @@ async function generateDialogue() {
 
   generating.value = true
   try {
-    const res = await sandboxApi.generateDialogue(props.slug, props.selectedCharacterId, scenePrompt.value)
-    generatedLine.value = res.line || ''
+    const res = await sandboxApi.generateDialogue({
+      novel_id: props.slug,
+      character_id: props.selectedCharacterId,
+      scene_prompt: scenePrompt.value,
+      mental_state: editMental.value,
+      verbal_tic: editVerbal.value,
+      idle_behavior: editIdle.value,
+    })
+    generatedLine.value = res.dialogue || ''
   } catch (err: any) {
     message.error(err.message || '生成对话失败')
     generatedLine.value = ''
