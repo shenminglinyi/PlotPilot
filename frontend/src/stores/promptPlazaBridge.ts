@@ -2,14 +2,16 @@
  * PromptPlazaBridge — DAG ↔ 提示词广场联动桥
  *
  * 职责：
- * 1. DAG 节点类型 → CPMS node_key 映射
+ * 1. DAG 节点类型 → CPMS node_key 映射（动态从注册表获取）
  * 2. 提供 openPromptInPlaza() 方法，供 DAG 节点调用
  * 3. 通过事件通知 PromptPlazaFAB 打开并选中指定提示词
+ * 4. 提示词保存后回调通知 DAG 刷新
  */
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useDAGStore } from '@/stores/dagStore'
 
-// ─── DAG 节点类型 → CPMS 提示词节点 key 映射 ───
+// ─── DAG 节点类型 → CPMS 提示词节点 key 静态映射（兜底用）───
 // 与后端各 Node 实现中 _WORKFLOW_*_NODE_KEY 及 CPMS 注册一致
 export const DAG_TYPE_TO_CPMS_KEY: Record<string, string> = {
   // Context 注入
@@ -53,10 +55,20 @@ export const usePromptPlazaBridge = defineStore('promptPlazaBridge', () => {
   // 是否需要打开广场（由 DAG 节点设置）
   const shouldOpenPlaza = ref(false)
 
+  // ★ 提示词保存后回调（DAG 视图注册，用于刷新节点提示词）
+  const onPlazaSaved = ref<((nodeKey: string) => void) | null>(null)
+
   /**
-   * 从 DAG 节点类型获取 CPMS node_key
+   * 动态映射：优先从注册表 meta.cpms_node_key 获取，兜底用静态映射
    */
   function getCpmsKey(dagNodeType: string): string | null {
+    const dagStore = useDAGStore()
+    const meta = dagStore.nodeTypeRegistry[dagNodeType]
+    // ★ 优先从注册表元数据动态获取
+    if (meta?.cpms_node_key) {
+      return meta.cpms_node_key
+    }
+    // 兜底静态映射
     return DAG_TYPE_TO_CPMS_KEY[dagNodeType] || null
   }
 
@@ -86,11 +98,29 @@ export const usePromptPlazaBridge = defineStore('promptPlazaBridge', () => {
     return key
   }
 
+  /**
+   * ★ 注册提示词保存回调（由 DAG 视图调用）
+   */
+  function setOnPlazaSaved(callback: (nodeKey: string) => void) {
+    onPlazaSaved.value = callback
+  }
+
+  /**
+   * ★ 提示词广场保存后通知 DAG（由 PromptDetailPanel 调用）
+   */
+  function notifyPromptSaved(nodeKey: string) {
+    if (onPlazaSaved.value) {
+      onPlazaSaved.value(nodeKey)
+    }
+  }
+
   return {
     pendingNodeKey,
     shouldOpenPlaza,
     getCpmsKey,
     openPromptInPlaza,
     consumeOpenRequest,
+    setOnPlazaSaved,
+    notifyPromptSaved,
   }
 })
