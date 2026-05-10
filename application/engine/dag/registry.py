@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Set, Type
 
 from application.engine.dag.models import (
+    CPMSInjectionPoint,
     NodeCategory,
     NodeConfig,
     NodeMeta,
@@ -16,6 +17,7 @@ from application.engine.dag.models import (
     NodeResult,
     NodeStatus,
     PortDataType,
+    PromptMode,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,7 @@ class BaseNode(ABC):
 
     def __init__(self, config: Optional[NodeConfig] = None):
         self._config = config or NodeConfig()
+        self._cpms_cache: Dict[str, str] = {}  # node_key -> rendered text cache
 
     @abstractmethod
     async def execute(self, inputs: Dict[str, Any], context: Dict[str, Any]) -> NodeResult:
@@ -63,14 +66,20 @@ class BaseNode(ABC):
     def get_effective_prompt(self) -> Dict[str, str]:
         """获取生效的提示词（三级降级：CPMS → Config → Meta）
 
+        根据 prompt_mode 决定是否查 CPMS：
+        - CPMS_FIRST / CPMS_ONLY: 先查 CPMS
+        - TEMPLATE_ONLY: 跳过 CPMS，直接走 Config → Meta
+        - INJECT: 查 CPMS 获取片段文本
+
         Returns:
             {"system": str, "user_template": str, "source": str}
             source: "cpms" | "config" | "meta" | "none"
         """
+        mode = self.meta.prompt_mode if self.meta else PromptMode.CPMS_FIRST
         cpms_key = self.meta.cpms_node_key if self.meta else ""
 
-        # 1. CPMS 优先
-        if cpms_key:
+        # 1. CPMS 优先（CPMS_FIRST / CPMS_ONLY / INJECT 模式）
+        if mode in (PromptMode.CPMS_FIRST, PromptMode.CPMS_ONLY, PromptMode.INJECT) and cpms_key:
             try:
                 from infrastructure.ai.prompt_registry import get_prompt_registry
                 registry = get_prompt_registry()
@@ -83,6 +92,9 @@ class BaseNode(ABC):
                         "source": "cpms",
                     }
             except Exception:
+                if mode == PromptMode.CPMS_ONLY:
+                    logger.warning("CPMS_ONLY 模式但注册表不可用: %s", cpms_key)
+                    return {"system": "", "user_template": "", "source": "none"}
                 pass
 
         # 2. Config 覆盖
@@ -102,6 +114,69 @@ class BaseNode(ABC):
             }
 
         return {"system": "", "user_template": "", "source": "none"}
+
+    def resolve_prompt(self, variables: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        """解析并渲染提示词（CPMS 统一入口，子类应优先使用此方法）
+
+        流程：
+        1. 获取 effective_prompt（三级降级）
+        2. 如果有 CPMS 子注入点，自动拉取并注入到变量槽
+        3. 渲染模板变量
+
+        Args:
+            variables: 模板变量字典
+
+        Returns:
+            {"system": str, "user": str, "source": str}
+        """
+        prompt_dict = self.get_effective_prompt()
+        var_map = dict(variables or {})
+
+        # 自动注入 CPMS 子提示词到变量槽
+        if self.meta and self.meta.cpms_sub_keys:
+            for injection in self.meta.cpms_sub_keys:
+                if injection.target_variable in var_map and var_map[injection.target_variable]:
+                    continue  # 变量已有值，不覆盖
+                injected_text = self._fetch_cpms_injection(injection)
+                if injected_text:
+                    var_map[injection.target_variable] = injected_text
+
+        # 渲染 system prompt
+        system = prompt_dict["system"]
+        if system and var_map:
+            for key, value in var_map.items():
+                system = system.replace(f"{{{{{key}}}}}", str(value))
+
+        # 渲染 user_template
+        user_template = prompt_dict.get("user_template", "")
+        user = user_template
+        if user and var_map:
+            for key, value in var_map.items():
+                user = user.replace(f"{{{{{key}}}}}", str(value))
+
+        return {
+            "system": system,
+            "user": user,
+            "source": prompt_dict["source"],
+        }
+
+    def _fetch_cpms_injection(self, injection: CPMSInjectionPoint) -> str:
+        """从 CPMS 拉取子提示词片段并缓存"""
+        cache_key = injection.cpms_node_key
+        if cache_key in self._cpms_cache:
+            return self._cpms_cache[cache_key]
+
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            system = registry.get_system(cache_key)
+            user_template = registry.get_user_template(cache_key)
+            text = system or user_template or ""
+            self._cpms_cache[cache_key] = text
+            return text
+        except Exception:
+            logger.debug("CPMS 子注入拉取失败: %s", cache_key)
+            return ""
 
     def get_prompt_template(self) -> str:
         """获取生效的 Prompt 模板（向后兼容，内部走 get_effective_prompt）"""

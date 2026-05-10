@@ -22,6 +22,10 @@ class NodeCategory(str, Enum):
     EXECUTION = "execution"    # ⚙️ 执行与生成
     VALIDATION = "validation"  # 🔍 校验与监控
     GATEWAY = "gateway"        # 🚦 网关与熔断
+    WORLD = "world"            # 🏰 世界设定
+    REVIEW = "review"          # 🔬 审稿质检
+    ANTI_AI = "anti-ai"        # 🛡️ Anti-AI 防御
+    PLANNING = "planning"      # 📐 规划设计
 
 
 class NodeStatus(str, Enum):
@@ -58,6 +62,7 @@ class PortDataType(str, Enum):
     BOOLEAN = "boolean"
     LIST = "list"
     PROMPT = "prompt"
+    OBJECT = "object"
 
 
 # ─── 端口 ───
@@ -75,12 +80,40 @@ class NodePort(BaseModel):
 # ─── 节点元数据（注册表用，类级别常量）───
 
 
+class PromptMode(str, Enum):
+    """提示词使用模式
+
+    - CPMS_ONLY: 完全依赖提示词广场，无硬编码回退
+    - CPMS_FIRST: 优先从提示词广场拉取，降级到节点内模板
+    - TEMPLATE_ONLY: 仅使用节点内硬编码模板（不查广场）
+    - INJECT: 从广场拉取片段注入到父节点的变量槽（子提示词）
+    """
+    CPMS_ONLY = "cpms_only"
+    CPMS_FIRST = "cpms_first"
+    TEMPLATE_ONLY = "template_only"
+    INJECT = "inject"
+
+
+class CPMSInjectionPoint(BaseModel):
+    """CPMS 子提示词注入点定义 — 将广场提示词注入到父节点的指定变量槽"""
+    cpms_node_key: str              # 广场提示词 node_key
+    target_variable: str            # 注入到哪个模板变量
+    description: str = ""           # 注入说明
+    required: bool = False          # 是否必须
+
+
 class NodeMeta(BaseModel):
     """节点元数据 — 注册表中的类型描述
 
-    cpms_node_key: 关联 CPMS 提示词注册表的 node_key，用于 DAG ↔ 广场双向联动
-    description: 节点功能描述（前端详情面板展示）
-    default_edges: 默认下游节点类型列表（DAGSyncService 自动连线用）
+    CPMS 联动设计（三级）：
+    1. cpms_node_key: 主提示词关联（核心生成/提取/审稿节点）
+    2. cpms_sub_keys: 子提示词注入列表（Anti-AI 层、行为协议等注入到生成节点变量槽）
+    3. prompt_mode: 提示词使用模式（CPMS_FIRST / CPMS_ONLY / TEMPLATE_ONLY / INJECT）
+
+    数据流转：
+    - CPMS_FIRST 节点：execute() 内调用 self.resolve_prompt() → 自动走 CPMS → Config → Meta 三级降级
+    - INJECT 节点：execute() 返回子提示词文本，由 DAG runtime 注入到下游节点变量
+    - 广场编辑提示词 → 缓存失效 → 下次 DAG 运行自动拉取最新版
     """
     node_type: str
     display_name: str
@@ -95,8 +128,12 @@ class NodeMeta(BaseModel):
     can_disable: bool = True
     default_timeout_seconds: int = 60
     default_max_retries: int = 1
-    # ★ CPMS 关联字段
+    # ★ CPMS 主关联字段
     cpms_node_key: str = ""           # 对应提示词广场的 node_key
+    # ★ CPMS 子提示词注入（Anti-AI 层、行为协议等注入到生成节点变量槽）
+    cpms_sub_keys: List[CPMSInjectionPoint] = Field(default_factory=list)
+    # ★ 提示词使用模式
+    prompt_mode: PromptMode = PromptMode.CPMS_FIRST
     description: str = ""             # 节点功能描述（展示用）
     default_edges: List[str] = Field(default_factory=list)  # 默认下游节点类型
 
