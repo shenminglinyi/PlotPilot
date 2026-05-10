@@ -22,7 +22,7 @@ from engine.core.services.memory_orchestrator import (
 from engine.core.entities.story import StoryId
 from engine.core.value_objects.emotion_ledger import EmotionLedger
 from engine.infrastructure.memory.echo_recall import EchoRecall
-from engine.infrastructure.memory.character_soul import CharacterSoulEngine
+from engine.infrastructure.memory.character_psyche import CharacterPsycheEngine
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +36,11 @@ class MemoryOrchestratorImpl(MemoryOrchestrator):
     def __init__(
         self,
         db_pool=None,
-        character_soul: Optional[CharacterSoulEngine] = None,
+        character_psyche: Optional[CharacterPsycheEngine] = None,
         echo_recall: Optional[EchoRecall] = None,
     ):
         self._db_pool = db_pool
-        self._character_soul = character_soul or CharacterSoulEngine(db_pool)
+        self._character_psyche = character_psyche or CharacterPsycheEngine(db_pool)
         self._echo_recall = echo_recall or EchoRecall(db_pool)
 
     async def assemble_context(
@@ -90,7 +90,7 @@ class MemoryOrchestratorImpl(MemoryOrchestrator):
                     ).fetchall()
 
                     for row in rows:
-                        fact_lock = await self._character_soul.generate_t0_fact_lock(
+                        fact_lock = await self._character_psyche.generate_t0_fact_lock(
                             row["character_id"], chapter_number
                         )
                         if fact_lock:
