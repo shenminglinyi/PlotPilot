@@ -16,6 +16,7 @@ router = APIRouter(prefix="/novels", tags=["snapshots"])
 class SnapshotRollbackResponse(BaseModel):
     deleted_chapter_ids: List[str] = Field(default_factory=list)
     deleted_count: int = 0
+    has_engine_state: bool = False
 
 
 @router.post(
@@ -40,4 +41,5 @@ async def rollback_to_snapshot(
     return SnapshotRollbackResponse(
         deleted_chapter_ids=result["deleted_chapter_ids"],
         deleted_count=result["deleted_count"],
+        has_engine_state=result.get("has_engine_state", False),
     )
