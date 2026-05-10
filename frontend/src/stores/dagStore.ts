@@ -1,51 +1,46 @@
 /**
- * DAG 画布核心状态管理
+ * DAG 画布核心状态管理 — 纯展示层
+ *
+ * 设计原则：
+ * - DAG 不需要判断能否执行 — 执行权在全托管，DAG 只是展示状态流转
+ * - 节点注册是代码行为 — 写一个节点就注册一个，不存在"同步"一说
+ * - 保存/校验/广场按钮都是多余的 — DAG 是纯展示层
+ * - 暂时不走数据库 — DAG 定义从注册表生成
  */
 import { defineStore } from 'pinia'
-import { useDebounceFn } from '@vueuse/core'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import type {
   DAGDefinition,
-  DAGVersionSummary,
   NodeDefinition,
   NodeEvent,
   NodeMeta,
+  NodePromptLive,
   NodeRunState,
   NodeStatus,
 } from '@/types/dag'
 import { dagApi } from '@/api/dag'
 
 export const useDAGStore = defineStore('dag', () => {
-  // ─── DAG 定义 ───
+  // ─── DAG 定义（只读展示） ───
   const dagDefinition = ref<DAGDefinition | null>(null)
-  const dagVersions = ref<DAGVersionSummary[]>([])
   const nodeTypeRegistry = ref<Record<string, NodeMeta>>({})
 
-  // ─── 节点运行时状态 ───
+  // ─── 节点运行时状态（SSE 推送） ───
   const nodeStates = ref<Map<string, NodeRunState>>(new Map())
 
   // ─── 边动画状态 ───
   const edgeFlows = ref<Map<string, { port: string; timestamp: number }>>(new Map())
 
+  // ─── 节点提示词缓存 ───
+  const nodePromptLive = ref<Map<string, NodePromptLive>>(new Map())
+
   // ─── 交互状态 ───
   const selectedNodeId = ref<string | null>(null)
-  const editingNodeId = ref<string | null>(null)
-  const viewMode = ref<'card' | 'dag'>('card')
   const isLoading = ref(false)
   const error = ref<string | null>(null)
 
-  // ─── 校验状态和未保存追踪 ───
-  const validationStatus = ref<{
-    isValid: boolean
-    message: string
-    errors?: string[]
-  }>({
-    isValid: true,
-    message: '',
-    errors: [],
-  })
-
-  const hasUnsavedChanges = ref(false)
+  // ─── 视图切换（AutopilotDashboard 使用） ───
+  const viewMode = ref<'card' | 'dag'>('card')
 
   // ─── 计算属性：Vue Flow 节点数据 ───
   const vueFlowNodes = computed(() => {
@@ -58,7 +53,6 @@ export const useDAGStore = defineStore('dag', () => {
       data: {
         ...nodeDef,
         runState: nodeStates.value.get(nodeDef.id),
-        isEditing: editingNodeId.value === nodeDef.id,
         isSelected: selectedNodeId.value === nodeDef.id,
       },
     }))
@@ -84,7 +78,6 @@ export const useDAGStore = defineStore('dag', () => {
           condition: edgeDef.condition,
           isActive,
         },
-        // 条件边：虚线样式（具体色值由 CustomEdge 组件 CSS 驱动，此处仅标记）
         style: {
           strokeDasharray: edgeDef.condition !== 'always' ? '5 5' : undefined,
         },
@@ -112,8 +105,6 @@ export const useDAGStore = defineStore('dag', () => {
   async function loadDAG(novelId: string) {
     isLoading.value = true
     error.value = null
-    currentNovelId.value = novelId
-    hasUnsavedChanges.value = false
     try {
       const dag = await dagApi.getDAG(novelId)
       dagDefinition.value = dag
@@ -121,52 +112,6 @@ export const useDAGStore = defineStore('dag', () => {
       error.value = e instanceof Error ? e.message : '加载 DAG 失败'
     } finally {
       isLoading.value = false
-    }
-  }
-
-  async function saveDAG(novelId: string) {
-    if (!dagDefinition.value) return false
-
-    isLoading.value = true
-    currentNovelId.value = novelId
-
-    // ★ 保存前先校验
-    const result = await validateDAG(novelId)
-    if (!result.is_valid) {
-      validationStatus.value = {
-        isValid: false,
-        message: result.summary,
-        errors: result.errors,
-      }
-      error.value = `保存失败：${result.summary}`
-      isLoading.value = false
-      return false
-    }
-
-    // ★ 校验通过才保存
-    try {
-      const updated = await dagApi.updateDAG(novelId, {
-        nodes: dagDefinition.value.nodes as unknown as Record<string, unknown>[],
-        edges: dagDefinition.value.edges as unknown as Record<string, unknown>[],
-      })
-      dagDefinition.value = updated.dag
-      hasUnsavedChanges.value = false
-      error.value = null
-      return true
-    } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : '保存 DAG 失败'
-      return false
-    } finally {
-      isLoading.value = false
-    }
-  }
-
-  async function loadVersions(novelId: string) {
-    try {
-      const result = await dagApi.listVersions(novelId)
-      dagVersions.value = result.versions
-    } catch {
-      // 静默失败
     }
   }
 
@@ -188,66 +133,6 @@ export const useDAGStore = defineStore('dag', () => {
     }
   }
 
-  async function updateNodeConfig(novelId: string, nodeId: string, config: Record<string, unknown>) {
-    try {
-      const dag = await dagApi.updateNodeConfig(novelId, nodeId, config)
-      dagDefinition.value = dag
-    } catch (e: unknown) {
-      error.value = e instanceof Error ? e.message : '更新节点配置失败'
-    }
-  }
-
-  async function validateDAG(novelId: string) {
-    try {
-      return await dagApi.validateDAG(novelId)
-    } catch {
-      return { errors: ['验证请求失败'], warnings: [], is_valid: false, summary: '❌ 验证失败' }
-    }
-  }
-
-  // ─── 自动校验逻辑 ───
-  const currentNovelId = ref<string | null>(null)
-
-  const debouncedValidate = useDebounceFn(async () => {
-    if (!currentNovelId.value) return
-
-    try {
-      const result = await dagApi.validateDAG(currentNovelId.value)
-
-      if (!result.is_valid) {
-        validationStatus.value = {
-          isValid: false,
-          message: result.summary,
-          errors: result.errors,
-        }
-      } else {
-        validationStatus.value = {
-          isValid: true,
-          message: result.summary,
-          errors: [],
-        }
-      }
-    } catch (e) {
-      console.error('自动校验失败:', e)
-      validationStatus.value = {
-        isValid: false,
-        message: '校验失败：网络错误或服务不可用',
-        errors: ['无法连接到验证服务'],
-      }
-    }
-  }, 1000)
-
-  // 监听 DAG 变更，自动触发校验
-  watch(
-    () => dagDefinition.value,
-    () => {
-      if (dagDefinition.value && currentNovelId.value && hasUnsavedChanges.value) {
-        debouncedValidate()
-      }
-    },
-    { deep: true }
-  )
-
   // ─── SSE 事件处理 ───
 
   function handleSSEEvent(event: NodeEvent) {
@@ -258,7 +143,6 @@ export const useDAGStore = defineStore('dag', () => {
           nodeStates.value.set(event.node_id, {
             node_id: event.node_id,
             status: (event.status ?? 'idle') as NodeStatus,
-            timestamp: event.timestamp,
             duration_ms: existing?.duration_ms ?? 0,
             outputs: existing?.outputs ?? {},
             metrics: existing?.metrics ?? (event.metrics as Record<string, number>) ?? {},
@@ -278,7 +162,6 @@ export const useDAGStore = defineStore('dag', () => {
             nodeStates.value.set(event.node_id, {
               node_id: event.node_id,
               status: 'success',
-              timestamp: event.timestamp,
               outputs: event.outputs ?? {},
               duration_ms: event.duration_ms ?? 0,
               metrics: (event.metrics as Record<string, number>) ?? {},
@@ -299,18 +182,30 @@ export const useDAGStore = defineStore('dag', () => {
     }
   }
 
-  // ─── 视图切换 ───
+  function selectNode(nodeId: string | null) {
+    selectedNodeId.value = nodeId
+  }
 
   function switchView(mode: 'card' | 'dag') {
     viewMode.value = mode
   }
 
-  function selectNode(nodeId: string | null) {
-    selectedNodeId.value = nodeId
-  }
-
-  function startEditing(nodeId: string | null) {
-    editingNodeId.value = nodeId
+  /** 更新节点运行参数（NodeEditorDrawer 使用，DAG 本身不提供编辑 UI） */
+  async function updateNodeConfig(novelId: string, nodeId: string, config: Record<string, unknown>) {
+    try {
+      // ★ 暂时直接更新内存中的 DAG 定义（不走数据库）
+      const node = dagDefinition.value?.nodes.find(n => n.id === nodeId)
+      if (node && dagDefinition.value) {
+        // 合并配置
+        if (config.temperature !== undefined) node.config.temperature = config.temperature as number
+        if (config.max_tokens !== undefined) node.config.max_tokens = config.max_tokens as number | null
+        if (config.timeout_seconds !== undefined) node.config.timeout_seconds = config.timeout_seconds as number
+        if (config.max_retries !== undefined) node.config.max_retries = config.max_retries as number
+        if (config.model_override !== undefined) node.config.model_override = config.model_override as string | null
+      }
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : '更新节点配置失败'
+    }
   }
 
   function resetNodeStates() {
@@ -318,31 +213,27 @@ export const useDAGStore = defineStore('dag', () => {
     edgeFlows.value.clear()
   }
 
-  // ─── 更新节点位置（拖拽后） ───
-
-  function updateNodePosition(nodeId: string, position: { x: number; y: number }) {
-    if (!dagDefinition.value) return
-    const node = dagDefinition.value.nodes.find(n => n.id === nodeId)
-    if (node) {
-      node.position = position
-      hasUnsavedChanges.value = true
+  async function loadNodePromptLive(novelId: string, nodeId: string) {
+    try {
+      const result = await dagApi.getNodePromptLive(novelId, nodeId)
+      nodePromptLive.value.set(nodeId, result)
+      return result
+    } catch {
+      return null
     }
   }
 
   return {
     // State
     dagDefinition,
-    dagVersions,
     nodeTypeRegistry,
     nodeStates,
     edgeFlows,
+    nodePromptLive,
     selectedNodeId,
-    editingNodeId,
-    viewMode,
     isLoading,
     error,
-    validationStatus,
-    hasUnsavedChanges,
+    viewMode,
 
     // Computed
     vueFlowNodes,
@@ -351,17 +242,13 @@ export const useDAGStore = defineStore('dag', () => {
 
     // Actions
     loadDAG,
-    saveDAG,
-    loadVersions,
     loadNodeTypeRegistry,
     toggleNode,
     updateNodeConfig,
-    validateDAG,
     handleSSEEvent,
-    switchView,
     selectNode,
-    startEditing,
+    switchView,
     resetNodeStates,
-    updateNodePosition,
+    loadNodePromptLive,
   }
 })
