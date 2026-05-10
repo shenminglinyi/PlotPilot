@@ -44,11 +44,13 @@
         <div class="label">当前幕 / 章 / 节拍</div>
         <div class="value">
           第 {{ (status?.current_act || 0) + 1 }} 幕
+          <span v-if="status?.current_act_title" class="act-title">{{ status.current_act_title }}</span>
           <template v-if="status?.current_chapter_number != null && isWriting">
             · 第 {{ status.current_chapter_number }} 章
           </template>
           <span v-if="isWriting"> · {{ beatLabel }}</span>
         </div>
+        <div v-if="status?.current_act_description" class="act-desc">{{ status.current_act_description }}</div>
       </div>
       <div class="ap-cell">
         <div class="label">上章张力</div>
@@ -1130,6 +1132,20 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--n-text-color);
   font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.act-title {
+  font-weight: 500;
+  color: var(--n-text-color-2);
+  margin-left: 4px;
+}
+
+.act-desc {
+  font-size: 11px;
+  color: var(--n-text-color-3);
+  margin-top: 2px;
+  line-height: 1.4;
   word-break: break-word;
 }
 

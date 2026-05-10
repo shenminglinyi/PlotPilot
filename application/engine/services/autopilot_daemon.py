@@ -258,16 +258,13 @@ class AutopilotDaemon:
         set_clauses = [f"{k} = ?" for k in fields.keys()]
         set_clauses.append("updated_at = CURRENT_TIMESTAMP")
         sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
-        params = tuple(fields.values()) + (novel.novel_id.value,)
+        params = list(fields.values()) + [novel.novel_id.value]
 
-        ok = self._write_db_ephemeral(sql, params)
+        # 🔥 CQRS：优先推队列（由 API 进程消费者线程串行执行，零锁竞争）
+        ok = self._queue_sql(sql, params)
         if not ok:
-            # 降级：尝试通过持久化队列
-            from application.engine.services.persistence_queue import PersistenceCommandType
-            self._push_persistence_command(
-                PersistenceCommandType.PATCH_NOVEL.value,
-                {"novel_id": novel.novel_id.value, "fields": fields},
-            )
+            # 兜底：短连接直接写（提升后的 PRAGMA 配置）
+            ok = self._write_db_critical(sql, tuple(params))
         return ok
 
     def _save_chapter_ephemeral(self, novel_id: str, chapter_number: int,
@@ -277,13 +274,10 @@ class AutopilotDaemon:
                                  plot_tension: float = None,
                                  emotional_tension: float = None,
                                  pacing_tension: float = None) -> bool:
-        """🔥 用独立短连接保存章节状态到 DB（替代 chapter_repository.save()）。
+        """🔥 保存章节状态——CQRS 统一写入通道。
 
-        对于 completed 状态的关键路径，既不走持久化队列（有延迟），
-        也不走 repository.save()（长连接持有写锁），而是用独立短连接。
-
-        字段必须与 SqliteChapterRepository.save() 的 ON CONFLICT UPDATE 对齐，
-        否则会遗漏张力等关键数据。
+        默认推持久化队列（零锁竞争）；
+        仅 completed 状态为关键路径（需同步落库），用短连接直接写。
         """
         set_parts = []
         params = []
@@ -297,7 +291,6 @@ class AutopilotDaemon:
         if word_count is not None:
             set_parts.append("word_count = ?")
             params.append(word_count)
-        # 🔥 张力字段（张力图表的数据来源）
         if tension_score is not None:
             set_parts.append("tension_score = ?")
             params.append(tension_score)
@@ -318,39 +311,51 @@ class AutopilotDaemon:
         sql = f"UPDATE chapters SET {', '.join(set_parts)} WHERE novel_id = ? AND number = ?"
         params.extend([novel_id, chapter_number])
 
-        ok = self._write_db_ephemeral(sql, tuple(params))
-        if not ok:
-            # 降级：通过持久化队列
-            from application.engine.services.persistence_queue import PersistenceCommandType
-            payload = {"novel_id": novel_id, "chapter_number": chapter_number}
-            if content is not None:
-                payload["content"] = content
-            if status is not None:
-                payload["status"] = status
-            if word_count is not None:
-                payload["word_count"] = word_count
+        # 🔥 completed 状态为关键路径：必须同步落库，否则
+        # _find_next_unwritten_chapter_async 会读到旧 draft 状态导致死循环
+        is_critical = (status == "completed")
 
-            if status == "completed":
-                self._push_persistence_command(
-                    PersistenceCommandType.UPDATE_CHAPTER_STATUS.value, payload
-                )
-            else:
-                self._push_persistence_command(
-                    PersistenceCommandType.UPSERT_CHAPTER.value, payload
-                )
-        return ok
+        if is_critical:
+            # 关键路径：短连接直接写，失败则推队列兜底
+            ok = self._write_db_critical(sql, tuple(params))
+            if ok:
+                return True
+            # 短连接也失败（极端情况），推队列兜底
+            logger.warning("[ch=%d] 短连接写入失败，推队列兜底", chapter_number)
 
-    def _write_db_ephemeral(self, sql: str, params: tuple = (), timeout: float = 5.0) -> bool:
-        """🔥 用独立短连接执行单条 SQL 写操作（写完立即关闭，不持有长连接）。
+        # 非关键路径 或 关键路径短连接失败：推队列
+        return self._queue_sql(sql, params)
 
-        核心问题：守护进程是 multiprocessing.Process（独立进程），与 API 进程共享
-        同一个 SQLite 文件。如果守护进程复用长连接（repository.save()），
-        写锁会一直持有到连接关闭或下个事务，阻塞 API 进程的所有 DB 操作。
+    def _queue_sql(self, sql: str, params: tuple | list = ()) -> bool:
+        """🔥 CQRS 统一写入通道——将 SQL 写操作推入持久化队列。
 
-        解决方案：
-        - 每次写操作用独立短连接，BEGIN IMMEDIATE → 执行 SQL → COMMIT → 关闭
-        - 整个写事务在毫秒级完成，不会长时间持有写锁
-        - API 进程的请求最多等待 5 秒（busy_timeout），不会超时
+        由 API 进程的消费者线程串行执行，从根本上消除多进程写锁竞争。
+        守护进程不再直接写 DB（除 critical 路径），所有写操作走此通道。
+        """
+        from application.engine.services.persistence_queue import PersistenceCommandType
+        # params 可能是 tuple 或 list，统一为 list（mp.Queue 要求 JSON 可序列化）
+        params_list = list(params) if params else []
+        return self._push_persistence_command(
+            PersistenceCommandType.EXECUTE_SQL.value,
+            {"sql": sql, "params": params_list},
+        )
+
+    # ── 短连接直接写 DB（仅 critical 路径使用，提升后的 PRAGMA 配置）──
+
+    _EPHEMERAL_PRAGMAS = [
+        "PRAGMA journal_mode=WAL",
+        "PRAGMA busy_timeout=15000",
+        "PRAGMA synchronous=NORMAL",
+        "PRAGMA temp_store=MEMORY",
+        "PRAGMA cache_size=-32768",
+    ]
+
+    def _write_db_critical(self, sql: str, params: tuple = (), timeout: float = 15.0) -> bool:
+        """🔥 关键路径专用：独立短连接直接写 DB（写完立即关闭）。
+
+        仅用于 completed 状态等必须同步落库的场景。
+        PRAGMA 配置已与 API 进程对齐（busy_timeout=15s, temp_store=MEMORY），
+        大幅降低因锁竞争导致的写入失败。
         """
         from application.paths import get_db_path
 
@@ -358,50 +363,37 @@ class AutopilotDaemon:
         try:
             conn = sqlite3.connect(path, timeout=timeout)
             try:
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA busy_timeout=5000")
-                conn.execute("PRAGMA synchronous=NORMAL")
+                for pragma in self._EPHEMERAL_PRAGMAS:
+                    conn.execute(pragma)
+                conn.execute("BEGIN IMMEDIATE")
                 conn.execute(sql, params)
                 conn.commit()
                 return True
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
-                    logger.warning("_write_db_ephemeral: DB 被锁，写入失败: %s", e)
+                    logger.warning("_write_db_critical: DB 被锁: %s", e)
                     return False
                 raise
             finally:
                 conn.close()
         except Exception as e:
-            logger.error("_write_db_ephemeral: 写入失败: %s", e)
+            logger.error("_write_db_critical: 写入失败: %s", e)
             return False
 
     def _patch_novel_ephemeral(
-        self, novel_id: NovelId, fields: Dict[str, Any], timeout: float = 10.0, max_retries: int = 3
+        self, novel_id: NovelId, fields: Dict[str, Any], timeout: float = 15.0, max_retries: int = 3,
+        critical: bool = False,
     ) -> bool:
-        """🔥 用独立短连接执行增量 UPDATE（与 _write_db_ephemeral 同模式）。
+        """🔥 增量 UPDATE novels——CQRS 统一写入通道。
 
-        替代 self.novel_repository.patch()：守护进程不应复用 API 进程的
-        DatabaseConnection 长连接，否则与 API 进程写操作交叉导致 "database is locked"。
-
-        流程：独立连接 → PRAGMA WAL → PRAGMA busy_timeout → BEGIN IMMEDIATE →
-              UPDATE → COMMIT → 关闭。带重试（最多 3 次，退避 0.5/1.0/1.5 秒）。
-
-        Args:
-            novel_id: 小说 ID
-            fields: 要更新的字段键值对（自动处理枚举/bool/JSON 转换）
-            timeout: SQLite 连接超时（秒）
-            max_retries: 最大重试次数
-
-        Returns:
-            True 写入成功，False 写入失败（调用方应降级到持久化队列）
+        默认推持久化队列（零锁竞争）；critical=True 时用短连接直接写。
         """
         from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
-        from application.paths import get_db_path
 
         if not fields:
             return True
 
-        # 自动处理枚举类型转换（与 SqliteNovelRepository.patch 一致）
+        # 自动处理枚举类型转换
         processed = {}
         for key, value in fields.items():
             if isinstance(value, _APS):
@@ -416,7 +408,6 @@ class AutopilotDaemon:
             else:
                 processed[key] = value
 
-        # 始终更新 updated_at
         processed["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         set_clauses = [f"{key} = ?" for key in processed.keys()]
@@ -425,14 +416,20 @@ class AutopilotDaemon:
 
         sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
 
+        if not critical:
+            # 🔥 默认：推队列（零锁竞争）
+            return self._queue_sql(sql, values)
+
+        # critical 路径：短连接直接写（带重试）
+        from application.paths import get_db_path
+
         path = get_db_path()
         for attempt in range(max_retries):
             conn = None
             try:
                 conn = sqlite3.connect(path, timeout=timeout)
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA busy_timeout=5000")
-                conn.execute("PRAGMA synchronous=NORMAL")
+                for pragma in self._EPHEMERAL_PRAGMAS:
+                    conn.execute(pragma)
                 conn.execute("BEGIN IMMEDIATE")
                 conn.execute(sql, tuple(values))
                 conn.commit()
@@ -443,11 +440,9 @@ class AutopilotDaemon:
                         "_patch_novel_ephemeral: DB 被锁 (attempt %d/%d novel=%s): %s",
                         attempt + 1, max_retries, novel_id.value, e,
                     )
-                    # 退避重试
                     if attempt < max_retries - 1:
-                        time.sleep(0.5 * (attempt + 1))
+                        time.sleep(0.5 + 0.5 * (attempt + 1))
                     continue
-                # 非 DB 锁的 OperationalError，不重试
                 logger.error("_patch_novel_ephemeral: 写入失败 novel=%s: %s", novel_id.value, e)
                 return False
             except Exception as e:
@@ -460,19 +455,19 @@ class AutopilotDaemon:
                     except Exception:
                         pass
 
-        logger.warning("_patch_novel_ephemeral: 重试耗尽，降级到持久化队列 novel=%s", novel_id.value)
-        return False
+        # 重试耗尽，推队列兜底
+        logger.warning("_patch_novel_ephemeral: 重试耗尽，推队列兜底 novel=%s", novel_id.value)
+        return self._queue_sql(sql, values)
 
     def _push_patch_to_queue(self, novel_id: NovelId, fields: Dict[str, Any]) -> None:
-        """将增量更新推入持久化队列（_patch_novel_ephemeral 失败时的降级路径）。
+        """将增量更新推入持久化队列——CQRS 统一写入通道的兼容入口。
 
-        由 API 进程的 PersistenceQueue 消费者线程异步执行写入，
-        彻底避免守护进程与 API 进程的 DB 锁竞争。
+        现在底层统一走 _queue_sql → EXECUTE_SQL，此方法保留作为调用点兼容，
+        处理枚举/bool/JSON 转换后构建 SQL 并推队列。
         """
-        from application.engine.services.persistence_queue import PersistenceCommandType
         from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
 
-        # 枚举转换（与 _patch_novel_ephemeral 一致，确保队列中的值是原始类型）
+        # 枚举转换（与 _patch_novel_ephemeral 一致）
         processed = {}
         for key, value in fields.items():
             if isinstance(value, _APS):
@@ -487,11 +482,16 @@ class AutopilotDaemon:
             else:
                 processed[key] = value
 
-        self._push_persistence_command(
-            PersistenceCommandType.PATCH_NOVEL.value,
-            {"novel_id": novel_id.value, "fields": processed},
-        )
-        logger.info("[novel-%s] 短连接写入失败，已降级到持久化队列", novel_id.value)
+        processed["updated_at"] = datetime.now(timezone.utc).isoformat()
+        set_clauses = [f"{key} = ?" for key in processed.keys()]
+        values = list(processed.values()) + [novel_id.value]
+        sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
+
+        ok = self._queue_sql(sql, values)
+        if ok:
+            logger.debug("[novel-%s] 增量更新已推队列", novel_id.value)
+        else:
+            logger.warning("[novel-%s] 推队列失败，数据可能丢失", novel_id.value)
 
     def _read_chapter_stats_ephemeral(
         self, novel_id: str, timeout: float = 5.0
@@ -645,9 +645,9 @@ class AutopilotDaemon:
 
         使用 patch 增量更新（仅写入变化的字段），减少写事务持锁时间。
 
-        🔥 关键修复：改用短连接写库（与 _write_db_ephemeral 同模式），避免守护进程
-        （multiprocessing.Process）复用 API 进程的 DatabaseConnection 长连接导致
-        "database is locked"。短连接写完即关，不持有写锁，不会阻塞 API 进程。
+        🔥 CQRS 架构：_patch_novel_ephemeral 默认推持久化队列（EXECUTE_SQL 命令），
+        由 API 进程消费者线程串行执行，彻底消除多进程写锁竞争。
+        仅 critical=True 时才走短连接直接写。
 
         同步非统计字段到共享内存，避免 /status 长期读到过时阶段信息。
         章节聚合（完稿/书稿/总字数）由章节落库与审计完成路径写入 _cached_*。
@@ -678,11 +678,9 @@ class AutopilotDaemon:
         if getattr(novel, "last_chapter_tension", None) is not None:
             patch_fields["last_chapter_tension"] = novel.last_chapter_tension
 
-        # 🔥 核心修复：使用短连接写库，避免长连接锁竞争
+        # 🔥 CQRS：优先推持久化队列（零锁竞争），_patch_novel_ephemeral 内部
+        # 默认走 _queue_sql → EXECUTE_SQL 命令，由 API 进程消费者串行执行
         ok = self._patch_novel_ephemeral(novel.novel_id, patch_fields)
-        if not ok:
-            # 降级：推入持久化队列，由 API 进程的消费者线程异步写入
-            self._push_patch_to_queue(novel.novel_id, patch_fields)
 
         # 同步阶段、节拍等非聚合字段到共享内存（完稿/书稿/总字数仅在落库与审计节点写入 _cached_*）
         self._cache_stats_to_shared_memory(novel)
@@ -703,11 +701,31 @@ class AutopilotDaemon:
         显式写入共享内存。
         """
         nid = novel.novel_id.value
+        # 🔥 查询当前幕的标题和描述（供前端展示）
+        current_act_title = None
+        current_act_description = None
+        try:
+            if novel.current_act is not None:
+                target_act_number = novel.current_act + 1  # 1-indexed
+                all_nodes = self.story_node_repo.get_by_novel_sync(nid)
+                act_nodes = sorted(
+                    [n for n in all_nodes if n.node_type.value == "act"],
+                    key=lambda n: n.number
+                )
+                target_act = next((n for n in act_nodes if n.number == target_act_number), None)
+                if target_act:
+                    current_act_title = target_act.title
+                    current_act_description = target_act.description
+        except Exception as e:
+            logger.debug(f"[{nid}] 查询幕标题/描述失败（可忽略）: {e}")
+
         try:
             self._update_shared_state(
                 nid,
                 current_stage=novel.current_stage.value,
                 current_act=novel.current_act,
+                current_act_title=current_act_title,
+                current_act_description=current_act_description,
                 current_chapter_in_act=novel.current_chapter_in_act,
                 current_beat_index=novel.current_beat_index or 0,
                 autopilot_status=novel.autopilot_status.value,
@@ -3443,8 +3461,9 @@ class AutopilotDaemon:
                                              tension_score, plot_tension, emotional_tension, pacing_tension,
                                              created_at, updated_at)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"""
-            self._write_db_ephemeral(
-                sql, (ch_id, novel_id, chapter_number, ch_title, content_str, ch_outline, ch_status, wc)
+            # 🔥 CQRS：推队列，由 API 进程消费者串行执行（零锁竞争）
+            self._queue_sql(
+                sql, [ch_id, novel_id, chapter_number, ch_title, content_str, ch_outline, ch_status, wc]
             )
 
     def _find_parent_volume_for_new_act(
