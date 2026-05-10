@@ -41,15 +41,6 @@
       <n-tab-pane name="foreshadow" tab="伏笔账本" display-directive="if">
         <ForeshadowLedgerPanel :slug="slug" />
       </n-tab-pane>
-      <n-tab-pane name="character-soul" tab="角色灵魂" display-directive="if">
-        <CharacterSoulPanel :slug="slug" />
-      </n-tab-pane>
-      <n-tab-pane name="checkpoint" tab="Checkpoint" display-directive="if">
-        <CheckpointTimelinePanel :slug="slug" />
-      </n-tab-pane>
-      <n-tab-pane name="story-phase" tab="故事阶段" display-directive="if">
-        <StoryPhasePanel :slug="slug" />
-      </n-tab-pane>
     </n-tabs>
   </div>
 </template>
@@ -63,15 +54,13 @@ import StorylinePlotOverviewPanel from './StorylinePlotOverviewPanel.vue'
 import HolographicChroniclesPanel from './HolographicChroniclesPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
-import CharacterSoulPanel from './CharacterSoulPanel.vue'
-import CheckpointTimelinePanel from './CheckpointTimelinePanel.vue'
-import StoryPhasePanel from './StoryPhasePanel.vue'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
   'bible', 'worldbuilding', 'knowledge',
   'storyline-arc', 'chronicles',
   'sandbox', 'foreshadow',
+  // 兼容旧版映射
   'character-soul', 'checkpoint', 'story-phase',
 ])
 
@@ -81,9 +70,12 @@ const LEGACY_TAB_MAP: Record<string, string> = {
   'plot-arc': 'storyline-arc',
   'timeline': 'chronicles',
   'snapshots': 'checkpoint',
+  'checkpoint': 'storyline-arc',       // Checkpoint 已融入故事线面板
+  'story-phase': 'storyline-arc',      // 故事阶段已融入故事线面板
+  'character-soul': 'sandbox',         // 角色灵魂已融入对话沙盒面板
+  'voice-drift': 'sandbox',
   'foreshadow-suggestions': 'sandbox',
   'macro-refactor': 'bible',
-  'voice-drift': 'character-soul',
 }
 
 function resolveTab(panel: string | undefined): string {
