@@ -52,41 +52,41 @@
           >
             <template #core_rules>
               <div class="dimension-fields" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
-                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'core_rules' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
             </template>
             <template #geography>
               <div class="dimension-fields" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
-                <div v-for="(val, key) in worldbuildingData.geography" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.geography" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'geography' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
             </template>
             <template #society>
               <div class="dimension-fields" v-if="worldbuildingData.society && Object.keys(worldbuildingData.society).length">
-                <div v-for="(val, key) in worldbuildingData.society" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.society" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'society' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
             </template>
             <template #culture>
               <div class="dimension-fields" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
-                <div v-for="(val, key) in worldbuildingData.culture" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.culture" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'culture' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
             </template>
             <template #daily_life>
               <div class="dimension-fields" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
-                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key" class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'daily_life' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
             </template>
@@ -1162,11 +1162,28 @@ bibleError.value = ''
       styleText.value = content
     },
     onWorldbuildingField: (dimension, field, value) => {
-      // 字段级流式：每收到一个字段立即更新 worldbuildingData
+      // 兼容旧的整字段推送（非流式降级场景）
       const dim = dimension as keyof typeof worldbuildingData.value
       worldbuildingData.value = {
         ...worldbuildingData.value,
         [dimension]: { ...worldbuildingData.value[dim], [field]: value },
+      }
+      if (activeDimension.value !== dimension) {
+        if (activeDimension.value) {
+          completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
+        }
+        activeDimension.value = dimension
+      }
+      arrivedFields.value = new Set([...arrivedFields.value, field])
+      activeField.value = ''
+    },
+    onWorldbuildingFieldChunk: (dimension, field, chunk) => {
+      // 逐 token 流式 chunk：追加到字段内容
+      const dim = dimension as keyof typeof worldbuildingData.value
+      const currentVal = worldbuildingData.value[dim]?.[field] ?? ''
+      worldbuildingData.value = {
+        ...worldbuildingData.value,
+        [dimension]: { ...worldbuildingData.value[dim], [field]: currentVal + chunk },
       }
       // 确保当前维度标记为 active
       if (activeDimension.value !== dimension) {
@@ -1175,9 +1192,17 @@ bibleError.value = ''
         }
         activeDimension.value = dimension
       }
+    },
+    onWorldbuildingFieldDone: (dimension, field, value) => {
+      // 字段流式输出完成：用最终完整值替换（清理尾部空白等）
+      const dim = dimension as keyof typeof worldbuildingData.value
+      worldbuildingData.value = {
+        ...worldbuildingData.value,
+        [dimension]: { ...worldbuildingData.value[dim], [field]: value },
+      }
       // 标记该字段已到达
       arrivedFields.value = new Set([...arrivedFields.value, field])
-      // 该字段已生成完毕，清除 activeField（等下一个字段的 phase 事件再设置）
+      // 该字段已生成完毕，清除 activeField
       activeField.value = ''
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
@@ -1861,6 +1886,23 @@ const handleComplete = () => {
 @keyframes field-appear {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.field-card--streaming {
+  border-color: #2080f060;
+  background: #2080f008;
+}
+
+.streaming-cursor {
+  display: inline;
+  color: #2080f0;
+  animation: blink-cursor 0.8s ease-in-out infinite;
+  font-weight: 300;
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 /* 文风公约实时预览（生成中） */

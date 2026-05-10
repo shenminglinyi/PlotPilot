@@ -3,7 +3,7 @@ import logging
 import json
 import uuid
 import re
-from typing import Dict, Any
+from typing import Dict, Any, AsyncIterator
 from datetime import datetime
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
@@ -1146,10 +1146,40 @@ JSON 格式：
         Returns:
             字段值的纯文本字符串
         """
+        parts: list[str] = []
+        async for chunk in self._stream_single_field(
+            premise, target_chapters, dim_key, field_key,
+            existing_worldbuilding, existing_dim_fields,
+        ):
+            parts.append(chunk)
+        return "".join(parts).strip()
+
+    async def _stream_single_field(
+        self,
+        premise: str,
+        target_chapters: int,
+        dim_key: str,
+        field_key: str,
+        existing_worldbuilding: Dict[str, Any] | None = None,
+        existing_dim_fields: Dict[str, str] | None = None,
+    ):
+        """流式逐字段生成：逐 token yield 字段内容。
+
+        Args:
+            premise: 故事创意
+            target_chapters: 目标章节数
+            dim_key: 维度 key
+            field_key: 字段 key
+            existing_worldbuilding: 已生成的其他维度数据
+            existing_dim_fields: 同维度已生成的字段
+
+        Yields:
+            str: LLM 逐 token 输出的文本片段
+        """
         dim_def = self._DIMENSION_DEFS.get(dim_key)
         if not dim_def:
             logger.warning("Unknown dimension key: %s", dim_key)
-            return ""
+            return
 
         dim_label = dim_def["label"]
         field_desc = dim_def["fields"].get(field_key, "")
@@ -1194,15 +1224,11 @@ JSON 格式：
         try:
             prompt = Prompt(system=system_prompt, user=user_prompt)
             config = GenerationConfig(max_tokens=1024, temperature=0.7)
-            result = await self.llm_service.generate(prompt, config)
-            content = (result.content or "").strip()
-            # 清理可能残留的 JSON 格式
-            if content.startswith("```"):
-                content = content.split("```", 2)[-1].strip()
-            return content
+            async for chunk in self.llm_service.stream_generate(prompt, config):
+                yield chunk
         except Exception as e:
-            logger.error("Failed to generate field %s.%s: %s", dim_key, field_key, e)
-            return ""
+            logger.error("Failed to stream field %s.%s: %s", dim_key, field_key, e)
+            return
 
     # 字段中文标签映射
     _FIELD_LABELS = {
