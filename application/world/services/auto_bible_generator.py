@@ -1124,6 +1124,120 @@ JSON 格式：
             logger.error("Failed to generate dimension %s: %s", dim_key, e)
             return {}
 
+    async def _generate_single_field(
+        self,
+        premise: str,
+        target_chapters: int,
+        dim_key: str,
+        field_key: str,
+        existing_worldbuilding: Dict[str, Any] | None = None,
+        existing_dim_fields: Dict[str, str] | None = None,
+    ) -> str:
+        """逐字段生成：独立调用 LLM 生成单个世界观字段，确保内容完整。
+
+        Args:
+            premise: 故事创意
+            target_chapters: 目标章节数
+            dim_key: 维度 key
+            field_key: 字段 key（如 power_system, terrain 等）
+            existing_worldbuilding: 已生成的其他维度数据（上下文连贯性）
+            existing_dim_fields: 同维度已生成的字段（避免重复，保持一致性）
+
+        Returns:
+            字段值的纯文本字符串
+        """
+        dim_def = self._DIMENSION_DEFS.get(dim_key)
+        if not dim_def:
+            logger.warning("Unknown dimension key: %s", dim_key)
+            return ""
+
+        dim_label = dim_def["label"]
+        field_desc = dim_def["fields"].get(field_key, "")
+        field_label_cn = self._FIELD_LABELS.get(field_key, field_key)
+
+        # 构建已生成维度的上下文
+        context_block = ""
+        if existing_worldbuilding:
+            context_parts = []
+            for dk, dv in existing_worldbuilding.items():
+                if dv and isinstance(dv, dict):
+                    items = ", ".join(f"{fk}: {fv}" for fk, fv in dv.items() if fv)
+                    if items:
+                        context_parts.append(f"- {dk}: {items}")
+            if context_parts:
+                context_block = f"\n\n已生成的其他维度（请保持一致性）：\n" + "\n".join(context_parts)
+
+        # 构建同维度已生成字段的上下文
+        sibling_block = ""
+        if existing_dim_fields:
+            sibling_parts = [f"  - {fk}: {fv}" for fk, fv in existing_dim_fields.items() if fv]
+            if sibling_parts:
+                sibling_block = f"\n\n同维度「{dim_label}」已生成的字段（请保持内容不重复、风格一致）：\n" + "\n".join(sibling_parts)
+
+        system_prompt = f"""你是资深网文策划编辑。根据故事创意生成世界观「{dim_label}」维度中的「{field_label_cn}」字段。
+
+**关键要求：**
+1. 只生成这一个字段的内容，不要生成其他字段
+2. 内容必须具体、生动、有细节（至少80字），不要写「待生成」或留空
+3. 内容要符合故事类型，有沉浸感和张力
+4. 直接输出纯文本，不要输出JSON，不要有任何其他文字
+5. 不要与其他已生成字段的内容重复"""
+
+        user_prompt = f"""故事创意：{premise}
+
+目标章节数：{target_chapters}章
+
+请生成世界观「{dim_label}」中的「{field_label_cn}」字段。{field_desc}{context_block}{sibling_block}
+
+直接输出这段文本即可，不要输出JSON，不要有任何解释。"""
+
+        try:
+            prompt = Prompt(system=system_prompt, user=user_prompt)
+            config = GenerationConfig(max_tokens=1024, temperature=0.7)
+            result = await self.llm_service.generate(prompt, config)
+            content = (result.content or "").strip()
+            # 清理可能残留的 JSON 格式
+            if content.startswith("```"):
+                content = content.split("```", 2)[-1].strip()
+            return content
+        except Exception as e:
+            logger.error("Failed to generate field %s.%s: %s", dim_key, field_key, e)
+            return ""
+
+    # 字段中文标签映射
+    _FIELD_LABELS = {
+        "power_system": "力量体系",
+        "physics_rules": "物理规律",
+        "magic_tech": "魔法/科技",
+        "cost_and_limitation": "代价与限制",
+        "resource_scarcity": "稀缺资源",
+        "terrain": "地形",
+        "climate": "气候",
+        "resources": "资源",
+        "ecology": "生态",
+        "forbidden_zones": "禁区",
+        "urban_core": "核心城市",
+        "hidden_realms": "秘境",
+        "politics": "政治体制",
+        "economy": "经济模式",
+        "class_system": "阶级系统",
+        "power_structure": "权力结构",
+        "oppression_mechanism": "压迫机制",
+        "class_division": "阶层划分",
+        "history": "历史事件",
+        "religion": "宗教信仰",
+        "taboos": "文化禁忌",
+        "worship": "崇拜与祭祀",
+        "oaths_and_curses": "誓言与诅咒",
+        "food_clothing": "衣食住行",
+        "language_slang": "俚语与口音",
+        "entertainment": "娱乐方式",
+        "survival_tactics": "生存策略",
+        "market_reality": "市场状况",
+        "food_and_drink": "饮食文化",
+        "slang_and_profanity": "粗话与黑话",
+    }
+
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
         wb_summary = self._summarize_worldbuilding(worldbuilding)
