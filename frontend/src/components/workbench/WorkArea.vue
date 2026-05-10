@@ -71,19 +71,22 @@
                 </div>
 
                 <div class="editor-body">
-                  <!-- 🔥 流式打字机效果：autopilot 正在写当前章节时展示 -->
-                  <div v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent" class="streaming-editor">
-                    <pre class="streaming-text">{{ streamingContent }}<span class="cursor-blink">▋</span></pre>
+                  <!-- 🔥 流式写作：编辑框实时显示流式内容，叠加光标指示器 -->
+                  <div class="editor-input-wrapper" :class="{ 'is-streaming': isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent }">
+                    <n-input
+                      v-model:value="editorDisplayContent"
+                      type="textarea"
+                      placeholder="章节内容..."
+                      :autosize="false"
+                      :readonly="isAssistedReadOnly || (isAutopilotRunning && streamingChapterNumber === currentChapter.number)"
+                      @update:value="handleContentChange"
+                    />
+                    <!-- 🔥 流式光标叠加层 -->
+                    <div v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent" class="streaming-cursor-overlay">
+                      <span class="streaming-cursor">▋</span>
+                      <span class="streaming-badge">生成中</span>
+                    </div>
                   </div>
-                  <n-input
-                    v-else
-                    v-model:value="chapterContent"
-                    type="textarea"
-                    placeholder="章节内容..."
-                    :autosize="false"
-                    :readonly="isAssistedReadOnly"
-                    @update:value="handleContentChange"
-                  />
                 </div>
 
                 <div class="editor-footer">
@@ -873,6 +876,19 @@ const wordCount = computed(() => {
   return chapterContent.value.length
 })
 
+/** 🔥 编辑框显示内容：流式时显示流式内容，否则显示普通内容 */
+const editorDisplayContent = computed({
+  get: () => {
+    if (isAutopilotRunning.value && streamingChapterNumber.value === currentChapter.value?.number && streamingContent.value) {
+      return streamingContent.value
+    }
+    return chapterContent.value
+  },
+  set: (val: string) => {
+    chapterContent.value = val
+  }
+})
+
 // 监听传入的章节内容变化
 watch(() => props.chapterContent, (newContent) => {
   chapterContent.value = newContent
@@ -1383,32 +1399,47 @@ defineExpose({ ensureAssistedMode })
   border-top: 1px solid var(--border-color);
 }
 
-/* 🔥 流式打字机效果 */
-.streaming-editor {
+/* 🔥 流式编辑框：编辑框本身就是流式显示 */
+.editor-input-wrapper {
+  position: relative;
   flex: 1;
   min-height: 0;
-  height: 100%;
-  overflow-y: auto;
-  padding: 12px 16px;
-  background: rgba(24, 160, 88, 0.02);
-  border: 1px solid rgba(24, 160, 88, 0.1);
-  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
 }
 
-.streaming-text {
-  margin: 0;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.8;
-  color: var(--app-text-primary);
+.editor-input-wrapper.is-streaming :deep(.n-input) {
+  border-color: rgba(24, 160, 88, 0.3);
+  box-shadow: 0 0 0 1px rgba(24, 160, 88, 0.1);
 }
 
-.cursor-blink {
+.editor-input-wrapper.is-streaming :deep(.n-input__textarea-el) {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.streaming-cursor-overlay {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(24, 160, 88, 0.08);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.streaming-cursor {
   color: #18a058;
   animation: cursor-blink-anim 1s step-end infinite;
   font-size: 14px;
+}
+
+.streaming-badge {
+  font-size: 11px;
+  color: #18a058;
+  font-weight: 500;
 }
 
 @keyframes cursor-blink-anim {
