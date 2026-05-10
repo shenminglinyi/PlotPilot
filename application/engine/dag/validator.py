@@ -122,12 +122,13 @@ class DAGValidator:
     # ─── 2. 环检测 ───
 
     def _check_acyclic(self, dag: DAGDefinition) -> List[str]:
-        """DFS 三色环检测"""
+        """DFS 三色环检测 — 允许通过 gw_retry 的合法重试循环"""
         errors = []
 
+        # 构建邻接表，包含条件信息
         adj = defaultdict(list)
         for edge in dag.edges:
-            adj[edge.source].append(edge.target)
+            adj[edge.source].append((edge.target, edge.condition))
 
         WHITE, GRAY, BLACK = 0, 1, 2
         color = {node.id: WHITE for node in dag.nodes}
@@ -136,17 +137,23 @@ class DAGValidator:
             color[node_id] = GRAY
             path.append(node_id)
 
-            for neighbor in adj[node_id]:
+            for neighbor, condition in adj[node_id]:
                 if color.get(neighbor) == GRAY:
                     # 检测到环：neighbor 在当前路径中
                     if neighbor in path:
+                        # 检查是否为合法重试循环
                         cycle_start = path.index(neighbor)
                         cycle = path[cycle_start:] + [neighbor]
+
+                        # 允许通过 gw_retry 的循环
+                        if 'gw_retry' in cycle:
+                            logger.info(f"检测到合法重试循环（通过 gw_retry）: {' → '.join(cycle)}")
+                            continue
+
                         errors.append(
                             f"检测到环: {' → '.join(cycle)}。"
                             f"如需循环重写，请使用 gw_retry 网关节点。"
                         )
-                    # 即使检测到环也继续遍历，确保正确清理状态
 
                 if color.get(neighbor, WHITE) == WHITE:
                     dfs(neighbor, path)
@@ -291,13 +298,12 @@ class DAGValidator:
                     f"（on_breaker_closed + on_breaker_open），当前 {len(outgoing)} 条"
                 )
 
-        # 审阅网关应有审批流程
+        # 审阅网关可以没有出边（作为终节点）
         review_nodes = [n for n in dag.nodes if n.type == "gw_review"]
         for node in review_nodes:
             outgoing = [e for e in dag.edges if e.source == node.id]
             if not outgoing:
-                warnings_msg = f"审阅网关 '{node.id}' 没有出边，审阅后无法继续执行"
-                errors.append(warnings_msg)
+                logger.info(f"审阅网关 '{node.id}' 作为终节点，工作流在此结束")
 
         return errors
 
