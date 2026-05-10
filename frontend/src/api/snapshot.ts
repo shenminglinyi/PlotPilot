@@ -1,55 +1,56 @@
 /**
  * 统一快照 API - 合并 Checkpoint 和 Snapshot
+ * 注意：使用 snake_case 匹配后端数据库字段命名
  */
 import { apiClient } from './config'
 
 export interface UnifiedSnapshot {
   id: string
-  novelId: string
-  parentId?: string
-  branchName: string
+  novel_id: string
+  parent_snapshot_id?: string
+  branch_name: string
 
   // 触发信息
-  triggerType: 'CHAPTER' | 'ACT' | 'MILESTONE' | 'MANUAL' | 'AUTO'
-  triggerReason: string
+  trigger_type: 'CHAPTER' | 'ACT' | 'MILESTONE' | 'MANUAL' | 'AUTO'
   name: string
   description?: string
 
   // 章节指针
-  chapterPointers: string[]
+  chapter_pointers: string[]
 
   // 引擎状态
-  storyState: Record<string, any>
-  characterMasks: Record<string, any>
-  emotionLedger: Record<string, any>
-  activeForeshadows: string[]
+  story_state: Record<string, any>
+  character_masks: Record<string, any>
+  emotion_ledger: Record<string, any>
+  active_foreshadows: string[]
   outline: string
-  recentChaptersSummary: string
+  recent_chapters_summary: string
 
   // 元数据
-  createdAt: string
-  isHead: boolean
+  created_at: string
+  bible_state: Record<string, any>
+  foreshadow_state: Record<string, any>
 }
 
 export interface CreateSnapshotRequest {
-  triggerType: string
+  trigger_type: string
   name: string
   description?: string
-  chapterNumber?: number
+  chapter_number?: number
 
   // 引擎状态（可选）
-  storyState?: Record<string, any>
-  characterMasks?: Record<string, any>
-  emotionLedger?: Record<string, any>
-  activeForeshadows?: string[]
+  story_state?: Record<string, any>
+  character_masks?: Record<string, any>
+  emotion_ledger?: Record<string, any>
+  active_foreshadows?: string[]
   outline?: string
-  recentChaptersSummary?: string
+  recent_summary?: string
 }
 
 export interface RollbackSnapshotResponse {
-  deletedChapterIds: string[]
-  deletedCount: number
-  hasEngineState: boolean
+  deleted_chapter_ids: string[]
+  deleted_count: number
+  has_engine_state: boolean
 }
 
 export const snapshotApi = {
@@ -67,10 +68,10 @@ export const snapshotApi = {
 
   /** POST /novels/{novel_id}/snapshots */
   create: (novelId: string, body: CreateSnapshotRequest) =>
-    apiClient.post<{ snapshotId: string; message: string }>(
+    apiClient.post<{ snapshot_id: string; message: string }>(
       `/novels/${novelId}/snapshots`,
       body,
-    ) as Promise<{ snapshotId: string; message: string }>,
+    ) as Promise<{ snapshot_id: string; message: string }>,
 
   /** POST /novels/{novel_id}/snapshots/{snapshot_id}/rollback */
   rollback: (novelId: string, snapshotId: string) =>
@@ -81,7 +82,7 @@ export const snapshotApi = {
 
   /** DELETE /novels/{novel_id}/snapshots/{snapshot_id} */
   delete: (novelId: string, snapshotId: string) =>
-    apiClient.delete<{ message: string }>(
+    apiClient.delete<void>(
       `/novels/${novelId}/snapshots/${snapshotId}`,
-    ) as Promise<{ message: string }>,
+    ) as Promise<void>,
 }
