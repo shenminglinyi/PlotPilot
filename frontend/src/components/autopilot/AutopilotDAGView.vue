@@ -1,15 +1,12 @@
 <template>
   <div class="dag-view-container">
-    <!-- 顶部工具栏 -->
+    <!-- 顶部工具栏（纯展示状态） -->
     <DAGToolbar
       :novel-id="novelId"
       :dag-stats="dagStore.dagStats"
       :autopilot-status="autopilotStatus"
       :sse-connected="runStore.sseConnected"
-      :has-unsaved-changes="dagStore.hasUnsavedChanges"
-      @save="handleSave"
-      @validate="handleValidate"
-      @open-plaza="handleOpenPlaza"
+      @switch-to-card="handleSwitchToCard"
     />
 
     <!-- DAG 画布 -->
@@ -18,6 +15,7 @@
         v-if="dagStore.dagDefinition"
         :novel-id="novelId"
         @contextmenu="handleCanvasContextMenu"
+        @node-detail="handleNodeDetail"
       />
       <div v-else-if="dagStore.isLoading" class="dag-loading">
         <n-spin size="large" />
@@ -32,7 +30,7 @@
       </div>
     </div>
 
-    <!-- 右键菜单 -->
+    <!-- 右键菜单（精简） -->
     <NodeContextMenu
       v-if="contextMenu.visible"
       :x="contextMenu.x"
@@ -41,11 +39,15 @@
       :node-enabled="contextMenu.nodeEnabled"
       :node-type="contextMenu.nodeType"
       @close="contextMenu.visible = false"
-      @edit="handleEditNode"
+      @detail="handleNodeDetail"
       @toggle="handleToggleNode"
-      @rerun="handleRerunNode"
-      @view-upstream="handleViewUpstream"
-      @view-downstream="handleViewDownstream"
+    />
+
+    <!-- ★ 节点详情弹窗（主界面居中弹窗，仿 Dify） -->
+    <NodeDetailPanel
+      v-model:show="detailPanelVisible"
+      :node-id="selectedDetailNodeId"
+      :novel-id="novelId"
     />
   </div>
 </template>
@@ -55,23 +57,17 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
-import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
-import { dagApi } from '@/api/dag'
 import DAGToolbar from './DAGToolbar.vue'
 import DAGCanvas from './DAGCanvas.vue'
 import NodeContextMenu from './NodeContextMenu.vue'
+import NodeDetailPanel from './NodeDetailPanel.vue'
 
 const props = defineProps<{
   novelId: string
 }>()
 
-const emit = defineEmits<{
-  'desk-refresh': []
-}>()
-
 const dagStore = useDAGStore()
 const runStore = useDAGRunStore()
-const plazaBridge = usePromptPlazaBridge()
 const message = useMessage()
 
 // ★ 托管模式状态（从后端获取，DAG只是展示层）
@@ -86,6 +82,10 @@ const contextMenu = reactive({
   nodeEnabled: true,
   nodeType: '',
 })
+
+// ★ 节点详情弹窗
+const detailPanelVisible = ref(false)
+const selectedDetailNodeId = ref<string | null>(null)
 
 onMounted(async () => {
   await dagStore.loadDAG(props.novelId)
@@ -104,31 +104,6 @@ watch(() => runStore.runStatus, (status) => {
     autopilotStatus.value = 'error'
   }
 })
-
-// ─── 工具栏事件 ───
-
-async function handleSave() {
-  const success = await dagStore.saveDAG(props.novelId)
-  if (success) {
-    message.success('DAG 保存成功')
-  }
-  // Error message is already set in dagStore.saveDAG via error.value
-  // User will see error state in UI
-}
-
-async function handleValidate() {
-  const result = await dagStore.validateDAG(props.novelId)
-  if (result.is_valid) {
-    message.success(result.summary)
-  } else {
-    message.error(result.summary)
-  }
-}
-
-/** ★ 打开提示词广场 */
-function handleOpenPlaza() {
-  plazaBridge.openPromptInPlaza('', false)
-}
 
 // ─── 画布右键菜单 ───
 
@@ -153,14 +128,12 @@ function handleCanvasContextMenu(event: MouseEvent, nodeId: string, enabled: boo
   }, 0)
 }
 
-// ─── 右键菜单事件 ───
+// ─── 事件处理 ───
 
-/** ★ 编辑节点 → 跳转提示词广场 */
-function handleEditNode(nodeId: string) {
-  const node = dagStore.dagDefinition?.nodes.find(n => n.id === nodeId)
-  if (node) {
-    plazaBridge.openPromptInPlaza(node.type, true)
-  }
+/** ★ 单击节点 / 右键菜单"查看详情" → 打开主界面弹窗 */
+function handleNodeDetail(nodeId: string) {
+  selectedDetailNodeId.value = nodeId
+  detailPanelVisible.value = true
 }
 
 async function handleToggleNode(nodeId: string) {
@@ -169,35 +142,9 @@ async function handleToggleNode(nodeId: string) {
   message.success(node?.enabled ? '节点已启用' : '节点已禁用')
 }
 
-async function handleRerunNode(nodeId: string) {
-  // ★ DAG 是纯展示层，"从此节点重跑"走的是托管模式
-  message.info('提示：DAG 为可视化展示，重跑请使用全托管面板')
-}
-
-function handleViewUpstream(nodeId: string) {
-  dagStore.selectNode(nodeId)
-  const dag = dagStore.dagDefinition
-  if (dag) {
-    const predecessors = dag.get_predecessors(nodeId)
-    if (predecessors.length === 0) {
-      message.info(`${nodeId} 是入口节点，无上游`)
-    } else {
-      message.info(`上游节点: ${predecessors.join(', ')}`)
-    }
-  }
-}
-
-function handleViewDownstream(nodeId: string) {
-  dagStore.selectNode(nodeId)
-  const dag = dagStore.dagDefinition
-  if (dag) {
-    const successors = dag.get_successors(nodeId)
-    if (successors.length === 0) {
-      message.info(`${nodeId} 是终端节点，无下游`)
-    } else {
-      message.info(`下游节点: ${successors.join(', ')}`)
-    }
-  }
+/** ★ 切换到卡片视图 */
+function handleSwitchToCard() {
+  dagStore.switchView('card')
 }
 
 // ─── 获取托管模式状态 ───
