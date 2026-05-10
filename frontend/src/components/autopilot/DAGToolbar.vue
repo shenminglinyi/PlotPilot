@@ -2,7 +2,8 @@
   <div class="dag-toolbar">
     <div class="toolbar-left">
       <n-text strong class="toolbar-title-text">🧭 DAG 可视化</n-text>
-      <!-- DAG 统计 -->
+
+      <!-- 节点统计（精简） -->
       <n-tag v-if="dagStats" size="small" round>
         {{ dagStats.total }} 节点 · {{ dagStats.enabled }} 启用
         <template v-if="dagStats.running > 0">
@@ -13,7 +14,7 @@
         </template>
       </n-tag>
 
-      <!-- ★ 托管模式状态指示（替代原来的DAG运行状态） -->
+      <!-- ★ 托管模式状态指示 -->
       <n-tag
         v-if="autopilotStatus === 'running'"
         size="small"
@@ -53,15 +54,6 @@
       >
         ❌ 托管异常
       </n-tag>
-      <n-tag
-        v-else
-        size="small"
-        type="default"
-        round
-        :bordered="false"
-      >
-        ⏹ 空闲
-      </n-tag>
 
       <!-- SSE 连接状态 -->
       <n-tooltip trigger="hover">
@@ -78,21 +70,15 @@
         v{{ dagStats.version || 1 }}
       </n-text>
 
-      <!-- ★ 提示词广场入口 -->
-      <n-button size="small" quaternary type="primary" @click="$emit('openPlaza')">
-        🏪 广场
-      </n-button>
-      <!-- 验证 -->
-      <n-button size="small" quaternary @click="$emit('validate')">
-        ✅ 校验
-      </n-button>
-      <!-- 保存 -->
-      <n-button size="small" quaternary @click="$emit('save')">
-        <template #icon>
-          <span v-if="hasUnsavedChanges" class="unsaved-dot">●</span>
-        </template>
-        💾 保存
-      </n-button>
+      <!-- ★ 卡片/DAG 切换 Switch（与标题同一排，右侧） -->
+      <n-switch
+        :value="true"
+        @update:value="$emit('switch-to-card')"
+        size="small"
+      >
+        <template #checked>DAG</template>
+        <template #unchecked>卡片</template>
+      </n-switch>
     </div>
   </div>
 </template>
@@ -109,18 +95,13 @@ const props = defineProps<{
     bypassed: number
     version?: number
   }
-  /** ★ 托管模式状态（从 AutopilotDaemon 获取，替代原来的 DAG 运行状态） */
+  /** ★ 托管模式状态 */
   autopilotStatus: 'idle' | 'running' | 'paused' | 'completed' | 'error'
   sseConnected: boolean
-  /** ★ 是否有未保存的更改 */
-  hasUnsavedChanges: boolean
 }>()
 
 defineEmits<{
-  save: []
-  validate: []
-  /** ★ 打开提示词广场 */
-  openPlaza: []
+  'switch-to-card': []
 }>()
 </script>
 
@@ -173,19 +154,6 @@ defineEmits<{
 }
 
 @keyframes dag-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-/* ── 未保存指示灯 ── */
-.unsaved-dot {
-  color: var(--color-danger);
-  font-size: 10px;
-  animation: pulse 1.5s ease-in-out infinite;
-  margin-right: 4px;
-}
-
-@keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
 }
