@@ -16,11 +16,11 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 
-from engine.domain.services.memory_orchestrator import (
+from engine.core.services.memory_orchestrator import (
     MemoryOrchestrator, TokenBudget, ContextAssembly,
 )
-from engine.domain.entities.story import StoryId
-from engine.domain.value_objects.emotion_ledger import EmotionLedger
+from engine.core.entities.story import StoryId
+from engine.core.value_objects.emotion_ledger import EmotionLedger
 from engine.infrastructure.memory.echo_recall import EchoRecall
 from engine.infrastructure.memory.character_soul import CharacterSoulEngine
 

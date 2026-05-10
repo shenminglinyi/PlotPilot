@@ -12,7 +12,7 @@ import json
 import logging
 from typing import List, Optional, Dict, Any
 
-from engine.domain.value_objects.checkpoint import (
+from engine.core.value_objects.checkpoint import (
     Checkpoint, CheckpointId, CheckpointType,
 )
 

@@ -12,10 +12,10 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 
-from engine.domain.entities.character import (
+from engine.core.entities.character import (
     Character, CharacterId, VoiceStyle, Wound, CharacterPatch,
 )
-from engine.domain.value_objects.character_mask import CharacterMask
+from engine.core.value_objects.character_mask import CharacterMask
 
 logger = logging.getLogger(__name__)
 

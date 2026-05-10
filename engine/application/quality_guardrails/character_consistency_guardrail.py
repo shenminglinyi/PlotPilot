@@ -22,7 +22,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict, Any, Optional
 
-from engine.domain.value_objects.character_mask import CharacterMask
+from engine.core.value_objects.character_mask import CharacterMask
 
 logger = logging.getLogger(__name__)
 

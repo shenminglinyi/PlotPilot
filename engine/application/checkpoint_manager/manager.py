@@ -18,8 +18,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
-from engine.domain.entities.story import StoryId, StoryPhase
-from engine.domain.value_objects.checkpoint import (
+from engine.core.entities.story import StoryId, StoryPhase
+from engine.core.value_objects.checkpoint import (
     Checkpoint, CheckpointId, CheckpointType, RETENTION_POLICY,
 )
 from engine.infrastructure.persistence.checkpoint_store import CheckpointStore

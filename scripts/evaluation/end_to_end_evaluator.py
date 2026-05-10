@@ -14,14 +14,14 @@ import tempfile
 import os
 from typing import Dict, Any, List
 
-from engine.domain.entities.story import Story, StoryId, StoryPhase
-from engine.domain.entities.chapter import Chapter, ChapterQualityScore
-from engine.domain.entities.foreshadow import Foreshadow, ForeshadowId, ForeshadowStatus
-from engine.domain.value_objects.checkpoint import Checkpoint, CheckpointId, CheckpointType
-from engine.domain.value_objects.emotion_ledger import (
+from engine.core.entities.story import Story, StoryId, StoryPhase
+from engine.core.entities.chapter import Chapter, ChapterQualityScore
+from engine.core.entities.foreshadow import Foreshadow, ForeshadowId, ForeshadowStatus
+from engine.core.value_objects.checkpoint import Checkpoint, CheckpointId, CheckpointType
+from engine.core.value_objects.emotion_ledger import (
     EmotionLedger, EmotionalWound, EmotionalBoon, PowerShift, OpenLoop,
 )
-from engine.domain.value_objects.character_mask import CharacterMask
+from engine.core.value_objects.character_mask import CharacterMask
 from engine.application.quality_guardrails.quality_guardrail import (
     QualityGuardrail, QualityViolationError,
 )

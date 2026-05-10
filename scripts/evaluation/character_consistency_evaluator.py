@@ -16,7 +16,7 @@ from typing import Dict, Any, List
 from engine.application.quality_guardrails.character_consistency_guardrail import (
     CharacterConsistencyGuardrail, ConsistencyViolation,
 )
-from engine.domain.value_objects.character_mask import CharacterMask
+from engine.core.value_objects.character_mask import CharacterMask
 
 logger = logging.getLogger(__name__)
 

@@ -10,8 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from engine.domain.entities.character import CharacterId, CharacterPatch
-from engine.domain.value_objects.character_mask import CharacterMask
+from engine.core.entities.character import CharacterId, CharacterPatch
+from engine.core.value_objects.character_mask import CharacterMask
 
 
 class TraumaticEvent:

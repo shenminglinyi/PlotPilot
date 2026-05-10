@@ -17,7 +17,7 @@ import os
 import asyncio
 from typing import Dict, Any, List
 
-from engine.domain.value_objects.checkpoint import (
+from engine.core.value_objects.checkpoint import (
     Checkpoint, CheckpointId, CheckpointType,
 )
 from engine.infrastructure.persistence.checkpoint_store import CheckpointStore

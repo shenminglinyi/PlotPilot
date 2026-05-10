@@ -18,7 +18,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple
 
-from engine.domain.value_objects.character_mask import CharacterMask
+from engine.core.value_objects.character_mask import CharacterMask
 from engine.application.quality_guardrails.language_style_guardrail import (
     LanguageStyleGuardrail, StyleViolation,
 )

@@ -171,6 +171,16 @@ def _get_cast_graph(novel_id: str):
     return cast_service.get_cast(novel_id)
 
 
+def _get_character_soul_engine():
+    """获取 CharacterSoulEngine 实例"""
+    try:
+        from interfaces.api.dependencies import get_database
+        from engine.infrastructure.memory.character_soul import CharacterSoulEngine
+        return CharacterSoulEngine(get_database())
+    except Exception:
+        return None
+
+
 def _novel_exists(novel_id: str) -> bool:
     from interfaces.api.dependencies import get_novel_service
     return get_novel_service().get_novel(novel_id) is not None
@@ -242,7 +252,7 @@ async def rollback_checkpoint(novel_id: str, checkpoint_id: str):
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
-    from engine.domain.value_objects.checkpoint import CheckpointId
+    from engine.core.value_objects.checkpoint import CheckpointId
     from engine.application.checkpoint_manager.manager import CheckpointManager
 
     store = _get_checkpoint_store()
@@ -331,17 +341,15 @@ async def guardrail_check(novel_id: str, body: GuardrailCheckRequest):
     # 尝试从 Cast 服务获取角色面具
     character_masks = {}
     try:
+        from engine.core.value_objects.character_mask import CharacterMask
         cast_graph = _get_cast_graph(novel_id)
-        from engine.domain.value_objects.character_mask import CharacterMask
         for ch in (cast_graph.characters or []):
-            mask = CharacterMask(
-                name=ch.name,
-                role=ch.role,
-                voice_tag="",
-                core_belief="",
-                taboo="",
-            )
-            character_masks[ch.name] = mask
+                mask = CharacterMask(
+                    character_id=getattr(ch, 'id', '') or '',
+                    name=ch.name,
+                    core_belief="",
+                )
+                character_masks[ch.name] = mask
     except Exception:
         pass  # Cast 服务不可用时用空面具
 
@@ -440,24 +448,24 @@ async def get_story_phase(novel_id: str):
     except Exception as e:
         logger.warning("获取StoryPhase失败: %s", e)
 
-    # 回退：基于章节进度推算
+    # 回退：基于章节进度推算（对齐4阶段模型）
     try:
+        from engine.core.entities.story import StoryPhase as StoryPhaseEnum
         from interfaces.api.dependencies import get_chapter_repository
         chapter_repo = get_chapter_repository()
         chapters = chapter_repo.get_chapters_by_novel(novel_id)
         total = len(chapters) if chapters else 0
-        if total == 0:
-            return StoryPhaseDTO(phase="setup", progress=0.0, description="尚未开始")
-        elif total <= 5:
-            return StoryPhaseDTO(phase="setup", progress=total / 10, description="设定阶段")
-        elif total <= 15:
-            return StoryPhaseDTO(phase="rising_action", progress=0.3 + (total - 5) / 30, description="冲突升级")
-        elif total <= 25:
-            return StoryPhaseDTO(phase="crisis", progress=0.6 + (total - 15) / 30, description="高潮危机")
-        else:
-            return StoryPhaseDTO(phase="resolution", progress=0.85, description="收束阶段")
+        target = getattr(novel, 'target_chapters', 30) if novel else 30
+        progress = total / target if target > 0 else 0.0
+        phase = StoryPhaseEnum.from_progress(progress)
+        return StoryPhaseDTO(
+            phase=phase.value,
+            progress=round(min(progress, 1.0), 3),
+            description=phase.description,
+            can_advance=phase != StoryPhaseEnum.FINALE,
+        )
     except Exception:
-        return StoryPhaseDTO(phase="setup", progress=0.0, description="未知阶段")
+        return StoryPhaseDTO(phase="opening", progress=0.0, description="未知阶段")
 
 
 @router.put("/{novel_id}/story-phase", response_model=StoryPhaseDTO)
@@ -467,7 +475,7 @@ async def update_story_phase(novel_id: str, body: StoryPhaseDTO):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        from domain.novel.value_objects.story_phase import StoryPhase as StoryPhaseEnum
+        from engine.core.entities.story import StoryPhase as StoryPhaseEnum
         new_phase = StoryPhaseEnum(body.phase)
     except (ValueError, ImportError):
         new_phase = body.phase
@@ -499,6 +507,42 @@ async def list_character_souls(novel_id: str):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
+        # 优先从 CharacterSoulEngine 获取四维数据
+        soul_engine = _get_character_soul_engine()
+        if soul_engine:
+            cast_graph = _get_cast_graph(novel_id)
+            characters = []
+            for ch in (cast_graph.characters or []):
+                char_id = getattr(ch, 'id', '') or ch.name
+                soul_data = None
+                try:
+                    soul_data = await soul_engine.load_character(str(char_id))
+                except Exception:
+                    pass
+
+                if soul_data:
+                    characters.append(CharacterSoulDTO(
+                        name=soul_data.name,
+                        role=getattr(soul_data, 'role', '') or ch.role,
+                        core_belief=soul_data.core_belief,
+                        taboo="、".join(soul_data.moral_taboos) if soul_data.moral_taboos else "",
+                        voice_tag=soul_data.voice_profile.style if soul_data.voice_profile else "",
+                        wound=soul_data.active_wounds[0].description if soul_data.active_wounds else "",
+                        trauma_count=len(soul_data.evolution_patches),
+                    ))
+                else:
+                    characters.append(CharacterSoulDTO(
+                        name=ch.name,
+                        role=ch.role,
+                        core_belief="",
+                        taboo="",
+                        voice_tag="",
+                        wound="",
+                        trauma_count=0,
+                    ))
+            return CharacterSoulListResponse(characters=characters)
+
+        # 回退：从 Cast 图谱获取基础信息
         cast_graph = _get_cast_graph(novel_id)
         characters = []
         for ch in (cast_graph.characters or []):
@@ -524,6 +568,34 @@ async def get_character_soul(novel_id: str, character_name: str):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
+        # 优先从 CharacterSoulEngine 获取四维详细数据
+        soul_engine = _get_character_soul_engine()
+        if soul_engine:
+            cast_graph = _get_cast_graph(novel_id)
+            for ch in (cast_graph.characters or []):
+                if ch.name == character_name:
+                    char_id = getattr(ch, 'id', '') or ch.name
+                    try:
+                        soul_data = await soul_engine.load_character(str(char_id))
+                        if soul_data:
+                            mask = await soul_engine.compute_mask(str(char_id), 0)
+                            mask_summary = mask.to_t0_fact_lock() if mask else ""
+                            return CharacterSoulDetailDTO(
+                                name=soul_data.name,
+                                role=getattr(soul_data, 'role', '') or ch.role,
+                                core_belief=soul_data.core_belief,
+                                taboo="、".join(soul_data.moral_taboos) if soul_data.moral_taboos else "",
+                                voice_tag=soul_data.voice_profile.style if soul_data.voice_profile else "",
+                                wound=soul_data.active_wounds[0].description if soul_data.active_wounds else "",
+                                trauma_count=len(soul_data.evolution_patches),
+                                emotion_ledger={},
+                                mask_summary=mask_summary,
+                            )
+                    except Exception as e:
+                        logger.warning("从SoulEngine获取角色详情失败: %s", e)
+                    break
+
+        # 回退：从 Cast 图谱获取
         cast_graph = _get_cast_graph(novel_id)
         target = None
         for ch in (cast_graph.characters or []):
@@ -559,13 +631,33 @@ async def validate_character_behavior(novel_id: str, character_name: str, body: 
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        from engine.domain.value_objects.character_mask import CharacterMask
+        # 优先使用 CharacterSoulEngine 获取面具并验证
+        soul_engine = _get_character_soul_engine()
+        if soul_engine:
+            cast_graph = _get_cast_graph(novel_id)
+            for ch in (cast_graph.characters or []):
+                if ch.name == character_name:
+                    char_id = getattr(ch, 'id', '') or ch.name
+                    try:
+                        mask = await soul_engine.compute_mask(str(char_id), 0)
+                        if mask:
+                            result = mask.validate_behavior(body.action)
+                            if isinstance(result, dict):
+                                return ValidateBehaviorResponse(
+                                    valid=result.get("valid", True),
+                                    warnings=result.get("warnings", []),
+                                    suggestions=result.get("suggestions", []),
+                                )
+                    except Exception as e:
+                        logger.warning("SoulEngine验证失败: %s", e)
+                    break
+
+        # 回退：使用空面具进行基础验证
+        from engine.core.value_objects.character_mask import CharacterMask
         mask = CharacterMask(
+            character_id="",
             name=character_name,
-            role="",
-            voice_tag="",
             core_belief="",
-            taboo="",
         )
         result = mask.validate_behavior(body.action)
         if isinstance(result, dict):

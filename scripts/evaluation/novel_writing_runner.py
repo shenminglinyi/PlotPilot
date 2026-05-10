@@ -25,9 +25,9 @@ from typing import Dict, Any, List, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 
 from engine.application.writing_orchestrator import WritingOrchestrator, ChapterResult
-from engine.domain.entities.story import Story, StoryPhase
-from engine.domain.entities.character import Character, VoiceStyle, Wound
-from engine.domain.value_objects.emotion_ledger import EmotionLedger
+from engine.core.entities.story import Story, StoryPhase
+from engine.core.entities.character import Character, VoiceStyle, Wound
+from engine.core.value_objects.emotion_ledger import EmotionLedger
 
 logger = logging.getLogger(__name__)
 

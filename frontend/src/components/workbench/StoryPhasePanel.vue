@@ -7,7 +7,7 @@
 
     <n-spin :show="loading">
       <n-card v-if="phase" size="small" :bordered="true" class="phase-card">
-        <!-- 阶段进度条 -->
+        <!-- 阶段进度条（4阶段，对齐后端 StoryPhase） -->
         <div class="phase-visual">
           <div class="phase-track">
             <div
@@ -62,22 +62,39 @@ const props = defineProps<{ slug: string }>()
 const loading = ref(false)
 const phase = ref<StoryPhaseDTO | null>(null)
 
+// 对齐后端 4 阶段模型: opening / development / convergence / finale
 const PHASE_STAGES = [
-  { key: 'setup', label: '设定' },
-  { key: 'rising_action', label: '升级' },
-  { key: 'crisis', label: '危机' },
-  { key: 'climax', label: '高潮' },
-  { key: 'resolution', label: '收束' },
+  { key: 'opening', label: '开局' },
+  { key: 'development', label: '发展' },
+  { key: 'convergence', label: '收敛' },
+  { key: 'finale', label: '终局' },
 ]
 
 const PHASE_ORDER = PHASE_STAGES.map(s => s.key)
 
 const PHASE_LABELS: Record<string, string> = {
+  opening: '开局期',
+  development: '发展期',
+  convergence: '收敛期',
+  finale: '终局期',
+  // 兼容旧后端可能返回的5阶段值
   setup: '设定阶段',
   rising_action: '冲突升级',
   crisis: '危机阶段',
   climax: '高潮阶段',
   resolution: '收束阶段',
+}
+
+// 旧5阶段到新4阶段的映射
+function normalizePhase(p: string): string {
+  const LEGACY_MAP: Record<string, string> = {
+    setup: 'opening',
+    rising_action: 'development',
+    crisis: 'development',
+    climax: 'convergence',
+    resolution: 'finale',
+  }
+  return LEGACY_MAP[p] || p
 }
 
 const phaseLabel = computed(() => {
@@ -87,10 +104,11 @@ const phaseLabel = computed(() => {
 
 const phaseTagType = computed((): 'default' | 'info' | 'success' | 'warning' | 'error' => {
   if (!phase.value) return 'default'
-  const idx = PHASE_ORDER.indexOf(phase.value.phase)
+  const normalized = normalizePhase(phase.value.phase)
+  const idx = PHASE_ORDER.indexOf(normalized)
   if (idx <= 0) return 'info'
-  if (idx <= 2) return 'warning'
-  if (idx === 3) return 'error'
+  if (idx <= 1) return 'warning'
+  if (idx === 2) return 'error'
   return 'success'
 })
 
@@ -107,7 +125,12 @@ async function load() {
   if (!props.slug) return
   loading.value = true
   try {
-    phase.value = await storyPhaseApi.get(props.slug)
+    const result = await storyPhaseApi.get(props.slug)
+    // 规范化阶段值
+    if (result) {
+      result.phase = normalizePhase(result.phase)
+    }
+    phase.value = result
   } catch {
     phase.value = null
   } finally {
