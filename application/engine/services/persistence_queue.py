@@ -67,6 +67,9 @@ class PersistenceCommandType(Enum):
     # 快照
     UPDATE_SNAPSHOTS = "update_snapshots"
 
+    # 通用 SQL 执行（CQRS 统一写入通道——守护进程不再直接写 DB）
+    EXECUTE_SQL = "execute_sql"
+
     # 批量命令
     BATCH = "batch"
 
@@ -306,6 +309,37 @@ def inject_persistence_queue(queue: mp.Queue) -> None:
 def register_persistence_handlers() -> None:
     """注册所有持久化处理器（主进程启动时调用）"""
     pq = get_persistence_queue()
+
+    # ── 通用 SQL 执行器（CQRS 统一写入通道）──
+    # 守护进程不再直接写 DB，所有写操作统一推 (sql, params) 到队列，
+    # 由 API 进程的消费者线程串行执行，从根本上消除 SQLite 多进程写锁竞争。
+    def handle_execute_sql(payload: Dict) -> None:
+        """执行任意 SQL 写操作（INSERT/UPDATE/DELETE）。
+
+        payload 格式:
+            {
+                "sql": "UPDATE novels SET current_stage = ? WHERE id = ?",
+                "params": ["writing", "novel-xxx"]  // 可选，默认 []
+            }
+        """
+        try:
+            from infrastructure.persistence.database.connection import get_database
+
+            db = get_database()
+            sql = payload.get("sql", "")
+            params = payload.get("params", [])
+
+            if not sql.strip():
+                return
+
+            db.execute(sql, params)
+            db.get_connection().commit()
+            logger.debug("[PersistenceQueue] EXECUTE_SQL 已执行: %s", sql[:120])
+
+        except Exception as e:
+            logger.error("[PersistenceQueue] EXECUTE_SQL 失败: %s | SQL: %s", e, payload.get("sql", "")[:120])
+
+    pq.register_handler(PersistenceCommandType.EXECUTE_SQL.value, handle_execute_sql)
 
     # 章节相关处理器
     def handle_upsert_chapter(payload: Dict) -> None:
@@ -559,4 +593,4 @@ def register_persistence_handlers() -> None:
 
     pq.register_handler(PersistenceCommandType.UPDATE_STORYLINES.value, handle_update_storylines)
 
-    logger.info("✅ 持久化处理器已注册: upsert_chapter, update_chapter_tension, patch_novel, update_novel_state, update_chapter_status, update_foreshadows, update_storylines")
+    logger.info("✅ 持久化处理器已注册: execute_sql, upsert_chapter, update_chapter_tension, patch_novel, update_novel_state, update_chapter_status, update_foreshadows, update_storylines")
