@@ -11,7 +11,6 @@ from typing import List, Dict, Optional
 from domain.novel.entities.novel import Novel, AutopilotStatus, NovelStage
 from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
-from domain.novel.value_objects.chapter_id import ChapterId
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +119,10 @@ def find_novels_with_chapters_optimized(db_pool, status: str) -> List[Novel]:
         if row['chapter_id']:
             novels_map[novel_id]['chapters'].append({
                 'id': row['chapter_id'],
+                'novel_id': novel_id,
                 'number': row['chapter_number'],
                 'title': row['chapter_title'],
                 'status': row['chapter_status'],
-                'word_count': row['chapter_word_count'],
                 'tension_score': row['chapter_tension_score'],
             })
 
@@ -202,11 +201,11 @@ def _build_novel_from_dict(data: Dict) -> Novel:
 def _build_chapter_from_dict(data: Dict) -> Chapter:
     """从字典构建 Chapter 实体"""
     return Chapter(
-        chapter_id=ChapterId(data['id']),
+        id=data['id'],
+        novel_id=NovelId(data['novel_id']),
         number=data['number'],
         title=data.get('title', ''),
         status=ChapterStatus(data.get('status', 'draft')),
-        word_count=data.get('word_count', 0),
         tension_score=data.get('tension_score', 50.0),
     )
 

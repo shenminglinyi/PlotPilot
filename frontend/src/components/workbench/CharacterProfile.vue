@@ -286,7 +286,7 @@ async function loadCharacterData() {
     const [anchorRes, psycheRes] = await Promise.all([
       sandboxApi.getCharacterAnchor(props.slug, props.selectedCharacterId),
       characterName.value
-        ? characterPsycheApi.getDetail(props.slug, characterName.value)
+        ? characterPsycheApi.get(props.slug, characterName.value)
         : Promise.resolve(null),
     ])
 
@@ -377,10 +377,10 @@ async function runValidate() {
 
   validating.value = true
   try {
-    const res = await characterPsycheApi.validateBehavior(
+    const res = await characterPsycheApi.validate(
       props.slug,
       characterName.value,
-      validateAction.value
+      { action: validateAction.value }
     )
     validateResult.value = res
   } catch (err: any) {

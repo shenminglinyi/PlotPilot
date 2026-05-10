@@ -50,7 +50,14 @@
           </template>
           <span v-if="isWriting"> · {{ beatLabel }}</span>
         </div>
-        <div v-if="status?.current_act_description" class="act-desc">{{ status.current_act_description }}</div>
+        <!-- 🔥 幕描述：更醒目的展示 -->
+        <div v-if="status?.current_act_description" class="act-desc">
+          <span class="act-desc-icon">📖</span> {{ status.current_act_description }}
+        </div>
+        <!-- 🔥 幕无描述但有标题时也提示 -->
+        <div v-else-if="status?.current_act_title && !status?.current_act_description" class="act-desc act-desc-placeholder">
+          暂无幕描述
+        </div>
       </div>
       <div class="ap-cell">
         <div class="label">上章张力</div>
@@ -1144,9 +1151,23 @@ onUnmounted(() => {
 .act-desc {
   font-size: 11px;
   color: var(--n-text-color-3);
-  margin-top: 2px;
-  line-height: 1.4;
+  margin-top: 3px;
+  line-height: 1.5;
   word-break: break-word;
+  padding: 3px 6px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  border-left: 2px solid rgba(24, 160, 88, 0.3);
+}
+
+.act-desc-icon {
+  margin-right: 2px;
+}
+
+.act-desc-placeholder {
+  color: var(--n-text-color-4);
+  font-style: italic;
+  border-left-color: rgba(0, 0, 0, 0.1);
 }
 
 /* ★ V9 细化状态条 */

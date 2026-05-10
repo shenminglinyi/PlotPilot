@@ -44,6 +44,15 @@
                     <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
                       {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
                     </n-tag>
+                    <!-- 🔥 流式写作状态指示 -->
+                    <n-tag v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number" size="small" type="info" round>
+                      生成中...
+                    </n-tag>
+                  </div>
+                  <!-- 🔥 当前幕信息 -->
+                  <div v-if="autopilotStatus?.current_act_title" class="act-info-header">
+                    <span class="act-info-title">第 {{ (autopilotStatus.current_act || 0) + 1 }} 幕 · {{ autopilotStatus.current_act_title }}</span>
+                    <span v-if="autopilotStatus.current_act_description" class="act-info-desc">{{ autopilotStatus.current_act_description }}</span>
                   </div>
                   <n-space :size="8">
                     <n-button size="small" @click="handleReload" :disabled="loading">
@@ -79,7 +88,13 @@
 
                 <div class="editor-footer">
                   <n-space :size="8" align="center" justify="space-between" style="width: 100%">
-                    <n-text depth="3">字数: {{ wordCount }}</n-text>
+                    <n-text depth="3">
+                      字数:
+                      <span :class="{ 'streaming-word-count': isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent }">
+                        {{ wordCount }}
+                      </span>
+                      <span v-if="isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent" class="streaming-indicator">生成中▋</span>
+                    </n-text>
                     <n-space :size="8">
                       <n-tooltip trigger="hover" :disabled="!isAutopilotRunning && !isAssistedReadOnly">
                         <template #trigger>
@@ -851,6 +866,10 @@ const hasChanges = computed(() => {
 })
 
 const wordCount = computed(() => {
+  // 🔥 流式写作时取流式内容长度，否则取编辑框内容长度
+  if (isAutopilotRunning.value && streamingChapterNumber.value === currentChapter.value?.number && streamingContent.value) {
+    return streamingContent.value.length
+  }
   return chapterContent.value.length
 })
 
@@ -1394,5 +1413,45 @@ defineExpose({ ensureAssistedMode })
 
 @keyframes cursor-blink-anim {
   50% { opacity: 0; }
+}
+
+/* 🔥 流式字数动画 */
+.streaming-word-count {
+  color: #18a058;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.streaming-indicator {
+  color: #18a058;
+  font-size: 12px;
+  margin-left: 4px;
+  animation: cursor-blink-anim 1s step-end infinite;
+}
+
+/* 🔥 当前幕信息 */
+.act-info-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.act-info-title {
+  font-size: 12px;
+  color: var(--n-text-color-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.act-info-desc {
+  font-size: 11px;
+  color: var(--n-text-color-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
