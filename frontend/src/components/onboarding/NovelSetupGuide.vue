@@ -49,60 +49,48 @@
             :completed-dimensions="completedDimensions"
           >
             <template #core_rules>
-              <!-- 字段数据已到达 → 显示小卡片 -->
               <div class="dimension-fields" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
-                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'core_rules' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
-              </div>
-              <!-- LLM 流式输出中 → 显示逐字文本预览 -->
-              <div v-else-if="activeDimension === 'core_rules' && streamingDimText" class="streaming-preview">
-                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #geography>
               <div class="dimension-fields" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
-                <div v-for="(val, key) in worldbuildingData.geography" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.geography" :key="key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'geography' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
-              </div>
-              <div v-else-if="activeDimension === 'geography' && streamingDimText" class="streaming-preview">
-                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #society>
               <div class="dimension-fields" v-if="worldbuildingData.society && Object.keys(worldbuildingData.society).length">
-                <div v-for="(val, key) in worldbuildingData.society" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.society" :key="key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'society' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
-              </div>
-              <div v-else-if="activeDimension === 'society' && streamingDimText" class="streaming-preview">
-                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #culture>
               <div class="dimension-fields" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
-                <div v-for="(val, key) in worldbuildingData.culture" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.culture" :key="key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'culture' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
-              </div>
-              <div v-else-if="activeDimension === 'culture' && streamingDimText" class="streaming-preview">
-                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #daily_life>
               <div class="dimension-fields" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
-                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key" class="field-card">
+                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === key }">
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}</div>
+                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'daily_life' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
-              </div>
-              <div v-else-if="activeDimension === 'daily_life' && streamingDimText" class="streaming-preview">
-                <span class="streaming-preview__text">{{ streamingDimText }}</span><span class="streaming-cursor">▎</span>
               </div>
             </template>
           </WizardSkeleton>
@@ -687,6 +675,62 @@ const emit = defineEmits<{
   (e: 'skip'): void
 }>()
 
+/** 增量 JSON 解析器：从流式文本中提取已完成和正在流式的字段 */
+function parseStreamingJsonFields(text: string): {
+  completed: Record<string, string>
+  streamingKey: string
+  streamingValue: string
+} {
+  const result: { completed: Record<string, string>; streamingKey: string; streamingValue: string } = {
+    completed: {},
+    streamingKey: '',
+    streamingValue: '',
+  }
+
+  if (!text) return result
+
+  // 提取 JSON 内容（去除 markdown 代码块标记）
+  let jsonStr = text
+  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1]
+  }
+  // 尝试提取 { ... } 部分
+  const braceStart = jsonStr.indexOf('{')
+  if (braceStart === -1) return result
+  jsonStr = jsonStr.slice(braceStart)
+
+  // 用正则逐个匹配 "key": "value" 对
+  // 已完成的字段：key 和 value 都完整闭合
+  const completedRe = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g
+  let m: RegExpExecArray | null
+  while ((m = completedRe.exec(jsonStr)) !== null) {
+    result.completed[m[1]] = m[2]
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+  }
+
+  // 正在流式的字段：key 完整但 value 还没闭合
+  // 匹配 "key": "value_so_far... (末尾没有闭合引号)
+  const streamingRe = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)$/
+  const streamMatch = streamingRe.exec(jsonStr)
+  if (streamMatch) {
+    // 确保这个字段不在已完成列表中（可能是最后一个字段刚好闭合了）
+    if (!(streamMatch[1] in result.completed)) {
+      result.streamingKey = streamMatch[1]
+      result.streamingValue = streamMatch[2]
+        .replace(/\\n/g, '\n')
+        .replace(/\\t/g, '\t')
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, '\\')
+    }
+  }
+
+  return result
+}
+
 const modalOpen = computed({
   get: () => props.show,
   set: (v: boolean) => {
@@ -1190,14 +1234,43 @@ bibleError.value = ''
       // 已弃用，保留空实现以兼容旧版
     },
     onWorldbuildingDimChunk: (dimension, chunk) => {
-      // 维度级流式 chunk：追加到临时文本，逐字显示
+      // 维度级流式 chunk：增量解析 JSON，实时提取字段
       streamingDimText.value += chunk
+
       // 确保当前维度标记为 active
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
           completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
         }
         activeDimension.value = dimension
+      }
+
+      // ── 增量 JSON 解析：提取已完成和正在流式的字段 ──
+      const parsed = parseStreamingJsonFields(streamingDimText.value)
+      const dim = dimension as keyof typeof worldbuildingData.value
+
+      // 已完成的字段 → 更新到 worldbuildingData
+      const completedFields: Record<string, string> = {}
+      for (const [k, v] of Object.entries(parsed.completed)) {
+        completedFields[k] = v
+        if (!arrivedFields.value.has(k)) {
+          arrivedFields.value = new Set([...arrivedFields.value, k])
+        }
+      }
+
+      // 正在流式的字段 → 也更新到 worldbuildingData（带流式光标）
+      if (parsed.streamingKey && parsed.streamingValue !== undefined) {
+        completedFields[parsed.streamingKey] = parsed.streamingValue
+        activeField.value = parsed.streamingKey
+      } else {
+        activeField.value = ''
+      }
+
+      if (Object.keys(completedFields).length > 0) {
+        worldbuildingData.value = {
+          ...worldbuildingData.value,
+          [dimension]: { ...worldbuildingData.value[dim], ...completedFields },
+        }
       }
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
@@ -1883,22 +1956,9 @@ const handleComplete = () => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.streaming-preview {
-  padding: 12px;
-  background: #2080f006;
-  border: 1px dashed #2080f030;
-  border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.7;
-  color: #555;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.streaming-preview__text {
-  color: #333;
+.field-card--streaming {
+  border-color: #2080f060;
+  background: #2080f008;
 }
 
 .streaming-cursor {
