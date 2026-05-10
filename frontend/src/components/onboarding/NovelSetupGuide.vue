@@ -9,11 +9,11 @@
     style="width: 94%; max-width: 960px; max-height: 92vh"
     :segmented="{ content: true, footer: true }"
   >
-    <n-steps :current="currentStep" :status="stepStatus" size="small">
-      <n-step title="世界观" description="5维度框架" />
-      <n-step title="人物" description="主要角色" />
-      <n-step title="地图" description="地图系统" />
-      <n-step title="故事线" description="主线支线" />
+    <n-steps :current="currentStep" :status="stepStatus" size="small" class="wizard-steps">
+      <n-step title="世界观" description="5维度框架" class="wizard-step-clickable" @click="goToStep(1)" />
+      <n-step title="人物" description="主要角色" class="wizard-step-clickable" @click="goToStep(2)" />
+      <n-step title="地图" description="地图系统" class="wizard-step-clickable" @click="goToStep(3)" />
+      <n-step title="故事线" description="主线支线" class="wizard-step-clickable" @click="goToStep(4)" />
       <n-step title="开始" description="进入工作台" />
     </n-steps>
 
@@ -47,6 +47,8 @@
             type="worldbuilding"
             :active-dimension="activeDimension"
             :completed-dimensions="completedDimensions"
+            :active-field="activeField"
+            :arrived-fields="arrivedFields"
           >
             <template #core_rules>
               <div class="dimension-fields" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
@@ -137,6 +139,9 @@
               </n-card>
             </n-collapse-item>
           </n-collapse>
+          <n-button secondary style="margin-top: 12px" @click="startBibleGeneration()">
+            重新生成
+          </n-button>
         </div>
 
         <!-- 初始状态 -->
@@ -146,6 +151,9 @@
           </n-icon>
           <h3>准备生成世界观</h3>
           <p>AI 将分析您的故事创意，逐维度构建世界观和文风公约。</p>
+          <n-button type="primary" style="margin-top: 16px" @click="startBibleGeneration()">
+            开始生成
+          </n-button>
         </div>
       </div>
 
@@ -211,6 +219,21 @@
               </div>
             </n-list-item>
           </n-list>
+          <n-button secondary style="margin-top: 12px" @click="startCharactersGeneration()">
+            重新生成
+          </n-button>
+        </div>
+
+        <!-- 初始状态 -->
+        <div v-else class="step-info">
+          <n-icon size="48" color="#2080f0">
+            <IconPeople />
+          </n-icon>
+          <h3>生成主要角色</h3>
+          <p>基于已确认的世界观，AI 将生成主要角色及其关系。</p>
+          <n-button type="primary" style="margin-top: 16px" @click="startCharactersGeneration()">
+            开始生成
+          </n-button>
         </div>
       </div>
 
@@ -277,6 +300,21 @@
               </div>
             </n-list-item>
           </n-list>
+          <n-button secondary style="margin-top: 12px" @click="startLocationsGeneration()">
+            重新生成
+          </n-button>
+        </div>
+
+        <!-- 初始状态 -->
+        <div v-else class="step-info">
+          <n-icon size="48" color="#f0a020">
+            <IconMap />
+          </n-icon>
+          <h3>生成地图系统</h3>
+          <p>基于已确认的世界观和人物，AI 将生成重要地点和地图结构。</p>
+          <n-button type="primary" style="margin-top: 16px" @click="startLocationsGeneration()">
+            开始生成
+          </n-button>
         </div>
       </div>
 
@@ -399,11 +437,16 @@
 
     <template #footer>
       <n-space justify="space-between">
-        <n-button v-if="currentStep > 3 && currentStep < 5" @click="handleSkip">
-          跳过向导
-        </n-button>
-        <div v-else></div>
         <n-space>
+          <n-button v-if="currentStep > 1 && currentStep < 5" @click="handlePrev">
+            上一步
+          </n-button>
+          <n-button v-if="currentStep > 1 && currentStep < 5" @click="handleSkip">
+            跳过向导
+          </n-button>
+        </n-space>
+        <n-space>
+          <!-- 步骤1~3：已生成后显示"确认修改并继续" -->
           <n-button
             v-if="(currentStep === 1 && bibleGenerated) || (currentStep === 2 && charactersGenerated) || (currentStep === 3 && locationsGenerated)"
             type="primary"
@@ -412,7 +455,9 @@
           >
             确认修改并继续
           </n-button>
+          <!-- 步骤4：选了主线后可下一步 -->
           <n-button v-if="currentStep === 4" :disabled="!mainPlotCommitted" @click="handleNext"> 下一步 </n-button>
+          <!-- 步骤5：进入工作台 -->
           <n-button v-if="currentStep === 5" type="primary" @click="handleComplete">
             进入工作台
           </n-button>
@@ -654,6 +699,8 @@ const styleText = ref('')
 const phaseMessage = ref('')
 const activeDimension = ref('')
 const completedDimensions = ref<Set<string>>(new Set())
+const activeField = ref('')
+const arrivedFields = ref<Set<string>>(new Set())
 const sseAbortController = ref<AbortController | null>(null)
 
 const styleConventionDisplay = computed(() => {
@@ -898,6 +945,7 @@ async function startBibleGenerationPoll() {
   biblePollEpoch.value += 1
   const epoch = biblePollEpoch.value
   generatingBible.value = true
+  bibleGenerated.value = false
   bibleError.value = ''
   phaseMessage.value = '正在生成世界观...'
 
@@ -964,6 +1012,7 @@ async function startCharactersGenerationPoll() {
   step2PollEpoch.value += 1
   const epoch2 = step2PollEpoch.value
   generatingCharacters.value = true
+  charactersGenerated.value = false
   charactersError.value = ''
   phaseMessage.value = '正在生成人物...'
 
@@ -991,6 +1040,7 @@ async function startLocationsGenerationPoll() {
   step3PollEpoch.value += 1
   const epoch3 = step3PollEpoch.value
   generatingLocations.value = true
+  locationsGenerated.value = false
   locationsError.value = ''
   phaseMessage.value = '正在生成地图...'
 
@@ -1032,11 +1082,14 @@ async function startBibleGeneration() {
 
 /** 启动第1步 SSE 流式生成世界观 */
 function startBibleGenerationSSE() {
-  generatingBible.value = true
-  bibleError.value = ''
+generatingBible.value = true
+bibleGenerated.value = false
+bibleError.value = ''
   phaseMessage.value = '正在准备生成环境...'
   activeDimension.value = ''
   completedDimensions.value = new Set()
+  activeField.value = ''
+  arrivedFields.value = new Set()
   worldbuildingData.value = emptyWorldbuildingShape()
   styleText.value = ''
 
@@ -1059,25 +1112,50 @@ function startBibleGenerationSSE() {
       if (phase.startsWith('worldbuilding_') && phase !== 'worldbuilding_done') {
         const dimKey = phase.replace('worldbuilding_', '')
         if (WB_DIMS.includes(dimKey as typeof WB_DIMS[number])) {
+          // 维度级 phase：worldbuilding_core_rules
           // 标记上一个维度为已完成
           if (activeDimension.value && activeDimension.value !== dimKey) {
             completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
           }
           activeDimension.value = dimKey
+          // 切换到新维度时重置字段状态
+          activeField.value = ''
+          arrivedFields.value = new Set()
         } else if (dimKey === 'style') {
           // worldbuilding_style phase：文风公约生成中，清除 activeDimension
           // 让所有维度都显示"等待中"，文风信息通过 phaseMessage 显示
           activeDimension.value = ''
+          activeField.value = ''
+        } else {
+          // 字段级 phase：worldbuilding_core_rules_power_system
+          // 尝试匹配 worldbuilding_{dim}_{field} 格式
+          for (const dk of WB_DIMS) {
+            if (dimKey.startsWith(dk + '_')) {
+              const fk = dimKey.slice(dk.length + 1)
+              // 确保维度正确
+              if (activeDimension.value !== dk) {
+                if (activeDimension.value) {
+                  completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
+                }
+                activeDimension.value = dk
+                arrivedFields.value = new Set()
+              }
+              activeField.value = fk
+              break
+            }
+          }
         }
       }
       if (phase === 'worldbuilding') {
         // 进入世界观阶段，暂时不设置维度为"生成中"
         // 等待 worldbuilding_style 或 worldbuilding_core_rules phase 再设置
         activeDimension.value = ''
+        activeField.value = ''
       }
       if (phase === 'worldbuilding_done') {
         completedDimensions.value = new Set(WB_DIMS)
         activeDimension.value = ''
+        activeField.value = ''
       }
     },
     onStyle: (content) => {
@@ -1097,6 +1175,10 @@ function startBibleGenerationSSE() {
         }
         activeDimension.value = dimension
       }
+      // 标记该字段已到达
+      arrivedFields.value = new Set([...arrivedFields.value, field])
+      // 该字段已生成完毕，清除 activeField（等下一个字段的 phase 事件再设置）
+      activeField.value = ''
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value
@@ -1113,6 +1195,7 @@ function startBibleGenerationSSE() {
       clearTimeout(timeoutId)
       completedDimensions.value = new Set(WB_DIMS)
       activeDimension.value = ''
+      activeField.value = ''
       generatingBible.value = false
       bibleGenerated.value = true
       phaseMessage.value = ''
@@ -1149,8 +1232,9 @@ async function startCharactersGeneration() {
 
 /** 启动第2步 SSE 流式生成人物 */
 function startCharactersGenerationSSE() {
-  generatingCharacters.value = true
-  charactersError.value = ''
+generatingCharacters.value = true
+charactersGenerated.value = false
+charactersError.value = ''
   streamingCharacters.value = []
   phaseMessage.value = '正在生成人物...'
 
@@ -1218,8 +1302,9 @@ async function startLocationsGeneration() {
 
 /** 启动第3步 SSE 流式生成地点 */
 function startLocationsGenerationSSE() {
-  generatingLocations.value = true
-  locationsError.value = ''
+generatingLocations.value = true
+locationsGenerated.value = false
+locationsError.value = ''
   streamingLocations.value = []
   phaseMessage.value = '正在生成地图...'
 
@@ -1287,26 +1372,21 @@ async function loadBibleData() {
     const fromWs = worldbuildingFromWorldSettings(bible.world_settings)
     worldbuildingData.value = mergeWorldbuildingDisplay(fromApi, fromWs)
 
-    if (!styleText.value) {
-      styleText.value = styleConventionFromBible(bible)
-    }
+    // 始终用后端最新数据刷新文风
+    styleText.value = styleConventionFromBible(bible)
 
     // 将人物/地点拷贝到可编辑列表
-    if (bible.characters?.length) {
-      editableCharacters.value = bible.characters.map(c => ({
-        name: c.name || '',
-        role: c.role || '',
-        description: c.description || '',
-      }))
-    }
-    if (bible.locations?.length) {
-      editableLocations.value = bible.locations.map(l => ({
-        name: l.name || '',
-        id: l.id || undefined,
-        location_type: l.location_type || '',
-        description: l.description || '',
-      }))
-    }
+    editableCharacters.value = (bible.characters || []).map(c => ({
+      name: c.name || '',
+      role: c.role || '',
+      description: c.description || '',
+    }))
+    editableLocations.value = (bible.locations || []).map(l => ({
+      name: l.name || '',
+      id: l.id || undefined,
+      location_type: l.location_type || '',
+      description: l.description || '',
+    }))
   } catch (error) {
     console.error('Failed to load Bible data:', error)
   }
@@ -1426,6 +1506,7 @@ async function runWizardOpenSequence() {
   resetWizardStateForOpen()
   const step = await detectWizardProgress()
   currentStep.value = step
+  maxVisitedStep.value = step
   if (step === 4 && !mainPlotCommitted.value) {
     hydrateStepFourFromCache()
   }
@@ -1465,10 +1546,14 @@ onUnmounted(() => {
   stopGenerationOnClose()
 })
 
-watch(currentStep, (step) => {
+watch(currentStep, (step, prevStep) => {
   // 记录向导进度到缓存
   if (props.show) {
     setWizardLastStep(props.novelId, step)
+  }
+  // 切换步骤时刷新数据（排除初次加载，首次由 runWizardOpenSequence 处理）
+  if (prevStep !== undefined && props.show) {
+    void loadBibleData()
   }
   if (step === 4 && props.show && !mainPlotCommitted.value && plotOptions.value.length === 0 && !plotSuggesting.value) {
     void loadPlotSuggestions()
@@ -1559,6 +1644,28 @@ async function saveLocationsEdits(): Promise<boolean> {
   }
 }
 
+/** 步骤最大可达步骤（用户走过的最远步骤） */
+const maxVisitedStep = ref(1)
+
+/** 点击步骤导航条切换步骤（只允许切换到已到过的步骤） */
+function goToStep(step: number) {
+  if (step < 1 || step > 5) return
+  if (step > maxVisitedStep.value) return // 不允许跳到还没到过的步骤
+  if (step === currentStep.value) return
+  // 正在生成中不允许切换
+  if (generatingBible.value || generatingCharacters.value || generatingLocations.value) return
+  currentStep.value = step
+}
+
+/** 上一步 */
+function handlePrev() {
+  if (currentStep.value > 1) {
+    // 正在生成中不允许返回
+    if (generatingBible.value || generatingCharacters.value || generatingLocations.value) return
+    currentStep.value--
+  }
+}
+
 const handleNext = async () => {
   if (savingStep.value) return
   savingStep.value = true
@@ -1568,6 +1675,7 @@ const handleNext = async () => {
       const ok = await saveWorldbuildingEdits()
       if (!ok) return
       currentStep.value = 2
+      maxVisitedStep.value = Math.max(maxVisitedStep.value, 2)
       if (charactersGenerated.value) return
       startCharactersGeneration()
     } else if (currentStep.value === 2) {
@@ -1575,6 +1683,7 @@ const handleNext = async () => {
       const ok = await saveCharactersEdits()
       if (!ok) return
       currentStep.value = 3
+      maxVisitedStep.value = Math.max(maxVisitedStep.value, 3)
       if (locationsGenerated.value) return
       startLocationsGeneration()
     } else if (currentStep.value === 3) {
@@ -1582,8 +1691,10 @@ const handleNext = async () => {
       const ok = await saveLocationsEdits()
       if (!ok) return
       currentStep.value = 4
+      maxVisitedStep.value = Math.max(maxVisitedStep.value, 4)
     } else if (currentStep.value < 5) {
       currentStep.value++
+      maxVisitedStep.value = Math.max(maxVisitedStep.value, currentStep.value)
     }
   } finally {
     savingStep.value = false
@@ -1938,5 +2049,16 @@ const handleComplete = () => {
 .editable-location {
   width: 100%;
   padding: 4px 0;
+}
+
+/* 步骤导航可点击 */
+.wizard-steps :deep(.n-step) {
+  cursor: default;
+}
+.wizard-step-clickable {
+  cursor: pointer !important;
+}
+.wizard-step-clickable:hover :deep(.n-step-indicator) {
+  box-shadow: 0 0 0 3px rgba(24, 160, 88, 0.15);
 }
 </style>
