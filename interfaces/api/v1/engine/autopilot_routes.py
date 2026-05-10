@@ -1570,6 +1570,13 @@ async def autopilot_log_stream(
                     continue
 
                 if not novel:
+                    # 🔥 novel=None 时先查共享内存，避免 DB 临时不可用时误断 SSE
+                    shared_chk = _get_shared_state_for_novel_cached(novel_id)
+                    if shared_chk and shared_chk.get("autopilot_status") in ("running", "paused_for_review"):
+                        logger.debug("SSE log stream novel=None but shared shows running, keep alive: novel=%s", novel_id)
+                        await asyncio.sleep(3.0)
+                        continue
+                    logger.info("SSE log stream novel not found, closing: novel=%s", novel_id)
                     break
 
                 # 🔥 chapters_stats 是轻量聚合结果，不再是全量章节列表
@@ -1923,6 +1930,16 @@ async def autopilot_chapter_stream(novel_id: str):
                     await asyncio.sleep(poll_interval if 'poll_interval' in dir() else 0.8)
                     continue
                 if not novel:
+                    # 🔥 novel=None 时先查共享内存确认小说是否真的不存在，
+                    # 避免 DB 被锁/慢查询时误断 SSE 导致前端疯狂重连
+                    shared_chk = _get_shared_state_for_novel_cached(novel_id)
+                    if shared_chk and shared_chk.get("autopilot_status") in ("running", "paused_for_review"):
+                        # 共享内存显示仍在运行，DB 临时不可用，保持 SSE
+                        logger.debug("SSE chapter stream novel=None but shared shows running, keep alive: novel=%s", novel_id)
+                        await asyncio.sleep(poll_interval if 'poll_interval' in dir() else 3.0)
+                        continue
+                    # 共享内存也无数据，小说可能真的不存在，断开
+                    logger.info("SSE chapter stream novel not found, closing: novel=%s", novel_id)
                     break
 
                 terminal_states = {"stopped", "error", "completed"}

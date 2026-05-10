@@ -707,7 +707,7 @@ function getAdaptivePollInterval() {
 }
 
 watch(
-  () => [isRunning.value, needsReview.value, statusPollDisabled.value, sseConnected.value],
+  () => [isRunning.value, needsReview.value, statusPollDisabled.value],
   () => {
     clearStatusPoll()
     if (statusPollDisabled.value) return
@@ -725,6 +725,19 @@ watch(
     }
   },
   { immediate: true }
+)
+
+// 🔥 SSE 连接状态变化时仅调整轮询间隔，不重新管理 SSE 连接（避免与 onDisconnected 双重重连）
+watch(
+  () => sseConnected.value,
+  () => {
+    // 仅在已建立轮询的情况下调整间隔，不重新触发 SSE 连接管理
+    if (statusPollTimer && !statusPollDisabled.value) {
+      clearStatusPoll()
+      const pollInterval = getAdaptivePollInterval()
+      statusPollTimer = setInterval(() => fetchStatus(), pollInterval)
+    }
+  }
 )
 
 watch(
