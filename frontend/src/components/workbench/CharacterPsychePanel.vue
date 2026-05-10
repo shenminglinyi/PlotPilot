@@ -1,25 +1,25 @@
 <template>
-  <div class="character-soul-panel">
-    <div class="soul-header">
-      <n-text strong style="font-size: 14px">角色灵魂</n-text>
+  <div class="character-psyche-panel">
+    <div class="psyche-header">
+      <n-text strong style="font-size: 14px">角色心理画像</n-text>
       <n-button size="small" :loading="loading" @click="load">刷新</n-button>
     </div>
 
     <n-spin :show="loading">
       <!-- 角色列表 -->
-      <div v-if="characters.length > 0" class="soul-list">
+      <div v-if="characters.length > 0" class="psyche-list">
         <div
           v-for="ch in characters"
           :key="ch.name"
-          class="soul-item"
-          :class="{ 'soul-item--active': selectedName === ch.name }"
+          class="psyche-item"
+          :class="{ 'psyche-item--active': selectedName === ch.name }"
           @click="selectCharacter(ch.name)"
         >
-          <div class="soul-item-header">
+          <div class="psyche-item-header">
             <n-text strong>{{ ch.name }}</n-text>
             <n-tag size="tiny" :bordered="false">{{ ch.role }}</n-tag>
           </div>
-          <div v-if="ch.core_belief" class="soul-belief">
+          <div v-if="ch.core_belief" class="psyche-belief">
             <n-text depth="3" style="font-size: 11px">信念：{{ ch.core_belief }}</n-text>
           </div>
         </div>
@@ -29,14 +29,14 @@
     </n-spin>
 
     <!-- 选中角色详情 -->
-    <n-card v-if="detail" size="small" :bordered="true" class="soul-detail-card">
+    <n-card v-if="detail" size="small" :bordered="true" class="psyche-detail-card">
       <template #header>
-        <span class="card-title">🔮 {{ detail.name }} — 灵魂档案</span>
+        <span class="card-title">🧠 {{ detail.name }} — 心理画像</span>
       </template>
       <n-space vertical :size="10">
         <!-- 4D 模型 -->
-        <div class="soul-grid">
-          <div class="soul-field">
+        <div class="psyche-grid">
+          <div class="psyche-field">
             <n-text depth="3" style="font-size: 11px">核心信念</n-text>
             <n-text style="font-size: 12px">{{ detail.core_belief || '未设定' }}</n-text>
           </div>
@@ -64,7 +64,7 @@
           <n-collapse-item title="🧪 行为验证" name="validate">
             <n-space vertical :size="8">
               <n-text depth="3" style="font-size: 12px">
-                输入一段行为描写，检验是否符合该角色灵魂设定。
+                输入一段行为描写，检验是否符合该角色心理画像设定。
               </n-text>
               <n-input
                 v-model:value="validateAction"
@@ -116,9 +116,9 @@
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
-  characterSoulApi,
-  type CharacterSoulDTO,
-  type CharacterSoulDetailDTO,
+  characterPsycheApi,
+  type CharacterPsycheDTO,
+  type CharacterPsycheDetailDTO,
   type ValidateBehaviorResponse,
 } from '@/api/engineCore'
 
@@ -126,9 +126,9 @@ const props = defineProps<{ slug: string }>()
 const message = useMessage()
 
 const loading = ref(false)
-const characters = ref<CharacterSoulDTO[]>([])
+const characters = ref<CharacterPsycheDTO[]>([])
 const selectedName = ref<string | null>(null)
-const detail = ref<CharacterSoulDetailDTO | null>(null)
+const detail = ref<CharacterPsycheDetailDTO | null>(null)
 
 // 行为验证
 const validateAction = ref('')
@@ -139,7 +139,7 @@ async function load() {
   if (!props.slug) return
   loading.value = true
   try {
-    const res = await characterSoulApi.list(props.slug)
+    const res = await characterPsycheApi.list(props.slug)
     characters.value = res.characters || []
     // 默认选中第一个
     if (characters.value.length > 0 && !selectedName.value) {
@@ -157,7 +157,7 @@ async function selectCharacter(name: string) {
   validateResult.value = null
   validateAction.value = ''
   try {
-    detail.value = await characterSoulApi.get(props.slug, name)
+    detail.value = await characterPsycheApi.get(props.slug, name)
   } catch {
     detail.value = null
   }
@@ -167,7 +167,7 @@ async function runValidate() {
   if (!selectedName.value || !validateAction.value.trim()) return
   validating.value = true
   try {
-    validateResult.value = await characterSoulApi.validate(props.slug, selectedName.value, {
+    validateResult.value = await characterPsycheApi.validate(props.slug, selectedName.value, {
       action: validateAction.value,
     })
   } catch {
@@ -181,7 +181,7 @@ onMounted(load)
 </script>
 
 <style scoped>
-.character-soul-panel {
+.character-psyche-panel {
   height: 100%;
   min-height: 0;
   overflow-y: auto;
@@ -191,19 +191,19 @@ onMounted(load)
   gap: 10px;
 }
 
-.soul-header {
+.psyche-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.soul-list {
+.psyche-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.soul-item {
+.psyche-item {
   padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -211,28 +211,28 @@ onMounted(load)
   transition: all 0.15s ease;
 }
 
-.soul-item:hover {
+.psyche-item:hover {
   background: var(--n-color-hover);
   border-color: var(--n-border-color);
 }
 
-.soul-item--active {
+.psyche-item--active {
   background: var(--n-color-hover);
   border-color: var(--n-primary-color);
 }
 
-.soul-item-header {
+.psyche-item-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 6px;
 }
 
-.soul-belief {
+.psyche-belief {
   margin-top: 2px;
 }
 
-.soul-detail-card {
+.psyche-detail-card {
   transition: all 0.2s ease;
 }
 
@@ -241,13 +241,13 @@ onMounted(load)
   font-weight: 600;
 }
 
-.soul-grid {
+.psyche-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
-.soul-field {
+.psyche-field {
   display: flex;
   flex-direction: column;
   gap: 2px;

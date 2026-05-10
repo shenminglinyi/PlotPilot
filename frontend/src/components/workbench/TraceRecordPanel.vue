@@ -95,14 +95,14 @@ const nodeTypeOptions = [
   { label: 'DAG 节点', value: 'dag_node' },
   { label: '质量护栏', value: 'guardrail' },
   { label: 'Checkpoint', value: 'checkpoint' },
-  { label: '角色灵魂', value: 'character_soul' },
+  { label: '角色心理', value: 'character_psyche' },
 ]
 
 const NODE_TYPE_LABELS: Record<string, string> = {
   dag_node: 'DAG',
   guardrail: '护栏',
   checkpoint: '快照',
-  character_soul: '灵魂',
+  character_psyche: '心理画像',
 }
 
 function nodeTypeLabel(type: string): string {
@@ -114,7 +114,7 @@ function nodeTypeTagType(type: string): 'default' | 'info' | 'success' | 'warnin
     dag_node: 'info',
     guardrail: 'warning',
     checkpoint: 'success',
-    character_soul: 'error',
+    character_psyche: 'error',
   }
   return map[type] || 'default'
 }

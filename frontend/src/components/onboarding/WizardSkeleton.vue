@@ -7,10 +7,13 @@
         v-for="dim in dimensions"
         :key="dim.key"
         class="skeleton-dimension"
-        :class="{ 'skeleton-dimension--done': completedDimensions.has(dim.key) }"
+        :class="{
+          'skeleton-dimension--done': completedDimensions.has(dim.key),
+          'skeleton-dimension--active': activeDimension === dim.key && !completedDimensions.has(dim.key),
+        }"
       >
         <div class="skeleton-dimension__header">
-          <div class="skeleton-dot" :class="{ 'skeleton-dot--active': activeDimension === dim.key, 'skeleton-dot--done': completedDimensions.has(dim.key) }">
+          <div class="skeleton-dot" :class="{ 'skeleton-dot--active': activeDimension === dim.key && !completedDimensions.has(dim.key), 'skeleton-dot--done': completedDimensions.has(dim.key) }">
             <span v-if="completedDimensions.has(dim.key)" class="skeleton-dot__check">✓</span>
             <span v-else-if="activeDimension === dim.key" class="skeleton-dot__pulse"></span>
           </div>
@@ -23,11 +26,15 @@
           </n-tag>
           <n-tag v-else size="tiny" type="default">等待中</n-tag>
         </div>
-        <div v-if="activeDimension === dim.key && !completedDimensions.has(dim.key)" class="skeleton-dimension__bars">
-          <div class="skeleton-bar skeleton-bar--long"></div>
-          <div class="skeleton-bar skeleton-bar--medium"></div>
-          <div class="skeleton-bar skeleton-bar--short"></div>
+        <!-- 生成中：同时显示已到达的字段数据和剩余骨架条 -->
+        <div v-if="activeDimension === dim.key && !completedDimensions.has(dim.key)" class="skeleton-dimension__body">
+          <slot :name="dim.key" />
+          <div class="skeleton-dimension__bars">
+            <div class="skeleton-bar skeleton-bar--long"></div>
+            <div class="skeleton-bar skeleton-bar--medium"></div>
+          </div>
         </div>
+        <!-- 已完成：显示完整字段数据 -->
         <div v-else-if="completedDimensions.has(dim.key)" class="skeleton-dimension__content">
           <slot :name="dim.key" />
         </div>
@@ -139,6 +146,11 @@ const dimensions = [
   background: #18a05808;
 }
 
+.skeleton-dimension--active {
+  border-color: #2080f040;
+  background: #2080f006;
+}
+
 .skeleton-dimension__header {
   display: flex;
   align-items: center;
@@ -154,6 +166,15 @@ const dimensions = [
 .skeleton-dimension__bars {
   margin-top: 12px;
   padding-left: 26px;
+}
+
+.skeleton-dimension__body {
+  margin-top: 8px;
+  padding-left: 26px;
+}
+
+.skeleton-dimension__body .skeleton-dimension__bars {
+  margin-top: 8px;
 }
 
 .skeleton-dimension__content {

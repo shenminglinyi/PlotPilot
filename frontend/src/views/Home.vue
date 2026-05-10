@@ -415,6 +415,7 @@ import { h, ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
+import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
@@ -682,8 +683,18 @@ const handleSetupSkip = () => {
   if (id) router.push(`/book/${id}/workbench`)
 }
 
-const navigateToBook = (slug: string) => {
-  router.push(`/book/${slug}/workbench`)
+const navigateToBook = (novelId: string) => {
+  // 未完成向导的书重新打开向导
+  if (!isWizardCompleted(novelId)) {
+    // 查找该书的 target_chapters
+    const novel = books.value.find(b => b.slug === novelId)
+    setupWizard.value = {
+      novelId,
+      targetChapters: 100, // 默认值，向导内部会从 API 获取真实值
+    }
+    return
+  }
+  router.push(`/book/${novelId}/workbench`)
 }
 
 const handleDeleteBook = async (slug: string) => {
