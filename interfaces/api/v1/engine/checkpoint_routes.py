@@ -168,7 +168,7 @@ def _get_cast_graph(novel_id: str):
     """从 CastService 获取角色图"""
     from interfaces.api.dependencies import get_cast_service
     cast_service = get_cast_service()
-    return cast_service.get_cast(novel_id)
+    return cast_service.get_cast_graph(novel_id)
 
 
 def _get_character_psyche_engine():
@@ -500,61 +500,210 @@ async def update_story_phase(novel_id: str, body: StoryPhaseDTO):
 
 # ─── Character Psyche Endpoints ──────────────────────────────────
 
+def _get_bible_characters(novel_id: str) -> List[Dict[str, Any]]:
+    """从 bible_characters 表直接读取角色数据（始终可靠的主数据源）"""
+    try:
+        from interfaces.api.dependencies import get_database
+        db = get_database()
+        with db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name, description, mental_state, verbal_tic, idle_behavior "
+                "FROM bible_characters WHERE novel_id = ? ORDER BY name",
+                (novel_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.debug("读取 bible_characters 失败: %s", e)
+        return []
+
+
+def _extract_core_belief(description: str, relationships: list) -> str:
+    """从 Bible description 和关系列表中推断核心信念
+
+    专业小说家视角：核心信念 = 角色做价值选择时的底层驱动力
+    提取策略：寻找「相信/认为/坚守/信奉/绝不/必须」等信念关键词句
+    """
+    if not description:
+        return ""
+    import re
+    # 匹配信念句式
+    patterns = [
+        r'(?:坚信|深信|信奉|笃信|相信|认为|坚守|秉持)([^，。！？；\n]+)',
+        r'(?:绝不|绝不|从不|绝不|誓死|宁死)([^，。！？；\n]+)',
+        r'(?:唯一|只有|只要)([^，。！？；\n]+?)(?:才|就|能|会)',
+        r'(?:底线|原则|信条|准则)(?:是|：|:)([^，。！？；\n]+)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, description)
+        if m:
+            return m.group(0).strip()
+    return ""
+
+
+def _extract_taboo(description: str) -> str:
+    """从 Bible description 中推断绝对禁忌
+
+    专业小说家视角：绝对禁忌 = 角色绝不做的事，触碰即崩
+    """
+    if not description:
+        return ""
+    import re
+    patterns = [
+        r'绝不([^，。！？；\n]+)',
+        r'(?:禁忌|底线|禁区|逆鳞)(?:是|：|:)([^，。！？；\n]+)',
+        r'(?:绝不会|绝不|从不)([^，。！？；\n]+)',
+    ]
+    matches = []
+    for pat in patterns:
+        for m in re.finditer(pat, description):
+            matches.append(m.group(0).strip())
+    return "、".join(matches[:3]) if matches else ""
+
+
+def _extract_voice_tag(description: str, verbal_tic: str = "") -> str:
+    """推断语言风格标签
+
+    专业小说家视角：声线 = 角色说话的方式，比内容更能定义角色
+    """
+    if verbal_tic:
+        return f"口头禅：{verbal_tic}"
+    if not description:
+        return ""
+    import re
+    tags = []
+    if re.search(r'冷|冰|阴|漠|淡', description):
+        tags.append("冷峻")
+    elif re.search(r'热|笑|开朗|豪爽|爽朗', description):
+        tags.append("豪爽")
+    elif re.search(r'沉|稳|静|深思|寡言', description):
+        tags.append("沉稳")
+    elif re.search(r'傲|狂|张狂|不屑|高高在上', description):
+        tags.append("傲慢")
+    elif re.search(r'谨|小心|谨慎|防备|警惕', description):
+        tags.append("谨慎")
+    if re.search(r'短句|惜字如金|沉默寡言|不苟言笑', description):
+        tags.append("惜字如金")
+    elif re.search(r'话多|唠叨|滔滔不绝|啰嗦', description):
+        tags.append("话多")
+    return "、".join(tags) if tags else ""
+
+
+def _extract_wound(description: str, mental_state: str = "") -> str:
+    """从 description 和 mental_state 推断未愈合创伤
+
+    专业小说家视角：创伤 = 角色的条件反射触发器，决定在压力下的非理性行为
+    """
+    if not description:
+        return ""
+    import re
+    # 创伤句式
+    patterns = [
+        r'(?:曾被|曾经|过去|当年)([^，。！？；\n]+?)(?:背叛|伤害|抛弃|欺骗|打击)',
+        r'(?:失去|丧|死)([^，。！？；\n]{2,15})',
+        r'(?:创伤|阴影|梦魇|心结|伤疤)(?:是|：|:)([^，。！？；\n]+)',
+        r'(?:害怕|恐惧|畏惧)([^，。！？；\n]+)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, description)
+        if m:
+            return m.group(0).strip()
+    # mental_state 异常时推断有创伤
+    if mental_state and mental_state not in ("NORMAL", "正常", ""):
+        return f"当前心理状态异常：{mental_state}"
+    return ""
+
+
+def _build_psyche_from_bible(
+    char: Dict[str, Any],
+    cast_char: Optional[Any] = None,
+) -> CharacterPsycheDTO:
+    """从 Bible 角色行构建 CharacterPsycheDTO
+
+    Args:
+        char: bible_characters 表的行 dict
+        cast_char: 可选的 CastGraphDTO.characters 元素（用于补充 role/traits）
+    """
+    desc = char.get("description", "") or ""
+    mental = char.get("mental_state", "") or ""
+    verbal = char.get("verbal_tic", "") or ""
+    role = ""
+    if cast_char and hasattr(cast_char, "role"):
+        role = cast_char.role or ""
+    if not role:
+        # 从 description 推断 role
+        import re
+        role_match = re.search(
+            r'(主角|主人公|反派|boss|配角|师父|师傅|师妹|师兄|师弟|师姐|长辈|首领|掌门|长老|圣子|郡主|公子|小姐)',
+            desc,
+        )
+        if role_match:
+            role = role_match.group(1)
+
+    return CharacterPsycheDTO(
+        name=char.get("name", ""),
+        role=role,
+        core_belief=_extract_core_belief(desc, []),
+        taboo=_extract_taboo(desc),
+        voice_tag=_extract_voice_tag(desc, verbal),
+        wound=_extract_wound(desc, mental),
+        trauma_count=0,
+    )
+
+
 @router.get("/{novel_id}/character-psyches", response_model=CharacterPsycheListResponse)
 async def list_character_psyches(novel_id: str):
-    """获取角色心理画像概览列表"""
+    """获取角色心理画像概览列表
+
+    数据源优先级：
+    1. CharacterPsycheEngine（四维模型，需 autopilot 落库）
+    2. Bible 角色设定 + 知识三元组（始终可用）
+    """
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        # 优先从 CharacterPsycheEngine 获取四维数据
-        psyche_engine = _get_character_psyche_engine()
-        if psyche_engine:
+        # 从 Bible 获取基础角色列表（主数据源，始终有数据）
+        bible_chars = _get_bible_characters(novel_id)
+        if not bible_chars:
+            return CharacterPsycheListResponse()
+
+        # 构建 CastGraph name→DTO 索引（用于补充 role 等信息）
+        cast_index: Dict[str, Any] = {}
+        try:
             cast_graph = _get_cast_graph(novel_id)
-            characters = []
             for ch in (cast_graph.characters or []):
-                char_id = getattr(ch, 'id', '') or ch.name
-                psyche_data = None
+                cast_index[ch.name] = ch
+        except Exception:
+            pass
+
+        # 尝试从 CharacterPsycheEngine 叠加四维数据
+        psyche_engine = _get_character_psyche_engine()
+        characters = []
+        for bc in bible_chars:
+            # 先构建基础画像
+            cast_char = cast_index.get(bc["name"])
+            dto = _build_psyche_from_bible(bc, cast_char)
+
+            # 如果 PsycheEngine 有数据，覆盖四维字段
+            if psyche_engine:
                 try:
+                    char_id = bc.get("id", "") or bc["name"]
                     psyche_data = await psyche_engine.load_character(str(char_id))
+                    if psyche_data:
+                        dto = CharacterPsycheDTO(
+                            name=psyche_data.name,
+                            role=dto.role or getattr(psyche_data, 'role', ''),
+                            core_belief=psyche_data.core_belief or dto.core_belief,
+                            taboo="、".join(psyche_data.moral_taboos) if psyche_data.moral_taboos else dto.taboo,
+                            voice_tag=psyche_data.voice_profile.style if psyche_data.voice_profile else dto.voice_tag,
+                            wound=psyche_data.active_wounds[0].description if psyche_data.active_wounds else dto.wound,
+                            trauma_count=len(psyche_data.evolution_patches),
+                        )
                 except Exception:
                     pass
 
-                if psyche_data:
-                    characters.append(CharacterPsycheDTO(
-                        name=psyche_data.name,
-                        role=getattr(psyche_data, 'role', '') or ch.role,
-                        core_belief=psyche_data.core_belief,
-                        taboo="、".join(psyche_data.moral_taboos) if psyche_data.moral_taboos else "",
-                        voice_tag=psyche_data.voice_profile.style if psyche_data.voice_profile else "",
-                        wound=psyche_data.active_wounds[0].description if psyche_data.active_wounds else "",
-                        trauma_count=len(psyche_data.evolution_patches),
-                    ))
-                else:
-                    characters.append(CharacterPsycheDTO(
-                        name=ch.name,
-                        role=ch.role,
-                        core_belief="",
-                        taboo="",
-                        voice_tag="",
-                        wound="",
-                        trauma_count=0,
-                    ))
-            return CharacterPsycheListResponse(characters=characters)
+            characters.append(dto)
 
-        # 回退：从 Cast 图谱获取基础信息
-        cast_graph = _get_cast_graph(novel_id)
-        characters = []
-        for ch in (cast_graph.characters or []):
-            characters.append(CharacterPsycheDTO(
-                name=ch.name,
-                role=ch.role,
-                core_belief="",
-                taboo="",
-                voice_tag="",
-                wound="",
-                trauma_count=0,
-            ))
         return CharacterPsycheListResponse(characters=characters)
     except Exception as e:
         logger.warning("获取角色心理画像列表失败: %s", e)
@@ -563,59 +712,100 @@ async def list_character_psyches(novel_id: str):
 
 @router.get("/{novel_id}/character-psyches/{character_name}", response_model=CharacterPsycheDetailDTO)
 async def get_character_psyche(novel_id: str, character_name: str):
-    """获取单个角色心理画像详情"""
+    """获取单个角色心理画像详情
+
+    数据源优先级：
+    1. CharacterPsycheEngine（四维模型 + 面具，需 autopilot 落库）
+    2. Bible 角色设定 + 知识三元组推断（始终可用）
+    """
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        # 优先从 CharacterPsycheEngine 获取四维详细数据
-        psyche_engine = _get_character_psyche_engine()
-        if psyche_engine:
+        # 从 Bible 查找目标角色
+        bible_chars = _get_bible_characters(novel_id)
+        target_bible = None
+        for bc in bible_chars:
+            if bc["name"] == character_name:
+                target_bible = bc
+                break
+
+        if not target_bible:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Character '{character_name}' not found in Bible",
+            )
+
+        # 从 CastGraph 补充
+        cast_char = None
+        try:
             cast_graph = _get_cast_graph(novel_id)
             for ch in (cast_graph.characters or []):
                 if ch.name == character_name:
-                    char_id = getattr(ch, 'id', '') or ch.name
-                    try:
-                        psyche_data = await psyche_engine.load_character(str(char_id))
-                        if psyche_data:
-                            mask = await psyche_engine.compute_mask(str(char_id), 0)
-                            mask_summary = mask.to_t0_fact_lock() if mask else ""
-                            return CharacterPsycheDetailDTO(
-                                name=psyche_data.name,
-                                role=getattr(psyche_data, 'role', '') or ch.role,
-                                core_belief=psyche_data.core_belief,
-                                taboo="、".join(psyche_data.moral_taboos) if psyche_data.moral_taboos else "",
-                                voice_tag=psyche_data.voice_profile.style if psyche_data.voice_profile else "",
-                                wound=psyche_data.active_wounds[0].description if psyche_data.active_wounds else "",
-                                trauma_count=len(psyche_data.evolution_patches),
-                                emotion_ledger={},
-                                mask_summary=mask_summary,
-                            )
-                    except Exception as e:
-                        logger.warning("从PsycheEngine获取角色详情失败: %s", e)
+                    cast_char = ch
                     break
+        except Exception:
+            pass
 
-        # 回退：从 Cast 图谱获取
-        cast_graph = _get_cast_graph(novel_id)
-        target = None
-        for ch in (cast_graph.characters or []):
-            if ch.name == character_name:
-                target = ch
-                break
+        # 构建基础画像
+        base_dto = _build_psyche_from_bible(target_bible, cast_char)
+        desc = target_bible.get("description", "") or ""
+        mental = target_bible.get("mental_state", "") or ""
+        idle = target_bible.get("idle_behavior", "") or ""
 
-        if not target:
-            raise HTTPException(status_code=404, detail=f"Character '{character_name}' not found")
+        # 构建 mask_summary（作家视角的角色速写）
+        mask_parts = [f"[角色速写 - {target_bible['name']}]"]
+        if base_dto.core_belief:
+            mask_parts.append(f"核心信念：{base_dto.core_belief}")
+        if base_dto.taboo:
+            mask_parts.append(f"绝对禁忌：{base_dto.taboo}")
+        if base_dto.voice_tag:
+            mask_parts.append(f"语言指纹：{base_dto.voice_tag}")
+        if base_dto.wound:
+            mask_parts.append(f"旧伤/条件反射：{base_dto.wound}")
+        if mental and mental != "NORMAL":
+            mask_parts.append(f"当前心理状态：{mental}")
+        if idle:
+            mask_parts.append(f"待机小动作：{idle}")
+        if desc and not base_dto.core_belief:
+            # 没有信念时用 description 前半段作为速写
+            mask_parts.append(f"人设概要：{desc[:80]}")
+        mask_summary = "\n".join(mask_parts)
 
+        # 尝试从 CharacterPsycheEngine 获取四维增强数据
+        psyche_engine = _get_character_psyche_engine()
+        if psyche_engine:
+            char_id = target_bible.get("id", "") or character_name
+            try:
+                psyche_data = await psyche_engine.load_character(str(char_id))
+                if psyche_data:
+                    mask = await psyche_engine.compute_mask(str(char_id), 0)
+                    engine_mask_summary = mask.to_t0_fact_lock() if mask else ""
+                    return CharacterPsycheDetailDTO(
+                        name=psyche_data.name,
+                        role=base_dto.role or getattr(psyche_data, 'role', ''),
+                        core_belief=psyche_data.core_belief or base_dto.core_belief,
+                        taboo="、".join(psyche_data.moral_taboos) if psyche_data.moral_taboos else base_dto.taboo,
+                        voice_tag=psyche_data.voice_profile.style if psyche_data.voice_profile else base_dto.voice_tag,
+                        wound=psyche_data.active_wounds[0].description if psyche_data.active_wounds else base_dto.wound,
+                        trauma_count=len(psyche_data.evolution_patches),
+                        emotion_ledger={},
+                        mask_summary=engine_mask_summary or mask_summary,
+                    )
+            except Exception as e:
+                logger.debug("PsycheEngine 增强失败，使用 Bible 基础画像: %s", e)
+
+        # 返回 Bible 基础画像
         return CharacterPsycheDetailDTO(
-            name=target.name,
-            role=target.role,
-            core_belief="",
-            taboo="",
-            voice_tag="",
-            wound="",
+            name=target_bible["name"],
+            role=base_dto.role,
+            core_belief=base_dto.core_belief,
+            taboo=base_dto.taboo,
+            voice_tag=base_dto.voice_tag,
+            wound=base_dto.wound,
             trauma_count=0,
             emotion_ledger={},
-            mask_summary=f"{target.name} ({target.role}): {target.traits[:60] if target.traits else ''}",
+            mask_summary=mask_summary,
         )
     except HTTPException:
         raise
@@ -626,18 +816,24 @@ async def get_character_psyche(novel_id: str, character_name: str):
 
 @router.post("/{novel_id}/character-psyches/{character_name}/validate", response_model=ValidateBehaviorResponse)
 async def validate_character_behavior(novel_id: str, character_name: str, body: ValidateBehaviorRequest):
-    """验证角色行为是否符合心理画像设定"""
+    """验证角色行为是否符合心理画像设定
+
+    数据源优先级：
+    1. CharacterPsycheEngine 面具验证（精确四维匹配）
+    2. Bible 角色设定构建的基础面具（从设定推断）
+    """
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
     try:
-        # 优先使用 CharacterPsycheEngine 获取面具并验证
+        # 优先使用 CharacterPsycheEngine 的面具验证
         psyche_engine = _get_character_psyche_engine()
         if psyche_engine:
-            cast_graph = _get_cast_graph(novel_id)
-            for ch in (cast_graph.characters or []):
-                if ch.name == character_name:
-                    char_id = getattr(ch, 'id', '') or ch.name
+            # 通过 Bible 查找角色 ID
+            bible_chars = _get_bible_characters(novel_id)
+            for bc in bible_chars:
+                if bc["name"] == character_name:
+                    char_id = bc.get("id", "") or character_name
                     try:
                         mask = await psyche_engine.compute_mask(str(char_id), 0)
                         if mask:
@@ -649,15 +845,27 @@ async def validate_character_behavior(novel_id: str, character_name: str, body: 
                                     suggestions=result.get("suggestions", []),
                                 )
                     except Exception as e:
-                        logger.warning("PsycheEngine验证失败: %s", e)
+                        logger.debug("PsycheEngine 验证失败，回退到 Bible 面具: %s", e)
                     break
 
-        # 回退：使用空面具进行基础验证
+        # 回退：从 Bible 构建基础面具验证
         from engine.core.value_objects.character_mask import CharacterMask
+        bible_chars = _get_bible_characters(novel_id)
+        target = None
+        for bc in bible_chars:
+            if bc["name"] == character_name:
+                target = bc
+                break
+
+        desc = (target.get("description", "") or "") if target else ""
+        mental = (target.get("mental_state", "") or "") if target else ""
+        taboo_str = _extract_taboo(desc)
+
         mask = CharacterMask(
-            character_id="",
+            character_id=(target.get("id", "") or "") if target else "",
             name=character_name,
-            core_belief="",
+            core_belief=_extract_core_belief(desc, []),
+            moral_taboos=[t.strip() for t in taboo_str.split("、") if t.strip()] if taboo_str else [],
         )
         result = mask.validate_behavior(body.action)
         if isinstance(result, dict):
