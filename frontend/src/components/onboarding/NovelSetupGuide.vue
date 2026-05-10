@@ -206,18 +206,57 @@
             <n-list-item v-for="(char, idx) in editableCharacters" :key="idx">
               <div class="editable-character">
                 <n-space vertical size="small" style="width: 100%">
+                  <!-- 姓名 + 角色 + 删除 -->
                   <n-space :size="8" align="center">
                     <n-input v-model:value="char.name" size="small" style="width: 120px" placeholder="姓名" />
-                    <n-input v-model:value="char.role" size="small" style="width: 100px" placeholder="角色" />
+                    <n-input v-model:value="char.role" size="small" style="width: 100px" placeholder="角色定位" />
                     <n-button quaternary size="small" type="error" @click="editableCharacters.splice(idx, 1)">删除</n-button>
                   </n-space>
-                  <n-input
-                    v-model:value="char.description"
-                    type="textarea"
-                    :autosize="{ minRows: 1, maxRows: 4 }"
-                    size="small"
-                    placeholder="角色描述"
-                  />
+                  <!-- 简介 -->
+                  <div class="editable-field">
+                    <div class="editable-field__label">简介</div>
+                    <n-input
+                      v-model:value="char.description"
+                      type="textarea"
+                      :autosize="{ minRows: 1, maxRows: 4 }"
+                      size="small"
+                      placeholder="角色描述"
+                    />
+                  </div>
+                  <!-- 心理状态 -->
+                  <div v-if="char.mental_state" class="editable-field">
+                    <div class="editable-field__label">心理状态</div>
+                    <n-input v-model:value="char.mental_state" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                  </div>
+                  <!-- 口头禅 -->
+                  <div v-if="char.verbal_tic" class="editable-field">
+                    <div class="editable-field__label">口头禅</div>
+                    <n-input v-model:value="char.verbal_tic" size="small" />
+                  </div>
+                  <!-- 习惯动作 -->
+                  <div v-if="char.idle_behavior" class="editable-field">
+                    <div class="editable-field__label">习惯动作</div>
+                    <n-input v-model:value="char.idle_behavior" size="small" />
+                  </div>
+                  <!-- 人物关系 -->
+                  <div v-if="char.relationships && char.relationships.length" class="editable-field">
+                    <div class="editable-field__label">人物关系</div>
+                    <n-space :size="4">
+                      <n-tag v-for="(rel, ri) in char.relationships" :key="ri" size="small" :bordered="false">
+                        {{ typeof rel === 'string' ? rel : (rel.relation || rel.description || rel.target || JSON.stringify(rel)) }}
+                      </n-tag>
+                    </n-space>
+                  </div>
+                  <!-- 公开人设 -->
+                  <div v-if="char.public_profile" class="editable-field">
+                    <div class="editable-field__label">公开人设</div>
+                    <n-input v-model:value="char.public_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                  </div>
+                  <!-- 隐藏身份 -->
+                  <div v-if="char.hidden_profile" class="editable-field">
+                    <div class="editable-field__label">隐藏身份</div>
+                    <n-input v-model:value="char.hidden_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                  </div>
                 </n-space>
               </div>
             </n-list-item>
@@ -473,8 +512,8 @@
 <script setup lang="ts">
 import { h, ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { bibleApi, type BibleDTO, type StyleNoteDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
-import { WIZARD_STEP_TIMEOUT_MS, WIZARD_STEP_TIMEOUT_SECONDS } from '@/constants/wizard'
+import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
+// timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
 import { resolveHttpUrl } from '@/api/config'
@@ -788,7 +827,49 @@ const charactersError = ref('')
 const streamingCharacters = ref<Array<{ name: string; role: string; description: string }>>([])
 const charactersSseAbort = ref<AbortController | null>(null)
 /** 可编辑的人物列表（从 bibleData 拷贝，用户可修改后确认落库） */
-const editableCharacters = ref<Array<{ name: string; role: string; description: string }>>([])
+interface EditableCharacter {
+  name: string
+  role: string
+  description: string
+  mental_state: string
+  verbal_tic: string
+  idle_behavior: string
+  relationships: BibleRelationshipEntry[]
+  public_profile: string
+  hidden_profile: string
+  reveal_chapter: number | null
+}
+
+/** 从 CharacterDTO 映射到 EditableCharacter，解析 description 中的 role */
+function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
+  let role = c.role || ''
+  let desc = c.description || ''
+  // 后端存储时把 role 拼到 description 开头："主角 - 描述内容"
+  // 如果 role 为空但 description 包含 " - "，尝试从中解析
+  if (!role && desc.includes(' - ')) {
+    const sepIdx = desc.indexOf(' - ')
+    role = desc.slice(0, sepIdx).trim()
+    desc = desc.slice(sepIdx + 3).trim()
+  } else if (role && desc.startsWith(role) && desc.includes(' - ')) {
+    // description 仍包含 role 前缀，去掉重复
+    const sepIdx = desc.indexOf(' - ')
+    desc = desc.slice(sepIdx + 3).trim()
+  }
+  return {
+    name: c.name || '',
+    role,
+    description: desc,
+    mental_state: c.mental_state || '',
+    verbal_tic: c.verbal_tic || '',
+    idle_behavior: c.idle_behavior || '',
+    relationships: c.relationships || [],
+    public_profile: c.public_profile || '',
+    hidden_profile: c.hidden_profile || '',
+    reveal_chapter: c.reveal_chapter ?? null,
+  }
+}
+
+const editableCharacters = ref<EditableCharacter[]>([])
 
 // ── 第3步：SSE 流式生成地点 ──
 const generatingLocations = ref(false)
@@ -837,7 +918,7 @@ async function loadPlotSuggestions() {
   } catch (e: unknown) {
     let msg = formatApiError(e) || '推演失败，请重试'
     if (isLikelyTimeoutError(e)) {
-      msg = `请求超时：本步前端最长等待约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒。主线推演依赖 LLM，请在 AI 控制台调大「超时（秒）」或换更快模型后，点击「重新推演」。`
+      msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
     }
     plotSuggestError.value = msg
   } finally {
@@ -948,21 +1029,17 @@ async function checkSseAvailable(novelId: string): Promise<boolean> {
 // ── 轮询降级逻辑（保留原轮询代码作为 fallback） ──
 
 const pollTimerRef = ref<ReturnType<typeof setTimeout> | null>(null)
-const timeoutTimerRef = ref<ReturnType<typeof setTimeout> | null>(null)
 const biblePollEpoch = ref(0)
 const step2PollEpoch = ref(0)
 const step3PollEpoch = ref(0)
 
 function clearGenerationTimers() {
   if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
-  if (timeoutTimerRef.value != null) { clearTimeout(timeoutTimerRef.value); timeoutTimerRef.value = null }
 }
 
 function clearPollTimer() {
   if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
 }
-
-const WIZARD_BIBLE_POLL_DEADLINE_MS = WIZARD_STEP_TIMEOUT_MS
 
 function pollBibleUntil(
   predicate: (bible: BibleDTO) => boolean,
@@ -974,12 +1051,10 @@ function pollBibleUntil(
     watchBackendFailure?: boolean
   },
 ): void {
-  const startedAt = Date.now()
   const tick = async () => {
     if (options.isStale()) return
-    if (Date.now() - startedAt > WIZARD_BIBLE_POLL_DEADLINE_MS) { options.onTimeout(); return }
     try {
-      const bible = await bibleApi.getBible(props.novelId, { timeout: WIZARD_STEP_TIMEOUT_MS })
+      const bible = await bibleApi.getBible(props.novelId)
       if (options.isStale()) return
       bibleData.value = bible
       if (predicate(bible)) { options.onSuccess(); return }
@@ -1045,15 +1120,6 @@ async function startBibleGenerationPoll() {
       if (biblePollEpoch.value !== epoch || !generatingBible.value) return
       schedulePoll(2000)
     }
-
-    timeoutTimerRef.value = window.setTimeout(() => {
-      if (biblePollEpoch.value !== epoch) return
-      biblePollEpoch.value += 1
-      clearGenerationTimers()
-      generatingBible.value = false
-      bibleError.value = `本步等待超时（约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒）。后台可能仍在执行——请到工作台 Bible 查看。`
-      phaseMessage.value = ''
-    }, WIZARD_BIBLE_POLL_DEADLINE_MS)
 
     schedulePoll(0)
   } catch (error: unknown) {
@@ -1157,14 +1223,6 @@ bibleError.value = ''
 
   const ctrl = new AbortController()
   sseAbortController.value = ctrl
-
-  const timeoutId = setTimeout(() => {
-    ctrl.abort()
-    if (generatingBible.value) {
-      generatingBible.value = false
-      bibleError.value = `等待生成超时（约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒）。请到工作台 Bible 查看是否已生成。`
-    }
-  }, WIZARD_STEP_TIMEOUT_MS)
 
   consumeBibleGenerateStream(props.novelId, 'worldbuilding', {
     signal: ctrl.signal,
@@ -1285,17 +1343,16 @@ bibleError.value = ''
       activeDimension.value = data.dimension
     },
     onDone: () => {
-      clearTimeout(timeoutId)
       completedDimensions.value = new Set(WB_DIMS)
       activeDimension.value = ''
       activeField.value = ''
+      streamingDimText.value = ''
       generatingBible.value = false
       bibleGenerated.value = true
       phaseMessage.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      clearTimeout(timeoutId)
       // SSE 失败时降级到轮询（后台可能已经启动了生成任务）
       if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
         console.warn('[Wizard] SSE 流式生成失败，降级到轮询模式:', msg)
@@ -1334,14 +1391,6 @@ charactersError.value = ''
   const ctrl = new AbortController()
   charactersSseAbort.value = ctrl
 
-  const timeoutId = setTimeout(() => {
-    ctrl.abort()
-    if (generatingCharacters.value) {
-      generatingCharacters.value = false
-      charactersError.value = `等待人物生成超时（约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒）。`
-    }
-  }, WIZARD_STEP_TIMEOUT_MS)
-
   consumeBibleGenerateStream(props.novelId, 'characters', {
     signal: ctrl.signal,
     onPhase: (_phase, msg) => {
@@ -1358,14 +1407,12 @@ charactersError.value = ''
       }
     },
     onDone: () => {
-      clearTimeout(timeoutId)
       generatingCharacters.value = false
       charactersGenerated.value = true
       phaseMessage.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      clearTimeout(timeoutId)
       // SSE 失败时降级到轮询
       if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
         console.warn('[Wizard] 人物 SSE 失败，降级到轮询:', msg)
@@ -1404,14 +1451,6 @@ locationsError.value = ''
   const ctrl = new AbortController()
   locationsSseAbort.value = ctrl
 
-  const timeoutId = setTimeout(() => {
-    ctrl.abort()
-    if (generatingLocations.value) {
-      generatingLocations.value = false
-      locationsError.value = `等待地图生成超时（约 ${WIZARD_STEP_TIMEOUT_SECONDS} 秒）。`
-    }
-  }, WIZARD_STEP_TIMEOUT_MS)
-
   consumeBibleGenerateStream(props.novelId, 'locations', {
     signal: ctrl.signal,
     onPhase: (_phase, msg) => {
@@ -1430,14 +1469,12 @@ locationsError.value = ''
       }
     },
     onDone: () => {
-      clearTimeout(timeoutId)
       generatingLocations.value = false
       locationsGenerated.value = true
       phaseMessage.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      clearTimeout(timeoutId)
       // SSE 失败时降级到轮询
       if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
         console.warn('[Wizard] 地图 SSE 失败，降级到轮询:', msg)
@@ -1454,7 +1491,7 @@ locationsError.value = ''
 /** 加载完整 Bible 数据（SSE 完成后从 API 刷新） */
 async function loadBibleData() {
   try {
-    const bible = await bibleApi.getBible(props.novelId, { timeout: 30_000 })
+    const bible = await bibleApi.getBible(props.novelId)
     bibleData.value = bible
 
     let fromApi = emptyWorldbuildingShape()
@@ -1469,11 +1506,7 @@ async function loadBibleData() {
     styleText.value = styleConventionFromBible(bible)
 
     // 将人物/地点拷贝到可编辑列表
-    editableCharacters.value = (bible.characters || []).map(c => ({
-      name: c.name || '',
-      role: c.role || '',
-      description: c.description || '',
-    }))
+    editableCharacters.value = (bible.characters || []).map(mapCharacterToEditable)
     editableLocations.value = (bible.locations || []).map(l => ({
       name: l.name || '',
       id: l.id || undefined,
@@ -1508,7 +1541,7 @@ function resetWizardStateForOpen() {
 
 async function detectWizardProgress(): Promise<number> {
   try {
-    const bible = await bibleApi.getBible(props.novelId, { timeout: 30_000 })
+    const bible = await bibleApi.getBible(props.novelId)
     bibleData.value = bible
 
     let fromApi = emptyWorldbuildingShape()
@@ -1532,11 +1565,7 @@ async function detectWizardProgress(): Promise<number> {
     }
     if (hasCharacters) {
       charactersGenerated.value = true
-      editableCharacters.value = (bible.characters || []).map(c => ({
-        name: c.name || '',
-        role: c.role || '',
-        description: c.description || '',
-      }))
+      editableCharacters.value = (bible.characters || []).map(mapCharacterToEditable)
     }
     if (hasLocations) {
       locationsGenerated.value = true
@@ -1700,8 +1729,15 @@ async function saveCharactersEdits(): Promise<boolean> {
       characters: editableCharacters.value.map(c => ({
         id: '',
         name: c.name,
-        description: `${c.role} - ${c.description}`,
-        relationships: [],
+        description: c.description,
+        role: c.role,
+        mental_state: c.mental_state,
+        verbal_tic: c.verbal_tic,
+        idle_behavior: c.idle_behavior,
+        relationships: c.relationships || [],
+        public_profile: c.public_profile,
+        hidden_profile: c.hidden_profile,
+        reveal_chapter: c.reveal_chapter,
       })),
       world_settings: [],
       locations: [],
@@ -2159,6 +2195,16 @@ const handleComplete = () => {
 .editable-location {
   width: 100%;
   padding: 4px 0;
+}
+
+.editable-field {
+  width: 100%;
+}
+.editable-field__label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 2px;
+  line-height: 1.4;
 }
 
 /* 步骤导航可点击 */
