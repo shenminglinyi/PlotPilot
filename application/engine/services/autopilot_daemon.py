@@ -1127,6 +1127,20 @@ class AutopilotDaemon:
                 key=lambda n: n.number
             )
 
+            # 🚨 安全检查：如果没有卷节点，说明宏观规划失败，重新规划
+            if not volume_nodes:
+                logger.error(
+                    f"[{novel_id}] 宏观规划缺少卷节点！无法进行幕级规划。"
+                    f"parts={len([n for n in all_nodes if n.node_type.value == 'part'])}, "
+                    f"volumes=0, acts={len(act_nodes)}. "
+                    f"触发重新规划..."
+                )
+                # 回退到宏观规划阶段重新生成
+                novel.current_stage = NovelStage.MACRO_PLANNING
+                novel.current_act = 0
+                self._flush_novel(novel)
+                return
+
             # 智能父卷选择：优先让当前卷填满（达到 rec_acts_per_volume 幕），再跳下一卷
             parent_volume = self._find_parent_volume_for_new_act(
                 volume_nodes=volume_nodes,

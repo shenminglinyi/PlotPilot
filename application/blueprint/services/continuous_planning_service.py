@@ -1009,6 +1009,30 @@ class ContinuousPlanningService:
             structure.append(part_node)
         return structure
 
+    def _validate_macro_structure_completeness(self, structure: List[Dict], target_chapters: int) -> bool:
+        """Validate that the macro structure has minimum viable nodes (parts + volumes).
+
+        Returns False if structure is missing volumes, which would cause act planning to fail.
+        """
+        if not structure or not isinstance(structure, list):
+            return False
+
+        has_volumes = False
+        for part in structure:
+            volumes = part.get("volumes", [])
+            if volumes and len(volumes) > 0:
+                has_volumes = True
+                break
+
+        if not has_volumes:
+            logger.warning(
+                f"Macro structure validation failed: structure has parts but no volumes. "
+                f"This will cause act planning to fail. Falling back to minimal structure."
+            )
+            return False
+
+        return True
+
     async def apply_macro_plan_from_llm_result(
         self,
         llm_result: Dict,
@@ -1022,7 +1046,16 @@ class ContinuousPlanningService:
         供 POST /novels/{id}/plan 与全托管守护进程共用，避免两处逻辑分叉。
         """
         struct = llm_result.get("structure") if isinstance(llm_result, dict) else None
-        if llm_result.get("success") and isinstance(struct, list) and len(struct) > 0:
+
+        # Validate structure completeness (must have parts AND volumes)
+        is_valid_structure = (
+            llm_result.get("success")
+            and isinstance(struct, list)
+            and len(struct) > 0
+            and self._validate_macro_structure_completeness(struct, target_chapters)
+        )
+
+        if is_valid_structure:
             confirm = await self.persist_macro_structure_with_fallback(
                 novel_id, struct
             )
@@ -1035,12 +1068,13 @@ class ContinuousPlanningService:
 
         if not minimal_fallback_on_empty:
             raise ValueError(
-                "宏观规划未返回有效结构（success 或 structure 无效）"
+                "宏观规划未返回有效结构（success 或 structure 无效或缺少卷节点）"
             )
 
         logger.warning(
-            "宏观规划未返回有效结构（success=%r），使用最小占位结构 novel_id=%s",
+            "宏观规划未返回有效结构（success=%r，有卷=%r），使用最小占位结构 novel_id=%s",
             llm_result.get("success") if isinstance(llm_result, dict) else None,
+            self._validate_macro_structure_completeness(struct, target_chapters) if struct else False,
             novel_id,
         )
         minimal = self.build_minimal_macro_structure(target_chapters)

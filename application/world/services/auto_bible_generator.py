@@ -17,6 +17,91 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# 流式 JSON 数组增量解析器
+# ============================================================================
+
+def _try_extract_next_item(buf: str, array_key: str):
+    """从流式 buffer 中尝试提取 JSON 数组中下一个完整对象。
+
+    策略：在 buf 中查找 array_key 对应数组区域的第一个完整 JSON 对象
+    （通过花括号深度匹配），提取并从 buf 中移除。
+
+    Args:
+        buf: 当前累积的 LLM 输出文本
+        array_key: JSON 数组的键名（如 "characters" 或 "locations"）
+
+    Returns:
+        (parsed_dict, remaining_buf) 如果找到完整对象
+        None 如果尚未收到完整对象
+    """
+    # 找到数组开始标记  "key": [
+    # 宽松匹配：允许空格、换行
+    pattern = rf'"{array_key}"\s*:\s*\['
+    m = re.search(pattern, buf)
+    if m is None:
+        return None
+
+    arr_start = m.end()  # [ 之后的偏移
+
+    # 在数组区域内寻找第一个完整 JSON 对象
+    depth = 0
+    in_string = False
+    escape_next = False
+    obj_start = None
+
+    i = arr_start
+    while i < len(buf):
+        ch = buf[i]
+
+        if escape_next:
+            escape_next = False
+            i += 1
+            continue
+
+        if ch == '\\' and in_string:
+            escape_next = True
+            i += 1
+            continue
+
+        if ch == '"' and not escape_next:
+            in_string = not in_string
+            i += 1
+            continue
+
+        if in_string:
+            i += 1
+            continue
+
+        if ch == '{':
+            if depth == 0:
+                obj_start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and obj_start is not None:
+                # 找到完整对象
+                obj_str = buf[obj_start:i + 1]
+                try:
+                    parsed = json.loads(obj_str)
+                    # 从 buf 中移除已解析的对象（保留数组前缀和前导逗号/空格）
+                    # 找到对象后的逗号或空白
+                    rest_start = i + 1
+                    # 跳过逗号和空白
+                    while rest_start < len(buf) and buf[rest_start] in ' ,\n\r\t':
+                        rest_start += 1
+                    # 保留数组前缀 + 剩余未解析内容
+                    remaining = f'{{"{array_key}": [' + buf[rest_start:]
+                    return parsed, remaining
+                except json.JSONDecodeError:
+                    # 对象看起来完整但解析失败，跳过
+                    obj_start = None
+
+        i += 1
+
+    return None
+
+
+# ============================================================================
 # JSON 输出稳定性增强 - Prompt 常量
 # ============================================================================
 USER_PROMPT_SUFFIX = """
@@ -1391,6 +1476,72 @@ JSON 格式：
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
+    # ── 流式人物生成 ──
+
+    async def _stream_generate_characters(
+        self,
+        premise: str,
+        target_chapters: int,
+        worldbuilding: Dict[str, Any],
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """流式生成人物：LLM 逐 token 输出，增量解析 JSON 数组，
+        每解析完一个角色对象立即 yield 给调用方。
+
+        Yields:
+            {"type": "character", "index": int, "content": dict}
+            {"type": "chunk", "text": str}   — 原始 token（可选，用于调试/进度）
+            {"type": "done", "count": int}   — 全部完成
+        """
+        wb_summary = self._summarize_worldbuilding(worldbuilding)
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system_prompt = get_prompt_system("bible-characters", fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
+        user_prompt = f"""故事创意：{premise}
+
+已有世界观：
+{wb_summary}
+
+请基于这个世界观生成主要人物。
+
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "characters": []
+}}
+```"""
+        prompt = Prompt(system=system_prompt, user=user_prompt)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
+
+        buf = ""
+        char_index = 0
+        try:
+            async for chunk in self.llm_service.stream_generate(prompt, config):
+                buf += chunk
+                # yield 原始 chunk（前端可用于打字效果/进度）
+                yield {"type": "chunk", "text": chunk}
+                # 尝试增量解析已完成的角色对象
+                while True:
+                    parsed = _try_extract_next_item(buf, "characters")
+                    if parsed is None:
+                        break
+                    char_data, buf = parsed
+                    yield {"type": "character", "index": char_index, "content": char_data}
+                    char_index += 1
+
+        except Exception as e:
+            logger.error("Stream generate characters failed: %s", e)
+            # 流式失败后降级：尝试一次性解析已收集的完整 buffer
+            if buf.strip():
+                try:
+                    full = _sanitize_llm_json_output(buf)
+                    result = _parse_llm_json_to_dict(full) if full else {}
+                    for ch in result.get("characters", []):
+                        yield {"type": "character", "index": char_index, "content": ch}
+                        char_index += 1
+                except Exception:
+                    pass
+
+        yield {"type": "done", "count": char_index}
+
     async def _generate_locations(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any], characters: list) -> Dict[str, Any]:
         """基于世界观和人物生成地点"""
         wb_summary = self._summarize_worldbuilding(worldbuilding)
@@ -1446,6 +1597,71 @@ JSON 格式：
 ```"""
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+
+    # ── 流式地点生成 ──
+
+    async def _stream_generate_locations(
+        self,
+        premise: str,
+        target_chapters: int,
+        worldbuilding: Dict[str, Any],
+        characters: list,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """流式生成地点：LLM 逐 token 输出，增量解析 JSON 数组，
+        每解析完一个地点对象立即 yield 给调用方。
+
+        Yields: 同 _stream_generate_characters，type 为 location
+        """
+        wb_summary = self._summarize_worldbuilding(worldbuilding)
+        char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system_prompt = get_prompt_system("bible-locations", fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
+        user_prompt = f"""故事创意：{premise}
+
+已有世界观：
+{wb_summary}
+
+已有人物：
+{char_summary}
+
+请基于世界观和人物生成完整地图。
+
+请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
+```json
+{{
+  "locations": []
+}}
+```"""
+        prompt = Prompt(system=system_prompt, user=user_prompt)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
+
+        buf = ""
+        loc_index = 0
+        try:
+            async for chunk in self.llm_service.stream_generate(prompt, config):
+                buf += chunk
+                yield {"type": "chunk", "text": chunk}
+                while True:
+                    parsed = _try_extract_next_item(buf, "locations")
+                    if parsed is None:
+                        break
+                    loc_data, buf = parsed
+                    yield {"type": "location", "index": loc_index, "content": loc_data}
+                    loc_index += 1
+
+        except Exception as e:
+            logger.error("Stream generate locations failed: %s", e)
+            if buf.strip():
+                try:
+                    full = _sanitize_llm_json_output(buf)
+                    result = _parse_llm_json_to_dict(full) if full else {}
+                    for loc in result.get("locations", []):
+                        yield {"type": "location", "index": loc_index, "content": loc}
+                        loc_index += 1
+                except Exception:
+                    pass
+
+        yield {"type": "done", "count": loc_index}
 
     def _summarize_worldbuilding(self, wb: Dict[str, Any]) -> str:
         """总结世界观为文本"""

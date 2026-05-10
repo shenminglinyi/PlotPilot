@@ -139,6 +139,7 @@
                    ══════════════════════════════════ -->
               <div v-show="drawerTab === 'llm'">
                 <LLMControlPanel
+                  v-if="llmPanelInitialized"
                   scroll-state-key="global-modal"
                   @panel-updated="handlePanelUpdated"
                 />
@@ -344,6 +345,7 @@ const props = withDefaults(defineProps<{
 })
 
 const showPanel = ref(false)
+const llmPanelInitialized = ref(false) // 缓存 LLM 面板是否已初始化
 const drawerTab = ref<DrawerTab>('llm')
 const runtimeLoading = ref(false)
 const runtimeSummary = ref<LLMRuntimeSummary | null>(null)
@@ -375,7 +377,10 @@ function handlePanelUpdated(data: LLMControlPanelData) {
 
 function handleModalShowChange(value: boolean) {
   showPanel.value = value
-  if (value) void refreshRuntimeSummary()
+  if (value) {
+    llmPanelInitialized.value = true // 首次打开时初始化，之后保持
+    void refreshRuntimeSummary()
+  }
 }
 
 const appearance = computed(() => props.appearance)
@@ -501,6 +506,7 @@ async function handleFetchEmbeddingModels() {
 }
 
 function openPanel() {
+  llmPanelInitialized.value = true // 首次打开时初始化，之后保持
   void refreshRuntimeSummary()
   void loadEmbeddingConfig()
   void checkExtensionsStatus()

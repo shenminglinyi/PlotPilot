@@ -166,7 +166,7 @@
           {{ charactersError }}
         </n-alert>
 
-        <!-- 生成中：骨架屏 + 流式数据 -->
+        <!-- 生成中：逐个角色流式呈现 -->
         <div v-if="generatingCharacters && !charactersGenerated" class="step-generating">
           <div class="generating-header">
             <div class="generating-icon">
@@ -176,24 +176,45 @@
             </div>
             <div class="generating-text">
               <h3>{{ phaseMessage || '正在生成人物...' }}</h3>
-              <p class="generating-sub">每生成一个角色立即呈现</p>
+              <p class="generating-sub">角色逐一呈现</p>
             </div>
           </div>
 
-          <WizardSkeleton type="characters" :completed-count="streamingCharacters.length" />
-
-          <!-- 已流式接收到的角色 -->
-          <div v-if="streamingCharacters.length" class="streaming-list">
+          <div class="streaming-cards">
+            <!-- 已接收的角色 —— 完整卡片 -->
             <transition-group name="fade-slide">
-              <div v-for="char in streamingCharacters" :key="char.name" class="streaming-character">
-                <div class="streaming-character__avatar">{{ char.name?.[0] || '?' }}</div>
-                <div class="streaming-character__info">
-                  <div class="streaming-character__name">{{ char.name }}</div>
-                  <n-tag size="tiny" :type="char.role === '主角' ? 'success' : 'default'">{{ char.role }}</n-tag>
-                  <div class="streaming-character__desc">{{ char.description }}</div>
+              <div v-for="(char, idx) in streamingCharacters" :key="char.name || idx" class="char-card char-card--filled">
+                <div class="char-card__header">
+                  <div class="char-card__avatar" :class="char.role === '主角' ? 'char-card__avatar--protag' : ''">{{ char.name?.[0] || '?' }}</div>
+                  <div class="char-card__title">
+                    <span class="char-card__name">{{ char.name }}</span>
+                    <n-tag size="small" :type="char.role === '主角' ? 'success' : 'default'" round>{{ char.role || '角色' }}</n-tag>
+                  </div>
+                </div>
+                <div v-if="char.description" class="char-card__desc">{{ char.description }}</div>
+                <div v-if="char.relationships && char.relationships.length" class="char-card__relations">
+                  <n-tag v-for="(rel, ri) in char.relationships.slice(0, 3)" :key="ri" size="tiny" :bordered="false" type="info">
+                    {{ typeof rel === 'string' ? rel : (rel.relation || rel.description || rel.target || '') }}
+                  </n-tag>
                 </div>
               </div>
             </transition-group>
+            <!-- 当前正在生成的骨架位 —— 与卡片结构一致 -->
+            <div class="char-card char-card--loading">
+              <div class="char-card__header">
+                <div class="char-card__avatar char-card__avatar--skeleton">
+                  <span class="skeleton-dot__pulse"></span>
+                </div>
+                <div class="char-card__title">
+                  <span class="char-card__skeleton-bar" style="width: 60px"></span>
+                  <span class="char-card__skeleton-bar char-card__skeleton-bar--tag"></span>
+                </div>
+              </div>
+              <div class="char-card__skeleton-body">
+                <span class="char-card__skeleton-bar" style="width: 90%"></span>
+                <span class="char-card__skeleton-bar" style="width: 70%"></span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -295,24 +316,38 @@
             </div>
             <div class="generating-text">
               <h3>{{ phaseMessage || '正在生成地图...' }}</h3>
-              <p class="generating-sub">地点逐一呈现，地图实时更新</p>
+              <p class="generating-sub">地点逐一呈现</p>
             </div>
           </div>
 
-          <WizardSkeleton type="locations" :completed-count="streamingLocations.length" />
-
-          <!-- 已流式接收到的地点 -->
-          <div v-if="streamingLocations.length" class="streaming-list">
+          <div class="streaming-loc-cards">
+            <!-- 已接收的地点 —— 完整卡片 -->
             <transition-group name="fade-slide">
-              <div v-for="loc in streamingLocations" :key="loc.name || loc.id" class="streaming-location">
-                <div class="streaming-location__icon">📍</div>
-                <div class="streaming-location__info">
-                  <div class="streaming-location__name">{{ loc.name }}</div>
-                  <n-tag size="tiny" type="info">{{ loc.type || loc.location_type || '地点' }}</n-tag>
-                  <div class="streaming-location__desc">{{ loc.description }}</div>
+              <div v-for="(loc, idx) in streamingLocations" :key="loc.name || loc.id || idx" class="loc-card loc-card--filled">
+                <div class="loc-card__header">
+                  <div class="loc-card__icon">📍</div>
+                  <div class="loc-card__title">
+                    <span class="loc-card__name">{{ loc.name }}</span>
+                    <n-tag size="small" type="info" round>{{ loc.type || loc.location_type || '地点' }}</n-tag>
+                  </div>
                 </div>
+                <div v-if="loc.description" class="loc-card__desc">{{ loc.description }}</div>
               </div>
             </transition-group>
+            <!-- 当前正在生成的骨架位 -->
+            <div class="loc-card loc-card--loading">
+              <div class="loc-card__header">
+                <div class="loc-card__icon--skeleton"></div>
+                <div class="loc-card__title">
+                  <span class="loc-card__skeleton-bar" style="width: 70px"></span>
+                  <span class="loc-card__skeleton-bar" style="width: 40px; height: 20px; border-radius: 10px"></span>
+                </div>
+              </div>
+              <div class="loc-card__skeleton-body">
+                <span class="loc-card__skeleton-bar" style="width: 85%"></span>
+                <span class="loc-card__skeleton-bar" style="width: 60%"></span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -824,10 +859,11 @@ const wbDimensionCards = computed(() => {
 const generatingCharacters = ref(false)
 const charactersGenerated = ref(false)
 const charactersError = ref('')
-const streamingCharacters = ref<Array<{ name: string; role: string; description: string }>>([])
+const streamingCharacters = ref<Array<{ name: string; role: string; description: string; relationships: BibleRelationshipEntry[] }>>([])
 const charactersSseAbort = ref<AbortController | null>(null)
 /** 可编辑的人物列表（从 bibleData 拷贝，用户可修改后确认落库） */
 interface EditableCharacter {
+  id: string
   name: string
   role: string
   description: string
@@ -856,6 +892,7 @@ function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
     desc = desc.slice(sepIdx + 3).trim()
   }
   return {
+    id: c.id || '',
     name: c.name || '',
     role,
     description: desc,
@@ -1397,13 +1434,31 @@ charactersError.value = ''
       phaseMessage.value = msg
     },
     onCharacter: (char) => {
-      const c = char as { name?: string; role?: string; description?: string }
+      const c = char as { name?: string; role?: string; description?: string; relationships?: BibleRelationshipEntry[] }
       if (c.name) {
+        // 从 description 中解析 role（后端可能把 role 拼到 description 开头）
+        let role = c.role || ''
+        let desc = c.description || ''
+        if (!role && desc.includes(' - ')) {
+          const sepIdx = desc.indexOf(' - ')
+          role = desc.slice(0, sepIdx).trim()
+          desc = desc.slice(sepIdx + 3).trim()
+        } else if (role && desc.startsWith(role) && desc.includes(' - ')) {
+          const sepIdx = desc.indexOf(' - ')
+          desc = desc.slice(sepIdx + 3).trim()
+        }
         streamingCharacters.value = [...streamingCharacters.value, {
           name: c.name,
-          role: c.role || '',
-          description: c.description || '',
+          role,
+          description: desc,
+          relationships: c.relationships || [],
         }]
+      }
+    },
+    onCharacterChunk: (_chunk) => {
+      // LLM 逐 token 输出中 —— 更新进度提示
+      if (!phaseMessage.value.includes('正在生成')) {
+        phaseMessage.value = 'AI 正在构思角色...'
       }
     },
     onDone: () => {
@@ -1466,6 +1521,12 @@ locationsError.value = ''
           location_type: l.location_type,
           description: l.description || '',
         }]
+      }
+    },
+    onLocationChunk: (_chunk) => {
+      // LLM 逐 token 输出中 —— 更新进度提示
+      if (!phaseMessage.value.includes('正在生成')) {
+        phaseMessage.value = 'AI 正在构思地点...'
       }
     },
     onDone: () => {
@@ -1726,8 +1787,8 @@ async function saveWorldbuildingEdits(): Promise<boolean> {
 async function saveCharactersEdits(): Promise<boolean> {
   try {
     await bibleApi.updateBible(props.novelId, {
-      characters: editableCharacters.value.map(c => ({
-        id: '',
+      characters: editableCharacters.value.map((c, idx) => ({
+        id: c.id || `${props.novelId}-char-${idx + 1}`,
         name: c.name,
         description: c.description,
         role: c.role,
@@ -2044,86 +2105,209 @@ const handleComplete = () => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* ── 流式列表 ── */
-.streaming-list {
+/* ── 流式卡片（人物） ── */
+.streaming-cards {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   margin-top: 8px;
 }
 
-.streaming-character {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
+.char-card {
+  padding: 14px 16px;
   border-radius: 10px;
   border: 1px solid var(--n-border-color);
   background: var(--n-color-modal);
+  transition: all 0.35s ease;
 }
 
-.streaming-character__avatar {
-  width: 40px;
-  height: 40px;
+.char-card--filled {
+  border-color: #18a05830;
+  background: #18a05806;
+}
+
+.char-card--loading {
+  border-style: dashed;
+  border-color: #2080f040;
+  background: #2080f004;
+}
+
+.char-card__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.char-card__avatar {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   flex-shrink: 0;
 }
 
-.streaming-character__info {
-  flex: 1;
+.char-card__avatar--protag {
+  background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);
+  box-shadow: 0 0 0 2px #f5af1930;
 }
 
-.streaming-character__name {
+.char-card__avatar--skeleton {
+  background: #f0f0f0;
+  color: transparent;
+}
+
+.char-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.char-card__name {
   font-weight: 600;
   font-size: 15px;
-  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.streaming-character__desc {
+.char-card__desc {
   font-size: 13px;
   color: #666;
-  line-height: 1.5;
-  margin-top: 4px;
+  line-height: 1.6;
+  margin-top: 8px;
+  padding-left: 46px;
 }
 
-.streaming-location {
+.char-card__relations {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  padding-left: 46px;
+}
+
+.char-card__skeleton-bar {
+  display: inline-block;
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e4e4e4 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.char-card__skeleton-bar--tag {
+  width: 48px;
+  height: 20px;
+  border-radius: 10px;
+}
+
+.char-card__skeleton-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-left: 46px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── 流式卡片（地点） ── */
+.streaming-loc-cards {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  padding: 10px 12px;
+  margin-top: 8px;
+}
+
+.loc-card {
+  padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid var(--n-border-color);
   background: var(--n-color-modal);
+  transition: all 0.35s ease;
 }
 
-.streaming-location__icon {
-  font-size: 20px;
+.loc-card--filled {
+  border-color: #2080f030;
+  background: #2080f006;
+}
+
+.loc-card--loading {
+  border-style: dashed;
+  border-color: #f0a02040;
+  background: #f0a02004;
+}
+
+.loc-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loc-card__icon {
+  font-size: 18px;
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
-.streaming-location__info {
+.loc-card__icon--skeleton {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: #f0f0f0;
+  animation: shimmer 1.5s ease-in-out infinite;
+  background-size: 200% 100%;
+}
+
+.loc-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: 1;
+  min-width: 0;
 }
 
-.streaming-location__name {
+.loc-card__name {
   font-weight: 600;
   font-size: 14px;
-  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.streaming-location__desc {
+.loc-card__desc {
   font-size: 13px;
   color: #666;
   line-height: 1.5;
-  margin-top: 4px;
+  margin-top: 6px;
+  padding-left: 26px;
+}
+
+.loc-card__skeleton-bar {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e4e4e4 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.loc-card__skeleton-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+  padding-left: 26px;
 }
 
 /* ── 动画 ── */
