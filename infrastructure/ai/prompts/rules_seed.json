@@ -1,0 +1,102 @@
+[
+  {
+    "name": "rule.webnovel_pacing",
+    "content": "【网文节奏规则】\n1. 每2000字必须有一个信息揭示或冲突升级\n2. 章末必须留钩子（悬念/反转/新角色/新线索）\n3. 连续3段纯描写后必须切入动作或对话\n4. 避免同一场景超过5000字\n5. 情绪高潮后必须有30%篇幅的缓冲段\n6. 日常场景只在发展期使用，收敛期禁用",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "pacing",
+      "priority": 10,
+      "description": "网文节奏控制规则"
+    }
+  },
+  {
+    "name": "rule.payoff_design",
+    "content": "【回报设计规则】\n1. 伏笔回收的回报感 = 埋设篇幅 × 悬念时长 × 意外程度\n2. 核心伏笔(emotional_weight>0.8)回收时必须有反转\n3. 伏笔苏醒阶段(AWAKENING)需要至少2次前兆暗示\n4. 回收场景必须用埋设时的相同意象/环境\n5. 禁止机械回收（'原来那个X就是Y'），需要场景化呈现\n6. 小伏笔回收可以一笔带过，大伏笔需要独立章节",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "foreshadow",
+      "priority": 9,
+      "description": "伏笔回报设计规则"
+    }
+  },
+  {
+    "name": "rule.chapter_hook",
+    "content": "【章末钩子规则】\n每章结尾必须包含以下至少一种：\n1. 悬念钩：留下未解之谜（'他推开门，看到的场景让他血液凝固。'）\n2. 反转钩：颠覆读者预期（'而那个他一直寻找的人，就站在他身后。'）\n3. 新人钩：引入新角色或势力\n4. 危机钩：主角陷入困境\n5. 揭示钩：揭露一个关键信息\n禁止使用：\n- 假悬念（'一个改变一切的发现'但不说是什么）\n- 情感总结（'他不知道，这一切才刚刚开始'）",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "structure",
+      "priority": 9,
+      "description": "章末钩子设计规则"
+    }
+  },
+  {
+    "name": "rule.faithful_expansion",
+    "content": "【忠实扩写规则】\n1. 扩写 = 给骨架填血肉，不是加新的骨架\n2. 每个大纲节点对应1-3段正文\n3. 扩写优先级：动作描写 > 对话 > 心理 > 环境\n4. 扩写时必须保持原意不变，只增加细节\n5. 禁止扩写时自行添加新角色、新支线\n6. 如果大纲节点不清晰，请求确认而非猜测\n7. 环境描写必须服务叙事：暗含危险/折射心理/埋设伏笔",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "writing",
+      "priority": 8,
+      "description": "忠实扩写规则"
+    }
+  },
+  {
+    "name": "rule.character_consistency",
+    "content": "【角色一致性规则】\n1. 对话前检查角色当前面具（T0层Fact Lock）\n2. 角色行为必须符合核心信念，违反需提供充分动机\n3. 角色语言风格必须与VoiceProfile一致\n4. 创伤触发条件出现时必须描写条件反射\n5. 角色成长需通过地质叠层(Patch)追加，不能突然变化\n6. OOC(角色脱离设定)是最严重的质量问题\n7. 角色之间对话要有区分度，不能所有角色说话一个味",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "character",
+      "priority": 10,
+      "description": "角色一致性规则"
+    }
+  },
+  {
+    "name": "rule.character_knowledge",
+    "content": "【角色知识边界规则】\n1. 角色只能知道TA应该知道的事（信息差原则）\n2. 主角不知道的事，不能在主角视角中透露\n3. 角色获得的情报必须有来源（亲历/听闻/推理）\n4. 禁止角色'碰巧'知道关键信息（除非有伏笔铺垫）\n5. 信息差是制造悬念的核心工具\n6. 视角角色的认知局限 = 读者的悬念",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "character",
+      "priority": 9,
+      "description": "角色知识边界规则"
+    }
+  },
+  {
+    "name": "rule.world_logic",
+    "content": "【世界观逻辑规则】\n1. 力量体系必须自洽：强者不能'恰好'变弱来迁就剧情\n2. 地理距离必须一致：不能前一章骑马三天，后一章瞬息即达\n3. 时间线必须连贯：所有角色的时间线必须同步\n4. 经济系统必须合理：赏金/物价/收入要匹配\n5. 社会规则必须稳定：门派/朝廷/江湖的规则不能随意改变\n6. 战斗力天花板必须明确：不能无限升级",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "worldbuilding",
+      "priority": 8,
+      "description": "世界观逻辑自洽规则"
+    }
+  },
+  {
+    "name": "rule.foreshadowing_management",
+    "content": "【伏笔管理规则】\n1. 新伏笔必须标注emotional_weight(0-1)和binding_level(character/faction/event/world)\n2. 核心伏笔(weight>0.8)必须绑定event或world层级\n3. 收敛期(CONVERGENCE)禁止埋设新伏笔\n4. 终局期(FINALE)所有伏笔必须在3章内回收\n5. 伏笔苏醒(AWAKENING)需要至少1次前兆提及\n6. 伏笔回收必须呼应埋设时的氛围和意象\n7. 活跃伏笔数量上限：开局期5个/发展期8个/收敛期4个/终局期2个",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "foreshadow",
+      "priority": 9,
+      "description": "伏笔管理规则"
+    }
+  },
+  {
+    "name": "rule.narrative_voice",
+    "content": "【叙事声音规则】\n1. 叙述者不是角色，是讲故事的人\n2. 禁止八股文：'首先...其次...最后...'\n3. 禁止数字比喻：'像X一样Y'（每章最多1个明喻）\n4. 禁止过度理性：情绪场景用身体反应，不用分析\n5. 禁止拐弯描写：'不由自主地产生了一种感觉' → '心里一颤'\n6. 白描优于形容：用1个精准动词替代3个形容词\n7. 画面感优于解释：'他眼眶红了'优于'他感到悲伤'\n8. 去AI味：不要总结，不要分析，不要说教",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "style",
+      "priority": 10,
+      "description": "叙事声音与去AI味规则"
+    }
+  },
+  {
+    "name": "rule.output_protocol",
+    "content": "【输出协议规则】\n1. 输出格式必须符合JSON结构要求\n2. 伏笔变更必须写入foreshadow_updates数组\n3. 角色状态变更必须写入character_updates数组\n4. 情绪账本变更必须写入emotion_ledger_updates数组\n5. 新增伏笔必须包含：description, emotional_weight, binding_level, planting_atmosphere\n6. 伏笔回收必须包含：resolve_method, echo_description\n7. 禁止在JSON外输出正文\n8. 每个字段必须填写，空值用null而非省略",
+    "metadata": {
+      "node_type": "rule",
+      "subcategory": "protocol",
+      "priority": 10,
+      "description": "输出协议格式规则"
+    }
+  }
+]

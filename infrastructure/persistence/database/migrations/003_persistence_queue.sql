@@ -29,13 +29,5 @@ CREATE INDEX IF NOT EXISTS idx_persistence_queue_completed
 ON persistence_queue(completed_at)
 WHERE status IN ('completed', 'failed');
 
--- 触发器：自动清理 7 天前的已完成任务
-CREATE TRIGGER IF NOT EXISTS cleanup_old_completed_tasks
-AFTER INSERT ON persistence_queue
-WHEN (SELECT COUNT(*) FROM persistence_queue WHERE status IN ('completed', 'failed')) > 1000
-BEGIN
-    DELETE FROM persistence_queue
-    WHERE status IN ('completed', 'failed')
-    AND completed_at < datetime('now', '-7 days')
-    LIMIT 100;
-END;
+-- 注意：SQLite默认不支持 DELETE ... LIMIT 语法
+-- 清理逻辑已移至应用层 persistence_queue_v2.py 的 _cleanup_old_tasks 方法
