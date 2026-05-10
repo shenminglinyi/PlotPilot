@@ -1,80 +1,37 @@
 /**
- * DAG 工作流 API 层
+ * DAG 工作流 API 层 — 纯展示接口
+ *
+ * 设计原则：
+ * - DAG 是纯展示层，不提供保存/校验/编辑接口
+ * - 节点注册是代码行为，不存在前端"同步"一说
+ * - 执行权在全托管模式，DAG 只展示状态流转
  */
-import { apiClient, resolveHttpUrl } from './config'
+import { apiClient } from './config'
 import type {
   DAGDefinition,
   DAGStatusResponse,
-  DAGValidationResult,
-  DAGVersionSummary,
   NodeMeta,
+  NodePromptLive,
 } from '@/types/dag'
 
-// ─── DAG 定义管理 ───
+// ─── DAG 只读展示 ───
 
 export const dagApi = {
-  /** GET /api/v1/dag/{novel_id} — 获取当前 DAG 定义 */
+  /** GET /api/v1/dag/{novel_id} — 获取当前 DAG 定义（只读） */
   getDAG: (novelId: string) =>
     apiClient.get<DAGDefinition>(`/dag/${novelId}`) as unknown as Promise<DAGDefinition>,
 
-  /** PUT /api/v1/dag/{novel_id} — 更新 DAG 定义 */
-  updateDAG: (novelId: string, data: {
-    name?: string
-    description?: string
-    nodes?: Record<string, unknown>[]
-    edges?: Record<string, unknown>[]
-  }) =>
-    apiClient.put<{ version: number; dag: DAGDefinition }>(`/dag/${novelId}`, data) as unknown as Promise<{ version: number; dag: DAGDefinition }>,
-
-  /** POST /api/v1/dag/{novel_id}/validate — 校验 DAG 有效性 */
-  validateDAG: (novelId: string) =>
-    apiClient.post<DAGValidationResult>(`/dag/${novelId}/validate`, {}) as unknown as Promise<DAGValidationResult>,
-
-  // ─── 节点操作 ───
-
-  /** GET /api/v1/dag/{novel_id}/nodes/{node_id} — 获取节点详情 */
+  /** GET /api/v1/dag/{novel_id}/nodes/{node_id} — 获取节点详情（只读） */
   getNode: (novelId: string, nodeId: string) =>
     apiClient.get<Record<string, unknown>>(`/dag/${novelId}/nodes/${nodeId}`) as unknown as Promise<Record<string, unknown>>,
 
-  /** PUT /api/v1/dag/{novel_id}/nodes/{node_id} — 更新节点配置 */
-  updateNodeConfig: (novelId: string, nodeId: string, config: Record<string, unknown>) =>
-    apiClient.put<DAGDefinition>(`/dag/${novelId}/nodes/${nodeId}`, config) as unknown as Promise<DAGDefinition>,
-
-  /** POST /api/v1/dag/{novel_id}/nodes/{node_id}/toggle — 切换启用/禁用 */
+  /** POST /api/v1/dag/{novel_id}/nodes/{node_id}/toggle — 切换启用/禁用（唯一写操作） */
   toggleNode: (novelId: string, nodeId: string) =>
     apiClient.post<DAGDefinition>(`/dag/${novelId}/nodes/${nodeId}/toggle`, {}) as unknown as Promise<DAGDefinition>,
-
-  /** POST /api/v1/dag/{novel_id}/nodes/{node_id}/rerun — 从该节点重新执行 */
-  rerunFromNode: (novelId: string, nodeId: string) =>
-    apiClient.post<{ status: string; node_id: string }>(`/dag/${novelId}/nodes/${nodeId}/rerun`, {}) as unknown as Promise<{ status: string; node_id: string }>,
-
-  /** GET /api/v1/dag/{novel_id}/nodes/{node_id}/prompt — 获取渲染后的 Prompt */
-  getRenderedPrompt: (novelId: string, nodeId: string) =>
-    apiClient.get<{ node_id: string; template: string; variables: Record<string, string>; rendered: string }>(`/dag/${novelId}/nodes/${nodeId}/prompt`) as unknown as Promise<{ node_id: string; template: string; variables: Record<string, string>; rendered: string }>,
-
-  // ─── DAG 运行 ───
-
-  /** POST /api/v1/dag/{novel_id}/run — 启动 DAG 运行 */
-  runDAG: (novelId: string) =>
-    apiClient.post<{ status: string; novel_id: string }>(`/dag/${novelId}/run`, {}) as unknown as Promise<{ status: string; novel_id: string }>,
-
-  /** POST /api/v1/dag/{novel_id}/stop — 停止 DAG 运行 */
-  stopDAG: (novelId: string) =>
-    apiClient.post<{ status: string; novel_id: string }>(`/dag/${novelId}/stop`, {}) as unknown as Promise<{ status: string; novel_id: string }>,
 
   /** GET /api/v1/dag/{novel_id}/status — 获取运行状态 */
   getStatus: (novelId: string) =>
     apiClient.get<DAGStatusResponse>(`/dag/${novelId}/status`) as unknown as Promise<DAGStatusResponse>,
-
-  // ─── 版本管理 ───
-
-  /** GET /api/v1/dag/{novel_id}/versions — DAG 版本列表 */
-  listVersions: (novelId: string) =>
-    apiClient.get<{ novel_id: string; versions: DAGVersionSummary[] }>(`/dag/${novelId}/versions`) as unknown as Promise<{ novel_id: string; versions: DAGVersionSummary[] }>,
-
-  /** POST /api/v1/dag/{novel_id}/versions/{version}/rollback — 回滚到指定版本 */
-  rollbackVersion: (novelId: string, version: number) =>
-    apiClient.post<{ status: string; version: number; dag: DAGDefinition }>(`/dag/${novelId}/versions/${version}/rollback`, {}) as unknown as Promise<{ status: string; version: number; dag: DAGDefinition }>,
 
   // ─── 节点注册表 ───
 
@@ -91,4 +48,30 @@ export const dagApi = {
   /** GET /api/v1/dag/health/dag — DAG 引擎健康检查 */
   healthCheck: () =>
     apiClient.get<Record<string, unknown>>('/dag/health/dag') as unknown as Promise<Record<string, unknown>>,
+
+  // ─── 提示词 ───
+
+  /** GET /api/v1/dag/{novel_id}/nodes/{node_id}/prompt-live — 实时提示词 */
+  getNodePromptLive: (novelId: string, nodeId: string) =>
+    apiClient.get<NodePromptLive>(`/dag/${novelId}/nodes/${nodeId}/prompt-live`) as unknown as Promise<NodePromptLive>,
+
+  /** GET /api/v1/dag/{novel_id}/nodes/{node_id}/prompt — 获取渲染后的 Prompt（预览） */
+  getRenderedPrompt: (novelId: string, nodeId: string) =>
+    apiClient.get<{ node_id: string; template: string; variables: Record<string, string>; rendered: string }>(`/dag/${novelId}/nodes/${nodeId}/prompt`) as unknown as Promise<{ node_id: string; template: string; variables: Record<string, string>; rendered: string }>,
+
+  // ─── 运行控制（dagRunStore 使用） ───
+
+  /** POST /api/v1/dag/{novel_id}/run — 启动 DAG 运行 */
+  runDAG: (novelId: string) =>
+    apiClient.post<{ status: string; novel_id: string }>(`/dag/${novelId}/run`, {}) as unknown as Promise<{ status: string; novel_id: string }>,
+
+  /** POST /api/v1/dag/{novel_id}/stop — 停止 DAG 运行 */
+  stopDAG: (novelId: string) =>
+    apiClient.post<{ status: string; novel_id: string }>(`/dag/${novelId}/stop`, {}) as unknown as Promise<{ status: string; novel_id: string }>,
+
+  // ─── 节点配置更新（nodeEditorStore 使用） ───
+
+  /** PUT /api/v1/dag/{novel_id}/nodes/{node_id} — 更新节点配置 */
+  updateNodeConfig: (novelId: string, nodeId: string, config: Record<string, unknown>) =>
+    apiClient.put<DAGDefinition>(`/dag/${novelId}/nodes/${nodeId}`, config) as unknown as Promise<DAGDefinition>,
 }
