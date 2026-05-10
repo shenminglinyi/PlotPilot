@@ -20,10 +20,10 @@ WHERE autopilot_status IN ('running', 'stopped');
 -- 2. 章节查询优化
 -- ========================================
 
--- 覆盖索引：按小说查询章节列表（避免回表）
+-- 复合索引：按小说查询章节列表
+-- 注意：SQLite不支持INCLUDE子句，改用复合索引替代
 CREATE INDEX IF NOT EXISTS idx_chapters_novel_cover
-ON chapters(novel_id, number)
-INCLUDE (status, word_count, tension_score, updated_at);
+ON chapters(novel_id, number, status, word_count);
 
 -- 复合索引：按小说和状态查询章节
 CREATE INDEX IF NOT EXISTS idx_chapters_novel_status
@@ -35,18 +35,15 @@ ON chapters(novel_id, status, number);
 
 -- 覆盖索引：按小说和章节查询三元组
 CREATE INDEX IF NOT EXISTS idx_triples_novel_chapter_cover
-ON triples(novel_id, chapter_number)
-INCLUDE (subject, predicate, object, confidence, entity_type);
+ON triples(novel_id, chapter_number, subject, predicate, object);
 
 -- 复合索引：按主体查询三元组
 CREATE INDEX IF NOT EXISTS idx_triples_subject_cover
-ON triples(novel_id, subject)
-INCLUDE (predicate, object, entity_type, importance);
+ON triples(novel_id, subject, predicate, object);
 
 -- 复合索引：按类型查询三元组
 CREATE INDEX IF NOT EXISTS idx_triples_entity_type_cover
-ON triples(novel_id, entity_type, subject)
-INCLUDE (predicate, object);
+ON triples(novel_id, entity_type, subject, predicate);
 
 -- ========================================
 -- 4. 故事节点查询优化
@@ -54,8 +51,7 @@ INCLUDE (predicate, object);
 
 -- 覆盖索引：按小说查询故事节点树
 CREATE INDEX IF NOT EXISTS idx_story_nodes_novel_tree
-ON story_nodes(novel_id, node_type, order_index)
-INCLUDE (parent_id, number, title, planning_status);
+ON story_nodes(novel_id, node_type, order_index, parent_id, number);
 
 -- 复合索引：查询待确认的节点
 CREATE INDEX IF NOT EXISTS idx_story_nodes_planning
@@ -68,8 +64,7 @@ WHERE planning_status = 'draft';
 
 -- 覆盖索引：按知识库查询章节摘要
 CREATE INDEX IF NOT EXISTS idx_chapter_summaries_knowledge_cover
-ON chapter_summaries(knowledge_id, chapter_number)
-INCLUDE (summary, key_events);
+ON chapter_summaries(knowledge_id, chapter_number);
 
 -- ========================================
 -- 6. 分析查询计划
