@@ -32,8 +32,8 @@
       <n-tab-pane name="story-evolution" tab="故事演进" display-directive="if">
         <StoryEvolutionPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
-      <n-tab-pane name="sandbox" tab="对话沙盒" display-directive="if">
-        <SandboxDialoguePanel :slug="slug" />
+      <n-tab-pane name="sandbox" tab="角色对话" display-directive="if">
+        <CharacterDialoguePanel :slug="slug" />
       </n-tab-pane>
       <n-tab-pane name="foreshadow" tab="伏笔账本" display-directive="if">
         <ForeshadowLedgerPanel :slug="slug" />
@@ -49,7 +49,7 @@ import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
 import WorldbuildingPanel from './WorldbuildingPanel.vue'
 import StoryEvolutionPanel from './StoryEvolutionPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
-import SandboxDialoguePanel from './SandboxDialoguePanel.vue'
+import CharacterDialoguePanel from './CharacterDialoguePanel.vue'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
