@@ -16,6 +16,7 @@ import json
 import logging
 import shutil
 import sqlite3
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -78,12 +79,13 @@ class CheckpointMigrator:
             备份文件路径
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_path = self.db_path.parent / f"checkpoints_backup_{timestamp}.db"
+        unique_id = str(uuid.uuid4())[:8]
+        backup_path = self.db_path.parent / f"checkpoints_backup_{timestamp}_{unique_id}.db"
 
         logger.info(f"开始备份 checkpoints 表到: {backup_path}")
 
-        # 创建临时备份
-        temp_backup = self.db_path.parent / f"temp_backup_{timestamp}.db"
+        # 创建备份（使用 copy 而非 move，确保原始文件安全）
+        temp_backup = self.db_path.parent / f"temp_backup_{timestamp}_{unique_id}.db"
         shutil.copy2(self.db_path, temp_backup)
 
         # 从备份中只保留 checkpoints 相关表
@@ -96,18 +98,28 @@ class CheckpointMigrator:
             )
             all_tables = [row[0] for row in cursor.fetchall()]
 
-            # 删除除 checkpoints 和 checkpoint_heads 以外的表
+            # 定义允许保留的表（白名单）
+            allowed_tables = {'checkpoints', 'checkpoint_heads'}
+
+            # 删除不在白名单中的表（使用参数化查询避免 SQL 注入）
             for table in all_tables:
-                if table not in ['checkpoints', 'checkpoint_heads']:
-                    backup_conn.execute(f"DROP TABLE IF EXISTS {table}")
+                if table not in allowed_tables:
+                    # 使用参数化查询防止 SQL 注入
+                    # 注意：SQLite 不支持表名参数化，但我们已经通过白名单验证
+                    # 白名单验证是最安全的方式
+                    if table.isidentifier():  # 额外验证：确保是有效的标识符
+                        backup_conn.execute(f"DROP TABLE IF EXISTS [{table}]")
 
             backup_conn.commit()
         finally:
             if backup_conn:
                 backup_conn.close()
 
-        # 重命名为最终备份文件
-        temp_backup.rename(backup_path)
+        # 使用 copy 而非 rename，确保备份文件独立存在
+        shutil.copy2(temp_backup, backup_path)
+
+        # 清理临时备份
+        temp_backup.unlink()
 
         logger.info(f"✓ checkpoints 表已备份到: {backup_path}")
         return backup_path
@@ -347,18 +359,21 @@ class CheckpointMigrator:
         logger.info("开始 Checkpoint -> Snapshot 迁移")
         logger.info("="*60)
 
+        # 备份文件路径（在连接前创建）
+        backup_path = None
+
         try:
-            # 1. 连接数据库
-            self.connect()
-
-            # 2. 验证 novel_snapshots 表结构
-            if not self.verify_novel_snapshots_has_engine_state():
-                return False
-
-            # 3. 备份 checkpoints 表
+            # 1. 备份 checkpoints 表（在连接数据库前进行）
             if not dry_run:
                 backup_path = self.backup_checkpoints_table()
                 logger.info(f"备份文件: {backup_path}")
+
+            # 2. 连接数据库
+            self.connect()
+
+            # 3. 验证 novel_snapshots 表结构
+            if not self.verify_novel_snapshots_has_engine_state():
+                return False
 
             # 4. 获取所有 checkpoint
             checkpoints = self.get_all_checkpoints()
@@ -368,7 +383,12 @@ class CheckpointMigrator:
                 logger.info("没有需要迁移的 checkpoint 记录")
                 return True
 
-            # 5. 迁移每个 checkpoint
+            # 5. 开始事务（显式事务管理）
+            if not dry_run:
+                logger.info("开始事务...")
+                self.conn.execute("BEGIN TRANSACTION")
+
+            # 6. 迁移每个 checkpoint
             logger.info(f"开始迁移 {len(checkpoints)} 条 checkpoint 记录...")
 
             for idx, checkpoint in enumerate(checkpoints, 1):
@@ -376,16 +396,26 @@ class CheckpointMigrator:
                 if not dry_run:
                     self.migrate_checkpoint(checkpoint)
 
-            # 6. 迁移 checkpoint_heads（仅记录日志）
+            # 7. 检查是否有迁移错误
+            if not dry_run and self.stats['errors']:
+                logger.error(f"发现 {len(self.stats['errors'])} 个迁移错误，正在回滚事务...")
+                self.conn.rollback()
+                logger.error("✗ 事务已回滚，数据库未修改")
+                logger.error("错误详情:")
+                for error in self.stats['errors']:
+                    logger.error(f"  - {error}")
+                return False
+
+            # 8. 迁移 checkpoint_heads（仅记录日志）
             if not dry_run:
                 self.migrate_checkpoint_heads()
 
-            # 7. 提交事务
+            # 9. 提交事务
             if not dry_run:
                 self.conn.commit()
                 logger.info("✓ 事务已提交")
 
-            # 8. 验证迁移
+            # 10. 验证迁移
             if not dry_run:
                 success, verification = self.verify_migration()
 
@@ -427,7 +457,9 @@ class CheckpointMigrator:
         except Exception as e:
             logger.error(f"迁移过程出错: {e}", exc_info=True)
             if self.conn:
+                logger.error("正在回滚事务...")
                 self.conn.rollback()
+                logger.error("✗ 事务已回滚")
             return False
 
         finally:
