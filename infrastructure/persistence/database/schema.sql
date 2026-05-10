@@ -514,6 +514,13 @@ CREATE TABLE IF NOT EXISTS novel_snapshots (
     bible_state TEXT,  -- JSON: Bible 快照
     foreshadow_state TEXT,  -- JSON: 伏笔账本快照
     graph_state TEXT,  -- JSON: 知识图谱快照（可选）
+    -- 引擎状态字段（统一 Checkpoint+Snapshot 系统）
+    story_state TEXT DEFAULT '{}',  -- JSON: 故事状态
+    character_masks TEXT DEFAULT '{}',  -- JSON: 角色面具
+    emotion_ledger TEXT DEFAULT '{}',  -- JSON: 情绪账本
+    active_foreshadows TEXT DEFAULT '[]',  -- JSON: 活跃伏笔
+    outline TEXT DEFAULT '',  -- TEXT: 当前大纲
+    recent_chapters_summary TEXT DEFAULT '',  -- TEXT: 近期章节摘要
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE,
     FOREIGN KEY (parent_snapshot_id) REFERENCES novel_snapshots(id) ON DELETE SET NULL
