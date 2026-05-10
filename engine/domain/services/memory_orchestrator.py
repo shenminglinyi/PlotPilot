@@ -17,9 +17,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 
-from engine.domain.entities.story import StoryId
-from engine.domain.value_objects.emotion_ledger import EmotionLedger
-from engine.domain.entities.foreshadow import ForeshadowStatus
+from engine.core.entities.story import StoryId
+from engine.core.value_objects.emotion_ledger import EmotionLedger
+from engine.core.entities.foreshadow import ForeshadowStatus
 
 
 @dataclass

@@ -840,7 +840,11 @@ app.include_router(snapshot_routes.router, prefix="/api/v1")
 app.include_router(autopilot_routes.router, prefix="/api/v1")
 app.include_router(workbench_context_routes.router, prefix="/api/v1")
 app.include_router(character_scheduler_routes.router, prefix="/api/v1")  # 角色调度服务
-app.include_router(checkpoint_routes.router, prefix="/api/v1")  # Checkpoint + QualityGuardrail + StoryPhase
+app.include_router(checkpoint_routes.router, prefix="/api/v1")  # Checkpoint + QualityGuardrail + StoryPhase + CharacterSoul
+
+# Engine trace (溯源) routes
+from interfaces.api.v1.engine.trace_routes import router as trace_router
+app.include_router(trace_router, prefix="/api/v1")
 
 # DAG workflow engine routes
 from interfaces.api.v1.engine.dag.dag_routes import router as dag_router

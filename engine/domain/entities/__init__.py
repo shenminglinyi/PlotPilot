@@ -1,14 +1,17 @@
-"""领域实体 — Story聚合根、Character、Chapter、Foreshadow"""
-from engine.domain.entities.story import Story, StoryId, StoryPhase
-from engine.domain.entities.character import Character, CharacterId, VoiceStyle, Wound, CharacterPatch
-from engine.domain.entities.chapter import Chapter, Paragraph, ChapterQualityScore
-from engine.domain.entities.foreshadow import (
+"""兼容层 — engine.domain.entities
+
+⚠️ 已废弃，请使用: from engine.core.entities import ...
+"""
+from engine.core.entities import (
+    Character, CharacterId, VoiceStyle, Wound, CharacterPatch,
+    Story, StoryId, StoryPhase,
     Foreshadow, ForeshadowId, ForeshadowStatus, ForeshadowBinding,
+    Chapter, ChapterStatus, Paragraph, ChapterQualityScore,
 )
 
 __all__ = [
-    "Story", "StoryId", "StoryPhase",
     "Character", "CharacterId", "VoiceStyle", "Wound", "CharacterPatch",
-    "Chapter", "Paragraph", "ChapterQualityScore",
+    "Story", "StoryId", "StoryPhase",
     "Foreshadow", "ForeshadowId", "ForeshadowStatus", "ForeshadowBinding",
+    "Chapter", "ChapterStatus", "Paragraph", "ChapterQualityScore",
 ]

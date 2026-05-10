@@ -25,12 +25,12 @@ from engine.application.quality_guardrails.quality_guardrail import (
     QualityGuardrail, QualityReport, QualityViolationError,
 )
 from engine.application.plot_state_machine.state_machine import PlotStateMachine
-from engine.domain.entities.story import Story, StoryPhase
-from engine.domain.entities.character import Character
-from engine.domain.entities.foreshadow import Foreshadow, ForeshadowStatus, ForeshadowBinding
-from engine.domain.value_objects.character_mask import CharacterMask
-from engine.domain.value_objects.checkpoint import Checkpoint, CheckpointId, CheckpointType
-from engine.domain.value_objects.emotion_ledger import (
+from engine.core.entities.story import Story, StoryPhase
+from engine.core.entities.character import Character
+from engine.core.entities.foreshadow import Foreshadow, ForeshadowStatus, ForeshadowBinding
+from engine.core.value_objects.character_mask import CharacterMask
+from engine.core.value_objects.checkpoint import Checkpoint, CheckpointId, CheckpointType
+from engine.core.value_objects.emotion_ledger import (
     EmotionLedger, EmotionalWound, EmotionalBoon, PowerShift, OpenLoop,
 )
 

@@ -3,19 +3,14 @@ import sys
 import os
 
 # 添加项目根目录
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# scripts/evaluation/ 的上两级是项目根目录
-# 但 engine/ 目录就在项目根目录下
-AITEXT_ROOT = os.path.dirname(os.path.dirname(PROJECT_ROOT))
-# 实际上 PROJECT_ROOT = d:\CODE\aitext\scripts\evaluation
-# 我们需要 d:\CODE\aitext
-AITEXT_ROOT = os.path.abspath(os.path.join(PROJECT_ROOT, "..", ".."))
-for p in [AITEXT_ROOT, PROJECT_ROOT]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+# __file__ = d:\CODE\aitext\scripts\evaluation\quick_verify.py
+# 我们需要 d:\CODE\aitext 在 sys.path 中
+AITEXT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if AITEXT_ROOT not in sys.path:
+    sys.path.insert(0, AITEXT_ROOT)
 
 def test_story():
-    from engine.domain.entities.story import Story, StoryId, StoryPhase
+    from engine.core.entities.story import Story, StoryId, StoryPhase
     s = Story.create("测试小说", "武侠世界", 10)
     assert s.title == "测试小说"
     assert s.story_phase == StoryPhase.OPENING
@@ -25,7 +20,7 @@ def test_story():
     print("✅ Story OK")
 
 def test_character():
-    from engine.domain.entities.character import Character, CharacterId, VoiceStyle, Wound, CharacterPatch
+    from engine.core.entities.character import Character, CharacterId, VoiceStyle, Wound, CharacterPatch
     c = Character.create("林羽", core_belief="信任是致命软肋")
     assert c.name == "林羽"
     c.apply_trauma(
@@ -42,7 +37,7 @@ def test_character():
     print("✅ Character OK")
 
 def test_chapter():
-    from engine.domain.entities.chapter import Chapter, Paragraph, ChapterStatus
+    from engine.core.entities.chapter import Chapter, Paragraph, ChapterStatus
     ch = Chapter(chapter_number=1, title="初入江湖")
     ch.add_paragraph(Paragraph(content="他推开门，发现了那封信。", paragraph_type="action"))
     assert len(ch.paragraphs) == 1
@@ -50,7 +45,7 @@ def test_chapter():
     print("✅ Chapter OK")
 
 def test_foreshadow():
-    from engine.domain.entities.foreshadow import Foreshadow, ForeshadowStatus, ForeshadowBinding
+    from engine.core.entities.foreshadow import Foreshadow, ForeshadowStatus, ForeshadowBinding
     fs = Foreshadow.create(
         description="师父留下的剑谱暗藏玄机",
         planted_in_chapter=1,
@@ -71,7 +66,7 @@ def test_foreshadow():
     print("✅ Foreshadow OK")
 
 def test_checkpoint():
-    from engine.domain.value_objects.checkpoint import Checkpoint, CheckpointId, CheckpointType
+    from engine.core.value_objects.checkpoint import Checkpoint, CheckpointId, CheckpointType
     cp = Checkpoint.create(
         story_id="test",
         trigger_type=CheckpointType.CHAPTER,
@@ -88,7 +83,7 @@ def test_checkpoint():
     print("✅ Checkpoint OK")
 
 def test_emotion_ledger():
-    from engine.domain.value_objects.emotion_ledger import (
+    from engine.core.value_objects.emotion_ledger import (
         EmotionLedger, EmotionalWound, EmotionalBoon, PowerShift, OpenLoop,
     )
     ledger = EmotionLedger.create_empty()
@@ -103,7 +98,7 @@ def test_emotion_ledger():
     print("✅ EmotionLedger OK")
 
 def test_character_mask():
-    from engine.domain.value_objects.character_mask import CharacterMask
+    from engine.core.value_objects.character_mask import CharacterMask
     mask = CharacterMask(
         character_id="lin_yu",
         name="林羽",
@@ -132,7 +127,7 @@ def test_quality_guardrail():
 
 def test_plot_state_machine():
     from engine.application.plot_state_machine.state_machine import PlotStateMachine
-    from engine.domain.entities.story import StoryPhase
+    from engine.core.entities.story import StoryPhase
     sm = PlotStateMachine()
     assert sm.current_phase == StoryPhase.OPENING
     assert sm.is_new_foreshadow_allowed() == True

@@ -128,6 +128,7 @@ class TraceRecord:
     violations: List[str] = field(default_factory=list)
     duration_ms: int = 0
     timestamp: str = ""
+    novel_id: str = ""       # 小说ID（溯源查询用）
 
 
 class TracePort(ABC):

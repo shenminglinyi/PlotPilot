@@ -15,8 +15,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from engine.domain.entities.story import Story, StoryId, StoryPhase
-from engine.domain.value_objects.checkpoint import CheckpointId
+from engine.core.entities.story import Story, StoryId, StoryPhase
+from engine.core.value_objects.checkpoint import CheckpointId
 
 
 class StoryEngine(ABC):

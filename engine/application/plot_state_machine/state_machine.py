@@ -17,8 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Dict, Any, List, Optional
 
-from engine.domain.entities.story import StoryPhase
-from engine.domain.entities.foreshadow import ForeshadowStatus
+from engine.core.entities.story import StoryPhase
+from engine.core.entities.foreshadow import ForeshadowStatus
 
 logger = logging.getLogger(__name__)
 

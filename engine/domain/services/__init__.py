@@ -1,6 +1,15 @@
-"""领域服务接口 — StoryEngine、CharacterEngine、MemoryOrchestrator"""
-from engine.domain.services.story_engine import StoryEngine
-from engine.domain.services.character_engine import CharacterEngine
-from engine.domain.services.memory_orchestrator import MemoryOrchestrator
+"""兼容层 — engine.domain.services
 
-__all__ = ["StoryEngine", "CharacterEngine", "MemoryOrchestrator"]
+⚠️ 已废弃，请使用: from engine.core.services import ...
+"""
+from engine.core.services.story_engine import StoryEngine
+from engine.core.services.character_engine import CharacterEngine, TraumaticEvent, SceneContext
+from engine.core.services.memory_orchestrator import (
+    MemoryOrchestrator, TokenBudget, ContextAssembly, ForeshadowAction,
+)
+
+__all__ = [
+    "StoryEngine",
+    "CharacterEngine", "TraumaticEvent", "SceneContext",
+    "MemoryOrchestrator", "TokenBudget", "ContextAssembly", "ForeshadowAction",
+]

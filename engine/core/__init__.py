@@ -2,6 +2,7 @@
 
 分层：
 - entities/: 纯领域实体（Character/Story/Foreshadow/Chapter）
-- value_objects/: 不可变值对象（CharacterMask/Checkpoint/EmotionLedger/StoryPhase）
+- value_objects/: 不可变值对象（CharacterMask/Checkpoint/EmotionLedger）
 - ports/: 依赖倒置端口（LLMPort/PersistencePort/EventPort/TracePort）
+- services/: 服务接口（StoryEngine/CharacterEngine/MemoryOrchestrator）
 """

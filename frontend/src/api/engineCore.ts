@@ -130,11 +130,18 @@ export interface GuardrailCheckResponse {
 }
 
 export const guardrailApi = {
-  /** POST /novels/{novel_id}/guardrail/check */
+  /** POST /novels/{novel_id}/guardrail/check (advise/enforce both via body.mode) */
   check: (novelId: string, body: GuardrailCheckRequest) =>
     apiClient.post<GuardrailCheckResponse>(
       `/novels/${novelId}/guardrail/check`,
       body,
+    ) as unknown as Promise<GuardrailCheckResponse>,
+
+  /** POST /novels/{novel_id}/guardrail/check with enforce mode */
+  enforce: (novelId: string, body: Omit<GuardrailCheckRequest, 'mode'>) =>
+    apiClient.post<GuardrailCheckResponse>(
+      `/novels/${novelId}/guardrail/check`,
+      { ...body, mode: 'enforce' },
     ) as unknown as Promise<GuardrailCheckResponse>,
 }
 
@@ -208,4 +215,46 @@ export const characterSoulApi = {
       `/novels/${novelId}/character-souls/${encodeURIComponent(name)}/validate`,
       body,
     ) as unknown as Promise<ValidateBehaviorResponse>,
+}
+
+// ─── Trace (溯源) ──────────────────────────────────────────────────
+
+export interface TraceDTO {
+  trace_id: string
+  node_type: string
+  operation: string
+  input_summary: string
+  output_summary: string
+  score: number | null
+  violations: string[]
+  duration_ms: number
+  timestamp: string
+}
+
+export interface TraceListResponse {
+  traces: TraceDTO[]
+  total: number
+}
+
+export interface TraceStatsDTO {
+  total_traces: number
+  by_node_type: Record<string, number>
+  by_operation: Record<string, number>
+  avg_score: number | null
+  avg_duration_ms: number
+}
+
+export const traceApi = {
+  /** GET /novels/{novel_id}/traces */
+  list: (novelId: string, params?: { node_type?: string; operation?: string; limit?: number }) =>
+    apiClient.get<TraceListResponse>(
+      `/novels/${novelId}/traces`,
+      { params },
+    ) as unknown as Promise<TraceListResponse>,
+
+  /** GET /novels/{novel_id}/traces/stats */
+  stats: (novelId: string) =>
+    apiClient.get<TraceStatsDTO>(
+      `/novels/${novelId}/traces/stats`,
+    ) as unknown as Promise<TraceStatsDTO>,
 }

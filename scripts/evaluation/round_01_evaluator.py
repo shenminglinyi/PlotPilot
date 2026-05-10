@@ -27,7 +27,7 @@ from engine.application.quality_guardrails.plot_density_guardrail import (
 from engine.application.quality_guardrails.naming_guardrail import NamingGuardrail
 from engine.application.quality_guardrails.viewpoint_guardrail import ViewpointGuardrail
 from engine.application.quality_guardrails.rhythm_guardrail import RhythmGuardrail
-from engine.domain.value_objects.character_mask import CharacterMask
+from engine.core.value_objects.character_mask import CharacterMask
 
 logger = logging.getLogger(__name__)
 
