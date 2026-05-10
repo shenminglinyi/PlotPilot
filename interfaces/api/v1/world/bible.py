@@ -304,7 +304,7 @@ async def _sse_bible_generator(
             except Exception as e:
                 logger.warning("Style generation failed (non-fatal): %s", e)
 
-            # 2. 逐维度逐字段生成世界观（每生成一个字段立即推送，实现"出一个渲染一个"）
+            # 2. 逐维度逐字段流式生成世界观（LLM 逐 token 输出，逐 chunk 推送 SSE）
             dim_keys = ["core_rules", "geography", "society", "culture", "daily_life"]
             dim_labels = {
                 "core_rules": "核心法则",
@@ -322,9 +322,9 @@ async def _sse_bible_generator(
 
                 # 通知前端"即将生成该维度"
                 yield _sse_fmt("phase", {"phase": f"worldbuilding_{dim_key}", "message": f"正在构建{dim_label}..."})
-                await asyncio.sleep(0)  # 让事件循环有机会发送 SSE
+                await asyncio.sleep(0)
 
-                # 逐字段独立调用 LLM 生成，每完成一个立即推送
+                # 逐字段流式生成：LLM 逐 token 输出 → 逐 chunk 推送 SSE
                 dim_data: dict = {}
                 for field_key in field_keys:
                     field_label_cn = bible_generator._FIELD_LABELS.get(field_key, field_key)
@@ -336,25 +336,38 @@ async def _sse_bible_generator(
                     })
                     await asyncio.sleep(0)
 
+                    # ── 流式调用 LLM，逐 token 推送 ──
                     try:
-                        field_value = await bible_generator._generate_single_field(
+                        parts: list[str] = []
+                        async for chunk in bible_generator._stream_single_field(
                             premise, novel.target_chapters, dim_key, field_key,
                             accumulated_wb, dim_data,
-                        )
+                        ):
+                            parts.append(chunk)
+                            # 逐 chunk 推送 SSE
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_field_chunk",
+                                "dimension": dim_key,
+                                "field": field_key,
+                                "chunk": chunk,
+                            })
+                            await asyncio.sleep(0)  # 让事件循环发送 SSE
+
+                        field_value = "".join(parts).strip()
                     except Exception as e:
-                        logger.error("Failed to generate field %s.%s: %s", dim_key, field_key, e)
+                        logger.error("Failed to stream field %s.%s: %s", dim_key, field_key, e)
                         field_value = ""
 
                     if field_value:
                         dim_data[field_key] = field_value
-                        # 立即推送该字段
+                        # 字段完成事件（告诉前端这个字段生成完了）
                         yield _sse_fmt("data", {
-                            "type": "worldbuilding_field",
+                            "type": "worldbuilding_field_done",
                             "dimension": dim_key,
                             "field": field_key,
                             "value": field_value,
                         })
-                        await asyncio.sleep(0.05)  # 短暂延迟让前端逐字段渲染
+                        await asyncio.sleep(0.05)
 
                 if dim_data:
                     # 累积已生成数据，供后续维度参考
