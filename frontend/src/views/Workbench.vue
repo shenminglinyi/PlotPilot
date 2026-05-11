@@ -29,7 +29,6 @@
                   :current-chapter-id="currentChapterId"
                   :chapter-content="chapterContent"
                   :chapter-loading="chapterLoading"
-                  @set-right-panel="setRightPanel"
                   @chapter-updated="handleChapterUpdated"
                 />
               </template>
