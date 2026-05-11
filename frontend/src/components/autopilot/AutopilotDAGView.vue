@@ -9,6 +9,22 @@
       @switch-to-card="handleSwitchToCard"
     />
 
+    <div v-if="dagStore.registryLinkageFailed" class="dag-banner">
+      <n-alert type="warning" show-icon :bordered="false">
+        <template #header>联动数据未完全加载</template>
+        无法拉取「注册表联动」接口，已用本地注册表推断节点元数据；提示词广场映射可能不完整。
+        <n-button text type="primary" size="tiny" style="margin-left: 8px" @click="retryHydrate">立即重试</n-button>
+      </n-alert>
+    </div>
+    <div v-else-if="dagStore.registryGaps.length > 0" class="dag-banner">
+      <n-alert type="error" show-icon :bordered="false">
+        <template #header>有节点类型未在引擎中注册</template>
+        以下画布节点在 NodeRegistry 中无实现，请在后端补充对应节点类并 import 到
+        <code>application/engine/dag/nodes/__init__.py</code>：
+        <span class="gap-list">{{ gapSummary }}</span>
+      </n-alert>
+    </div>
+
     <!-- DAG 画布 -->
     <div class="dag-canvas-wrapper">
       <DAGCanvas
@@ -19,12 +35,12 @@
       />
       <div v-else-if="dagStore.isLoading" class="dag-loading">
         <n-spin size="large" />
-        <span class="dag-loading-text">加载 DAG 画布...</span>
+        <span class="dag-loading-text">正在加载 DAG 定义、节点注册表与联动数据…</span>
       </div>
       <div v-else-if="dagStore.error" class="dag-error">
         <n-result status="error" :title="dagStore.error">
           <template #footer>
-            <n-button @click="dagStore.loadDAG(novelId)">重试</n-button>
+            <n-button type="primary" @click="retryHydrate">重新加载 DAG</n-button>
           </template>
         </n-result>
       </div>
@@ -53,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
@@ -87,9 +103,18 @@ const contextMenu = reactive({
 const detailPanelVisible = ref(false)
 const selectedDetailNodeId = ref<string | null>(null)
 
+const gapSummary = computed(() =>
+  dagStore.registryGaps.map(g => `${g.node_id} (${g.node_type})`).join('、'),
+)
+
+async function retryHydrate() {
+  await dagStore.hydrateDagForNovel(props.novelId)
+  await runStore.fetchStatus(props.novelId)
+  await fetchAutopilotStatus()
+}
+
 onMounted(async () => {
-  await dagStore.loadDAG(props.novelId)
-  await dagStore.loadNodeTypeRegistry()
+  await dagStore.hydrateDagForNovel(props.novelId)
   await runStore.fetchStatus(props.novelId)
   await fetchAutopilotStatus()
 })
@@ -192,5 +217,21 @@ async function fetchAutopilotStatus() {
 .dag-loading-text {
   color: var(--app-text-muted);
   font-size: var(--font-size-sm);
+}
+
+.dag-banner {
+  padding: 8px 16px 0;
+  flex-shrink: 0;
+}
+
+.dag-banner :deep(.n-alert) {
+  font-size: 13px;
+}
+
+.gap-list {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--app-font-mono, ui-monospace, monospace);
+  word-break: break-all;
 }
 </style>
