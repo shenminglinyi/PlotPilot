@@ -14,12 +14,14 @@
 当 Token 预算紧张时，从 T3 → T2 → T1 逐层挤压，T0 绝对保护。
 """
 import asyncio
-import logging
 import concurrent.futures
-from typing import Dict, List, Optional, Any
+import logging
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from application.engine.dtos.scene_director_dto import SceneDirectorInput, coerce_scene_director
 
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
@@ -30,6 +32,7 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.ai.vector_retrieval_facade import VectorRetrievalFacade
+from infrastructure.ai.prompt_registry import get_prompt_registry
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +251,7 @@ class ContextBudgetAllocator:
         chapter_number: int,
         outline: str,
         total_budget: int = 35000,
-        scene_director: Optional[Dict[str, Any]] = None,
+        scene_director: SceneDirectorInput = None,
         current_beat_index: int = 0,
     ) -> BudgetAllocation:
         """执行预算分配
@@ -258,13 +261,15 @@ class ContextBudgetAllocator:
             chapter_number: 当前章节号
             outline: 章节大纲
             total_budget: 总 Token 预算
-            scene_director: 场记分析结果（可选的角色/地点过滤）
+            scene_director: 场记（``SceneDirectorAnalysis`` / ``dict`` / ``None``），内部统一为 dict
             current_beat_index: 当前节拍索引（断点续写时 > 0）
 
         Returns:
             BudgetAllocation: 分配结果
         """
         allocation = BudgetAllocation(total_budget=total_budget)
+
+        scene_director_dict = coerce_scene_director(scene_director)
 
         # ========== V7 全局收敛沙漏：计算进度与阶段 ==========
         total_chapters = self._estimate_total_chapters(novel_id)
@@ -280,7 +285,7 @@ class ContextBudgetAllocator:
         )
 
         # ========== 第一步：收集所有内容 ==========
-        slots = self._collect_all_slots(novel_id, chapter_number, outline, scene_director, current_beat_index)
+        slots = self._collect_all_slots(novel_id, chapter_number, outline, scene_director_dict, current_beat_index)
         
         # 提取过期伏笔用于终端强制约束
         pending_fs_slot = slots.get("pending_foreshadowings")
@@ -1877,12 +1882,13 @@ class ContextBudgetAllocator:
         "finale": 1.01,        # 90% ~ 100%: 终局期（设为 1.01 确保边界）
     }
 
+    _LIFECYCLE_PROMPT_ID = "lifecycle-phase-directives"
+
     def _load_phase_thresholds(self) -> Dict[str, float]:
         """★ Phase 3: 从 CPMS 节点加载沙漏阶段阈值（lifecycle-phase-directives 的 _phase_thresholds）。"""
         try:
-            from infrastructure.ai.prompt_loader import get_prompt_loader
-            loader = get_prompt_loader()
-            custom = loader.get_field(self._LIFECYCLE_PROMPT_ID, "_phase_thresholds", None)
+            registry = get_prompt_registry()
+            custom = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_phase_thresholds", None)
             if isinstance(custom, dict):
                 thresholds = dict(self._DEFAULT_PHASE_THRESHOLDS)
                 for key in ["opening", "development", "convergence", "finale"]:
@@ -1909,15 +1915,9 @@ class ContextBudgetAllocator:
         else:
             return StoryPhase.OPENING
     
-    # PHASE_DIRECTIVES：CPMS lifecycle-phase-directives（prompt_packages）
-    # 通过 PromptLoader 统一读取，不再在此硬编码
-    _LIFECYCLE_PROMPT_ID = "lifecycle-phase-directives"
-
     def _get_phase_directives(self) -> Dict[StoryPhase, str]:
-        """从 PromptLoader / CPMS 获取阶段指令字典。"""
-        from infrastructure.ai.prompt_loader import get_prompt_loader
-
-        raw = get_prompt_loader().get_directives_dict(
+        """从 PromptRegistry / CPMS 获取阶段指令字典。"""
+        raw = get_prompt_registry().get_directives_dict(
             self._LIFECYCLE_PROMPT_ID, directives_key="_directives"
         )
         if not raw:
@@ -1947,16 +1947,15 @@ class ContextBudgetAllocator:
         directive += f"📊 全局进度：第 {chapter_number} 章 / 约 {total} 章 ({progress:.0%})\n"
         directive += f"🎯 当前阶段：{phase.value}\n"
 
-        from infrastructure.ai.prompt_loader import get_prompt_loader
-        loader = get_prompt_loader()
+        registry = get_prompt_registry()
 
         if phase == StoryPhase.CONVERGENCE:
             remaining = total - chapter_number
-            extra_tpl = loader.get_field(self._LIFECYCLE_PROMPT_ID, "_convergence_extra", "")
+            extra_tpl = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_convergence_extra", "")
             directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"⚠️ 剩余约 {remaining} 章完成收束，时间紧迫。\n")
         elif phase == StoryPhase.FINALE:
             remaining = total - chapter_number
-            extra_tpl = loader.get_field(self._LIFECYCLE_PROMPT_ID, "_finale_extra", "")
+            extra_tpl = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_finale_extra", "")
             directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"🔥 剩余约 {remaining} 章，这是最后的冲刺。\n")
 
         return directive
