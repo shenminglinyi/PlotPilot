@@ -310,7 +310,7 @@ async def list_prompts_by_category() -> Dict[str, List[Dict[str, Any]]]:
 
 
 class ImportPayload(BaseModel):
-    """导入请求体：接受 prompts_defaults.json 格式或导出格式。"""
+    """导入请求体：接受广场导出 JSON 格式或含 prompts 数组的旧版结构。"""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -322,7 +322,7 @@ class ImportPayload(BaseModel):
 
 @router.get("/prompts/export")
 async def export_prompts() -> Dict[str, Any]:
-    """导出所有提示词为 JSON（兼容 prompts_defaults.json 格式）。"""
+    """导出所有提示词为 JSON（与提示词广场 / 备份兼容）。"""
     from datetime import datetime
 
     mgr = get_prompt_manager()

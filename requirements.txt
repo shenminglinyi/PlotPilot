@@ -30,6 +30,7 @@ volcengine-python-sdk[ark]>=1.0.0
 
 # ── 工具库 ──
 python-dotenv>=1.0.0
+PyYAML>=6.0.1
 json-repair>=0.30.0
 
 # ── 导出（DOCX / EPUB / PDF）──
