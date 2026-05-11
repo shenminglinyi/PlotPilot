@@ -1,6 +1,6 @@
 name: 自动驾驶·节拍流式写作 v3（连贯性+密度）
 category: generation
-source: docs/plans/2026-04-05-autopilot-fullstack.md
+source: infrastructure/ai/prompt_packages/nodes/autopilot-stream-beat/
 description: 'v3: 在v2基础上增加章节衔接约束、双线并行要求、反心理描写'
 builtin: true
 tags:

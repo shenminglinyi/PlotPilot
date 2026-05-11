@@ -136,7 +136,6 @@ scripts/build_installer.py
 scripts/build_backend_pyinstaller.py
 scripts/tauri_backend_launcher.py
 requirements-nsis.txt
-docs/BUILD_INSTALLER.md
 
 # ── 桌面分发物（勿拷进仓库根再提交） ──
 PlotPilot_*-setup.exe
@@ -156,8 +155,7 @@ mcps/
 *.orig
 *.rej
 
-
-docs/
+# 顶层草稿目录（勿提交）
 drafts/
 # DAG 版本数据（已迁移到数据库）
 data/dag_definitions/
