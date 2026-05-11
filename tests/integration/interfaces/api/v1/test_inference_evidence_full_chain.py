@@ -30,7 +30,7 @@ def _clear_dependency_overrides():
 
 @pytest.fixture
 def isolated_sqlite(tmp_path, monkeypatch):
-    """独立 aitext.db：与 application.paths.DATA_DIR 及 get_database 对齐。"""
+    """独立 SQLite 库（默认文件名 aitext.db）：与 application.paths.DATA_DIR 及 get_database 对齐。"""
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(paths_mod, "DATA_DIR", data_dir)
