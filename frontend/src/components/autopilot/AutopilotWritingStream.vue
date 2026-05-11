@@ -8,14 +8,23 @@
         <span v-if="substepLabel" class="substep-indicator" :class="substepClass">{{ substepLabel }}</span>
       </span>
       <span class="stream-stats">
-        {{ writingWordCount }} 字
-        <span v-if="writingSpeed > 0" class="speed">· {{ writingSpeed }} 字/秒</span>
+        <template v-if="chapterTarget > 0">
+          <span class="stats-plan">目标 {{ chapterTarget }} 字/章</span>
+          <span class="stats-detail">
+            · 已定稿 {{ lockedWords }} 字
+            <span v-if="streamOverflow > 0" class="stats-extra"> · 流式 +{{ streamOverflow }}（节拍末收束）</span>
+          </span>
+        </template>
+        <template v-else>
+          {{ writingWordCount }} 字
+        </template>
+        <span v-if="writingSpeed > 0" class="speed"> · 约 {{ writingSpeed }} 字/秒</span>
       </span>
     </div>
-    <!-- ★ V9 细化进度条 -->
-    <div v-if="progressPct > 0" class="stream-progress-bar">
-      <div class="stream-progress-fill" :style="{ width: progressPct + '%' }"></div>
-      <span class="stream-progress-label">{{ progressPct }}%</span>
+    <!-- ★ V9 细化进度条：用流式总长驱动，避免「已定稿」滞后时进度条不动 -->
+    <div v-if="chapterTarget > 0 && writingWordCount > 0" class="stream-progress-bar">
+      <div class="stream-progress-fill" :class="{ 'is-over': progressOverTarget }" :style="{ width: progressBarWidth + '%' }"></div>
+      <span class="stream-progress-label">{{ progressBarLabel }}</span>
     </div>
     <div ref="scrollContainer" class="stream-content-preview">
       <pre class="content-text">{{ displayedText }}<span class="cursor-inline">▋</span></pre>
@@ -62,6 +71,13 @@ const writingWordCount = computed(() => props.writingContent?.length || 0)
 const writingChapterNumber = computed(() => props.writingChapterNumber || 0)
 const writingBeatIndex = computed(() => props.writingBeatIndex || 0)
 
+/** 本章目标字数（与后端 chapter_target_words 一致） */
+const chapterTarget = computed(() => Math.max(0, Number(props.chapterTargetWords || 0)))
+/** 已完成节拍落稿字数（流式中可能小于当前缓冲总长） */
+const lockedWords = computed(() => Math.max(0, Number(props.accumulatedWords || 0)))
+/** 当前节拍流式超出已定稿的部分（模型常写超，再在节拍末收束） */
+const streamOverflow = computed(() => Math.max(0, writingWordCount.value - lockedWords.value))
+
 /** ★ V9 子步骤标签 */
 const substepLabel = computed(() => props.writingSubstepLabel || '')
 
@@ -76,12 +92,29 @@ const substepClass = computed(() => {
   return ''
 })
 
-/** ★ V9 字数进度百分比 */
+/** 相对本章目标的进度（按流式总长，封顶 100% 条宽） */
 const progressPct = computed(() => {
-  const acc = props.accumulatedWords || 0
-  const target = props.chapterTargetWords || 0
-  if (target <= 0 || acc <= 0) return 0
-  return Math.min(100, Math.round(acc / target * 100))
+  const target = chapterTarget.value
+  if (target <= 0) return 0
+  const live = writingWordCount.value
+  return Math.min(100, Math.round((live / target) * 100))
+})
+
+const progressOverTarget = computed(
+  () => chapterTarget.value > 0 && writingWordCount.value > chapterTarget.value * 1.02
+)
+
+const progressBarWidth = computed(() => progressPct.value)
+
+const progressBarLabel = computed(() => {
+  const t = chapterTarget.value
+  if (t <= 0) return ''
+  const live = writingWordCount.value
+  const acc = lockedWords.value
+  if (live <= Math.ceil(t * 1.03)) {
+    return `${live}/${t}（${progressPct.value}%）`
+  }
+  return `收束中 ${live} 字 → 约 ${t}（已定 ${acc}）`
 })
 
 // 🔥 打字机效果：从 displayedText 逐字追赶到 writingContent
@@ -270,6 +303,10 @@ onUnmounted(() => {
   transition: width 0.5s ease;
 }
 
+.stream-progress-fill.is-over {
+  background: linear-gradient(90deg, rgba(234, 179, 8, 0.35), rgba(249, 115, 22, 0.45));
+}
+
 .stream-progress-label {
   position: absolute;
   right: 6px;
@@ -284,6 +321,23 @@ onUnmounted(() => {
 .stream-stats {
   color: var(--text-color-3);
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  max-width: 56%;
+  line-height: 1.35;
+}
+
+.stats-plan {
+  color: var(--text-color-2);
+  font-weight: 600;
+}
+
+.stats-detail {
+  font-weight: 400;
+}
+
+.stats-extra {
+  color: #b45309;
+  font-size: 11px;
 }
 
 .speed {

@@ -31,14 +31,22 @@
             <span class="bible-role-v">故事线/时间线</span>
           </div>
         </div>
-        <div class="bible-stats" aria-live="polite">
-          <span class="bible-stat bible-stat-premise" :class="{ 'is-done': stats.premiseOk }">
-            梗概锁定 {{ stats.premiseOk ? '已填' : '待补充' }}
-          </span>
-          <span class="bible-stat-dot" aria-hidden="true" />
-          <span class="bible-stat bible-stat-style" :class="{ 'is-done': stats.styleOk }">
-            文风公约 {{ stats.styleOk ? '已填' : '待补充' }}
-          </span>
+        <div class="bible-stats" :aria-busy="!biblePanelDataReady">
+          <template v-if="biblePanelDataReady">
+            <span class="bible-stat bible-stat-premise" :class="{ 'is-done': stats.premiseOk }">
+              梗概锁定 {{ stats.premiseOk ? '已填' : '待补充' }}
+            </span>
+            <span class="bible-stat-dot" aria-hidden="true" />
+            <span class="bible-stat bible-stat-style" :class="{ 'is-done': stats.styleOk }">
+              文风公约 {{ stats.styleOk ? '已填' : '待补充' }}
+            </span>
+          </template>
+          <template v-else>
+            <!-- 占位与正式行等高，避免先发「待补充」再跳到「已填」造成闪烁 -->
+            <span class="bible-stat bible-stat-placeholder">梗概锁定 …</span>
+            <span class="bible-stat-dot" aria-hidden="true" />
+            <span class="bible-stat bible-stat-placeholder">文风公约 …</span>
+          </template>
         </div>
       </div>
       <n-space class="bible-hero-actions" :size="8" align="center">
@@ -49,7 +57,7 @@
       </n-space>
     </header>
 
-    <n-scrollbar class="bible-scroll">
+    <n-scrollbar class="bible-scroll" :class="{ 'bible-scroll--surface-pending': !biblePanelDataReady }">
       <div class="bible-form">
         <n-card
           v-if="hasBookLock"
@@ -80,29 +88,18 @@
             <n-descriptions-item label="文风市场预设">
               <n-space size="small" wrap align="center">
                 <n-tag
-                  v-if="stylePresetTag.matched"
-                  type="info"
+                  :type="stylePresetTag.tagType"
                   size="small"
                   round
                   :bordered="false"
                 >
                   {{ stylePresetTag.label }}
                 </n-tag>
-                <n-tag
-                  v-else-if="stylePresetTag.hasText"
-                  type="warning"
-                  size="small"
-                  round
-                  :bordered="false"
-                >
-                  {{ stylePresetTag.label }}
-                </n-tag>
-                <n-tag v-else type="default" size="small" round :bordered="false">—</n-tag>
               </n-space>
             </n-descriptions-item>
           </n-descriptions>
           <n-collapse
-            v-if="(state.style_notes || '').trim()"
+            v-show="hasStyleNotesDetail"
             class="bible-style-full-collapse"
           >
             <n-collapse-item title="查看完整文风公约文本" name="style">
@@ -183,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO, LocationDTO, TimelineNoteDTO, StyleNoteDTO } from '../../api/bible'
@@ -219,6 +216,11 @@ const saving = ref(false)
 const generating = ref(false)
 const premiseLock = ref('')
 const generatingKnowledge = ref(false)
+/** 本作数据是否已从接口合并完成（避免首帧「待补充」→「已填」与下方表单高度连环闪） */
+const biblePanelDataReady = ref(false)
+
+/** 并发 load 取消：只应用最后一次 slug 对应的请求结果，避免多块 UI v-if/v-show 交替闪烁 */
+let biblePanelLoadSeq = 0
 
 /** 创建书目时写入 premise 的赛道 / 世界观；文风来自 Bible（只读标签展示） */
 const lockedGenre = ref('')
@@ -230,28 +232,26 @@ const hasBookLock = computed(() => {
   return g !== '' || w !== '' || sty !== ''
 })
 
-/** 文风市场预设：匹配内置模板则显示预设名，否则警告文案 */
+const hasStyleNotesDetail = computed(() => (state.value.style_notes || '').trim().length > 0)
+
+/** 文风市场预设：匹配内置模板则显示预设名，否则警告文案（单组件避免 v-if 整节点销毁重建） */
 const stylePresetTag = computed(() => {
   const t = (state.value.style_notes || '').trim()
   if (!t) {
-    return { matched: false, hasText: false, label: '—' }
+    return { matched: false, hasText: false, label: '—', tagType: 'default' as const }
   }
   const m = matchPresetValue(t)
   if (m) {
     const p = MARKET_STYLE_PRESETS.find((x) => x.value === m)
-    return { matched: true, hasText: true, label: p?.label ?? m }
+    return { matched: true, hasText: true, label: p?.label ?? m, tagType: 'info' as const }
   }
   return {
     matched: false,
     hasText: true,
     label: '与内置模板不一致（可能来自旧数据或导入）',
+    tagType: 'warning' as const,
   }
 })
-
-function applyStylePresetByValue(value: string) {
-  const p = MARKET_STYLE_PRESETS.find((x) => x.value === value)
-  if (p) state.value.style_notes = p.body
-}
 
 const stats = computed(() => {
   const styleOk = (state.value.style_notes || '').trim().length >= 20
@@ -328,53 +328,77 @@ const toApiFormat = (data: any) => {
   return { characters, world_settings: [], locations, timeline_notes: [], style_notes }
 }
 
-const loadPremiseLock = async () => {
-  try {
-    const k = await knowledgeApi.getKnowledge(props.slug)
-    premiseLock.value = k.premise_lock || ''
-  } catch {
-    premiseLock.value = ''
-  }
+function styleNotesWithCreationDefault(styleNotes: string): string {
+  const t = (styleNotes || '').trim()
+  if (t) return styleNotes
+  const v = MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot'
+  const p = MARKET_STYLE_PRESETS.find((x) => x.value === v)
+  return p?.body ?? ''
 }
 
-const loadCreationLock = async () => {
+/** 并行阶段内解析 Bible；404 时自动 create 后再拉一次 */
+async function fetchBibleStateForPanel(slug: string): Promise<ReturnType<typeof emptyState>> {
   try {
-    const n = await novelApi.getNovel(props.slug)
-    const parsed = parseGenreWorldFromPremise(n.premise || '')
-    lockedGenre.value = (n.locked_genre || '').trim() || parsed.genre
-    lockedWorld.value = (n.locked_world_preset || '').trim() || parsed.worldPreset
-  } catch {
-    lockedGenre.value = ''
-    lockedWorld.value = ''
-  }
-}
-
-const load = async () => {
-  await loadCreationLock()
-  try {
-    const bible = await bibleApi.getBible(props.slug)
-    state.value = fromApiFormat(bible)
-    const matched = matchPresetValue(state.value.style_notes)
-    if (!matched && !(state.value.style_notes || '').trim()) {
-      applyStylePresetByValue(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
+    const bible = await bibleApi.getBible(slug)
+    let ui = fromApiFormat(bible)
+    if (!matchPresetValue(ui.style_notes) && !(ui.style_notes || '').trim()) {
+      ui = { ...ui, style_notes: styleNotesWithCreationDefault('') }
     }
-    syncJsonFromState()
+    return ui
   } catch (err: any) {
-    // If Bible doesn't exist, create it
-    if (err?.response?.status === 404) {
-      try {
-        await bibleApi.createBible(props.slug, `bible-${props.slug}`)
-        state.value = emptyState()
-        applyStylePresetByValue(MARKET_STYLE_PRESETS[0]?.value ?? 'xianxia_hot')
-        syncJsonFromState()
-      } catch {
-        message.error('创建设定失败')
-      }
-    } else {
-      message.error('加载设定失败')
+    if (err?.response?.status !== 404) throw err
+    try {
+      await bibleApi.createBible(slug, `bible-${slug}`)
+    } catch {
+      message.error('创建设定失败')
+      return emptyState()
     }
+    const bible = await bibleApi.getBible(slug)
+    let ui = fromApiFormat(bible)
+    if (!matchPresetValue(ui.style_notes) && !(ui.style_notes || '').trim()) {
+      ui = { ...ui, style_notes: styleNotesWithCreationDefault('') }
+    }
+    return ui
   }
-  await loadPremiseLock()
+}
+
+const load = async (opts?: { preserveSurface?: boolean }) => {
+  const seq = ++biblePanelLoadSeq
+  const slug = props.slug
+  if (!opts?.preserveSurface) {
+    biblePanelDataReady.value = false
+  }
+
+  try {
+    const [novelRow, knowledgeRow, bibleUi] = await Promise.all([
+      novelApi.getNovel(slug).catch(() => null),
+      knowledgeApi.getKnowledge(slug).catch(() => ({ premise_lock: '' })),
+      fetchBibleStateForPanel(slug),
+    ])
+
+    if (seq !== biblePanelLoadSeq || props.slug !== slug) return
+
+    let g = ''
+    let w = ''
+    if (novelRow) {
+      const parsed = parseGenreWorldFromPremise(novelRow.premise || '')
+      g = ((novelRow as any).locked_genre || '').trim() || parsed.genre
+      w = ((novelRow as any).locked_world_preset || '').trim() || parsed.worldPreset
+    }
+
+    const pl = typeof (knowledgeRow as any)?.premise_lock === 'string' ? (knowledgeRow as any).premise_lock : ''
+
+    lockedGenre.value = g
+    lockedWorld.value = w
+    state.value = bibleUi
+    premiseLock.value = pl
+    syncJsonFromState()
+    biblePanelDataReady.value = true
+  } catch (err: any) {
+    if (seq !== biblePanelLoadSeq || props.slug !== slug) return
+    message.error(err?.response?.data?.detail || '加载设定失败')
+    biblePanelDataReady.value = true
+  }
 }
 
 const save = async () => {
@@ -409,7 +433,7 @@ const generatePremiseKnowledge = async () => {
   try {
     const res = await knowledgeApi.generateKnowledge(props.slug)
     message.success(res.message || '梗概已生成')
-    await loadPremiseLock()
+    await load({ preserveSurface: true })
     window.dispatchEvent(new CustomEvent('aitext:knowledge:reload'))
   } catch (e: any) {
     message.error(e?.response?.data?.detail || 'AI 生成失败，请确认 API Key 已配置')
@@ -425,7 +449,7 @@ const saveFromJson = async () => {
     const apiData = toApiFormat(payload)
     await bibleApi.updateBible(props.slug, apiData)
     message.success('设定已保存')
-    await load()
+    await load({ preserveSurface: true })
     showJsonModal.value = false
   } catch (e: any) {
     if (e instanceof SyntaxError) {
@@ -457,7 +481,7 @@ const generateBible = async () => {
   try {
     const res = await bibleApi.generateBible(props.slug)
     message.success(res.message || 'Bible 生成成功')
-    await load()
+    await load({ preserveSurface: true })
   } catch (e: any) {
     message.error(e?.response?.data?.detail || 'AI 生成失败，请确认 API Key 已配置')
   } finally {
@@ -466,16 +490,27 @@ const generateBible = async () => {
 }
 
 
+const BIBLE_PANEL_SOFT_RELOAD = 'aitext:bible-panel:soft-reload'
+
 watch(
   () => props.slug,
   () => {
     void load()
-  }
+  },
+  { immediate: true },
 )
 
 onMounted(() => {
-  void load()
+  window.addEventListener(BIBLE_PANEL_SOFT_RELOAD, onBiblePanelSoftReload as EventListener)
 })
+
+onUnmounted(() => {
+  window.removeEventListener(BIBLE_PANEL_SOFT_RELOAD, onBiblePanelSoftReload as EventListener)
+})
+
+function onBiblePanelSoftReload() {
+  if (props.slug) void load({ preserveSurface: true })
+}
 </script>
 
 <style scoped>
@@ -589,6 +624,13 @@ onMounted(() => {
   gap: 6px 4px;
   font-size: 12px;
   color: #64748b;
+  min-height: 1.5em;
+}
+
+.bible-stat-placeholder {
+  color: rgba(100, 116, 139, 0.55);
+  letter-spacing: 0.02em;
+  user-select: none;
 }
 
 .bible-stat em {
@@ -619,6 +661,19 @@ onMounted(() => {
 .bible-scroll {
   flex: 1;
   min-height: 0;
+}
+
+.bible-scroll--surface-pending {
+  min-height: min(320px, 52vh);
+}
+
+.bible-scroll--surface-pending .bible-form {
+  opacity: 0;
+}
+
+.bible-scroll:not(.bible-scroll--surface-pending) .bible-form {
+  opacity: 1;
+  transition: opacity 0.15s ease-out;
 }
 
 .bible-card-creation-lock {

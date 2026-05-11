@@ -38,7 +38,6 @@
                 <SettingsPanel
                   :slug="slug"
                   :current-panel="rightPanel"
-                  :bible-key="biblePanelKey"
                   :current-chapter="currentChapter"
                   @update:current-panel="onSettingsPanelChange"
                 />
@@ -94,7 +93,7 @@ async function onSidebarChapterSelect(chapterId: number, title = '') {
 const handleChapterUpdated = async () => {
   await loadDesk()
   void statsStore.loadBookStats(slug, true).catch(() => {})
-  biblePanelKey.value += 1
+  window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
   chapterListRef.value?.refreshStoryTree?.()
   workbenchRefresh.bumpAfterChapterDeskChange()
 }
@@ -115,7 +114,6 @@ const {
   bookTitle,
   chapters,
   rightPanel,
-  biblePanelKey,
   pageLoading,
   bookMeta,
   currentJobId,

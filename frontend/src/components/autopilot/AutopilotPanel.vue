@@ -41,6 +41,7 @@
       <strong>{{ formatWords(planTotalWordsHint) }}</strong> 字（
       <strong>{{ status.target_chapters ?? '—' }}</strong> 章 ×
       <strong>{{ status.target_words_per_chapter ?? 2500 }}</strong> 字/章）。全托管写满目标章即停；节拍拆分按「每章字数」执行。
+      写作过程中流式字数可能暂时高于该目标，属正常现象，每节拍末会收束后再落稿。
     </p>
 
     <!-- 数据格 -->

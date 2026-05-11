@@ -21,7 +21,7 @@
       :tabs-padding="4"
     >
       <n-tab-pane name="bible" tab="作品设定" display-directive="if">
-        <BiblePanel :key="bibleKey" :slug="slug" />
+        <BiblePanel :slug="slug" />
       </n-tab-pane>
       <n-tab-pane name="worldbuilding" tab="世界观" display-directive="if">
         <WorldbuildingPanel :slug="slug" />
@@ -88,13 +88,11 @@ interface Chapter {
 interface Props {
   slug: string
   currentPanel?: string
-  bibleKey?: number
   currentChapter?: Chapter | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   currentPanel: 'bible',
-  bibleKey: 0,
   currentChapter: null,
 })
 
