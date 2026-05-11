@@ -25,10 +25,14 @@
             :disabled="checking || !chapter.word_count"
             @click="runCheck"
           >
-            {{ checking ? '检查中…' : '开始检查' }}
+            {{ checking ? '检查中…' : '重新检查' }}
           </n-button>
         </n-space>
       </div>
+
+      <n-alert type="info" :show-icon="true" size="small" style="margin-bottom: 8px">
+        保存章节正文后，系统会在后台自动运行建议模式护栏并写入快照；此处可查看快照或手动再次检查。
+      </n-alert>
 
       <!-- 检查结果 -->
       <n-spin :show="checking">
@@ -119,7 +123,12 @@
         </template>
 
         <!-- 无报告且未在检查中 -->
-        <n-empty v-else-if="!checking" description="点击「开始检查」运行六维度质量护栏" size="small" style="margin-top: 32px" />
+        <n-empty
+          v-else-if="!checking"
+          description="尚无自动快照：请先保存本章正文；也可点「重新检查」立即运行"
+          size="small"
+          style="margin-top: 32px"
+        />
       </n-spin>
     </div>
   </div>
@@ -127,9 +136,11 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useMessage } from 'naive-ui'
-import { guardrailApi, type GuardrailCheckResponse, type GuardrailViolationDTO } from '@/api/engineCore'
+import { guardrailApi, type GuardrailCheckResponse } from '@/api/engineCore'
 import { chapterApi } from '@/api/chapter'
+import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 
 interface Chapter {
   id: number | string
@@ -149,6 +160,9 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const message = useMessage()
+
+const workbenchRefresh = useWorkbenchRefreshStore()
+const { deskTick } = storeToRefs(workbenchRefresh)
 
 const checking = ref(false)
 const checkMode = ref<'advise' | 'enforce'>('advise')
@@ -197,7 +211,6 @@ function dimLabel(key: string): string {
 async function runCheck() {
   if (!props.chapter || !props.slug) return
   checking.value = true
-  lastReport.value = null
 
   try {
     const chapterData = await chapterApi.getChapter(props.slug, props.chapter.number)
@@ -222,9 +235,29 @@ async function runCheck() {
   }
 }
 
-// 切换章节时清空报告
-watch(() => props.chapter?.number, () => {
+async function hydrateFromSnapshot() {
   lastReport.value = null
+  if (!props.slug || !props.chapter) return
+  try {
+    const snap = await chapterApi.getGuardrailSnapshot(props.slug, props.chapter.number)
+    if (snap) {
+      lastReport.value = snap
+    }
+  } catch {
+    lastReport.value = null
+  }
+}
+
+watch(
+  () => [props.slug, props.chapter?.number] as const,
+  () => {
+    void hydrateFromSnapshot()
+  },
+  { immediate: true }
+)
+
+watch(deskTick, () => {
+  void hydrateFromSnapshot()
 })
 </script>
 

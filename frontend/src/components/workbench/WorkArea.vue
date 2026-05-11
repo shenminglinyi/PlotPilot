@@ -48,9 +48,19 @@
                   <n-tag v-if="!signalStrip.sync" size="small" round type="warning">叙事未同步</n-tag>
                 </template>
                 <n-text v-else depth="3" style="font-size: 12px">本章信号在侧栏与生成完成后更新</n-text>
+                <template v-if="guardrailSnapshot">
+                  <n-tag size="small" round :type="guardrailSnapshot.passed ? 'success' : 'warning'">
+                    护栏 {{ guardrailSnapshot.passed ? '已通过' : '待关注' }} · {{ Math.round((guardrailSnapshot.overall_score || 0) * 100) }} 分
+                  </n-tag>
+                  <n-tag v-if="(guardrailSnapshot.violations?.length || 0) > 0" size="small" round type="warning">
+                    {{ guardrailSnapshot.violations?.length }} 条提示
+                  </n-tag>
+                </template>
               </n-space>
               <n-space align="center" :size="6" wrap justify="end">
-                <n-text depth="3" style="font-size: 11px">主栏标签可切换正文与工具</n-text>
+                <n-button size="tiny" quaternary @click="showGuardrailModal = true">护栏详情</n-button>
+                <n-button size="tiny" quaternary @click="showTraceModal = true">引擎溯源</n-button>
+                <n-text depth="3" style="font-size: 11px">元素用主栏标签切换</n-text>
                 <n-button size="tiny" secondary @click="desk.toggleRail()">
                   {{ desk.railExpanded ? '收起侧栏' : '任务与状态' }}
                 </n-button>
@@ -186,22 +196,6 @@
                     />
                   </div>
                 </n-tab-pane>
-
-                <n-tab-pane name="guardrail" tab="质量护栏" display-directive="if">
-                  <div class="elements-tab-wrap primary-tab-pane">
-                    <QualityGuardrailPanel
-                      :slug="slug"
-                      :chapter="currentChapter"
-                      :read-only="isAssistedReadOnly"
-                    />
-                  </div>
-                </n-tab-pane>
-
-                <n-tab-pane name="trace" tab="引擎溯源" display-directive="if">
-                  <div class="elements-tab-wrap primary-tab-pane">
-                    <TraceRecordPanel :slug="slug" />
-                  </div>
-                </n-tab-pane>
               </n-tabs>
             </div>
           </template>
@@ -240,15 +234,15 @@
           </template>
 
           <template #rail-collapsed-actions>
-            <n-tooltip v-for="id in CHAPTER_DESK_DEEP_ORDER" :key="id" placement="left" trigger="hover">
+            <n-tooltip v-for="id in CHAPTER_DESK_AUX_ORDER" :key="id" placement="left" trigger="hover">
               <template #trigger>
                 <n-button quaternary size="small" class="rail-icon-btn" @click="primaryDeskTab = id">
                   <template #icon>
-                    <component :is="deepSurfaceIcon(id)" />
+                    <component :is="auxPaneIcon(id)" />
                   </template>
                 </n-button>
               </template>
-              {{ CHAPTER_DESK_DEEP_SURFACES[id].label }}
+              {{ CHAPTER_DESK_AUX_SURFACES[id].label }}
             </n-tooltip>
           </template>
         </ChapterWorkbenchShell>
@@ -564,11 +558,40 @@
       </template>
     </n-modal>
 
+    <n-modal
+      v-model:show="showGuardrailModal"
+      preset="card"
+      title="质量护栏（保存后自动）"
+      style="width: min(640px, 96vw); max-height: min(88vh, 820px)"
+      :segmented="{ content: true }"
+    >
+      <n-scrollbar style="max-height: min(72vh, 680px)">
+        <QualityGuardrailPanel
+          v-if="showGuardrailModal && currentChapter"
+          :slug="slug"
+          :chapter="currentChapter"
+          :read-only="isAssistedReadOnly"
+        />
+      </n-scrollbar>
+    </n-modal>
+
+    <n-modal
+      v-model:show="showTraceModal"
+      preset="card"
+      title="引擎溯源"
+      style="width: min(720px, 96vw); max-height: min(88vh, 820px)"
+    >
+      <n-scrollbar style="max-height: min(76vh, 700px)">
+        <TraceRecordPanel v-if="showTraceModal" :slug="slug" />
+      </n-scrollbar>
+    </n-modal>
+
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted, type Component } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useMessage } from 'naive-ui'
 import { resolveHttpUrl } from '../../api/config'
 import {
@@ -577,6 +600,7 @@ import {
   retrieveContext,
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
+import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
@@ -589,13 +613,14 @@ import TraceRecordPanel from './TraceRecordPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
+import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import {
-  CHAPTER_DESK_DEEP_ORDER,
-  CHAPTER_DESK_DEEP_SURFACES,
-  type ChapterDeskDeepSurfaceId,
+  CHAPTER_DESK_AUX_ORDER,
+  CHAPTER_DESK_AUX_SURFACES,
+  type ChapterDeskAuxPaneId,
   type PrimaryChapterDeskTab,
 } from '../../workbench/chapterDeskSurface'
-import { AppsOutline, ChevronForwardOutline, PulseOutline, ShieldCheckmarkOutline } from '@vicons/ionicons5'
+import { AppsOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 
 interface Chapter {
   id: number
@@ -622,8 +647,6 @@ const props = withDefaults(defineProps<WorkAreaProps>(), {
 })
 
 const emit = defineEmits<{
-  setRightPanel: [panel: string]
-  startWrite: []
   chapterUpdated: []
 }>()
 
@@ -631,7 +654,13 @@ const message = useMessage()
 
 const desk = useChapterDeskLayout()
 
+const workbenchRefresh = useWorkbenchRefreshStore()
+const { deskTick } = storeToRefs(workbenchRefresh)
+
 const primaryDeskTab = ref<PrimaryChapterDeskTab>('manuscript')
+const showGuardrailModal = ref(false)
+const showTraceModal = ref(false)
+const guardrailSnapshot = ref<GuardrailCheckResponse | null>(null)
 
 function focusManuscriptEditor() {
   desk.focusManuscript()
@@ -645,11 +674,9 @@ watch(
   }
 )
 
-function deepSurfaceIcon(id: ChapterDeskDeepSurfaceId): Component {
-  const map: Record<ChapterDeskDeepSurfaceId, Component> = {
+function auxPaneIcon(id: ChapterDeskAuxPaneId): Component {
+  const map: Record<ChapterDeskAuxPaneId, Component> = {
     elements: AppsOutline,
-    guardrail: ShieldCheckmarkOutline,
-    trace: PulseOutline,
   }
   return map[id]
 }
@@ -1009,6 +1036,25 @@ const signalStrip = computed(() => {
   }
 })
 
+async function loadGuardrailSnapshot() {
+  guardrailSnapshot.value = null
+  const ch = currentChapter.value
+  if (!props.slug || !ch) return
+  try {
+    guardrailSnapshot.value = await chapterApi.getGuardrailSnapshot(props.slug, ch.number)
+  } catch {
+    guardrailSnapshot.value = null
+  }
+}
+
+watch(
+  () => [props.slug, props.currentChapterId, deskTick.value] as const,
+  () => {
+    void loadGuardrailSnapshot()
+  },
+  { immediate: true }
+)
+
 const hasChanges = computed(() => {
   return chapterContent.value !== originalContent.value
 })
@@ -1084,6 +1130,7 @@ const handleSave = async () => {
     originalContent.value = chapterContent.value
     message.success('保存成功')
     emit('chapterUpdated')
+    window.setTimeout(() => void loadGuardrailSnapshot(), 3500)
   } catch (error) {
     message.error('保存失败')
   } finally {
@@ -1255,6 +1302,7 @@ const handleSaveGenerated = async () => {
     message.success(`已保存到第 ${saveTarget.number} 章`)
     emit('chapterUpdated')
     showGenerateModal.value = false
+    window.setTimeout(() => void loadGuardrailSnapshot(), 3500)
   } catch {
     message.error('保存失败')
   } finally {

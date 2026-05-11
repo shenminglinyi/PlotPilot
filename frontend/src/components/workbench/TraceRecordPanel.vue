@@ -81,10 +81,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { traceApi, type TraceDTO, type TraceStatsDTO } from '@/api/engineCore'
+import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 
 const props = defineProps<{ slug: string }>()
+
+const workbenchRefresh = useWorkbenchRefreshStore()
+const { deskTick } = storeToRefs(workbenchRefresh)
 
 const loading = ref(false)
 const traces = ref<TraceDTO[]>([])
@@ -156,8 +161,13 @@ async function load() {
   }
 }
 
-watch(() => filterNodeType.value, () => load())
-onMounted(load)
+watch(
+  () => [props.slug, deskTick.value, filterNodeType.value] as const,
+  () => {
+    void load()
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
