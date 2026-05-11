@@ -41,6 +41,11 @@ from application.engine.dag.models import (
     get_default_dag,
 )
 from application.engine.dag.registry import NodeRegistry
+from application.engine.narrative_projection.dag_runtime_projection import (
+    node_states_to_sse_events,
+    project_node_states,
+    snapshot_from_shared,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,16 +165,39 @@ async def dag_event_stream(novel_id: str = Query(..., description="小说 ID")):
 
     async def event_generator():
         try:
+            from interfaces.main import get_shared_novel_state
+
             # 发送初始连接确认
             yield f"event: connected\ndata: {json.dumps({'novel_id': novel_id, 'timestamp': time.time()})}\n\n"
 
+            prev_proj: Dict[str, Dict[str, Any]] = {}
+            projection_bootstrapped = False
+            idle_ticks = 0
+
             while True:
                 try:
-                    event_data = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    event_data = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    idle_ticks = 0
                     event_type = event_data.get("type", "message")
                     yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
                 except asyncio.TimeoutError:
-                    yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
+                    idle_ticks += 1
+                    dag = _get_dag_for_novel(novel_id)
+                    shared = get_shared_novel_state(novel_id)
+                    snap = snapshot_from_shared(novel_id, shared)
+                    node_ids = [(n.id, n.enabled) for n in dag.nodes]
+                    new_proj = project_node_states(node_ids, snap)
+                    if not projection_bootstrapped:
+                        prev_proj = new_proj
+                        projection_bootstrapped = True
+                    else:
+                        for ev in node_states_to_sse_events(novel_id, prev_proj, new_proj):
+                            et = ev.get("type", "node_status_change")
+                            yield f"event: {et}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                        prev_proj = new_proj
+                    if idle_ticks >= 30:
+                        yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
+                        idle_ticks = 0
         except asyncio.CancelledError:
             pass
         finally:
@@ -258,17 +286,20 @@ async def toggle_node(novel_id: str, node_id: str):
 
 @router.get("/{novel_id}/status")
 async def get_dag_status(novel_id: str):
-    """获取运行状态（含所有节点状态）"""
+    """获取运行状态（含所有节点状态）— 由全托管共享状态投影，与 DAG 定义节点 id 对齐。"""
+    from interfaces.main import get_shared_novel_state
+
     dag = _get_dag_for_novel(novel_id)
+    shared = get_shared_novel_state(novel_id)
+    snap = snapshot_from_shared(novel_id, shared)
+    node_ids = [(n.id, n.enabled) for n in dag.nodes]
+    states = project_node_states(node_ids, snap)
 
     return DAGStatusResponse(
         novel_id=novel_id,
         dag_enabled=True,
         current_version=dag.version,
-        node_states={
-            n.id: {"status": "idle", "enabled": n.enabled}
-            for n in dag.nodes
-        },
+        node_states=states,
     )
 
 
