@@ -7,9 +7,15 @@
       <span class="ap-stage-tag" :class="stageTagClass">
         <template v-if="stageTransitioning">
           <span class="skeleton-inline skeleton-pulse"></span>
-          <span class="stage-transition-label">{{ stageLabel }}</span>
+          <span class="stage-transition-label">
+            <span class="stage-text">{{ stagePresentation.text }}</span>
+            <span v-if="stagePresentation.live" class="ap-stage-live" aria-label="实时同步" />
+          </span>
         </template>
-        <template v-else>{{ stageLabel }}</template>
+        <template v-else>
+          <span class="stage-text">{{ stagePresentation.text }}</span>
+          <span v-if="stagePresentation.live" class="ap-stage-live" aria-label="实时同步" />
+        </template>
       </span>
       <!-- 🔧 新增：SSE 连接状态指示 -->
       <span v-if="isRunning && !needsReview" class="sse-status" :class="sseConnected ? 'connected' : 'disconnected'">
@@ -161,6 +167,8 @@
       :chapter-target-words="status?.chapter_target_words"
       :beat-focus="status?.beat_focus"
       :context-tokens="status?.context_tokens"
+      :runner-stage-label="stageLabel"
+      :status-chapter-number="status?.current_chapter_number ?? null"
     />
 
     <!-- 操作按钮 -->
@@ -250,6 +258,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
 import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
+import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 
 const props = defineProps({ novelId: String })
 const emit = defineEmits(['status-change', 'chapter-content-update', 'chapter-start', 'chapter-chunk', 'desk-refresh'])
@@ -375,69 +384,19 @@ const dotClass = computed(() => ({
   'dot-stopped': !isRunning.value && !needsReview.value,
 }))
 
-const stageLabel = computed(() => {
-  const stage = status.value?.current_stage
-  const apStatus = status.value?.autopilot_status
+const stagePresentation = computed(() =>
+  buildAutopilotStagePresentation({
+    current_stage: status.value?.current_stage,
+    autopilot_status: status.value?.autopilot_status,
+    _from_shared_memory: status.value?._from_shared_memory,
+    _degraded: status.value?._degraded,
+    audit_progress: status.value?.audit_progress,
+    isRunning: isRunning.value,
+    daemonAlive: daemonAlive.value,
+  })
+)
 
-  // 🔥 如果已停止，不显示"撰写中/审计中"等运行中状态
-  if (apStatus === 'stopped' || apStatus === 'error') {
-    if (apStatus === 'error') return '异常挂起'
-    if (stage === 'completed') return '已完成'
-    return '已停止'
-  }
-
-  const m = {
-    planning: '宏观规划', macro_planning: '宏观规划', act_planning: '幕级规划',
-    writing: '撰写中', auditing: '审计中',
-    reviewing: '待审阅确认', paused_for_review: '待审阅', completed: '已完成',
-    syncing: '数据同步中',
-  }
-
-  // 🔥 守护进程不可达时：优先显示后端状态提示
-  if (isRunning.value && !daemonAlive.value) {
-    return '后端处理中（等待响应...）'
-  }
-
-  // 🔥 三层降级显示策略：
-  // 1. 共享内存实时状态（最优）
-  // 2. 超时降级（_degraded = true）
-  // 3. 正常状态
-  if (status.value?._from_shared_memory) {
-    // 共享内存实时状态：显示「实时同步中」提示
-    if (stage === 'auditing') {
-      const progress = status.value?.audit_progress
-      if (progress === 'voice_check') return '审计中·文风检查 ⚡'
-      if (progress === 'aftermath_pipeline') return '审计中·章后管线 ⚡'
-      if (progress === 'tension_scoring') return '审计中·张力打分 ⚡'
-      return '审计中 ⚡'
-    }
-    if (stage === 'syncing') return '数据同步中 ⚡'
-    return m[stage] + ' ⚡' || '待机 ⚡'
-  }
-
-  // 降级模式：DB 被锁或超时时显示同步状态
-  if (status.value?._degraded) {
-    if (stage === 'auditing') {
-      const progress = status.value?.audit_progress
-      if (progress === 'voice_check') return '审计中·文风检查（数据同步中...）'
-      if (progress === 'aftermath_pipeline') return '审计中·章后管线（数据同步中...）'
-      if (progress === 'tension_scoring') return '审计中·张力打分（数据同步中...）'
-      return '审计中（数据同步中...）'
-    }
-    if (stage === 'syncing') return '数据同步中...'
-    return (m[stage] || '待机') + '（数据同步中...）'
-  }
-
-  if (stage === 'auditing') {
-    const progress = status.value?.audit_progress
-    if (progress === 'voice_check') return '审计中（文风检查）'
-    if (progress === 'aftermath_pipeline') return '审计中（章后管线）'
-    if (progress === 'tension_scoring') return '审计中（张力打分）'
-    return '审计中'
-  }
-
-  return m[stage] || '待机'
-})
+const stageLabel = computed(() => stagePresentation.value.text)
 
 // 🔥 阶段变更过渡态：检测 current_stage 变化时显示骨架 loading
 const prevStage = ref(null)
@@ -459,12 +418,22 @@ watch(
   }
 )
 
-const stageTagClass = computed(() => ({
-  'tag-active': isRunning.value && !needsReview.value,
-  'tag-review': needsReview.value,
-  'tag-idle': !isRunning.value && !needsReview.value,
-  'tag-transitioning': stageTransitioning.value,
-}))
+const stageTagClass = computed(() => {
+  const sem = stagePresentation.value.semantic
+  const run = isRunning.value && !needsReview.value
+  return {
+    'tag-review': needsReview.value,
+    'tag-idle': !isRunning.value && !needsReview.value,
+    'tag-transitioning': stageTransitioning.value,
+    'tag-sem-plan': run && sem === 'plan',
+    'tag-sem-write': run && sem === 'write',
+    'tag-sem-audit': run && sem === 'audit',
+    'tag-sem-sync': run && sem === 'sync',
+    'tag-sem-review': run && sem === 'review',
+    'tag-sem-idle': run && sem === 'idle',
+    'tag-sem-daemon_wait': run && sem === 'daemon_wait',
+  }
+})
 
 const beatLabel = computed(() => {
 if (!isWriting.value) return ''
@@ -684,7 +653,12 @@ function startChapterStream() {
         writingContent.value += chunk
       }
       writingBeatIndex.value = beatIndex
-      emit('chapter-chunk', { chunk, beatIndex, content: writingContent.value })
+      emit('chapter-chunk', {
+        chunk,
+        beatIndex,
+        content: writingContent.value,
+        chapterNumber: writingChapterNumber.value,
+      })
     },
     onChapterContent: (data) => {
       writingContent.value = data.content
@@ -1151,9 +1125,37 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-.tag-active { background: rgba(24, 160, 88, 0.15); color: #18a058; }
 .tag-review { background: rgba(240, 160, 32, 0.15); color: #f0a020; }
-.tag-idle { background: rgba(100, 100, 100, 0.1); color: #999; }
+.tag-idle { background: rgba(100, 100, 100, 0.08); color: var(--app-text-muted, #94a3b8); }
+
+/* 运行中：随阶段语义着色（与 main.css 语义 token 对齐） */
+.tag-sem-plan { background: var(--color-brand-light); color: var(--color-brand); }
+.tag-sem-write { background: var(--color-success-dim); color: var(--color-success); }
+.tag-sem-audit { background: var(--color-warning-dim); color: var(--color-warning); }
+.tag-sem-sync { background: var(--color-info-dim); color: var(--color-info); }
+.tag-sem-review { background: var(--color-warning-dim); color: var(--color-warning); }
+.tag-sem-idle { background: var(--color-purple-light, rgba(139, 92, 246, 0.12)); color: var(--color-purple, #8b5cf6); }
+.tag-sem-daemon_wait { background: var(--color-info-dim); color: var(--color-info); }
+
+.stage-text { vertical-align: middle; }
+
+.ap-stage-live {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+  opacity: 0.85;
+  box-shadow: 0 0 6px currentColor;
+  animation: ap-live-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes ap-live-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.88); }
+}
 
 /* 🔥 阶段变更过渡态：骨架 loading 闪烁 */
 .tag-transitioning {
