@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from ..responses import ErrorResponse
 
-logger = logging.getLogger("aitext.interfaces.api.middleware.error_handler")
+logger = logging.getLogger("plotpilot.interfaces.api.middleware.error_handler")
 
 
 # Starlette/FastAPI 版本兼容：
