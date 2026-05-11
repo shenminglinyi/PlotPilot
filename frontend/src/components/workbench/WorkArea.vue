@@ -34,8 +34,40 @@
           <strong>全托管运行中</strong>：本侧仅只读；不能保存、改稿、快速生成或改章节元素。
           请切换到「<strong>托管撰稿</strong>」看驾驶舱与监控，或停止托管后再编辑。
         </n-alert>
-        <n-tabs v-model:value="activeTab" type="line" animated class="work-tabs assisted-tabs">
-          <n-tab-pane name="editor" tab="📝 章节编辑">
+        <ChapterWorkbenchShell
+          class="chapter-desk-shell"
+          :stacked="desk.stacked"
+          v-model:rail-expanded="desk.railExpanded"
+          :deep-drawer-open="desk.deepDrawerOpen"
+          :deep-drawer-title="desk.deepDrawerTitle"
+          rail-drawer-title="本章任务与状态"
+          @update:deep-drawer-open="onDeepDrawerOpenUpdate"
+        >
+          <template #manuscript-toolbar>
+            <div class="desk-toolbar">
+              <n-space align="center" :size="8" wrap>
+                <template v-if="signalStrip">
+                  <n-tag size="small" round type="info">张力 {{ signalStrip.tension }}/10</n-tag>
+                  <n-tag v-if="!signalStrip.sync" size="small" round type="warning">叙事未同步</n-tag>
+                </template>
+                <n-text v-else depth="3" style="font-size: 12px">本章信号在侧栏与生成完成后更新</n-text>
+              </n-space>
+              <n-space align="center" :size="6" wrap justify="end">
+                <n-button size="tiny" secondary @click="desk.toggleRail()">
+                  {{ desk.railExpanded ? '收起侧栏' : '任务与状态' }}
+                </n-button>
+                <n-dropdown
+                  trigger="click"
+                  :options="deepDrawerDropdownOptions"
+                  @select="onDeepDrawerDropdownSelect"
+                >
+                  <n-button size="tiny" quaternary>深度工具 ▾</n-button>
+                </n-dropdown>
+              </n-space>
+            </div>
+          </template>
+
+          <template #primary>
             <div class="work-main">
               <div v-if="currentChapter" class="chapter-editor">
                 <div class="editor-header">
@@ -44,20 +76,16 @@
                     <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
                       {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
                     </n-tag>
-                    <!-- 🔥 流式写作状态指示 -->
                     <n-tag v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number" size="small" type="info" round>
                       生成中...
                     </n-tag>
                   </div>
-                  <!-- 🔥 当前幕信息 -->
                   <div v-if="autopilotStatus?.current_act_title" class="act-info-header">
                     <span class="act-info-title">第 {{ (autopilotStatus.current_act || 0) + 1 }} 幕 · {{ autopilotStatus.current_act_title }}</span>
                     <span v-if="autopilotStatus.current_act_description" class="act-info-desc">{{ autopilotStatus.current_act_description }}</span>
                   </div>
                   <n-space :size="8">
-                    <n-button size="small" @click="handleReload" :disabled="loading">
-                      重新加载
-                    </n-button>
+                    <n-button size="small" @click="handleReload" :disabled="loading">重新加载</n-button>
                     <n-button
                       size="small"
                       type="primary"
@@ -71,8 +99,10 @@
                 </div>
 
                 <div class="editor-body">
-                  <!-- 🔥 流式写作：编辑框实时显示流式内容，叠加光标指示器 -->
-                  <div class="editor-input-wrapper" :class="{ 'is-streaming': isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent }">
+                  <div
+                    class="editor-input-wrapper"
+                    :class="{ 'is-streaming': isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent }"
+                  >
                     <n-input
                       v-model:value="editorDisplayContent"
                       type="textarea"
@@ -81,8 +111,10 @@
                       :readonly="isAssistedReadOnly || (isAutopilotRunning && streamingChapterNumber === currentChapter.number)"
                       @update:value="handleContentChange"
                     />
-                    <!-- 🔥 流式光标叠加层 -->
-                    <div v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent" class="streaming-cursor-overlay">
+                    <div
+                      v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent"
+                      class="streaming-cursor-overlay"
+                    >
                       <span class="streaming-cursor">▋</span>
                       <span class="streaming-badge">生成中</span>
                     </div>
@@ -132,13 +164,7 @@
                         </template>
                         <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
                       </n-tooltip>
-                      <n-button
-                        size="small"
-                        secondary
-                        :disabled="isAssistedReadOnly"
-                        @click="openTensionModal"
-                        title="诊断当前章节张力缺口"
-                      >
+                      <n-button size="small" secondary :disabled="isAssistedReadOnly" @click="openTensionModal" title="诊断当前章节张力缺口">
                         🔍 张力诊断
                       </n-button>
                     </n-space>
@@ -148,35 +174,58 @@
 
               <n-empty v-else description="请从左侧选择章节" class="work-empty" />
             </div>
-          </n-tab-pane>
+          </template>
 
-          <n-tab-pane name="chapter-status" tab="📋 章节状态">
-            <ChapterStatusPanel
-              :slug="slug"
-              :chapter="currentChapter"
-              :read-only="isAssistedReadOnly"
-              :last-workflow-result="lastWorkflowResult"
-              :qc-chapter-number="lastQcChapterNumber"
-              :autopilot-chapter-review="autopilotChapterReview"
-              @clear-qc="clearWorkflowQc"
-              @go-editor="activeTab = 'editor'"
-            />
-          </n-tab-pane>
-
-          <n-tab-pane name="chapter-content" tab="📄 章节内容">
-            <div class="elements-tab-wrap">
-              <ChapterContentPanel
-                :slug="slug"
-                :current-chapter-number="currentChapter?.number ?? null"
-                :read-only="isAssistedReadOnly"
-                :autopilot-chapter-review="autopilotChapterReview"
-              />
+          <template #rail>
+            <div class="rail-column">
+            <div class="rail-head">
+              <n-text strong style="font-size: 13px">本章任务与状态</n-text>
+              <n-button v-if="!desk.stacked" quaternary circle size="small" @click="desk.toggleRail()" title="收起侧栏">
+                <template #icon>
+                  <ChevronForwardOutline />
+                </template>
+              </n-button>
             </div>
-          </n-tab-pane>
+            <n-scrollbar class="rail-scroll">
+              <div class="rail-scroll-pad">
+                <ChapterContentPanel
+                  :slug="slug"
+                  :current-chapter-number="currentChapter?.number ?? null"
+                  :read-only="isAssistedReadOnly"
+                  :autopilot-chapter-review="autopilotChapterReview"
+                />
+                <ChapterStatusPanel
+                  :slug="slug"
+                  :chapter="currentChapter"
+                  :read-only="isAssistedReadOnly"
+                  :last-workflow-result="lastWorkflowResult"
+                  :qc-chapter-number="lastQcChapterNumber"
+                  :autopilot-chapter-review="autopilotChapterReview"
+                  @clear-qc="clearWorkflowQc"
+                  @go-editor="desk.focusManuscript()"
+                />
+              </div>
+            </n-scrollbar>
+            </div>
+          </template>
 
-          <n-tab-pane name="chapter-elements" tab="🧩 章节元素">
-            <div class="elements-tab-wrap">
+          <template #rail-collapsed-actions>
+            <n-tooltip v-for="id in CHAPTER_DESK_DEEP_ORDER" :key="id" placement="left" trigger="hover">
+              <template #trigger>
+                <n-button quaternary size="small" class="rail-icon-btn" @click="desk.openDeepDrawer(id)">
+                  <template #icon>
+                    <component :is="deepSurfaceIcon(id)" />
+                  </template>
+                </n-button>
+              </template>
+              {{ desk.deepMeta[id].label }}
+            </n-tooltip>
+          </template>
+
+          <template #deep-drawer>
+            <div class="elements-tab-wrap deep-drawer-body">
               <ChapterElementPanel
+                v-if="desk.deepDrawerSurface === 'elements'"
                 :slug="slug"
                 :current-chapter-number="currentChapter?.number ?? null"
                 :read-only="isAssistedReadOnly"
@@ -184,21 +233,16 @@
                 :qc-chapter-number="lastQcChapterNumber"
                 :autopilot-chapter-review="autopilotChapterReview"
               />
+              <QualityGuardrailPanel
+                v-else-if="desk.deepDrawerSurface === 'guardrail'"
+                :slug="slug"
+                :chapter="currentChapter"
+                :read-only="isAssistedReadOnly"
+              />
+              <TraceRecordPanel v-else-if="desk.deepDrawerSurface === 'trace'" :slug="slug" />
             </div>
-          </n-tab-pane>
-
-<n-tab-pane name="quality-guardrail" tab="🛡️ 质量护栏" display-directive="if">
-<QualityGuardrailPanel
-:slug="slug"
-:chapter="currentChapter"
-:read-only="isAssistedReadOnly"
-/>
-</n-tab-pane>
-
-<n-tab-pane name="engine-trace" tab="🔍 引擎溯源" display-directive="if">
-<TraceRecordPanel :slug="slug" />
-</n-tab-pane>
-</n-tabs>
+          </template>
+        </ChapterWorkbenchShell>
       </div>
 
       <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会显示辅助撰稿面板，托管组件仍挂载以保持 SSE） -->
@@ -235,13 +279,13 @@
       :mask-closable="!generateInProgress"
     >
       <template #header-extra>
-        <n-text depth="3" style="font-size: 12px">同一流式接口；报告在章节状态</n-text>
+        <n-text depth="3" style="font-size: 12px">同一流式接口；报告在本章侧栏</n-text>
       </template>
 
       <n-scrollbar style="max-height: min(78vh, 760px)">
         <n-space vertical :size="20">
           <n-alert type="info" :show-icon="true">
-            选择目标章节与大纲后流式生成。一致性报告与俗套句式命中会出现在「章节状态」；此处可审阅正文并保存到所选章节。
+            选择目标章节与大纲后流式生成。一致性报告与俗套句式命中会出现在右侧「本章任务与状态」侧栏；此处可审阅正文并保存到所选章节。
           </n-alert>
 
           <n-card title="配置" size="small" :bordered="false">
@@ -515,7 +559,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted, type Component } from 'vue'
 import { useMessage } from 'naive-ui'
 import { resolveHttpUrl } from '../../api/config'
 import {
@@ -530,10 +574,18 @@ import type { TensionDiagnosis } from '../../api/tools'
 import ChapterElementPanel from './ChapterElementPanel.vue'
 import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
+import ChapterWorkbenchShell from './ChapterWorkbenchShell.vue'
 import QualityGuardrailPanel from './QualityGuardrailPanel.vue'
 import TraceRecordPanel from './TraceRecordPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
+import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
+import {
+  CHAPTER_DESK_DEEP_ORDER,
+  isChapterDeskDeepSurface,
+  type ChapterDeskDeepSurfaceId,
+} from '../../workbench/chapterDeskSurface'
+import { AppsOutline, ChevronForwardOutline, PulseOutline, ShieldCheckmarkOutline } from '@vicons/ionicons5'
 
 interface Chapter {
   id: number
@@ -567,11 +619,40 @@ const emit = defineEmits<{
 
 const message = useMessage()
 
+const desk = useChapterDeskLayout()
+
+function deepSurfaceIcon(id: ChapterDeskDeepSurfaceId): Component {
+  const map: Record<ChapterDeskDeepSurfaceId, Component> = {
+    elements: AppsOutline,
+    guardrail: ShieldCheckmarkOutline,
+    trace: PulseOutline,
+  }
+  return map[id]
+}
+
+const deepDrawerDropdownOptions = computed(() =>
+  CHAPTER_DESK_DEEP_ORDER.map((id) => ({
+    label: desk.deepMeta[id].label,
+    key: id,
+  }))
+)
+
+function onDeepDrawerDropdownSelect(key: string) {
+  if (isChapterDeskDeepSurface(key)) {
+    desk.openDeepDrawer(key)
+  }
+}
+
+function onDeepDrawerOpenUpdate(v: boolean) {
+  desk.deepDrawerOpen = v
+  if (!v) {
+    desk.deepDrawerSurface = null
+  }
+}
+
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
 const workMode = ref<'assisted' | 'managed'>('managed')
 
-// Tab 状态（仅辅助撰稿）
-const activeTab = ref('editor')
 const showGenerateModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
@@ -914,6 +995,16 @@ const currentChapter = computed(() => {
   return props.chapters.find(ch => ch.id === props.currentChapterId) || null
 })
 
+const signalStrip = computed(() => {
+  const r = autopilotChapterReview.value
+  const ch = currentChapter.value
+  if (!r || !ch || r.chapter_number !== ch.number) return null
+  return {
+    tension: r.tension ?? 0,
+    sync: !!r.narrative_sync_ok,
+  }
+})
+
 const hasChanges = computed(() => {
   return chapterContent.value !== originalContent.value
 })
@@ -1114,11 +1205,11 @@ const handleStartGenerate = async () => {
           streamProgressPct.value = 100
           streamPhaseLabel.value = '已完成'
           if (props.currentChapterId === targetChapterId) {
-            message.success('生成完成，质检已同步到「章节状态」')
+            message.success('生成完成，质检已同步到本章侧栏')
           } else {
-            message.success(`第 ${targetChapterNumber} 章生成完成，质检在对应章的「章节状态」查看`)
+            message.success(`第 ${targetChapterNumber} 章生成完成，请在对应章侧栏查看质检`)
           }
-          activeTab.value = 'chapter-status'
+          desk.nudgeRailAfterGeneration()
         },
         onError: (err) => {
           if (!ctrl.signal.aborted) {
@@ -1226,9 +1317,55 @@ defineExpose({ ensureAssistedMode })
   overflow: hidden;
 }
 
-.assisted-tabs {
+.chapter-desk-shell {
   flex: 1;
   min-height: 0;
+  min-width: 0;
+}
+
+.desk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rail-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.rail-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+}
+
+.rail-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.rail-scroll-pad {
+  padding: 10px 10px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rail-icon-btn {
+  max-width: 100%;
+}
+
+.deep-drawer-body {
+  min-height: min(70vh, 560px);
 }
 
 .managed-stack {
@@ -1304,31 +1441,6 @@ defineExpose({ ensureAssistedMode })
     color-mix(in srgb, var(--color-success, #22c55e) 3%, var(--app-surface)) 100%
   );
   border-bottom: 1px solid var(--aitext-split-border);
-}
-
-.work-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.work-tabs :deep(.n-tabs-nav) {
-  padding: 0 20px;
-  background: var(--app-surface);
-}
-
-.work-tabs :deep(.n-tabs-pane-wrapper) {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.work-tabs :deep(.n-tab-pane) {
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .monitor-container {
