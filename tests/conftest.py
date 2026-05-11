@@ -17,6 +17,10 @@ if str(_parent) not in sys.path:
 
 def pytest_configure(config):
     """Configure pytest - ensure paths are set before test collection"""
+    import os
+
+    os.environ.setdefault("AITEXT_ALLOW_DIRECT_SQLITE_WRITES", "1")
+
     # Ensure project root is first in sys.path
     root_str = str(_root)
     if root_str in sys.path:
