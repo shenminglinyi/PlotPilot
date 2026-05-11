@@ -1,23 +1,6 @@
-"""PromptRegistry — CPMS 统一提示词注册中心。
+"""PromptRegistry — CPMS 统一提示词注册中心（DB + 模板引擎 + 缓存）。
 
-核心设计（SSOT 原则）：
-- 所有业务代码通过 PromptRegistry 读取提示词（替代 PromptLoader + PromptManager 双轨制）
-- PromptRegistry 底层从 PromptManager（DB）读取，不再直接读 JSON 文件
-- 提供缓存层（内存缓存，避免频繁 DB 查询）
-- 提供热重载能力（修改后立即生效）
-- 完整兼容 PromptLoader 的所有查询接口（平滑迁移）
-
-Architecture:
-  PromptRegistry (facade)
-    ├─ PromptManager     (DB 读写)
-    ├─ PromptTemplateEngine (渲染)
-    ├─ VariableRegistry   (变量 Schema)
-    └─ PromptBindingStore (工作流绑定)
-
-迁移路径：
-  1. PromptLoader 的所有调用者改为调用 PromptRegistry
-  2. PromptLoader 本身改为 PromptRegistry 的代理（过渡期）
-  3. 最终移除 PromptLoader
+门面组合：PromptManager、PromptTemplateEngine、VariableRegistry；对外仅此一处读取入口。
 """
 from __future__ import annotations
 
@@ -43,15 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class PromptRegistry:
-    """CPMS 统一提示词注册中心。
-
-    职责：
-    1. 统一读取入口：所有业务代码从这里获取提示词
-    2. 缓存管理：内存缓存避免频繁 DB 查询，支持 TTL 和手动失效
-    3. 渲染服务：集成 PromptTemplateEngine（Jinja2）
-    4. 兼容层：提供与 PromptLoader 兼容的接口（平滑迁移）
-    5. 热重载：修改后缓存立即失效
-    """
+    """CPMS 提示词门面：统一读取、渲染、缓存与热重载。"""
 
     def __init__(
         self,
@@ -115,10 +90,7 @@ class PromptRegistry:
         return node.get_active_user_template() if node else ""
 
     def get_field(self, node_key: str, field: str, default: Any = None) -> Any:
-        """获取节点的指定字段值。
-
-        兼容 PromptLoader.get_field() 接口。
-        """
+        """获取节点的指定字段值。"""
         node = self.get_node(node_key)
         if not node:
             return default
@@ -154,10 +126,7 @@ class PromptRegistry:
     def get_directives_dict(
         self, node_key: str, directives_key: str = "_directives"
     ) -> Dict[str, str]:
-        """获取指令字典（如 PHASE_DIRECTIVES）。
-
-        兼容 PromptLoader.get_directives_dict() 接口。
-        """
+        """获取指令字典（如 PHASE_DIRECTIVES）。"""
         node = self.get_node(node_key)
         if not node:
             return {}
@@ -171,10 +140,7 @@ class PromptRegistry:
         return {}
 
     def get_list_field(self, node_key: str, field: str) -> List[str]:
-        """获取列表字段（如 _sensory_rotation）。
-
-        兼容 PromptLoader.get_list_field() 接口。
-        """
+        """获取列表字段（如 _sensory_rotation）。"""
         node = self.get_node(node_key)
         if not node:
             return []
@@ -259,7 +225,7 @@ class PromptRegistry:
             return None
 
         engine = self._get_engine()
-        var_schemas = self._build_variable_schema(node)
+        var_schemas = self._build_variable_schemas(node)
 
         return engine.mock_render(
             system_template=node.get_active_system(),
@@ -270,7 +236,7 @@ class PromptRegistry:
     # ─── 分类与搜索 ───
 
     def get_categories(self) -> List[Dict[str, Any]]:
-        """获取所有分类定义。兼容 PromptLoader.get_categories()。"""
+        """获取所有分类定义。"""
         now = time.time()
         if (self._categories_cache is not None
                 and now - self._categories_cache_ts < self._cache_ttl):
@@ -303,23 +269,23 @@ class PromptRegistry:
         return mgr.search_nodes(query)
 
     def exists(self, node_key: str) -> bool:
-        """检查提示词是否存在。兼容 PromptLoader.exists()。"""
+        """检查提示词节点是否存在。"""
         return self.get_node(node_key) is not None
 
     @property
     def all_ids(self) -> List[str]:
-        """所有已注册的提示词 ID 列表。兼容 PromptLoader.all_ids。"""
+        """所有已注册的提示词节点 ID。"""
         nodes = self.list_nodes()
         return [n.node_key for n in nodes]
 
     @property
     def total_count(self) -> int:
-        """已注册的提示词总数。兼容 PromptLoader.total_count。"""
+        """已注册节点总数。"""
         nodes = self.list_nodes()
         return len(nodes)
 
     def list_by_category(self, category: str) -> List[Dict[str, Any]]:
-        """按分类列出提示词。兼容 PromptLoader.list_by_category()。"""
+        """按分类列出提示词详情。"""
         nodes = self.list_nodes(category=category, include_versions=True)
         return [n.to_detail_dict() for n in nodes]
 
