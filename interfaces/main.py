@@ -166,11 +166,13 @@ async def startup_event():
         logger.info("🧹 Windows 启动前检查残留进程...")
         _cleanup_orphan_python_processes()
 
-    # 🔥 在任意 DB 写入型启动钩子之前拉起持久化消费者（单写者可在此后安全走 execute 路由）
-    _bootstrap_persistence_consumer_early()
+    # 先于持久化消费者复位「运行中」标志（单线程 + 短时直连 SQLite），避免与 writer 争抢连接时出现 ~busy_timeout 级卡顿
+    from infrastructure.persistence.database.write_dispatch import startup_sqlite_writes_bypass_queue
 
-    # 重启时将所有运行中的小说设置为停止状态
-    _stop_all_running_novels()
+    with startup_sqlite_writes_bypass_queue():
+        _stop_all_running_novels()
+
+    _bootstrap_persistence_consumer_early()
 
     # AOF 崩溃恢复：扫描残留的 .draft 文件，恢复到 DB
     _recover_drafts_on_startup()
@@ -184,8 +186,9 @@ async def startup_event():
 def _bootstrap_persistence_consumer_early() -> None:
     """启动 mp.Queue + 处理器 + 消费者线程（与 daemon 共用同一队列单例）。
 
-    必须在 `_stop_all_running_novels`、AOF 恢复等会向 DB 发写的逻辑之前调用，
-    否则 `DatabaseConnection.execute` 在非 writer 上会入队失败。
+    须在 AOF 恢复等依赖「非 writer 线程 mutate → 持久化队列」的逻辑之前调用。
+
+    「运行中小说→stopped」已在 `startup_sqlite_writes_bypass_queue` 中与消费者拉起解耦并完成。
     """
     try:
         from application.engine.services.persistence_queue import (
@@ -379,7 +382,9 @@ def _is_expected_daemon_shutdown_exception(exc: BaseException) -> bool:
 def _stop_all_running_novels():
     """重启时将所有运行中的小说设置为停止状态
 
-    经由 `get_database().execute` 走持久化单写者队列（需先 `_bootstrap_persistence_consumer_early`）。
+    经由 `get_database().execute`：在持久化消费者已启动时走队列入库；在
+    `startup_sqlite_writes_bypass_queue` 内则直连 SQLite（启动早期，无 writer 争抢）。
+
     保留 WAL 残留清理与 disk I/O 重试；重试时重置全局 DB 单例以换新连接。
     """
     import sqlite3
@@ -674,9 +679,12 @@ def _start_autopilot_daemon_thread():
     # 注册持久化处理器（在主进程执行 DB 写入）
     register_persistence_handlers()
 
-    # 启动消费者线程（唯一的 DB 写入者）
-    get_persistence_queue().start_consumer()
-    logger.info("✅ 持久化消费者线程已启动（单一写入者模式）")
+    pq = get_persistence_queue()
+    if not pq.is_consumer_running():
+        pq.start_consumer()
+        logger.info("✅ 持久化消费者线程已启动（单一写入者模式）")
+    else:
+        logger.debug("持久化消费者已在启动早期就绪（守护进程阶段不重复启动）")
 
     _daemon_stop_event = multiprocessing.Event()
 
@@ -692,62 +700,132 @@ def _start_autopilot_daemon_thread():
 
 
 def _cleanup_orphan_python_processes():
-    """Windows: 清理可能残留的 plotpilot-backend 相关进程。
+    """Windows: 清理可能残留的 plotpilot/uvicorn 相关 Python 进程。
 
-    注意：只清理命令行中包含 'plotpilot' 或 'autopilot' 的 Python 进程，
-    避免误杀其他无关的 Python 进程。
+    仅当命令行包含 plotpilot、autopilot、uvicorn、interfaces.main 之一时才终结进程，避免误杀。
+    优先 PowerShell + CIM（新系统已移除 wmic）；不可用时回退 wmic。
     """
     import subprocess
 
-    try:
-        # 获取当前进程 PID
-        current_pid = os.getpid()
-        logger.info(f"🔍 检查残留进程（当前 PID={current_pid}）...")
+    current_pid = os.getpid()
+    logger.info("🔍 检查残留进程（当前 PID=%s）...", current_pid)
 
-        # 使用 wmic 查找 Python 进程
-        result = subprocess.run(
-            ['wmic', 'process', 'where', "name='python.exe' or name='python3.exe' or name='plotpilot-backend.exe'",
-             'get', 'processid,commandline'],
+    ps_script = r"""$ErrorActionPreference = 'SilentlyContinue'
+Get-CimInstance Win32_Process | ForEach-Object {
+  $nl = ([string]$_.Name).ToLowerInvariant()
+  if ($nl -notin @('python.exe','python3.exe','pythonw.exe','plotpilot-backend.exe')) { return }
+  $cl = if ($null -eq $_.CommandLine) { '' } else { [string]$_.CommandLine }
+  $cl = $cl -replace "`t", ' '
+  [Console]::Out.WriteLine($_.ProcessId.ToString() + [char]9 + $cl)
+}
+"""
+
+    def _list_via_powershell() -> list[tuple[int, str]]:
+        r = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                ps_script,
+            ],
             capture_output=True,
             text=True,
-            timeout=5
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
         )
-
-        lines = result.stdout.strip().split('\n')
-        killed_count = 0
-
-        for line in lines:
+        if r.returncode != 0:
+            return []
+        rows: list[tuple[int, str]] = []
+        for line in r.stdout.splitlines():
             line = line.strip()
-            if not line or 'CommandLine' in line:
+            if not line or "\t" not in line:
                 continue
+            pid_str, _, cmd = line.partition("\t")
+            pid_str = pid_str.strip()
+            if not pid_str.isdigit():
+                continue
+            rows.append((int(pid_str), cmd.strip()))
+        return rows
 
-            # 检查是否是相关进程
-            if any(keyword in line.lower() for keyword in ['plotpilot', 'autopilot', 'uvicorn', 'interfaces.main']):
-                # 提取 PID（最后一个数字）
+    def _list_via_wmic() -> list[tuple[int, str]]:
+        result = subprocess.run(
+            [
+                "wmic",
+                "process",
+                "where",
+                "name='python.exe' or name='python3.exe' or name='plotpilot-backend.exe'",
+                "get",
+                "processid,commandline",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        if result.returncode != 0:
+            return []
+        rows: list[tuple[int, str]] = []
+        for line in result.stdout.strip().split("\n"):
+            line = line.strip()
+            if not line or "CommandLine" in line:
+                continue
+            if any(keyword in line.lower() for keyword in ("plotpilot", "autopilot", "uvicorn", "interfaces.main")):
                 parts = line.split()
                 for part in reversed(parts):
                     if part.isdigit():
-                        pid = int(part)
-                        # 不要杀死当前进程
-                        if pid != current_pid:
-                            try:
-                                logger.info(f"🧹 清理残留进程 PID={pid}: {line[:80]}...")
-                                subprocess.run(['taskkill', '/F', '/PID', str(pid)],
-                                             capture_output=True, timeout=5)
-                                killed_count += 1
-                            except Exception as e:
-                                logger.warning(f"清理进程 {pid} 失败: {e}")
+                        rows.append((int(part), line))
                         break
+        return rows
+
+    keywords = ("plotpilot", "autopilot", "uvicorn", "interfaces.main")
+    killed_count = 0
+
+    try:
+        candidates: list[tuple[int, str]] = []
+        try:
+            candidates = _list_via_powershell()
+        except OSError as e:
+            logger.debug("PowerShell 枚举进程不可用: %s", e)
+        except subprocess.TimeoutExpired:
+            logger.warning("⚠️ PowerShell 枚举进程超时，尝试 wmic")
+        if not candidates:
+            try:
+                candidates = _list_via_wmic()
+            except OSError as e:
+                logger.debug("wmic 枚举进程不可用: %s", e)
+            except subprocess.TimeoutExpired:
+                logger.warning("⚠️ wmic 枚举进程超时")
+
+        for pid, cmdline in candidates:
+            low = cmdline.lower()
+            if not any(k in low for k in keywords):
+                continue
+            if pid == current_pid:
+                continue
+            try:
+                logger.info("🧹 清理残留进程 PID=%s: %s...", pid, cmdline[:80])
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=5,
+                )
+                killed_count += 1
+            except Exception as e:
+                logger.warning("清理进程 %s 失败: %s", pid, e)
 
         if killed_count > 0:
-            logger.info(f"✅ 已清理 {killed_count} 个残留进程")
+            logger.info("✅ 已清理 %s 个残留进程", killed_count)
         else:
             logger.info("✅ 未发现残留进程")
 
     except subprocess.TimeoutExpired:
         logger.warning("⚠️ 进程清理超时")
+    except FileNotFoundError as e:
+        logger.warning("⚠️ 进程清理失败（未找到 PowerShell/wmic）: %s", e)
     except Exception as e:
-        logger.warning(f"⚠️ 进程清理失败: {e}")
+        logger.warning("⚠️ 进程清理失败: %s", e)
 
 
 def _stop_autopilot_daemon_thread():
