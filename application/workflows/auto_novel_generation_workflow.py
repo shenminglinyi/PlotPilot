@@ -25,6 +25,7 @@ from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.workflows.beat_continuation import format_prior_draft_for_prompt
+from application.workflows.prose_discipline import build_prose_discipline_block
 from application.engine.services.beat_coherence_enhancer import BeatCoherenceEnhancer, BeatContext
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ _FALLBACK_SYSTEM_TEMPLATE = (
     "{planning_section}{voice_block}{context}\n\n"
     "{fact_lock}\n"
     "{shuangwen_directive}"
+    "{prose_discipline}"
     "写作要求：\n"
     "1. 必须有多个人物互动（至少2-3个角色出场）\n"
     "2. 必须有对话（不能只有独白和叙述）\n"
@@ -1126,7 +1128,8 @@ class AutoNovelGenerationWorkflow:
         # 字数控制：像小说家一样自然收束，而非粗暴截断
         length_rule = (
             f"7. 【字数指引】本节拍约 {beat_target_words} 字。"
-            f"铺陈时尽情展开，到目标字数附近自然收束——用完整的句子结尾，不要拖沓，也不要戛然而止。"
+            f"用有信息的对话、动作与因果推进填到目标附近，禁止为凑字重复描写同一致震撼或同一情绪；"
+            f"收束用完整句，不要戛然而止。"
             if beat_target_words
             else ("7. 章节长度：3000-4000字" if not beat_mode else "7. 按下方节拍说明控制篇幅，勿写章节标题")
         )
@@ -1195,6 +1198,11 @@ class AutoNovelGenerationWorkflow:
             outline=outline,
         )
 
+        prose_discipline = build_prose_discipline_block(
+            beat_mode=beat_mode,
+            beat_target_words=beat_target_words,
+        )
+
         # ⚡ 提示词集中管理说明：
         # 此模板对应 prompts_defaults.json 中的 id=workflow-chapter-generation
         # CPMS: 优先从 PromptRegistry 获取模板，不可用时使用硬编码回退
@@ -1212,11 +1220,16 @@ class AutoNovelGenerationWorkflow:
             "context": context,
             "fact_lock": fact_lock,
             "shuangwen_directive": shuangwen_directive,
+            "prose_discipline": prose_discipline,
             "length_rule": length_rule,
             "beat_extra": beat_extra,
             "format_rules": format_rules,
         }
         system_message = _safe_format(system_template, system_vars)
+
+        # 旧版 CPMS 模板可能未含 {prose_discipline} 占位符：仍注入反八股块，避免升级后长期不生效
+        if "行文戒律（反八股 / 控水分）" not in system_message:
+            system_message = system_message.rstrip() + "\n\n" + prose_discipline
 
         user_message = _safe_format(user_template, {"outline": outline, "beat_section": ""})
 
@@ -1390,7 +1403,7 @@ class AutoNovelGenerationWorkflow:
                 "③ 反应炸裂：旁观者从轻视→震惊→敬畏的180度态度转变是爽感核心\n"
                 "   - 至少3个具体人物的反应：瞳孔骤缩、倒吸凉气、双腿发软、脸色煞白\n"
                 "④ 主角态度：云淡风轻/不以为意/波澜不惊——反差越大越爽\n"
-                "⑤ 禁止一笔带过！这是读者付费的核心体验，字数宁多勿少！"
+                "⑤ 爽点靠节奏与反差呈现，禁止用同义反复、纠正式排比或破折号叠句硬凑字数；该展开时用动作与对白顶上去。"
             ),
         },
         "identity_reveal": {
@@ -1405,7 +1418,7 @@ class AutoNovelGenerationWorkflow:
                 "   - 至少3个具体人物的态度变化\n"
                 "④ 反派懊悔：之前的对手/打压者必须表现出极度后悔和恐惧\n"
                 "⑤ 主角态度：漫不经心、云淡风轻——身份含金量通过他人反应呈现\n"
-                "⑥ 禁止一笔带过！认知冲击的时刻必须充分展开！"
+                "⑥ 认知冲击要充分，但禁止车轱辘改述同一句「震撼」；用他人具体反应与一句锚点动作收束即可。"
             ),
         },
         "face_slap": {
@@ -1554,7 +1567,7 @@ class AutoNovelGenerationWorkflow:
                 "📍【节奏: 爽点爆发】50%-80%篇幅——核心爽区！\n"
                 "- 这是本章最关键的部分——爽点必须在这里爆发\n"
                 "- 节奏加快，短句为主，画面快速切换\n"
-                "- 旁观者反应、对手崩溃——充分展开！"
+                "- 旁观者反应与对手崩溃要有，但每人一两笔具体动作/台词即可，禁止排比灌水"
             )
         else:
             return (
@@ -1570,10 +1583,10 @@ class AutoNovelGenerationWorkflow:
             "🎯【爽文核心法则】\n"
             "① 蓄力→爆发→余韵——每章必须有这个节奏循环\n"
             "② 读者的爽感 = 压抑程度 × 释放力度——没有足够的压抑就没有爽感\n"
-            "③ 旁观者反应 > 直接描写——通过他人的震惊来间接呈现主角的强大\n"
+            "③ 旁观者反应要有，但每人一两笔具体动作/台词即可，禁止复制粘贴式排比段\n"
             "④ 打脸要响、反转要快、悬念要紧——爽文三宝\n"
             "⑤ 主角永远不能主动炫耀——但实力总会不自觉地流露\n"
-            "⑥ 每章至少一次让读者产生'好爽'的瞬间——否则这章就是失败的"
+            "⑥ 每章至少一次让读者产生'好爽'的瞬间——靠信息与节奏，不靠同义反复堆字数"
         )
 
     def _check_consistency(
