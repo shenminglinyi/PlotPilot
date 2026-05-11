@@ -11,7 +11,9 @@
 Layer3 段名为 VECTOR RECALL（T3）；见 assemble_chapter_bundle_context_text。
 """
 import logging
-from typing import List, Optional, TYPE_CHECKING, Dict, Any
+from typing import Any, Dict, List, Optional
+
+from application.engine.dtos.scene_director_dto import SceneDirectorInput
 from dataclasses import dataclass
 
 from application.world.services.bible_service import BibleService
@@ -24,9 +26,6 @@ from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepo
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.engine.services.context_budget_allocator import ContextBudgetAllocator
-
-if TYPE_CHECKING:
-    from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +96,10 @@ class ContextBuilder:
             embedding_service=embedding_service,
         )
 
+    def estimate_tokens(self, text: str) -> int:
+        """估算文本 token 数（委托 ContextBudgetAllocator）。"""
+        return self.budget_allocator.estimate_tokens(text)
+
     def build_voice_anchor_system_section(self, novel_id: str) -> str:
         """Bible 角色声线/小动作锚点"""
         return self.bible_service.build_character_voice_anchor_section(novel_id)
@@ -107,7 +110,7 @@ class ContextBuilder:
         chapter_number: int,
         outline: str,
         max_tokens: int = 35000,
-        scene_director: Optional[Dict[str, Any]] = None,
+        scene_director: SceneDirectorInput = None,
     ) -> str:
         """构建上下文（使用预算分配器）
         
@@ -116,7 +119,7 @@ class ContextBuilder:
             chapter_number: 章节号
             outline: 章节大纲
             max_tokens: 最大 token 数
-            scene_director: 场记分析结果（可选）
+            scene_director: 场记（模型或 dict；allocator 内统一为 dict）
         
         Returns:
             组装好的上下文字符串
@@ -137,7 +140,7 @@ class ContextBuilder:
         chapter_number: int,
         outline: str,
         max_tokens: int = 35000,
-        scene_director: Optional[Dict[str, Any]] = None,
+        scene_director: SceneDirectorInput = None,
     ) -> Dict[str, Any]:
         """构建结构化上下文，返回详细信息
         
@@ -588,21 +591,21 @@ class ContextBuilder:
         ]
 
     # 节拍聚焦指令：CPMS 节点 beat-focus-instructions（prompt_packages）
-    # 通过 PromptLoader 统一读取，不再在此硬编码
+    # 通过 PromptRegistry 统一读取，不再在此硬编码
     _BEAT_PROMPT_ID = "beat-focus-instructions"
 
     def build_beat_prompt(self, beat: Beat, beat_index: int, total_beats: int) -> str:
         """构建单个节拍的生成提示（指令从 CPMS beat-focus-instructions 读取）"""
-        from infrastructure.ai.prompt_loader import get_prompt_loader
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-        loader = get_prompt_loader()
+        registry = get_prompt_registry()
 
         # 聚焦指令字典
-        focus_instructions = loader.get_directives_dict(self._BEAT_PROMPT_ID, "_focus_instructions")
+        focus_instructions = registry.get_directives_dict(self._BEAT_PROMPT_ID, "_focus_instructions")
         instruction = focus_instructions.get(beat.focus, "")
 
         # 感官锚点轮转
-        sensory_rotation = loader.get_list_field(self._BEAT_PROMPT_ID, "_sensory_rotation")
+        sensory_rotation = registry.get_list_field(self._BEAT_PROMPT_ID, "_sensory_rotation")
         if not sensory_rotation:
             # 安全降级
             sensory_rotation = [
@@ -614,7 +617,7 @@ class ContextBuilder:
         anchor_line = sensory_rotation[beat_index % len(sensory_rotation)]
 
         # 叙事义务
-        obligations = loader.get_field(self._BEAT_PROMPT_ID, "_obligations", {})
+        obligations = registry.get_field(self._BEAT_PROMPT_ID, "_obligations", {})
         if isinstance(obligations, dict):
             obligation = obligations.get(beat.focus, obligations.get("default", "叙事义务：推进情节或深化人物。"))
         else:
@@ -626,17 +629,21 @@ class ContextBuilder:
             hints_text = "\n".join(f"- {hint}" for hint in beat.expansion_hints)
             expansion_block = f"\n\n【字数扩充方向】（请参考以下方向展开细节）\n{hints_text}"
 
-        # 使用 PromptLoader 渲染模板
-        prompt = loader.render(self._BEAT_PROMPT_ID, template_field="user_template", variables={
-            "beat_index": beat_index + 1,
-            "total_beats": total_beats,
-            "target_words": beat.target_words,
-            "focus": beat.focus,
-            "instruction": instruction,
-            "description": beat.description,
-            "anchor_line": anchor_line,
-            "obligation": obligation,
-        })
+        # 使用 PromptRegistry 渲染 user 模板
+        rendered = registry.render(
+            self._BEAT_PROMPT_ID,
+            variables={
+                "beat_index": beat_index + 1,
+                "total_beats": total_beats,
+                "target_words": beat.target_words,
+                "focus": beat.focus,
+                "instruction": instruction,
+                "description": beat.description,
+                "anchor_line": anchor_line,
+                "obligation": obligation,
+            },
+        )
+        prompt = (rendered.user if rendered else "") or ""
 
         # 注入扩写维度
         if expansion_block:
