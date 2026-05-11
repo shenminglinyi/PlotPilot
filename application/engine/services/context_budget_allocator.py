@@ -209,7 +209,7 @@ class ContextBudgetAllocator:
         # ★ V8 Feed-forward: 上下文反哺管线
         self.context_assembler = context_assembler
 
-        # ★ Phase 3: 沙漏阶段阈值（可从外部配置或 prompts_defaults.json 覆盖）
+        # ★ Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
         self._phase_thresholds = phase_thresholds or self._load_phase_thresholds()
 
         # 向量检索门面
@@ -1878,19 +1878,7 @@ class ContextBudgetAllocator:
     }
 
     def _load_phase_thresholds(self) -> Dict[str, float]:
-        """★ Phase 3: 从 prompts_defaults.json 加载沙漏阶段阈值（可选）
-
-        如果配置文件中有定义，则覆盖默认值；否则使用内置默认值。
-        配置格式（在 prompts_defaults.json 中）：
-          "lifecycle-phase-directives": {
-            "_phase_thresholds": {
-              "opening": 0.30,
-              "development": 0.70,
-              "convergence": 0.88,
-              "finale": 1.01
-            }
-          }
-        """
+        """★ Phase 3: 从 CPMS 节点加载沙漏阶段阈值（lifecycle-phase-directives 的 _phase_thresholds）。"""
         try:
             from infrastructure.ai.prompt_loader import get_prompt_loader
             loader = get_prompt_loader()
@@ -1921,12 +1909,12 @@ class ContextBudgetAllocator:
         else:
             return StoryPhase.OPENING
     
-    # PHASE_DIRECTIVES 已迁移至 prompts_defaults.json (id=lifecycle-phase-directives)
+    # PHASE_DIRECTIVES：CPMS lifecycle-phase-directives（prompt_packages）
     # 通过 PromptLoader 统一读取，不再在此硬编码
     _LIFECYCLE_PROMPT_ID = "lifecycle-phase-directives"
 
     def _get_phase_directives(self) -> Dict[StoryPhase, str]:
-        """从 PromptLoader 获取阶段指令字典（集中管理）。"""
+        """从 PromptLoader / CPMS 获取阶段指令字典。"""
         from infrastructure.ai.prompt_loader import get_prompt_loader
 
         raw = get_prompt_loader().get_directives_dict(
@@ -1946,7 +1934,7 @@ class ContextBudgetAllocator:
         return result
 
     def _build_lifecycle_directive(self, novel_id: str, chapter_number: int) -> str:
-        """构建生命周期行为准则文本（指令从 prompts_defaults.json 统一读取）。"""
+        """构建生命周期行为准则文本（指令来自 CPMS lifecycle-phase-directives）。"""
         total = self._estimate_total_chapters(novel_id)
         progress = chapter_number / max(total, 1)
         phase = self._classify_phase(progress)

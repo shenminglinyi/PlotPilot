@@ -58,7 +58,7 @@ def _safe_format(template: str, variables: Dict[str, Any]) -> str:
         return template
 
 
-# CPMS: 主工作流提示词节点 key（与 prompts_defaults.json 中 id 一致）
+# CPMS: 主工作流提示词节点 key（与 prompt_packages 中节点 id 一致）
 _WORKFLOW_CHAPTER_GEN_NODE_KEY = "chapter-generation-main"
 
 # 硬编码回退：system 模板框架（仅在 PromptRegistry 不可用时使用）
@@ -1204,7 +1204,7 @@ class AutoNovelGenerationWorkflow:
         )
 
         # ⚡ 提示词集中管理说明：
-        # 此模板对应 prompts_defaults.json 中的 id=workflow-chapter-generation
+        # 此模板对应 prompt_packages/nodes/chapter-generation-main（CPMS chapter-generation-main）
         # CPMS: 优先从 PromptRegistry 获取模板，不可用时使用硬编码回退
         system_template = self._get_workflow_system_template()
         user_template = self._get_workflow_user_template()
