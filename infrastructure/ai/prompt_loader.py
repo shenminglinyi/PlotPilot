@@ -11,16 +11,9 @@ v4.0 重构（CPMS 统一入口）：
   Phase 2: 所有调用者迁移到 PromptRegistry
   Phase 3: PromptLoader 标记为 deprecated
 
-文件结构（仅作种子源，运行时不再直接读取）：
-  infrastructure/ai/prompts/
-    prompts_generation.json   — 内容生成类
-    prompts_extraction.json   — 信息提取类
-    prompts_review.json       — 审稿质检类
-    prompts_planning.json     — 规划设计类
-    prompts_world.json        — 世界设定类
-    prompts_creative.json     — 创意辅助类
-    prompts_anti_ai.json      — Anti-AI 防御类
-    prompts_defaults.json     — (旧版兼容，不再主动加载)
+文件结构（种子源）：
+  infrastructure/ai/prompt_packages/  — CPMS 内置节点（YAML 元数据 + Markdown 正文）
+  infrastructure/ai/prompts/rules_seed.json — 规则类（PromptRuntimeService，可选）
 """
 from __future__ import annotations
 

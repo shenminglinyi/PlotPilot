@@ -33,23 +33,22 @@ class PromptRuntimeService:
         self._load_json_prompts()
 
     def _load_json_prompts(self):
-        """加载JSON提示词文件到缓存"""
+        """加载规则类 JSON（rules_seed.json）。CPMS 节点种子已迁至 prompt_packages/。"""
         if not self._prompts_dir or not self._prompts_dir.exists():
             return
 
-        for json_file in self._prompts_dir.glob("prompts_*.json"):
+        rules_file = self._prompts_dir / "rules_seed.json"
+        if rules_file.is_file():
             try:
-                with open(json_file, "r", encoding="utf-8") as f:
+                with open(rules_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if isinstance(data, list):
-                        for item in data:
-                            if isinstance(item, dict) and "name" in item:
-                                self._json_cache[item["name"]] = item
-                    elif isinstance(data, dict):
-                        self._json_cache.update(data)
-                logger.debug(f"已加载提示词文件: {json_file.name}")
+                if isinstance(data, list):
+                    for item in data:
+                        if isinstance(item, dict) and "name" in item:
+                            self._json_cache[item["name"]] = item
+                logger.debug("已加载规则种子: %s", rules_file.name)
             except Exception as e:
-                logger.warning(f"加载提示词文件失败 {json_file}: {e}")
+                logger.warning(f"加载规则种子失败 {rules_file}: {e}")
 
     async def get_prompt(self, name: str) -> Optional[Dict[str, Any]]:
         """获取提示词（DB优先 → JSON回退）
