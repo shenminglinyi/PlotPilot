@@ -277,6 +277,7 @@ class TestBuildPrompt:
 
         assert "Full context" in prompt.system
         assert "Chapter outline" in prompt.user
+        assert "行文戒律" in prompt.system
 
     def test_build_prompt_includes_storyline_and_tension(self, workflow):
         """故事线与情节张力应进入 system，供模型遵守"""
