@@ -40,10 +40,11 @@ CREATE INDEX IF NOT EXISTS idx_voice_samples_character
 ON character_voice_samples(character_id, chapter_number ASC);
 
 -- 故事-角色关联表
+-- 注意：SQLite 不支持 content() 函数；如需 FTS 全文检索，请单独创建 FTS5 虚拟表
 CREATE TABLE IF NOT EXISTS story_characters (
-    story_id TEXT NOT NULL,
+    novel_id TEXT NOT NULL,
     character_id TEXT NOT NULL,
     character_name TEXT NOT NULL,
     role TEXT DEFAULT 'supporting',          -- protagonist/antagonist/supporting
-    PRIMARY KEY (story_id, character_id)
+    PRIMARY KEY (novel_id, character_id)
 );
