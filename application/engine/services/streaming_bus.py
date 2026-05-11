@@ -11,6 +11,7 @@ Windows 兼容性：
 - 单一数据通道，避免本地缓冲与队列不同步
 """
 import multiprocessing as mp
+import os
 import threading
 import time
 import logging
@@ -19,6 +20,13 @@ from typing import Dict, Optional, List, Any
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# 默认关闭逐块 DEBUG（开发时 ROOT=DEBUG 会刷爆控制台）；开启: PLOTPILOT_VERBOSE_STREAMING=1
+_VERBOSE_STREAMING_chunks = os.environ.get("PLOTPILOT_VERBOSE_STREAMING", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # 全局队列（跨进程安全）
 _stream_queue: Optional[mp.Queue] = None
@@ -127,7 +135,8 @@ class StreamingBus:
                 pass  # qsize() 在某些平台不可靠
 
             queue.put_nowait(message)
-            logger.debug("[StreamingBus] publish: %s, %d chars", novel_id, len(chunk))
+            if _VERBOSE_STREAMING_chunks:
+                logger.debug("[StreamingBus] publish: %s, %d chars", novel_id, len(chunk))
         except Full:
             # 队列满时，强制丢弃旧消息，写入新消息
             dropped = 0
@@ -145,7 +154,8 @@ class StreamingBus:
                 )
             except Full:
                 # 消费者彻底断开，静默丢弃（避免 OOM）
-                logger.debug("[StreamingBus] 队列仍满，丢弃消息（消费者可能断开）: %s", novel_id)
+                if _VERBOSE_STREAMING_chunks:
+                    logger.debug("[StreamingBus] 队列仍满，丢弃消息（消费者可能断开）: %s", novel_id)
         except Exception as e:
             logger.error("[StreamingBus] 发布消息失败: %s", e)
 
@@ -180,7 +190,8 @@ class StreamingBus:
 
         try:
             queue.put_nowait(message)
-            logger.debug("[StreamingBus] publish_audit_event: %s, %s", novel_id, event_type)
+            if _VERBOSE_STREAMING_chunks:
+                logger.debug("[StreamingBus] publish_audit_event: %s, %s", novel_id, event_type)
         except Full:
             # 队列满时丢弃旧消息
             for _ in range(10):
@@ -388,7 +399,8 @@ class StreamingBus:
             except Empty:
                 break
             except Exception as e:
-                logger.debug("[StreamingBus] 队列读取异常: %s", e)
+                if _VERBOSE_STREAMING_chunks:
+                    logger.debug("[StreamingBus] 队列读取异常: %s", e)
                 break
 
         # 放回其他小说的消息（一次性批量放回）
@@ -400,7 +412,7 @@ class StreamingBus:
                     # 队列满时丢弃
                     pass
 
-        if chunks:
+        if chunks and _VERBOSE_STREAMING_chunks:
             logger.debug(
                 "[StreamingBus] get_chunks_batch: %s, %d chunks",
                 novel_id, len(chunks)
@@ -480,7 +492,8 @@ class StreamingBus:
             except Empty:
                 break
             except Exception as e:
-                logger.debug("[StreamingBus] 队列读取异常: %s", e)
+                if _VERBOSE_STREAMING_chunks:
+                    logger.debug("[StreamingBus] 队列读取异常: %s", e)
                 break
 
         # 放回其他小说的消息（一次性批量放回）
@@ -531,7 +544,7 @@ class StreamingBus:
             except Full:
                 pass
 
-        if cleared > 0:
+        if cleared > 0 and _VERBOSE_STREAMING_chunks:
             logger.debug("[StreamingBus] clear: %s, 清除 %d 条消息", novel_id, cleared)
 
     def get_queue_size(self) -> int:
@@ -551,10 +564,11 @@ class StreamingBus:
         注意：v3 版本不再维护本地元数据状态，此方法仅为兼容性保留。
         节拍进度通过 novel.current_beat_index 在数据库中维护。
         """
-        logger.debug(
-            "[StreamingBus] update_beat: %s, beat=%d, words=%d (no-op)",
-            novel_id, beat_index, word_count
-        )
+        if _VERBOSE_STREAMING_chunks:
+            logger.debug(
+                "[StreamingBus] update_beat: %s, beat=%d, words=%d (no-op)",
+                novel_id, beat_index, word_count,
+            )
 
     def get_metadata(self, novel_id: str) -> Dict[str, Any]:
         """获取流元数据（兼容旧接口）"""

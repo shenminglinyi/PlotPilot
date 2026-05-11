@@ -222,7 +222,7 @@ class PersistenceQueue:
             logger.warning(f"未注册的命令类型: {command_type}")
             return
 
-        max_retries = 3
+        max_retries = 10
         for attempt in range(max_retries):
             try:
                 handler(payload)
@@ -230,9 +230,9 @@ class PersistenceQueue:
             except sqlite3.OperationalError as e:
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < max_retries - 1:
-                        wait = 0.3 * (attempt + 1)
+                        wait = min(0.2 * (2**attempt), 3.0)
                         logger.warning(
-                            "DB 被锁，重试 %d/%d (等待%.1fs): %s",
+                            "DB 被锁，重试 %d/%d (等待%.2fs): %s",
                             attempt + 1, max_retries, wait, command_type,
                         )
                         time.sleep(wait)
@@ -371,6 +371,27 @@ def register_persistence_handlers() -> None:
 
         except Exception as e:
             logger.error(f"[PersistenceQueue] 章节持久化失败: {e}")
+            # database is locked 时重试一次
+            if "database is locked" in str(e):
+                import time as _time
+                _time.sleep(1.0)
+                try:
+                    db = get_database()
+                    db.get_connection().execute("PRAGMA busy_timeout=15000")
+                    db.execute(
+                        """INSERT INTO chapters (novel_id, number, content, status, word_count, updated_at)
+                        VALUES (?, ?, ?, ?, LENGTH(?), CURRENT_TIMESTAMP)
+                        ON CONFLICT(novel_id, number) DO UPDATE SET
+                            content = excluded.content,
+                            status = excluded.status,
+                            word_count = excluded.word_count,
+                            updated_at = CURRENT_TIMESTAMP""",
+                        (novel_id, chapter_number, content, status, content)
+                    )
+                    db.get_connection().commit()
+                    logger.info(f"[PersistenceQueue] 章节持久化重试成功: novel={novel_id} ch={chapter_number}")
+                except Exception as e2:
+                    logger.error(f"[PersistenceQueue] 章节持久化重试仍失败: {e2}")
 
     def handle_update_chapter_tension(payload: Dict) -> None:
         """处理章节张力值更新"""
@@ -481,6 +502,21 @@ def register_persistence_handlers() -> None:
 
         except Exception as e:
             logger.error(f"[PersistenceQueue] 章节状态持久化失败: {e}")
+            # database is locked 时重试一次
+            if "database is locked" in str(e):
+                import time as _time
+                _time.sleep(1.0)
+                try:
+                    db = get_database()
+                    db.get_connection().execute("PRAGMA busy_timeout=15000")
+                    db.execute(
+                        "UPDATE chapters SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE novel_id = ? AND number = ?",
+                        (status, novel_id, chapter_number)
+                    )
+                    db.get_connection().commit()
+                    logger.info(f"[PersistenceQueue] 章节状态持久化重试成功: novel={novel_id} ch={chapter_number}")
+                except Exception as e2:
+                    logger.error(f"[PersistenceQueue] 章节状态持久化重试仍失败: {e2}")
 
     # 新增：章节字数更新处理器
     def handle_update_chapter_word_count(payload: Dict) -> None:
