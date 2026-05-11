@@ -1,0 +1,39 @@
+name: 微观节拍 · 聚焦指令集
+category: generation
+source: application/engine/services/context_builder.py::build_beat_prompt()
+description: Beat Magnifier 节拍放大器：7+种节拍类型的聚焦指令 + 感官锚点轮转 + 叙事义务
+builtin: true
+tags:
+- 核心
+- 节拍
+- Beat Magnifier
+- 感官
+- 对话
+output_format: text
+variables:
+- name: beat_index
+  desc: 节拍序号（从1开始）
+  type: integer
+- name: total_beats
+  desc: 总节拍数
+  type: integer
+- name: target_words
+  desc: 目标字数
+  type: integer
+- name: focus
+  desc: 聚焦类型
+  type: string
+- name: instruction
+  desc: 聚焦指令
+  type: string
+- name: description
+  desc: 节拍内容描述
+  type: string
+- name: anchor_line
+  desc: 环境锚点轮转行
+  type: string
+- name: obligation
+  desc: 叙事义务
+  type: string
+id: beat-focus-instructions
+sort_order: 32

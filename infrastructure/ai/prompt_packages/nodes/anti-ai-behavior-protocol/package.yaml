@@ -1,0 +1,23 @@
+name: Anti-AI 行为协议 v1（协议化指令集）
+category: anti-ai
+source: application/engine/rules/positive_framing_rules.py + anti_ai_protocol.yaml
+description: Layer 1+2 核心协议：用协议化指令(P1-P5)替代禁令清单，用替换策略(R1-R8)替代空泛规则。预期指令遵循率从60%提升至85%+。
+builtin: true
+tags:
+- 核心
+- Anti-AI
+- 协议
+- Layer1
+- Layer2
+output_format: text
+variables:
+- name: nervous_habits
+  desc: 角色紧张习惯映射
+  type: string
+  default: ''
+- name: allowlist_block
+  desc: 场景化豁免白名单
+  type: string
+  default: ''
+id: anti-ai-behavior-protocol
+sort_order: 34

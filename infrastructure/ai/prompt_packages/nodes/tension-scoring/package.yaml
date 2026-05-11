@@ -1,0 +1,20 @@
+name: 多维张力评分
+category: extraction
+source: infrastructure/ai/prompts/prompts_defaults.json
+description: 引入戏剧冲突理论，量化评估文本的情节、情绪与节奏张力（0-100）
+builtin: true
+tags:
+- 评分
+- 分析
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: true
+- name: prev_tension
+  desc: 前章综合张力值
+  type: number
+  default: 50
+id: tension-scoring
+sort_order: 6

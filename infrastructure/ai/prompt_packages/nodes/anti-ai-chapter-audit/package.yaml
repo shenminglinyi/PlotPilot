@@ -1,0 +1,18 @@
+name: Anti-AI 章节审计 v1（35+模式扫描）
+category: anti-ai
+source: application/audit/services/cliche_scanner.py
+description: Layer 7 章后审计：35+增强模式扫描，涵盖微表情/声线/比喻/生理性/句式/叙事/环境/节奏8大类，生成结构化审计报告。
+builtin: true
+tags:
+- 核心
+- Anti-AI
+- 审计
+- Layer7
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: true
+id: anti-ai-chapter-audit
+sort_order: 35

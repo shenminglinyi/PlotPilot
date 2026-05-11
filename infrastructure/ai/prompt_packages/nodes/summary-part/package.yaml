@@ -1,0 +1,20 @@
+name: 部摘要
+category: planning
+source: application/blueprint/services/volume_summary_service.py::_build_part_summary_prompt()
+description: 百万字级的高空鸟瞰，提炼角色灵魂质变与世界线震荡
+builtin: true
+tags:
+- 摘要
+- 部级
+variables:
+- name: part_title
+  desc: 部标题
+  type: string
+- name: part_description
+  desc: 部描述
+  type: string
+- name: volumes_text
+  desc: 卷摘要汇总
+  type: string
+id: summary-part
+sort_order: 24

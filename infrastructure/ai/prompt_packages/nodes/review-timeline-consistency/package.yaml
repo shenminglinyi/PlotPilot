@@ -1,0 +1,21 @@
+name: 时间线一致性检查
+category: review
+source: application/audit/services/chapter_review_service.py::_build_timeline_consistency_prompt()
+description: 时间穿帮纠错，审查物理空间与时间的硬伤
+builtin: true
+tags:
+- 审稿
+- 一致性
+- 时间线
+variables:
+- name: current_events
+  desc: 当前章节事件
+  type: string
+- name: previous_events
+  desc: 前置事件
+  type: string
+- name: chapter_content
+  desc: 章节内容（截断）
+  type: string
+id: review-timeline-consistency
+sort_order: 13

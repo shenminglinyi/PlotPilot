@@ -1,0 +1,53 @@
+name: Anti-AI 角色状态锁
+category: anti-ai
+source: application/engine/rules/character_state_vector.py
+description: Layer 4 角色状态向量：强制注入角色锚点防止记忆漂移。包含声线指纹、紧张习惯、反应模式三维度。
+builtin: true
+tags:
+- Anti-AI
+- 角色锁
+- Layer4
+output_format: text
+variables:
+- name: character_name
+  desc: 角色名
+  type: string
+  required: true
+- name: physical_state
+  desc: 当前身体状态
+  type: string
+  required: true
+- name: emotional_baseline
+  desc: 情绪底色
+  type: string
+  required: true
+- name: nervous_habit
+  desc: 紧张习惯
+  type: string
+  required: true
+- name: voice_print
+  desc: 声线指纹
+  type: string
+  required: true
+- name: reaction_pattern
+  desc: 反应模式
+  type: string
+  required: true
+- name: known_information
+  desc: 角色已知信息
+  type: string
+  default: ''
+- name: unknown_information
+  desc: 角色未知信息
+  type: string
+  default: ''
+- name: voice_rule
+  desc: 声线规则描述
+  type: string
+  default: ''
+- name: physical_inertia_rule
+  desc: 身体惯性规则
+  type: string
+  default: ''
+id: anti-ai-character-state-lock
+sort_order: 37

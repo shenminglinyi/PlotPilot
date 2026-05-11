@@ -1,0 +1,20 @@
+name: 卷摘要
+category: planning
+source: application/blueprint/services/volume_summary_service.py::_build_volume_summary_prompt()
+description: 提炼整卷的地图演进、终极Boss战果及贯穿卷底的悬念
+builtin: true
+tags:
+- 摘要
+- 卷级
+variables:
+- name: volume_title
+  desc: 卷标题
+  type: string
+- name: volume_description
+  desc: 卷描述
+  type: string
+- name: acts_text
+  desc: 幕摘要汇总
+  type: string
+id: summary-volume
+sort_order: 23

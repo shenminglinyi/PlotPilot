@@ -1,0 +1,29 @@
+name: 卡文诊断与张力分析
+category: creative
+source: PlotPilot-master prompts_defaults.json
+description: 结合统计数据诊断卡文病因，提供打碎僵局的'鲶鱼效应'重构方案
+builtin: true
+tags:
+- 卡文诊断
+- 张力
+- 建议
+output_format: json
+variables:
+- name: novel_id
+  desc: 小说ID
+  type: string
+- name: chapter_number
+  desc: 卡文章节号
+  type: integer
+- name: stuck_reason_text
+  desc: 卡文原因
+  type: string
+- name: events_text
+  desc: 事件列表
+  type: string
+- name: stats_text
+  desc: 统计数据
+  type: string
+  default: ''
+id: tension-analysis-diagnosis
+sort_order: 30

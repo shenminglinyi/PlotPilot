@@ -1,0 +1,22 @@
+name: 主线故事选项推演
+category: planning
+source: PlotPilot-master prompts_defaults.json
+description: 推演 3 个高概念主线变体，确保切入点犀利、商业张力拉满
+builtin: true
+tags:
+- 主线推演
+- 3方案
+- 商业张力
+output_format: json
+variables:
+- name: worldview
+  desc: 世界观设定
+  type: string
+- name: protagonist
+  desc: 主角信息
+  type: string
+- name: locations
+  desc: 核心地点
+  type: string
+id: planning-main-plot-suggest
+sort_order: 21

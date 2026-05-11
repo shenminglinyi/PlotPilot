@@ -1,0 +1,24 @@
+name: 地点地图生成
+category: world
+source: PlotPilot-master prompts_defaults.json
+description: 构建具有叙事功能的地缘拓扑网络，而非干瘪的背景板
+builtin: true
+tags:
+- 地点
+- 地图
+- Bible
+output_format: json
+variables:
+- name: worldbuilding
+  desc: 世界观设定
+  type: string
+- name: existing_locations
+  desc: 已有地点
+  type: string
+  default: ''
+- name: character_context
+  desc: 人物活动范围
+  type: string
+  default: ''
+id: bible-locations
+sort_order: 29

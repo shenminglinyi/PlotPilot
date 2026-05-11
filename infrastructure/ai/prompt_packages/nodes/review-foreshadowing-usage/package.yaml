@@ -1,0 +1,17 @@
+name: 伏笔使用检查
+category: review
+source: application/audit/services/chapter_review_service.py::_build_foreshadowing_usage_prompt()
+description: 检查并促成'契诃夫的枪'在最佳时机开火
+builtin: true
+tags:
+- 审稿
+- 伏笔
+variables:
+- name: foreshadowings
+  desc: 相关伏笔列表
+  type: string
+- name: chapter_content
+  desc: 章节内容（截断）
+  type: string
+id: review-foreshadowing-usage
+sort_order: 15

@@ -1,0 +1,24 @@
+name: 幕（Act）摘要
+category: planning
+source: application/blueprint/services/volume_summary_service.py::_build_act_summary_prompt()
+description: 提炼幕级叙事弧线，聚焦危机、高潮与角色状态偏移
+builtin: true
+tags:
+- 摘要
+- 幕级
+variables:
+- name: act_title
+  desc: 幕标题
+  type: string
+- name: act_description
+  desc: 幕描述
+  type: string
+- name: chapters_text
+  desc: 章节概览
+  type: string
+- name: foreshadowing_text
+  desc: 伏笔信息
+  type: string
+  default: ''
+id: summary-act
+sort_order: 22
