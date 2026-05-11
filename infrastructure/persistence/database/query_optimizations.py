@@ -139,7 +139,13 @@ def find_novels_with_chapters_optimized(db_pool, status: str) -> List[Novel]:
 
         novels.append(novel)
 
-    logger.debug(f"查询到 {len(novels)} 本小说，总计 {sum(len(data['chapters']) for data in novels_map.values())} 章")
+    total_ch = sum(len(data["chapters"]) for data in novels_map.values())
+    logger.debug(
+        "按 autopilot_status=%s 查询到 %s 本小说，总计 %s 章",
+        status,
+        len(novels),
+        total_ch,
+    )
     return novels
 
 

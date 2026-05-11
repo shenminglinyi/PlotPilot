@@ -1433,6 +1433,7 @@ async def reset_circuit_breaker(novel_id: str):
 
 
 @router.get("/{novel_id}/stream")
+@router.get("/{novel_id}/log-stream", include_in_schema=False)
 async def autopilot_log_stream(
     novel_id: str,
     after_seq: int = Query(0, ge=0, description="仅推送 seq 大于该值的守护进程日志行；重连时传入上次最后一条 seq"),

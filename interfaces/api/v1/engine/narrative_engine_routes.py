@@ -29,6 +29,7 @@ async def get_surface_catalog() -> Dict[str, Any]:
 
 
 @router.get("/{novel_id}/narrative-engine/story-evolution")
+@router.get("/{novel_id}/narrative-engine/story-evolution/", include_in_schema=False)
 async def get_story_evolution_read_model(
     novel_id: str,
     facade: NarrativeEngineReadFacade = Depends(get_narrative_engine_read_facade),

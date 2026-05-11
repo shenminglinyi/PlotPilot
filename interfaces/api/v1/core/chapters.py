@@ -155,6 +155,11 @@ async def get_chapter(
     "/{novel_id}/chapters/{chapter_number}/guardrail-snapshot",
     response_model=GuardrailCheckResponse,
 )
+@router.get(
+    "/{novel_id}/chapters/{chapter_number}/guardrail-snapshot/",
+    response_model=GuardrailCheckResponse,
+    include_in_schema=False,
+)
 async def get_guardrail_snapshot(
     novel_id: str,
     chapter_number: int = Path(..., gt=0, description="章节编号"),
