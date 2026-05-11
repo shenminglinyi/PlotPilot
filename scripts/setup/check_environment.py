@@ -84,10 +84,7 @@ def main():
 
     print("\n" + "=" * 60)
     if all(results):
-        print("✅ 所有检查通过！可以运行验证原型。")
-        print("\n推荐操作：")
-        print("1. 先运行模拟版: python scripts/prototype_mock.py")
-        print("2. 模拟版通过后，再运行真实版: python scripts/prototype_continuous_planning.py")
+        print("✅ 所有检查通过！可以启动后端与前端进行开发。")
     else:
         print("❌ 部分检查失败，请先解决上述问题。")
     print("=" * 60)
