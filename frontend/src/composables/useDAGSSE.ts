@@ -37,6 +37,11 @@ const PERF_THRESHOLDS = {
 export function useDAGSSE(novelId: Ref<string>) {
   const dagStore = useDAGStore()
   const runStore = useDAGRunStore()
+  const isDev = import.meta.env.DEV
+
+  /** DAG 版本变化时重建 type→id，避免每条日志 O(n) 扫描 nodes */
+  let typeToIdCacheVersion = -1
+  let typeToIdCache: Map<string, string> | null = null
 
   // ─── 消息队列与节流处理 ───
 
@@ -73,7 +78,7 @@ export function useDAGSSE(novelId: Ref<string>) {
       messageQueue.shift()
 
       // 记录告警
-      if (perfMetrics.eventsDropped % 10 === 0) {
+      if (isDev && perfMetrics.eventsDropped % 10 === 0) {
         console.warn(`[SSE] 消息队列溢出，已丢弃 ${perfMetrics.eventsDropped} 条消息`)
       }
     }
@@ -126,7 +131,7 @@ export function useDAGSSE(novelId: Ref<string>) {
     }
 
     // 性能监控
-    if (batchSize > PERF_THRESHOLDS.queueOverflow) {
+    if (isDev && batchSize > PERF_THRESHOLDS.queueOverflow) {
       console.warn(`[SSE] 批量处理 ${batchSize} 条消息，超过阈值 ${PERF_THRESHOLDS.queueOverflow}`)
     }
   }
@@ -159,7 +164,9 @@ export function useDAGSSE(novelId: Ref<string>) {
       RECONNECT_MAX_DELAY_MS
     )
 
-    console.log(`[SSE] 将在 ${delay}ms 后重连（第 ${reconnectAttempts} 次）`)
+    if (isDev) {
+      console.log(`[SSE] 将在 ${delay}ms 后重连（第 ${reconnectAttempts} 次）`)
+    }
 
     setTimeout(() => {
       if (novelId.value) {
@@ -194,11 +201,17 @@ export function useDAGSSE(novelId: Ref<string>) {
     if (connected) {
       // 连接成功，重置重连计数
       reconnectAttempts = 0
-      console.log('[SSE] 连接成功')
+      if (isDev) {
+        console.log('[SSE] 连接成功')
+      }
     } else {
       // 连接断开，尝试重连
-      console.warn('[SSE] 连接断开')
-      smartReconnect()
+      if (isDev) {
+        console.warn('[SSE] 连接断开')
+      }
+      if (runStore.runStatus === 'running') {
+        smartReconnect()
+      }
     }
   })
 
@@ -225,8 +238,8 @@ export function useDAGSSE(novelId: Ref<string>) {
     runStore.disconnectSSE()
     runStore.disconnectAutopilotLog()
 
-    // 输出性能指标
-    if (perfMetrics.eventsReceived > 0) {
+    // 输出性能指标（仅开发环境，避免生产控制台噪音）
+    if (isDev && perfMetrics.eventsReceived > 0) {
       console.log('[SSE] 性能指标:', {
         ...perfMetrics,
         dropRate: `${((perfMetrics.eventsDropped / perfMetrics.eventsReceived) * 100).toFixed(2)}%`,
@@ -347,8 +360,16 @@ export function useDAGSSE(novelId: Ref<string>) {
   function findNodeIdByType(nodeType: string): string | null {
     const dag = dagStore.dagDefinition
     if (!dag) return null
-    const node = dag.nodes.find(n => n.type === nodeType)
-    return node?.id || null
+    const ver = dag.version ?? 0
+    if (typeToIdCache === null || ver !== typeToIdCacheVersion) {
+      const m = new Map<string, string>()
+      for (const n of dag.nodes) {
+        if (!m.has(n.type)) m.set(n.type, n.id)
+      }
+      typeToIdCache = m
+      typeToIdCacheVersion = ver
+    }
+    return typeToIdCache.get(nodeType) ?? null
   }
 
   function markPreviousRunningAsComplete() {
