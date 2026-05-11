@@ -10,7 +10,6 @@
 import time
 import logging
 import asyncio
-import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -260,11 +259,10 @@ class AutopilotDaemon:
         sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
         params = list(fields.values()) + [novel.novel_id.value]
 
-        # 🔥 CQRS：优先推队列（由 API 进程消费者线程串行执行，零锁竞争）
+        # CQRS：全部由 API 消费者串行落库，守护进程不再直连写第二路
         ok = self._queue_sql(sql, params)
         if not ok:
-            # 兜底：短连接直接写（提升后的 PRAGMA 配置）
-            ok = self._write_db_critical(sql, tuple(params))
+            logger.warning("持久化队列写入失败 novel=%s（无短连接兜底）", novel.novel_id.value)
         return ok
 
     def _save_chapter_ephemeral(self, novel_id: str, chapter_number: int,
@@ -311,26 +309,14 @@ class AutopilotDaemon:
         sql = f"UPDATE chapters SET {', '.join(set_parts)} WHERE novel_id = ? AND number = ?"
         params.extend([novel_id, chapter_number])
 
-        # 🔥 completed 状态为关键路径：必须同步落库，否则
-        # _find_next_unwritten_chapter_async 会读到旧 draft 状态导致死循环
-        is_critical = (status == "completed")
-
-        if is_critical:
-            # 关键路径：短连接直接写，失败则推队列兜底
-            ok = self._write_db_critical(sql, tuple(params))
-            if ok:
-                return True
-            # 短连接也失败（极端情况），推队列兜底
-            logger.warning("[ch=%d] 短连接写入失败，推队列兜底", chapter_number)
-
-        # 非关键路径 或 关键路径短连接失败：推队列
+        # 全部经由持久化队列；completed 亦不直连 DB，杜绝第二写者。
         return self._queue_sql(sql, params)
 
     def _queue_sql(self, sql: str, params: tuple | list = ()) -> bool:
         """🔥 CQRS 统一写入通道——将 SQL 写操作推入持久化队列。
 
         由 API 进程的消费者线程串行执行，从根本上消除多进程写锁竞争。
-        守护进程不再直接写 DB（除 critical 路径），所有写操作走此通道。
+        守护进程不再直接写 DB，所有写操作走此通道。
         """
         from application.engine.services.persistence_queue import PersistenceCommandType
         # params 可能是 tuple 或 list，统一为 list（mp.Queue 要求 JSON 可序列化）
@@ -340,62 +326,21 @@ class AutopilotDaemon:
             {"sql": sql, "params": params_list},
         )
 
-    # ── 短连接直接写 DB（仅 critical 路径使用，提升后的 PRAGMA 配置）──
-
-    _EPHEMERAL_PRAGMAS = [
-        "PRAGMA journal_mode=WAL",
-        "PRAGMA busy_timeout=30000",
-        "PRAGMA synchronous=NORMAL",
-        "PRAGMA temp_store=MEMORY",
-        "PRAGMA cache_size=-32768",
-        "PRAGMA foreign_keys=ON",
-    ]
-
-    def _write_db_critical(self, sql: str, params: tuple = (), timeout: float = 15.0) -> bool:
-        """🔥 关键路径专用：独立短连接直接写 DB（写完立即关闭）。
-
-        仅用于 completed 状态等必须同步落库的场景。
-        PRAGMA 配置已与 API 进程对齐（busy_timeout=30s, temp_store=MEMORY），
-        大幅降低因锁竞争导致的写入失败。
-        """
-        from application.paths import get_db_path
-
-        path = get_db_path()
-        try:
-            conn = sqlite3.connect(path, timeout=timeout)
-            try:
-                for pragma in self._EPHEMERAL_PRAGMAS:
-                    conn.execute(pragma)
-                conn.execute("BEGIN IMMEDIATE")
-                conn.execute(sql, params)
-                conn.commit()
-                return True
-            except sqlite3.OperationalError as e:
-                if "locked" in str(e).lower() or "busy" in str(e).lower():
-                    logger.warning("_write_db_critical: DB 被锁: %s", e)
-                    return False
-                raise
-            finally:
-                conn.close()
-        except Exception as e:
-            logger.error("_write_db_critical: 写入失败: %s", e)
-            return False
-
     def _patch_novel_ephemeral(
-        self, novel_id: NovelId, fields: Dict[str, Any], timeout: float = 15.0, max_retries: int = 3,
-        critical: bool = False,
+        self,
+        novel_id: NovelId,
+        fields: Dict[str, Any],
+        **kwargs: Any,
     ) -> bool:
-        """🔥 增量 UPDATE novels——CQRS 统一写入通道。
-
-        默认推持久化队列（零锁竞争）；critical=True 时用短连接直接写。
-        """
+        """增量 UPDATE novels——统一持久化队列，与单写者内核一致。"""
         from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
+
+        _ = kwargs
 
         if not fields:
             return True
 
-        # 自动处理枚举类型转换
-        processed = {}
+        processed: Dict[str, Any] = {}
         for key, value in fields.items():
             if isinstance(value, _APS):
                 processed[key] = value.value
@@ -405,6 +350,7 @@ class AutopilotDaemon:
                 processed[key] = 1 if value else 0
             elif isinstance(value, (dict, list)):
                 import json as _json
+
                 processed[key] = _json.dumps(value, ensure_ascii=False)
             else:
                 processed[key] = value
@@ -412,52 +358,9 @@ class AutopilotDaemon:
         processed["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         set_clauses = [f"{key} = ?" for key in processed.keys()]
-        values = list(processed.values())
-        values.append(novel_id.value)
+        values = list(processed.values()) + [novel_id.value]
 
         sql = f"UPDATE novels SET {', '.join(set_clauses)} WHERE id = ?"
-
-        if not critical:
-            # 🔥 默认：推队列（零锁竞争）
-            return self._queue_sql(sql, values)
-
-        # critical 路径：短连接直接写（带重试）
-        from application.paths import get_db_path
-
-        path = get_db_path()
-        for attempt in range(max_retries):
-            conn = None
-            try:
-                conn = sqlite3.connect(path, timeout=timeout)
-                for pragma in self._EPHEMERAL_PRAGMAS:
-                    conn.execute(pragma)
-                conn.execute("BEGIN IMMEDIATE")
-                conn.execute(sql, tuple(values))
-                conn.commit()
-                return True
-            except sqlite3.OperationalError as e:
-                if "locked" in str(e).lower() or "busy" in str(e).lower():
-                    logger.warning(
-                        "_patch_novel_ephemeral: DB 被锁 (attempt %d/%d novel=%s): %s",
-                        attempt + 1, max_retries, novel_id.value, e,
-                    )
-                    if attempt < max_retries - 1:
-                        time.sleep(0.5 + 0.5 * (attempt + 1))
-                    continue
-                logger.error("_patch_novel_ephemeral: 写入失败 novel=%s: %s", novel_id.value, e)
-                return False
-            except Exception as e:
-                logger.error("_patch_novel_ephemeral: 写入失败 novel=%s: %s", novel_id.value, e)
-                return False
-            finally:
-                if conn:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-        # 重试耗尽，推队列兜底
-        logger.warning("_patch_novel_ephemeral: 重试耗尽，推队列兜底 novel=%s", novel_id.value)
         return self._queue_sql(sql, values)
 
     def _push_patch_to_queue(self, novel_id: NovelId, fields: Dict[str, Any]) -> None:
@@ -504,34 +407,28 @@ class AutopilotDaemon:
         用 current_auto_chapters=0 覆盖真实统计导致前端长期显示 0/0/总字数 0。
         """
         from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
 
-        path = get_db_path()
         try:
-            conn = sqlite3.connect(path, timeout=timeout)
-            try:
-                conn.row_factory = sqlite3.Row
-                conn.execute("PRAGMA busy_timeout=30000")
-                conn.execute("PRAGMA journal_mode=WAL")
-                agg_rows = conn.execute(
-                    "SELECT status, SUM(LENGTH(COALESCE(content,''))) as total_wc "
-                    "FROM chapters WHERE novel_id = ? GROUP BY status",
-                    (novel_id,),
-                ).fetchall()
-                completed_count = 0
-                in_manuscript_count = 0
-                total_words = 0
-                for r in agg_rows:
-                    s = r["status"] or ""
-                    wc = r["total_wc"] or 0
-                    total_words += int(wc)
-                    if s == "completed":
-                        completed_count += 1
-                        in_manuscript_count += 1
-                    elif s == "draft":
-                        in_manuscript_count += 1
-                return (completed_count, in_manuscript_count, total_words)
-            finally:
-                conn.close()
+            db = get_database(get_db_path())
+            agg_rows = db.fetch_all(
+                "SELECT status, SUM(LENGTH(COALESCE(content,''))) as total_wc "
+                "FROM chapters WHERE novel_id = ? GROUP BY status",
+                (novel_id,),
+            )
+            completed_count = 0
+            in_manuscript_count = 0
+            total_words = 0
+            for r in agg_rows:
+                s = r["status"] or ""
+                wc = r["total_wc"] or 0
+                total_words += int(wc)
+                if s == "completed":
+                    completed_count += 1
+                    in_manuscript_count += 1
+                elif s == "draft":
+                    in_manuscript_count += 1
+            return (completed_count, in_manuscript_count, total_words)
         except Exception as e:
             logger.debug("章节统计短连接读取失败 novel=%s: %s", novel_id, e)
             return None
@@ -545,27 +442,20 @@ class AutopilotDaemon:
         优化：使用 WAL 模式和更短的超时，提高响应速度。
         """
         from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
 
-        path = get_db_path()
-        conn = sqlite3.connect(path, timeout=15.0)
+        db = get_database(get_db_path())
+        row = db.fetch_one(
+            "SELECT autopilot_status FROM novels WHERE id = ?",
+            (novel_id.value,),
+        )
+        if not row:
+            return None
+        raw = row["autopilot_status"]
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=30000")
-            conn.row_factory = sqlite3.Row
-            cur = conn.execute(
-                "SELECT autopilot_status FROM novels WHERE id = ?",
-                (novel_id.value,),
-            )
-            row = cur.fetchone()
-            if not row:
-                return None
-            raw = row["autopilot_status"]
-            try:
-                return AutopilotStatus(raw)
-            except ValueError:
-                return AutopilotStatus.STOPPED
-        finally:
-            conn.close()
+            return AutopilotStatus(raw)
+        except ValueError:
+            return AutopilotStatus.STOPPED
 
     def _merge_autopilot_status_from_db(self, novel: Novel) -> None:
         """用户点「停止」只改 DB；写库前必须合并，否则会覆盖 STOPPED。"""
@@ -647,10 +537,8 @@ class AutopilotDaemon:
 
         使用 patch 增量更新（仅写入变化的字段），减少写事务持锁时间。
 
-        🔥 CQRS 架构：_patch_novel_ephemeral 默认推持久化队列（EXECUTE_SQL 命令），
-        由 API 进程消费者线程串行执行，彻底消除多进程写锁竞争。
-        仅 critical=True 时才走短连接直接写。
-
+        🔥 CQRS 架构：_patch_novel_ephemeral 推持久化队列（EXECUTE_SQL），
+        由 API 进程消费者线程串行执行，与单写者内核一致。
         同步非统计字段到共享内存，避免 /status 长期读到过时阶段信息。
         章节聚合（完稿/书稿/总字数）由章节落库与审计完成路径写入 _cached_*。
         """

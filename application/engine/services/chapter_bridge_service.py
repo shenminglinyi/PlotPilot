@@ -32,7 +32,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -194,8 +193,11 @@ class ChapterBridgeService:
         if not self._db_path:
             return
         try:
-            conn = sqlite3.connect(self._db_path, timeout=5.0)
-            conn.execute(f"""
+            from infrastructure.persistence.database.connection import get_database
+
+            db = get_database(self._db_path)
+            db.execute(
+                f"""
                 CREATE TABLE IF NOT EXISTS {self._TABLE} (
                     novel_id    TEXT NOT NULL,
                     chapter_number INTEGER NOT NULL,
@@ -203,9 +205,9 @@ class ChapterBridgeService:
                     created_at  TEXT NOT NULL,
                     PRIMARY KEY (novel_id, chapter_number)
                 )
-            """)
-            conn.commit()
-            conn.close()
+                """
+            )
+            db.commit()
         except Exception as e:
             logger.warning("chapter_bridges 建表失败: %s", e)
 
@@ -673,15 +675,14 @@ class ChapterBridgeService:
                 "chapter_number": bridge.chapter_number,
                 "created_at": bridge.created_at,
             }
-            conn = sqlite3.connect(self._db_path, timeout=5.0)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=3000")
-            conn.execute(
+            from infrastructure.persistence.database.connection import get_database
+
+            db = get_database(self._db_path)
+            db.execute(
                 f"INSERT OR REPLACE INTO {self._TABLE} (novel_id, chapter_number, bridge_data, created_at) VALUES (?, ?, ?, ?)",
                 (novel_id, chapter_number, json.dumps(data, ensure_ascii=False), bridge.created_at),
             )
-            conn.commit()
-            conn.close()
+            db.commit()
         except Exception as e:
             logger.warning("桥段持久化失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
@@ -690,16 +691,15 @@ class ChapterBridgeService:
         if not self._db_path:
             return None
         try:
-            conn = sqlite3.connect(self._db_path, timeout=5.0)
-            conn.execute("PRAGMA journal_mode=WAL")
-            row = conn.execute(
+            from infrastructure.persistence.database.connection import get_database
+
+            row = get_database(self._db_path).fetch_one(
                 f"SELECT bridge_data FROM {self._TABLE} WHERE novel_id = ? AND chapter_number = ?",
                 (novel_id, chapter_number),
-            ).fetchone()
-            conn.close()
+            )
             if not row:
                 return None
-            data = json.loads(row[0])
+            data = json.loads(row["bridge_data"])
             return ChapterBridge(
                 suspense_hook=data.get("suspense_hook", ""),
                 emotional_residue=data.get("emotional_residue", ""),
