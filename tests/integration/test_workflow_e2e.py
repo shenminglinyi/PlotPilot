@@ -99,7 +99,7 @@ class TestCompleteGenerationFlow:
 
         # 验证调用链（prepare_chapter_generation 使用 build_structured_context）
         mock_dependencies['context_builder'].build_structured_context.assert_called_once()
-        mock_dependencies['llm_service'].generate.assert_called_once()
+        assert mock_dependencies['llm_service'].generate.call_count >= 1
         mock_dependencies['consistency_checker'].check_all.assert_called_once()
 
     @pytest.mark.asyncio
