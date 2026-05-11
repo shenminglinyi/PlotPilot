@@ -4,6 +4,7 @@ import { ref } from 'vue'
 /**
  * 工作台右栏「软刷新」信号：不整页 remount，仅驱动各面板重新拉数。
  * 在 loadDesk 成功后由 Workbench 触发（全托管完章、保存、规划确认等同源）。
+ * 另见 `frontend/src/workbench/deskEvents.ts`：快照回滚等通过浏览器事件请求整桌 loadDesk。
  */
 export const useWorkbenchRefreshStore = defineStore('workbenchRefresh', () => {
   const foreshadowTick = ref(0)
