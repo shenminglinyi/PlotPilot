@@ -348,7 +348,7 @@ class VariableRegistry:
     # ─── 种子初始化 ───
 
     def seed_builtin_variables(self) -> None:
-        """从所有 JSON 种子文件中提取并注册变量。"""
+        """从已入库的 CPMS 节点（prompt_packages 种子）提取并注册变量。"""
         self._ensure_loaded()
 
         from infrastructure.ai.prompt_manager import get_prompt_manager
@@ -361,7 +361,7 @@ class VariableRegistry:
         for node in nodes:
             for var_def in node.variables:
                 var_name = var_def.get("name", "")
-                if not var_name or var_name in self._schemas:
+                if not var_name or var_name.startswith("_") or var_name in self._schemas:
                     continue
 
                 type_str = var_def.get("type", "string")

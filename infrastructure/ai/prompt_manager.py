@@ -4,7 +4,8 @@
 - 提示词存入 SQLite（prompt_templates / prompt_nodes / prompt_versions）
 - 单节点版本管理（每次编辑创建新版本，支持回滚）
 - 整体模板概念（template 包含多个 node，可组合成工作流）
-- 内置种子从 prompts_defaults.json 初始化
+- 内置种子优先从 ``infrastructure/ai/prompt_packages/`` 加载（YAML 元数据 + Markdown 正文）
+- 若包目录为空则回退合并旧版 ``prompts_defaults.json`` + ``prompts_*.json``（兼容未迁移工作区）
 - Jinja2 兼容的变量渲染
 
 数据模型：
@@ -21,10 +22,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# 内置种子 JSON 路径（v3: 多文件 + 旧版兼容）
+# 旧版 JSON 种子目录（仅当 prompt_packages 为空时回退合并）
 _PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
-_DEFAULT_SEED_PATH = _PROMPTS_DIR / "prompts_defaults.json"
-_CATEGORY_GLOB = "prompts_*.json"
 
 # 分类定义（与 prompts_*.json 的 category 对应）
 BUILTIN_CATEGORIES = [
@@ -284,7 +283,7 @@ class PromptManager:
     1. 从 DB 加载/查询提示词（nodes + versions）
     2. 版本管理：每次编辑 → 新建版本；支持回滚到历史版本
     3. 模板包管理：一组相关节点的集合
-    4. 内置种子初始化：首次启动时从 prompts_defaults.json 导入
+    4. 内置种子初始化：优先从 ``prompt_packages/`` 导入，失败则回退 legacy JSON
     5. 变量渲染：{variable} 占位符替换
     """
 
@@ -312,53 +311,35 @@ class PromptManager:
     def ensure_seeded(self) -> bool:
         """确保内置种子已导入数据库（幂等）。
 
-        v3 多文件加载策略：
-        1. 加载旧版 prompts_defaults.json（低优先级）
-        2. 加载所有分类文件 prompts_*.json（高优先级，覆盖旧版）
-        3. 合并去重后统一导入数据库
+        v4 加载策略：
+        1. 优先 ``prompt_packages/nodes/*/``（package.yaml + system.md + user.md + extras.json）
+        2. 若包为空，回退合并 ``prompts_defaults.json`` + ``prompts_*.json``（与 v3 行为一致）
         """
         if self._seeded:
             return True
         db = self._get_db()
         conn = db.get_connection()
 
-        # 收集所有种子提示词（分类文件优先于旧版单文件）
-        all_prompts: Dict[str, Dict] = {}  # id -> prompt data
-        merged_meta: Dict[str, Any] = {}
+        from infrastructure.ai.prompt_seed.loader import load_seed_bundle, merge_legacy_json_prompts
 
-        # Phase 1: 旧版 prompts_defaults.json（低优先级）
-        if _DEFAULT_SEED_PATH.exists():
-            try:
-                legacy_data = json.loads(_DEFAULT_SEED_PATH.read_text(encoding="utf-8"))
-                merged_meta.update(legacy_data.get("_meta", {}))
-                for p in legacy_data.get("prompts", []):
-                    if "id" in p:
-                        all_prompts[p["id"]] = p
-            except (json.JSONDecodeError, OSError) as exc:
-                logger.error("读取旧版种子文件失败: %s", exc)
+        bundle_meta, prompt_list = load_seed_bundle()
+        seed_data: Optional[Dict[str, Any]] = None
+        if prompt_list:
+            seed_data = {"_meta": bundle_meta, "prompts": prompt_list}
+            logger.info("PromptManager: 使用 prompt_packages 种子（%d 个节点）", len(prompt_list))
+        else:
+            merged_meta, plist = merge_legacy_json_prompts(_PROMPTS_DIR)
+            if plist:
+                seed_data = {"_meta": merged_meta, "prompts": plist}
+                logger.warning(
+                    "prompt_packages 无节点，已回退 legacy JSON（%d 个）；"
+                    "请运行: python -m infrastructure.ai.prompt_seed.export_legacy",
+                    len(plist),
+                )
 
-        # Phase 2: 分类 JSON 文件（高优先级，覆盖旧版）
-        if _PROMPTS_DIR.exists():
-            for cat_file in sorted(_PROMPTS_DIR.glob(_CATEGORY_GLOB)):
-                try:
-                    cat_data = json.loads(cat_file.read_text(encoding="utf-8"))
-                    cat_meta = cat_data.get("_meta", {})
-                    if cat_meta.get("version"):
-                        merged_meta["version"] = cat_meta["version"]
-                    for p in cat_data.get("prompts", []):
-                        if "id" in p:
-                            all_prompts[p["id"]] = p
-                except (json.JSONDecodeError, OSError) as exc:
-                    logger.error("读取分类种子文件失败 %s: %s", cat_file, exc)
-
-        if not all_prompts:
-            logger.warning("没有找到任何种子文件")
+        if not seed_data or not seed_data.get("prompts"):
+            logger.error("没有找到任何提示词种子（prompt_packages 与 legacy JSON 均为空）")
             return False
-
-        seed_data = {
-            "_meta": merged_meta,
-            "prompts": list(all_prompts.values()),
-        }
 
         meta = seed_data.get("_meta", {})
         seed_version = meta.get("version", "1.0.0")
@@ -474,6 +455,11 @@ class PromptManager:
 
     def _insert_node(self, conn, template_id: str, idx: int, p: Dict, now: str) -> str:
         """插入新节点及其初始版本。"""
+        from infrastructure.ai.prompt_seed.normalize import normalize_prompt_record
+
+        p = normalize_prompt_record(dict(p))
+        sort_order = int(p.get("sort_order", idx))
+
         node_id = _uid()
         ver_id = _uid()
         tags_json = json.dumps(p.get("tags", []), ensure_ascii=False)
@@ -497,7 +483,7 @@ class PromptManager:
             p.get("contract_model"),
             tags_json, vars_json,
             p.get("system_file"),
-            idx,
+            sort_order,
             ver_id, now, now,
         ))
 
@@ -517,9 +503,12 @@ class PromptManager:
         - 用户修改过（created_by == 'user'）：保留用户版本，跳过更新
         - 用户未修改过（created_by == 'system'）：用新系统版本覆盖
         """
-        # 获取当前激活版本
+        from infrastructure.ai.prompt_seed.normalize import normalize_prompt_record
+
+        # 获取当前激活版本 + 节点 variables（扩展字段如 _directives 存于此）
         row = conn.execute("""
-            SELECT v.id, v.version_number, v.system_prompt, v.user_template, v.created_by
+            SELECT v.id, v.version_number, v.system_prompt, v.user_template, v.created_by,
+                   n.variables AS node_variables_json
             FROM prompt_versions v
             INNER JOIN prompt_nodes n ON n.active_version_id = v.id
             WHERE n.id = ?
@@ -532,12 +521,28 @@ class PromptManager:
         created_by = row["created_by"]
 
         # 比较内容是否有变化
-        new_system = new_data.get("system", "")
-        new_user = new_data.get("user_template", "")
+        new_norm = normalize_prompt_record(dict(new_data))
+        new_system = new_norm.get("system", "")
+        new_user = new_norm.get("user_template", "")
+        new_vars = new_norm.get("variables", [])
         old_system = row["system_prompt"] or ""
         old_user = row["user_template"] or ""
 
-        if new_system == old_system and new_user == old_user:
+        try:
+            old_vars = json.loads(row["node_variables_json"]) if row["node_variables_json"] else []
+        except (json.JSONDecodeError, TypeError):
+            old_vars = []
+        if not isinstance(old_vars, list):
+            old_vars = []
+
+        def _vars_sig(obj: Any) -> str:
+            return json.dumps(obj or [], ensure_ascii=False, sort_keys=True)
+
+        if (
+            new_system == old_system
+            and new_user == old_user
+            and _vars_sig(new_vars) == _vars_sig(old_vars)
+        ):
             # 内容相同，无需更新
             return False
 
@@ -550,10 +555,13 @@ class PromptManager:
             return False
         else:
             # 系统版本：直接覆盖
-            return self._overwrite_system_version(conn, node_id, row["id"], new_data, now)
+            return self._overwrite_system_version(conn, node_id, row["id"], new_norm, now)
 
     def _update_system_version(self, conn, node_id: str, new_data: Dict, next_ver: int, now: str) -> bool:
         """创建新的系统版本。"""
+        from infrastructure.ai.prompt_seed.normalize import normalize_prompt_record
+
+        new_data = normalize_prompt_record(dict(new_data))
         new_ver_id = _uid()
         new_system = new_data.get("system", "")
         new_user = new_data.get("user_template", "")
@@ -577,6 +585,9 @@ class PromptManager:
 
     def _overwrite_system_version(self, conn, node_id: str, version_id: str, new_data: Dict, now: str) -> bool:
         """直接覆盖系统版本内容。"""
+        from infrastructure.ai.prompt_seed.normalize import normalize_prompt_record
+
+        new_data = normalize_prompt_record(dict(new_data))
         new_system = new_data.get("system", "")
         new_user = new_data.get("user_template", "")
 
