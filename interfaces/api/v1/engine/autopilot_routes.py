@@ -283,61 +283,58 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
             logger.debug("status 共享内存+DB 校准 novel=%s age=%.1fs", novel_id, age)
             return _build_status_with_shared(novel_id, shared)
 
-    # ── 第二层：独立短连接读 DB（3 秒超时）──
+    # ── 第二层：经 DatabaseConnection 只读（与消费者共用 WAL 通道）──
     import sqlite3
     from application.paths import get_db_path
+    from infrastructure.persistence.database.connection import get_database
 
-    db_path = get_db_path()
     novel: Any = None
 
     try:
-        conn = sqlite3.connect(db_path, timeout=3.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA busy_timeout=3000")
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        db = get_database(get_db_path())
 
-        row = conn.execute(
-            "SELECT * FROM novels WHERE id = ?", (novel_id,)
-        ).fetchone()
+        row = db.fetch_one(
+            "SELECT * FROM novels WHERE id = ?",
+            (novel_id,),
+        )
         if not row:
-            conn.close()
             return None
         novel = dict(row)
 
-        # 轻量聚合查询
-        agg_rows = conn.execute(
+        agg_rows = db.fetch_all(
             "SELECT status, SUM(LENGTH(COALESCE(content,''))) as total_wc FROM chapters WHERE novel_id = ? GROUP BY status",
-            (novel_id,)
-        ).fetchall()
+            (novel_id,),
+        )
         completed_count = 0
         in_manuscript_count = 0
         total_words = 0
         for r in agg_rows:
-            s = r['status'] or ''
-            wc = r['total_wc'] or 0
+            s = r["status"] or ""
+            wc = r["total_wc"] or 0
             total_words += wc
-            if s == 'completed':
+            if s == "completed":
                 completed_count += 1
                 in_manuscript_count += 1
-            elif s == 'draft':
+            elif s == "draft":
                 in_manuscript_count += 1
 
-        # 当前章节号
-        draft_row = conn.execute(
+        draft_row = db.fetch_one(
             "SELECT MAX(number) as max_num FROM chapters WHERE novel_id = ? AND status = 'draft' AND COALESCE(LENGTH(content),0) > 0",
-            (novel_id,)
-        ).fetchone()
-        if draft_row and draft_row['max_num']:
-            current_chapter_number = draft_row['max_num']
+            (novel_id,),
+        )
+        if draft_row and draft_row["max_num"]:
+            current_chapter_number = draft_row["max_num"]
         else:
-            completed_max = conn.execute(
+            completed_max = db.fetch_one(
                 "SELECT MAX(number) as max_num FROM chapters WHERE novel_id = ? AND status = 'completed'",
-                (novel_id,)
-            ).fetchone()
-            current_chapter_number = (completed_max['max_num'] + 1) if (completed_max and completed_max['max_num']) else None
+                (novel_id,),
+            )
+            current_chapter_number = (
+                (completed_max["max_num"] + 1)
+                if (completed_max and completed_max["max_num"])
+                else None
+            )
 
-        conn.close()
     except sqlite3.OperationalError as e:
         if "database is locked" in str(e).lower() or "busy" in str(e).lower():
             logger.debug("status DB 被锁，降级到共享内存 novel=%s", novel_id)
@@ -548,11 +545,11 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
 def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str, Any]:
     """合并共享内存（阶段、审计进度等）与 SQLite 章节聚合（完稿/书稿/总字数）。
 
-    聚合使用短连接、约 1s busy 超时；读库失败时用共享内 _cached_* 与 novels 行字段兜底，
+    聚合经 `get_database` 只读路径；失败时用共享内存 _cached_* 与 novels 行字段兜底，
     避免在守护进程持锁时长阻塞 /status。
     """
-    import sqlite3
     from application.paths import get_db_path
+    from infrastructure.persistence.database.connection import get_database
 
     db_path = get_db_path()
     completed_count = 0
@@ -562,61 +559,55 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     target = 1
     twpc = 2500
 
-    db_ok = False
     try:
-        conn = sqlite3.connect(db_path, timeout=1.0)  # 🔥 从 3s 缩短到 1s——共享内存路径下 DB 只是补充
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA busy_timeout=1000")
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        db = get_database(db_path)
 
-        # 轻量聚合查询
-        agg_rows = conn.execute(
+        agg_rows = db.fetch_all(
             "SELECT status, SUM(LENGTH(COALESCE(content,''))) as total_wc FROM chapters WHERE novel_id = ? GROUP BY status",
-            (novel_id,)
-        ).fetchall()
+            (novel_id,),
+        )
         for r in agg_rows:
-            s = r['status'] or ''
-            wc = r['total_wc'] or 0
+            s = r["status"] or ""
+            wc = r["total_wc"] or 0
             total_words += wc
-            if s == 'completed':
+            if s == "completed":
                 completed_count += 1
                 in_manuscript_count += 1
-            elif s == 'draft':
+            elif s == "draft":
                 in_manuscript_count += 1
 
-        # 当前章节号
-        draft_row = conn.execute(
+        draft_row = db.fetch_one(
             "SELECT MAX(number) as max_num FROM chapters WHERE novel_id = ? AND status = 'draft' AND COALESCE(LENGTH(content),0) > 0",
-            (novel_id,)
-        ).fetchone()
-        if draft_row and draft_row['max_num']:
-            current_chapter_number = draft_row['max_num']
+            (novel_id,),
+        )
+        if draft_row and draft_row["max_num"]:
+            current_chapter_number = draft_row["max_num"]
         else:
-            completed_max = conn.execute(
+            completed_max = db.fetch_one(
                 "SELECT MAX(number) as max_num FROM chapters WHERE novel_id = ? AND status = 'completed'",
-                (novel_id,)
-            ).fetchone()
-            current_chapter_number = (completed_max['max_num'] + 1) if (completed_max and completed_max['max_num']) else None
+                (novel_id,),
+            )
+            current_chapter_number = (
+                (completed_max["max_num"] + 1)
+                if (completed_max and completed_max["max_num"])
+                else None
+            )
 
-        # 读取 target_chapters 和 target_words_per_chapter
-        row = conn.execute(
+        row = db.fetch_one(
             "SELECT target_chapters, target_words_per_chapter, autopilot_status, auto_approve_mode, consecutive_error_count FROM novels WHERE id = ?",
-            (novel_id,)
-        ).fetchone()
+            (novel_id,),
+        )
         if row:
-            target = row['target_chapters'] or 1
-            twpc = row['target_words_per_chapter'] or 2500
-            autopilot_status = row['autopilot_status'] or 'stopped'
-            auto_approve_mode = bool(row['auto_approve_mode'])
-            consecutive_error_count = row['consecutive_error_count'] or 0
+            target = row["target_chapters"] or 1
+            twpc = row["target_words_per_chapter"] or 2500
+            autopilot_status = row["autopilot_status"] or "stopped"
+            auto_approve_mode = bool(row["auto_approve_mode"])
+            consecutive_error_count = row["consecutive_error_count"] or 0
         else:
-            autopilot_status = 'stopped'
+            autopilot_status = "stopped"
             auto_approve_mode = False
             consecutive_error_count = 0
 
-        conn.close()
-        db_ok = True
     except Exception as e:
         logger.debug("共享内存模式 DB 统计查询失败 novel=%s: %s，使用共享内存缓存值", novel_id, e)
         # 🔥 关键修复：DB 查询失败时，从共享内存读取缓存值，而不是返回 0
@@ -1205,27 +1196,17 @@ async def stop_autopilot(novel_id: str):
 
     # 通道 2：DB 持久化（降级兜底，守护进程重启后仍能读到 STOPPED）
     def _stop_sync():
-        import sqlite3
         from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
 
-        db_path = get_db_path()
-        # 🔥 修复：与 DatabaseConnection.get_connection() 保持一致的 PRAGMA 配置
-        # 之前只设了 journal_mode=WAL + timeout=10.0，缺少 busy_timeout/synchronous 等，
-        # 导致守护进程长写事务占锁时 10s 超时不够 → "database is locked"
-        conn = sqlite3.connect(db_path, timeout=30.0)
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=30000")    # 与主连接一致：30s 等锁
-            conn.execute("PRAGMA synchronous=NORMAL")    # WAL 模式下安全且快
-            conn.execute("PRAGMA temp_store=MEMORY")
-            conn.execute(
-                "UPDATE novels SET autopilot_status = 'stopped' WHERE id = ?",
-                (novel_id,)
-            )
-            conn.commit()
-            logger.info("autopilot stop: novel_id=%s committed STOPPED (DB 兜底)", novel_id)
-        finally:
-            conn.close()
+        db = get_database(get_db_path())
+        db.execute(
+            """UPDATE novels SET autopilot_status = 'stopped', updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?""",
+            (novel_id,),
+        )
+        db.commit()
+        logger.info("autopilot stop: novel_id=%s committed STOPPED (DB 兜底)", novel_id)
 
     try:
         await asyncio.get_running_loop().run_in_executor(_SSE_THREAD_POOL, _stop_sync)
