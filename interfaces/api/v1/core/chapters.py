@@ -12,6 +12,7 @@ from application.core.dtos.novel_dto import NovelDTO
 from application.audit.dtos.chapter_review_dto import ChapterReviewDTO
 from application.core.dtos.chapter_structure_dto import ChapterStructureDTO
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
+from interfaces.api.v1.engine.checkpoint_routes import GuardrailCheckResponse
 from interfaces.api.dependencies import (
     get_chapter_service,
     get_novel_service,
@@ -148,6 +149,30 @@ async def get_chapter(
             detail=f"Chapter not found: {novel_id}/chapter-{chapter_number}"
         )
     return chapter
+
+
+@router.get(
+    "/{novel_id}/chapters/{chapter_number}/guardrail-snapshot",
+    response_model=GuardrailCheckResponse,
+)
+async def get_guardrail_snapshot(
+    novel_id: str,
+    chapter_number: int = Path(..., gt=0, description="章节编号"),
+):
+    """最近一次保存后自动护栏（建议模式）的快照；无快照时 404。"""
+    from infrastructure.persistence.database.chapter_guardrail_snapshot_repository import (
+        ChapterGuardrailSnapshotRepository,
+    )
+    from infrastructure.persistence.database.connection import get_database
+
+    repo = ChapterGuardrailSnapshotRepository(get_database())
+    snap = repo.get(novel_id, chapter_number)
+    if not snap:
+        raise HTTPException(
+            status_code=404,
+            detail="尚无护栏快照：保存章节正文后将在后台自动运行建议模式检查",
+        )
+    return GuardrailCheckResponse.model_validate(snap)
 
 
 @router.post("/{novel_id}/chapters/{chapter_number}/ensure", response_model=ChapterDTO)
