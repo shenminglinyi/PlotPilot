@@ -156,10 +156,15 @@ class PersistenceQueue:
         ]
         return self.push(PersistenceCommandType.BATCH.value, {"commands": batch_payload})
 
+    def is_consumer_running(self) -> bool:
+        """持久化消费者线程是否已启动且存活（用于启动链多阶段复用）。"""
+        t = self._consumer_thread
+        return t is not None and t.is_alive()
+
     def start_consumer(self) -> None:
         """启动消费者线程（API 进程调用）"""
-        if self._consumer_thread is not None and self._consumer_thread.is_alive():
-            logger.warning("持久化消费者线程已在运行")
+        if self.is_consumer_running():
+            logger.debug("持久化消费者线程已在运行，跳过重复 start")
             return
 
         self._stop_event.clear()
