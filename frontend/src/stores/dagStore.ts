@@ -12,7 +12,6 @@ import { ref, computed } from 'vue'
 import type {
   DAGDefinition,
   DagRegistryLinkageResponse,
-  NodeDefinition,
   NodeEvent,
   NodeMeta,
   NodePromptLive,
@@ -27,6 +26,10 @@ export const useDAGStore = defineStore('dag', () => {
   const nodeTypeRegistry = ref<Record<string, NodeMeta>>({})
   /** 后端 linkage_kernel 导出：画布节点 ↔ CPMS 与管线顺序 */
   const registryLinkage = ref<DagRegistryLinkageResponse | null>(null)
+  /** 默认 DAG 中未在 NodeRegistry 注册的类型（后端应保证为空） */
+  const registryGaps = ref<Array<{ node_id: string; node_type: string }>>([])
+  /** GET /dag/registry/linkage 失败时仅能用本地 types 推断缺口 */
+  const registryLinkageFailed = ref(false)
 
   // ─── 节点运行时状态（SSE 推送） ───
   const nodeStates = ref<Map<string, NodeRunState>>(new Map())
@@ -49,6 +52,9 @@ export const useDAGStore = defineStore('dag', () => {
   const vueFlowNodes = computed(() => {
     if (!dagDefinition.value) return []
 
+    const reg = nodeTypeRegistry.value
+    const regLoaded = Object.keys(reg).length > 0
+
     return dagDefinition.value.nodes.map(nodeDef => ({
       id: nodeDef.id,
       type: 'dagCustom',
@@ -57,6 +63,7 @@ export const useDAGStore = defineStore('dag', () => {
         ...nodeDef,
         runState: nodeStates.value.get(nodeDef.id),
         isSelected: selectedNodeId.value === nodeDef.id,
+        registryMissing: regLoaded && !reg[nodeDef.type],
       },
     }))
   })
@@ -105,6 +112,59 @@ export const useDAGStore = defineStore('dag', () => {
 
   // ─── Actions ───
 
+  function computeRegistryGapsLocal() {
+    const dag = dagDefinition.value
+    const reg = nodeTypeRegistry.value
+    if (!dag || Object.keys(reg).length === 0) {
+      registryGaps.value = []
+      return
+    }
+    registryGaps.value = dag.nodes
+      .filter(n => !reg[n.type])
+      .map(n => ({ node_id: n.id, node_type: n.type }))
+  }
+
+  /** 并行加载 DAG + 注册表 + linkage（首屏推荐） */
+  async function hydrateDagForNovel(novelId: string) {
+    isLoading.value = true
+    error.value = null
+    registryLinkageFailed.value = false
+    try {
+      const [dagR, typesR, linkR] = await Promise.allSettled([
+        dagApi.getDAG(novelId),
+        dagApi.listNodeTypes(),
+        dagApi.getRegistryLinkage(),
+      ])
+      if (dagR.status === 'fulfilled') {
+        dagDefinition.value = dagR.value
+        error.value = null
+      } else {
+        dagDefinition.value = null
+        error.value =
+          dagR.reason instanceof Error ? dagR.reason.message : '加载 DAG 失败'
+      }
+      if (typesR.status === 'fulfilled') {
+        nodeTypeRegistry.value = typesR.value.types
+      }
+      if (linkR.status === 'fulfilled') {
+        registryLinkage.value = linkR.value
+        registryLinkageFailed.value = false
+        const g = linkR.value.registry_gaps
+        registryGaps.value = g?.missing?.length ? [...g.missing] : []
+      } else {
+        registryLinkage.value = null
+        registryLinkageFailed.value = true
+        if (dagR.status === 'fulfilled' && typesR.status === 'fulfilled') {
+          computeRegistryGapsLocal()
+        } else {
+          registryGaps.value = []
+        }
+      }
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   async function loadDAG(novelId: string) {
     isLoading.value = true
     error.value = null
@@ -119,16 +179,22 @@ export const useDAGStore = defineStore('dag', () => {
   }
 
   async function loadNodeTypeRegistry() {
-    try {
-      const result = await dagApi.listNodeTypes()
-      nodeTypeRegistry.value = result.types
-    } catch {
-      // 静默失败
+    const [typesRes, linkRes] = await Promise.allSettled([
+      dagApi.listNodeTypes(),
+      dagApi.getRegistryLinkage(),
+    ])
+    if (typesRes.status === 'fulfilled') {
+      nodeTypeRegistry.value = typesRes.value.types
     }
-    try {
-      registryLinkage.value = await dagApi.getRegistryLinkage()
-    } catch {
+    if (linkRes.status === 'fulfilled') {
+      registryLinkage.value = linkRes.value
+      registryLinkageFailed.value = false
+      const g = linkRes.value.registry_gaps
+      registryGaps.value = g?.missing?.length ? [...g.missing] : []
+    } else {
       registryLinkage.value = null
+      registryLinkageFailed.value = true
+      computeRegistryGapsLocal()
     }
   }
 
@@ -236,6 +302,8 @@ export const useDAGStore = defineStore('dag', () => {
     dagDefinition,
     nodeTypeRegistry,
     registryLinkage,
+    registryGaps,
+    registryLinkageFailed,
     nodeStates,
     edgeFlows,
     nodePromptLive,
@@ -250,6 +318,7 @@ export const useDAGStore = defineStore('dag', () => {
     dagStats,
 
     // Actions
+    hydrateDagForNovel,
     loadDAG,
     loadNodeTypeRegistry,
     toggleNode,
