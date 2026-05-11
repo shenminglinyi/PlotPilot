@@ -100,10 +100,19 @@ def registry_cpms_by_type() -> Dict[str, Dict[str, Any]]:
     return out
 
 
+def default_dag_registry_gaps() -> Dict[str, Any]:
+    """默认 DAG 中是否存在未在 ``NodeRegistry`` 注册的类型（应始终为空）。"""
+    _ensure_nodes_registered()
+    dag = get_default_dag()
+    missing = [{"node_id": n.id, "node_type": n.type} for n in dag.nodes if not NodeRegistry.has(n.type)]
+    return {"complete": len(missing) == 0, "missing": missing}
+
+
 def linkage_bundle() -> Dict[str, Any]:
     """供 ``GET /dag/registry/linkage`` 一次性返回。"""
     return {
         "pipeline_node_ids": list(default_pipeline_node_ids()),
         "nodes": default_dag_linkage_nodes(),
         "registry_cpms_by_type": registry_cpms_by_type(),
+        "registry_gaps": default_dag_registry_gaps(),
     }
