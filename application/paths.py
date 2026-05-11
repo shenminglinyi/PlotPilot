@@ -15,7 +15,8 @@ AITEXT_ROOT = Path(__file__).resolve().parents[1]
 AITEXT_PROD_DATA_DIR_ENV = "AITEXT_PROD_DATA_DIR"
 
 # 须与 frontend/src-tauri/tauri.conf.json 中 identifier 一致（桌面壳 app_data_dir 下会再用 data/）
-TAURI_APP_IDENTIFIER = "com.plotpilot.app"
+# 自 com.plotpilot.app 迁移：旧数据在 %APPDATA%/com.plotpilot.app/data，可手工复制到 com.plotpilot.desktop/data
+TAURI_APP_IDENTIFIER = "com.plotpilot.desktop"
 
 
 def _frozen_fallback_data_dir() -> Path:
