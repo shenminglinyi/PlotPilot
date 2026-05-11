@@ -83,7 +83,7 @@ uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
 cd frontend && npm install && npm run dev
 ```
 
-后端 API：`http://127.0.0.1:8005` · 文档：`http://127.0.0.1:8005/docs` · 前端：`http://localhost:3000`
+后端 API：`http://127.0.0.1:8005` · OpenAPI：`http://127.0.0.1:8005/docs` · 前端：`http://localhost:3000`。架构与嵌入模型等说明见 [docs/README.md](docs/README.md)。
 
 生产构建后前端可由 FastAPI 静态托管（`frontend/dist`），也可独立部署。
 

@@ -13,4 +13,4 @@
 | `prototypes/` | 可选实验原型（模拟/真实 API），非 CI 依赖 |
 
 
-迁移说明见 `MIGRATION_GUIDE.md`。其余见仓库根目录 `README.md`。
+迁移说明见 `scripts/MIGRATION_GUIDE.md`。贡献者文档索引见 [docs/README.md](../docs/README.md)。其余见仓库根目录 [README.md](../README.md)。

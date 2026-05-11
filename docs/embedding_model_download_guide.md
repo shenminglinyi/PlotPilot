@@ -43,7 +43,7 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 ### 下载模型
 ```bash
-python scripts/download_embedding_model.py
+python scripts/utils/download_embedding_model.py
 ```
 
 ## 方案 3：手动下载文件
@@ -58,32 +58,32 @@ python scripts/download_embedding_model.py
 - vocab.txt
 - special_tokens_map.json
 
-将文件放到：`./models/bge-small-zh-v1.5/` 目录
+将文件放到：`./.models/bge-small-zh-v1.5/`（与根目录 `.env.example` 中 `EMBEDDING_MODEL_PATH` 默认值一致；亦可使用任意绝对路径）
 
 然后配置：
 ```bash
-EMBEDDING_MODEL_PATH=./models/bge-small-zh-v1.5
+EMBEDDING_MODEL_PATH=./.models/bge-small-zh-v1.5
 ```
 
 ## 方案 4：暂时使用 OpenAI API
 
-如果急需使用，可以先配置 OpenAI API：
+如果急需使用，可以先配置云端嵌入（与 `.env.example` 一致，二选一或都填由实现回退）：
 ```bash
 EMBEDDING_SERVICE=openai
-OPENAI_API_KEY=your_key_here
+EMBEDDING_API_KEY=your_key_here
+# 可选：OPENAI_API_KEY=your_key_here
 ```
 
 ## 当前状态
 
-- ✅ 本地 embedding 服务已实现
-- ✅ 支持本地模型和 OpenAI API 切换
-- ⏳ 等待模型下载完成
+- 本地 embedding 与 OpenAI 兼容云端模式由 `EMBEDDING_SERVICE` 切换（见 `.env.example`）。
+- 模型文件需按上文下载到 `EMBEDDING_MODEL_PATH` 所指目录后启动后端。
 
 ## 验证模型是否可用
 
-运行测试脚本：
+运行下载/校验脚本：
 ```bash
-python scripts/download_embedding_model.py
+python scripts/utils/download_embedding_model.py
 ```
 
 如果成功，会显示：
