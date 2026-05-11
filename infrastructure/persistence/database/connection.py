@@ -7,6 +7,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
+from infrastructure.persistence.database.sqlite_pragmas import (
+    BUSY_TIMEOUT_MS,
+    apply_standard_pragmas,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -308,7 +313,8 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
             logger.info("Applied migration: %s", migration_file)
             new_migrations += 1
         except sqlite3.OperationalError as e:
-            if "already exists" in str(e) or "duplicate column" in str(e):
+            err_str = str(e)
+            if "already exists" in err_str or "duplicate column" in err_str:
                 # 即使失败也记录为已应用，避免下次重试
                 try:
                     conn.execute(
@@ -319,6 +325,20 @@ def _apply_migration_files(conn: sqlite3.Connection) -> None:
                 except:
                     pass
                 logger.debug("Migration %s already applied: %s", migration_file, e)
+            elif "no such function" in err_str:
+                # SQLite 不支持的函数（如 content()），标记为已应用避免反复报错
+                try:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
+                        (migration_file,)
+                    )
+                    conn.commit()
+                except:
+                    pass
+                logger.warning(
+                    "Migration %s uses unsupported SQLite function, marking as applied: %s",
+                    migration_file, e
+                )
             else:
                 logger.warning("Migration %s failed: %s", migration_file, e)
         except Exception as e:
@@ -424,6 +444,7 @@ class DatabaseConnection:
 
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        apply_standard_pragmas(conn)
 
         schema_path = _database_asset_dir() / "schema.sql"
         if schema_path.exists():
@@ -452,22 +473,7 @@ class DatabaseConnection:
                 self.db_path, check_same_thread=False, timeout=30.0
             )
             conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("PRAGMA journal_mode=WAL")
-            # 与 API/守护进程并发写时延长等待（毫秒）
-            conn.execute("PRAGMA busy_timeout=30000")
-            # WAL auto-checkpoint 设为 1000 页（约 4MB），SQLite 自动触发增量 checkpoint
-            conn.execute("PRAGMA wal_autocheckpoint=1000")
-            # ── 并发性能优化（安装包版本多进程竞争关键）──
-            # synchronous=NORMAL：WAL 模式下安全性足够，写入性能提升 2-5 倍
-            # 减少 fsync 次数 → 写事务持锁时间缩短 → 读请求阻塞减少
-            conn.execute("PRAGMA synchronous=NORMAL")
-            # temp_store=MEMORY：临时表和索引放内存，减少磁盘 I/O
-            conn.execute("PRAGMA temp_store=MEMORY")
-            # mmap_size=256MB：内存映射读取，提升大表查询性能
-            conn.execute("PRAGMA mmap_size=268435456")
-            # cache_size=-32768：32MB 页面缓存（负值表示 KB）
-            conn.execute("PRAGMA cache_size=-32768")
+            apply_standard_pragmas(conn)
             self._local.connection = conn
             with self._all_connections_lock:
                 self._all_connections.append(conn)
@@ -579,7 +585,7 @@ class DatabaseConnection:
         for conn in connections:
             if not skip_checkpoint:
                 try:
-                    conn.execute("PRAGMA busy_timeout=2000")
+                    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
                     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 except Exception:
                     pass

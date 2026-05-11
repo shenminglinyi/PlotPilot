@@ -19,6 +19,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
+from infrastructure.persistence.database.sqlite_pragmas import apply_standard_pragmas
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,10 +33,9 @@ class SQLiteConnectionPool:
     - WAL checkpoint 优化，减少阻塞
     """
 
-    # 连接池配置
+    # 与 DatabaseConnection 对齐：过短的 busy_timeout 会加重 database is locked 误报
     DEFAULT_POOL_SIZE = 5
-    DEFAULT_TIMEOUT = 5.0  # 降低超时，快速失败
-    DEFAULT_BUSY_TIMEOUT = 3000  # SQLite busy timeout (ms)
+    DEFAULT_TIMEOUT = 30.0
 
     def __init__(
         self,
@@ -44,7 +45,7 @@ class SQLiteConnectionPool:
     ):
         self.db_path = db_path
         self.pool_size = pool_size or self.DEFAULT_POOL_SIZE
-        self.timeout = timeout or self.DEFAULT_TIMEOUT
+        self.timeout = timeout if timeout is not None else self.DEFAULT_TIMEOUT
 
         # 连接池队列
         self._pool: queue.Queue = queue.Queue(maxsize=self.pool_size)
@@ -87,17 +88,10 @@ class SQLiteConnectionPool:
             timeout=self.timeout
         )
 
-        # 性能优化配置
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")  # 性能提升 2-5x
-        conn.execute(f"PRAGMA busy_timeout={self.DEFAULT_BUSY_TIMEOUT}")
-        conn.execute("PRAGMA wal_autocheckpoint=100")  # 更频繁的 checkpoint
-        conn.execute("PRAGMA temp_store=MEMORY")
-        conn.execute("PRAGMA mmap_size=268435456")  # 256MB
-        conn.execute("PRAGMA cache_size=-32768")  # 32MB
-        conn.execute("PRAGMA foreign_keys=ON")
+        apply_standard_pragmas(conn)
+        # 连接池可适当更频繁 checkpoint，与单连接略区分
+        conn.execute("PRAGMA wal_autocheckpoint=100")
 
-        # 设置行工厂
         conn.row_factory = sqlite3.Row
 
         return conn
@@ -153,7 +147,7 @@ class SQLiteConnectionPool:
         self,
         sql: str,
         params: tuple = (),
-        max_retries: int = 3
+        max_retries: int = 8
     ) -> sqlite3.Cursor:
         """执行 SQL 语句（带重试）"""
         last_error = None
@@ -171,7 +165,7 @@ class SQLiteConnectionPool:
                 # 只重试锁相关错误
                 if "locked" in str(e).lower() or "busy" in str(e).lower():
                     if attempt < max_retries - 1:
-                        wait = 0.05 * (attempt + 1)  # 50ms, 100ms, 150ms
+                        wait = min(0.15 * (2**attempt), 2.5)
                         logger.debug(
                             f"DB 锁定，重试 {attempt + 1}/{max_retries} "
                             f"(等待 {wait*1000:.0f}ms): {sql[:50]}..."
