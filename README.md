@@ -63,12 +63,22 @@
 **环境要求**：Python 3.9+、Node.js 18+
 
 ```bash
-# 后端
+# 后端（Windows cmd；PowerShell 用 .\.venv\Scripts\Activate.ps1）
 python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
-copy .env.example .env    # 填写 LLM 凭证
+copy .env.example .env    # Windows：填写 LLM 凭证；Linux/macOS 用 cp .env.example .env
 uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
+```
 
+```bash
+# 后端（Linux / macOS）
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env      # 填写 LLM 凭证
+uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
+```
+
+```bash
 # 前端（另开终端）
 cd frontend && npm install && npm run dev
 ```
@@ -121,6 +131,8 @@ pytest tests/ -v
 ---
 
 ## 贡献
+
+设计与分层说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；其余文档索引见 [docs/README.md](docs/README.md)。
 
 1. Fork 本仓库
 2. 新建分支：`git checkout -b feat/your-feature`
