@@ -15,7 +15,7 @@ class StoryNodeRepository:
 
     改进：接受 DatabaseConnection 实例，复用线程本地连接（WAL 模式 + busy_timeout），
     避免每个方法 connect→close 短连接模式。
-    向后兼容：仍接受 db_path 字符串（使用临时连接）。
+    向后兼容：仍接受 db_path 字符串（与 `get_database(db_path)` 共用线程本地连接）。
     """
 
     def __init__(self, db: Union[str, "DatabaseConnection"]):
@@ -36,17 +36,13 @@ class StoryNodeRepository:
         """获取数据库连接（优先复用 DatabaseConnection 线程本地连接）。"""
         if self._db is not None:
             return self._db.get_connection()
-        # 降级：旧路径，每次创建临时连接
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-        return conn
+        from infrastructure.persistence.database.connection import get_database
+
+        return get_database(self.db_path).get_connection()
 
     def _should_close_after_use(self) -> bool:
-        """是否在使用后关闭连接（仅旧路径临时连接需要）。"""
-        return self._db is None
+        """不再在方法末尾 close：db_path 模式也走全局 DatabaseConnection，避免误关线程本地连接。"""
+        return False
 
     def save_sync(self, node: StoryNode) -> StoryNode:
         """同步保存（供 NovelService 等非 async 调用链使用）。"""
