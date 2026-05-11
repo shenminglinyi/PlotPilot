@@ -1,0 +1,20 @@
+name: 初始知识图谱构建
+category: extraction
+source: application/ai/knowledge_llm_contract.py
+description: 提炼世界设定的承重墙，构建坚实的基础逻辑三元组
+builtin: true
+tags:
+- 知识图谱
+- 三元组
+output_format: json
+contract_module: application.ai.knowledge_llm_contract
+contract_model: LlmInitialKnowledgePayload
+variables:
+- name: title
+  desc: 小说标题
+  type: string
+- name: settings
+  desc: 已有设定信息
+  type: string
+id: knowledge-initial
+sort_order: 9

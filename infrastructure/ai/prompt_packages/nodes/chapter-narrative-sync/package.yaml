@@ -1,0 +1,21 @@
+name: 章节叙事同步提取
+category: extraction
+source: PlotPilot-master prompts_defaults.json
+description: 增强版叙事提取：为后续大纲修正提供极其精准的"状态机"快照
+builtin: true
+tags:
+- 增强
+- 同步
+- JSON
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: true
+- name: foreshadow_context
+  desc: 待回收伏笔上下文
+  type: string
+  default: ''
+id: chapter-narrative-sync
+sort_order: 7
