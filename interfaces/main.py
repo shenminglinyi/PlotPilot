@@ -67,6 +67,7 @@ from interfaces.api.v1.engine import (
     workbench_context_routes,
     character_scheduler_routes,  # 角色调度API（正式功能）
     checkpoint_routes,  # Checkpoint + QualityGuardrail + StoryPhase
+    narrative_engine_routes,  # 小说家向叙事引擎只读聚合
 )
 
 # Audit module
@@ -965,6 +966,8 @@ app.include_router(autopilot_routes.router,               prefix=_V1)  # /autopi
 app.include_router(workbench_context_routes.router,       prefix=_V1)
 app.include_router(character_scheduler_routes.router,     prefix=_V1)  # /character-scheduler
 app.include_router(checkpoint_routes.router,              prefix=_V1)  # Checkpoint + QualityGuardrail + StoryPhase + CharacterPsyche
+app.include_router(narrative_engine_routes.router,          prefix=_V1)
+app.include_router(narrative_engine_routes.surface_router, prefix=_V1)  # 叙事引擎 read model（故事演进 / 角色声线）
 
 # ── Engine：溯源 / DAG 工作流 ──
 from interfaces.api.v1.engine.trace_routes import router as trace_router

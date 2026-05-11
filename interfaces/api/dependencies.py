@@ -1048,3 +1048,10 @@ def get_quality_guardrail():
     from engine.runtime.quality_guardrails.quality_guardrail import QualityGuardrail
     return QualityGuardrail()
 
+
+def get_narrative_engine_read_facade():
+    """叙事引擎只读门面（小说家工作流聚合）。"""
+    from application.narrative_engine.read_facade import NarrativeEngineReadFacade
+
+    return NarrativeEngineReadFacade()
+
