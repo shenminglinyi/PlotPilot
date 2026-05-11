@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 项目打包器
+PlotPilot（墨枢）项目打包器
 ━━━━━━━━━━━━━━━━
 将项目打包为 ZIP 分享包（不含敏感文件和大型目录）。
 使用 PowerShell 进行过滤复制 + 压缩，保证速度。
@@ -57,7 +57,7 @@ class ProjectPacker:
         """执行打包。返回 (success, zip_path)"""
         parent = os.path.dirname(self.proj_dir)
         timestamp = time.strftime('%Y%m%d-%H%M')
-        default_zip = os.path.join(parent, f"aitext-{timestamp}.zip")
+        default_zip = os.path.join(parent, f"plotpilot-{timestamp}.zip")
 
         self._prog(0, "准备打包项目...", "📦")
         self._log("═══ 打包分享模式 ═══", "title")
@@ -97,7 +97,7 @@ class ProjectPacker:
                     self._log("═══ 收件人使用步骤 ═══", "title")
                     self._log("  ① 解压 ZIP 文件到任意目录", "info")
                     self._log("  ② 安装 Python 3.10+（勾选 Add to PATH）", "info")
-                    self._log("  ③ 双击 aitext.bat 启动", "info")
+                    self._log("  ③ 双击 tools\\aitext.bat 启动 PlotPilot（墨枢）", "info")
                     return True, default_zip
                 else:
                     self._log(line, "info")
@@ -124,7 +124,7 @@ class ProjectPacker:
         return (
             f"$src = '{src}'.Replace(\"'\",\"''\");\n"
             f"$zipPath = '{zip_path}'.Replace(\"'\",\"''\");\n"
-            "$tempDir = Join-Path $env:TEMP ('aitext_pack_' + [guid]::NewGuid().ToString('N').Substring(0,8));\n"
+            "$tempDir = Join-Path $env:TEMP ('plotpilot_pack_' + [guid]::NewGuid().ToString('N').Substring(0,8));\n"
             "$folderName = Split-Path $src -Leaf;\n"
             "$destDir = Join-Path $tempDir $folderName;\n"
 

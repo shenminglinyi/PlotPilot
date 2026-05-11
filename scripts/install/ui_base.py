@@ -38,7 +38,7 @@ class SystemTray:
     纯 ctypes 实现，无需第三方依赖。
     """
 
-    def __init__(self, root_window, title="aitext", on_double_click=None):
+    def __init__(self, root_window, title="PlotPilot", on_double_click=None):
         self.root = root_window  # tk.Tk 实例
         self.title = title
         self.on_double_click = on_double_click or (lambda: None)

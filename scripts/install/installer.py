@@ -196,7 +196,7 @@ class PipInstaller:
         # 清空旧日志
         try:
             with open(self._log_file, "w", encoding="utf-8") as f:
-                f.write(f"=== aitext pip install log ===\n")
+                f.write(f"=== PlotPilot pip install log ===\n")
                 f.write(f"time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"req_file: {req_file_name}\n")
                 f.write(f"venv_py: {self.venv_py}\n")

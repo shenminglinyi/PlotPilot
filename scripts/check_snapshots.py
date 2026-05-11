@@ -1,6 +1,8 @@
 """检查快照数据"""
 import sys
-sys.path.insert(0, r'd:\CODE\aitext')
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from infrastructure.persistence.database.connection import get_database
 

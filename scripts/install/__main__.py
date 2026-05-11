@@ -100,7 +100,7 @@ def main():
                 import tkinter as tk
                 from tkinter import scrolledtext
                 root = tk.Tk()
-                root.title("aitext - 启动失败")
+                root.title("PlotPilot - 启动失败")
                 root.attributes("-topmost", True)
                 # 居中
                 sw = root.winfo_screenwidth()

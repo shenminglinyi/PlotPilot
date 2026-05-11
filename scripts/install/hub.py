@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 统一 GUI 中心（Hub）— 模块化重构版
+PlotPilot（墨枢）统一 GUI 中心（Hub）— 模块化重构版
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 双击即用，全自动流程，防闪退设计：
   ① 单实例检测（已运行则提示 / 杀掉重启动）
@@ -29,7 +29,7 @@ import traceback
 # 关键：路径处理，兼容 3 种运行环境：
 #   ① python scripts/install/hub.py   (开发调试)
 #  ② python -m PyInstaller 打包的 exe   (分发)
-#  ③ aitext.bat 调用                  (用户)
+#  ③ tools/aitext.bat 调用（用户；脚本为历史文件名）
 # ══════════════════════════════════════════════
 _HUB_FILE = os.path.abspath(__file__)
 _HUB_DIR = os.path.dirname(_HUB_FILE)
