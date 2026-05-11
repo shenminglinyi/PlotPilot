@@ -9,6 +9,7 @@
 路由分组：
 - 健康检查: GET /dag/health/dag
 - 节点类型注册表: GET /dag/registry/types, /dag/registry/types/{node_type}
+- DAG↔CPMS 联动内核: GET /dag/registry/linkage
 - SSE 事件流: GET /dag/events?novel_id=xxx
 - DAG 定义（只读）: GET /dag/{novel_id}
 - 节点详情（只读）: GET /dag/{novel_id}/nodes/{node_id}
@@ -46,6 +47,7 @@ from application.engine.narrative_projection.dag_runtime_projection import (
     project_node_states,
     snapshot_from_shared,
 )
+from application.engine.narrative_projection.linkage_kernel import linkage_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +152,12 @@ async def get_node_type_meta(node_type: str):
         raise HTTPException(status_code=404, detail=f"节点类型 '{node_type}' 未注册")
 
 
+@router.get("/registry/linkage")
+async def get_dag_registry_linkage():
+    """DAG 默认画布与 CPMS 一一对应表 + 全类型 CPMS 索引（单一联动内核导出）。"""
+    return linkage_bundle()
+
+
 # ─── SSE 事件流 ───
 
 
@@ -182,22 +190,24 @@ async def dag_event_stream(novel_id: str = Query(..., description="小说 ID")):
                     yield f"event: {event_type}\ndata: {json.dumps(event_data, ensure_ascii=False)}\n\n"
                 except asyncio.TimeoutError:
                     idle_ticks += 1
-                    dag = _get_dag_for_novel(novel_id)
-                    shared = get_shared_novel_state(novel_id)
-                    snap = snapshot_from_shared(novel_id, shared)
-                    node_ids = [(n.id, n.enabled) for n in dag.nodes]
-                    new_proj = project_node_states(node_ids, snap)
-                    if not projection_bootstrapped:
-                        prev_proj = new_proj
-                        projection_bootstrapped = True
-                    else:
-                        for ev in node_states_to_sse_events(novel_id, prev_proj, new_proj):
-                            et = ev.get("type", "node_status_change")
-                            yield f"event: {et}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
-                        prev_proj = new_proj
-                    if idle_ticks >= 30:
-                        yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
-                        idle_ticks = 0
+                    event_data = None
+
+                dag = _get_dag_for_novel(novel_id)
+                shared = get_shared_novel_state(novel_id)
+                snap = snapshot_from_shared(novel_id, shared)
+                node_ids = [(n.id, n.type, n.enabled) for n in dag.nodes]
+                new_proj = project_node_states(node_ids, snap)
+                if not projection_bootstrapped:
+                    prev_proj = new_proj
+                    projection_bootstrapped = True
+                else:
+                    for ev in node_states_to_sse_events(novel_id, prev_proj, new_proj):
+                        et = ev.get("type", "node_status_change")
+                        yield f"event: {et}\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                    prev_proj = new_proj
+                if idle_ticks >= 30:
+                    yield f"event: heartbeat\ndata: {json.dumps({'timestamp': time.time()})}\n\n"
+                    idle_ticks = 0
         except asyncio.CancelledError:
             pass
         finally:
@@ -292,7 +302,7 @@ async def get_dag_status(novel_id: str):
     dag = _get_dag_for_novel(novel_id)
     shared = get_shared_novel_state(novel_id)
     snap = snapshot_from_shared(novel_id, shared)
-    node_ids = [(n.id, n.enabled) for n in dag.nodes]
+    node_ids = [(n.id, n.type, n.enabled) for n in dag.nodes]
     states = project_node_states(node_ids, snap)
 
     return DAGStatusResponse(
