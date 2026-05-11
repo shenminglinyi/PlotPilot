@@ -22,6 +22,8 @@ from application.engine.dag.models import (
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
 
+from application.workflows.prose_discipline import build_prose_discipline_block
+
 logger = logging.getLogger(__name__)
 
 
@@ -156,6 +158,7 @@ class WriterNode(BaseNode):
             novel_id = context.get("novel_id", "")
 
             # 收集上下文变量
+            beats = inputs.get("beats", []) or []
             variables = {
                 "context": inputs.get("context", ""),
                 "outline": inputs.get("outline", ""),
@@ -171,6 +174,10 @@ class WriterNode(BaseNode):
                 "nervous_habits": inputs.get("nervous_habits", ""),
                 "beat_extra": "",
                 "beat_section": "",
+                "prose_discipline": build_prose_discipline_block(
+                    beat_mode=bool(beats),
+                    beat_target_words=None,
+                ),
             }
 
             # ★ 使用 resolve_prompt 统一获取提示词（自动走 CPMS → Config → Meta + 子注入）
@@ -189,7 +196,6 @@ class WriterNode(BaseNode):
                 prompt = Prompt(system=system_prompt, user=user_prompt)
 
                 # 根据是否有节拍，调整生成参数
-                beats = inputs.get("beats", [])
                 config = GenerationConfig()
                 if beats and len(beats) > 0:
                     config = GenerationConfig(
