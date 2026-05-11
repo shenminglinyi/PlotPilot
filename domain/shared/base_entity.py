@@ -1,5 +1,5 @@
 # domain/shared/base_entity.py
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -8,8 +8,9 @@ class BaseEntity:
 
     def __init__(self, id: str):
         self.id = id
-        self.created_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        now = datetime.now(timezone.utc)
+        self.created_at = now
+        self.updated_at = now
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, BaseEntity):
