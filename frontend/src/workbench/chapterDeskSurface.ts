@@ -9,13 +9,16 @@ export const CHAPTER_DESK_PRIMARY_ID = 'manuscript' as const
 export const CHAPTER_DESK_RAIL_ZONE = 'rail_context' as const
 
 /**
- * 深度面板：从侧栏或顶栏打开，占抽屉全宽，避免与正文抢水平空间。
+ * 主栏 Tab：与「章节编辑」同列切换（元素 / 护栏 / 溯源）。
  */
 export type ChapterDeskDeepSurfaceId = 'elements' | 'guardrail' | 'trace'
 
+/** 主工作区当前 Tab：正文或某一深度面板 */
+export type PrimaryChapterDeskTab = 'manuscript' | ChapterDeskDeepSurfaceId
+
 export interface ChapterDeskSurfaceMeta {
   id: string
-  /** 抽屉标题 / 菜单文案 */
+  /** Tab / 菜单标题 */
   label: string
   /** 窄顶栏、折叠轨上的短标签 */
   shortLabel: string

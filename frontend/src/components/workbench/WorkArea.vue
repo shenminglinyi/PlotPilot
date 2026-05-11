@@ -38,10 +38,7 @@
           class="chapter-desk-shell"
           :stacked="desk.stacked"
           v-model:rail-expanded="desk.railExpanded"
-          :deep-drawer-open="desk.deepDrawerOpen"
-          :deep-drawer-title="desk.deepDrawerTitle"
           rail-drawer-title="本章任务与状态"
-          @update:deep-drawer-open="onDeepDrawerOpenUpdate"
         >
           <template #manuscript-toolbar>
             <div class="desk-toolbar">
@@ -53,23 +50,27 @@
                 <n-text v-else depth="3" style="font-size: 12px">本章信号在侧栏与生成完成后更新</n-text>
               </n-space>
               <n-space align="center" :size="6" wrap justify="end">
+                <n-text depth="3" style="font-size: 11px">主栏标签可切换正文与工具</n-text>
                 <n-button size="tiny" secondary @click="desk.toggleRail()">
                   {{ desk.railExpanded ? '收起侧栏' : '任务与状态' }}
                 </n-button>
-                <n-dropdown
-                  trigger="click"
-                  :options="deepDrawerDropdownOptions"
-                  @select="onDeepDrawerDropdownSelect"
-                >
-                  <n-button size="tiny" quaternary>深度工具 ▾</n-button>
-                </n-dropdown>
               </n-space>
             </div>
           </template>
 
           <template #primary>
-            <div class="work-main">
-              <div v-if="currentChapter" class="chapter-editor">
+            <div class="work-main primary-desk-root">
+              <n-empty v-if="!currentChapter" description="请从左侧选择章节" class="work-empty" />
+              <n-tabs
+                v-else
+                v-model:value="primaryDeskTab"
+                type="line"
+                size="small"
+                animated
+                class="primary-desk-tabs"
+              >
+                <n-tab-pane name="manuscript" tab="章节编辑" display-directive="if">
+                  <div class="chapter-editor">
                 <div class="editor-header">
                   <div class="editor-title">
                     <h3>{{ currentChapter.title || `第${currentChapter.number}章` }}</h3>
@@ -170,9 +171,38 @@
                     </n-space>
                   </n-space>
                 </div>
-              </div>
+                  </div>
+                </n-tab-pane>
 
-              <n-empty v-else description="请从左侧选择章节" class="work-empty" />
+                <n-tab-pane name="elements" tab="章节元素" display-directive="if">
+                  <div class="elements-tab-wrap primary-tab-pane">
+                    <ChapterElementPanel
+                      :slug="slug"
+                      :current-chapter-number="currentChapter.number"
+                      :read-only="isAssistedReadOnly"
+                      :last-workflow-result="lastWorkflowResult"
+                      :qc-chapter-number="lastQcChapterNumber"
+                      :autopilot-chapter-review="autopilotChapterReview"
+                    />
+                  </div>
+                </n-tab-pane>
+
+                <n-tab-pane name="guardrail" tab="质量护栏" display-directive="if">
+                  <div class="elements-tab-wrap primary-tab-pane">
+                    <QualityGuardrailPanel
+                      :slug="slug"
+                      :chapter="currentChapter"
+                      :read-only="isAssistedReadOnly"
+                    />
+                  </div>
+                </n-tab-pane>
+
+                <n-tab-pane name="trace" tab="引擎溯源" display-directive="if">
+                  <div class="elements-tab-wrap primary-tab-pane">
+                    <TraceRecordPanel :slug="slug" />
+                  </div>
+                </n-tab-pane>
+              </n-tabs>
             </div>
           </template>
 
@@ -202,7 +232,7 @@
                   :qc-chapter-number="lastQcChapterNumber"
                   :autopilot-chapter-review="autopilotChapterReview"
                   @clear-qc="clearWorkflowQc"
-                  @go-editor="desk.focusManuscript()"
+                  @go-editor="focusManuscriptEditor"
                 />
               </div>
             </n-scrollbar>
@@ -212,35 +242,14 @@
           <template #rail-collapsed-actions>
             <n-tooltip v-for="id in CHAPTER_DESK_DEEP_ORDER" :key="id" placement="left" trigger="hover">
               <template #trigger>
-                <n-button quaternary size="small" class="rail-icon-btn" @click="desk.openDeepDrawer(id)">
+                <n-button quaternary size="small" class="rail-icon-btn" @click="primaryDeskTab = id">
                   <template #icon>
                     <component :is="deepSurfaceIcon(id)" />
                   </template>
                 </n-button>
               </template>
-              {{ desk.deepMeta[id].label }}
+              {{ CHAPTER_DESK_DEEP_SURFACES[id].label }}
             </n-tooltip>
-          </template>
-
-          <template #deep-drawer>
-            <div class="elements-tab-wrap deep-drawer-body">
-              <ChapterElementPanel
-                v-if="desk.deepDrawerSurface === 'elements'"
-                :slug="slug"
-                :current-chapter-number="currentChapter?.number ?? null"
-                :read-only="isAssistedReadOnly"
-                :last-workflow-result="lastWorkflowResult"
-                :qc-chapter-number="lastQcChapterNumber"
-                :autopilot-chapter-review="autopilotChapterReview"
-              />
-              <QualityGuardrailPanel
-                v-else-if="desk.deepDrawerSurface === 'guardrail'"
-                :slug="slug"
-                :chapter="currentChapter"
-                :read-only="isAssistedReadOnly"
-              />
-              <TraceRecordPanel v-else-if="desk.deepDrawerSurface === 'trace'" :slug="slug" />
-            </div>
           </template>
         </ChapterWorkbenchShell>
       </div>
@@ -582,8 +591,9 @@ import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
 import {
   CHAPTER_DESK_DEEP_ORDER,
-  isChapterDeskDeepSurface,
+  CHAPTER_DESK_DEEP_SURFACES,
   type ChapterDeskDeepSurfaceId,
+  type PrimaryChapterDeskTab,
 } from '../../workbench/chapterDeskSurface'
 import { AppsOutline, ChevronForwardOutline, PulseOutline, ShieldCheckmarkOutline } from '@vicons/ionicons5'
 
@@ -621,6 +631,20 @@ const message = useMessage()
 
 const desk = useChapterDeskLayout()
 
+const primaryDeskTab = ref<PrimaryChapterDeskTab>('manuscript')
+
+function focusManuscriptEditor() {
+  desk.focusManuscript()
+  primaryDeskTab.value = 'manuscript'
+}
+
+watch(
+  () => props.currentChapterId,
+  () => {
+    primaryDeskTab.value = 'manuscript'
+  }
+)
+
 function deepSurfaceIcon(id: ChapterDeskDeepSurfaceId): Component {
   const map: Record<ChapterDeskDeepSurfaceId, Component> = {
     elements: AppsOutline,
@@ -628,26 +652,6 @@ function deepSurfaceIcon(id: ChapterDeskDeepSurfaceId): Component {
     trace: PulseOutline,
   }
   return map[id]
-}
-
-const deepDrawerDropdownOptions = computed(() =>
-  CHAPTER_DESK_DEEP_ORDER.map((id) => ({
-    label: desk.deepMeta[id].label,
-    key: id,
-  }))
-)
-
-function onDeepDrawerDropdownSelect(key: string) {
-  if (isChapterDeskDeepSurface(key)) {
-    desk.openDeepDrawer(key)
-  }
-}
-
-function onDeepDrawerOpenUpdate(v: boolean) {
-  desk.deepDrawerOpen = v
-  if (!v) {
-    desk.deepDrawerSurface = null
-  }
 }
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
@@ -1364,8 +1368,47 @@ defineExpose({ ensureAssistedMode })
   max-width: 100%;
 }
 
-.deep-drawer-body {
-  min-height: min(70vh, 560px);
+.primary-desk-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.primary-desk-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px 12px;
+}
+
+.primary-desk-tabs :deep(.n-tabs-nav) {
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.primary-desk-tabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.primary-desk-tabs :deep(.n-tab-pane) {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.primary-tab-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .managed-stack {

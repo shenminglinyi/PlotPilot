@@ -21,7 +21,7 @@
       v-if="!stacked && !railExpanded"
       class="cws-rail-collapsed"
       role="toolbar"
-      aria-label="展开侧栏与深度工具"
+      aria-label="展开侧栏与主栏工具"
     >
       <n-tooltip placement="left" trigger="hover">
         <template #trigger>
@@ -37,7 +37,7 @@
       <slot name="rail-collapsed-actions" />
     </div>
 
-    <!-- 窄屏：任务与状态进抽屉，与 railExpanded 共用同一布尔 -->
+    <!-- 窄屏：任务与状态进抽屉 -->
     <n-drawer
       v-if="stacked"
       :show="railExpanded"
@@ -48,24 +48,10 @@
       :auto-focus="false"
       class="cws-rail-drawer"
     >
-      <n-drawer-content :title="railDrawerTitle" closable @close="emitRail(false)">
+      <n-drawer-content :title="props.railDrawerTitle" closable @close="emitRail(false)">
         <div class="cws-rail-inner cws-rail-inner--drawer">
           <slot name="rail" />
         </div>
-      </n-drawer-content>
-    </n-drawer>
-
-    <!-- 深度面板（元素 / 护栏 / 溯源） -->
-    <n-drawer
-      :show="deepDrawerOpen"
-      @update:show="(v: boolean) => emit('update:deepDrawerOpen', v)"
-      :width="deepDrawerW"
-      placement="right"
-      display-directive="if"
-      :auto-focus="false"
-    >
-      <n-drawer-content :title="deepDrawerTitle || '…'" closable>
-        <slot name="deep-drawer" />
       </n-drawer-content>
     </n-drawer>
   </div>
@@ -82,8 +68,6 @@ const props = withDefaults(
     railExpanded: boolean
     /** 窄屏侧栏抽屉标题 */
     railDrawerTitle?: string
-    deepDrawerOpen: boolean
-    deepDrawerTitle: string
   }>(),
   {
     railDrawerTitle: '本章任务与状态',
@@ -92,16 +76,13 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   'update:railExpanded': [v: boolean]
-  'update:deepDrawerOpen': [v: boolean]
 }>()
 
 const drawerW = computed(() => 'min(440px, 94vw)')
-const deepDrawerW = computed(() => 'min(520px, 96vw)')
 
 function emitRail(v: boolean) {
   emit('update:railExpanded', v)
 }
-
 </script>
 
 <style scoped>
