@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -100,6 +101,10 @@ def _resolve_primary_node(s: NarrativeRuntimeSnapshot) -> Optional[Tuple[str, st
 
     # 细粒度子步骤优先（写作 / 审计）
     if ws:
+        if ws == "macro_planning":
+            return ("ctx_blueprint", "running")
+        if ws == "act_planning":
+            return ("ctx_memory", "running")
         if ws == "llm_calling":
             return ("exec_writer", "running")
         if ws in ("chapter_found", "context_assembly", "beat_magnification"):
@@ -136,6 +141,18 @@ def project_node_states(
     snapshot: NarrativeRuntimeSnapshot,
 ) -> Dict[str, Dict[str, Any]]:
     """node_id -> {status, enabled}，供 ``GET /dag/.../status`` 与 SSE 使用。"""
+    out: Dict[str, Dict[str, Any]] = {}
+
+    if snapshot.autopilot_status == "error":
+        for nid, enabled in node_ids_enabled:
+            if not enabled:
+                out[nid] = {"status": "disabled", "enabled": False}
+            elif nid == "gw_circuit":
+                out[nid] = {"status": "error", "enabled": True}
+            else:
+                out[nid] = {"status": "idle", "enabled": True}
+        return out
+
     primary = _resolve_primary_node(snapshot)
     primary_id = primary[0] if primary else None
     primary_status = primary[1] if primary else None
@@ -147,7 +164,6 @@ def project_node_states(
         and snapshot.current_stage == "completed"
     ) or snapshot.autopilot_status == "completed"
 
-    out: Dict[str, Dict[str, Any]] = {}
     for nid, enabled in node_ids_enabled:
         if not enabled:
             out[nid] = {"status": "disabled", "enabled": False}
@@ -172,9 +188,6 @@ def project_node_states(
         else:
             out[nid] = {"status": "idle", "enabled": True}
 
-    if primary_id == "gw_circuit" and primary_status == "error":
-        out["gw_circuit"] = {"status": "error", "enabled": True}
-
     return out
 
 
@@ -197,7 +210,7 @@ def node_states_to_sse_events(
                 "type": "node_status_change",
                 "novel_id": novel_id,
                 "node_id": nid,
-                "timestamp": __import__("time").time(),
+                "timestamp": time.time(),
                 "status": st,
             }
         )

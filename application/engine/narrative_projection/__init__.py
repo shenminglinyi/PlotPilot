@@ -7,6 +7,7 @@
 from application.engine.narrative_projection.dag_runtime_projection import (
     NarrativeRuntimeSnapshot,
     fingerprint,
+    node_states_to_sse_events,
     project_node_states,
     snapshot_from_shared,
 )
@@ -14,6 +15,7 @@ from application.engine.narrative_projection.dag_runtime_projection import (
 __all__ = [
     "NarrativeRuntimeSnapshot",
     "fingerprint",
+    "node_states_to_sse_events",
     "project_node_states",
     "snapshot_from_shared",
 ]
