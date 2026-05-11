@@ -43,6 +43,62 @@ def _legacy_to_jinja2(template: str) -> str:
     return _LEGACY_VAR_PATTERN.sub(r'{{ \1 }}', template)
 
 
+# ─── JSON 示例块转义 ───
+
+# 匹配模板中作为 JSON 输出示例的 {{ }} 块（包含冒号或方括号的非变量引用）
+# 例如：{{\"key\": \"value\"}} 或 {{\"items\": [...]}}
+_JSON_BLOCK_PATTERN = re.compile(
+    r'\{\{'                        # 开头 {{
+    r'(?!\s*[a-zA-Z_])'           # 排除 Jinja2 变量 {{ var_name }}
+    r'[^}]'                       # 第一个字符不是 }
+    r'(?:[^}]|}(?!}))'            # 非贪婪：匹配 } 但不是 }}
+    r'*?'                          # 懒惰匹配
+    r'\}\}'                        # 结尾 }}
+)
+
+
+def _escape_json_blocks(template: str) -> str:
+    """将模板中的 JSON 示例块用 {% raw %}...{% endraw %} 包裹。
+
+    模板中大量使用 {{ \"key\": \"value\" }} 作为 LLM 输出的 JSON 格式示例。
+    这些 {{ }} 不是 Jinja2 变量引用，而是字面文本。
+    用 {% raw %} 块包裹后，Jinja2 会原样输出，不做任何解析。
+
+    识别逻辑：{{ }} 内部包含冒号(:) 或 方括号([)，且不以标识符开头。
+    - {{ var_name }}        → 不匹配（Jinja2 变量）
+    - {{ \"key\": \"val\" }} → 匹配（JSON 示例，包含冒号）
+    - {{ \"items\": [1] }}   → 匹配（JSON 示例，包含方括号）
+    """
+    if not template:
+        return template
+
+    # 逐个查找并包裹，避免嵌套 raw 块
+    result = template
+    offset = 0
+    while True:
+        match = _JSON_BLOCK_PATTERN.search(result, offset)
+        if not match:
+            break
+
+        start, end = match.start(), match.end()
+        # 检查是否已经在 {% raw %} 块内（简单启发式：往前找最近的 raw/endraw）
+        preceding = result[:start]
+        raw_count = preceding.count('{% raw %}')
+        endraw_count = preceding.count('{% endraw %}')
+        if raw_count > endraw_count:
+            # 已在 raw 块内，跳过
+            offset = end
+            continue
+
+        # 用 {% raw %}...{% endraw %} 包裹
+        replacement = '{% raw %}' + match.group(0) + '{% endraw %}'
+        result = result[:start] + replacement + result[end:]
+        # 更新偏移量（replacement 比原匹配更长）
+        offset = start + len(replacement)
+
+    return result
+
+
 # ─── 变量 Schema 定义 ───
 
 
@@ -387,8 +443,14 @@ class PromptTemplateEngine:
             # 转换旧版格式
             jinja2_template = _legacy_to_jinja2(template)
 
+            # 🔥 预处理：用 {% raw %}...{% endraw %} 包裹 JSON 示例块
+            # 模板中大量使用 {{ "key": "value" }} 作为 JSON 输出示例，
+            # 这些不是 Jinja2 变量而是字面文本。用 {% raw %} 块包裹后
+            # Jinja2 会原样输出，不做任何解析。
+            safe_template = _escape_json_blocks(jinja2_template)
+
             try:
-                tmpl = self._jinja2_env.from_string(jinja2_template)
+                tmpl = self._jinja2_env.from_string(safe_template)
                 rendered_text = tmpl.render(**variables)
 
                 # 检测哪些变量被渲染（不在输出中保留 {{ name }} 形式）

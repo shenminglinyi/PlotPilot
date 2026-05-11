@@ -148,6 +148,20 @@ def setup_logging(
     logging.getLogger("uvicorn.access").setLevel(logging.INFO)
     logging.getLogger("fastapi").setLevel(logging.WARNING)
 
+    # 仅在需要抓包时用 DEBUG_HTTP=1；否则控制台会被 httpx/httpcore 逐帧日志淹没
+    if os.environ.get("DEBUG_HTTP", "").strip().lower() not in {"1", "true", "yes"}:
+        for name in (
+            "httpcore",
+            "httpcore.http11",
+            "httpcore.connection",
+            "hpack",
+            "hpack.hpack",
+            "httpx",
+            "anthropic",
+            "anthropic._base_client",
+        ):
+            logging.getLogger(name).setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger instance with the specified name.

@@ -159,12 +159,12 @@ async def _is_client_disconnected() -> bool:
 def _stage_name_zh(stage: str) -> str:
     """阶段枚举值 → 中文（与前端驾驶舱一致）"""
     m = {
-        "planning": "规划（旧）",
+        "planning": "宏观规划",
         "macro_planning": "宏观规划",
         "act_planning": "幕级规划",
         "writing": "正文撰写",
         "auditing": "章节审计",
-        "reviewing": "审阅（旧）",
+        "reviewing": "待审阅确认",
         "paused_for_review": "待审阅确认",
         "completed": "全书完成",
     }
