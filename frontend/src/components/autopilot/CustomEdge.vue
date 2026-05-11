@@ -1,5 +1,5 @@
 <template>
-  <BaseEdge v-bind="props" :style="edgeStyle" />
+  <BaseEdge v-bind="props" :path="pathData" :style="edgeStyle" />
   <path v-if="isActive" class="edge-flow-dot" :d="pathData" />
   <g v-if="conditionLabel" class="edge-label">
     <text
