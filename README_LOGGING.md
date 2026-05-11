@@ -1,4 +1,6 @@
-# 日志系统使用指南
+# PlotPilot（墨枢）日志系统使用指南
+
+> 产品对外名称为 **PlotPilot（墨枢）**。下文中的 `logs/aitext.log` 等为环境变量默认路径里的**历史文件名**，与运行时配置一致即可。
 
 ## 快速开始
 
@@ -36,7 +38,7 @@ python interfaces/main.py
    Log Level: INFO
    Log File: logs/aitext.log
    Python: 3.11.0
-   Working Dir: D:\CODE\aitext
+   Working Dir: <项目根目录>
 ================================================================================
 ```
 
