@@ -10,6 +10,7 @@ import { apiClient } from './config'
 import type {
   DAGDefinition,
   DAGStatusResponse,
+  DagRegistryLinkageResponse,
   NodeMeta,
   NodePromptLive,
 } from '@/types/dag'
@@ -42,6 +43,10 @@ export const dagApi = {
   /** GET /api/v1/dag/registry/types/{node_type} — 获取单个节点类型的元数据 */
   getNodeTypeMeta: (nodeType: string) =>
     apiClient.get<NodeMeta>(`/dag/registry/types/${nodeType}`) as unknown as Promise<NodeMeta>,
+
+  /** GET /api/v1/dag/registry/linkage — 默认 DAG 与 CPMS 一一对应 + 全类型索引 */
+  getRegistryLinkage: () =>
+    apiClient.get<DagRegistryLinkageResponse>('/dag/registry/linkage') as unknown as Promise<DagRegistryLinkageResponse>,
 
   // ─── 健康检查 ───
 

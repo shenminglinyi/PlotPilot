@@ -11,6 +11,7 @@ import { onMounted, onUnmounted, watch, type Ref } from 'vue'
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
 import type { NodeEvent, NodeStatus } from '@/types/dag'
+import { resolveAutopilotLogToNodeType } from '@/policies/autopilotDagLogBridge'
 
 // ─── 性能配置 ───
 
@@ -31,36 +32,6 @@ const PERF_THRESHOLDS = {
   queueOverflow: 50,
   eventDropRate: 0.1,
   renderTime: 100,
-}
-
-// ─── 托管模式阶段 → DAG 节点类型映射 ───
-
-/** 与 ``get_default_dag`` 节点 type 一致；后端 ``dag_runtime_projection`` 为主数据源，此处仅作日志流兜底 */
-const STAGE_NODE_MAP: Record<string, string | null> = {
-  macro_planning: 'ctx_blueprint',
-  planning: 'ctx_blueprint',
-  act_planning: 'ctx_memory',
-  writing: 'exec_writer',
-  auditing: 'val_style',
-  paused_for_review: 'gw_review',
-  completed: null,
-}
-
-const SUBSTEP_NODE_MAP: Record<string, string> = {
-  macro_planning: 'ctx_blueprint',
-  act_planning: 'ctx_memory',
-  chapter_found: 'exec_beat',
-  context_assembly: 'exec_beat',
-  beat_magnification: 'exec_beat',
-  llm_calling: 'exec_writer',
-  soft_landing: 'exec_writer',
-  persisting: 'exec_writer',
-  continuity_check: 'exec_writer',
-  chapter_persist: 'exec_writer',
-  audit_voice_check: 'val_style',
-  audit_tension: 'val_tension',
-  audit_aftermath: 'val_narrative',
-  audit_anti_ai: 'val_anti_ai',
 }
 
 export function useDAGSSE(novelId: Ref<string>) {
@@ -294,8 +265,9 @@ export function useDAGSSE(novelId: Ref<string>) {
     const substep = String(meta.writing_substep || '')
     const novelIdVal = novelId.value
 
-    if (substep && substep !== 'undefined') {
-      const nodeType = SUBSTEP_NODE_MAP[substep]
+    const subNorm = substep && substep !== 'undefined' ? substep : ''
+    if (subNorm) {
+      const nodeType = resolveAutopilotLogToNodeType(stage, subNorm)
       if (nodeType) {
         const nodeId = findNodeIdByType(nodeType)
         if (nodeId) {
@@ -317,7 +289,7 @@ export function useDAGSSE(novelId: Ref<string>) {
     }
 
     if (stage && stage !== 'undefined') {
-      const nodeType = STAGE_NODE_MAP[stage]
+      const nodeType = resolveAutopilotLogToNodeType(stage, '')
       if (nodeType) {
         markPreviousRunningAsComplete()
 
