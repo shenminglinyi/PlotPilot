@@ -28,3 +28,6 @@ def test_linkage_bundle_keys():
     b = linkage_bundle()
     assert "pipeline_node_ids" in b and "nodes" in b and "registry_cpms_by_type" in b
     assert len(b["registry_cpms_by_type"]) >= len(b["nodes"])
+    gaps = b.get("registry_gaps") or {}
+    assert gaps.get("complete") is True
+    assert gaps.get("missing") == []
