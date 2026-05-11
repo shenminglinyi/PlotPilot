@@ -166,6 +166,9 @@ async def startup_event():
         logger.info("🧹 Windows 启动前检查残留进程...")
         _cleanup_orphan_python_processes()
 
+    # 🔥 在任意 DB 写入型启动钩子之前拉起持久化消费者（单写者可在此后安全走 execute 路由）
+    _bootstrap_persistence_consumer_early()
+
     # 重启时将所有运行中的小说设置为停止状态
     _stop_all_running_novels()
 
@@ -177,6 +180,27 @@ async def startup_event():
 
     # 初始化 DAG 节点注册表（加载所有 V1 节点实现）
     _init_dag_node_registry()
+
+def _bootstrap_persistence_consumer_early() -> None:
+    """启动 mp.Queue + 处理器 + 消费者线程（与 daemon 共用同一队列单例）。
+
+    必须在 `_stop_all_running_novels`、AOF 恢复等会向 DB 发写的逻辑之前调用，
+    否则 `DatabaseConnection.execute` 在非 writer 上会入队失败。
+    """
+    try:
+        from application.engine.services.persistence_queue import (
+            get_persistence_queue,
+            initialize_persistence_queue,
+            register_persistence_handlers,
+        )
+
+        initialize_persistence_queue()
+        register_persistence_handlers()
+        get_persistence_queue().start_consumer()
+        logger.info("✅ 持久化消费者已先于启动钩子就绪（单写者内核）")
+    except Exception as e:
+        logger.warning("持久化队列提前初始化失败（部分启动写将依赖直连兜底）: %s", e)
+
 
 def _checkpoint_sqlite_wal_safe() -> None:
     """桌面端优雅退出时尽量将 WAL 落盘，降低异常断电时的损坏概率。"""
@@ -355,84 +379,84 @@ def _is_expected_daemon_shutdown_exception(exc: BaseException) -> bool:
 def _stop_all_running_novels():
     """重启时将所有运行中的小说设置为停止状态
 
-    修复：
-    - 使用与 DatabaseConnection 一致的 PRAGMA 配置（WAL + busy_timeout + synchronous=NORMAL），
-      避免裸连接因 journal_mode 不匹配导致 disk I/O error。
-    - 增加 WAL 残留文件清理：若上次异常退出遗留 -wal/-shm 文件且 DB 无活跃连接，
-      SQLite 会自动恢复；但若残留文件损坏则主动清理后重试。
-    - 增加重试机制：应对启动阶段磁盘 I/O 短暂不可用（如 PyInstaller DLL 尚未完全释放）。
+    经由 `get_database().execute` 走持久化单写者队列（需先 `_bootstrap_persistence_consumer_early`）。
+    保留 WAL 残留清理与 disk I/O 重试；重试时重置全局 DB 单例以换新连接。
     """
     import sqlite3
     import time
     from pathlib import Path
+
     from application.paths import get_db_path
+    from infrastructure.persistence.database import connection as db_connection
+    from infrastructure.persistence.database.connection import get_database
 
     db_path = get_db_path()
+    db_path_str = str(Path(db_path))
     db_path_obj = Path(db_path) if isinstance(db_path, str) else db_path
 
     if not db_path_obj.exists():
         logger.warning(f"⚠️  数据库文件不存在: {db_path}")
         return
 
-    # 与 DatabaseConnection.get_connection() 保持一致的 PRAGMA 配置
-    def _open_with_pragma(path: str) -> sqlite3.Connection:
-        conn = sqlite3.connect(path, timeout=30.0)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=30000")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA temp_store=MEMORY")
-        return conn
-
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
-            conn = _open_with_pragma(str(db_path_obj))
+            db = get_database(db_path_str)
+
+            chk = db.fetch_one(
+                "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='novels' LIMIT 1"
+            )
+            if chk is None:
+                logger.info("ℹ️  新库尚无 novels 表，跳过运行中小说复位")
+                return
+
+            cnt_row = db.fetch_one(
+                "SELECT COUNT(*) AS c FROM novels WHERE autopilot_status = 'running'"
+            )
+            running_count = int(cnt_row["c"]) if cnt_row and cnt_row.get("c") is not None else 0
+
+            if running_count > 0:
+                db.execute(
+                    """UPDATE novels SET autopilot_status = 'stopped', updated_at = CURRENT_TIMESTAMP
+                       WHERE autopilot_status = 'running'"""
+                )
+                db.commit()
+                logger.info(
+                    "🔒 已将 %s 本运行中的小说设置为停止状态（服务重启）",
+                    running_count,
+                )
+            else:
+                logger.info("✅ 没有运行中的小说需要停止")
+
             try:
-                cur = conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='novels' LIMIT 1"
-                )
-                if cur.fetchone() is None:
-                    logger.info("ℹ️  新库尚无 novels 表，跳过运行中小说复位")
-                    return
-
-                cursor = conn.execute(
-                    "SELECT COUNT(*) FROM novels WHERE autopilot_status = 'running'"
-                )
-                running_count = cursor.fetchone()[0]
-
-                if running_count > 0:
-                    conn.execute(
-                        "UPDATE novels SET autopilot_status = 'stopped', updated_at = CURRENT_TIMESTAMP WHERE autopilot_status = 'running'"
-                    )
-                    conn.commit()
-                    logger.info(f"🔒 已将 {running_count} 本运行中的小说设置为停止状态（服务重启）")
-                else:
-                    logger.info("✅ 没有运行中的小说需要停止")
-                return  # 成功，退出重试循环
-
-            finally:
-                try:
-                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                except Exception:
-                    pass
-                conn.close()
+                db.get_connection().execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except Exception:
+                pass
+            return
 
         except sqlite3.OperationalError as e:
             if "disk I/O error" in str(e) and attempt < max_retries:
                 logger.warning(
-                    f"⚠️  停止运行中小说遇到 disk I/O error（第 {attempt}/{max_retries} 次），"
-                    f"尝试清理 WAL 残留后重试..."
+                    "⚠️  停止运行中小说遇到 disk I/O error（第 %s/%s 次），"
+                    "尝试清理 WAL 残留并重置连接后重试...",
+                    attempt,
+                    max_retries,
                 )
-                # 清理可能损坏的 WAL 残留文件
                 for suffix in ("-wal", "-shm"):
                     wal_file = db_path_obj.parent / (db_path_obj.name + suffix)
                     if wal_file.exists():
                         try:
                             wal_file.unlink()
-                            logger.info(f"🧹 已清理残留 WAL 文件: {wal_file}")
+                            logger.info("🧹 已清理残留 WAL 文件: %s", wal_file)
                         except OSError as unlink_err:
-                            logger.warning(f"清理 WAL 文件失败: {wal_file} — {unlink_err}")
-                time.sleep(1.0 * attempt)  # 递增等待
+                            logger.warning("清理 WAL 文件失败: %s — %s", wal_file, unlink_err)
+                try:
+                    if db_connection._db_instance is not None:
+                        db_connection._db_instance.close_all(skip_checkpoint=True)
+                except Exception:
+                    pass
+                db_connection._db_instance = None
+                time.sleep(1.0 * attempt)
             else:
                 logger.error(
                     "❌ 停止运行中小说失败: db=%s err=%s",
