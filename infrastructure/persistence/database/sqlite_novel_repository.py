@@ -1,12 +1,14 @@
 """SQLite Novel Repository 实现"""
 import logging
 import json
+import sqlite3
 from typing import Optional, List
 from datetime import datetime
 from domain.novel.entities.novel import Novel, AutopilotStatus, NovelStage
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.repositories.novel_repository import NovelRepository
 from infrastructure.persistence.database.connection import DatabaseConnection
+from infrastructure.persistence.database.sqlite_corruption import is_sqlite_storage_corruption
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +18,16 @@ class SqliteNovelRepository(NovelRepository):
 
     def __init__(self, db: DatabaseConnection):
         self.db = db
+        self._sqlite_corruption_notice: Optional[str] = None
+
+    def _record_sqlite_corruption(self, exc: BaseException) -> None:
+        self._sqlite_corruption_notice = str(exc)[:500]
+
+    def consume_sqlite_corruption_warning(self) -> Optional[str]:
+        """Return and clear a one-shot client hint after a degraded read (e.g. empty list)."""
+        msg = self._sqlite_corruption_notice
+        self._sqlite_corruption_notice = None
+        return msg
 
     def save(self, novel: Novel) -> None:
         """保存小说"""
@@ -184,7 +196,18 @@ class SqliteNovelRepository(NovelRepository):
     def get_by_id(self, novel_id: NovelId) -> Optional[Novel]:
         """根据 ID 获取小说"""
         sql = "SELECT * FROM novels WHERE id = ?"
-        row = self.db.fetch_one(sql, (novel_id.value,))
+        try:
+            row = self.db.fetch_one(sql, (novel_id.value,))
+        except sqlite3.DatabaseError as e:
+            if is_sqlite_storage_corruption(e):
+                self._record_sqlite_corruption(e)
+                logger.error(
+                    "SQLite storage corruption while reading novel id=%s: %s",
+                    novel_id.value,
+                    e,
+                )
+                return None
+            raise
 
         if not row:
             return None
@@ -194,7 +217,18 @@ class SqliteNovelRepository(NovelRepository):
     def get_by_slug(self, slug: str) -> Optional[Novel]:
         """根据 slug 获取小说"""
         sql = "SELECT * FROM novels WHERE slug = ?"
-        row = self.db.fetch_one(sql, (slug,))
+        try:
+            row = self.db.fetch_one(sql, (slug,))
+        except sqlite3.DatabaseError as e:
+            if is_sqlite_storage_corruption(e):
+                self._record_sqlite_corruption(e)
+                logger.error(
+                    "SQLite storage corruption while reading novel slug=%s: %s",
+                    slug,
+                    e,
+                )
+                return None
+            raise
 
         if not row:
             return None
@@ -204,7 +238,18 @@ class SqliteNovelRepository(NovelRepository):
     def list_all(self) -> List[Novel]:
         """列出所有小说"""
         sql = "SELECT * FROM novels ORDER BY created_at DESC"
-        rows = self.db.fetch_all(sql)
+        try:
+            rows = self.db.fetch_all(sql)
+        except sqlite3.DatabaseError as e:
+            if is_sqlite_storage_corruption(e):
+                self._record_sqlite_corruption(e)
+                logger.error(
+                    "SQLite storage corruption while listing novels; returning empty list. %s",
+                    e,
+                    exc_info=True,
+                )
+                return []
+            raise
         return [self._row_to_novel(NovelId(row['id']), row) for row in rows]
 
     def find_by_autopilot_status(self, status: str) -> List[Novel]:
@@ -224,10 +269,29 @@ class SqliteNovelRepository(NovelRepository):
             return find_novels_with_chapters_optimized(db_pool, status)
 
         except Exception as e:
+            if is_sqlite_storage_corruption(e):
+                self._record_sqlite_corruption(e)
+                logger.error(
+                    "SQLite storage corruption in autopilot novel query; returning empty list. %s",
+                    e,
+                    exc_info=True,
+                )
+                return []
             logger.warning(f"优化查询失败，降级到原查询: {e}")
             # 降级到原查询
             sql = "SELECT * FROM novels WHERE autopilot_status = ? ORDER BY updated_at DESC"
-            rows = self.db.fetch_all(sql, (status,))
+            try:
+                rows = self.db.fetch_all(sql, (status,))
+            except sqlite3.DatabaseError as e2:
+                if is_sqlite_storage_corruption(e2):
+                    self._record_sqlite_corruption(e2)
+                    logger.error(
+                        "SQLite storage corruption in autopilot fallback query; returning empty list. %s",
+                        e2,
+                        exc_info=True,
+                    )
+                    return []
+                raise
             return [self._row_to_novel(NovelId(row['id']), row) for row in rows]
 
     def _row_to_novel(self, novel_id: NovelId, row: dict) -> Novel:

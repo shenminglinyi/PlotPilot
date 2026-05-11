@@ -481,50 +481,95 @@ class DatabaseConnection:
 
     @contextmanager
     def transaction(self):
-        """事务上下文管理器
+        """事务：持久化消费者在 writer 线程上直连；其它线程收集为一条 TXN_BATCH 入队。"""
+        from infrastructure.persistence.database.write_dispatch import (
+            TxnCollectingConnection,
+            allow_direct_sqlite_writes,
+            enqueue_txn_batch,
+            is_sqlite_writer_thread,
+        )
 
-        Usage:
-            with db.transaction() as conn:
-                conn.execute("INSERT INTO ...")
-                conn.execute("UPDATE ...")
-        """
-        conn = self.get_connection()
+        if allow_direct_sqlite_writes() or is_sqlite_writer_thread():
+            conn = self.get_connection()
+            try:
+                yield conn
+                conn.commit()
+                self._maybe_checkpoint()
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Transaction failed: {e}")
+                raise
+            return
+
+        collector = TxnCollectingConnection()
         try:
-            yield conn
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Transaction failed: {e}")
+            yield collector
+        except Exception:
             raise
+        else:
+            if collector.operations and not enqueue_txn_batch(collector.operations):
+                raise RuntimeError("持久化队列未就绪，事务未能入队")
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """执行 SQL 语句
+        from infrastructure.persistence.database.write_dispatch import (
+            _EnqueuedStmtCursor,
+            allow_direct_sqlite_writes,
+            enqueue_execute_sql,
+            is_sqlite_writer_thread,
+            sql_is_mutating,
+        )
 
-        Args:
-            sql: SQL 语句
-            params: 参数元组
+        if (
+            sql_is_mutating(sql)
+            and not allow_direct_sqlite_writes()
+            and not is_sqlite_writer_thread()
+        ):
+            plist = list(params) if params else []
+            if not enqueue_execute_sql(sql, plist):
+                raise RuntimeError("持久化队列未就绪，写 SQL 未能入队")
+            return _EnqueuedStmtCursor()  # type: ignore[return-value]
 
-        Returns:
-            Cursor 对象
-        """
         conn = self.get_connection()
         return conn.execute(sql, params)
 
     def execute_many(self, sql: str, params_list: list) -> None:
-        """批量执行 SQL 语句
+        from infrastructure.persistence.database.write_dispatch import (
+            allow_direct_sqlite_writes,
+            enqueue_txn_batch,
+            is_sqlite_writer_thread,
+            sql_is_mutating,
+        )
 
-        Args:
-            sql: SQL 语句
-            params_list: 参数列表
-        """
+        if not params_list:
+            return
+        if (
+            sql_is_mutating(sql)
+            and not allow_direct_sqlite_writes()
+            and not is_sqlite_writer_thread()
+        ):
+            ops = []
+            for p in params_list:
+                tup = tuple(p) if not isinstance(p, tuple) else p
+                ops.append((sql, tup))
+            if not enqueue_txn_batch(ops):
+                raise RuntimeError("持久化队列未就绪，批量写未能入队")
+            return
+
         conn = self.get_connection()
         conn.executemany(sql, params_list)
         conn.commit()
+        self._maybe_checkpoint()
 
     def commit(self) -> None:
-        """提交当前线程连接上的事务（与 execute() 成对使用），并检查是否需要 WAL checkpoint。"""
-        self.get_connection().commit()
-        self._maybe_checkpoint()
+        """提交当前线程连接上的事务；非 writer 上的变更已由队列消费者提交，此处仅 writer 落 commit + checkpoint。"""
+        from infrastructure.persistence.database.write_dispatch import (
+            allow_direct_sqlite_writes,
+            is_sqlite_writer_thread,
+        )
+
+        if allow_direct_sqlite_writes() or is_sqlite_writer_thread():
+            self.get_connection().commit()
+            self._maybe_checkpoint()
 
     def fetch_one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         """查询单条记录

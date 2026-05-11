@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from collections import defaultdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -14,6 +13,10 @@ from domain.knowledge.knowledge_triple import KnowledgeTriple
 from infrastructure.persistence.database.connection import DatabaseConnection
 
 logger = logging.getLogger(__name__)
+
+
+# 事务内 execute 接口：sqlite3.Connection 与 write_dispatch.TxnCollectingConnection 对齐
+_SqlExec = Any
 
 
 def _dedupe_provenance_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -51,7 +54,6 @@ class SqliteKnowledgeRepository:
         now = datetime.utcnow().isoformat()
         knowledge_id = f"{novel_id}-knowledge"
         self.db.execute(sql, (knowledge_id, novel_id, 1, premise_lock, now, now))
-        self.db.get_connection().commit()
 
     def _load_triple_children(self, novel_id: str) -> tuple[
         Dict[str, List[int]], Dict[str, List[str]], Dict[str, Dict[str, str]]
@@ -126,11 +128,11 @@ class SqliteKnowledgeRepository:
         return t
 
     @staticmethod
-    def _delete_triples_for_merge(conn: sqlite3.Connection, novel_id: str, payload_ids: Set[str]) -> None:
+    def _delete_triples_for_merge(exe: _SqlExec, novel_id: str, payload_ids: Set[str]) -> None:
         """删除「可被合并覆盖」且不在 payload 中的三元组；保留推断/Bible/AI 来源。"""
         if payload_ids:
             placeholders = ",".join("?" * len(payload_ids))
-            conn.execute(
+            exe.execute(
                 f"""
                 DELETE FROM triples
                 WHERE novel_id = ?
@@ -144,7 +146,7 @@ class SqliteKnowledgeRepository:
                 (novel_id, *tuple(payload_ids)),
             )
         else:
-            conn.execute(
+            exe.execute(
                 """
                 DELETE FROM triples
                 WHERE novel_id = ?
@@ -158,13 +160,13 @@ class SqliteKnowledgeRepository:
             )
 
     def _replace_triple_provenance(
-        self, conn: sqlite3.Connection, rows: List[Dict[str, Any]]
+        self, exe: _SqlExec, rows: List[Dict[str, Any]]
     ) -> None:
         if not rows:
             return
-        conn.execute("DELETE FROM triple_provenance WHERE triple_id = ?", (rows[0]["triple_id"],))
+        exe.execute("DELETE FROM triple_provenance WHERE triple_id = ?", (rows[0]["triple_id"],))
         for r in _dedupe_provenance_rows(rows):
-            conn.execute(
+            exe.execute(
                 """
                 INSERT OR IGNORE INTO triple_provenance (
                     id, triple_id, novel_id, story_node_id, chapter_element_id, rule_id, role
@@ -182,10 +184,10 @@ class SqliteKnowledgeRepository:
             )
 
     def _append_triple_provenance(
-        self, conn: sqlite3.Connection, rows: List[Dict[str, Any]]
+        self, exe: _SqlExec, rows: List[Dict[str, Any]]
     ) -> None:
         for r in _dedupe_provenance_rows(rows):
-            conn.execute(
+            exe.execute(
                 """
                 INSERT OR IGNORE INTO triple_provenance (
                     id, triple_id, novel_id, story_node_id, chapter_element_id, rule_id, role
@@ -324,7 +326,7 @@ class SqliteKnowledgeRepository:
 
     def _insert_triple_children(
         self,
-        conn: sqlite3.Connection,
+        exe: _SqlExec,
         novel_id: str,
         triple_id: str,
         triple: Dict[str, Any],
@@ -341,31 +343,24 @@ class SqliteKnowledgeRepository:
             if n in seen:
                 continue
             seen.add(n)
-            try:
-                conn.execute(
-                    """
-                    INSERT INTO triple_more_chapters (triple_id, novel_id, chapter_number)
-                    VALUES (?, ?, ?)
-                    """,
-                    (triple_id, novel_id, n),
-                )
-            except sqlite3.IntegrityError:
-                logger.warning(
-                    "skip triple_more_chapters %s ch=%s (missing chapter row or duplicate)",
-                    triple_id,
-                    n,
-                )
+            exe.execute(
+                """
+                INSERT OR IGNORE INTO triple_more_chapters (triple_id, novel_id, chapter_number)
+                VALUES (?, ?, ?)
+                """,
+                (triple_id, novel_id, n),
+            )
 
         for tag in triple.get("tags") or []:
             if not tag:
                 continue
-            conn.execute(
+            exe.execute(
                 "INSERT OR IGNORE INTO triple_tags (triple_id, tag) VALUES (?, ?)",
                 (triple_id, str(tag)),
             )
 
         for k, v in (triple.get("attributes") or {}).items():
-            conn.execute(
+            exe.execute(
                 """
                 INSERT INTO triple_attr (triple_id, attr_key, attr_value)
                 VALUES (?, ?, ?)
@@ -376,21 +371,21 @@ class SqliteKnowledgeRepository:
             )
 
     @staticmethod
-    def _clear_triple_children(conn: sqlite3.Connection, triple_id: str) -> None:
-        conn.execute("DELETE FROM triple_more_chapters WHERE triple_id = ?", (triple_id,))
-        conn.execute("DELETE FROM triple_tags WHERE triple_id = ?", (triple_id,))
-        conn.execute("DELETE FROM triple_attr WHERE triple_id = ?", (triple_id,))
+    def _clear_triple_children(exe: _SqlExec, triple_id: str) -> None:
+        exe.execute("DELETE FROM triple_more_chapters WHERE triple_id = ?", (triple_id,))
+        exe.execute("DELETE FROM triple_tags WHERE triple_id = ?", (triple_id,))
+        exe.execute("DELETE FROM triple_attr WHERE triple_id = ?", (triple_id,))
 
     def _insert_triple_row(
         self,
-        conn: sqlite3.Connection,
+        exe: _SqlExec,
         novel_id: str,
         triple: Dict[str, Any],
         now: str,
     ) -> None:
-        self._clear_triple_children(conn, triple["id"])
+        self._clear_triple_children(exe, triple["id"])
         ch = self._chapter_number_from_fact(triple)
-        conn.execute(
+        exe.execute(
             """
             INSERT INTO triples (
                 id, novel_id, subject, predicate, object, chapter_number, note,
@@ -436,7 +431,7 @@ class SqliteKnowledgeRepository:
                 now,
             ),
         )
-        self._insert_triple_children(conn, novel_id, triple["id"], triple, ch)
+        self._insert_triple_children(exe, novel_id, triple["id"], triple, ch)
 
     def save_triple(
         self,
@@ -447,17 +442,12 @@ class SqliteKnowledgeRepository:
         provenance_mode: str = "skip",
     ) -> None:
         now = datetime.utcnow().isoformat()
-        conn = self.db.get_connection()
-        try:
-            self._insert_triple_row(conn, novel_id, triple, now)
+        with self.db.transaction() as exe:
+            self._insert_triple_row(exe, novel_id, triple, now)
             if provenance_rows and provenance_mode == "replace":
-                self._replace_triple_provenance(conn, provenance_rows)
+                self._replace_triple_provenance(exe, provenance_rows)
             elif provenance_rows and provenance_mode == "append":
-                self._append_triple_provenance(conn, provenance_rows)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+                self._append_triple_provenance(exe, provenance_rows)
 
     def save_triples_batch(
         self,
@@ -487,21 +477,13 @@ class SqliteKnowledgeRepository:
 
         for i in range(0, total, batch_size):
             batch = triples[i:i + batch_size]
-            conn = self.db.get_connection()
-            try:
+            with self.db.transaction() as exe:
                 for triple in batch:
-                    self._insert_triple_row(conn, novel_id, triple, now)
+                    self._insert_triple_row(exe, novel_id, triple, now)
                     if provenance_rows_map:
                         rows = provenance_rows_map.get(triple["id"])
                         if rows:
-                            self._replace_triple_provenance(conn, rows)
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-            finally:
-                # 注意：不关闭连接（连接池管理），但确保事务已提交
-                pass
+                            self._replace_triple_provenance(exe, rows)
 
             # 🔥 微事务间隙主动让出时间片，允许读请求插队
             if i + batch_size < total:
@@ -511,8 +493,7 @@ class SqliteKnowledgeRepository:
         """仅追加溯源行（三元组行已存在）。"""
         if not rows:
             return
-        conn = self.db.get_connection()
-        try:
+        with self.db.transaction() as exe:
             normalized = [
                 {
                     **r,
@@ -522,7 +503,7 @@ class SqliteKnowledgeRepository:
                 for r in rows
             ]
             for r in _dedupe_provenance_rows(normalized):
-                conn.execute(
+                exe.execute(
                     """
                     INSERT OR IGNORE INTO triple_provenance (
                         id, triple_id, novel_id, story_node_id, chapter_element_id, rule_id, role
@@ -538,10 +519,6 @@ class SqliteKnowledgeRepository:
                         r.get("role") or "primary",
                     ),
                 )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
 
     def find_story_node_id_for_chapter_number(
         self, novel_id: str, chapter_number: int
@@ -603,39 +580,76 @@ class SqliteKnowledgeRepository:
     def revoke_chapter_inference_for_story_node(
         self, novel_id: str, story_node_id: str
     ) -> Dict[str, int]:
-        """删除本章节节点下的溯源；若无剩余证据且为 chapter_inferred 则删除三元组。"""
-        with self.db.transaction() as conn:
-            cur = conn.execute(
-                """
-                SELECT DISTINCT triple_id FROM triple_provenance
-                WHERE story_node_id = ? AND novel_id = ?
-                """,
-                (story_node_id, novel_id),
-            )
-            affected = [row[0] for row in cur.fetchall()]
-            conn.execute(
+        """删除本章节节点下的溯源；若无剩余证据且为 chapter_inferred 则删除三元组。
+
+        读操作在本地连接完成，写操作合并为单事务入队（API 线程）或 writer 直连，避免跨连接无法表达 SELECT/DELETE 交错事务。
+        """
+        from infrastructure.persistence.database.write_dispatch import (
+            allow_direct_sqlite_writes,
+            enqueue_txn_batch,
+            is_sqlite_writer_thread,
+        )
+
+        affected_rows = self.db.fetch_all(
+            """
+            SELECT DISTINCT triple_id FROM triple_provenance
+            WHERE story_node_id = ? AND novel_id = ?
+            """,
+            (story_node_id, novel_id),
+        )
+        tids = [r["triple_id"] for r in affected_rows]
+
+        ops: List[Tuple[str, tuple]] = [
+            (
                 "DELETE FROM triple_provenance WHERE story_node_id = ? AND novel_id = ?",
                 (story_node_id, novel_id),
             )
-            deleted_triples = 0
-            for tid in affected:
-                cur2 = conn.execute(
-                    "SELECT COUNT(*) FROM triple_provenance WHERE triple_id = ?",
-                    (tid,),
-                )
-                remaining = cur2.fetchone()[0]
-                if remaining > 0:
-                    continue
-                row = conn.execute(
-                    "SELECT source_type FROM triples WHERE id = ? AND novel_id = ?",
-                    (tid, novel_id),
-                ).fetchone()
-                if not row:
-                    continue
-                if row[0] == "chapter_inferred":
-                    conn.execute("DELETE FROM triples WHERE id = ?", (tid,))
-                    deleted_triples += 1
-        return {"removed_provenance_triples": len(affected), "deleted_inferred_facts": deleted_triples}
+        ]
+        deleted_triples = 0
+        for tid in tids:
+            cnt_all = self.db.fetch_one(
+                "SELECT COUNT(*) AS c FROM triple_provenance WHERE triple_id = ?",
+                (tid,),
+            )
+            cnt_rm = self.db.fetch_one(
+                """
+                SELECT COUNT(*) AS c FROM triple_provenance
+                WHERE triple_id = ? AND story_node_id = ? AND novel_id = ?
+                """,
+                (tid, story_node_id, novel_id),
+            )
+            n_total = int(cnt_all["c"]) if cnt_all and cnt_all.get("c") is not None else 0
+            n_remove = int(cnt_rm["c"]) if cnt_rm and cnt_rm.get("c") is not None else 0
+            if n_total - n_remove > 0:
+                continue
+            src = self.db.fetch_one(
+                "SELECT source_type FROM triples WHERE id = ? AND novel_id = ?",
+                (tid, novel_id),
+            )
+            if not src or src.get("source_type") != "chapter_inferred":
+                continue
+            ops.append(("DELETE FROM triples WHERE id = ?", (tid,)))
+            deleted_triples += 1
+
+        if allow_direct_sqlite_writes() or is_sqlite_writer_thread():
+            conn = self.db.get_connection()
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                for sql, params in ops:
+                    conn.execute(sql, params)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            self.db.commit()
+        else:
+            if not enqueue_txn_batch(ops):
+                raise RuntimeError("持久化队列未就绪，无法撤销章节推断溯源")
+
+        return {
+            "removed_provenance_triples": len(tids),
+            "deleted_inferred_facts": deleted_triples,
+        }
 
     def try_delete_chapter_inferred_triple(self, novel_id: str, triple_id: str) -> str:
         """删除 chapter_inferred 三元组。返回 deleted | not_found | not_inferred。"""
@@ -647,13 +661,12 @@ class SqliteKnowledgeRepository:
             return "not_found"
         if row["source_type"] != "chapter_inferred":
             return "not_inferred"
-        self.db.execute("DELETE FROM triples WHERE id = ?", (triple_id,))
-        self.db.get_connection().commit()
+        with self.db.transaction() as exe:
+            exe.execute("DELETE FROM triples WHERE id = ?", (triple_id,))
         return "deleted"
 
     def delete_triple(self, triple_id: str) -> None:
         self.db.execute("DELETE FROM triples WHERE id = ?", (triple_id,))
-        self.db.get_connection().commit()
 
     def list_triples_by_subject(self, novel_id: str, subject: str) -> List[dict]:
         sql = """
@@ -696,7 +709,6 @@ class SqliteKnowledgeRepository:
         now = datetime.utcnow().isoformat()
         summary_id = f"{knowledge_id}-ch{chapter_number}"
         self.db.execute(sql, (summary_id, knowledge_id, chapter_number, summary, now, now))
-        self.db.get_connection().commit()
 
     def save(self, knowledge: StoryKnowledge) -> None:
         novel_id = knowledge.novel_id
