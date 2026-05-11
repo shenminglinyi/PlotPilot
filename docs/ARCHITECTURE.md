@@ -1,6 +1,6 @@
-# PlotPilot / aitext 架构设计
+# PlotPilot（墨枢）架构
 
-> 墨枢（PlotPilot）代码仓库根目录为 **aitext**，采用 DDD（领域驱动设计）四层架构。产品说明与启动入口见根目录 [README.md](../README.md)。
+> **PlotPilot（墨枢）** 长篇小说创作平台源代码，采用 DDD（领域驱动设计）四层架构。产品说明与启动入口见根目录 [README.md](../README.md)。
 
 ## 系统概览
 
@@ -10,7 +10,7 @@
 ## DDD 四层架构
 
 ```
-aitext/
+（项目根目录）/
 ├── domain/                 # 领域层 - 核心业务逻辑
 │   ├── novel/             # 小说聚合根、章节实体、故事线
 │   ├── bible/             # 设定库聚合根、人物、地点、世界设定
@@ -104,9 +104,6 @@ uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
 可选方式：
 
 ```bash
-# 若已将仓库上级目录加入 PYTHONPATH，且包名为 aitext（目录名与布局一致时）
-# python -m aitext serve --host 127.0.0.1 --port 8005 --reload
-
 # 直接运行 FastAPI 模块（默认 0.0.0.0:8000，与 README 的 8005 不同，需自行改端口或改用 uvicorn）
 python interfaces/main.py
 
@@ -146,6 +143,6 @@ python -m pytest tests/integration -v
 
 ## 数据库与数据目录
 
-- **主数据库**：默认 `data/aitext.db`（SQLite）；实际路径由 `application.paths.DATA_DIR` 解析（未设置 `AITEXT_PROD_DATA_DIR` 且非冻结运行时指向仓库内 `data/`）。
+- **主数据库**：默认 SQLite 文件名为 `data/aitext.db`（历史文件名，与代码中 `get_db_path()` 一致）；实际目录由 `application.paths.DATA_DIR` 解析（未设置 `AITEXT_PROD_DATA_DIR` 且非冻结运行时指向仓库内 `data/`）。
 - **向量存储**：默认在 `data/chromadb/` 下持久化（实现为本地 FAISS + 元数据，与 `.env` 中 `VECTOR_STORE_TYPE=chromadb` 对应）。
 - **应用日志**：默认 `logs/aitext.log`（由 `LOG_FILE` 控制，见 `.env.example`）。

@@ -42,11 +42,11 @@
 项目提供开箱即用的图形化启动器，**无需提前安装 Python、无需命令行**：
 
 1. 将 `python-3.11.9-embed-amd64.zip` 放入 `tools/` 目录（首次使用）
-2. 双击 `tools/aitext.bat`
+2. 双击 `tools/aitext.bat`（脚本文件名为历史遗留；启动的即为 **PlotPilot（墨枢）** 后端）
 
 启动器将自动完成：环境自检 → 创建虚拟环境 → 安装依赖（国内镜像源自动切换）→ 启动后端服务 → 打开浏览器。后续启动直接双击即可。
 
-> 也支持 `aitext.bat pack` 打包整个项目分享给他人，对方双击即用。
+> 也支持 `tools\aitext.bat pack`（或在 `tools` 目录下执行 `aitext.bat pack`）打包整个项目分享给他人，对方双击即用。
 
 ---
 

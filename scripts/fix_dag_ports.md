@@ -49,7 +49,7 @@ pkill -f python
 sleep 3
 
 # 重启后端
-cd D:/CODE/aitext
+cd <项目根目录>
 uvicorn interfaces.main:app --host 127.0.0.1 --port 8000
 ```
 
