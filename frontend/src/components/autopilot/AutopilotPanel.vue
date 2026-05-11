@@ -4,12 +4,27 @@
     <div class="ap-header">
       <span class="ap-dot" :class="dotClass"></span>
       <span class="ap-title">全托管驾驶</span>
-      <span class="ap-stage-tag" :class="stageTagClass">{{ stageLabel }}</span>
+      <span class="ap-stage-tag" :class="stageTagClass">
+        <template v-if="stageTransitioning">
+          <span class="skeleton-inline skeleton-pulse"></span>
+          <span class="stage-transition-label">{{ stageLabel }}</span>
+        </template>
+        <template v-else>{{ stageLabel }}</template>
+      </span>
       <!-- 🔧 新增：SSE 连接状态指示 -->
       <span v-if="isRunning && !needsReview" class="sse-status" :class="sseConnected ? 'connected' : 'disconnected'">
         {{ sseConnected ? '已连接' : (sseReconnecting ? '重连中...' : '未连接') }}
       </span>
     </div>
+
+    <n-alert
+      v-if="statusConnectivityFailures >= 2 && !statusPollDisabled"
+      type="warning"
+      :show-icon="true"
+      style="margin: 4px 0; font-size: 12px"
+    >
+      无法连接写作后端（开发与 Vite 约定为 <code>127.0.0.1:8005</code>）。已自动<strong>拉长轮询间隔</strong>，请启动 API 后再试。
+    </n-alert>
 
     <!-- 进度条 -->
     <n-progress
@@ -282,6 +297,9 @@ const statusPollDisabled = ref(false)
 // /status：新请求开始前取消上一轮，减轻后端堆积；序号用于忽略已被替代的 AbortError
 let statusFetchSeq = 0
 let statusLastAbort = null
+/** 连续无法拉取 /status（网络拒绝/超时）时倍增轮询间隔 */
+const statusConnectivityFailures = ref(0)
+let lastStatusPollIntervalMs = -1
 
 // 计算属性
 const isRunning = computed(() => status.value?.autopilot_status === 'running')
@@ -368,9 +386,9 @@ const stageLabel = computed(() => {
   }
 
   const m = {
-    macro_planning: '宏观规划', act_planning: '幕级规划',
+    planning: '宏观规划', macro_planning: '宏观规划', act_planning: '幕级规划',
     writing: '撰写中', auditing: '审计中',
-    paused_for_review: '待审阅', completed: '已完成',
+    reviewing: '待审阅确认', paused_for_review: '待审阅', completed: '已完成',
     syncing: '数据同步中',
   }
 
@@ -420,10 +438,31 @@ const stageLabel = computed(() => {
   return m[stage] || '待机'
 })
 
+// 🔥 阶段变更过渡态：检测 current_stage 变化时显示骨架 loading
+const prevStage = ref(null)
+const stageTransitioning = ref(false)
+let stageTransitionTimer = null
+
+watch(
+  () => status.value?.current_stage,
+  (newStage, oldStage) => {
+    if (oldStage && newStage && oldStage !== newStage) {
+      // 阶段变了，触发骨架 loading 过渡
+      stageTransitioning.value = true
+      if (stageTransitionTimer) clearTimeout(stageTransitionTimer)
+      stageTransitionTimer = setTimeout(() => {
+        stageTransitioning.value = false
+      }, 2000) // 2 秒后自动消失
+    }
+    prevStage.value = newStage
+  }
+)
+
 const stageTagClass = computed(() => ({
   'tag-active': isRunning.value && !needsReview.value,
   'tag-review': needsReview.value,
   'tag-idle': !isRunning.value && !needsReview.value,
+  'tag-transitioning': stageTransitioning.value,
 }))
 
 const beatLabel = computed(() => {
@@ -538,9 +577,11 @@ async function fetchStatus() {
       clearStatusPoll()
       status.value = null
       statusPollDisabled.value = true
+      statusConnectivityFailures.value = 0
       return
     }
     if (res.ok) {
+      statusConnectivityFailures.value = 0
       const body = await res.json()
       status.value = body
       emit('status-change', body)
@@ -571,14 +612,16 @@ async function fetchStatus() {
     if (seq !== statusFetchSeq) {
       return
     }
+    statusConnectivityFailures.value += 1
     if (err instanceof Error && err.name === 'AbortError') {
-      console.warn('[AutopilotPanel] fetchStatus 超时，可能后端繁忙')
+      console.warn('[AutopilotPanel] fetchStatus 超时，可能后端繁忙或未启动')
     } else {
       console.error('[AutopilotPanel] fetchStatus error:', err)
     }
   } finally {
     window.clearTimeout(t)
     statusFetchInFlight = false
+    maybeRestartStatusPollTimer()
   }
 }
 
@@ -587,6 +630,22 @@ function clearStatusPoll() {
     clearInterval(statusPollTimer)
     statusPollTimer = null
   }
+  lastStatusPollIntervalMs = -1
+}
+
+/** 轮询间隔变化时（如后端断连退避）重置 timer，避免固定 3～5s 刷满 Vite 代理日志 */
+function maybeRestartStatusPollTimer() {
+  if (statusPollDisabled.value) return
+  const ms = getAdaptivePollInterval()
+  if (statusPollTimer != null && ms === lastStatusPollIntervalMs) {
+    return
+  }
+  lastStatusPollIntervalMs = ms
+  if (statusPollTimer) {
+    clearInterval(statusPollTimer)
+    statusPollTimer = null
+  }
+  statusPollTimer = setInterval(() => fetchStatus(), ms)
 }
 
 // 🔧 优化：SSE 连接管理
@@ -713,10 +772,13 @@ function stopChapterStream() {
 // - 非运行中：3s（用户可能刚操作，需要快速看到状态变化）
 // - 审阅等待中：10s（用户在看大纲，不需要高频刷新）
 function getAdaptivePollInterval() {
-  if (needsReview.value) return 10000
-  if (!isRunning.value) return 3000
-  if (sseConnected.value) return 15000  // SSE 已覆盖实时刷新
-  return 5000  // SSE 断连时需要轮询补偿
+  let base
+  if (needsReview.value) base = 10000
+  else if (!isRunning.value) base = 3000
+  else if (sseConnected.value) base = 15000
+  else base = 5000
+  const mult = Math.min(2 ** Math.min(statusConnectivityFailures.value, 8), 128)
+  return Math.min(base * mult, 120_000)
 }
 
 watch(
@@ -725,8 +787,8 @@ watch(
     clearStatusPoll()
     if (statusPollDisabled.value) return
 
-    const pollInterval = getAdaptivePollInterval()
-    statusPollTimer = setInterval(() => fetchStatus(), pollInterval)
+    lastStatusPollIntervalMs = -1
+    maybeRestartStatusPollTimer()
     void fetchStatus()
 
     // SSE 连接管理（主动拉流时清零重连计数，避免此前误判耗尽后永久无法再连）
@@ -744,11 +806,9 @@ watch(
 watch(
   () => sseConnected.value,
   () => {
-    // 仅在已建立轮询的情况下调整间隔，不重新触发 SSE 连接管理
-    if (statusPollTimer && !statusPollDisabled.value) {
-      clearStatusPoll()
-      const pollInterval = getAdaptivePollInterval()
-      statusPollTimer = setInterval(() => fetchStatus(), pollInterval)
+    if (!statusPollDisabled.value) {
+      lastStatusPollIntervalMs = -1
+      maybeRestartStatusPollTimer()
     }
   }
 )
@@ -757,6 +817,7 @@ watch(
   () => props.novelId,
   () => {
     statusPollDisabled.value = false
+    statusConnectivityFailures.value = 0
     reconnectAttempts = 0
     stopChapterStream()
   }
@@ -1092,6 +1153,45 @@ onUnmounted(() => {
 .tag-active { background: rgba(24, 160, 88, 0.15); color: #18a058; }
 .tag-review { background: rgba(240, 160, 32, 0.15); color: #f0a020; }
 .tag-idle { background: rgba(100, 100, 100, 0.1); color: #999; }
+
+/* 🔥 阶段变更过渡态：骨架 loading 闪烁 */
+.tag-transitioning {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-inline {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.skeleton-pulse {
+  background: linear-gradient(90deg,
+    rgba(99, 102, 241, 0.08) 25%,
+    rgba(99, 102, 241, 0.22) 50%,
+    rgba(99, 102, 241, 0.08) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.stage-transition-label {
+  position: relative;
+  z-index: 2;
+  animation: fade-in-up 0.4s ease;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* 🔧 新增：SSE 连接状态 */
 .sse-status {

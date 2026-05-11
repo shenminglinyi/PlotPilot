@@ -643,26 +643,42 @@ function handleChapterContentUpdate(data: { chapterNumber: number; content: stri
 }
 
 /** 辅助撰稿下不挂载驾驶舱，需独立轮询托管状态以支持「运行中只读」 */
-let assistedAutopilotPollTimer: ReturnType<typeof setInterval> | null = null
+let assistedAutopilotPollTimer: ReturnType<typeof setTimeout> | null = null
 /** 该书在库中不存在(404)时不再轮询 /autopilot/.../status */
 let assistedAutopilot404 = false
+let assistAutopilotPollFailures = 0
+
+function assistedAutopilotPollDelayMs(): number {
+  const base = 4000
+  const mult = Math.min(2 ** Math.min(assistAutopilotPollFailures, 8), 128)
+  return Math.min(base * mult, 60_000)
+}
 
 function clearAssistedAutopilotPoll() {
   if (assistedAutopilotPollTimer != null) {
-    clearInterval(assistedAutopilotPollTimer)
+    clearTimeout(assistedAutopilotPollTimer)
     assistedAutopilotPollTimer = null
   }
+}
+
+function scheduleAssistedAutopilotPoll() {
+  clearAssistedAutopilotPoll()
+  if (assistedAutopilot404 || workMode.value !== 'assisted' || document.hidden) {
+    return
+  }
+  assistedAutopilotPollTimer = window.setTimeout(() => {
+    void pollAutopilotStatusWhileAssisted().finally(() => {
+      scheduleAssistedAutopilotPoll()
+    })
+  }, assistedAutopilotPollDelayMs())
 }
 
 function handleVisibilityChange() {
   if (document.hidden) {
     clearAssistedAutopilotPoll()
   } else if (workMode.value === 'assisted') {
-    void pollAutopilotStatusWhileAssisted()
-    assistedAutopilotPollTimer = setInterval(
-      () => void pollAutopilotStatusWhileAssisted(),
-      4000
-    )
+    assistAutopilotPollFailures = 0
+    void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
   }
 }
 
@@ -673,15 +689,19 @@ async function pollAutopilotStatusWhileAssisted() {
     if (res.status === 404) {
       assistedAutopilot404 = true
       clearAssistedAutopilotPoll()
+      assistAutopilotPollFailures = 0
       return
     }
     if (res.ok) {
+      assistAutopilotPollFailures = 0
       const json = await res.json()
       autopilotStatus.value = json
       maybeEmitDeskRefresh(json)
+    } else {
+      assistAutopilotPollFailures += 1
     }
   } catch {
-    /* 忽略 */
+    assistAutopilotPollFailures += 1
   }
 }
 
@@ -690,13 +710,10 @@ watch(
   () => {
     lastAutopilotDeskSnap.value = null
     assistedAutopilot404 = false
+    assistAutopilotPollFailures = 0
+    clearAssistedAutopilotPoll()
     if (workMode.value === 'assisted') {
-      clearAssistedAutopilotPoll()
-      void pollAutopilotStatusWhileAssisted()
-      assistedAutopilotPollTimer = setInterval(
-        () => void pollAutopilotStatusWhileAssisted(),
-        4000
-      )
+      void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
     }
   }
 )
@@ -705,12 +722,9 @@ watch(
   () => workMode.value,
   (mode) => {
     clearAssistedAutopilotPoll()
+    assistAutopilotPollFailures = 0
     if (mode === 'assisted') {
-      void pollAutopilotStatusWhileAssisted()
-      assistedAutopilotPollTimer = setInterval(
-        () => void pollAutopilotStatusWhileAssisted(),
-        4000
-      )
+      void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
     }
   },
   { immediate: true }
