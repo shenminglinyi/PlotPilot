@@ -11,6 +11,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type {
   DAGDefinition,
+  DagRegistryLinkageResponse,
   NodeDefinition,
   NodeEvent,
   NodeMeta,
@@ -24,6 +25,8 @@ export const useDAGStore = defineStore('dag', () => {
   // ─── DAG 定义（只读展示） ───
   const dagDefinition = ref<DAGDefinition | null>(null)
   const nodeTypeRegistry = ref<Record<string, NodeMeta>>({})
+  /** 后端 linkage_kernel 导出：画布节点 ↔ CPMS 与管线顺序 */
+  const registryLinkage = ref<DagRegistryLinkageResponse | null>(null)
 
   // ─── 节点运行时状态（SSE 推送） ───
   const nodeStates = ref<Map<string, NodeRunState>>(new Map())
@@ -121,6 +124,11 @@ export const useDAGStore = defineStore('dag', () => {
       nodeTypeRegistry.value = result.types
     } catch {
       // 静默失败
+    }
+    try {
+      registryLinkage.value = await dagApi.getRegistryLinkage()
+    } catch {
+      registryLinkage.value = null
     }
   }
 
@@ -227,6 +235,7 @@ export const useDAGStore = defineStore('dag', () => {
     // State
     dagDefinition,
     nodeTypeRegistry,
+    registryLinkage,
     nodeStates,
     edgeFlows,
     nodePromptLive,

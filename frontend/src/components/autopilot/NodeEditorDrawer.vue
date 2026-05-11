@@ -113,7 +113,7 @@
 import { computed, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGStore } from '@/stores/dagStore'
-import { usePromptPlazaBridge, DAG_TYPE_TO_CPMS_KEY } from '@/stores/promptPlazaBridge'
+import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
 
 const dagStore = useDAGStore()
 const plazaBridge = usePromptPlazaBridge()
@@ -163,8 +163,7 @@ function open(nodeId: string, dagId: string) {
   if (!node) return
 
   editingNodeId.value = nodeId
-  const cpmsKey = DAG_TYPE_TO_CPMS_KEY[node.type] || null
-  cpmsNodeKeyValue.value = cpmsKey
+  cpmsNodeKeyValue.value = plazaBridge.getCpmsKey(node.type)
   loadLocalConfig(node)
   isOpen.value = true
 }

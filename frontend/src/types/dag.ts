@@ -172,6 +172,41 @@ export interface NodePromptLive {
   variables: string[]
 }
 
+// ─── DAG ↔ CPMS 联动内核（GET /dag/registry/linkage）───
+
+export interface DagLinkageSubKey {
+  cpms_node_key: string
+  target_variable: string
+  description: string
+  required: boolean
+}
+
+export interface DagLinkageNodeRow {
+  node_id: string
+  node_type: string
+  label: string
+  enabled_default: boolean
+  cpms_node_key: string
+  cpms_sub_keys: DagLinkageSubKey[]
+  prompt_mode: string
+  category: string
+  display_name: string
+}
+
+export interface RegistryCpmsEntry {
+  cpms_node_key: string
+  cpms_sub_keys: DagLinkageSubKey[]
+  prompt_mode: string
+  category: string
+  display_name: string
+}
+
+export interface DagRegistryLinkageResponse {
+  pipeline_node_ids: string[]
+  nodes: DagLinkageNodeRow[]
+  registry_cpms_by_type: Record<string, RegistryCpmsEntry>
+}
+
 // ─── 节点分类 → CSS 变量名映射 ───
 
 export const CATEGORY_COLORS: Record<NodeCategory, string> = {
