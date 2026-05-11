@@ -1,6 +1,8 @@
 """完整数据诊断 v4 - 安全查询"""
 import sys, json
-sys.path.insert(0, r'd:\CODE\aitext')
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from infrastructure.persistence.database.connection import get_database
 
