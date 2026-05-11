@@ -6,8 +6,36 @@ from application.dtos.scene_director_dto import (
     SceneDirectorAnalyzeRequest,
     SceneDirectorAnalyzeResponse,
     ContextRetrieveRequest,
+    coerce_scene_director,
     validate_outline_not_empty,
 )
+
+
+def test_coerce_scene_director_none():
+    assert coerce_scene_director(None) is None
+
+
+def test_coerce_scene_director_passes_dict_through():
+    d = {"characters": ["a"], "locations": []}
+    assert coerce_scene_director(d) is d
+
+
+def test_coerce_scene_director_from_analysis():
+    m = SceneDirectorAnalysis(characters=["李明"], pov="李明")
+    out = coerce_scene_director(m)
+    assert out["characters"] == ["李明"]
+    assert out["pov"] == "李明"
+
+
+def test_coerce_scene_director_response_subclass():
+    r = SceneDirectorAnalyzeResponse(characters=["a"])
+    out = coerce_scene_director(r)
+    assert out["characters"] == ["a"]
+
+
+def test_coerce_scene_director_rejects_bad_type():
+    with pytest.raises(TypeError):
+        coerce_scene_director("invalid")  # type: ignore[arg-type]
 
 
 def test_validate_outline_not_empty_rejects_empty_string():
