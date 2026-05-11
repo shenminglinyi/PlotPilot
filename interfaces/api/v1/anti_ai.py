@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from application.audit.services.anti_ai_audit import get_anti_ai_auditor, AntiAIAuditReport
 from application.engine.rules.allowlist_manager import get_allowlist_manager, AllowlistRule
 from application.engine.rules.positive_framing_rules import POSITIVE_FRAMING_MAP
-from infrastructure.ai.prompt_loader import get_prompt_loader
+from infrastructure.ai.prompt_registry import get_prompt_registry
 
 logger = logging.getLogger(__name__)
 
@@ -130,13 +130,13 @@ async def scan_chapter(request: ScanRequest):
 @router.get("/categories", response_model=List[CategoryInfo])
 async def get_categories():
     """获取提示词分类信息（含 Anti-AI）。"""
-    loader = get_prompt_loader()
-    categories = loader.get_categories()
+    registry = get_prompt_registry()
+    categories = registry.get_categories()
 
     result = []
     for cat in categories:
         key = cat.get("key", "")
-        prompts_in_cat = loader.list_by_category(key)
+        prompts_in_cat = registry.list_by_category(key)
         result.append(CategoryInfo(
             key=key,
             name=cat.get("name", key),
@@ -201,13 +201,13 @@ async def get_allowlist_scenes():
 @router.get("/stats")
 async def get_stats():
     """获取 Anti-AI 系统统计。"""
-    loader = get_prompt_loader()
-    anti_ai_prompts = loader.list_by_category("anti-ai")
+    registry = get_prompt_registry()
+    anti_ai_prompts = registry.list_by_category("anti-ai")
 
     return {
-        "total_prompts": loader.total_count,
+        "total_prompts": registry.total_count,
         "anti_ai_prompts": len(anti_ai_prompts),
-        "categories_count": len(loader.get_categories()),
+        "categories_count": len(registry.get_categories()),
         "cliche_patterns": 35,  # 增强版模式数
         "layers": {
             "L1_positive_framing": len(POSITIVE_FRAMING_MAP),

@@ -1,59 +1,46 @@
 """生成工作流 API 端点"""
 from __future__ import annotations
+
 import json
 import logging
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional
-from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
-from application.engine.services.hosted_write_service import HostedWriteService
-from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
-from domain.novel.services.storyline_manager import StorylineManager
 
-logger = logging.getLogger(__name__)
-from domain.novel.repositories.plot_arc_repository import PlotArcRepository
-from domain.novel.value_objects.novel_id import NovelId
-from domain.novel.value_objects.storyline_type import StorylineType
-from domain.novel.value_objects.tension_level import TensionLevel
-from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
-from domain.novel.entities.plot_arc import PlotArc
-from interfaces.api.dependencies import (
-    get_auto_workflow,
-    get_hosted_write_service,
-    get_storyline_manager,
-    get_plot_arc_repository,
-    get_bible_service,
-    get_novel_service,
-    get_chapter_service,
-    get_auto_bible_generator,
-    get_auto_knowledge_generator,
-    get_setup_main_plot_suggestion_service,
-)
-# from application.services.story_structure_ai_service import StoryStructureAIService  # 已废弃，使用 ContinuousPlanningService
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
-from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
-from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
+from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
+from application.engine.services.hosted_write_service import HostedWriteService
 from application.paths import DATA_DIR
+from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
+from domain.novel.entities.plot_arc import PlotArc
+from domain.novel.repositories.plot_arc_repository import PlotArcRepository
+from domain.novel.services.storyline_manager import StorylineManager
+from domain.novel.value_objects.novel_id import NovelId
+from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
+from domain.novel.value_objects.storyline_type import StorylineType
+from domain.novel.value_objects.tension_level import TensionLevel
+from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
+from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+from interfaces.api.dependencies import (
+    get_auto_bible_generator,
+    get_auto_knowledge_generator,
+    get_auto_workflow,
+    get_bible_service,
+    get_chapter_service,
+    get_hosted_write_service,
+    get_novel_service,
+    get_plot_arc_repository,
+    get_setup_main_plot_suggestion_service,
+    get_storyline_manager,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/novels", tags=["generation"])
-
-
-# 已废弃：StoryStructureAIService 已被 ContinuousPlanningService 替代
-# def get_structure_ai_service() -> StoryStructureAIService:
-#     """获取叙事结构 AI 服务"""
-#     db_path = str(DATA_DIR / "aitext.db")
-#     repository = StoryNodeRepository(db_path)
-#
-#     from application.world.services.bible_service import BibleService
-#     from interfaces.api.dependencies import get_bible_repository
-#
-#     bible_service = BibleService(get_bible_repository())
-#
-#     return StoryStructureAIService(repository, llm_service=None, bible_service=bible_service)
 
 
 def get_continuous_planning_service() -> ContinuousPlanningService:
