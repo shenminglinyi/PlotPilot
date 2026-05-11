@@ -142,7 +142,7 @@ class WriterNode(BaseNode):
             CPMSInjectionPoint(cpms_node_key="anti-ai-allowlist-explain", target_variable="allowlist_block", description="场景化白名单 L3"),
         ],
         prompt_mode=PromptMode.CPMS_FIRST,
-        description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成",
+        description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成；全托管时由 ChapterConductor（铺陈/收束/着陆）控节拍，超硬上限触发 smart_truncate 句界截断",
         default_edges=["val_style", "val_tension", "val_anti_ai"],
     )
 
@@ -253,7 +253,7 @@ class BeatNode(BaseNode):
         can_disable=True,
         default_timeout_seconds=60,
         cpms_node_key="autopilot-stream-beat",
-        description="ContextBuilder.magnify_outline_to_beats",
+        description="ContextBuilder.magnify_outline_to_beats；产出 beats 供剧情引擎按节拍写作与指挥遥测",
         default_edges=["exec_writer"],
     )
 
