@@ -1389,72 +1389,65 @@ def _write_tension_ephemeral(
     tension_score: Optional[float],
     tension_dims: Optional[dict],
 ) -> bool:
-    """🔥 用独立短连接写入章节张力值到 DB。
+    """将章节张力写入 DB（经 `get_database` → 持久化单写者；与 API 进程其它写路径一致）。"""
+    import sqlite3
 
-    核心问题：chapter_repository.db 使用线程本地长连接，在守护进程
-    （multiprocessing.Process）中会长时间持有 SQLite 写锁，阻塞 API 进程。
-    改为独立短连接：打开 → 写入 → 提交 → 关闭，写锁持有时间极短。
-    """
-    import sqlite3 as _sqlite3
-    from application.paths import get_db_path as _get_db_path
+    from application.paths import get_db_path
+    from infrastructure.persistence.database.connection import get_database
 
     try:
-        db_path = _get_db_path()
-        conn = _sqlite3.connect(db_path, timeout=5.0)
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute("PRAGMA synchronous=NORMAL")
-
-            if tension_dims:
-                # 🔥 跳过 unevaluated (-1) 的写入，避免覆盖默认值或历史有效评分
-                composite = tension_dims.get("composite_score", -1)
-                if composite == -1:
-                    logger.warning(
-                        "跳过 unevaluated 张力写入（短连接）novel=%s ch=%s",
-                        novel_id, chapter_number,
-                    )
-                else:
-                    conn.execute(
-                        """UPDATE chapters SET
-                            tension_score = ?,
-                            plot_tension = ?,
-                            emotional_tension = ?,
-                            pacing_tension = ?,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE novel_id = ? AND number = ?""",
-                        (
-                            tension_dims["composite_score"],
-                            tension_dims["plot_tension"],
-                            tension_dims["emotional_tension"],
-                            tension_dims["pacing_tension"],
-                            novel_id,
-                            chapter_number,
-                        ),
-                    )
-                    logger.debug(
-                        "张力维度已落库（短连接）novel=%s ch=%s composite=%.1f",
-                        novel_id, chapter_number, tension_dims["composite_score"],
-                    )
-            elif tension_score is not None:
-                conn.execute(
-                    "UPDATE chapters SET tension_score = ?, updated_at = CURRENT_TIMESTAMP WHERE novel_id = ? AND number = ?",
-                    (float(tension_score), novel_id, chapter_number),
+        db = get_database(get_db_path())
+        if tension_dims:
+            composite = tension_dims.get("composite_score", -1)
+            if composite == -1:
+                logger.warning(
+                    "跳过 unevaluated 张力写入 novel=%s ch=%s",
+                    novel_id,
+                    chapter_number,
+                )
+            else:
+                db.execute(
+                    """UPDATE chapters SET
+                        tension_score = ?,
+                        plot_tension = ?,
+                        emotional_tension = ?,
+                        pacing_tension = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE novel_id = ? AND number = ?""",
+                    (
+                        tension_dims["composite_score"],
+                        tension_dims["plot_tension"],
+                        tension_dims["emotional_tension"],
+                        tension_dims["pacing_tension"],
+                        novel_id,
+                        chapter_number,
+                    ),
                 )
                 logger.debug(
-                    "张力值已落库（短连接）novel=%s ch=%s tension=%.1f",
-                    novel_id, chapter_number, tension_score,
+                    "张力维度已落库 novel=%s ch=%s composite=%.1f",
+                    novel_id,
+                    chapter_number,
+                    tension_dims["composite_score"],
                 )
+        elif tension_score is not None:
+            db.execute(
+                "UPDATE chapters SET tension_score = ?, updated_at = CURRENT_TIMESTAMP WHERE novel_id = ? AND number = ?",
+                (float(tension_score), novel_id, chapter_number),
+            )
+            logger.debug(
+                "张力值已落库 novel=%s ch=%s tension=%.1f",
+                novel_id,
+                chapter_number,
+                tension_score,
+            )
 
-            conn.commit()
-            return True
-        except _sqlite3.OperationalError as e:
-            if "locked" in str(e).lower() or "busy" in str(e).lower():
-                logger.warning("_write_tension_ephemeral: DB 被锁，写入失败: %s", e)
-                return False
-            raise
-        finally:
-            conn.close()
+        db.commit()
+        return True
+    except sqlite3.OperationalError as e:
+        if "locked" in str(e).lower() or "busy" in str(e).lower():
+            logger.warning("_write_tension_ephemeral: DB 被锁，写入失败: %s", e)
+            return False
+        raise
     except Exception as e:
         logger.warning("_write_tension_ephemeral: 张力值落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
         return False
