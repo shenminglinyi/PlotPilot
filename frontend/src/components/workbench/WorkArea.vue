@@ -212,6 +212,7 @@
             :novel-id="slug"
             @status-change="handleAutopilotStatusChange"
             @chapter-content-update="handleChapterContentUpdate"
+            @chapter-chunk="handleChapterChunkStream"
             @desk-refresh="handleAutopilotDeskRefreshFromStream"
           />
         </div>
@@ -657,6 +658,22 @@ function handleChapterContentUpdate(data: { chapterNumber: number; content: stri
 
   // 如果当前正在查看的章节就是正在写作的章节，实时更新编辑框内容
   if (currentChapter.value && currentChapter.value.number === data.chapterNumber) {
+    chapterContent.value = data.content
+  }
+}
+
+/** SSE 增量 chunk：驱动编辑区与托管预览同步打字机式更新（整章快照事件较少，仅靠 snapshot 会卡顿） */
+function handleChapterChunkStream(data: {
+  chunk: string
+  beatIndex: number
+  content: string
+  chapterNumber: number
+}) {
+  const n = data.chapterNumber
+  if (!n) return
+  streamingChapterNumber.value = n
+  streamingContent.value = data.content
+  if (currentChapter.value && currentChapter.value.number === n) {
     chapterContent.value = data.content
   }
 }
