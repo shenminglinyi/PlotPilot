@@ -60,7 +60,20 @@
         <template #trigger>
           <div class="sse-indicator" :class="{ connected: sseConnected }" />
         </template>
-        {{ sseConnected ? 'SSE 实时连接正常' : 'SSE 连接断开' }}
+        {{ sseConnected ? 'SSE 实时连接正常' : 'SSE 连接断开（托管未运行时不会自动重连）' }}
+      </n-tooltip>
+
+      <n-tooltip v-if="registryGapCount > 0" trigger="hover">
+        <template #trigger>
+          <n-tag size="small" type="error" round>缺注册 {{ registryGapCount }}</n-tag>
+        </template>
+        画布上有节点类型未在引擎注册表中找到，详见上方提示条。
+      </n-tooltip>
+      <n-tooltip v-else-if="linkageFailed" trigger="hover">
+        <template #trigger>
+          <n-tag size="small" type="warning" round>联动</n-tag>
+        </template>
+        注册表联动接口未加载完成，广场映射可能不完整。
       </n-tooltip>
     </div>
 
@@ -84,6 +97,13 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useDAGStore } from '@/stores/dagStore'
+
+const dagStore = useDAGStore()
+const registryGapCount = computed(() => dagStore.registryGaps.length)
+const linkageFailed = computed(() => dagStore.registryLinkageFailed)
+
 const props = defineProps<{
   novelId: string
   dagStats: {

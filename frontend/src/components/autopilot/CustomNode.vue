@@ -8,6 +8,12 @@
     <div class="node-header" :style="{ borderColor: categoryColor }">
       <span class="node-icon">{{ meta?.icon || '📦' }}</span>
       <span class="node-label">{{ data.label || meta?.display_name || data.id }}</span>
+      <n-tooltip v-if="registryMissing" trigger="hover">
+        <template #trigger>
+          <span class="reg-miss" aria-label="类型未注册">⚠</span>
+        </template>
+        该节点类型未在已加载的注册表中找到，元数据与提示词广场可能不可用。
+      </n-tooltip>
       <n-tag size="tiny" :type="statusTagType" round>{{ statusLabel }}</n-tag>
       <n-tag v-if="!data.enabled" size="tiny" type="default" round>禁用</n-tag>
     </div>
@@ -83,10 +89,13 @@ const data = computed(() => props.data as {
   type: string
   label: string
   enabled: boolean
+  registryMissing?: boolean
   runState?: { status: NodeStatus; metrics: Record<string, number>; progress: number; duration_ms: number }
   isSelected: boolean
   [key: string]: unknown
 })
+
+const registryMissing = computed(() => Boolean(data.value.registryMissing))
 
 const meta = computed((): NodeMeta | null => {
   const nodeType = data.value.type
@@ -288,6 +297,13 @@ function portStyle(dataType: PortDataType) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.reg-miss {
+  cursor: help;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 /* ── 节点主体 ── */
