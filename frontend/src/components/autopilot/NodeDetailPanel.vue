@@ -79,6 +79,38 @@
         </div>
       </div>
 
+      <!-- 全托管写作遥测（与 /autopilot/.../status 同源） -->
+      <div v-if="showWritingTelemetry" class="detail-section">
+        <div class="section-title">全托管写作遥测</div>
+        <n-text v-if="writingPollError" depth="3" style="font-size: 12px">{{ writingPollError }}</n-text>
+        <div v-else-if="writingStatus" class="detail-grid">
+          <span class="detail-label">阶段</span>
+          <span>{{ writingStatus.current_stage || '—' }}</span>
+          <span class="detail-label">子步骤</span>
+          <span>{{ writingStatus.writing_substep_label || writingStatus.writing_substep || '—' }}</span>
+          <span class="detail-label">章节字数</span>
+          <span>{{ writingStatus.accumulated_words ?? 0 }} / {{ writingStatus.chapter_target_words ?? 0 }}</span>
+          <span class="detail-label">节拍</span>
+          <span>
+            第 {{ (Number(writingStatus.current_beat_index) || 0) + 1 }} / {{ writingStatus.total_beats || 0 }} 节
+            <template v-if="writingStatus.beat_target_words"> · 本拍目标 {{ writingStatus.beat_target_words }} 字</template>
+          </span>
+          <span class="detail-label">指挥相位</span>
+          <span>{{ beatPhaseLabel }}</span>
+          <span class="detail-label">硬上限 / 建议</span>
+          <span>{{ writingStatus.beat_hard_cap ?? 0 }} / {{ writingStatus.beat_max_words_hint ?? 0 }} 字</span>
+          <span class="detail-label">剩余预算</span>
+          <span>{{ writingStatus.beat_remaining_budget ?? 0 }} 字</span>
+          <span class="detail-label">上下文 token</span>
+          <span>{{ writingStatus.context_tokens ?? 0 }}</span>
+          <span class="detail-label">节拍焦点</span>
+          <span>{{ writingStatus.beat_focus || '—' }}</span>
+          <span class="detail-label">最近智能截断</span>
+          <span>{{ lastTruncateLine || '无' }}</span>
+        </div>
+        <n-text v-else depth="3" style="font-size: 12px">加载中…</n-text>
+      </div>
+
       <!-- 默认连线 -->
       <div v-if="meta.default_edges.length > 0" class="detail-section">
         <div class="section-title">默认下游</div>
@@ -119,11 +151,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref } from 'vue'
+import { computed, watch, ref, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { NodeMeta, NodePromptLive, NodeStatus } from '@/types/dag'
 import { CATEGORY_LABELS } from '@/types/dag'
 import { useDAGStore } from '@/stores/dagStore'
+import { resolveHttpUrl } from '@/api/config'
 
 const props = defineProps<{
   show: boolean
@@ -141,6 +174,13 @@ const message = useMessage()
 const promptLive = ref<NodePromptLive | null>(null)
 const promptLoading = ref(false)
 
+/** GET /autopilot/{id}/status 拉取的实时块（写作/指挥/截断） */
+const writingStatus = ref<Record<string, unknown> | null>(null)
+const writingPollError = ref('')
+let writingPollTimer: ReturnType<typeof setInterval> | null = null
+
+const WRITING_TELEMETRY_TYPES = new Set(['exec_writer', 'exec_beat'])
+
 // ─── 节点基本信息 ───
 
 const nodeDef = computed(() => {
@@ -154,6 +194,80 @@ const meta = computed((): NodeMeta | null => {
   if (!nodeDef.value) return null
   return dagStore.nodeTypeRegistry[nodeDef.value.type] || null
 })
+
+// ─── 全托管写作遥测（依赖 meta，watch 须放在 meta 之后，避免 TDZ / immediate 读 meta 崩溃）───
+
+const showWritingTelemetry = computed(() => {
+  const t = meta.value?.node_type
+  return Boolean(t && WRITING_TELEMETRY_TYPES.has(t))
+})
+
+const beatPhaseLabel = computed(() => {
+  const raw = String(writingStatus.value?.beat_phase || '')
+  const map: Record<string, string> = {
+    unfurl: '铺陈 (unfurl)',
+    converge: '收束 (converge)',
+    land: '着陆 (land)',
+  }
+  return map[raw] || raw || '—'
+})
+
+const lastTruncateLine = computed(() => {
+  const t = writingStatus.value?.last_smart_truncate
+  if (!t || typeof t !== 'object') return ''
+  const o = t as Record<string, unknown>
+  const from = o.from_chars
+  const to = o.to_chars
+  const cap = o.hard_cap
+  const bi = o.beat_index_1based
+  const tb = o.total_beats
+  const ph = o.phase
+  if (from == null && to == null) return ''
+  return `节拍 ${bi}/${tb} · ${from}→${to} 字 · 硬上限 ${cap} · 相位 ${ph}`
+})
+
+async function fetchWritingTelemetry() {
+  if (!props.novelId || !showWritingTelemetry.value) return
+  writingPollError.value = ''
+  try {
+    const res = await fetch(resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/status`))
+    if (res.status === 404) {
+      writingStatus.value = null
+      writingPollError.value = '该书暂无托管状态'
+      return
+    }
+    if (!res.ok) {
+      writingPollError.value = `状态 ${res.status}`
+      return
+    }
+    writingStatus.value = (await res.json()) as Record<string, unknown>
+  } catch (e) {
+    writingPollError.value = e instanceof Error ? e.message : '网络错误'
+  }
+}
+
+function clearWritingPoll() {
+  if (writingPollTimer != null) {
+    clearInterval(writingPollTimer)
+    writingPollTimer = null
+  }
+}
+
+watch(
+  () => [props.show, props.novelId, meta.value?.node_type ?? ''] as const,
+  ([open, nid, nodeType]) => {
+    clearWritingPoll()
+    writingStatus.value = null
+    writingPollError.value = ''
+    const telemetry = Boolean(nodeType && WRITING_TELEMETRY_TYPES.has(nodeType))
+    if (!open || !nid || !telemetry) return
+    void fetchWritingTelemetry()
+    writingPollTimer = setInterval(() => void fetchWritingTelemetry(), 2500)
+  },
+  { immediate: true }
+)
+
+onUnmounted(() => clearWritingPoll())
 
 const runState = computed(() => {
   if (!props.nodeId) return null

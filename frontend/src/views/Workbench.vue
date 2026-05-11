@@ -62,7 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed, ref, watch, type ComponentPublicInstance } from 'vue'
+import { onMounted, onUnmounted, computed, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { useWorkbench } from '../composables/useWorkbench'
@@ -74,6 +74,7 @@ import WorkArea from '../components/workbench/WorkArea.vue'
 import SettingsPanel from '../components/workbench/SettingsPanel.vue'
 import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
 import LLMSettingsModal from '../components/LLMSettingsModal.vue'
+import { WORKBENCH_CHAPTER_DESK_CHANGE_EVENT } from '../workbench/deskEvents'
 
 const route = useRoute()
 const message = useMessage()
@@ -96,6 +97,10 @@ const handleChapterUpdated = async () => {
   window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
   chapterListRef.value?.refreshStoryTree?.()
   workbenchRefresh.bumpAfterChapterDeskChange()
+}
+
+function onDeskChangeSignalFromPanels() {
+  void handleChapterUpdated()
 }
 
 // 幕→章 规划弹层
@@ -151,6 +156,7 @@ async function syncChapterFromRoute() {
 }
 
 onMounted(async () => {
+  window.addEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
   try {
     await loadDesk()
     await syncChapterFromRoute()
@@ -160,6 +166,10 @@ onMounted(async () => {
   } finally {
     pageLoading.value = false
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
 })
 
 watch(
