@@ -1,7 +1,5 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import { useMediaQuery, useStorage } from '@vueuse/core'
-import type { ChapterDeskDeepSurfaceId } from '../workbench/chapterDeskSurface'
-import { CHAPTER_DESK_DEEP_SURFACES, chapterDeskDeepLabel } from '../workbench/chapterDeskSurface'
 
 const STACK_MEDIA = '(max-width: 992px)'
 const STORAGE_RAIL_EXPANDED = 'aitext.chapterDesk.railExpanded'
@@ -12,8 +10,8 @@ export interface UseChapterDeskLayoutOptions {
 }
 
 /**
- * 章节工作台布局状态机：栈式断点、侧栏显隐、深度抽屉。
- * 不含任何业务 API；宿主负责把 drawerSurface 映射到具体子组件。
+ * 章节工作台布局状态机：栈式断点、任务侧栏显隐。
+ * 主栏 Tab（正文 / 元素 / 护栏 / 溯源）由宿主自行管理，保持本层与业务解耦。
  */
 export function useChapterDeskLayout(options: UseChapterDeskLayoutOptions = {}) {
   const mq = options.stackMediaQuery ?? STACK_MEDIA
@@ -29,56 +27,20 @@ export function useChapterDeskLayout(options: UseChapterDeskLayoutOptions = {}) 
     { immediate: true }
   )
 
-  const deepDrawerOpen = ref(false)
-  const deepDrawerSurface = ref<ChapterDeskDeepSurfaceId | null>(null)
-
-  const deepDrawerTitle = computed(() =>
-    deepDrawerSurface.value ? chapterDeskDeepLabel(deepDrawerSurface.value) : ''
-  )
-
-  function openDeepDrawer(surface: ChapterDeskDeepSurfaceId) {
-    if (stacked.value) {
-      railExpanded.value = false
-    }
-    deepDrawerSurface.value = surface
-    deepDrawerOpen.value = true
-  }
-
-  function closeDeepDrawer() {
-    deepDrawerOpen.value = false
-    deepDrawerSurface.value = null
-  }
-
   function toggleRail() {
-    if (stacked.value) {
-      const next = !railExpanded.value
-      if (next) closeDeepDrawer()
-      railExpanded.value = next
-      return
-    }
     railExpanded.value = !railExpanded.value
   }
 
   function expandRail() {
-    if (stacked.value) {
-      closeDeepDrawer()
-    }
     railExpanded.value = true
   }
 
-  watch(railExpanded, (v) => {
-    if (v && stacked.value) {
-      closeDeepDrawer()
-    }
-  })
-
-  /** 回到「只写正文」：关深度抽屉；窄屏顺带收起任务侧栏 */
+  /** 回到正文优先：窄屏顺带收起任务侧栏（主栏 Tab 由宿主切到「章节编辑」） */
   function focusManuscript() {
-    closeDeepDrawer()
     if (stacked.value) railExpanded.value = false
   }
 
-  /** 流式 / 快速生成结束后：提示用户看侧栏信号 */
+  /** 流式 / 快速生成结束后：展开侧栏便于看质检 */
   function nudgeRailAfterGeneration() {
     expandRail()
   }
@@ -86,12 +48,6 @@ export function useChapterDeskLayout(options: UseChapterDeskLayoutOptions = {}) 
   return reactive({
     stacked,
     railExpanded,
-    deepDrawerOpen,
-    deepDrawerSurface,
-    deepDrawerTitle,
-    deepMeta: CHAPTER_DESK_DEEP_SURFACES,
-    openDeepDrawer,
-    closeDeepDrawer,
     toggleRail,
     expandRail,
     focusManuscript,
