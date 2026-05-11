@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
-from application.services.context_builder import ContextBuilder
+from application.engine.services.context_builder import ContextBuilder
 from application.dtos.generation_result import GenerationResult
 from domain.novel.services.consistency_checker import ConsistencyChecker
 from domain.novel.services.storyline_manager import StorylineManager
@@ -15,9 +15,15 @@ from domain.ai.value_objects.token_usage import TokenUsage
 @pytest.fixture
 def mock_dependencies():
     """创建所有 mock 依赖"""
-    # Mock ContextBuilder
     context_builder = Mock(spec=ContextBuilder)
     context_builder.build_context.return_value = "Full context with 35K tokens"
+    context_builder.build_structured_context.return_value = {
+        "layer1_text": "mock_layer1",
+        "layer2_text": "mock_layer2",
+        "layer3_text": "mock_layer3",
+        "token_usage": {"layer1": 100, "layer2": 50, "layer3": 25, "total": 8750},
+    }
+    context_builder.build_voice_anchor_system_section.return_value = ""
     context_builder.estimate_tokens.return_value = 8750
 
     # Mock ConsistencyChecker
