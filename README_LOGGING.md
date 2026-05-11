@@ -13,9 +13,19 @@ LOG_FILE=logs/aitext.log
 
 ### 2. 启动后端
 
+推荐（与根目录 README 一致，端口 **8005**）：
+
+```bash
+uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
+```
+
+也可直接运行 FastAPI 入口模块（默认 **`0.0.0.0:8000`**，与上式端口不同）：
+
 ```bash
 python interfaces/main.py
 ```
+
+如需与前端开发代理一致，请改用 uvicorn 并指定 `--port 8005`，或修改 `interfaces/main.py` 末尾 `uvicorn.run` 的端口。
 
 启动时会看到：
 
