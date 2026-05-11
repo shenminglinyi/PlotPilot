@@ -12,7 +12,7 @@ from application.engine.narrative_projection.dag_runtime_projection import (
 
 def _nodes_from_default_dag():
     dag = get_default_dag()
-    return [(n.id, n.enabled) for n in dag.nodes]
+    return [(n.id, n.type, n.enabled) for n in dag.nodes]
 
 
 def test_snapshot_from_shared_defaults():
@@ -54,6 +54,18 @@ def test_book_completed_all_pipeline_success():
         "gw_review",
     ):
         assert out[nid]["status"] == "success", nid
+
+
+def test_auditing_audit_progress_aftermath_pipeline():
+    s = NarrativeRuntimeSnapshot("n1", "running", "auditing", "", "aftermath_pipeline")
+    out = project_node_states(_nodes_from_default_dag(), s)
+    assert out["val_narrative"]["status"] == "running"
+
+
+def test_auditing_audit_progress_tension_scoring():
+    s = NarrativeRuntimeSnapshot("n1", "running", "auditing", "", "tension_scoring")
+    out = project_node_states(_nodes_from_default_dag(), s)
+    assert out["val_tension"]["status"] == "running"
 
 
 def test_sse_events_only_on_diff():
