@@ -3,6 +3,7 @@
 SQLite 单机多写竞争者全部经 mp.Queue → 单一消费者线程顺序提交，从源头消除 database is locked。"""
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -12,6 +13,9 @@ from typing import Any, List, Optional, Tuple, Union
 logger = logging.getLogger(__name__)
 
 _sqlite_writer_thread_ident: Optional[int] = None
+
+# interfaces.main startup：在持久化消费者线程就绪之前允许直连 SQLite（见 startup_sqlite_writes_bypass_queue）
+_startup_sqlite_bootstrap_depth = 0
 
 
 def register_sqlite_writer_thread() -> None:
@@ -31,8 +35,27 @@ def is_sqlite_writer_thread() -> bool:
     )
 
 
+@contextlib.contextmanager
+def startup_sqlite_writes_bypass_queue():
+    """在持久化消费者线程启动前，临时允许调用方线程直连 SQLite（启动钩子专用）。
+
+    典型用法：`interfaces.main` 中先于 `_bootstrap_persistence_consumer_early()` 复位运行中标志，
+    避免「writer + 主线程第二连接」在异常锁竞争下卡住整个 busy_timeout（默认可达 30s）。
+
+    注意：上下文内不要使用 ``await``，也不要在已进入消费者循环后套用。
+    """
+    global _startup_sqlite_bootstrap_depth
+    _startup_sqlite_bootstrap_depth += 1
+    try:
+        yield
+    finally:
+        _startup_sqlite_bootstrap_depth -= 1
+
+
 def allow_direct_sqlite_writes() -> bool:
-    """脚本/迁移/个别单测可走直连写库；正式 API 默认 False。"""
+    """脚本 / 迁移 / 启动早期 bypass / 个别单测可走直连写库；正式运行时默认走队列。"""
+    if _startup_sqlite_bootstrap_depth > 0:
+        return True
     v = os.environ.get("AITEXT_ALLOW_DIRECT_SQLITE_WRITES", "").strip().lower()
     return v in ("1", "true", "yes")
 
