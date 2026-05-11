@@ -157,7 +157,6 @@ interface Props {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
-  'rollback': []
   'refresh': []
 }>()
 
@@ -201,7 +200,6 @@ function handleRollback() {
       try {
         const res = await snapshotApi.rollback(props.slug, snapshot.id)
         message.success(`已回滚，移除 ${res.deleted_count} 个章节`)
-        emit('rollback')
         emit('refresh')
       } catch (err: any) {
         message.error(err.message || '回滚失败')

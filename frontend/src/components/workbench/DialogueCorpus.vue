@@ -83,6 +83,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { sandboxApi, type DialogueWhitelistResponse, type DialogueEntry } from '@/api/sandbox'
 import { bibleApi } from '@/api/bible'
+import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
 
 interface Props {
   slug: string
@@ -183,6 +184,16 @@ watch(() => props.slug, () => {
 onMounted(() => {
   void loadCharacterNames()
   void load()
+})
+
+useWorkbenchDeskTickReload(() => {
+  void loadCharacterNames()
+  void load()
+})
+
+defineExpose({
+  load,
+  loadCharacterNames,
 })
 </script>
 

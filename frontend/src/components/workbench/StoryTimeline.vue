@@ -80,6 +80,7 @@ import { ref, watch, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { chroniclesApi, type ChronicleRow } from '@/api/chronicles'
 import { snapshotApi } from '@/api/snapshot'
+import { useWorkbenchPlotTimelineReload } from '@/composables/useWorkbenchNarrativeSync'
 
 interface Props {
   slug: string
@@ -164,6 +165,8 @@ watch(() => props.slug, () => void load(), { immediate: true })
 onMounted(() => {
   void load()
 })
+
+useWorkbenchPlotTimelineReload(() => void load())
 </script>
 
 <style scoped>

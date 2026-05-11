@@ -293,6 +293,7 @@ import {
   type ValidateBehaviorResponse,
 } from '@/api/engineCore'
 import { bibleApi } from '@/api/bible'
+import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
 
 interface Props {
   slug: string
@@ -411,6 +412,7 @@ async function saveAnchor() {
 
     // 重新加载
     await loadCharacterData()
+    emit('refresh')
   } catch (err: any) {
     message.error(err.message || '保存锚点失败')
   } finally {
@@ -462,6 +464,10 @@ async function runValidate() {
 watch(() => props.selectedCharacterId, () => {
   void loadCharacterData()
 }, { immediate: true })
+
+useWorkbenchDeskTickReload(() => {
+  if (props.selectedCharacterId) void loadCharacterData()
+})
 </script>
 
 <style scoped>
