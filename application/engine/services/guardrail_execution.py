@@ -6,6 +6,22 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+
+def normalize_violation_severity_for_api(severity: Any) -> str:
+    """将引擎侧 0–1 数值严重度或已有字符串转为 API/前端使用的标签。"""
+    if isinstance(severity, (int, float)):
+        x = float(severity)
+        if x >= 0.75:
+            return "error"
+        if x >= 0.45:
+            return "warning"
+        return "info"
+    if severity is None:
+        return "info"
+    s = str(severity).strip()
+    return s if s else "info"
+
+
 DIMENSION_META = [
     ("language_style", "语言风格", 0.25),
     ("character_consistency", "角色一致性", 0.25),
@@ -43,7 +59,7 @@ def _violations_from_quality_error(e: Any) -> List[Dict[str, Any]]:
                 {
                     "dimension": v.get("dimension", ""),
                     "type": v.get("type", ""),
-                    "severity": v.get("severity", "error"),
+                    "severity": normalize_violation_severity_for_api(v.get("severity", "error")),
                     "description": v.get("description", str(v)),
                     "original": v.get("original", ""),
                     "suggestion": v.get("suggestion", ""),
@@ -78,7 +94,7 @@ def quality_report_to_snapshot_dict(report: Any) -> Dict[str, Any]:
             {
                 "dimension": v.get("dimension", ""),
                 "type": v.get("type", ""),
-                "severity": v.get("severity", "info"),
+                "severity": normalize_violation_severity_for_api(v.get("severity", "info")),
                 "description": v.get("description", ""),
                 "original": v.get("original", ""),
                 "suggestion": v.get("suggestion", ""),
