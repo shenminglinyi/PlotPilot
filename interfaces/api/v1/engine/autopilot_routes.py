@@ -539,6 +539,19 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "_from_shared_memory": True,
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
+        "writing_substep": shared.get("writing_substep", ""),
+        "writing_substep_label": shared.get("writing_substep_label", ""),
+        "total_beats": shared.get("total_beats", 0),
+        "beat_focus": shared.get("beat_focus", ""),
+        "beat_target_words": shared.get("beat_target_words", 0),
+        "accumulated_words": shared.get("accumulated_words", 0),
+        "chapter_target_words": shared.get("chapter_target_words", 0),
+        "context_tokens": shared.get("context_tokens", 0),
+        "beat_hard_cap": shared.get("beat_hard_cap", 0),
+        "beat_phase": shared.get("beat_phase", ""),
+        "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
+        "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
+        "last_smart_truncate": shared.get("last_smart_truncate"),
     }
 
 
@@ -692,6 +705,11 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "accumulated_words": shared.get("accumulated_words", 0),
         "chapter_target_words": shared.get("chapter_target_words", 0),
         "context_tokens": shared.get("context_tokens", 0),
+        "beat_hard_cap": shared.get("beat_hard_cap", 0),
+        "beat_phase": shared.get("beat_phase", ""),
+        "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
+        "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
+        "last_smart_truncate": shared.get("last_smart_truncate"),
     }
 
 

@@ -1497,6 +1497,9 @@ class AutopilotDaemon:
                 if i < start_beat:
                     continue  # 跳过已生成的节拍
 
+                # 获取指挥信号（铺陈/收束/着陆）——须在共享状态写入前取得，供遥测字段使用
+                signal = conductor.get_signal(i)
+
                 # 🔥 节拍开始前，立即更新共享状态（前端实时看到当前节拍）
                 beat_focus = getattr(beat, 'focus', '') or ''
                 beat_target_words = getattr(beat, 'target_words', 0) or 0
@@ -1511,6 +1514,11 @@ class AutopilotDaemon:
                     accumulated_words=len(accumulated_content),
                     chapter_target_words=target_word_count,
                     context_tokens=bundle.get('context_tokens', 0) if bundle else 0,
+                    beat_hard_cap=int(signal.hard_cap or 0),
+                    beat_phase=signal.phase.value,
+                    beat_max_words_hint=int(signal.max_words_hint or 0),
+                    beat_remaining_budget=int(signal.remaining_budget),
+                    last_smart_truncate=None,
                 )
 
                 if not self._is_still_running(novel):
@@ -1528,8 +1536,6 @@ class AutopilotDaemon:
                         )
                     return
 
-                # 获取指挥信号（铺陈/收束/着陆）
-                signal = conductor.get_signal(i)
                 adjusted_target = conductor.allocate_beat(beat.target_words, focus=beat.focus)  # ★ Phase 2: 传入 focus 用于免疫判断
 
                 beat_prompt = self.context_builder.build_beat_prompt(beat, i, len(beats))
@@ -1597,6 +1603,17 @@ class AutopilotDaemon:
                             f"[{novel.novel_id}] ⚡ 智能截断：节拍 {i + 1} "
                             f"{original_len} → {len(beat_content)} 字 "
                             f"(硬上限 {signal.hard_cap} 字)"
+                        )
+                        self._update_shared_state(
+                            novel.novel_id.value,
+                            last_smart_truncate={
+                                "beat_index_1based": i + 1,
+                                "total_beats": len(beats),
+                                "from_chars": original_len,
+                                "to_chars": len(beat_content),
+                                "hard_cap": int(signal.hard_cap),
+                                "phase": signal.phase.value,
+                            },
                         )
 
                     # ★ 子步骤状态：软着陆
