@@ -344,17 +344,18 @@ class AutopilotDaemon:
 
     _EPHEMERAL_PRAGMAS = [
         "PRAGMA journal_mode=WAL",
-        "PRAGMA busy_timeout=15000",
+        "PRAGMA busy_timeout=30000",
         "PRAGMA synchronous=NORMAL",
         "PRAGMA temp_store=MEMORY",
         "PRAGMA cache_size=-32768",
+        "PRAGMA foreign_keys=ON",
     ]
 
     def _write_db_critical(self, sql: str, params: tuple = (), timeout: float = 15.0) -> bool:
         """🔥 关键路径专用：独立短连接直接写 DB（写完立即关闭）。
 
         仅用于 completed 状态等必须同步落库的场景。
-        PRAGMA 配置已与 API 进程对齐（busy_timeout=15s, temp_store=MEMORY），
+        PRAGMA 配置已与 API 进程对齐（busy_timeout=30s, temp_store=MEMORY），
         大幅降低因锁竞争导致的写入失败。
         """
         from application.paths import get_db_path
@@ -466,6 +467,7 @@ class AutopilotDaemon:
         处理枚举/bool/JSON 转换后构建 SQL 并推队列。
         """
         from domain.novel.entities.novel import AutopilotStatus as _APS, NovelStage as _NS
+        from application.engine.services.persistence_queue import PersistenceCommandType
 
         # 枚举转换（与 _patch_novel_ephemeral 一致）
         processed = {}
@@ -508,7 +510,7 @@ class AutopilotDaemon:
             conn = sqlite3.connect(path, timeout=timeout)
             try:
                 conn.row_factory = sqlite3.Row
-                conn.execute("PRAGMA busy_timeout=5000")
+                conn.execute("PRAGMA busy_timeout=30000")
                 conn.execute("PRAGMA journal_mode=WAL")
                 agg_rows = conn.execute(
                     "SELECT status, SUM(LENGTH(COALESCE(content,''))) as total_wc "
@@ -545,10 +547,10 @@ class AutopilotDaemon:
         from application.paths import get_db_path
 
         path = get_db_path()
-        conn = sqlite3.connect(path, timeout=5.0)  # 缩短超时
+        conn = sqlite3.connect(path, timeout=15.0)
         try:
-            # 启用 WAL 模式确保读到最新提交
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=30000")
             conn.row_factory = sqlite3.Row
             cur = conn.execute(
                 "SELECT autopilot_status FROM novels WHERE id = ?",
@@ -1213,8 +1215,10 @@ class AutopilotDaemon:
                     logger.warning(f"[{novel.novel_id}] 动态幕生成失败: {e}")
 
             if not target_act:
-                logger.error(f"[{novel.novel_id}] 找不到第 {target_act_number} 幕，且动态生成失败")
-                novel.current_stage = NovelStage.WRITING
+                logger.error(f"[{novel.novel_id}] 找不到第 {target_act_number} 幕，且动态生成失败，回退到宏观规划")
+                novel.current_stage = NovelStage.MACRO_PLANNING
+                novel.current_act = 0
+                self._flush_novel(novel)
                 return
 
         # 检查该幕下是否已有章节节点（避免重复规划）

@@ -144,6 +144,13 @@ def recover_all_drafts() -> int:
 
         except Exception as e:
             logger.error("[AOF] 恢复 .draft 失败: %s: %s", path, e)
+            # FOREIGN KEY 约束失败说明关联小说已不存在，删除孤立的 .draft 文件
+            if "FOREIGN KEY" in str(e):
+                try:
+                    path.unlink()
+                    logger.info("[AOF] 已删除孤立 .draft 文件（小说已不存在）: %s", path)
+                except Exception:
+                    pass
 
     if recovered > 0:
         logger.info("[AOF] 共恢复 %d 个章节的草稿数据", recovered)
