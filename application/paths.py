@@ -8,7 +8,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# application/paths.py → 仓库根目录 aitext/
+# application/paths.py → PlotPilot（墨枢）仓库根目录
 AITEXT_ROOT = Path(__file__).resolve().parents[1]
 
 # 环境变量名：由 Tauri 生产构建在启动 Python 子进程时注入，指向用户可写目录（如 AppData）

@@ -18,7 +18,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-# 必须在其他 aitext 模块导入前执行：将仓库根目录 `.env` 写入 os.environ
+# 必须在其他应用模块导入前执行：将仓库根目录 `.env` 写入 os.environ
 _AITEXT_ROOT = Path(__file__).resolve().parents[1]
 if str(_AITEXT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AITEXT_ROOT))
