@@ -112,6 +112,8 @@ class ChapterAftermathPipeline:
             "causal_edges_stored": False,
             "character_mutations_stored": False,
             "debt_updated": False,
+            "guardrail_passed": None,
+            "guardrail_score": None,
         }
 
         if not content or not str(content).strip():
@@ -188,5 +190,62 @@ class ChapterAftermathPipeline:
 
         # 3) 结构树 KG 推断
         await infer_kg_from_chapter(novel_id, chapter_number)
+
+        # 4) 质量护栏（建议模式）+ 快照落库 + 溯源（与手动 POST /guardrail/check 同源）
+        try:
+            import asyncio
+            import time
+            import uuid
+            from datetime import datetime, timezone
+
+            from application.engine.services.guardrail_execution import run_guardrail_advise_sync
+            from engine.core.ports.ports import TraceRecord
+            from engine.infrastructure.persistence.trace_store import SqliteTraceStore
+            from infrastructure.persistence.database.chapter_guardrail_snapshot_repository import (
+                ChapterGuardrailSnapshotRepository,
+            )
+            from infrastructure.persistence.database.connection import get_database
+
+            t0 = time.perf_counter()
+            dto = await asyncio.to_thread(
+                run_guardrail_advise_sync,
+                novel_id,
+                content,
+                f"第{chapter_number}章（保存后自动）",
+            )
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            out["guardrail_passed"] = bool(dto.get("passed"))
+            out["guardrail_score"] = dto.get("overall_score")
+
+            db = get_database()
+            repo = ChapterGuardrailSnapshotRepository(db)
+            await asyncio.to_thread(repo.upsert, novel_id, chapter_number, dto)
+
+            vsummary: list[str] = []
+            for v in dto.get("violations") or []:
+                if isinstance(v, dict) and v.get("description"):
+                    vsummary.append(str(v["description"])[:120])
+                if len(vsummary) >= 20:
+                    break
+
+            store = SqliteTraceStore(db)
+            trace = TraceRecord(
+                trace_id=str(uuid.uuid4()),
+                node_type="guardrail",
+                operation="chapter_after_save",
+                input_summary=f"{novel_id} ch{chapter_number} len={len(content)}"[:200],
+                output_summary=(
+                    f"passed={dto.get('passed')} score={dto.get('overall_score')} "
+                    f"viol={len(dto.get('violations') or [])}"
+                )[:200],
+                score=float(dto.get("overall_score") or 0.0),
+                violations=vsummary,
+                duration_ms=elapsed_ms,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                novel_id=novel_id,
+            )
+            await store.record(trace)
+        except Exception as e:
+            logger.warning("自动护栏/溯源失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
         return out

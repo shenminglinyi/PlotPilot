@@ -158,13 +158,6 @@ def _get_checkpoint_store():
     return get_checkpoint_store()
 
 
-def _get_quality_guardrail():
-    """获取 QualityGuardrail（通过 DI）"""
-    from interfaces.api.dependencies import get_quality_guardrail
-    return get_quality_guardrail()
-
-
-def _get_cast_graph(novel_id: str):
     """从 CastService 获取角色图"""
     from interfaces.api.dependencies import get_cast_service
     cast_service = get_cast_service()
@@ -336,90 +329,20 @@ async def guardrail_check(novel_id: str, body: GuardrailCheckRequest):
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
-    guardrail = _get_quality_guardrail()
-
-    # 尝试从 Cast 服务获取角色面具
-    character_masks = {}
     try:
-        from engine.core.value_objects.character_mask import CharacterMask
-        cast_graph = _get_cast_graph(novel_id)
-        for ch in (cast_graph.characters or []):
-                mask = CharacterMask(
-                    character_id=getattr(ch, 'id', '') or '',
-                    name=ch.name,
-                    core_belief="",
-                )
-                character_masks[ch.name] = mask
-    except Exception:
-        pass  # Cast 服务不可用时用空面具
+        from application.engine.services.guardrail_execution import run_guardrail_sync
 
-    try:
-        if body.mode == "enforce":
-            report = guardrail.enforce(
-                text=body.text,
-                character_masks=character_masks or None,
-                chapter_goal=body.chapter_goal,
-                character_names=body.character_names or None,
-                era=body.era,
-                scene_type=body.scene_type,
-            )
-        else:
-            report = guardrail.advise(
-                text=body.text,
-                character_masks=character_masks or None,
-                chapter_goal=body.chapter_goal,
-                character_names=body.character_names or None,
-                era=body.era,
-                scene_type=body.scene_type,
-            )
-
-        DIMENSION_META = [
-            ("language_style", "语言风格", 0.25),
-            ("character_consistency", "角色一致性", 0.25),
-            ("plot_density", "情节密度", 0.20),
-            ("naming", "命名", 0.05),
-            ("viewpoint", "视角", 0.10),
-            ("rhythm", "节奏", 0.15),
-        ]
-
-        dimensions = []
-        for key, name, weight in DIMENSION_META:
-            score = getattr(report, f"{key}_score", 0.0)
-            dimensions.append(GuardrailDimensionScore(name=name, key=key, score=round(score, 3), weight=weight))
-
-        violations = []
-        for v in report.all_violations:
-            violations.append(GuardrailViolationDTO(
-                dimension=v.get("dimension", ""),
-                type=v.get("type", ""),
-                severity=v.get("severity", "info"),
-                description=v.get("description", ""),
-                original=v.get("original", ""),
-                suggestion=v.get("suggestion", ""),
-                character=v.get("character", ""),
-            ))
-
-        return GuardrailCheckResponse(
-            overall_score=round(report.overall_score, 3),
-            passed=report.passed,
-            dimensions=dimensions,
-            violations=violations,
+        dto = run_guardrail_sync(
+            novel_id,
+            body.text,
+            body.chapter_goal,
+            body.character_names or None,
+            body.era,
+            body.scene_type,
+            body.mode,
         )
+        return GuardrailCheckResponse.model_validate(dto)
     except Exception as e:
-        # QualityViolationError 也返回报告（enforce模式）
-        from engine.application.quality_guardrails.quality_guardrail import QualityViolationError
-        if isinstance(e, QualityViolationError):
-            return GuardrailCheckResponse(
-                overall_score=round(e.overall_score, 3),
-                passed=False,
-                dimensions=[],
-                violations=[GuardrailViolationDTO(
-                    dimension=v.get("dimension", "") if isinstance(v, dict) else "",
-                    type=v.get("type", "") if isinstance(v, dict) else "",
-                    severity=v.get("severity", "error") if isinstance(v, dict) else "error",
-                    description=v.get("description", str(v)) if isinstance(v, dict) else str(v),
-                ) for v in e.violations],
-            )
         logger.error("质量检查失败: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
