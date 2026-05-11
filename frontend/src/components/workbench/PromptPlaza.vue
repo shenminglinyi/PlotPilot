@@ -187,7 +187,7 @@
     >
       <div class="import-body">
         <p class="import-hint">
-          支持 <code>prompts_defaults.json</code> 全量或仅含 <code>prompts</code> 数组。按 <code>id</code> 匹配已有节点并更新。
+          支持广场导出 JSON 或仅含 <code>prompts</code> 数组。按 <code>id</code> 匹配已有节点并更新。
         </p>
         <n-upload
           accept=".json,application/json"
