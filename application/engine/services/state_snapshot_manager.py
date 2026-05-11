@@ -76,6 +76,7 @@ class AtomicStateTransaction:
         self._rolled_back = False
 
     def __enter__(self):
+        # 独立物理连接（非 DatabaseConnection）：commit/rollback 会 close，避免与普通线程本地连接混用后被误关。
         self._conn = sqlite3.connect(self._db_path, timeout=10.0)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -313,29 +314,23 @@ class StateSnapshotManager:
     def _collect_snapshot(self, novel_id: str) -> Optional[Dict]:
         """收集快照数据"""
         try:
-            conn = sqlite3.connect(self._db_path, timeout=5.0)
-            conn.row_factory = sqlite3.Row
+            from infrastructure.persistence.database.connection import get_database
 
-            # 小说状态
-            novel_row = conn.execute(
-                "SELECT * FROM novels WHERE id = ?", (novel_id,)
-            ).fetchone()
+            db = get_database(self._db_path)
+
+            novel_row = db.fetch_one("SELECT * FROM novels WHERE id = ?", (novel_id,))
 
             if not novel_row:
-                conn.close()
                 return None
 
-            # 当前章节状态
             current_chapter = novel_row["current_auto_chapters"] or 0
-            chapter_rows = conn.execute(
+            chapter_rows = db.fetch_all(
                 """SELECT number, status, word_count, current_beat_index
                    FROM chapters
                    WHERE novel_id = ? AND number >= ?
                    ORDER BY number""",
-                (novel_id, max(0, current_chapter - 5))
-            ).fetchall()
-
-            conn.close()
+                (novel_id, max(0, current_chapter - 5)),
+            )
 
             return {
                 "novel": dict(novel_row),
@@ -411,25 +406,22 @@ class ChapterAftermathRecovery:
         recovered = []
 
         try:
-            # 从快照恢复
+            from infrastructure.persistence.database.connection import get_database
+
             snapshot = self._snapshot_manager.restore_snapshot(novel_id)
             if not snapshot:
                 return recovered
 
-            # 检查 DB 中的 draft 章节
-            conn = sqlite3.connect(self._db_path, timeout=5.0)
-            conn.row_factory = sqlite3.Row
-
-            draft_rows = conn.execute(
+            db = get_database(self._db_path)
+            draft_rows = db.fetch_all(
                 """SELECT id, number, content, status, word_count
                    FROM chapters
                    WHERE novel_id = ? AND status = 'draft'
                    ORDER BY number""",
-                (novel_id,)
-            ).fetchall()
+                (novel_id,),
+            )
 
             for row in draft_rows:
-                # 检查是否有快照数据
                 snapshot_chapters = snapshot.get("recent_chapters", [])
                 matched = next(
                     (sc for sc in snapshot_chapters if sc["number"] == row["number"]),
@@ -437,20 +429,16 @@ class ChapterAftermathRecovery:
                 )
 
                 if matched:
-                    # 比较快照和 DB 数据
                     db_word_count = row["word_count"] or 0
                     snapshot_word_count = matched.get("word_count", 0)
 
                     if snapshot_word_count > db_word_count:
-                        # 快照数据更新，需要恢复
                         recovered.append({
                             "chapter_number": row["number"],
                             "reason": "snapshot_newer",
                             "db_word_count": db_word_count,
                             "snapshot_word_count": snapshot_word_count,
                         })
-
-            conn.close()
 
         except Exception as e:
             logger.error(f"[AftermathRecovery] 恢复章节失败: {e}")
@@ -483,13 +471,12 @@ class ChapterAftermathRecovery:
 
         # 2. 从 DB 读取
         try:
-            conn = sqlite3.connect(self._db_path, timeout=5.0)
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
+            from infrastructure.persistence.database.connection import get_database
+
+            row = get_database(self._db_path).fetch_one(
                 "SELECT content FROM chapters WHERE novel_id = ? AND number = ?",
-                (novel_id, chapter_number)
-            ).fetchone()
-            conn.close()
+                (novel_id, chapter_number),
+            )
 
             if row and row["content"]:
                 return row["content"]

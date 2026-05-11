@@ -70,6 +70,12 @@ class PersistenceCommandType(Enum):
     # 通用 SQL 执行（CQRS 统一写入通道——守护进程不再直接写 DB）
     EXECUTE_SQL = "execute_sql"
 
+    # 单事务多语句批量写（内核高性能路径）
+    EXECUTE_SQL_TXN_BATCH = "execute_sql_txn_batch"
+
+    # 章节级联删除（含 try/except 可选表，必须在 writer 线程执行）
+    DELETE_CHAPTER = "delete_chapter"
+
     # 批量命令
     BATCH = "batch"
 
@@ -167,13 +173,21 @@ class PersistenceQueue:
 
     def stop_consumer(self) -> None:
         """停止消费者线程"""
+        from infrastructure.persistence.database.write_dispatch import clear_sqlite_writer_thread
+
         self._stop_event.set()
         if self._consumer_thread:
             self._consumer_thread.join(timeout=5)
+        clear_sqlite_writer_thread()
         logger.info("🛑 持久化消费者线程已停止")
 
     def _consume_loop(self) -> None:
         """消费者主循环（运行在 API 进程）"""
+        from infrastructure.persistence.database.write_dispatch import (
+            register_sqlite_writer_thread,
+        )
+
+        register_sqlite_writer_thread()
         logger.info("持久化消费者开始轮询...")
 
         while not self._stop_event.is_set():
@@ -239,8 +253,12 @@ class PersistenceQueue:
                         continue
                     else:
                         logger.error(
-                            "DB 被锁，重试耗尽，丢弃命令: %s", command_type
+                            "DB 被锁，重试耗尽，放弃命令（将向上抛以便观测）: %s",
+                            command_type,
                         )
+                        raise sqlite3.OperationalError(
+                            f"persistence retries exhausted for {command_type}: {e}"
+                        ) from e
                 else:
                     raise
             except Exception as e:
@@ -322,24 +340,69 @@ def register_persistence_handlers() -> None:
                 "params": ["writing", "novel-xxx"]  // 可选，默认 []
             }
         """
+        from infrastructure.persistence.database.connection import get_database
+
+        sql = payload.get("sql", "")
+        params = payload.get("params", [])
+
+        if not sql.strip():
+            return
+
         try:
-            from infrastructure.persistence.database.connection import get_database
-
             db = get_database()
-            sql = payload.get("sql", "")
-            params = payload.get("params", [])
-
-            if not sql.strip():
-                return
-
             db.execute(sql, params)
             db.get_connection().commit()
             logger.debug("[PersistenceQueue] EXECUTE_SQL 已执行: %s", sql[:120])
-
+        except sqlite3.OperationalError:
+            # 必须向上抛：外层 _process_single_command 才对 database locked / busy 退避重试
+            raise
         except Exception as e:
-            logger.error("[PersistenceQueue] EXECUTE_SQL 失败: %s | SQL: %s", e, payload.get("sql", "")[:120])
+            logger.error(
+                "[PersistenceQueue] EXECUTE_SQL 失败: %s | SQL: %s",
+                e,
+                sql[:120],
+            )
+            raise
+
+    def handle_execute_sql_txn_batch(payload: Dict) -> None:
+        """BEGIN IMMEDIATE 下单事务执行多条写（与连接层 collect 路径配对）。"""
+        from infrastructure.persistence.database.connection import get_database
+
+        operations = payload.get("operations") or []
+        if not operations:
+            return
+        db = get_database()
+        conn = db.get_connection()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for op in operations:
+                conn.execute(op.get("sql", ""), op.get("params", []))
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        db.commit()
+
+    def handle_delete_chapter(payload: Dict) -> None:
+        from domain.novel.value_objects.chapter_id import ChapterId
+        from infrastructure.persistence.database.sqlite_chapter_repository import (
+            SqliteChapterRepository,
+        )
+        from infrastructure.persistence.database.connection import get_database
+
+        cid = payload.get("chapter_db_id")
+        if not cid:
+            return
+        SqliteChapterRepository(get_database()).execute_delete_on_writer(ChapterId(cid))
 
     pq.register_handler(PersistenceCommandType.EXECUTE_SQL.value, handle_execute_sql)
+    pq.register_handler(
+        PersistenceCommandType.EXECUTE_SQL_TXN_BATCH.value, handle_execute_sql_txn_batch
+    )
+    pq.register_handler(PersistenceCommandType.DELETE_CHAPTER.value, handle_delete_chapter)
 
     # 章节相关处理器
     def handle_upsert_chapter(payload: Dict) -> None:
@@ -629,4 +692,8 @@ def register_persistence_handlers() -> None:
 
     pq.register_handler(PersistenceCommandType.UPDATE_STORYLINES.value, handle_update_storylines)
 
-    logger.info("✅ 持久化处理器已注册: execute_sql, upsert_chapter, update_chapter_tension, patch_novel, update_novel_state, update_chapter_status, update_foreshadows, update_storylines")
+    logger.info(
+        "✅ 持久化处理器已注册: execute_sql, txn_batch, delete_chapter, upsert_chapter, "
+        "update_chapter_tension, patch_novel, update_novel_state, update_chapter_status, "
+        "update_foreshadows, update_storylines"
+    )

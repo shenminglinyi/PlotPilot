@@ -247,76 +247,71 @@ class QueryService:
         当共享内存没有数据时（如新创建的小说未同步到共享内存），
         从数据库直接读取并返回状态。
         """
-        import sqlite3
         from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
 
         try:
             db_path = get_db_path()
-            conn = sqlite3.connect(db_path, timeout=3.0)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA busy_timeout=3000")
+            db = get_database(db_path)
 
-            # 获取小说基本信息
-            novel_row = conn.execute(
+            novel_row = db.fetch_one(
                 """SELECT id, title, autopilot_status, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
                           current_auto_chapters, target_chapters, target_words_per_chapter,
                           consecutive_error_count, last_chapter_tension, auto_approve_mode
                    FROM novels WHERE id = ?""",
                 (novel_id,),
-            ).fetchone()
+            )
 
             if not novel_row:
-                conn.close()
                 return None
 
-            # 获取章节统计
-            agg_rows = conn.execute(
+            agg_rows = db.fetch_all(
                 """SELECT status, COUNT(*) as cnt, SUM(LENGTH(COALESCE(content,''))) as total_wc
                    FROM chapters WHERE novel_id = ? GROUP BY status""",
                 (novel_id,),
-            ).fetchall()
+            )
 
             completed_chapters = 0
             manuscript_chapters = 0
             total_words = 0
             for r in agg_rows:
-                s = r['status'] or ''
-                wc = r['total_wc'] or 0
+                s = r["status"] or ""
+                wc = r["total_wc"] or 0
                 total_words += wc
-                if s == 'completed':
+                if s == "completed":
                     completed_chapters += 1
                     manuscript_chapters += 1
-                elif s == 'draft':
+                elif s == "draft":
                     manuscript_chapters += 1
 
-            # 获取最后一章张力
-            last_tension_row = conn.execute(
+            last_tension_row = db.fetch_one(
                 """SELECT tension_score FROM chapters
                    WHERE novel_id = ? AND status = 'completed'
                    ORDER BY number DESC LIMIT 1""",
                 (novel_id,),
-            ).fetchone()
-            last_tension = float(last_tension_row['tension_score'] or 0) if last_tension_row else 0.0
+            )
+            last_tension = float(last_tension_row["tension_score"] or 0) if last_tension_row else 0.0
 
-            # 获取当前章节号
-            draft_row = conn.execute(
+            draft_row = db.fetch_one(
                 """SELECT MAX(number) as max_num FROM chapters
                    WHERE novel_id = ? AND status = 'draft' AND COALESCE(LENGTH(content),0) > 0""",
                 (novel_id,),
-            ).fetchone()
-            if draft_row and draft_row['max_num']:
-                current_chapter_number = draft_row['max_num']
+            )
+            if draft_row and draft_row["max_num"]:
+                current_chapter_number = draft_row["max_num"]
             else:
-                completed_max = conn.execute(
+                completed_max = db.fetch_one(
                     """SELECT MAX(number) as max_num FROM chapters WHERE novel_id = ? AND status = 'completed'""",
                     (novel_id,),
-                ).fetchone()
-                current_chapter_number = (completed_max['max_num'] + 1) if (completed_max and completed_max['max_num']) else None
+                )
+                current_chapter_number = (
+                    (completed_max["max_num"] + 1)
+                    if (completed_max and completed_max["max_num"])
+                    else None
+                )
 
-            conn.close()
-
-            target_chapters = novel_row['target_chapters'] or 1
+            target_chapters = novel_row["target_chapters"] or 1
             progress_pct = (completed_chapters / target_chapters * 100) if target_chapters > 0 else 0
 
             return NovelStatusResponse(
