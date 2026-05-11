@@ -14,12 +14,12 @@
           @click="selectCharacter(char.id)"
         >
           <div class="character-avatar">
-            {{ getCharacterEmoji(char.role) }}
+            {{ getCharacterEmoji(char.role ?? '') }}
           </div>
           <div class="character-info">
             <div class="character-name">{{ char.name }}</div>
-            <n-tag size="tiny" :type="getRoleType(char.role)" round>
-              {{ getRoleLabel(char.role) }}
+            <n-tag size="tiny" :type="getRoleType(char.role ?? '')" round>
+              {{ getRoleLabel(char.role ?? '') }}
             </n-tag>
           </div>
         </div>
@@ -45,6 +45,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
+import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
 
 interface Props {
   slug: string
@@ -116,6 +117,10 @@ watch(() => props.slug, () => void loadCharacters(), { immediate: true })
 onMounted(() => {
   void loadCharacters()
 })
+
+useWorkbenchDeskTickReload(() => void loadCharacters())
+
+defineExpose({ loadCharacters })
 </script>
 
 <style scoped>

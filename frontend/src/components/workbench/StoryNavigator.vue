@@ -71,13 +71,58 @@
         </div>
       </n-spin>
     </div>
+
+    <n-modal
+      v-model:show="showAddModal"
+      preset="card"
+      title="新建故事线"
+      style="width: 420px"
+      :mask-closable="false"
+      @after-leave="resetAddForm"
+    >
+      <n-form label-placement="left" label-width="72" size="small">
+        <n-form-item label="类型">
+          <n-select
+            v-model:value="addForm.storyline_type"
+            :options="storylineTypeOptions"
+          />
+        </n-form-item>
+        <n-form-item label="名称">
+          <n-input v-model:value="addForm.name" placeholder="可选，便于识别" clearable />
+        </n-form-item>
+        <n-form-item label="说明">
+          <n-input
+            v-model:value="addForm.description"
+            type="textarea"
+            placeholder="可选"
+            :autosize="{ minRows: 2, maxRows: 5 }"
+          />
+        </n-form-item>
+        <n-form-item label="章节起">
+          <n-input-number v-model:value="addForm.estimated_chapter_start" :min="1" :step="1" style="width: 100%" />
+        </n-form-item>
+        <n-form-item label="章节止">
+          <n-input-number v-model:value="addForm.estimated_chapter_end" :min="1" :step="1" style="width: 100%" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button quaternary @click="showAddModal = false">取消</n-button>
+          <n-button type="primary" :loading="addSubmitting" @click="submitAddStoryline">创建</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
+import { useMessage } from 'naive-ui'
 import { storyPhaseApi, type StoryPhaseDTO } from '@/api/engineCore'
 import { workflowApi, type StorylineDTO } from '@/api/workflow'
+import { narrativeEngineApi } from '@/api/narrativeEngine'
+import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
+import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
 
 interface Props {
   slug: string
@@ -90,6 +135,9 @@ const emit = defineEmits<{
   selectStoryline: [storyline: { startChapter: number; endChapter: number }]
 }>()
 
+const message = useMessage()
+const refreshStore = useWorkbenchRefreshStore()
+
 const phaseLoading = ref(false)
 const storylinesLoading = ref(false)
 
@@ -98,6 +146,76 @@ const storylines = ref<StorylineDTO[]>([])
 const selectedStorylineId = ref<string | null>(null)
 
 const showAddModal = ref(false)
+const addSubmitting = ref(false)
+
+const storylineTypeOptions = [
+  { label: '主线', value: 'MAIN_PLOT' },
+  { label: '支线', value: 'SUB_PLOT' },
+  { label: '暗线', value: 'DARK_LINE' },
+]
+
+const addForm = ref({
+  storyline_type: 'SUB_PLOT',
+  name: '',
+  description: '',
+  estimated_chapter_start: 1,
+  estimated_chapter_end: 10,
+})
+
+function resetAddForm() {
+  addForm.value = {
+    storyline_type: 'SUB_PLOT',
+    name: '',
+    description: '',
+    estimated_chapter_start: 1,
+    estimated_chapter_end: 10,
+  }
+}
+
+watch(showAddModal, (open) => {
+  if (!open) return
+  const ch = props.currentChapter != null && props.currentChapter > 0 ? props.currentChapter : 1
+  addForm.value = {
+    storyline_type: 'SUB_PLOT',
+    name: '',
+    description: '',
+    estimated_chapter_start: ch,
+    estimated_chapter_end: Math.max(ch, ch + 9),
+  }
+})
+
+async function submitAddStoryline() {
+  const f = addForm.value
+  const start = f.estimated_chapter_start
+  const end = f.estimated_chapter_end
+  if (start == null || end == null || start < 1 || end < 1) {
+    message.warning('请填写有效的章节范围')
+    return
+  }
+  if (end < start) {
+    message.warning('结束章节不能小于起始章节')
+    return
+  }
+  addSubmitting.value = true
+  try {
+    await workflowApi.createStoryline(props.slug, {
+      storyline_type: f.storyline_type,
+      estimated_chapter_start: start,
+      estimated_chapter_end: end,
+      name: f.name?.trim() || undefined,
+      description: f.description?.trim() || undefined,
+    })
+    message.success('故事线已创建')
+    showAddModal.value = false
+    await loadPhaseAndStorylines()
+    refreshStore.bumpDesk()
+  } catch (err: any) {
+    const detail = err?.response?.data?.detail
+    message.error(typeof detail === 'string' ? detail : err?.message || '创建失败')
+  } finally {
+    addSubmitting.value = false
+  }
+}
 
 // 4阶段模型
 const PHASE_STAGES = [
@@ -109,27 +227,29 @@ const PHASE_STAGES = [
 
 const PHASE_ORDER = PHASE_STAGES.map(s => s.key)
 
-// 加载故事阶段
-async function loadPhase() {
+/** 优先叙事引擎聚合 GET；失败时降级为 story-phase + storylines 分拆接口 */
+async function loadPhaseAndStorylines() {
   phaseLoading.value = true
-  try {
-    phase.value = await storyPhaseApi.get(props.slug)
-  } catch (error) {
-    console.error('加载故事阶段失败:', error)
-  } finally {
-    phaseLoading.value = false
-  }
-}
-
-// 加载故事线
-async function loadStorylines() {
   storylinesLoading.value = true
   try {
-    const data = await workflowApi.getStorylines(props.slug)
-    storylines.value = data || []
+    const bundle = await narrativeEngineApi.getStoryEvolution(props.slug)
+    phase.value = bundle.life_cycle
+    storylines.value = bundle.plot_spine.storylines || []
   } catch (error) {
-    console.error('加载故事线失败:', error)
+    console.error('叙事引擎聚合加载失败，降级为分拆 API:', error)
+    try {
+      phase.value = await storyPhaseApi.get(props.slug)
+    } catch (e) {
+      console.error('加载故事阶段失败:', e)
+    }
+    try {
+      const data = await workflowApi.getStorylines(props.slug)
+      storylines.value = data || []
+    } catch (e) {
+      console.error('加载故事线失败:', e)
+    }
   } finally {
+    phaseLoading.value = false
     storylinesLoading.value = false
   }
 }
@@ -179,8 +299,11 @@ function getStatusLabel(status: string): string {
 }
 
 onMounted(() => {
-  loadPhase()
-  loadStorylines()
+  loadPhaseAndStorylines()
+})
+
+useWorkbenchDeskTickReload(() => {
+  void loadPhaseAndStorylines()
 })
 </script>
 

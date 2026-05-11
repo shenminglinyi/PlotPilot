@@ -29,8 +29,7 @@
             <StoryDetailPanel
               :slug="slug"
               :selected-item="selectedItem"
-              @rollback="onRollback"
-              @refresh="onRefresh"
+              @refresh="onCheckpointRestored"
             />
           </template>
         </n-split>
@@ -41,6 +40,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { WORKBENCH_CHAPTER_DESK_CHANGE_EVENT } from '@/workbench/deskEvents'
 import StoryNavigator from './StoryNavigator.vue'
 import StoryTimeline from './StoryTimeline.vue'
 import StoryDetailPanel from './StoryDetailPanel.vue'
@@ -76,17 +76,11 @@ function onSelectSnapshot(snapshot: any) {
   selectedItem.value = { type: 'snapshot', data: snapshot }
 }
 
-// 回滚操作
-function onRollback() {
-  // 刷新时间轴和导航
+/** 快照回滚等：与 Workbench 整桌同步（章节树、正文、伏笔 tick 等） */
+function onCheckpointRestored() {
   highlightRange.value = null
   selectedItem.value = null
-}
-
-// 刷新
-function onRefresh() {
-  highlightRange.value = null
-  selectedItem.value = null
+  window.dispatchEvent(new CustomEvent(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT))
 }
 </script>
 

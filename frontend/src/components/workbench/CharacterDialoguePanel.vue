@@ -4,6 +4,7 @@
       <!-- 左栏：角色导航 -->
       <template #1>
         <CharacterNavigator
+          ref="navigatorRef"
           :slug="slug"
           :selected-character-id="selectedCharacterId"
           @select-character="onSelectCharacter"
@@ -16,6 +17,7 @@
           <!-- 中栏：对话语料库 -->
           <template #1>
             <DialogueCorpus
+              ref="corpusRef"
               :slug="slug"
               :selected-character-id="selectedCharacterId"
             />
@@ -26,7 +28,7 @@
             <CharacterProfile
               :slug="slug"
               :selected-character-id="selectedCharacterId"
-              @refresh="onRefresh"
+              @refresh="onCharacterProfileRefresh"
             />
           </template>
         </n-split>
@@ -37,6 +39,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import CharacterNavigator from './CharacterNavigator.vue'
 import DialogueCorpus from './DialogueCorpus.vue'
 import CharacterProfile from './CharacterProfile.vue'
@@ -45,7 +48,13 @@ interface Props {
   slug: string
 }
 
-const props = defineProps<Props>()
+defineProps<Props>()
+
+type CorpusExpose = { load: () => Promise<void>; loadCharacterNames: () => Promise<void> }
+type NavigatorExpose = { loadCharacters: () => Promise<void> }
+
+const corpusRef = ref<ComponentPublicInstance & CorpusExpose | null>(null)
+const navigatorRef = ref<ComponentPublicInstance & NavigatorExpose | null>(null)
 
 const selectedCharacterId = ref<string | null>(null)
 
@@ -53,8 +62,11 @@ function onSelectCharacter(characterId: string | null) {
   selectedCharacterId.value = characterId
 }
 
-function onRefresh() {
-  // 刷新对话列表（通过 provide/inject 或事件总线）
+/** 锚点保存等：与语料库、左侧角色列表同源刷新 */
+function onCharacterProfileRefresh() {
+  void corpusRef.value?.load?.()
+  void corpusRef.value?.loadCharacterNames?.()
+  void navigatorRef.value?.loadCharacters?.()
 }
 </script>
 
