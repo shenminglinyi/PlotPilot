@@ -91,12 +91,31 @@
 
                 <div class="editor-footer">
                   <n-space :size="8" align="center" justify="space-between" style="width: 100%">
-                    <n-text depth="3">
-                      字数:
-                      <span :class="{ 'streaming-word-count': isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent }">
-                        {{ wordCount }}
-                      </span>
-                      <span v-if="isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent" class="streaming-indicator">生成中▋</span>
+                    <n-text depth="3" class="editor-wordcount-line">
+                      <template
+                        v-if="
+                          isAutopilotRunning &&
+                          streamingChapterNumber === currentChapter?.number &&
+                          streamingContent &&
+                          streamingWordCountHint
+                        "
+                      >
+                        <span :class="{ 'streaming-word-count': true }">{{ streamingWordCountHint }}</span>
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <span class="wordcount-help">?</span>
+                          </template>
+                          流式阶段模型常会写出超过单章目标的缓冲，系统在每节拍末会收束；落稿字数会贴近你在书目里设的「每章目标字数」。
+                        </n-tooltip>
+                        <span class="streaming-indicator">生成中</span>
+                      </template>
+                      <template v-else>
+                        字数:
+                        <span :class="{ 'streaming-word-count': isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent }">
+                          {{ wordCount }}
+                        </span>
+                        <span v-if="isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent" class="streaming-indicator">生成中▋</span>
+                      </template>
                     </n-text>
                     <n-space :size="8">
                       <n-tooltip trigger="hover" :disabled="!isAutopilotRunning && !isAssistedReadOnly">
@@ -890,6 +909,26 @@ const wordCount = computed(() => {
   return chapterContent.value.length
 })
 
+/** 托管流式：用 /status 的已定稿字数与单章目标拆分展示，避免只显示「三千多字」误解为终稿 */
+const streamingWordCountHint = computed((): string | null => {
+  if (!isAutopilotRunning.value || streamingChapterNumber.value !== currentChapter.value?.number || !streamingContent.value) {
+    return null
+  }
+  const st = autopilotStatus.value
+  const tgt = Math.max(
+    0,
+    Number(st?.chapter_target_words ?? st?.target_words_per_chapter ?? 0)
+  )
+  if (!tgt) return null
+  const acc = Math.max(0, Number(st?.accumulated_words ?? 0))
+  const live = streamingContent.value.length
+  const over = Math.max(0, live - acc)
+  if (over > 0) {
+    return `已定 ${acc}/${tgt} · 流式 +${over}`
+  }
+  return `已定 ${live}/${tgt}`
+})
+
 /** 🔥 编辑框显示内容：流式时显示流式内容，否则显示普通内容 */
 const editorDisplayContent = computed({
   get: () => {
@@ -1472,6 +1511,29 @@ defineExpose({ ensureAssistedMode })
   font-size: 12px;
   margin-left: 4px;
   animation: cursor-blink-anim 1s step-end infinite;
+}
+
+.editor-wordcount-line {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wordcount-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 2px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--n-text-color-3);
+  border: 1px solid var(--n-border-color);
+  cursor: help;
+  line-height: 1;
 }
 
 /* 🔥 当前幕信息 */

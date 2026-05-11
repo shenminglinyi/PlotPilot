@@ -1,7 +1,6 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { workflowApi } from '../api/workflow'
 import { novelApi } from '../api/novel'
 import { chapterApi } from '../api/chapter'
 import { useStatsStore } from '../stores/statsStore'
@@ -45,12 +44,10 @@ export function useWorkbench(options: UseWorkbenchOptions) {
   const currentChapterId = ref<number | null>(null)
   const chapterContent = ref('')
   const chapterLoading = ref(false)
+  const currentJobId = ref<string | null>(null)
 
   /** 右栏子面板 id，与 SettingsPanel 中 foundation / narrative / tactical 的 tab name 一致 */
   const rightPanel = ref<string>('bible')
-  const biblePanelKey = ref(0)
-  const currentJobId = ref<string | null>(null)
-
 
   const hasStructure = computed(() => {
     return bookMeta.value.has_bible || bookMeta.value.has_outline
@@ -102,9 +99,9 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     statsStore.onJobCompleted(slug)
     // Refresh workbench data
     await loadDesk()
-    // Force Bible panel refresh if visible
+    // 作品设定页若已挂载：软刷新 Bible（避免整组件 :key 重建导致闪烁）
     if (rightPanel.value === 'bible') {
-      biblePanelKey.value += 1
+      window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
     }
   }
 
@@ -179,7 +176,6 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     bookTitle,
     chapters,
     rightPanel,
-    biblePanelKey,
     pageLoading,
     bookMeta,
     currentJobId,
