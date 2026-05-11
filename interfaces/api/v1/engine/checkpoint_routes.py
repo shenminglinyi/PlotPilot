@@ -432,40 +432,10 @@ async def get_story_phase(novel_id: str):
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
 
-    # 尝试从 Novel 实体获取 StoryPhase
-    try:
-        from interfaces.api.dependencies import get_novel_service
-        novel = get_novel_service().get_novel(novel_id)
-        if novel and hasattr(novel, 'story_phase'):
-            phase = novel.story_phase
-            phase_value = phase.value if hasattr(phase, 'value') else str(phase)
-            return StoryPhaseDTO(
-                phase=phase_value,
-                progress=getattr(phase, 'progress', 0.0) if hasattr(phase, 'progress') else 0.0,
-                description=getattr(phase, 'description', '') if hasattr(phase, 'description') else '',
-                can_advance=getattr(phase, 'can_advance', False) if hasattr(phase, 'can_advance') else False,
-            )
-    except Exception as e:
-        logger.warning("获取StoryPhase失败: %s", e)
+    from application.narrative_engine.story_phase_resolution import resolve_story_phase_payload
 
-    # 回退：基于章节进度推算（对齐4阶段模型）
-    try:
-        from engine.core.entities.story import StoryPhase as StoryPhaseEnum
-        from interfaces.api.dependencies import get_chapter_repository
-        chapter_repo = get_chapter_repository()
-        chapters = chapter_repo.get_chapters_by_novel(novel_id)
-        total = len(chapters) if chapters else 0
-        target = getattr(novel, 'target_chapters', 30) if novel else 30
-        progress = total / target if target > 0 else 0.0
-        phase = StoryPhaseEnum.from_progress(progress)
-        return StoryPhaseDTO(
-            phase=phase.value,
-            progress=round(min(progress, 1.0), 3),
-            description=phase.description,
-            can_advance=phase != StoryPhaseEnum.FINALE,
-        )
-    except Exception:
-        return StoryPhaseDTO(phase="opening", progress=0.0, description="未知阶段")
+    payload = resolve_story_phase_payload(novel_id)
+    return StoryPhaseDTO(**payload)
 
 
 @router.put("/{novel_id}/story-phase", response_model=StoryPhaseDTO)
