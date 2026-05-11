@@ -23,7 +23,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,15 @@ class GuardrailViolationDTO(BaseModel):
     original: str = ""
     suggestion: str = ""
     character: str = ""
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def coerce_severity(cls, v: Any) -> str:
+        from application.engine.services.guardrail_execution import (
+            normalize_violation_severity_for_api,
+        )
+
+        return normalize_violation_severity_for_api(v)
 
 
 class GuardrailCheckResponse(BaseModel):
