@@ -201,10 +201,17 @@ export interface RegistryCpmsEntry {
   display_name: string
 }
 
+export interface DagRegistryGaps {
+  complete: boolean
+  missing: Array<{ node_id: string; node_type: string }>
+}
+
 export interface DagRegistryLinkageResponse {
   pipeline_node_ids: string[]
   nodes: DagLinkageNodeRow[]
   registry_cpms_by_type: Record<string, RegistryCpmsEntry>
+  /** 默认 DAG 与 NodeRegistry 对齐检查（由后端 linkage_kernel 计算） */
+  registry_gaps?: DagRegistryGaps
 }
 
 // ─── 节点分类 → CSS 变量名映射 ───
