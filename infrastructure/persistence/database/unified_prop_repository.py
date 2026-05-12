@@ -1,7 +1,8 @@
 from __future__ import annotations
 import json
-from datetime import datetime
 from typing import List, Optional
+
+from domain.shared.time_utils import utcnow_iso
 
 from domain.prop.entities.prop import Prop
 from domain.prop.repositories.prop_repository import PropRepository
@@ -65,7 +66,7 @@ class SqliteUnifiedPropRepository(PropRepository):
         return [_row_to_prop(r) for r in rows]
 
     def save(self, prop: Prop) -> None:
-        now = datetime.utcnow().isoformat()
+        now = utcnow_iso()
         self._db.execute(
             """INSERT INTO unified_props (
                 id, novel_id, name, description, aliases_json, prop_category,

@@ -1,8 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from typing import Optional
+
+from domain.shared.time_utils import utcnow_iso
 
 class PropEventType(str, Enum):
     INTRODUCED  = "INTRODUCED"
@@ -30,7 +31,7 @@ class PropEvent:
     actor_character_id: Optional[str] = None
     from_holder_id: Optional[str] = None
     to_holder_id: Optional[str] = None
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=utcnow_iso)
 
     def is_transfer(self) -> bool:
         return self.event_type == PropEventType.TRANSFERRED

@@ -2,10 +2,10 @@
 from __future__ import annotations
 import logging
 import uuid
-from datetime import datetime
 
 from domain.prop.entities.prop import Prop
 from domain.prop.value_objects.prop_event import PropEvent, PropEventType
+from domain.shared.time_utils import utcnow_iso
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class TriplePropEventHandler:
         predicate = _PREDICATE_MAP.get(event.event_type)
         if not predicate:
             return
-        now = datetime.utcnow().isoformat()
+        now = utcnow_iso()
         try:
             if event.event_type == PropEventType.TRANSFERRED:
                 if event.from_holder_id:

@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
 from typing import Any, Dict, List
 
 from domain.prop.value_objects.prop_event import PropEvent, PropEventType, PropEventSource
+from domain.shared.time_utils import utcnow_iso
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ class LlmExtractor:
             return []
 
         events: List[PropEvent] = []
-        now = datetime.utcnow().isoformat()
+        now = utcnow_iso()
         prop_id_set = {p["id"] for p in active_props}
         for item in items:
             pid = item.get("prop_id", "")
