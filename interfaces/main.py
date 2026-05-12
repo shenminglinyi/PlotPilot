@@ -70,6 +70,7 @@ from interfaces.api.v1.engine import (
     narrative_engine_routes,  # 小说家向叙事引擎只读聚合
     worldline_routes,  # 世界线管理（故事 Git 模型）
 )
+from interfaces.api.v1.prop import prop_routes
 
 # Audit module
 from interfaces.api.v1.audit import chapter_review_routes, macro_refactor, chapter_element_routes
@@ -971,6 +972,7 @@ app.include_router(checkpoint_routes.router,              prefix=_V1)  # Checkpo
 app.include_router(narrative_engine_routes.router,          prefix=_V1)
 app.include_router(narrative_engine_routes.surface_router, prefix=_V1)  # 叙事引擎 read model（故事演进 / 角色声线）
 app.include_router(worldline_routes.router,                prefix=_V1)  # 世界线管理（故事 Git 模型）
+app.include_router(prop_routes.router,                     prefix=_V1)  # 道具全周期管理
 
 # ── Engine：溯源 / DAG 工作流 ──
 from interfaces.api.v1.engine.trace_routes import router as trace_router
