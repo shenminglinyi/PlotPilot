@@ -75,6 +75,7 @@ class ChapterAftermathPipeline:
         debt_repository: Any = None,
         bible_repository: Any = None,
         unified_checkpoint_service: Any = None,
+        prop_lifecycle_syncer: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -92,6 +93,7 @@ class ChapterAftermathPipeline:
         self._debt_repository = debt_repository
         self._bible_repository = bible_repository
         self._unified_checkpoint = unified_checkpoint_service
+        self._prop_syncer = prop_lifecycle_syncer
 
     async def run_after_chapter_saved(
         self,
@@ -268,5 +270,20 @@ class ChapterAftermathPipeline:
                 logger.debug("[Worldline] CHAPTER checkpoint novel=%s ch=%s id=%s", novel_id, chapter_number, cp_id)
         except Exception as e:
             logger.warning("[Worldline] 自动 checkpoint 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+        # 6) 道具生命周期同步 — 事件提取、状态机转换、知识库三元组
+        try:
+            if self._prop_syncer:
+                import asyncio
+                sync_result = await self._prop_syncer.sync(novel_id, chapter_number, content)
+                out["prop_sync"] = sync_result
+                logger.debug(
+                    "[PropSync] 完成 novel=%s ch=%s result=%s",
+                    novel_id, chapter_number, sync_result,
+                )
+        except Exception as e:
+            logger.warning(
+                "[PropSync] 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e
+            )
 
         return out

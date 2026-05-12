@@ -26,6 +26,7 @@ class NodeCategory(str, Enum):
     REVIEW = "review"          # 🔬 审稿质检
     ANTI_AI = "anti-ai"        # 🛡️ Anti-AI 防御
     PLANNING = "planning"      # 📐 规划设计
+    PROP = "prop"              # 🎒 道具上下文
 
 
 class NodeStatus(str, Enum):
