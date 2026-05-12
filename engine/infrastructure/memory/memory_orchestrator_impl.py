@@ -248,6 +248,30 @@ class MemoryOrchestratorImpl(MemoryOrchestrator):
 
         return current_ledger
 
+    async def restore_state(
+        self,
+        story_id: StoryId,
+        character_masks: Dict[str, Any],
+        emotion_ledger: Dict[str, Any],
+        active_foreshadows: List[str],
+        outline: str = "",
+        recent_summary: str = "",
+    ) -> None:
+        """从 Checkpoint 数据恢复内存状态。"""
+        if not self._db_pool:
+            return
+        try:
+            with self._db_pool.get_connection() as conn:
+                if emotion_ledger:
+                    conn.execute(
+                        "UPDATE stories SET emotion_ledger = ? WHERE id = ?",
+                        (json.dumps(emotion_ledger, ensure_ascii=False), story_id.value),
+                    )
+                conn.commit()
+            logger.info("[MemoryRestore] 情绪账本已恢复 story=%s", story_id.value)
+        except Exception as e:
+            logger.warning("[MemoryRestore] 状态恢复失败（非致命）: %s", e)
+
     async def manage_foreshadow(
         self,
         story_id: StoryId,

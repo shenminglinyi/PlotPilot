@@ -6,7 +6,7 @@
         <n-button size="small" :loading="creating" @click="handleCreateSnapshot">
           ＋ 创建快照
         </n-button>
-        <n-button size="small" :loading="loading" @click="load">刷新</n-button>
+        <n-button size="small" :loading="loading" @click="onHeaderRefresh">刷新</n-button>
       </n-space>
     </div>
 
@@ -76,21 +76,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { chroniclesApi, type ChronicleRow } from '@/api/chronicles'
+import { chroniclesApi, type ChronicleRow, type ChronicleStoryEvent, type ChronicleSnapshot } from '@/api/chronicles'
 import { snapshotApi } from '@/api/snapshot'
 import { useWorkbenchPlotTimelineReload } from '@/composables/useWorkbenchNarrativeSync'
 
 interface Props {
   slug: string
   highlightRange: { start: number; end: number } | null
+  /** 为 true 时编年史行由父组件 `getStoryEvolution` 注入，与左栏同源且由父级监听 tick 刷新 */
+  chroniclesFromBundledParent?: boolean
+  /** 与 `chroniclesFromBundledParent` 联用；引用变化时同步到时间轴 */
+  bundledChronicleRows?: ChronicleRow[] | null
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  chroniclesFromBundledParent: false,
+  bundledChronicleRows: undefined,
+})
+
 const emit = defineEmits<{
-  'select-event': [event: any]
-  'select-snapshot': [snapshot: any]
+  'select-event': [event: ChronicleStoryEvent]
+  'select-snapshot': [snapshot: ChronicleSnapshot]
+  'request-bundle-refresh': []
 }>()
 
 const message = useMessage()
@@ -111,10 +120,12 @@ function formatTime(timestamp: string | null): string {
   const date = new Date(timestamp)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
+  if (diff < 0) return date.toLocaleString('zh-CN')
   const minutes = Math.floor(diff / 60000)
   const hours = Math.floor(diff / 3600000)
   const days = Math.floor(diff / 86400000)
 
+  if (minutes < 1) return '刚刚'
   if (minutes < 60) return `${minutes}分钟前`
   if (hours < 24) return `${hours}小时前`
   if (days < 7) return `${days}天前`
@@ -127,13 +138,49 @@ async function load() {
   try {
     const res = await chroniclesApi.get(props.slug)
     rows.value = res.rows
-  } catch (err: any) {
-    loadError.value = err.message || '加载失败'
+  } catch (err: unknown) {
+    const e = err as { message?: string }
+    loadError.value = e?.message || '加载失败'
     rows.value = []
   } finally {
     loading.value = false
   }
 }
+
+function applyBundledChronicleRows() {
+  const b = props.bundledChronicleRows
+  rows.value = Array.isArray(b) ? b.map((r) => ({ ...r })) : []
+  loadError.value = ''
+  loading.value = false
+}
+
+function onHeaderRefresh() {
+  if (props.chroniclesFromBundledParent) {
+    emit('request-bundle-refresh')
+  } else {
+    void load()
+  }
+}
+
+watch(
+  () => props.slug,
+  () => {
+    if (!props.chroniclesFromBundledParent) void load()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.bundledChronicleRows,
+  () => {
+    if (props.chroniclesFromBundledParent) applyBundledChronicleRows()
+  },
+  { deep: true, immediate: true },
+)
+
+useWorkbenchPlotTimelineReload(() => {
+  if (!props.chroniclesFromBundledParent) void load()
+})
 
 async function handleCreateSnapshot() {
   dialog.create({
@@ -150,23 +197,20 @@ async function handleCreateSnapshot() {
           description: '用户手动创建的快照',
         })
         message.success('快照已创建')
-        await load()
-      } catch (err: any) {
-        message.error(err.message || '创建快照失败')
+        if (props.chroniclesFromBundledParent) {
+          emit('request-bundle-refresh')
+        } else {
+          await load()
+        }
+      } catch (err: unknown) {
+        const e = err as { message?: string }
+        message.error(e?.message || '创建快照失败')
       } finally {
         creating.value = false
       }
     },
   })
 }
-
-watch(() => props.slug, () => void load(), { immediate: true })
-
-onMounted(() => {
-  void load()
-})
-
-useWorkbenchPlotTimelineReload(() => void load())
 </script>
 
 <style scoped>

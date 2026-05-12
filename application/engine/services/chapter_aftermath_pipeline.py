@@ -74,6 +74,7 @@ class ChapterAftermathPipeline:
         character_state_repository: Any = None,
         debt_repository: Any = None,
         bible_repository: Any = None,
+        unified_checkpoint_service: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -90,6 +91,7 @@ class ChapterAftermathPipeline:
         self._character_state_repository = character_state_repository
         self._debt_repository = debt_repository
         self._bible_repository = bible_repository
+        self._unified_checkpoint = unified_checkpoint_service
 
     async def run_after_chapter_saved(
         self,
@@ -247,5 +249,24 @@ class ChapterAftermathPipeline:
             await store.record(trace)
         except Exception as e:
             logger.warning("自动护栏/溯源失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+        # 5) 世界线快照 — 章节完成后自动打 CHAPTER checkpoint
+        try:
+            if self._unified_checkpoint:
+                import asyncio
+                cp_id = await asyncio.to_thread(
+                    self._unified_checkpoint.create_checkpoint,
+                    novel_id,
+                    "CHAPTER",
+                    f"第{chapter_number}章自动快照",
+                    None,        # description
+                    "main",      # branch_name
+                    None,        # parent_id
+                    {"chapter": chapter_number},  # story_state（轻量）
+                )
+                out["worldline_checkpoint_id"] = cp_id
+                logger.debug("[Worldline] CHAPTER checkpoint novel=%s ch=%s id=%s", novel_id, chapter_number, cp_id)
+        except Exception as e:
+            logger.warning("[Worldline] 自动 checkpoint 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
         return out

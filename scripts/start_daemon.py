@@ -145,6 +145,13 @@ def build_daemon() -> AutopilotDaemon:
         except Exception as e:
             logger.warning(f"BibleRepository 初始化失败: {e}")
 
+        unified_checkpoint_svc = None
+        try:
+            from interfaces.api.dependencies import get_unified_checkpoint_service
+            unified_checkpoint_svc = get_unified_checkpoint_service()
+        except Exception as e:
+            logger.warning(f"UnifiedCheckpointService 初始化失败: {e}")
+
         aftermath_pipeline = ChapterAftermathPipeline(
             knowledge_service=get_knowledge_service(),
             chapter_indexing_service=get_chapter_indexing_service(),
@@ -160,6 +167,7 @@ def build_daemon() -> AutopilotDaemon:
             character_state_repository=character_state_repo,
             debt_repository=debt_repo,
             bible_repository=bible_repo,
+            unified_checkpoint_service=unified_checkpoint_svc,
         )
         logger.info("ChapterAftermathPipeline 已注入（叙事/向量/文风/KG；三元组/伏笔/故事线/张力/对话/因果边/人物状态/债务 单次 LLM）")
     except Exception as e:
