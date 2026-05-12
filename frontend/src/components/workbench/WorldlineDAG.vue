@@ -159,8 +159,20 @@
     </n-spin>
 
     <!-- 分支命名 Dialog -->
-    <n-modal v-model:show="showBranchDialog" preset="dialog" title="创建新支线" positive-text="创建" negative-text="取消" @positive-click="handleCreateBranch">
-      <n-input v-model:value="newBranchName" placeholder="支线名称（如 alt-ending）" />
+    <n-modal v-model:show="showBranchDialog" preset="dialog" title="从此节点分叉新支线" positive-text="创建" negative-text="取消" @positive-click="handleCreateBranch">
+      <n-form label-placement="left" label-width="72" size="small" style="margin-top: 8px">
+        <n-form-item label="支线名称">
+          <n-input v-model:value="newBranchName" placeholder="如 alt-ending、bad-route…" />
+        </n-form-item>
+        <n-form-item label="绑定故事线">
+          <n-select
+            v-model:value="newBranchStorylineId"
+            :options="storylineOptions"
+            placeholder="可选，绑定后在故事线旁显示 ⑂"
+            clearable
+          />
+        </n-form-item>
+      </n-form>
     </n-modal>
   </div>
 </template>
@@ -169,6 +181,7 @@
 import { ref, computed, watch } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { worldlineApi, type CheckpointNode, type WorldlineGraph, type BranchInfo } from '@/api/worldline'
+import { workflowApi, type StorylineDTO } from '@/api/workflow'
 
 interface Props {
   slug: string
@@ -185,6 +198,24 @@ const actionLoading = ref<string | null>(null)
 const selectedId = ref<string | null>(null)
 const showBranchDialog = ref(false)
 const newBranchName = ref('')
+const newBranchStorylineId = ref<string | null>(null)
+const storylines = ref<StorylineDTO[]>([])
+
+const storylineOptions = computed(() =>
+  storylines.value.map(s => ({
+    label: s.name || `故事线 ${s.id.slice(0, 8)}`,
+    value: s.id,
+  }))
+)
+
+async function loadStorylines() {
+  try {
+    const data = await workflowApi.getStorylines(props.slug)
+    storylines.value = data || []
+  } catch {
+    storylines.value = []
+  }
+}
 const graphWrap = ref<HTMLElement | null>(null)
 
 const graphData = ref<WorldlineGraph>({ nodes: [], edges: [], branches: [], head_id: null })
@@ -327,6 +358,7 @@ async function load() {
 watch(() => props.slug, () => {
   selectedId.value = null
   void load()
+  void loadStorylines()
 }, { immediate: true })
 
 // ──────────────────────────── Helpers ────────────────────────────
@@ -452,9 +484,11 @@ async function handleCreateBranch() {
     await worldlineApi.createBranch(props.slug, {
       name: newBranchName.value.trim(),
       from_checkpoint_id: selectedId.value,
+      storyline_id: newBranchStorylineId.value ?? undefined,
     })
     message.success('支线已创建')
     newBranchName.value = ''
+    newBranchStorylineId.value = null
     showBranchDialog.value = false
     await load()
   } catch (err: unknown) {

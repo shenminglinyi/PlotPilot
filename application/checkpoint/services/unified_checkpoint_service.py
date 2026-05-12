@@ -474,6 +474,64 @@ class UnifiedCheckpointService:
             "deleted_chapters": deleted_count,
         }
 
+    def get_branch_by_storyline(self, novel_id: str, storyline_id: str) -> Optional[Dict[str, Any]]:
+        """查找与指定故事线绑定的分支。
+
+        Args:
+            novel_id: 小说 ID
+            storyline_id: 故事线 ID
+
+        Returns:
+            分支 dict 或 None
+        """
+        self._ensure_tables()
+        try:
+            row = self.db.fetch_one(
+                "SELECT * FROM novel_branches WHERE novel_id = ? AND storyline_id = ?",
+                (novel_id, storyline_id),
+            )
+            return dict(row) if row else None
+        except Exception as e:
+            logger.error("[UnifiedCheckpoint] get_branch_by_storyline 失败: %s", e)
+            return None
+
+    def update_branch(
+        self,
+        branch_id: str,
+        name: Optional[str] = None,
+        storyline_id: Optional[str] = None,
+    ) -> None:
+        """更新分支元数据（名称 / 故事线绑定）。
+
+        Args:
+            branch_id: 分支 ID
+            name: 新名称（None 则不更新）
+            storyline_id: 绑定的故事线 ID（None 则不更新；空字符串解绑）
+        """
+        self._ensure_tables()
+        if name is None and storyline_id is None:
+            return
+        try:
+            if name is not None and storyline_id is not None:
+                self.db.execute(
+                    "UPDATE novel_branches SET name = ?, storyline_id = ? WHERE id = ?",
+                    (name, storyline_id or None, branch_id),
+                )
+            elif name is not None:
+                self.db.execute(
+                    "UPDATE novel_branches SET name = ? WHERE id = ?",
+                    (name, branch_id),
+                )
+            else:
+                self.db.execute(
+                    "UPDATE novel_branches SET storyline_id = ? WHERE id = ?",
+                    (storyline_id or None, branch_id),
+                )
+            self.db.get_connection().commit()
+            logger.info("[UnifiedCheckpoint] 更新分支 id=%s", branch_id)
+        except Exception as e:
+            logger.error("[UnifiedCheckpoint] update_branch 失败: %s", e)
+
     def delete_checkpoint(self, checkpoint_id: str) -> None:
         """软删除 checkpoint（is_active=0）。
 

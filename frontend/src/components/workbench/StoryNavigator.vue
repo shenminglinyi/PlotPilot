@@ -62,7 +62,15 @@
               {{ getTypeLabel(sl.storyline_type) }}
             </n-tag>
             <div class="storyline-info">
-              <n-text class="storyline-name">{{ sl.name || `故事线 ${sl.id.slice(0, 8)}` }}</n-text>
+              <n-text class="storyline-name">
+                {{ sl.name || `故事线 ${sl.id.slice(0, 8)}` }}
+                <n-tooltip v-if="storylineBranchMap[sl.id]" trigger="hover">
+                  <template #trigger>
+                    <span class="storyline-branch-badge">⑂</span>
+                  </template>
+                  已绑定世界线分支
+                </n-tooltip>
+              </n-text>
               <n-text depth="3" style="font-size: 11px">
                 第 {{ sl.estimated_chapter_start }} - {{ sl.estimated_chapter_end }} 章
               </n-text>
@@ -124,6 +132,7 @@ import { useMessage } from 'naive-ui'
 import { storyPhaseApi, type StoryPhaseDTO } from '@/api/engineCore'
 import { workflowApi, type StorylineDTO } from '@/api/workflow'
 import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativeEngine'
+import { worldlineApi } from '@/api/worldline'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 
 interface Props {
@@ -152,6 +161,9 @@ const selectedStorylineId = ref<string | null>(null)
 
 const showAddModal = ref(false)
 const addSubmitting = ref(false)
+
+/** storylineId → branch exists */
+const storylineBranchMap = ref<Record<string, boolean>>({})
 
 const storylineTypeOptions = [
   { label: '主线', value: 'MAIN_PLOT' },
@@ -203,21 +215,64 @@ async function submitAddStoryline() {
   }
   addSubmitting.value = true
   try {
-    await workflowApi.createStoryline(props.slug, {
+    const created = await workflowApi.createStoryline(props.slug, {
       storyline_type: f.storyline_type,
       estimated_chapter_start: start,
       estimated_chapter_end: end,
       name: f.name?.trim() || undefined,
       description: f.description?.trim() || undefined,
-    })
+    }) as unknown as { id?: string } | void
     message.success('故事线已创建')
     showAddModal.value = false
+
+    // 对非主线，提示是否同时创建世界线分支
+    const newId = (created as { id?: string } | null)?.id
+    if (newId && f.storyline_type !== 'MAIN_PLOT') {
+      await offerCreateBranchForStoryline(newId, f.name?.trim() || `storyline-${newId.slice(0, 8)}`)
+    }
+
     refreshStore.bumpDesk()
   } catch (err: any) {
     const detail = err?.response?.data?.detail
     message.error(typeof detail === 'string' ? detail : err?.message || '创建失败')
   } finally {
     addSubmitting.value = false
+  }
+}
+
+/** 故事线创建后，询问是否同时分叉世界线分支 */
+async function offerCreateBranchForStoryline(storylineId: string, branchLabel: string) {
+  try {
+    // 需要先有至少一个 checkpoint，获取 HEAD
+    const graph = await worldlineApi.getGraph(props.slug)
+    if (!graph.head_id) return  // 没有 checkpoint 时跳过
+
+    const dialog = (await import('naive-ui')).useDialog
+    // 直接用 worldlineApi 创建，不展示复杂 dialog
+    await worldlineApi.createBranch(props.slug, {
+      name: branchLabel.replace(/\s+/g, '-').slice(0, 30) || `storyline-${storylineId.slice(0, 8)}`,
+      from_checkpoint_id: graph.head_id,
+      storyline_id: storylineId,
+    })
+    storylineBranchMap.value = { ...storylineBranchMap.value, [storylineId]: true }
+    message.info('已为该故事线创建对应世界线分支')
+  } catch {
+    // 非致命，忽略
+  }
+}
+
+/** 加载 storylines 后，批量检查世界线绑定 */
+async function loadStorylineBranches(ids: string[]) {
+  if (!ids.length) return
+  try {
+    const branches = await worldlineApi.listBranches(props.slug)
+    const bound: Record<string, boolean> = {}
+    for (const b of branches) {
+      if (b.storyline_id) bound[b.storyline_id] = true
+    }
+    storylineBranchMap.value = bound
+  } catch {
+    // 非致命
   }
 }
 
@@ -247,6 +302,7 @@ async function loadPhaseAndStorylines() {
     const bundle = await narrativeEngineApi.getStoryEvolution(props.slug)
     phase.value = bundle.life_cycle
     storylines.value = bundle.plot_spine.storylines || []
+    void loadStorylineBranches(storylines.value.map(s => s.id))
   } catch (error) {
     console.error('叙事引擎聚合加载失败，降级为分拆 API:', error)
     try {
@@ -292,6 +348,7 @@ watch(
       storylines.value = props.evolutionBundle.plot_spine.storylines || []
       phaseLoading.value = false
       storylinesLoading.value = false
+      void loadStorylineBranches(storylines.value.map(s => s.id))
       return
     }
     void loadPhaseAndStorylines()
@@ -462,5 +519,12 @@ function getStatusLabel(status: string): string {
   font-weight: 500;
   display: block;
   margin-bottom: 2px;
+}
+
+.storyline-branch-badge {
+  font-size: 11px;
+  color: var(--n-primary-color);
+  margin-left: 4px;
+  opacity: 0.8;
 }
 </style>
