@@ -108,6 +108,9 @@ const props = defineProps<Props>()
 const bundle = ref<StoryEvolutionReadModel | null>(null)
 const bundleLoading = ref(false)
 
+// 活跃 tab
+const activeTab = ref<'timeline' | 'worldline'>('timeline')
+
 // 高亮范围（选中故事线时高亮对应章节）
 const highlightRange = ref<{ start: number; end: number } | null>(null)
 
