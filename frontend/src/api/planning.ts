@@ -2,7 +2,7 @@
  * 统一的规划 API
  */
 
-import { apiClient } from './config'
+import { apiClient, resolveHttpUrl } from './config'
 
 // ==================== 类型定义 ====================
 
@@ -116,6 +116,113 @@ export interface StoryNode {
 export interface PlanningStructurePayload {
   novel_id: string
   nodes: StoryNode[]
+}
+
+// ==================== SSE 流式宏观规划 ====================
+
+export interface MacroStreamStatusEvent {
+  phase: 'start' | 'generating' | 'streaming' | string
+  message: string
+  current?: number
+  total?: number
+  percent?: number
+  total_nodes?: number
+}
+
+export interface MacroStreamNodeEvent {
+  type: 'part' | 'volume' | 'act'
+  part_index: number
+  volume_index?: number
+  act_index?: number
+  title: string
+  description?: string
+  estimated_chapters?: number
+  narrative_goal?: string
+}
+
+export interface MacroStreamDoneEvent {
+  structure: MacroPartNode[]
+  quality_metrics?: Record<string, unknown>
+  generation_time?: number
+}
+
+/**
+ * 连接宏观规划 SSE 流。
+ * 返回 AbortController，调用 .abort() 可中止连接。
+ */
+export function streamMacroPlan(
+  novelId: string,
+  handlers: {
+    onStatus?: (e: MacroStreamStatusEvent) => void
+    onNode?: (e: MacroStreamNodeEvent) => void
+    onDone?: (e: MacroStreamDoneEvent) => void
+    onError?: (message: string) => void
+  },
+): AbortController {
+  const ctrl = new AbortController()
+  const url = resolveHttpUrl(`/api/v1/planning/novels/${novelId}/macro/stream`)
+
+  void (async () => {
+    try {
+      const res = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
+      })
+      if (!res.ok || !res.body) {
+        handlers.onError?.(`HTTP ${res.status}`)
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      const flush = (buf: string): string => {
+        let rest = buf
+        let idx: number
+        while ((idx = rest.indexOf('\n\n')) >= 0) {
+          const block = rest.slice(0, idx)
+          rest = rest.slice(idx + 2)
+          let eventType = 'message'
+          let dataStr = ''
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event: ')) eventType = line.slice(7).trim()
+            else if (line.startsWith('data: ')) dataStr = line.slice(6)
+          }
+          if (!dataStr) continue
+          try {
+            const data = JSON.parse(dataStr) as Record<string, unknown>
+            if (eventType === 'status') {
+              handlers.onStatus?.(data as unknown as MacroStreamStatusEvent)
+            } else if (eventType === 'node') {
+              handlers.onNode?.(data as unknown as MacroStreamNodeEvent)
+            } else if (eventType === 'done') {
+              handlers.onDone?.(data as unknown as MacroStreamDoneEvent)
+            } else if (eventType === 'error') {
+              handlers.onError?.(String(data.message ?? '未知错误'))
+            }
+          } catch {
+            /* 忽略残缺行 */
+          }
+        }
+        return rest
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          flush(buffer + decoder.decode())
+          break
+        }
+        buffer += decoder.decode(value, { stream: true })
+        buffer = flush(buffer)
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return
+      handlers.onError?.(e instanceof Error ? e.message : '连接失败')
+    }
+  })()
+
+  return ctrl
 }
 
 // ==================== API ====================
