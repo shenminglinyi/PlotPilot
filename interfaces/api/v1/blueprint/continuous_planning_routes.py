@@ -4,7 +4,11 @@
 整合宏观规划、幕级规划、AI 续规划
 """
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+import asyncio
+import json as _json
+
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 
@@ -85,6 +89,135 @@ def get_service() -> ContinuousPlanningService:
 
 
 # ==================== 宏观规划 API ====================
+
+@router.get("/novels/{novel_id}/macro/stream")
+async def stream_macro_plan_sse(
+    novel_id: str,
+    service: ContinuousPlanningService = Depends(get_service),
+):
+    """宏观规划 SSE 流式端点：后台生成整版结构，然后逐节点推送给前端（部→卷→幕）。
+
+    事件格式（text/event-stream）：
+      event: status   data: {phase, message, current, total, percent}
+      event: node     data: {type, part_index, volume_index?, act_index?, title, description, estimated_chapters?}
+      event: done     data: {structure, quality_metrics, generation_time}
+      event: error    data: {message}
+    """
+
+    def _sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+    async def _generate():
+        # ─── 读取 target_chapters ───────────────────────────────────
+        target_chapters = 100
+        try:
+            from application.paths import get_db_path
+            from infrastructure.persistence.database.connection import get_database
+            _db = get_database(get_db_path())
+            _row = _db.fetch_one(
+                "SELECT target_chapters FROM novels WHERE id = ?", (novel_id,)
+            )
+            if _row and _row["target_chapters"]:
+                target_chapters = int(_row["target_chapters"])
+        except Exception:
+            pass
+
+        yield _sse("status", {"phase": "start", "message": "正在初始化宏观规划…", "percent": 0})
+
+        service.initialize_macro_plan_task(novel_id)
+
+        task: asyncio.Task = asyncio.create_task(
+            service.generate_macro_plan(
+                novel_id=novel_id,
+                target_chapters=target_chapters,
+                structure_preference=None,
+            )
+        )
+
+        # ─── 轮询进度，直到 LLM 任务结束 ──────────────────────────
+        last_msg = ""
+        while not task.done():
+            await asyncio.sleep(0.4)
+            prog = get_macro_plan_progress(novel_id)
+            msg = prog.get("message", "")
+            if msg and msg != last_msg:
+                last_msg = msg
+                yield _sse("status", {
+                    "phase": "generating",
+                    "message": msg,
+                    "current": prog.get("current", 0),
+                    "total": prog.get("total", 0),
+                    "percent": prog.get("percent", 0),
+                })
+
+        if task.cancelled():
+            yield _sse("error", {"message": "规划已取消"})
+            return
+
+        exc = task.exception()
+        if exc:
+            yield _sse("error", {"message": f"生成失败：{exc}"})
+            return
+
+        result = task.result()
+        parts: list = result.get("structure", [])
+
+        # ─── 统计节点总数供前端显示进度 ───────────────────────────
+        total_nodes = sum(
+            1 + len(v.get("acts", [])) + 1
+            for p in parts
+            for v in p.get("volumes", [])
+        )
+        yield _sse("status", {
+            "phase": "streaming",
+            "message": "正在呈现叙事骨架…",
+            "percent": 95,
+            "total_nodes": total_nodes,
+        })
+
+        # ─── 逐节点推送（小延迟制造打字机效果） ───────────────────
+        for pi, part in enumerate(parts):
+            yield _sse("node", {
+                "type": "part",
+                "part_index": pi,
+                "title": part.get("title", ""),
+                "description": part.get("description", ""),
+            })
+            await asyncio.sleep(0.09)
+            for vi, vol in enumerate(part.get("volumes", [])):
+                yield _sse("node", {
+                    "type": "volume",
+                    "part_index": pi,
+                    "volume_index": vi,
+                    "title": vol.get("title", ""),
+                    "description": vol.get("description", ""),
+                })
+                await asyncio.sleep(0.06)
+                for ai, act in enumerate(vol.get("acts", [])):
+                    yield _sse("node", {
+                        "type": "act",
+                        "part_index": pi,
+                        "volume_index": vi,
+                        "act_index": ai,
+                        "title": act.get("title", ""),
+                        "description": act.get("description", ""),
+                        "estimated_chapters": act.get("estimated_chapters", 0),
+                        "narrative_goal": act.get("narrative_goal", ""),
+                    })
+                    await asyncio.sleep(0.04)
+
+        yield _sse("done", {
+            "structure": parts,
+            "quality_metrics": result.get("quality_metrics", {}),
+            "generation_time": result.get("generation_time", 0),
+        })
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 @router.post("/novels/{novel_id}/macro/generate", status_code=202)
 async def generate_macro_plan(
