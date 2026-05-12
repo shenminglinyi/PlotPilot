@@ -378,6 +378,7 @@ def get_chapter_aftermath_pipeline():
         debt_repository=debt_repo,
         bible_repository=bible_repo,
         unified_checkpoint_service=get_unified_checkpoint_service(),
+        prop_lifecycle_syncer=_get_prop_lifecycle_syncer_safe(),
     )
 
 
@@ -1065,5 +1066,54 @@ def get_unified_checkpoint_service():
         db=get_database(),
         chapter_repository=get_chapter_repository(),
         foreshadowing_repo=get_foreshadowing_repository(),
+    )
+
+
+def get_unified_prop_repository():
+    """统一道具仓储。"""
+    from infrastructure.persistence.database.unified_prop_repository import SqliteUnifiedPropRepository
+    return SqliteUnifiedPropRepository(get_database())
+
+
+def get_prop_event_repository():
+    """道具事件仓储。"""
+    from infrastructure.persistence.database.sqlite_prop_event_repository import SqlitePropEventRepository
+    return SqlitePropEventRepository(get_database())
+
+
+def _get_prop_lifecycle_syncer_safe():
+    """构建 PropLifecycleSyncer（失败时返回 None，不阻断启动）。"""
+    try:
+        return get_prop_lifecycle_syncer()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("PropLifecycleSyncer 初始化失败（非致命）: %s", e)
+        return None
+
+
+def get_prop_lifecycle_syncer():
+    """构建 PropLifecycleSyncer，注入 PatternExtractor + LlmExtractor + TripleHandler。"""
+    from application.prop.services.lifecycle_syncer import PropLifecycleSyncer
+    from application.prop.extractors.pattern_extractor import PatternExtractor
+    from application.prop.extractors.llm_extractor import LlmExtractor
+    from application.prop.handlers.triple_handler import TriplePropEventHandler
+
+    prop_repo = get_unified_prop_repository()
+    event_repo = get_prop_event_repository()
+    extractors = [PatternExtractor()]
+    try:
+        extractors.append(LlmExtractor(get_llm_service()))
+    except Exception:
+        pass
+    handlers = [TriplePropEventHandler(get_database())]
+    return PropLifecycleSyncer(prop_repo, event_repo, extractors, handlers)
+
+
+def get_unified_prop_context_builder():
+    """构建 PropContextBuilder，供 DAG ctx_prop_state 节点使用。"""
+    from application.prop.services.prop_context_builder import PropContextBuilder
+    return PropContextBuilder(
+        get_unified_prop_repository(),
+        get_prop_event_repository(),
     )
 
