@@ -73,7 +73,11 @@ import WorkArea from '../components/workbench/WorkArea.vue'
 import SettingsPanel from '../components/workbench/SettingsPanel.vue'
 import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
 import LLMSettingsModal from '../components/LLMSettingsModal.vue'
-import { WORKBENCH_CHAPTER_DESK_CHANGE_EVENT } from '../workbench/deskEvents'
+import {
+  WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
+  WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
+  isWorkbenchSettingsPanelName,
+} from '../workbench/deskEvents'
 
 const route = useRoute()
 const message = useMessage()
@@ -100,6 +104,13 @@ const handleChapterUpdated = async () => {
 
 function onDeskChangeSignalFromPanels() {
   void handleChapterUpdated()
+}
+
+function onOpenSettingsPanelFromChild(e: Event) {
+  const panel = (e as CustomEvent<{ panel?: string }>).detail?.panel
+  if (typeof panel === 'string' && isWorkbenchSettingsPanelName(panel)) {
+    rightPanel.value = panel
+  }
 }
 
 // 幕→章 规划弹层
@@ -156,6 +167,7 @@ async function syncChapterFromRoute() {
 
 onMounted(async () => {
   window.addEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
+  window.addEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
   try {
     await loadDesk()
     await syncChapterFromRoute()
@@ -169,6 +181,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
+  window.removeEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
 })
 
 watch(

@@ -13,9 +13,9 @@
       <n-select
         v-model:value="filterChapter"
         :options="chapterOptions"
-        placeholder="章节"
+        placeholder="章节（空=全书）"
         clearable
-        style="width: 90px"
+        style="width: 110px"
         size="small"
       />
       <n-select
@@ -82,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { sandboxApi, type DialogueWhitelistResponse, type DialogueEntry } from '@/api/sandbox'
 import { bibleApi } from '@/api/bible'
@@ -91,9 +91,13 @@ import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeS
 interface Props {
   slug: string
   selectedCharacterId: string | null
+  /** 工作台当前章节：有值时默认筛对白到该章（可清空章节下拉恢复全书） */
+  deskChapterNumber?: number | null
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  deskChapterNumber: null,
+})
 const message = useMessage()
 
 const loading = ref(false)
@@ -102,7 +106,8 @@ const filterChapter = ref<number | null>(null)
 const filterSpeaker = ref('')
 const searchText = ref('')
 
-const characterNames = ref<Set<string>>(new Set())
+/** 当前选中角色（id → Bible 姓名），用于高亮与说话人筛选联动 */
+const resolvedSelectedCharacterName = ref('')
 
 // 章节选项（从已有对话中提取）
 const chapterOptions = computed(() => {
@@ -147,20 +152,31 @@ const filteredDialogues = computed<DialogueEntry[]>(() => {
   return list
 })
 
-// 判断对话是否属于选中角色
 function isCharacterDialogue(speaker: string): boolean {
-  if (!props.selectedCharacterId) return false
-  return characterNames.value.has(speaker)
+  const target = resolvedSelectedCharacterName.value
+  if (!target) return false
+  return speaker.trim() === target
 }
 
-async function loadCharacterNames() {
-  if (!props.slug) return
-
+async function syncSelectionFromBible() {
+  if (!props.slug) {
+    resolvedSelectedCharacterName.value = ''
+    return
+  }
+  if (!props.selectedCharacterId) {
+    resolvedSelectedCharacterName.value = ''
+    filterSpeaker.value = ''
+    return
+  }
   try {
     const bible = await bibleApi.getBible(props.slug)
-    characterNames.value = new Set(bible.characters?.map(c => c.name) || [])
+    const c = bible.characters?.find((x) => x.id === props.selectedCharacterId)
+    const name = (c?.name || '').trim()
+    resolvedSelectedCharacterName.value = name
+    filterSpeaker.value = name
   } catch {
-    characterNames.value = new Set()
+    resolvedSelectedCharacterName.value = ''
+    filterSpeaker.value = ''
   }
 }
 
@@ -179,24 +195,32 @@ async function load() {
   }
 }
 
+watch(
+  () => props.deskChapterNumber,
+  (n) => {
+    filterChapter.value = n != null && n > 0 ? n : null
+  },
+)
+
 watch(() => props.slug, () => {
-  void loadCharacterNames()
   void load()
 }, { immediate: true })
 
-onMounted(() => {
-  void loadCharacterNames()
-  void load()
-})
+watch(
+  () => [props.slug, props.selectedCharacterId] as const,
+  () => {
+    void syncSelectionFromBible()
+  },
+  { immediate: true },
+)
 
 useWorkbenchDeskTickReload(() => {
-  void loadCharacterNames()
   void load()
+  void syncSelectionFromBible()
 })
 
 defineExpose({
   load,
-  loadCharacterNames,
 })
 </script>
 
@@ -230,10 +254,13 @@ defineExpose({
 
 .corpus-filters {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   padding: 8px 16px;
   border-bottom: 1px solid var(--aitext-split-border);
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .corpus-content {

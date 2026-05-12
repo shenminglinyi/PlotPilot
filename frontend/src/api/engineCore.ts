@@ -196,6 +196,12 @@ export interface ValidateBehaviorResponse {
   suggestions: string[]
 }
 
+export interface ExtractCharacterPsycheResponse {
+  ok: boolean
+  applied_keys: string[]
+  warnings: string[]
+}
+
 export const characterPsycheApi = {
   /** GET /novels/{novel_id}/character-psyches */
   list: (novelId: string) =>
@@ -215,6 +221,14 @@ export const characterPsycheApi = {
       `/novels/${novelId}/character-psyches/${encodeURIComponent(name)}/validate`,
       body,
     ) as unknown as Promise<ValidateBehaviorResponse>,
+
+  /** POST /novels/{novel_id}/character-psyches/{name}/extract — AI 抽取 T0/锚点写 Bible */
+  extractToBible: (novelId: string, name: string) =>
+    apiClient.post<ExtractCharacterPsycheResponse>(
+      `/novels/${novelId}/character-psyches/${encodeURIComponent(name)}/extract`,
+      {},
+      { timeout: 180_000 },
+    ) as unknown as Promise<ExtractCharacterPsycheResponse>,
 }
 
 // ─── 向后兼容别名（v3.x 保留，v4.0 移除）──────────────────────

@@ -130,6 +130,24 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 
 let chartInstance: echarts.ECharts | null = null
+/** 监听卡片/分栏拖拽导致的容器宽高变化（不会触发 window resize） */
+let chartResizeObserver: ResizeObserver | null = null
+
+function teardownChartResizeObserver() {
+  chartResizeObserver?.disconnect()
+  chartResizeObserver = null
+}
+
+function setupChartResizeObserver() {
+  teardownChartResizeObserver()
+  const el = chartRef.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  chartResizeObserver = new ResizeObserver(() => {
+    requestAnimationFrame(() => chartInstance?.resize())
+  })
+  chartResizeObserver.observe(el)
+}
+
 /** 容器尚未布局完成时延迟渲染；封顶避免无限 setTimeout（隐藏标签页 / 折叠面板） */
 let renderDimensionAttempts = 0
 const RENDER_DIMENSION_ATTEMPTS_MAX = 40
@@ -379,6 +397,8 @@ function renderChart() {
   }
 
   chartInstance.setOption(option, true)
+  setupChartResizeObserver()
+  chartInstance.resize()
 
   // 点击事件
   chartInstance.off('click')
@@ -436,6 +456,7 @@ onUnmounted(() => {
   tensionLoadAbort = null
   window.removeEventListener('resize', handleResize)
   if (resizeTimer) clearTimeout(resizeTimer)
+  teardownChartResizeObserver()
   chartInstance?.dispose()
   chartInstance = null
 })

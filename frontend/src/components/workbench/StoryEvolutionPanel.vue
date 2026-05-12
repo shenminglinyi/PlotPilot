@@ -1,7 +1,25 @@
 <!-- frontend/src/components/workbench/StoryEvolutionPanel.vue -->
 <template>
   <div class="story-evolution-panel">
-    <n-split direction="horizontal" :default-size="0.25" :min="0.20" :max="0.35">
+    <header class="story-evolution-banner" role="region" aria-label="故事演进说明">
+      <div class="story-evolution-banner__head">
+        <div class="story-evolution-banner__title">
+          <span class="story-evolution-banner__icon" aria-hidden="true">📈</span>
+          <n-text strong>故事演进</n-text>
+        </div>
+        <n-space size="small" align="center" wrap>
+          <n-tag v-if="currentChapter" size="small" round :bordered="false" type="info">
+            当前第 {{ currentChapter }} 章
+          </n-tag>
+          <n-button size="tiny" secondary @click="openCharacterAnchor">角色锚点</n-button>
+        </n-space>
+      </div>
+      <n-text depth="3" class="story-evolution-banner__lead">
+        左栏选故事线与阶段；中栏按章查看剧情事件与版本快照；右栏打开明细、检查点与回滚。与左侧章节列表同步；快照在收稿后由章后管线生成。
+      </n-text>
+    </header>
+    <!-- 外：导航略收窄，为「时间轴 + 详情」留出宽度；内：提高右栏默认占比，避免详情过窄 -->
+    <n-split direction="horizontal" :default-size="0.24" :min="0.17" :max="0.34">
       <!-- 左栏：故事导航 -->
       <template #1>
         <StoryNavigator
@@ -13,7 +31,7 @@
 
       <!-- 中栏 + 右栏 -->
       <template #2>
-        <n-split direction="horizontal" :default-size="0.70" :min="0.60" :max="0.80">
+        <n-split direction="horizontal" :default-size="0.55" :min="0.40" :max="0.68">
           <!-- 中栏：时间轴 -->
           <template #1>
             <StoryTimeline
@@ -40,7 +58,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { WORKBENCH_CHAPTER_DESK_CHANGE_EVENT } from '@/workbench/deskEvents'
+import {
+  WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
+  WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
+} from '@/workbench/deskEvents'
 import StoryNavigator from './StoryNavigator.vue'
 import StoryTimeline from './StoryTimeline.vue'
 import StoryDetailPanel from './StoryDetailPanel.vue'
@@ -50,7 +71,7 @@ interface Props {
   currentChapter: number | null
 }
 
-const props = defineProps<Props>()
+defineProps<Props>()
 
 // 高亮范围（选中故事线时高亮对应章节）
 const highlightRange = ref<{ start: number; end: number } | null>(null)
@@ -82,6 +103,12 @@ function onCheckpointRestored() {
   selectedItem.value = null
   window.dispatchEvent(new CustomEvent(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT))
 }
+
+function openCharacterAnchor() {
+  window.dispatchEvent(
+    new CustomEvent(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, { detail: { panel: 'sandbox' } }),
+  )
+}
 </script>
 
 <style scoped>
@@ -89,12 +116,51 @@ function onCheckpointRestored() {
   height: 100%;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--app-surface);
 }
 
+.story-evolution-banner {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
+  background: var(--app-surface-elevated, var(--app-surface));
+}
+
+.story-evolution-banner__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.story-evolution-banner__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  min-width: 0;
+}
+
+.story-evolution-banner__icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.story-evolution-banner__lead {
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
+  max-width: 72ch;
+}
+
 .story-evolution-panel :deep(.n-split) {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .story-evolution-panel :deep(.n-split-pane-1),

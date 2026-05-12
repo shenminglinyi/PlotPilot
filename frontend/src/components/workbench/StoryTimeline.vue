@@ -183,9 +183,16 @@ useWorkbenchPlotTimelineReload(() => void load())
 .timeline-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--aitext-split-border);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.timeline-header :deep(.n-space) {
   flex-shrink: 0;
 }
 
