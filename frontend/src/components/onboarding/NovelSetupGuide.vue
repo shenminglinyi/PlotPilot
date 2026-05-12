@@ -223,6 +223,21 @@
           <n-alert type="success" title="人物生成完成" style="margin-bottom: 16px">
             请查看并修改角色设定，确认后将继续。
           </n-alert>
+          <n-space vertical size="small" style="margin-bottom: 14px">
+            <n-button
+              size="small"
+              type="primary"
+              secondary
+              :loading="bulkExtractingPsyche"
+              :disabled="!editableCharacters.length"
+              @click="runBulkCharacterExtract"
+            >
+              AI 补全 T0 / 锚点（写 Bible）
+            </n-button>
+            <n-text depth="3" style="font-size: 11px; line-height: 1.5">
+              与工作台「角色锚点」同一套 Bible 字段；逐人调用模型，可在下方改完再点「确认修改并继续」落库。
+            </n-text>
+          </n-space>
           <n-list bordered>
             <n-list-item v-for="(char, idx) in editableCharacters" :key="idx">
               <div class="editable-character">
@@ -551,6 +566,7 @@ import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
+import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
@@ -874,6 +890,10 @@ interface EditableCharacter {
   public_profile: string
   hidden_profile: string
   reveal_chapter: number | null
+  core_belief: string
+  moral_taboos: string[]
+  voice_profile: Record<string, unknown>
+  active_wounds: Array<Record<string, string>>
 }
 
 /** 从 CharacterDTO 映射到 EditableCharacter，解析 description 中的 role */
@@ -903,6 +923,10 @@ function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
     public_profile: c.public_profile || '',
     hidden_profile: c.hidden_profile || '',
     reveal_chapter: c.reveal_chapter ?? null,
+    core_belief: c.core_belief || '',
+    moral_taboos: [...(c.moral_taboos || [])],
+    voice_profile: { ...(c.voice_profile || {}) },
+    active_wounds: [...(c.active_wounds || [])] as Array<Record<string, string>>,
   }
 }
 
@@ -1799,6 +1823,10 @@ async function saveCharactersEdits(): Promise<boolean> {
         public_profile: c.public_profile,
         hidden_profile: c.hidden_profile,
         reveal_chapter: c.reveal_chapter,
+        core_belief: c.core_belief,
+        moral_taboos: c.moral_taboos,
+        voice_profile: c.voice_profile,
+        active_wounds: c.active_wounds,
       })),
       world_settings: [],
       locations: [],
@@ -1809,6 +1837,36 @@ async function saveCharactersEdits(): Promise<boolean> {
   } catch (e) {
     message.error(formatApiError(e) || '保存人物修改失败')
     return false
+  }
+}
+
+const bulkExtractingPsyche = ref(false)
+
+async function runBulkCharacterExtract() {
+  const list = editableCharacters.value.filter((c) => c.name.trim())
+  if (!list.length) {
+    message.warning('请先填写人物姓名')
+    return
+  }
+  bulkExtractingPsyche.value = true
+  const warnLines: string[] = []
+  try {
+    for (const c of list) {
+      const res = await characterPsycheApi.extractToBible(props.novelId, c.name.trim())
+      if (res.warnings?.length) {
+        warnLines.push(`${c.name}：${res.warnings.join('；')}`)
+      }
+    }
+    await loadBibleData()
+    if (warnLines.length) {
+      message.warning(warnLines.slice(0, 5).join('\n'))
+    } else {
+      message.success('已对全部人物尝试 AI 补全（无长简介时改动可能很少）')
+    }
+  } catch (e: unknown) {
+    message.error(formatApiError(e) || 'AI 补全失败')
+  } finally {
+    bulkExtractingPsyche.value = false
   }
 }
 

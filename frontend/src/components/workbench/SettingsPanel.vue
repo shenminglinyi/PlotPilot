@@ -37,7 +37,10 @@
         <StoryEvolutionPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
       <n-tab-pane name="sandbox" tab="角色锚点" display-directive="if">
-        <CharacterDialoguePanel :slug="slug" />
+        <CharacterDialoguePanel
+          :slug="slug"
+          :current-chapter-number="currentChapter?.number ?? null"
+        />
       </n-tab-pane>
       <n-tab-pane name="foreshadow" tab="伏笔账本" display-directive="if">
         <ForeshadowLedgerPanel :slug="slug" />

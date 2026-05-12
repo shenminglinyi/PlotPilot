@@ -45,6 +45,9 @@
       <n-spin :show="storylinesLoading">
         <div v-if="storylines.length === 0" class="empty-state">
           <n-text depth="3" style="font-size: 12px">暂无故事线</n-text>
+          <n-text depth="3" style="font-size: 11px; display: block; margin-top: 6px; line-height: 1.5">
+            点击「+」手动创建，或在创建向导 / 宏观规划完成后会自动出现。
+          </n-text>
         </div>
 
         <div v-else class="storylines-list">
@@ -347,8 +350,10 @@ useWorkbenchDeskTickReload(() => {
 
 .phase-track {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 8px 4px;
 }
 
 .phase-stage {

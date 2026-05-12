@@ -16,9 +16,11 @@
 - GET  /novels/{novel_id}/character-psyches       → 获取角色灵魂概览
 - GET  /novels/{novel_id}/character-psyches/{name}→ 单角色灵魂详情
 - POST /novels/{novel_id}/character-psyches/{name}/validate → 行为验证
+- POST /novels/{novel_id}/character-psyches/{name}/extract → AI 抽取 T0/锚点写 Bible
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -159,6 +161,13 @@ class ValidateBehaviorResponse(BaseModel):
     suggestions: List[str] = Field(default_factory=list)
 
 
+class ExtractCharacterPsycheResponse(BaseModel):
+    """AI 抽取后写回 Bible 的结果"""
+    ok: bool = True
+    applied_keys: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
 # ─── Helpers ───────────────────────────────────────────────────────
 
 def _get_checkpoint_store():
@@ -167,6 +176,7 @@ def _get_checkpoint_store():
     return get_checkpoint_store()
 
 
+def _get_cast_graph(novel_id: str):
     """从 CastService 获取角色图"""
     from interfaces.api.dependencies import get_cast_service
     cast_service = get_cast_service()
@@ -409,14 +419,152 @@ def _get_bible_characters(novel_id: str) -> List[Dict[str, Any]]:
         db = get_database()
         with db.get_connection() as conn:
             rows = conn.execute(
-                "SELECT id, name, description, mental_state, verbal_tic, idle_behavior "
-                "FROM bible_characters WHERE novel_id = ? ORDER BY name",
+                """
+                SELECT id, name, description, mental_state, verbal_tic, idle_behavior,
+                       mental_state_reason, public_profile, hidden_profile, reveal_chapter,
+                       core_belief, moral_taboos_json, voice_profile_json, active_wounds_json
+                FROM bible_characters WHERE novel_id = ? ORDER BY name
+                """,
                 (novel_id,),
             ).fetchall()
-            return [dict(r) for r in rows]
+            import json as _json
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                d = dict(r)
+                for jk, dk, empty in (
+                    ("moral_taboos_json", "moral_taboos", []),
+                    ("voice_profile_json", "voice_profile", {}),
+                    ("active_wounds_json", "active_wounds", []),
+                ):
+                    raw_j = d.pop(jk, None)
+                    try:
+                        parsed = json.loads(raw_j) if raw_j else empty
+                        if not isinstance(parsed, type(empty)):
+                            parsed = empty
+                        d[dk] = parsed
+                    except Exception:
+                        d[dk] = empty
+                out.append(d)
+            return out
     except Exception as e:
         logger.debug("读取 bible_characters 失败: %s", e)
         return []
+
+
+def _world_snippet_from_bible_for_extract(bible: Any, max_len: int = 2400) -> str:
+    """拼一段世界观/文风提要，供角色抽取提示用。"""
+    parts: List[str] = []
+    for sn in getattr(bible, "style_notes", None) or []:
+        c = getattr(sn, "content", "") or ""
+        if c.strip():
+            parts.append(f"【文风】{c.strip()[:800]}")
+    for ws in getattr(bible, "world_settings", None) or []:
+        nm = getattr(ws, "name", "") or ""
+        ds = getattr(ws, "description", "") or ""
+        if nm or ds:
+            parts.append(f"【{nm}】{ds[:500]}")
+    blob = "\n".join(parts)
+    return blob[:max_len]
+
+
+def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any, List[str]]:
+    """将 LLM JSON 合并进 Bible CharacterDTO；返回 (merged_dto, applied_keys)。"""
+    from dataclasses import replace
+
+    applied: List[str] = []
+
+    d_core = (data.get("core_belief") or "").strip()
+    core_belief = d_core[:2000] if d_core else base.core_belief
+    if d_core:
+        applied.append("core_belief")
+
+    moral_taboos = list(base.moral_taboos)
+    d_taboo = data.get("moral_taboos")
+    if isinstance(d_taboo, list) and d_taboo:
+        moral_taboos = [str(x).strip()[:500] for x in d_taboo[:6] if str(x).strip()]
+        if moral_taboos:
+            applied.append("moral_taboos")
+
+    voice_profile = dict(base.voice_profile or {})
+    d_vp = data.get("voice_profile")
+    if isinstance(d_vp, dict) and d_vp:
+        for k in ("style", "sentence_pattern", "speech_tempo"):
+            vv = d_vp.get(k)
+            if isinstance(vv, str) and vv.strip():
+                voice_profile[k] = vv.strip()[:600]
+        if voice_profile != dict(base.voice_profile or {}):
+            applied.append("voice_profile")
+
+    active_wounds = list(base.active_wounds or [])
+    d_aw = data.get("active_wounds")
+    if isinstance(d_aw, list) and d_aw:
+        nw: List[Dict[str, str]] = []
+        for it in d_aw[:4]:
+            if isinstance(it, dict):
+                t = str(it.get("trigger", "") or "").strip()[:400]
+                e = str(it.get("effect", "") or "").strip()[:400]
+                if t or e:
+                    nw.append({"trigger": t, "effect": e})
+        if nw:
+            active_wounds = nw
+            applied.append("active_wounds")
+
+    d_ms = (data.get("mental_state") or "").strip()
+    mental_state = d_ms[:80] if d_ms else base.mental_state
+    if d_ms:
+        applied.append("mental_state")
+
+    d_msr = (data.get("mental_state_reason") or "").strip()
+    mental_state_reason = d_msr[:1200] if d_msr else base.mental_state_reason
+    if d_msr:
+        applied.append("mental_state_reason")
+
+    d_vt = (data.get("verbal_tic") or "").strip()
+    verbal_tic = d_vt[:500] if d_vt else base.verbal_tic
+    if d_vt:
+        applied.append("verbal_tic")
+
+    d_ib = (data.get("idle_behavior") or "").strip()
+    idle_behavior = d_ib[:500] if d_ib else base.idle_behavior
+    if d_ib:
+        applied.append("idle_behavior")
+
+    d_pub = (data.get("public_profile") or "").strip()
+    public_profile = d_pub[:4000] if d_pub else base.public_profile
+    if d_pub:
+        applied.append("public_profile")
+
+    d_hid = (data.get("hidden_profile") or "").strip()
+    hidden_profile = d_hid[:4000] if d_hid else base.hidden_profile
+    if d_hid:
+        applied.append("hidden_profile")
+
+    reveal_chapter = base.reveal_chapter
+    d_rc = data.get("reveal_chapter")
+    if d_rc is not None:
+        try:
+            rc_int = int(d_rc)
+            if rc_int >= 1:
+                reveal_chapter = rc_int
+                applied.append("reveal_chapter")
+        except (TypeError, ValueError):
+            pass
+
+    merged = replace(
+        base,
+        core_belief=core_belief,
+        moral_taboos=moral_taboos,
+        voice_profile=voice_profile,
+        active_wounds=active_wounds,
+        mental_state=mental_state or "NORMAL",
+        mental_state_reason=mental_state_reason,
+        verbal_tic=verbal_tic,
+        idle_behavior=idle_behavior,
+        public_profile=public_profile,
+        hidden_profile=hidden_profile,
+        reveal_chapter=reveal_chapter,
+    )
+    return merged, applied
 
 
 def _extract_core_belief(description: str, relationships: list) -> str:
@@ -541,13 +689,37 @@ def _build_psyche_from_bible(
         if role_match:
             role = role_match.group(1)
 
+    stored_cb = (char.get("core_belief") or "").strip()
+    core_belief = stored_cb if stored_cb else _extract_core_belief(desc, [])
+
+    moral_taboos = char.get("moral_taboos") or []
+    if isinstance(moral_taboos, list) and moral_taboos:
+        taboo = "、".join(str(x).strip() for x in moral_taboos[:5] if str(x).strip())
+    else:
+        taboo = _extract_taboo(desc)
+
+    vp = char.get("voice_profile") or {}
+    if isinstance(vp, dict) and str(vp.get("style", "") or "").strip():
+        voice_tag = str(vp.get("style")).strip()
+    else:
+        voice_tag = _extract_voice_tag(desc, verbal)
+
+    aw = char.get("active_wounds") or []
+    wound = ""
+    if isinstance(aw, list) and aw and isinstance(aw[0], dict):
+        t = str(aw[0].get("trigger", "") or "").strip()
+        e = str(aw[0].get("effect", "") or "").strip()
+        wound = (f"{t}→{e}" if t and e else (t or e)).strip()
+    if not wound:
+        wound = _extract_wound(desc, mental)
+
     return CharacterPsycheDTO(
         name=char.get("name", ""),
         role=role,
-        core_belief=_extract_core_belief(desc, []),
-        taboo=_extract_taboo(desc),
-        voice_tag=_extract_voice_tag(desc, verbal),
-        wound=_extract_wound(desc, mental),
+        core_belief=core_belief,
+        taboo=taboo,
+        voice_tag=voice_tag,
+        wound=wound,
         trauma_count=0,
     )
 
@@ -780,3 +952,126 @@ async def validate_character_behavior(novel_id: str, character_name: str, body: 
     except Exception as e:
         logger.warning("行为验证失败: %s", e)
         return ValidateBehaviorResponse(valid=True, warnings=[f"验证服务不可用: {e}"])
+
+
+@router.post(
+    "/{novel_id}/character-psyches/{character_name}/extract",
+    response_model=ExtractCharacterPsycheResponse,
+)
+async def extract_character_psyche_to_bible(novel_id: str, character_name: str):
+    """用 LLM 从 Bible 角色条目中抽取 T0/声线/创伤/锚点等，写回 Bible（与引导页落库同源）。
+
+    人可在工作台或世界观中继续改字段；本接口为覆盖式合并：仅当模型返回非空字段时才覆盖对应项。
+    """
+    if not _novel_exists(novel_id):
+        raise HTTPException(status_code=404, detail="Novel not found")
+
+    from interfaces.api.dependencies import get_bible_service, get_llm_service
+    from domain.ai.services.llm_service import GenerationConfig
+    from domain.ai.value_objects.prompt import Prompt
+    from application.ai.llm_json_extract import parse_llm_json_to_dict
+    from application.world.dtos.bible_dto import CharacterDTO
+
+    bible_service = get_bible_service()
+    bible = bible_service.get_bible_by_novel(novel_id)
+    if bible is None:
+        raise HTTPException(status_code=404, detail="Bible not found")
+
+    target: Optional[CharacterDTO] = None
+    for c in bible.characters:
+        if c.name == character_name:
+            target = c
+            break
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Character '{character_name}' not found in Bible")
+
+    char_payload = {
+        "id": target.id,
+        "name": target.name,
+        "description": target.description,
+        "relationships": target.relationships,
+        "public_profile": target.public_profile,
+        "hidden_profile": target.hidden_profile,
+        "reveal_chapter": target.reveal_chapter,
+        "mental_state": target.mental_state,
+        "mental_state_reason": target.mental_state_reason,
+        "verbal_tic": target.verbal_tic,
+        "idle_behavior": target.idle_behavior,
+        "core_belief": target.core_belief,
+        "moral_taboos": target.moral_taboos,
+        "voice_profile": target.voice_profile,
+        "active_wounds": target.active_wounds,
+    }
+    world_snippet = _world_snippet_from_bible_for_extract(bible)
+
+    system = (
+        "你是长篇小说角色设定编辑。根据作品 Bible 中的单条角色记录与可选的世界观提要，"
+        "抽取写章时可用的结构化锚点。只输出一个 JSON 对象，不要 markdown 围栏，不要解释。"
+    )
+    schema_hint = """输出 JSON 须严格包含下列键（字符串用中文，可简短）：
+{
+  "core_belief": "",
+  "moral_taboos": [],
+  "voice_profile": {"style":"","sentence_pattern":"","speech_tempo":""},
+  "active_wounds": [{"trigger":"","effect":""}],
+  "mental_state": "NORMAL",
+  "mental_state_reason": "",
+  "verbal_tic": "",
+  "idle_behavior": "",
+  "public_profile": "",
+  "hidden_profile": "",
+  "reveal_chapter": null
+}
+约束：moral_taboos 最多 5 条；active_wounds 最多 3 条；句子简练；无把握时 mental_state 用 NORMAL。"""
+    user = (
+        f"世界观/文风提要（可为空）：\n{world_snippet or '（无）'}\n\n"
+        f"当前角色 JSON：\n{json.dumps(char_payload, ensure_ascii=False)}\n\n"
+        f"{schema_hint}"
+    )
+
+    llm = get_llm_service()
+    prompt = Prompt(system=system, user=user)
+    config = GenerationConfig(max_tokens=1400, temperature=0.35)
+    try:
+        result = await llm.generate(prompt, config)
+        raw = result.content if hasattr(result, "content") else str(result)
+    except Exception as e:
+        logger.error("character extract LLM 失败: %s", e)
+        raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e}") from e
+
+    data, errs = parse_llm_json_to_dict(raw)
+    if not data:
+        raise HTTPException(
+            status_code=422,
+            detail="无法解析模型 JSON：" + ("; ".join(errs) if errs else "空对象"),
+        )
+
+    merged, applied = _merge_character_from_extract(target, data)
+    if not applied:
+        return ExtractCharacterPsycheResponse(
+            ok=True,
+            applied_keys=[],
+            warnings=["模型未返回新的非空字段，未写库。可补充简介或换模型后重试。"],
+        )
+
+    new_chars: List[CharacterDTO] = []
+    for c in bible.characters:
+        new_chars.append(merged if c.id == target.id else c)
+
+    try:
+        bible_service.update_bible(
+            novel_id,
+            characters=new_chars,
+            world_settings=list(bible.world_settings),
+            locations=list(bible.locations),
+            timeline_notes=list(bible.timeline_notes),
+            style_notes=list(bible.style_notes),
+        )
+    except Exception as e:
+        logger.error("character extract 写 Bible 失败: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    warnings: List[str] = []
+    if errs:
+        warnings.extend(errs)
+    return ExtractCharacterPsycheResponse(ok=True, applied_keys=applied, warnings=warnings)

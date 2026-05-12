@@ -46,6 +46,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
 import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
+import { WORKBENCH_OPEN_SETTINGS_PANEL_EVENT } from '@/workbench/deskEvents'
 
 interface Props {
   slug: string
@@ -93,8 +94,9 @@ function selectCharacter(characterId: string | null) {
 }
 
 function goToWorldbuilding() {
-  // 跳转到世界观 tab（通过事件或路由）
-  message.info('请切换到「世界观」tab 添加角色')
+  window.dispatchEvent(
+    new CustomEvent(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, { detail: { panel: 'worldbuilding' } }),
+  )
 }
 
 async function loadCharacters() {

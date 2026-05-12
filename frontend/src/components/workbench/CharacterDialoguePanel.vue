@@ -1,19 +1,26 @@
 <template>
   <div class="character-dialogue-panel">
     <header class="anchor-desk-banner" role="region" aria-label="角色锚点说明">
-      <div class="anchor-desk-banner__title">
-        <span class="anchor-desk-banner__icon" aria-hidden="true">⚓</span>
-        <n-text strong>角色锚点</n-text>
+      <div class="anchor-desk-banner__head">
+        <div class="anchor-desk-banner__title">
+          <span class="anchor-desk-banner__icon" aria-hidden="true">⚓</span>
+          <n-text strong>角色锚点</n-text>
+        </div>
+        <n-space size="small" align="center" wrap>
+          <n-tag v-if="currentChapterNumber" size="small" round :bordered="false" type="info">
+            当前第 {{ currentChapterNumber }} 章
+          </n-tag>
+          <n-button size="tiny" secondary @click="openStoryEvolution">故事演进</n-button>
+        </n-space>
       </div>
       <n-text depth="3" class="anchor-desk-banner__lead">
-        选角后联动：心理状态、口癖与习惯动作、四维画像；中间列为正文自动抽取的对白语料，仅供声线校准参考。
+        与左侧章节列表同步：有当前章时对白语料默认筛到本章；右栏含「章内生成会带上的字段」预览。选角后联动心理状态、口癖与习惯动作、四维画像；语料来自正文抽取，仅供声线校准参考。
       </n-text>
     </header>
-    <n-split direction="horizontal" :default-size="0.25" :min="0.20" :max="0.35">
+    <n-split direction="horizontal" :default-size="0.24" :min="0.17" :max="0.34">
       <!-- 左栏：角色导航 -->
       <template #1>
         <CharacterNavigator
-          ref="navigatorRef"
           :slug="slug"
           :selected-character-id="selectedCharacterId"
           @select-character="onSelectCharacter"
@@ -22,13 +29,13 @@
 
       <!-- 中栏 + 右栏 -->
       <template #2>
-        <n-split direction="horizontal" :default-size="0.70" :min="0.60" :max="0.80">
+        <n-split direction="horizontal" :default-size="0.55" :min="0.40" :max="0.68">
           <!-- 中栏：对白语料（正文抽取，锚点声线对照） -->
           <template #1>
             <DialogueCorpus
-              ref="corpusRef"
               :slug="slug"
               :selected-character-id="selectedCharacterId"
+              :desk-chapter-number="currentChapterNumber"
             />
           </template>
 
@@ -37,7 +44,7 @@
             <CharacterProfile
               :slug="slug"
               :selected-character-id="selectedCharacterId"
-              @refresh="onCharacterProfileRefresh"
+              :current-chapter-number="currentChapterNumber"
             />
           </template>
         </n-split>
@@ -48,34 +55,31 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { ComponentPublicInstance } from 'vue'
 import CharacterNavigator from './CharacterNavigator.vue'
 import DialogueCorpus from './DialogueCorpus.vue'
 import CharacterProfile from './CharacterProfile.vue'
+import { WORKBENCH_OPEN_SETTINGS_PANEL_EVENT } from '@/workbench/deskEvents'
 
 interface Props {
   slug: string
+  /** 工作台当前章节号；用于语料默认筛到本章、顶栏提示 */
+  currentChapterNumber?: number | null
 }
 
-defineProps<Props>()
+withDefaults(defineProps<Props>(), {
+  currentChapterNumber: null,
+})
 
-type CorpusExpose = { load: () => Promise<void>; loadCharacterNames: () => Promise<void> }
-type NavigatorExpose = { loadCharacters: () => Promise<void> }
-
-const corpusRef = ref<ComponentPublicInstance & CorpusExpose | null>(null)
-const navigatorRef = ref<ComponentPublicInstance & NavigatorExpose | null>(null)
+function openStoryEvolution() {
+  window.dispatchEvent(
+    new CustomEvent(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, { detail: { panel: 'story-evolution' } }),
+  )
+}
 
 const selectedCharacterId = ref<string | null>(null)
 
 function onSelectCharacter(characterId: string | null) {
   selectedCharacterId.value = characterId
-}
-
-/** 锚点保存等：与语料库、左侧角色列表同源刷新 */
-function onCharacterProfileRefresh() {
-  void corpusRef.value?.load?.()
-  void corpusRef.value?.loadCharacterNames?.()
-  void navigatorRef.value?.loadCharacters?.()
 }
 </script>
 
@@ -96,12 +100,21 @@ function onCharacterProfileRefresh() {
   background: var(--app-surface-elevated, var(--app-surface));
 }
 
+.anchor-desk-banner__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
 .anchor-desk-banner__title {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
   font-size: 14px;
+  min-width: 0;
 }
 
 .anchor-desk-banner__icon {
