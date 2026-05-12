@@ -134,6 +134,7 @@
 
                 <div class="editor-footer">
                   <n-space :size="8" align="center" justify="space-between" style="width: 100%">
+                    <n-space vertical :size="4" style="min-width: 0">
                     <n-text depth="3" class="editor-wordcount-line">
                       <template
                         v-if="
@@ -160,6 +161,12 @@
                         <span v-if="isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent" class="streaming-indicator">生成中▋</span>
                       </template>
                     </n-text>
+                    <n-text depth="3" style="font-size: 11px; max-width: 56ch; line-height: 1.45">
+                      实体标记（可选）：
+                      <code>[[char:id|人名]] [[loc:id|地名]] [[faction:id|势力]] [[prop:id|道具]]</code>
+                      · 保存后自动索引本章实体，侧栏「手稿道具」可查看。
+                    </n-text>
+                    </n-space>
                     <n-space :size="8">
                       <n-tooltip trigger="hover" :disabled="!isAutopilotRunning && !isAssistedReadOnly">
                         <template #trigger>

@@ -10,15 +10,6 @@
       </div>
       <n-space v-show="sideTab === 'narrative'" :size="8" align="center" style="flex-shrink:0">
         <n-button
-          size="small"
-          secondary
-          :loading="generating"
-          @click="generateKnowledge"
-          title="用 AI 根据 Bible 生成叙事知识（梗概锁定请在作品设定中编辑）"
-        >
-          ✦ AI 生成叙事
-        </n-button>
-        <n-button
           type="primary"
           size="small"
           :loading="saving"
@@ -26,6 +17,15 @@
           @click="save"
         >
           保存到全书上下文
+        </n-button>
+        <n-button
+          size="small"
+          quaternary
+          :loading="generating"
+          @click="generateKnowledge"
+          title="按需调用大模型；默认以 Bible / 章后管线为准，控成本请少用"
+        >
+          按需 AI 生成叙事
         </n-button>
       </n-space>
     </header>

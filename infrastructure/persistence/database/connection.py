@@ -194,6 +194,29 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _apply_bible_character_four_d_sqlite(conn: sqlite3.Connection) -> None:
+    """Bible 人物：四维心理与 POV 扩展列（与引擎 T0 / 工作台锚点对齐）。"""
+    cur = conn.execute("PRAGMA table_info(bible_characters)")
+    cols = {row[1] for row in cur.fetchall()}
+    migrations = {
+        "core_belief": "ALTER TABLE bible_characters ADD COLUMN core_belief TEXT NOT NULL DEFAULT ''",
+        "moral_taboos_json": "ALTER TABLE bible_characters ADD COLUMN moral_taboos_json TEXT NOT NULL DEFAULT '[]'",
+        "voice_profile_json": "ALTER TABLE bible_characters ADD COLUMN voice_profile_json TEXT NOT NULL DEFAULT '{}'",
+        "active_wounds_json": "ALTER TABLE bible_characters ADD COLUMN active_wounds_json TEXT NOT NULL DEFAULT '[]'",
+        "public_profile": "ALTER TABLE bible_characters ADD COLUMN public_profile TEXT NOT NULL DEFAULT ''",
+        "hidden_profile": "ALTER TABLE bible_characters ADD COLUMN hidden_profile TEXT NOT NULL DEFAULT ''",
+        "reveal_chapter": "ALTER TABLE bible_characters ADD COLUMN reveal_chapter INTEGER",
+    }
+    for col, sql in migrations.items():
+        if col not in cols:
+            try:
+                conn.execute(sql)
+                logger.info("bible_characters migration: added column %s", col)
+            except sqlite3.OperationalError as e:
+                logger.warning("bible_characters migration skip %s: %s", col, e)
+    conn.commit()
+
+
 def _apply_character_enhancements(conn: sqlite3.Connection) -> None:
     """为 bible_characters 表补齐角色增强字段（Task 13/14）"""
     cur = conn.execute("PRAGMA table_info(bible_characters)")
@@ -461,6 +484,7 @@ class DatabaseConnection:
         _apply_autopilot_v2_migrations(conn)
         _apply_last_chapter_audit_columns(conn)
         _apply_character_enhancements(conn)
+        _apply_bible_character_four_d_sqlite(conn)
         _apply_chapter_summaries_enhancements(conn)
         _apply_chapters_word_count_migration(conn)
         _ensure_triple_provenance_table(conn)

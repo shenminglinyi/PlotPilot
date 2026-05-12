@@ -18,6 +18,11 @@ export interface CharacterDTO {
   mental_state?: string
   verbal_tic?: string
   idle_behavior?: string
+  mental_state_reason?: string
+  core_belief?: string
+  moral_taboos?: string[]
+  voice_profile?: Record<string, unknown>
+  active_wounds?: Array<Record<string, string>>
   /** POV 防火墙：公开人设 */
   public_profile?: string
   /** POV 防火墙：隐藏身份 */

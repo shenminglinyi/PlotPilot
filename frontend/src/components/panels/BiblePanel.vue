@@ -189,7 +189,10 @@ import { MARKET_STYLE_PRESETS, matchPresetValue } from '@/constants/marketStyleP
 import { novelApi } from '@/api/novel'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 
-const props = defineProps<{ slug: string }>()
+const props = withDefaults(
+  defineProps<{ slug: string; reloadNonce?: number }>(),
+  { reloadNonce: 0 },
+)
 const message = useMessage()
 
 interface BibleCharacter {
@@ -393,11 +396,14 @@ const load = async (opts?: { preserveSurface?: boolean }) => {
     state.value = bibleUi
     premiseLock.value = pl
     syncJsonFromState()
-    biblePanelDataReady.value = true
   } catch (err: any) {
     if (seq !== biblePanelLoadSeq || props.slug !== slug) return
     message.error(err?.response?.data?.detail || '加载设定失败')
-    biblePanelDataReady.value = true
+  } finally {
+    // 避免竞态 return 或异常路径未解除「表面待定」导致正文区 opacity:0 长期空白
+    if (seq === biblePanelLoadSeq && props.slug === slug) {
+      biblePanelDataReady.value = true
+    }
   }
 }
 
@@ -493,8 +499,10 @@ const generateBible = async () => {
 const BIBLE_PANEL_SOFT_RELOAD = 'aitext:bible-panel:soft-reload'
 
 watch(
-  () => props.slug,
+  () => [props.slug, props.reloadNonce] as const,
   () => {
+    const slug = (props.slug || '').trim()
+    if (!slug) return
     void load()
   },
   { immediate: true },
@@ -667,13 +675,9 @@ function onBiblePanelSoftReload() {
   min-height: min(320px, 52vh);
 }
 
-.bible-scroll--surface-pending .bible-form {
-  opacity: 0;
-}
-
+/* 不再在加载时隐藏表单：opacity:0 曾与 load 竞态结合导致整页「空白」不可恢复 */
 .bible-scroll:not(.bible-scroll--surface-pending) .bible-form {
-  opacity: 1;
-  transition: opacity 0.15s ease-out;
+  transition: opacity 0.12s ease-out;
 }
 
 .bible-card-creation-lock {

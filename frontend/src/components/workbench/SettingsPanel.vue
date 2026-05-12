@@ -19,9 +19,10 @@
       size="small"
       class="settings-tabs"
       :tabs-padding="4"
+      @update:value="onTabsUpdateValue"
     >
       <n-tab-pane name="bible" tab="作品设定" display-directive="if">
-        <BiblePanel :slug="slug" />
+        <BiblePanel :slug="slug" :reload-nonce="bibleReloadNonce" />
       </n-tab-pane>
       <n-tab-pane name="worldbuilding" tab="世界观" display-directive="if">
         <WorldbuildingPanel :slug="slug" />
@@ -29,10 +30,13 @@
       <n-tab-pane name="knowledge" tab="知识库" display-directive="if">
         <KnowledgePanel :slug="slug" />
       </n-tab-pane>
+      <n-tab-pane name="props" tab="手稿道具" display-directive="if">
+        <ManuscriptPropsPanel :slug="slug" :current-chapter="currentChapter" />
+      </n-tab-pane>
       <n-tab-pane name="story-evolution" tab="故事演进" display-directive="if">
         <StoryEvolutionPanel :slug="slug" :current-chapter="currentChapter?.number ?? null" />
       </n-tab-pane>
-      <n-tab-pane name="sandbox" tab="角色对话" display-directive="if">
+      <n-tab-pane name="sandbox" tab="角色锚点" display-directive="if">
         <CharacterDialoguePanel :slug="slug" />
       </n-tab-pane>
       <n-tab-pane name="foreshadow" tab="伏笔账本" display-directive="if">
@@ -45,6 +49,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import BiblePanel from '../panels/BiblePanel.vue'
+import ManuscriptPropsPanel from './ManuscriptPropsPanel.vue'
 import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
 import WorldbuildingPanel from './WorldbuildingPanel.vue'
 import StoryEvolutionPanel from './StoryEvolutionPanel.vue'
@@ -53,6 +58,7 @@ import CharacterDialoguePanel from './CharacterDialoguePanel.vue'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
+  'props',
   'bible', 'worldbuilding', 'knowledge',
   'story-evolution',
   'sandbox', 'foreshadow',
@@ -102,8 +108,22 @@ const emit = defineEmits<{
 
 const activeTab = ref(resolveTab(props.currentPanel))
 
+/** 每次选中「作品设定」Tab 递增，驱动 BiblePanel 拉取（Naive 点击 Tab 比 watch(activeTab) 更可靠） */
+const bibleReloadNonce = ref(0)
+
+function onTabsUpdateValue(name: string | number) {
+  if (name === 'bible') {
+    bibleReloadNonce.value += 1
+  }
+}
+
 watch(() => props.currentPanel, (newVal) => {
-  activeTab.value = resolveTab(newVal)
+  const next = resolveTab(newVal)
+  const prev = activeTab.value
+  activeTab.value = next
+  if (next === 'bible' && prev !== 'bible') {
+    bibleReloadNonce.value += 1
+  }
 })
 
 watch(activeTab, (tab) => {

@@ -1,6 +1,6 @@
 """Bible 数据传输对象"""
-from dataclasses import dataclass
-from typing import List, Optional, Any, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import List, Optional, Any, TYPE_CHECKING, Dict
 
 if TYPE_CHECKING:
     from domain.bible.entities.bible import Bible
@@ -28,8 +28,13 @@ class CharacterDTO:
     hidden_profile: str = ""
     reveal_chapter: Optional[int] = None
     mental_state: str = "NORMAL"
+    mental_state_reason: str = ""
     verbal_tic: str = ""
     idle_behavior: str = ""
+    core_belief: str = ""
+    moral_taboos: List[str] = field(default_factory=list)
+    voice_profile: Dict[str, Any] = field(default_factory=dict)
+    active_wounds: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
         """验证字段"""
@@ -55,8 +60,13 @@ class CharacterDTO:
             hidden_profile=getattr(character, 'hidden_profile', ''),
             reveal_chapter=getattr(character, 'reveal_chapter', None),
             mental_state=getattr(character, "mental_state", None) or "NORMAL",
+            mental_state_reason=getattr(character, "mental_state_reason", None) or "",
             verbal_tic=getattr(character, "verbal_tic", None) or "",
             idle_behavior=getattr(character, "idle_behavior", None) or "",
+            core_belief=getattr(character, "core_belief", None) or "",
+            moral_taboos=list(getattr(character, "moral_taboos", None) or []),
+            voice_profile=dict(getattr(character, "voice_profile", None) or {}),
+            active_wounds=list(getattr(character, "active_wounds", None) or []),
         )
 
 

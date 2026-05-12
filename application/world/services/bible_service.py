@@ -391,14 +391,14 @@ class BibleService:
 
         self._validate_locations_forest(locations)
 
+        prev_chars = {c.character_id.value: c for c in bible.characters}
+
         # 清空现有数据
         bible._characters = []
         bible._world_settings = []
         bible._locations = []
         bible._timeline_notes = []
         bible._style_notes = []
-
-        prev_chars = {c.character_id.value: c for c in bible.characters}
 
         # 添加新的人物（锚点字段：请求未传则沿用库内旧值，避免整本保存冲掉沙盒写入）
         for char_data in characters:
@@ -421,14 +421,70 @@ class BibleService:
                 ib = getattr(prev, "idle_behavior", None) or ""
             else:
                 ib = ""
+            if getattr(char_data, "mental_state_reason", None) is not None:
+                msr = char_data.mental_state_reason or ""
+            elif prev is not None:
+                msr = getattr(prev, "mental_state_reason", None) or ""
+            else:
+                msr = ""
+            if getattr(char_data, "public_profile", None) is not None:
+                pub = char_data.public_profile or ""
+            elif prev is not None:
+                pub = getattr(prev, "public_profile", None) or ""
+            else:
+                pub = ""
+            if getattr(char_data, "hidden_profile", None) is not None:
+                hid = char_data.hidden_profile or ""
+            elif prev is not None:
+                hid = getattr(prev, "hidden_profile", None) or ""
+            else:
+                hid = ""
+            if getattr(char_data, "reveal_chapter", None) is not None:
+                rev = char_data.reveal_chapter
+            elif prev is not None:
+                rev = getattr(prev, "reveal_chapter", None)
+            else:
+                rev = None
+            if getattr(char_data, "core_belief", None) is not None:
+                cb = char_data.core_belief or ""
+            elif prev is not None:
+                cb = getattr(prev, "core_belief", None) or ""
+            else:
+                cb = ""
+            if getattr(char_data, "moral_taboos", None) is not None:
+                mt = list(char_data.moral_taboos or [])
+            elif prev is not None:
+                mt = list(getattr(prev, "moral_taboos", None) or [])
+            else:
+                mt = []
+            if getattr(char_data, "voice_profile", None) is not None:
+                vp = dict(char_data.voice_profile or {})
+            elif prev is not None:
+                vp = dict(getattr(prev, "voice_profile", None) or {})
+            else:
+                vp = {}
+            if getattr(char_data, "active_wounds", None) is not None:
+                aw = list(char_data.active_wounds or [])
+            elif prev is not None:
+                aw = list(getattr(prev, "active_wounds", None) or [])
+            else:
+                aw = []
             character = Character(
                 id=CharacterId(char_data.id),
                 name=char_data.name,
                 description=char_data.description,
                 relationships=char_data.relationships,
+                public_profile=pub,
+                hidden_profile=hid,
+                reveal_chapter=rev,
                 mental_state=ms,
+                mental_state_reason=msr,
                 verbal_tic=vt,
                 idle_behavior=ib,
+                core_belief=cb,
+                moral_taboos=mt,
+                voice_profile=vp,
+                active_wounds=aw,
             )
             bible._characters.append(character)
 

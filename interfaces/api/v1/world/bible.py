@@ -103,6 +103,14 @@ class CharacterData(BaseModel):
         default=None,
         description="待机动作/小动作；省略则保留库中旧值",
     )
+    mental_state_reason: Optional[str] = Field(default=None, description="心理状态成因；省略则保留库中旧值")
+    public_profile: Optional[str] = Field(default=None, description="公开人设；省略则保留库中旧值")
+    hidden_profile: Optional[str] = Field(default=None, description="隐藏身份；省略则保留库中旧值")
+    reveal_chapter: Optional[int] = Field(default=None, description="揭示隐藏信息的章节号；省略则保留")
+    core_belief: Optional[str] = Field(default=None, description="核心信念（价值选择）；省略则保留")
+    moral_taboos: Optional[list[str]] = Field(default=None, description="绝对禁忌列表；省略则保留")
+    voice_profile: Optional[dict] = Field(default=None, description="声线结构 JSON；省略则保留")
+    active_wounds: Optional[list[dict]] = Field(default=None, description="创伤触发链；省略则保留")
 
 
 class WorldSettingData(BaseModel):

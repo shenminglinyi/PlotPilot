@@ -49,7 +49,7 @@ import multiprocessing
 import signal
 
 # Core module
-from interfaces.api.v1.core import novels, chapters, scene_generation_routes, settings as llm_settings, export
+from interfaces.api.v1.core import novels, chapters, manuscript_entity_routes, scene_generation_routes, settings as llm_settings, export
 
 # World module
 from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_routes, worldbuilding_routes
@@ -940,6 +940,7 @@ _V1 = "/api/v1"
 # ── Core：小说 / 章节 / 导出 / 设置 ──
 app.include_router(novels.router,                   prefix=_V1)
 app.include_router(chapters.router,                 prefix="/api/v1/novels")  # chapters 路由无自身 prefix，挂在 /novels 下
+app.include_router(manuscript_entity_routes.router, prefix="/api/v1/novels")
 app.include_router(export.router,                   prefix=_V1)
 app.include_router(llm_settings.router,             prefix=_V1)
 app.include_router(llm_settings.embedding_router,   prefix=_V1)
