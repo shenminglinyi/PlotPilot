@@ -1,0 +1,16 @@
+from abc import ABC, abstractmethod
+from typing import List, Optional
+from domain.prop.entities.prop import Prop
+from domain.prop.value_objects.prop_id import PropId
+
+class PropRepository(ABC):
+    @abstractmethod
+    def get(self, prop_id: PropId) -> Optional[Prop]: ...
+    @abstractmethod
+    def list_by_novel(self, novel_id: str) -> List[Prop]: ...
+    @abstractmethod
+    def list_active(self, novel_id: str, chapter: int) -> List[Prop]: ...
+    @abstractmethod
+    def save(self, prop: Prop) -> None: ...
+    @abstractmethod
+    def delete(self, prop_id: PropId) -> None: ...
