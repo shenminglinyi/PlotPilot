@@ -88,6 +88,11 @@ class HardResetResponse(BaseModel):
     message: str = "hard_reset 完成"
 
 
+class UpdateBranchRequest(BaseModel):
+    name: Optional[str] = None
+    storyline_id: Optional[str] = None
+
+
 # ─── API Endpoints ────────────────────────────────────────────────
 
 @router.get("/{novel_id}/worldline/graph", response_model=WorldlineGraphDTO)
@@ -244,6 +249,57 @@ async def create_worldline_branch(
         return CreateBranchResponse(branch_id=branch_id)
     except Exception as e:
         logger.error("create_worldline_branch 失败 novel=%s: %s", novel_id, e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.get(
+    "/{novel_id}/worldline/branches/by-storyline/{storyline_id}",
+    response_model=Optional[BranchInfoDTO],
+)
+async def get_branch_by_storyline(
+    novel_id: str,
+    storyline_id: str,
+    novel_service=Depends(get_novel_service),
+    svc: UnifiedCheckpointService = Depends(get_unified_checkpoint_service),
+):
+    """查找与指定故事线绑定的世界线分支"""
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        branch = svc.get_branch_by_storyline(novel_id, storyline_id)
+        if branch is None:
+            return None
+        return BranchInfoDTO(**branch)
+    except Exception as e:
+        logger.error("get_branch_by_storyline 失败 novel=%s storyline=%s: %s", novel_id, storyline_id, e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.put(
+    "/{novel_id}/worldline/branches/{branch_id}",
+    response_model=BranchInfoDTO,
+)
+async def update_worldline_branch(
+    novel_id: str,
+    branch_id: str,
+    body: UpdateBranchRequest,
+    novel_service=Depends(get_novel_service),
+    svc: UnifiedCheckpointService = Depends(get_unified_checkpoint_service),
+):
+    """更新分支（重命名 / 绑定故事线）"""
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        svc.update_branch(branch_id, name=body.name, storyline_id=body.storyline_id)
+        items = svc.list_branches(novel_id)
+        for item in items:
+            if item.get("id") == branch_id:
+                return BranchInfoDTO(**item)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Branch not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("update_worldline_branch 失败 novel=%s branch=%s: %s", novel_id, branch_id, e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
