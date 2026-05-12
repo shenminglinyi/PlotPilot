@@ -54,7 +54,7 @@ variables:
   desc: 字数规则
   type: string
   required: false
-  default: 7. 字数是硬指标：3200-4200字（含标点）。这是最低要求，不是目标区间。冲突场面充分展开，每个重要对话至少来回三轮以上交锋。宁多勿少。
+  default: 7. 字数是硬指标：3200-4200字（含标点）。此为下限，冲突场面须充分展开，每个重要对话至少来回三轮以上交锋。宁多勿少。
 - name: beat_extra
   desc: 节拍模式附加说明
   type: string
