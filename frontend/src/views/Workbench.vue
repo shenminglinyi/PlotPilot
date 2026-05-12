@@ -84,7 +84,7 @@ const message = useMessage()
 const statsStore = useStatsStore()
 const workbenchRefresh = useWorkbenchRefreshStore()
 
-const slug = route.params.slug as string
+const slug = computed(() => String(route.params.slug ?? ''))
 
 const chapterListRef = ref<ComponentPublicInstance<{ refreshStoryTree: () => void }> | null>(null)
 const workAreaRef = ref<ComponentPublicInstance<{ ensureAssistedMode: () => void }> | null>(null)
@@ -96,7 +96,7 @@ async function onSidebarChapterSelect(chapterId: number, title = '') {
 
 const handleChapterUpdated = async () => {
   await loadDesk()
-  void statsStore.loadBookStats(slug, true).catch(() => {})
+  void statsStore.loadBookStats(slug.value, true).catch(() => {})
   window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
   chapterListRef.value?.refreshStoryTree?.()
   workbenchRefresh.bumpAfterChapterDeskChange()
@@ -137,6 +137,7 @@ const {
   chapterLoading,
   setRightPanel,
   loadDesk,
+  reloadDeskForSlugChange,
   goHome,
   goToChapter,
   handleChapterSelect,
@@ -173,7 +174,7 @@ onMounted(async () => {
     await syncChapterFromRoute()
   } catch {
     message.error('加载失败，请检查网络与后端是否已启动')
-    bookTitle.value = slug
+    bookTitle.value = slug.value
   } finally {
     pageLoading.value = false
   }
@@ -188,6 +189,23 @@ watch(
   () => route.query.chapter,
   () => {
     void syncChapterFromRoute()
+  }
+)
+
+watch(
+  slug,
+  async (next, prev) => {
+    if (!next || prev === next) return
+    try {
+      await reloadDeskForSlugChange()
+      await syncChapterFromRoute()
+      void statsStore.loadBookStats(next, true).catch(() => {})
+      chapterListRef.value?.refreshStoryTree?.()
+      workbenchRefresh.bumpAfterChapterDeskChange()
+    } catch {
+      message.error('切换作品失败，请检查网络与后端是否已启动')
+      bookTitle.value = next
+    }
   }
 )
 </script>

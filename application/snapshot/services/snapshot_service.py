@@ -247,25 +247,11 @@ class SnapshotService:
                 self.chapter_repository.delete(ChapterId(cid))
                 deleted_ids.append(cid)
 
-        # TODO: 恢复引擎状态（需要集成 MemoryOrchestrator）
-        # 从快照中提取引擎状态
-        # story_state = snapshot.get("story_state", {})
-        # character_masks = snapshot.get("character_masks", {})
-        # emotion_ledger = snapshot.get("emotion_ledger", {})
-        # active_foreshadows = snapshot.get("active_foreshadows", [])
-        # outline = snapshot.get("outline", "")
-        # recent_summary = snapshot.get("recent_chapters_summary", "")
-        #
-        # 调用 MemoryOrchestrator 恢复状态：
-        # await memory_orchestrator.restore_state(
-        #     story_id=novel_id,
-        #     story_state=story_state,
-        #     character_masks=character_masks,
-        #     emotion_ledger=emotion_ledger,
-        #     active_foreshadows=active_foreshadows,
-        #     outline=outline,
-        #     recent_summary=recent_summary
-        # )
+        # 恢复引擎状态（非致命）
+        try:
+            self._restore_engine_state_simple(novel_id, snapshot)
+        except Exception as e:
+            logger.warning("引擎状态恢复失败（非致命）: %s", e)
 
         # 判断是否包含引擎状态
         has_engine_state = (
@@ -287,6 +273,23 @@ class SnapshotService:
             "deleted_count": len(deleted_ids),
             "has_engine_state": bool(has_engine_state)
         }
+
+    def _restore_engine_state_simple(self, novel_id: str, snapshot: dict) -> None:
+        """从快照的 story_state 字段恢复引擎共享内存状态（非致命）。"""
+        from application.engine.services.query_service import get_query_service
+        shared = get_query_service()._shared
+        story_state = snapshot.get("story_state") or {}
+        if "storylines" in story_state:
+            try:
+                shared.set_storylines(novel_id, story_state["storylines"])
+            except Exception:
+                pass
+        if "plot_arc" in story_state:
+            try:
+                shared.set_plot_arc(novel_id, story_state.get("plot_arc"))
+            except Exception:
+                pass
+        logger.info("[SnapshotRollback] 引擎状态已尝试恢复 novel=%s", novel_id)
 
     def branch_from_snapshot(
         self,

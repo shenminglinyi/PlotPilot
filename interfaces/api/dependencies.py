@@ -377,6 +377,7 @@ def get_chapter_aftermath_pipeline():
         character_state_repository=character_state_repo,
         debt_repository=debt_repo,
         bible_repository=bible_repo,
+        unified_checkpoint_service=get_unified_checkpoint_service(),
     )
 
 
@@ -1054,4 +1055,15 @@ def get_narrative_engine_read_facade():
     from application.narrative_engine.read_facade import NarrativeEngineReadFacade
 
     return NarrativeEngineReadFacade()
+
+
+def get_unified_checkpoint_service():
+    """统一 Checkpoint 服务（世界线管理）。"""
+    from application.checkpoint.services.unified_checkpoint_service import UnifiedCheckpointService
+
+    return UnifiedCheckpointService(
+        db=get_database(),
+        chapter_repository=get_chapter_repository(),
+        foreshadowing_repo=get_foreshadowing_repository(),
+    )
 

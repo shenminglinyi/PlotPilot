@@ -16,7 +16,7 @@
               class="phase-stage"
               :class="{
                 'phase-stage--active': s.key === phase.phase,
-                'phase-stage--past': PHASE_ORDER.indexOf(s.key) < PHASE_ORDER.indexOf(phase.phase),
+                'phase-stage--past': isPhasePast(s.key, phase.phase),
               }"
             >
               <div class="stage-dot" />
@@ -119,17 +119,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { storyPhaseApi, type StoryPhaseDTO } from '@/api/engineCore'
 import { workflowApi, type StorylineDTO } from '@/api/workflow'
-import { narrativeEngineApi } from '@/api/narrativeEngine'
+import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativeEngine'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
-import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
 
 interface Props {
   slug: string
   currentChapter: number | null
+  /** 父级 `StoryEvolutionPanel` 聚合拉取；为 null 且非 loading 时走本地降级接口 */
+  evolutionBundle: StoryEvolutionReadModel | null
+  evolutionLoading: boolean
 }
 
 const props = defineProps<Props>()
@@ -210,7 +212,6 @@ async function submitAddStoryline() {
     })
     message.success('故事线已创建')
     showAddModal.value = false
-    await loadPhaseAndStorylines()
     refreshStore.bumpDesk()
   } catch (err: any) {
     const detail = err?.response?.data?.detail
@@ -230,10 +231,18 @@ const PHASE_STAGES = [
 
 const PHASE_ORDER = PHASE_STAGES.map(s => s.key)
 
-/** 优先叙事引擎聚合 GET；失败时降级为 story-phase + storylines 分拆接口 */
+function isPhasePast(stageKey: string, currentPhase: string): boolean {
+  const cur = PHASE_ORDER.indexOf(currentPhase)
+  if (cur < 0) return false
+  return PHASE_ORDER.indexOf(stageKey) < cur
+}
+
+/** 父级未提供聚合包时：叙事引擎 GET；失败时降级为 story-phase + storylines */
 async function loadPhaseAndStorylines() {
   phaseLoading.value = true
   storylinesLoading.value = true
+  let phaseOk = false
+  let linesOk = false
   try {
     const bundle = await narrativeEngineApi.getStoryEvolution(props.slug)
     phase.value = bundle.life_cycle
@@ -242,20 +251,53 @@ async function loadPhaseAndStorylines() {
     console.error('叙事引擎聚合加载失败，降级为分拆 API:', error)
     try {
       phase.value = await storyPhaseApi.get(props.slug)
+      phaseOk = true
     } catch (e) {
       console.error('加载故事阶段失败:', e)
     }
     try {
       const data = await workflowApi.getStorylines(props.slug)
       storylines.value = data || []
+      linesOk = true
     } catch (e) {
       console.error('加载故事线失败:', e)
+    }
+    if (!phaseOk && !linesOk) {
+      message.error('故事阶段与故事线加载失败，请检查网络或稍后重试')
     }
   } finally {
     phaseLoading.value = false
     storylinesLoading.value = false
   }
 }
+
+watch(
+  () => [props.slug, props.evolutionBundle, props.evolutionLoading] as const,
+  () => {
+    if (props.evolutionLoading && !props.evolutionBundle) {
+      phase.value = null
+      storylines.value = []
+      selectedStorylineId.value = null
+      phaseLoading.value = true
+      storylinesLoading.value = true
+      return
+    }
+    if (props.evolutionLoading) {
+      phaseLoading.value = true
+      storylinesLoading.value = true
+      return
+    }
+    if (props.evolutionBundle) {
+      phase.value = props.evolutionBundle.life_cycle
+      storylines.value = props.evolutionBundle.plot_spine.storylines || []
+      phaseLoading.value = false
+      storylinesLoading.value = false
+      return
+    }
+    void loadPhaseAndStorylines()
+  },
+  { immediate: true },
+)
 
 // 选择故事线
 function selectStoryline(sl: StorylineDTO) {
@@ -300,14 +342,6 @@ function getStatusLabel(status: string): string {
   }
   return map[status] || status
 }
-
-onMounted(() => {
-  loadPhaseAndStorylines()
-})
-
-useWorkbenchDeskTickReload(() => {
-  void loadPhaseAndStorylines()
-})
 </script>
 
 <style scoped>

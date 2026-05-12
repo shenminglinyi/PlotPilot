@@ -25,6 +25,8 @@
         <StoryNavigator
           :slug="slug"
           :current-chapter="currentChapter"
+          :evolution-bundle="bundle"
+          :evolution-loading="bundleLoading"
           @select-storyline="onSelectStoryline"
         />
       </template>
@@ -37,8 +39,11 @@
             <StoryTimeline
               :slug="slug"
               :highlight-range="highlightRange"
+              :chronicles-from-bundled-parent="true"
+              :bundled-chronicle-rows="bundledChronicleRows"
               @select-event="onSelectEvent"
               @select-snapshot="onSelectSnapshot"
+              @request-bundle-refresh="loadBundle"
             />
           </template>
 
@@ -57,11 +62,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
   WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
 } from '@/workbench/deskEvents'
+import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativeEngine'
+import type { ChronicleRow } from '@/api/chronicles'
+import { useWorkbenchPlotTimelineReload } from '@/composables/useWorkbenchNarrativeSync'
 import StoryNavigator from './StoryNavigator.vue'
 import StoryTimeline from './StoryTimeline.vue'
 import StoryDetailPanel from './StoryDetailPanel.vue'
@@ -71,13 +79,48 @@ interface Props {
   currentChapter: number | null
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
+
+const bundle = ref<StoryEvolutionReadModel | null>(null)
+const bundleLoading = ref(false)
 
 // 高亮范围（选中故事线时高亮对应章节）
 const highlightRange = ref<{ start: number; end: number } | null>(null)
 
 // 选中的项目（事件或快照）
 const selectedItem = ref<any>(null)
+
+async function loadBundle() {
+  bundleLoading.value = true
+  bundle.value = null
+  try {
+    bundle.value = await narrativeEngineApi.getStoryEvolution(props.slug)
+  } catch {
+    bundle.value = null
+  } finally {
+    bundleLoading.value = false
+  }
+}
+
+const bundledChronicleRows = computed((): ChronicleRow[] => {
+  const raw = bundle.value?.chronotope?.rows
+  if (!Array.isArray(raw)) return []
+  return raw as ChronicleRow[]
+})
+
+watch(
+  () => props.slug,
+  () => {
+    highlightRange.value = null
+    selectedItem.value = null
+    void loadBundle()
+  },
+  { immediate: true },
+)
+
+useWorkbenchPlotTimelineReload(() => {
+  void loadBundle()
+})
 
 // 选中故事线时高亮章节范围
 function onSelectStoryline(storyline: { startChapter: number; endChapter: number }) {

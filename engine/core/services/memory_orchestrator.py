@@ -144,3 +144,25 @@ class MemoryOrchestrator(ABC):
             chapter_number: 当前章节号
         """
         ...
+
+    @abstractmethod
+    async def restore_state(
+        self,
+        story_id: StoryId,
+        character_masks: Dict[str, Any],
+        emotion_ledger: Dict[str, Any],
+        active_foreshadows: List[str],
+        outline: str = "",
+        recent_summary: str = "",
+    ) -> None:
+        """从 Checkpoint 恢复引擎状态（用于 checkout/rollback）
+
+        Args:
+            story_id: 故事ID
+            character_masks: 角色面具字典
+            emotion_ledger: 情绪账本字典
+            active_foreshadows: 活跃伏笔 ID 列表
+            outline: 大纲文本
+            recent_summary: 近期摘要文本
+        """
+        ...
