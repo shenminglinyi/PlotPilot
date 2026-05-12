@@ -53,7 +53,7 @@ async def get_persona_voice_read_model(
     character_id: str,
     facade: NarrativeEngineReadFacade = Depends(get_narrative_engine_read_facade),
 ) -> Dict[str, Any]:
-    """单角一线：声线锚点 + 对白语料统计（与「角色对话」右栏语义对齐）。"""
+    """单角一线：声线锚点 + 对白语料统计（与「角色锚点」侧栏语义对齐）。"""
     if get_query_service().get_novel_status(novel_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
     try:

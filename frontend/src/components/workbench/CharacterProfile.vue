@@ -1,12 +1,12 @@
 <template>
   <div class="character-profile">
     <div class="profile-header">
-      <n-text strong style="font-size: 14px">角色档案</n-text>
+      <n-text strong style="font-size: 14px">锚点与档案</n-text>
     </div>
 
     <!-- 未选中状态 -->
     <div v-if="!selectedCharacterId" class="profile-empty">
-      <n-empty description="选择角色查看档案" size="small" />
+      <n-empty description="选择角色查看锚点与档案" size="small" />
     </div>
 
     <!-- 选中角色后 -->

@@ -33,7 +33,7 @@ class NarrativeLens(str, Enum):
     # —— 潜文本：伏笔账本 ——
     SUBTEXT = "subtext"
 
-    # —— 人物与声线：卡司、沙盒对白、声纹、监控 ——
+    # —— 人物与声线：卡司、角色锚点、对白语料、声纹、监控 ——
     PERSONA_VOICE = "persona_voice"
 
     # —— 工艺与可信度：审稿、宏观手术、守门、反 AI ——
@@ -76,7 +76,7 @@ LENS_METADATA_ZH: Dict[str, Dict[str, str]] = {
     },
     NarrativeLens.PERSONA_VOICE.value: {
         "title": "人物与声线",
-        "summary": "卡司图、对白沙盒、声纹样本、文风漂移、监控大盘。",
+        "summary": "卡司图、角色锚点（心理/口癖/习惯动作）、正文对白语料、声纹样本、文风漂移、监控大盘。",
     },
     NarrativeLens.CRAFT_QUALITY.value: {
         "title": "工艺与可信",

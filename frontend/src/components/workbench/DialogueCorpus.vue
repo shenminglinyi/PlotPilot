@@ -1,7 +1,10 @@
 <template>
   <div class="dialogue-corpus">
     <div class="corpus-header">
-      <n-text strong style="font-size: 14px">对话语料库</n-text>
+      <div class="corpus-header-titles">
+        <n-text strong style="font-size: 14px">对白语料</n-text>
+        <n-text depth="3" style="font-size: 11px">正文自动抽取，用于声线对照</n-text>
+      </div>
       <n-button size="small" :loading="loading" @click="load">刷新</n-button>
     </div>
 
@@ -208,10 +211,18 @@ defineExpose({
   border-right: 1px solid var(--aitext-split-border);
 }
 
+.corpus-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .corpus-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--aitext-split-border);
   flex-shrink: 0;

@@ -1109,7 +1109,11 @@ class ContextBudgetAllocator:
                     profile_parts.append(f"口头禅: {char.verbal_tic}")
                 if hasattr(char, 'idle_behavior') and char.idle_behavior:
                     profile_parts.append(f"习惯动作: {char.idle_behavior}")
-                
+
+                t0_psyche = self._format_character_t0_bible(char, chapter_number)
+                if t0_psyche:
+                    profile_parts.append(t0_psyche)
+
                 # 刚登场标记
                 if is_recently_appeared:
                     profile_parts.append("⚠️ 刚登场，需保持一致性")
@@ -1120,7 +1124,11 @@ class ContextBudgetAllocator:
                 f"[CharacterAnchors] 选中 {len(selected_characters)} 个角色, "
                 f"包含 {sum(1 for _, r in selected_characters if r)} 个刚登场角色"
             )
-            
+
+            loc_hint = self._format_scene_location_hints(bible, outline, scene_director)
+            if loc_hint:
+                lines.append("\n" + loc_hint)
+
             return "\n".join(lines)
         
         except Exception as e:
@@ -1128,6 +1136,59 @@ class ContextBudgetAllocator:
         
         return ""
     
+    def _format_character_t0_bible(self, char: Any, chapter_number: int) -> str:
+        """四维心理与声线结构 — 小说家用法：信念/禁忌驱动分叉，创伤驱动节拍，声线交给对白而非旁白标签。"""
+        parts: List[str] = []
+        cb = (getattr(char, "core_belief", None) or "").strip()
+        if cb:
+            parts.append(f"T0·信念:{cb[:260]}")
+        for tab in (getattr(char, "moral_taboos", None) or [])[:4]:
+            ts = str(tab).strip()
+            if ts:
+                parts.append(f"T0·禁忌:{ts[:140]}")
+        for w in (getattr(char, "active_wounds", None) or [])[:3]:
+            if not isinstance(w, dict):
+                continue
+            trig = (w.get("trigger") or "").strip()[:100]
+            eff = (w.get("effect") or "").strip()[:100]
+            if trig or eff:
+                parts.append(f"T0·创伤触发:{trig}→{eff}")
+        vp = getattr(char, "voice_profile", None) or {}
+        if isinstance(vp, dict) and vp:
+            bits = [str(vp[k]) for k in ("style", "sentence_pattern", "speech_tempo") if vp.get(k)]
+            if bits:
+                parts.append("T0·声线结构:" + " / ".join(bits)[:140])
+        if parts:
+            return " · ".join(parts)
+        return ""
+
+    def _format_scene_location_hints(
+        self,
+        bible: Any,
+        outline: str,
+        scene_director: Optional[Dict[str, Any]],
+    ) -> str:
+        """大纲 / 场记中出现的地点与势力（文明）— 与正文 [[loc:…]] / faction 类型对齐。"""
+        if not bible or not getattr(bible, "locations", None):
+            return ""
+        blob = outline or ""
+        sd_locs: List[str] = []
+        if scene_director and isinstance(scene_director.get("locations"), list):
+            sd_locs = [str(x) for x in scene_director["locations"] if x]
+        hits: List[str] = []
+        for loc in bible.locations:
+            nm = getattr(loc, "name", "") or ""
+            if not nm:
+                continue
+            if nm in blob or nm in sd_locs:
+                ltype = (getattr(loc, "location_type", None) or "other").lower()
+                tag = "势力" if ltype == "faction" else "地点"
+                desc = (getattr(loc, "description", None) or "")[:160]
+                hits.append(f"- [{tag}] {nm}: {desc}")
+        if not hits:
+            return ""
+        return "【本场空间 / 势力】\n" + "\n".join(hits[:10])
+
     def _schedule_characters(
         self,
         all_characters: List,

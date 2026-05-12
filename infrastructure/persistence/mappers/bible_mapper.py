@@ -37,8 +37,16 @@ class BibleMapper:
                     "description": char.description,
                     "relationships": char.relationships,
                     "mental_state": getattr(char, "mental_state", None) or "NORMAL",
+                    "mental_state_reason": getattr(char, "mental_state_reason", None) or "",
                     "verbal_tic": getattr(char, "verbal_tic", None) or "",
                     "idle_behavior": getattr(char, "idle_behavior", None) or "",
+                    "public_profile": getattr(char, "public_profile", None) or "",
+                    "hidden_profile": getattr(char, "hidden_profile", None) or "",
+                    "reveal_chapter": getattr(char, "reveal_chapter", None),
+                    "core_belief": getattr(char, "core_belief", None) or "",
+                    "moral_taboos": list(getattr(char, "moral_taboos", None) or []),
+                    "voice_profile": dict(getattr(char, "voice_profile", None) or {}),
+                    "active_wounds": list(getattr(char, "active_wounds", None) or []),
                 }
                 for char in bible.characters
             ],
@@ -114,14 +122,28 @@ class BibleMapper:
                 if char_missing:
                     raise ValueError(f"Character missing required fields: {', '.join(char_missing)}")
 
+                rc = char_data.get("reveal_chapter")
+                aw_raw = char_data.get("active_wounds") or []
+                if isinstance(aw_raw, list):
+                    active_wounds = [x for x in aw_raw if isinstance(x, dict)]
+                else:
+                    active_wounds = []
                 character = Character(
                     id=CharacterId(char_data["id"]),
                     name=char_data["name"],
                     description=char_data["description"],
                     relationships=char_data.get("relationships", []),
+                    public_profile=char_data.get("public_profile") or "",
+                    hidden_profile=char_data.get("hidden_profile") or "",
+                    reveal_chapter=rc if rc is not None else None,
                     mental_state=char_data.get("mental_state") or "NORMAL",
+                    mental_state_reason=char_data.get("mental_state_reason") or "",
                     verbal_tic=char_data.get("verbal_tic") or "",
                     idle_behavior=char_data.get("idle_behavior") or "",
+                    core_belief=char_data.get("core_belief") or "",
+                    moral_taboos=list(char_data.get("moral_taboos") or []),
+                    voice_profile=dict(char_data.get("voice_profile") or {}),
+                    active_wounds=active_wounds,
                 )
                 bible.add_character(character)
 

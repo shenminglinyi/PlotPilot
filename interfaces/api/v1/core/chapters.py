@@ -12,6 +12,7 @@ from application.core.dtos.novel_dto import NovelDTO
 from application.audit.dtos.chapter_review_dto import ChapterReviewDTO
 from application.core.dtos.chapter_structure_dto import ChapterStructureDTO
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
+from application.manuscript.reindex_job import reindex_chapter_entity_mentions
 from interfaces.api.v1.engine.checkpoint_routes import GuardrailCheckResponse
 from interfaces.api.dependencies import (
     get_chapter_service,
@@ -220,6 +221,12 @@ async def update_chapter(
         chapter_number,
         content,
         pipeline,
+    )
+    background_tasks.add_task(
+        reindex_chapter_entity_mentions,
+        novel_id,
+        chapter_number,
+        content,
     )
     return chapter
 
