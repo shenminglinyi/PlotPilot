@@ -131,7 +131,7 @@ class WriterNode(BaseNode):
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="你现在不是在'写文章'，你是在'回忆并讲述一段真实发生过的事'。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
+        prompt_template="写作姿态：回忆并讲述这段事；避免写成交差用的说明文。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
         prompt_variables=["context", "outline", "voice_block", "fact_lock", "foreshadowing_block", "behavior_protocol", "character_state_lock", "allowlist_block", "nervous_habits"],
         is_configurable=True,
         can_disable=False,

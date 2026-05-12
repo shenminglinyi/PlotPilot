@@ -372,7 +372,7 @@ def get_default_dag() -> DAGDefinition:
             NodeDefinition(
                 id="exec_writer", type="exec_writer", label="✍️ 剧情引擎", position={"x": 800, "y": 300},
                 config=NodeConfig(
-                    prompt_template="你现在不是在'写文章'，你是在'回忆并讲述一段真实发生过的事'。...\n\n{{context}}\n{{outline}}\n{{voice_block}}",
+                    prompt_template="写作姿态：回忆并讲述这段事；避免写成交差用的说明文。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
                     prompt_variables={"context": "", "outline": "", "voice_block": ""},
                 ),
             ),

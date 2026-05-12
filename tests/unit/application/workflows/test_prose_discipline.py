@@ -4,7 +4,8 @@ from application.workflows.prose_discipline import build_prose_discipline_block
 
 def test_build_prose_discipline_block_core_rules():
     text = build_prose_discipline_block()
-    assert "不是…而是…" in text
+    assert "纠正式对照" in text
+    assert "全章禁止" in text
     assert "破折号" in text
     assert "300～500 字" in text
 

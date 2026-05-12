@@ -2554,7 +2554,7 @@ class AutopilotDaemon:
         anchor_block = voice_anchors.strip() or "无额外角色声线锚点。"
         outline = (getattr(chapter, "outline", "") or "").strip() or "无单独大纲，必须严格保留现有剧情事实。"
 
-        system = f"""你是小说文风修订编辑。你的任务不是重写剧情，而是在不改变故事事实的前提下，修正文风偏移。
+        system = f"""你是小说文风修订编辑。在不改变故事事实的前提下修正文风偏移；勿重写剧情主链。
 
 必须遵守：
 1. 保留所有剧情事件、因果顺序、角色关系、伏笔信息、地点与关键信息。
