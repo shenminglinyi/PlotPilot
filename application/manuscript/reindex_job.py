@@ -21,15 +21,19 @@ def reindex_chapter_entity_mentions(novel_id: str, chapter_number: int, content:
         bible_repo = SqliteBibleRepository(db)
         mrepo = ManuscriptEntityRepository(db)
         bible = bible_repo.get_by_novel_id(NovelId(novel_id))
-        if not bible:
-            return
-        chars: List[Tuple[str, str, List[str]]] = [
-            (c.character_id.value, c.name, []) for c in bible.characters
-        ]
-        locs: List[Tuple[str, str, str, List[str]]] = [
-            (loc.id, loc.name, getattr(loc, "location_type", None) or "other", [])
-            for loc in bible.locations
-        ]
+
+        # Bible 不存在时，角色/地点留空，道具索引照常运行（不整体跳过）
+        chars: List[Tuple[str, str, List[str]]] = []
+        locs: List[Tuple[str, str, str, List[str]]] = []
+        if bible:
+            chars = [
+                (c.character_id.value, c.name, []) for c in bible.characters
+            ]
+            locs = [
+                (loc.id, loc.name, getattr(loc, "location_type", None) or "other", [])
+                for loc in bible.locations
+            ]
+
         props_rows = mrepo.list_props(novel_id)
         props: List[Tuple[str, str, List[str]]] = []
         for p in props_rows:
@@ -39,6 +43,7 @@ def reindex_chapter_entity_mentions(novel_id: str, chapter_number: int, content:
             except json.JSONDecodeError:
                 aliases = []
             props.append((p["id"], p["name"], aliases if isinstance(aliases, list) else []))
+
         rows = collect_chapter_entity_rows(
             content, characters=chars, locations=locs, props=props
         )

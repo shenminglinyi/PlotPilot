@@ -46,8 +46,14 @@
         <n-form-item label="别名（逗号分隔，用于正文自动命中）">
           <n-input v-model:value="form.aliasesText" placeholder="罗盘,司南" />
         </n-form-item>
-        <n-form-item label="持有者角色 ID（可选）">
-          <n-input v-model:value="form.holder_character_id" placeholder="Bible 人物 id" />
+        <n-form-item label="持有者（可选）">
+          <n-select
+            v-model:value="form.holder_character_id"
+            :options="charOptions"
+            placeholder="选择 Bible 中的角色"
+            clearable
+            filterable
+          />
         </n-form-item>
         <n-form-item label="首次出现章（可选）">
           <n-input-number v-model:value="form.first_chapter" :min="1" clearable style="width: 100%" />
@@ -68,6 +74,7 @@ import { computed, h, onMounted, ref, watch } from 'vue'
 import type { DataTableColumns } from 'naive-ui'
 import { NButton, useMessage } from 'naive-ui'
 import { manuscriptApi, type BiblePropRow, type ChapterEntityMention } from '@/api/manuscript'
+import { bibleApi } from '@/api/bible'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 import { storeToRefs } from 'pinia'
 
@@ -84,6 +91,20 @@ const propsLoading = ref(false)
 const mentions = ref<ChapterEntityMention[]>([])
 const mentionLoading = ref(false)
 const reindexing = ref(false)
+
+/** Bible 人物选项（用于持有者下拉） */
+interface CharOption { label: string; value: string }
+const charOptions = ref<CharOption[]>([])
+
+async function loadCharOptions() {
+  if (!props.slug) return
+  try {
+    const chars = await bibleApi.listCharacters(props.slug)
+    charOptions.value = (chars ?? []).map(c => ({ label: c.name, value: c.id }))
+  } catch {
+    charOptions.value = []
+  }
+}
 
 const showModal = ref(false)
 const editingId = ref<string | null>(null)
@@ -239,6 +260,16 @@ async function removeRow(row: BiblePropRow) {
 const columns: DataTableColumns<BiblePropRow> = [
   { title: '名称', key: 'name', ellipsis: { tooltip: true } },
   {
+    title: '持有者',
+    key: 'holder_character_id',
+    ellipsis: { tooltip: true },
+    render(row) {
+      if (!row.holder_character_id) return '—'
+      const found = charOptions.value.find(c => c.value === row.holder_character_id)
+      return found ? found.label : row.holder_character_id.slice(0, 8) + '…'
+    },
+  },
+  {
     title: '操作',
     key: 'actions',
     width: 140,
@@ -262,6 +293,7 @@ const columns: DataTableColumns<BiblePropRow> = [
 onMounted(() => {
   void loadProps()
   void loadMentions()
+  void loadCharOptions()
 })
 
 watch(
@@ -271,6 +303,10 @@ watch(
     void loadMentions()
   },
 )
+
+watch(() => props.slug, () => {
+  void loadCharOptions()
+})
 </script>
 
 <style scoped>

@@ -94,8 +94,25 @@ def list_props(novel_id: str):
     return {"props": ManuscriptEntityRepository(get_database()).list_props(novel_id)}
 
 
+def _validate_holder(novel_id: str, holder_character_id: Optional[str]) -> None:
+    """校验 holder_character_id 确实存在于 bible_characters 表。"""
+    if not holder_character_id:
+        return
+    db = get_database()
+    row = db.fetch_one(
+        "SELECT id FROM bible_characters WHERE id = ? AND novel_id = ?",
+        (holder_character_id, novel_id),
+    )
+    if not row:
+        raise HTTPException(
+            status_code=422,
+            detail=f"持有者角色 ID '{holder_character_id}' 不存在于本作 Bible，请先在世界观中创建该角色",
+        )
+
+
 @router.post("/{novel_id}/manuscript/props")
 def create_prop(novel_id: str, body: PropCreateBody):
+    _validate_holder(novel_id, body.holder_character_id)
     repo = ManuscriptEntityRepository(get_database())
     row = repo.create_prop(
         novel_id,
@@ -110,6 +127,8 @@ def create_prop(novel_id: str, body: PropCreateBody):
 
 @router.patch("/{novel_id}/manuscript/props/{prop_id}")
 def patch_prop(novel_id: str, prop_id: str, body: PropPatchBody):
+    if body.holder_character_id is not None:
+        _validate_holder(novel_id, body.holder_character_id)
     repo = ManuscriptEntityRepository(get_database())
     if not repo.get_prop(novel_id, prop_id):
         raise HTTPException(status_code=404, detail="道具不存在")
