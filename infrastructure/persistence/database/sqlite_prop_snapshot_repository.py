@@ -1,7 +1,8 @@
 from __future__ import annotations
 import json
-from datetime import datetime
 from typing import Any, Dict, Optional
+
+from domain.shared.time_utils import utcnow_iso
 
 from domain.prop.repositories.prop_snapshot_repository import PropSnapshotRepository
 
@@ -18,7 +19,7 @@ class SqlitePropSnapshotRepository(PropSnapshotRepository):
         lifecycle_state: str,
         attributes_snapshot: Dict[str, Any],
     ) -> None:
-        now = datetime.utcnow().isoformat()
+        now = utcnow_iso()
         self._db.execute(
             """INSERT INTO prop_chapter_snapshots
                (prop_id, chapter_number, holder_character_id, lifecycle_state,

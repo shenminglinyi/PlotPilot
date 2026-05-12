@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import sys
 import uuid
-from datetime import datetime
+from domain.shared.time_utils import utcnow_iso as _utcnow_iso
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,7 +15,7 @@ from infrastructure.persistence.database.connection import get_database
 
 
 def _now():
-    return datetime.utcnow().isoformat()
+    return _utcnow_iso()
 
 
 def migrate_characters(db):

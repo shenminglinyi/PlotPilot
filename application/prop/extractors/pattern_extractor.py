@@ -2,10 +2,10 @@
 from __future__ import annotations
 import re
 import uuid
-from datetime import datetime
 from typing import List
 
 from domain.prop.value_objects.prop_event import PropEvent, PropEventType, PropEventSource
+from domain.shared.time_utils import utcnow_iso
 
 # 匹配 [[prop:uuid|名称]] 或仅 [[prop:uuid]]
 _PATTERN = re.compile(r'\[\[prop:([a-f0-9\-]{36})(?:\|[^\]]+)?\]\]')
@@ -27,7 +27,7 @@ class PatternExtractor:
         found_ids = set(_PATTERN.findall(content))
         valid_ids = {p["id"] for p in active_props}
         events: List[PropEvent] = []
-        now = datetime.utcnow().isoformat()
+        now = utcnow_iso()
         for prop_id in found_ids & valid_ids:
             events.append(PropEvent(
                 id=str(uuid.uuid4()),

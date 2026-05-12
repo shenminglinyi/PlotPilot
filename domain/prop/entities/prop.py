@@ -1,12 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from domain.prop.value_objects.lifecycle_state import LifecycleState, validate_transition
 from domain.prop.value_objects.prop_category import PropCategory
 from domain.prop.value_objects.prop_event import PropEvent, PropEventType, PropEventSource
 from domain.prop.value_objects.prop_id import PropId
+from domain.shared.time_utils import utcnow_iso
 
 @dataclass
 class Prop:
@@ -22,8 +22,8 @@ class Prop:
     resolved_chapter: Optional[int] = None
     holder_character_id: Optional[str] = None
     attributes: Dict[str, Any] = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=utcnow_iso)
+    updated_at: str = field(default_factory=utcnow_iso)
     _pending_events: List[PropEvent] = field(default_factory=list, repr=False)
 
     def apply_event(self, event: PropEvent) -> None:
@@ -41,7 +41,7 @@ class Prop:
         if event.is_transfer() and event.to_holder_id is not None:
             self.holder_character_id = event.to_holder_id
 
-        self.updated_at = datetime.utcnow().isoformat()
+        self.updated_at = utcnow_iso()
         self._pending_events.append(event)
 
     def pop_pending_events(self) -> List[PropEvent]:

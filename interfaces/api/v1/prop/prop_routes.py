@@ -11,12 +11,12 @@ POST   /novels/{novel_id}/props/{prop_id}/events   → 手动记录事件
 from __future__ import annotations
 import logging
 import uuid
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from domain.shared.time_utils import utcnow_iso
 from interfaces.api.dependencies import (
     get_unified_prop_repository,
     get_prop_event_repository,
@@ -136,7 +136,7 @@ async def create_prop(
     from domain.prop.entities.prop import Prop
     from domain.prop.value_objects.prop_id import PropId
     from domain.prop.value_objects.prop_category import PropCategory
-    now = datetime.utcnow().isoformat()
+    now = utcnow_iso()
     try:
         prop = Prop(
             id=PropId.generate(),

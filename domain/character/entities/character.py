@@ -1,9 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from domain.character.value_objects.character_id import CharacterId
+from domain.shared.time_utils import utcnow_iso
 
 @dataclass
 class Character:
@@ -30,8 +30,8 @@ class Character:
     emotional_arc: List[Dict[str, Any]] = field(default_factory=list)
     current_state_summary: str = ""
     last_updated_chapter: int = 0
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=utcnow_iso)
+    updated_at: str = field(default_factory=utcnow_iso)
 
     def update_state(
         self,
@@ -47,7 +47,7 @@ class Character:
         if arc_entry:
             self.emotional_arc.append(arc_entry)
         self.last_updated_chapter = chapter
-        self.updated_at = datetime.utcnow().isoformat()
+        self.updated_at = utcnow_iso()
 
     def to_voice_lock(self) -> str:
         parts = [f"[角色声纹 - {self.name}]"]

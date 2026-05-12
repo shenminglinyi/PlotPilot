@@ -1,7 +1,8 @@
 # domain/shared/events.py
-from datetime import datetime
 from typing import Any, Dict
 import uuid
+
+from domain.shared.time_utils import utcnow
 
 
 class DomainEvent:
@@ -10,7 +11,7 @@ class DomainEvent:
     def __init__(self, aggregate_id: str):
         self.event_id = str(uuid.uuid4())
         self.aggregate_id = aggregate_id
-        self.occurred_at = datetime.utcnow()
+        self.occurred_at = utcnow()
 
     def to_dict(self) -> Dict[str, Any]:
         return {
