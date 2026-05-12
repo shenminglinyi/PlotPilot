@@ -8,6 +8,10 @@
           <n-text strong>故事演进</n-text>
         </div>
         <n-space size="small" align="center" wrap>
+          <n-radio-group v-model:value="activeTab" size="small" style="flex-shrink:0">
+            <n-radio-button value="timeline">时间轴</n-radio-button>
+            <n-radio-button value="worldline">🌐 世界线</n-radio-button>
+          </n-radio-group>
           <n-tag v-if="currentChapter" size="small" round :bordered="false" type="info">
             当前第 {{ currentChapter }} 章
           </n-tag>
@@ -15,11 +19,30 @@
         </n-space>
       </div>
       <n-text depth="3" class="story-evolution-banner__lead">
-        左栏选故事线与阶段；中栏按章查看剧情事件与版本快照；右栏打开明细、检查点与回滚。与左侧章节列表同步；快照在收稿后由章后管线生成。
+        <template v-if="activeTab === 'timeline'">
+          左栏选故事线与阶段；中栏按章查看剧情事件与版本快照；右栏打开明细、检查点与回滚。
+        </template>
+        <template v-else>
+          世界线模式：每章自动存档，可分叉支线、Checkout 切换历史版本。
+        </template>
       </n-text>
     </header>
-    <!-- 外：导航略收窄，为「时间轴 + 详情」留出宽度；内：提高右栏默认占比，避免详情过窄 -->
-    <n-split direction="horizontal" :default-size="0.24" :min="0.17" :max="0.34">
+
+    <!-- 世界线 DAG 模式 -->
+    <WorldlineDAG
+      v-if="activeTab === 'worldline'"
+      :slug="slug"
+      @checkpoint-restored="onCheckpointRestored"
+    />
+
+    <!-- 传统时间轴模式（外：导航略收窄，为「时间轴 + 详情」留出宽度；内：提高右栏默认占比，避免详情过窄） -->
+    <n-split
+      v-else
+      direction="horizontal"
+      :default-size="0.24"
+      :min="0.17"
+      :max="0.34"
+    >
       <!-- 左栏：故事导航 -->
       <template #1>
         <StoryNavigator
@@ -73,6 +96,7 @@ import { useWorkbenchPlotTimelineReload } from '@/composables/useWorkbenchNarrat
 import StoryNavigator from './StoryNavigator.vue'
 import StoryTimeline from './StoryTimeline.vue'
 import StoryDetailPanel from './StoryDetailPanel.vue'
+import WorldlineDAG from './WorldlineDAG.vue'
 
 interface Props {
   slug: string
