@@ -181,9 +181,17 @@ export interface CharacterPsycheDTO {
   trauma_count: number
 }
 
+/** 引擎地质叠层：按章追加的心理变化 */
+export interface CharacterPsycheEvolutionEntryDTO {
+  trigger_chapter: number
+  trigger_event: string
+  changed_fields: string[]
+}
+
 export interface CharacterPsycheDetailDTO extends CharacterPsycheDTO {
   emotion_ledger: Record<string, unknown>
   mask_summary: string
+  evolution_timeline?: CharacterPsycheEvolutionEntryDTO[]
 }
 
 export interface ValidateBehaviorRequest {
@@ -200,6 +208,34 @@ export interface ExtractCharacterPsycheResponse {
   ok: boolean
   applied_keys: string[]
   warnings: string[]
+}
+
+export interface PipelineStageResult {
+  id: string
+  label: string
+  status: string
+  detail?: string
+}
+
+export interface PerCharacterFillResult {
+  name: string
+  ok: boolean
+  applied_keys: string[]
+  warnings: string[]
+  error?: string
+}
+
+/** POST auto-fill 返回：含产品设计阶段说明 + 实际执行 stages */
+export interface AutoFillCharacterPsycheResponse {
+  design_phases: string[]
+  stages: PipelineStageResult[]
+  characters: PerCharacterFillResult[]
+  skipped_names: string[]
+}
+
+export interface AutoFillCharacterPsycheRequest {
+  mode?: 'all' | 'gaps'
+  character_names?: string[] | null
 }
 
 export const characterPsycheApi = {
@@ -229,6 +265,17 @@ export const characterPsycheApi = {
       {},
       { timeout: 180_000 },
     ) as unknown as Promise<ExtractCharacterPsycheResponse>,
+
+  /**
+   * POST /novels/{novel_id}/character-psyches/auto-fill — 分阶段批量补全（与 extract 同源）
+   * mode=all 每人跑一次；gaps=仅缺项者；character_names 非空则只处理名单内角色
+   */
+  autofill: (novelId: string, body?: AutoFillCharacterPsycheRequest) =>
+    apiClient.post<AutoFillCharacterPsycheResponse>(
+      `/novels/${novelId}/character-psyches/auto-fill`,
+      body ?? {},
+      { timeout: 600_000 },
+    ) as unknown as Promise<AutoFillCharacterPsycheResponse>,
 }
 
 // ─── 向后兼容别名（v3.x 保留，v4.0 移除）──────────────────────

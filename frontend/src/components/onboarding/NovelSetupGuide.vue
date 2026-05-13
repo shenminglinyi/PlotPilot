@@ -1849,19 +1849,16 @@ async function runBulkCharacterExtract() {
     return
   }
   bulkExtractingPsyche.value = true
-  const warnLines: string[] = []
   try {
-    for (const c of list) {
-      const res = await characterPsycheApi.extractToBible(props.novelId, c.name.trim())
-      if (res.warnings?.length) {
-        warnLines.push(`${c.name}：${res.warnings.join('；')}`)
-      }
-    }
+    const res = await characterPsycheApi.autofill(props.novelId, { mode: 'all' })
+    const failed = res.characters.filter((c) => !c.ok)
     await loadBibleData()
-    if (warnLines.length) {
-      message.warning(warnLines.slice(0, 5).join('\n'))
+    if (failed.length) {
+      message.warning(
+        `${failed.length} 位失败：` + failed.map((f) => `${f.name}（${(f.error || '').slice(0, 80)}）`).slice(0, 4).join('；'),
+      )
     } else {
-      message.success('已对全部人物尝试 AI 补全（无长简介时改动可能很少）')
+      message.success(`已按阶段完成 AI 补全（阶段0–5 见接口 design_phases / stages），共 ${res.characters.length} 位角色`)
     }
   } catch (e: unknown) {
     message.error(formatApiError(e) || 'AI 补全失败')

@@ -4,6 +4,16 @@
       <div class="profile-header-row">
         <n-text strong class="profile-header-title">{{ dossierTitle }}</n-text>
         <n-space v-if="selectedCharacterId" size="small" wrap align="center">
+          <n-button
+            size="tiny"
+            type="primary"
+            secondary
+            :loading="aiFilling"
+            :disabled="!characterName"
+            @click="runAiAutofillCurrent"
+          >
+            AI 补全案卷
+          </n-button>
           <n-tag v-if="psycheDetail?.role" size="small" round :bordered="false" type="info">
             {{ psycheDetail.role }}
           </n-tag>
@@ -98,6 +108,25 @@
                   心理转折 ×{{ psycheDetail.trauma_count }}
                 </n-tag>
               </div>
+              <div
+                v-if="(psycheDetail?.evolution_timeline?.length ?? 0) > 0"
+                class="evolution-timeline"
+              >
+                <n-text class="section-label" depth="3">心理变化（引擎按章记录）</n-text>
+                <ol class="evo-list">
+                  <li
+                    v-for="(row, i) in psycheDetail!.evolution_timeline"
+                    :key="i"
+                    class="evo-item"
+                  >
+                    <span class="evo-ch">第{{ row.trigger_chapter }}章后</span>
+                    <span class="evo-ev">{{ row.trigger_event?.trim() || '（未命名事件）' }}</span>
+                    <span v-if="row.changed_fields?.length" class="evo-fields">
+                      {{ formatPsycheChangedFields(row.changed_fields) }}
+                    </span>
+                  </li>
+                </ol>
+              </div>
             </div>
           </div>
         </n-card>
@@ -163,6 +192,7 @@ const props = withDefaults(defineProps<Props>(), {
 const message = useMessage()
 
 const loading = ref(false)
+const aiFilling = ref(false)
 const characterName = ref('')
 const bibleChar = ref<CharacterDTO | null>(null)
 const psycheDetail = ref<CharacterPsycheDetailDTO | null>(null)
@@ -186,6 +216,17 @@ const mentalTagForHeader = computed(() => {
   if (raw.toUpperCase() === 'NORMAL') return ''
   return raw
 })
+
+const PSYCHE_CHANGE_LABELS: Record<string, string> = {
+  core_belief: '信念',
+  moral_taboos: '禁忌',
+  voice_profile: '声线',
+  active_wounds: '触发',
+}
+
+function formatPsycheChangedFields(keys: string[]): string {
+  return keys.map((k) => PSYCHE_CHANGE_LABELS[k] || k).join('、')
+}
 
 function fieldOrDash(v: string | undefined | null) {
   const t = (v || '').trim()
@@ -271,6 +312,35 @@ const injectPreviewBody = computed(() => {
 
   return parts.join('\n')
 })
+
+async function runAiAutofillCurrent() {
+  const name = characterName.value.trim()
+  if (!name || !props.slug) return
+  aiFilling.value = true
+  try {
+    const res = await characterPsycheApi.autofill(props.slug, {
+      mode: 'all',
+      character_names: [name],
+    })
+    const mine = res.characters.find((c) => c.name === name)
+    if (mine?.ok) {
+      message.success(
+        mine.applied_keys?.length
+          ? `已写入：${mine.applied_keys.join('、')}`
+          : '模型未返回新字段，简介可写长些后重试',
+      )
+    } else {
+      message.error(mine?.error || '补全失败')
+    }
+    await loadCharacterData()
+    window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { detail?: string } } }
+    message.error(err?.response?.data?.detail || 'AI 补全失败')
+  } finally {
+    aiFilling.value = false
+  }
+}
 
 async function loadCharacterData() {
   if (!props.selectedCharacterId) {
@@ -507,6 +577,48 @@ useWorkbenchDeskTickReload(() => {
 .trauma-inline {
   display: flex;
   justify-content: flex-end;
+}
+
+.evolution-timeline {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+}
+
+.evolution-timeline .section-label {
+  margin-bottom: 8px;
+}
+
+.evo-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--app-text-secondary);
+}
+
+.evo-item {
+  list-style-position: outside;
+}
+
+.evo-ch {
+  font-weight: 600;
+  color: var(--app-text);
+  margin-right: 6px;
+}
+
+.evo-ev {
+  color: var(--app-text);
+}
+
+.evo-fields {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  opacity: 0.88;
 }
 
 .section-label {
