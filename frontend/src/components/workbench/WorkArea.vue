@@ -183,6 +183,7 @@
                         <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
                       </n-tooltip>
                       <n-tooltip
+                        v-if="hasChapterContent"
                         trigger="hover"
                         :disabled="!isAutopilotRunning && !isAssistedReadOnly"
                         :content="isAssistedReadOnly ? '托管运行中不可重新生成' : 'Autopilot 运行时禁用'"
@@ -193,7 +194,7 @@
                             secondary
                             @click="handleRegenerateChapter"
                             :loading="generating"
-                            :disabled="isAutopilotRunning || isAssistedReadOnly || !currentChapter?.content"
+                            :disabled="isAutopilotRunning || isAssistedReadOnly"
                           >
                             🔄 重新生成
                           </n-button>
@@ -640,7 +641,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted, type Component } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useMessage } from 'naive-ui'
+import { useDialog, useMessage } from 'naive-ui'
 import { resolveHttpUrl } from '../../api/config'
 import {
   consumeGenerateChapterStream,
@@ -700,6 +701,7 @@ const emit = defineEmits<{
 }>()
 
 const message = useMessage()
+const dialog = useDialog()
 
 const desk = useChapterDeskLayout()
 
@@ -1095,6 +1097,13 @@ const currentChapter = computed(() => {
   return props.chapters.find(ch => ch.id === props.currentChapterId) || null
 })
 
+/** 当前是否有可重写的正文：以编辑器 `chapterContent` 为准（列表项通常不带全文，不能用 currentChapter.content） */
+const hasChapterContent = computed(() => {
+  const fromEditor = chapterContent.value?.trim() ?? ''
+  const fromList = currentChapter.value?.content?.trim() ?? ''
+  return !!(fromEditor || fromList)
+})
+
 const signalStrip = computed(() => {
   const r = autopilotChapterReview.value
   const ch = currentChapter.value
@@ -1283,8 +1292,8 @@ const handleRegenerateChapter = async () => {
   isRegenerationMode.value = true
   regenerationGuidance.value = ''
   generateTargetChapterId.value = currentChapter.value.id
-  generateOutline.value = currentChapter.value.outline
-    || `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
+  // 列表项不带 outline，统一用默认模板做种子；用户可在弹窗里编辑
+  generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
@@ -1311,6 +1320,26 @@ function streamPhaseToLabel(phase: string): string {
     post: '质检与收尾…',
   }
   return map[phase] ?? phase
+}
+
+function httpStatusFromError(e: unknown): number | undefined {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const r = (e as { response?: { status?: number } }).response
+    return typeof r?.status === 'number' ? r.status : undefined
+  }
+  return undefined
+}
+
+function httpDetailFromError(e: unknown): string {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const data = (e as { response?: { data?: unknown } }).response?.data
+    if (data && typeof data === 'object' && 'detail' in data) {
+      const d = (data as { detail: unknown }).detail
+      if (typeof d === 'string') return d
+      if (Array.isArray(d)) return JSON.stringify(d)
+    }
+  }
+  return e instanceof Error ? e.message : '未知错误'
 }
 
 const handleStartGenerate = async () => {
@@ -1355,16 +1384,43 @@ const handleStartGenerate = async () => {
 
   const defaultOutline = `第${targetChapterNumber}章：承接前情，推进主线`
 
-  // 重新生成模式：先快照当前内容（失败不阻断生成，仅警告）
+  // 重新生成模式：先快照当前内容；快照失败时弹确认（422 无正文仅提示后继续）
   if (isRegenerationMode.value) {
     savingDraftBeforeRegen.value = true
     try {
       await saveChapterDraft(props.slug, targetChapterNumber, 'pre_regen')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '未知错误'
-      // 422 表示内容为空无需快照，忽略；其他错误给出警告但不中断
-      if (!msg.includes('422') && !msg.includes('内容为空')) {
-        message.warning(`草稿快照失败（不影响生成）：${msg}`)
+    } catch (e: unknown) {
+      const status = httpStatusFromError(e)
+      const detail = httpDetailFromError(e)
+      if (status === 422 || detail.includes('内容为空')) {
+        message.warning('当前无正文可快照，将直接继续生成')
+      } else {
+        const proceed = await new Promise<boolean>((resolve) => {
+          dialog.warning({
+            title: '未能保存历史草稿',
+            content: `无法将当前版本快照到历史（${detail}）。若继续重新生成，原内容可能无法从草稿恢复。是否仍要继续？`,
+            positiveText: '继续生成',
+            negativeText: '取消',
+            maskClosable: false,
+            onPositiveClick: () => {
+              resolve(true)
+            },
+            onNegativeClick: () => {
+              resolve(false)
+            },
+            onClose: () => {
+              resolve(false)
+            },
+          })
+        })
+        if (!proceed) {
+          generateInProgress.value = false
+          generatingChapterId.value = null
+          generateAbortCtrl.value = null
+          streamPhaseLabel.value = ''
+          streamProgressPct.value = 0
+          return
+        }
       }
     } finally {
       savingDraftBeforeRegen.value = false
