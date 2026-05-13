@@ -16,8 +16,8 @@
 - GET  /novels/{novel_id}/character-psyches       → 获取角色灵魂概览
 - GET  /novels/{novel_id}/character-psyches/{name}→ 单角色灵魂详情
 - POST /novels/{novel_id}/character-psyches/{name}/validate → 行为验证
-- POST /novels/{novel_id}/character-psyches/{name}/extract → AI 抽取 T0/锚点写 Bible
-- POST /novels/{novel_id}/character-psyches/auto-fill → 按阶段批量补全（速写/T0/声线锚点同源抽取）
+- POST /novels/{novel_id}/character-psyches/{name}/extract → 从简介启发式填充「仍为空的」Bible 锚点（不调用模型）
+- POST /novels/{novel_id}/character-psyches/auto-fill → 批量同上（与 extract 同源，无 LLM）
 """
 from __future__ import annotations
 
@@ -172,18 +172,18 @@ class ValidateBehaviorResponse(BaseModel):
 
 
 class ExtractCharacterPsycheResponse(BaseModel):
-    """AI 抽取后写回 Bible 的结果"""
+    """启发式同步后写回 Bible 的结果（仅填补空字段）"""
     ok: bool = True
     applied_keys: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
 
 class AutoFillCharacterPsycheRequest(BaseModel):
-    """批量角色锚点补全：与单角色 extract 同源，按阶段顺序执行。"""
+    """批量角色锚点同步：与单角色 extract 同源，按阶段顺序执行（无模型）。"""
 
     mode: str = Field(
         "all",
-        description="all=每位角色都跑一遍 LLM；gaps=仅对「核心信念或声线风格或口癖」明显缺项的角色补全",
+        description="all=每位角色各跑一次启发式填补；gaps=仅对仍明显缺项的角色运行",
     )
     character_names: Optional[List[str]] = Field(
         None,
@@ -217,7 +217,7 @@ class PerCharacterFillResult(BaseModel):
 
 
 class AutoFillCharacterPsycheResponse(BaseModel):
-    """批量补全总结果 + 分阶段记录"""
+    """批量同步总结果 + 分阶段记录"""
 
     design_phases: List[str] = Field(default_factory=list)
     stages: List[PipelineStageResult] = Field(default_factory=list)
@@ -229,8 +229,8 @@ class AutoFillCharacterPsycheResponse(BaseModel):
 _AUTO_FILL_PIPELINE_PHASE_LABELS: tuple[str, ...] = (
     "阶段0·前置：书目与 Bible 已存在（本接口不创建书目）。",
     "阶段1·校验：novels / bibles / bible_characters 可读。",
-    "阶段2·定界：按 mode=all|gaps 决定要跑 LLM 的角色子集。",
-    "阶段3·抽取：逐角色调用与「单条 extract」相同的 LLM，合并写回 Bible（速写 / T0 四维 / 写章案卷声线锚点同源）。",
+    "阶段2·定界：按 mode=all|gaps 决定要跑启发式同步的角色子集。",
+    "阶段3·同步：逐角色从简介正则抽取仅填补空锚点，写回 Bible（与写章案卷同源，不调用模型）。",
     "阶段4·呈现：前端刷新 Bible 或重新打开案卷即可；若需引擎侧四维持久化，仍由全托管 / CharacterPsycheEngine 路径负责。",
 )
 
@@ -541,24 +541,8 @@ def _get_bible_characters(novel_id: str) -> List[Dict[str, Any]]:
         return []
 
 
-def _world_snippet_from_bible_for_extract(bible: Any, max_len: int = 2400) -> str:
-    """拼一段世界观/文风提要，供角色抽取提示用。"""
-    parts: List[str] = []
-    for sn in getattr(bible, "style_notes", None) or []:
-        c = getattr(sn, "content", "") or ""
-        if c.strip():
-            parts.append(f"【文风】{c.strip()[:800]}")
-    for ws in getattr(bible, "world_settings", None) or []:
-        nm = getattr(ws, "name", "") or ""
-        ds = getattr(ws, "description", "") or ""
-        if nm or ds:
-            parts.append(f"【{nm}】{ds[:500]}")
-    blob = "\n".join(parts)
-    return blob[:max_len]
-
-
 def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any, List[str]]:
-    """将 LLM JSON 合并进 Bible CharacterDTO；返回 (merged_dto, applied_keys)。"""
+    """将抽取/启发式 JSON 合并进 Bible CharacterDTO；返回 (merged_dto, applied_keys)。"""
     from dataclasses import replace
 
     applied: List[str] = []
@@ -679,13 +663,52 @@ def _character_needs_gaps_fill(char: Any) -> bool:
     return False
 
 
+def _build_heuristic_seed_dict(target: Any) -> Dict[str, Any]:
+    """从 Bible 角色「简介」推导结构化锚点，仅用于仍为空的字段（不调用模型）。"""
+    import re
+
+    desc = (getattr(target, "description", None) or "").strip()
+    out: Dict[str, Any] = {}
+    if not desc:
+        return out
+
+    if not (getattr(target, "core_belief", None) or "").strip():
+        cb = _extract_core_belief(desc, [])
+        if cb:
+            out["core_belief"] = cb[:2000]
+
+    mt_existing = getattr(target, "moral_taboos", None) or []
+    if not (isinstance(mt_existing, list) and any(str(x).strip() for x in mt_existing)):
+        taboo_str = _extract_taboo(desc)
+        if taboo_str:
+            parts = [p.strip() for p in re.split(r"[、,，;；]", taboo_str) if p.strip()]
+            if not parts:
+                parts = [taboo_str.strip()]
+            out["moral_taboos"] = parts[:5]
+
+    vp = getattr(target, "voice_profile", None) or {}
+    style = ""
+    if isinstance(vp, dict):
+        style = str(vp.get("style") or "").strip()
+    if not style:
+        verbal = (getattr(target, "verbal_tic", None) or "").strip()
+        vt = _extract_voice_tag(desc, verbal)
+        if vt:
+            out["voice_profile"] = {"style": vt, "sentence_pattern": "", "speech_tempo": ""}
+
+    aw_existing = getattr(target, "active_wounds", None) or []
+    if not (isinstance(aw_existing, list) and aw_existing):
+        wound = _extract_wound(desc, getattr(target, "mental_state", None) or "")
+        if wound:
+            out["active_wounds"] = [{"trigger": wound[:400], "effect": ""}]
+
+    return out
+
+
 async def _extract_character_psyche_impl(novel_id: str, character_name: str) -> ExtractCharacterPsycheResponse:
-    """单角色 LLM 抽取并写 Bible（单条 extract 与批量 auto-fill 共用）。"""
-    from interfaces.api.dependencies import get_bible_service, get_llm_service
-    from domain.ai.services.llm_service import GenerationConfig
-    from domain.ai.value_objects.prompt import Prompt
-    from application.ai.llm_json_extract import parse_llm_json_to_dict
+    """单角色启发式同步并写 Bible（单条 extract 与批量 auto-fill 共用，不调用 LLM）。"""
     from application.world.dtos.bible_dto import CharacterDTO
+    from interfaces.api.dependencies import get_bible_service
 
     bible_service = get_bible_service()
     bible = bible_service.get_bible_by_novel(novel_id)
@@ -700,65 +723,12 @@ async def _extract_character_psyche_impl(novel_id: str, character_name: str) -> 
     if target is None:
         raise HTTPException(status_code=404, detail=f"Character '{character_name}' not found in Bible")
 
-    char_payload = {
-        "id": target.id,
-        "name": target.name,
-        "description": target.description,
-        "relationships": target.relationships,
-        "public_profile": target.public_profile,
-        "hidden_profile": target.hidden_profile,
-        "reveal_chapter": target.reveal_chapter,
-        "mental_state": target.mental_state,
-        "mental_state_reason": target.mental_state_reason,
-        "verbal_tic": target.verbal_tic,
-        "idle_behavior": target.idle_behavior,
-        "core_belief": target.core_belief,
-        "moral_taboos": target.moral_taboos,
-        "voice_profile": target.voice_profile,
-        "active_wounds": target.active_wounds,
-    }
-    world_snippet = _world_snippet_from_bible_for_extract(bible)
-
-    system = (
-        "你是长篇小说角色设定编辑。根据作品 Bible 中的单条角色记录与可选的世界观提要，"
-        "抽取写章时可用的结构化锚点。只输出一个 JSON 对象，不要 markdown 围栏，不要解释。"
-    )
-    schema_hint = """输出 JSON 须严格包含下列键（字符串用中文，可简短）：
-{
-  "core_belief": "",
-  "moral_taboos": [],
-  "voice_profile": {"style":"","sentence_pattern":"","speech_tempo":""},
-  "active_wounds": [{"trigger":"","effect":""}],
-  "mental_state": "NORMAL",
-  "mental_state_reason": "",
-  "verbal_tic": "",
-  "idle_behavior": "",
-  "public_profile": "",
-  "hidden_profile": "",
-  "reveal_chapter": null
-}
-约束：moral_taboos 最多 5 条；active_wounds 最多 3 条；句子简练；无把握时 mental_state 用 NORMAL。"""
-    user = (
-        f"世界观/文风提要（可为空）：\n{world_snippet or '（无）'}\n\n"
-        f"当前角色 JSON：\n{json.dumps(char_payload, ensure_ascii=False)}\n\n"
-        f"{schema_hint}"
-    )
-
-    llm = get_llm_service()
-    prompt = Prompt(system=system, user=user)
-    config = GenerationConfig(max_tokens=1400, temperature=0.35)
-    try:
-        result = await llm.generate(prompt, config)
-        raw = result.content if hasattr(result, "content") else str(result)
-    except Exception as e:
-        logger.error("character extract LLM 失败: %s", e)
-        raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e}") from e
-
-    data, errs = parse_llm_json_to_dict(raw)
+    data = _build_heuristic_seed_dict(target)
     if not data:
-        raise HTTPException(
-            status_code=422,
-            detail="无法解析模型 JSON：" + ("; ".join(errs) if errs else "空对象"),
+        return ExtractCharacterPsycheResponse(
+            ok=True,
+            applied_keys=[],
+            warnings=["简介过短或各锚点已填写，未写入新字段。可在世界观中编辑 Bible 后重试。"],
         )
 
     merged, applied = _merge_character_from_extract(target, data)
@@ -766,7 +736,7 @@ async def _extract_character_psyche_impl(novel_id: str, character_name: str) -> 
         return ExtractCharacterPsycheResponse(
             ok=True,
             applied_keys=[],
-            warnings=["模型未返回新的非空字段，未写库。可补充简介或换模型后重试。"],
+            warnings=["启发式未产生可合并字段，未写库。"],
         )
 
     new_chars: List[CharacterDTO] = []
@@ -783,13 +753,10 @@ async def _extract_character_psyche_impl(novel_id: str, character_name: str) -> 
             style_notes=list(bible.style_notes),
         )
     except Exception as e:
-        logger.error("character extract 写 Bible 失败: %s", e)
+        logger.error("character heuristic sync 写 Bible 失败: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
-    warnings: List[str] = []
-    if errs:
-        warnings.extend(errs)
-    return ExtractCharacterPsycheResponse(ok=True, applied_keys=applied, warnings=warnings)
+    return ExtractCharacterPsycheResponse(ok=True, applied_keys=applied, warnings=[])
 
 
 def _extract_core_belief(description: str, relationships: list) -> str:
@@ -1185,9 +1152,9 @@ async def validate_character_behavior(novel_id: str, character_name: str, body: 
     response_model=ExtractCharacterPsycheResponse,
 )
 async def extract_character_psyche_to_bible(novel_id: str, character_name: str):
-    """用 LLM 从 Bible 角色条目中抽取 T0/声线/创伤/锚点等，写回 Bible（与引导页落库同源）。
+    """从角色「简介」启发式填补仍为空的 Bible 锚点（不调用模型；与引导页批量同步同源）。
 
-    人可在工作台或世界观中继续改字段；本接口为覆盖式合并：仅当模型返回非空字段时才覆盖对应项。
+    已手填的字段不会被覆盖；可在世界观或 Bible 编辑中继续修改。
     """
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
@@ -1202,10 +1169,10 @@ async def autofill_character_psyches(
     novel_id: str,
     body: AutoFillCharacterPsycheRequest = Body(default_factory=AutoFillCharacterPsycheRequest),
 ):
-    """按设计阶段批量补全角色案卷字段（与逐条 extract 同源，一次请求内顺序执行）。
+    """按设计阶段批量同步 Bible 空锚点（与逐条 extract 同源，一次请求内顺序执行，无 LLM）。
 
-    - mode=all：Bible 中每位角色各调用一次 LLM。
-    - mode=gaps：仅对结构化锚点仍明显缺项的角色调用（见 _character_needs_gaps_fill）。
+    - mode=all：Bible 中每位角色各跑一次启发式填补。
+    - mode=gaps：仅对结构化锚点仍明显缺项的角色运行（见 _character_needs_gaps_fill）。
     - character_names：非空时只处理名单内角色（须已在 Bible 中）。
     """
     stages: List[PipelineStageResult] = []
@@ -1289,12 +1256,12 @@ async def autofill_character_psyches(
     for c in to_run:
         nm = c.name
         sid = f"p4_extract_{nm}"
-        stages.append(PipelineStageResult(id=sid, label=f"阶段4·抽取 — {nm}", status="running", detail="LLM…"))
+        stages.append(PipelineStageResult(id=sid, label=f"阶段4·同步 — {nm}", status="running", detail="启发式…"))
         try:
             res = await _extract_character_psyche_impl(novel_id, nm)
             stages[-1] = PipelineStageResult(
                 id=sid,
-                label=f"阶段4·抽取 — {nm}",
+                label=f"阶段4·同步 — {nm}",
                 status="ok",
                 detail=",".join(res.applied_keys) if res.applied_keys else "无字段变更",
             )
@@ -1313,7 +1280,7 @@ async def autofill_character_psyches(
                 detail = str(detail)
             stages[-1] = PipelineStageResult(
                 id=sid,
-                label=f"阶段4·抽取 — {nm}",
+                label=f"阶段4·同步 — {nm}",
                 status="error",
                 detail=detail[:500],
             )
@@ -1323,7 +1290,7 @@ async def autofill_character_psyches(
         except Exception as e:
             stages[-1] = PipelineStageResult(
                 id=sid,
-                label=f"阶段4·抽取 — {nm}",
+                label=f"阶段4·同步 — {nm}",
                 status="error",
                 detail=str(e)[:500],
             )

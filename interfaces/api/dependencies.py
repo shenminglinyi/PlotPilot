@@ -434,12 +434,9 @@ def get_bible_service() -> BibleService:
     )
 
 
+@lru_cache
 def get_cast_service() -> CastService:
-    """获取 Cast 服务
-
-    Returns:
-        CastService 实例
-    """
+    """获取 Cast 服务（进程内单例，供关系图 TTL 缓存复用）。"""
     storage = get_storage()
     storage_root = storage.base_path
     return CastService(storage_root, knowledge_repository=get_knowledge_repository())
@@ -632,6 +629,30 @@ def get_context_builder() -> ContextBuilder:
         ContextBuilder 实例
     """
     from infrastructure.persistence.database.triple_repository import TripleRepository
+    from infrastructure.persistence.database.sqlite_causal_edge_repository import SqliteCausalEdgeRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+
+    db = get_database()
+
+    causal_edge_repo = None
+    try:
+        causal_edge_repo = SqliteCausalEdgeRepository(db)
+    except Exception as e:
+        logger.debug("CausalEdgeRepository 不可用（context_builder）: %s", e)
+
+    character_state_repo = None
+    try:
+        character_state_repo = SqliteCharacterStateRepository(db)
+    except Exception as e:
+        logger.debug("CharacterStateRepository 不可用（context_builder）: %s", e)
+
+    debt_repo = None
+    try:
+        debt_repo = SqliteNarrativeDebtRepository(db)
+    except Exception as e:
+        logger.debug("NarrativeDebtRepository 不可用（context_builder）: %s", e)
+
     return ContextBuilder(
         bible_service=get_bible_service(),
         storyline_manager=get_storyline_manager(),
@@ -642,8 +663,13 @@ def get_context_builder() -> ContextBuilder:
         plot_arc_repository=get_plot_arc_repository(),
         embedding_service=get_embedding_service(),
         foreshadowing_repository=get_foreshadowing_repository(),
+        story_node_repository=get_story_node_repository(),
+        bible_repository=get_bible_repository(),
         chapter_element_repository=get_chapter_element_repository(),
         triple_repository=TripleRepository(),
+        causal_edge_repository=causal_edge_repo,
+        character_state_repository=character_state_repo,
+        narrative_debt_repository=debt_repo,
     )
 
 
