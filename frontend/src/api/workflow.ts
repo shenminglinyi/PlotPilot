@@ -364,6 +364,8 @@ export const workflowApi = {
     novelId: string,
     data: {
       storyline_type: string
+      role?: 'main' | 'sub' | 'dark'
+      parent_id?: string
       estimated_chapter_start: number
       estimated_chapter_end: number
       name?: string
