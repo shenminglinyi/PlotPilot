@@ -69,6 +69,10 @@ class ContextBuilder:
         bible_repository=None,
         chapter_element_repository=None,
         triple_repository=None,
+        # feed-forward 三件套（V8+）：接入后 T0/T1 槽位才会有内容
+        causal_edge_repository=None,
+        character_state_repository=None,
+        narrative_debt_repository=None,
     ):
         self.bible_service = bible_service
         self.storyline_manager = storyline_manager
@@ -84,6 +88,36 @@ class ContextBuilder:
         self.chapter_element_repository = chapter_element_repository
         self.triple_repository = triple_repository
 
+        # ContextAssembler：提供 ANCHOR / SCARS / DEBT_DUE / CAUSAL_CHAINS 槽位
+        context_assembler = None
+        try:
+            from application.engine.services.context_assembler import ContextAssembler
+            context_assembler = ContextAssembler(
+                causal_edge_repo=causal_edge_repository,
+                character_state_repo=character_state_repository,
+                debt_repo=narrative_debt_repository,
+                foreshadowing_repo=foreshadowing_repository,
+                chapter_repo=chapter_repository,
+                bible_repo=bible_repository,
+                story_node_repo=story_node_repository,
+            )
+        except Exception as _e:
+            logger.warning("ContextAssembler 初始化失败: %s", _e)
+
+        # MemoryEngine：提供 FACT_LOCK / COMPLETED_BEATS / REVEALED_CLUES 槽位
+        memory_engine = None
+        if bible_repository:
+            try:
+                from application.engine.services.memory_engine import MemoryEngine
+                from infrastructure.persistence.database.connection import get_database
+                memory_engine = MemoryEngine(
+                    llm_service=None,
+                    bible_repository=bible_repository,
+                    db_connection=get_database(),
+                )
+            except Exception as _e:
+                logger.warning("MemoryEngine 初始化失败: %s", _e)
+
         # 预算分配器（核心组件）
         self.budget_allocator = ContextBudgetAllocator(
             foreshadowing_repository=foreshadowing_repository,
@@ -94,6 +128,8 @@ class ContextBuilder:
             triple_repository=triple_repository,
             vector_store=vector_store,
             embedding_service=embedding_service,
+            context_assembler=context_assembler,
+            memory_engine=memory_engine,
         )
 
     def estimate_tokens(self, text: str) -> int:
