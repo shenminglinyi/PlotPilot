@@ -174,7 +174,7 @@ class ContextBudgetAllocator:
     MAX_CHARACTER_ANCHORS_TOKENS = 1500
     MAX_GRAPH_SUBNETWORK_TOKENS = 1000
     MAX_ACT_SUMMARIES_TOKENS = 1500
-    MAX_RECENT_CHAPTERS_TOKENS = 5000
+    MAX_RECENT_CHAPTERS_TOKENS = 8000   # 扩容：N-1 完整 + N-2 半量 + N-3~5 预览
     MAX_VECTOR_RECALL_TOKENS = 5000
 
     # 最近章节槽位：紧邻上一章侧重章末承接；更早章节仅章首短预览以省预算
@@ -645,8 +645,8 @@ class ContextBudgetAllocator:
         
         # ==================== T2: 动态内容 ====================
         
-        # 6. 最近章节内容
-        recent_chapters = self._get_recent_chapters(novel_id, chapter_number, limit=3, current_beat_index=current_beat_index)
+        # 6. 最近章节内容（limit=5：N-1/N-2 做章末衔接，N-3~N-5 做章首预览）
+        recent_chapters = self._get_recent_chapters(novel_id, chapter_number, limit=5, current_beat_index=current_beat_index)
         slots["recent_chapters"] = ContextSlot(
             name="最近章节",
             tier=PriorityTier.T2_DYNAMIC,
@@ -1726,14 +1726,16 @@ class ContextBudgetAllocator:
         self,
         novel_id: str,
         chapter_number: int,
-        limit: int = 3,
+        limit: int = 5,
         current_beat_index: int = 0,
     ) -> str:
         """获取最近章节内容。
 
-        紧邻上一章（chapter_number - 1）优先展示章末，便于两章衔接；更早章节仅章首短预览。
+        N-1：章首略览 + 章末完整（PREV_CHAPTER_BRIDGE_TAIL_CHARS 字）
+        N-2：章末中等片段（PREV_CHAPTER_BRIDGE_TAIL_CHARS // 2 字），帮助跨章一致性
+        N-3 及更早：仅章首短预览（OLDER_CHAPTER_HEAD_PREVIEW_CHARS 字）
 
-        新增：断点续写时包含当前章节已生成部分，确保续写衔接。
+        断点续写时包含当前章节已生成部分，确保续写衔接。
         """
         if not self.chapter_repo:
             return ""
@@ -1750,19 +1752,27 @@ class ContextBudgetAllocator:
             )[:limit]
 
             prev_num = chapter_number - 1
+            prev2_num = chapter_number - 2
             older_cap = self.OLDER_CHAPTER_HEAD_PREVIEW_CHARS
             lines = ["【最近章节】"]
 
-            # 历史章节
-            for chapter in reversed(recent):  # 按时间顺序（旧 → 新）
+            # 历史章节（按时间顺序旧 → 新）
+            for chapter in reversed(recent):
                 lines.append(f"\n第 {chapter.number} 章：{chapter.title}")
                 body = (chapter.content or "").strip()
                 if not body:
                     continue
                 if chapter.number == prev_num:
+                    # N-1：章首略览 + 章末完整
                     excerpt = self._excerpt_immediate_previous_chapter(chapter.content or "")
                     if excerpt:
                         lines.append(excerpt)
+                    continue
+                if chapter.number == prev2_num:
+                    # N-2：章末中等片段（半量），帮助跨章一致性
+                    tail_n = self.PREV_CHAPTER_BRIDGE_TAIL_CHARS // 2
+                    tail = body[-tail_n:] if len(body) > tail_n else body
+                    lines.append(f"【章末节选，供跨章一致性参考】\n{tail}")
                     continue
                 preview = body[:older_cap]
                 if len(body) > older_cap:
