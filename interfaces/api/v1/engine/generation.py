@@ -71,6 +71,11 @@ class GenerateChapterRequest(BaseModel):
     chapter_number: int = Field(..., gt=0, description="章节号（必须 > 0）")
     outline: str = Field(..., min_length=1, description="章节大纲")
     scene_director_result: Optional[dict] = Field(None, description="可选的场记分析结果")
+    regeneration_guidance: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="重新生成指导（告诉 AI 改进方向；仅用于重写已有章节时）",
+    )
 
 
 class StorylineMilestoneResponse(BaseModel):
@@ -235,6 +240,8 @@ async def generate_chapter_stream(
     logger.info(f"API 请求: POST /{novel_id}/generate-chapter-stream (SSE)")
     logger.info(f"  章节号: {request.chapter_number}")
     logger.info(f"  大纲长度: {len(request.outline)} 字符")
+    if request.regeneration_guidance:
+        logger.info(f"  重写指导: {request.regeneration_guidance[:80]}")
 
     async def event_gen():
         # 转换 scene_director_result 为 SceneDirectorAnalysis（如果提供）
@@ -246,7 +253,8 @@ async def generate_chapter_stream(
             novel_id=novel_id,
             chapter_number=request.chapter_number,
             outline=request.outline,
-            scene_director=scene_director
+            scene_director=scene_director,
+            regeneration_guidance=request.regeneration_guidance,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
