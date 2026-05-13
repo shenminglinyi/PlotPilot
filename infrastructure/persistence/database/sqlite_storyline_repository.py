@@ -57,6 +57,12 @@ class SqliteStorylineRepository(StorylineRepository):
                 conn.execute("ALTER TABLE storylines ADD COLUMN last_active_chapter INTEGER DEFAULT 0")
             if 'progress_summary' not in columns:
                 conn.execute("ALTER TABLE storylines ADD COLUMN progress_summary TEXT DEFAULT ''")
+            if 'role' not in columns:
+                conn.execute("ALTER TABLE storylines ADD COLUMN role TEXT DEFAULT 'main'")
+            if 'parent_id' not in columns:
+                conn.execute("ALTER TABLE storylines ADD COLUMN parent_id TEXT")
+            if 'chapter_weight' not in columns:
+                conn.execute("ALTER TABLE storylines ADD COLUMN chapter_weight REAL DEFAULT 1.0")
 
             conn.execute(
                 """
@@ -65,9 +71,10 @@ class SqliteStorylineRepository(StorylineRepository):
                     estimated_chapter_start, estimated_chapter_end,
                     current_milestone_index, name, description,
                     last_active_chapter, progress_summary,
+                    role, parent_id, chapter_weight,
                     extensions, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     novel_id = excluded.novel_id,
                     storyline_type = excluded.storyline_type,
@@ -79,6 +86,9 @@ class SqliteStorylineRepository(StorylineRepository):
                     description = excluded.description,
                     last_active_chapter = excluded.last_active_chapter,
                     progress_summary = excluded.progress_summary,
+                    role = excluded.role,
+                    parent_id = excluded.parent_id,
+                    chapter_weight = excluded.chapter_weight,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -93,6 +103,9 @@ class SqliteStorylineRepository(StorylineRepository):
                     storyline.description,
                     storyline.last_active_chapter,
                     storyline.progress_summary,
+                    storyline.role.value,
+                    storyline.parent_id,
+                    storyline.chapter_weight,
                     now,
                     now,
                 ),
@@ -169,8 +182,14 @@ class SqliteStorylineRepository(StorylineRepository):
         return out
 
     def _row_to_storyline(self, row: dict) -> Storyline:
+        from domain.novel.value_objects.storyline_role import StorylineRole
         sid = row["id"]
         milestones = self._milestones(sid)
+        raw_role = row.get("role") or "main"
+        try:
+            role = StorylineRole(raw_role)
+        except ValueError:
+            role = StorylineRole.MAIN if raw_role in ("main_plot", "main") else StorylineRole.SUB
         return Storyline(
             id=sid,
             novel_id=NovelId(row["novel_id"]),
@@ -184,6 +203,9 @@ class SqliteStorylineRepository(StorylineRepository):
             description=row.get("description", ""),
             last_active_chapter=row.get("last_active_chapter", 0),
             progress_summary=row.get("progress_summary", ""),
+            role=role,
+            parent_id=row.get("parent_id"),
+            chapter_weight=float(row.get("chapter_weight") or 1.0),
         )
 
     def delete(self, storyline_id: str) -> None:
