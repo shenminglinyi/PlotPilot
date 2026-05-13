@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
   "productName": "PlotPilot",
-  "version": "3.0.0",
+  "version": "3.0.8",
   "identifier": "com.plotpilot.desktop",
   "build": {
     "frontendDist": "../dist",
