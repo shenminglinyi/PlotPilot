@@ -21,6 +21,24 @@ def _storyline_dict(storyline) -> Dict[str, Any]:
         "estimated_chapter_end": storyline.estimated_chapter_end,
         "name": getattr(storyline, "name", "") or "",
         "description": getattr(storyline, "description", "") or "",
+        "role": storyline.role.value if hasattr(storyline, "role") and storyline.role else "main",
+        "parent_id": getattr(storyline, "parent_id", None),
+        "chapter_weight": getattr(storyline, "chapter_weight", 1.0),
+        "progress_summary": getattr(storyline, "progress_summary", "") or "",
+    }
+
+
+def _confluence_point_dict(cp) -> dict:
+    return {
+        "id": cp.id,
+        "source_storyline_id": cp.source_storyline_id,
+        "target_storyline_id": cp.target_storyline_id,
+        "target_chapter": cp.target_chapter,
+        "merge_type": cp.merge_type,
+        "context_summary": cp.context_summary,
+        "pre_reveal_hint": cp.pre_reveal_hint,
+        "behavior_guards": cp.behavior_guards,
+        "resolved": cp.resolved,
     }
 
 
@@ -170,6 +188,12 @@ async def build_workbench_context_bundle(
         storylines = storyline_manager.repository.get_by_novel_id(NovelId(novel_id))
         storyline_list = [_storyline_dict(s) for s in storylines]
 
+        from interfaces.api.dependencies import get_confluence_point_repository as _get_cp_repo
+        try:
+            confluence_list = [_confluence_point_dict(cp) for cp in _get_cp_repo().get_by_novel_id(novel_id)]
+        except Exception:
+            confluence_list = []
+
         plot_arc = plot_arc_repo.get_by_novel_id(NovelId(novel_id))
         plot_arc_payload: Optional[Dict[str, Any]] = None
         if plot_arc is not None:
@@ -189,6 +213,7 @@ async def build_workbench_context_bundle(
             "chronicle_rows": chronicle_rows,
             "max_ch": max_ch,
             "storyline_list": storyline_list,
+            "confluence_list": confluence_list,
             "plot_arc_payload": plot_arc_payload,
             "knowledge_payload": knowledge_payload,
             "foreshadow_entries": foreshadow_entries,
@@ -217,6 +242,7 @@ async def build_workbench_context_bundle(
     chronicle_rows = result["chronicle_rows"]
     max_ch = result["max_ch"]
     storyline_list = result["storyline_list"]
+    confluence_list = result["confluence_list"]
     plot_arc_payload = result["plot_arc_payload"]
     knowledge_payload = result["knowledge_payload"]
     foreshadow_entries = result["foreshadow_entries"]
@@ -251,6 +277,7 @@ async def build_workbench_context_bundle(
             "note": "剧情节点来自 Bible.timeline_notes；快照来自 novel_snapshots。",
         },
         "storylines": storyline_list,
+        "confluence_points": confluence_list,
         "plot_arc": plot_arc_payload,
         "knowledge": knowledge_payload,
         "foreshadow_ledger": foreshadow_entries,

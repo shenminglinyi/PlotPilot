@@ -30,7 +30,8 @@ export interface StorylineGraphDataDTO {
 
 export interface StorylineDTO {
   id: string
-  storyline_type: string
+  storyline_type: string       // kept for backward compat
+  role?: 'main' | 'sub' | 'dark'
   status: string
   estimated_chapter_start: number
   estimated_chapter_end: number
@@ -40,6 +41,42 @@ export interface StorylineDTO {
   current_milestone_index?: number
   last_active_chapter?: number
   progress_summary?: string
+  parent_id?: string | null
+  chapter_weight?: number
+}
+
+export type ConfluenceMergeType = 'intersect' | 'absorb' | 'reveal'
+
+export interface ConfluencePointDTO {
+  id: string
+  novel_id: string
+  source_storyline_id: string
+  target_storyline_id: string
+  target_chapter: number
+  merge_type: ConfluenceMergeType
+  context_summary: string
+  pre_reveal_hint: string
+  behavior_guards: string[]
+  resolved: boolean
+}
+
+export interface ConfluencePointCreate {
+  source_storyline_id: string
+  target_storyline_id: string
+  target_chapter: number
+  merge_type: ConfluenceMergeType
+  context_summary?: string
+  pre_reveal_hint?: string
+  behavior_guards?: string[]
+}
+
+export interface ConfluencePointUpdate {
+  target_chapter?: number
+  merge_type?: ConfluenceMergeType
+  context_summary?: string
+  pre_reveal_hint?: string
+  behavior_guards?: string[]
+  resolved?: boolean
 }
 
 export interface MainPlotOptionDTO {
@@ -430,4 +467,19 @@ export async function retrieveContext(
       scene_director_result: sceneDirectorResult,
     }
   ) as unknown as Promise<ContextPreviewResult>
+}
+
+export const confluenceApi = {
+  list(slug: string): Promise<ConfluencePointDTO[]> {
+    return apiClient.get<ConfluencePointDTO[]>(`/novels/${slug}/confluence-points`) as unknown as Promise<ConfluencePointDTO[]>
+  },
+  create(slug: string, body: ConfluencePointCreate): Promise<ConfluencePointDTO> {
+    return apiClient.post<ConfluencePointDTO>(`/novels/${slug}/confluence-points`, body) as unknown as Promise<ConfluencePointDTO>
+  },
+  update(slug: string, id: string, body: ConfluencePointUpdate): Promise<ConfluencePointDTO> {
+    return apiClient.patch<ConfluencePointDTO>(`/novels/${slug}/confluence-points/${id}`, body) as unknown as Promise<ConfluencePointDTO>
+  },
+  delete(slug: string, id: string): Promise<void> {
+    return apiClient.delete<void>(`/novels/${slug}/confluence-points/${id}`) as unknown as Promise<void>
+  },
 }

@@ -73,6 +73,9 @@ class ContextBuilder:
         causal_edge_repository=None,
         character_state_repository=None,
         narrative_debt_repository=None,
+        # 故事线 + 汇流点（供预算分配器使用）
+        storyline_repository=None,
+        confluence_point_repository=None,
     ):
         self.bible_service = bible_service
         self.storyline_manager = storyline_manager
@@ -87,6 +90,8 @@ class ContextBuilder:
         self.bible_repository = bible_repository
         self.chapter_element_repository = chapter_element_repository
         self.triple_repository = triple_repository
+        self.storyline_repository = storyline_repository
+        self.confluence_point_repository = confluence_point_repository
 
         # ContextAssembler：提供 ANCHOR / SCARS / DEBT_DUE / CAUSAL_CHAINS 槽位
         context_assembler = None
@@ -130,6 +135,8 @@ class ContextBuilder:
             embedding_service=embedding_service,
             context_assembler=context_assembler,
             memory_engine=memory_engine,
+            storyline_repository=storyline_repository,
+            confluence_point_repository=confluence_point_repository,
         )
 
     def estimate_tokens(self, text: str) -> int:

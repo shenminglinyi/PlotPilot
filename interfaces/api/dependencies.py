@@ -28,6 +28,7 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from infrastructure.persistence.database.sqlite_cast_repository import SqliteCastRepository
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
+from infrastructure.persistence.database.sqlite_confluence_point_repository import SqliteConfluencePointRepository
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.provider_factory import DynamicLLMService, LLMProviderFactory
 from application.ai.llm_control_service import LLMControlService
@@ -236,6 +237,11 @@ def get_beat_sheet_repository():
     """获取节拍表仓储"""
     from infrastructure.persistence.database.sqlite_beat_sheet_repository import SqliteBeatSheetRepository
     return SqliteBeatSheetRepository(get_database())
+
+
+@lru_cache(maxsize=None)
+def get_confluence_point_repository() -> SqliteConfluencePointRepository:
+    return SqliteConfluencePointRepository(get_database())
 
 
 def get_story_node_repository() -> StoryNodeRepository:
@@ -670,6 +676,8 @@ def get_context_builder() -> ContextBuilder:
         causal_edge_repository=causal_edge_repo,
         character_state_repository=character_state_repo,
         narrative_debt_repository=debt_repo,
+        storyline_repository=get_storyline_manager().repository,
+        confluence_point_repository=get_confluence_point_repository(),
     )
 
 
