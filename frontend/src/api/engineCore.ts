@@ -258,23 +258,23 @@ export const characterPsycheApi = {
       body,
     ) as unknown as Promise<ValidateBehaviorResponse>,
 
-  /** POST /novels/{novel_id}/character-psyches/{name}/extract — AI 抽取 T0/锚点写 Bible */
+  /** POST /novels/{novel_id}/character-psyches/{name}/extract — 从简介启发式填补空 Bible 锚点（无模型） */
   extractToBible: (novelId: string, name: string) =>
     apiClient.post<ExtractCharacterPsycheResponse>(
       `/novels/${novelId}/character-psyches/${encodeURIComponent(name)}/extract`,
       {},
-      { timeout: 180_000 },
+      { timeout: 60_000 },
     ) as unknown as Promise<ExtractCharacterPsycheResponse>,
 
   /**
-   * POST /novels/{novel_id}/character-psyches/auto-fill — 分阶段批量补全（与 extract 同源）
+   * POST /novels/{novel_id}/character-psyches/auto-fill — 批量启发式填补空锚点（与 extract 同源，无模型）
    * mode=all 每人跑一次；gaps=仅缺项者；character_names 非空则只处理名单内角色
    */
   autofill: (novelId: string, body?: AutoFillCharacterPsycheRequest) =>
     apiClient.post<AutoFillCharacterPsycheResponse>(
       `/novels/${novelId}/character-psyches/auto-fill`,
       body ?? {},
-      { timeout: 600_000 },
+      { timeout: 120_000 },
     ) as unknown as Promise<AutoFillCharacterPsycheResponse>,
 }
 

@@ -94,7 +94,11 @@ async function onSidebarChapterSelect(chapterId: number, title = '') {
   workAreaRef.value?.ensureAssistedMode?.()
 }
 
-const handleChapterUpdated = async () => {
+/** 合并短时间内的多次「整桌刷新」：全托管状态抖动 / 多源 emit 时只拉一次 API，减轻闪烁与日志刷屏 */
+let chapterDeskReloadTimer: ReturnType<typeof setTimeout> | null = null
+const CHAPTER_DESK_RELOAD_DEBOUNCE_MS = 1100
+
+async function runChapterDeskReload() {
   await loadDesk()
   void statsStore.loadBookStats(slug.value, true).catch(() => {})
   window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
@@ -102,8 +106,16 @@ const handleChapterUpdated = async () => {
   workbenchRefresh.bumpAfterChapterDeskChange()
 }
 
+const handleChapterUpdated = () => {
+  if (chapterDeskReloadTimer) clearTimeout(chapterDeskReloadTimer)
+  chapterDeskReloadTimer = setTimeout(() => {
+    chapterDeskReloadTimer = null
+    void runChapterDeskReload()
+  }, CHAPTER_DESK_RELOAD_DEBOUNCE_MS)
+}
+
 function onDeskChangeSignalFromPanels() {
-  void handleChapterUpdated()
+  handleChapterUpdated()
 }
 
 function onOpenSettingsPanelFromChild(e: Event) {
@@ -183,6 +195,10 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
   window.removeEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
+  if (chapterDeskReloadTimer) {
+    clearTimeout(chapterDeskReloadTimer)
+    chapterDeskReloadTimer = null
+  }
 })
 
 watch(

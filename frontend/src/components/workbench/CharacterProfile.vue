@@ -4,16 +4,6 @@
       <div class="profile-header-row">
         <n-text strong class="profile-header-title">{{ dossierTitle }}</n-text>
         <n-space v-if="selectedCharacterId" size="small" wrap align="center">
-          <n-button
-            size="tiny"
-            type="primary"
-            secondary
-            :loading="aiFilling"
-            :disabled="!characterName"
-            @click="runAiAutofillCurrent"
-          >
-            AI 补全案卷
-          </n-button>
           <n-tag v-if="psycheDetail?.role" size="small" round :bordered="false" type="info">
             {{ psycheDetail.role }}
           </n-tag>
@@ -192,7 +182,6 @@ const props = withDefaults(defineProps<Props>(), {
 const message = useMessage()
 
 const loading = ref(false)
-const aiFilling = ref(false)
 const characterName = ref('')
 const bibleChar = ref<CharacterDTO | null>(null)
 const psycheDetail = ref<CharacterPsycheDetailDTO | null>(null)
@@ -312,35 +301,6 @@ const injectPreviewBody = computed(() => {
 
   return parts.join('\n')
 })
-
-async function runAiAutofillCurrent() {
-  const name = characterName.value.trim()
-  if (!name || !props.slug) return
-  aiFilling.value = true
-  try {
-    const res = await characterPsycheApi.autofill(props.slug, {
-      mode: 'all',
-      character_names: [name],
-    })
-    const mine = res.characters.find((c) => c.name === name)
-    if (mine?.ok) {
-      message.success(
-        mine.applied_keys?.length
-          ? `已写入：${mine.applied_keys.join('、')}`
-          : '模型未返回新字段，简介可写长些后重试',
-      )
-    } else {
-      message.error(mine?.error || '补全失败')
-    }
-    await loadCharacterData()
-    window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
-  } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } } }
-    message.error(err?.response?.data?.detail || 'AI 补全失败')
-  } finally {
-    aiFilling.value = false
-  }
-}
 
 async function loadCharacterData() {
   if (!props.selectedCharacterId) {
