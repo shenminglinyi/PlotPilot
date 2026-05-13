@@ -2,7 +2,9 @@
 import logging
 import re
 import json
-from typing import Optional, List, Dict, Set, Any, TYPE_CHECKING
+import threading
+import time
+from typing import Optional, List, Dict, Set, Any, Tuple, TYPE_CHECKING
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -82,6 +84,10 @@ class CastService:
         """
         self.storage_root = storage_root
         self._knowledge_repository = knowledge_repository
+        # 同一小说在短时间内大量 API（如逐个拉 character-psyches）会重复全量构图；TTL 缓存降低 SQLite 与 CPU 压力。
+        self._graph_cache_lock = threading.Lock()
+        self._graph_cache_ttl_sec = 8.0
+        self._graph_cache_ttl: Dict[str, Tuple[float, CastGraphDTO]] = {}
 
     def _load_facts_list(self, novel_id: str) -> List[dict]:
         """仅从 SQLite 知识库读取 facts（不回退 novel_knowledge.json）。"""
@@ -233,7 +239,7 @@ class CastService:
             )
             characters.append(character)
 
-        logger.info(f"→ 从三元组中提取了 {len(characters)} 个人物")
+        logger.debug("→ 从三元组中提取了 %s 个人物", len(characters))
         return characters
 
     def _extract_relationships_from_facts(
@@ -287,17 +293,29 @@ class CastService:
             )
             relationships.append(relationship)
 
-        logger.info(f"→ 从三元组中提取了 {len(relationships)} 条关系")
+        logger.debug("→ 从三元组中提取了 %s 条关系", len(relationships))
         return relationships
 
     def get_cast_graph(self, novel_id: str) -> CastGraphDTO:
         """从三元组自动生成关系图（仅 SQLite 知识库）。"""
-        logger.info(f"→ 从三元组生成关系图: novel_id={novel_id}")
+        now = time.monotonic()
+        with self._graph_cache_lock:
+            ent = self._graph_cache_ttl.get(novel_id)
+            if ent is not None:
+                ts, dto = ent
+                if now - ts < self._graph_cache_ttl_sec:
+                    logger.debug("Cast graph cache hit novel_id=%s", novel_id)
+                    return dto
+
+        logger.debug("从三元组生成关系图: novel_id=%s", novel_id)
 
         facts = self._load_facts_list(novel_id)
         if not facts:
             logger.debug(f"No facts for novel {novel_id}")
-            return CastGraphDTO(version=2, characters=[], relationships=[])
+            dto = CastGraphDTO(version=2, characters=[], relationships=[])
+            with self._graph_cache_lock:
+                self._graph_cache_ttl[novel_id] = (time.monotonic(), dto)
+            return dto
 
         characters = self._extract_characters_from_facts(facts)
         relationships = self._extract_relationships_from_facts(facts, characters)
@@ -310,8 +328,15 @@ class CastService:
             relationships=relationships
         )
 
-        logger.info(f"✓ 关系图生成完成: {len(characters)} 人物, {len(relationships)} 关系")
-        return CastGraphDTO.from_domain(cast_graph)
+        dto = CastGraphDTO.from_domain(cast_graph)
+        logger.debug(
+            "关系图生成完成: %s 人物, %s 关系",
+            len(characters),
+            len(relationships),
+        )
+        with self._graph_cache_lock:
+            self._graph_cache_ttl[novel_id] = (time.monotonic(), dto)
+        return dto
 
     def search_cast(self, novel_id: str, query: str) -> CastSearchResultDTO:
         """搜索人物和关系
