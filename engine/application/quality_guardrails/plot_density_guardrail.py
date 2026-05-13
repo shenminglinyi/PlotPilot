@@ -1,23 +1,27 @@
-"""情节密度守门人 — 检测无营养的文字
+"""情节密度守门人 — 检测无营养的文字（专业小说家视角重构版）
 
-三大检测维度：
-1. 形容词功能性检查：每个形容词是否推进了叙事？
-2. 段落目标推进检查：每段是否至少推进了一个叙事目标？
-3. 信息密度阈值：每千字的有效信息量
+核心判断框架（三层递进）：
+1. 形容词冗余堆叠：同一名词前连续3+个纯修饰定语，或副词叠词连用
+2. 全文叙事推进比例：无推进段落占比过高（≥60%且绝对数≥4段）时才聚合报一条
+3. 信息密度：每千字有效信息点低于阈值（信息点定义更宽泛）
 
-示例：
-- 无功能形容词 ❌："寒冷的冰冷的刺骨的寒风吹过"
-- 有效形容词 ✅："寒风裹着碎雪灌进领口"（寒风+碎雪+灌=三个信息点）
+评分机制（类别封顶，防爆炸）：
+- 形容词冗余最多扣30分
+- 段落推进最多扣35分
+- 信息密度最多扣35分
+- 各类独立计算后加总，不线性叠加
 
-- 无效段落 ❌：纯粹描写风景，不推进任何目标
-- 有效段落 ✅：风景描写暗含危险信号（推进紧张感目标）
+专业小说家角度：
+- 环境描写若折射人物心境或暗藏张力，属于有效叙事
+- 内心独白若有认知转变或情感转折，属于有效叙事
+- 形容词堆叠是真正的问题，但要区分"修辞叠用"和"正常定语链"
 """
 from __future__ import annotations
 
 import re
 import logging
-from dataclasses import dataclass, field
-from typing import List, Tuple, Dict, Any
+from dataclasses import dataclass
+from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DensityViolation:
     """密度违规"""
-    violation_type: str    # non_functional_adj / no_goal_progression / low_info_density
+    violation_type: str    # adj_redundancy / low_progression_ratio / low_info_density
     severity: float
     description: str
     suggestion: str
@@ -33,235 +37,290 @@ class DensityViolation:
 
 
 class PlotDensityGuardrail:
-    """情节密度守门人"""
+    """情节密度守门人（重构版）"""
 
-    # 信息密度阈值（有效信息点/千字）
-    MIN_INFO_DENSITY = 5  # 每千字至少5个信息点
+    # 信息密度阈值（有效信息点/千字）——宽泛定义下的合理基准
+    MIN_INFO_DENSITY = 4
 
-    # 形容词堆叠模式
-    ADJ_STACK_PATTERNS = [
-        r'((?:的[\u4e00-\u9fff]{1,3}){3,})',  # 连续3+个"的X"结构
-        r'((?:[\u4e00-\u9fff]{1,3}的){3,})',   # 连续3+个"X的"结构
-        r'((?:[\u4e00-\u9fff]{1,3}){4,}地)',     # 连续4+个副词修饰
-    ]
+    # ── 形容词冗余堆叠模式（严格版，减少误判）──────────────────────
+    # 规则：同一名词前出现3+个2字以上的定语（每个定语本身是纯修饰词）
+    # 例："冷漠的孤傲的不可接近的气质" → 触发
+    # 例："林墨点开地图上标注的位置" → 不触发（是正常定语链）
+    ADJ_STACK_PATTERN = re.compile(
+        r'(?:[\u4e00-\u9fff]{2,5}的){3,}[\u4e00-\u9fff]{1,4}',
+    )
 
-    # 常见无功能修饰词
-    FILLER_PHRASES = [
+    # 副词叠词连用：同一种叠词副词连用（轻轻地缓缓地 / 微微地轻轻地 等）
+    ADV_STACK_PATTERN = re.compile(
+        r'(?:(?:轻轻|缓缓|微微|慢慢|静静|默默|悄悄|深深|淡淡|柔柔|沉沉|徐徐|幽幽)地){2,}'
+    )
+
+    # 常见填充修饰词（每100字出现4次以上才报）
+    FILLER_WORDS = [
         "不由得", "忍不住", "情不自禁", "下意识地",
-        "默默地", "轻轻地", "缓缓地", "微微地",
-        "似乎", "仿佛", "好像", "大概",
-        "非常", "十分", "极其", "格外", "特别",
+        "似乎", "仿佛", "好像",
+        "非常", "十分", "极其", "格外",
     ]
 
-    # 纯描写/无叙事推进的关键信号（纯风景描写的典型用词）
-    PURE_DESCRIPTION_SIGNALS = [
-        # 纯风景描写
-        "群山连绵", "白云悠悠", "蜿蜒穿过", "青翠的草地",
-        "露珠折射", "鸟儿歌唱", "蝴蝶起舞", "花间起舞",
-        "宁静祥和", "心旷神怡", "流连忘返",
-        "阳光洒在", "枝头歌唱",
-        # 纯情感描写（无事件推进）
-        "让人心旷神怡", "世间一切烦恼", "仿佛都消散",
-        "莫名的情绪", "不可阻挡", "无法回去",
-        "十字路口", "不知道该",
-        # 过度写景的句式标记
-        "远处", "一片.*?景象",
-    ]
+    # ── 叙事推进信号（宽泛定义）──────────────────────────────────
+    # 以下任意一类信号出现，段落被视为"有叙事推进"
 
-    # 纯情感独白信号（无事件推进，只有内心感受）
-    PURE_EMOTION_SIGNALS = [
-        "莫名的情绪", "涌起一股", "如同潮水般", "理智.*?淹没",
-        "快乐与悲伤", "再也见不到", "不知道该选",
-        "无法回去", "像是站在",
-    ]
+    # A. 人物主动完成的具体动作（动作词+了；排除纯状态变化词）
+    # 注：用词根白名单代替宽泛的"任意汉字+了"，避免"消散了/飘散了/弥漫了"误判
+    _RE_ACTION = re.compile(
+        r'(?:推|拉|打|踢|抓|握|拔|刺|砍|扔|摔|踩|拿|放|给|递|接|撕|扯|绑|锁'
+        r'|走|跑|冲|跳|站|坐|蹲|跪|躺|爬|飞奔|转身|回头|停下|起身|俯身'
+        r'|说|叫|喊|问|答|骂|斥|呵|嘲|劝|哭|笑|叹|吐|咬|吞'
+        r'|打开|关上|推开|拉开|锁上|扔掉|拿起|放下|捡起|拎起'
+        r'|发现|找到|拿到|得到|失去|丢失|藏起|取出'
+        r')(?:了|掉|完|开|起来|出去|进来|出来|下去|回来|过去)?'
+    )
 
-    # 叙事推进关键词（只要包含这些，就有推进）
-    NARRATIVE_PROGRESSION_WORDS = [
-        # 动作类（真正的动作，不只是描写）
-        "推", "走", "跑", "抓", "握", "拔", "刺", "砍", "打", "踢",
-        "发现", "看到", "意识到", "明白", "知道", "听到",
-        "说", "喊", "叫", "问",
-        # 冲突类
-        "却", "但", "然而", "可是", "偏偏", "居然", "竟然",
-        "冲突", "对抗", "争吵", "对峙",
-        # 事件类
-        "出现", "消失", "变化", "转变", "爆发",
-    ]
+    # B. 对话
+    _RE_DIALOGUE = re.compile(r'["\u201c\u300c]')
+
+    # C. 认知/发现类
+    _RE_DISCOVERY = re.compile(r'(?:发现|意识到|明白了?|知道了?|想起|看出|听出|察觉|注意到|想清楚|看到了|听到了)')
+
+    # D. 冲突/转折
+    _RE_CONFLICT = re.compile(r'(?:却|但|然而|可是|偏偏|居然|竟然|没想到|不料|突然|猛地|忽然)')
+
+    # E. 心理转变（内心状态改变，不是单纯描述情绪）
+    _RE_PSYCHE_CHANGE = re.compile(r'(?:决定|选择|放弃|打算|后悔|不再|开始了|停止了|改变了|下定决心)')
+
+    # F. 明确的空间位移（双字以上词，避免单字歧义）
+    _RE_SPATIAL = re.compile(r'(?:走进|走出|离开|来到|到达|进入|退出|靠近|远离|转身|追上|拦住|冲进|冲出|跑进|跑出)')
+
+    # ── 信息点统计（宽泛版）─────────────────────────────────────
+    _RE_INFO_ACTION = re.compile(
+        r'(?:推|拉|打|踢|抓|握|拔|刺|砍|扔|拿|放|给|递|接|走|跑|冲|跳'
+        r'|说|叫|喊|问|答|打开|关上|推开|发现|找到|拿到|得到|失去'
+        r')(?:了|掉|完|开|起来|出去|进来|出来|下去|回来)?'
+    )
+    _RE_INFO_DIALOGUE = re.compile(r'["\u201c\u300c]')
+    _RE_INFO_REVEAL = re.compile(r'(?:发现|揭示|暴露|坦白|承认|说出|透露|告诉)')
+    _RE_INFO_DECISION = re.compile(r'(?:决定|选择|放弃|答应|拒绝|同意|反对)')
+    _RE_INFO_CONFLICT = re.compile(r'(?:冲突|对抗|争吵|对峙|翻脸|威胁|质问|反驳)')
+    _RE_INFO_SPATIAL = re.compile(r'(?:走进|走出|离开|来到|到达|进入|退出|靠近|远离|追上|拦住|冲进|冲出)')
+
+    # ── 纯描写快速过滤 ─────────────────────────────────────────
+
+    # 感官/自然动词（多=倾向于景物/氛围描写）
+    _RE_SENSORY = re.compile(r'[映照洒飘飞流唱舞散弥漫悬浮绕荡]')
+
+    # 人物叙事动词（出现=有明确人物行为，不含歧义单字）
+    # 注意：不用"出/进/回/转"这类单字，它们太容易作为词的一部分误触发
+    _RE_SUBJECT_ACT = re.compile(
+        r'[\u4e00-\u9fff]{1,4}(?:说话|问道|回答|叫道|喊道'
+        r'|走过来|走过去|跑过来|跑过去|站起来|坐下来'
+        r'|推开|拉开|打开|关上|拿起|放下|捡起'
+        r'|打了|踢了|抓住|握住|扔掉|摔了'
+        r'|发现了|看到了|听到了|意识到|注意到)'
+    )
+
+    # ──────────────────────────────────────────────────────────────
 
     def check(self, text: str, chapter_goal: str = "") -> Tuple[float, List[DensityViolation]]:
         """检查文本的情节密度
 
-        Args:
-            text: 待检查文本
-            chapter_goal: 章节目标（用于检查推进）
-
         Returns:
-            (score, violations)
+            (score 0.0~1.0, violations)
         """
+        adj_v = self._check_adjective_redundancy(text)
+        para_v = self._check_progression_ratio(text)
+        density_v = self._check_info_density(text)
+
+        # 各类独立封顶后加总（防止爆炸）
+        adj_penalty = min(sum(v.severity for v in adj_v), 0.30)
+        para_penalty = min(sum(v.severity for v in para_v), 0.35)
+        density_penalty = min(sum(v.severity for v in density_v), 0.35)
+
+        total_penalty = adj_penalty + para_penalty + density_penalty
+        score = max(0.0, 1.0 - total_penalty)
+
+        return score, adj_v + para_v + density_v
+
+    # ── 检测1：形容词冗余堆叠 ───────────────────────────────────
+
+    def _check_adjective_redundancy(self, text: str) -> List[DensityViolation]:
         violations: List[DensityViolation] = []
 
-        # 1. 形容词功能性检查
-        violations.extend(self._check_adjective_functionality(text))
-
-        # 2. 段落目标推进检查
-        violations.extend(self._check_paragraph_progression(text, chapter_goal))
-
-        # 3. 信息密度阈值
-        violations.extend(self._check_info_density(text))
-
-        if not violations:
-            return 1.0, []
-
-        total_penalty = sum(v.severity for v in violations)
-        score = max(0.0, 1.0 - total_penalty * 0.15)
-
-        return score, violations
-
-    def _check_adjective_functionality(self, text: str) -> List[DensityViolation]:
-        """形容词功能性检查"""
-        violations = []
-
-        # 检测形容词堆叠
-        for pattern in self.ADJ_STACK_PATTERNS:
-            matches = re.finditer(pattern, text)
-            for match in matches:
-                violations.append(DensityViolation(
-                    violation_type="non_functional_adj",
-                    severity=0.5,
-                    description=f"形容词堆叠：'{match.group()}'，大部分不推进叙事",
-                    suggestion="只保留1个最有信息量的修饰，用动作/细节替代其他",
-                    position=f"pos {match.start()}",
-                ))
-
-        # 检测填充词过多
-        filler_count = sum(text.count(phrase) for phrase in self.FILLER_PHRASES)
-        if filler_count > 5:
+        # 1a. 同名词前3+个定语堆叠
+        seen_spans: List[Tuple[int, int]] = []
+        for m in self.ADJ_STACK_PATTERN.finditer(text):
+            # 过滤：若匹配片段内含冲突/转折词，是有效修辞，跳过
+            snippet = m.group()
+            if self._RE_CONFLICT.search(snippet):
+                continue
+            # 过滤重叠匹配
+            if any(s <= m.start() < e for s, e in seen_spans):
+                continue
+            seen_spans.append((m.start(), m.end()))
+            # 只报前80字以内的位置片段，避免description过长
+            display = snippet[:30] + ("…" if len(snippet) > 30 else "")
             violations.append(DensityViolation(
-                violation_type="non_functional_adj",
-                severity=0.4,
-                description=f"填充词过多({filler_count}个)，降低信息密度",
-                suggestion="减少'似乎、仿佛、轻轻地'等填充词，直接描写",
+                violation_type="adj_redundancy",
+                severity=0.18,
+                description=f"定语堆叠：「{display}」— 连续3+个修饰定语叠加在同一名词上",
+                suggestion="保留最有画面感的1个定语，其余转化为动作或细节",
+                position=f"第{self._char_pos_to_line(text, m.start())}行附近",
+            ))
+
+        # 1b. 副词叠词连用（缓缓地轻轻地…）
+        for m in self.ADV_STACK_PATTERN.finditer(text):
+            violations.append(DensityViolation(
+                violation_type="adj_redundancy",
+                severity=0.15,
+                description=f"副词连用：「{m.group()}」— 相近副词叠用，语气稀释",
+                suggestion="只保留一个副词，或直接写动作效果",
+                position=f"第{self._char_pos_to_line(text, m.start())}行附近",
+            ))
+
+        # 1c. 填充词密集（每100字超过3个）
+        char_count = max(len(text.replace(" ", "").replace("\n", "")), 1)
+        filler_total = sum(text.count(w) for w in self.FILLER_WORDS)
+        density_per_100 = filler_total / (char_count / 100)
+        if density_per_100 > 3:
+            violations.append(DensityViolation(
+                violation_type="adj_redundancy",
+                severity=0.12,
+                description=f"填充词密集：共{filler_total}个（每百字{density_per_100:.1f}个）",
+                suggestion="减少「似乎、仿佛、非常、不由得」等模糊填充词，直接用细节说话",
             ))
 
         return violations
 
-    def _check_paragraph_progression(self, text: str, chapter_goal: str) -> List[DensityViolation]:
-        """段落目标推进检查"""
-        violations = []
+    # ── 检测2：全文叙事推进比例（聚合报告，不逐段报警）────────────
 
-        # 按换行分段，如果只有一段则整段分析
+    def _check_progression_ratio(self, text: str) -> List[DensityViolation]:
+        violations: List[DensityViolation] = []
+
+        # 按双换行分段；退化成整段时不做检查（无分段）
         paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-        if not paragraphs:
-            paragraphs = [text.strip()]
+        if len(paragraphs) < 3:
+            return violations  # 段落太少，不判断
 
-        for i, para in enumerate(paragraphs):
-            if len(para) < 10:  # 过短的段落跳过
+        no_prog: List[int] = []  # 无推进段落的序号（1-based）
+        for i, para in enumerate(paragraphs, 1):
+            if len(para) < 12:  # 极短段落（章节号/分隔行等）跳过
                 continue
+            if not self._has_progression(para) and self._is_pure_description(para):
+                no_prog.append(i)
 
-            # 方法1：基于正则的叙事推进检测
-            has_action = bool(re.search(r'[\u4e00-\u9fff]{2,6}(了|着|过|起来|下去|出来)', para))
-            has_dialogue = any(q in para for q in ['\u201c', '\u201d', '"', '\u300c'])
-            has_discovery = bool(re.search(r'(发现|意识到|明白|知道|看到|听到)', para))
-            has_conflict = bool(re.search(r'(却|但|然而|可是|偏偏|居然|竟然)', para))
-            # has_transition 不算叙事推进，只是连接词
-
-            has_progression = has_action or has_dialogue or has_discovery or has_conflict
-
-            # 方法2：纯描写信号检测（检测纯风景/纯氛围描写）
-            is_pure_description = self._detect_pure_description(para)
-
-            # 如果段落较长且没有叙事推进，或者被判定为纯描写
-            if (not has_progression and len(para) > 50) or (is_pure_description and len(para) > 50):
-                violations.append(DensityViolation(
-                    violation_type="no_goal_progression",
-                    severity=0.6,
-                    description=f"段落{i+1}({len(para)}字)没有推进叙事目标" +
-                                ("，属于纯描写段落" if is_pure_description else ""),
-                    suggestion="为纯描写段落添加叙事功能：暗含危险、折射心理、埋设伏笔",
-                ))
-
-        return violations
-
-    def _detect_pure_description(self, para: str) -> bool:
-        """检测是否为纯描写段落（无叙事功能）
-
-        通过分析段落中的动词类型和描写类型来判断
-        """
-        # 统计纯描写信号的数量
-        signal_count = 0
-        for signal in self.PURE_DESCRIPTION_SIGNALS:
-            if re.search(signal, para):
-                signal_count += 1
-
-        # 如果有3个以上的纯描写信号，很可能是纯描写
-        if signal_count >= 3:
-            return True
-
-        # 检查动词密度：纯描写段落的动词多为感官动词和存在动词
-        sensory_verbs = re.findall(r'(看|听|闻|感|觉|映|照|洒|飘|飞|流|唱|舞)', para)
-        action_verbs = re.findall(r'(推|抓|握|拔|刺|砍|打|跑|冲|跳|喊|说|问|发现|冲出)', para)
-
-        # 感官动词远多于动作动词 = 纯描写
-        if len(sensory_verbs) > len(action_verbs) * 3 and len(sensory_verbs) >= 3:
-            return True
-
-        # 检查是否缺乏真正的叙事主体（角色）
-        # 纯描写段落通常不包含具体角色的动作
-        has_character_action = bool(re.search(r'[\u4e00-\u9fff]{2,4}(推|走|跑|抓|握|拔|刺|砍|打|说|喊|发现|转身|走出)', para))
-        if not has_character_action and len(para) > 80 and signal_count >= 1:
-            return True
-
-        return False
-
-    def _check_info_density(self, text: str) -> List[DensityViolation]:
-        """信息密度阈值检查"""
-        violations = []
-
-        # 估算信息点数量
-        word_count = len(text.replace(" ", "").replace("\n", ""))
-        if word_count < 100:
+        total_valid = sum(1 for p in paragraphs if len(p.strip()) >= 12)
+        if total_valid == 0:
             return violations
 
-        # 信息点标记（粗略估算）
-        info_points = 0
+        ratio = len(no_prog) / total_valid
 
-        # 动作 = 信息点
-        info_points += len(re.findall(r'[\u4e00-\u9fff]{2,6}(了|着|过)', text))
-
-        # 对话 = 信息点
-        info_points += len(re.findall(r'[\u201c\u201d"\u300c]', text)) // 2
-
-        # 发现/揭示 = 信息点
-        info_points += len(re.findall(r'(发现|揭示|暴露|泄露|坦白|承认)', text))
-
-        # 冲突 = 信息点
-        info_points += len(re.findall(r'(冲突|对抗|争吵|对峙|翻脸)', text))
-
-        # 计算信息密度
-        density = info_points / (word_count / 1000) if word_count > 0 else 0
-
-        if density < self.MIN_INFO_DENSITY:
+        # 阈值：纯描写比例≥60% 且绝对数≥4段，才报警（聚合为一条）
+        if ratio >= 0.60 and len(no_prog) >= 4:
+            seg_list = "、".join(f"第{n}段" for n in no_prog[:6])
+            if len(no_prog) > 6:
+                seg_list += f"等共{len(no_prog)}段"
             violations.append(DensityViolation(
-                violation_type="low_info_density",
-                severity=0.7,
-                description=f"信息密度{density:.1f}点/千字，低于阈值{self.MIN_INFO_DENSITY}",
-                suggestion="增加有效动作、对话和信息揭示，减少纯描写和填充",
+                violation_type="low_progression_ratio",
+                severity=0.30,
+                description=f"叙事推进比例偏低：{len(no_prog)}/{total_valid}段（{ratio*100:.0f}%）属于纯描写/纯氛围，缺少角色行为或事件推进",
+                suggestion=f"在以下段落中加入人物动作、认知转变或情节钩子：{seg_list}",
+            ))
+        elif len(no_prog) >= 6:
+            # 绝对数≥6段时也报（哪怕比例未到60%）
+            seg_list = "、".join(f"第{n}段" for n in no_prog[:6])
+            if len(no_prog) > 6:
+                seg_list += f"等共{len(no_prog)}段"
+            violations.append(DensityViolation(
+                violation_type="low_progression_ratio",
+                severity=0.22,
+                description=f"多段落（{len(no_prog)}段）缺乏叙事推进，整体节奏偏慢",
+                suggestion=f"重点检查：{seg_list}",
             ))
 
         return violations
 
+    # ── 检测3：信息密度阈值 ─────────────────────────────────────
+
+    def _check_info_density(self, text: str) -> List[DensityViolation]:
+        violations: List[DensityViolation] = []
+
+        char_count = len(text.replace(" ", "").replace("\n", ""))
+        if char_count < 150:
+            return violations
+
+        info_pts = 0
+        info_pts += len(self._RE_INFO_ACTION.findall(text))
+        info_pts += len(self._RE_INFO_DIALOGUE.findall(text)) // 2
+        info_pts += len(self._RE_INFO_REVEAL.findall(text))
+        info_pts += len(self._RE_INFO_DECISION.findall(text))
+        info_pts += len(self._RE_INFO_CONFLICT.findall(text))
+        info_pts += len(self._RE_INFO_SPATIAL.findall(text))
+
+        density = info_pts / (char_count / 1000)
+        if density < self.MIN_INFO_DENSITY:
+            gap = self.MIN_INFO_DENSITY - density
+            sev = min(0.25, gap * 0.06)
+            violations.append(DensityViolation(
+                violation_type="low_info_density",
+                severity=sev,
+                description=f"信息密度偏低：{density:.1f}点/千字（基准{self.MIN_INFO_DENSITY}）",
+                suggestion="增加有效信息点：角色做出决策、发现新情报、产生空间位移或与他人发生真实冲突",
+            ))
+
+        return violations
+
+    # ── 辅助：叙事推进判断（宽泛定义）──────────────────────────
+
+    def _has_progression(self, para: str) -> bool:
+        """判断段落是否含有叙事推进信号（满足任一即为有推进）"""
+        return bool(
+            self._RE_ACTION.search(para)
+            or self._RE_DIALOGUE.search(para)
+            or self._RE_DISCOVERY.search(para)
+            or self._RE_CONFLICT.search(para)
+            or self._RE_PSYCHE_CHANGE.search(para)
+            or self._RE_SPATIAL.search(para)
+        )
+
+    def _is_pure_description(self, para: str) -> bool:
+        """判断是否为纯描写（无叙事功能）。
+
+        策略：只要满足以下任一条件即认为是纯描写：
+        - 自然/感官动词≥2 且 无明确叙事主体动词
+        - 文段完全没有人称代词/角色叙事迹象（全是景物）
+        """
+        # 明确叙事主体动词（严格版，无单字歧义）
+        if self._RE_SUBJECT_ACT.search(para):
+            return False
+        # 感官/自然动词密集
+        sensory_count = len(self._RE_SENSORY.findall(para))
+        if sensory_count >= 2:
+            return True
+        # 全段均为环境/自然词汇（无人称代词/角色行为迹象）
+        has_person_marker = bool(re.search(r'[他她它我你们]|[\u4e00-\u9fff]{2,4}(?:道|说|问|答)', para))
+        if not has_person_marker and len(para) > 20:
+            return True
+        return False
+
+    @staticmethod
+    def _char_pos_to_line(text: str, pos: int) -> int:
+        """将字符位置转换为大约的行号（1-based）"""
+        return text[:pos].count("\n") + 1
+
+    # ── 对外兼容接口 ────────────────────────────────────────────
+
     def compute_density_score(self, text: str) -> float:
-        """计算信息密度评分"""
-        word_count = len(text.replace(" ", "").replace("\n", ""))
-        if word_count < 50:
+        """计算信息密度评分（供外部调用）"""
+        char_count = len(text.replace(" ", "").replace("\n", ""))
+        if char_count < 50:
             return 1.0
 
-        info_points = 0
-        info_points += len(re.findall(r'[\u4e00-\u9fff]{2,6}(了|着|过)', text))
-        info_points += len(re.findall(r'[\u201c\u201d"\u300c]', text)) // 2
-        info_points += len(re.findall(r'(发现|揭示|坦白|承认)', text))
-        info_points += len(re.findall(r'(冲突|对抗|对峙|翻脸)', text))
+        info_pts = 0
+        info_pts += len(self._RE_INFO_ACTION.findall(text))
+        info_pts += len(self._RE_INFO_DIALOGUE.findall(text)) // 2
+        info_pts += len(self._RE_INFO_REVEAL.findall(text))
+        info_pts += len(self._RE_INFO_DECISION.findall(text))
+        info_pts += len(self._RE_INFO_CONFLICT.findall(text))
+        info_pts += len(self._RE_INFO_SPATIAL.findall(text))
 
-        density = info_points / (word_count / 1000) if word_count > 0 else 0
-        # 归一化到0-1
+        density = info_pts / (char_count / 1000)
         return min(1.0, density / (self.MIN_INFO_DENSITY * 2))
