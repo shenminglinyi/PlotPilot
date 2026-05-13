@@ -1090,6 +1090,22 @@ class ContinuousPlanningService:
 
     # ==================== 幕级规划 ====================
 
+    async def resolve_act_planning_chapter_count(
+        self, act_id: str, custom_chapter_count: Optional[int] = None
+    ) -> int:
+        """与 plan_act_chapters 相同的章数解析逻辑，供 SSE 骨架行数等使用。"""
+        act_node = await self.story_node_repo.get_by_id(act_id)
+        if not act_node:
+            raise ValueError(f"幕节点不存在: {act_id}")
+        _default_cpa = calculate_structure_params(100)["chapters_per_act"]
+        chapter_count = custom_chapter_count or act_node.suggested_chapter_count or _default_cpa
+        if not custom_chapter_count and not act_node.suggested_chapter_count:
+            logger.info(
+                f"[ActPlanning] act={act_id} 无自定义章数且无 suggested_chapter_count，"
+                f"使用引擎推荐值 {_default_cpa}"
+            )
+        return chapter_count
+
     async def plan_act_chapters(
         self, act_id: str, custom_chapter_count: Optional[int] = None
     ) -> Dict:
@@ -1102,14 +1118,9 @@ class ContinuousPlanningService:
 
         bible_context = self._get_bible_context(act_node.novel_id)
         previous_summary = await self._get_previous_acts_summary(act_node)
-        # 使用结构计算引擎的推荐值作为 fallback（替代硬编码的 5）
-        _default_cpa = calculate_structure_params(100)["chapters_per_act"]
-        chapter_count = custom_chapter_count or act_node.suggested_chapter_count or _default_cpa
-        if not custom_chapter_count and not act_node.suggested_chapter_count:
-            logger.info(
-                f"[ActPlanning] act={act_id} 无自定义章数且无 suggested_chapter_count，"
-                f"使用引擎推荐值 {_default_cpa}"
-            )
+        chapter_count = await self.resolve_act_planning_chapter_count(
+            act_id, custom_chapter_count
+        )
 
         prompt = self._build_act_planning_prompt(
             act_node, bible_context, previous_summary, chapter_count

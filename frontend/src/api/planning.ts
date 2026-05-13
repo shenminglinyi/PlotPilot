@@ -225,6 +225,113 @@ export function streamMacroPlan(
   return ctrl
 }
 
+// ==================== SSE 幕级章节规划 ====================
+
+export interface ActStreamStatusEvent {
+  phase: 'start' | 'generating' | 'streaming' | string
+  message: string
+  percent?: number
+  expected_chapters?: number
+}
+
+export interface ActStreamChapterEvent {
+  index: number
+  title?: string
+  outline?: string
+  description?: string
+  bible_elements?: string[]
+  [key: string]: unknown
+}
+
+export interface ActStreamDoneEvent {
+  success: boolean
+  act_id: string
+  chapters: Record<string, unknown>[]
+}
+
+/**
+ * 幕级章节规划 SSE：生成阶段心跳 + 逐章骨架呈现。
+ */
+export function streamActChapterPlan(
+  actId: string,
+  handlers: {
+    onStatus?: (e: ActStreamStatusEvent) => void
+    onChapter?: (e: ActStreamChapterEvent) => void
+    onDone?: (e: ActStreamDoneEvent) => void
+    onError?: (message: string) => void
+  },
+  options?: { chapterCount?: number | null },
+): AbortController {
+  const ctrl = new AbortController()
+  const q =
+    options?.chapterCount != null && options.chapterCount > 0
+      ? `?chapter_count=${options.chapterCount}`
+      : ''
+  const url = resolveHttpUrl(`/api/v1/planning/acts/${actId}/chapters/stream${q}`)
+
+  void (async () => {
+    try {
+      const res = await fetch(url, {
+        signal: ctrl.signal,
+        headers: { Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
+      })
+      if (!res.ok || !res.body) {
+        handlers.onError?.(`HTTP ${res.status}`)
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      const flush = (buf: string): string => {
+        let rest = buf
+        let idx: number
+        while ((idx = rest.indexOf('\n\n')) >= 0) {
+          const block = rest.slice(0, idx)
+          rest = rest.slice(idx + 2)
+          let eventType = 'message'
+          let dataStr = ''
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event: ')) eventType = line.slice(7).trim()
+            else if (line.startsWith('data: ')) dataStr = line.slice(6)
+          }
+          if (!dataStr) continue
+          try {
+            const data = JSON.parse(dataStr) as Record<string, unknown>
+            if (eventType === 'status') {
+              handlers.onStatus?.(data as unknown as ActStreamStatusEvent)
+            } else if (eventType === 'chapter') {
+              handlers.onChapter?.(data as unknown as ActStreamChapterEvent)
+            } else if (eventType === 'done') {
+              handlers.onDone?.(data as unknown as ActStreamDoneEvent)
+            } else if (eventType === 'error') {
+              handlers.onError?.(String(data.message ?? '未知错误'))
+            }
+          } catch {
+            /* 残缺块 */
+          }
+        }
+        return rest
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          flush(buffer + decoder.decode())
+          break
+        }
+        buffer += decoder.decode(value, { stream: true })
+        buffer = flush(buffer)
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return
+      handlers.onError?.(e instanceof Error ? e.message : '连接失败')
+    }
+  })()
+
+  return ctrl
+}
+
 // ==================== API ====================
 
 export const planningApi = {

@@ -321,6 +321,120 @@ async def confirm_macro_plan(
 
 # ==================== 幕级规划 API ====================
 
+@router.get("/acts/{act_id}/chapters/stream")
+async def stream_act_chapters_sse(
+    act_id: str,
+    chapter_count: Optional[int] = Query(
+        None, ge=2, le=20, description="本幕规划章节数；不传则与 POST 生成接口一致，由幕节点或引擎推荐"
+    ),
+    service: ContinuousPlanningService = Depends(get_service),
+):
+    """幕级章节规划 SSE：在 LLM 生成期间推送 status + 骨架占位，生成结束后逐章推送再 done。
+
+    事件格式（text/event-stream）：
+      event: status   data: {phase, message, percent?, expected_chapters?}
+      event: chapter  data: {index, title, outline?, ...}  # LLM 返回的单章对象
+      event: done     data: {success, act_id, chapters}
+      event: error    data: {message}
+    """
+
+    def _sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+    async def _generate():
+        try:
+            expected = await service.resolve_act_planning_chapter_count(
+                act_id, chapter_count
+            )
+        except ValueError as e:
+            yield _sse("error", {"message": str(e)})
+            return
+
+        yield _sse(
+            "status",
+            {
+                "phase": "start",
+                "message": "正在初始化本幕章节规划…",
+                "percent": 0,
+                "expected_chapters": expected,
+            },
+        )
+
+        task: asyncio.Task = asyncio.create_task(
+            service.plan_act_chapters(
+                act_id=act_id, custom_chapter_count=chapter_count
+            )
+        )
+
+        tick = 0
+        while not task.done():
+            await asyncio.sleep(0.4)
+            tick += 1
+            yield _sse(
+                "status",
+                {
+                    "phase": "generating",
+                    "message": "正在生成本幕章节大纲（调用 AI）…",
+                    "expected_chapters": expected,
+                    "percent": min(8 + (tick % 10) * 3, 88),
+                },
+            )
+
+        if task.cancelled():
+            yield _sse("error", {"message": "规划已取消"})
+            return
+
+        exc = task.exception()
+        if exc:
+            yield _sse("error", {"message": f"生成失败：{exc}"})
+            return
+
+        result = task.result()
+        if not result.get("success"):
+            msg = (
+                result.get("error")
+                or result.get("parse_error")
+                or "幕级规划失败"
+            )
+            yield _sse("error", {"message": str(msg)})
+            return
+
+        chapters = result.get("chapters") or []
+        if not isinstance(chapters, list):
+            chapters = []
+
+        yield _sse(
+            "status",
+            {
+                "phase": "streaming",
+                "message": "正在呈现章节骨架…",
+                "percent": 94,
+                "expected_chapters": len(chapters) or expected,
+            },
+        )
+
+        for i, ch in enumerate(chapters):
+            row = ch if isinstance(ch, dict) else {}
+            payload = {"index": i, **row}
+            yield _sse("chapter", payload)
+            await asyncio.sleep(0.045)
+
+        yield _sse(
+            "done",
+            {
+                "success": True,
+                "act_id": result.get("act_id", act_id),
+                "chapters": chapters,
+            },
+        )
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/acts/{act_id}/chapters/generate")
 async def generate_act_chapters(
     act_id: str,
