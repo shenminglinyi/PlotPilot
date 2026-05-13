@@ -48,28 +48,17 @@
               :maxlength="PREMISE_MAX_LEN"
             />
 
-            <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" class="preset-row">
-              <n-gi>
-                <n-form-item label="赛道 / 类型">
-                  <n-select
-                    v-model:value="newBook.genre"
-                    :options="genreOptions"
-                    placeholder="选择赛道（系统会按预设推进）"
-                    :disabled="creating"
-                  />
-                </n-form-item>
-              </n-gi>
-              <n-gi>
-                <n-form-item label="世界观基调">
-                  <n-select
-                    v-model:value="newBook.worldPreset"
-                    :options="worldPresetOptions"
-                    placeholder="选择基调（不可自填 Prompt）"
-                    :disabled="creating"
-                  />
-                </n-form-item>
-              </n-gi>
-            </n-grid>
+            <div class="taxonomy-block">
+              <div class="taxonomy-block-head">
+                <span class="taxonomy-block-title">市场分区</span>
+                <span class="taxonomy-block-sub">大类 → 细分主题 → 自动写入「类型 / 世界观」；均可再改。</span>
+              </div>
+              <MarketTaxonomyPicker
+                v-model:genre="newBook.genre"
+                v-model:worldPreset="newBook.worldPreset"
+                :disabled="creating"
+              />
+            </div>
 
             <div v-show="!showAdvanced" class="length-tier-block">
               <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
@@ -120,7 +109,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim() || !newBook.genre || !newBook.worldPreset"
+                :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim()"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -419,6 +408,8 @@ import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
+import MarketTaxonomyPicker from '@/components/taxonomy/MarketTaxonomyPicker.vue'
+import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
 
 // Icons
@@ -512,29 +503,6 @@ const lengthTierOptions = [
   },
 ]
 
-const genreOptions = [
-  { label: '玄幻升级', value: '玄幻升级' },
-  { label: '都市爽文', value: '都市爽文' },
-  { label: '仙侠修真', value: '仙侠修真' },
-  { label: '科幻赛博', value: '科幻赛博' },
-  { label: '悬疑推理', value: '悬疑推理' },
-  { label: '历史架空', value: '历史架空' },
-  { label: '游戏异界', value: '游戏异界' },
-  { label: '言情甜宠', value: '言情甜宠' },
-  { label: '其他', value: '其他' },
-]
-
-const worldPresetOptions = [
-  { label: '修仙风（宗门、境界、机缘）', value: '修仙风' },
-  { label: '赛博朋克（巨企、义体、霓虹）', value: '赛博朋克风' },
-  { label: '悬疑风（谜题、反转、线索）', value: '悬疑风' },
-  { label: '高武江湖（门派、恩怨）', value: '高武江湖' },
-  { label: '末日废土（生存、资源）', value: '末日废土' },
-  { label: '西幻史诗（王国、种族）', value: '西幻史诗' },
-  { label: '现代都市（职场、日常）', value: '现代都市' },
-  { label: '克系诡异（未知、调查）', value: '克系诡异' },
-]
-
 const filteredBooks = computed(() => {
   if (!searchQuery.value.trim()) {
     return books.value
@@ -585,15 +553,19 @@ const fetchBooks = async () => {
   loading.value = true
   try {
     const novels = await novelApi.listNovels()
-    books.value = novels.map((novel: NovelDTO) => ({
-      slug: novel.id,
-      title: novel.title,
-      stage: novel.stage,
-      stage_label: getStageLabel(novel.stage),
-      genre: '',
-      chapter_count: novel.chapters?.length || 0,
-      word_count: novel.total_word_count,
-    }))
+    books.value = novels.map((novel: NovelDTO) => {
+      const fromPrefix = parseGenreWorldFromPremise(novel.premise || '').genre
+      const g = novel.locked_genre?.trim() || fromPrefix || ''
+      return {
+        slug: novel.id,
+        title: novel.title,
+        stage: novel.stage,
+        stage_label: getStageLabel(novel.stage),
+        genre: g,
+        chapter_count: novel.chapters?.length || 0,
+        word_count: novel.total_word_count,
+      }
+    })
   } catch {
     message.error('加载失败')
   } finally {
@@ -623,12 +595,12 @@ const handleCreate = async () => {
     message.warning('请输入核心梗概')
     return
   }
-  if (!newBook.value.genre) {
-    message.warning('请选择赛道 / 类型')
+  if (!newBook.value.genre.trim()) {
+    message.warning('请在「市场分区」中选定大类与主题')
     return
   }
-  if (!newBook.value.worldPreset) {
-    message.warning('请选择世界观基调')
+  if (!newBook.value.worldPreset.trim()) {
+    message.warning('请填写或确认世界观基调')
     return
   }
 
@@ -889,8 +861,29 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-.preset-row {
+.taxonomy-block {
   margin-top: 4px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.02);
+  border: 1px solid var(--app-border);
+}
+.taxonomy-block-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.taxonomy-block-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+  letter-spacing: 0.04em;
+}
+.taxonomy-block-sub {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.45;
 }
 
 .length-tier-block {
