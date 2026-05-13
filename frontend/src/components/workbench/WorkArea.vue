@@ -719,30 +719,39 @@ const isAssistedReadOnly = computed(
 /** 与左侧章节「已收稿」、结构树同步：全托管推进时刷新 desk（首次快照只记录不 emit，避免与进入页重复请求） */
 const lastAutopilotDeskSnap = ref<string | null>(null)
 
+/** 仅纳入「会改变侧栏章节列表 / 结构树骨架」的字段；排除 total_words、beat 索引等写作过程高频抖动，避免每秒整桌 loadDesk。 */
 function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefined): string {
   if (!status) return ''
   const s = status
+  const audit = s.last_chapter_audit as Record<string, unknown> | undefined
+  const auditCh =
+    audit != null
+      ? (audit.chapter_number ?? audit.chapterNumber ?? '')
+      : ''
+  const auditSync = audit != null && audit.narrative_sync_ok === true ? '1' : '0'
   return [
     s.completed_chapters ?? 0,
     s.manuscript_chapters ?? 0,
-    s.total_words ?? 0,
     s.current_stage ?? '',
     s.current_act ?? 0,
     s.current_chapter_in_act ?? 0,
     s.current_chapter_number ?? '',
-    s.current_beat_index ?? 0,
     s.needs_review === true ? '1' : '0',
+    s.autopilot_status ?? '',
+    auditCh,
+    auditSync,
   ].join('|')
 }
 
-/** 🔥 去抖 desk 刷新：300ms 内多次调用只执行一次 emit，避免 SSE 事件 + 轮询同时触发时重复 loadDesk */
+/** 尾部去抖：SSE + 轮询短时间连发时合并为一次整桌刷新；避免「跳过」导致永不 emit 的旧逻辑 */
 let deskRefreshDebounce: ReturnType<typeof setTimeout> | null = null
+const DESK_REFRESH_EMIT_DEBOUNCE_MS = 1200
 function emitDeskRefreshDebounced() {
-  if (deskRefreshDebounce) return  // 已有待执行的，跳过
+  if (deskRefreshDebounce) clearTimeout(deskRefreshDebounce)
   deskRefreshDebounce = setTimeout(() => {
     deskRefreshDebounce = null
     emit('chapterUpdated')
-  }, 300)
+  }, DESK_REFRESH_EMIT_DEBOUNCE_MS)
 }
 
 function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined) {
@@ -892,6 +901,10 @@ onMounted(() => {
 onUnmounted(() => {
   clearAssistedAutopilotPoll()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (deskRefreshDebounce) {
+    clearTimeout(deskRefreshDebounce)
+    deskRefreshDebounce = null
+  }
 })
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
@@ -1043,23 +1056,58 @@ const signalStrip = computed(() => {
   }
 })
 
-async function loadGuardrailSnapshot() {
-  guardrailSnapshot.value = null
+/** 护栏尚无快照（404→null）时 deskTick 会高频触发：退避期内不再打 GET，减轻日志与 UI 闪烁 */
+const guardrailNullBackoffUntil = ref(0)
+const guardrailBackoffKey = ref('')
+
+async function loadGuardrailSnapshot(options?: { force?: boolean; clear?: boolean }) {
   const ch = currentChapter.value
-  if (!props.slug || !ch) return
-  try {
-    guardrailSnapshot.value = await chapterApi.getGuardrailSnapshot(props.slug, ch.number)
-  } catch {
+  if (!props.slug || !ch) {
     guardrailSnapshot.value = null
+    return
+  }
+  const key = `${props.slug}:${ch.number}`
+  if (options?.clear) {
+    guardrailSnapshot.value = null
+    guardrailNullBackoffUntil.value = 0
+    guardrailBackoffKey.value = ''
+  }
+  if (
+    !options?.force &&
+    guardrailBackoffKey.value === key &&
+    Date.now() < guardrailNullBackoffUntil.value
+  ) {
+    return
+  }
+  try {
+    const snap = await chapterApi.getGuardrailSnapshot(props.slug, ch.number)
+    guardrailSnapshot.value = snap
+    if (snap == null) {
+      guardrailBackoffKey.value = key
+      guardrailNullBackoffUntil.value = Date.now() + 90_000
+    } else {
+      guardrailNullBackoffUntil.value = 0
+      guardrailBackoffKey.value = ''
+    }
+  } catch {
+    guardrailBackoffKey.value = key
+    guardrailNullBackoffUntil.value = Date.now() + 60_000
   }
 }
 
 watch(
-  () => [props.slug, props.currentChapterId, deskTick.value] as const,
+  () => [props.slug, props.currentChapterId] as const,
   () => {
-    void loadGuardrailSnapshot()
+    void loadGuardrailSnapshot({ force: true, clear: true })
   },
   { immediate: true }
+)
+
+watch(
+  () => deskTick.value,
+  () => {
+    void loadGuardrailSnapshot()
+  }
 )
 
 const hasChanges = computed(() => {
@@ -1137,7 +1185,7 @@ const handleSave = async () => {
     originalContent.value = chapterContent.value
     message.success('保存成功')
     emit('chapterUpdated')
-    window.setTimeout(() => void loadGuardrailSnapshot(), 3500)
+    window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)
   } catch (error) {
     message.error('保存失败')
   } finally {
@@ -1309,7 +1357,7 @@ const handleSaveGenerated = async () => {
     message.success(`已保存到第 ${saveTarget.number} 章`)
     emit('chapterUpdated')
     showGenerateModal.value = false
-    window.setTimeout(() => void loadGuardrailSnapshot(), 3500)
+    window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)
   } catch {
     message.error('保存失败')
   } finally {

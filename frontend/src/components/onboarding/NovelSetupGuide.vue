@@ -232,10 +232,10 @@
               :disabled="!editableCharacters.length"
               @click="runBulkCharacterExtract"
             >
-              AI 补全 T0 / 锚点（写 Bible）
+              从简介填充空锚点（无模型）
             </n-button>
             <n-text depth="3" style="font-size: 11px; line-height: 1.5">
-              与工作台「角色锚点」同一套 Bible 字段；逐人调用模型，可在下方改完再点「确认修改并继续」落库。
+              与工作台「角色锚点」同一套 Bible 字段；仅填补仍为空的 T0 / 声线风格等，不覆盖已写内容。可在下方改完再点「确认修改并继续」落库。
             </n-text>
           </n-space>
           <n-list bordered>
@@ -243,8 +243,9 @@
               <div class="editable-character">
                 <n-space vertical size="small" style="width: 100%">
                   <!-- 姓名 + 角色 + 删除 -->
-                  <n-space :size="8" align="center">
+                  <n-space :size="8" align="center" wrap>
                     <n-input v-model:value="char.name" size="small" style="width: 120px" placeholder="姓名" />
+                    <n-button size="small" secondary @click="rollCharacterName(idx)">抽卡起名</n-button>
                     <n-input v-model:value="char.role" size="small" style="width: 100px" placeholder="角色定位" />
                     <n-button quaternary size="small" type="error" @click="editableCharacters.splice(idx, 1)">删除</n-button>
                   </n-space>
@@ -579,6 +580,7 @@ import {
   writeWizardUiCache,
   type WizardUiCachePayload,
 } from '@/utils/wizardStageCache'
+import { drawGachaFullName } from '@/utils/characterNameGacha'
 
 const WB_DIMS = ['core_rules', 'geography', 'society', 'culture', 'daily_life'] as const
 
@@ -931,6 +933,20 @@ function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
 }
 
 const editableCharacters = ref<EditableCharacter[]>([])
+
+/** 引导页第 2 步：从扩展姓氏池随机组合姓名，尽量避免与本页其他角色重名 */
+function rollCharacterName(idx: number) {
+  const row = editableCharacters.value[idx]
+  if (!row) return
+  const taken = new Set<string>()
+  for (let i = 0; i < editableCharacters.value.length; i++) {
+    if (i === idx) continue
+    const n = editableCharacters.value[i]?.name?.trim()
+    if (n) taken.add(n)
+  }
+  row.name = drawGachaFullName(taken)
+  message.success('已抽卡起名，可再点替换直到满意')
+}
 
 // ── 第3步：SSE 流式生成地点 ──
 const generatingLocations = ref(false)
@@ -1858,10 +1874,12 @@ async function runBulkCharacterExtract() {
         `${failed.length} 位失败：` + failed.map((f) => `${f.name}（${(f.error || '').slice(0, 80)}）`).slice(0, 4).join('；'),
       )
     } else {
-      message.success(`已按阶段完成 AI 补全（阶段0–5 见接口 design_phases / stages），共 ${res.characters.length} 位角色`)
+      message.success(
+        `已从简介同步空锚点（启发式，无模型），共 ${res.characters.length} 位角色；请在预览中核对后保存`,
+      )
     }
   } catch (e: unknown) {
-    message.error(formatApiError(e) || 'AI 补全失败')
+    message.error(formatApiError(e) || '同步失败')
   } finally {
     bulkExtractingPsyche.value = false
   }
