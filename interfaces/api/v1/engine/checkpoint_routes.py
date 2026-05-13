@@ -17,6 +17,7 @@
 - GET  /novels/{novel_id}/character-psyches/{name}→ 单角色灵魂详情
 - POST /novels/{novel_id}/character-psyches/{name}/validate → 行为验证
 - POST /novels/{novel_id}/character-psyches/{name}/extract → AI 抽取 T0/锚点写 Bible
+- POST /novels/{novel_id}/character-psyches/auto-fill → 按阶段批量补全（速写/T0/声线锚点同源抽取）
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,14 @@ class CharacterPsycheListResponse(BaseModel):
     characters: List[CharacterPsycheDTO] = Field(default_factory=list)
 
 
+class CharacterPsycheEvolutionEntryDTO(BaseModel):
+    """引擎地质叠层：按章追加的心理变化（append-only）。"""
+
+    trigger_chapter: int
+    trigger_event: str = ""
+    changed_fields: List[str] = Field(default_factory=list)
+
+
 class CharacterPsycheDetailDTO(BaseModel):
     name: str
     role: str = ""
@@ -149,6 +158,7 @@ class CharacterPsycheDetailDTO(BaseModel):
     trauma_count: int = 0
     emotion_ledger: Dict[str, Any] = Field(default_factory=dict)
     mask_summary: str = ""
+    evolution_timeline: List[CharacterPsycheEvolutionEntryDTO] = Field(default_factory=list)
 
 
 class ValidateBehaviorRequest(BaseModel):
@@ -166,6 +176,86 @@ class ExtractCharacterPsycheResponse(BaseModel):
     ok: bool = True
     applied_keys: List[str] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
+
+
+class AutoFillCharacterPsycheRequest(BaseModel):
+    """批量角色锚点补全：与单角色 extract 同源，按阶段顺序执行。"""
+
+    mode: str = Field(
+        "all",
+        description="all=每位角色都跑一遍 LLM；gaps=仅对「核心信念或声线风格或口癖」明显缺项的角色补全",
+    )
+    character_names: Optional[List[str]] = Field(
+        None,
+        description="若为空则处理 Bible 中全部角色；否则仅处理名单内（须存在于 Bible）",
+    )
+
+    @field_validator("mode")
+    @classmethod
+    def _norm_mode(cls, v: str) -> str:
+        m = (v or "all").strip().lower()
+        if m not in ("all", "gaps"):
+            raise ValueError("mode 须为 all 或 gaps")
+        return m
+
+
+class PipelineStageResult(BaseModel):
+    """单阶段执行记录（供前端进度条 / 日志展示）"""
+
+    id: str
+    label: str
+    status: str  # ok | skipped | error | running
+    detail: str = ""
+
+
+class PerCharacterFillResult(BaseModel):
+    name: str
+    ok: bool
+    applied_keys: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    error: str = ""
+
+
+class AutoFillCharacterPsycheResponse(BaseModel):
+    """批量补全总结果 + 分阶段记录"""
+
+    design_phases: List[str] = Field(default_factory=list)
+    stages: List[PipelineStageResult] = Field(default_factory=list)
+    characters: List[PerCharacterFillResult] = Field(default_factory=list)
+    skipped_names: List[str] = Field(default_factory=list)
+
+
+# 产品层「生成阶段」说明（API 原样返回给前端展示，与 stages 执行日志互补）
+_AUTO_FILL_PIPELINE_PHASE_LABELS: tuple[str, ...] = (
+    "阶段0·前置：书目与 Bible 已存在（本接口不创建书目）。",
+    "阶段1·校验：novels / bibles / bible_characters 可读。",
+    "阶段2·定界：按 mode=all|gaps 决定要跑 LLM 的角色子集。",
+    "阶段3·抽取：逐角色调用与「单条 extract」相同的 LLM，合并写回 Bible（速写 / T0 四维 / 写章案卷声线锚点同源）。",
+    "阶段4·呈现：前端刷新 Bible 或重新打开案卷即可；若需引擎侧四维持久化，仍由全托管 / CharacterPsycheEngine 路径负责。",
+)
+
+
+def _evolution_timeline_from_engine_character(psyche_data: Any) -> List[CharacterPsycheEvolutionEntryDTO]:
+    """从引擎 Character 聚合根的 evolution_patches 序列化为 API 时间线。"""
+    patches = getattr(psyche_data, "evolution_patches", None) or []
+    rows: List[CharacterPsycheEvolutionEntryDTO] = []
+    for p in patches:
+        ch = getattr(p, "changes", None) or {}
+        keys = list(ch.keys()) if isinstance(ch, dict) else []
+        tc_raw = getattr(p, "trigger_chapter", 0)
+        try:
+            tc_int = int(tc_raw) if tc_raw is not None else 0
+        except (TypeError, ValueError):
+            tc_int = 0
+        rows.append(
+            CharacterPsycheEvolutionEntryDTO(
+                trigger_chapter=tc_int,
+                trigger_event=str(getattr(p, "trigger_event", "") or ""),
+                changed_fields=keys,
+            )
+        )
+    rows.sort(key=lambda r: (r.trigger_chapter, r.trigger_event))
+    return rows
 
 
 # ─── Helpers ───────────────────────────────────────────────────────
@@ -567,6 +657,141 @@ def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any,
     return merged, applied
 
 
+def _character_needs_gaps_fill(char: Any) -> bool:
+    """gaps 模式：缺核心信念、或缺声线风格、或缺口癖/小动作、或缺禁忌/创伤之一即补。"""
+    cb = (getattr(char, "core_belief", None) or "").strip()
+    vp = getattr(char, "voice_profile", None) or {}
+    style = ""
+    if isinstance(vp, dict):
+        style = str(vp.get("style") or "").strip()
+    vt = (getattr(char, "verbal_tic", None) or "").strip()
+    ib = (getattr(char, "idle_behavior", None) or "").strip()
+    if not cb or not style:
+        return True
+    if not vt and not ib:
+        return True
+    mt = getattr(char, "moral_taboos", None) or []
+    if not (isinstance(mt, list) and any(str(x).strip() for x in mt)):
+        return True
+    aw = getattr(char, "active_wounds", None) or []
+    if not (isinstance(aw, list) and aw):
+        return True
+    return False
+
+
+async def _extract_character_psyche_impl(novel_id: str, character_name: str) -> ExtractCharacterPsycheResponse:
+    """单角色 LLM 抽取并写 Bible（单条 extract 与批量 auto-fill 共用）。"""
+    from interfaces.api.dependencies import get_bible_service, get_llm_service
+    from domain.ai.services.llm_service import GenerationConfig
+    from domain.ai.value_objects.prompt import Prompt
+    from application.ai.llm_json_extract import parse_llm_json_to_dict
+    from application.world.dtos.bible_dto import CharacterDTO
+
+    bible_service = get_bible_service()
+    bible = bible_service.get_bible_by_novel(novel_id)
+    if bible is None:
+        raise HTTPException(status_code=404, detail="Bible not found")
+
+    target: Optional[CharacterDTO] = None
+    for c in bible.characters:
+        if c.name == character_name:
+            target = c
+            break
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Character '{character_name}' not found in Bible")
+
+    char_payload = {
+        "id": target.id,
+        "name": target.name,
+        "description": target.description,
+        "relationships": target.relationships,
+        "public_profile": target.public_profile,
+        "hidden_profile": target.hidden_profile,
+        "reveal_chapter": target.reveal_chapter,
+        "mental_state": target.mental_state,
+        "mental_state_reason": target.mental_state_reason,
+        "verbal_tic": target.verbal_tic,
+        "idle_behavior": target.idle_behavior,
+        "core_belief": target.core_belief,
+        "moral_taboos": target.moral_taboos,
+        "voice_profile": target.voice_profile,
+        "active_wounds": target.active_wounds,
+    }
+    world_snippet = _world_snippet_from_bible_for_extract(bible)
+
+    system = (
+        "你是长篇小说角色设定编辑。根据作品 Bible 中的单条角色记录与可选的世界观提要，"
+        "抽取写章时可用的结构化锚点。只输出一个 JSON 对象，不要 markdown 围栏，不要解释。"
+    )
+    schema_hint = """输出 JSON 须严格包含下列键（字符串用中文，可简短）：
+{
+  "core_belief": "",
+  "moral_taboos": [],
+  "voice_profile": {"style":"","sentence_pattern":"","speech_tempo":""},
+  "active_wounds": [{"trigger":"","effect":""}],
+  "mental_state": "NORMAL",
+  "mental_state_reason": "",
+  "verbal_tic": "",
+  "idle_behavior": "",
+  "public_profile": "",
+  "hidden_profile": "",
+  "reveal_chapter": null
+}
+约束：moral_taboos 最多 5 条；active_wounds 最多 3 条；句子简练；无把握时 mental_state 用 NORMAL。"""
+    user = (
+        f"世界观/文风提要（可为空）：\n{world_snippet or '（无）'}\n\n"
+        f"当前角色 JSON：\n{json.dumps(char_payload, ensure_ascii=False)}\n\n"
+        f"{schema_hint}"
+    )
+
+    llm = get_llm_service()
+    prompt = Prompt(system=system, user=user)
+    config = GenerationConfig(max_tokens=1400, temperature=0.35)
+    try:
+        result = await llm.generate(prompt, config)
+        raw = result.content if hasattr(result, "content") else str(result)
+    except Exception as e:
+        logger.error("character extract LLM 失败: %s", e)
+        raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e}") from e
+
+    data, errs = parse_llm_json_to_dict(raw)
+    if not data:
+        raise HTTPException(
+            status_code=422,
+            detail="无法解析模型 JSON：" + ("; ".join(errs) if errs else "空对象"),
+        )
+
+    merged, applied = _merge_character_from_extract(target, data)
+    if not applied:
+        return ExtractCharacterPsycheResponse(
+            ok=True,
+            applied_keys=[],
+            warnings=["模型未返回新的非空字段，未写库。可补充简介或换模型后重试。"],
+        )
+
+    new_chars: List[CharacterDTO] = []
+    for c in bible.characters:
+        new_chars.append(merged if c.id == target.id else c)
+
+    try:
+        bible_service.update_bible(
+            novel_id,
+            characters=new_chars,
+            world_settings=list(bible.world_settings),
+            locations=list(bible.locations),
+            timeline_notes=list(bible.timeline_notes),
+            style_notes=list(bible.style_notes),
+        )
+    except Exception as e:
+        logger.error("character extract 写 Bible 失败: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+    warnings: List[str] = []
+    if errs:
+        warnings.extend(errs)
+    return ExtractCharacterPsycheResponse(ok=True, applied_keys=applied, warnings=warnings)
+
+
 def _extract_core_belief(description: str, relationships: list) -> str:
     """从 Bible description 和关系列表中推断核心信念
 
@@ -865,6 +1090,7 @@ async def get_character_psyche(novel_id: str, character_name: str):
                         trauma_count=len(psyche_data.evolution_patches),
                         emotion_ledger={},
                         mask_summary=engine_mask_summary or mask_summary,
+                        evolution_timeline=_evolution_timeline_from_engine_character(psyche_data),
                     )
             except Exception as e:
                 logger.debug("PsycheEngine 增强失败，使用 Bible 基础画像: %s", e)
@@ -965,113 +1191,158 @@ async def extract_character_psyche_to_bible(novel_id: str, character_name: str):
     """
     if not _novel_exists(novel_id):
         raise HTTPException(status_code=404, detail="Novel not found")
+    return await _extract_character_psyche_impl(novel_id, character_name)
 
-    from interfaces.api.dependencies import get_bible_service, get_llm_service
-    from domain.ai.services.llm_service import GenerationConfig
-    from domain.ai.value_objects.prompt import Prompt
-    from application.ai.llm_json_extract import parse_llm_json_to_dict
-    from application.world.dtos.bible_dto import CharacterDTO
+
+@router.post(
+    "/{novel_id}/character-psyches/auto-fill",
+    response_model=AutoFillCharacterPsycheResponse,
+)
+async def autofill_character_psyches(
+    novel_id: str,
+    body: AutoFillCharacterPsycheRequest = Body(default_factory=AutoFillCharacterPsycheRequest),
+):
+    """按设计阶段批量补全角色案卷字段（与逐条 extract 同源，一次请求内顺序执行）。
+
+    - mode=all：Bible 中每位角色各调用一次 LLM。
+    - mode=gaps：仅对结构化锚点仍明显缺项的角色调用（见 _character_needs_gaps_fill）。
+    - character_names：非空时只处理名单内角色（须已在 Bible 中）。
+    """
+    stages: List[PipelineStageResult] = []
+    chars_out: List[PerCharacterFillResult] = []
+    skipped: List[str] = []
+
+    if not _novel_exists(novel_id):
+        stages.append(PipelineStageResult(id="p1", label="阶段1·书目校验", status="error", detail="novel 不存在"))
+        return AutoFillCharacterPsycheResponse(
+            design_phases=list(_AUTO_FILL_PIPELINE_PHASE_LABELS),
+            stages=stages,
+            characters=[],
+            skipped_names=[],
+        )
+
+    stages.append(PipelineStageResult(id="p1", label="阶段1·书目校验", status="ok", detail="novel 存在"))
+
+    from interfaces.api.dependencies import get_bible_service
 
     bible_service = get_bible_service()
     bible = bible_service.get_bible_by_novel(novel_id)
     if bible is None:
-        raise HTTPException(status_code=404, detail="Bible not found")
+        stages.append(PipelineStageResult(id="p2", label="阶段2·读取 Bible", status="error", detail="Bible 不存在"))
+        return AutoFillCharacterPsycheResponse(
+            design_phases=list(_AUTO_FILL_PIPELINE_PHASE_LABELS),
+            stages=stages,
+            characters=[],
+            skipped_names=[],
+        )
 
-    target: Optional[CharacterDTO] = None
-    for c in bible.characters:
-        if c.name == character_name:
-            target = c
-            break
-    if target is None:
-        raise HTTPException(status_code=404, detail=f"Character '{character_name}' not found in Bible")
+    all_chars = list(bible.characters)
+    names_filter = {n.strip() for n in (body.character_names or []) if n and str(n).strip()}
+    if names_filter:
+        targets = [c for c in all_chars if c.name in names_filter]
+        missing = sorted(names_filter - {c.name for c in targets})
+        if missing:
+            stages.append(
+                PipelineStageResult(
+                    id="p2",
+                    label="阶段2·读取 Bible",
+                    status="ok",
+                    detail=f"{len(targets)} 人命中名单；未找到：{', '.join(missing)}",
+                )
+            )
+        else:
+            stages.append(
+                PipelineStageResult(
+                    id="p2",
+                    label="阶段2·读取 Bible",
+                    status="ok",
+                    detail=f"名单内 {len(targets)} 人",
+                )
+            )
+    else:
+        targets = all_chars
+        stages.append(
+            PipelineStageResult(
+                id="p2",
+                label="阶段2·读取 Bible",
+                status="ok",
+                detail=f"共 {len(targets)} 位角色",
+            )
+        )
 
-    char_payload = {
-        "id": target.id,
-        "name": target.name,
-        "description": target.description,
-        "relationships": target.relationships,
-        "public_profile": target.public_profile,
-        "hidden_profile": target.hidden_profile,
-        "reveal_chapter": target.reveal_chapter,
-        "mental_state": target.mental_state,
-        "mental_state_reason": target.mental_state_reason,
-        "verbal_tic": target.verbal_tic,
-        "idle_behavior": target.idle_behavior,
-        "core_belief": target.core_belief,
-        "moral_taboos": target.moral_taboos,
-        "voice_profile": target.voice_profile,
-        "active_wounds": target.active_wounds,
-    }
-    world_snippet = _world_snippet_from_bible_for_extract(bible)
+    to_run: List[Any] = []
+    for c in targets:
+        if body.mode == "gaps" and not _character_needs_gaps_fill(c):
+            skipped.append(c.name)
+        else:
+            to_run.append(c)
 
-    system = (
-        "你是长篇小说角色设定编辑。根据作品 Bible 中的单条角色记录与可选的世界观提要，"
-        "抽取写章时可用的结构化锚点。只输出一个 JSON 对象，不要 markdown 围栏，不要解释。"
+    stages.append(
+        PipelineStageResult(
+            id="p3",
+            label="阶段3·定界（mode=" + body.mode + "）",
+            status="ok",
+            detail=f"将抽取 {len(to_run)} 人，跳过 {len(skipped)} 人",
+        )
     )
-    schema_hint = """输出 JSON 须严格包含下列键（字符串用中文，可简短）：
-{
-  "core_belief": "",
-  "moral_taboos": [],
-  "voice_profile": {"style":"","sentence_pattern":"","speech_tempo":""},
-  "active_wounds": [{"trigger":"","effect":""}],
-  "mental_state": "NORMAL",
-  "mental_state_reason": "",
-  "verbal_tic": "",
-  "idle_behavior": "",
-  "public_profile": "",
-  "hidden_profile": "",
-  "reveal_chapter": null
-}
-约束：moral_taboos 最多 5 条；active_wounds 最多 3 条；句子简练；无把握时 mental_state 用 NORMAL。"""
-    user = (
-        f"世界观/文风提要（可为空）：\n{world_snippet or '（无）'}\n\n"
-        f"当前角色 JSON：\n{json.dumps(char_payload, ensure_ascii=False)}\n\n"
-        f"{schema_hint}"
+
+    for c in to_run:
+        nm = c.name
+        sid = f"p4_extract_{nm}"
+        stages.append(PipelineStageResult(id=sid, label=f"阶段4·抽取 — {nm}", status="running", detail="LLM…"))
+        try:
+            res = await _extract_character_psyche_impl(novel_id, nm)
+            stages[-1] = PipelineStageResult(
+                id=sid,
+                label=f"阶段4·抽取 — {nm}",
+                status="ok",
+                detail=",".join(res.applied_keys) if res.applied_keys else "无字段变更",
+            )
+            chars_out.append(
+                PerCharacterFillResult(
+                    name=nm,
+                    ok=True,
+                    applied_keys=list(res.applied_keys),
+                    warnings=list(res.warnings),
+                    error="",
+                )
+            )
+        except HTTPException as he:
+            detail = he.detail
+            if not isinstance(detail, str):
+                detail = str(detail)
+            stages[-1] = PipelineStageResult(
+                id=sid,
+                label=f"阶段4·抽取 — {nm}",
+                status="error",
+                detail=detail[:500],
+            )
+            chars_out.append(
+                PerCharacterFillResult(name=nm, ok=False, applied_keys=[], warnings=[], error=detail[:2000])
+            )
+        except Exception as e:
+            stages[-1] = PipelineStageResult(
+                id=sid,
+                label=f"阶段4·抽取 — {nm}",
+                status="error",
+                detail=str(e)[:500],
+            )
+            chars_out.append(
+                PerCharacterFillResult(name=nm, ok=False, applied_keys=[], warnings=[], error=str(e)[:2000])
+            )
+
+    stages.append(
+        PipelineStageResult(
+            id="p5",
+            label="阶段5·收尾",
+            status="ok",
+            detail="请前端刷新 Bible / 角色案卷",
+        )
     )
 
-    llm = get_llm_service()
-    prompt = Prompt(system=system, user=user)
-    config = GenerationConfig(max_tokens=1400, temperature=0.35)
-    try:
-        result = await llm.generate(prompt, config)
-        raw = result.content if hasattr(result, "content") else str(result)
-    except Exception as e:
-        logger.error("character extract LLM 失败: %s", e)
-        raise HTTPException(status_code=502, detail=f"LLM 调用失败: {e}") from e
-
-    data, errs = parse_llm_json_to_dict(raw)
-    if not data:
-        raise HTTPException(
-            status_code=422,
-            detail="无法解析模型 JSON：" + ("; ".join(errs) if errs else "空对象"),
-        )
-
-    merged, applied = _merge_character_from_extract(target, data)
-    if not applied:
-        return ExtractCharacterPsycheResponse(
-            ok=True,
-            applied_keys=[],
-            warnings=["模型未返回新的非空字段，未写库。可补充简介或换模型后重试。"],
-        )
-
-    new_chars: List[CharacterDTO] = []
-    for c in bible.characters:
-        new_chars.append(merged if c.id == target.id else c)
-
-    try:
-        bible_service.update_bible(
-            novel_id,
-            characters=new_chars,
-            world_settings=list(bible.world_settings),
-            locations=list(bible.locations),
-            timeline_notes=list(bible.timeline_notes),
-            style_notes=list(bible.style_notes),
-        )
-    except Exception as e:
-        logger.error("character extract 写 Bible 失败: %s", e)
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-    warnings: List[str] = []
-    if errs:
-        warnings.extend(errs)
-    return ExtractCharacterPsycheResponse(ok=True, applied_keys=applied, warnings=warnings)
+    return AutoFillCharacterPsycheResponse(
+        design_phases=list(_AUTO_FILL_PIPELINE_PHASE_LABELS),
+        stages=stages,
+        characters=chars_out,
+        skipped_names=skipped,
+    )
