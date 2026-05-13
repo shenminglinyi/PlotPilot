@@ -646,7 +646,8 @@ class AutoNovelGenerationWorkflow:
         chapter_number: int,
         outline: str,
         scene_director: Optional[SceneDirectorAnalysis] = None,
-        enable_beats: bool = True
+        enable_beats: bool = True,
+        regeneration_guidance: Optional[str] = None,
     ) -> AsyncIterator[Dict[str, Any]]:
         """流式生成章节：阶段事件 + 正文 token 流 + 最终 done（含一致性报告）。
 
@@ -655,6 +656,10 @@ class AutoNovelGenerationWorkflow:
         - chunk: { text }
         - done: { content, consistency_report, token_count }
         - error: { message }
+
+        Args:
+            regeneration_guidance: 重写时的改进方向（可选）。非空时 AI 会在 prompt 中看到
+                                   上一版本的问题描述，并被要求针对性改进。
         """
         try:
             if chapter_number < 1:
@@ -735,6 +740,7 @@ class AutoNovelGenerationWorkflow:
                         beat_target_words=beat.target_words,
                         voice_anchors=bundle.get("voice_anchors") or "",
                         chapter_draft_so_far=prior_draft,
+                        regeneration_guidance=regeneration_guidance if i == 0 else None,
                     )
                     
                     beat_content = ""
@@ -765,6 +771,7 @@ class AutoNovelGenerationWorkflow:
                     plot_tension=bundle["plot_tension"],
                     style_summary=bundle["style_summary"],
                     voice_anchors=bundle.get("voice_anchors") or "",
+                    regeneration_guidance=regeneration_guidance,
                 )
                 
                 logger.info(f"  → 发送流式请求到 LLM")
@@ -1080,6 +1087,7 @@ class AutoNovelGenerationWorkflow:
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
         chapter_draft_so_far: str = "",
+        regeneration_guidance: Optional[str] = None,
     ) -> Prompt:
         """构建 LLM 提示词
 
@@ -1294,6 +1302,14 @@ class AutoNovelGenerationWorkflow:
 {(beat_prompt or '').strip()}
 
 {beat_tail}{transition_guide}{battle_hint}"""
+
+        # 重写指导注入：告知 AI 这是重写任务，并提供改进方向
+        if regeneration_guidance and regeneration_guidance.strip():
+            user_message += (
+                f"\n\n【重新生成指导】\n"
+                f"本章为重新生成（已有旧版本）。请根据以下改进方向撰写全新版本，"
+                f"不必沿袭旧版本的情节走向或措辞：\n{regeneration_guidance.strip()}"
+            )
 
         user_message += "\n\n开始撰写："
 
