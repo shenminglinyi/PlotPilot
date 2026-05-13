@@ -286,4 +286,21 @@ class ChapterAftermathPipeline:
                 "[PropSync] 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
 
+        # ── 汇流点到达检查 ──
+        try:
+            from interfaces.api.dependencies import get_confluence_point_repository as _get_cp_repo
+            _confluence_repo = _get_cp_repo()
+            _hit_cps = [
+                cp for cp in _confluence_repo.get_by_novel_id(novel_id)
+                if cp.target_chapter == chapter_number and not cp.resolved
+            ]
+            if _hit_cps:
+                for _cp in _hit_cps:
+                    logger.info(
+                        "[汇流点] 第%d章完成，汇流点 %s (source=%s → target=%s) 建议标记为 resolved",
+                        chapter_number, _cp.id, _cp.source_storyline_id, _cp.target_storyline_id,
+                    )
+        except Exception as _cp_err:
+            logger.warning("汇流点检查失败（非致命）: %s", _cp_err)
+
         return out
