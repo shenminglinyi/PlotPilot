@@ -34,69 +34,140 @@
       </n-spin>
     </div>
 
-    <!-- 故事线列表 -->
+    <!-- 故事线树 -->
     <div class="storylines-section">
       <div class="section-header">
         <span class="section-icon">📖</span>
         <span class="section-title">故事线</span>
-        <n-button size="tiny" quaternary @click="showAddModal = true">+</n-button>
+        <n-button size="tiny" quaternary @click="openAddModal(null)">+</n-button>
       </div>
 
       <n-spin :show="storylinesLoading">
-        <div v-if="storylines.length === 0" class="empty-state">
+        <div v-if="allStorylines.length === 0" class="empty-state">
           <n-text depth="3" style="font-size: 12px">暂无故事线</n-text>
           <n-text depth="3" style="font-size: 11px; display: block; margin-top: 6px; line-height: 1.5">
-            点击「+」手动创建，或在创建向导 / 宏观规划完成后会自动出现。
+            点击「+」手动创建，或在创建向导完成后自动出现。
           </n-text>
         </div>
 
-        <div v-else class="storylines-list">
+        <div v-else class="storylines-tree">
+          <!-- 主线节点 + 其子故事线 -->
+          <template v-for="node in storylineTree" :key="node.sl.id">
+            <div
+              class="storyline-item storyline-item--main"
+              :class="{ 'storyline-item--active': selectedStorylineId === node.sl.id }"
+              @click="selectStoryline(node.sl)"
+            >
+              <div class="storyline-item__row">
+                <n-tag type="success" size="small" round>主线</n-tag>
+                <span class="storyline-name">{{ node.sl.name || `故事线 ${node.sl.id.slice(0,8)}` }}</span>
+                <n-tag :type="getStatusColor(node.sl.status)" size="tiny" round>{{ getStatusLabel(node.sl.status) }}</n-tag>
+              </div>
+              <n-text depth="3" style="font-size: 11px; margin-left: 4px">
+                第 {{ node.sl.estimated_chapter_start }}–{{ node.sl.estimated_chapter_end }} 章
+              </n-text>
+            </div>
+
+            <!-- 子故事线 -->
+            <div
+              v-for="child in node.children"
+              :key="child.id"
+              class="storyline-item storyline-item--child"
+              :class="{ 'storyline-item--active': selectedStorylineId === child.id }"
+              @click="selectStoryline(child)"
+            >
+              <div class="storyline-item__row">
+                <span class="child-indent">└─</span>
+                <n-tag :type="getRoleColor(child.role)" size="small" round>{{ getRoleLabel(child.role) }}</n-tag>
+                <span class="storyline-name">{{ child.name || `故事线 ${child.id.slice(0,8)}` }}</span>
+                <n-tooltip v-if="confluenceMap[child.id]" trigger="hover">
+                  <template #trigger>
+                    <span class="confluence-badge">
+                      {{ confluenceMap[child.id].merge_type === 'reveal' ? '◎' : '▶' }}
+                      第{{ confluenceMap[child.id].target_chapter }}章
+                    </span>
+                  </template>
+                  {{ confluenceMap[child.id].merge_type === 'reveal' ? '揭露点' : '汇流至主线' }}：{{ confluenceMap[child.id].context_summary }}
+                </n-tooltip>
+              </div>
+              <n-text depth="3" style="font-size: 11px; margin-left: 28px">
+                第 {{ child.estimated_chapter_start }}–{{ child.estimated_chapter_end }} 章
+              </n-text>
+            </div>
+
+            <!-- 添加子故事线按钮 -->
+            <div class="add-child-btn" @click="openAddModal(node.sl.id)">
+              <n-text depth="3" style="font-size: 11px; cursor: pointer">└─ + 添加支线/暗线</n-text>
+            </div>
+          </template>
+
+          <!-- 无父级的非主线（孤立故事线） -->
           <div
-            v-for="sl in storylines"
+            v-for="sl in orphanLines"
             :key="sl.id"
             class="storyline-item"
             :class="{ 'storyline-item--active': selectedStorylineId === sl.id }"
             @click="selectStoryline(sl)"
           >
-            <n-tag :type="getTypeColor(sl.storyline_type)" size="small" round>
-              {{ getTypeLabel(sl.storyline_type) }}
-            </n-tag>
-            <div class="storyline-info">
-              <n-text class="storyline-name">
-                {{ sl.name || `故事线 ${sl.id.slice(0, 8)}` }}
-                <n-tooltip v-if="storylineBranchMap[sl.id]" trigger="hover">
-                  <template #trigger>
-                    <span class="storyline-branch-badge">⑂</span>
-                  </template>
-                  已绑定世界线分支
-                </n-tooltip>
-              </n-text>
-              <n-text depth="3" style="font-size: 11px">
-                第 {{ sl.estimated_chapter_start }} - {{ sl.estimated_chapter_end }} 章
-              </n-text>
+            <div class="storyline-item__row">
+              <n-tag :type="getRoleColor(sl.role)" size="small" round>{{ getRoleLabel(sl.role) }}</n-tag>
+              <span class="storyline-name">{{ sl.name || `故事线 ${sl.id.slice(0,8)}` }}</span>
             </div>
-            <n-tag :type="getStatusColor(sl.status)" size="tiny" round>
-              {{ getStatusLabel(sl.status) }}
-            </n-tag>
+            <n-text depth="3" style="font-size: 11px; margin-left: 4px">
+              第 {{ sl.estimated_chapter_start }}–{{ sl.estimated_chapter_end }} 章
+            </n-text>
           </div>
         </div>
       </n-spin>
     </div>
 
+    <!-- 汇流点轴 -->
+    <div v-if="confluenceList.length > 0" class="confluence-axis-section">
+      <div class="section-header">
+        <span class="section-icon">⑂</span>
+        <span class="section-title">汇流轴</span>
+      </div>
+      <div class="confluence-axis">
+        <div
+          v-for="cp in confluenceList"
+          :key="cp.id"
+          class="confluence-marker"
+          :class="{
+            'confluence-marker--resolved': cp.resolved,
+            'confluence-marker--reveal': cp.merge_type === 'reveal',
+          }"
+        >
+          <n-tooltip trigger="hover">
+            <template #trigger>
+              <div class="marker-dot">{{ cp.merge_type === 'reveal' ? '◎' : '▶' }}</div>
+            </template>
+            <div>第{{ cp.target_chapter }}章</div>
+            <div>{{ cp.context_summary }}</div>
+          </n-tooltip>
+          <span class="marker-ch">{{ cp.target_chapter }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新建故事线弹窗 -->
     <n-modal
       v-model:show="showAddModal"
       preset="card"
       title="新建故事线"
-      style="width: 420px"
+      style="width: 480px"
       :mask-closable="false"
       @after-leave="resetAddForm"
     >
-      <n-form label-placement="left" label-width="72" size="small">
-        <n-form-item label="类型">
-          <n-select
-            v-model:value="addForm.storyline_type"
-            :options="storylineTypeOptions"
-          />
+      <n-form label-placement="left" label-width="80" size="small">
+        <n-form-item label="结构角色">
+          <n-radio-group v-model:value="addForm.role" size="small">
+            <n-radio-button value="main">主线</n-radio-button>
+            <n-radio-button value="sub">支线</n-radio-button>
+            <n-radio-button value="dark">暗线</n-radio-button>
+          </n-radio-group>
+        </n-form-item>
+        <n-form-item label="主题">
+          <n-select v-model:value="addForm.storyline_type" :options="themeOptions" />
         </n-form-item>
         <n-form-item label="名称">
           <n-input v-model:value="addForm.name" placeholder="可选，便于识别" clearable />
@@ -106,15 +177,67 @@
             v-model:value="addForm.description"
             type="textarea"
             placeholder="可选"
-            :autosize="{ minRows: 2, maxRows: 5 }"
+            :autosize="{ minRows: 2, maxRows: 4 }"
+          />
+        </n-form-item>
+        <n-form-item v-if="addForm.role !== 'main'" label="归属主线">
+          <n-select
+            v-model:value="addForm.parent_id"
+            :options="mainlineOptions"
+            placeholder="选择归属的主线（可选）"
+            clearable
           />
         </n-form-item>
         <n-form-item label="章节起">
-          <n-input-number v-model:value="addForm.estimated_chapter_start" :min="1" :step="1" style="width: 100%" />
+          <n-input-number v-model:value="addForm.estimated_chapter_start" :min="1" style="width: 100%" />
         </n-form-item>
         <n-form-item label="章节止">
-          <n-input-number v-model:value="addForm.estimated_chapter_end" :min="1" :step="1" style="width: 100%" />
+          <n-input-number v-model:value="addForm.estimated_chapter_end" :min="1" style="width: 100%" />
         </n-form-item>
+
+        <!-- 汇流点设置（支线/暗线专有） -->
+        <template v-if="addForm.role !== 'main'">
+          <n-divider style="margin: 8px 0">汇流点设置</n-divider>
+          <n-form-item label="汇流类型">
+            <n-select v-model:value="addForm.confluence_merge_type" :options="mergeTypeOptions" />
+          </n-form-item>
+          <n-form-item label="汇流章节">
+            <n-input-number
+              v-model:value="addForm.confluence_chapter"
+              :min="addForm.estimated_chapter_start || 1"
+              placeholder="预计在第几章汇流"
+              style="width: 100%"
+            />
+          </n-form-item>
+          <n-form-item label="汇流描述">
+            <n-input
+              v-model:value="addForm.confluence_summary"
+              type="textarea"
+              placeholder="汇流时发生什么（供 AI 参考）"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+            />
+          </n-form-item>
+          <!-- 暗线专有：行为禁忌 -->
+          <template v-if="addForm.role === 'dark'">
+            <n-form-item label="揭露前提示">
+              <n-input
+                v-model:value="addForm.pre_reveal_hint"
+                type="textarea"
+                placeholder="告诉 AI 有个秘密在运行，但不说内容"
+                :autosize="{ minRows: 2, maxRows: 3 }"
+              />
+            </n-form-item>
+            <n-form-item label="行为禁忌">
+              <div class="guards-list">
+                <div v-for="(g, idx) in addForm.behavior_guards" :key="idx" class="guard-row">
+                  <n-input v-model:value="addForm.behavior_guards[idx]" size="small" placeholder="禁止 AI 做的事" />
+                  <n-button size="tiny" quaternary @click="addForm.behavior_guards.splice(idx, 1)">×</n-button>
+                </div>
+                <n-button size="tiny" dashed @click="addForm.behavior_guards.push('')">+ 添加禁忌</n-button>
+              </div>
+            </n-form-item>
+          </template>
+        </template>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -127,24 +250,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { storyPhaseApi, type StoryPhaseDTO } from '@/api/engineCore'
-import { workflowApi, type StorylineDTO } from '@/api/workflow'
+import { workflowApi, type StorylineDTO, confluenceApi, type ConfluencePointDTO } from '@/api/workflow'
 import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativeEngine'
-import { worldlineApi } from '@/api/worldline'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 
 interface Props {
   slug: string
   currentChapter: number | null
-  /** 父级 `StoryEvolutionPanel` 聚合拉取；为 null 且非 loading 时走本地降级接口 */
   evolutionBundle: StoryEvolutionReadModel | null
   evolutionLoading: boolean
 }
 
 const props = defineProps<Props>()
-
 const emit = defineEmits<{
   selectStoryline: [storyline: { startChapter: number; endChapter: number }]
 }>()
@@ -154,62 +274,112 @@ const refreshStore = useWorkbenchRefreshStore()
 
 const phaseLoading = ref(false)
 const storylinesLoading = ref(false)
-
 const phase = ref<StoryPhaseDTO | null>(null)
-const storylines = ref<StorylineDTO[]>([])
+const allStorylines = ref<StorylineDTO[]>([])
+const confluenceList = ref<ConfluencePointDTO[]>([])
 const selectedStorylineId = ref<string | null>(null)
-
 const showAddModal = ref(false)
 const addSubmitting = ref(false)
 
-/** storylineId → branch exists */
-const storylineBranchMap = ref<Record<string, boolean>>({})
-
-const storylineTypeOptions = [
-  { label: '主线', value: 'MAIN_PLOT' },
-  { label: '支线', value: 'SUB_PLOT' },
-  { label: '暗线', value: 'DARK_LINE' },
-]
-
 const addForm = ref({
-  storyline_type: 'SUB_PLOT',
+  role: 'sub' as 'main' | 'sub' | 'dark',
+  storyline_type: 'general',
   name: '',
   description: '',
+  parent_id: null as string | null,
   estimated_chapter_start: 1,
   estimated_chapter_end: 10,
+  confluence_merge_type: 'absorb' as 'intersect' | 'absorb' | 'reveal',
+  confluence_chapter: null as number | null,
+  confluence_summary: '',
+  pre_reveal_hint: '',
+  behavior_guards: [] as string[],
 })
 
 function resetAddForm() {
   addForm.value = {
-    storyline_type: 'SUB_PLOT',
-    name: '',
-    description: '',
-    estimated_chapter_start: 1,
-    estimated_chapter_end: 10,
+    role: 'sub', storyline_type: 'general', name: '', description: '',
+    parent_id: null, estimated_chapter_start: 1, estimated_chapter_end: 10,
+    confluence_merge_type: 'absorb', confluence_chapter: null, confluence_summary: '',
+    pre_reveal_hint: '', behavior_guards: [],
   }
 }
 
-watch(showAddModal, (open) => {
-  if (!open) return
-  const ch = props.currentChapter != null && props.currentChapter > 0 ? props.currentChapter : 1
+function openAddModal(parentId: string | null) {
+  const ch = props.currentChapter ?? 1
   addForm.value = {
-    storyline_type: 'SUB_PLOT',
-    name: '',
-    description: '',
+    ...addForm.value,
+    role: parentId ? 'sub' : 'main',
+    parent_id: parentId,
     estimated_chapter_start: ch,
     estimated_chapter_end: Math.max(ch, ch + 9),
+    confluence_chapter: null,
+    confluence_summary: '',
+    pre_reveal_hint: '',
+    behavior_guards: [],
   }
+  showAddModal.value = true
+}
+
+const themeOptions = [
+  { label: '通用', value: 'general' },
+  { label: '情感', value: 'romance' },
+  { label: '复仇', value: 'revenge' },
+  { label: '悬疑', value: 'mystery' },
+  { label: '成长', value: 'growth' },
+  { label: '政治', value: 'political' },
+  { label: '冒险', value: 'adventure' },
+  { label: '家族', value: 'family' },
+  { label: '友情', value: 'friendship' },
+]
+
+const mergeTypeOptions = [
+  { label: '吸收（支线完结并入主线）', value: 'absorb' },
+  { label: '交叉（两线继续并行）', value: 'intersect' },
+  { label: '揭露（暗线首次显现）', value: 'reveal' },
+]
+
+const mainlineOptions = computed(() =>
+  allStorylines.value
+    .filter(s => s.role === 'main' || s.storyline_type === 'MAIN_PLOT' || s.storyline_type === 'main_plot')
+    .map(s => ({ label: s.name || `主线 ${s.id.slice(0, 8)}`, value: s.id }))
+)
+
+// confluenceMap: storyline.id → nearest unresolved confluence point
+const confluenceMap = computed(() => {
+  const map: Record<string, ConfluencePointDTO> = {}
+  for (const cp of confluenceList.value) {
+    if (cp.resolved) continue
+    const prev = map[cp.source_storyline_id]
+    if (!prev || cp.target_chapter < prev.target_chapter) {
+      map[cp.source_storyline_id] = cp
+    }
+  }
+  return map
 })
+
+// Build tree: main storylines with their children
+const storylineTree = computed(() => {
+  const mains = allStorylines.value.filter(
+    s => s.role === 'main' || s.storyline_type === 'MAIN_PLOT' || s.storyline_type === 'main_plot'
+  )
+  return mains.map(main => ({
+    sl: main,
+    children: allStorylines.value.filter(s => s.parent_id === main.id),
+  }))
+})
+
+// Storylines without a parent that are not main
+const orphanLines = computed(() =>
+  allStorylines.value.filter(s => {
+    const isMain = s.role === 'main' || s.storyline_type === 'MAIN_PLOT' || s.storyline_type === 'main_plot'
+    return !isMain && !s.parent_id
+  })
+)
 
 async function submitAddStoryline() {
   const f = addForm.value
-  const start = f.estimated_chapter_start
-  const end = f.estimated_chapter_end
-  if (start == null || end == null || start < 1 || end < 1) {
-    message.warning('请填写有效的章节范围')
-    return
-  }
-  if (end < start) {
+  if (f.estimated_chapter_end < f.estimated_chapter_start) {
     message.warning('结束章节不能小于起始章节')
     return
   }
@@ -217,20 +387,33 @@ async function submitAddStoryline() {
   try {
     const created = await workflowApi.createStoryline(props.slug, {
       storyline_type: f.storyline_type,
-      estimated_chapter_start: start,
-      estimated_chapter_end: end,
+      role: f.role,
+      parent_id: f.parent_id ?? undefined,
+      estimated_chapter_start: f.estimated_chapter_start,
+      estimated_chapter_end: f.estimated_chapter_end,
       name: f.name?.trim() || undefined,
       description: f.description?.trim() || undefined,
-    }) as unknown as { id?: string } | void
-    message.success('故事线已创建')
-    showAddModal.value = false
+    })
 
-    // 对非主线，提示是否同时创建世界线分支
-    const newId = (created as { id?: string } | null)?.id
-    if (newId && f.storyline_type !== 'MAIN_PLOT') {
-      await offerCreateBranchForStoryline(newId, f.name?.trim() || `storyline-${newId.slice(0, 8)}`)
+    const newId = created?.id
+    if (newId && f.role !== 'main' && f.confluence_chapter) {
+      const mainId = f.parent_id || mainlineOptions.value[0]?.value
+      if (mainId) {
+        await confluenceApi.create(props.slug, {
+          source_storyline_id: newId,
+          target_storyline_id: mainId,
+          target_chapter: f.confluence_chapter,
+          merge_type: f.confluence_merge_type,
+          context_summary: f.confluence_summary,
+          pre_reveal_hint: f.role === 'dark' ? f.pre_reveal_hint : '',
+          behavior_guards: f.role === 'dark' ? f.behavior_guards.filter(Boolean) : [],
+        })
+      }
     }
 
+    message.success('故事线已创建')
+    showAddModal.value = false
+    await loadData()
     refreshStore.bumpDesk()
   } catch (err: any) {
     const detail = err?.response?.data?.detail
@@ -240,86 +423,27 @@ async function submitAddStoryline() {
   }
 }
 
-/** 故事线创建后，询问是否同时分叉世界线分支 */
-async function offerCreateBranchForStoryline(storylineId: string, branchLabel: string) {
-  try {
-    // 需要先有至少一个 checkpoint，获取 HEAD
-    const graph = await worldlineApi.getGraph(props.slug)
-    if (!graph.head_id) return  // 没有 checkpoint 时跳过
-
-    const dialog = (await import('naive-ui')).useDialog
-    // 直接用 worldlineApi 创建，不展示复杂 dialog
-    await worldlineApi.createBranch(props.slug, {
-      name: branchLabel.replace(/\s+/g, '-').slice(0, 30) || `storyline-${storylineId.slice(0, 8)}`,
-      from_checkpoint_id: graph.head_id,
-      storyline_id: storylineId,
-    })
-    storylineBranchMap.value = { ...storylineBranchMap.value, [storylineId]: true }
-    message.info('已为该故事线创建对应世界线分支')
-  } catch {
-    // 非致命，忽略
-  }
-}
-
-/** 加载 storylines 后，批量检查世界线绑定 */
-async function loadStorylineBranches(ids: string[]) {
-  if (!ids.length) return
-  try {
-    const branches = await worldlineApi.listBranches(props.slug)
-    const bound: Record<string, boolean> = {}
-    for (const b of branches) {
-      if (b.storyline_id) bound[b.storyline_id] = true
-    }
-    storylineBranchMap.value = bound
-  } catch {
-    // 非致命
-  }
-}
-
-// 4阶段模型
-const PHASE_STAGES = [
-  { key: 'opening', label: '开局' },
-  { key: 'development', label: '发展' },
-  { key: 'convergence', label: '收敛' },
-  { key: 'finale', label: '终局' },
-]
-
-const PHASE_ORDER = PHASE_STAGES.map(s => s.key)
-
-function isPhasePast(stageKey: string, currentPhase: string): boolean {
-  const cur = PHASE_ORDER.indexOf(currentPhase)
-  if (cur < 0) return false
-  return PHASE_ORDER.indexOf(stageKey) < cur
-}
-
-/** 父级未提供聚合包时：叙事引擎 GET；失败时降级为 story-phase + storylines */
-async function loadPhaseAndStorylines() {
+async function loadData() {
   phaseLoading.value = true
   storylinesLoading.value = true
-  let phaseOk = false
-  let linesOk = false
   try {
-    const bundle = await narrativeEngineApi.getStoryEvolution(props.slug)
-    phase.value = bundle.life_cycle
-    storylines.value = bundle.plot_spine.storylines || []
-    void loadStorylineBranches(storylines.value.map(s => s.id))
-  } catch (error) {
-    console.error('叙事引擎聚合加载失败，降级为分拆 API:', error)
+    if (props.evolutionBundle) {
+      phase.value = props.evolutionBundle.life_cycle
+      allStorylines.value = (props.evolutionBundle.plot_spine as any)?.storylines || []
+      confluenceList.value = (props.evolutionBundle.plot_spine as any)?.confluence_points || []
+    } else {
+      const bundle = await narrativeEngineApi.getStoryEvolution(props.slug)
+      phase.value = bundle.life_cycle
+      allStorylines.value = (bundle.plot_spine as any)?.storylines || []
+      confluenceList.value = (bundle.plot_spine as any)?.confluence_points || []
+    }
+  } catch {
     try {
       phase.value = await storyPhaseApi.get(props.slug)
-      phaseOk = true
-    } catch (e) {
-      console.error('加载故事阶段失败:', e)
-    }
-    try {
-      const data = await workflowApi.getStorylines(props.slug)
-      storylines.value = data || []
-      linesOk = true
-    } catch (e) {
-      console.error('加载故事线失败:', e)
-    }
-    if (!phaseOk && !linesOk) {
-      message.error('故事阶段与故事线加载失败，请检查网络或稍后重试')
+      allStorylines.value = (await workflowApi.getStorylines(props.slug)) || []
+      confluenceList.value = await confluenceApi.list(props.slug)
+    } catch {
+      message.error('故事线加载失败')
     }
   } finally {
     phaseLoading.value = false
@@ -329,34 +453,10 @@ async function loadPhaseAndStorylines() {
 
 watch(
   () => [props.slug, props.evolutionBundle, props.evolutionLoading] as const,
-  () => {
-    if (props.evolutionLoading && !props.evolutionBundle) {
-      phase.value = null
-      storylines.value = []
-      selectedStorylineId.value = null
-      phaseLoading.value = true
-      storylinesLoading.value = true
-      return
-    }
-    if (props.evolutionLoading) {
-      phaseLoading.value = true
-      storylinesLoading.value = true
-      return
-    }
-    if (props.evolutionBundle) {
-      phase.value = props.evolutionBundle.life_cycle
-      storylines.value = props.evolutionBundle.plot_spine.storylines || []
-      phaseLoading.value = false
-      storylinesLoading.value = false
-      void loadStorylineBranches(storylines.value.map(s => s.id))
-      return
-    }
-    void loadPhaseAndStorylines()
-  },
+  () => { void loadData() },
   { immediate: true },
 )
 
-// 选择故事线
 function selectStoryline(sl: StorylineDTO) {
   selectedStorylineId.value = sl.id
   emit('selectStoryline', {
@@ -365,39 +465,46 @@ function selectStoryline(sl: StorylineDTO) {
   })
 }
 
-// 类型颜色映射
-function getTypeColor(type: string): 'success' | 'warning' | 'info' | 'default' {
+function getRoleColor(role?: string): 'success' | 'warning' | 'info' | 'default' {
   const map: Record<string, 'success' | 'warning' | 'info' | 'default'> = {
-    MAIN_PLOT: 'success',
-    SUB_PLOT: 'warning',
-    DARK_LINE: 'info',
+    main: 'success', sub: 'warning', dark: 'info',
+    MAIN_PLOT: 'success', SUB_PLOT: 'warning', DARK_LINE: 'info',
   }
-  return map[type] || 'default'
+  return map[role || ''] ?? 'default'
 }
 
-function getTypeLabel(type: string): string {
+function getRoleLabel(role?: string): string {
   const map: Record<string, string> = {
-    MAIN_PLOT: '主线',
-    SUB_PLOT: '支线',
-    DARK_LINE: '暗线',
+    main: '主线', sub: '支线', dark: '暗线',
+    MAIN_PLOT: '主线', SUB_PLOT: '支线', DARK_LINE: '暗线',
   }
-  return map[type] || type
+  return map[role || ''] || role || '未知'
 }
 
 function getStatusColor(status: string): 'success' | 'warning' | 'default' {
   const map: Record<string, 'success' | 'warning' | 'default'> = {
-    ACTIVE: 'warning',
-    COMPLETED: 'success',
+    ACTIVE: 'warning', active: 'warning', COMPLETED: 'success', completed: 'success',
   }
-  return map[status] || 'default'
+  return map[status] ?? 'default'
 }
 
 function getStatusLabel(status: string): string {
   const map: Record<string, string> = {
-    ACTIVE: '进行中',
-    COMPLETED: '已完结',
+    ACTIVE: '进行中', active: '进行中', COMPLETED: '已完结', completed: '已完结',
   }
   return map[status] || status
+}
+
+const PHASE_STAGES = [
+  { key: 'opening', label: '开局' },
+  { key: 'development', label: '发展' },
+  { key: 'convergence', label: '收敛' },
+  { key: 'finale', label: '终局' },
+]
+const PHASE_ORDER = PHASE_STAGES.map(s => s.key)
+
+function isPhasePast(key: string, current: string): boolean {
+  return PHASE_ORDER.indexOf(key) < PHASE_ORDER.indexOf(current)
 }
 </script>
 
@@ -410,121 +517,162 @@ function getStatusLabel(status: string): string {
   background: var(--app-surface);
   border-right: 1px solid var(--aitext-split-border);
 }
-
 .phase-section {
   padding: 12px;
   border-bottom: 1px solid var(--aitext-split-border);
+  flex-shrink: 0;
 }
-
-.section-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.section-icon {
-  font-size: 14px;
-}
-
-.section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text-secondary);
-}
-
-.phase-visual {
-  padding: 8px;
-  background: var(--app-page-bg);
-  border-radius: 6px;
-}
-
-.phase-track {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px 4px;
-}
-
-.phase-stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.stage-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--n-border-color);
-  transition: all 0.3s;
-}
-
-.phase-stage--past .stage-dot {
-  background: var(--n-primary-color);
-}
-
-.phase-stage--active .stage-dot {
-  width: 12px;
-  height: 12px;
-  background: var(--n-primary-color);
-  box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.2);
-}
-
 .storylines-section {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 12px;
 }
-
-.empty-state {
-  padding: 24px;
-  text-align: center;
+.confluence-axis-section {
+  padding: 10px 12px;
+  border-top: 1px solid var(--aitext-split-border);
+  flex-shrink: 0;
 }
-
-.storylines-list {
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.section-icon { font-size: 14px; }
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+  flex: 1;
+}
+.phase-visual {
+  padding: 8px;
+  background: var(--app-page-bg);
+  border-radius: 6px;
+}
+.phase-track {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 4px;
+}
+.phase-stage {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
 }
-
+.stage-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--n-border-color);
+  transition: all 0.3s;
+}
+.phase-stage--past .stage-dot { background: var(--n-primary-color); }
+.phase-stage--active .stage-dot {
+  width: 12px; height: 12px;
+  background: var(--n-primary-color);
+  box-shadow: 0 0 0 4px rgba(24, 144, 255, 0.2);
+}
+.storylines-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .storyline-item {
-  padding: 10px;
+  padding: 8px 10px;
   border-radius: 6px;
   border: 1px solid var(--n-border-color);
   background: var(--app-surface);
   cursor: pointer;
   transition: all 0.2s;
 }
-
+.storyline-item--main { border-left: 3px solid var(--n-success-color); }
+.storyline-item--child {
+  margin-left: 8px;
+  border-left: 3px solid var(--n-warning-color);
+}
 .storyline-item:hover {
   border-color: var(--n-primary-color-hover);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
-
 .storyline-item--active {
   border-color: var(--n-primary-color);
   background: rgba(24, 144, 255, 0.04);
 }
-
-.storyline-info {
-  margin-top: 6px;
+.storyline-item__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
-
 .storyline-name {
   font-size: 13px;
   font-weight: 500;
-  display: block;
-  margin-bottom: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
-.storyline-branch-badge {
+.child-indent {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-family: monospace;
+}
+.confluence-badge {
   font-size: 11px;
   color: var(--n-primary-color);
-  margin-left: 4px;
-  opacity: 0.8;
+  background: rgba(24, 144, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: default;
+  flex-shrink: 0;
 }
+.add-child-btn {
+  margin-left: 8px;
+  padding: 4px 10px;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.add-child-btn:hover { opacity: 1; }
+.empty-state { padding: 24px; text-align: center; }
+.confluence-axis {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 4px 0;
+  scrollbar-width: none;
+}
+.confluence-axis::-webkit-scrollbar { display: none; }
+.confluence-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.marker-dot {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: rgba(24, 144, 255, 0.12);
+  border: 1px solid var(--n-primary-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--n-primary-color);
+}
+.confluence-marker--reveal .marker-dot {
+  background: rgba(250, 173, 20, 0.12);
+  border-color: var(--n-warning-color);
+  color: var(--n-warning-color);
+}
+.confluence-marker--resolved .marker-dot { opacity: 0.4; }
+.marker-ch { font-size: 10px; color: var(--app-text-muted); }
+.guards-list { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.guard-row { display: flex; align-items: center; gap: 4px; }
 </style>
