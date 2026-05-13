@@ -23,6 +23,7 @@ class NarrativeEngineReadFacade:
             "plot_spine": {
                 "storylines": ctx.get("storylines") or [],
                 "plot_arc": ctx.get("plot_arc"),
+                "confluence_points": ctx.get("confluence_points") or [],
             },
             "chronotope": ctx.get("chronicles") or {
                 "rows": [],

@@ -105,6 +105,9 @@ class StorylineResponse(BaseModel):
     current_milestone_index: int = 0
     last_active_chapter: int = 0
     progress_summary: str = ""
+    role: str = "main"
+    parent_id: Optional[str] = None
+    chapter_weight: float = 1.0
 
 
 class StorylineGraphData(BaseModel):
@@ -121,6 +124,9 @@ class CreateStorylineRequest(BaseModel):
     estimated_chapter_end: int = Field(..., gt=0)
     name: Optional[str] = Field(None, description="显示名称")
     description: Optional[str] = Field(None, description="详细说明")
+    role: Optional[str] = None               # 'main' | 'sub' | 'dark'
+    parent_id: Optional[str] = None
+    chapter_weight: float = 1.0
 
 
 class MainPlotOptionItem(BaseModel):
@@ -163,6 +169,9 @@ def _storyline_to_response(storyline) -> StorylineResponse:
         current_milestone_index=getattr(storyline, "current_milestone_index", 0),
         last_active_chapter=getattr(storyline, "last_active_chapter", 0),
         progress_summary=getattr(storyline, "progress_summary", "") or "",
+        role=storyline.role.value if hasattr(storyline, "role") and storyline.role else "main",
+        parent_id=getattr(storyline, "parent_id", None),
+        chapter_weight=getattr(storyline, "chapter_weight", 1.0),
     )
 
 
@@ -498,6 +507,15 @@ def create_storyline(
 ):
     """创建新的故事线"""
     try:
+        from domain.novel.value_objects.storyline_role import StorylineRole
+
+        role = StorylineRole.MAIN
+        if hasattr(request, 'role') and request.role:
+            try:
+                role = StorylineRole(request.role)
+            except ValueError:
+                role = StorylineRole.MAIN
+
         storyline = manager.create_storyline(
             novel_id=NovelId(novel_id),
             storyline_type=StorylineType(request.storyline_type),
@@ -505,6 +523,9 @@ def create_storyline(
             estimated_chapter_end=request.estimated_chapter_end,
             name=(request.name or "").strip(),
             description=(request.description or "").strip(),
+            role=role,
+            parent_id=getattr(request, 'parent_id', None),
+            chapter_weight=getattr(request, 'chapter_weight', 1.0),
         )
 
         return _storyline_to_response(storyline)

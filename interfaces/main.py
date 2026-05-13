@@ -56,6 +56,7 @@ from interfaces.api.v1.world import bible, cast, knowledge, knowledge_graph_rout
 
 # Blueprint module
 from interfaces.api.v1.blueprint import continuous_planning_routes, beat_sheet_routes, story_structure
+from interfaces.api.v1.blueprint.confluence_routes import router as confluence_router
 
 # Engine module routes
 from interfaces.api.v1.engine import (
@@ -959,6 +960,7 @@ app.include_router(worldbuilding_routes.router,     prefix=_V1)  # /novels/{id}/
 app.include_router(continuous_planning_routes.router, prefix=_V1)  # /planning
 app.include_router(beat_sheet_routes.router,          prefix=_V1)  # /beat-sheets
 app.include_router(story_structure.router,             prefix=_V1)  # 无 prefix，路由自身含 /novels/{id}/structure
+app.include_router(confluence_router,                  prefix=_V1)  # /novels/{id}/confluence-points
 
 # ── Engine：生成 / 上下文 / 编年史 / 快照 / 自动驾驶 / 工作台 / 角色调度 / 检查点 ──
 app.include_router(generation.router,                     prefix=_V1)
