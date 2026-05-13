@@ -182,6 +182,23 @@
                         </template>
                         <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
                       </n-tooltip>
+                      <n-tooltip
+                        trigger="hover"
+                        :disabled="!isAutopilotRunning && !isAssistedReadOnly"
+                        :content="isAssistedReadOnly ? '托管运行中不可重新生成' : 'Autopilot 运行时禁用'"
+                      >
+                        <template #trigger>
+                          <n-button
+                            size="small"
+                            secondary
+                            @click="handleRegenerateChapter"
+                            :loading="generating"
+                            :disabled="isAutopilotRunning || isAssistedReadOnly || !currentChapter?.content"
+                          >
+                            🔄 重新生成
+                          </n-button>
+                        </template>
+                      </n-tooltip>
                       <n-button size="small" secondary :disabled="isAssistedReadOnly" @click="openTensionModal" title="诊断当前章节张力缺口">
                         🔍 张力诊断
                       </n-button>
@@ -283,13 +300,15 @@
     <n-modal
       v-model:show="showGenerateModal"
       preset="card"
-      title="AI 生成本章（含一致性检查）"
+      :title="isRegenerationMode ? '🔄 重新生成本章' : 'AI 生成本章（含一致性检查）'"
       style="width: min(820px, 96vw); max-height: min(92vh, 900px)"
       :segmented="{ content: true, footer: 'soft' }"
       :mask-closable="!generateInProgress"
     >
       <template #header-extra>
-        <n-text depth="3" style="font-size: 12px">同一流式接口；报告在本章侧栏</n-text>
+        <n-text depth="3" style="font-size: 12px">
+          {{ isRegenerationMode ? '原内容将自动快照保存，可从历史草稿恢复' : '同一流式接口；报告在本章侧栏' }}
+        </n-text>
       </template>
 
       <n-scrollbar style="max-height: min(78vh, 760px)">
@@ -345,20 +364,42 @@
                 场记分析失败（不影响生成）：{{ sceneDirectorError }}
               </n-alert>
 
+              <!-- 重新生成模式：改进方向输入 -->
+              <template v-if="isRegenerationMode">
+                <n-alert type="warning" :show-icon="true" style="font-size: 12px">
+                  重新生成将覆盖现有正文。点击「开始生成」前，原内容会自动保存为历史草稿。
+                </n-alert>
+                <n-form-item label="改进方向" label-placement="left" label-width="80" :show-feedback="false">
+                  <n-input
+                    v-model:value="regenerationGuidance"
+                    type="textarea"
+                    placeholder="（可选）告诉 AI 哪里需要改进，例如：增强冲突张力、修复角色前后矛盾、改写结尾悬念..."
+                    :autosize="{ minRows: 2, maxRows: 5 }"
+                    :disabled="generateInProgress"
+                    :maxlength="2000"
+                    show-count
+                  />
+                </n-form-item>
+              </template>
+
               <n-button
-                type="primary"
+                :type="isRegenerationMode ? 'warning' : 'primary'"
                 @click="handleStartGenerate"
-                :loading="generateInProgress"
-                :disabled="generateInProgress || isAssistedReadOnly || generateTargetChapterId == null"
+                :loading="generateInProgress || savingDraftBeforeRegen"
+                :disabled="generateInProgress || savingDraftBeforeRegen || isAssistedReadOnly || generateTargetChapterId == null"
                 size="medium"
                 block
               >
                 {{
-                  generateInProgress
-                    ? analyzingScene
-                      ? '分析场景中...'
-                      : '生成中...'
-                    : '开始生成'
+                  savingDraftBeforeRegen
+                    ? '快照原内容…'
+                    : generateInProgress
+                      ? analyzingScene
+                        ? '分析场景中...'
+                        : '生成中...'
+                      : isRegenerationMode
+                        ? '🔄 开始重新生成'
+                        : '开始生成'
                 }}
               </n-button>
             </n-space>
@@ -605,6 +646,7 @@ import {
   consumeGenerateChapterStream,
   analyzeScene,
   retrieveContext,
+  saveChapterDraft,
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
@@ -704,6 +746,13 @@ const outlineBlurAnalyzing = ref(false)
 const streamPhaseLabel = ref('')
 const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
+
+/** 重新生成模式：开启时弹窗中显示「改进方向」输入框，并在生成前自动快照当前内容 */
+const isRegenerationMode = ref(false)
+/** 重新生成改进方向（可选，传给后端 regeneration_guidance） */
+const regenerationGuidance = ref('')
+/** 是否正在保存草稿（重新生成前的快照） */
+const savingDraftBeforeRegen = ref(false)
 
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
@@ -1212,8 +1261,30 @@ const handleGenerateChapter = async () => {
     return
   }
 
+  isRegenerationMode.value = false
+  regenerationGuidance.value = ''
   generateTargetChapterId.value = currentChapter.value.id
   generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
+
+承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
+  generatedContent.value = ''
+  contextPreview.value = null
+  blurSceneCache.value = undefined
+  showGenerateModal.value = true
+}
+
+const handleRegenerateChapter = async () => {
+  if (!currentChapter.value) return
+  if (isAssistedReadOnly.value) {
+    message.warning('托管运行中不可使用重新生成')
+    return
+  }
+
+  isRegenerationMode.value = true
+  regenerationGuidance.value = ''
+  generateTargetChapterId.value = currentChapter.value.id
+  generateOutline.value = currentChapter.value.outline
+    || `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
@@ -1284,6 +1355,22 @@ const handleStartGenerate = async () => {
 
   const defaultOutline = `第${targetChapterNumber}章：承接前情，推进主线`
 
+  // 重新生成模式：先快照当前内容（失败不阻断生成，仅警告）
+  if (isRegenerationMode.value) {
+    savingDraftBeforeRegen.value = true
+    try {
+      await saveChapterDraft(props.slug, targetChapterNumber, 'pre_regen')
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '未知错误'
+      // 422 表示内容为空无需快照，忽略；其他错误给出警告但不中断
+      if (!msg.includes('422') && !msg.includes('内容为空')) {
+        message.warning(`草稿快照失败（不影响生成）：${msg}`)
+      }
+    } finally {
+      savingDraftBeforeRegen.value = false
+    }
+  }
+
   try {
     await consumeGenerateChapterStream(
       props.slug,
@@ -1291,6 +1378,9 @@ const handleStartGenerate = async () => {
         chapter_number: targetChapterNumber,
         outline: generateOutline.value || defaultOutline,
         scene_director_result: sceneDirectorResult,
+        regeneration_guidance: isRegenerationMode.value && regenerationGuidance.value.trim()
+          ? regenerationGuidance.value.trim()
+          : undefined,
       },
       {
         signal: ctrl.signal,

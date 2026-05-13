@@ -105,6 +105,48 @@ export interface GenerateChapterWithContextPayload {
   chapter_number: number
   outline: string
   scene_director_result?: Record<string, unknown>
+  /** 重新生成时的改进方向（可选）；填写后 AI 会在 prompt 中看到改进要求 */
+  regeneration_guidance?: string
+}
+
+export interface ChapterDraftDTO {
+  id: string
+  novel_id: string
+  chapter_id: string
+  chapter_number: number
+  content: string
+  outline: string
+  source: 'pre_regen' | 'manual_save' | 'auto_gen' | string
+  word_count: number
+  created_at: string
+}
+
+/**
+ * POST /api/v1/novels/{novel_id}/chapters/{chapter_number}/drafts
+ * 快照当前章节内容为历史草稿（重新生成前调用）。
+ */
+export async function saveChapterDraft(
+  novelId: string,
+  chapterNumber: number,
+  source: 'pre_regen' | 'manual_save' = 'pre_regen',
+): Promise<ChapterDraftDTO> {
+  return apiClient.post<ChapterDraftDTO>(
+    `/novels/${novelId}/chapters/${chapterNumber}/drafts`,
+    { source },
+  ) as unknown as Promise<ChapterDraftDTO>
+}
+
+/**
+ * GET /api/v1/novels/{novel_id}/chapters/{chapter_number}/drafts
+ * 获取章节历史草稿列表（最新在前）。
+ */
+export async function listChapterDrafts(
+  novelId: string,
+  chapterNumber: number,
+): Promise<ChapterDraftDTO[]> {
+  return apiClient.get<ChapterDraftDTO[]>(
+    `/novels/${novelId}/chapters/${chapterNumber}/drafts`,
+  ) as unknown as Promise<ChapterDraftDTO[]>
 }
 
 export interface SceneDirectorAnalysis {
