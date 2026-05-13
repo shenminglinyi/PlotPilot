@@ -18,9 +18,18 @@ from interfaces.api.dependencies import (
     get_chapter_service,
     get_novel_service,
     get_chapter_aftermath_pipeline,
+    get_chapter_repository,
 )
+from infrastructure.persistence.database.chapter_draft_repository import ChapterDraftRepository
+from application.paths import DATA_DIR
 from domain.shared.exceptions import EntityNotFoundError
 logger = logging.getLogger(__name__)
+
+
+def _get_draft_repo() -> ChapterDraftRepository:
+    from infrastructure.persistence.database.connection import DatabaseConnection
+    db_path = str(DATA_DIR / "aitext.db")
+    return ChapterDraftRepository(DatabaseConnection(db_path))
 
 
 async def _run_chapter_aftermath(
@@ -369,3 +378,95 @@ async def get_chapter_structure(
         )
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ─── 章节历史草稿（重新生成版本管理） ───────────────────────────────────
+
+class ChapterDraftResponse(BaseModel):
+    id: str
+    novel_id: str
+    chapter_id: str
+    chapter_number: int
+    content: str
+    outline: str
+    source: str
+    word_count: int
+    created_at: str
+
+
+class SaveDraftRequest(BaseModel):
+    """保存历史草稿请求（调用方在触发重新生成前快照当前内容）"""
+    source: str = Field(
+        default="pre_regen",
+        description="快照来源：pre_regen=重新生成前 | manual_save=手动 | auto_gen=首次生成",
+    )
+
+
+@router.post(
+    "/{novel_id}/chapters/{chapter_number}/drafts",
+    response_model=ChapterDraftResponse,
+    status_code=201,
+)
+async def save_chapter_draft(
+    novel_id: str,
+    chapter_number: int = Path(..., gt=0),
+    request: SaveDraftRequest = SaveDraftRequest(),
+    chapter_service: ChapterService = Depends(get_chapter_service),
+    draft_repo: ChapterDraftRepository = Depends(_get_draft_repo),
+):
+    """将当前章节内容快照为历史草稿（在触发重新生成之前调用）。
+
+    章节不存在或内容为空时返回 404 / 422。
+    """
+    chapter = chapter_service.get_chapter_by_novel_and_number(novel_id, chapter_number)
+    if chapter is None:
+        raise HTTPException(status_code=404, detail=f"章节 {chapter_number} 不存在")
+    if not chapter.content or not chapter.content.strip():
+        raise HTTPException(status_code=422, detail="章节内容为空，无需保存草稿")
+
+    record = draft_repo.save_draft(
+        novel_id=novel_id,
+        chapter_id=chapter.id,
+        chapter_number=chapter_number,
+        content=chapter.content,
+        outline=chapter.outline or "",
+        source=request.source,
+    )
+    return ChapterDraftResponse(
+        id=record.id,
+        novel_id=record.novel_id,
+        chapter_id=record.chapter_id,
+        chapter_number=record.chapter_number,
+        content=record.content,
+        outline=record.outline,
+        source=record.source,
+        word_count=record.word_count,
+        created_at=record.created_at,
+    )
+
+
+@router.get(
+    "/{novel_id}/chapters/{chapter_number}/drafts",
+    response_model=List[ChapterDraftResponse],
+)
+async def list_chapter_drafts(
+    novel_id: str,
+    chapter_number: int = Path(..., gt=0),
+    draft_repo: ChapterDraftRepository = Depends(_get_draft_repo),
+):
+    """列出章节的历史草稿（最新在前，最多 10 条）。"""
+    records = draft_repo.list_drafts(novel_id, chapter_number)
+    return [
+        ChapterDraftResponse(
+            id=r.id,
+            novel_id=r.novel_id,
+            chapter_id=r.chapter_id,
+            chapter_number=r.chapter_number,
+            content=r.content,
+            outline=r.outline,
+            source=r.source,
+            word_count=r.word_count,
+            created_at=r.created_at,
+        )
+        for r in records
+    ]
