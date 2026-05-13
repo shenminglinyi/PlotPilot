@@ -5,6 +5,9 @@
   "version": "1.0.2",
   "type": "module",
   "scripts": {
+    "sync:taxonomy": "node scripts/sync-builtin-taxonomy.mjs",
+    "predev": "npm run sync:taxonomy",
+    "prebuild": "npm run sync:taxonomy",
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
@@ -40,6 +43,7 @@
     "@vue/tsconfig": "^0.9.0",
     "typescript": "~5.9.3",
     "vite": "^8.0.1",
-    "vue-tsc": "^3.2.5"
+    "vue-tsc": "^3.2.5",
+    "yaml": "^2.9.0"
   }
 }
