@@ -157,9 +157,8 @@ mcps/
 
 # 顶层草稿目录（勿提交）
 drafts/
-# DAG 版本数据（已迁移到数据库）
-data/dag_definitions/
-data/dag_versions/
+# DAG 版本数据（已迁移到数据库，目录已清理）
+
 
 # 数据库文件
 data/*.db
