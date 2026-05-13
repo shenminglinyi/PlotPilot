@@ -8,6 +8,7 @@ def test_build_prose_discipline_block_core_rules():
     assert "全章禁止" in text
     assert "破折号" in text
     assert "300～500 字" in text
+    assert "情节密度" in text
 
 
 def test_build_prose_discipline_block_tight_beat():
