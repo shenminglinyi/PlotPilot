@@ -1,0 +1,319 @@
+{
+  "schema_kind": "plotpilot.taxonomy_bundle",
+  "schema_version": 1,
+  "id": "builtin_cn_v1",
+  "locale": "zh-CN",
+  "domain": "webnovel_market_cn",
+  "title": "中文网文大类 / 主题 / 赛道",
+  "description": "通用节点树：父级挂 facets（可变维度键）；子节点仅语义标签；引擎路由用 facets.theme_agent_key。",
+  "facet_keys_semantics": {
+    "market_track": "平台常用赛道简述（可作提示词补强）",
+    "world_tone": "世界观基调正文（写入 world_preset）",
+    "theme_agent_key": "与 Theme Agent registry 对齐的体裁键",
+    "search_blob": "供前端本地模糊搜索的合成串（可选冗余）"
+  },
+  "roots": [
+    {
+      "id": "xuanhuan",
+      "labels": { "zh-CN": "玄幻" },
+      "facets": {
+        "market_track": "男频核心爽文主赛道",
+        "world_tone": "东方修真 / 异能体系，强者为尊，以升级流为核心，多为架空大世界，有明确的境界等级划分，核心脉络为逆天改命、登顶世界之巅",
+        "theme_agent_key": "xuanhuan",
+        "search_blob": "玄幻 修真 异能 境界 升级"
+      },
+      "children": [
+        { "id": "xuanhuan.dongfang", "labels": { "zh-CN": "东方玄幻" } },
+        { "id": "xuanhuan.yishi", "labels": { "zh-CN": "异世大陆" } },
+        { "id": "xuanhuan.gaowu", "labels": { "zh-CN": "高武世界" } },
+        { "id": "xuanhuan.naodong", "labels": { "zh-CN": "玄幻脑洞" } }
+      ]
+    },
+    {
+      "id": "qihuan",
+      "labels": { "zh-CN": "奇幻" },
+      "facets": {
+        "market_track": "西幻 / 泛幻想赛道",
+        "world_tone": "西式魔法 / 神话体系，多为中世纪背景或现代魔改世界观，有明确的职业 / 魔法等级，以阵营对抗、冒险成长为核心主线",
+        "theme_agent_key": "fantasy",
+        "search_blob": "奇幻 西幻 剑与魔法"
+      },
+      "children": [
+        { "id": "qihuan.lishi", "labels": { "zh-CN": "历史神话" } },
+        { "id": "qihuan.alternative", "labels": { "zh-CN": "另类幻想" } },
+        { "id": "qihuan.modern_magic", "labels": { "zh-CN": "现代魔法" } },
+        { "id": "qihuan.sword_spell", "labels": { "zh-CN": "剑与魔法" } },
+        { "id": "qihuan.steampunk", "labels": { "zh-CN": "蒸汽朋克" } }
+      ]
+    },
+    {
+      "id": "wuxia",
+      "labels": { "zh-CN": "武侠" },
+      "facets": {
+        "market_track": "国风武侠赛道",
+        "world_tone": "中式江湖 / 武林体系，有明确的门派 / 武功等级，分传统低武、近代国术、现代高武三大分支，核心围绕家国江湖、侠义恩仇展开",
+        "theme_agent_key": "wuxia",
+        "search_blob": "武侠 江湖 门派 国术"
+      },
+      "children": [
+        { "id": "wuxia.chuantong", "labels": { "zh-CN": "传统武侠" } },
+        { "id": "wuxia.gaowu", "labels": { "zh-CN": "高武武侠" } },
+        { "id": "wuxia.guoshu", "labels": { "zh-CN": "国术武侠" } },
+        { "id": "wuxia.tianyuan", "labels": { "zh-CN": "武侠种田" } }
+      ]
+    },
+    {
+      "id": "xianxia",
+      "labels": { "zh-CN": "仙侠" },
+      "facets": {
+        "market_track": "男频核心仙侠主赛道",
+        "world_tone": "东方修仙体系，以三界六道、天道法则为核心框架，有明确的修仙境界划分，核心脉络为逆天改命、长生问道、勘破天道",
+        "theme_agent_key": "xianxia",
+        "search_blob": "仙侠 修仙 修真 天道"
+      },
+      "children": [
+        { "id": "xianxia.gudian", "labels": { "zh-CN": "古典仙侠" } },
+        { "id": "xianxia.xiuzhen", "labels": { "zh-CN": "修仙修真" } },
+        { "id": "xianxia.naodong", "labels": { "zh-CN": "仙侠脑洞" } },
+        { "id": "xianxia.tianyuan", "labels": { "zh-CN": "仙侠种田" } }
+      ]
+    },
+    {
+      "id": "dushi",
+      "labels": { "zh-CN": "都市" },
+      "facets": {
+        "market_track": "都市全品类赛道（男女频核心赛道）",
+        "world_tone": "基于现实现代社会魔改，分无异能纯现实生活流、带异能 / 重生 / 系统的脑洞流两大分支，贴近现实认知，代入感强，适配全题材创作",
+        "theme_agent_key": "dushi",
+        "search_blob": "都市 现实 异能 重生 系统"
+      },
+      "children": [
+        { "id": "dushi.gaowu", "labels": { "zh-CN": "都市高武" } },
+        { "id": "dushi.tianyuan", "labels": { "zh-CN": "都市种田" } },
+        { "id": "dushi.naodong", "labels": { "zh-CN": "都市脑洞" } },
+        { "id": "dushi.life", "labels": { "zh-CN": "都市生活" } },
+        { "id": "dushi.yineng", "labels": { "zh-CN": "都市异能" } },
+        { "id": "dushi.school", "labels": { "zh-CN": "都市校园" } }
+      ]
+    },
+    {
+      "id": "lishi",
+      "labels": { "zh-CN": "历史" },
+      "facets": {
+        "market_track": "历史文赛道",
+        "world_tone": "基于真实历史朝代改编或完全架空历史背景，分考据流和爽文流两大方向，核心围绕权谋、争霸、种田、改变历史走向展开",
+        "theme_agent_key": "history",
+        "search_blob": "历史 架空 争霸 权谋"
+      },
+      "children": [
+        { "id": "lishi.naodong", "labels": { "zh-CN": "历史脑洞" } },
+        { "id": "lishi.gudai", "labels": { "zh-CN": "历史古代" } },
+        { "id": "lishi.jiakong", "labels": { "zh-CN": "历史架空" } },
+        { "id": "lishi.zhengba", "labels": { "zh-CN": "历史争霸" } }
+      ]
+    },
+    {
+      "id": "youxi",
+      "labels": { "zh-CN": "游戏" },
+      "facets": {
+        "market_track": "游戏竞技赛道",
+        "world_tone": "基于现实电竞项目或虚拟游戏世界搭建，分现实电竞成长流、游戏世界穿越 / 数据化流两大分支，有明确的游戏规则 / 段位体系，核心为热血竞技、登顶封神",
+        "theme_agent_key": "game",
+        "search_blob": "游戏 电竞 穿越 数据化"
+      },
+      "children": [
+        { "id": "youxi.jingji", "labels": { "zh-CN": "游戏竞技" } },
+        { "id": "youxi.yijie", "labels": { "zh-CN": "游戏异界" } },
+        { "id": "youxi.xitong", "labels": { "zh-CN": "游戏系统" } },
+        { "id": "youxi.zhubo", "labels": { "zh-CN": "游戏主播" } },
+        { "id": "youxi.moniq", "labels": { "zh-CN": "游戏模拟器" } }
+      ]
+    },
+    {
+      "id": "wangyou",
+      "labels": { "zh-CN": "网游" },
+      "facets": {
+        "market_track": "网游专属赛道",
+        "world_tone": "以沉浸式虚拟游戏世界为核心，数据化面板为基础设定，多为全感官潜行游戏背景，结合现实与游戏双线叙事，核心围绕升级打宝、公会争霸、游戏封神展开",
+        "theme_agent_key": "game",
+        "search_blob": "网游 全息 公会 面板"
+      },
+      "children": [
+        { "id": "wangyou.vr", "labels": { "zh-CN": "虚拟网游" } },
+        { "id": "wangyou.jingji", "labels": { "zh-CN": "网游竞技" } },
+        { "id": "wangyou.yijie", "labels": { "zh-CN": "网游异界" } },
+        { "id": "wangyou.tianyuan", "labels": { "zh-CN": "网游种田" } },
+        { "id": "wangyou.players", "labels": { "zh-CN": "第四天灾" } }
+      ]
+    },
+    {
+      "id": "kehuan",
+      "labels": { "zh-CN": "科幻" },
+      "facets": {
+        "market_track": "科幻赛道",
+        "world_tone": "基于科学理论或未来科技魔改，分硬科幻和软科幻两大方向，多为星际争霸、未来都市、时空冒险背景，有明确的科技等级 / 文明层级划分",
+        "theme_agent_key": "scifi",
+        "search_blob": "科幻 星际 赛博 时空"
+      },
+      "children": [
+        { "id": "kehuan.xingji", "labels": { "zh-CN": "星际文明" } },
+        { "id": "kehuan.yineng", "labels": { "zh-CN": "科幻异能" } },
+        { "id": "kehuan.moshi", "labels": { "zh-CN": "末世科幻" } },
+        { "id": "kehuan.saibo", "labels": { "zh-CN": "赛博朋克" } },
+        { "id": "kehuan.shikong", "labels": { "zh-CN": "时空穿梭" } }
+      ]
+    },
+    {
+      "id": "moshi",
+      "labels": { "zh-CN": "末世" },
+      "facets": {
+        "market_track": "末世生存赛道",
+        "world_tone": "文明崩塌后的废土世界，多为丧尸 / 异兽 / 天灾等灾变背景，核心围绕生存、囤货、基地建设、人类文明重建展开，氛围紧张，生存感拉满",
+        "theme_agent_key": "scifi",
+        "search_blob": "末世 废土 丧尸 囤货"
+      },
+      "children": [
+        { "id": "moshi.qiusheng", "labels": { "zh-CN": "末世求生" } },
+        { "id": "moshi.tianyuan", "labels": { "zh-CN": "末世种田" } },
+        { "id": "moshi.dunhuo", "labels": { "zh-CN": "末世囤货" } },
+        { "id": "moshi.feitu", "labels": { "zh-CN": "末世废土" } },
+        { "id": "moshi.chongjian", "labels": { "zh-CN": "末世重建" } }
+      ]
+    },
+    {
+      "id": "tiyu",
+      "labels": { "zh-CN": "体育" },
+      "facets": {
+        "market_track": "体育竞技赛道",
+        "world_tone": "基于现实体育赛事体系搭建，分写实竞技流和金手指爽文流两大分支，核心为热血成长、夺冠封神、为国争光，强情绪感染力",
+        "theme_agent_key": "other",
+        "search_blob": "体育 竞技 重生 国家队"
+      },
+      "children": [
+        { "id": "tiyu.lanqiu", "labels": { "zh-CN": "篮球竞技" } },
+        { "id": "tiyu.zuqiu", "labels": { "zh-CN": "足球竞技" } },
+        { "id": "tiyu.gedou", "labels": { "zh-CN": "格斗竞技" } },
+        { "id": "tiyu.tianjing", "labels": { "zh-CN": "田径竞技" } },
+        { "id": "tiyu.chongsheng", "labels": { "zh-CN": "体育重生" } }
+      ]
+    },
+    {
+      "id": "tianyuan_zhong",
+      "labels": { "zh-CN": "种田" },
+      "facets": {
+        "market_track": "种田基建赛道（男女频均热门）",
+        "world_tone": "可适配全时代背景，核心围绕开荒、经营、基建、发家致富、安稳养老展开，节奏舒缓，生活气息浓厚，分纯日常种田和带基建争霸两大分支",
+        "theme_agent_key": "other",
+        "search_blob": "种田 基建 经营 发家"
+      },
+      "children": [
+        { "id": "tianyuan_zhong.gudai", "labels": { "zh-CN": "古代种田" } },
+        { "id": "tianyuan_zhong.nongjia", "labels": { "zh-CN": "农家种田" } },
+        { "id": "tianyuan_zhong.chuanyue", "labels": { "zh-CN": "穿越种田" } },
+        { "id": "tianyuan_zhong.jijian", "labels": { "zh-CN": "种田基建" } },
+        { "id": "tianyuan_zhong.yanglao", "labels": { "zh-CN": "农家养老" } }
+      ]
+    },
+    {
+      "id": "xuanyi",
+      "labels": { "zh-CN": "悬疑" },
+      "facets": {
+        "market_track": "悬疑刑侦赛道",
+        "world_tone": "多基于现实社会搭建，以强逻辑推理为核心，分刑侦破案流、民间诡案流、悬疑脑洞反转流三大方向，氛围紧张，强剧情反转，节奏紧凑",
+        "theme_agent_key": "suspense",
+        "search_blob": "悬疑 刑侦 推理 反转"
+      },
+      "children": [
+        { "id": "xuanyi.zhentan", "labels": { "zh-CN": "侦探推理" } },
+        { "id": "xuanyi.jingsong", "labels": { "zh-CN": "悬疑惊悚" } },
+        { "id": "xuanyi.zuian", "labels": { "zh-CN": "罪案刑侦" } },
+        { "id": "xuanyi.minjian", "labels": { "zh-CN": "民间诡案" } },
+        { "id": "xuanyi.naodong", "labels": { "zh-CN": "悬疑脑洞" } }
+      ]
+    },
+    {
+      "id": "lingyi",
+      "labels": { "zh-CN": "灵异" },
+      "facets": {
+        "market_track": "灵异惊悚赛道",
+        "world_tone": "中式民俗 / 鬼神体系，多为现代都市 / 乡村背景，结合民间传说、风水玄学设定，分惊悚恐怖流和灵异日常流两大分支",
+        "theme_agent_key": "suspense",
+        "search_blob": "灵异 民俗 风水 鬼怪"
+      },
+      "children": [
+        { "id": "lingyi.minjian", "labels": { "zh-CN": "民间灵异" } },
+        { "id": "lingyi.fengshui", "labels": { "zh-CN": "风水相术" } },
+        { "id": "lingyi.guigua", "labels": { "zh-CN": "鬼怪惊悚" } },
+        { "id": "lingyi.richang", "labels": { "zh-CN": "灵异日常" } }
+      ]
+    },
+    {
+      "id": "junshi",
+      "labels": { "zh-CN": "军事" },
+      "facets": {
+        "market_track": "男频硬核军武核心赛道（写实 / 架空）",
+        "world_tone": "写实流：严格贴合真实军制、军备参数、战场逻辑，强专业性，多基于现实军旅、真实历史战争背景，核心围绕军人成长、保家卫国、家国大义展开。架空流：基于历史 / 现代 / 未来背景魔改，涵盖冷兵器战争、近代抗战、现代反恐、未来星际战争等全维度场景，可搭配系统 / 金手指设定，核心围绕战场博弈、军工崛起、阵营争霸、绝境求生展开，强热血感与爽点密度",
+        "theme_agent_key": "history",
+        "search_blob": "军事 军旅 谍战 战争"
+      },
+      "children": [
+        { "id": "junshi.xiandai", "labels": { "zh-CN": "现代军事" } },
+        { "id": "junshi.kangzhan", "labels": { "zh-CN": "抗战军事" } },
+        { "id": "junshi.diezhan", "labels": { "zh-CN": "谍战风云" } },
+        { "id": "junshi.zhanzhen", "labels": { "zh-CN": "战争幻想" } },
+        { "id": "junshi.lishi", "labels": { "zh-CN": "历史军事" } },
+        { "id": "junshi.scifi_mil", "labels": { "zh-CN": "军事科幻" } }
+      ]
+    },
+    {
+      "id": "qingxiaoshuo",
+      "labels": { "zh-CN": "轻小说" },
+      "facets": {
+        "market_track": "二次元轻小说赛道",
+        "world_tone": "日式二次元 / 泛二次元风格，节奏轻快，人设鲜明，多为校园 / 异世界背景，以对话驱动剧情，萌点、网感梗密集，适配年轻化受众",
+        "theme_agent_key": "other",
+        "search_blob": "轻小说 校园 二次元 吐槽"
+      },
+      "children": [
+        { "id": "qingxiaoshuo.xh", "labels": { "zh-CN": "原生幻想" } },
+        { "id": "qingxiaoshuo.tucao", "labels": { "zh-CN": "搞笑吐槽" } },
+        { "id": "qingxiaoshuo.zhuansheng", "labels": { "zh-CN": "异世界转生" } },
+        { "id": "qingxiaoshuo.qingchun", "labels": { "zh-CN": "青春物语" } }
+      ]
+    },
+    {
+      "id": "tongren",
+      "labels": { "zh-CN": "同人" },
+      "facets": {
+        "market_track": "同人衍生赛道",
+        "world_tone": "基于原作世界观进行二次创作，严格贴合原作核心设定，分剧情衍生、平行世界、CP 向创作三大方向，核心受众为原作粉丝群体",
+        "theme_agent_key": "other",
+        "search_blob": "同人 衍生 CP 原作"
+      },
+      "children": [
+        { "id": "tongren.dongman", "labels": { "zh-CN": "动漫同人" } },
+        { "id": "tongren.yingshi", "labels": { "zh-CN": "影视同人" } },
+        { "id": "tongren.erciyuan", "labels": { "zh-CN": "二次元同人" } },
+        { "id": "tongren.game_f", "labels": { "zh-CN": "游戏同人" } },
+        { "id": "tongren.lishi_f", "labels": { "zh-CN": "历史同人" } }
+      ]
+    },
+    {
+      "id": "yanqing_fallback",
+      "labels": { "zh-CN": "言情兼容" },
+      "facets": {
+        "market_track": "女频言情 / 甜宠赛道（宽泛兼容）",
+        "world_tone": "以情感线与人物关系为推进核心，可分现代言情、古风言情等；爽点常与情绪价值、亲密关系节奏绑定，需注意与原作版权及平台规范相符",
+        "theme_agent_key": "romance",
+        "search_blob": "言情 甜宠 女频"
+      },
+      "children": [
+        { "id": "yanqing_fallback.xiandai", "labels": { "zh-CN": "都市言情·甜宠" } },
+        { "id": "yanqing_fallback.gufeng", "labels": { "zh-CN": "古风言情" } },
+        { "id": "yanqing_fallback.chongsheng_lv", "labels": { "zh-CN": "重生恋爱" } },
+        { "id": "yanqing_fallback.qita", "labels": { "zh-CN": "其他言情" } }
+      ]
+    }
+  ]
+}
+
