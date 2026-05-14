@@ -1,6 +1,6 @@
 # PlotPilot（墨枢）日志系统使用指南
 
-> 产品对外名称为 **PlotPilot（墨枢）**。下文中的 `logs/aitext.log` 等为环境变量默认路径里的**历史文件名**，与运行时配置一致即可。
+> 产品对外名称为 **PlotPilot（墨枢）**。下文中的 `logs/plotpilot.log` 等为环境变量默认路径里的**历史文件名**，与运行时配置一致即可。
 
 ## 快速开始
 
@@ -10,7 +10,7 @@
 
 ```bash
 LOG_LEVEL=INFO      # 可选: DEBUG, INFO, WARNING, ERROR, CRITICAL
-LOG_FILE=logs/aitext.log
+LOG_FILE=logs/plotpilot.log
 ```
 
 ### 2. 启动后端
@@ -36,7 +36,7 @@ python interfaces/main.py
 🚀 BACKEND STARTING - Version: 20260406-143022
    Timestamp: 2026-04-06 14:30:22
    Log Level: INFO
-   Log File: logs/aitext.log
+   Log File: logs/plotpilot.log
    Python: 3.11.0
    Working Dir: <项目根目录>
 ================================================================================
@@ -53,17 +53,17 @@ python scripts/tail_logs.py
 **查看最近 100 行：**
 
 ```bash
-python scripts/tail_logs.py logs/aitext.log 100
+python scripts/tail_logs.py logs/plotpilot.log 100
 ```
 
 **使用系统命令：**
 
 ```bash
 # Windows PowerShell
-Get-Content logs/aitext.log -Tail 50 -Wait
+Get-Content logs/plotpilot.log -Tail 50 -Wait
 
 # Git Bash
-tail -f logs/aitext.log
+tail -f logs/plotpilot.log
 ```
 
 ### 4. 健康检查
@@ -120,22 +120,22 @@ python scripts/check_health.py
 
 ```bash
 # Windows PowerShell
-Select-String -Path logs/aitext.log -Pattern "novel-123"
+Select-String -Path logs/plotpilot.log -Pattern "novel-123"
 
 # Git Bash
-grep "novel-123" logs/aitext.log
+grep "novel-123" logs/plotpilot.log
 ```
 
 ### 只看错误日志
 
 ```bash
-grep -E "ERROR|WARNING" logs/aitext.log
+grep -E "ERROR|WARNING" logs/plotpilot.log
 ```
 
 ### 统计章节完成数
 
 ```bash
-grep "章完成" logs/aitext.log | wc -l
+grep "章完成" logs/plotpilot.log | wc -l
 ```
 
 ## 监控建议
