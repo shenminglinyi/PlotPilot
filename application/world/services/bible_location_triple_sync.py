@@ -41,7 +41,7 @@ def stable_containment_triple_id(novel_id: str, bible_location_id: str) -> str:
     return str(
         uuid.uuid5(
             uuid.NAMESPACE_URL,
-            f"aitext/{novel_id}/bible_location/{bible_location_id}/位于",
+            f"plotpilot/{novel_id}/bible_location/{bible_location_id}/位于",
         )
     )
 
@@ -50,7 +50,7 @@ def stable_anchor_triple_id(novel_id: str, bible_location_id: str) -> str:
     return str(
         uuid.uuid5(
             uuid.NAMESPACE_URL,
-            f"aitext/{novel_id}/bible_location/{bible_location_id}/地图地点",
+            f"plotpilot/{novel_id}/bible_location/{bible_location_id}/地图地点",
         )
     )
 

@@ -1239,6 +1239,13 @@ class AutoNovelGenerationWorkflow:
         if "行文戒律（反八股 / 控水分）" not in system_message:
             system_message = system_message.rstrip() + "\n\n" + prose_discipline
 
+        if "人名硬约束" not in system_message:
+            system_message = system_message.rstrip() + (
+                "\n\n【人名硬约束】上下文人物设定（Bible）中的姓名为唯一正典。"
+                "若本章大纲、故事线摘要或节拍说明中出现不同的人名（含旧稿占位名），"
+                "正文必须以 Bible 为准统一使用 Bible 姓名，不得继续使用大纲里的占位名。\n"
+            )
+
         user_message = _safe_format(user_template, {"outline": outline, "beat_section": ""})
 
         if beat_mode and prior_in_chapter:
