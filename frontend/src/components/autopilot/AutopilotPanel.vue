@@ -822,9 +822,7 @@ async function start() {
   if (isToggleThrottled()) return
   toggling.value = true
   try {
-    const currentTarget = status.value?.target_chapters
     const newTarget = startConfig.value.target_chapters
-    const currentWpc = status.value?.target_words_per_chapter ?? 2500
     const newWpc = startConfig.value.target_words_per_chapter
     const currentAutoApprove = status.value?.auto_approve_mode ?? false
     const newAutoApprove = startConfig.value.auto_approve_mode
@@ -846,30 +844,10 @@ async function start() {
     reconnectAttempts = 0
     message.success('自动驾驶已启动')
 
-    // 🔥 非阻塞：配置更新和启动请求并行发送，不等待
-    const novelPatch = {}
-    if (currentTarget !== newTarget) {
-      novelPatch.target_chapters = newTarget
-    }
-    if (currentWpc !== newWpc) {
-      novelPatch.target_words_per_chapter = newWpc
-    }
+    // 目标章数 / 每章字数改由 POST .../start 与 RUNNING 原子落库（避免与 PUT /novels 并行竞态导致仍用默认字数）
 
     // 并行发送所有请求
     const requests = []
-
-    if (Object.keys(novelPatch).length > 0) {
-      requests.push(
-        fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}`), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(novelPatch),
-        }).catch(err => {
-          console.warn('[AutopilotPanel] 更新书目配置失败:', err)
-          message.error('更新书目目标章数或每章字数失败')
-        })
-      )
-    }
 
     if (currentAutoApprove !== newAutoApprove) {
       requests.push(
@@ -887,7 +865,11 @@ async function start() {
       fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ max_auto_chapters: startConfig.value.max_auto_chapters }),
+        body: JSON.stringify({
+          max_auto_chapters: startConfig.value.max_auto_chapters,
+          target_chapters: newTarget,
+          target_words_per_chapter: newWpc,
+        }),
       }).then(res => {
         if (!res.ok) {
           // 🔥 启动失败时回滚乐观更新

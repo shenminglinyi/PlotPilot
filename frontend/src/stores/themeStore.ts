@@ -3,7 +3,7 @@ import { ref, computed, watch } from 'vue'
 
 export type ThemeMode = 'light' | 'dark' | 'anchor' | 'auto'
 
-const STORAGE_KEY = 'aitext-theme-mode'
+const STORAGE_KEY = 'plotpilot-theme-mode'
 
 function getStoredTheme(): ThemeMode {
   try {

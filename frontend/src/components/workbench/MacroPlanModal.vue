@@ -376,7 +376,7 @@ onUnmounted(() => { abortCtrl?.abort() })
 .idle-card {
   padding: 12px 14px;
   border-radius: 10px;
-  border: 1px solid var(--aitext-split-border, rgba(15, 23, 42, 0.12));
+  border: 1px solid var(--plotpilot-split-border, rgba(15, 23, 42, 0.12));
   background: var(--app-surface-subtle, #f8fafc);
 }
 .idle-card-title {
@@ -405,7 +405,7 @@ onUnmounted(() => { abortCtrl?.abort() })
 /* progress bar */
 .prog-track {
   height: 3px;
-  background: var(--aitext-split-border, rgba(15,23,42,.1));
+  background: var(--plotpilot-split-border, rgba(15,23,42,.1));
   border-radius: 2px;
   margin-bottom: 14px;
   overflow: hidden;

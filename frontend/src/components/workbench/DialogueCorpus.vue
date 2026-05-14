@@ -232,7 +232,7 @@ defineExpose({
   flex-direction: column;
   overflow: hidden;
   background: var(--app-surface);
-  border-right: 1px solid var(--aitext-split-border);
+  border-right: 1px solid var(--plotpilot-split-border);
 }
 
 .corpus-header-titles {
@@ -248,7 +248,7 @@ defineExpose({
   align-items: flex-start;
   gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
 }
 
@@ -258,7 +258,7 @@ defineExpose({
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
   min-width: 0;
 }
@@ -303,7 +303,7 @@ defineExpose({
 
 .corpus-footer {
   padding: 8px 16px;
-  border-top: 1px solid var(--aitext-split-border);
+  border-top: 1px solid var(--plotpilot-split-border);
   text-align: center;
   flex-shrink: 0;
 }

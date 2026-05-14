@@ -101,7 +101,7 @@ const CHAPTER_DESK_RELOAD_DEBOUNCE_MS = 1100
 async function runChapterDeskReload() {
   await loadDesk()
   void statsStore.loadBookStats(slug.value, true).catch(() => {})
-  window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
+  window.dispatchEvent(new CustomEvent('plotpilot:bible-panel:soft-reload'))
   chapterListRef.value?.refreshStoryTree?.()
   workbenchRefresh.bumpAfterChapterDeskChange()
 }

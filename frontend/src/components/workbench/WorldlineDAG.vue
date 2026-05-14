@@ -507,7 +507,7 @@ async function handleCreateBranch() {
   flex-direction: column;
   overflow: hidden;
   background: var(--app-surface);
-  border-right: 1px solid var(--aitext-split-border);
+  border-right: 1px solid var(--plotpilot-split-border);
 }
 
 .wl-header {
@@ -515,7 +515,7 @@ async function handleCreateBranch() {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
 }
 
@@ -591,7 +591,7 @@ async function handleCreateBranch() {
   width: 190px;
   flex-shrink: 0;
   padding: 14px 12px;
-  border-left: 1px solid var(--aitext-split-border);
+  border-left: 1px solid var(--plotpilot-split-border);
   overflow-y: auto;
   display: flex;
   flex-direction: column;

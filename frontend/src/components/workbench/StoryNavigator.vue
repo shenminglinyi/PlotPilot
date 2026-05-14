@@ -515,11 +515,11 @@ function isPhasePast(key: string, current: string): boolean {
   flex-direction: column;
   overflow: hidden;
   background: var(--app-surface);
-  border-right: 1px solid var(--aitext-split-border);
+  border-right: 1px solid var(--plotpilot-split-border);
 }
 .phase-section {
   padding: 12px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
 }
 .storylines-section {
@@ -530,7 +530,7 @@ function isPhasePast(key: string, current: string): boolean {
 }
 .confluence-axis-section {
   padding: 10px 12px;
-  border-top: 1px solid var(--aitext-split-border);
+  border-top: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
 }
 .section-header {

@@ -178,7 +178,7 @@ const handleTreeLoaded = (hasData: boolean) => {
   flex-direction: column;
   padding: 12px 10px;
   background: var(--app-surface);
-  border-right: 1px solid var(--aitext-split-border);
+  border-right: 1px solid var(--plotpilot-split-border);
 }
 
 .sidebar-head {

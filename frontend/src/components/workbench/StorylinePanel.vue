@@ -342,12 +342,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--aitext-panel-muted);
+  background: var(--plotpilot-panel-muted);
 }
 
 .panel-header {
   padding: 12px 16px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   background: var(--app-surface);
   display: flex;
   justify-content: space-between;
@@ -455,7 +455,7 @@ onMounted(() => {
   border-radius: 10px;
   margin-bottom: 8px;
   background: var(--app-surface);
-  border: 1px solid var(--aitext-split-border, rgba(0,0,0,0.06));
+  border: 1px solid var(--plotpilot-split-border, rgba(0,0,0,0.06));
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
   overflow: hidden;
 }
@@ -547,7 +547,7 @@ onMounted(() => {
 .collapse-milestones {
   margin-top: 6px;
   padding-top: 8px;
-  border-top: 1px solid var(--aitext-split-border, rgba(0,0,0,0.06));
+  border-top: 1px solid var(--plotpilot-split-border, rgba(0,0,0,0.06));
 }
 
 .ms-title {
