@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 后端服务启动器
+PlotPilot 后端服务启动器
 ━━━━━━━━━━━━━━━━━━━━
 负责:
   - 查找可用 Python（含 uvicorn）
@@ -305,8 +305,8 @@ class BackendLauncher:
                     pass
 
     def _tail_log(self):
-        """实时追踪 logs/aitext.log，通过回调报告"""
-        log_path = os.path.join(self.proj_dir, "logs", "aitext.log")
+        """实时追踪 logs/plotpilot.log，通过回调报告"""
+        log_path = os.path.join(self.proj_dir, "logs", "plotpilot.log")
 
         # 等待文件出现
         for _ in range(20):

@@ -445,7 +445,7 @@ def get_db_path(args) -> str:
     elif args.env == 'production':
         default_path = Path(__file__).parent.parent / "data" / "production.db"
     else:
-        default_path = Path(__file__).parent.parent / "data" / "aitext.db"
+        default_path = Path(__file__).parent.parent / "data" / "plotpilot.db"
 
     if not default_path.exists():
         raise FileNotFoundError(

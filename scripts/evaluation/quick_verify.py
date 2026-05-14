@@ -3,11 +3,11 @@ import sys
 import os
 
 # 添加项目根目录
-# __file__ = d:\CODE\aitext\scripts\evaluation\quick_verify.py
-# 我们需要 d:\CODE\aitext 在 sys.path 中
-AITEXT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if AITEXT_ROOT not in sys.path:
-    sys.path.insert(0, AITEXT_ROOT)
+# __file__ = D:\CODE\Plotpilot\scripts\evaluation\quick_verify.py
+# 我们需要 D:\CODE\Plotpilot 在 sys.path 中
+PLOTPILOT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if PLOTPILOT_ROOT not in sys.path:
+    sys.path.insert(0, PLOTPILOT_ROOT)
 
 def test_story():
     from engine.core.entities.story import Story, StoryId, StoryPhase

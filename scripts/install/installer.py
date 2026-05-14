@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 依赖安装器
+PlotPilot 依赖安装器
 ━━━━━━━━━━━━━━
 pip install 的 GUI 封装，支持分级安装策略：
 

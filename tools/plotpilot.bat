@@ -12,8 +12,8 @@ cd /d "%~dp0.."
 ::
 ::  用法:
 ::    双击本文件          → 自动模式
-::    aitext.bat pack     → 打包分享
-::    aitext.bat force    → 强制重启
+::    plotpilot.bat pack     → 打包分享
+::    plotpilot.bat force    → 强制重启
 ::  ============================================================
 
 set "MODE=auto"

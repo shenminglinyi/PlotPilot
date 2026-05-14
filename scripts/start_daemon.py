@@ -1,6 +1,6 @@
 """启动自动驾驶守护进程（v2，全依赖注入 + 护城河）
 
-日志：默认与 API 共用 ``logs/aitext.log``（环境变量 LOG_FILE），便于在「主日志」里查看
+日志：默认与 API 共用 ``logs/plotpilot.log``（环境变量 LOG_FILE），便于在「主日志」里查看
 规划/写作/节拍；另可设 LOG_FILE 仅写文件。
 """
 import os
@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from application.paths import AITEXT_ROOT, get_db_path, DATA_DIR
+from application.paths import PLOTPILOT_ROOT, get_db_path, DATA_DIR
 from infrastructure.persistence.database.connection import get_database
 from infrastructure.persistence.database.sqlite_novel_repository import SqliteNovelRepository
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
@@ -54,7 +54,7 @@ from interfaces.api.middleware.logging_config import setup_logging
 
 (DATA_DIR / "logs").mkdir(parents=True, exist_ok=True)
 _log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
-_default_log = str(AITEXT_ROOT / "logs" / "aitext.log")
+_default_log = str(PLOTPILOT_ROOT / "logs" / "plotpilot.log")
 _log_file = os.getenv("LOG_FILE", _default_log)
 setup_logging(level=_log_level, log_file=_log_file)
 

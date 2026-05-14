@@ -32,14 +32,14 @@ class ProjectPacker:
     # 排除的目录
     EXCLUDE_DIRS = [
         '.venv', 'venv', '__pycache__', '.git', 'node_modules',
-        'logs', '.models', '.qoder', 'PlotPilot-master',
+        'logs', '.models', '.qoder', 'plotpilot-master',
         '.playwright-mcp', '.pytest_cache', '.claude',
     ]
 
     # 排除的文件
     EXCLUDE_FILES = [
-        'startup_err.log', 'startup_out.log', 'aitext.db',
-        'aitext.db-shm', 'aitext.db-wal', '.env', 'aitext.lock',
+        'startup_err.log', 'startup_out.log', 'plotpilot.db',
+        'plotpilot.db-shm', 'plotpilot.db-wal', '.env', 'plotpilot.lock',
     ]
 
     def __init__(self, on_log=None, on_progress=None):
@@ -97,7 +97,7 @@ class ProjectPacker:
                     self._log("═══ 收件人使用步骤 ═══", "title")
                     self._log("  ① 解压 ZIP 文件到任意目录", "info")
                     self._log("  ② 安装 Python 3.10+（勾选 Add to PATH）", "info")
-                    self._log("  ③ 双击 tools\\aitext.bat 启动 PlotPilot（墨枢）", "info")
+                    self._log("  ③ 双击 tools\\plotpilot.bat 启动 PlotPilot（墨枢）", "info")
                     return True, default_zip
                 else:
                     self._log(line, "info")
