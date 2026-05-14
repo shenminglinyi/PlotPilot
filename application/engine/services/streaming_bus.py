@@ -92,15 +92,12 @@ class StreamingBus:
     def publish(self, novel_id: str, chunk: str, metadata: Optional[Dict] = None):
         """发布增量文字（守护进程调用）
 
-        背压保护：当队列接近满时（≥80%），丢弃旧消息腾出空间；
-        若消费者已断开（队列长时间满），静默丢弃新消息避免 OOM。
+        重要：单书长章节流式时，队列内按时间顺序排队；**不得**在「背压」时从队头批量
+        discard，否则丢掉的是**正文开头**的 chunk，前端会出现句首残缺（如以「的」起句）。
 
-        Args:
-            novel_id: 小说 ID
-            chunk: 增量文字
-            metadata: 可选元数据（暂未使用）
+        队列满时：只放弃**当前这一条**增量并打日志，避免为写入新消息而清空队头。
         """
-        if not chunk or not chunk.strip():
+        if not chunk:
             return
 
         queue = get_stream_queue()
@@ -114,48 +111,22 @@ class StreamingBus:
         }
 
         try:
-            # 背压保护：队列 ≥80% 时主动丢弃旧消息
-            try:
-                qsize = queue.qsize()
-                if qsize >= MAX_QUEUE_SIZE * 0.8:
-                    # 消费者可能已断开，丢弃旧消息腾出空间
-                    dropped = 0
-                    for _ in range(min(200, qsize // 2)):
-                        try:
-                            queue.get_nowait()
-                            dropped += 1
-                        except Empty:
-                            break
-                    if dropped > 0:
-                        logger.warning(
-                            "[StreamingBus] 背压保护：队列 %d/%d（≥80%%），丢弃 %d 条旧消息: %s",
-                            qsize, MAX_QUEUE_SIZE, dropped, novel_id
-                        )
-            except Exception:
-                pass  # qsize() 在某些平台不可靠
-
             queue.put_nowait(message)
             if _VERBOSE_STREAMING_chunks:
                 logger.debug("[StreamingBus] publish: %s, %d chars", novel_id, len(chunk))
         except Full:
-            # 队列满时，强制丢弃旧消息，写入新消息
-            dropped = 0
-            for _ in range(100):
-                try:
-                    queue.get_nowait()
-                    dropped += 1
-                except Empty:
-                    break
+            # 不再 get_nowait 清空队头：队头几乎一定是本章较早的正文，丢掉会导致开篇缺失。
             try:
-                queue.put_nowait(message)
-                logger.warning(
-                    "[StreamingBus] 队列满，丢弃 %d 条旧消息后写入新消息: %s",
-                    dropped, novel_id
-                )
-            except Full:
-                # 消费者彻底断开，静默丢弃（避免 OOM）
-                if _VERBOSE_STREAMING_chunks:
-                    logger.debug("[StreamingBus] 队列仍满，丢弃消息（消费者可能断开）: %s", novel_id)
+                qsize = queue.qsize()
+            except Exception:
+                qsize = -1
+            logger.warning(
+                "[StreamingBus] 队列满，丢弃本条 chunk（约 %d 字）novel=%s qsize≈%s；"
+                "请检查 SSE 消费是否阻塞或增大 MAX_QUEUE_SIZE",
+                len(chunk),
+                novel_id,
+                qsize,
+            )
         except Exception as e:
             logger.error("[StreamingBus] 发布消息失败: %s", e)
 

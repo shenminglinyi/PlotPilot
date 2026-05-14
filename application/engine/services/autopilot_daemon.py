@@ -853,6 +853,86 @@ class AutopilotDaemon:
 
         return content
 
+    # ── 信息密度检测阈值（每 500 字应有 1 条新事实）──
+    INFO_DENSITY_MIN_FACTS_PER_500 = 0.6   # 低于此值时补写
+    INFO_DENSITY_MAX_SUPPLEMENT = 1        # 最多补写 1 次，控制时间成本
+
+    def _estimate_info_density(self, content: str) -> float:
+        """轻量估算章节信息密度（无 LLM，纯规则）。
+
+        策略：将"可复述新事实"近似为以下句式的命中数：
+        - 包含「发现」「得知」「意识到」「决定」「表示」「承认」「透露」「说」「答」「道」等动词的句子
+        - 包含人名 + 动作的句子（而非景物/体感）
+        这是一种快速启发式，不精确但足以识别"全章无事发生"。
+
+        Returns:
+            facts_per_500: 每 500 字的事实句估计数量
+        """
+        import re
+        if not content or len(content) < 100:
+            return 1.0  # 太短的章节不做处罚
+
+        # 句子分割（以句号、感叹号、问号为边界）
+        sentences = re.split(r'[。！？…]+', content)
+        sentences = [s.strip() for s in sentences if len(s.strip()) > 5]
+
+        fact_keywords = frozenset([
+            "发现", "得知", "意识到", "决定", "表示", "承认", "透露", "说", "答", "道",
+            "问", "笑", "皱眉", "叹", "沉默", "转身", "离开", "拿起", "放下", "走",
+            "站", "坐", "看", "盯", "抬头", "低头", "挥手", "点头", "摇头",
+            "掏出", "交给", "递", "接", "打开", "关上", "进入", "离开",
+        ])
+        fact_count = sum(
+            1 for s in sentences
+            if any(kw in s for kw in fact_keywords)
+        )
+        chars = max(1, len(content.replace("\n", "").replace(" ", "")))
+        return fact_count / (chars / 500)
+
+    async def _density_supplement_beat(
+        self,
+        novel_id: str,
+        chapter_num: int,
+        outline: str,
+        existing_content: str,
+        target_word_count: int,
+        novel: Any,
+    ) -> str:
+        """信息密度补写：追加一个「情节推进节拍」使内容更充实。
+
+        只在密度低于阈值时触发，最多补写 INFO_DENSITY_MAX_SUPPLEMENT 次。
+        补写内容追加到原正文末尾。
+        """
+        supplement_words = max(400, target_word_count // 5)
+        prompt_text = (
+            f"【信息密度补写指令】\n"
+            f"本章大纲：{outline}\n\n"
+            f"本章已生成正文（末尾约400字供参考）：\n"
+            f"…{existing_content[-400:]}\n\n"
+            f"请接续已有正文，补写一段约 {supplement_words} 字的情节推进段落。\n"
+            f"要求：\n"
+            f"1. 至少包含一个角色做出具体决定或行动并产生后果\n"
+            f"2. 或引入一条新信息/线索/冲突\n"
+            f"3. 与前文情绪和场景无缝衔接，不重复已有内容\n"
+            f"4. 不要写章节标题，直接输出正文\n"
+        )
+        try:
+            from domain.ai.value_objects.prompt import Prompt
+            from domain.ai.services.llm_service import GenerationConfig
+            p = Prompt(system="你是专业网文作家，擅长写有信息量的情节推进段落。", user=prompt_text)
+            cfg = GenerationConfig(max_tokens=int(supplement_words * 1.5), temperature=0.82)
+            result = await self.llm_service.generate(p, cfg)
+            supplement = (result.content if hasattr(result, "content") else str(result)).strip()
+            if supplement:
+                logger.info(
+                    "[%s] 📈 信息密度补写：ch=%d 追加 %d 字",
+                    novel_id, chapter_num, len(supplement),
+                )
+                return existing_content.rstrip() + "\n\n" + supplement
+        except Exception as exc:
+            logger.warning("[%s] 信息密度补写失败（不影响主流程）ch=%d: %s", novel_id, chapter_num, exc)
+        return existing_content
+
     def _sync_chronicles_to_shared_memory(self, novel_id: str) -> None:
         """🔥 审计完成后重新构建编年史缓存（Bible timeline_notes + snapshots + chapters），确保全息编年史实时可见。
 
@@ -1886,6 +1966,23 @@ class AutopilotDaemon:
             )
             chapter_content = await self._continuity_self_check(
                 novel.novel_id.value, chapter_num, chapter_content
+            )
+
+        # ── 信息密度检测：事实密度低时补写一拍推进情节 ──
+        density = self._estimate_info_density(chapter_content)
+        if density < self.INFO_DENSITY_MIN_FACTS_PER_500 and len(chapter_content) > 500:
+            logger.info(
+                "[%s] 📉 信息密度低（%.2f facts/500字 < %.2f），触发补写 ch=%d",
+                novel.novel_id.value, density, self.INFO_DENSITY_MIN_FACTS_PER_500, chapter_num,
+            )
+            self._update_shared_state(
+                novel.novel_id.value,
+                writing_substep="density_supplement",
+                writing_substep_label="信息密度补写",
+            )
+            chapter_content = await self._density_supplement_beat(
+                novel.novel_id.value, chapter_num, outline, chapter_content,
+                target_word_count, novel,
             )
 
         # 🔥 先更新阶段到共享内存（不写章节聚合，避免占位 0 覆盖真实数据）

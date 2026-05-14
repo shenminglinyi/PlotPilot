@@ -289,6 +289,11 @@ class ContextBuilder:
         ],
     }
 
+    # 节拍数量上限：拍数过多时每拍字数太少，模型倾向用八股堆满
+    MAX_BEATS = 6
+    # 每拍最低字数：低于此值将合并相邻拍
+    MIN_BEAT_WORDS = 600
+
     def magnify_outline_to_beats(
         self,
         chapter_number: int,
@@ -303,13 +308,79 @@ class ContextBuilder:
         2. 无 BeatSheet 时回退到关键词识别 + 25% 均分
         3. 根据 focus 类型注入扩写维度提示（expansion_hints）
         4. 不再强制 75% 缩减，相信规划阶段的预估
+        5. 拍数上限 MAX_BEATS；每拍目标字数 < MIN_BEAT_WORDS 时合并相邻拍
         """
         # === 路径 A：有规划阶段的 BeatSheet ===
         if beat_sheet is not None and hasattr(beat_sheet, 'scenes') and beat_sheet.scenes:
-            return self._build_beats_from_beat_sheet(beat_sheet, outline, target_chapter_words)
+            beats = self._build_beats_from_beat_sheet(beat_sheet, outline, target_chapter_words)
+        else:
+            # === 路径 B：无 BeatSheet，回退到关键词识别 ===
+            beats = self._build_beats_from_outline(chapter_number, outline, target_chapter_words)
 
-        # === 路径 B：无 BeatSheet，回退到关键词识别 ===
-        return self._build_beats_from_outline(chapter_number, outline, target_chapter_words)
+        return self._cap_and_merge_beats(beats, target_chapter_words)
+
+    def _cap_and_merge_beats(self, beats: List[Beat], target_chapter_words: int) -> List[Beat]:
+        """控制节拍数量与最低字数。
+
+        策略：
+        1. 若 len(beats) > MAX_BEATS，按均分合并使总数降到 MAX_BEATS。
+        2. 若某拍 target_words < MIN_BEAT_WORDS，与下一拍合并（最后一拍与前一拍合并）。
+        3. 合并后重新均摊 target_words 使总字数维持接近 target_chapter_words。
+        """
+        if not beats:
+            return beats
+
+        # 步骤 1：超过 MAX_BEATS 时按组合并
+        while len(beats) > self.MAX_BEATS:
+            # 找到相邻两拍中 target_words 之和最小的组合，合并掉一拍
+            min_sum = None
+            merge_idx = 0
+            for i in range(len(beats) - 1):
+                s = beats[i].target_words + beats[i + 1].target_words
+                if min_sum is None or s < min_sum:
+                    min_sum = s
+                    merge_idx = i
+            beats = self._merge_two_beats(beats, merge_idx)
+
+        # 步骤 2：每拍 < MIN_BEAT_WORDS 时合并
+        changed = True
+        while changed and len(beats) > 1:
+            changed = False
+            for i, b in enumerate(beats):
+                if b.target_words < self.MIN_BEAT_WORDS:
+                    # 与前一拍或后一拍合并（优先后一拍）
+                    merge_idx = i if i < len(beats) - 1 else i - 1
+                    beats = self._merge_two_beats(beats, merge_idx)
+                    changed = True
+                    break
+
+        # 步骤 3：重新均摊 target_words（等比缩放保持各拍权重）
+        total_assigned = sum(b.target_words for b in beats)
+        if total_assigned > 0 and abs(total_assigned - target_chapter_words) > 200:
+            ratio = target_chapter_words / total_assigned
+            for b in beats:
+                b.target_words = max(self.MIN_BEAT_WORDS, int(b.target_words * ratio))
+
+        logger.info(
+            "节拍整形：%d 拍，各拍字数=%s，总目标=%d",
+            len(beats),
+            [b.target_words for b in beats],
+            sum(b.target_words for b in beats),
+        )
+        return beats
+
+    def _merge_two_beats(self, beats: List[Beat], idx: int) -> List[Beat]:
+        """将 beats[idx] 与 beats[idx+1] 合并为一拍。"""
+        a, b = beats[idx], beats[idx + 1]
+        merged = Beat(
+            description=f"{a.description} / {b.description}",
+            target_words=a.target_words + b.target_words,
+            focus=a.focus,  # 保留前拍的 focus 类型
+            expansion_hints=list(dict.fromkeys(a.expansion_hints + b.expansion_hints))[:4],
+            scene_goal=f"{a.scene_goal or ''} {b.scene_goal or ''}".strip(),
+            transition_from_prev=a.transition_from_prev or '',
+        )
+        return beats[:idx] + [merged] + beats[idx + 2:]
 
     def _build_beats_from_beat_sheet(
         self,
