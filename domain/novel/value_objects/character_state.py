@@ -368,12 +368,22 @@ class CharacterState:
             last_updated_chapter=data.get("last_updated_chapter", 0),
         )
 
-    def build_context_injection(self, current_chapter: int = 0) -> str:
-        """构建注入文本（V9: 从 T0 降级到编辑手记，语气从铁律变为参考）"""
+    def build_context_injection(
+        self,
+        current_chapter: int = 0,
+        display_name: Optional[str] = None,
+    ) -> str:
+        """构建注入文本（V9: 从 T0 降级到编辑手记，语气从铁律变为参考）
+
+        Args:
+            current_chapter: 当前章节（用于伤疤强度衰减）
+            display_name: Bible 人物姓名；若提供则注入上下文时用姓名而非 character_id（UUID）
+        """
         if not self.scars and not self.motivations:
             return ""
 
-        lines = [f"  {self.character_id}："]
+        label = (display_name or "").strip() or self.character_id
+        lines = [f"  {label}："]
 
         # 伤疤（V9: 显示衰减后的有效强度）
         for scar in self.get_active_scars(current_chapter):
