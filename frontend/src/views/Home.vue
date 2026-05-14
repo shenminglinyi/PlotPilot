@@ -3,6 +3,7 @@
     <StatsSidebar
       @create-book="focusCreateInput"
       @refresh-list="handleRefreshList"
+      @open-settings="showLLMSettings = true"
       @collapsed-change="handleSidebarCollapsedChange"
     />
     <div class="home-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
@@ -11,6 +12,18 @@
       <div class="container">
         <!-- Header -->
         <header class="header">
+          <n-button
+            quaternary
+            circle
+            size="medium"
+            class="header-theme-btn"
+            aria-label="主题设置"
+            @click="showLLMSettings = true"
+          >
+            <template #icon>
+              <n-icon :component="IconThemeSettings" :size="22" />
+            </template>
+          </n-button>
           <div class="header-content">
             <h1 class="title">墨枢 · 长篇叙事工作台</h1>
             <p class="subtitle">
@@ -433,6 +446,14 @@ const IconChevronUp = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
     h('path', { fill: 'currentColor', d: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z' }))
 
+/** 与工作台顶栏「设置」一致，打开主题设置弹窗 */
+const IconThemeSettings = () =>
+  h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
+    h('path', {
+      fill: 'currentColor',
+      d: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z',
+    }))
+
 interface BookListItem {
   slug: string
   title: string
@@ -806,9 +827,26 @@ onMounted(() => {
 }
 
 .header {
+  position: relative;
   text-align: center;
   margin-bottom: 40px;
   animation: fade-up 0.55s ease both;
+}
+
+.header-theme-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  color: var(--app-text-secondary);
+}
+
+.header-theme-btn:hover {
+  color: var(--color-brand, #4f46e5);
+}
+
+.header-content {
+  padding: 0 44px;
 }
 
 .title {

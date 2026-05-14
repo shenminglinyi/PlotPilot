@@ -132,12 +132,12 @@ defineExpose({ loadCharacters })
   flex-direction: column;
   overflow: hidden;
   background: var(--app-surface);
-  border-right: 1px solid var(--aitext-split-border);
+  border-right: 1px solid var(--plotpilot-split-border);
 }
 
 .navigator-header {
   padding: 12px 16px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
 }
 

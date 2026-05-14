@@ -141,8 +141,8 @@ watch(activeTab, (tab) => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--aitext-panel-muted);
-  border-left: 1px solid var(--aitext-split-border);
+  background: var(--plotpilot-panel-muted);
+  border-left: 1px solid var(--plotpilot-split-border);
 }
 
 /* 当前章节上下文提示条 */
@@ -152,7 +152,7 @@ watch(activeTab, (tab) => {
   gap: 6px;
   padding: 4px 12px;
   background: var(--app-surface);
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
   font-size: 12px;
   color: var(--app-text-muted);
@@ -173,7 +173,7 @@ watch(activeTab, (tab) => {
 .settings-tabs :deep(.n-tabs-nav) {
   padding: 0 8px;
   background: var(--app-surface);
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   overflow-x: auto;
   scrollbar-width: none;
 }

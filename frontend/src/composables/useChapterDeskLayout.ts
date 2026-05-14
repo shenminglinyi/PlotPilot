@@ -2,7 +2,7 @@ import { reactive, watch } from 'vue'
 import { useMediaQuery, useStorage } from '@vueuse/core'
 
 const STACK_MEDIA = '(max-width: 992px)'
-const STORAGE_RAIL_EXPANDED = 'aitext.chapterDesk.railExpanded'
+const STORAGE_RAIL_EXPANDED = 'plotpilot.chapterDesk.railExpanded'
 
 export interface UseChapterDeskLayoutOptions {
   /** 与 CSS / Shell 保持一致 */

@@ -70,12 +70,14 @@ impl BackendManager {
         }
     }
 
-    /// 是否在启动 Python 时注入 AITEXT_PROD_DATA_DIR（release 默认开启；debug 需设 AITEXT_FORCE_PROD_DATA=1）
+    /// 是否在启动 Python 时注入 PLOTPILOT_PROD_DATA_DIR（release 默认开启；debug 需设 PLOTPILOT_FORCE_PROD_DATA=1）
     fn should_inject_prod_data_dir() -> bool {
         if cfg!(debug_assertions) {
-            std::env::var("AITEXT_FORCE_PROD_DATA")
+            let force = std::env::var("PLOTPILOT_FORCE_PROD_DATA")
+                .or_else(|_| std::env::var("AITEXT_FORCE_PROD_DATA"))
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false)
+                .unwrap_or(false);
+            force
         } else {
             true
         }
@@ -110,16 +112,17 @@ impl BackendManager {
         }
         let path = Self::resolve_prod_data_dir(handle)?;
         log::info!(
-            "📁 注入 {}={}",
-            "AITEXT_PROD_DATA_DIR",
+            "📁 注入 {}={}（同时设置旧名 AITEXT_PROD_DATA_DIR 以兼容）",
+            "PLOTPILOT_PROD_DATA_DIR",
             path.display()
         );
+        cmd.env("PLOTPILOT_PROD_DATA_DIR", path.as_os_str());
         cmd.env("AITEXT_PROD_DATA_DIR", path.as_os_str());
 
         let logs_dir = path.join("logs");
         std::fs::create_dir_all(&logs_dir)
             .map_err(|e| format!("无法创建日志目录 {}: {}", logs_dir.display(), e))?;
-        let log_file = logs_dir.join("aitext.log");
+        let log_file = logs_dir.join("plotpilot.log");
         cmd.env("LOG_FILE", log_file.as_os_str());
 
         Ok(())

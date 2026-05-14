@@ -117,8 +117,8 @@ body {
   --app-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ── 面板专用 ── */
-  --aitext-split-border: rgba(15, 23, 42, 0.07);
-  --aitext-panel-muted: #f8fafc;
+  --plotpilot-split-border: rgba(15, 23, 42, 0.07);
+  --plotpilot-panel-muted: #f8fafc;
 
   /* ── 字体 ── */
   --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Inter', system-ui, sans-serif;
@@ -238,8 +238,8 @@ body {
   --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.4);
 
   /* ── 面板专用 ── */
-  --aitext-split-border: rgba(148, 163, 184, 0.1);
-  --aitext-panel-muted: #161d2e;
+  --plotpilot-split-border: rgba(148, 163, 184, 0.1);
+  --plotpilot-panel-muted: #161d2e;
 
   /* ── StatsTopBar 渐变（暗色版：深靛蓝+微光）── */
   --stats-bar-gradient: linear-gradient(135deg, #161d2e 0%, #1e293b 50%, #334155 100%);
@@ -371,8 +371,8 @@ body {
   --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 30px rgba(201, 162, 39, 0.08);
 
   /* ── 面板专用 ── */
-  --aitext-split-border: rgba(201, 162, 39, 0.1);
-  --aitext-panel-muted: #0d1018;
+  --plotpilot-split-border: rgba(201, 162, 39, 0.1);
+  --plotpilot-panel-muted: #0d1018;
 
   /* ── StatsTopBar 渐变（黑金版：墨黑金边）── */
   --stats-bar-gradient: linear-gradient(135deg, #16130f 0%, #1f1a13 50%, #2a2318 100%);
@@ -395,12 +395,12 @@ body {
    ═══════════════════════════════════════════════════ */
 
 /* 工作台 / 侧栏共用 */
-.aitext-panel-surface {
-  background: var(--aitext-panel-muted);
-  border-left: 1px solid var(--aitext-split-border);
+.plotpilot-panel-surface {
+  background: var(--plotpilot-panel-muted);
+  border-left: 1px solid var(--plotpilot-split-border);
 }
 
-.aitext-panel-title {
+.plotpilot-panel-title {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -408,14 +408,14 @@ body {
   margin: 0 0 8px;
 }
 
-.aitext-panel-desc {
+.plotpilot-panel-desc {
   font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--app-text-muted);
   margin-bottom: 12px;
 }
 
-.aitext-composer-hint {
+.plotpilot-composer-hint {
   font-size: var(--font-size-xs);
   line-height: 1.45;
   color: var(--app-text-muted);
@@ -586,7 +586,7 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 /* ═══════════════════════════════════════════════════
    SettingsPanel 右侧面板
    ═══════════════════════════════════════════════════ */
-.right-panel { background: var(--aitext-panel-muted); }
+.right-panel { background: var(--plotpilot-panel-muted); }
 
 /* ═══════════════════════════════════════════════════
    主题切换过渡动画

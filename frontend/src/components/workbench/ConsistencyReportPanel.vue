@@ -127,10 +127,10 @@ function severityLabel(sev: string): string {
 
 <style scoped>
 .cr-panel {
-  border: 1px solid var(--aitext-split-border, #e0e0e6);
+  border: 1px solid var(--plotpilot-split-border, #e0e0e6);
   border-radius: 8px;
   padding: 10px 12px;
-  background: var(--aitext-panel-muted, rgba(0, 0, 0, 0.02));
+  background: var(--plotpilot-panel-muted, rgba(0, 0, 0, 0.02));
   max-height: min(52vh, 480px);
   overflow: auto;
 }
@@ -161,7 +161,7 @@ function severityLabel(sev: string): string {
 .cr-item + .cr-item {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px dashed var(--aitext-split-border, #e0e0e6);
+  border-top: 1px dashed var(--plotpilot-split-border, #e0e0e6);
 }
 
 .cr-desc {

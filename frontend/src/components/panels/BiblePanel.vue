@@ -423,7 +423,7 @@ const save = async () => {
       ...k,
       premise_lock: premiseLock.value.trim(),
     })
-    window.dispatchEvent(new CustomEvent('aitext:knowledge:reload'))
+    window.dispatchEvent(new CustomEvent('plotpilot:knowledge:reload'))
 
     message.success('设定与梗概锁定已保存')
     syncJsonFromState()
@@ -440,7 +440,7 @@ const generatePremiseKnowledge = async () => {
     const res = await knowledgeApi.generateKnowledge(props.slug)
     message.success(res.message || '梗概已生成')
     await load({ preserveSurface: true })
-    window.dispatchEvent(new CustomEvent('aitext:knowledge:reload'))
+    window.dispatchEvent(new CustomEvent('plotpilot:knowledge:reload'))
   } catch (e: any) {
     message.error(e?.response?.data?.detail || 'AI 生成失败，请确认 API Key 已配置')
   } finally {
@@ -496,7 +496,7 @@ const generateBible = async () => {
 }
 
 
-const BIBLE_PANEL_SOFT_RELOAD = 'aitext:bible-panel:soft-reload'
+const BIBLE_PANEL_SOFT_RELOAD = 'plotpilot:bible-panel:soft-reload'
 
 watch(
   () => [props.slug, props.reloadNonce] as const,

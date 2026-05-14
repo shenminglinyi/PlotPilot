@@ -593,7 +593,7 @@ const useHitToComposer = () => {
   if (!h) return
   const t = String(h.text || '').trim()
   if (!t) return
-  window.dispatchEvent(new CustomEvent('aitext:composer:insert', { detail: { text: t } }))
+  window.dispatchEvent(new CustomEvent('plotpilot:composer:insert', { detail: { text: t } }))
   message.success('已引用到输入框')
 }
 
@@ -719,7 +719,7 @@ const goCastChapter = (cid: number) => {
 const reloadKnowledge = () => {
   knowledgeLoading.value = true
   // 触发子组件重新加载
-  window.dispatchEvent(new CustomEvent('aitext:knowledge:reload'))
+  window.dispatchEvent(new CustomEvent('plotpilot:knowledge:reload'))
   setTimeout(() => {
     knowledgeLoading.value = false
   }, 500)
@@ -749,11 +749,11 @@ function onKnowledgeReloadFromOutside() {
 
 onMounted(() => {
   void load()
-  window.addEventListener('aitext:knowledge:reload', onKnowledgeReloadFromOutside)
+  window.addEventListener('plotpilot:knowledge:reload', onKnowledgeReloadFromOutside)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('aitext:knowledge:reload', onKnowledgeReloadFromOutside)
+  window.removeEventListener('plotpilot:knowledge:reload', onKnowledgeReloadFromOutside)
 })
 </script>
 

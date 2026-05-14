@@ -253,8 +253,14 @@ function startTypewriter() {
     const current = displayedText.value
 
     if (current.length < target.length) {
+      const lag = target.length - current.length
+      // 追赶过远时一次对齐，避免长时间落后被误认为「正文缺字」（真缺字在 writingContent 侧）
+      if (lag > 2500) {
+        displayedText.value = target
+        return
+      }
       // 每次追加 1-3 个字符（加快追赶速度）
-      const charsToAdd = Math.min(3, target.length - current.length)
+      const charsToAdd = Math.min(3, lag)
       displayedText.value = target.slice(0, current.length + charsToAdd)
 
       // 自动滚动
@@ -276,7 +282,7 @@ function stopTypewriter() {
 
 watch(
   () => props.writingContent,
-  (content) => {
+  (content, prevContent) => {
     if (!content) {
       sessionStartTime.value = 0
       sessionStartWordCount.value = 0
@@ -290,6 +296,24 @@ watch(
     const now = Date.now()
     const currentCount = content.length
 
+    // onChapterContent 会用完整正文整体替换 writingContent（非增量追加）。
+    // 此时打字机的 displayedText 仍停在旧 content 的某个位置，直接继续追赶
+    // 会出现两种竞态：① 回退（新内容比 displayedText 短）② 内容跳变后追不上。
+    // 检测方案：若新内容与旧内容前缀不匹配（替换而非追加），立即对齐 displayedText。
+    const wasReplaced =
+      prevContent != null &&
+      content.length > 0 &&
+      prevContent.length > 0 &&
+      !content.startsWith(prevContent.slice(0, Math.min(prevContent.length, 80)))
+    if (wasReplaced) {
+      stopTypewriter()
+      displayedText.value = content
+      lastContentLength.value = currentCount
+      sessionStartTime.value = now
+      sessionStartWordCount.value = currentCount
+      return
+    }
+
     if (sessionStartTime.value === 0) {
       sessionStartTime.value = now
       sessionStartWordCount.value = currentCount
@@ -301,7 +325,7 @@ watch(
       writingSpeed.value = Math.round(totalWords / totalSeconds)
     }
 
-    // 🔥 启动打字机效果
+    // 增量追加：启动打字机
     if (currentCount > lastContentLength.value) {
       startTypewriter()
     }

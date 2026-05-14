@@ -103,7 +103,7 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     await loadDesk()
     // 作品设定页若已挂载：软刷新 Bible（避免整组件 :key 重建导致闪烁）
     if (rightPanel.value === 'bible') {
-      window.dispatchEvent(new CustomEvent('aitext:bible-panel:soft-reload'))
+      window.dispatchEvent(new CustomEvent('plotpilot:bible-panel:soft-reload'))
     }
   }
 

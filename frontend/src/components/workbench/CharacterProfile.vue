@@ -359,7 +359,7 @@ useWorkbenchDeskTickReload(() => {
 
 .profile-header {
   padding: 10px 14px 12px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
 }
 
@@ -475,7 +475,7 @@ useWorkbenchDeskTickReload(() => {
   display: flex;
   flex-direction: column;
   gap: 0;
-  border: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
   border-radius: 6px;
   overflow: hidden;
 }
@@ -485,7 +485,7 @@ useWorkbenchDeskTickReload(() => {
   grid-template-columns: 52px 1fr;
   gap: 0;
   align-items: stretch;
-  border-bottom: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.06));
   font-size: 12px;
   line-height: 1.55;
 }
@@ -498,7 +498,7 @@ useWorkbenchDeskTickReload(() => {
   margin: 0;
   padding: 6px 8px;
   background: var(--app-page-bg, #f5f5f5);
-  border-right: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.06));
+  border-right: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.06));
   display: flex;
   align-items: center;
 }
@@ -542,7 +542,7 @@ useWorkbenchDeskTickReload(() => {
 .evolution-timeline {
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px dashed var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+  border-top: 1px dashed var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
 }
 
 .evolution-timeline .section-label {
@@ -591,7 +591,7 @@ useWorkbenchDeskTickReload(() => {
 
 .readonly-dl {
   margin: 0;
-  border: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
   border-radius: 6px;
   overflow: hidden;
 }
@@ -601,7 +601,7 @@ useWorkbenchDeskTickReload(() => {
   grid-template-columns: 44px 1fr;
   font-size: 12px;
   line-height: 1.55;
-  border-bottom: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.06));
 }
 
 .readonly-row:last-child {
@@ -618,7 +618,7 @@ useWorkbenchDeskTickReload(() => {
   color: var(--n-text-color-3);
   font-size: 11px;
   background: var(--app-page-bg, #f5f5f5);
-  border-right: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.06));
+  border-right: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.06));
 }
 
 .readonly-row dd {
@@ -644,7 +644,7 @@ useWorkbenchDeskTickReload(() => {
   word-break: break-word;
   background: var(--app-page-bg, #fafafa);
   border-radius: 6px;
-  border: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
 }
 
 .inject-preview--open {

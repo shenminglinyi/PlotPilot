@@ -1598,7 +1598,7 @@ defineExpose({ ensureAssistedMode })
   justify-content: space-between;
   gap: 8px;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+  border-bottom: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
 }
 
 .rail-scroll {
@@ -1706,7 +1706,7 @@ defineExpose({ ensureAssistedMode })
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
 }
 
 .work-title-wrap {
@@ -1732,7 +1732,7 @@ defineExpose({ ensureAssistedMode })
     var(--app-surface) 0%,
     color-mix(in srgb, var(--color-success, #22c55e) 3%, var(--app-surface)) 100%
   );
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
 }
 
 .monitor-container {

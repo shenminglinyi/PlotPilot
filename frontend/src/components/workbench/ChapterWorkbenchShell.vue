@@ -107,7 +107,7 @@ function emitRail(v: boolean) {
 .cws-toolbar {
   flex-shrink: 0;
   padding: 8px 16px 0;
-  border-bottom: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.06));
 }
 
 .cws--stacked .cws-toolbar {
@@ -126,7 +126,7 @@ function emitRail(v: boolean) {
 .cws-rail {
   width: min(400px, 38vw);
   flex-shrink: 0;
-  border-left: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+  border-left: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -148,7 +148,7 @@ function emitRail(v: boolean) {
 .cws-rail-collapsed {
   width: 40px;
   flex-shrink: 0;
-  border-left: 1px solid var(--aitext-split-border, rgba(0, 0, 0, 0.08));
+  border-left: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
   display: flex;
   flex-direction: column;
   align-items: center;

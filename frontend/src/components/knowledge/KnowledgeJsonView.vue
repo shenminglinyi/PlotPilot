@@ -95,11 +95,11 @@ const handleReloadEvent = () => {
 
 onMounted(() => {
   reload()
-  window.addEventListener('aitext:knowledge:reload', handleReloadEvent)
+  window.addEventListener('plotpilot:knowledge:reload', handleReloadEvent)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('aitext:knowledge:reload', handleReloadEvent)
+  window.removeEventListener('plotpilot:knowledge:reload', handleReloadEvent)
 })
 </script>
 
