@@ -21,14 +21,14 @@ from interfaces.api.dependencies import (
     get_chapter_repository,
 )
 from infrastructure.persistence.database.chapter_draft_repository import ChapterDraftRepository
-from application.paths import DATA_DIR
+from application.paths import get_db_path
 from domain.shared.exceptions import EntityNotFoundError
 logger = logging.getLogger(__name__)
 
 
 def _get_draft_repo() -> ChapterDraftRepository:
     from infrastructure.persistence.database.connection import DatabaseConnection
-    db_path = str(DATA_DIR / "aitext.db")
+    db_path = get_db_path()
     return ChapterDraftRepository(DatabaseConnection(db_path))
 
 

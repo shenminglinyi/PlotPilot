@@ -8,7 +8,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, Tuple
 from domain.novel.entities.novel import AutopilotStatus, NovelStage
 from domain.novel.entities.chapter import ChapterStatus
@@ -1028,20 +1028,38 @@ def _log_stream_file_cursor_init_sync(log_file_path: str, after_seq: int) -> int
     return file_end_offset(log_file_path)
 
 
+def _clamp_autopilot_target_chapters(tc: int) -> int:
+    return max(1, min(9999, int(tc)))
+
+
+def _clamp_autopilot_words_per_chapter(w: int) -> int:
+    return max(500, min(10000, int(w)))
+
+
 class StartRequest(BaseModel):
     max_auto_chapters: Optional[int] = 9999  # 保护上限，默认几乎无限制，由 target_chapters 控制实际完成点
+    target_chapters: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=9999,
+        description="本次启动采用的目标总章数（与前端向导一致时可原子落库，避免与 PUT /novels 竞态）",
+    )
+    target_words_per_chapter: Optional[int] = Field(
+        default=None,
+        ge=500,
+        le=10000,
+        description="每章目标字数（与 resolve_v1_length_params 上限对齐）",
+    )
 
 
 @router.post("/{novel_id}/start")
 async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
-    """启动自动驾驶（非阻塞版：共享内存先行，DB 持久化异步）
+    """启动自动驾驶（共享内存先行；目标章数字数原子落库后再发 IPC，避免与 PUT 竞态）。
 
-    架构优化：
-    1. 先写共享内存（前端立即可见状态变更）
-    2. 再异步持久化到 DB（不阻塞事件循环，守护进程 DB 被锁时不卡 API）
-    3. 最后发布 IPC 启动信号（守护进程亚毫秒级感知）
-
-    即使 DB 暂时被锁，前端和守护进程也能通过共享内存和 IPC 立即开始工作。
+    架构：
+    1. 解析当前阶段并合并本次请求的 target_chapters / target_words_per_chapter（可选）。
+    2. 立即写入共享内存（含目标字数，供 /status 与前端进度条）。
+    3. await 线程池中的 DB 持久化（RUNNING + 目标字段），再发布 IPC —— 守护进程下一轮读 DB 即可拿到正确每章字数。
     """
     loop = asyncio.get_running_loop()
 
@@ -1049,7 +1067,8 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
     next_stage = None
     current_act = 0
     current_chapter_in_act = 0
-    target_chapters = 1
+    resolved_tc = 1
+    resolved_twpc = 2500
     current_stage_str = "macro_planning"
 
     shared = _get_shared_state_for_novel(novel_id)
@@ -1058,7 +1077,8 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         current_stage_str = shared.get("current_stage", "macro_planning")
         current_act = shared.get("current_act", 0) or 0
         current_chapter_in_act = shared.get("current_chapter_in_act", 0) or 0
-        target_chapters = shared.get("target_chapters", 1) or 1
+        resolved_tc = int(shared.get("target_chapters", 1) or 1)
+        resolved_twpc = int(shared.get("target_words_per_chapter") or 2500)
 
         # 计算下一阶段
         fresh_stages = {"planning", "macro_planning"}
@@ -1084,6 +1104,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
                 "current_act": n.current_act or 0,
                 "current_chapter_in_act": n.current_chapter_in_act or 0,
                 "target_chapters": n.target_chapters or 1,
+                "target_words_per_chapter": getattr(n, "target_words_per_chapter", None) or 2500,
             }
 
         try:
@@ -1100,7 +1121,8 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         current_stage_str = novel_data["current_stage"]
         current_act = novel_data["current_act"]
         current_chapter_in_act = novel_data["current_chapter_in_act"]
-        target_chapters = novel_data["target_chapters"]
+        resolved_tc = int(novel_data["target_chapters"])
+        resolved_twpc = int(novel_data.get("target_words_per_chapter") or 2500)
 
         fresh_stages = {"planning", "macro_planning"}
         if current_stage_str in fresh_stages:
@@ -1113,6 +1135,11 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
         else:
             next_stage = current_stage_str
 
+    if body.target_chapters is not None:
+        resolved_tc = _clamp_autopilot_target_chapters(body.target_chapters)
+    if body.target_words_per_chapter is not None:
+        resolved_twpc = _clamp_autopilot_words_per_chapter(body.target_words_per_chapter)
+
     # ── 第二步：立即写入共享内存（前端立即可见）──
     try:
         from interfaces.main import update_shared_novel_state
@@ -1123,14 +1150,16 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
             current_chapter_in_act=current_chapter_in_act,
             current_beat_index=0,
             consecutive_error_count=0,
+            target_chapters=resolved_tc,
+            target_words_per_chapter=resolved_twpc,
         )
         logger.debug("autopilot start: 已刷新共享内存状态 novel=%s", novel_id)
     except Exception as e:
         logger.debug("刷新共享内存失败（可忽略）: %s", e)
 
-    # ── 第三步：异步持久化到 DB（不阻塞 API 返回）──
+    # ── 第三步：持久化到 DB（await：确保守护进程 wake 时已能读到正确目标字数）──
     def _start_persist_sync():
-        """线程池中执行：DB 读取 + 写入（不阻塞事件循环）"""
+        """线程池中执行：DB 读取 + 写入"""
         try:
             repo = get_novel_repository()
             novel = repo.get_by_id(NovelId(novel_id))
@@ -1140,6 +1169,8 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
             novel.max_auto_chapters = body.max_auto_chapters
             novel.current_auto_chapters = novel.current_auto_chapters or 0
             novel.consecutive_error_count = 0
+            novel.target_chapters = resolved_tc
+            novel.target_words_per_chapter = resolved_twpc
 
             fresh_stages_obj = {NovelStage.PLANNING, NovelStage.MACRO_PLANNING}
             if novel.current_stage in fresh_stages_obj:
@@ -1148,11 +1179,19 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
                 novel.current_stage = _stage_after_review(novel)
 
             repo.save(novel)
-            logger.info("autopilot start: novel_id=%s persisted RUNNING (DB)", novel_id)
+            logger.info(
+                "autopilot start: novel_id=%s persisted RUNNING (DB) tc=%s twpc=%s",
+                novel_id,
+                resolved_tc,
+                resolved_twpc,
+            )
         except Exception as e:
             logger.warning("autopilot start DB 持久化失败（共享内存已生效）: %s", e)
 
-    loop.run_in_executor(_SSE_THREAD_POOL, _start_persist_sync)  # 🔥 不 await，fire-and-forget
+    try:
+        await asyncio.wait_for(loop.run_in_executor(_SSE_THREAD_POOL, _start_persist_sync), timeout=30.0)
+    except asyncio.TimeoutError:
+        logger.warning("autopilot start DB 持久化超时 novel=%s（IPC 仍将发送）", novel_id)
 
     # ── 第四步：发布 IPC 启动信号 ──
     try:
@@ -1163,10 +1202,11 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
 
     return {
         "success": True,
-        "message": f"自动驾驶已启动，目标 {target_chapters} 章（保护上限 {body.max_auto_chapters} 章）",
+        "message": f"自动驾驶已启动，目标 {resolved_tc} 章 × {resolved_twpc} 字/章（保护上限 {body.max_auto_chapters} 章）",
         "autopilot_status": "running",
         "current_stage": next_stage,
-        "target_chapters": target_chapters,
+        "target_chapters": resolved_tc,
+        "target_words_per_chapter": resolved_twpc,
     }
 
 
@@ -1471,7 +1511,7 @@ async def autopilot_log_stream(
         for line in replay_lines:
             yield line
 
-        log_file_path = os.getenv("LOG_FILE", "logs/aitext.log")
+        log_file_path = os.getenv("LOG_FILE", "logs/plotpilot.log")
         file_cursor = await loop.run_in_executor(
             _SSE_THREAD_POOL, _log_stream_file_cursor_init_sync, log_file_path, after_seq
         )
