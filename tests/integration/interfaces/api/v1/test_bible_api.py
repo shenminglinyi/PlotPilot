@@ -31,7 +31,7 @@ def get_test_bible_service():
 def setup_test_env(tmp_path):
     global _test_novel_service, _test_bible_service, _test_db
 
-    db_path = str(tmp_path / "aitext.db")
+    db_path = str(tmp_path / "plotpilot.db")
     _test_db = DatabaseConnection(db_path)
     novel_repo = SqliteNovelRepository(_test_db)
     chapter_repo = SqliteChapterRepository(_test_db)
