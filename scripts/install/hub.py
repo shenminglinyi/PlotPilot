@@ -29,7 +29,7 @@ import traceback
 # 关键：路径处理，兼容 3 种运行环境：
 #   ① python scripts/install/hub.py   (开发调试)
 #  ② python -m PyInstaller 打包的 exe   (分发)
-#  ③ tools/aitext.bat 调用（用户；脚本为历史文件名）
+#  ③ tools/plotpilot.bat 调用（用户）
 # ══════════════════════════════════════════════
 _HUB_FILE = os.path.abspath(__file__)
 _HUB_DIR = os.path.dirname(_HUB_FILE)
@@ -107,7 +107,7 @@ from packer import ProjectPacker
 # ══════════════════════════════════════════════
 
 class HubWindow(BaseWindow):
-    """aitex 统一 GUI 中心窗口"""
+    """PlotPilot 统一 GUI 中心窗口"""
 
     STEP_NAMES = [
         "实例检测", "环境检查", "虚拟环境",

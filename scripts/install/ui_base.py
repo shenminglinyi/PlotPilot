@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 可复用 UI 组件基类
+PlotPilot 可复用 UI 组件基类
 ━━━━━━━━━━━━━━━━━━
 提供所有窗口共用的 UI 构建块:
   - BaseWindow: 基础窗口（标题栏、拖拽、居中、overrideredirect）
@@ -215,7 +215,7 @@ class SystemTray:
 
 class BaseWindow:
     """
-    所有 aitex GUI 窗口的基类。
+    所有 PlotPilot GUI 窗口的基类。
     提供: 无边框窗口、标题栏(拖拽+关闭)、居中、Logo区
     子类只需实现 _build_body() 即可。
 

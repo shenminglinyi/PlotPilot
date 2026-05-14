@@ -1,4 +1,4 @@
-# 清空 aitext/data 下本地开发数据（SQLite、novels、bibles、storylines 等）。
+# 清空 Plotpilot/data 下本地开发数据（SQLite、novels、bibles、storylines 等）。
 # 若报错「文件正由另一进程使用」，请先停止 uvicorn / 后端再执行。
 
 $ErrorActionPreference = "Stop"

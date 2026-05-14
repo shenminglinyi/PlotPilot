@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 启动器打包脚本
+PlotPilot 启动器打包脚本
 ━━━━━━━━━━━━━━━━
 将 scripts/install/ 打包为独立 exe。
 双击即用，无需 Python 环境。
@@ -11,7 +11,7 @@ aitex 启动器打包脚本
   python build_exe.py clean    # 清理构建缓存
 
 输出:
-  dist/aitext/   (包含 aitext.exe 的文件夹)
+  dist/plotpilot/   (包含 plotpilot.exe 的文件夹)
 """
 
 import os
@@ -28,8 +28,8 @@ PROJ_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))  # 项目根目录
 ENTRY_FILE = os.path.join(INSTALL_DIR, "__main__.py")  # Bootstrap 入口
 DIST_DIR = os.path.join(PROJ_DIR, "dist")
 BUILD_DIR = os.path.join(PROJ_DIR, "build")
-EXE_NAME = "aitext"
-ICON_PATH = os.path.join(PROJ_DIR, "docs", "aitext.ico")
+EXE_NAME = "plotpilot"
+ICON_PATH = os.path.join(PROJ_DIR, "docs", "plotpilot.ico")
 EMBED_PYTHON_DIR = os.path.join(PROJ_DIR, "tools", "python_embed")  # 内嵌 Python 目录（运行时自动解压）
 EMBED_PYTHON_ZIP = os.path.join(PROJ_DIR, "tools")  # zip 所在目录
 
@@ -49,7 +49,7 @@ def build():
     init_file = os.path.join(INSTALL_DIR, "__init__.py")
     if not os.path.exists(init_file):
         with open(init_file, "w", encoding="utf-8") as f:
-            f.write("# aitex installer package\n")
+            f.write("# PlotPilot installer package\n")
 
     # ═══ 检查内嵌 Python zip（运行时自动解压） ═══
     import re as _re
@@ -150,7 +150,7 @@ def build():
         print(f"  [ICON] No icon found, skipping.")
 
     print("=" * 56)
-    print("  Building aitex launcher...")
+    print("  Building PlotPilot launcher...")
     print(f"  Entry:  {ENTRY_FILE} (bootstrap)")
     print(f"  Output: {os.path.join(DIST_DIR, EXE_NAME)}")
     print("=" * 56)
