@@ -17,6 +17,7 @@ from application.blueprint.services.continuous_planning_service import (
     MergeConflictException,
     get_macro_plan_progress,
     get_macro_plan_result,
+    get_act_chapters_llm_stream,
 )
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
@@ -95,10 +96,11 @@ async def stream_macro_plan_sse(
     novel_id: str,
     service: ContinuousPlanningService = Depends(get_service),
 ):
-    """宏观规划 SSE 流式端点：后台生成整版结构，然后逐节点推送给前端（部→卷→幕）。
+    """宏观规划 SSE 流式端点：LLM 生成阶段推送原始文本片段（chunk），完成后逐节点推送部→卷→幕。
 
     事件格式（text/event-stream）：
       event: status   data: {phase, message, current, total, percent}
+      event: chunk    data: {text}   # LLM 增量输出（原始文本）
       event: node     data: {type, part_index, volume_index?, act_index?, title, description, estimated_chapters?}
       event: done     data: {structure, quality_metrics, generation_time}
       event: error    data: {message}
@@ -136,9 +138,16 @@ async def stream_macro_plan_sse(
 
         # ─── 轮询进度，直到 LLM 任务结束 ──────────────────────────
         last_msg = ""
+        last_stream_len = 0
         while not task.done():
             await asyncio.sleep(0.4)
             prog = get_macro_plan_progress(novel_id)
+            stream_full = prog.get("llm_stream_text") or ""
+            if len(stream_full) > last_stream_len:
+                delta = stream_full[last_stream_len:]
+                last_stream_len = len(stream_full)
+                if delta:
+                    yield _sse("chunk", {"text": delta})
             msg = prog.get("message", "")
             if msg and msg != last_msg:
                 last_msg = msg
@@ -149,6 +158,13 @@ async def stream_macro_plan_sse(
                     "total": prog.get("total", 0),
                     "percent": prog.get("percent", 0),
                 })
+
+        prog = get_macro_plan_progress(novel_id)
+        stream_full = prog.get("llm_stream_text") or ""
+        if len(stream_full) > last_stream_len:
+            tail = stream_full[last_stream_len:]
+            if tail:
+                yield _sse("chunk", {"text": tail})
 
         if task.cancelled():
             yield _sse("error", {"message": "规划已取消"})
@@ -329,11 +345,12 @@ async def stream_act_chapters_sse(
     ),
     service: ContinuousPlanningService = Depends(get_service),
 ):
-    """幕级章节规划 SSE：在 LLM 生成期间推送 status + 骨架占位，生成结束后逐章推送再 done。
+    """幕级章节规划 SSE：LLM 生成阶段推送原始文本 chunk；完成后逐章骨架再 done。
 
     事件格式（text/event-stream）：
       event: status   data: {phase, message, percent?, expected_chapters?}
-      event: chapter  data: {index, title, outline?, ...}  # LLM 返回的单章对象
+      event: chunk    data: {text}   # LLM 增量输出
+      event: chapter  data: {index, title, outline?, ...}
       event: done     data: {success, act_id, chapters}
       event: error    data: {message}
     """
@@ -367,9 +384,16 @@ async def stream_act_chapters_sse(
         )
 
         tick = 0
+        last_stream_len = 0
         while not task.done():
             await asyncio.sleep(0.4)
             tick += 1
+            stream_full = get_act_chapters_llm_stream(act_id)
+            if len(stream_full) > last_stream_len:
+                delta = stream_full[last_stream_len:]
+                last_stream_len = len(stream_full)
+                if delta:
+                    yield _sse("chunk", {"text": delta})
             yield _sse(
                 "status",
                 {
@@ -379,6 +403,12 @@ async def stream_act_chapters_sse(
                     "percent": min(8 + (tick % 10) * 3, 88),
                 },
             )
+
+        stream_full = get_act_chapters_llm_stream(act_id)
+        if len(stream_full) > last_stream_len:
+            tail = stream_full[last_stream_len:]
+            if tail:
+                yield _sse("chunk", {"text": tail})
 
         if task.cancelled():
             yield _sse("error", {"message": "规划已取消"})
