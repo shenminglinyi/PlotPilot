@@ -93,10 +93,10 @@ data/llm_configs.json
 logs/
 
 # ── PyInstaller 打包产物（根目录） ──
-aitext.spec
-aitext.lock
-aitext.exe
-aitext.pkg
+plotpilot.spec
+plotpilot.lock
+plotpilot.exe
+plotpilot.pkg
 Analysis-*.toc
 COLLECT-*.toc
 EXE-*.toc
@@ -109,7 +109,7 @@ base_library.zip
 
 # ── 内嵌 Python（保留 zip 原始包，解压目录不入库） ──
 /tools/python_embed/
-/tools/aitext/
+/tools/plotpilot/
 # tools/python-*.zip       # ← 保留！Python embed 原始包（~15MB），入库供用户直接用
 
 # ── 临时 / 无关文件 ──
@@ -117,12 +117,12 @@ base_library.zip
 # Contributors: xibian-YQ, JamesGoslings
 
 # ── PlotPilot 残留 ──
-PlotPilot-master/
+plotpilot-master/
 llm_profiles.json
 
 # ── 锁文件（运行时生成） ──
-aitext.lock
-scripts/aitext.lock
+plotpilot.lock
+scripts/plotpilot.lock
 
 # ── Tauri 桌面壳 ──
 # 提交源码，忽略构建产物
