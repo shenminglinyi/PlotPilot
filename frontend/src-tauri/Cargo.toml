@@ -1,6 +1,6 @@
 [package]
 name = "plotpilot"
-version = "1.0.2"
+version = "1.1.0"
 description = "PlotPilot（墨枢）· AI 小说创作平台"
 authors = ["PlotPilot Team"]
 edition = "2021"
