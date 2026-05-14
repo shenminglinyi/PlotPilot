@@ -139,10 +139,10 @@ python -m pytest tests/integration -v
 
 ## 环境变量
 
-以根目录 **[.env.example](../.env.example)** 为准（方舟 `ARK_*`、嵌入 `EMBEDDING_*`、`LOG_*`、`AITEXT_PROD_DATA_DIR` 等）。复制为 `.env` 后按需填写，勿提交密钥。
+以根目录 **[.env.example](../.env.example)** 为准（方舟 `ARK_*`、嵌入 `EMBEDDING_*`、`LOG_*`、`PLOTPILOT_PROD_DATA_DIR` 等；旧名 `AITEXT_PROD_DATA_DIR` 仍兼容）。复制为 `.env` 后按需填写，勿提交密钥。
 
 ## 数据库与数据目录
 
-- **主数据库**：默认 SQLite 文件名为 `data/aitext.db`（历史文件名，与代码中 `get_db_path()` 一致）；实际目录由 `application.paths.DATA_DIR` 解析（未设置 `AITEXT_PROD_DATA_DIR` 且非冻结运行时指向仓库内 `data/`）。
+- **主数据库**：默认 SQLite 文件名为 `data/plotpilot.db`（旧版为 `aitext.db`，`get_db_path()` 会自动沿用）；实际目录由 `application.paths.DATA_DIR` 解析（未设置 `PLOTPILOT_PROD_DATA_DIR` / 旧名 `AITEXT_PROD_DATA_DIR` 且非冻结运行时指向仓库内 `data/`）。
 - **向量存储**：默认在 `data/chromadb/` 下持久化（实现为本地 FAISS + 元数据，与 `.env` 中 `VECTOR_STORE_TYPE=chromadb` 对应）。
-- **应用日志**：默认 `logs/aitext.log`（由 `LOG_FILE` 控制，见 `.env.example`）。
+- **应用日志**：默认 `logs/plotpilot.log`（由 `LOG_FILE` 控制，见 `.env.example`）。
