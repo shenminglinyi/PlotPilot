@@ -56,7 +56,9 @@ def allow_direct_sqlite_writes() -> bool:
     """脚本 / 迁移 / 启动早期 bypass / 个别单测可走直连写库；正式运行时默认走队列。"""
     if _startup_sqlite_bootstrap_depth > 0:
         return True
-    v = os.environ.get("AITEXT_ALLOW_DIRECT_SQLITE_WRITES", "").strip().lower()
+    v = os.environ.get("PLOTPILOT_ALLOW_DIRECT_SQLITE_WRITES", "").strip().lower()
+    if not v:
+        v = os.environ.get("AITEXT_ALLOW_DIRECT_SQLITE_WRITES", "").strip().lower()
     return v in ("1", "true", "yes")
 
 

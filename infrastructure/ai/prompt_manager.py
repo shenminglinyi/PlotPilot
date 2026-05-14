@@ -297,7 +297,7 @@ class PromptManager:
         self._seeded = False
 
     def _get_db(self):
-        """与主应用共用同一 SQLite（含桌面版 AITEXT_PROD_DATA_DIR）。"""
+        """与主应用共用同一 SQLite（含桌面版 `PLOTPILOT_PROD_DATA_DIR` / 旧名 `AITEXT_PROD_DATA_DIR`）。"""
         if self._db is not None:
             return self._db
         from infrastructure.persistence.database.connection import get_database

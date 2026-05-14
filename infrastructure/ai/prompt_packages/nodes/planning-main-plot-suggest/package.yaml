@@ -1,6 +1,6 @@
 name: 主线故事选项推演
 category: planning
-source: PlotPilot-master prompts_defaults.json
+source: infrastructure/ai/prompts/prompts_defaults.json
 description: 推演 3 个高概念主线变体，确保切入点犀利、商业张力拉满
 builtin: true
 tags:

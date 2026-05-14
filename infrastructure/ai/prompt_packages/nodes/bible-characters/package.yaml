@@ -1,6 +1,6 @@
 name: 人物生成
 category: world
-source: PlotPilot-master prompts_defaults.json
+source: infrastructure/ai/prompts/prompts_defaults.json
 description: 根据社会生态孵化具有内源性冲突和错综羁绊的立体人物
 builtin: true
 tags:

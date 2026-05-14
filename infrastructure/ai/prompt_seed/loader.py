@@ -29,14 +29,29 @@ def _try_yaml_load(path: Path) -> Dict[str, Any]:
 def load_bundle_meta() -> Dict[str, Any]:
     """读取 bundle_meta.yaml；缺失时返回占位。"""
     if not BUNDLE_META_FILE.is_file():
-        return {
+        meta = {
             "version": "0.0.0",
             "name": "PlotPilot 内置",
             "description": "prompt_packages 缺失 bundle_meta.yaml",
             "author": "PlotPilot Team",
             "engine": "jinja2",
         }
-    return _try_yaml_load(BUNDLE_META_FILE)
+        logger.info(
+            "prompt_seed: bundle_meta 缺失，使用占位 version=%s name=%s path=%s",
+            meta["version"],
+            meta["name"],
+            BUNDLE_META_FILE,
+        )
+        return meta
+    meta = _try_yaml_load(BUNDLE_META_FILE)
+    logger.info(
+        "prompt_seed: bundle_meta loaded version=%s name=%s author=%s path=%s",
+        meta.get("version", ""),
+        meta.get("name", ""),
+        meta.get("author", ""),
+        BUNDLE_META_FILE,
+    )
+    return meta
 
 
 def load_node_dir(node_dir: Path) -> Dict[str, Any]:
@@ -65,6 +80,28 @@ def load_node_dir(node_dir: Path) -> Dict[str, Any]:
         if k not in record or k.startswith("_"):
             record[k] = v
 
+    vars_list = record.get("variables") or []
+    n_vars = len(vars_list) if isinstance(vars_list, list) else 0
+    tags = record.get("tags") or []
+    tags_repr = ",".join(str(t) for t in tags) if isinstance(tags, list) else str(tags)
+    builtin = record.get("builtin", record.get("is_builtin"))
+    logger.info(
+        "prompt_seed: node dir=%s id=%s name=%s category=%s output_format=%s "
+        "source=%s builtin=%s tags=[%s] variables=%d system_chars=%d user_chars=%d extras_keys=%s",
+        node_dir.name,
+        node_id,
+        record.get("name", ""),
+        record.get("category", ""),
+        record.get("output_format", ""),
+        record.get("source", ""),
+        builtin,
+        tags_repr,
+        n_vars,
+        len(system),
+        len(user),
+        sorted(extras.keys()) if extras else [],
+    )
+
     return record
 
 
@@ -72,7 +109,7 @@ def load_seed_bundle() -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """返回 (合并后的 _meta, prompts 列表)。无节点目录时 prompts 为空。"""
     bundle_meta = load_bundle_meta()
     if not NODES_DIR.is_dir():
-        logger.warning("prompt_packages/nodes 不存在，种子列表为空")
+        logger.warning("prompt_seed: %s 不存在，种子列表为空", NODES_DIR)
         return bundle_meta, []
 
     rows: List[Dict[str, Any]] = []
@@ -84,10 +121,15 @@ def load_seed_bundle() -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         try:
             rows.append(load_node_dir(child))
         except Exception as exc:
-            logger.error("加载提示词包失败 %s: %s", child, exc)
+            logger.error("prompt_seed: 加载提示词包失败 %s: %s", child, exc)
             raise
 
     rows.sort(key=lambda r: (r.get("sort_order", 10_000), r.get("id", "")))
+    logger.info(
+        "prompt_seed: bundle loaded nodes=%d ids=%s",
+        len(rows),
+        [r.get("id", "") for r in rows],
+    )
     return bundle_meta, rows
 
 
@@ -101,9 +143,17 @@ def merge_legacy_json_prompts(prompts_dir: Path | None = None) -> Tuple[Dict[str
     if default_path.is_file():
         data = json.loads(default_path.read_text(encoding="utf-8"))
         merged_meta.update(data.get("_meta") or {})
+        n_def = 0
         for p in data.get("prompts", []):
             if p.get("id"):
                 all_prompts[p["id"]] = p
+                n_def += 1
+        logger.info(
+            "prompt_seed: legacy defaults %s prompts=%d meta_version=%s",
+            default_path,
+            n_def,
+            (data.get("_meta") or {}).get("version", ""),
+        )
 
     if base.is_dir():
         for cat_file in sorted(base.glob(_LEGACY_GLOB)):
@@ -111,9 +161,23 @@ def merge_legacy_json_prompts(prompts_dir: Path | None = None) -> Tuple[Dict[str
             cat_meta = data.get("_meta", {})
             if cat_meta.get("version"):
                 merged_meta["version"] = cat_meta["version"]
+            n_cat = 0
             for p in data.get("prompts", []):
                 if p.get("id"):
                     all_prompts[p["id"]] = p
+                    n_cat += 1
+            logger.info(
+                "prompt_seed: legacy file %s prompts=%d _meta_version=%s",
+                cat_file.name,
+                n_cat,
+                cat_meta.get("version", ""),
+            )
 
+    plist = list(all_prompts.values())
+    logger.info(
+        "prompt_seed: legacy merge complete total_prompts=%d ids=%s",
+        len(plist),
+        [p.get("id", "") for p in plist],
+    )
     # 与 dict 插入顺序一致（Py3.7+）：先 defaults 顺序，后逐文件覆盖且不改变已有 key 顺序
-    return merged_meta, list(all_prompts.values())
+    return merged_meta, plist

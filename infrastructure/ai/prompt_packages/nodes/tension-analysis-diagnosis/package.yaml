@@ -1,6 +1,6 @@
 name: 卡文诊断与张力分析
 category: creative
-source: PlotPilot-master prompts_defaults.json
+source: infrastructure/ai/prompts/prompts_defaults.json
 description: 结合统计数据诊断卡文病因，提供打碎僵局的'鲶鱼效应'重构方案
 builtin: true
 tags:

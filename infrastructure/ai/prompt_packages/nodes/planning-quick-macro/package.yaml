@@ -1,6 +1,6 @@
 name: 极速宏观规划·破城槌
 category: planning
-source: PlotPilot-master prompts_defaults.json
+source: infrastructure/ai/prompts/prompts_defaults.json
 description: 极速模式：狂热主编风格，基于英雄之旅与救猫咪理论强推商业网文骨架
 builtin: true
 tags:
