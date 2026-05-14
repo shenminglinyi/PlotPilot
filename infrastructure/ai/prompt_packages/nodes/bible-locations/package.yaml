@@ -1,6 +1,6 @@
 name: 地点地图生成
 category: world
-source: PlotPilot-master prompts_defaults.json
+source: infrastructure/ai/prompts/prompts_defaults.json
 description: 构建具有叙事功能的地缘拓扑网络，而非干瘪的背景板
 builtin: true
 tags:

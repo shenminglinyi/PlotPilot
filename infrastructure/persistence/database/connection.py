@@ -687,7 +687,7 @@ _connection_pool_instance: Optional["SQLiteConnectionPool"] = None
 
 
 def get_database(db_path: Optional[str] = None) -> DatabaseConnection:
-    """获取全局数据库实例（默认使用仓库内 data/aitext.db 绝对路径）。"""
+    """获取全局数据库实例（默认使用仓库内 data/plotpilot.db 绝对路径）。"""
     global _db_instance
     if _db_instance is None:
         if db_path is None:

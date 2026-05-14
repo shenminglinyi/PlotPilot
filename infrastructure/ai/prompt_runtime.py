@@ -42,11 +42,18 @@ class PromptRuntimeService:
             try:
                 with open(rules_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
+                names: List[str] = []
                 if isinstance(data, list):
                     for item in data:
                         if isinstance(item, dict) and "name" in item:
                             self._json_cache[item["name"]] = item
-                logger.debug("已加载规则种子: %s", rules_file.name)
+                            names.append(str(item["name"]))
+                logger.info(
+                    "prompt_runtime: rules_seed loaded file=%s entries=%d names=%s",
+                    rules_file.name,
+                    len(names),
+                    names,
+                )
             except Exception as e:
                 logger.warning(f"加载规则种子失败 {rules_file}: {e}")
 

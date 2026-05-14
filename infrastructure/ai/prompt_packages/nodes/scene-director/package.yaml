@@ -1,6 +1,6 @@
 name: 场景导演（场记提取）
 category: extraction
-source: PlotPilot-master prompts_defaults.json
+source: infrastructure/ai/prompts/prompts_defaults.json
 description: 拆解出指导生成阶段的"镜头、走位与布景"数据
 builtin: true
 tags:

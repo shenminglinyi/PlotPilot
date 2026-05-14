@@ -487,3 +487,53 @@ class StoryNodeRepository:
         finally:
             if self._should_close_after_use():
                 conn.close()
+
+    def bulk_replace_text_sync(
+        self,
+        novel_id: str,
+        old_name: str,
+        new_name: str,
+    ) -> int:
+        """将 story_nodes 中 title / description / outline 字段里的 old_name 替换为 new_name。
+
+        用于 Bible 改名后同步刷新结构大纲文本，避免大纲里遗留旧名导致正文生成使用旧名。
+        通过 SQLite replace() 函数原地替换，不加载到 Python 层，效率高。
+
+        Returns:
+            受影响的行数。
+        """
+        if not old_name or old_name == new_name:
+            return 0
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE story_nodes
+                SET
+                    title       = replace(title,       ?, ?),
+                    description = replace(description, ?, ?),
+                    outline     = replace(outline,     ?, ?)
+                WHERE novel_id = ?
+                  AND (
+                      instr(title,       ?) > 0
+                   OR instr(description, ?) > 0
+                   OR instr(outline,     ?) > 0
+                  )
+                """,
+                (
+                    old_name, new_name,
+                    old_name, new_name,
+                    old_name, new_name,
+                    novel_id,
+                    old_name, old_name, old_name,
+                ),
+            )
+            affected = cursor.rowcount
+            conn.commit()
+            return affected
+        except Exception as e:
+            raise e
+        finally:
+            if self._should_close_after_use():
+                conn.close()

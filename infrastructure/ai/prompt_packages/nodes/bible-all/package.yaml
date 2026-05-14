@@ -1,6 +1,6 @@
 name: 完整 Bible 生成
 category: world
-source: PlotPilot-master prompts_defaults.json
+source: infrastructure/ai/prompts/prompts_defaults.json
 description: 一键构建具备内生矛盾与自驱力的五维度世界体系与人物群像
 builtin: true
 tags:
