@@ -2,7 +2,7 @@
   <div class="crg-root">
     <div class="crg-toolbar">
       <n-text depth="3" class="crg-hint">
-        人物关系图：从三元组自动生成，节点颜色表示重要程度（红=主角，橙=重要配角，蓝=次要人物）
+        人物关系图：优先来自「叙事与知识」人物三元组；若无则自动用 Bible 人物关系补齐。内部占位名（如 char 005）会被过滤。
       </n-text>
       <n-space :size="8">
         <n-button size="small" quaternary :loading="loading" @click="reload">刷新</n-button>
@@ -11,7 +11,7 @@
     </div>
     <div class="crg-chart">
       <div v-if="emptyHint" class="crg-empty">
-        <n-empty description="尚无人物三元组，请在「叙事与知识」中添加" size="small" />
+        <n-empty description="尚无可用人物关系（知识库人物三元组为空且 Bible 未配置关系）" size="small" />
       </div>
       <GraphChart v-else :nodes="graphData.nodes" :links="graphData.links" height="100%" @node-click="handleNodeClick" />
     </div>
@@ -22,12 +22,14 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { knowledgeApi } from '../../api/knowledge'
+import { bibleApi } from '../../api/bible'
 import GraphChart from '../charts/GraphChart.vue'
 import { convertGraph, type VisNode, type VisEdge, type EChartsGraphData, type EChartsNode } from '../../utils/visToEcharts'
 import {
   tripleStringAttrs,
   characterImportanceZh,
 } from '../../utils/knowledgeFactDisplay'
+import { mergeKnowledgeFactsWithBibleCharacters } from '../../utils/characterGraphMerge'
 
 const props = defineProps<{ slug: string }>()
 const router = useRouter()
@@ -153,7 +155,14 @@ const reload = async () => {
   loading.value = true
   try {
     const res = await knowledgeApi.getKnowledge(props.slug)
-    facts.value = (res.facts || []) as Fact[]
+    let merged = (res.facts || []) as Fact[]
+    try {
+      const bible = await bibleApi.getBible(props.slug)
+      merged = mergeKnowledgeFactsWithBibleCharacters(merged, bible.characters || []) as Fact[]
+    } catch {
+      merged = mergeKnowledgeFactsWithBibleCharacters(merged, []) as Fact[]
+    }
+    facts.value = merged
     await redraw()
   } catch (error) {
     console.error('Failed to load character graph:', error)

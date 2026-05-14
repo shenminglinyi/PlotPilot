@@ -41,6 +41,16 @@
         <div class="prog-fill" :style="{ width: `${progressPct}%` }" />
       </div>
 
+      <!-- LLM 原始流式输出（仅生成阶段） -->
+      <div
+        v-if="phase === 'generating' && llmStreamPreview"
+        class="llm-stream-preview"
+        ref="llmStreamOuterRef"
+      >
+        <div class="llm-stream-label">模型输出</div>
+        <pre class="llm-stream-pre">{{ llmStreamPreview }}</pre>
+      </div>
+
       <!-- node list -->
       <div class="node-scroll" ref="nodeScrollRef">
         <!-- arrived nodes -->
@@ -157,6 +167,8 @@ const progressPct = ref(0)
 const errorMessage = ref('')
 const isConfirming = ref(false)
 const generationTime = ref(0)
+const llmStreamPreview = ref('')
+const llmStreamOuterRef = ref<HTMLElement | null>(null)
 
 interface StreamedNode extends MacroStreamNodeEvent {
   key: string
@@ -232,6 +244,7 @@ function startGenerate() {
   statusMessage.value = '正在连接…'
   progressPct.value = 0
   errorMessage.value = ''
+  llmStreamPreview.value = ''
   phase.value = 'generating'
   isConfirming.value = false
 
@@ -241,7 +254,16 @@ function startGenerate() {
       progressPct.value = e.percent ?? progressPct.value
       if (e.phase === 'streaming') {
         phase.value = 'streaming'
+        llmStreamPreview.value = ''
       }
+    },
+    onChunk({ text }) {
+      llmStreamPreview.value += text
+      nextTick(() => {
+        const outer = llmStreamOuterRef.value
+        const pre = outer?.querySelector('.llm-stream-pre')
+        if (pre) (pre as HTMLElement).scrollTop = pre.scrollHeight
+      })
     },
     onNode(e) {
       if (phase.value !== 'streaming') phase.value = 'streaming'
@@ -271,6 +293,7 @@ function abortGenerate() {
   abortCtrl = null
   phase.value = 'idle'
   streamedNodes.value = []
+  llmStreamPreview.value = ''
 }
 
 // ─── Confirm ──────────────────────────────────────────────────────────────
@@ -313,6 +336,7 @@ function resetState() {
   statusMessage.value = ''
   progressPct.value = 0
   errorMessage.value = ''
+  llmStreamPreview.value = ''
   isConfirming.value = false
 }
 
@@ -415,6 +439,33 @@ onUnmounted(() => { abortCtrl?.abort() })
   background: linear-gradient(90deg, #7c3aed, #2563eb);
   border-radius: 2px;
   transition: width 0.6s ease;
+}
+
+.llm-stream-preview {
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--plotpilot-split-border, rgba(15, 23, 42, 0.12));
+  background: var(--app-surface-subtle, #f8fafc);
+  overflow: hidden;
+}
+.llm-stream-label {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--app-text-secondary, #64748b);
+  border-bottom: 1px solid var(--plotpilot-split-border, rgba(15, 23, 42, 0.08));
+}
+.llm-stream-pre {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 180px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--app-text-primary, #1e293b);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* node scroll area */

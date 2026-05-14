@@ -50,6 +50,8 @@ export interface MacroPlanProgress {
   total: number
   percent: number
   message: string
+  /** LLM 流式输出的累积文本（宏观规划生成过程中） */
+  llm_stream_text?: string
 }
 
 export interface MacroPlanResultPayload {
@@ -140,6 +142,10 @@ export interface MacroStreamNodeEvent {
   narrative_goal?: string
 }
 
+export interface MacroStreamChunkEvent {
+  text: string
+}
+
 export interface MacroStreamDoneEvent {
   structure: MacroPartNode[]
   quality_metrics?: Record<string, unknown>
@@ -154,6 +160,7 @@ export function streamMacroPlan(
   novelId: string,
   handlers: {
     onStatus?: (e: MacroStreamStatusEvent) => void
+    onChunk?: (e: MacroStreamChunkEvent) => void
     onNode?: (e: MacroStreamNodeEvent) => void
     onDone?: (e: MacroStreamDoneEvent) => void
     onError?: (message: string) => void
@@ -193,6 +200,11 @@ export function streamMacroPlan(
             const data = JSON.parse(dataStr) as Record<string, unknown>
             if (eventType === 'status') {
               handlers.onStatus?.(data as unknown as MacroStreamStatusEvent)
+            } else if (eventType === 'chunk') {
+              const t = data.text
+              if (typeof t === 'string' && t.length > 0) {
+                handlers.onChunk?.({ text: t })
+              }
             } else if (eventType === 'node') {
               handlers.onNode?.(data as unknown as MacroStreamNodeEvent)
             } else if (eventType === 'done') {
@@ -243,6 +255,10 @@ export interface ActStreamChapterEvent {
   [key: string]: unknown
 }
 
+export interface ActStreamChunkEvent {
+  text: string
+}
+
 export interface ActStreamDoneEvent {
   success: boolean
   act_id: string
@@ -256,6 +272,7 @@ export function streamActChapterPlan(
   actId: string,
   handlers: {
     onStatus?: (e: ActStreamStatusEvent) => void
+    onChunk?: (e: ActStreamChunkEvent) => void
     onChapter?: (e: ActStreamChapterEvent) => void
     onDone?: (e: ActStreamDoneEvent) => void
     onError?: (message: string) => void
@@ -300,6 +317,11 @@ export function streamActChapterPlan(
             const data = JSON.parse(dataStr) as Record<string, unknown>
             if (eventType === 'status') {
               handlers.onStatus?.(data as unknown as ActStreamStatusEvent)
+            } else if (eventType === 'chunk') {
+              const t = data.text
+              if (typeof t === 'string' && t.length > 0) {
+                handlers.onChunk?.({ text: t })
+              }
             } else if (eventType === 'chapter') {
               handlers.onChapter?.(data as unknown as ActStreamChapterEvent)
             } else if (eventType === 'done') {

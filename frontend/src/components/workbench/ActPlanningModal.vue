@@ -49,6 +49,15 @@
         <div class="prog-fill" :style="{ width: `${progressPct}%` }" />
       </div>
 
+      <div
+        v-if="llmStreamPreview"
+        ref="llmStreamOuterRef"
+        class="apm-llm-preview"
+      >
+        <div class="apm-llm-label">模型输出</div>
+        <pre class="apm-llm-pre">{{ llmStreamPreview }}</pre>
+      </div>
+
       <n-scrollbar style="max-height: 52vh">
         <n-space vertical :size="8" style="padding-right: 8px">
           <n-card
@@ -187,6 +196,8 @@ const progressPct = ref(0)
 const expectedChapters = ref(0)
 const streamPreview = ref<ChapterDraft[]>([])
 const streamError = ref('')
+const llmStreamPreview = ref('')
+const llmStreamOuterRef = ref<HTMLElement | null>(null)
 
 let abortCtrl: AbortController | null = null
 
@@ -215,6 +226,7 @@ function mapRawToDraft(c: Record<string, unknown>): ChapterDraft {
 function startStream() {
   abortCtrl?.abort()
   streamPreview.value = []
+  llmStreamPreview.value = ''
   statusMessage.value = '正在连接…'
   progressPct.value = 2
   streamError.value = ''
@@ -230,7 +242,18 @@ function startStream() {
         if (typeof e.expected_chapters === 'number' && e.expected_chapters > 0) {
           expectedChapters.value = e.expected_chapters
         }
-        if (e.phase === 'streaming') progressPct.value = Math.max(progressPct.value, 90)
+        if (e.phase === 'streaming') {
+          progressPct.value = Math.max(progressPct.value, 90)
+          llmStreamPreview.value = ''
+        }
+      },
+      onChunk({ text }) {
+        llmStreamPreview.value += text
+        nextTick(() => {
+          const outer = llmStreamOuterRef.value
+          const pre = outer?.querySelector('.apm-llm-pre')
+          if (pre) (pre as HTMLElement).scrollTop = pre.scrollHeight
+        })
       },
       onChapter(e) {
         streamPreview.value.push(mapRawToDraft(e as Record<string, unknown>))
@@ -267,6 +290,7 @@ function abortStream() {
   abortCtrl = null
   uiPhase.value = 'form'
   streamPreview.value = []
+  llmStreamPreview.value = ''
 }
 
 function backToForm() {
@@ -275,6 +299,7 @@ function backToForm() {
   uiPhase.value = 'form'
   chapters.value = []
   streamPreview.value = []
+  llmStreamPreview.value = ''
   streamError.value = ''
 }
 
@@ -288,6 +313,7 @@ function reset() {
   uiPhase.value = 'form'
   chapters.value = []
   streamPreview.value = []
+  llmStreamPreview.value = ''
   confirming.value = false
   chapterCount.value = null
   statusMessage.value = ''
@@ -366,6 +392,33 @@ async function confirm() {
   border-radius: 4px;
   background: linear-gradient(90deg, var(--n-primary-color), var(--n-primary-color-hover));
   transition: width 0.35s ease;
+}
+
+.apm-llm-preview {
+  margin-bottom: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--n-border-color);
+  background: var(--n-color-modal);
+  overflow: hidden;
+}
+.apm-llm-label {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--n-text-color-3);
+  border-bottom: 1px solid var(--n-border-color);
+}
+.apm-llm-pre {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 160px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--n-text-color);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .skel-card {
