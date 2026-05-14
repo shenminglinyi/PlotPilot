@@ -1605,13 +1605,29 @@ class AutopilotDaemon:
                     logger.info(f"[{novel.novel_id}] 用户已停止，中断本章（节拍 {i + 1}/{len(beats)} 前）")
                     # 保存已完成的内容和节拍索引
                     if accumulated_content.strip():
+                        # 流式被中断时，最后一个节拍可能在句子中间被截断。
+                        # 截断到最近的句子边界，避免残篇以半句结尾落盘。
+                        safe_content = accumulated_content.strip()
+                        if not re.search(r'[。！？…）】》""\'』」]$', safe_content):
+                            last_ender = max(
+                                safe_content.rfind('。'),
+                                safe_content.rfind('！'),
+                                safe_content.rfind('？'),
+                                safe_content.rfind('…'),
+                            )
+                            if last_ender > len(safe_content) * 0.4:
+                                safe_content = safe_content[:last_ender + 1]
+                                logger.info(
+                                    f"[{novel.novel_id}] 🔪 中断截断：{len(accumulated_content.strip())} "
+                                    f"→ {len(safe_content)} 字（截至句尾）"
+                                )
                         await self._upsert_chapter_content(
-                            novel, next_chapter_node, accumulated_content, status="draft"
+                            novel, next_chapter_node, safe_content, status="draft"
                         )
                         novel.current_beat_index = i  # 记录当前节拍索引，下次从断点继续
                         self._flush_novel(novel)
                         logger.info(
-                            f"[{novel.novel_id}] 已保存 {len(accumulated_content)} 字，"
+                            f"[{novel.novel_id}] 已保存 {len(safe_content)} 字，"
                             f"下次从节拍 {i + 1} 继续"
                         )
                     return
