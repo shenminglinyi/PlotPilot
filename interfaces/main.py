@@ -19,9 +19,9 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 # 必须在其他应用模块导入前执行：将仓库根目录 `.env` 写入 os.environ
-_AITEXT_ROOT = Path(__file__).resolve().parents[1]
-if str(_AITEXT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_AITEXT_ROOT))
+_PLOTPILOT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PLOTPILOT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PLOTPILOT_ROOT))
 try:
     from load_env import load_env
 
@@ -34,7 +34,7 @@ except Exception:
 from interfaces.api.middleware.logging_config import setup_logging
 
 log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
-log_file = os.getenv("LOG_FILE", "logs/aitext.log")
+log_file = os.getenv("LOG_FILE", "logs/plotpilot.log")
 setup_logging(level=log_level, log_file=log_file)
 
 logger = logging.getLogger(__name__)

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.hosted_write_service import HostedWriteService
-from application.paths import DATA_DIR
+from application.paths import get_db_path
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
@@ -45,7 +45,7 @@ router = APIRouter(prefix="/novels", tags=["generation"])
 
 def get_continuous_planning_service() -> ContinuousPlanningService:
     """获取持续规划服务"""
-    db_path = str(DATA_DIR / "aitext.db")
+    db_path = get_db_path()
     story_node_repo = StoryNodeRepository(db_path)
     chapter_element_repo = ChapterElementRepository(db_path)
 
