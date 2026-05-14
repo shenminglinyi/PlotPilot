@@ -7,6 +7,7 @@ from infrastructure.persistence.database import write_dispatch as wd
 
 @pytest.fixture
 def clear_direct_write_env(monkeypatch):
+    monkeypatch.delenv("PLOTPILOT_ALLOW_DIRECT_SQLITE_WRITES", raising=False)
     monkeypatch.delenv("AITEXT_ALLOW_DIRECT_SQLITE_WRITES", raising=False)
 
 
