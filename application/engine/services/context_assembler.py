@@ -28,6 +28,7 @@ from domain.novel.repositories.character_state_repository import CharacterStateR
 from domain.novel.repositories.narrative_debt_repository import NarrativeDebtRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
+from domain.novel.repositories.novel_repository import NovelRepository
 from domain.bible.repositories.bible_repository import BibleRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 
@@ -68,6 +69,7 @@ class ContextAssembler:
         chapter_repo: Optional[ChapterRepository] = None,
         bible_repo: Optional[BibleRepository] = None,
         story_node_repo: Optional[StoryNodeRepository] = None,
+        novel_repository: Optional[NovelRepository] = None,
     ):
         self.causal_edge_repo = causal_edge_repo
         self.character_state_repo = character_state_repo
@@ -76,6 +78,7 @@ class ContextAssembler:
         self.chapter_repo = chapter_repo
         self.bible_repo = bible_repo
         self.story_node_repo = story_node_repo
+        self.novel_repository = novel_repository
 
     # ============================================================
     # T0 槽位构建方法
@@ -90,41 +93,57 @@ class ContextAssembler:
         主角目标：找到灭门仇人，为宗门复仇
         当前最大阻碍：仇人已是大陆第一强者
         """
-        if not self.story_node_repo:
+        lines = ["【📖 全书主线锚点（绝不可忘）】"]
+
+        if self.story_node_repo:
+            try:
+                nodes = self.story_node_repo.get_by_novel_sync(novel_id)
+
+                root_nodes = [n for n in nodes if n.node_type.value == "root"]
+                act_nodes = [n for n in nodes if n.node_type.value == "act"]
+
+                if root_nodes:
+                    root = root_nodes[0]
+                    if root.description:
+                        lines.append(f"世界观：{root.description[:100]}")
+                    if root.narrative_arc:
+                        lines.append(f"主线方向：{root.narrative_arc[:100]}")
+
+                if act_nodes:
+                    first_act = act_nodes[0]
+                    if first_act.narrative_arc:
+                        lines.append(f"起始目标：{first_act.narrative_arc[:80]}")
+            except Exception as e:
+                logger.warning("构建全书主线锚点（结构树）失败: %s", e)
+
+        substantive = "\n".join(lines[1:]).strip()
+        if len(substantive) < 36 and self.novel_repository:
+            try:
+                from domain.novel.value_objects.novel_id import NovelId
+
+                novel = self.novel_repository.get_by_id(NovelId(novel_id))
+                premise = (getattr(novel, "premise", None) or "").strip()
+                premise_body = self._strip_internal_premise_prefix(premise)
+                if premise_body:
+                    lines.append(f"梗概主轴：{premise_body[:240]}")
+            except Exception as e:
+                logger.debug("ANCHOR 梗概兜底跳过: %s", e)
+
+        result = "\n".join(lines)
+        if len(result) > 300:
+            result = result[:297] + "..."
+        return result
+
+    @staticmethod
+    def _strip_internal_premise_prefix(premise: str) -> str:
+        """去掉 create_novel 写入的系统内部体量前缀，保留作者梗概正文。"""
+        if not premise:
             return ""
-
-        try:
-            nodes = self.story_node_repo.get_by_novel_sync(novel_id)
-
-            # 找全书级锚点
-            root_nodes = [n for n in nodes if n.node_type.value == "root"]
-            act_nodes = [n for n in nodes if n.node_type.value == "act"]
-
-            lines = ["【📖 全书主线锚点（绝不可忘）】"]
-
-            if root_nodes:
-                root = root_nodes[0]
-                if root.description:
-                    lines.append(f"世界观：{root.description[:100]}")
-                if root.narrative_arc:
-                    lines.append(f"主线方向：{root.narrative_arc[:100]}")
-
-            # 从第一幕提取主角目标
-            if act_nodes:
-                first_act = act_nodes[0]
-                if first_act.narrative_arc:
-                    lines.append(f"起始目标：{first_act.narrative_arc[:80]}")
-
-            result = "\n".join(lines)
-            # 限制 300 字
-            if len(result) > 300:
-                result = result[:297] + "..."
-
-            return result
-
-        except Exception as e:
-            logger.warning(f"构建全书主线锚点失败: {e}")
-            return ""
+        if "【系统内部·叙事结构规划" in premise:
+            idx = premise.find("\n\n")
+            if idx != -1:
+                premise = premise[idx + 2 :].strip()
+        return premise.strip()
 
     def build_scars_and_motivations(self, novel_id: str) -> str:
         """构建 T0: 角色伤疤与执念
@@ -140,9 +159,26 @@ class ContextAssembler:
             if not states:
                 return ""
 
+            id_to_name: Dict[str, str] = {}
+            if self.bible_repo:
+                try:
+                    from domain.novel.value_objects.novel_id import NovelId
+
+                    bible = self.bible_repo.get_by_novel_id(NovelId(novel_id))
+                    if bible and getattr(bible, "characters", None):
+                        for c in bible.characters:
+                            cid = getattr(c, "character_id", None)
+                            raw = cid.value if cid is not None and hasattr(cid, "value") else ""
+                            nm = (getattr(c, "name", None) or "").strip()
+                            if raw and nm:
+                                id_to_name[str(raw)] = nm
+                except Exception:
+                    pass
+
             parts = []
             for state in states:
-                injection = state.build_context_injection()
+                dn = id_to_name.get(state.character_id, "").strip()
+                injection = state.build_context_injection(display_name=dn or None)
                 if injection:
                     parts.append(injection)
 

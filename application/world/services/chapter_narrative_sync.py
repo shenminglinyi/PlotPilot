@@ -89,6 +89,121 @@ def _resolve_beat_sections(
     return _beats_from_structure_outline(novel_id, chapter_number)
 
 
+def _storyline_arc_label(progress_item: dict) -> str:
+    """从抽取结果中取「这一条线在书中的短标签」，用于和多主线区分。
+
+    兼容字段 arc_label / arc_name；否则尝试从 description 里抠 「……」书名号片段。
+    """
+    if not isinstance(progress_item, dict):
+        return ""
+    arc = str(progress_item.get("arc_label") or progress_item.get("arc_name") or "").strip()
+    if arc:
+        return arc[:80]
+    desc = str(progress_item.get("description") or "").strip()
+    m = re.search(r"「([^」]{2,48})」", desc)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _storyline_role_type_from_cn(line_type: str) -> Tuple[Any, Any]:
+    """中文类型标签 → StorylineRole + StorylineType。"""
+    from domain.novel.value_objects.storyline_role import StorylineRole
+    from domain.novel.value_objects.storyline_type import StorylineType
+
+    lt = line_type or ""
+    role = StorylineRole.MAIN
+    stype = StorylineType.MAIN_PLOT
+    if "暗" in lt:
+        role = StorylineRole.DARK
+        stype = StorylineType.GROWTH
+    elif "支" in lt or "感情" in lt:
+        role = StorylineRole.SUB
+        stype = StorylineType.ROMANCE if "感情" in lt else StorylineType.GROWTH
+    elif "主" in lt:
+        role = StorylineRole.MAIN
+        stype = StorylineType.MAIN_PLOT
+    return role, stype
+
+
+def _match_storyline_for_progress_item(
+    storylines: List[Any],
+    line_type: str,
+    arc_label: str,
+    description: str,
+) -> Optional[Any]:
+    """按 arc_label 优先匹配；避免多条「主线」全部撞到同一条 DB 记录。"""
+    lt = (line_type or "").strip()
+    arc = (arc_label or "").strip()
+    desc = (description or "").strip()
+
+    if arc:
+        for sl in storylines:
+            nm = (sl.name or "").strip()
+            if nm == arc:
+                return sl
+        for sl in storylines:
+            nm = (sl.name or "").strip()
+            if arc in nm or nm in arc:
+                return sl
+
+    weak: List[Any] = []
+    for sl in storylines:
+        nm = (sl.name or "").strip()
+        if lt and lt in nm:
+            weak.append(sl)
+    if len(weak) == 1:
+        return weak[0]
+
+    # 唯一一条「泛主线」占位（首章初始化常见 name=主线）
+    if lt == "主线":
+        generics = [sl for sl in storylines if (sl.name or "").strip() in ("主线", "小说主线剧情", "")]
+        if len(generics) == 1:
+            return generics[0]
+
+    # description 里的书名号与已有 name 对齐（上下文块常用 「婚约政治阴谋」）
+    m = re.search(r"「([^」]{2,48})」", desc)
+    if m:
+        inner = m.group(1).strip()
+        for sl in storylines:
+            nm = (sl.name or "").strip()
+            if inner == nm or inner in nm or nm in inner:
+                return sl
+
+    return None
+
+
+def _make_storyline_from_progress_item(
+    novel_id: str,
+    chapter_number: int,
+    line_type: str,
+    arc_label: str,
+    description: str,
+) -> Any:
+    """storyline_repository.save 前构造实体。"""
+    from domain.novel.entities.storyline import Storyline
+    from domain.novel.value_objects.storyline_status import StorylineStatus
+
+    role, stype = _storyline_role_type_from_cn(line_type)
+    name = (arc_label or "").strip() or (line_type or "故事线").strip() or "故事线"
+    if len(name) > 80:
+        name = name[:77] + "…"
+
+    return Storyline(
+        id=str(uuid.uuid4()),
+        novel_id=NovelId(novel_id),
+        storyline_type=stype,
+        status=StorylineStatus.ACTIVE,
+        estimated_chapter_start=chapter_number,
+        estimated_chapter_end=chapter_number + 12,
+        name=name,
+        description=(description or "")[:800],
+        role=role,
+        chapter_weight=1.0,
+        progress_summary=f"在第{chapter_number}章引入",
+    )
+
+
 async def llm_chapter_extract_bundle(
     llm: LLMService,
     chapter_content: str,
@@ -130,7 +245,7 @@ async def llm_chapter_extract_bundle(
     "resolve_hint": "预期回收场景提示"
   }} ],
   "consumed_foreshadows": [ "被回收的伏笔描述1", "被回收的伏笔描述2" ],
-  "storyline_progress": [ {{"type": "主线|支线|感情线", "description": "本章该线进展"}} ],
+  "storyline_progress": [ {{"type": "主线|支线|感情线", "arc_label": "本条线的短标签（≤16字，如婚约阴谋 / 印记之谜）", "description": "本章该线进展"}} ],
   "dialogues": [ {{"speaker": "角色名", "content": "对话内容", "context": "对话场景"}} ],
   "timeline_events": [ {{"time_point": "时间描述", "event": "事件摘要", "description": "详细说明"}} ],
   "causal_edges": [ {{
@@ -158,6 +273,7 @@ async def llm_chapter_extract_bundle(
   - resolve_hint：简短描述预期回收的场景或剧情点（可选，如"下一幕高潮"）
 - consumed_foreshadows：本章回收/呼应的伏笔，从待回收清单中匹配，输出原描述；最多 5 条；无则 []。
 - storyline_progress：本章推进的故事线，最多 5 条；无则 []。
+  - arc_label：必填（≤16字）。多条同为「主线」时必须用不同 arc_label 区分主题，禁止几条共用同一标签。
 - dialogues：重要对话（推动剧情/展现性格），最多 10 条；无则 []。
 - timeline_events：本章发生的时间线事件（世界内历法/相对时间），最多 5 条；无则 []。
 - causal_edges：本章中的因果关系链，最多 3 条；无则 []。
@@ -1302,14 +1418,15 @@ def _auto_adjust_storyline_range(
     storyline_progress: List[dict],
     storyline_repository: Any,
 ) -> None:
-    """自动调整故事线范围：检测新故事线开始或现有故事线结束。"""
+    """自动调整故事线范围：检测结束或延期。
+
+    注：新建故事线已在 persist_bundle_extras 内按 arc_label 完成，此处不再重复建档。
+    """
     try:
         from domain.novel.value_objects.novel_id import NovelId
-        from domain.novel.value_objects.storyline_type import StorylineType
         from domain.novel.value_objects.storyline_status import StorylineStatus
-        from domain.novel.entities.storyline import Storyline
 
-        storylines = storyline_repository.get_by_novel_id(NovelId(novel_id))
+        storylines = list(storyline_repository.get_by_novel_id(NovelId(novel_id)))
 
         for progress_item in storyline_progress:
             if not isinstance(progress_item, dict):
@@ -1321,63 +1438,36 @@ def _auto_adjust_storyline_range(
             if not description:
                 continue
 
-            # 检测关键词判断是否是新故事线开始或结束
-            is_start = any(kw in description for kw in ["开始", "启动", "引入", "出现"])
             is_end = any(kw in description for kw in ["结束", "完成", "解决", "落幕"])
+            arc_label = _storyline_arc_label(progress_item)
+            matched = _match_storyline_for_progress_item(
+                storylines, line_type, arc_label, description
+            )
 
-            # 匹配现有故事线
-            matched = None
-            for sl in storylines:
-                if line_type in sl.name or line_type in sl.storyline_type.value:
-                    matched = sl
-                    break
+            if not matched:
+                continue
 
-            if matched:
-                # 更新现有故事线范围
-                if is_end and matched.status != StorylineStatus.COMPLETED:
-                    # 故事线结束，更新结束章节
-                    if chapter_number > matched.estimated_chapter_end:
-                        matched.estimated_chapter_end = chapter_number
-                        matched.status = StorylineStatus.COMPLETED
-                        storyline_repository.save(matched)
-                        logger.info("自动结束故事线 novel=%s storyline=%s end_ch=%d",
-                                   novel_id, matched.name, chapter_number)
-
-                elif chapter_number > matched.estimated_chapter_end:
-                    # 故事线超出预期范围，自动延长
-                    matched.estimated_chapter_end = chapter_number + 5  # 预留5章
-                    storyline_repository.save(matched)
-                    logger.info("自动延长故事线 novel=%s storyline=%s new_end=%d",
-                               novel_id, matched.name, matched.estimated_chapter_end)
-
-            elif is_start:
-                # 创建新故事线
-                storyline_type_map = {
-                    "主线": StorylineType.MAIN_PLOT,
-                    "支线": StorylineType.GROWTH,
-                    "感情线": StorylineType.ROMANCE,
-                    "暗线": StorylineType.GROWTH,
-                }
-
-                new_type = StorylineType.GROWTH  # 默认支线
-                for key, stype in storyline_type_map.items():
-                    if key in line_type:
-                        new_type = stype
-                        break
-
-                new_storyline = Storyline(
-                    id=str(uuid.uuid4()),
-                    novel_id=NovelId(novel_id),
-                    storyline_type=new_type,
-                    status=StorylineStatus.ACTIVE,
-                    estimated_chapter_start=chapter_number,
-                    estimated_chapter_end=chapter_number + 10,  # 预估10章
-                    name=line_type,
-                    description=description
+            if is_end and matched.status != StorylineStatus.COMPLETED:
+                if chapter_number > matched.estimated_chapter_end:
+                    matched.estimated_chapter_end = chapter_number
+                matched.status = StorylineStatus.COMPLETED
+                storyline_repository.save(matched)
+                logger.info(
+                    "自动结束故事线 novel=%s storyline=%s end_ch=%d",
+                    novel_id,
+                    matched.name,
+                    chapter_number,
                 )
-                storyline_repository.save(new_storyline)
-                logger.info("自动创建故事线 novel=%s type=%s name=%s start_ch=%d",
-                           novel_id, new_type.value, line_type, chapter_number)
+
+            elif chapter_number > matched.estimated_chapter_end:
+                matched.estimated_chapter_end = chapter_number + 5
+                storyline_repository.save(matched)
+                logger.info(
+                    "自动延长故事线 novel=%s storyline=%s new_end=%d",
+                    novel_id,
+                    matched.name,
+                    matched.estimated_chapter_end,
+                )
 
     except Exception as e:
         logger.warning("自动调整故事线范围失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
@@ -1487,8 +1577,10 @@ def persist_bundle_extras(
     if storyline_repository and storyline_progress:
         try:
             from domain.novel.value_objects.novel_id import NovelId
-            storylines = storyline_repository.get_by_novel_id(NovelId(novel_id))
+            storylines = list(storyline_repository.get_by_novel_id(NovelId(novel_id)))
             updated_storylines = []
+            touched_ids: set[str] = set()
+
             for progress_item in storyline_progress:
                 if not isinstance(progress_item, dict):
                     continue
@@ -1497,15 +1589,29 @@ def persist_bundle_extras(
                 if not description:
                     continue
 
-                # 匹配故事线类型
-                matched = None
-                for sl in storylines:
-                    if line_type in sl.name or line_type in sl.storyline_type.value:
-                        matched = sl
-                        break
+                arc_label = _storyline_arc_label(progress_item)
+                matched = _match_storyline_for_progress_item(
+                    storylines, line_type, arc_label, description
+                )
 
-                if matched:
-                    matched.update_progress(chapter_number, description)
+                if matched is None:
+                    matched = _make_storyline_from_progress_item(
+                        novel_id, chapter_number, line_type, arc_label, description
+                    )
+                    storyline_repository.save(matched)
+                    storylines.append(matched)
+                    logger.info(
+                        "故事线自动建档 novel=%s ch=%s name=%s type=%s",
+                        novel_id,
+                        chapter_number,
+                        matched.name,
+                        line_type,
+                    )
+
+                matched.update_progress(chapter_number, description)
+                sid = getattr(matched, "id", None)
+                if sid and sid not in touched_ids:
+                    touched_ids.add(sid)
                     updated_storylines.append({
                         "id": matched.id,
                         "storyline_type": matched.storyline_type.value,
@@ -1518,7 +1624,12 @@ def persist_bundle_extras(
                         "last_active_chapter": matched.last_active_chapter,
                         "progress_summary": matched.progress_summary,
                     })
-                    logger.debug("故事线进展已更新 novel=%s ch=%s type=%s", novel_id, chapter_number, line_type)
+                    logger.debug(
+                        "故事线进展已更新 novel=%s ch=%s name=%s",
+                        novel_id,
+                        chapter_number,
+                        matched.name,
+                    )
 
             # 🔥 通过持久化队列写入（主进程执行，无锁竞争）
             if updated_storylines:
@@ -1532,8 +1643,9 @@ def persist_bundle_extras(
                 except Exception as pq_err:
                     # 持久化队列不可用，降级到直接写入（可能持锁）
                     logger.warning("持久化队列不可用，降级直接写入故事线: %s", pq_err)
-                    for matched_data, sl in zip(updated_storylines, storylines):
-                        if sl and hasattr(sl, 'progress_summary'):
+                    row_ids = {row["id"] for row in updated_storylines if row.get("id")}
+                    for sl in storylines:
+                        if getattr(sl, "id", None) in row_ids:
                             storyline_repository.save(sl)
         except Exception as e:
             logger.warning("故事线进展落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)

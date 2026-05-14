@@ -26,6 +26,24 @@ from application.audit.services.macro_merge_engine import MacroMergeEngine, Merg
 logger = logging.getLogger(__name__)
 _macro_plan_progress_store: Dict[str, Dict] = {}
 _macro_plan_result_store: Dict[str, Dict] = {}
+_act_chapters_llm_stream_store: Dict[str, str] = {}
+
+
+def get_act_chapters_llm_stream(act_id: str) -> str:
+    """幕级章节规划 LLM 流式累积文本（供 SSE 增量推送）。"""
+    return _act_chapters_llm_stream_store.get(act_id, "")
+
+
+def _reset_act_chapters_llm_stream(act_id: str) -> None:
+    _act_chapters_llm_stream_store[act_id] = ""
+
+
+def _append_act_chapters_llm_stream(act_id: str, delta: str) -> None:
+    if not delta:
+        return
+    _act_chapters_llm_stream_store[act_id] = (
+        _act_chapters_llm_stream_store.get(act_id, "") + delta
+    )
 
 
 # ======================================================================
@@ -258,6 +276,7 @@ def get_macro_plan_progress(novel_id: str) -> Dict:
         "total": 0,
         "percent": 0,
         "message": "",
+        "llm_stream_text": "",
     }).copy()
 
 
@@ -339,10 +358,15 @@ class ContinuousPlanningService:
                     structure_preference=structure_preference
                 )
 
-                # 调用 LLM 生成规划
+                # 调用 LLM 流式生成规划（SSE 通过 llm_stream_text 推送增量）
                 config = GenerationConfig(max_tokens=4096, temperature=0.7)
-                response = await self.llm_service.generate(prompt, config)
-                structure = self._parse_llm_response(response)
+                self._update_macro_progress(
+                    novel_id,
+                    status="running",
+                    message="模型正在输出叙事结构…",
+                )
+                raw = await self._stream_macro_llm_text(novel_id, prompt, config)
+                structure = self._parse_llm_response(raw)
             else:
                 structure = await self._generate_precise_macro_plan(
                     novel_id=novel_id,
@@ -411,8 +435,8 @@ class ContinuousPlanningService:
             max_tokens=self._calculate_precise_max_tokens(structure_preference),
             temperature=0.7,
         )
-        response = await self.llm_service.generate(prompt, config)
-        updates = self._parse_llm_response(response)
+        raw = await self._stream_macro_llm_text(novel_id, prompt, config)
+        updates = self._parse_llm_response(raw)
         self._merge_precise_structure_updates(
             skeleton=skeleton,
             updates=updates,
@@ -439,8 +463,14 @@ class ContinuousPlanningService:
                 max_tokens=self._calculate_precise_repair_max_tokens(incomplete_acts),
                 temperature=0.5,
             )
-            repair_response = await self.llm_service.generate(repair_prompt, repair_config)
-            repair_updates = self._parse_llm_response(repair_response)
+            self._clear_macro_llm_stream(novel_id)
+            self._update_macro_progress(
+                novel_id,
+                status="running",
+                message="模型正在补全缺失字段…",
+            )
+            repair_raw = await self._stream_macro_llm_text(novel_id, repair_prompt, repair_config)
+            repair_updates = self._parse_llm_response(repair_raw)
             self._merge_precise_structure_updates(
                 skeleton=skeleton,
                 updates=repair_updates,
@@ -656,6 +686,7 @@ class ContinuousPlanningService:
             "total": 0,
             "percent": 0,
             "message": "",
+            "llm_stream_text": "",
         }).copy()
         progress["status"] = status
         if current is not None:
@@ -668,6 +699,64 @@ class ContinuousPlanningService:
         if message is not None:
             progress["message"] = message
         _macro_plan_progress_store[novel_id] = progress
+
+    def _clear_macro_llm_stream(self, novel_id: str) -> None:
+        prog = _macro_plan_progress_store.get(novel_id)
+        if not prog:
+            return
+        prog = prog.copy()
+        prog["llm_stream_text"] = ""
+        _macro_plan_progress_store[novel_id] = prog
+
+    def _append_macro_llm_stream(self, novel_id: str, delta: str) -> None:
+        if not delta:
+            return
+        prog = _macro_plan_progress_store.get(novel_id, {
+            "status": "idle",
+            "current": 0,
+            "total": 0,
+            "percent": 0,
+            "message": "",
+            "llm_stream_text": "",
+        }).copy()
+        prog["llm_stream_text"] = (prog.get("llm_stream_text") or "") + delta
+        _macro_plan_progress_store[novel_id] = prog
+
+    async def _stream_macro_llm_text(
+        self,
+        novel_id: str,
+        prompt: Prompt,
+        config: GenerationConfig,
+    ) -> str:
+        """流式调用 LLM，边收 token 边写入宏观进度（供 SSE / 轮询展示）。"""
+        parts: List[str] = []
+        async for chunk in self.llm_service.stream_generate(prompt, config):
+            parts.append(chunk)
+            self._append_macro_llm_stream(novel_id, chunk)
+        return "".join(parts)
+
+    async def _stream_act_plan_llm_text(
+        self,
+        act_id: str,
+        prompt: Prompt,
+        config: GenerationConfig,
+    ) -> str:
+        parts: List[str] = []
+        async for chunk in self.llm_service.stream_generate(prompt, config):
+            parts.append(chunk)
+            _append_act_chapters_llm_stream(act_id, chunk)
+        return "".join(parts)
+
+    async def _collect_llm_stream_text(
+        self,
+        prompt: Prompt,
+        config: GenerationConfig,
+    ) -> str:
+        """流式调用 LLM 并拼接全文（无进度存储，用于内部步骤）。"""
+        parts: List[str] = []
+        async for chunk in self.llm_service.stream_generate(prompt, config):
+            parts.append(chunk)
+        return "".join(parts)
 
     def initialize_macro_plan_task(self, novel_id: str) -> None:
         _macro_plan_result_store[novel_id] = {
@@ -682,6 +771,8 @@ class ContinuousPlanningService:
             total=0,
             message="正在准备结构规划",
         )
+        prog = _macro_plan_progress_store.setdefault(novel_id, {})
+        prog["llm_stream_text"] = ""
 
     def store_macro_plan_result(self, novel_id: str, result: Dict) -> None:
         _macro_plan_result_store[novel_id] = {
@@ -1126,16 +1217,16 @@ class ContinuousPlanningService:
             act_node, bible_context, previous_summary, chapter_count
         )
 
+        _reset_act_chapters_llm_stream(act_id)
+        config = GenerationConfig(max_tokens=4096, temperature=0.7)
         try:
-            response = await self.llm_service.generate(
-                prompt, GenerationConfig(max_tokens=4096, temperature=0.7)
-            )
+            raw = await self._stream_act_plan_llm_text(act_id, prompt, config)
         except Exception as e:
             logger.warning(f"幕级规划 LLM 调用失败 act={act_id}: {e}")
             return {"success": False, "act_id": act_id, "chapters": [], "error": str(e)}
 
         try:
-            plan = self._parse_llm_response(response)
+            plan = self._parse_llm_response(raw)
         except Exception as e:
             logger.warning(f"幕级规划 JSON 解析失败 act={act_id}: {e}")
             return {"success": False, "act_id": act_id, "chapters": [], "parse_error": str(e)}
@@ -2346,8 +2437,11 @@ class ContinuousPlanningService:
         prompt = self._build_next_act_prompt_with_dual_track(current_act, dual_track_context)
         
         try:
-            response = await self.llm_service.generate(prompt, GenerationConfig(max_tokens=4096, temperature=0.7))
-            result = self._parse_llm_response(response)
+            raw = await self._collect_llm_stream_text(
+                prompt,
+                GenerationConfig(max_tokens=4096, temperature=0.7),
+            )
+            result = self._parse_llm_response(raw)
             
             # 确保返回必要的字段
             if not isinstance(result, dict):

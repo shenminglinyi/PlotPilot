@@ -519,9 +519,23 @@ class ChapterBridgeService:
         if check_result.score >= 0.4 or not self._llm:  # V9: 从 0.6 降至 0.4，降低强制修整门槛
             return content
 
-        head_size = min(300, len(content.strip()))
-        head = content.strip()[:head_size]
-        rest = content.strip()[head_size:]
+        stripped = content.strip()
+        # 找到 300 字附近最近的句子/段落边界，避免在半句话处切割导致 rest 拼接错乱
+        head_target = min(300, len(stripped))
+        actual_cut = head_target
+        # 向后搜索（最多 100 字），优先在段落换行或句末标点处切
+        for i in range(head_target, min(head_target + 100, len(stripped))):
+            if stripped[i] in '。！？…\n':
+                actual_cut = i + 1
+                break
+        else:
+            # 向前回退（最多 100 字），确保不在半句中间切
+            for i in range(head_target - 1, max(head_target - 100, -1), -1):
+                if stripped[i] in '。！？…\n':
+                    actual_cut = i + 1
+                    break
+        head = stripped[:actual_cut]
+        rest = stripped[actual_cut:]
 
         issues_text = "；".join(check_result.issues) if check_result.issues else "首段与前章衔接不紧密"
         fix_hint = check_result.suggested_fix or "加强首段与前章的情绪/场景/悬念呼应"

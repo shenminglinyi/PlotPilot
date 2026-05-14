@@ -105,6 +105,7 @@ class ContextBuilder:
                 chapter_repo=chapter_repository,
                 bible_repo=bible_repository,
                 story_node_repo=story_node_repository,
+                novel_repository=novel_repository,
             )
         except Exception as _e:
             logger.warning("ContextAssembler 初始化失败: %s", _e)
