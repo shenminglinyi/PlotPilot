@@ -1,7 +1,5 @@
 ﻿# PlotPilot（墨枢）
 
-> 感谢大家对开源社区的关注，预计5月份会进行大版本迭代，正式升级为剧情引擎。目前包体不稳定，不着急用的同学可以等新版本，PR我会在大版本迭代后统一review，十分感谢大家对开源社区的贡献！
-
 <p align="center">
   <img src="docs/plotpilot-readme.256.png" alt="PlotPilot 墨枢" width="120" />
 </p>
