@@ -361,6 +361,17 @@ class AutoNovelGenerationWorkflow:
             "voice_anchors": voice_anchors,
         }
 
+    def _resolve_target_chapter_words(self, novel_id: str) -> int:
+        """每章目标字数：与作品设置 target_words_per_chapter 一致（工作流 / API 单章生成）。"""
+        try:
+            novel = self.context_builder.novel_repository.get_by_id(NovelId(novel_id))
+            if novel is not None:
+                w = int(getattr(novel, "target_words_per_chapter", 2500) or 2500)
+                return max(500, min(10000, w))
+        except Exception as e:
+            logger.debug("读取 target_words_per_chapter 失败，使用默认 2500: %s", e)
+        return 2500
+
     def build_fallback_chapter_bundle(
         self,
         novel_id: str,
@@ -514,13 +525,16 @@ class AutoNovelGenerationWorkflow:
 
         logger.info("阶段 3: 生成 - 调用 LLM")
         config = GenerationConfig()
+        target_words = self._resolve_target_chapter_words(novel_id)
         
         # 如果使用节拍模式，先放大节拍
         beats = []
         if enable_beats:
             logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
-            beats = self.context_builder.magnify_outline_to_beats(chapter_number, outline)
-            logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍")
+            beats = self.context_builder.magnify_outline_to_beats(
+                chapter_number, outline, target_chapter_words=target_words
+            )
+            logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
         
         # 根据是否使用节拍选择不同的生成策略
         if enable_beats and beats:
@@ -597,6 +611,7 @@ class AutoNovelGenerationWorkflow:
                 plot_tension=bundle["plot_tension"],
                 style_summary=bundle["style_summary"],
                 voice_anchors=bundle.get("voice_anchors") or "",
+                chapter_target_words=target_words,
             )
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
             llm_result = await self.llm_service.generate(prompt, config)
@@ -685,13 +700,16 @@ class AutoNovelGenerationWorkflow:
             logger.info("阶段 3: 生成 - 调用 LLM 流式生成")
             config = GenerationConfig()
             chunk_count = 0
+            target_words = self._resolve_target_chapter_words(novel_id)
             
             # 如果使用节拍模式，先放大节拍
             beats = []
             if enable_beats:
                 logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
-                beats = self.context_builder.magnify_outline_to_beats(chapter_number, outline)
-                logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍")
+                beats = self.context_builder.magnify_outline_to_beats(
+                    chapter_number, outline, target_chapter_words=target_words
+                )
+                logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
                 
                 # 发送节拍信息用于前端展示
                 yield {
@@ -772,6 +790,7 @@ class AutoNovelGenerationWorkflow:
                     style_summary=bundle["style_summary"],
                     voice_anchors=bundle.get("voice_anchors") or "",
                     regeneration_guidance=regeneration_guidance,
+                    chapter_target_words=target_words,
                 )
                 
                 logger.info(f"  → 发送流式请求到 LLM")
@@ -1088,6 +1107,7 @@ class AutoNovelGenerationWorkflow:
         voice_anchors: str = "",
         chapter_draft_so_far: str = "",
         regeneration_guidance: Optional[str] = None,
+        chapter_target_words: Optional[int] = None,
     ) -> Prompt:
         """构建 LLM 提示词
 
@@ -1099,9 +1119,10 @@ class AutoNovelGenerationWorkflow:
             style_summary: 风格指纹摘要（Phase 2.5）
             beat_prompt: 非空时进入「分节拍」模式（托管断点续写）
             beat_index / total_beats: 节拍序号（0-based / 总数）
-            beat_target_words: 本段目标字数（分节拍时覆盖「整章 2000-3000 字」说明）
+            beat_target_words: 本段目标字数（分节拍时覆盖整章说明）
             voice_anchors: Bible 角色声线/小动作锚点（高优先级 System 提示）
-            chapter_draft_so_far: 同章内当前节拍之前已生成的正文（拼接后传入，避免后续节拍重复）
+            chapter_draft_so_far: 同章内当前节拍之前已生成的正文
+            chapter_target_words: 非 beat 模式下的整章目标字数（覆盖默认硬编码值）
 
         Returns:
             Prompt 对象
@@ -1134,13 +1155,22 @@ class AutoNovelGenerationWorkflow:
         beat_mode = bool((beat_prompt or "").strip())
         prior_in_chapter = format_prior_draft_for_prompt(chapter_draft_so_far)
         # 字数控制：像小说家一样自然收束，而非粗暴截断
-        length_rule = (
-            f"7. 【字数指引】本节拍约 {beat_target_words} 字。"
-            f"用有信息的对话、动作与因果推进填到目标附近，禁止为凑字重复描写同一致震撼或同一情绪；"
-            f"收束用完整句，不要戛然而止。"
-            if beat_target_words
-            else ("7. 章节长度：3000-4000字" if not beat_mode else "7. 按下方节拍说明控制篇幅，勿写章节标题")
-        )
+        if beat_target_words:
+            length_rule = (
+                f"7. 【字数指引】本节拍约 {beat_target_words} 字。"
+                f"用有信息的对话、动作与因果推进填到目标附近，禁止为凑字重复描写同一致震撼或同一情绪；"
+                f"收束用完整句，不要戛然而止。"
+            )
+        elif beat_mode:
+            length_rule = "7. 按下方节拍说明控制篇幅，勿写章节标题"
+        elif chapter_target_words:
+            length_rule = (
+                f"7. 【章节字数指引】本章目标约 {chapter_target_words} 字。"
+                f"完整覆盖下方大纲的所有要点，字数不足时优先补充对话与场景细节，禁止重复情节水字；"
+                f"用完整句收束，不要戛然而止。"
+            )
+        else:
+            length_rule = "7. 章节长度：3000-4000字"
         beat_extra = ""
         if beat_mode and beat_index is not None and total_beats is not None and total_beats > 0:
             if prior_in_chapter:

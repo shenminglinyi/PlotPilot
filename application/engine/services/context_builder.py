@@ -11,6 +11,7 @@
 Layer3 段名为 VECTOR RECALL（T3）；见 assemble_chapter_bundle_context_text。
 """
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -432,6 +433,84 @@ class ContextBuilder:
 
         return beats
 
+    def _segment_user_outline(self, outline: str) -> List[str]:
+        """将用户章纲拆成多条，供「章纲优先」节拍；支持编号列表、项目符号、空行段、单段按句切分。"""
+        text = (outline or "").strip()
+        if not text:
+            return []
+        if re.search(r"(?m)^\s*\d+[\.、．\)]", text):
+            parts = re.split(r"\n(?=\s*\d+[\.、．\)]\s)", text)
+            segs = [p.strip() for p in parts if p.strip()]
+            if len(segs) >= 2:
+                return segs
+        if re.search(r"(?m)^\s*[-*•]\s+\S", text):
+            parts = re.split(r"\n(?=\s*[-*•]\s)", text)
+            segs = [p.strip() for p in parts if p.strip()]
+            if len(segs) >= 2:
+                return segs
+        paras = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
+        if len(paras) >= 2:
+            return paras
+        if len(text) >= 20:
+            # 中文句间无空格，不依赖 \s+ ——直接按句末标点切分
+            sents = [
+                s.strip()
+                for s in re.split(r"(?<=[。！？；])", text)
+                if len(s.strip()) > 8
+            ]
+            if len(sents) >= 2:
+                return sents
+        if len(text) >= 400:
+            n = min(self.MAX_BEATS, max(2, (len(text) + 499) // 500))
+            approx = max(1, len(text) // n)
+            segs: List[str] = []
+            idx = 0
+            for k in range(n):
+                if k == n - 1:
+                    chunk = text[idx:].strip()
+                else:
+                    end = min(len(text), idx + approx)
+                    brk = end
+                    for j in range(end, min(len(text), end + 80)):
+                        if text[j] in "。！？；":
+                            brk = j + 1
+                            break
+                    chunk = text[idx:brk].strip()
+                    idx = brk
+                if chunk:
+                    segs.append(chunk)
+            if len(segs) >= 2:
+                return segs
+        return [text]
+
+    def _build_beats_from_outline_segments(
+        self,
+        segments: List[str],
+        target_chapter_words: int,
+    ) -> List[Beat]:
+        """按用户章纲条文生成节拍（每段必须落实，字数按段长比例分配）。"""
+        clean = [s.strip() for s in segments if s and s.strip()]
+        if not clean:
+            return []
+        total_w = sum(max(1, len(s)) for s in clean)
+        beats: List[Beat] = []
+        for seg in clean:
+            w = max(1, int(target_chapter_words * max(1, len(seg)) / total_w))
+            focus = self._infer_focus_from_outline(seg)
+            beats.append(
+                Beat(
+                    description=(
+                        "【章纲节选·须落实】以下要点必须写入正文（可合理扩写，不得跳过核心因果；"
+                        "人物姓名须与 Bible 一致）：\n"
+                        + seg
+                    ),
+                    target_words=w,
+                    focus=focus,
+                    expansion_hints=self._generate_expansion_hints(focus, w),
+                )
+            )
+        return beats
+
     def _build_beats_from_outline(
         self,
         chapter_number: int,
@@ -439,6 +518,19 @@ class ContextBuilder:
         target_chapter_words: int,
     ) -> List[Beat]:
         """无 BeatSheet 时，从大纲关键词推断节拍（回退逻辑）"""
+        raw = (outline or "").strip()
+        segments = self._segment_user_outline(raw)
+        outline_chars = len(raw)
+        if len(segments) >= 2 or (len(segments) == 1 and outline_chars >= 15):
+            beats = self._build_beats_from_outline_segments(segments, target_chapter_words)
+            logger.info(
+                "节拍放大器（章纲优先）：用户大纲拆为 %d 个节拍，章纲约 %d 字，整章目标 %d 字",
+                len(beats),
+                outline_chars,
+                target_chapter_words,
+            )
+            return beats
+
         beats = []
         base_beat_words = max(400, int(target_chapter_words * 0.25))
 
