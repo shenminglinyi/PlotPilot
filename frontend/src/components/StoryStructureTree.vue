@@ -1,6 +1,9 @@
 <template>
   <div class="story-structure" @click="closeMenu">
     <div class="structure-body" v-if="displayTreeData.length > 0">
+      <div v-if="isMacroPreviewTree" class="macro-preview-ribbon">
+        预览骨架 · 每次挂载一整条部 / 卷 / 幕（完整节点，非字符流）；落库后切换为左侧正式结构
+      </div>
       <n-tree
         :data="displayTreeData"
         :node-props="nodeProps"
@@ -16,7 +19,7 @@
     </div>
 
     <div v-else class="structure-empty-wrap">
-      <!-- 宏观规划：完成后一次性拉取结构树；进行中仅单行骨架 + 状态 -->
+      <!-- 宏观规划：仅接收完整节点事件挂载树；不展示模型原始字符流 -->
       <div v-if="autopilotEmptyMode === 'planning'" class="structure-macro-live">
         <div class="macro-live-status">
           <span class="macro-live-dot" :class="{ 'is-live': macroWatchAlive }" aria-hidden="true" />
@@ -28,7 +31,7 @@
           v-if="showMacroPlanningSkeleton"
           class="macro-planning-skeleton-line"
           aria-busy="true"
-          aria-label="宏观规划生成中"
+          aria-label="等待首个结构节点"
         >
           <n-spin size="small" />
           <n-skeleton height="14" round class="macro-planning-skeleton-bar" />
@@ -97,7 +100,7 @@ import { chapterApi } from '@/api/chapter'
 import { resolveHttpUrl } from '@/api/config'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeTreeChapterLine } from '@/utils/narrativeUnitLabel'
-import { watchMacroPlanProgress, planningApi, type MacroProgressWatchTerminalEvent } from '@/api/planning'
+import { watchMacroPlanProgress, planningApi, type MacroProgressWatchTerminalEvent, type MacroStreamNodeEvent, type StoryNode as PlanningStoryNode } from '@/api/planning'
 
 const props = defineProps<{
   slug: string
@@ -145,6 +148,7 @@ function clearMacroProgressPoll() {
 
 const macroWatchError = ref('')
 const macroLiveMessage = ref('')
+const macroPreviewRoots = ref<PlanningStoryNode[]>([])
 
 const macroWatchAlive = computed(
   () =>
@@ -155,13 +159,17 @@ const macroWatchAlive = computed(
 
 const macroLiveHeadline = computed(() => {
   if (macroWatchError.value) return '宏观规划异常'
+  if (macroPreviewRoots.value.length > 0) return '正在挂载叙事骨架'
   return '正在生成叙事结构…'
 })
 
-/** 规划进行中且侧栏尚无真实树：单行骨架 + loading */
+/** 尚无任一完整节点时：单行占位（有节点后改在树上逐条展示） */
 const showMacroPlanningSkeleton = computed(
   () =>
-    autopilotEmptyMode.value === 'planning' && !macroWatchError.value && treeData.value.length === 0,
+    autopilotEmptyMode.value === 'planning' &&
+    !macroWatchError.value &&
+    treeData.value.length === 0 &&
+    macroPreviewRoots.value.length === 0,
 )
 
 /** 仅展示非重复的进度句（避免标题 + 长说明 + SSE 默认句叠三层） */
@@ -183,14 +191,110 @@ function stopMacroPlanWatch() {
   macroSseActive.value = false
 }
 
+function snapshotMacroPreviewRoots(nodes: PlanningStoryNode[]): PlanningStoryNode[] {
+  return JSON.parse(JSON.stringify(nodes)) as PlanningStoryNode[]
+}
+
+/** SSE 每条 node 为完整部/卷/幕，在此一次性写入对应树位（非字符流） */
+function mergeMacroPreviewNode(ev: MacroStreamNodeEvent) {
+  const pi = ev.part_index
+  const vi = ev.volume_index
+  const ai = ev.act_index
+  const roots = macroPreviewRoots.value
+
+  const ensurePart = () => {
+    while (roots.length <= pi) {
+      const idx = roots.length
+      roots.push({
+        id: `macro-prev-part-${idx}`,
+        node_type: 'part',
+        title: '…',
+        description: '',
+        level: 1,
+        children: [],
+      })
+    }
+  }
+
+  if (ev.type === 'part') {
+    ensurePart()
+    const part = roots[pi]
+    part.title = ev.title || part.title
+    part.description = typeof ev.description === 'string' ? ev.description : ''
+    part.children = part.children || []
+    macroPreviewRoots.value = snapshotMacroPreviewRoots(roots)
+    return
+  }
+
+  ensurePart()
+  const part = roots[pi]
+  part.children = part.children || []
+
+  if (ev.type === 'volume') {
+    const vidx = vi ?? 0
+    while (part.children!.length <= vidx) {
+      const j = part.children!.length
+      part.children!.push({
+        id: `macro-prev-vol-${pi}-${j}`,
+        node_type: 'volume',
+        title: '…',
+        description: '',
+        level: 2,
+        children: [],
+      })
+    }
+    const vol = part.children![vidx]
+    vol.title = ev.title || vol.title
+    vol.description = typeof ev.description === 'string' ? ev.description : ''
+    macroPreviewRoots.value = snapshotMacroPreviewRoots(roots)
+    return
+  }
+
+  if (ev.type === 'act') {
+    const vidx = vi ?? 0
+    const aidx = ai ?? 0
+    while (part.children!.length <= vidx) {
+      const j = part.children!.length
+      part.children!.push({
+        id: `macro-prev-vol-${pi}-${j}`,
+        node_type: 'volume',
+        title: '…',
+        description: '',
+        level: 2,
+        children: [],
+      })
+    }
+    const vol = part.children![vidx]
+    vol.children = vol.children || []
+    while (vol.children.length <= aidx) {
+      const k = vol.children.length
+      vol.children.push({
+        id: `macro-prev-act-${pi}-${vidx}-${k}`,
+        node_type: 'act',
+        title: '…',
+        description: '',
+        level: 3,
+        children: [],
+      })
+    }
+    const act = vol.children[aidx]
+    act.title = ev.title || act.title
+    act.description = typeof ev.description === 'string' ? ev.description : ''
+  }
+
+  macroPreviewRoots.value = snapshotMacroPreviewRoots(roots)
+}
+
 async function loadTreeAfterMacroPersist() {
   for (let i = 0; i < 12; i++) {
     await loadTree()
     if (treeData.value.length > 0) {
+      macroPreviewRoots.value = []
       return
     }
     await new Promise((r) => setTimeout(r, 400))
   }
+  macroPreviewRoots.value = []
 }
 
 function startMacroProgressPoll(slug: string) {
@@ -230,6 +334,7 @@ watch(
     clearMacroProgressPoll()
     macroWatchError.value = ''
     macroLiveMessage.value = ''
+    macroPreviewRoots.value = []
     if (!planning || !props.slug) return
     startMacroProgressPoll(props.slug)
     macroLiveMessage.value = '正在连接宏观规划 SSE…'
@@ -237,6 +342,9 @@ watch(
     macroPlanWatchCtrl = watchMacroPlanProgress(props.slug, {
       onStatus: (e) => {
         if (e.message) macroLiveMessage.value = e.message
+      },
+      onNode: (n) => {
+        mergeMacroPreviewNode(n)
       },
       onTerminal: async (t: MacroProgressWatchTerminalEvent) => {
         stopMacroPlanWatch()
@@ -350,7 +458,7 @@ watch(
   { immediate: true, deep: true }
 )
 
-const convertToTreeNode = (node: StoryNode): any => {
+const convertToTreeNode = (node: StoryNode | PlanningStoryNode): any => {
   const iconMap: Record<string, string> = {
     part: '📚',
     volume: '📖',
@@ -372,7 +480,17 @@ const convertToTreeNode = (node: StoryNode): any => {
   }
 }
 
-const displayTreeData = computed(() => treeData.value)
+const displayTreeData = computed(() => {
+  if (treeData.value.length > 0) return treeData.value
+  if (macroPreviewRoots.value.length > 0) {
+    return macroPreviewRoots.value.map((n) => convertToTreeNode(n))
+  }
+  return []
+})
+
+const isMacroPreviewTree = computed(
+  () => treeData.value.length === 0 && macroPreviewRoots.value.length > 0,
+)
 
 /** 收集所有非章节节点的 key，用于自动展开 */
 const collectNonChapterKeys = (nodes: StoryNode[]): string[] => {
