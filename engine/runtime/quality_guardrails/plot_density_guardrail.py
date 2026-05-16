@@ -39,8 +39,8 @@ class DensityViolation:
 class PlotDensityGuardrail:
     """情节密度守门人（重构版）"""
 
-    # 信息密度阈值（有效信息点/千字）——宽泛定义下的合理基准
-    MIN_INFO_DENSITY = 4
+    # 信息密度阈值（有效信息点/千字）——对标「可读章」略高于纯流水账基准
+    MIN_INFO_DENSITY = 5
 
     # ── 形容词冗余堆叠模式（严格版，减少误判）──────────────────────
     # 规则：同一名词前出现3+个2字以上的定语（每个定语本身是纯修饰词）
@@ -180,7 +180,7 @@ class PlotDensityGuardrail:
         char_count = max(len(text.replace(" ", "").replace("\n", "")), 1)
         filler_total = sum(text.count(w) for w in self.FILLER_WORDS)
         density_per_100 = filler_total / (char_count / 100)
-        if density_per_100 > 3:
+        if density_per_100 > 2.65:
             violations.append(DensityViolation(
                 violation_type="adj_redundancy",
                 severity=0.12,

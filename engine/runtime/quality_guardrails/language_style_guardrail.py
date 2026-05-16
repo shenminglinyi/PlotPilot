@@ -23,8 +23,12 @@ from __future__ import annotations
 
 import re
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple
+
+from engine.runtime.quality_guardrails.novelist_surface_audit import (
+    combined_language_surface_penalty,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,7 @@ class StyleViolation:
             "number_metaphor": "数字比喻",
             "over_rational": "过度理性",
             "detour": "拐弯描写",
+            "novelist_surface": "行文质地（专业向）",
         }
         return names.get(self.violation_type, self.violation_type)
 
@@ -120,13 +125,22 @@ class LanguageStyleGuardrail:
         # 4. 拐弯描写检测
         violations.extend(self._check_detour(text))
 
-        # 计算评分
-        if not violations:
-            return 1.0, []
+        surface_penalty = combined_language_surface_penalty(text)
 
-        # 加权评分
-        total_penalty = sum(v.severity for v in violations)
-        score = max(0.0, 1.0 - total_penalty * 0.15)
+        # 加权评分 — 正则命中惩罚 + 小说家向表面税（避免「无病高分」）
+        pattern_penalty = sum(v.severity for v in violations) * 0.15 + surface_penalty
+        score = max(0.0, 1.0 - pattern_penalty)
+
+        if surface_penalty >= 0.028:
+            violations.append(StyleViolation(
+                violation_type="novelist_surface",
+                severity=min(1.0, surface_penalty / 0.08),
+                original_text="",
+                suggestion=(
+                    "从编辑视角：播音腔/评述套话、「的」链偏黏、起手句式单调或句式过于匀速之一较明显。"
+                    "可删作者旁白评语、打散长段、改写部分「他/她」起手对白或动作钩子。"
+                ),
+            ))
 
         return score, violations
 
