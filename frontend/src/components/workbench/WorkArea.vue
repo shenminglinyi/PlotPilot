@@ -778,7 +778,9 @@ const isAssistedReadOnly = computed(
 /** 与左侧章节「已收稿」、结构树同步：全托管推进时刷新 desk（首次快照只记录不 emit，避免与进入页重复请求） */
 const lastAutopilotDeskSnap = ref<string | null>(null)
 
-/** 仅纳入「会改变侧栏章节列表 / 结构树骨架」的字段；排除 total_words、beat 索引等写作过程高频抖动，避免每秒整桌 loadDesk。 */
+/** 仅纳入「会改变侧栏章节列表 / 结构树骨架」的字段；排除 total_words、beat 索引等写作过程高频抖动，避免每秒整桌 loadDesk。
+ * 注意：不要把章末审阅的 narrative_sync_ok 等纳入 —— 守护进程写入时易抖动，会导致整桌刷新与规划区反复重拉，观感像「整页自动刷新」。
+ */
 function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefined): string {
   if (!status) return ''
   const s = status
@@ -787,7 +789,6 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     audit != null
       ? (audit.chapter_number ?? audit.chapterNumber ?? '')
       : ''
-  const auditSync = audit != null && audit.narrative_sync_ok === true ? '1' : '0'
   return [
     s.completed_chapters ?? 0,
     s.manuscript_chapters ?? 0,
@@ -798,7 +799,6 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     s.needs_review === true ? '1' : '0',
     s.autopilot_status ?? '',
     auditCh,
-    auditSync,
   ].join('|')
 }
 
@@ -826,7 +826,61 @@ function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined
 }
 
 const handleAutopilotStatusChange = (status: any) => {
-  autopilotStatus.value = status
+  applyAutopilotStatusPayload(status)
+}
+
+/** 排除纳秒级抖动字段（context_tokens、daemon 心跳等），仅在「读者可见状态」变化时更新 Vue，减轻辅助撰稿区重绘 */
+const lastAutopilotReactiveFp = ref<string>('')
+
+function autopilotReactiveFingerprint(j: Record<string, unknown>): string {
+  const audit = j.last_chapter_audit as Record<string, unknown> | undefined
+  const auditMini = audit
+    ? [
+        audit.chapter_number ?? audit.chapterNumber ?? '',
+        audit.tension ?? '',
+        audit.narrative_sync_ok === true ? '1' : '0',
+        audit.similarity_score ?? '',
+        audit.at ?? '',
+        audit.drift_alert === true ? '1' : '0',
+      ].join(':')
+    : ''
+  const lst = j.last_smart_truncate
+  const lstS = lst && typeof lst === 'object' ? JSON.stringify(lst) : String(lst ?? '')
+  return [
+    j.autopilot_status,
+    j.current_stage,
+    j.current_chapter_number,
+    j.completed_chapters,
+    j.manuscript_chapters,
+    j.current_beat_index,
+    j.total_beats,
+    j.writing_substep,
+    j.writing_substep_label,
+    j.accumulated_words,
+    j.beat_phase,
+    j.beat_focus,
+    j.beat_hard_cap,
+    j.beat_target_words,
+    j.chapter_target_words,
+    j.beat_remaining_budget,
+    j.beat_max_words_hint,
+    auditMini,
+    lstS,
+  ].join('|')
+}
+
+function applyAutopilotStatusPayload(status: Record<string, unknown> | null | undefined) {
+  if (status == null) {
+    autopilotStatus.value = null
+    lastAutopilotReactiveFp.value = ''
+    maybeEmitDeskRefresh(status)
+    return
+  }
+  const fp = autopilotReactiveFingerprint(status)
+  if (fp !== lastAutopilotReactiveFp.value) {
+    lastAutopilotReactiveFp.value = fp
+    autopilotStatus.value = status
+  }
   maybeEmitDeskRefresh(status)
 }
 
@@ -918,8 +972,7 @@ async function pollAutopilotStatusWhileAssisted() {
     if (res.ok) {
       assistAutopilotPollFailures = 0
       const json = await res.json()
-      autopilotStatus.value = json
-      maybeEmitDeskRefresh(json)
+      applyAutopilotStatusPayload(json as Record<string, unknown>)
     } else {
       assistAutopilotPollFailures += 1
     }
@@ -932,6 +985,7 @@ watch(
   () => props.slug,
   () => {
     lastAutopilotDeskSnap.value = null
+    lastAutopilotReactiveFp.value = ''
     assistedAutopilot404 = false
     assistAutopilotPollFailures = 0
     clearAssistedAutopilotPoll()

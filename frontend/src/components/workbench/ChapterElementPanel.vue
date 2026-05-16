@@ -169,7 +169,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { useMessage } from 'naive-ui'
@@ -314,9 +314,11 @@ function findChapterNode(nodes: StoryNode[], num: number): StoryNode | null {
 }
 
 const resolveStoryNode = async () => {
-  storyNodeId.value = null
-  chapterPlan.value = null
-  if (!props.currentChapterNumber) return
+  if (!props.currentChapterNumber) {
+    storyNodeId.value = null
+    chapterPlan.value = null
+    return
+  }
   try {
     const res = await planningApi.getStructure(props.slug)
     const roots = res.data?.nodes ?? []
@@ -324,9 +326,12 @@ const resolveStoryNode = async () => {
     if (node) {
       storyNodeId.value = node.id
       chapterPlan.value = node
+    } else {
+      storyNodeId.value = null
+      chapterPlan.value = null
     }
   } catch {
-    // ignore
+    /* 保留上一份，避免 deskTick 抖动时整块清空 */
   }
 }
 
@@ -379,15 +384,27 @@ watch(() => props.currentChapterNumber, async () => {
 
 const refreshStore = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(refreshStore)
-watch(deskTick, async () => {
-  await resolveStoryNode()
-  await loadElements()
+let deskTickDebounce: ReturnType<typeof setTimeout> | null = null
+const DESK_TICK_DEBOUNCE_MS = 450
+watch(deskTick, () => {
+  if (deskTickDebounce) clearTimeout(deskTickDebounce)
+  deskTickDebounce = setTimeout(() => {
+    deskTickDebounce = null
+    void resolveStoryNode().then(() => loadElements())
+  }, DESK_TICK_DEBOUNCE_MS)
 })
 
 onMounted(async () => {
   await loadBible()
   await resolveStoryNode()
   await loadElements()
+})
+
+onUnmounted(() => {
+  if (deskTickDebounce) {
+    clearTimeout(deskTickDebounce)
+    deskTickDebounce = null
+  }
 })
 </script>
 

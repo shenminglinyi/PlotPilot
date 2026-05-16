@@ -137,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { planningApi } from '../../api/planning'
@@ -331,9 +331,11 @@ function findChapterNode(nodes: StoryNode[], num: number): StoryNode | null {
 }
 
 const resolveStoryNode = async () => {
-  chapterPlan.value = null
   storyNodeNotFound.value = false
-  if (!props.currentChapterNumber) return
+  if (!props.currentChapterNumber) {
+    chapterPlan.value = null
+    return
+  }
   try {
     const res = await planningApi.getStructure(props.slug)
     const roots = res.data?.nodes ?? []
@@ -341,6 +343,7 @@ const resolveStoryNode = async () => {
     if (node) {
       chapterPlan.value = node
     } else {
+      chapterPlan.value = null
       storyNodeNotFound.value = true
     }
   } catch {
@@ -349,14 +352,16 @@ const resolveStoryNode = async () => {
 }
 
 async function loadKnowledgeChapter() {
-  knowledgeChapter.value = null
-  if (!props.slug || !props.currentChapterNumber) return
+  if (!props.slug || !props.currentChapterNumber) {
+    knowledgeChapter.value = null
+    return
+  }
   try {
     const k = await knowledgeApi.getKnowledge(props.slug)
     const row = k.chapters?.find(c => c.chapter_id === props.currentChapterNumber)
     knowledgeChapter.value = row ?? null
   } catch {
-    knowledgeChapter.value = null
+    /* 保留上一份，避免托管轮询触发 deskTick 时整卡清空闪烁 */
   }
 }
 
@@ -389,15 +394,28 @@ watch(() => props.currentChapterNumber, async () => {
 
 const refreshStore = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(refreshStore)
-watch(deskTick, async () => {
-  await resolveStoryNode()
-  await loadKnowledgeChapter()
+let deskTickDebounce: ReturnType<typeof setTimeout> | null = null
+const DESK_TICK_DEBOUNCE_MS = 450
+watch(deskTick, () => {
+  if (deskTickDebounce) clearTimeout(deskTickDebounce)
+  deskTickDebounce = setTimeout(() => {
+    deskTickDebounce = null
+    void resolveStoryNode()
+    void loadKnowledgeChapter()
+  }, DESK_TICK_DEBOUNCE_MS)
 })
 
 onMounted(async () => {
   await loadBible()
   await resolveStoryNode()
   await loadKnowledgeChapter()
+})
+
+onUnmounted(() => {
+  if (deskTickDebounce) {
+    clearTimeout(deskTickDebounce)
+    deskTickDebounce = null
+  }
 })
 </script>
 
