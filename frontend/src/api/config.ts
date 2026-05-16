@@ -1,4 +1,6 @@
-import axios, { type AxiosRequestConfig } from 'axios'
+import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
+
+import { emitAxiosFeedbackIncident } from '../support/feedbackNotifier'
 
 // ---------------------------------------------------------------------------
 // 单一数据源：axiosInstance.defaults.baseURL
@@ -173,7 +175,36 @@ export async function initApiClient(): Promise<void> {
   await initTauriConnection()
 }
 
-axiosInstance.interceptors.response.use(response => response.data)
+function formatAxiosUserSummary(err: AxiosError): string {
+  const url = typeof err.config?.url === 'string' ? err.config.url : ''
+  const method = err.config?.method ? String(err.config.method).toUpperCase() : ''
+  const status = typeof err.response?.status === 'number' ? err.response.status : undefined
+  if (typeof status === 'number') {
+    return `接口错误 (${status}) ${method} ${url}`.trim()
+  }
+  if (err.code === 'ECONNABORTED') return `请求超时 ${method} ${url}`.trim()
+  const msg = typeof err.message === 'string' ? err.message.trim() : ''
+  return msg.length > 0 ? msg : '网络或接口异常'
+}
+
+axiosInstance.interceptors.response.use(
+  response => response.data,
+  err => {
+    const axErr = err as AxiosError
+    const cfg = axErr.config as (AxiosRequestConfig & { silentGlobalFeedback?: boolean }) | undefined
+    if (
+      axErr.code === 'ERR_CANCELED' ||
+      axErr.name === 'CanceledError'
+    ) {
+      return Promise.reject(axErr)
+    }
+    if (cfg?.silentGlobalFeedback === true) {
+      return Promise.reject(axErr)
+    }
+    emitAxiosFeedbackIncident(formatAxiosUserSummary(axErr), axErr)
+    return Promise.reject(axErr)
+  },
+)
 
 export interface ApiClient {
   get<T>(url: string, config?: AxiosRequestConfig): Promise<T>

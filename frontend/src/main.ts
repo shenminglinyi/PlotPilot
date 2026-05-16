@@ -14,9 +14,11 @@ import './assets/styles/main.css'
 
 // Tauri API 初始化（动态端口、环境检测）
 import { initApiClient } from './api/config'
+import { installGlobalFeedbackIncidentCapture } from './support/feedbackGlobalInstall'
 
 async function bootstrap() {
   const app = createApp(App)
+  installGlobalFeedbackIncidentCapture(app)
 
   app.use(createPinia())
   app.use(router)
