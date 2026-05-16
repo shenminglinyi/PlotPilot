@@ -1,11 +1,5 @@
 <template>
-  <n-modal
-    v-model:show="visible"
-    preset="card"
-    title="核心引擎配置"
-    style="width: 720px; max-width: 95vw"
-    :mask-closable="false"
-  >
+  <div class="engine-matrix">
     <n-alert type="info" :show-icon="false" class="mb-4">
       配置不同场景下使用的模型端点。统一模式下，所有角色共享同一组 API 地址与密钥；
       独立模式下可为每个角色指定不同的 provider。
@@ -19,7 +13,6 @@
     </div>
 
     <n-form :model="formData" label-placement="top" class="model-matrix-form">
-      <!-- 主力模型（写作/分析） -->
       <n-card size="small" :bordered="true" class="role-card mb-3">
         <template #header>
           <div class="role-card-header">
@@ -63,9 +56,7 @@
         </n-grid>
       </n-card>
 
-      <!-- 独立模式下的其他角色 -->
       <template v-if="!isUnifiedMode">
-        <!-- 经济模型 -->
         <n-card size="small" :bordered="true" class="role-card mb-3">
           <template #header>
             <div class="role-card-header">
@@ -97,7 +88,6 @@
           </n-grid>
         </n-card>
 
-        <!-- 知识图谱模型 -->
         <n-card size="small" :bordered="true" class="role-card mb-3">
           <template #header>
             <div class="role-card-header">
@@ -131,22 +121,20 @@
       </template>
     </n-form>
 
-    <template #action>
+    <div class="engine-footer">
       <n-space justify="end" :size="12">
-        <n-button @click="visible = false">取消</n-button>
-        <n-button type="primary" :loading="saving" @click="handleSave">保存配置</n-button>
+        <n-button :loading="saving" @click="handleSave">保存配置</n-button>
       </n-space>
-    </template>
-  </n-modal>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useMessage } from 'naive-ui'
-import { llmControlApi, type LLMControlPanelData, type LLMProfile } from '../../api/llmControl'
+import { llmControlApi, type LLMControlPanelData, type LLMProfile, type LLMProtocol } from '@/api/llmControl'
 
 const message = useMessage()
-const visible = ref(false)
 const saving = ref(false)
 const isUnifiedMode = ref(true)
 
@@ -196,7 +184,6 @@ async function loadData() {
       formData.default_model_base_url = active.base_url
       formData.default_model = active.model
     }
-    // 如果有多个 profile，尝试映射到不同角色
     if (data.config.profiles.length >= 2) {
       const cheap = data.config.profiles.find((p) => p.name.includes('经济') || p.name.includes('Cheap'))
       if (cheap) {
@@ -215,10 +202,9 @@ async function loadData() {
         formData.knowledge_model = kg.model
       }
     }
-    // 检测是否为独立模式
     isUnifiedMode.value = !formData.cheap_model_api_key && !formData.knowledge_model_api_key
   } catch {
-    // 使用默认值
+    /* 使用默认值 */
   }
 }
 
@@ -226,15 +212,12 @@ async function handleSave() {
   saving.value = true
   try {
     const data: LLMControlPanelData = await llmControlApi.getPanel()
-
-    // 构建或更新 profiles
     const profiles: LLMProfile[] = [...data.config.profiles]
 
-    // 更新或创建主力 profile
     const mainProfile: LLMProfile = {
       id: profiles[0]?.id || 'main-default',
       name: '主力模型',
-      protocol: formData.default_model_provider as any,
+      protocol: formData.default_model_provider as LLMProtocol,
       base_url: formData.default_model_base_url,
       api_key: formData.default_model_api_key,
       model: formData.default_model,
@@ -255,14 +238,13 @@ async function handleSave() {
       profiles.unshift(mainProfile)
     }
 
-    // 独立模式：添加经济和知识图谱 profile
     if (!isUnifiedMode.value) {
       const upsertRole = (name: string, provider: string, key: string, url: string, model: string) => {
         const existing = profiles.findIndex((p) => p.name === name)
         const roleProfile: LLMProfile = {
           id: existing >= 0 ? profiles[existing].id : `${name.toLowerCase()}-${Date.now()}`,
           name,
-          protocol: provider as any,
+          protocol: provider as LLMProtocol,
           base_url: url,
           api_key: key,
           model,
@@ -286,7 +268,6 @@ async function handleSave() {
       upsertRole('经济模型', formData.cheap_model_provider, formData.cheap_model_api_key, formData.cheap_model_base_url, formData.cheap_model)
       upsertRole('知识图谱模型', formData.knowledge_model_provider, formData.knowledge_model_api_key, formData.knowledge_model_base_url, formData.knowledge_model)
     } else {
-      // 统一模式：删除多余的角色 profile，只保留主力
       for (let i = profiles.length - 1; i >= 0; i--) {
         if (profiles[i].name !== '主力模型' && (profiles[i].name.includes('经济') || profiles[i].name.includes('知识'))) {
           profiles.splice(i, 1)
@@ -303,23 +284,23 @@ async function handleSave() {
 
     await llmControlApi.saveConfig(newConfig)
     message.success('配置已保存，系统已切换路由通道')
-    visible.value = false
-  } catch (e) {
+  } catch {
     message.error('保存失败')
   } finally {
     saving.value = false
   }
 }
 
-function open() {
-  visible.value = true
+onMounted(() => {
   void loadData()
-}
-
-defineExpose({ open })
+})
 </script>
 
 <style scoped>
+.engine-matrix {
+  padding-bottom: 8px;
+}
+
 .mb-4 { margin-bottom: 16px; }
 .mb-3 { margin-bottom: 12px; }
 
@@ -336,5 +317,11 @@ defineExpose({ open })
 
 .model-matrix-form :deep(.n-form-item) {
   margin-bottom: 0;
+}
+
+.engine-footer {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--n-divider-color);
 }
 </style>
