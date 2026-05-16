@@ -120,6 +120,25 @@ class ContextAssembler:
                 logger.warning("构建全书主线锚点（结构树）失败: %s", e)
 
         substantive = "\n".join(lines[1:]).strip()
+        if len(substantive) < 80 and self.storyline_repo:
+            try:
+                from domain.novel.value_objects.novel_id import NovelId
+                from domain.novel.value_objects.storyline_type import StorylineType
+
+                sls = self.storyline_repo.get_by_novel_id(NovelId(novel_id))
+                mains = [s for s in sls if s.storyline_type == StorylineType.MAIN_PLOT]
+                if mains:
+                    mp = max(mains, key=lambda s: float(getattr(s, "chapter_weight", 1.0) or 1.0))
+                    title = (mp.name or "").strip()
+                    desc = (mp.description or "").strip()
+                    if title:
+                        lines.append(f"向导主线标题：{title[:120]}")
+                    if desc:
+                        lines.append(f"向导主线陈述：{desc[:200]}")
+            except Exception as e:
+                logger.debug("ANCHOR 故事线兜底跳过: %s", e)
+
+        substantive = "\n".join(lines[1:]).strip()
         if len(substantive) < 36 and self.novel_repository:
             try:
                 from domain.novel.value_objects.novel_id import NovelId
