@@ -36,7 +36,7 @@
 
     <!-- ── Phase: generating / streaming / done ─────────────────── -->
     <div v-else-if="phase !== 'error'" class="stream-body">
-      <!-- 生成中：仅单行占位；完成后一次性展示节点列表 -->
+      <!-- 生成中：无节点时单行占位；每条 SSE node 为完整部/卷/幕，列表逐条增加（非字符流） -->
       <div v-if="isActive" class="prog-track">
         <div class="prog-fill" :style="{ width: `${progressPct}%` }" />
       </div>
@@ -100,7 +100,7 @@
 
         <template v-else-if="isActive">
           <n-button @click="abortGenerate" quaternary>取消生成</n-button>
-          <span class="gen-counter">生成完成后展示全文结构</span>
+          <span class="gen-counter">已接收 {{ streamedNodes.length }} 个结构节点</span>
         </template>
 
         <template v-else-if="phase === 'done'">
@@ -237,6 +237,10 @@ function nodeIcon(type: string) {
   return '🎬'
 }
 
+function makeNodeKey(node: MacroStreamNodeEvent): string {
+  return `${node.type}-${node.part_index ?? 0}-${node.volume_index ?? 0}-${node.act_index ?? 0}`
+}
+
 // ─── Generate ─────────────────────────────────────────────────────────────
 function startGenerate() {
   // reset
@@ -256,6 +260,14 @@ function startGenerate() {
       if (e.phase === 'streaming') {
         phase.value = 'streaming'
       }
+    },
+    onNode(e) {
+      if (phase.value !== 'streaming') phase.value = 'streaming'
+      streamedNodes.value.push({ ...e, key: makeNodeKey(e) })
+      void nextTick(() => {
+        const el = nodeScrollRef.value
+        if (el) el.scrollTop = el.scrollHeight
+      })
     },
     onDone(e) {
       doneStructure.value = e.structure
