@@ -6,8 +6,12 @@
 
 import asyncio
 import json as _json
+import logging
+import time as _time
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
@@ -28,6 +32,53 @@ from interfaces.api.dependencies import get_database
 
 
 router = APIRouter(prefix="/planning", tags=["continuous-planning"])
+
+
+def _macro_sse_flat_node_payloads(parts: List[Dict]) -> List[Dict]:
+    """将 preview_parts 展平为与 SSE node 事件一致的载荷列表（深度优先：部→卷→幕）。"""
+    out: List[Dict] = []
+    for pi, part in enumerate(parts or []):
+        if not isinstance(part, dict):
+            continue
+        desc_p = part.get("description") or part.get("theme") or ""
+        out.append(
+            {
+                "type": "part",
+                "part_index": pi,
+                "title": str(part.get("title") or ""),
+                "description": desc_p if isinstance(desc_p, str) else str(desc_p),
+            }
+        )
+        for vi, vol in enumerate(part.get("volumes") or []):
+            if not isinstance(vol, dict):
+                continue
+            desc_v = vol.get("description") or vol.get("theme") or ""
+            out.append(
+                {
+                    "type": "volume",
+                    "part_index": pi,
+                    "volume_index": vi,
+                    "title": str(vol.get("title") or ""),
+                    "description": desc_v if isinstance(desc_v, str) else str(desc_v),
+                }
+            )
+            for ai, act in enumerate(vol.get("acts") or []):
+                if not isinstance(act, dict):
+                    continue
+                desc_a = act.get("description") or ""
+                out.append(
+                    {
+                        "type": "act",
+                        "part_index": pi,
+                        "volume_index": vi,
+                        "act_index": ai,
+                        "title": str(act.get("title") or ""),
+                        "description": desc_a if isinstance(desc_a, str) else str(desc_a),
+                    }
+                )
+    return out
+
+
 
 
 # ==================== DTOs ====================
@@ -289,6 +340,173 @@ async def get_macro_plan_generation_progress(novel_id: str):
         "success": True,
         "data": get_macro_plan_progress(novel_id)
     }
+
+
+@router.get("/novels/{novel_id}/macro/progress/stream")
+async def watch_macro_plan_progress_sse(novel_id: str):
+    """旁观宏观规划内存进度（不启动 LLM）。
+
+    用于全托管守护进程已在进程内调用 ``generate_macro_plan`` 的场景：前端通过本 SSE
+    订阅 ``llm_stream_text`` 增量与状态，无需点击「刷新」即可确认模型在输出。
+
+    事件：
+      event: status    data: {phase, status, message, current, total, percent}
+      event: chunk      data: {text}   # LLM 增量（重连时从 last_len=0 重放当前缓冲全文）
+      event: node      data: 部/卷/幕 节点（running 时随增量解析推送；completed 时补齐剩余）
+      event: done       data: {success}  # 节点序列结束，随后仍会发 terminal
+      event: heartbeat data: {tick}
+      event: terminal   data: {status, message}  # status 为 completed | failed | timeout
+    """
+
+    def _sse(event: str, data: dict) -> str:
+        return f"event: {event}\ndata: {_json.dumps(data, ensure_ascii=False)}\n\n"
+
+    async def _watch():
+        t0 = _time.monotonic()
+        last_len = 0
+        last_sig: tuple[str, str] | None = None
+        tick = 0
+        max_seconds = 3600.0
+        chunk_events = 0
+        emitted_macro_nodes = 0
+
+        logger.info("[MacroSSEWatch] novel=%s client subscribed macro/progress/stream", novel_id)
+
+        while True:
+            if _time.monotonic() - t0 > max_seconds:
+                logger.warning("[MacroSSEWatch] novel=%s stream timeout after %.0fs", novel_id, max_seconds)
+                yield _sse("terminal", {"status": "timeout", "message": "宏观规划观摩流超时"})
+                break
+
+            await asyncio.sleep(0.32)
+            prog = get_macro_plan_progress(novel_id)
+            stream_full = prog.get("llm_stream_text") or ""
+            st = prog.get("status") or "idle"
+            msg = prog.get("message") or ""
+
+            sig = (st, msg)
+            if sig != last_sig:
+                last_sig = sig
+                logger.debug(
+                    "[MacroSSEWatch] novel=%s progress status=%s message=%s",
+                    novel_id,
+                    st,
+                    (msg[:120] + "…") if len(msg) > 120 else msg,
+                )
+                yield _sse(
+                    "status",
+                    {
+                        "phase": st if st != "idle" else "watch",
+                        "status": st,
+                        "message": msg or ("已连接宏观规划输出流，等待模型生成…" if st == "idle" else ""),
+                        "current": prog.get("current", 0),
+                        "total": prog.get("total", 0),
+                        "percent": prog.get("percent", 0),
+                    },
+                )
+
+            if len(stream_full) > last_len:
+                delta = stream_full[last_len:]
+                last_len = len(stream_full)
+                if delta:
+                    chunk_events += 1
+                    yield _sse("chunk", {"text": delta})
+                    if chunk_events == 1 or chunk_events % 25 == 0:
+                        logger.debug(
+                            "[MacroSSEWatch] novel=%s sse_chunk #%d delta_chars=%d llm_buffer_chars=%d",
+                            novel_id,
+                            chunk_events,
+                            len(delta),
+                            last_len,
+                        )
+
+            parts_snap = prog.get("preview_parts")
+            if isinstance(parts_snap, list) and parts_snap:
+                payloads = _macro_sse_flat_node_payloads(parts_snap)
+                while emitted_macro_nodes < len(payloads):
+                    pl = payloads[emitted_macro_nodes]
+                    body: Dict = {
+                        "type": pl["type"],
+                        "part_index": pl["part_index"],
+                        "title": pl["title"],
+                        "description": pl["description"],
+                    }
+                    if pl["type"] != "part":
+                        body["volume_index"] = pl["volume_index"]
+                    if pl["type"] == "act":
+                        body["act_index"] = pl["act_index"]
+                    yield _sse("node", body)
+                    emitted_macro_nodes += 1
+                    await asyncio.sleep(0.028)
+
+            tick += 1
+            if tick % 10 == 0:
+                yield _sse("heartbeat", {"tick": tick})
+                logger.debug(
+                    "[MacroSSEWatch] novel=%s heartbeat tick=%d stream_status=%s llm_buffer_chars=%d",
+                    novel_id,
+                    tick,
+                    st,
+                    len(stream_full),
+                )
+
+            if st in ("completed", "failed"):
+                if len(stream_full) > last_len:
+                    tail = stream_full[last_len:]
+                    last_len = len(stream_full)
+                    if tail:
+                        chunk_events += 1
+                        yield _sse("chunk", {"text": tail})
+                        logger.debug(
+                            "[MacroSSEWatch] novel=%s tail_chunk delta_chars=%d llm_buffer_chars=%d",
+                            novel_id,
+                            len(tail),
+                            last_len,
+                        )
+                if st == "completed":
+                    parts = prog.get("preview_parts") or []
+                    np = len(parts)
+                    nv = sum(len(p.get("volumes") or []) for p in parts)
+                    na = sum(
+                        len(v.get("acts") or [])
+                        for p in parts
+                        for v in (p.get("volumes") or [])
+                    )
+                    logger.info(
+                        "[MacroSSEWatch] novel=%s completed → emitting nodes parts=%d volumes=%d acts=%d sse_chunks=%d",
+                        novel_id,
+                        np,
+                        nv,
+                        na,
+                        chunk_events,
+                    )
+                    yield _sse(
+                        "status",
+                        {
+                            "phase": "streaming",
+                            "status": st,
+                            "message": "正在呈现叙事骨架…",
+                            "current": prog.get("current", 0),
+                            "total": prog.get("total", 0),
+                            "percent": prog.get("percent", 0),
+                        },
+                    )
+                    yield _sse("done", {"success": True})
+                    logger.debug("[MacroSSEWatch] novel=%s emitted done event", novel_id)
+                logger.info(
+                    "[MacroSSEWatch] novel=%s terminal status=%s message=%s",
+                    novel_id,
+                    st,
+                    (msg[:160] + "…") if len(msg) > 160 else msg,
+                )
+                yield _sse("terminal", {"status": st, "message": msg})
+                break
+
+    return StreamingResponse(
+        _watch(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/novels/{novel_id}/macro/result")
