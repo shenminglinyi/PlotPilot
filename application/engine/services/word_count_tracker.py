@@ -11,9 +11,9 @@
     4. 超了 → 智能截断到上一个完整句子，绝不留下半句话
 
 三个阶段：
-    UNFURL  (铺陈): 0% ~ 60% 预算 — 尽情展开，冲突、对话、感官细节
-    CONVERGE (收束): 60% ~ 85% 预算 — 场景加速，对话短促，线头开始回收
-    LAND    (着陆): 85% ~ 100%+ 预算 — 必须收住，干净结尾，悬念钩子
+    UNFURL  (铺陈): 0% ~ 75% 预算 — 尽情展开，冲突、对话、感官细节
+    CONVERGE (收束): 75% ~ 92% 预算 — 场景加速，对话短促，线头开始回收
+    LAND    (着陆): 92% ~ 100%+ 预算 — 必须收住，干净结尾，悬念钩子
 
 使用方式：
     conductor = ChapterConductor(total_budget=2500, total_beats=4)
@@ -96,8 +96,8 @@ class ChapterConductor:
     """
 
     # ── 阶段切换阈值 ──
-    CONVERGE_THRESHOLD = 0.60   # 60% 预算消耗后开始收束
-    LAND_THRESHOLD = 0.85       # 85% 预算消耗后进入着陆
+    CONVERGE_THRESHOLD = 0.75   # 75% 预算消耗后开始收束
+    LAND_THRESHOLD = 0.92       # 92% 预算消耗后进入着陆
 
     # ── 字数保护 ──
     MIN_BEAT_WORDS = 200        # 单节拍最小字数（不能无限压缩）
@@ -138,12 +138,36 @@ class ChapterConductor:
         "4. 绝对不能留下悬而未决的对话或行动"
     )
 
-    def __init__(self, total_budget: int, total_beats: int = 0):
+    def __init__(
+        self,
+        total_budget: int,
+        total_beats: int = 0,
+        *,
+        converge_threshold: Optional[float] = None,
+        land_threshold: Optional[float] = None,
+    ):
         """
         Args:
             total_budget: 章节总字数预算
             total_beats: 总节拍数（用于计算剩余节拍）
+            converge_threshold: 铺陈→收束切换点（消耗预算占比，0–1）；None 用类默认
+            land_threshold: 收束→着陆切换点（消耗预算占比，0–1]）；None 用类默认
         """
+        c_def = float(self.CONVERGE_THRESHOLD)
+        l_def = float(self.LAND_THRESHOLD)
+        ct = float(converge_threshold) if converge_threshold is not None else c_def
+        lt = float(land_threshold) if land_threshold is not None else l_def
+        if not (0.0 < ct < 1.0 and 0.0 < lt <= 1.0 and ct < lt):
+            logger.warning(
+                "[章节指挥] 相位阈值无效（%.4f, %.4f），回退内置 %.2f / %.2f",
+                ct,
+                lt,
+                c_def,
+                l_def,
+            )
+            ct, lt = c_def, l_def
+        self.converge_threshold = ct
+        self.land_threshold = lt
         self.total_budget = total_budget
         self.total_beats = total_beats
         self.used = 0
@@ -169,9 +193,9 @@ class ChapterConductor:
         if self._is_in_high_energy():
             return ConductorPhase.UNFURL
 
-        if ratio < self.CONVERGE_THRESHOLD:
+        if ratio < self.converge_threshold:
             return ConductorPhase.UNFURL
-        elif ratio < self.LAND_THRESHOLD:
+        elif ratio < self.land_threshold:
             return ConductorPhase.CONVERGE
         else:
             return ConductorPhase.LAND
@@ -448,6 +472,13 @@ class ChapterConductor:
 # ═══════════════════════════════════════════════════════════════
 # 智能截断工具——硬截断安全网
 # ═══════════════════════════════════════════════════════════════
+
+def hard_truncate_at_chars(text: str, max_chars: int) -> str:
+    """按字符数硬截断（不保证句界）。用于关闭 smart_truncate 时仍遵守 hard_cap。"""
+    if not text or max_chars <= 0 or len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
 
 def smart_truncate(text: str, max_chars: int, focus: str = "") -> str:
     """智能截断：找到最后一个完整句子边界

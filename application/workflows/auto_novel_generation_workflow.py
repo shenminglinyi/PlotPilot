@@ -28,6 +28,8 @@ from application.workflows.beat_continuation import format_prior_draft_for_promp
 from application.workflows.prose_discipline import build_prose_discipline_block
 from application.engine.services.beat_coherence_enhancer import BeatCoherenceEnhancer, BeatContext
 
+from application.core.chapter_target_limits import clamp_chapter_target_words
+
 logger = logging.getLogger(__name__)
 
 
@@ -367,7 +369,7 @@ class AutoNovelGenerationWorkflow:
             novel = self.context_builder.novel_repository.get_by_id(NovelId(novel_id))
             if novel is not None:
                 w = int(getattr(novel, "target_words_per_chapter", 2500) or 2500)
-                return max(500, min(10000, w))
+                return clamp_chapter_target_words(w)
         except Exception as e:
             logger.debug("读取 target_words_per_chapter 失败，使用默认 2500: %s", e)
         return 2500

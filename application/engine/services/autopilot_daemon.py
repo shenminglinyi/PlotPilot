@@ -10,6 +10,7 @@
 import time
 import logging
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1510,37 +1511,60 @@ class AutopilotDaemon:
                 # return 让下一轮主循环重新进入 _handle_writing
                 # 此时 DB 中章节已是 completed，_find_next_unwritten_chapter_async 会跳过它
                 return
-            logger.info(
-                f"[{novel.novel_id}] 章节 {chapter_num} 已有 {len(existing_content)} 字 "
-                f"(达标 {int(len(existing_content) / target_word_count * 100)}%)，直接标记完成"
-            )
-            await self._upsert_chapter_content(
-                novel, next_chapter_node, existing_content, status="completed"
-            )
-            novel.current_auto_chapters = (novel.current_auto_chapters or 0) + 1
-            novel.current_chapter_in_act += 1
-            novel.current_beat_index = 0
-            novel.beats_completed = False
-            novel.current_stage = NovelStage.AUDITING
-            self._flush_novel(novel)
-            return
+            # ★ 禁止「字数够 70% 但节拍未跑完」提前结章——否则会断在章纲中段就去写下一章
+            nb = len(beats)
+            cidx = novel.current_beat_index or 0
+            # 仅用索引判断；beats_completed 曾可能被错误置位，不能作为提前结章依据
+            beats_all_done = nb == 0 or cidx >= nb
+            if nb > 0 and not beats_all_done:
+                logger.info(
+                    f"[{novel.novel_id}] 章节 {chapter_num} 已有 {len(existing_content)} 字 "
+                    f"(≥70%)，但节拍未完（current_beat_index={cidx}/{nb}），"
+                    f"不提前结章，继续节拍循环"
+                )
+            else:
+                logger.info(
+                    f"[{novel.novel_id}] 章节 {chapter_num} 已有 {len(existing_content)} 字 "
+                    f"(达标 {int(len(existing_content) / target_word_count * 100)}%)，直接标记完成"
+                )
+                await self._upsert_chapter_content(
+                    novel, next_chapter_node, existing_content, status="completed"
+                )
+                novel.current_auto_chapters = (novel.current_auto_chapters or 0) + 1
+                novel.current_chapter_in_act += 1
+                novel.current_beat_index = 0
+                novel.beats_completed = False
+                novel.current_stage = NovelStage.AUDITING
+                self._flush_novel(novel)
+                return
 
-        # 如果节拍已完成，重置状态开始新章节
+        # 若上一轮已标「节拍全跑完」但未达到放行条件：禁止清回节拍 0 叠写
         if beats_completed:
-            logger.info(f"[{novel.novel_id}] 节拍已标记完成，重置状态开始新章节")
-            start_beat = 0
-            novel.current_beat_index = 0
-            novel.beats_completed = False
-
-        # 关键检查：如果 start_beat 超出节拍范围，重置为 0
-        # 这可能发生在：之前用错误的逻辑存储了节拍索引
-        if start_beat >= len(beats):
-            logger.warning(
-                f"[{novel.novel_id}] 节拍索引 {start_beat} 超出范围 {len(beats)}，重置为 0"
+            logger.info(
+                f"[{novel.novel_id}] 节拍已全量跑过但未收章，保持断点索引，不回到第 1 拍重复生成"
             )
-            start_beat = 0
-            novel.current_beat_index = 0
             novel.beats_completed = False
+            if (novel.current_beat_index or 0) > len(beats):
+                novel.current_beat_index = len(beats)
+            start_beat = novel.current_beat_index or len(beats)
+
+        # 关键检查：节拍索引超出范围——仅有正文时不要 reset 到 0（避免整章叠写）
+        if start_beat >= len(beats) and len(beats) > 0:
+            if existing_content.strip():
+                logger.warning(
+                    f"[{novel.novel_id}] 节拍索引 {start_beat} >= {len(beats)} 且已有正文，"
+                    f"视为节拍已遍历完，进入收章复核（不重置为 0）"
+                )
+                novel.current_beat_index = len(beats)
+                start_beat = len(beats)
+            else:
+                logger.warning(
+                    f"[{novel.novel_id}] 节拍索引 {start_beat} 超出范围 {len(beats)} 且无正文，"
+                    f"重置为 0"
+                )
+                start_beat = 0
+                novel.current_beat_index = 0
+                novel.beats_completed = False
 
         if existing_content and start_beat > 0:
             logger.info(
@@ -1557,7 +1581,12 @@ class AutopilotDaemon:
 
         # 章节指挥（三阶段收束：铺陈→收束→着陆）
         from application.engine.services.word_count_tracker import ChapterConductor
-        conductor = ChapterConductor(total_budget=target_word_count, total_beats=len(beats) if beats else 0)
+        conductor = ChapterConductor(
+            total_budget=target_word_count,
+            total_beats=len(beats) if beats else 0,
+            converge_threshold=novel.generation_prefs.conductor_converge_threshold,
+            land_threshold=novel.generation_prefs.conductor_land_threshold,
+        )
         # 如果有已存在内容，先同步
         if existing_content:
             conductor.used = len(existing_content)
@@ -1579,6 +1608,8 @@ class AutopilotDaemon:
 
                 # 获取指挥信号（铺陈/收束/着陆）——须在共享状态写入前取得，供遥测字段使用
                 signal = conductor.get_signal(i)
+                if not novel.generation_prefs.beat_hard_cap_enabled:
+                    signal = replace(signal, hard_cap=0)
 
                 # 🔥 节拍开始前，立即更新共享状态（前端实时看到当前节拍）
                 beat_focus = getattr(beat, 'focus', '') or ''
@@ -1690,13 +1721,28 @@ class AutopilotDaemon:
                     )
 
                 if beat_content.strip():
-                    # 智能截断安全网：超出硬上限时，截到完整句子边界
+                    # 截断安全网：超出硬上限时，按书目偏好选择智能截断或字符硬截断
                     if signal.hard_cap > 0 and len(beat_content.strip()) > signal.hard_cap:
-                        from application.engine.services.word_count_tracker import smart_truncate
-                        original_len = len(beat_content.strip())
-                        beat_content = smart_truncate(beat_content.strip(), signal.hard_cap)
+                        from application.engine.services.word_count_tracker import (
+                            hard_truncate_at_chars,
+                            smart_truncate,
+                        )
+
+                        stripped = beat_content.strip()
+                        original_len = len(stripped)
+                        use_smart = novel.generation_prefs.smart_truncate_enabled
+                        if use_smart:
+                            beat_content = smart_truncate(
+                                stripped, signal.hard_cap, focus=str(beat_focus or "")
+                            )
+                            trunc_mode = "smart"
+                            label = "智能截断"
+                        else:
+                            beat_content = hard_truncate_at_chars(stripped, signal.hard_cap)
+                            trunc_mode = "hard"
+                            label = "硬截断"
                         logger.warning(
-                            f"[{novel.novel_id}] ⚡ 智能截断：节拍 {i + 1} "
+                            f"[{novel.novel_id}] ⚡ {label}：节拍 {i + 1} "
                             f"{original_len} → {len(beat_content)} 字 "
                             f"(硬上限 {signal.hard_cap} 字)"
                         )
@@ -1709,6 +1755,7 @@ class AutopilotDaemon:
                                 "to_chars": len(beat_content),
                                 "hard_cap": int(signal.hard_cap),
                                 "phase": signal.phase.value,
+                                "truncate_mode": trunc_mode,
                             },
                         )
 
@@ -1870,8 +1917,7 @@ class AutopilotDaemon:
             except Exception as e:
                 logger.warning(f"post_process_generated_chapter 失败（仍落库）：{e}")
 
-        # 7. 章节完成检查（弹性边界策略）
-        # ★ Phase 3: 提高弹性边界到 80%，并增加节拍完成度检查
+        # 7. 章节完成检查（弹性边界策略 —— 收紧：减少「章纲未写完就放行」）
         actual_word_count = len(chapter_content.strip())
 
         # 检测最后节拍是否是悬念收尾
@@ -1883,7 +1929,7 @@ class AutopilotDaemon:
             for b in (beats or [])
         )
 
-        # ★ Phase 3: 计算节拍完成度
+        # ★ Phase 3: 计算节拍完成度（以 conductor 实际产出为准）
         beats_completed_count = sum(1 for b in (conductor.beats or []) if b.actual > 0)
         total_beats_count = len(beats) if beats else 0
         beats_completion_ratio = beats_completed_count / max(total_beats_count, 1)
@@ -1893,24 +1939,32 @@ class AutopilotDaemon:
         ending_pattern = r'[。！？…）】》"\'』」]$'
         content_complete = bool(re.search(ending_pattern, chapter_content.strip()))
 
-        # ★ Phase 3: 弹性边界计算（提高阈值：60% 最低 / 80% 良好）
-        min_word_threshold = int(target_word_count * 0.6)   # ★ Phase 3: 50% → 60%（拒绝"半成品"章节）
-        good_word_threshold = int(target_word_count * 0.8)   # ★ Phase 3: 70% → 80%（要求更高质量）
+        # 主阈值：72% 以下视为「明显未写满」；88% 视为「字数达标」
+        min_word_threshold = int(target_word_count * 0.72)
+        good_word_threshold = int(target_word_count * 0.88)
+        # 全节拍已跑完且句末完整时的绝对下限（避免极短篇误卡死，但仍高于旧 60%）
+        exception_floor = int(target_word_count * 0.62)
 
-        # 字数严重不足（低于 60%）：必须续写
+        # 字数低于主阈值：默认不结章，续写；仅「全节拍有产出 + 句末完整 + ≥exception_floor」例外放行
         if actual_word_count < min_word_threshold:
-            # ★ Phase 3: 例外——如果所有节拍都已完成且内容完整，仍然放行
-            if total_beats_count > 0 and beats_completion_ratio >= 1.0 and content_complete:
+            if (
+                total_beats_count > 0
+                and beats_completion_ratio >= 1.0
+                and content_complete
+                and actual_word_count >= exception_floor
+            ):
                 logger.info(
-                    f"[{novel.novel_id}] 📝 弹性放行：所有节拍已完成且内容完整 "
-                    f"(字数 {actual_word_count}，完成率 {int(actual_word_count / target_word_count * 100)}%)"
+                    f"[{novel.novel_id}] 📝 收紧策略例外放行：全节拍已有产出且句末完整 "
+                    f"(字数 {actual_word_count}，约 {int(actual_word_count / target_word_count * 100)}%)"
                 )
                 should_complete = True
-                completion_reason = f"节拍完成+内容完整 (字数 {int(actual_word_count / target_word_count * 100)}%)"
+                completion_reason = (
+                    f"节拍完成+内容完整 (字数 {int(actual_word_count / target_word_count * 100)}%)"
+                )
             else:
                 logger.warning(
                     f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数不足：{actual_word_count} 字 "
-                    f"(目标 {target_word_count} 字，低于 60%)"
+                    f"(目标 {target_word_count} 字，低于 {int(min_word_threshold / target_word_count * 100)}%)"
                 )
                 # 保持 draft 状态，下一轮继续生成
                 self._flush_novel(novel)
@@ -1921,39 +1975,54 @@ class AutopilotDaemon:
             completion_reason = ""
 
         if not should_complete:
-            # ★ Phase 3: 基于字数、节拍完成度和高能节拍的弹性判断
+            # 字数达标：无节拍或节拍全部有产出才可放行（避免只写了前几拍就停）
             if actual_word_count >= good_word_threshold:
-                # 字数达到 80% 以上
+                if total_beats_count > 0 and beats_completion_ratio < 1.0:
+                    should_complete = False
+                    logger.warning(
+                        f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数已高 "
+                        f"({int(actual_word_count / target_word_count * 100)}%)，"
+                        f"但节拍未全部产出 ({beats_completed_count}/{total_beats_count})，不结章"
+                    )
+                else:
+                    should_complete = True
+                    completion_reason = f"字数达标 ({int(actual_word_count / target_word_count * 100)}%)"
+            elif total_beats_count == 0 and content_complete and actual_word_count >= min_word_threshold:
+                # 降级：无节拍拆分时仅看字数与句末完整
                 should_complete = True
-                completion_reason = f"字数达标 ({int(actual_word_count / target_word_count * 100)}%)"
-            elif has_high_energy_beat and content_complete and actual_word_count >= min_word_threshold:
-                # ★ Phase 3: 高能节拍豁免——包含爽点的章节，只要内容完整且字数≥60%即可放行
+                completion_reason = f"单段生成+内容完整 ({int(actual_word_count / target_word_count * 100)}%)"
+            elif (
+                has_high_energy_beat
+                and content_complete
+                and actual_word_count >= min_word_threshold
+                and beats_completion_ratio >= 1.0
+            ):
+                # 高能章：仍须写满全部节拍，且不低于 72%
                 should_complete = True
-                completion_reason = f"高能节拍+内容完整 (字数 {int(actual_word_count / target_word_count * 100)}%)"
+                completion_reason = f"高能节拍+全拍完成+内容完整 ({int(actual_word_count / target_word_count * 100)}%)"
                 logger.info(
-                    f"[{novel.novel_id}] 📝 高能豁免放行：包含爽点节拍，内容完整，字数 {actual_word_count} 字"
+                    f"[{novel.novel_id}] 📝 高能豁免放行：爽点章全拍完成，{actual_word_count} 字"
                 )
-            elif last_beat_is_suspense and content_complete and actual_word_count >= min_word_threshold:
-                # 悬念收尾 + 内容完整 + 字数 >= 60%
+            elif (
+                last_beat_is_suspense
+                and content_complete
+                and actual_word_count >= min_word_threshold
+                and beats_completion_ratio >= 1.0
+            ):
                 should_complete = True
-                completion_reason = f"悬念收尾 + 内容完整 (字数 {int(actual_word_count / target_word_count * 100)}%)"
+                completion_reason = f"悬念收尾+全拍完成 ({int(actual_word_count / target_word_count * 100)}%)"
                 logger.info(
-                    f"[{novel.novel_id}] 📝 弹性放行：悬念节拍自然收尾，字数 {actual_word_count} 字"
+                    f"[{novel.novel_id}] 📝 悬念章全拍完成放行，{actual_word_count} 字"
                 )
-            elif beats_completion_ratio >= 1.0 and content_complete and actual_word_count >= min_word_threshold:
-                # ★ Phase 3: 所有节拍已完成 + 内容完整 + 字数≥60%
+            elif (
+                beats_completion_ratio >= 1.0
+                and content_complete
+                and actual_word_count >= min_word_threshold
+            ):
                 should_complete = True
-                completion_reason = f"节拍完成+内容完整 (字数 {int(actual_word_count / target_word_count * 100)}%)"
+                completion_reason = f"节拍完成+内容完整 ({int(actual_word_count / target_word_count * 100)}%)"
                 logger.info(
-                    f"[{novel.novel_id}] 📝 弹性放行：所有节拍已完成，字数 {actual_word_count} 字"
-                )
-            elif actual_word_count >= min_word_threshold and content_complete:
-                # 内容完整 + 字数 >= 60%：允许通过但发出警告
-                should_complete = True
-                completion_reason = f"内容完整但字数偏低 ({int(actual_word_count / target_word_count * 100)}%)"
-                logger.warning(
-                    f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数略低：{actual_word_count} 字 "
-                    f"(目标 {target_word_count} 字，完成率 {int(actual_word_count / target_word_count * 100)}%)"
+                    f"[{novel.novel_id}] 📝 弹性放行：所有节拍已有产出，{actual_word_count} 字"
                 )
 
         if not should_complete:
