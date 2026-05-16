@@ -24,13 +24,14 @@ export function narrativeOrdinalLabel(n: number, prefs?: Partial<GenerationPrefs
   return `第${n}章`
 }
 
-/** 结构树等：「第 N 阶段 标题」 */
+/** 结构树：节点 `number` 为全书章号，固定用「第 N 章」，避免与「阶段模式」下的叙事单元文案
+ * 及节拍/故事阶段混淆；侧栏列表等仍服从 {@link narrativeOrdinalLabel}。 */
 export function narrativeTreeChapterLine(
   n: number,
   title: string,
-  prefs?: Partial<GenerationPrefsDTO> | null
+  _prefs?: Partial<GenerationPrefsDTO> | null
 ): string {
-  const head = narrativeOrdinalLabel(n, prefs)
+  const head = narrativeOrdinalLabel(n, { phase_display_mode: false })
   const t = (title || '').trim()
   return t ? `${head} ${t}` : head
 }

@@ -36,6 +36,12 @@ export interface GenerationPrefsDTO {
   inline_prose_aggregation_enabled?: boolean
   conductor_converge_threshold?: number | null
   conductor_land_threshold?: number | null
+  /** 每章审计结束后进入「待审阅」，需点恢复才写下一章；全自动书目仍跳过 */
+  pause_after_each_chapter_audit?: boolean
+  /** 叙事失败或文风仍不及格 → 待在审阅（与 pause 开关合用）*/
+  audit_pause_on_hard_fail?: boolean
+  /** Anti-AI 综合判定「严重」→ 待在审阅 */
+  audit_pause_on_anti_ai_severe?: boolean
 }
 
 /**
