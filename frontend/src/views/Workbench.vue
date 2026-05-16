@@ -11,6 +11,7 @@
               :slug="slug"
               :chapters="chapters"
               :current-chapter-id="currentChapterId"
+              :generation-prefs="generationPrefs"
               @select="onSidebarChapterSelect"
               @back="goHome"
               @refresh="handleChapterUpdated"
@@ -29,6 +30,7 @@
                   :current-chapter-id="currentChapterId"
                   :chapter-content="chapterContent"
                   :chapter-loading="chapterLoading"
+                  :generation-prefs="generationPrefs"
                   @chapter-updated="handleChapterUpdated"
                 />
               </template>
@@ -38,6 +40,7 @@
                   :slug="slug"
                   :current-panel="rightPanel"
                   :current-chapter="currentChapter"
+                  :generation-prefs="generationPrefs"
                   @update:current-panel="onSettingsPanelChange"
                 />
               </template>
@@ -73,6 +76,7 @@ import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
 import {
   WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
   WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
+  WORKBENCH_GENERATION_PREFS_UPDATED_EVENT,
   isWorkbenchSettingsPanelName,
 } from '../workbench/deskEvents'
 
@@ -137,6 +141,7 @@ const handlePlanAct = (actId: string, actTitle: string) => {
 const {
   bookTitle,
   chapters,
+  generationPrefs,
   rightPanel,
   pageLoading,
   bookMeta,
@@ -175,9 +180,15 @@ async function syncChapterFromRoute() {
   }
 }
 
+function onGenerationPrefsUpdated() {
+  void loadDesk()
+  chapterListRef.value?.refreshStoryTree?.()
+}
+
 onMounted(async () => {
   window.addEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
   window.addEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
+  window.addEventListener(WORKBENCH_GENERATION_PREFS_UPDATED_EVENT, onGenerationPrefsUpdated)
   try {
     await loadDesk()
     await syncChapterFromRoute()
@@ -192,6 +203,7 @@ onMounted(async () => {
 onUnmounted(() => {
   window.removeEventListener(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT, onDeskChangeSignalFromPanels)
   window.removeEventListener(WORKBENCH_OPEN_SETTINGS_PANEL_EVENT, onOpenSettingsPanelFromChild)
+  window.removeEventListener(WORKBENCH_GENERATION_PREFS_UPDATED_EVENT, onGenerationPrefsUpdated)
   if (chapterDeskReloadTimer) {
     clearTimeout(chapterDeskReloadTimer)
     chapterDeskReloadTimer = null

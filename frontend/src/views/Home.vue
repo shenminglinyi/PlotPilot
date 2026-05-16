@@ -109,7 +109,7 @@
                 </n-gi>
                 <n-gi>
                   <n-form-item label="每章字数">
-                    <n-input-number v-model:value="newBook.words" :min="500" :max="10000" :step="500" class="w-full" />
+                    <n-input-number v-model:value="newBook.words" :min="500" :max="20000" :step="500" class="w-full" />
                   </n-form-item>
                 </n-gi>
               </n-grid>
