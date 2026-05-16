@@ -5,16 +5,21 @@
 //!   - 查询后端状态
 //!   - 重启后端
 //!   - 打开外部浏览器
+//!   - 打开开发者工具
 
 use crate::backend::BackendManager;
 use tauri::{Manager, State};
 use std::sync::Mutex;
 
 /// 获取后端端口号（前端需要这个来构造 API 请求地址）
+///
+/// 必须来自 `BackendManager`：`spawn_only` 成功后即写入真实端口。
+/// 历史遗留的独立 `State<Mutex<u16>>` 仅在 `wait_for_ready` 成功后才更新，
+/// 会导致健康检查稍慢或失败时 IPC 恒为 0，前端误回退到 8005。
 #[tauri::command]
-pub fn get_backend_port(port: State<'_, Mutex<u16>>) -> Result<u16, String> {
-    let p = port.lock().map_err(|e| e.to_string())?;
-    Ok(*p)
+pub fn get_backend_port(manager: State<'_, Mutex<BackendManager>>) -> Result<u16, String> {
+    let mgr = manager.lock().map_err(|e| e.to_string())?;
+    Ok(mgr.get_port())
 }
 
 /// 获取后端运行状态
@@ -31,10 +36,7 @@ pub fn get_backend_status(
 
 /// 重启后端
 #[tauri::command]
-pub async fn restart_backend(
-    manager: State<'_, Mutex<BackendManager>>,
-    port_state: State<'_, Mutex<u16>>,
-) -> Result<u16, String> {
+pub async fn restart_backend(manager: State<'_, Mutex<BackendManager>>) -> Result<u16, String> {
     // 先停旧的
     {
         let mgr = manager.lock().map_err(|e| e.to_string())?;
@@ -45,19 +47,26 @@ pub async fn restart_backend(
 
     // 再启动新的
     let mut mgr = manager.lock().map_err(|e| e.to_string())?;
-    match mgr.start_and_wait(120) {
-        Ok(new_port) => {
-            *port_state.lock().unwrap() = new_port;
-            Ok(new_port)
-        }
-        Err(e) => Err(e),
-    }
+    mgr.start_and_wait(120)
 }
 
 /// 在系统浏览器中打开 URL
 #[tauri::command]
 pub fn open_in_browser(url: String) -> Result<(), String> {
     webbrowser::open(&url).map_err(|e| format!("打开浏览器失败: {}", e))
+}
+
+/// 🔥 打开开发者工具（F12 或前端调用）
+#[tauri::command]
+pub fn toggle_devtools(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
+        if win.is_devtools_open() {
+            win.close_devtools();
+        } else {
+            win.open_devtools();
+        }
+    }
+    Ok(())
 }
 
 /// 运行安装流程

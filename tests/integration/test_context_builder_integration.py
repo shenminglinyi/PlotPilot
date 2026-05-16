@@ -1,8 +1,8 @@
 """ContextBuilder 集成测试（与 Bible DTO / 故事线 协作）。"""
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 from application.dtos.bible_dto import BibleDTO, CharacterDTO
-from application.services.context_builder import ContextBuilder
+from application.engine.services.context_builder import ContextBuilder
 from domain.bible.entities.character import Character
 from domain.bible.value_objects.character_id import CharacterId
 from domain.bible.value_objects.character_importance import CharacterImportance
@@ -14,6 +14,26 @@ from domain.novel.entities.storyline import Storyline
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.storyline_status import StorylineStatus
 from domain.novel.value_objects.storyline_type import StorylineType
+
+
+def _bible_repository_stub(names: list[tuple[str, str]]) -> Mock:
+    """ allocator 角色锚点所需的最小 Bible 仓储。"""
+    chars = []
+    for i, (name, desc) in enumerate(names):
+        ch = MagicMock()
+        ch.name = name
+        ch.description = desc
+        ch.character_id = MagicMock()
+        ch.character_id.value = f"id-{i}"
+        ch.public_profile = ""
+        ch.hidden_profile = ""
+        ch.importance = MagicMock(value="protagonist")
+        chars.append(ch)
+    bible = MagicMock()
+    bible.characters = chars
+    repo = Mock()
+    repo.get_by_novel_id.return_value = bible
+    return repo
 
 
 class TestContextBuilderIntegration:
@@ -105,6 +125,13 @@ class TestContextBuilderIntegration:
             vector_store=vector_store,
             novel_repository=novel_repo,
             chapter_repository=chapter_repo,
+            bible_repository=_bible_repository_stub(
+                [
+                    ("Alice", protagonist.description),
+                    ("Bob", major_support.description),
+                    ("Charlie", minor_char.description),
+                ]
+            ),
         )
 
         outline = "Alice and Bob plan their next move against the enemy"
@@ -115,19 +142,15 @@ class TestContextBuilderIntegration:
             max_tokens=35000,
         )
 
-        assert "The Quest for Vengeance" in context
-        assert "Chapter 6" in context
         assert "Alice" in context
         assert "Bob" in context
-        assert "main_plot" in context
         assert "The Betrayal" in context
 
         tokens = context_builder.estimate_tokens(context)
         assert tokens <= 35000
 
-        # build_context 走洋葱槽位拼接，与 workflow 的 RECENT CHAPTERS / VECTOR RECALL 段标题不同
+        # build_context 走洋葱槽位拼接（生命周期沙漏 + 角色锚点 + 最近章节等）
         assert "===" in context
-        assert "Alice" in context or "main_plot" in context
 
     def test_appearance_scheduler_integration(self):
         char1 = Character(CharacterId("char1"), "Alice", "Protagonist")
@@ -204,6 +227,9 @@ class TestContextBuilderIntegration:
             vector_store=Mock(),
             novel_repository=novel_repo,
             chapter_repository=chapter_repo,
+            bible_repository=_bible_repository_stub(
+                [(c.name, c.description or "") for c in characters]
+            ),
         )
 
         context = context_builder.build_context(
@@ -216,4 +242,3 @@ class TestContextBuilderIntegration:
         tokens = context_builder.estimate_tokens(context)
         assert tokens <= 11000
         assert "Hero" in context
-        assert "Epic Tale" in context

@@ -9,17 +9,14 @@ from pydantic import ValidationError
 
 from ..responses import ErrorResponse
 
-logger = logging.getLogger("aitext.interfaces.api.middleware.error_handler")
+logger = logging.getLogger("plotpilot.interfaces.api.middleware.error_handler")
 
 
-# Starlette/FastAPI 版本兼容：
-# - 旧版本常量名为 HTTP_422_UNPROCESSABLE_ENTITY
-# - 部分实现/文档会使用 HTTP_422_UNPROCESSABLE_CONTENT
-HTTP_422_STATUS = getattr(
-    status,
-    "HTTP_422_UNPROCESSABLE_CONTENT",
-    status.HTTP_422_UNPROCESSABLE_ENTITY,
-)
+# Starlette/FastAPI 版本兼容：新版常量名为 HTTP_422_UNPROCESSABLE_CONTENT
+try:
+    HTTP_422_STATUS = status.HTTP_422_UNPROCESSABLE_CONTENT
+except AttributeError:
+    HTTP_422_STATUS = 422  # 固定数值，永远不会弃用
 
 
 # Status code to error code mapping

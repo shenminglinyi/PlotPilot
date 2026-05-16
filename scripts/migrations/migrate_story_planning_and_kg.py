@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 
 # 数据库路径
-DB_PATH = Path(__file__).parent.parent / "data" / "aitext.db"
+DB_PATH = Path(__file__).parent.parent / "data" / "plotpilot.db"
 
 def check_column_exists(cursor, table: str, column: str) -> bool:
     """检查列是否存在"""

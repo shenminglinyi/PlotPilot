@@ -45,8 +45,8 @@ export interface Worldbuilding {
 
 export const worldbuildingApi = {
   getWorldbuilding: (slug: string): Promise<Worldbuilding> =>
-    apiClient.get<Worldbuilding>(`novels/${slug}/worldbuilding`),
+    apiClient.get<Worldbuilding>(`/novels/${slug}/worldbuilding`),
 
   updateWorldbuilding: (slug: string, data: Partial<Worldbuilding>): Promise<Worldbuilding> =>
-    apiClient.put<Worldbuilding>(`novels/${slug}/worldbuilding`, data),
+    apiClient.put<Worldbuilding>(`/novels/${slug}/worldbuilding`, data),
 }

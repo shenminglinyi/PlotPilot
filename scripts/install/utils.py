@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 通用工具函数
+PlotPilot 通用工具函数
 ━━━━━━━━━━━━━━━━━━
 端口检测、进程管理、锁文件、Python 查找等
 不依赖 tkinter，可在纯控制台环境下使用。
@@ -28,18 +28,16 @@ except Exception:
 # ══════════════════════════════════════════════
 
 def get_proj_dir():
-    """返回项目根目录（aitex/）
+    """返回项目根目录（Plotpilot/）
 
     兼容 3 种环境:
-      - PyInstaller exe: exe所在目录的上2级 (tools/aitext/ -> 项目根)
+      - PyInstaller exe: exe 所在目录的上级链中，含 requirements.txt 的目录为项目根（常见布局 tools/plotpilot/）
       - 普通 Python: __file__ 往上3级 (install -> scripts -> 项目根)
     """
     if getattr(sys, 'frozen', False):
-        # PyInstaller 打包后: exe 在 dist/aitext/aitext.exe
+        # PyInstaller 打包后: exe 在 dist/plotpilot/plotpilot.exe
         # 项目根 = exe 的父目录的父目录
-        # 但如果 exe 被复制到了 tools/aitext/ 下，
-        # 则项目根 = exe目录 的上级的上级
-        # 更健壮的方式: 找 exe 目录中包含 requirements.txt 的最近祖先
+        # 若 exe 被复制到 tools/plotpilot/ 下，仍通过向上搜索 requirements.txt 定位根目录
         exe_dir = os.path.dirname(sys.executable)
         # 向上搜索包含 requirements.txt 的目录
         d = exe_dir
@@ -150,7 +148,7 @@ DEFAULT_PORT = 8005
 # 进程 & 锁文件
 # ══════════════════════════════════════════════
 
-LOCK_FILE = "aitext.lock"
+LOCK_FILE = "plotpilot.lock"
 
 
 def read_lock(proj_dir=None):

@@ -1,0 +1,23 @@
+name: 人物生成
+category: world
+source: infrastructure/ai/prompts/prompts_defaults.json
+description: 根据社会生态孵化具有内源性冲突和错综羁绊的立体人物
+builtin: true
+tags:
+- 人物
+- Bible
+output_format: json
+variables:
+- name: worldbuilding
+  desc: 世界观设定
+  type: string
+- name: style_guide
+  desc: 文风公约
+  type: string
+  default: ''
+- name: existing_characters
+  desc: 已有人物
+  type: string
+  default: ''
+id: bible-characters
+sort_order: 28

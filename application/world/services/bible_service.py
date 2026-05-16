@@ -391,14 +391,16 @@ class BibleService:
 
         self._validate_locations_forest(locations)
 
+        # 记录改名前的 id→name 映射，用于 save 后同步刷新 story_nodes
+        prev_name_by_id = {c.character_id.value: c.name for c in bible.characters}
+        prev_chars = {c.character_id.value: c for c in bible.characters}
+
         # 清空现有数据
         bible._characters = []
         bible._world_settings = []
         bible._locations = []
         bible._timeline_notes = []
         bible._style_notes = []
-
-        prev_chars = {c.character_id.value: c for c in bible.characters}
 
         # 添加新的人物（锚点字段：请求未传则沿用库内旧值，避免整本保存冲掉沙盒写入）
         for char_data in characters:
@@ -421,14 +423,70 @@ class BibleService:
                 ib = getattr(prev, "idle_behavior", None) or ""
             else:
                 ib = ""
+            if getattr(char_data, "mental_state_reason", None) is not None:
+                msr = char_data.mental_state_reason or ""
+            elif prev is not None:
+                msr = getattr(prev, "mental_state_reason", None) or ""
+            else:
+                msr = ""
+            if getattr(char_data, "public_profile", None) is not None:
+                pub = char_data.public_profile or ""
+            elif prev is not None:
+                pub = getattr(prev, "public_profile", None) or ""
+            else:
+                pub = ""
+            if getattr(char_data, "hidden_profile", None) is not None:
+                hid = char_data.hidden_profile or ""
+            elif prev is not None:
+                hid = getattr(prev, "hidden_profile", None) or ""
+            else:
+                hid = ""
+            if getattr(char_data, "reveal_chapter", None) is not None:
+                rev = char_data.reveal_chapter
+            elif prev is not None:
+                rev = getattr(prev, "reveal_chapter", None)
+            else:
+                rev = None
+            if getattr(char_data, "core_belief", None) is not None:
+                cb = char_data.core_belief or ""
+            elif prev is not None:
+                cb = getattr(prev, "core_belief", None) or ""
+            else:
+                cb = ""
+            if getattr(char_data, "moral_taboos", None) is not None:
+                mt = list(char_data.moral_taboos or [])
+            elif prev is not None:
+                mt = list(getattr(prev, "moral_taboos", None) or [])
+            else:
+                mt = []
+            if getattr(char_data, "voice_profile", None) is not None:
+                vp = dict(char_data.voice_profile or {})
+            elif prev is not None:
+                vp = dict(getattr(prev, "voice_profile", None) or {})
+            else:
+                vp = {}
+            if getattr(char_data, "active_wounds", None) is not None:
+                aw = list(char_data.active_wounds or [])
+            elif prev is not None:
+                aw = list(getattr(prev, "active_wounds", None) or [])
+            else:
+                aw = []
             character = Character(
                 id=CharacterId(char_data.id),
                 name=char_data.name,
                 description=char_data.description,
                 relationships=char_data.relationships,
+                public_profile=pub,
+                hidden_profile=hid,
+                reveal_chapter=rev,
                 mental_state=ms,
+                mental_state_reason=msr,
                 verbal_tic=vt,
                 idle_behavior=ib,
+                core_belief=cb,
+                moral_taboos=mt,
+                voice_profile=vp,
+                active_wounds=aw,
             )
             bible._characters.append(character)
 
@@ -476,4 +534,54 @@ class BibleService:
 
         self.bible_repository.save(bible)
         self._sync_location_triples(novel_id, bible)
+
+        # 批量刷新结构节点里的旧人名（改名后大纲仍用旧名会导致生成时出现旧名）
+        self._propagate_character_renames(novel_id, prev_name_by_id, characters)
+
         return BibleDTO.from_domain(bible)
+
+    def _propagate_character_renames(
+        self,
+        novel_id: str,
+        prev_name_by_id: dict,
+        new_characters: list,
+    ) -> None:
+        """对比改名前后的人名，将变化批量写入 story_nodes 的文本字段。
+
+        设计原则：
+        - 只处理同一 character_id 下的人名变更（不影响 id 不变的角色）。
+        - 通过 StoryNodeRepository.bulk_replace_text_sync 做原地 SQLite replace()，
+          单次 UPDATE 处理整个 novel，微秒级，不占 LLM token。
+        - 失败静默（改名刷新是可选增益，不阻断主流程）。
+        """
+        import logging
+        _log = logging.getLogger(__name__)
+
+        try:
+            from application.paths import get_db_path
+            from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+
+            renames = []
+            for char_data in new_characters:
+                cid = getattr(char_data, "id", None) or ""
+                new_name = (getattr(char_data, "name", None) or "").strip()
+                old_name = (prev_name_by_id.get(cid) or "").strip()
+                if old_name and new_name and old_name != new_name:
+                    renames.append((old_name, new_name))
+
+            if not renames:
+                return
+
+            repo = StoryNodeRepository(str(get_db_path()))
+            for old_name, new_name in renames:
+                affected = repo.bulk_replace_text_sync(novel_id, old_name, new_name)
+                if affected:
+                    _log.info(
+                        "story_nodes 人名替换：novel=%s %s → %s，影响 %d 行",
+                        novel_id, old_name, new_name, affected,
+                    )
+        except Exception as exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "story_nodes 人名替换失败（不影响主流程）: %s", exc
+            )

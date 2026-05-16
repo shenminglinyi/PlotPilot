@@ -1,0 +1,18 @@
+name: 故事线连贯性检查
+category: review
+source: application/audit/services/chapter_review_service.py::_build_storyline_consistency_prompt()
+description: 避免挖坑不填和主线偏移，维持多线叙事的紧凑感
+builtin: true
+tags:
+- 审稿
+- 一致性
+- 故事线
+variables:
+- name: active_storylines
+  desc: 活跃故事线列表
+  type: string
+- name: chapter_content
+  desc: 章节内容（截断）
+  type: string
+id: review-storyline-consistency
+sort_order: 14

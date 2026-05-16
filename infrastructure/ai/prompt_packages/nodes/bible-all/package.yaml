@@ -1,0 +1,22 @@
+name: 完整 Bible 生成
+category: world
+source: infrastructure/ai/prompts/prompts_defaults.json
+description: 一键构建具备内生矛盾与自驱力的五维度世界体系与人物群像
+builtin: true
+tags:
+- Bible
+- 世界设定
+- 一键生成
+output_format: json
+contract_module: application.ai.bible_llm_contract
+contract_model: BibleAllLlmPayload
+variables:
+- name: premise
+  desc: 故事创意/梗概
+  type: string
+  required: true
+- name: genre
+  desc: 故事类型
+  type: string
+id: bible-all
+sort_order: 26

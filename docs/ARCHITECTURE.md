@@ -1,6 +1,6 @@
-# aitext 架构设计
+# PlotPilot（墨枢）架构
 
-> AI 驱动的长篇小说创作平台，采用 DDD（领域驱动设计）四层架构。
+> **PlotPilot（墨枢）** 长篇小说创作平台源代码，采用 DDD（领域驱动设计）四层架构。产品说明与启动入口见根目录 [README.md](../README.md)。
 
 ## 系统概览
 
@@ -10,7 +10,7 @@
 ## DDD 四层架构
 
 ```
-aitext/
+（项目根目录）/
 ├── domain/                 # 领域层 - 核心业务逻辑
 │   ├── novel/             # 小说聚合根、章节实体、故事线
 │   ├── bible/             # 设定库聚合根、人物、地点、世界设定
@@ -94,18 +94,21 @@ aitext/
 
 ## 入口点
 
+在**仓库根目录**（含 `application/`、`interfaces/`；本文件在 `docs/` 下）执行：
+
 ```bash
-# 启动后端服务（默认端口 8005）
-python -m aitext serve
+# 推荐：与 README 一致，端口 8005
+uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
+```
 
-# 指定端口
-python -m aitext serve --port 8005 --reload
+可选方式：
 
-# 一键启动（后端 + 前端）
-python run_server.py
+```bash
+# 直接运行 FastAPI 模块（默认 0.0.0.0:8000，与 README 的 8005 不同，需自行改端口或改用 uvicorn）
+python interfaces/main.py
 
-# 启动自动驾驶守护进程
-python scripts/setup/start_daemon.py
+# 自动驾驶守护进程（当前维护入口）
+python scripts/start_daemon.py
 ```
 
 ## Web 前端（Vue 3）
@@ -136,20 +139,10 @@ python -m pytest tests/integration -v
 
 ## 环境变量
 
-```bash
-# LLM 配置
-ARK_API_KEY=your-api-key
-ARK_BASE_URL=https://api.example.com
-ARK_MODEL=model-name
+以根目录 **[.env.example](../.env.example)** 为准（方舟 `ARK_*`、嵌入 `EMBEDDING_*`、`LOG_*`、`PLOTPILOT_PROD_DATA_DIR` 等；旧名 `AITEXT_PROD_DATA_DIR` 仍兼容）。复制为 `.env` 后按需填写，勿提交密钥。
 
-# 可选配置
-AITEXT_DEFAULT_CHAPTERS=100
-AITEXT_DEFAULT_WORDS_PER_CHAPTER=3500
-LOG_LEVEL=INFO
-```
+## 数据库与数据目录
 
-## 数据库
-
-- **主数据库**：`data/aitext.db`（SQLite）
-- **向量存储**：`data/chromadb/`
-- **日志**：`data/logs/`
+- **主数据库**：默认 SQLite 文件名为 `data/plotpilot.db`（旧版为 `aitext.db`，`get_db_path()` 会自动沿用）；实际目录由 `application.paths.DATA_DIR` 解析（未设置 `PLOTPILOT_PROD_DATA_DIR` / 旧名 `AITEXT_PROD_DATA_DIR` 且非冻结运行时指向仓库内 `data/`）。
+- **向量存储**：默认在 `data/chromadb/` 下持久化（实现为本地 FAISS + 元数据，与 `.env` 中 `VECTOR_STORE_TYPE=chromadb` 对应）。
+- **应用日志**：默认 `logs/plotpilot.log`（由 `LOG_FILE` 控制，见 `.env.example`）。

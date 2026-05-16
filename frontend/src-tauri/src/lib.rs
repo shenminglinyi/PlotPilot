@@ -9,7 +9,7 @@
 //!   1. 零配置：用户不需要安装 Python、不需要命令行
 //!   2. Sidecar 模式：Python 作为子进程被管理
 //!   3. 动态端口：自动寻找可用端口，避免冲突
-//!   4. 生产数据目录：release 构建向子进程注入 `AITEXT_PROD_DATA_DIR`（见 `application/paths.py`）
+//!   4. 生产数据目录：release 构建向子进程注入 `PLOTPILOT_PROD_DATA_DIR`（并同步旧名 `AITEXT_PROD_DATA_DIR`；见 `application/paths.py`）
 //!   5. Windows：子进程纳入 Job Object（KILL_ON_JOB_CLOSE），与 `Drop`/显式 terminate 双保险
 //!   6. 关闭窗口：拦截 CloseRequested → 后端 HTTP 优雅停机 → 超时强杀 → `exit(0)`
 
@@ -68,8 +68,6 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            // IPC 端口：就绪前为 0，前端轮询直至 >0（避免在 setup 里阻塞导致 WebView 白屏）
-            app.manage(std::sync::Mutex::new(0u16));
             let manager = BackendManager::new(handle.clone());
             app.manage(std::sync::Mutex::new(manager));
 
@@ -91,14 +89,12 @@ pub fn run() {
                 };
 
                 match BackendManager::wait_for_ready(port, 120) {
-                    Ok(()) => {
-                        let ipc_port = app_handle.state::<Mutex<u16>>();
-                        if let Ok(mut g) = ipc_port.lock() {
-                            *g = port;
-                        }
-                        log::info!("✅ 后端已就绪，端口: {}", port);
-                    }
-                    Err(e) => log::error!("❌ 后端就绪超时或失败: {}", e),
+                    Ok(()) => log::info!("✅ 后端已就绪，端口: {}", port),
+                    Err(e) => log::error!(
+                        "❌ 后端就绪超时或失败: {}（子进程端口 {}，请查 PlotPilot 日志）",
+                        e,
+                        port
+                    ),
                 }
             });
 
@@ -109,6 +105,7 @@ pub fn run() {
             commands::get_backend_status,
             commands::restart_backend,
             commands::open_in_browser,
+            commands::toggle_devtools,
             commands::run_installation,
             commands::check_environment,
             commands::extract_embedded_python,

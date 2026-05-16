@@ -1,10 +1,11 @@
 import uuid
-from typing import List
+from typing import List, Optional
 from domain.novel.entities.storyline import Storyline
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.storyline_type import StorylineType
 from domain.novel.value_objects.storyline_status import StorylineStatus
 from domain.novel.value_objects.storyline_milestone import StorylineMilestone
+from domain.novel.value_objects.storyline_role import StorylineRole
 from domain.novel.repositories.storyline_repository import StorylineRepository
 
 
@@ -22,6 +23,9 @@ class StorylineManager:
         estimated_chapter_end: int,
         name: str = "",
         description: str = "",
+        role: StorylineRole = StorylineRole.MAIN,
+        parent_id: Optional[str] = None,
+        chapter_weight: float = 1.0,
     ) -> Storyline:
         """创建新的故事线
 
@@ -32,6 +36,9 @@ class StorylineManager:
             estimated_chapter_end: 预计结束章节
             name: 显示名称（可选）
             description: 详细说明（可选）
+            role: 故事线结构角色（main/sub/dark）
+            parent_id: 父故事线 ID（可选）
+            chapter_weight: 章节权重（默认 1.0）
 
         Returns:
             创建的故事线实体
@@ -46,6 +53,9 @@ class StorylineManager:
             estimated_chapter_end=estimated_chapter_end,
             name=name or "",
             description=description or "",
+            role=role,
+            parent_id=parent_id,
+            chapter_weight=chapter_weight,
         )
 
         self.repository.save(storyline)

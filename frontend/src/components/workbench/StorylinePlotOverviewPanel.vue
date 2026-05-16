@@ -26,6 +26,16 @@
 
     <n-spin :show="loading" class="spo-spin">
       <div class="spo-view-body">
+        <!-- 故事阶段进度条 -->
+        <n-collapse :default-expanded-names="['phase']" class="spo-engine-collapse">
+          <n-collapse-item name="phase" title="📈 故事阶段">
+            <StoryPhasePanel :slug="slug" />
+          </n-collapse-item>
+          <n-collapse-item name="checkpoint" title="📸 版本时间线">
+            <CheckpointTimelinePanel :slug="slug" />
+          </n-collapse-item>
+        </n-collapse>
+
         <n-space v-show="spoView === 'charts'" vertical :size="14" class="spo-view-charts">
         <!-- 迷你甘特：故事线 -->
         <n-card title="故事线覆盖（章节轴示意）" size="small" :bordered="true">
@@ -87,6 +97,8 @@ import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { workflowApi } from '../../api/workflow'
 import type { StorylineDTO } from '../../api/workflow'
 import StorylinePanel from './StorylinePanel.vue'
+import StoryPhasePanel from './StoryPhasePanel.vue'
+import CheckpointTimelinePanel from './CheckpointTimelinePanel.vue'
 
 const props = defineProps<{ slug: string; currentChapter?: number | null }>()
 
@@ -455,6 +467,24 @@ watch(deskTick, () => void load())
   min-height: 28px;
   padding: 0 12px;
   font-size: 13px;
+}
+
+.spo-engine-collapse {
+  margin-bottom: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--n-color-modal);
+}
+
+.spo-engine-collapse :deep(.n-collapse-item__header) {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.spo-engine-collapse :deep(.n-collapse-item__content-wrapper) {
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 </style>

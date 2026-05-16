@@ -734,7 +734,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   gap: 12px;
   padding: 16px 18px 12px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
 }
 
@@ -771,7 +771,7 @@ onBeforeUnmount(() => {
 .llm-preset-strip {
   margin: 0 18px 12px;
   padding: 14px;
-  border: 1px solid var(--aitext-split-border);
+  border: 1px solid var(--plotpilot-split-border);
   border-radius: 14px;
   background:
     linear-gradient(180deg, var(--color-brand-light), var(--app-surface)),
@@ -874,9 +874,9 @@ onBeforeUnmount(() => {
 }
 
 .llm-sidebar {
-  border: 1px solid var(--aitext-split-border);
+  border: 1px solid var(--plotpilot-split-border);
   border-radius: 12px;
-  background: var(--aitext-panel-muted);
+  background: var(--plotpilot-panel-muted);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -887,7 +887,7 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
 }
 
 .llm-sidebar-title {
@@ -913,7 +913,7 @@ onBeforeUnmount(() => {
 
 .llm-profile-item {
   width: 100%;
-  border: 1px solid var(--profile-item-border, var(--aitext-split-border));
+  border: 1px solid var(--profile-item-border, var(--plotpilot-split-border));
   border-radius: 10px;
   background: var(--profile-item-bg, var(--app-surface));
   padding: 10px 12px;

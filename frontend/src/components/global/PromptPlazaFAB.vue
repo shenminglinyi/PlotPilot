@@ -49,7 +49,7 @@
             </div>
           </template>
 
-          <PromptPlaza @refresh-stats="loadStats" />
+          <PromptPlaza ref="plazaRef" @refresh-stats="loadStats" />
         </n-drawer-content>
       </n-drawer>
     </div>
@@ -57,15 +57,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { NDrawer, NDrawerContent, NTag } from 'naive-ui'
 import PromptPlaza from '../workbench/PromptPlaza.vue'
 import { promptPlazaApi, type PromptStats } from '../../api/llmControl'
+import { usePromptPlazaBridge } from '../../stores/promptPlazaBridge'
 
 const fabRef = ref<HTMLButtonElement>()
 const showDrawer = ref(false)
 const promptCount = ref(0)
 const stats = ref<PromptStats | null>(null)
+const plazaBridge = usePromptPlazaBridge()
+
+// ★ 监听 DAG → 提示词广场联动请求
+watch(() => plazaBridge.shouldOpenPlaza, (shouldOpen) => {
+  if (shouldOpen) {
+    const nodeKey = plazaBridge.consumeOpenRequest()
+    showDrawer.value = true
+    if (nodeKey && plazaRef.value) {
+      // 延迟一帧，等 PromptPlaza 挂载后再选中节点
+      setTimeout(() => {
+        plazaRef.value?.selectNodeByKey(nodeKey)
+      }, 300)
+    }
+  }
+})
+
+const plazaRef = ref<InstanceType<typeof PromptPlaza> | null>(null)
 
 function toggleDrawer() {
   showDrawer.value = !showDrawer.value
@@ -94,6 +112,12 @@ onMounted(() => {
 defineExpose({
   open: () => { showDrawer.value = true },
   close: () => { showDrawer.value = false },
+  selectNode: (nodeKey: string) => {
+    showDrawer.value = true
+    setTimeout(() => {
+      plazaRef.value?.selectNodeByKey(nodeKey)
+    }, 300)
+  },
 })
 </script>
 

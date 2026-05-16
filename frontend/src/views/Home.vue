@@ -3,6 +3,7 @@
     <StatsSidebar
       @create-book="focusCreateInput"
       @refresh-list="handleRefreshList"
+      @open-settings="showLLMSettings = true"
       @collapsed-change="handleSidebarCollapsedChange"
     />
     <div class="home-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
@@ -11,6 +12,18 @@
       <div class="container">
         <!-- Header -->
         <header class="header">
+          <n-button
+            quaternary
+            circle
+            size="medium"
+            class="header-theme-btn"
+            aria-label="主题设置"
+            @click="showLLMSettings = true"
+          >
+            <template #icon>
+              <n-icon :component="IconThemeSettings" :size="22" />
+            </template>
+          </n-button>
           <div class="header-content">
             <h1 class="title">墨枢 · 长篇叙事工作台</h1>
             <p class="subtitle">
@@ -48,28 +61,17 @@
               :maxlength="PREMISE_MAX_LEN"
             />
 
-            <n-grid :cols="2" :x-gap="16" :y-gap="16" responsive="screen" class="preset-row">
-              <n-gi>
-                <n-form-item label="赛道 / 类型">
-                  <n-select
-                    v-model:value="newBook.genre"
-                    :options="genreOptions"
-                    placeholder="选择赛道（系统会按预设推进）"
-                    :disabled="creating"
-                  />
-                </n-form-item>
-              </n-gi>
-              <n-gi>
-                <n-form-item label="世界观基调">
-                  <n-select
-                    v-model:value="newBook.worldPreset"
-                    :options="worldPresetOptions"
-                    placeholder="选择基调（不可自填 Prompt）"
-                    :disabled="creating"
-                  />
-                </n-form-item>
-              </n-gi>
-            </n-grid>
+            <div class="taxonomy-block">
+              <div class="taxonomy-block-head">
+                <span class="taxonomy-block-title">市场分区</span>
+                <span class="taxonomy-block-sub">大类 → 细分主题 → 自动写入「类型 / 世界观」；均可再改。</span>
+              </div>
+              <MarketTaxonomyPicker
+                v-model:genre="newBook.genre"
+                v-model:worldPreset="newBook.worldPreset"
+                :disabled="creating"
+              />
+            </div>
 
             <div v-show="!showAdvanced" class="length-tier-block">
               <div class="length-tier-label">目标篇幅（选一个即可，系统按网文常用节奏推导章数）</div>
@@ -120,7 +122,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim() || !newBook.genre || !newBook.worldPreset"
+                :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim()"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -415,9 +417,12 @@ import { h, ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage, NIcon } from 'naive-ui'
 import { novelApi, type NovelDTO } from '../api/novel'
+import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
 import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
+import MarketTaxonomyPicker from '@/components/taxonomy/MarketTaxonomyPicker.vue'
+import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
 
 // Icons
@@ -440,6 +445,14 @@ const IconChevronDown = () =>
 const IconChevronUp = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
     h('path', { fill: 'currentColor', d: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z' }))
+
+/** 与工作台顶栏「设置」一致，打开主题设置弹窗 */
+const IconThemeSettings = () =>
+  h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
+    h('path', {
+      fill: 'currentColor',
+      d: 'M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z',
+    }))
 
 interface BookListItem {
   slug: string
@@ -511,29 +524,6 @@ const lengthTierOptions = [
   },
 ]
 
-const genreOptions = [
-  { label: '玄幻升级', value: '玄幻升级' },
-  { label: '都市爽文', value: '都市爽文' },
-  { label: '仙侠修真', value: '仙侠修真' },
-  { label: '科幻赛博', value: '科幻赛博' },
-  { label: '悬疑推理', value: '悬疑推理' },
-  { label: '历史架空', value: '历史架空' },
-  { label: '游戏异界', value: '游戏异界' },
-  { label: '言情甜宠', value: '言情甜宠' },
-  { label: '其他', value: '其他' },
-]
-
-const worldPresetOptions = [
-  { label: '修仙风（宗门、境界、机缘）', value: '修仙风' },
-  { label: '赛博朋克（巨企、义体、霓虹）', value: '赛博朋克风' },
-  { label: '悬疑风（谜题、反转、线索）', value: '悬疑风' },
-  { label: '高武江湖（门派、恩怨）', value: '高武江湖' },
-  { label: '末日废土（生存、资源）', value: '末日废土' },
-  { label: '西幻史诗（王国、种族）', value: '西幻史诗' },
-  { label: '现代都市（职场、日常）', value: '现代都市' },
-  { label: '克系诡异（未知、调查）', value: '克系诡异' },
-]
-
 const filteredBooks = computed(() => {
   if (!searchQuery.value.trim()) {
     return books.value
@@ -584,15 +574,19 @@ const fetchBooks = async () => {
   loading.value = true
   try {
     const novels = await novelApi.listNovels()
-    books.value = novels.map((novel: NovelDTO) => ({
-      slug: novel.id,
-      title: novel.title,
-      stage: novel.stage,
-      stage_label: getStageLabel(novel.stage),
-      genre: '',
-      chapter_count: novel.chapters?.length || 0,
-      word_count: novel.total_word_count,
-    }))
+    books.value = novels.map((novel: NovelDTO) => {
+      const fromPrefix = parseGenreWorldFromPremise(novel.premise || '').genre
+      const g = novel.locked_genre?.trim() || fromPrefix || ''
+      return {
+        slug: novel.id,
+        title: novel.title,
+        stage: novel.stage,
+        stage_label: getStageLabel(novel.stage),
+        genre: g,
+        chapter_count: novel.chapters?.length || 0,
+        word_count: novel.total_word_count,
+      }
+    })
   } catch {
     message.error('加载失败')
   } finally {
@@ -622,12 +616,12 @@ const handleCreate = async () => {
     message.warning('请输入核心梗概')
     return
   }
-  if (!newBook.value.genre) {
-    message.warning('请选择赛道 / 类型')
+  if (!newBook.value.genre.trim()) {
+    message.warning('请在「市场分区」中选定大类与主题')
     return
   }
-  if (!newBook.value.worldPreset) {
-    message.warning('请选择世界观基调')
+  if (!newBook.value.worldPreset.trim()) {
+    message.warning('请填写或确认世界观基调')
     return
   }
 
@@ -682,8 +676,18 @@ const handleSetupSkip = () => {
   if (id) router.push(`/book/${id}/workbench`)
 }
 
-const navigateToBook = (slug: string) => {
-  router.push(`/book/${slug}/workbench`)
+const navigateToBook = (novelId: string) => {
+  // 未完成向导的书重新打开向导
+  if (!isWizardCompleted(novelId)) {
+    // 查找该书的 target_chapters
+    const novel = books.value.find(b => b.slug === novelId)
+    setupWizard.value = {
+      novelId,
+      targetChapters: 100, // 默认值，向导内部会从 API 获取真实值
+    }
+    return
+  }
+  router.push(`/book/${novelId}/workbench`)
 }
 
 const handleDeleteBook = async (slug: string) => {
@@ -823,9 +827,26 @@ onMounted(() => {
 }
 
 .header {
+  position: relative;
   text-align: center;
   margin-bottom: 40px;
   animation: fade-up 0.55s ease both;
+}
+
+.header-theme-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  color: var(--app-text-secondary);
+}
+
+.header-theme-btn:hover {
+  color: var(--color-brand, #4f46e5);
+}
+
+.header-content {
+  padding: 0 44px;
 }
 
 .title {
@@ -878,8 +899,29 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-.preset-row {
+.taxonomy-block {
   margin-top: 4px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.02);
+  border: 1px solid var(--app-border);
+}
+.taxonomy-block-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.taxonomy-block-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-text-primary);
+  letter-spacing: 0.04em;
+}
+.taxonomy-block-sub {
+  font-size: 12px;
+  color: var(--app-text-muted);
+  line-height: 1.45;
 }
 
 .length-tier-block {

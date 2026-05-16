@@ -3,17 +3,32 @@
  * 提供张力曲线、人声漂移、伏笔统计等监控数据
  */
 
+import type { AxiosRequestConfig } from 'axios'
+
 import { apiClient } from './config'
 
 export interface TensionPoint {
   chapter: number
   tension: number
   title: string
+  evaluated?: boolean  // 是否已完成真实评估
+}
+
+export interface TensionCurveStats {
+  avg_tension: number       // 平均张力（0-10）
+  max_tension: number       // 最高张力
+  min_tension: number       // 最低张力
+  variance: number          // 张力方差（衡量起伏程度）
+  is_flat: boolean          // 曲线是否过于平缓
+  evaluated_count: number   // 已评估章节数
+  unevaluated_count: number // 未评估章节数
+  consecutive_low: number   // 连续低张力章节数
 }
 
 export interface TensionCurveResponse {
   novel_id: string
   points: TensionPoint[]
+  stats: TensionCurveStats | null
 }
 
 export interface VoiceDriftResponse {
@@ -34,8 +49,14 @@ export interface ForeshadowStatsResponse {
 
 export const monitorApi = {
   /** GET /api/v1/novels/{novel_id}/monitor/tension-curve */
-  getTensionCurve(novelId: string): Promise<TensionCurveResponse> {
-    return apiClient.get(`/novels/${novelId}/monitor/tension-curve`) as unknown as Promise<TensionCurveResponse>
+  getTensionCurve(
+    novelId: string,
+    config?: AxiosRequestConfig,
+  ): Promise<TensionCurveResponse> {
+    return apiClient.get(
+      `/novels/${novelId}/monitor/tension-curve`,
+      config,
+    ) as unknown as Promise<TensionCurveResponse>
   },
 
   /** GET /api/v1/novels/{novel_id}/monitor/voice-drift */

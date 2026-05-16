@@ -1,0 +1,19 @@
+name: 检查点摘要
+category: planning
+source: application/blueprint/services/volume_summary_service.py::_build_checkpoint_summary_prompt()
+description: 存档点快照，精准捕获主角当前的筹码、困境与枪口指向
+builtin: true
+tags:
+- 摘要
+- 检查点
+variables:
+- name: current_chapter
+  desc: 当前章节号
+  type: integer
+  required: true
+- name: chapters_text
+  desc: 最近章节信息
+  type: string
+  required: true
+id: summary-checkpoint
+sort_order: 25

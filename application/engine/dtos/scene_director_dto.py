@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -73,6 +73,30 @@ class SceneDirectorAnalyzeResponse(SceneDirectorAnalysis):
     to parent but provides semantic clarity that this is a response object.
     """
     pass
+
+
+SceneDirectorInput = Optional[Union[SceneDirectorAnalysis, Dict[str, Any]]]
+
+
+def coerce_scene_director(raw: SceneDirectorInput) -> Optional[Dict[str, Any]]:
+    """将 HTTP / 工作流传入的场记统一为 dict，供引擎层（ allocator、DAG 等）使用。
+
+    API 层可能传入 ``SceneDirectorAnalysis``、普通 ``dict``，或任意带 ``model_dump``
+    的 Pydantic v2 模型；在此处收口，避免引擎层混用 ``.get`` 与属性访问。
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, SceneDirectorAnalysis):
+        return raw.model_dump()
+    dump = getattr(raw, "model_dump", None)
+    if callable(dump):
+        return dump()
+    raise TypeError(
+        "scene_director must be None, dict, SceneDirectorAnalysis, or a model with model_dump(); "
+        f"got {type(raw).__name__}"
+    )
 
 
 class ContextRetrieveRequest(BaseModel):

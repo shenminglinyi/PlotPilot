@@ -1,0 +1,20 @@
+name: 改进建议生成
+category: review
+source: application/audit/services/chapter_review_service.py::_build_improvement_suggestions_prompt()
+description: 整合体检报告，提供动作导向的手术刀式修改意见
+builtin: true
+tags:
+- 审稿
+- 建议
+variables:
+- name: chapter_number
+  desc: 章节号
+  type: number
+- name: chapter_title
+  desc: 章节标题
+  type: string
+- name: issues_list
+  desc: 问题列表
+  type: string
+id: review-improvement-suggestions
+sort_order: 16

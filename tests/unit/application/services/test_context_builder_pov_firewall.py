@@ -4,7 +4,7 @@
 """
 import pytest
 from unittest.mock import Mock, MagicMock
-from application.services.context_builder import ContextBuilder
+from application.engine.services.context_builder import ContextBuilder
 from application.dtos.bible_dto import BibleDTO, CharacterDTO
 
 

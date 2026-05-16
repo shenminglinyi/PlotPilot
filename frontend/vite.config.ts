@@ -5,8 +5,19 @@ import { resolve } from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   build: {
-    // 大型 SPA 常见体积；需要更细拆分时再改 code-splitting，而非被默认 500k 告警刷屏
+    // 大型 SPA；配合路由懒加载 + manualChunks 控制主包体
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('naive-ui')) return 'naive-ui'
+          if (id.includes('echarts') || id.includes('zrender')) return 'echarts'
+          if (id.includes('@vue')) return 'vue-runtime'
+          return 'vendor'
+        },
+      },
+    },
   },
   plugins: [vue()],
   resolve: {

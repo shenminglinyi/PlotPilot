@@ -362,12 +362,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--aitext-panel-muted);
+  background: var(--plotpilot-panel-muted);
 }
 
 .panel-header {
   padding: 16px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
   background: var(--app-surface);
   display: flex;
   justify-content: space-between;

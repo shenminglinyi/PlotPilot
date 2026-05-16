@@ -40,6 +40,6 @@ def tail_log(log_file: str, lines: int = 50):
             print("\n\n👋 停止日志查看")
 
 if __name__ == "__main__":
-    log_file = sys.argv[1] if len(sys.argv) > 1 else "logs/aitext.log"
+    log_file = sys.argv[1] if len(sys.argv) > 1 else "logs/plotpilot.log"
     lines = int(sys.argv[2]) if len(sys.argv) > 2 else 50
     tail_log(log_file, lines)

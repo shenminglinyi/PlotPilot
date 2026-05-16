@@ -1,0 +1,17 @@
+name: 文风分析（8维度）
+category: extraction
+source: infrastructure/ai/prompts/prompts_defaults.json
+description: 通过 8 个文学解析维度生成小说作家的'文风指纹'
+builtin: true
+tags:
+- 文风
+- 评分
+- 8维度
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: true
+id: style-analysis
+sort_order: 8

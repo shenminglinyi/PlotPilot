@@ -108,7 +108,11 @@ class MemoryDeltaPayload(BaseModel):
 # System Prompt for Memory Extraction
 # ============================================================
 
-_MEMORY_EXTRACTION_SYSTEM = """你是一个精密的小说叙事状态追踪引擎。你的唯一任务是从刚生成的章节正文里，精确提取「记忆增量」——即这一章**新发生**的事情，用于维护跨章节的一致性。
+# CPMS: 提示词节点 key
+_MEMORY_EXTRACTION_NODE_KEY = "memory-extraction"
+
+# 硬编码回退（仅在 PromptRegistry 不可用时使用）
+_FALLBACK_MEMORY_EXTRACTION_SYSTEM = """你是一个精密的小说叙事状态追踪引擎。你的唯一任务是从刚生成的章节正文里，精确提取「记忆增量」——即这一章**新发生**的事情，用于维护跨章节的一致性。
 
 你不是一个文学评论家。你不是在分析文笔好坏。你是在做一本精确的「发生了什么账本」。
 
@@ -402,6 +406,27 @@ class MemoryEngine:
         self._cache: Dict[str, MemoryState] = {}
 
     # ============================================================
+    # CPMS 提示词获取
+    # ============================================================
+
+    def _get_memory_extraction_system(self) -> str:
+        """获取记忆提取的 system prompt。
+
+        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
+        如果 Registry 不可用则回退到硬编码默认值。
+        """
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            system = registry.get_system(_MEMORY_EXTRACTION_NODE_KEY)
+            if system:
+                return system
+        except Exception as exc:
+            logger.debug("PromptRegistry 不可用，使用回退提示词: %s", exc)
+
+        return _FALLBACK_MEMORY_EXTRACTION_SYSTEM
+
+    # ============================================================
     # T0 注入接口（生成前调用）
     # ============================================================
 
@@ -489,7 +514,7 @@ class MemoryEngine:
             existing_clues = self._summarize_clues_for_prompt(state.revealed_clues)
 
             # 2. 构建 prompt
-            system_prompt = _MEMORY_EXTRACTION_SYSTEM
+            system_prompt = self._get_memory_extraction_system()
             user_prompt = _build_memory_extraction_user_prompt(
                 chapter_content=content,
                 chapter_number=chapter_number,

@@ -1,0 +1,34 @@
+name: 全局收敛沙漏 · 阶段行为准则
+category: generation
+source: application/engine/services/context_budget_allocator.py::PHASE_DIRECTIVES
+description: V7 全局收敛沙漏：根据故事进度（开局/发展/收敛/终局）动态注入 T0 行为指令，防止长篇网文剧情发散
+builtin: true
+tags:
+- 核心
+- V7
+- 沙漏
+- 阶段控制
+- 防发散
+output_format: text
+variables:
+- name: directive
+  desc: 阶段基准指令文本
+  type: string
+- name: chapter_number
+  desc: 当前章节号
+  type: integer
+- name: total_chapters
+  desc: 预估总章节数
+  type: integer
+- name: progress_pct
+  desc: 进度百分比
+  type: string
+- name: phase_name
+  desc: 阶段名称
+  type: string
+- name: extra_hint
+  desc: 额外压力提示（收敛/终局时非空）
+  type: string
+  default: ''
+id: lifecycle-phase-directives
+sort_order: 31

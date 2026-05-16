@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 可复用 UI 组件基类
+PlotPilot 可复用 UI 组件基类
 ━━━━━━━━━━━━━━━━━━
 提供所有窗口共用的 UI 构建块:
   - BaseWindow: 基础窗口（标题栏、拖拽、居中、overrideredirect）
@@ -38,7 +38,7 @@ class SystemTray:
     纯 ctypes 实现，无需第三方依赖。
     """
 
-    def __init__(self, root_window, title="aitext", on_double_click=None):
+    def __init__(self, root_window, title="PlotPilot", on_double_click=None):
         self.root = root_window  # tk.Tk 实例
         self.title = title
         self.on_double_click = on_double_click or (lambda: None)
@@ -215,7 +215,7 @@ class SystemTray:
 
 class BaseWindow:
     """
-    所有 aitex GUI 窗口的基类。
+    所有 PlotPilot GUI 窗口的基类。
     提供: 无边框窗口、标题栏(拖拽+关闭)、居中、Logo区
     子类只需实现 _build_body() 即可。
 

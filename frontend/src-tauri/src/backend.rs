@@ -6,6 +6,7 @@
 //!   3. 健康检查轮询，等待 HTTP 就绪
 //!   4. 管理子进程生命周期（退出时自动清理）
 
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -21,6 +22,26 @@ use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 use win32job::Job;
+
+/// 子进程若使用 `Stdio::piped()`，父进程必须持续读取，否则管道缓冲区满后子进程会在下一次写日志时**永久阻塞**。
+/// 开发版多在终端直接 `uvicorn`（输出到控制台，无管道）；安装包由 Tauri `spawn` 且此前未消费管道，**挂一晚上日志一多就会整后端假死**，表现成「只有安装包会坏」。
+fn spawn_stdio_drainers(mut child: Child) -> Child {
+    if let Some(out) = child.stdout.take() {
+        thread::spawn(move || {
+            let mut reader = BufReader::new(out);
+            let mut sink = std::io::sink();
+            let _ = std::io::copy(&mut reader, &mut sink);
+        });
+    }
+    if let Some(err) = child.stderr.take() {
+        thread::spawn(move || {
+            let mut reader = BufReader::new(err);
+            let mut sink = std::io::sink();
+            let _ = std::io::copy(&mut reader, &mut sink);
+        });
+    }
+    child
+}
 
 /// 后端管理器
 pub struct BackendManager {
@@ -49,12 +70,14 @@ impl BackendManager {
         }
     }
 
-    /// 是否在启动 Python 时注入 AITEXT_PROD_DATA_DIR（release 默认开启；debug 需设 AITEXT_FORCE_PROD_DATA=1）
+    /// 是否在启动 Python 时注入 PLOTPILOT_PROD_DATA_DIR（release 默认开启；debug 需设 PLOTPILOT_FORCE_PROD_DATA=1）
     fn should_inject_prod_data_dir() -> bool {
         if cfg!(debug_assertions) {
-            std::env::var("AITEXT_FORCE_PROD_DATA")
+            let force = std::env::var("PLOTPILOT_FORCE_PROD_DATA")
+                .or_else(|_| std::env::var("AITEXT_FORCE_PROD_DATA"))
                 .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                .unwrap_or(false)
+                .unwrap_or(false);
+            force
         } else {
             true
         }
@@ -69,6 +92,17 @@ impl BackendManager {
         let data = base.join("data");
         std::fs::create_dir_all(&data)
             .map_err(|e| format!("无法创建数据目录 {}: {}", data.display(), e))?;
+
+        // Windows: 检测数据目录是否在受保护路径下，提醒用户加入杀毒软件白名单
+        #[cfg(target_os = "windows")]
+        {
+            let data_str = data.to_string_lossy();
+            if data_str.contains("AppData\\Roaming") || data_str.contains("AppData\\Local") {
+                log::info!("📁 Windows 数据目录: {}", data_str);
+                log::info!("💡 提示：如果写作时前端卡顿，请将 '{}' 加入 Windows Defender / 杀毒软件排除项", data_str);
+            }
+        }
+
         Ok(data)
     }
 
@@ -78,16 +112,17 @@ impl BackendManager {
         }
         let path = Self::resolve_prod_data_dir(handle)?;
         log::info!(
-            "📁 注入 {}={}",
-            "AITEXT_PROD_DATA_DIR",
+            "📁 注入 {}={}（同时设置旧名 AITEXT_PROD_DATA_DIR 以兼容）",
+            "PLOTPILOT_PROD_DATA_DIR",
             path.display()
         );
+        cmd.env("PLOTPILOT_PROD_DATA_DIR", path.as_os_str());
         cmd.env("AITEXT_PROD_DATA_DIR", path.as_os_str());
 
         let logs_dir = path.join("logs");
         std::fs::create_dir_all(&logs_dir)
             .map_err(|e| format!("无法创建日志目录 {}: {}", logs_dir.display(), e))?;
-        let log_file = logs_dir.join("aitext.log");
+        let log_file = logs_dir.join("plotpilot.log");
         cmd.env("LOG_FILE", log_file.as_os_str());
 
         Ok(())
@@ -273,11 +308,6 @@ impl BackendManager {
 
         let frozen = Self::find_frozen_backend_exe(&self._app_handle);
 
-        match &frozen {
-            Some(p) => eprintln!("[DEBUG] ✅ 找到冻结后端: {}", p.display()),
-            None => eprintln!("[DEBUG] ❌ 未找到冻结后端！将尝试 Python 解释器路线"),
-        }
-
         let mut cmd = if let Some(ref exe) = frozen {
             let work_dir = exe
                 .parent()
@@ -350,6 +380,8 @@ impl BackendManager {
 
         let pid = child.id();
         log::info!("▶️  后端子进程已启动 (PID={})", pid);
+
+        let child = spawn_stdio_drainers(child);
 
         *self.child.lock().unwrap() = Some(child);
         *self.port.lock().unwrap() = port;

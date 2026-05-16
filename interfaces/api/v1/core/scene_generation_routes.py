@@ -11,7 +11,7 @@ from interfaces.api.dependencies import get_scene_generation_service, get_beat_s
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/scenes", tags=["scenes"])
+router = APIRouter(prefix="/scenes", tags=["scenes"])
 
 
 class GenerateSceneRequest(BaseModel):

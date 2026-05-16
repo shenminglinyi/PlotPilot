@@ -1,0 +1,43 @@
+name: 场景正文生成 v2（沉浸式反AI）
+category: generation
+source: application/core/services/scene_generation_service.py::_build_scene_prompt()
+description: v2重写：基于MRU理论的场景构建，消除'剧本说明书'感，追求电影镜头般的自然流动
+builtin: true
+tags:
+- v2
+- 场景
+- POV
+- 沉浸式
+variables:
+- name: title
+  desc: 场景标题
+  type: string
+- name: goal
+  desc: 场景目标
+  type: string
+- name: pov_character
+  desc: POV角色
+  type: string
+- name: location
+  desc: 地点
+  type: string
+- name: tone
+  desc: 情绪基调
+  type: string
+- name: estimated_words
+  desc: 预估字数
+  type: integer
+- name: analysis_block
+  desc: 场记分析结果
+  type: string
+  default: ''
+- name: previous_scenes_block
+  desc: 前置场景摘要
+  type: string
+  default: ''
+- name: foreshadowing_block
+  desc: 相关伏笔
+  type: string
+  default: ''
+id: scene-generation
+sort_order: 2

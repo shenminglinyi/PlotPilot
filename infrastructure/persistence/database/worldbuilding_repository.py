@@ -1,7 +1,6 @@
 """
 Repository for Worldbuilding
 """
-import sqlite3
 from typing import Optional
 from datetime import datetime
 
@@ -17,9 +16,10 @@ class WorldbuildingRepository:
 
     def _ensure_table(self):
         """确保表存在"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
+        from infrastructure.persistence.database.connection import get_database
+
+        db = get_database(self.db_path)
+        db.execute("""
                 CREATE TABLE IF NOT EXISTS worldbuilding (
                     id TEXT PRIMARY KEY,
                     novel_id TEXT NOT NULL UNIQUE,
@@ -51,49 +51,51 @@ class WorldbuildingRepository:
                     FOREIGN KEY (novel_id) REFERENCES novels(id) ON DELETE CASCADE
                 )
             """)
-            conn.commit()
+        db.commit()
 
     def get_by_novel_id(self, novel_id: str) -> Optional[Worldbuilding]:
         """根据小说ID获取世界观"""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM worldbuilding WHERE novel_id = ?
-            """, (novel_id,))
-            row = cursor.fetchone()
+        from infrastructure.persistence.database.connection import get_database
 
-            if not row:
-                return None
+        db = get_database(self.db_path)
+        row = db.fetch_one(
+            "SELECT * FROM worldbuilding WHERE novel_id = ?",
+            (novel_id,),
+        )
 
-            return Worldbuilding(
-                id=row["id"],
-                novel_id=row["novel_id"],
-                power_system=row["power_system"] or "",
-                physics_rules=row["physics_rules"] or "",
-                magic_tech=row["magic_tech"] or "",
-                terrain=row["terrain"] or "",
-                climate=row["climate"] or "",
-                resources=row["resources"] or "",
-                ecology=row["ecology"] or "",
-                politics=row["politics"] or "",
-                economy=row["economy"] or "",
-                class_system=row["class_system"] or "",
-                history=row["history"] or "",
-                religion=row["religion"] or "",
-                taboos=row["taboos"] or "",
-                food_clothing=row["food_clothing"] or "",
-                language_slang=row["language_slang"] or "",
-                entertainment=row["entertainment"] or "",
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-            )
+        if not row:
+            return None
+
+        return Worldbuilding(
+            id=row["id"],
+            novel_id=row["novel_id"],
+            power_system=row["power_system"] or "",
+            physics_rules=row["physics_rules"] or "",
+            magic_tech=row["magic_tech"] or "",
+            terrain=row["terrain"] or "",
+            climate=row["climate"] or "",
+            resources=row["resources"] or "",
+            ecology=row["ecology"] or "",
+            politics=row["politics"] or "",
+            economy=row["economy"] or "",
+            class_system=row["class_system"] or "",
+            history=row["history"] or "",
+            religion=row["religion"] or "",
+            taboos=row["taboos"] or "",
+            food_clothing=row["food_clothing"] or "",
+            language_slang=row["language_slang"] or "",
+            entertainment=row["entertainment"] or "",
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
 
     def save(self, worldbuilding: Worldbuilding) -> None:
         """保存世界观"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
+        from infrastructure.persistence.database.connection import get_database
+
+        db = get_database(self.db_path)
+        db.execute(
+            """
                 INSERT OR REPLACE INTO worldbuilding (
                     id, novel_id,
                     power_system, physics_rules, magic_tech,
@@ -103,7 +105,8 @@ class WorldbuildingRepository:
                     food_clothing, language_slang, entertainment,
                     created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            """,
+            (
                 worldbuilding.id,
                 worldbuilding.novel_id,
                 worldbuilding.power_system,
@@ -124,12 +127,14 @@ class WorldbuildingRepository:
                 worldbuilding.entertainment,
                 worldbuilding.created_at.isoformat() if isinstance(worldbuilding.created_at, datetime) else worldbuilding.created_at,
                 datetime.now().isoformat(),
-            ))
-            conn.commit()
+            ),
+        )
+        db.commit()
 
     def delete_by_novel_id(self, novel_id: str) -> None:
         """删除小说的世界观"""
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM worldbuilding WHERE novel_id = ?", (novel_id,))
-            conn.commit()
+        from infrastructure.persistence.database.connection import get_database
+
+        db = get_database(self.db_path)
+        db.execute("DELETE FROM worldbuilding WHERE novel_id = ?", (novel_id,))
+        db.commit()

@@ -5,7 +5,7 @@
 - 文风既入队 VOICE_ANALYSIS 又同步 score_chapter 重复计算。
 
 顺序（重要产物均落库）：
-1. 分章叙事同步：一次 LLM 产出摘要/事件/埋线 + 三元组 + 伏笔 → StoryKnowledge + triples + ForeshadowingRegistry，再向量索引（chapter_narrative_sync）
+1. 分章叙事同步：一次 LLM 产出摘要/事件/埋线 + 三元组 + 伏笔 + 因果边 + 人物状态突变 → StoryKnowledge + triples + ForeshadowingRegistry + CausalEdges + CharacterStates + NarrativeDebts，再向量索引（chapter_narrative_sync）
 2. 文风评分：写入 chapter_style_scores（仅一次，不再入队 VOICE_ANALYSIS）
 3. 结构树知识图谱推断：KnowledgeGraphService.infer_from_chapter（与 LLM 三元组互补，非重复）
 """
@@ -52,7 +52,10 @@ async def infer_kg_from_chapter(novel_id: str, chapter_number: int) -> None:
 
 
 class ChapterAftermathPipeline:
-    """章节保存后分析与落库的统一入口。"""
+    """章节保存后分析与落库的统一入口。
+
+    V8 Feed-forward 升级：集成因果边提取、人物状态突变评估、叙事债务更新。
+    """
 
     def __init__(
         self,
@@ -66,6 +69,13 @@ class ChapterAftermathPipeline:
         chapter_repository: Any = None,
         plot_arc_repository: Any = None,
         narrative_event_repository: Any = None,
+        # ★ V8 Feed-forward: 新增仓储
+        causal_edge_repository: Any = None,
+        character_state_repository: Any = None,
+        debt_repository: Any = None,
+        bible_repository: Any = None,
+        unified_checkpoint_service: Any = None,
+        prop_lifecycle_syncer: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -77,6 +87,13 @@ class ChapterAftermathPipeline:
         self._chapter_repository = chapter_repository
         self._plot_arc_repository = plot_arc_repository
         self._narrative_event_repository = narrative_event_repository
+        # ★ V8 Feed-forward: 因果图谱 / 人物状态机 / 叙事债务
+        self._causal_edge_repository = causal_edge_repository
+        self._character_state_repository = character_state_repository
+        self._debt_repository = debt_repository
+        self._bible_repository = bible_repository
+        self._unified_checkpoint = unified_checkpoint_service
+        self._prop_syncer = prop_lifecycle_syncer
 
     async def run_after_chapter_saved(
         self,
@@ -86,7 +103,8 @@ class ChapterAftermathPipeline:
     ) -> Dict[str, Any]:
         """保存正文后执行完整管线。返回文风结果供托管/审计门控使用。
 
-        三元组与伏笔、故事线、张力、对话已在 narrative_sync 单次 LLM 中落库。
+        三元组与伏笔、故事线、张力、对话、因果边、人物状态、债务
+        已在 narrative_sync 单次 LLM 中落库。
         """
         out: Dict[str, Any] = {
             "drift_alert": False,
@@ -95,13 +113,18 @@ class ChapterAftermathPipeline:
             "vector_stored": False,
             "foreshadow_stored": False,
             "triples_extracted": False,
+            "causal_edges_stored": False,
+            "character_mutations_stored": False,
+            "debt_updated": False,
+            "guardrail_passed": None,
+            "guardrail_score": None,
         }
 
         if not content or not str(content).strip():
             logger.debug("aftermath 跳过：正文为空 novel=%s ch=%s", novel_id, chapter_number)
             return out
 
-        # 1) 叙事 + 向量 + 故事线 + 张力 + 对话（与 chapter_narrative_sync 一致）
+        # 1) 叙事 + 向量 + 故事线 + 张力 + 对话 + 因果边 + 人物状态 + 债务
         try:
             from application.world.services.chapter_narrative_sync import (
                 sync_chapter_narrative_after_save,
@@ -120,11 +143,20 @@ class ChapterAftermathPipeline:
                 chapter_repository=self._chapter_repository,
                 plot_arc_repository=self._plot_arc_repository,
                 narrative_event_repository=self._narrative_event_repository,
+                causal_edge_repository=self._causal_edge_repository,
+                character_state_repository=self._character_state_repository,
+                debt_repository=self._debt_repository,
+                bible_repository=self._bible_repository,
             )
             out["narrative_sync_ok"] = True
             out["vector_stored"] = bool(sync_flags.get("vector_stored"))
             out["foreshadow_stored"] = bool(sync_flags.get("foreshadow_stored"))
             out["triples_extracted"] = bool(sync_flags.get("triples_extracted"))
+            out["causal_edges_stored"] = bool(sync_flags.get("causal_edges_stored"))
+            out["character_mutations_stored"] = bool(sync_flags.get("character_mutations_stored"))
+            out["debt_updated"] = bool(sync_flags.get("debt_updated"))
+            # 🔥 传递多维张力评分（0-100），供审计流程替代旧式 _score_tension
+            out["tension_composite"] = sync_flags.get("tension_composite")
         except Exception as e:
             logger.warning(
                 "叙事同步/向量失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
@@ -162,5 +194,113 @@ class ChapterAftermathPipeline:
 
         # 3) 结构树 KG 推断
         await infer_kg_from_chapter(novel_id, chapter_number)
+
+        # 4) 质量护栏（建议模式）+ 快照落库 + 溯源（与手动 POST /guardrail/check 同源）
+        try:
+            import asyncio
+            import time
+            import uuid
+            from datetime import datetime, timezone
+
+            from application.engine.services.guardrail_execution import run_guardrail_advise_sync
+            from engine.core.ports.ports import TraceRecord
+            from engine.infrastructure.persistence.trace_store import SqliteTraceStore
+            from infrastructure.persistence.database.chapter_guardrail_snapshot_repository import (
+                ChapterGuardrailSnapshotRepository,
+            )
+            from infrastructure.persistence.database.connection import get_database
+
+            t0 = time.perf_counter()
+            dto = await asyncio.to_thread(
+                run_guardrail_advise_sync,
+                novel_id,
+                content,
+                f"第{chapter_number}章（保存后自动）",
+            )
+            elapsed_ms = int((time.perf_counter() - t0) * 1000)
+            out["guardrail_passed"] = bool(dto.get("passed"))
+            out["guardrail_score"] = dto.get("overall_score")
+
+            db = get_database()
+            repo = ChapterGuardrailSnapshotRepository(db)
+            await asyncio.to_thread(repo.upsert, novel_id, chapter_number, dto)
+
+            vsummary: list[str] = []
+            for v in dto.get("violations") or []:
+                if isinstance(v, dict) and v.get("description"):
+                    vsummary.append(str(v["description"])[:120])
+                if len(vsummary) >= 20:
+                    break
+
+            store = SqliteTraceStore(db)
+            trace = TraceRecord(
+                trace_id=str(uuid.uuid4()),
+                node_type="guardrail",
+                operation="chapter_after_save",
+                input_summary=f"{novel_id} ch{chapter_number} len={len(content)}"[:200],
+                output_summary=(
+                    f"passed={dto.get('passed')} score={dto.get('overall_score')} "
+                    f"viol={len(dto.get('violations') or [])}"
+                )[:200],
+                score=float(dto.get("overall_score") or 0.0),
+                violations=vsummary,
+                duration_ms=elapsed_ms,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                novel_id=novel_id,
+            )
+            await store.record(trace)
+        except Exception as e:
+            logger.warning("自动护栏/溯源失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+        # 5) 世界线快照 — 章节完成后自动打 CHAPTER checkpoint
+        try:
+            if self._unified_checkpoint:
+                import asyncio
+                cp_id = await asyncio.to_thread(
+                    self._unified_checkpoint.create_checkpoint,
+                    novel_id,
+                    "CHAPTER",
+                    f"第{chapter_number}章自动快照",
+                    None,        # description
+                    "main",      # branch_name
+                    None,        # parent_id
+                    {"chapter": chapter_number},  # story_state（轻量）
+                )
+                out["worldline_checkpoint_id"] = cp_id
+                logger.debug("[Worldline] CHAPTER checkpoint novel=%s ch=%s id=%s", novel_id, chapter_number, cp_id)
+        except Exception as e:
+            logger.warning("[Worldline] 自动 checkpoint 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+        # 6) 道具生命周期同步 — 事件提取、状态机转换、知识库三元组
+        try:
+            if self._prop_syncer:
+                import asyncio
+                sync_result = await self._prop_syncer.sync(novel_id, chapter_number, content)
+                out["prop_sync"] = sync_result
+                logger.debug(
+                    "[PropSync] 完成 novel=%s ch=%s result=%s",
+                    novel_id, chapter_number, sync_result,
+                )
+        except Exception as e:
+            logger.warning(
+                "[PropSync] 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e
+            )
+
+        # ── 汇流点到达检查 ──
+        try:
+            from interfaces.api.dependencies import get_confluence_point_repository as _get_cp_repo
+            _confluence_repo = _get_cp_repo()
+            _hit_cps = [
+                cp for cp in _confluence_repo.get_by_novel_id(novel_id)
+                if cp.target_chapter == chapter_number and not cp.resolved
+            ]
+            if _hit_cps:
+                for _cp in _hit_cps:
+                    logger.info(
+                        "[汇流点] 第%d章完成，汇流点 %s (source=%s → target=%s) 建议标记为 resolved",
+                        chapter_number, _cp.id, _cp.source_storyline_id, _cp.target_storyline_id,
+                    )
+        except Exception as _cp_err:
+            logger.warning("汇流点检查失败（非致命）: %s", _cp_err)
 
         return out

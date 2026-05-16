@@ -9,7 +9,7 @@ from interfaces.api.dependencies import get_beat_sheet_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/beat-sheets", tags=["beat-sheets"])
+router = APIRouter(prefix="/beat-sheets", tags=["beat-sheets"])
 
 
 class SceneResponse(BaseModel):

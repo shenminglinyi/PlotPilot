@@ -1,5 +1,5 @@
 """Novel API 路由"""
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Response
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 import logging
@@ -162,7 +162,10 @@ async def get_novel(
 
 
 @router.get("/", response_model=List[NovelDTO])
-async def list_novels(service: NovelService = Depends(get_novel_service)):
+async def list_novels(
+    response: Response,
+    service: NovelService = Depends(get_novel_service),
+):
     """列出所有小说
 
     Args:
@@ -171,7 +174,12 @@ async def list_novels(service: NovelService = Depends(get_novel_service)):
     Returns:
         小说 DTO 列表
     """
-    return service.list_novels()
+    novels = service.list_novels()
+    repo = service.novel_repository
+    consume = getattr(repo, "consume_sqlite_corruption_warning", None)
+    if callable(consume) and consume():
+        response.headers["X-SQLite-State"] = "corrupted"
+    return novels
 
 
 @router.put("/{novel_id}", response_model=NovelDTO)

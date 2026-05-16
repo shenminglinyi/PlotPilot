@@ -1,4 +1,4 @@
-"""CLI 入口点"""
+"""PlotPilot（墨枢）命令行入口。"""
 import sys
 import argparse
 
@@ -8,7 +8,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    parser = argparse.ArgumentParser(description='aitext CLI')
+    parser = argparse.ArgumentParser(description='PlotPilot（墨枢）CLI')
     subparsers = parser.add_subparsers(dest='command', help='可用命令')
 
     # serve 命令
@@ -48,7 +48,7 @@ def main(args=None):
                             except ValueError:
                                 pass
                     if _pid:
-                        print(f"[aitext] 端口 {_port} 被占用 (PID={_pid})，正在释放...")
+                        print(f"[PlotPilot] 端口 {_port} 被占用 (PID={_pid})，正在释放...")
                         _sp.run(["taskkill", "/PID", str(_pid), "/T", "/F"], capture_output=True)
                 else:
                     r = _sp.run(["lsof", "-ti", f"TCP:{_port}", "-sTCP:LISTEN"],
@@ -56,19 +56,19 @@ def main(args=None):
                     _pid_str = r.stdout.strip().split("\n")[0]
                     if _pid_str:
                         _pid = int(_pid_str)
-                        print(f"[aitext] 端口 {_port} 被占用 (PID={_pid})，正在释放...")
+                        print(f"[PlotPilot] 端口 {_port} 被占用 (PID={_pid})，正在释放...")
                         import os as _os, signal as _sig
                         _os.kill(_pid, _sig.SIGTERM)
             except Exception as _e:
-                print(f"[aitext] 释放端口失败: {_e}")
+                print(f"[PlotPilot] 释放端口失败: {_e}")
             # 等待端口释放
             for _ in range(15):
                 if not _port_in_use(_port):
-                    print(f"[aitext] 端口 {_port} 已释放")
+                    print(f"[PlotPilot] 端口 {_port} 已释放")
                     break
                 _t.sleep(0.3)
             else:
-                print(f"[aitext] 警告：端口 {_port} 仍被占用，启动可能失败")
+                print(f"[PlotPilot] 警告：端口 {_port} 仍被占用，启动可能失败")
 
         uvicorn.run(
             app,

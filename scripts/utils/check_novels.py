@@ -7,7 +7,7 @@ sys.path.insert(0, str(project_root))
 
 from infrastructure.persistence.database.connection import DatabaseConnection
 
-db = DatabaseConnection("data/aitext.db")
+db = DatabaseConnection("data/plotpilot.db")
 conn = db.get_connection()
 cursor = conn.cursor()
 

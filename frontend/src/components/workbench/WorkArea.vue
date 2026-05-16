@@ -19,8 +19,12 @@
     </header>
 
     <div class="work-body">
-      <!-- 辅助撰稿：编辑区 + 章节状态 + 章节元素（无全托管驾驶、无监控大盘） -->
-      <template v-if="workMode === 'assisted'">
+      <!--
+        辅助撰稿与托管撰稿须同时保留在 DOM（v-show，勿用 v-if）：
+        切到辅助撰稿时若卸载 AutopilotPanel，其 onUnmounted 会 stopChapterStream()，
+        章节 SSE 断开会导致全托管写作异常/重连后重复写。
+      -->
+      <div v-show="workMode === 'assisted'" class="assisted-stack">
         <n-alert
           v-if="isAssistedReadOnly"
           type="warning"
@@ -30,21 +34,69 @@
           <strong>全托管运行中</strong>：本侧仅只读；不能保存、改稿、快速生成或改章节元素。
           请切换到「<strong>托管撰稿</strong>」看驾驶舱与监控，或停止托管后再编辑。
         </n-alert>
-        <n-tabs v-model:value="activeTab" type="line" animated class="work-tabs assisted-tabs">
-          <n-tab-pane name="editor" tab="📝 章节编辑">
-            <div class="work-main">
-              <div v-if="currentChapter" class="chapter-editor">
+        <ChapterWorkbenchShell
+          class="chapter-desk-shell"
+          :stacked="desk.stacked"
+          v-model:rail-expanded="desk.railExpanded"
+          rail-drawer-title="本章任务与状态"
+        >
+          <template #manuscript-toolbar>
+            <div class="desk-toolbar">
+              <n-space align="center" :size="8" wrap>
+                <template v-if="signalStrip">
+                  <n-tag size="small" round type="info">张力 {{ signalStrip.tension }}/10</n-tag>
+                  <n-tag v-if="!signalStrip.sync" size="small" round type="warning">叙事未同步</n-tag>
+                </template>
+                <n-text v-else depth="3" style="font-size: 12px">本章信号在侧栏与生成完成后更新</n-text>
+                <template v-if="guardrailSnapshot">
+                  <n-tag size="small" round :type="guardrailSnapshot.passed ? 'success' : 'warning'">
+                    护栏 {{ guardrailSnapshot.passed ? '已通过' : '待关注' }} · {{ Math.round((guardrailSnapshot.overall_score || 0) * 100) }} 分
+                  </n-tag>
+                  <n-tag v-if="(guardrailSnapshot.violations?.length || 0) > 0" size="small" round type="warning">
+                    {{ guardrailSnapshot.violations?.length }} 条提示
+                  </n-tag>
+                </template>
+              </n-space>
+              <n-space align="center" :size="6" wrap justify="end">
+                <n-button size="tiny" quaternary @click="showGuardrailModal = true">护栏详情</n-button>
+                <n-button size="tiny" quaternary @click="showTraceModal = true">引擎溯源</n-button>
+                <n-text depth="3" style="font-size: 11px">元素用主栏标签切换</n-text>
+                <n-button size="tiny" secondary @click="desk.toggleRail()">
+                  {{ desk.railExpanded ? '收起侧栏' : '任务与状态' }}
+                </n-button>
+              </n-space>
+            </div>
+          </template>
+
+          <template #primary>
+            <div class="work-main primary-desk-root">
+              <n-empty v-if="!currentChapter" description="请从左侧选择章节" class="work-empty" />
+              <n-tabs
+                v-else
+                v-model:value="primaryDeskTab"
+                type="line"
+                size="small"
+                animated
+                class="primary-desk-tabs"
+              >
+                <n-tab-pane name="manuscript" tab="章节编辑" display-directive="if">
+                  <div class="chapter-editor">
                 <div class="editor-header">
                   <div class="editor-title">
                     <h3>{{ currentChapter.title || `第${currentChapter.number}章` }}</h3>
                     <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
                       {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
                     </n-tag>
+                    <n-tag v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number" size="small" type="info" round>
+                      生成中...
+                    </n-tag>
+                  </div>
+                  <div v-if="autopilotStatus?.current_act_title" class="act-info-header">
+                    <span class="act-info-title">第 {{ (autopilotStatus.current_act || 0) + 1 }} 幕 · {{ autopilotStatus.current_act_title }}</span>
+                    <span v-if="autopilotStatus.current_act_description" class="act-info-desc">{{ autopilotStatus.current_act_description }}</span>
                   </div>
                   <n-space :size="8">
-                    <n-button size="small" @click="handleReload" :disabled="loading">
-                      重新加载
-                    </n-button>
+                    <n-button size="small" @click="handleReload" :disabled="loading">重新加载</n-button>
                     <n-button
                       size="small"
                       type="primary"
@@ -58,19 +110,63 @@
                 </div>
 
                 <div class="editor-body">
-                  <n-input
-                    v-model:value="chapterContent"
-                    type="textarea"
-                    placeholder="章节内容..."
-                    :autosize="false"
-                    :readonly="isAssistedReadOnly"
-                    @update:value="handleContentChange"
-                  />
+                  <div
+                    class="editor-input-wrapper"
+                    :class="{ 'is-streaming': isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent }"
+                  >
+                    <n-input
+                      v-model:value="editorDisplayContent"
+                      type="textarea"
+                      placeholder="章节内容..."
+                      :autosize="false"
+                      :readonly="isAssistedReadOnly || (isAutopilotRunning && streamingChapterNumber === currentChapter.number)"
+                      @update:value="handleContentChange"
+                    />
+                    <div
+                      v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number && streamingContent"
+                      class="streaming-cursor-overlay"
+                    >
+                      <span class="streaming-cursor">▋</span>
+                      <span class="streaming-badge">生成中</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div class="editor-footer">
                   <n-space :size="8" align="center" justify="space-between" style="width: 100%">
-                    <n-text depth="3">字数: {{ wordCount }}</n-text>
+                    <n-space vertical :size="4" style="min-width: 0">
+                    <n-text depth="3" class="editor-wordcount-line">
+                      <template
+                        v-if="
+                          isAutopilotRunning &&
+                          streamingChapterNumber === currentChapter?.number &&
+                          streamingContent &&
+                          streamingWordCountHint
+                        "
+                      >
+                        <span :class="{ 'streaming-word-count': true }">{{ streamingWordCountHint }}</span>
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <span class="wordcount-help">?</span>
+                          </template>
+                          流式阶段模型常会写出超过单章目标的缓冲，系统在每节拍末会收束；落稿字数会贴近你在书目里设的「每章目标字数」。
+                        </n-tooltip>
+                        <span class="streaming-indicator">生成中</span>
+                      </template>
+                      <template v-else>
+                        字数:
+                        <span :class="{ 'streaming-word-count': isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent }">
+                          {{ wordCount }}
+                        </span>
+                        <span v-if="isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent" class="streaming-indicator">生成中▋</span>
+                      </template>
+                    </n-text>
+                    <n-text depth="3" style="font-size: 11px; max-width: 56ch; line-height: 1.45">
+                      实体标记（可选）：
+                      <code>[[char:id|人名]] [[loc:id|地名]] [[faction:id|势力]] [[prop:id|道具]]</code>
+                      · 保存后自动索引本章实体，侧栏「手稿道具」可查看。
+                    </n-text>
+                    </n-space>
                     <n-space :size="8">
                       <n-tooltip trigger="hover" :disabled="!isAutopilotRunning && !isAssistedReadOnly">
                         <template #trigger>
@@ -86,65 +182,99 @@
                         </template>
                         <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
                       </n-tooltip>
-                      <n-button
-                        size="small"
-                        secondary
-                        :disabled="isAssistedReadOnly"
-                        @click="openTensionModal"
-                        title="诊断当前章节张力缺口"
+                      <n-tooltip
+                        v-if="hasChapterContent"
+                        trigger="hover"
+                        :disabled="!isAutopilotRunning && !isAssistedReadOnly"
+                        :content="isAssistedReadOnly ? '托管运行中不可重新生成' : 'Autopilot 运行时禁用'"
                       >
+                        <template #trigger>
+                          <n-button
+                            size="small"
+                            secondary
+                            @click="handleRegenerateChapter"
+                            :loading="generating"
+                            :disabled="isAutopilotRunning || isAssistedReadOnly"
+                          >
+                            🔄 重新生成
+                          </n-button>
+                        </template>
+                      </n-tooltip>
+                      <n-button size="small" secondary :disabled="isAssistedReadOnly" @click="openTensionModal" title="诊断当前章节张力缺口">
                         🔍 张力诊断
                       </n-button>
                     </n-space>
                   </n-space>
                 </div>
+                  </div>
+                </n-tab-pane>
+
+                <n-tab-pane name="elements" tab="章节元素" display-directive="if">
+                  <div class="elements-tab-wrap primary-tab-pane">
+                    <ChapterElementPanel
+                      :slug="slug"
+                      :current-chapter-number="currentChapter.number"
+                      :read-only="isAssistedReadOnly"
+                      :last-workflow-result="lastWorkflowResult"
+                      :qc-chapter-number="lastQcChapterNumber"
+                      :autopilot-chapter-review="autopilotChapterReview"
+                    />
+                  </div>
+                </n-tab-pane>
+              </n-tabs>
+            </div>
+          </template>
+
+          <template #rail>
+            <div class="rail-column">
+            <div class="rail-head">
+              <n-text strong style="font-size: 13px">本章任务与状态</n-text>
+              <n-button v-if="!desk.stacked" quaternary circle size="small" @click="desk.toggleRail()" title="收起侧栏">
+                <template #icon>
+                  <ChevronForwardOutline />
+                </template>
+              </n-button>
+            </div>
+            <n-scrollbar class="rail-scroll">
+              <div class="rail-scroll-pad">
+                <ChapterContentPanel
+                  :slug="slug"
+                  :current-chapter-number="currentChapter?.number ?? null"
+                  :read-only="isAssistedReadOnly"
+                  :autopilot-chapter-review="autopilotChapterReview"
+                />
+                <ChapterStatusPanel
+                  :slug="slug"
+                  :chapter="currentChapter"
+                  :read-only="isAssistedReadOnly"
+                  :last-workflow-result="lastWorkflowResult"
+                  :qc-chapter-number="lastQcChapterNumber"
+                  :autopilot-chapter-review="autopilotChapterReview"
+                  @clear-qc="clearWorkflowQc"
+                  @go-editor="focusManuscriptEditor"
+                />
               </div>
-
-              <n-empty v-else description="请从左侧选择章节" class="work-empty" />
+            </n-scrollbar>
             </div>
-          </n-tab-pane>
+          </template>
 
-          <n-tab-pane name="chapter-status" tab="📋 章节状态">
-            <ChapterStatusPanel
-              :slug="slug"
-              :chapter="currentChapter"
-              :read-only="isAssistedReadOnly"
-              :last-workflow-result="lastWorkflowResult"
-              :qc-chapter-number="lastQcChapterNumber"
-              :autopilot-chapter-review="autopilotChapterReview"
-              @clear-qc="clearWorkflowQc"
-              @go-editor="activeTab = 'editor'"
-            />
-          </n-tab-pane>
+          <template #rail-collapsed-actions>
+            <n-tooltip v-for="id in CHAPTER_DESK_AUX_ORDER" :key="id" placement="left" trigger="hover">
+              <template #trigger>
+                <n-button quaternary size="small" class="rail-icon-btn" @click="primaryDeskTab = id">
+                  <template #icon>
+                    <component :is="auxPaneIcon(id)" />
+                  </template>
+                </n-button>
+              </template>
+              {{ CHAPTER_DESK_AUX_SURFACES[id].label }}
+            </n-tooltip>
+          </template>
+        </ChapterWorkbenchShell>
+      </div>
 
-          <n-tab-pane name="chapter-content" tab="📄 章节内容">
-            <div class="elements-tab-wrap">
-              <ChapterContentPanel
-                :slug="slug"
-                :current-chapter-number="currentChapter?.number ?? null"
-                :read-only="isAssistedReadOnly"
-                :autopilot-chapter-review="autopilotChapterReview"
-              />
-            </div>
-          </n-tab-pane>
-
-          <n-tab-pane name="chapter-elements" tab="🧩 章节元素">
-            <div class="elements-tab-wrap">
-              <ChapterElementPanel
-                :slug="slug"
-                :current-chapter-number="currentChapter?.number ?? null"
-                :read-only="isAssistedReadOnly"
-                :last-workflow-result="lastWorkflowResult"
-                :qc-chapter-number="lastQcChapterNumber"
-                :autopilot-chapter-review="autopilotChapterReview"
-              />
-            </div>
-          </n-tab-pane>
-        </n-tabs>
-      </template>
-
-      <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会切回辅助撰稿） -->
-      <div v-else class="managed-stack">
+      <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会显示辅助撰稿面板，托管组件仍挂载以保持 SSE） -->
+      <div v-show="workMode === 'managed'" class="managed-stack">
         <n-alert type="success" :show-icon="true" class="managed-daemon-hint">
           <strong>全托管模式</strong>：后端已自动启动守护进程线程，点击「启动全托管」即可开始自动写作。
           系统将自动进行宏观规划、幕级规划、章节撰写和审计。
@@ -154,6 +284,8 @@
             :novel-id="slug"
             @status-change="handleAutopilotStatusChange"
             @chapter-content-update="handleChapterContentUpdate"
+            @chapter-chunk="handleChapterChunkStream"
+            @desk-refresh="handleAutopilotDeskRefreshFromStream"
           />
         </div>
         <div class="managed-monitor">
@@ -169,19 +301,21 @@
     <n-modal
       v-model:show="showGenerateModal"
       preset="card"
-      title="AI 生成本章（含一致性检查）"
+      :title="isRegenerationMode ? '🔄 重新生成本章' : 'AI 生成本章（含一致性检查）'"
       style="width: min(820px, 96vw); max-height: min(92vh, 900px)"
       :segmented="{ content: true, footer: 'soft' }"
       :mask-closable="!generateInProgress"
     >
       <template #header-extra>
-        <n-text depth="3" style="font-size: 12px">同一流式接口；报告在章节状态</n-text>
+        <n-text depth="3" style="font-size: 12px">
+          {{ isRegenerationMode ? '原内容将自动快照保存，可从历史草稿恢复' : '同一流式接口；报告在本章侧栏' }}
+        </n-text>
       </template>
 
       <n-scrollbar style="max-height: min(78vh, 760px)">
         <n-space vertical :size="20">
           <n-alert type="info" :show-icon="true">
-            选择目标章节与大纲后流式生成。一致性报告与俗套句式命中会出现在「章节状态」；此处可审阅正文并保存到所选章节。
+            选择目标章节与大纲后流式生成。一致性报告与俗套句式命中会出现在右侧「本章任务与状态」侧栏；此处可审阅正文并保存到所选章节。
           </n-alert>
 
           <n-card title="配置" size="small" :bordered="false">
@@ -231,20 +365,42 @@
                 场记分析失败（不影响生成）：{{ sceneDirectorError }}
               </n-alert>
 
+              <!-- 重新生成模式：改进方向输入 -->
+              <template v-if="isRegenerationMode">
+                <n-alert type="warning" :show-icon="true" style="font-size: 12px">
+                  重新生成将覆盖现有正文。点击「开始生成」前，原内容会自动保存为历史草稿。
+                </n-alert>
+                <n-form-item label="改进方向" label-placement="left" label-width="80" :show-feedback="false">
+                  <n-input
+                    v-model:value="regenerationGuidance"
+                    type="textarea"
+                    placeholder="（可选）告诉 AI 哪里需要改进，例如：增强冲突张力、修复角色前后矛盾、改写结尾悬念..."
+                    :autosize="{ minRows: 2, maxRows: 5 }"
+                    :disabled="generateInProgress"
+                    :maxlength="2000"
+                    show-count
+                  />
+                </n-form-item>
+              </template>
+
               <n-button
-                type="primary"
+                :type="isRegenerationMode ? 'warning' : 'primary'"
                 @click="handleStartGenerate"
-                :loading="generateInProgress"
-                :disabled="generateInProgress || isAssistedReadOnly || generateTargetChapterId == null"
+                :loading="generateInProgress || savingDraftBeforeRegen"
+                :disabled="generateInProgress || savingDraftBeforeRegen || isAssistedReadOnly || generateTargetChapterId == null"
                 size="medium"
                 block
               >
                 {{
-                  generateInProgress
-                    ? analyzingScene
-                      ? '分析场景中...'
-                      : '生成中...'
-                    : '开始生成'
+                  savingDraftBeforeRegen
+                    ? '快照原内容…'
+                    : generateInProgress
+                      ? analyzingScene
+                        ? '分析场景中...'
+                        : '生成中...'
+                      : isRegenerationMode
+                        ? '🔄 开始重新生成'
+                        : '开始生成'
                 }}
               </n-button>
             </n-space>
@@ -451,27 +607,70 @@
       </template>
     </n-modal>
 
+    <n-modal
+      v-model:show="showGuardrailModal"
+      preset="card"
+      title="质量护栏（保存后自动）"
+      style="width: min(640px, 96vw); max-height: min(88vh, 820px)"
+      :segmented="{ content: true }"
+    >
+      <n-scrollbar style="max-height: min(72vh, 680px)">
+        <QualityGuardrailPanel
+          v-if="showGuardrailModal && currentChapter"
+          :slug="slug"
+          :chapter="currentChapter"
+          :read-only="isAssistedReadOnly"
+        />
+      </n-scrollbar>
+    </n-modal>
+
+    <n-modal
+      v-model:show="showTraceModal"
+      preset="card"
+      title="引擎溯源"
+      style="width: min(720px, 96vw); max-height: min(88vh, 820px)"
+    >
+      <n-scrollbar style="max-height: min(76vh, 700px)">
+        <TraceRecordPanel v-if="showTraceModal" :slug="slug" />
+      </n-scrollbar>
+    </n-modal>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
-import { useMessage } from 'naive-ui'
+import { ref, watch, computed, onMounted, onUnmounted, type Component } from 'vue'
+import { storeToRefs } from 'pinia'
+import { useDialog, useMessage } from 'naive-ui'
 import { resolveHttpUrl } from '../../api/config'
 import {
   consumeGenerateChapterStream,
   analyzeScene,
   retrieveContext,
+  saveChapterDraft,
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
+import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
 import ChapterElementPanel from './ChapterElementPanel.vue'
 import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
+import ChapterWorkbenchShell from './ChapterWorkbenchShell.vue'
+import QualityGuardrailPanel from './QualityGuardrailPanel.vue'
+import TraceRecordPanel from './TraceRecordPanel.vue'
 import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
 import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
+import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
+import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import {
+  CHAPTER_DESK_AUX_ORDER,
+  CHAPTER_DESK_AUX_SURFACES,
+  type ChapterDeskAuxPaneId,
+  type PrimaryChapterDeskTab,
+} from '../../workbench/chapterDeskSurface'
+import { AppsOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 
 interface Chapter {
   id: number
@@ -498,18 +697,44 @@ const props = withDefaults(defineProps<WorkAreaProps>(), {
 })
 
 const emit = defineEmits<{
-  setRightPanel: [panel: string]
-  startWrite: []
   chapterUpdated: []
 }>()
 
 const message = useMessage()
+const dialog = useDialog()
+
+const desk = useChapterDeskLayout()
+
+const workbenchRefresh = useWorkbenchRefreshStore()
+const { deskTick } = storeToRefs(workbenchRefresh)
+
+const primaryDeskTab = ref<PrimaryChapterDeskTab>('manuscript')
+const showGuardrailModal = ref(false)
+const showTraceModal = ref(false)
+const guardrailSnapshot = ref<GuardrailCheckResponse | null>(null)
+
+function focusManuscriptEditor() {
+  desk.focusManuscript()
+  primaryDeskTab.value = 'manuscript'
+}
+
+watch(
+  () => props.currentChapterId,
+  () => {
+    primaryDeskTab.value = 'manuscript'
+  }
+)
+
+function auxPaneIcon(id: ChapterDeskAuxPaneId): Component {
+  const map: Record<ChapterDeskAuxPaneId, Component> = {
+    elements: AppsOutline,
+  }
+  return map[id]
+}
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
 const workMode = ref<'assisted' | 'managed'>('managed')
 
-// Tab 状态（仅辅助撰稿）
-const activeTab = ref('editor')
 const showGenerateModal = ref(false)
 const generateOutline = ref('')
 const generatedContent = ref('')
@@ -523,6 +748,13 @@ const outlineBlurAnalyzing = ref(false)
 const streamPhaseLabel = ref('')
 const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
+
+/** 重新生成模式：开启时弹窗中显示「改进方向」输入框，并在生成前自动快照当前内容 */
+const isRegenerationMode = ref(false)
+/** 重新生成改进方向（可选，传给后端 regeneration_guidance） */
+const regenerationGuidance = ref('')
+/** 是否正在保存草稿（重新生成前的快照） */
+const savingDraftBeforeRegen = ref(false)
 
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
@@ -538,20 +770,39 @@ const isAssistedReadOnly = computed(
 /** 与左侧章节「已收稿」、结构树同步：全托管推进时刷新 desk（首次快照只记录不 emit，避免与进入页重复请求） */
 const lastAutopilotDeskSnap = ref<string | null>(null)
 
+/** 仅纳入「会改变侧栏章节列表 / 结构树骨架」的字段；排除 total_words、beat 索引等写作过程高频抖动，避免每秒整桌 loadDesk。 */
 function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefined): string {
   if (!status) return ''
   const s = status
+  const audit = s.last_chapter_audit as Record<string, unknown> | undefined
+  const auditCh =
+    audit != null
+      ? (audit.chapter_number ?? audit.chapterNumber ?? '')
+      : ''
+  const auditSync = audit != null && audit.narrative_sync_ok === true ? '1' : '0'
   return [
     s.completed_chapters ?? 0,
     s.manuscript_chapters ?? 0,
-    s.total_words ?? 0,
     s.current_stage ?? '',
     s.current_act ?? 0,
     s.current_chapter_in_act ?? 0,
     s.current_chapter_number ?? '',
-    s.current_beat_index ?? 0,
     s.needs_review === true ? '1' : '0',
+    s.autopilot_status ?? '',
+    auditCh,
+    auditSync,
   ].join('|')
+}
+
+/** 尾部去抖：SSE + 轮询短时间连发时合并为一次整桌刷新；避免「跳过」导致永不 emit 的旧逻辑 */
+let deskRefreshDebounce: ReturnType<typeof setTimeout> | null = null
+const DESK_REFRESH_EMIT_DEBOUNCE_MS = 1200
+function emitDeskRefreshDebounced() {
+  if (deskRefreshDebounce) clearTimeout(deskRefreshDebounce)
+  deskRefreshDebounce = setTimeout(() => {
+    deskRefreshDebounce = null
+    emit('chapterUpdated')
+  }, DESK_REFRESH_EMIT_DEBOUNCE_MS)
 }
 
 function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined) {
@@ -563,7 +814,7 @@ function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined
   }
   if (lastAutopilotDeskSnap.value === next) return
   lastAutopilotDeskSnap.value = next
-  emit('chapterUpdated')
+  emitDeskRefreshDebounced()
 }
 
 const handleAutopilotStatusChange = (status: any) => {
@@ -571,14 +822,9 @@ const handleAutopilotStatusChange = (status: any) => {
   maybeEmitDeskRefresh(status)
 }
 
-/** SSE 已广播「进入待审阅」时立即拉 desk/结构树；与 /status 轮询并行，避免日志先变、侧栏仍旧 */
-let autopilotStreamDeskDebounce: ReturnType<typeof setTimeout> | null = null
+/** SSE 已广播刷新信号时去抖触发 desk 刷新（与 maybeEmitDeskRefresh 共用去抖逻辑） */
 function handleAutopilotDeskRefreshFromStream() {
-  if (autopilotStreamDeskDebounce) clearTimeout(autopilotStreamDeskDebounce)
-  autopilotStreamDeskDebounce = setTimeout(() => {
-    autopilotStreamDeskDebounce = null
-    emit('chapterUpdated')
-  }, 400)
+  emitDeskRefreshDebounced()
 }
 
 /** 自动驾驶章节内容流更新：实时显示正在写作的内容 */
@@ -595,27 +841,59 @@ function handleChapterContentUpdate(data: { chapterNumber: number; content: stri
   }
 }
 
+/** SSE 增量 chunk：驱动编辑区与托管预览同步打字机式更新（整章快照事件较少，仅靠 snapshot 会卡顿） */
+function handleChapterChunkStream(data: {
+  chunk: string
+  beatIndex: number
+  content: string
+  chapterNumber: number
+}) {
+  const n = data.chapterNumber
+  if (!n) return
+  streamingChapterNumber.value = n
+  streamingContent.value = data.content
+  if (currentChapter.value && currentChapter.value.number === n) {
+    chapterContent.value = data.content
+  }
+}
+
 /** 辅助撰稿下不挂载驾驶舱，需独立轮询托管状态以支持「运行中只读」 */
-let assistedAutopilotPollTimer: ReturnType<typeof setInterval> | null = null
+let assistedAutopilotPollTimer: ReturnType<typeof setTimeout> | null = null
 /** 该书在库中不存在(404)时不再轮询 /autopilot/.../status */
 let assistedAutopilot404 = false
+let assistAutopilotPollFailures = 0
+
+function assistedAutopilotPollDelayMs(): number {
+  const base = 4000
+  const mult = Math.min(2 ** Math.min(assistAutopilotPollFailures, 8), 128)
+  return Math.min(base * mult, 60_000)
+}
 
 function clearAssistedAutopilotPoll() {
   if (assistedAutopilotPollTimer != null) {
-    clearInterval(assistedAutopilotPollTimer)
+    clearTimeout(assistedAutopilotPollTimer)
     assistedAutopilotPollTimer = null
   }
+}
+
+function scheduleAssistedAutopilotPoll() {
+  clearAssistedAutopilotPoll()
+  if (assistedAutopilot404 || workMode.value !== 'assisted' || document.hidden) {
+    return
+  }
+  assistedAutopilotPollTimer = window.setTimeout(() => {
+    void pollAutopilotStatusWhileAssisted().finally(() => {
+      scheduleAssistedAutopilotPoll()
+    })
+  }, assistedAutopilotPollDelayMs())
 }
 
 function handleVisibilityChange() {
   if (document.hidden) {
     clearAssistedAutopilotPoll()
   } else if (workMode.value === 'assisted') {
-    void pollAutopilotStatusWhileAssisted()
-    assistedAutopilotPollTimer = setInterval(
-      () => void pollAutopilotStatusWhileAssisted(),
-      4000
-    )
+    assistAutopilotPollFailures = 0
+    void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
   }
 }
 
@@ -626,15 +904,19 @@ async function pollAutopilotStatusWhileAssisted() {
     if (res.status === 404) {
       assistedAutopilot404 = true
       clearAssistedAutopilotPoll()
+      assistAutopilotPollFailures = 0
       return
     }
     if (res.ok) {
+      assistAutopilotPollFailures = 0
       const json = await res.json()
       autopilotStatus.value = json
       maybeEmitDeskRefresh(json)
+    } else {
+      assistAutopilotPollFailures += 1
     }
   } catch {
-    /* 忽略 */
+    assistAutopilotPollFailures += 1
   }
 }
 
@@ -643,13 +925,10 @@ watch(
   () => {
     lastAutopilotDeskSnap.value = null
     assistedAutopilot404 = false
+    assistAutopilotPollFailures = 0
+    clearAssistedAutopilotPoll()
     if (workMode.value === 'assisted') {
-      clearAssistedAutopilotPoll()
-      void pollAutopilotStatusWhileAssisted()
-      assistedAutopilotPollTimer = setInterval(
-        () => void pollAutopilotStatusWhileAssisted(),
-        4000
-      )
+      void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
     }
   }
 )
@@ -658,12 +937,9 @@ watch(
   () => workMode.value,
   (mode) => {
     clearAssistedAutopilotPoll()
+    assistAutopilotPollFailures = 0
     if (mode === 'assisted') {
-      void pollAutopilotStatusWhileAssisted()
-      assistedAutopilotPollTimer = setInterval(
-        () => void pollAutopilotStatusWhileAssisted(),
-        4000
-      )
+      void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
     }
   },
   { immediate: true }
@@ -676,6 +952,10 @@ onMounted(() => {
 onUnmounted(() => {
   clearAssistedAutopilotPoll()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (deskRefreshDebounce) {
+    clearTimeout(deskRefreshDebounce)
+    deskRefreshDebounce = null
+  }
 })
 
 /** 左侧切换章节（或路由）导致章 id 变化时回到辅助撰稿 */
@@ -817,12 +1097,120 @@ const currentChapter = computed(() => {
   return props.chapters.find(ch => ch.id === props.currentChapterId) || null
 })
 
+/** 当前是否有可重写的正文：以编辑器 `chapterContent` 为准（列表项通常不带全文，不能用 currentChapter.content） */
+const hasChapterContent = computed(() => {
+  const fromEditor = chapterContent.value?.trim() ?? ''
+  const fromList = currentChapter.value?.content?.trim() ?? ''
+  return !!(fromEditor || fromList)
+})
+
+const signalStrip = computed(() => {
+  const r = autopilotChapterReview.value
+  const ch = currentChapter.value
+  if (!r || !ch || r.chapter_number !== ch.number) return null
+  return {
+    tension: r.tension ?? 0,
+    sync: !!r.narrative_sync_ok,
+  }
+})
+
+/** 护栏尚无快照（404→null）时 deskTick 会高频触发：退避期内不再打 GET，减轻日志与 UI 闪烁 */
+const guardrailNullBackoffUntil = ref(0)
+const guardrailBackoffKey = ref('')
+
+async function loadGuardrailSnapshot(options?: { force?: boolean; clear?: boolean }) {
+  const ch = currentChapter.value
+  if (!props.slug || !ch) {
+    guardrailSnapshot.value = null
+    return
+  }
+  const key = `${props.slug}:${ch.number}`
+  if (options?.clear) {
+    guardrailSnapshot.value = null
+    guardrailNullBackoffUntil.value = 0
+    guardrailBackoffKey.value = ''
+  }
+  if (
+    !options?.force &&
+    guardrailBackoffKey.value === key &&
+    Date.now() < guardrailNullBackoffUntil.value
+  ) {
+    return
+  }
+  try {
+    const snap = await chapterApi.getGuardrailSnapshot(props.slug, ch.number)
+    guardrailSnapshot.value = snap
+    if (snap == null) {
+      guardrailBackoffKey.value = key
+      guardrailNullBackoffUntil.value = Date.now() + 90_000
+    } else {
+      guardrailNullBackoffUntil.value = 0
+      guardrailBackoffKey.value = ''
+    }
+  } catch {
+    guardrailBackoffKey.value = key
+    guardrailNullBackoffUntil.value = Date.now() + 60_000
+  }
+}
+
+watch(
+  () => [props.slug, props.currentChapterId] as const,
+  () => {
+    void loadGuardrailSnapshot({ force: true, clear: true })
+  },
+  { immediate: true }
+)
+
+watch(
+  () => deskTick.value,
+  () => {
+    void loadGuardrailSnapshot()
+  }
+)
+
 const hasChanges = computed(() => {
   return chapterContent.value !== originalContent.value
 })
 
 const wordCount = computed(() => {
+  // 🔥 流式写作时取流式内容长度，否则取编辑框内容长度
+  if (isAutopilotRunning.value && streamingChapterNumber.value === currentChapter.value?.number && streamingContent.value) {
+    return streamingContent.value.length
+  }
   return chapterContent.value.length
+})
+
+/** 托管流式：用 /status 的已定稿字数与单章目标拆分展示，避免只显示「三千多字」误解为终稿 */
+const streamingWordCountHint = computed((): string | null => {
+  if (!isAutopilotRunning.value || streamingChapterNumber.value !== currentChapter.value?.number || !streamingContent.value) {
+    return null
+  }
+  const st = autopilotStatus.value
+  const tgt = Math.max(
+    0,
+    Number(st?.chapter_target_words ?? st?.target_words_per_chapter ?? 0)
+  )
+  if (!tgt) return null
+  const acc = Math.max(0, Number(st?.accumulated_words ?? 0))
+  const live = streamingContent.value.length
+  const over = Math.max(0, live - acc)
+  if (over > 0) {
+    return `已定 ${acc}/${tgt} · 流式 +${over}`
+  }
+  return `已定 ${live}/${tgt}`
+})
+
+/** 🔥 编辑框显示内容：流式时显示流式内容，否则显示普通内容 */
+const editorDisplayContent = computed({
+  get: () => {
+    if (isAutopilotRunning.value && streamingChapterNumber.value === currentChapter.value?.number && streamingContent.value) {
+      return streamingContent.value
+    }
+    return chapterContent.value
+  },
+  set: (val: string) => {
+    chapterContent.value = val
+  }
 })
 
 // 监听传入的章节内容变化
@@ -855,6 +1243,7 @@ const handleSave = async () => {
     originalContent.value = chapterContent.value
     message.success('保存成功')
     emit('chapterUpdated')
+    window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)
   } catch (error) {
     message.error('保存失败')
   } finally {
@@ -881,7 +1270,29 @@ const handleGenerateChapter = async () => {
     return
   }
 
+  isRegenerationMode.value = false
+  regenerationGuidance.value = ''
   generateTargetChapterId.value = currentChapter.value.id
+  generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
+
+承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
+  generatedContent.value = ''
+  contextPreview.value = null
+  blurSceneCache.value = undefined
+  showGenerateModal.value = true
+}
+
+const handleRegenerateChapter = async () => {
+  if (!currentChapter.value) return
+  if (isAssistedReadOnly.value) {
+    message.warning('托管运行中不可使用重新生成')
+    return
+  }
+
+  isRegenerationMode.value = true
+  regenerationGuidance.value = ''
+  generateTargetChapterId.value = currentChapter.value.id
+  // 列表项不带 outline，统一用默认模板做种子；用户可在弹窗里编辑
   generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
@@ -909,6 +1320,26 @@ function streamPhaseToLabel(phase: string): string {
     post: '质检与收尾…',
   }
   return map[phase] ?? phase
+}
+
+function httpStatusFromError(e: unknown): number | undefined {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const r = (e as { response?: { status?: number } }).response
+    return typeof r?.status === 'number' ? r.status : undefined
+  }
+  return undefined
+}
+
+function httpDetailFromError(e: unknown): string {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const data = (e as { response?: { data?: unknown } }).response?.data
+    if (data && typeof data === 'object' && 'detail' in data) {
+      const d = (data as { detail: unknown }).detail
+      if (typeof d === 'string') return d
+      if (Array.isArray(d)) return JSON.stringify(d)
+    }
+  }
+  return e instanceof Error ? e.message : '未知错误'
 }
 
 const handleStartGenerate = async () => {
@@ -953,6 +1384,49 @@ const handleStartGenerate = async () => {
 
   const defaultOutline = `第${targetChapterNumber}章：承接前情，推进主线`
 
+  // 重新生成模式：先快照当前内容；快照失败时弹确认（422 无正文仅提示后继续）
+  if (isRegenerationMode.value) {
+    savingDraftBeforeRegen.value = true
+    try {
+      await saveChapterDraft(props.slug, targetChapterNumber, 'pre_regen')
+    } catch (e: unknown) {
+      const status = httpStatusFromError(e)
+      const detail = httpDetailFromError(e)
+      if (status === 422 || detail.includes('内容为空')) {
+        message.warning('当前无正文可快照，将直接继续生成')
+      } else {
+        const proceed = await new Promise<boolean>((resolve) => {
+          dialog.warning({
+            title: '未能保存历史草稿',
+            content: `无法将当前版本快照到历史（${detail}）。若继续重新生成，原内容可能无法从草稿恢复。是否仍要继续？`,
+            positiveText: '继续生成',
+            negativeText: '取消',
+            maskClosable: false,
+            onPositiveClick: () => {
+              resolve(true)
+            },
+            onNegativeClick: () => {
+              resolve(false)
+            },
+            onClose: () => {
+              resolve(false)
+            },
+          })
+        })
+        if (!proceed) {
+          generateInProgress.value = false
+          generatingChapterId.value = null
+          generateAbortCtrl.value = null
+          streamPhaseLabel.value = ''
+          streamProgressPct.value = 0
+          return
+        }
+      }
+    } finally {
+      savingDraftBeforeRegen.value = false
+    }
+  }
+
   try {
     await consumeGenerateChapterStream(
       props.slug,
@@ -960,6 +1434,9 @@ const handleStartGenerate = async () => {
         chapter_number: targetChapterNumber,
         outline: generateOutline.value || defaultOutline,
         scene_director_result: sceneDirectorResult,
+        regeneration_guidance: isRegenerationMode.value && regenerationGuidance.value.trim()
+          ? regenerationGuidance.value.trim()
+          : undefined,
       },
       {
         signal: ctrl.signal,
@@ -980,11 +1457,11 @@ const handleStartGenerate = async () => {
           streamProgressPct.value = 100
           streamPhaseLabel.value = '已完成'
           if (props.currentChapterId === targetChapterId) {
-            message.success('生成完成，质检已同步到「章节状态」')
+            message.success('生成完成，质检已同步到本章侧栏')
           } else {
-            message.success(`第 ${targetChapterNumber} 章生成完成，质检在对应章的「章节状态」查看`)
+            message.success(`第 ${targetChapterNumber} 章生成完成，请在对应章侧栏查看质检`)
           }
-          activeTab.value = 'chapter-status'
+          desk.nudgeRailAfterGeneration()
         },
         onError: (err) => {
           if (!ctrl.signal.aborted) {
@@ -1026,6 +1503,7 @@ const handleSaveGenerated = async () => {
     message.success(`已保存到第 ${saveTarget.number} 章`)
     emit('chapterUpdated')
     showGenerateModal.value = false
+    window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)
   } catch {
     message.error('保存失败')
   } finally {
@@ -1084,9 +1562,102 @@ defineExpose({ ensureAssistedMode })
   margin: 0 16px 8px;
 }
 
-.assisted-tabs {
+.assisted-stack {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chapter-desk-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.desk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rail-column {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.rail-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
+}
+
+.rail-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.rail-scroll-pad {
+  padding: 10px 10px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rail-icon-btn {
+  max-width: 100%;
+}
+
+.primary-desk-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.primary-desk-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px 12px;
+}
+
+.primary-desk-tabs :deep(.n-tabs-nav) {
+  padding: 0 8px;
+  flex-shrink: 0;
+}
+
+.primary-desk-tabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.primary-desk-tabs :deep(.n-tab-pane) {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.primary-tab-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .managed-stack {
@@ -1135,7 +1706,7 @@ defineExpose({ ensureAssistedMode })
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--aitext-split-border);
+  border-bottom: 1px solid var(--plotpilot-split-border);
 }
 
 .work-title-wrap {
@@ -1161,32 +1732,7 @@ defineExpose({ ensureAssistedMode })
     var(--app-surface) 0%,
     color-mix(in srgb, var(--color-success, #22c55e) 3%, var(--app-surface)) 100%
   );
-  border-bottom: 1px solid var(--aitext-split-border);
-}
-
-.work-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.work-tabs :deep(.n-tabs-nav) {
-  padding: 0 20px;
-  background: var(--app-surface);
-}
-
-.work-tabs :deep(.n-tabs-pane-wrapper) {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.work-tabs :deep(.n-tab-pane) {
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  border-bottom: 1px solid var(--plotpilot-split-border);
 }
 
 .monitor-container {
@@ -1325,5 +1871,115 @@ defineExpose({ ensureAssistedMode })
 .editor-footer {
   padding-top: 12px;
   border-top: 1px solid var(--border-color);
+}
+
+/* 🔥 流式编辑框：编辑框本身就是流式显示 */
+.editor-input-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-input-wrapper.is-streaming :deep(.n-input) {
+  border-color: rgba(24, 160, 88, 0.3);
+  box-shadow: 0 0 0 1px rgba(24, 160, 88, 0.1);
+}
+
+.editor-input-wrapper.is-streaming :deep(.n-input__textarea-el) {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.streaming-cursor-overlay {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(24, 160, 88, 0.08);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.streaming-cursor {
+  color: #18a058;
+  animation: cursor-blink-anim 1s step-end infinite;
+  font-size: 14px;
+}
+
+.streaming-badge {
+  font-size: 11px;
+  color: #18a058;
+  font-weight: 500;
+}
+
+@keyframes cursor-blink-anim {
+  50% { opacity: 0; }
+}
+
+/* 🔥 流式字数动画 */
+.streaming-word-count {
+  color: #18a058;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.streaming-indicator {
+  color: #18a058;
+  font-size: 12px;
+  margin-left: 4px;
+  animation: cursor-blink-anim 1s step-end infinite;
+}
+
+.editor-wordcount-line {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wordcount-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 2px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--n-text-color-3);
+  border: 1px solid var(--n-border-color);
+  cursor: help;
+  line-height: 1;
+}
+
+/* 🔥 当前幕信息 */
+.act-info-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.act-info-title {
+  font-size: 12px;
+  color: var(--n-text-color-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.act-info-desc {
+  font-size: 11px;
+  color: var(--n-text-color-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

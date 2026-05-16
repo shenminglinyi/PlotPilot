@@ -1,0 +1,30 @@
+name: Anti-AI 中段刷新协议
+category: anti-ai
+source: application/engine/rules/mid_generation_refresh.py
+description: Layer 5+6 生成中段动态干预：当检测到AI味飙升时，注入刷新指令将叙事拉回正轨。
+builtin: true
+tags:
+- Anti-AI
+- 中段刷新
+- Layer5
+- Layer6
+output_format: text
+variables:
+- name: detected_issue
+  desc: 检测到的AI味问题
+  type: string
+  required: true
+- name: refresh_directive
+  desc: 修正指令
+  type: string
+  required: true
+- name: forbidden_pattern
+  desc: 被禁止的模式
+  type: string
+  required: true
+- name: replacement_pattern
+  desc: 替换模式
+  type: string
+  required: true
+id: anti-ai-mid-generation-refresh
+sort_order: 38

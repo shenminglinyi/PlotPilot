@@ -106,6 +106,7 @@ const props = defineProps<{
   novelId: string
   safeThreshold?: number  // 安全阈值，默认 3.0
   dangerThreshold?: number  // 危险阈值，默认 6.0
+  refreshKey?: number  // 🔥 刷新信号，变化时重新拉数据
 }>()
 
 const emit = defineEmits<{
@@ -258,6 +259,11 @@ function stopPolling() {
 watch(() => props.novelId, () => {
   stopPolling()
   startPolling()
+})
+
+// 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动）
+watch(() => props.refreshKey, (newKey) => {
+  if (newKey && newKey > 0) void loadDriftData()
 })
 
 // 生命周期

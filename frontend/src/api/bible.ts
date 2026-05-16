@@ -1,7 +1,7 @@
 import type { AxiosRequestConfig } from 'axios'
 
 import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
-import { apiClient } from './config'
+import { apiClient, resolveHttpUrl } from './config'
 
 /** Bible 人物关系：字符串 或 LLM 结构化对象 */
 export type BibleRelationshipEntry =
@@ -13,11 +13,22 @@ export interface CharacterDTO {
   name: string
   description: string
   relationships: BibleRelationshipEntry[]
-  /** AI 生成时的角色定位（主角/配角等） */
+  /** AI 生成时的角色定位（主角/配角等）— 后端不持久化此字段，仅从 description 解析 */
   role?: string
   mental_state?: string
   verbal_tic?: string
   idle_behavior?: string
+  mental_state_reason?: string
+  core_belief?: string
+  moral_taboos?: string[]
+  voice_profile?: Record<string, unknown>
+  active_wounds?: Array<Record<string, string>>
+  /** POV 防火墙：公开人设 */
+  public_profile?: string
+  /** POV 防火墙：隐藏身份 */
+  hidden_profile?: string
+  /** 揭示隐藏身份的章节号 */
+  reveal_chapter?: number | null
 }
 
 export interface WorldSettingDTO {
@@ -159,4 +170,198 @@ export const bibleApi = {
       stage: string | null
       at: string | null
     }>,
+}
+
+// ---------------------------------------------------------------------------
+// SSE 流式 Bible 生成
+// ---------------------------------------------------------------------------
+
+/** 世界观某个维度的数据 */
+export interface WorldbuildingDimensionData {
+  dimension: string    // core_rules / geography / society / culture / daily_life
+  label: string        // 核心法则 / 地理生态 / 社会结构 / 历史文化 / 沉浸感细节
+  content: Record<string, string>
+}
+
+/** SSE 事件类型 */
+export type BibleStreamPhaseEvent = {
+  type: 'phase'
+  phase: string    // init / worldbuilding / characters / locations / knowledge / *_done
+  message: string
+}
+
+export type BibleStreamDataEvent = {
+  type: 'data'
+  data_type: 'style' | 'worldbuilding_dimension' | 'character' | 'location'
+  /** style → string; worldbuilding_dimension → WorldbuildingDimensionData; character/location → 对象 */
+  content: unknown
+  /** worldbuilding_dimension 专属 */
+  dimension?: string
+  label?: string
+  /** character / location 专属 */
+  index?: number
+}
+
+export type BibleStreamDoneEvent = {
+  type: 'done'
+  message: string
+  novel_id: string
+}
+
+export type BibleStreamErrorEvent = {
+  type: 'error'
+  message: string
+}
+
+export type BibleStreamEvent =
+  | BibleStreamPhaseEvent
+  | BibleStreamDataEvent
+  | BibleStreamDoneEvent
+  | BibleStreamErrorEvent
+
+/**
+ * POST /api/v1/bible/novels/{novelId}/generate-stream（SSE）
+ * 流式 Bible 生成：逐步推送每个维度的数据，前端可实时渲染。
+ */
+export async function consumeBibleGenerateStream(
+  novelId: string,
+  stage: string,
+  handlers: {
+    onPhase?: (phase: string, message: string) => void
+    onStyle?: (content: string) => void
+    onWorldbuildingDimension?: (data: WorldbuildingDimensionData) => void
+    /** 字段级流式回调：每个世界观字段到达时触发 */
+    onWorldbuildingField?: (dimension: string, field: string, value: string) => void
+    /** 字段级 chunk 回调：LLM 逐 token 输出时触发（真正的流式渲染） */
+    onWorldbuildingFieldChunk?: (dimension: string, field: string, chunk: string) => void
+    /** 字段级完成回调：该字段 LLM 流式输出结束 */
+    onWorldbuildingFieldDone?: (dimension: string, field: string, value: string) => void
+    /** 维度级 chunk 回调：LLM 逐 token 输出维度 JSON 时触发 */
+    onWorldbuildingDimChunk?: (dimension: string, chunk: string) => void
+    onCharacter?: (char: Record<string, unknown>, index: number) => void
+    /** 人物生成时 LLM 逐 token chunk（打字效果/进度） */
+    onCharacterChunk?: (chunk: string) => void
+    onLocation?: (loc: Record<string, unknown>, index: number) => void
+    /** 地点生成时 LLM 逐 token chunk（打字效果/进度） */
+    onLocationChunk?: (chunk: string) => void
+    onDone?: (novelId: string) => void
+    onError?: (message: string) => void
+    signal?: AbortSignal
+  }
+): Promise<void> {
+  const url = resolveHttpUrl(`/api/v1/bible/novels/${novelId}/generate-stream?stage=${stage}`)
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: handlers.signal,
+  })
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => '')
+    handlers.onError?.(t || `HTTP ${res.status}`)
+    return
+  }
+
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+
+  /** 解析 SSE 块中的 event + data 行 */
+  function parseSseBlock(block: string): { event: string; data: string } | null {
+    let event = ''
+    let data = ''
+    for (const line of block.split('\n')) {
+      if (line.startsWith('event: ')) {
+        event = line.slice(7).trim()
+      } else if (line.startsWith('data: ')) {
+        data = line.slice(6)
+      }
+    }
+    if (!event && !data) return null
+    return { event, data }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, { stream: true })
+
+      let sep: number
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, sep)
+        buf = buf.slice(sep + 2)
+
+        const parsed = parseSseBlock(block)
+        if (!parsed) continue
+
+        const { event, data: dataStr } = parsed
+        let payload: Record<string, unknown> | null = null
+        try {
+          payload = JSON.parse(dataStr) as Record<string, unknown>
+        } catch {
+          continue
+        }
+
+        if (event === 'phase') {
+          handlers.onPhase?.(String(payload?.phase ?? ''), String(payload?.message ?? ''))
+        } else if (event === 'data') {
+          const dataType = String(payload?.type ?? '')
+          if (dataType === 'style') {
+            handlers.onStyle?.(String(payload?.content ?? ''))
+          } else if (dataType === 'worldbuilding_field_chunk') {
+            // 逐 token 流式 chunk：追加到字段内容
+            handlers.onWorldbuildingFieldChunk?.(
+              String(payload?.dimension ?? ''),
+              String(payload?.field ?? ''),
+              String(payload?.chunk ?? ''),
+            )
+          } else if (dataType === 'worldbuilding_field_done') {
+            // 字段流式输出完成
+            handlers.onWorldbuildingFieldDone?.(
+              String(payload?.dimension ?? ''),
+              String(payload?.field ?? ''),
+              String(payload?.value ?? ''),
+            )
+          } else if (dataType === 'worldbuilding_dim_chunk') {
+            // 维度级流式 chunk：LLM 逐 token 输出维度 JSON
+            handlers.onWorldbuildingDimChunk?.(
+              String(payload?.dimension ?? ''),
+              String(payload?.chunk ?? ''),
+            )
+          } else if (dataType === 'worldbuilding_field') {
+            // 字段级流式推送：每个字段单独到达
+            handlers.onWorldbuildingField?.(
+              String(payload?.dimension ?? ''),
+              String(payload?.field ?? ''),
+              String(payload?.value ?? ''),
+            )
+          } else if (dataType === 'worldbuilding_dimension') {
+            handlers.onWorldbuildingDimension?.({
+              dimension: String(payload?.dimension ?? ''),
+              label: String(payload?.label ?? ''),
+              content: (payload?.content ?? {}) as Record<string, string>,
+            })
+          } else if (dataType === 'character') {
+            handlers.onCharacter?.((payload?.content ?? {}) as Record<string, unknown>, Number(payload?.index ?? 0))
+          } else if (dataType === 'character_chunk') {
+            handlers.onCharacterChunk?.(String(payload?.chunk ?? ''))
+          } else if (dataType === 'location') {
+            handlers.onLocation?.((payload?.content ?? {}) as Record<string, unknown>, Number(payload?.index ?? 0))
+          } else if (dataType === 'location_chunk') {
+            handlers.onLocationChunk?.(String(payload?.chunk ?? ''))
+          }
+        } else if (event === 'done') {
+          handlers.onDone?.(String(payload?.novel_id ?? novelId))
+          return
+        } else if (event === 'error') {
+          handlers.onError?.(String(payload?.message ?? '生成失败'))
+          return
+        }
+      }
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') return
+    handlers.onError?.(e instanceof Error ? e.message : '流式连接失败')
+  }
 }

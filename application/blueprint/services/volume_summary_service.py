@@ -29,6 +29,44 @@ from domain.structure.story_node import NodeType
 
 logger = logging.getLogger(__name__)
 
+# CPMS: 提示词节点 key
+_VOLUME_SUMMARY_NODE_KEYS = {
+    "act": "volume-summary-act",
+    "volume": "volume-summary-volume",
+    "part": "volume-summary-part",
+    "checkpoint": "volume-summary-checkpoint",
+}
+
+# 硬编码回退（仅在 PromptRegistry 不可用时使用）
+_FALLBACK_VOLUME_SUMMARY_SYSTEMS = {
+    "act": "你是一位专业的小说编辑，擅长提炼故事精华。你的任务是为一幕（Act）生成简洁的摘要。\n摘要应包含：\n1. 核心事件（2-3句话）\n2. 情绪曲线（从什么状态到什么状态）\n3. 关键转折点\n\n输出格式：直接输出摘要文本，约 150-200 字。",
+    "volume": "你是一位专业的小说编辑，擅长提炼长篇故事的精华。你的任务是将多个幕摘要压缩为一卷的摘要。\n摘要应包含：\n1. 卷主线进展（3-4句话）\n2. 主角状态变化\n3. 关键冲突与转折\n4. 未解决的悬念\n\n输出格式：直接输出摘要文本，约 300-500 字。",
+    "part": '你是一位资深小说主编，擅长把握长篇小说的宏观脉络。你的任务是将多卷摘要压缩为"部"级别的摘要。\n摘要应包含：\n1. 整体结构定位（这一部在整个故事中的作用）\n2. 主角弧光演变\n3. 核心冲突升级脉络\n\n输出格式：直接输出摘要文本，约 200-300 字。',
+    "checkpoint": "你是一位专业的小说编辑。你的任务是为最近的章节生成一个检查点摘要。\n摘要应聚焦于：\n1. 当前的故事进度\n2. 主角的状态和目标\n3. 未解决的悬念\n\n输出格式：直接输出摘要文本，约 150-200 字。",
+}
+
+
+def _get_volume_summary_system(summary_type: str) -> str:
+    """获取卷摘要的 system prompt。
+
+    CPMS: 优先从 PromptRegistry 获取（广场可编辑），
+    如果 Registry 不可用则回退到硬编码默认值。
+    """
+    node_key = _VOLUME_SUMMARY_NODE_KEYS.get(summary_type, "")
+    fallback = _FALLBACK_VOLUME_SUMMARY_SYSTEMS.get(summary_type, "")
+
+    if node_key:
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            system = registry.get_system(node_key)
+            if system:
+                return system
+        except Exception as exc:
+            logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
+
+    return fallback
+
 
 @dataclass
 class SummaryResult:
@@ -421,13 +459,7 @@ class VolumeSummaryService:
         if foreshadowing_info.get("resolved"):
             foreshadowing_text += f"\n回收伏笔: {', '.join(foreshadowing_info['resolved'][:5])}"
         
-        system = """你是一位专业的小说编辑，擅长提炼故事精华。你的任务是为一幕（Act）生成简洁的摘要。
-摘要应包含：
-1. 核心事件（2-3句话）
-2. 情绪曲线（从什么状态到什么状态）
-3. 关键转折点
-
-输出格式：直接输出摘要文本，约 150-200 字。"""
+        system = _get_volume_summary_system("act")
         
         user = f"""幕标题：{act_node.title}
 幕描述：{act_node.description or '无'}
@@ -451,14 +483,7 @@ class VolumeSummaryService:
             for act in act_summaries
         ])
         
-        system = """你是一位专业的小说编辑，擅长提炼长篇故事的精华。你的任务是将多个幕摘要压缩为一卷的摘要。
-摘要应包含：
-1. 卷主线进展（3-4句话）
-2. 主角状态变化
-3. 关键冲突与转折
-4. 未解决的悬念
-
-输出格式：直接输出摘要文本，约 300-500 字。"""
+        system = _get_volume_summary_system("volume")
         
         user = f"""卷标题：{volume_node.title}
 卷描述：{volume_node.description or '无'}
@@ -481,13 +506,7 @@ class VolumeSummaryService:
             for vol in volume_summaries
         ])
         
-        system = """你是一位资深小说主编，擅长把握长篇小说的宏观脉络。你的任务是将多卷摘要压缩为"部"级别的摘要。
-摘要应包含：
-1. 整体结构定位（这一部在整个故事中的作用）
-2. 主角弧光演变
-3. 核心冲突升级脉络
-
-输出格式：直接输出摘要文本，约 200-300 字。"""
+        system = _get_volume_summary_system("part")
         
         user = f"""部标题：{part_node.title}
 部描述：{part_node.description or '无'}
@@ -510,13 +529,7 @@ class VolumeSummaryService:
             for ch in chapter_info
         ])
         
-        system = """你是一位专业的小说编辑。你的任务是为最近的章节生成一个检查点摘要。
-摘要应聚焦于：
-1. 当前的故事进度
-2. 主角的状态和目标
-3. 未解决的悬念
-
-输出格式：直接输出摘要文本，约 150-200 字。"""
+        system = _get_volume_summary_system("checkpoint")
         
         user = f"""当前进度：第 {current_chapter} 章
 

@@ -44,8 +44,19 @@ class OpenAIProvider(BaseProvider):
         if settings.base_url:
             client_kwargs["base_url"] = settings.base_url
 
+        # 🔥 关键修复：分层超时配置
+        # - connect_timeout: TCP 连接建立超时（30s，快速发现网络不可达）
+        # - read_timeout: 等待服务端响应超时（120s，两个 SSE chunk 之间的间隔）
+        # - write_timeout: 发送请求超时（60s）
+        # - pool_timeout: 从连接池获取连接超时（30s）
+        # 之前 httpx.Timeout(300) 是统一 300s，导致 deepseek API 卡住时整个进程挂起 1 小时
         self._http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(settings.timeout_seconds),
+            timeout=httpx.Timeout(
+                connect=settings.connect_timeout,
+                read=settings.read_timeout,
+                write=60.0,
+                pool=30.0,
+            ),
             trust_env=False,
         )
         client_kwargs["http_client"] = self._http_client
@@ -82,11 +93,32 @@ class OpenAIProvider(BaseProvider):
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e
 
     async def _generate_via_chat(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
-        """Chat Completions API 非流式生成"""
+        """Chat Completions API 非流式生成
+
+        🔥 自适应容错策略：
+        1. 如果指定了 json_schema response_format 但网关返回 400，自动降级到 json_object
+        2. 如果内容为空，降级到流式聚合（部分网关非流式返回空但流式正常）
+        """
         messages = self._build_messages(prompt)
         request_kwargs = self._build_chat_request_kwargs(messages, config)
 
-        response = await self.async_client.chat.completions.create(**request_kwargs)
+        try:
+            response = await self.async_client.chat.completions.create(**request_kwargs)
+        except (openai.BadRequestError, openai.NotFoundError) as e:
+            # 🔥 json_schema 不支持时自动降级
+            if config.response_format and config.response_format.get("type") == "json_schema":
+                base_url = (self.settings.base_url or "").rstrip("/")
+                logger.info(
+                    "json_schema 不支持，自动降级到 json_object: %s (错误: %s)",
+                    base_url, str(e)[:100]
+                )
+                self.__class__._json_schema_unsupported_cache.add(base_url)
+                # 重试：降级到 json_object
+                request_kwargs["response_format"] = {"type": "json_object"}
+                response = await self.async_client.chat.completions.create(**request_kwargs)
+            else:
+                raise
+
         content = self._extract_text_from_response(response)
 
         if not content:
@@ -153,6 +185,9 @@ class OpenAIProvider(BaseProvider):
             {"role": "user", "content": prompt.user}
         ]
 
+    # 🔥 记录已知不支持 json_schema 的 base_url（避免每次重试）
+    _json_schema_unsupported_cache: set[str] = set()
+
     def _build_chat_request_kwargs(
         self,
         messages: list[dict[str, str]],
@@ -175,6 +210,25 @@ class OpenAIProvider(BaseProvider):
             "extra_body": self.settings.extra_body or None,
             "timeout": self.settings.timeout_seconds,
         }
+
+        # 🔥 response_format 自适应降级策略
+        # 不同网关对 response_format 的支持程度不同：
+        #   OpenAI 官方: json_schema ✅ | json_object ✅
+        #   DeepSeek:     json_schema ❌ | json_object ✅
+        #   Qwen/DashScope: json_schema ❌ | json_object ✅ (部分)
+        #   豆包/Ark:     json_schema ❌ | json_object ✅ (部分)
+        #   智谱/GLM:     json_schema ❌ | json_object ✅
+        if config.response_format:
+            fmt = config.response_format
+            base_url = (self.settings.base_url or "").rstrip("/")
+
+            if fmt.get("type") == "json_schema" and base_url in self.__class__._json_schema_unsupported_cache:
+                # 已知不支持 json_schema，自动降级到 json_object
+                logger.debug("json_schema 已知不支持，降级到 json_object: %s", base_url)
+                kwargs["response_format"] = {"type": "json_object"}
+            else:
+                kwargs["response_format"] = fmt
+
         if stream:
             kwargs["stream"] = True
         return kwargs
@@ -253,7 +307,15 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _normalize_chat_completion_content(content: Any) -> str:
-        """兼容 message.content 为 str 或多段 content part 列表（OpenAI 新协议与多数聚合网关）。"""
+        """兼容 message.content 为 str 或多段 content part 列表。
+
+        🔥 自适应兼容多种网关的响应格式：
+        1. 标准 OpenAI: content 是 str
+        2. OpenAI 新协议: content 是 list[{type, text}]
+        3. DeepSeek-R1: content 是 str，但 message.reasoning_content 单独存在
+        4. 部分网关: content 是 list，包含 thinking/reasoning 类型 part
+        5. 极端情况: content 是 None（空回复）
+        """
         if content is None:
             return ""
         if isinstance(content, str):
@@ -264,7 +326,10 @@ class OpenAIProvider(BaseProvider):
             for item in content:
                 if isinstance(item, dict):
                     item_type = (item.get("type") or "").lower()
-                    if item_type in ("reasoning", "thinking", "refusal"):
+                    # 🔥 跳过推理/思考/拒绝类型的 content part
+                    # DeepSeek-R1: reasoning_content 在 message 级别，不在 content part 中
+                    # 但部分网关会把 thinking 放在 content part 里
+                    if item_type in ("reasoning", "thinking", "refusal", "thought"):
                         continue
                     text_val = item.get("text")
                     if isinstance(text_val, str) and text_val.strip():
@@ -284,7 +349,33 @@ class OpenAIProvider(BaseProvider):
 
         message = getattr(response.choices[0], "message", None)
         content = getattr(message, "content", None)
-        return OpenAIProvider._normalize_chat_completion_content(content)
+        result = OpenAIProvider._normalize_chat_completion_content(content)
+
+        # 🔥 DeepSeek-R1 等模型：正文在 message.content，思考在 message.reasoning_content
+        # reasoning_content 不需要返回给调用方（已经由 llm_output_sanitize 处理）
+        # 但如果 content 为空且 reasoning_content 不为空，说明模型只输出了思考没有正文
+        if not result.strip():
+            reasoning = getattr(message, "reasoning_content", None)
+            if reasoning and isinstance(reasoning, str) and reasoning.strip():
+                logger.debug("message.content 为空但有 reasoning_content，模型可能只输出了推理")
+
+        return result
+
+    @staticmethod
+    def _extract_text_from_stream_chunk(chunk: Any) -> str:
+        if not getattr(chunk, "choices", None):
+            # 🔥 容错：部分网关返回的流式 chunk 没有 choices 字段
+            # 例如 DeepSeek-R1 的 reasoning_content 字段在顶层
+            return ""
+
+        choice = chunk.choices[0]
+        delta = getattr(choice, "delta", None)
+        content = getattr(delta, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return OpenAIProvider._normalize_chat_completion_content(content)
+        return ""
 
     @staticmethod
     def _extract_text_from_stream_chunk(chunk: Any) -> str:

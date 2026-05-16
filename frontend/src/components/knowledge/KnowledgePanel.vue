@@ -10,15 +10,6 @@
       </div>
       <n-space v-show="sideTab === 'narrative'" :size="8" align="center" style="flex-shrink:0">
         <n-button
-          size="small"
-          secondary
-          :loading="generating"
-          @click="generateKnowledge"
-          title="用 AI 根据 Bible 生成叙事知识（梗概锁定请在作品设定中编辑）"
-        >
-          ✦ AI 生成叙事
-        </n-button>
-        <n-button
           type="primary"
           size="small"
           :loading="saving"
@@ -26,6 +17,15 @@
           @click="save"
         >
           保存到全书上下文
+        </n-button>
+        <n-button
+          size="small"
+          quaternary
+          :loading="generating"
+          @click="generateKnowledge"
+          title="按需调用大模型；默认以 Bible / 章后管线为准，控成本请少用"
+        >
+          按需 AI 生成叙事
         </n-button>
       </n-space>
     </header>
@@ -210,6 +210,7 @@
         class="kp-subtabs"
       >
         <n-tab-pane name="chapters" tab="分章叙事">
+        <div class="kp-tab-scroll">
         <section class="kp-section">
         <div class="kp-section-head">
           <span class="kp-section-icon">◇</span>
@@ -310,9 +311,11 @@
 
         <n-button dashed block class="kp-add-ch" @click="addChapter">+ 添加一章叙事块</n-button>
         </section>
+        </div>
       </n-tab-pane>
 
       <n-tab-pane name="entity-state" tab="实体状态">
+        <div class="kp-tab-scroll">
         <section class="kp-section">
           <div class="kp-section-head">
             <span class="kp-section-icon">◈</span>
@@ -360,6 +363,7 @@
             </n-space>
           </n-card>
         </section>
+        </div>
       </n-tab-pane>
     </n-tabs>
     </div>
@@ -589,7 +593,7 @@ const useHitToComposer = () => {
   if (!h) return
   const t = String(h.text || '').trim()
   if (!t) return
-  window.dispatchEvent(new CustomEvent('aitext:composer:insert', { detail: { text: t } }))
+  window.dispatchEvent(new CustomEvent('plotpilot:composer:insert', { detail: { text: t } }))
   message.success('已引用到输入框')
 }
 
@@ -715,7 +719,7 @@ const goCastChapter = (cid: number) => {
 const reloadKnowledge = () => {
   knowledgeLoading.value = true
   // 触发子组件重新加载
-  window.dispatchEvent(new CustomEvent('aitext:knowledge:reload'))
+  window.dispatchEvent(new CustomEvent('plotpilot:knowledge:reload'))
   setTimeout(() => {
     knowledgeLoading.value = false
   }, 500)
@@ -745,11 +749,11 @@ function onKnowledgeReloadFromOutside() {
 
 onMounted(() => {
   void load()
-  window.addEventListener('aitext:knowledge:reload', onKnowledgeReloadFromOutside)
+  window.addEventListener('plotpilot:knowledge:reload', onKnowledgeReloadFromOutside)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('aitext:knowledge:reload', onKnowledgeReloadFromOutside)
+  window.removeEventListener('plotpilot:knowledge:reload', onKnowledgeReloadFromOutside)
 })
 </script>
 
@@ -836,14 +840,49 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   margin-top: 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .kp-subtabs :deep(.n-tabs-nav) {
   padding: 0 2px 6px;
+  flex-shrink: 0;
+}
+
+.kp-subtabs :deep(.n-tabs-pane-wrapper) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .kp-subtabs :deep(.n-tab-pane) {
   padding-top: 6px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.kp-tab-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.kp-tab-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.kp-tab-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.kp-tab-scroll::-webkit-scrollbar-thumb {
+  background: var(--app-border);
+  border-radius: 2px;
 }
 
 .kp-section {

@@ -134,6 +134,15 @@
           </span>
           <span>刷新列表</span>
         </button>
+        <button class="action-btn action-theme" type="button" @click="$emit('open-settings')">
+          <span class="action-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 3a1 1 0 0 1 1 1v1.06a7.99 7.99 0 0 1 4.11 2.17l.75-.75a1 1 0 0 1 1.41 0l.71.71a1 1 0 0 1 0 1.41l-.75.75A7.99 7.99 0 0 1 20.94 11H22a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-1.06a7.99 7.99 0 0 1-1.71 4.41l.75.75a1 1 0 0 1 0 1.41l-.71.71a1 1 0 0 1-1.41 0l-.75-.75a7.99 7.99 0 0 1-4.41 1.71V22a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1v-1.06a7.99 7.99 0 0 1-4.41-1.71l-.75.75a1 1 0 0 1-1.41 0l-.71-.71a1 1 0 0 1 0-1.41l.75-.75A7.99 7.99 0 0 1 3.06 14H2a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1h1.06a7.99 7.99 0 0 1 1.71-4.41l-.75-.75a1 1 0 0 1 0-1.41l.71-.71a1 1 0 0 1 1.41 0l.75.75A7.99 7.99 0 0 1 11 5.06V4a1 1 0 0 1 1-1h1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+              <circle cx="12" cy="13" r="3.2" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </span>
+          <span>主题设置</span>
+        </button>
         <GlobalLLMEntryButton appearance="sidebar" />
         <PromptPlazaEntryButton appearance="sidebar" />
       </div>
@@ -176,6 +185,7 @@ import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.v
 const emit = defineEmits<{
   (e: 'create-book'): void
   (e: 'refresh-list'): void
+  (e: 'open-settings'): void
   (e: 'collapsed-change', collapsed: boolean): void
 }>()
 
@@ -613,6 +623,15 @@ const updateTimeText = computed(() => formatTime(lastUpdateTime.value))
 .action-btn.action-refresh {
   background: linear-gradient(135deg, var(--color-brand-hover, #6366f1) 0%, var(--color-brand, #4f46e5) 55%, var(--color-brand-pressed, #4338ca) 100%);
   border-color: color-mix(in srgb, var(--color-brand, #4f46e5) 52%, transparent);
+}
+
+.action-btn.action-theme {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--app-text-muted, #64748b) 28%, var(--color-brand-hover, #6366f1)) 0%,
+    color-mix(in srgb, var(--app-text-secondary, #475569) 18%, var(--color-brand, #4f46e5)) 100%
+  );
+  border-color: color-mix(in srgb, var(--color-brand, #4f46e5) 38%, transparent);
 }
 
 .action-btn:hover {

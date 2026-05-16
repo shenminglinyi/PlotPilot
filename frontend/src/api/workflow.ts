@@ -1,6 +1,5 @@
 /**
- * 子项目 8：工作流 / 长任务 / 一致性 / 故事线
- * 后端路由实现见 `docs/superpowers/plans/2026-04-02-subproject-8-frontend-extensions.md`
+ * 工作流 / 长任务 / 一致性 / 故事线
  */
 import { WIZARD_STEP_TIMEOUT_MS } from '@/constants/wizard'
 import { apiClient, resolveHttpUrl } from './config'
@@ -31,7 +30,8 @@ export interface StorylineGraphDataDTO {
 
 export interface StorylineDTO {
   id: string
-  storyline_type: string
+  storyline_type: string       // kept for backward compat
+  role?: 'main' | 'sub' | 'dark'
   status: string
   estimated_chapter_start: number
   estimated_chapter_end: number
@@ -41,6 +41,42 @@ export interface StorylineDTO {
   current_milestone_index?: number
   last_active_chapter?: number
   progress_summary?: string
+  parent_id?: string | null
+  chapter_weight?: number
+}
+
+export type ConfluenceMergeType = 'intersect' | 'absorb' | 'reveal'
+
+export interface ConfluencePointDTO {
+  id: string
+  novel_id: string
+  source_storyline_id: string
+  target_storyline_id: string
+  target_chapter: number
+  merge_type: ConfluenceMergeType
+  context_summary: string
+  pre_reveal_hint: string
+  behavior_guards: string[]
+  resolved: boolean
+}
+
+export interface ConfluencePointCreate {
+  source_storyline_id: string
+  target_storyline_id: string
+  target_chapter: number
+  merge_type: ConfluenceMergeType
+  context_summary?: string
+  pre_reveal_hint?: string
+  behavior_guards?: string[]
+}
+
+export interface ConfluencePointUpdate {
+  target_chapter?: number
+  merge_type?: ConfluenceMergeType
+  context_summary?: string
+  pre_reveal_hint?: string
+  behavior_guards?: string[]
+  resolved?: boolean
 }
 
 export interface MainPlotOptionDTO {
@@ -69,6 +105,48 @@ export interface GenerateChapterWithContextPayload {
   chapter_number: number
   outline: string
   scene_director_result?: Record<string, unknown>
+  /** 重新生成时的改进方向（可选）；填写后 AI 会在 prompt 中看到改进要求 */
+  regeneration_guidance?: string
+}
+
+export interface ChapterDraftDTO {
+  id: string
+  novel_id: string
+  chapter_id: string
+  chapter_number: number
+  content: string
+  outline: string
+  source: 'pre_regen' | 'manual_save' | 'auto_gen' | string
+  word_count: number
+  created_at: string
+}
+
+/**
+ * POST /api/v1/novels/{novel_id}/chapters/{chapter_number}/drafts
+ * 快照当前章节内容为历史草稿（重新生成前调用）。
+ */
+export async function saveChapterDraft(
+  novelId: string,
+  chapterNumber: number,
+  source: 'pre_regen' | 'manual_save' = 'pre_regen',
+): Promise<ChapterDraftDTO> {
+  return apiClient.post<ChapterDraftDTO>(
+    `/novels/${novelId}/chapters/${chapterNumber}/drafts`,
+    { source },
+  ) as unknown as Promise<ChapterDraftDTO>
+}
+
+/**
+ * GET /api/v1/novels/{novel_id}/chapters/{chapter_number}/drafts
+ * 获取章节历史草稿列表（最新在前）。
+ */
+export async function listChapterDrafts(
+  novelId: string,
+  chapterNumber: number,
+): Promise<ChapterDraftDTO[]> {
+  return apiClient.get<ChapterDraftDTO[]>(
+    `/novels/${novelId}/chapters/${chapterNumber}/drafts`,
+  ) as unknown as Promise<ChapterDraftDTO[]>
 }
 
 export interface SceneDirectorAnalysis {
@@ -328,6 +406,8 @@ export const workflowApi = {
     novelId: string,
     data: {
       storyline_type: string
+      role?: 'main' | 'sub' | 'dark'
+      parent_id?: string
       estimated_chapter_start: number
       estimated_chapter_end: number
       name?: string
@@ -431,4 +511,19 @@ export async function retrieveContext(
       scene_director_result: sceneDirectorResult,
     }
   ) as unknown as Promise<ContextPreviewResult>
+}
+
+export const confluenceApi = {
+  list(slug: string): Promise<ConfluencePointDTO[]> {
+    return apiClient.get<ConfluencePointDTO[]>(`/novels/${slug}/confluence-points`) as unknown as Promise<ConfluencePointDTO[]>
+  },
+  create(slug: string, body: ConfluencePointCreate): Promise<ConfluencePointDTO> {
+    return apiClient.post<ConfluencePointDTO>(`/novels/${slug}/confluence-points`, body) as unknown as Promise<ConfluencePointDTO>
+  },
+  update(slug: string, id: string, body: ConfluencePointUpdate): Promise<ConfluencePointDTO> {
+    return apiClient.patch<ConfluencePointDTO>(`/novels/${slug}/confluence-points/${id}`, body) as unknown as Promise<ConfluencePointDTO>
+  },
+  delete(slug: string, id: string): Promise<void> {
+    return apiClient.delete<void>(`/novels/${slug}/confluence-points/${id}`) as unknown as Promise<void>
+  },
 }

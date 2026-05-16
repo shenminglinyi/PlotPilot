@@ -26,11 +26,14 @@ def setup_test_env(monkeypatch, tmp_path):
         shutil.rmtree(test_output)
 
 
-def test_root_endpoint():
-    """测试根路径"""
+def test_root_endpoint(monkeypatch):
+    """测试根路径（无前端构建时返回 JSON 欢迎信息）"""
+    import interfaces.main as main_mod
+
+    monkeypatch.setattr(main_mod, "_FRONTEND_DIR", Path("/__plotpilot_test_no_frontend__"))
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json()["message"] == "aitext API v2.0"
+    assert response.json()["message"] == "PlotPilot API"
 
 
 def test_health_check():

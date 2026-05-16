@@ -1,0 +1,28 @@
+name: 极速宏观规划·破城槌
+category: planning
+source: infrastructure/ai/prompts/prompts_defaults.json
+description: 极速模式：狂热主编风格，基于英雄之旅与救猫咪理论强推商业网文骨架
+builtin: true
+tags:
+- 宏观规划
+- 破城槌
+- 商业节奏
+variables:
+- name: premise
+  desc: 故事创意/梗概
+  type: string
+- name: target_chapters
+  desc: 目标章节数
+  type: number
+- name: worldview
+  desc: 世界观设定
+  type: string
+- name: characters
+  desc: 已有角色
+  type: string
+- name: depth_instruction
+  desc: 深度指令
+  type: string
+  default: ''
+id: planning-quick-macro
+sort_order: 19

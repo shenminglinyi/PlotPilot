@@ -1,6 +1,7 @@
 """SQLite Bible 仓储：Bible 聚合与子表全部落库。"""
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -54,18 +55,34 @@ class SqliteBibleRepository(BibleRepository):
             for char in bible.characters:
                 cid = char.character_id.value
                 ms = getattr(char, "mental_state", None) or "NORMAL"
+                msr = getattr(char, "mental_state_reason", None) or ""
                 vt = getattr(char, "verbal_tic", None) or ""
                 ib = getattr(char, "idle_behavior", None) or ""
+                cb = getattr(char, "core_belief", None) or ""
+                mt_json = json.dumps(getattr(char, "moral_taboos", None) or [], ensure_ascii=False)
+                vp_json = json.dumps(getattr(char, "voice_profile", None) or {}, ensure_ascii=False)
+                aw_json = json.dumps(getattr(char, "active_wounds", None) or [], ensure_ascii=False)
+                pub = getattr(char, "public_profile", None) or ""
+                hid = getattr(char, "hidden_profile", None) or ""
+                rev = getattr(char, "reveal_chapter", None)
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO bible_characters (
                         id, novel_id, name, description,
                         mental_state, mental_state_reason, verbal_tic, idle_behavior,
+                        core_belief, moral_taboos_json, voice_profile_json, active_wounds_json,
+                        public_profile, hidden_profile, reveal_chapter,
                         created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (cid, novel_id, char.name, char.description or "", ms, "", vt, ib, now, now),
+                    (
+                        cid, novel_id, char.name, char.description or "",
+                        ms, msr, vt, ib,
+                        cb, mt_json, vp_json, aw_json,
+                        pub, hid, rev,
+                        now, now,
+                    ),
                 )
                 for i, rel in enumerate(char.relationships or []):
                     rid = f"{cid}-rel-{i}-{uuid.uuid4().hex[:6]}"
@@ -193,6 +210,15 @@ class SqliteBibleRepository(BibleRepository):
         chars_out: List[Dict[str, Any]] = []
         for row in self._character_rows(novel_id):
             cid = row["id"]
+
+            def _loads(raw: str, default):
+                if not raw:
+                    return default
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    return default
+
             chars_out.append(
                 {
                     "id": cid,
@@ -200,8 +226,16 @@ class SqliteBibleRepository(BibleRepository):
                     "description": row["description"] or "",
                     "relationships": self._rels_for_character(cid),
                     "mental_state": row.get("mental_state") or "NORMAL",
+                    "mental_state_reason": row.get("mental_state_reason") or "",
                     "verbal_tic": row.get("verbal_tic") or "",
                     "idle_behavior": row.get("idle_behavior") or "",
+                    "public_profile": row.get("public_profile") or "",
+                    "hidden_profile": row.get("hidden_profile") or "",
+                    "reveal_chapter": row.get("reveal_chapter"),
+                    "core_belief": row.get("core_belief") or "",
+                    "moral_taboos": _loads(row.get("moral_taboos_json") or "[]", []),
+                    "voice_profile": _loads(row.get("voice_profile_json") or "{}", {}),
+                    "active_wounds": _loads(row.get("active_wounds_json") or "[]", []),
                 }
             )
 

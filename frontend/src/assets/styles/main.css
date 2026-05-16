@@ -117,8 +117,8 @@ body {
   --app-transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ── 面板专用 ── */
-  --aitext-split-border: rgba(15, 23, 42, 0.07);
-  --aitext-panel-muted: #f8fafc;
+  --plotpilot-split-border: rgba(15, 23, 42, 0.07);
+  --plotpilot-panel-muted: #f8fafc;
 
   /* ── 字体 ── */
   --font-sans: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Inter', system-ui, sans-serif;
@@ -131,6 +131,30 @@ body {
   --font-size-base: 14px;
   --font-size-lg: 16px;
   --font-size-xl: 18px;
+
+  /* ── DAG 画布专用 ── */
+  --dag-canvas-bg: #eef1f6;
+  --dag-canvas-grid: rgba(15, 23, 42, 0.06);
+  --dag-node-bg: #ffffff;
+  --dag-node-border: rgba(15, 23, 42, 0.12);
+  --dag-node-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --dag-node-selected-ring: var(--color-brand);
+  --dag-edge-default: rgba(15, 23, 42, 0.25);
+  --dag-edge-active: var(--color-brand);
+  --dag-edge-conditional: rgba(15, 23, 42, 0.35);
+  --dag-port-text: #3b82f6;
+  --dag-port-json: #8b5cf6;
+  --dag-port-score: #f59e0b;
+  --dag-port-boolean: #22c55e;
+  --dag-port-list: #ec4899;
+  --dag-port-prompt: #6366f1;
+  --dag-toolbar-bg: var(--app-surface);
+  --dag-toolbar-border: var(--app-border);
+  --dag-menu-bg: var(--app-surface);
+  --dag-menu-border: var(--app-border-strong);
+  --dag-menu-hover: var(--color-brand-light);
+  --dag-preview-bg: var(--app-surface-subtle);
+  --dag-preview-text: var(--app-text-primary);
 
   /* ── StatsTopBar 渐变 ── */
   --stats-bar-gradient: linear-gradient(135deg, #1f2937 0%, #334155 55%, #475569 100%);
@@ -214,8 +238,8 @@ body {
   --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.4);
 
   /* ── 面板专用 ── */
-  --aitext-split-border: rgba(148, 163, 184, 0.1);
-  --aitext-panel-muted: #161d2e;
+  --plotpilot-split-border: rgba(148, 163, 184, 0.1);
+  --plotpilot-panel-muted: #161d2e;
 
   /* ── StatsTopBar 渐变（暗色版：深靛蓝+微光）── */
   --stats-bar-gradient: linear-gradient(135deg, #161d2e 0%, #1e293b 50%, #334155 100%);
@@ -226,6 +250,30 @@ body {
   --nav-hero-pill-bg-bottom: rgba(255, 255, 255, 0.06);
   --nav-hero-pill-border: rgba(255, 255, 255, 0.22);
   --nav-hero-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+
+  /* ── DAG 画布专用（暗色版）── */
+  --dag-canvas-bg: #0f1623;
+  --dag-canvas-grid: rgba(148, 163, 184, 0.06);
+  --dag-node-bg: #1a2235;
+  --dag-node-border: rgba(148, 163, 184, 0.15);
+  --dag-node-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  --dag-node-selected-ring: var(--color-brand);
+  --dag-edge-default: rgba(148, 163, 184, 0.2);
+  --dag-edge-active: var(--color-brand);
+  --dag-edge-conditional: rgba(148, 163, 184, 0.3);
+  --dag-port-text: #60a5fa;
+  --dag-port-json: #a78bfa;
+  --dag-port-score: #fbbf24;
+  --dag-port-boolean: #4ade80;
+  --dag-port-list: #f472b6;
+  --dag-port-prompt: #818cf8;
+  --dag-toolbar-bg: var(--app-surface);
+  --dag-toolbar-border: var(--app-border);
+  --dag-menu-bg: var(--app-surface);
+  --dag-menu-border: var(--app-border-strong);
+  --dag-menu-hover: var(--color-brand-light);
+  --dag-preview-bg: var(--app-surface-subtle);
+  --dag-preview-text: var(--app-text-primary);
 
   /* ── 语义色（暗模式：更亮的色值 + dim 改为极低不透明度）── */
   --color-success: #4ade80;
@@ -267,6 +315,30 @@ body {
   --color-gold-border: rgba(240, 200, 102, 0.18);
   --color-gold-glow: rgba(240, 200, 102, 0.35);
 
+  /* ── DAG 画布专用（黑金版）── */
+  --dag-canvas-bg: #08090c;
+  --dag-canvas-grid: rgba(201, 162, 39, 0.04);
+  --dag-node-bg: #111620;
+  --dag-node-border: rgba(201, 162, 39, 0.12);
+  --dag-node-shadow: 0 2px 10px rgba(0, 0, 0, 0.3), 0 0 16px rgba(201, 162, 39, 0.04);
+  --dag-node-selected-ring: var(--color-gold);
+  --dag-edge-default: rgba(201, 162, 39, 0.18);
+  --dag-edge-active: var(--color-gold);
+  --dag-edge-conditional: rgba(201, 162, 39, 0.28);
+  --dag-port-text: #e8b84a;
+  --dag-port-json: #d4a843;
+  --dag-port-score: #f0c866;
+  --dag-port-boolean: #c9a227;
+  --dag-port-list: #e5b86e;
+  --dag-port-prompt: #ddb930;
+  --dag-toolbar-bg: var(--app-surface);
+  --dag-toolbar-border: var(--app-border);
+  --dag-menu-bg: var(--app-surface);
+  --dag-menu-border: var(--app-border-strong);
+  --dag-menu-hover: var(--color-gold-dim);
+  --dag-preview-bg: var(--app-surface-subtle);
+  --dag-preview-text: var(--app-text-primary);
+
   /* ── 主播限定色（核心品牌金）── */
   --color-anchor: #d4a843;
   --color-anchor-light: #f5d77e;
@@ -299,8 +371,8 @@ body {
   --app-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 30px rgba(201, 162, 39, 0.08);
 
   /* ── 面板专用 ── */
-  --aitext-split-border: rgba(201, 162, 39, 0.1);
-  --aitext-panel-muted: #0d1018;
+  --plotpilot-split-border: rgba(201, 162, 39, 0.1);
+  --plotpilot-panel-muted: #0d1018;
 
   /* ── StatsTopBar 渐变（黑金版：墨黑金边）── */
   --stats-bar-gradient: linear-gradient(135deg, #16130f 0%, #1f1a13 50%, #2a2318 100%);
@@ -323,12 +395,12 @@ body {
    ═══════════════════════════════════════════════════ */
 
 /* 工作台 / 侧栏共用 */
-.aitext-panel-surface {
-  background: var(--aitext-panel-muted);
-  border-left: 1px solid var(--aitext-split-border);
+.plotpilot-panel-surface {
+  background: var(--plotpilot-panel-muted);
+  border-left: 1px solid var(--plotpilot-split-border);
 }
 
-.aitext-panel-title {
+.plotpilot-panel-title {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -336,14 +408,14 @@ body {
   margin: 0 0 8px;
 }
 
-.aitext-panel-desc {
+.plotpilot-panel-desc {
   font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--app-text-muted);
   margin-bottom: 12px;
 }
 
-.aitext-composer-hint {
+.plotpilot-composer-hint {
   font-size: var(--font-size-xs);
   line-height: 1.45;
   color: var(--app-text-muted);
@@ -514,7 +586,7 @@ rt { font-size: 0.6em; color: var(--app-text-muted); }
 /* ═══════════════════════════════════════════════════
    SettingsPanel 右侧面板
    ═══════════════════════════════════════════════════ */
-.right-panel { background: var(--aitext-panel-muted); }
+.right-panel { background: var(--plotpilot-panel-muted); }
 
 /* ═══════════════════════════════════════════════════
    主题切换过渡动画

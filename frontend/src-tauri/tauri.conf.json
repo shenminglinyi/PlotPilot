@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
   "productName": "PlotPilot",
-  "version": "1.0.4",
-  "identifier": "com.plotpilot.app",
+  "version": "3.1.0",
+  "identifier": "com.plotpilot.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -21,7 +21,8 @@
         "center": true,
         "decorations": true,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "devtools": true
       }
     ],
     "security": {

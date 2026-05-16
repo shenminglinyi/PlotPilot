@@ -1,0 +1,21 @@
+name: Anti-AI 尾段增强协议
+category: anti-ai
+source: application/engine/rules/mid_generation_refresh.py
+description: 对章节最后2-3段进行AI味专项净化，确保结尾不留模板痕迹。
+builtin: true
+tags:
+- Anti-AI
+- 尾段增强
+- Layer7
+output_format: text
+variables:
+- name: finale_text
+  desc: 章节最后3段
+  type: string
+  required: true
+- name: expected_ending
+  desc: 大纲预期的结尾走向
+  type: string
+  default: ''
+id: anti-ai-finale-enhancement
+sort_order: 39

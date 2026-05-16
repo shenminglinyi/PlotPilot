@@ -1,7 +1,6 @@
-import { ref, computed } from 'vue'
+import { ref, computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { workflowApi } from '../api/workflow'
 import { novelApi } from '../api/novel'
 import { chapterApi } from '../api/chapter'
 import { useStatsStore } from '../stores/statsStore'
@@ -28,7 +27,8 @@ export interface BookMeta {
 }
 
 export interface UseWorkbenchOptions {
-  slug: string
+  /** 支持 `computed(() => route.params.slug)`，换书时 API 始终用当前 slug */
+  slug: MaybeRefOrGetter<string>
 }
 
 export function useWorkbench(options: UseWorkbenchOptions) {
@@ -45,12 +45,10 @@ export function useWorkbench(options: UseWorkbenchOptions) {
   const currentChapterId = ref<number | null>(null)
   const chapterContent = ref('')
   const chapterLoading = ref(false)
+  const currentJobId = ref<string | null>(null)
 
   /** 右栏子面板 id，与 SettingsPanel 中 foundation / narrative / tactical 的 tab name 一致 */
   const rightPanel = ref<string>('bible')
-  const biblePanelKey = ref(0)
-  const currentJobId = ref<string | null>(null)
-
 
   const hasStructure = computed(() => {
     return bookMeta.value.has_bible || bookMeta.value.has_outline
@@ -61,13 +59,14 @@ export function useWorkbench(options: UseWorkbenchOptions) {
   }
 
   const loadDesk = async () => {
+    const novelId = toValue(slug)
     // Use new novelApi and chapterApi instead of bookApi.getDesk
     const [novelData, chaptersData] = await Promise.all([
-      novelApi.getNovel(slug),
-      chapterApi.listChapters(slug)
+      novelApi.getNovel(novelId),
+      chapterApi.listChapters(novelId)
     ])
 
-    bookTitle.value = novelData.title || slug
+    bookTitle.value = novelData.title || novelId
 
     // Map ChapterDTO[] to the format expected by the UI
     chapters.value = chaptersData.map(ch => ({
@@ -89,7 +88,7 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     try {
       const promises: Promise<unknown>[] = [loadDesk()]
       if (includeStats) {
-        promises.push(statsStore.loadBookAllStats(slug, STATS_DAYS, true))
+        promises.push(statsStore.loadBookAllStats(toValue(slug), STATS_DAYS, true))
       }
       await Promise.all(promises)
     } finally {
@@ -99,12 +98,12 @@ export function useWorkbench(options: UseWorkbenchOptions) {
 
   const handleJobCompleted = async () => {
     // Notify stats store to invalidate cache and reload
-    statsStore.onJobCompleted(slug)
+    statsStore.onJobCompleted(toValue(slug))
     // Refresh workbench data
     await loadDesk()
-    // Force Bible panel refresh if visible
+    // 作品设定页若已挂载：软刷新 Bible（避免整组件 :key 重建导致闪烁）
     if (rightPanel.value === 'bible') {
-      biblePanelKey.value += 1
+      window.dispatchEvent(new CustomEvent('plotpilot:bible-panel:soft-reload'))
     }
   }
 
@@ -136,12 +135,13 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     }
 
     chapterLoading.value = true
+    const novelId = toValue(slug)
     try {
-      let chapter = await chapterApi.getChapter(slug, id).catch(async (err) => {
+      let chapter = await chapterApi.getChapter(novelId, id).catch(async (err) => {
         if (!is404(err)) throw err
         // 章节正文不存在：静默创建空白记录（对应结构树手动添加的节点）
-        await chapterApi.ensureChapter(slug, id, nodeTitle ?? '')
-        return chapterApi.getChapter(slug, id)
+        await chapterApi.ensureChapter(novelId, id, nodeTitle ?? '')
+        return chapterApi.getChapter(novelId, id)
       })
       currentChapterId.value = id
       chapterContent.value = chapter.content || ''
@@ -164,6 +164,13 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     }
   }
 
+  /** 路由换书：清空当前章视图后重载 desk（由 Workbench watch slug 调用） */
+  const reloadDeskForSlugChange = async () => {
+    currentChapterId.value = null
+    chapterContent.value = ''
+    await loadDesk()
+  }
+
   const handleChapterSelect = async (chapterId: number, title = '') => {
     await goToChapter(chapterId, title)
   }
@@ -179,7 +186,6 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     bookTitle,
     chapters,
     rightPanel,
-    biblePanelKey,
     pageLoading,
     bookMeta,
     currentJobId,
@@ -190,6 +196,7 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     // Methods
     setRightPanel,
     loadDesk,
+    reloadDeskForSlugChange,
     handleChapterSelect,
     goHome,
     goToChapter,

@@ -1,6 +1,6 @@
 [package]
 name = "plotpilot"
-version = "1.0.2"
+version = "1.1.0"
 description = "PlotPilot（墨枢）· AI 小说创作平台"
 authors = ["PlotPilot Team"]
 edition = "2021"
@@ -11,7 +11,7 @@ name = "plotpilot_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }

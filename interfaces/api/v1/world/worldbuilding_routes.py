@@ -10,7 +10,7 @@ from infrastructure.persistence.database.worldbuilding_repository import Worldbu
 from application.paths import get_db_path
 
 
-router = APIRouter(prefix="/api/v1/novels", tags=["worldbuilding"])
+router = APIRouter(prefix="/novels", tags=["worldbuilding"])
 
 
 def get_worldbuilding_service() -> WorldbuildingService:

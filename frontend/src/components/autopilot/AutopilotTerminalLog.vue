@@ -25,7 +25,12 @@
         </n-tag>
       </div>
     </div>
-    <div v-if="progressHint" class="progress-strip">{{ progressHint }}</div>
+    <div v-if="progressHint" class="progress-strip">
+      <span class="progress-text">{{ progressHint }}</span>
+      <div v-if="wordProgressPct > 0" class="progress-bar-mini">
+        <div class="progress-bar-fill" :style="{ width: wordProgressPct + '%' }"></div>
+      </div>
+    </div>
     <div
       ref="bodyRef"
       class="terminal-body"
@@ -54,6 +59,8 @@ const props = defineProps<{ novelId: string }>()
 
 const emit = defineEmits<{
   'desk-refresh': []
+  /** 单章审计落库等：驱动张力曲线等「按章更新即可」的指标，避免 beat_complete 级别刷屏 */
+  'chapter-metrics-refresh': []
 }>()
 
 const MAX_ROWS = 100
@@ -73,6 +80,7 @@ const bodyRef = ref<HTMLElement | null>(null)
 const connectionStatus = ref<'connected' | 'reconnecting' | 'disconnected'>('disconnected')
 const lastLogSeq = ref(0)
 const progressHint = ref('')
+const progressMeta = ref<Record<string, unknown> | undefined>(undefined)
 const autoScroll = ref(true)
 
 /** 程序设置 scrollTop 时仍会触发 scroll；此期间忽略 onScroll，避免误判为「用户离开底部」 */
@@ -85,6 +93,16 @@ const behaviorStageKey = ref('')
 const behaviorAutopilotStatus = ref('')
 /** 工具栏右侧主标签：阶段中文或「运行中/已停止」等 */
 const behaviorLabel = ref('—')
+
+/** 字数进度百分比（用于迷你进度条） */
+const wordProgressPct = computed(() => {
+  const m = progressMeta.value
+  if (!m) return 0
+  const acc = Number(m.accumulated_words || 0)
+  const target = Number(m.chapter_target_words || 0)
+  if (target <= 0 || acc <= 0) return 0
+  return Math.min(100, Math.round(acc / target * 100))
+})
 
 const stageTagType = computed(() => {
   const ap = behaviorAutopilotStatus.value
@@ -160,6 +178,28 @@ const statusHint = computed(() => {
 
 let eventSource: EventSource | null = null
 let reconnectTimer: number | null = null
+/** 日志 SSE 重连退避（onerror 在部分浏览器上较频繁，避免打满连接） */
+let logStreamReconnectFailCount = 0
+const LOG_STREAM_MAX_BACKOFF_MS = 30_000
+
+// 🔥 desk-refresh 去抖：300ms 内多次事件只触发一次 emit，避免短时间内连续 loadDesk
+let deskRefreshDebounceTimer: number | null = null
+function scheduleDeskRefresh() {
+  if (deskRefreshDebounceTimer != null) return  // 已有待执行的，跳过
+  deskRefreshDebounceTimer = window.setTimeout(() => {
+    deskRefreshDebounceTimer = null
+    emit('desk-refresh')
+  }, 300)
+}
+
+function scheduleLogStreamReconnect() {
+  logStreamReconnectFailCount = Math.min(logStreamReconnectFailCount + 1, 12)
+  const delay = Math.min(3000 * 2 ** (logStreamReconnectFailCount - 1), LOG_STREAM_MAX_BACKOFF_MS)
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null
+    connect()
+  }, delay)
+}
 
 const pending: Array<{ data: Record<string, unknown> }> = []
 let flushScheduled = false
@@ -181,6 +221,58 @@ function clipForUi(s: string) {
   const t = (s || '').trim()
   if (t.length <= DISPLAY_MSG_MAX) return t
   return t.slice(0, DISPLAY_MSG_MAX - 1) + '…'
+}
+
+/** 构建细化的进度提示：子步骤 + 节拍进度 + 字数进度 */
+function buildDetailedProgressHint(message: string, meta?: Record<string, unknown>): string {
+  if (!meta) return clipForUi(message)
+
+  const substepLabel = String(meta.writing_substep_label || '')
+  const totalBeats = Number(meta.total_beats || 0)
+  const beatIdx = Number(meta.current_beat_index_1based || 0)
+  const accumulatedWords = Number(meta.accumulated_words || 0)
+  const chapterTargetWords = Number(meta.chapter_target_words || 0)
+  const beatFocus = String(meta.beat_focus || '')
+  const contextTokens = Number(meta.context_tokens || 0)
+  const stage = String(meta.stage || '')
+
+  const parts: string[] = []
+
+  // 子步骤（所有阶段通用）
+  if (substepLabel) {
+    parts.push(substepLabel)
+  }
+
+  // writing 阶段特有信息
+  if (stage === 'writing') {
+    // 节拍进度
+    if (totalBeats > 0 && beatIdx > 0) {
+      parts.push(`节拍 ${beatIdx}/${totalBeats}`)
+    }
+
+    // 字数进度
+    if (accumulatedWords > 0 && chapterTargetWords > 0) {
+      const pct = Math.min(100, Math.round(accumulatedWords / chapterTargetWords * 100))
+      parts.push(`${accumulatedWords}/${chapterTargetWords}字(${pct}%)`)
+    }
+
+    // 节拍焦点
+    if (beatFocus) {
+      const focusClip = beatFocus.length > 16 ? beatFocus.slice(0, 15) + '…' : beatFocus
+      parts.push(`[${focusClip}]`)
+    }
+
+    // 上下文 tokens
+    if (contextTokens > 0) {
+      parts.push(`${contextTokens}tok`)
+    }
+  }
+
+  if (parts.length === 0) {
+    return clipForUi(message)
+  }
+
+  return parts.join(' · ')
 }
 
 /** 与后端过滤互补：漏网的 StreamingBus 行不再入列 */
@@ -211,7 +303,8 @@ function pushRow(data: Record<string, unknown>) {
   const meta = data.metadata as Record<string, unknown> | undefined
 
   if (t === 'progress') {
-    progressHint.value = clipForUi(message)
+    progressHint.value = buildDetailedProgressHint(message, meta)
+    progressMeta.value = meta
     applyBehaviorFromMeta(meta)
     return
   }
@@ -235,11 +328,25 @@ function pushRow(data: Record<string, unknown>) {
     rows.value.splice(0, rows.value.length - MAX_ROWS)
   }
 
-  if (t === 'stage_change' && meta?.to_stage === 'paused_for_review') {
-    emit('desk-refresh')
+  // 🔥 统一刷新策略：所有「会改变侧栏结构/章节列表」的事件都触发 desk-refresh
+  // 使用去抖合并，避免短时间内（如幕级规划↔审阅来回）连续触发多次 loadDesk
+  const needsDeskRefresh =
+    t === 'stage_change' ||           // 阶段变更（规划→写作→审计→审阅）
+    t === 'beat_complete' ||          // 节拍完成（字数变化）
+    t === 'autopilot_complete'        // 全书完成/停止
+  if (needsDeskRefresh) {
+    scheduleDeskRefresh()
   }
-  if (t === 'beat_complete') {
-    emit('desk-refresh')
+  if (t === 'autopilot_complete') {
+    emit('chapter-metrics-refresh')
+  }
+  // 🔥 审计完成（单章落库）：立即刷新，让前端立刻看到「已收稿」
+  if (t === 'audit_event') {
+    const evtType = meta?.event_type ?? (data as Record<string, unknown>).event_type
+    if (evtType === 'audit_complete') {
+      scheduleDeskRefresh()
+      emit('chapter-metrics-refresh')
+    }
   }
 }
 
@@ -304,6 +411,7 @@ function connect() {
 
   eventSource.onopen = () => {
     connectionStatus.value = 'connected'
+    logStreamReconnectFailCount = 0
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
@@ -352,9 +460,19 @@ function connect() {
 
   eventSource.onerror = () => {
     connectionStatus.value = 'reconnecting'
-    if (!reconnectTimer) {
-      reconnectTimer = window.setTimeout(() => connect(), 3000)
+    if (eventSource) {
+      try {
+        eventSource.close()
+      } catch {
+        /* ignore */
+      }
+      eventSource = null
     }
+    if (reconnectTimer != null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    scheduleLogStreamReconnect()
   }
 }
 
@@ -372,6 +490,7 @@ watch(
     behaviorLabel.value = '—'
     lastLogSeq.value = 0
     connectionStatus.value = 'disconnected'
+    logStreamReconnectFailCount = 0
     pending.length = 0
     if (eventSource) {
       eventSource.close()
@@ -393,6 +512,10 @@ onUnmounted(() => {
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
+  }
+  if (deskRefreshDebounceTimer) {
+    clearTimeout(deskRefreshDebounceTimer)
+    deskRefreshDebounceTimer = null
   }
 })
 </script>
@@ -503,9 +626,32 @@ onUnmounted(() => {
   color: #a5b4fc;
   background: rgba(30, 41, 59, 0.9);
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-text {
+  flex-shrink: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.progress-bar-mini {
+  flex-shrink: 0;
+  width: 60px;
+  height: 4px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #818cf8, #a78bfa);
+  border-radius: 2px;
+  transition: width 0.4s ease;
 }
 
 .terminal-body {

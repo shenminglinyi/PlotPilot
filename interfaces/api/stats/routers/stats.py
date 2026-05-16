@@ -9,7 +9,7 @@ from ..services.stats_service import StatsService
 from ..models.responses import SuccessResponse
 from ..models.stats_models import GlobalStats, BookStats, ChapterStats, WritingProgress
 
-logger = logging.getLogger("aitext.web.routers.stats")
+logger = logging.getLogger("plotpilot.web.routers.stats")
 
 
 def create_stats_router(stats_service: StatsService) -> APIRouter:

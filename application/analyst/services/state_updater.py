@@ -47,6 +47,38 @@ def _safe_chapter_int(value: Any, fallback: int) -> int:
     if m:
         return int(m.group(0))
     return fallback
+def _parse_importance(value: Any) -> "ImportanceLevel":
+    """将 LLM 返回的 importance 值解析为 ImportanceLevel 枚举。
+
+    支持格式：
+    - 字符串: "high", "medium", "low", "critical", "高", "中", "低", "关键"
+    - 数字: 1-4 (对应 ImportanceLevel 枚举值)
+    - 默认: MEDIUM
+    """
+    from domain.novel.value_objects.foreshadowing import ImportanceLevel
+
+    if isinstance(value, ImportanceLevel):
+        return value
+    if isinstance(value, int):
+        try:
+            return ImportanceLevel(value)
+        except ValueError:
+            return ImportanceLevel.MEDIUM
+    if isinstance(value, str):
+        low_map = {"low", "低", "1"}
+        medium_map = {"medium", "中", "中等", "2"}
+        high_map = {"high", "高", "重要", "3"}
+        critical_map = {"critical", "关键", "核心", "至关重要", "4"}
+        v_lower = value.strip().lower()
+        if v_lower in low_map:
+            return ImportanceLevel.LOW
+        if v_lower in medium_map:
+            return ImportanceLevel.MEDIUM
+        if v_lower in high_map:
+            return ImportanceLevel.HIGH
+        if v_lower in critical_map:
+            return ImportanceLevel.CRITICAL
+    return ImportanceLevel.MEDIUM
 
 
 class StateUpdater:
@@ -134,19 +166,41 @@ class StateUpdater:
                     novel_id=novel_id_obj
                 )
 
-            # 添加新伏笔
+            # ★ Phase 1: 添加新伏笔 — 使用 LLM 提取的 importance + 自动推算 suggested_resolve_chapter
             for foreshadow_data in chapter_state.foreshadowing_planted:
+                # 解析 importance（LLM 可能返回字符串或数字）
+                importance_val = foreshadow_data.get("importance", "medium")
+                importance = _parse_importance(importance_val)
+
+                # 推算 suggested_resolve_chapter：默认 5-15 章后回收
+                planted_ch = _safe_chapter_int(
+                    foreshadow_data.get("chapter"), chapter_number
+                )
+                resolve_offset = foreshadow_data.get("resolve_offset")
+                if resolve_offset and isinstance(resolve_offset, (int, float)):
+                    suggested_resolve = planted_ch + int(resolve_offset)
+                else:
+                    # 根据重要性调整回收周期：关键伏笔 10-20 章，普通 5-10 章
+                    if importance.value >= ImportanceLevel.HIGH.value:
+                        suggested_resolve = planted_ch + 15
+                    elif importance.value >= ImportanceLevel.MEDIUM.value:
+                        suggested_resolve = planted_ch + 10
+                    else:
+                        suggested_resolve = planted_ch + 5
+
                 foreshadowing = Foreshadowing(
                     id=str(uuid.uuid4()),
-                    planted_in_chapter=_safe_chapter_int(
-                        foreshadow_data.get("chapter"), chapter_number
-                    ),
+                    planted_in_chapter=planted_ch,
                     description=foreshadow_data.get("description", ""),
-                    importance=ImportanceLevel.MEDIUM,
-                    status=ForeshadowingStatus.PLANTED
+                    importance=importance,
+                    status=ForeshadowingStatus.PLANTED,
+                    suggested_resolve_chapter=suggested_resolve,
                 )
                 foreshadowing_registry.register(foreshadowing)
-                logger.debug(f"Planted foreshadowing: {foreshadow_data.get('description', '')[:50]}")
+                logger.debug(
+                    f"Planted foreshadowing: {foreshadow_data.get('description', '')[:50]} "
+                    f"(importance={importance.name}, resolve_by_ch={suggested_resolve})"
+                )
 
             # 解决伏笔
             for resolved_data in chapter_state.foreshadowing_resolved:

@@ -1,0 +1,33 @@
+name: 基础章节生成
+category: generation
+source: application/engine/services/ai_generation_service.py::_build_chapter_prompt()
+description: 引擎层的基础章节生成，注入 Bible 人物和世界设定，强调设定与情节的有机融合
+builtin: true
+tags:
+- 基础
+- 引擎
+variables:
+- name: novel_title
+  desc: 小说标题
+  type: string
+  required: true
+- name: chapter_number
+  desc: 章节编号
+  type: integer
+  required: true
+- name: outline
+  desc: 章节大纲
+  type: string
+  required: true
+- name: characters_section
+  desc: 主要人物列表
+  type: string
+  required: false
+  default: ''
+- name: world_settings_section
+  desc: 世界设定列表
+  type: string
+  required: false
+  default: ''
+id: chapter-generation-basic
+sort_order: 1

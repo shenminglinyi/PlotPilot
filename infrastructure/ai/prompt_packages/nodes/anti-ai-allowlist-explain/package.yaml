@@ -1,0 +1,25 @@
+name: Anti-AI 场景化白名单解释器
+category: anti-ai
+source: application/engine/rules/allowlist_manager.py
+description: Layer 3 场景化豁免：在特定场景（战斗/悬疑/恐怖/告白）中，部分AI味模式是被允许的。此模板生成白名单的文本解释注入到行为协议中。
+builtin: true
+tags:
+- Anti-AI
+- 白名单
+- Layer3
+output_format: text
+variables:
+- name: scene_type
+  desc: 场景类型（battle/suspense/horror/confession/revelation/default）
+  type: string
+  required: true
+- name: allowed_patterns
+  desc: 允许的模式列表
+  type: string
+  required: true
+- name: forbidden_patterns
+  desc: 仍然禁止的模式列表
+  type: string
+  required: true
+id: anti-ai-allowlist-explain
+sort_order: 36

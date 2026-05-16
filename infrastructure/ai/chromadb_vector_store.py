@@ -226,7 +226,11 @@ class ChromaDBVectorStore(VectorStore):
         collection: str,
         id: str
     ) -> None:
-        """删除向量（标记删除，不重建索引）"""
+        """删除向量（标记删除 + 碎片整理）
+
+        当累计删除数量超过阈值时自动触发 compact()，
+        重建索引并回收已删除向量的空间，防止内存持续增长。
+        """
         try:
             if collection not in self.collections:
                 raise Exception(f"Collection {collection} does not exist")
@@ -235,6 +239,9 @@ class ChromaDBVectorStore(VectorStore):
             if id in coll["metadata"]:
                 del coll["metadata"][id]
                 self._save_collection(collection)
+
+                # 碎片整理：当 metadata 条目数 < 索引向量数的 50% 时触发重建
+                self._maybe_compact(collection)
         except Exception as e:
             raise Exception(f"Failed to delete vector: {str(e)}")
 
@@ -286,6 +293,76 @@ class ChromaDBVectorStore(VectorStore):
                 shutil.rmtree(collection_dir)
         except Exception as e:
             raise Exception(f"Failed to delete collection: {str(e)}")
+
+    def _maybe_compact(self, collection: str) -> None:
+        """碎片整理：当 metadata 条目数远小于 FAISS 索引向量数时，重建索引。
+
+        delete() 只从 metadata 移除记录，FAISS 索引体积只增不减。
+        当碎片率超过 50%（索引中有一半以上的"僵尸"向量）时触发重建，
+        回收内存并提高检索精度。
+        """
+        import faiss
+        import numpy as np
+
+        if collection not in self.collections:
+            return
+
+        coll = self.collections[collection]
+        metadata_count = len(coll["metadata"])
+        index_count = coll["index"].ntotal
+
+        # 碎片率阈值：索引向量数 > metadata 条目数的 2 倍
+        if index_count == 0 or metadata_count >= index_count * 0.5:
+            return
+
+        _vector_renumber_log.info(
+            "FAISS 碎片整理开始: collection=%s index_vectors=%d metadata_entries=%d",
+            collection, index_count, metadata_count,
+        )
+
+        try:
+            # 收集所有存活向量的 ID 和索引
+            alive_entries = [(vid, entry) for vid, entry in coll["metadata"].items()]
+            if not alive_entries:
+                return
+
+            # 提取存活向量
+            dimension = coll["index"].d
+            vectors = []
+            new_metadata = {}
+            for new_idx, (vid, entry) in enumerate(alive_entries):
+                old_idx = entry["idx"]
+                vec = coll["index"].reconstruct(int(old_idx))
+                vectors.append(vec)
+                new_metadata[vid] = {"idx": new_idx, "payload": entry["payload"]}
+
+            # 重建索引
+            new_index = faiss.IndexFlatL2(dimension)
+            if vectors:
+                vec_array = np.array(vectors, dtype=np.float32)
+                new_index.add(vec_array)
+
+            coll["index"] = new_index
+            coll["metadata"] = new_metadata
+            self._save_collection(collection)
+
+            _vector_renumber_log.info(
+                "FAISS 碎片整理完成: collection=%s old=%d new=%d",
+                collection, index_count, new_index.ntotal,
+            )
+        except Exception as e:
+            _vector_renumber_log.warning("FAISS 碎片整理失败（不影响功能）: collection=%s err=%s", collection, e)
+
+    async def compact_all(self) -> int:
+        """对所有集合执行碎片整理。返回整理的集合数。"""
+        count = 0
+        for collection in list(self.collections.keys()):
+            try:
+                self._maybe_compact(collection)
+                count += 1
+            except Exception:
+                pass
+        return count
 
     async def list_collections(self) -> List[str]:
         """列出所有集合"""

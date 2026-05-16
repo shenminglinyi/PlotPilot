@@ -199,6 +199,7 @@ import {
   type PromptVariable,
   type PromptVersionDetail,
 } from '../../../api/llmControl'
+import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
 
 const props = defineProps<{
   nodeKey: string

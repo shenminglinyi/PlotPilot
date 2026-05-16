@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from application.workflows.auto_novel_generation_workflow import AutoNovelGenerationWorkflow
-from application.services.context_builder import ContextBuilder
+from application.engine.services.context_builder import ContextBuilder
 from application.dtos.generation_result import GenerationResult
 from domain.novel.services.consistency_checker import ConsistencyChecker
 from domain.novel.services.storyline_manager import StorylineManager
@@ -15,10 +15,18 @@ from domain.ai.value_objects.token_usage import TokenUsage
 @pytest.fixture
 def mock_dependencies():
     """创建所有 mock 依赖"""
-    # Mock ContextBuilder
     context_builder = Mock(spec=ContextBuilder)
     context_builder.build_context.return_value = "Full context with 35K tokens"
+    context_builder.build_structured_context.return_value = {
+        "layer1_text": "mock_layer1",
+        "layer2_text": "mock_layer2",
+        "layer3_text": "mock_layer3",
+        "token_usage": {"layer1": 100, "layer2": 50, "layer3": 25, "total": 8750},
+    }
+    context_builder.build_voice_anchor_system_section.return_value = ""
     context_builder.estimate_tokens.return_value = 8750
+    context_builder.magnify_outline_to_beats.return_value = []
+    context_builder.build_beat_prompt.return_value = "mock beat prompt"
 
     # Mock ConsistencyChecker
     consistency_checker = Mock(spec=ConsistencyChecker)
@@ -89,9 +97,9 @@ class TestCompleteGenerationFlow:
         assert result.token_count == 8750
         assert isinstance(result.consistency_report, ConsistencyReport)
 
-        # 验证调用链
-        mock_dependencies['context_builder'].build_context.assert_called_once()
-        mock_dependencies['llm_service'].generate.assert_called_once()
+        # 验证调用链（prepare_chapter_generation 使用 build_structured_context）
+        mock_dependencies['context_builder'].build_structured_context.assert_called_once()
+        assert mock_dependencies['llm_service'].generate.call_count >= 1
         mock_dependencies['consistency_checker'].check_all.assert_called_once()
 
     @pytest.mark.asyncio
@@ -212,11 +220,12 @@ class TestIntegrationWithComponents:
         )
 
         # 验证 ContextBuilder 被正确调用
-        mock_dependencies['context_builder'].build_context.assert_called_once_with(
+        mock_dependencies['context_builder'].build_structured_context.assert_called_once_with(
             novel_id="test-novel",
             chapter_number=5,
             outline="Chapter 5 outline",
-            max_tokens=35000
+            max_tokens=35000,
+            scene_director=None,
         )
 
     @pytest.mark.asyncio

@@ -1,0 +1,19 @@
+name: 章节状态提取（9维度）
+category: extraction
+source: application/ai/chapter_state_llm_contract.py::_CHAPTER_STATE_SYSTEM
+description: 从文学分析师视角提取9维度结构化信息，精准捕获情节推演的真实变量
+builtin: true
+tags:
+- 核心
+- 提取
+- JSON
+output_format: json
+contract_module: application.ai.chapter_state_llm_contract
+contract_model: ChapterStateLlmPayload
+variables:
+- name: content
+  desc: 章节正文内容
+  type: string
+  required: true
+id: chapter-state-extraction
+sort_order: 5

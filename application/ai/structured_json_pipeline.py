@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from typing import Any, Generic, List, Optional, Tuple, Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -66,32 +65,12 @@ def sanitize_llm_output(raw: str) -> str:
     2. 思维链 / reasoning 块（见 strip_reasoning_artifacts）
     3. Markdown 代码块围栏 (```json ... ```)
     4. 前后空白 / 零宽字符
+
+    🔥 此函数与 llm_json_extract.strip_json_fences 功能完全一致，
+    委托给统一实现，避免两处维护不同步。
     """
-    s = raw
-
-    # 1. 去 BOM
-    if s and s[0] == "\ufeff":
-        s = s[1:]
-
-    # 2. 去思维链与厂商 reasoning 围栏
-    s = strip_reasoning_artifacts(s)
-
-    # 3. 去 markdown 围栏
-    #    匹配 ```json ... ``` 或 ``` ... ```
-    fence_pattern = re.compile(
-        r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL
-    )
-    fence_match = fence_pattern.search(s)
-    if fence_match:
-        s = fence_match.group(1)
-
-    # 4. 去零宽字符
-    s = re.sub(r"[\u200b\u200c\u200d\ufeff]", "", s)
-
-    # 5. strip
-    s = s.strip()
-
-    return s
+    from application.ai.llm_json_extract import strip_json_fences
+    return strip_json_fences(raw)
 
 
 # ---------------------------------------------------------------------------

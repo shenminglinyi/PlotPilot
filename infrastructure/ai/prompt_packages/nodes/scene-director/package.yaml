@@ -1,0 +1,16 @@
+name: 场景导演（场记提取）
+category: extraction
+source: infrastructure/ai/prompts/prompts_defaults.json
+description: 拆解出指导生成阶段的"镜头、走位与布景"数据
+builtin: true
+tags:
+- 场记
+- 导演
+output_format: json
+variables:
+- name: outline
+  desc: 章节大纲
+  type: string
+  required: true
+id: scene-director
+sort_order: 10

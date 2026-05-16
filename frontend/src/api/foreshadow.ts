@@ -40,9 +40,16 @@ export interface UpdateForeshadowPayload {
 }
 
 export const foreshadowApi = {
-  list: (novelId: string, status?: 'pending' | 'consumed') =>
+  /**
+   * 获取伏笔列表
+   * @param novelId 小说 ID
+   * @param status 可选筛选状态
+   * @param config 可选 AxiosRequestConfig（支持 timeout / signal 等覆盖全局配置）
+   */
+  list: (novelId: string, status?: 'pending' | 'consumed', config?: Record<string, unknown>) =>
     apiClient.get<ForeshadowEntry[]>(`/novels/${novelId}/foreshadow-ledger`, {
       params: status ? { status } : {},
+      ...config,
     }) as Promise<ForeshadowEntry[]>,
 
   get: (novelId: string, entryId: string) =>

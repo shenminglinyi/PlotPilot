@@ -1,0 +1,30 @@
+name: 自动驾驶·节拍流式写作 v3（连贯性+密度）
+category: generation
+source: infrastructure/ai/prompt_packages/nodes/autopilot-stream-beat/
+description: 'v3: 在v2基础上增加章节衔接约束、双线并行要求、反心理描写'
+builtin: true
+tags:
+- 自动驾驶
+- v3
+- 节拍
+- 爽文
+- 反套路
+variables:
+- name: outline
+  desc: 章节大纲
+  type: string
+- name: last_paragraph
+  desc: 上一段末尾文本
+  type: string
+- name: beat_goal
+  desc: 当前节拍目标
+  type: string
+- name: target_words
+  desc: 目标字数
+  type: integer
+- name: context_block
+  desc: 上下文约束
+  type: string
+  default: ''
+id: autopilot-stream-beat
+sort_order: 4

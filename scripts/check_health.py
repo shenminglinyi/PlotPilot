@@ -63,7 +63,7 @@ def check_autopilot_daemon():
     print("\n4️⃣  检查自动驾驶守护进程...")
     print("   ℹ️  守护进程是独立进程，需单独启动")
     print("   💡 提示：查看日志文件确认守护进程是否运行")
-    print("      - 日志位置: logs/aitext.log")
+    print("      - 日志位置: logs/plotpilot.log")
     print("      - 查找关键字: 'Autopilot Daemon Started'")
 
 if __name__ == "__main__":

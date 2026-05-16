@@ -1,6 +1,7 @@
 from typing import List, Optional
 from domain.shared.base_entity import BaseEntity
 from domain.novel.value_objects.novel_id import NovelId
+from domain.novel.value_objects.storyline_role import StorylineRole
 from domain.novel.value_objects.storyline_type import StorylineType
 from domain.novel.value_objects.storyline_status import StorylineStatus
 from domain.novel.value_objects.storyline_milestone import StorylineMilestone
@@ -22,7 +23,11 @@ class Storyline(BaseEntity):
         name: str = "",
         description: str = "",
         last_active_chapter: int = 0,
-        progress_summary: str = ""
+        progress_summary: str = "",
+        # ── 新增字段（所有均有默认值，向后兼容）──
+        role: StorylineRole = StorylineRole.MAIN,
+        parent_id: Optional[str] = None,
+        chapter_weight: float = 1.0,
     ):
         super().__init__(id)
         self.novel_id = novel_id
@@ -36,6 +41,9 @@ class Storyline(BaseEntity):
         self.description = description
         self.last_active_chapter = last_active_chapter
         self.progress_summary = progress_summary
+        self.role = role
+        self.parent_id = parent_id
+        self.chapter_weight = chapter_weight
 
     def update_progress(self, chapter_number: int, summary: str) -> None:
         """更新故事线进度

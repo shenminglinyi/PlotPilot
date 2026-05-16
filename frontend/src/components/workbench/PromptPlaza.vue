@@ -41,8 +41,29 @@
       </div>
     </div>
 
-    <!-- 分类标签栏 -->
-    <div class="category-tabs" v-if="categories.length">
+    <!-- 主标签切换 -->
+    <div class="main-tabs">
+      <div
+        class="main-tab"
+        :class="{ 'is-active': mainTab === 'plaza' }"
+        @click="mainTab = 'plaza'"
+      >
+        📝 提示词广场
+      </div>
+      <div
+        class="main-tab"
+        :class="{ 'is-active': mainTab === 'anti-ai' }"
+        @click="mainTab = 'anti-ai'"
+      >
+        🛡️ Anti-AI 防御
+      </div>
+    </div>
+
+    <!-- Anti-AI 仪表板 -->
+    <AntiAIDashboard v-if="mainTab === 'anti-ai'" />
+
+    <!-- 分类标签栏（仅提示词广场模式显示） -->
+    <div class="category-tabs" v-if="categories.length && mainTab === 'plaza'">
       <div
         class="category-tab"
         :class="{ 'is-active': activeCategory === null }"
@@ -62,8 +83,8 @@
       </div>
     </div>
 
-    <!-- 主内容区 -->
-    <div class="plaza-content" v-if="!loading">
+    <!-- 主内容区（仅提示词广场模式显示） -->
+    <div class="plaza-content" v-if="!loading && mainTab === 'plaza'">
       <!-- 搜索结果模式 -->
       <template v-if="searchQuery.trim()">
         <div class="search-results-header" v-if="filteredNodes.length">
@@ -103,8 +124,8 @@
       <n-empty v-if="Object.keys(groupedNodes).length === 0 && !loading" description="暂无提示词数据" />
     </div>
 
-    <!-- 加载状态 -->
-    <div class="loading-wrap" v-else>
+    <!-- 加载状态（仅提示词广场模式下加载中显示） -->
+    <div class="loading-wrap" v-if="loading && mainTab === 'plaza'">
       <n-spin size="medium">正在加载提示词库...</n-spin>
     </div>
 
@@ -166,7 +187,7 @@
     >
       <div class="import-body">
         <p class="import-hint">
-          支持 <code>prompts_defaults.json</code> 全量或仅含 <code>prompts</code> 数组。按 <code>id</code> 匹配已有节点并更新。
+          支持广场导出 JSON 或仅含 <code>prompts</code> 数组。按 <code>id</code> 匹配已有节点并更新。
         </p>
         <n-upload
           accept=".json,application/json"
@@ -235,6 +256,7 @@ import {
 import { promptPlazaApi, type PromptNode, type PromptCategoryInfo, type PromptStats } from '../../api/llmControl'
 import NodeCard from './promptPlaza/NodeCard.vue'
 import PromptDetailPanel from './promptPlaza/PromptDetailPanel.vue'
+import AntiAIDashboard from './promptPlaza/AntiAIDashboard.vue'
 
 const message = useMessage()
 
@@ -245,6 +267,7 @@ const emit = defineEmits<{
 // ---- 状态 ----
 const loading = ref(true)
 const searchQuery = ref('')
+const mainTab = ref<'plaza' | 'anti-ai'>('plaza')
 const activeCategory = ref<string | null>(null)
 const selectedNode = ref<PromptNode | null>(null)
 const showDetailModal = ref(false)
@@ -443,7 +466,18 @@ onMounted(() => {
   loadData()
 })
 
-defineExpose({ loadData })
+// ★ 供外部联动调用：按 CPMS node_key 选中并打开提示词详情
+function selectNodeByKey(nodeKey: string) {
+  const node = allNodes.value.find(n => n.node_key === nodeKey)
+  if (node) {
+    openDetail(node)
+  } else {
+    // 未找到精确匹配，尝试搜索
+    searchQuery.value = nodeKey
+  }
+}
+
+defineExpose({ loadData, selectNodeByKey })
 </script>
 
 <style scoped>
@@ -501,6 +535,34 @@ defineExpose({ loadData })
   font-weight: 700;
   color: var(--app-text-primary);
   letter-spacing: 0.01em;
+}
+
+/* ---- 主标签切换 ---- */
+.main-tabs {
+  display: flex;
+  gap: 0;
+  padding: 10px 18px 0;
+  border-bottom: 2px solid var(--app-border);
+  flex-shrink: 0;
+}
+.main-tab {
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 20px;
+  cursor: pointer;
+  color: var(--app-text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.main-tab:hover {
+  color: var(--app-text-primary);
+}
+.main-tab.is-active {
+  color: var(--color-brand);
+  border-bottom-color: var(--color-brand);
+  font-weight: 600;
 }
 
 /* ---- 分类标签 ---- */

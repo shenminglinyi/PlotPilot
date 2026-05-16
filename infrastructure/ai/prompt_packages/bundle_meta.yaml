@@ -1,0 +1,6 @@
+version: 4.0.0-prompt-packages
+name: PlotPilot 内置
+description: PlotPilot 提示词库 v2 - 反AI风/爽文沉浸式/上下文强一致性重写版
+author: PlotPilot Team x Anti-AI Style Specialist
+engine: jinja2
+changelog: 'v4: 种子迁移为 prompt_packages（YAML 元数据 + Markdown 正文 + extras.json）'

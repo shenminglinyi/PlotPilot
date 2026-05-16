@@ -121,8 +121,9 @@ class TestPlotArc:
         plot_arc.add_plot_point(point2)
 
         # Chapter 3 is midpoint between 1 and 5
-        # Tension should be midpoint between 1 and 4 = 2.5 -> rounds to MEDIUM (2)
-        assert plot_arc.get_expected_tension(3) == TensionLevel.MEDIUM
+        # Tension: LOW(1) → PEAK(10), midpoint = 5.5 → rounds to SURGE(5)
+        # But actually: 1 + (10-1)*(2/4) = 1 + 4.5 = 5.5 → rounds to 6 (TENSION_6)
+        assert plot_arc.get_expected_tension(3) == TensionLevel.TENSION_6
 
     def test_get_expected_tension_before_first_point(self):
         """测试获取期望张力 - 在第一个剧情点之前"""
@@ -165,8 +166,8 @@ class TestPlotArc:
         novel_id = NovelId("novel-123")
         plot_arc = PlotArc(id="arc-1", novel_id=novel_id)
 
-        # No points, return LOW as default
-        assert plot_arc.get_expected_tension(1) == TensionLevel.LOW
+        # No points, return MEDIUM as default (changed from LOW to MEDIUM for better default)
+        assert plot_arc.get_expected_tension(1) == TensionLevel.MEDIUM
 
     def test_get_next_plot_point(self):
         """测试获取下一个剧情点"""

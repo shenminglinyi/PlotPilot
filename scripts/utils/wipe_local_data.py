@@ -1,4 +1,4 @@
-"""清空本地 SQLite 中所有业务表（保留表结构）。请先停止占用 aitext.db 的后端进程。"""
+"""清空本地 SQLite 中所有业务表（保留表结构）。请先停止占用 plotpilot.db 的后端进程。"""
 from __future__ import annotations
 
 import sqlite3

@@ -13,7 +13,6 @@ _MODULE_ALIASES = {
     "character_indexer": "application.analyst.services.character_indexer",
     "cliche_scanner": "application.audit.services.cliche_scanner",
     "conflict_detection_service": "application.audit.services.conflict_detection_service",
-    "context_builder": "application.engine.services.context_builder",
     "hosted_write_service": "application.engine.services.hosted_write_service",
     "indexing_service": "application.analyst.services.indexing_service",
     "macro_merge_engine": "application.audit.services.macro_merge_engine",

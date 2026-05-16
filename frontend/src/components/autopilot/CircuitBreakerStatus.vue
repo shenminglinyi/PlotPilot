@@ -141,6 +141,7 @@ interface CircuitBreakerData {
 
 const props = defineProps<{
   novelId: string
+  refreshKey?: number  // 🔥 刷新信号，变化时重新拉数据
 }>()
 
 const emit = defineEmits<{
@@ -318,6 +319,11 @@ function stopPolling() {
 // 监听
 watch(() => props.novelId, () => {
   void startPolling()
+})
+
+// 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动）
+watch(() => props.refreshKey, (newKey) => {
+  if (newKey && newKey > 0) void loadBreakerData()
 })
 
 // 生命周期

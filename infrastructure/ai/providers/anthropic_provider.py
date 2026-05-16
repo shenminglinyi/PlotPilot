@@ -94,11 +94,28 @@ class AnthropicProvider(BaseProvider):
             official_client_kw["base_url"] = base
 
         # SDK 内置 httpx 默认 trust_env=True，会走系统 HTTP(S)_PROXY，本机代理 TLS 常导致 ConnectError。
-        _sdk_timeout = httpx.Timeout(300.0)
+        # 🔥 分层超时：避免 API 卡住时整个进程挂起
+        _sdk_timeout = httpx.Timeout(
+            connect=settings.connect_timeout,
+            read=settings.read_timeout,
+            write=60.0,
+            pool=30.0,
+        )
         self._http_client_sync = httpx.Client(timeout=_sdk_timeout, trust_env=False)
         self._http_client_async = httpx.AsyncClient(timeout=_sdk_timeout, trust_env=False)
         self.client = Anthropic(**official_client_kw, http_client=self._http_client_sync)
         self.async_client = AsyncAnthropic(**official_client_kw, http_client=self._http_client_async)
+
+        # 流式端点专用 httpx client（长生命周期，跨请求复用连接池）
+        self._stream_http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=self.settings.connect_timeout,
+                read=self.settings.read_timeout,
+                write=60.0,
+                pool=30.0,
+            ),
+            trust_env=False,
+        )
 
         # 兼容旧字段：若其他模块引用，保留归一化后的值
         self.proxy_base_url = base
@@ -133,9 +150,20 @@ class AnthropicProvider(BaseProvider):
                 "system": prompt.system,
                 "messages": [{"role": "user", "content": prompt.user}],
             }
-            # 如果指定了 response_format，传递给 API 强制 JSON 输出
+            # 🔥 response_format 自适应：
+            # Anthropic 原生支持 json_schema 格式的 response_format（2024+），
+            # 但通过兼容网关（如智谱 Anthropic 兼容端点）可能不支持。
+            # 安全策略：只传递 Anthropic 原生格式的 response_format
             if config.response_format:
-                create_kwargs["response_format"] = config.response_format
+                fmt = config.response_format
+                # OpenAI 格式 → Anthropic 格式自动转换
+                if fmt.get("type") == "json_object":
+                    # Anthropic 没有 json_object，但可以通过 prompt 约束
+                    # 在 system prompt 末尾追加 JSON 输出提示
+                    create_kwargs["system"] = create_kwargs["system"] + "\n\n请只输出有效的 JSON 对象，不要包含其他文字。"
+                elif fmt.get("type") == "json_schema":
+                    # Anthropic 支持 json_schema（需要 API 版本 2024+）
+                    create_kwargs["response_format"] = fmt
 
             # 使用 async_client 避免阻塞 asyncio 事件循环
             response = await self.async_client.messages.create(**create_kwargs)
@@ -209,31 +237,28 @@ class AnthropicProvider(BaseProvider):
         logger.debug(f"[Stream] Calling {url}")
 
         try:
-            async with httpx.AsyncClient(
-                timeout=self.settings.timeout_seconds,
-                trust_env=False,
-            ) as client:
-                async with client.stream(
-                    "POST",
-                    url,
-                    headers=headers,
-                    params=self.settings.extra_query or None,
-                    json=payload,
-                ) as response:
-                    if response.status_code != 200:
-                        error_body = await response.aread()
-                        raise RuntimeError(f"API error {response.status_code}: {error_body.decode()}")
+            # 使用长生命周期 client（跨请求复用连接池，避免每次 stream_generate 重建 TCP+TLS）
+            async with self._stream_http_client.stream(
+                "POST",
+                url,
+                headers=headers,
+                params=self.settings.extra_query or None,
+                json=payload,
+            ) as response:
+                if response.status_code != 200:
+                    error_body = await response.aread()
+                    raise RuntimeError(f"API error {response.status_code}: {error_body.decode()}")
 
-                    buffer = ""
-                    async for chunk in response.aiter_text():
-                        buffer += chunk
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
 
-                        # 解析 SSE 事件
-                        while "\n\n" in buffer:
-                            event_text, buffer = buffer.split("\n\n", 1)
-                            text_content = self._parse_sse_event(event_text)
-                            if text_content:
-                                yield text_content
+                    # 解析 SSE 事件
+                    while "\n\n" in buffer:
+                        event_text, buffer = buffer.split("\n\n", 1)
+                        text_content = self._parse_sse_event(event_text)
+                        if text_content:
+                            yield text_content
 
         except Exception as e:
             logger.error(f"[Stream] Failed: {e}")

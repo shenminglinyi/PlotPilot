@@ -1,0 +1,25 @@
+name: 重构提案
+category: review
+source: application/audit/services/macro_refactor_proposal_service.py::_build_prompt()
+description: 规避'机械降神'，提供符合角色主观能动性的宏观重构计划
+builtin: true
+tags:
+- 审稿
+- 重构
+- tag操作
+output_format: json
+variables:
+- name: author_intent
+  desc: 作者意图
+  type: string
+- name: current_event_summary
+  desc: 当前事件摘要
+  type: string
+- name: current_tags
+  desc: 当前标签
+  type: string
+- name: event_id
+  desc: 事件ID
+  type: string
+id: refactor-proposal
+sort_order: 17

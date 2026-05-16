@@ -1,0 +1,75 @@
+name: 主工作流章节生成 v7（Anti-AI 协议化重写）
+category: generation
+source: application/workflows/auto_novel_generation_workflow.py::_build_prompt()
+description: 'v7: 在v6记忆引擎基础上，全面重构为Anti-AI协议化Prompt。核心协议(P1-P5)替代禁令清单，替换策略(R1-R8)替代空泛规则，场景化豁免白名单机制。预期指令遵循率从60%提升至85%+。'
+builtin: true
+tags:
+- 核心
+- v7
+- Anti-AI协议
+- 高字数
+- 去套路
+- 记忆引擎
+- 行为协议
+variables:
+- name: context
+  desc: 完整上下文（Bible摘要+前情提要）
+  type: string
+  required: true
+- name: outline
+  desc: 本章大纲
+  type: string
+  required: true
+- name: planning_section
+  desc: 故事线/张力/风格约束块
+  type: string
+  required: false
+  default: ''
+- name: voice_block
+  desc: 角色声线锚点
+  type: string
+  required: false
+  default: ''
+- name: behavior_protocol
+  desc: Anti-AI行为协议（Layer 1+2注入）
+  type: string
+  required: false
+  default: ''
+- name: character_state_lock
+  desc: 角色状态锁（Layer 5注入）
+  type: string
+  required: false
+  default: ''
+- name: nervous_habits
+  desc: 角色紧张习惯映射
+  type: string
+  required: false
+  default: ''
+- name: allowlist_block
+  desc: 场景化豁免白名单
+  type: string
+  required: false
+  default: ''
+- name: length_rule
+  desc: 字数规则
+  type: string
+  required: false
+  default: 7. 字数是硬指标：3200-4200字（含标点）。此为下限，冲突场面须充分展开，每个重要对话至少来回三轮以上交锋。宁多勿少。
+- name: beat_extra
+  desc: 节拍模式附加说明
+  type: string
+  required: false
+  default: ''
+- name: beat_section
+  desc: 当前节拍指令
+  type: string
+  required: false
+  default: ''
+- name: fact_lock
+  desc: V6 记忆引擎：FACT_LOCK + COMPLETED_BEATS + REVEALED_CLUES 组合文本块（由 MemoryEngine
+    动态生成）
+  type: string
+  required: false
+  default: ''
+id: chapter-generation-main
+sort_order: 0

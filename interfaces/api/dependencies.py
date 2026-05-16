@@ -28,6 +28,7 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from infrastructure.persistence.database.sqlite_cast_repository import SqliteCastRepository
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
 from infrastructure.persistence.database.sqlite_timeline_repository import SqliteTimelineRepository
+from infrastructure.persistence.database.sqlite_confluence_point_repository import SqliteConfluencePointRepository
 from infrastructure.ai.config.settings import Settings
 from infrastructure.ai.provider_factory import DynamicLLMService, LLMProviderFactory
 from application.ai.llm_control_service import LLMControlService
@@ -238,14 +239,18 @@ def get_beat_sheet_repository():
     return SqliteBeatSheetRepository(get_database())
 
 
+@lru_cache(maxsize=None)
+def get_confluence_point_repository() -> SqliteConfluencePointRepository:
+    return SqliteConfluencePointRepository(get_database())
+
+
 def get_story_node_repository() -> StoryNodeRepository:
     """获取 StoryNode 仓储
 
     Returns:
-        StoryNodeRepository 实例
+        StoryNodeRepository 实例（复用 DatabaseConnection 线程本地连接）
     """
-    db_path = str(DATA_DIR / "aitext.db")
-    return StoryNodeRepository(db_path)
+    return StoryNodeRepository(get_database())
 
 
 # Service 依赖
@@ -301,39 +306,85 @@ def get_background_task_service():
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
     from infrastructure.persistence.database.connection import get_database
 
+    db = get_database()
     return BackgroundTaskService(
         voice_drift_service=get_voice_drift_service(),
         llm_service=get_llm_service(),
         foreshadowing_repo=get_foreshadowing_repository(),
-        triple_repository=TripleRepository(),
+        triple_repository=TripleRepository(db),
         knowledge_service=get_knowledge_service(),
         chapter_indexing_service=get_chapter_indexing_service(),
-        storyline_repository=SqliteStorylineRepository(get_database()),
+        storyline_repository=SqliteStorylineRepository(db),
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
-        narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        narrative_event_repository=SqliteNarrativeEventRepository(db),
     )
 
 
+@lru_cache
 def get_chapter_aftermath_pipeline():
-    """章节保存后统一管线：叙事/向量、文风、KG 推断；三元组与伏笔、故事线、张力、对话、剧情点在叙事同步中一次 LLM 落库。"""
+    """章节保存后统一管线（单例缓存，避免每次 PUT 请求重建 Pipeline + 8 个 Repository）。
+    
+    叙事/向量、文风、KG 推断；三元组与伏笔、故事线、张力、对话、剧情点、因果边、人物状态、债务在叙事同步中一次 LLM 落库。
+    """
     from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
     from infrastructure.persistence.database.triple_repository import TripleRepository
     from infrastructure.persistence.database.sqlite_storyline_repository import SqliteStorylineRepository
     from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
+    from infrastructure.persistence.database.sqlite_causal_edge_repository import SqliteCausalEdgeRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
     from infrastructure.persistence.database.connection import get_database
+
+    db = get_database()
+
+    # ★ V8 Feed-forward: 因果边 / 人物状态 / 叙事债务 仓储
+    causal_edge_repo = None
+    character_state_repo = None
+    debt_repo = None
+    bible_repo = None
+
+    try:
+        causal_edge_repo = SqliteCausalEdgeRepository(db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("CausalEdgeRepository 初始化失败: %s", e)
+
+    try:
+        character_state_repo = SqliteCharacterStateRepository(db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("CharacterStateRepository 初始化失败: %s", e)
+
+    try:
+        debt_repo = SqliteNarrativeDebtRepository(db)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("NarrativeDebtRepository 初始化失败: %s", e)
+
+    try:
+        bible_repo = get_bible_repository()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("BibleRepository 初始化失败: %s", e)
 
     return ChapterAftermathPipeline(
         knowledge_service=get_knowledge_service(),
         chapter_indexing_service=get_chapter_indexing_service(),
         llm_service=get_llm_service(),
         voice_drift_service=get_voice_drift_service(),
-        triple_repository=TripleRepository(),
+        triple_repository=TripleRepository(db),
         foreshadowing_repository=get_foreshadowing_repository(),
-        storyline_repository=SqliteStorylineRepository(get_database()),
+        storyline_repository=SqliteStorylineRepository(db),
         chapter_repository=get_chapter_repository(),
         plot_arc_repository=get_plot_arc_repository(),
-        narrative_event_repository=SqliteNarrativeEventRepository(get_database()),
+        narrative_event_repository=SqliteNarrativeEventRepository(db),
+        causal_edge_repository=causal_edge_repo,
+        character_state_repository=character_state_repo,
+        debt_repository=debt_repo,
+        bible_repository=bible_repo,
+        unified_checkpoint_service=get_unified_checkpoint_service(),
+        prop_lifecycle_syncer=_get_prop_lifecycle_syncer_safe(),
     )
 
 
@@ -389,12 +440,9 @@ def get_bible_service() -> BibleService:
     )
 
 
+@lru_cache
 def get_cast_service() -> CastService:
-    """获取 Cast 服务
-
-    Returns:
-        CastService 实例
-    """
+    """获取 Cast 服务（进程内单例，供关系图 TTL 缓存复用）。"""
     storage = get_storage()
     storage_root = storage.base_path
     return CastService(storage_root, knowledge_repository=get_knowledge_repository())
@@ -587,6 +635,30 @@ def get_context_builder() -> ContextBuilder:
         ContextBuilder 实例
     """
     from infrastructure.persistence.database.triple_repository import TripleRepository
+    from infrastructure.persistence.database.sqlite_causal_edge_repository import SqliteCausalEdgeRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+
+    db = get_database()
+
+    causal_edge_repo = None
+    try:
+        causal_edge_repo = SqliteCausalEdgeRepository(db)
+    except Exception as e:
+        logger.debug("CausalEdgeRepository 不可用（context_builder）: %s", e)
+
+    character_state_repo = None
+    try:
+        character_state_repo = SqliteCharacterStateRepository(db)
+    except Exception as e:
+        logger.debug("CharacterStateRepository 不可用（context_builder）: %s", e)
+
+    debt_repo = None
+    try:
+        debt_repo = SqliteNarrativeDebtRepository(db)
+    except Exception as e:
+        logger.debug("NarrativeDebtRepository 不可用（context_builder）: %s", e)
+
     return ContextBuilder(
         bible_service=get_bible_service(),
         storyline_manager=get_storyline_manager(),
@@ -597,8 +669,15 @@ def get_context_builder() -> ContextBuilder:
         plot_arc_repository=get_plot_arc_repository(),
         embedding_service=get_embedding_service(),
         foreshadowing_repository=get_foreshadowing_repository(),
+        story_node_repository=get_story_node_repository(),
+        bible_repository=get_bible_repository(),
         chapter_element_repository=get_chapter_element_repository(),
         triple_repository=TripleRepository(),
+        causal_edge_repository=causal_edge_repo,
+        character_state_repository=character_state_repo,
+        narrative_debt_repository=debt_repo,
+        storyline_repository=get_storyline_manager().repository,
+        confluence_point_repository=get_confluence_point_repository(),
     )
 
 
@@ -974,4 +1053,101 @@ def get_foreshadow_ledger_service():
     """
     from application.analyst.services.foreshadow_ledger_service import ForeshadowLedgerService
     return ForeshadowLedgerService(get_foreshadowing_repository())
+
+
+def get_checkpoint_store():
+    """获取 Checkpoint 持久化存储（SQLite）
+
+    Returns:
+        CheckpointStore 实例
+    """
+    from engine.infrastructure.persistence.checkpoint_store import CheckpointStore
+    return CheckpointStore(get_database())
+
+
+def get_checkpoint_manager():
+    """获取 Checkpoint 管理器
+
+    Returns:
+        CheckpointManager 实例
+    """
+    from engine.runtime.checkpoint_manager.manager import CheckpointManager
+    return CheckpointManager(get_checkpoint_store())
+
+
+def get_quality_guardrail():
+    """获取质量护栏总控
+
+    Returns:
+        QualityGuardrail 实例
+    """
+    from engine.runtime.quality_guardrails.quality_guardrail import QualityGuardrail
+    return QualityGuardrail()
+
+
+def get_narrative_engine_read_facade():
+    """叙事引擎只读门面（小说家工作流聚合）。"""
+    from application.narrative_engine.read_facade import NarrativeEngineReadFacade
+
+    return NarrativeEngineReadFacade()
+
+
+def get_unified_checkpoint_service():
+    """统一 Checkpoint 服务（世界线管理）。"""
+    from application.checkpoint.services.unified_checkpoint_service import UnifiedCheckpointService
+
+    return UnifiedCheckpointService(
+        db=get_database(),
+        chapter_repository=get_chapter_repository(),
+        foreshadowing_repo=get_foreshadowing_repository(),
+    )
+
+
+def get_unified_prop_repository():
+    """统一道具仓储。"""
+    from infrastructure.persistence.database.unified_prop_repository import SqliteUnifiedPropRepository
+    return SqliteUnifiedPropRepository(get_database())
+
+
+def get_prop_event_repository():
+    """道具事件仓储。"""
+    from infrastructure.persistence.database.sqlite_prop_event_repository import SqlitePropEventRepository
+    return SqlitePropEventRepository(get_database())
+
+
+def _get_prop_lifecycle_syncer_safe():
+    """构建 PropLifecycleSyncer（失败时返回 None，不阻断启动）。"""
+    try:
+        return get_prop_lifecycle_syncer()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("PropLifecycleSyncer 初始化失败（非致命）: %s", e)
+        return None
+
+
+def get_prop_lifecycle_syncer():
+    """构建 PropLifecycleSyncer，注入 PatternExtractor + LlmExtractor + TripleHandler。"""
+    from application.prop.services.lifecycle_syncer import PropLifecycleSyncer
+    from application.prop.extractors.pattern_extractor import PatternExtractor
+    from application.prop.extractors.llm_extractor import LlmExtractor
+    from application.prop.handlers.triple_handler import TriplePropEventHandler
+
+    prop_repo = get_unified_prop_repository()
+    event_repo = get_prop_event_repository()
+    extractors = [PatternExtractor()]
+    try:
+        extractors.append(LlmExtractor(get_llm_service()))
+    except Exception:
+        pass
+    handlers = [TriplePropEventHandler(get_database())]
+    return PropLifecycleSyncer(prop_repo, event_repo, extractors, handlers)
+
+
+def get_unified_prop_context_builder():
+    """构建 PropContextBuilder，供 DAG ctx_prop_state 节点使用。"""
+    from application.prop.services.prop_context_builder import PropContextBuilder
+    return PropContextBuilder(
+        get_unified_prop_repository(),
+        get_prop_event_repository(),
+    )
 

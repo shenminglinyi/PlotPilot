@@ -4,9 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+# 评分失败/未评估的哨兵值
+UNEVALUATED = -1.0
+
+
 @dataclass(frozen=True)
 class TensionDimensions:
-    """多维张力分析结果（所有分值范围 0-100）。
+    """多维张力分析结果（所有分值范围 0-100，未评估时为 -1）。
 
     Attributes:
         plot_tension: 情节张力 — 冲突烈度、悬念密度、信息不对称
@@ -33,8 +37,15 @@ class TensionDimensions:
             val = getattr(self, name)
             if not isinstance(val, (int, float)):
                 raise TypeError(f"{name} must be numeric, got {type(val).__name__}")
-            if not (0.0 <= float(val) <= 100.0):
-                raise ValueError(f"{name} must be 0-100, got {val}")
+            # 允许 -1（未评估哨兵），否则必须在 0-100 范围内
+            fval = float(val)
+            if fval != UNEVALUATED and not (0.0 <= fval <= 100.0):
+                raise ValueError(f"{name} must be 0-100 or -1 (unevaluated), got {val}")
+
+    @property
+    def is_evaluated(self) -> bool:
+        """是否已完成真实评估（排除兜底/失败情况）"""
+        return self.composite_score != UNEVALUATED
 
     @classmethod
     def from_raw_scores(
@@ -61,6 +72,19 @@ class TensionDimensions:
         )
 
     @classmethod
+    def unevaluated(cls) -> TensionDimensions:
+        """返回全维度 -1 的未评估结果（用于评分失败/兜底）。
+
+        与 neutral() 不同，unevaluated 明确标记"没有真实评分"，
+        前端/API 可以区分"张力真的低"和"评分失败了"。
+        """
+        return cls(UNEVALUATED, UNEVALUATED, UNEVALUATED, UNEVALUATED)
+
+    @classmethod
     def neutral(cls) -> TensionDimensions:
-        """返回全维度 50.0 的中性结果（用于兜底）。"""
+        """返回全维度 50.0 的中性结果（用于兜底）。
+
+        ⚠ 已废弃：请使用 unevaluated() 代替。
+        保留此方法仅为向后兼容，新代码应使用 unevaluated()。
+        """
         return cls(50.0, 50.0, 50.0, 50.0)

@@ -152,6 +152,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { foreshadowApi } from '../../api/foreshadow'
+import { isRequestCanceled } from '../../utils/requestCancel'
 
 interface Foreshadow {
   id: string
@@ -166,6 +167,7 @@ interface Foreshadow {
 const props = defineProps<{
   novelId: string
   maxRecent?: number  // 最多显示几条最近伏笔，默认 5
+  refreshKey?: number  // 🔥 刷新信号，变化时重新拉数据
 }>()
 
 const foreshadows = ref<Foreshadow[]>([])
@@ -173,6 +175,8 @@ const showLedgerModal = ref(false)
 const loading = ref(false)
 
 let pollTimer: number | null = null
+// 🔥 请求取消控制器：新请求发出前取消上一个未完成的请求
+let loadAbortController: AbortController | null = null
 
 // 统计
 const totalCount = computed(() => foreshadows.value.length)
@@ -226,24 +230,47 @@ function importanceTagType(importance: string): 'default' | 'info' | 'warning' |
   return map[importance] || 'default'
 }
 
+// 🔥 伏笔列表独立超时：10 秒（远小于全局 120s，避免长时间挂起）
+const FORESHADOW_TIMEOUT_MS = 10_000
+
 // 与片场「伏笔账本」共用 foreshadow-ledger，经 foreshadowApi 与监控统计对齐
 async function loadForeshadows() {
+  // 🔥 取消上一个未完成的请求，防止并发堆积
+  if (loadAbortController) {
+    loadAbortController.abort()
+  }
+  const ac = new AbortController()
+  loadAbortController = ac
+
   loading.value = true
+  const timeoutId = setTimeout(() => ac.abort(), FORESHADOW_TIMEOUT_MS)
   try {
-    const entries = await foreshadowApi.list(props.novelId)
-    foreshadows.value = entries.map((entry) => ({
-      id: entry.id,
-      description: entry.question,
-      importance: 'medium' as const,
-      planted_chapter: entry.chapter,
-      is_collected: entry.status === 'consumed',
-      collected_chapter: entry.consumed_at_chapter ?? undefined,
-      created_at: entry.created_at,
-    }))
+    const entries = await foreshadowApi.list(props.novelId, undefined, {
+      signal: ac.signal,
+      timeout: FORESHADOW_TIMEOUT_MS,
+    })
+    // 🔥 仅在请求未被取消时更新（避免过期响应覆盖新数据）
+    if (!ac.signal.aborted) {
+      foreshadows.value = entries.map((entry) => ({
+        id: entry.id,
+        description: entry.question,
+        importance: 'medium' as const,
+        planted_chapter: entry.chapter,
+        is_collected: entry.status === 'consumed',
+        collected_chapter: entry.consumed_at_chapter ?? undefined,
+        created_at: entry.created_at,
+      }))
+    }
   } catch (err) {
+    if (isRequestCanceled(err)) {
+      return
+    }
     console.error('Failed to load foreshadows:', err)
-    foreshadows.value = []
   } finally {
+    clearTimeout(timeoutId)
+    if (loadAbortController === ac) {
+      loadAbortController = null
+    }
     loading.value = false
   }
 }
@@ -253,12 +280,14 @@ function showFullLedger() {
   showLedgerModal.value = true
 }
 
-// 定时轮询（每 20 秒）
+// 🔥 定时轮询间隔从 20s 提升到 30s（伏笔数据变化不频繁，降低 DB 压力）
+const POLL_INTERVAL_MS = 30_000
+
 function startPolling() {
   loadForeshadows()
   pollTimer = window.setInterval(() => {
     loadForeshadows()
-  }, 20000)
+  }, POLL_INTERVAL_MS)
 }
 
 function stopPolling() {
@@ -266,12 +295,22 @@ function stopPolling() {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  // 🔥 停止轮询时取消进行中的请求
+  if (loadAbortController) {
+    loadAbortController.abort()
+    loadAbortController = null
+  }
 }
 
 // 监听
 watch(() => props.novelId, () => {
   stopPolling()
   startPolling()
+})
+
+// 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动）
+watch(() => props.refreshKey, (newKey) => {
+  if (newKey && newKey > 0) void loadForeshadows()
 })
 
 // 生命周期

@@ -13,7 +13,7 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from infrastructure.persistence.database.sqlite_chapter_repository import SqliteChapterRepository
 from infrastructure.persistence.database.connection import get_database
-from application.paths import DATA_DIR
+from application.paths import get_db_path
 import os
 
 
@@ -22,7 +22,7 @@ router = APIRouter(tags=["story-structure"])
 
 def get_planning_service() -> ContinuousPlanningService:
     """获取 AI 规划服务实例"""
-    db_path = str(DATA_DIR / "aitext.db")
+    db_path = get_db_path()
     story_node_repo = StoryNodeRepository(db_path)
     chapter_element_repo = ChapterElementRepository(db_path)
 
@@ -49,7 +49,7 @@ def get_service(
 
     注入 AI 规划服务，使 create_default_structure 方法能够使用 AI 动态生成结构。
     """
-    db_path = str(DATA_DIR / "aitext.db")
+    db_path = get_db_path()
     repository = StoryNodeRepository(db_path)
     chapter_repo = SqliteChapterRepository(get_database())
     return StoryStructureService(

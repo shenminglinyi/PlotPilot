@@ -1,0 +1,43 @@
+name: 角色对白生成 v2（潜台词反AI）
+category: generation
+source: application/workbench/services/sandbox_dialogue_service.py::build_dialogue_generation_prompt()
+description: v2重写：真实人类不会直说想法。每句台词都是一次博弈、试探或伪装。
+builtin: true
+tags:
+- v2
+- 对白
+- 潜台词
+- 声线
+variables:
+- name: character_name
+  desc: 目标角色名
+  type: string
+- name: description
+  desc: 人设描述
+  type: string
+- name: public_profile
+  desc: 公开档案
+  type: string
+- name: mental_state
+  desc: 心理状态
+  type: string
+- name: verbal_tic
+  desc: 口头禅
+  type: string
+- name: idle_behavior
+  desc: 常见动作
+  type: string
+- name: relationship_block
+  desc: 角色关系
+  type: string
+- name: related_block
+  desc: 场景相关角色
+  type: string
+- name: history_block
+  desc: 历史对白样本
+  type: string
+- name: scene_text
+  desc: 当前场景
+  type: string
+id: dialogue-generation
+sort_order: 3

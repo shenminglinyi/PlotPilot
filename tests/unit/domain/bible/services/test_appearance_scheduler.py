@@ -1,7 +1,7 @@
 import pytest
 # Import directly from module files to avoid circular import
 import sys
-sys.path.insert(0, '/d/CODE/aitext')
+sys.path.insert(0, '/d/CODE/Plotpilot')
 from domain.bible.entities.character import Character
 from domain.bible.value_objects.character_id import CharacterId
 from domain.bible.value_objects.character_importance import CharacterImportance

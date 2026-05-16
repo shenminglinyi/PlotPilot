@@ -4,7 +4,7 @@
       <span class="pulse-dot"></span>
       <span class="header-text">
         正在生成第 {{ chapterNumber }} 章
-        <span v-if="chapterNumber > 0" class="beat-badge">节拍 {{ (beatIndex || 0) + 1 }}</span>
+        <span v-if="beatIndex > 0" class="beat-badge">节拍 {{ beatIndex }}</span>
       </span>
       <span class="word-count">{{ wordCount }} 字</span>
     </div>
@@ -52,10 +52,10 @@ function startStream() {
       displayContent.value = ''
       beatIndex.value = 0
     },
-    onChapterContent: (data) => {
-      chapterNumber.value = data.chapterNumber
-      displayContent.value = data.content
-      beatIndex.value = data.beatIndex
+    // 🔥 流式增量文字：直接追加显示
+    onChapterChunk: (chunk, beatIdx) => {
+      displayContent.value += chunk
+      beatIndex.value = beatIdx
 
       // 自动滚动到底部
       nextTick(() => {
@@ -63,12 +63,20 @@ function startStream() {
           contentEl.value.scrollTop = contentEl.value.scrollHeight
         }
       })
+    },
+    onChapterContent: (data) => {
+      chapterNumber.value = data.chapterNumber
+      // 兜底：如果增量漏了，用完整内容覆盖
+      if (data.content && data.content.length > displayContent.value.length) {
+        displayContent.value = data.content
+      }
+      beatIndex.value = data.beatIndex
 
       // 向父组件发送内容更新
       emit('content-update', {
         chapterNumber: data.chapterNumber,
-        content: data.content,
-        wordCount: data.wordCount
+        content: displayContent.value,
+        wordCount: displayContent.value.length
       })
     },
     onAutopilotStopped: () => {

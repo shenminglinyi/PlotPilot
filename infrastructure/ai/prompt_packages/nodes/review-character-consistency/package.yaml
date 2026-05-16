@@ -1,0 +1,22 @@
+name: 人物一致性检查 v2（OOC+AI味双检）
+category: review
+source: application/audit/services/chapter_review_service.py::_build_character_consistency_prompt()
+description: v2：不仅查OOC，还查AI模板化表达、情绪副词滥用、套路化动作
+builtin: true
+tags:
+- v2
+- 审稿
+- OOC
+- 反AI风
+variables:
+- name: character_name
+  desc: 角色名称
+  type: string
+- name: character_profile
+  desc: 角色设定（JSON）
+  type: object
+- name: chapter_content
+  desc: 章节内容
+  type: string
+id: review-character-consistency
+sort_order: 12

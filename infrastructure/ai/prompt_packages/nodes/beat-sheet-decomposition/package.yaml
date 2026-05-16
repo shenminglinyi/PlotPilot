@@ -1,0 +1,43 @@
+name: 节拍表拆解
+category: planning
+source: application/blueprint/services/beat_sheet_service.py::_build_beat_sheet_prompt()
+description: 将章纲拆解为实战可写的场景/续场 (Scene & Sequel) 结构
+builtin: true
+tags:
+- 规划
+- 节拍
+- JSON输出
+output_format: json
+contract_module: application.ai.beat_sheet_llm_contract
+contract_model: BeatSheetLlmPayload
+variables:
+- name: outline
+  desc: 章节大纲
+  type: string
+  required: true
+- name: characters_block
+  desc: 主要人物
+  type: string
+  default: ''
+- name: storylines_block
+  desc: 活跃故事线
+  type: string
+  default: ''
+- name: previous_chapter_block
+  desc: 前一章节
+  type: string
+  default: ''
+- name: foreshadowings_block
+  desc: 相关伏笔
+  type: string
+  default: ''
+- name: locations_block
+  desc: 可用地点
+  type: string
+  default: ''
+- name: timeline_block
+  desc: 时间线事件
+  type: string
+  default: ''
+id: beat-sheet-decomposition
+sort_order: 18

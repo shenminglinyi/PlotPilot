@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 环境检测与自动修复
+PlotPilot 环境检测与自动修复
 ━━━━━━━━━━━━━━━━━━━━━━
 对小白用户友好的环境自检流程:
   1. Python 版本检测（≥3.10）
@@ -265,7 +265,7 @@ class EnvChecker:
             else:
                 default_content = (
                     "# ══════════════════════════════════\n"
-                    "# aitex 配置文件\n"
+                    "# PlotPilot 配置文件\n"
                     "# 请填写你的 API Key 后保存\n"
                     "# ══════════════════════════════════\n"
                     "\n"
@@ -275,7 +275,7 @@ class EnvChecker:
                     "ARK_TIMEOUT=120\n"
                     "\n"
                     "LOG_LEVEL=INFO\n"
-                    "LOG_FILE=logs/aitext.log\n"
+                    "LOG_FILE=logs/plotpilot.log\n"
                 )
                 with open(env_path, "w", encoding="utf-8") as f:
                     f.write(default_content)

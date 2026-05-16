@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 依赖安装器
+PlotPilot 依赖安装器
 ━━━━━━━━━━━━━━
 pip install 的 GUI 封装，支持分级安装策略：
 
@@ -196,7 +196,7 @@ class PipInstaller:
         # 清空旧日志
         try:
             with open(self._log_file, "w", encoding="utf-8") as f:
-                f.write(f"=== aitext pip install log ===\n")
+                f.write(f"=== PlotPilot pip install log ===\n")
                 f.write(f"time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write(f"req_file: {req_file_name}\n")
                 f.write(f"venv_py: {self.venv_py}\n")

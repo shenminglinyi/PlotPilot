@@ -1,0 +1,19 @@
+name: 世界观与文风生成
+category: world
+source: infrastructure/ai/prompts/prompts_defaults.json
+description: 生成避免悬浮感、具有厚重社会生态的 5 维度世界观体系
+builtin: true
+tags:
+- 世界观
+- 文风
+output_format: json
+variables:
+- name: premise
+  desc: 故事创意
+  type: string
+- name: existing_settings
+  desc: 已有设定
+  type: string
+  default: ''
+id: bible-worldbuilding
+sort_order: 27

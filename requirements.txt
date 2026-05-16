@@ -1,5 +1,5 @@
 # ════════════════════════════════════════════
-# aitext — 核心依赖（轻量级，秒级安装）
+# PlotPilot — 核心依赖（轻量级，秒级安装）
 # ════════════════════════════════════════════
 #
 # 用法: pip install -r requirements.txt
@@ -30,6 +30,7 @@ volcengine-python-sdk[ark]>=1.0.0
 
 # ── 工具库 ──
 python-dotenv>=1.0.0
+PyYAML>=6.0.1
 json-repair>=0.30.0
 
 # ── 导出（DOCX / EPUB / PDF）──

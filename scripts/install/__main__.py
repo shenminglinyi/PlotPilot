@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-aitex 启动器入口 (Bootstrap)
+PlotPilot 启动器入口 (Bootstrap)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 PyInstaller 真正的入口文件。
 通过 exec 方式加载 hub.py，绕过 PyInstaller 静态 import 分析。
@@ -89,7 +89,7 @@ def main():
             pass
         # 也尝试写到一个绝对确定能写的位置
         try:
-            with open(r"C:\temp\aitex_exec_crash.log", "w", encoding="utf-8") as f:
+            with open(r"C:\temp\plotpilot_exec_crash.log", "w", encoding="utf-8") as f:
                 f.write(f"Error: {e}\n\n{tb}\n")
         except Exception:
             pass
@@ -100,7 +100,7 @@ def main():
                 import tkinter as tk
                 from tkinter import scrolledtext
                 root = tk.Tk()
-                root.title("aitext - 启动失败")
+                root.title("PlotPilot - 启动失败")
                 root.attributes("-topmost", True)
                 # 居中
                 sw = root.winfo_screenwidth()
@@ -111,7 +111,7 @@ def main():
                 root.geometry(f"{w}x{h}+{x}+{y}")
                 root.resizable(False, False)
 
-                tk.Label(root, text="aitex 启动失败",
+                tk.Label(root, text="PlotPilot 启动失败",
                          font=("Arial", 16, "bold"), fg="#dc2626",
                          bg="#1e1e2e").pack(fill="x", pady=(20, 10))
                 tk.Label(root, text=str(e)[:200],
