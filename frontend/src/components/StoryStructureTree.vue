@@ -1,40 +1,72 @@
 <template>
   <div class="story-structure" @click="closeMenu">
     <div class="structure-body" v-if="displayTreeData.length > 0">
-      <div v-if="isMacroPreviewTree" class="macro-preview-ribbon">
-        预览骨架 · 每次挂载一整条部 / 卷 / 幕（完整节点，非字符流）；落库后切换为左侧正式结构
+      <div class="structure-tree-inner">
+        <div v-if="isMacroPreviewTree" class="macro-preview-ribbon">
+          <div class="macro-preview-ribbon__row">
+            <span class="macro-preview-ribbon__pulse" aria-hidden="true" />
+            <span class="macro-preview-ribbon__text">
+              预览中：部 / 卷 / 幕逐条载入；写入完成后切换为正式结构树
+            </span>
+          </div>
+        </div>
+        <n-tree
+          :data="displayTreeData"
+          :node-props="nodeProps"
+          :render-label="renderLabel"
+          :render-suffix="renderSuffix"
+          :selected-keys="selectedKeys"
+          v-model:expanded-keys="expandedKeys"
+          block-line
+          expand-on-click
+          selectable
+          @update:selected-keys="handleSelect"
+        />
+        <div
+          v-if="showMacroPreviewTailLoading"
+          class="macro-preview-tail-loading"
+          aria-busy="true"
+          aria-label="下一批节点生成中"
+        >
+          <n-spin size="small" />
+          <div class="macro-preview-tail-loading__track">
+            <span class="macro-preview-tail-loading__shimmer" />
+          </div>
+        </div>
       </div>
-      <n-tree
-        :data="displayTreeData"
-        :node-props="nodeProps"
-        :render-label="renderLabel"
-        :render-suffix="renderSuffix"
-        :selected-keys="selectedKeys"
-        v-model:expanded-keys="expandedKeys"
-        block-line
-        expand-on-click
-        selectable
-        @update:selected-keys="handleSelect"
-      />
     </div>
 
     <div v-else class="structure-empty-wrap">
-      <!-- 宏观规划：仅接收完整节点事件挂载树；不展示模型原始字符流 -->
-      <div v-if="autopilotEmptyMode === 'planning'" class="structure-macro-live">
-        <div class="macro-live-status">
-          <span class="macro-live-dot" :class="{ 'is-live': macroWatchAlive }" aria-hidden="true" />
-          <span class="macro-live-text">{{ macroLiveHeadline }}</span>
-        </div>
-        <p v-if="macroPlanningSubtitle" class="macro-live-sub macro-live-sub--compact">{{ macroPlanningSubtitle }}</p>
-        <p v-if="macroWatchError" class="macro-live-error">{{ macroWatchError }}</p>
-        <div
-          v-if="showMacroPlanningSkeleton"
-          class="macro-planning-skeleton-line"
-          aria-busy="true"
-          aria-label="等待首个结构节点"
-        >
-          <n-spin size="small" />
-          <n-skeleton height="14" round class="macro-planning-skeleton-bar" />
+      <!-- 宏观规划：流未结束前始终有 loading；无节点时空态骨架，有节点时树下方骨架表示仍可能还有下一条 -->
+      <div
+        v-if="autopilotEmptyMode === 'planning'"
+        class="macro-planning-card"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="macro-planning-card__content">
+          <div class="macro-planning-card__header">
+            <n-spin v-if="macroPlanLoadingMore" size="small" />
+            <div class="macro-planning-card__titles">
+              <span class="macro-planning-card__headline">{{ macroLiveHeadline }}</span>
+            </div>
+          </div>
+          <p v-if="macroPlanningSubtitle" class="macro-planning-card__hint">{{ macroPlanningSubtitle }}</p>
+          <p v-else-if="macroPlanLoadingMore" class="macro-planning-card__hint macro-planning-card__hint--muted">
+            生成进行中。结构节点将逐条出现，未完成前下方会显示加载占位。
+          </p>
+          <p v-if="macroWatchError" class="macro-live-error">{{ macroWatchError }}</p>
+          <div
+            v-if="showMacroPlanningSkeleton"
+            class="macro-planning-placeholder"
+            aria-busy="true"
+            aria-label="等待结构节点"
+          >
+            <div class="macro-planning-placeholder__track">
+              <span class="macro-planning-placeholder__shimmer" />
+            </div>
+            <span class="macro-planning-placeholder__spin"><n-spin size="small" /></span>
+          </div>
         </div>
       </div>
 
@@ -94,7 +126,7 @@
 
 <script setup lang="ts">
 import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
-import { NTree, NEmpty, NSpin, NTag, NSpace, NSkeleton, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
+import { NTree, NEmpty, NSpin, NTag, NSpace, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
 import { resolveHttpUrl } from '@/api/config'
@@ -133,7 +165,6 @@ const expandedKeys = ref<string[]>([])
 const autopilotEmptyMode = ref<null | 'planning' | 'review'>(null)
 
 let macroPlanWatchCtrl: AbortController | null = null
-const macroSseActive = ref(false)
 /** SSE 不可用时仍轮询 GET macro/progress，避免界面永远停在「骨架」态 */
 const macroProgressPolling = ref(false)
 let macroProgressPollTimer: ReturnType<typeof setInterval> | null = null
@@ -149,25 +180,21 @@ function clearMacroProgressPoll() {
 const macroWatchError = ref('')
 const macroLiveMessage = ref('')
 const macroPreviewRoots = ref<PlanningStoryNode[]>([])
-
-const macroWatchAlive = computed(
-  () =>
-    autopilotEmptyMode.value === 'planning' &&
-    !macroWatchError.value &&
-    (macroSseActive.value || macroProgressPolling.value),
-)
+/** 流式/SSE 未宣告结束：空态与预览树尾部持续 loading + 骨架 */
+const macroPlanLoadingMore = ref(false)
 
 const macroLiveHeadline = computed(() => {
-  if (macroWatchError.value) return '宏观规划异常'
-  if (macroPreviewRoots.value.length > 0) return '正在挂载叙事骨架'
-  return '正在生成叙事结构…'
+  if (macroWatchError.value) return '规划未完成'
+  if (macroPreviewRoots.value.length > 0) return '预览结构加载中'
+  return '正在生成叙事结构'
 })
 
-/** 尚无任一完整节点时：单行占位（有节点后改在树上逐条展示） */
+/** 尚无节点且流未结束：卡片内骨架 */
 const showMacroPlanningSkeleton = computed(
   () =>
     autopilotEmptyMode.value === 'planning' &&
     !macroWatchError.value &&
+    macroPlanLoadingMore.value &&
     treeData.value.length === 0 &&
     macroPreviewRoots.value.length === 0,
 )
@@ -188,7 +215,6 @@ const macroPlanningSubtitle = computed(() => {
 function stopMacroPlanWatch() {
   macroPlanWatchCtrl?.abort()
   macroPlanWatchCtrl = null
-  macroSseActive.value = false
 }
 
 function snapshotMacroPreviewRoots(nodes: PlanningStoryNode[]): PlanningStoryNode[] {
@@ -313,11 +339,13 @@ function startMacroProgressPoll(slug: string) {
         macroLiveMessage.value = prog.message.trim()
       }
       if (prog.status === 'completed') {
+        macroPlanLoadingMore.value = false
         await loadTreeAfterMacroPersist()
         clearMacroProgressPoll()
         return
       }
       if (prog.status === 'failed') {
+        macroPlanLoadingMore.value = false
         macroWatchError.value = prog.message || '宏观规划失败'
         clearMacroProgressPoll()
       }
@@ -335,10 +363,11 @@ watch(
     macroWatchError.value = ''
     macroLiveMessage.value = ''
     macroPreviewRoots.value = []
+    macroPlanLoadingMore.value = false
     if (!planning || !props.slug) return
+    macroPlanLoadingMore.value = true
     startMacroProgressPoll(props.slug)
     macroLiveMessage.value = '正在连接宏观规划 SSE…'
-    macroSseActive.value = true
     macroPlanWatchCtrl = watchMacroPlanProgress(props.slug, {
       onStatus: (e) => {
         if (e.message) macroLiveMessage.value = e.message
@@ -347,6 +376,7 @@ watch(
         mergeMacroPreviewNode(n)
       },
       onTerminal: async (t: MacroProgressWatchTerminalEvent) => {
+        macroPlanLoadingMore.value = false
         stopMacroPlanWatch()
         clearMacroProgressPoll()
         if (t.status === 'completed') {
@@ -361,7 +391,7 @@ watch(
         /* 不塞 macroWatchError，以便轮询在 completed 时仍能拉树 */
       },
       onStreamClosed: () => {
-        macroSseActive.value = false
+        /* 连接关闭不代表流结束，以 terminal / 轮询 completed 为准 */
       },
     })
   },
@@ -490,6 +520,15 @@ const displayTreeData = computed(() => {
 
 const isMacroPreviewTree = computed(
   () => treeData.value.length === 0 && macroPreviewRoots.value.length > 0,
+)
+
+/** 预览树已部分展示、流未结束：树下方占位，表示仍可能有下一条节点 */
+const showMacroPreviewTailLoading = computed(
+  () =>
+    autopilotEmptyMode.value === 'planning' &&
+    isMacroPreviewTree.value &&
+    !macroWatchError.value &&
+    macroPlanLoadingMore.value,
 )
 
 /** 收集所有非章节节点的 key，用于自动展开 */
@@ -824,6 +863,93 @@ defineExpose({ loadTree })
   flex: 1;
   overflow: auto;
 }
+
+.structure-tree-inner {
+  min-height: 100%;
+}
+
+.macro-preview-ribbon {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-secondary, var(--n-text-color-2));
+  padding: 8px 12px;
+  margin: 0 0 10px;
+  border-radius: var(--n-border-radius, 8px);
+  background: var(--app-surface-subtle, var(--n-color-embedded));
+  border: 1px solid var(--plotpilot-split-border, var(--n-border-color));
+}
+
+.macro-preview-ribbon__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.macro-preview-ribbon__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.macro-preview-ribbon__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--n-primary-color);
+  opacity: 0.88;
+  animation: macro-ribbon-dot-breathe 1.8s ease-in-out infinite;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--n-primary-color) 35%, transparent);
+}
+
+@keyframes macro-ribbon-dot-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.macro-preview-tail-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--n-border-radius, 8px);
+  border: 1px dashed var(--app-border-soft, var(--n-border-color));
+  background: color-mix(in srgb, var(--n-primary-color) 6%, var(--app-surface, var(--n-color)));
+}
+
+.macro-preview-tail-loading__track {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--n-text-color-3) 14%, transparent);
+  overflow: hidden;
+}
+
+.macro-preview-tail-loading__shimmer {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--n-primary-color) 50%, transparent) 45%,
+    color-mix(in srgb, var(--n-primary-color) 70%, transparent) 55%,
+    transparent
+  );
+  animation: macro-shimmer-slide 2.1s ease-in-out infinite;
+}
+
 .structure-empty-wrap {
   flex: 1;
   min-height: 0;
@@ -832,86 +958,112 @@ defineExpose({ loadTree })
   padding: 40px 0;
 }
 
-.macro-preview-ribbon {
-  font-size: 11px;
-  color: var(--n-text-color-3);
-  padding: 6px 10px;
-  margin: 0 0 8px;
-  border-radius: 6px;
-  background: rgba(128, 128, 128, 0.08);
+.macro-planning-card {
+  margin: 8px 10px 16px;
+  border-radius: var(--n-border-radius, 8px);
+  border: 1px solid var(--plotpilot-split-border, var(--n-border-color));
+  background: var(--app-surface, var(--n-color));
 }
 
-.structure-macro-live {
-  padding: 12px 12px 20px;
+.macro-planning-card__content {
+  padding: 14px 12px;
 }
 
-.macro-live-status {
+.macro-planning-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.macro-planning-card__titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.macro-planning-card__headline {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text-primary, var(--n-text-color-1));
+  line-height: 1.4;
+}
+
+.macro-planning-card__hint {
+  margin: 10px 0 0;
+  padding-left: 34px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--app-text-secondary, var(--n-text-color-3));
+}
+
+.macro-planning-card__hint--muted {
+  opacity: 0.95;
+}
+
+.macro-planning-placeholder {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 12px;
+  border-radius: var(--n-border-radius, 8px);
+  background: color-mix(in srgb, var(--n-primary-color) 5%, var(--app-surface, var(--n-color)));
+  border: 1px dashed var(--app-border-soft, var(--n-border-color));
 }
 
-.macro-live-dot {
-  width: 8px;
+.macro-planning-placeholder__track {
+  flex: 1;
   height: 8px;
-  border-radius: 50%;
-  background: var(--n-text-color-3);
-  flex-shrink: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--n-text-color-3) 14%, transparent);
+  overflow: hidden;
 }
 
-.macro-live-dot.is-live {
-  background: #18a058;
-  box-shadow: 0 0 0 3px rgba(24, 160, 88, 0.22);
-  animation: macro-dot-pulse 1.4s ease-in-out infinite;
+.macro-planning-placeholder__shimmer {
+  display: block;
+  height: 100%;
+  width: 42%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--n-primary-color) 45%, transparent) 40%,
+    color-mix(in srgb, var(--n-primary-color) 65%, transparent) 50%,
+    color-mix(in srgb, var(--n-primary-color) 45%, transparent) 60%,
+    transparent
+  );
+  animation: macro-shimmer-slide 2.1s ease-in-out infinite;
 }
 
-@keyframes macro-dot-pulse {
-  50% {
-    opacity: 0.45;
+@keyframes macro-shimmer-slide {
+  0% {
+    transform: translateX(-105%);
+  }
+  100% {
+    transform: translateX(320%);
   }
 }
 
-.macro-live-text {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.macro-live-sub {
-  margin: 0 0 12px;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--n-text-color-3);
-  text-align: center;
+.macro-planning-placeholder__spin {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  opacity: 0.9;
 }
 
 .macro-live-error {
-  margin: 0 0 12px;
+  margin: 8px 0 0;
+  padding-left: 34px;
   font-size: 12px;
-  color: #d03050;
-  text-align: center;
+  color: var(--n-error-color, #d03050);
+  line-height: 1.45;
 }
 
-.macro-live-sub--compact {
-  margin: 0 0 10px;
-  font-size: 11px;
-}
-
-.macro-planning-skeleton-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 12px;
-  padding: 12px 10px;
-  border-radius: 10px;
-  border: 1px dashed var(--n-border-color);
-  background: rgba(128, 128, 128, 0.04);
-}
-
-.macro-planning-skeleton-bar {
-  flex: 1;
-  max-width: 88%;
+@media (prefers-reduced-motion: reduce) {
+  .macro-preview-ribbon__pulse,
+  .macro-preview-tail-loading__shimmer,
+  .macro-planning-placeholder__shimmer {
+    animation: none !important;
+  }
 }
 
 .node-label {

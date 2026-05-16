@@ -252,7 +252,9 @@ function showAggregatedFeedbackNotification(
   const preferDl = preferDownloadForDetail(merged.detail)
   const codes = [...new Set(batch.map(b => String(b.meta.axios?.status ?? '?')))].join(', ')
 
-  const previewLine = `${batch.slice(0, 2).map(axiosRouteShort).join(' · ')}${batch.length > 2 ? ` 等 ${batch.length} 条` : ''}`
+  const headLine = batch.slice(0, 2).map(axiosRouteShort).join(' · ')
+  const previewLine =
+    batch.length <= 2 ? headLine : `${headLine} · …（共 ${batch.length} 条，点击下方展开明细）`
 
   notification.create({
     title: merged.summary,
