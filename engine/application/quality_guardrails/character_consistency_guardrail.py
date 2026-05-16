@@ -42,12 +42,26 @@ class ConsistencyViolation:
             "ooc": "OOC(角色脱离设定)",
             "voice_mismatch": "语言指纹不一致",
             "wound_trigger_miss": "创伤反应缺失",
+            "thin_profile": "人设信息不足（专业向）",
         }
         return names.get(self.violation_type, self.violation_type)
 
 
 class CharacterConsistencyGuardrail:
     """角色一致性守门人"""
+
+    @staticmethod
+    def _mask_has_editorial_signals(mask: CharacterMask) -> bool:
+        """是否具备可审稿的人设约束字段（区别于仅有姓名的占位面具）。"""
+        if (mask.core_belief or "").strip():
+            return True
+        if mask.moral_taboos:
+            return True
+        if mask.voice_style and str(mask.voice_style).strip() not in ("", "default"):
+            return True
+        if mask.active_wounds:
+            return True
+        return False
 
     # Unicode引号字符常量
     _LEFT_DOUBLE = '\u201c'   # "
@@ -114,6 +128,25 @@ class CharacterConsistencyGuardrail:
 
             # 3. 创伤反应验证
             violations.extend(self._check_wound_trigger(text, mask))
+
+        if character_masks:
+            has_signal = any(
+                self._mask_has_editorial_signals(m) for m in character_masks.values()
+            )
+            if not has_signal:
+                violations.append(
+                    ConsistencyViolation(
+                        violation_type="thin_profile",
+                        character_name="(全体登场角色)",
+                        severity=0.62,
+                        description=(
+                            "仅有姓名字段的占位人设，无法进行编辑级行为/台词核验；该项分数按『未审评』折价。"
+                        ),
+                        suggestion=(
+                            "为关键角色补足核心信念、禁忌、语言指纹或创伤触发，或由面具管线写入后再跑护栏。"
+                        ),
+                    )
+                )
 
         if not violations:
             return 1.0, []
