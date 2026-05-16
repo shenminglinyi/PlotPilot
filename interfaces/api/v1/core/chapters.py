@@ -1,6 +1,6 @@
 """Chapter API 路由"""
 import logging
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
@@ -163,18 +163,22 @@ async def get_chapter(
 
 @router.get(
     "/{novel_id}/chapters/{chapter_number}/guardrail-snapshot",
-    response_model=GuardrailCheckResponse,
+    response_model=Optional[GuardrailCheckResponse],
 )
 @router.get(
     "/{novel_id}/chapters/{chapter_number}/guardrail-snapshot/",
-    response_model=GuardrailCheckResponse,
+    response_model=Optional[GuardrailCheckResponse],
     include_in_schema=False,
 )
 async def get_guardrail_snapshot(
     novel_id: str,
     chapter_number: int = Path(..., gt=0, description="章节编号"),
 ):
-    """最近一次保存后自动护栏（建议模式）的快照；无快照时 404。"""
+    """最近一次保存后自动护栏（建议模式）的快照。
+
+    尚无快照时返回 HTTP 200 + JSON ``null``（避免客户端轮询刷 404 日志）。
+    快照在章节 PUT 保存并由章后管线写入 ``chapter_guardrail_snapshots`` 后可用。
+    """
     from infrastructure.persistence.database.chapter_guardrail_snapshot_repository import (
         ChapterGuardrailSnapshotRepository,
     )
@@ -183,10 +187,7 @@ async def get_guardrail_snapshot(
     repo = ChapterGuardrailSnapshotRepository(get_database())
     snap = repo.get(novel_id, chapter_number)
     if not snap:
-        raise HTTPException(
-            status_code=404,
-            detail="尚无护栏快照：保存章节正文后将在后台自动运行建议模式检查",
-        )
+        return None
     return GuardrailCheckResponse.model_validate(snap)
 
 
