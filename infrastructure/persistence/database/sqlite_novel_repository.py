@@ -6,6 +6,7 @@ from typing import Optional, List
 from datetime import datetime
 from domain.novel.entities.novel import Novel, AutopilotStatus, NovelStage
 from domain.novel.value_objects.novel_id import NovelId
+from domain.novel.value_objects.generation_preferences import GenerationPreferences
 from domain.novel.repositories.novel_repository import NovelRepository
 from infrastructure.persistence.database.connection import DatabaseConnection
 from infrastructure.persistence.database.sqlite_corruption import is_sqlite_storage_corruption
@@ -41,10 +42,10 @@ class SqliteNovelRepository(NovelRepository):
                 last_audit_narrative_ok, last_audit_at,
                 last_audit_vector_stored, last_audit_foreshadow_stored,
                 last_audit_triples_extracted, last_audit_quality_scores, last_audit_issues,
-                target_words_per_chapter, audit_progress,
+                target_words_per_chapter, audit_progress, generation_prefs_json,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 slug = excluded.slug,
@@ -74,6 +75,7 @@ class SqliteNovelRepository(NovelRepository):
                 last_audit_issues = excluded.last_audit_issues,
                 target_words_per_chapter = excluded.target_words_per_chapter,
                 audit_progress = excluded.audit_progress,
+                generation_prefs_json = excluded.generation_prefs_json,
                 updated_at = excluded.updated_at
         """
         now = datetime.utcnow().isoformat()
@@ -109,6 +111,11 @@ class SqliteNovelRepository(NovelRepository):
         lai_json = json.dumps(lai) if lai else None
         twpc = getattr(novel, "target_words_per_chapter", 2500)
         audit_progress = getattr(novel, "audit_progress", None)
+        _gp = getattr(novel, "generation_prefs", None)
+        if _gp is not None and hasattr(_gp, "to_dict"):
+            generation_prefs_json = json.dumps(_gp.to_dict(), ensure_ascii=False)
+        else:
+            generation_prefs_json = json.dumps(GenerationPreferences().to_dict(), ensure_ascii=False)
 
         self.db.execute(sql, (
             novel_id,
@@ -140,6 +147,7 @@ class SqliteNovelRepository(NovelRepository):
             lai_json,
             twpc,
             audit_progress,
+            generation_prefs_json,
             now,
             now
         ))
@@ -316,7 +324,9 @@ class SqliteNovelRepository(NovelRepository):
         laqs = json.loads(laqs_json) if laqs_json else {}
         lai_json = row.get("last_audit_issues")
         lai = json.loads(lai_json) if lai_json else []
-        
+
+        generation_prefs = GenerationPreferences.from_json(row.get("generation_prefs_json"))
+
         return Novel(
             id=novel_id,
             title=row['title'],
@@ -346,6 +356,7 @@ class SqliteNovelRepository(NovelRepository):
             last_audit_issues=lai,
             target_words_per_chapter=row.get("target_words_per_chapter", 2500),
             audit_progress=row.get("audit_progress"),
+            generation_prefs=generation_prefs,
         )
 
     def delete(self, novel_id: NovelId) -> None:
