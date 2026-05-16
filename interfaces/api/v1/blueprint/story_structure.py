@@ -168,6 +168,8 @@ async def delete_node(
         if not success:
             raise HTTPException(status_code=404, detail="Node not found")
         return {"success": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
