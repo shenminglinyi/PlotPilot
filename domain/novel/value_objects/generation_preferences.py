@@ -19,6 +19,8 @@ class GenerationPreferences:
     # 覆盖 ChapterConductor 阈值；None 表示用类默认
     conductor_converge_threshold: Optional[float] = None
     conductor_land_threshold: Optional[float] = None
+    # 落盘前将段内碎片换行连片（逗号衔接）；默认关闭
+    inline_prose_aggregation_enabled: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -63,12 +65,18 @@ class GenerationPreferences:
             converge = None
         if land_v is not None and not 0.0 < land_v <= 1.0:
             land_v = None
+        # 新键：缺省为关闭（不向旧库突然改变落盘形态）
+        if "inline_prose_aggregation_enabled" not in raw:
+            inline_prose_aggregation_enabled = False
+        else:
+            inline_prose_aggregation_enabled = bool(raw["inline_prose_aggregation_enabled"])
         return cls(
             phase_display_mode=phase_display_mode,
             smart_truncate_enabled=smart_truncate_enabled,
             beat_hard_cap_enabled=beat_hard_cap_enabled,
             conductor_converge_threshold=converge,
             conductor_land_threshold=land_v,
+            inline_prose_aggregation_enabled=inline_prose_aggregation_enabled,
         )
 
     @classmethod
