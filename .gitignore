@@ -160,12 +160,6 @@ drafts/
 # DAG 版本数据（已迁移到数据库，目录已清理）
 
 
-# 数据库文件
-data/*.db
-data/*.db-shm
-data/*.db-wal
-
-# 草稿文件
-data/drafts/
-
-*.md
+# ── 运行时数据目录（整体忽略） ──
+data/
+!data/.gitkeep
