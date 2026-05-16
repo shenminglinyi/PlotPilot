@@ -72,16 +72,6 @@
                   }}
                 </n-tag>
               </div>
-              <div class="modal-header-actions">
-                <n-button
-                  v-if="drawerTab === 'llm'"
-                  size="small"
-                  secondary
-                  @click="modelSettingsModalRef?.open()"
-                >
-                  核心引擎
-                </n-button>
-              </div>
             </div>
 
             <div class="ai-console-header-stack">
@@ -315,8 +305,6 @@
         </template>
       </n-modal>
 
-      <!-- 核心引擎配置模态框 -->
-      <ModelSettingsModal ref="modelSettingsModalRef" />
     </teleport>
   </div>
 </template>
@@ -331,7 +319,6 @@ import {
 } from '../../api/llmControl'
 import { settingsApi, type EmbeddingConfig, type ExtensionsStatus, type InstallEvent } from '../../api/settings'
 import LLMControlPanel from '../workbench/LLMControlPanel.vue'
-import ModelSettingsModal from '../settings/ModelSettingsModal.vue'
 
 type Appearance = 'sidebar' | 'topbar'
 type DrawerTab = 'embedding' | 'llm'
@@ -349,7 +336,6 @@ const llmPanelInitialized = ref(false) // 缓存 LLM 面板是否已初始化
 const drawerTab = ref<DrawerTab>('llm')
 const runtimeLoading = ref(false)
 const runtimeSummary = ref<LLMRuntimeSummary | null>(null)
-const modelSettingsModalRef = ref<InstanceType<typeof ModelSettingsModal> | null>(null)
 
 /** 与提示词广场入口弹窗一致的居中卡片尺寸 */
 const aiConsoleModalStyle = {
@@ -817,12 +803,6 @@ function openPanel() {
   font-size: 16px;
   font-weight: 700;
   color: var(--app-text-primary);
-}
-
-.modal-header-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
 }
 
 .modal-body.ai-console-modal-body {

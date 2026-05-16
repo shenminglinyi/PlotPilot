@@ -1,6 +1,6 @@
 <template>
   <div class="workbench">
-    <StatsTopBar :slug="slug" @open-settings="showLLMSettings = true" />
+    <StatsTopBar :slug="slug" @open-settings="appSettingsShell.open()" />
 
     <n-spin :show="pageLoading" class="workbench-spin" description="加载工作台…">
       <div class="workbench-inner">
@@ -54,9 +54,6 @@
       :act-title="actPlanningTitle"
       @confirmed="handleChapterUpdated"
     />
-
-    <!-- LLM Settings Modal -->
-    <LLMSettingsModal v-model:show="showLLMSettings" />
   </div>
 </template>
 
@@ -67,12 +64,12 @@ import { useMessage } from 'naive-ui'
 import { useWorkbench } from '../composables/useWorkbench'
 import { useStatsStore } from '../stores/statsStore'
 import { useWorkbenchRefreshStore } from '../stores/workbenchRefreshStore'
+import { useAppSettingsShellStore } from '../stores/appSettingsShellStore'
 import StatsTopBar from '../components/stats/StatsTopBar.vue'
 import ChapterList from '../components/workbench/ChapterList.vue'
 import WorkArea from '../components/workbench/WorkArea.vue'
 import SettingsPanel from '../components/workbench/SettingsPanel.vue'
 import ActPlanningModal from '../components/workbench/ActPlanningModal.vue'
-import LLMSettingsModal from '../components/LLMSettingsModal.vue'
 import {
   WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
   WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
@@ -83,6 +80,7 @@ const route = useRoute()
 const message = useMessage()
 const statsStore = useStatsStore()
 const workbenchRefresh = useWorkbenchRefreshStore()
+const appSettingsShell = useAppSettingsShellStore()
 
 const slug = computed(() => String(route.params.slug ?? ''))
 
@@ -127,7 +125,6 @@ function onOpenSettingsPanelFromChild(e: Event) {
 
 // 幕→章 规划弹层
 const showActPlanning = ref(false)
-const showLLMSettings = ref(false)
 const actPlanningId = ref('')
 const actPlanningTitle = ref('')
 
