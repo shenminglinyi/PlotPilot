@@ -11,9 +11,11 @@ import {
   buildIncidentFromUnknown,
   copyTextFallback,
   downloadText,
+  markErrorFeedbackEmitted,
   preferDownloadForDetail,
   serializeDiagnosticBundle,
   serializeIncidentsPlain,
+  wasErrorFeedbackEmitted,
 } from './feedbackIncident'
 
 const RING_CAP = 30
@@ -22,7 +24,11 @@ const DEDUPE_MS = 4000
 
 const ringBuffer: FeedbackIncidentPayload[] = []
 
-const { notification } = createDiscreteApi(['notification'])
+const { notification } = createDiscreteApi(['notification'], {
+  notificationProviderProps: {
+    placement: 'bottom-right',
+  },
+})
 
 function pushRing(inc: FeedbackIncidentPayload) {
   ringBuffer.unshift(inc)
@@ -46,7 +52,7 @@ export function peekRecentFeedbackIncidents(): readonly FeedbackIncidentPayload[
   return ringBuffer.slice()
 }
 
-export async function exportRecentFeedbackBundle(): void {
+export function exportRecentFeedbackBundle(): void {
   const bundle = buildDiagnosticBundle(ringBuffer.slice())
   downloadText(
     `plotpilot-diagnostic-${new Date().toISOString().replace(/:/g, '-')}.json`,
@@ -61,7 +67,7 @@ async function dispatchPrimary(payload: FeedbackIncidentPayload) {
   const preferDl = preferDownloadForDetail(payload.detail) || preferDownloadForDetail(fullPlain)
 
   if (preferDl) {
-    const fn = `plotpilot-incident-${payload.ocurred_at.replace(/:/g, '-').slice(0, 19)}.txt`
+    const fn = `plotpilot-incident-${payload.occurred_at.replace(/:/g, '-').slice(0, 19)}.txt`
     downloadText(fn, `${fullPlain}\n\n===== JSON =====\n${bundleStr}`)
     await copyTextFallback(payload.summary)
     notification.success({
@@ -101,35 +107,41 @@ function showFeedbackNotification(payload: FeedbackIncidentPayload) {
     type: payload.severity === 'warning' ? 'warning' : 'error',
     duration: preferDl ? 0 : 8200,
     closable: true,
-    placement: 'bottom-right',
-    content: () =>
+    meta: () =>
       h(
         NSpace,
         { vertical: true, style: 'margin-top: 10px; max-width: 420px;' },
         {
-          default: () => [
-            h(NSpace, {}, () => [
+          default: () =>
+            [
               h(
-                NButton,
+                NSpace,
+                {},
                 {
-                  type: 'primary',
-                  size: 'small',
-                  onClick: () => dispatchPrimary(payload),
+                  default: () => [
+                    h(
+                      NButton,
+                      {
+                        type: 'primary',
+                        size: 'small',
+                        onClick: () => dispatchPrimary(payload),
+                      },
+                      { default: () => (preferDl ? '一键下载日志' : '一键复制全文') },
+                    ),
+                    h(
+                      NButton,
+                      { size: 'small', tertiary: true, onClick: () => dispatchCopyStructured(payload) },
+                      { default: () => '复制 JSON' },
+                    ),
+                  ],
                 },
-                () => (preferDl ? '一键下载日志' : '一键复制全文'),
               ),
               h(
-                NButton,
-                { size: 'small', tertiary: true, onClick: () => dispatchCopyStructured(payload) },
-                () => '复制 JSON',
+                'div',
+                { style: 'font-size:12px;line-height:1.5;opacity:.75;' },
+                preferDl ? '长篇诊断优先打包为文件；短消息则默认剪贴板。' : '内容较短时已优先剪贴板。',
               ),
-            ]),
-            h(
-              'div',
-              { style: 'font-size:12px;line-height:1.5;opacity:.75;' },
-              preferDl ? '长篇诊断优先打包为文件；短消息则默认剪贴板。' : '内容较短时已优先剪贴板。',
-            ),
-          ],
+            ],
         },
       ),
   })
@@ -145,18 +157,26 @@ export function emitFeedbackIncident(payload: FeedbackIncidentPayload): void {
 
 /** 业务代码显式报错：与用户 toast 联动时调用，可避免再写零碎序列化逻辑 */
 export function emitManualIncident(summary: string, err?: unknown, extra?: Record<string, unknown>): void {
-  emitFeedbackIncident(buildIncidentFromUnknown('manual', summary, err ?? summary, { meta: { extra } }))
+  emitFeedbackIncident(
+    buildIncidentFromUnknown('manual', summary, err ?? summary, {
+      meta: { extra: extra ?? {} },
+    }),
+  )
 }
 
-/** Axios 链路：拼装 HTTP 上下文后派发 */
+/** Axios 链路：拼装 HTTP 上下文后派发；打标可防止再触发 unhandledrejection 双侧栏 */
 export function emitAxiosFeedbackIncident(summary: string, err: AxiosError): void {
   const base = buildIncidentFromUnknown('axios', summary, err)
   emitFeedbackIncident(augmentIncidentWithAxios(base, err))
+  markErrorFeedbackEmitted(err)
 }
 
 export function installUnhandledPromiseCapture(): void {
+  if (typeof window === 'undefined') return
   window.addEventListener('unhandledrejection', ev => {
     const reason = (ev as PromiseRejectionEvent).reason
+    if (wasErrorFeedbackEmitted(reason)) return
+
     emitFeedbackIncident(
       buildIncidentFromUnknown('promise', '未处理的 Promise 拒绝', reason ?? '(empty reason)', {
         meta: {

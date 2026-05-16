@@ -291,6 +291,10 @@ export function augmentIncidentWithAxios(
     detail: `${base.detail}\n\n--- Axios ---\nmessage: ${axErr.message ?? ''}\ncode: ${axErr.code ?? ''}\n${method ?? ''} ${url}\n`,
     meta: {
       ...base.meta,
+      api_base_url:
+        typeof axErr.config?.baseURL === 'string' && axErr.config.baseURL.trim()
+          ? axErr.config.baseURL
+          : base.meta.api_base_url,
       axios: {
         method,
         url,
