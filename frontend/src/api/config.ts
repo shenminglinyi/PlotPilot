@@ -283,16 +283,14 @@ export function subscribeChapterStream(
 
       while (true) {
         const { done, value } = await reader.read()
+        if (value) buffer += decoder.decode(value, { stream: true })
+        buffer = flushBlocks(buffer)
         if (done) {
           buffer += decoder.decode()
+          buffer = flushBlocks(buffer)
           break
         }
-
-        buffer += decoder.decode(value, { stream: true })
-        buffer = flushBlocks(buffer)
       }
-
-      buffer = flushBlocks(buffer)
 
       // 服务端正常结束 SSE（审阅暂停、停止全托管等）时也要走断开逻辑，否则会一直认为「仍连接」且不重拉状态
       handlers.onDisconnected?.()

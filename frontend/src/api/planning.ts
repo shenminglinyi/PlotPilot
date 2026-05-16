@@ -221,12 +221,13 @@ export function streamMacroPlan(
 
       while (true) {
         const { done, value } = await reader.read()
+        if (value) buffer += decoder.decode(value, { stream: true })
+        buffer = flush(buffer)
         if (done) {
-          flush(buffer + decoder.decode())
+          buffer += decoder.decode()
+          buffer = flush(buffer)
           break
         }
-        buffer += decoder.decode(value, { stream: true })
-        buffer = flush(buffer)
       }
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return
@@ -338,12 +339,13 @@ export function streamActChapterPlan(
 
       while (true) {
         const { done, value } = await reader.read()
+        if (value) buffer += decoder.decode(value, { stream: true })
+        buffer = flush(buffer)
         if (done) {
-          flush(buffer + decoder.decode())
+          buffer += decoder.decode()
+          buffer = flush(buffer)
           break
         }
-        buffer += decoder.decode(value, { stream: true })
-        buffer = flush(buffer)
       }
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return
