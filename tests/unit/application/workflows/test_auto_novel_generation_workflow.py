@@ -34,6 +34,8 @@ def mock_context_builder():
             "total": 9250
         }
     }
+    # 默认空节拍列表 → 走整段生成分支（与历史单测期望一致）
+    builder.magnify_outline_to_beats = Mock(return_value=[])
     # 不再需要 estimate_tokens 方法
     return builder
 
@@ -572,9 +574,17 @@ class TestStyleIntegration:
         # 验证 LLM 被调用
         assert mock_llm_service.generate.called
 
-        # 获取传递给 LLM 的 prompt
-        call_args = mock_llm_service.generate.call_args
-        prompt = call_args[0][0]
+        # 获取传递给 LLM 的 prompt（兼容位置参数或关键字 prompt=）
+        prompt = None
+        for call in mock_llm_service.generate.call_args_list:
+            kw = call.kwargs or {}
+            p = kw.get("prompt")
+            if p is None and call.args:
+                p = call.args[0]
+            if p is not None and ("形容词密度" in (p.system or "") or "平均句长" in (p.system or "")):
+                prompt = p
+                break
+        assert prompt is not None
 
         # 验证 prompt 包含风格指纹摘要
         assert "形容词密度" in prompt.system or "平均句长" in prompt.system
