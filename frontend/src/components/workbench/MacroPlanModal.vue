@@ -278,7 +278,7 @@ function startGenerate() {
       abortCtrl = null
       void nextTick(() => {
         const el = nodeScrollRef.value
-        if (el) el.scrollTop = 0
+        if (el) el.scrollTop = el.scrollHeight
       })
     },
     onError(msg) {
