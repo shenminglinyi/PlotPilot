@@ -17,10 +17,8 @@ writing:
   # clamp 函数将使用此值替代旧硬编码 10000
   max_words_per_chapter: 20000
 
-  # 智能截断（smart_truncate）开关
-  # true  = 节拍超出 hard_cap 时物理截断到句子边界（旧行为）
-  # false = 关闭截断，仅依赖 prompt 引导（UNFURL/CONVERGE/LAND）控制节奏
-  #         _soft_landing 仍会在句子不完整时自动补尾，不会留残句
+  # 智能截断：全托管默认按书目 generation_prefs.smart_truncate_enabled；
+  # false 时超长节拍按 hard_cap 字符硬截断；关硬帽时不再截断。
   enable_smart_truncation: false
 
   # ChapterConductor 阶段切换阈值
