@@ -125,6 +125,75 @@
             </div>
           </n-card>
 
+          <!-- 章末审阅闸门（paused_for_review） -->
+          <n-card size="small" :bordered="true" class="prefs-card">
+            <div class="card-head">
+              <span class="card-title">章末审阅闸门</span>
+              <n-text depth="3" class="card-caption">
+                与小说家「一章一停 / 硬伤打回」对齐。开启后全托管在每章审计结束进入<n-text strong>待审阅</n-text>，须在工作台点「恢复」才继续；开启「全自动审阅跳过」的书目仍会跳过。
+              </n-text>
+            </div>
+            <n-divider class="card-divider" />
+
+            <div class="row">
+              <div class="row-label">
+                <span class="row-title">每章通过后暂停</span>
+                <n-text depth="3" class="row-hint">
+                  无条件每章停顿，便于人工手改再审下一章。
+                </n-text>
+              </div>
+              <n-switch
+                :value="pauseAfterEachAudit"
+                :loading="patching === 'pause_after_each_chapter_audit'"
+                size="large"
+                @update:value="(v: boolean) => onAuditGatePref('pause_after_each_chapter_audit', v)"
+              >
+                <template #checked>已启用</template>
+                <template #unchecked>已关闭</template>
+              </n-switch>
+            </div>
+
+            <n-divider class="inner-divider" />
+
+            <div class="row">
+              <div class="row-label">
+                <span class="row-title">硬伤时暂停</span>
+                <n-text depth="3" class="row-hint">
+                  章后叙事同步失败（<span class="mono">narrative_sync_ok=false</span>），或文风在有限次改写后仍低于阈值告警时，停机待人而非直接开写下一章。
+                </n-text>
+              </div>
+              <n-switch
+                :value="auditPauseOnHardFail"
+                :loading="patching === 'audit_pause_on_hard_fail'"
+                size="large"
+                @update:value="(v: boolean) => onAuditGatePref('audit_pause_on_hard_fail', v)"
+              >
+                <template #checked>已启用</template>
+                <template #unchecked>已关闭</template>
+              </n-switch>
+            </div>
+
+            <n-divider class="inner-divider" />
+
+            <div class="row">
+              <div class="row-label">
+                <span class="row-title">Anti-AI「严重」时暂停</span>
+                <n-text depth="3" class="row-hint">
+                  仅当本章 Anti-AI 综合判定为「严重」时进入待审阅（「中等」仍只告警）。
+                </n-text>
+              </div>
+              <n-switch
+                :value="auditPauseOnAntiAiSevere"
+                :loading="patching === 'audit_pause_on_anti_ai_severe'"
+                size="large"
+                @update:value="(v: boolean) => onAuditGatePref('audit_pause_on_anti_ai_severe', v)"
+              >
+                <template #checked>已启用</template>
+                <template #unchecked>已关闭</template>
+              </n-switch>
+            </div>
+          </n-card>
+
           <!-- 指挥器相位 -->
           <n-card size="small" :bordered="true" class="prefs-card prefs-card-advanced">
             <div class="card-head">
@@ -215,6 +284,10 @@ const beatHardCap = ref(true)
 const phaseDisplay = ref(true)
 const inlineProseAggregation = ref(false)
 
+const pauseAfterEachAudit = ref(false)
+const auditPauseOnHardFail = ref(false)
+const auditPauseOnAntiAiSevere = ref(false)
+
 const convergeInput = ref<number | null>(null)
 const landInput = ref<number | null>(null)
 
@@ -242,6 +315,10 @@ function applyPrefs(p?: GenerationPrefsDTO | null) {
   } else {
     inlineProseAggregation.value = false
   }
+
+  pauseAfterEachAudit.value = Boolean(p2.pause_after_each_chapter_audit)
+  auditPauseOnHardFail.value = Boolean(p2.audit_pause_on_hard_fail)
+  auditPauseOnAntiAiSevere.value = Boolean(p2.audit_pause_on_anti_ai_severe)
 
   convergeInput.value =
     typeof p2.conductor_converge_threshold === 'number' && Number.isFinite(p2.conductor_converge_threshold)
@@ -308,6 +385,27 @@ async function mergePrefs(patch: Partial<GenerationPrefsDTO>) {
   const n = await novelApi.updateNovel(slug, { generation_prefs: patch })
   applyPrefs(n.generation_prefs)
   window.dispatchEvent(new CustomEvent(WORKBENCH_GENERATION_PREFS_UPDATED_EVENT))
+}
+
+async function onAuditGatePref(
+  key:
+    | 'pause_after_each_chapter_audit'
+    | 'audit_pause_on_hard_fail'
+    | 'audit_pause_on_anti_ai_severe',
+  value: boolean
+) {
+  const slug = novelSlug.value
+  if (!slug) return
+  patching.value = key
+  try {
+    await mergePrefs({ [key]: value })
+    message.success('已保存')
+  } catch (e) {
+    message.error(e instanceof Error ? e.message : '保存失败')
+    await loadNovel()
+  } finally {
+    patching.value = null
+  }
 }
 
 async function onBoolPref(

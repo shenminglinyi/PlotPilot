@@ -36,25 +36,28 @@
 
     <!-- ── Phase: generating / streaming / done ─────────────────── -->
     <div v-else-if="phase !== 'error'" class="stream-body">
-      <!-- progress bar -->
+      <!-- 生成中：仅单行占位；完成后一次性展示节点列表 -->
       <div v-if="isActive" class="prog-track">
         <div class="prog-fill" :style="{ width: `${progressPct}%` }" />
       </div>
 
-      <!-- LLM 原始流式输出（仅生成阶段） -->
-      <div
-        v-if="phase === 'generating' && llmStreamPreview"
-        class="llm-stream-preview"
-        ref="llmStreamOuterRef"
-      >
-        <div class="llm-stream-label">模型输出</div>
-        <pre class="llm-stream-pre">{{ llmStreamPreview }}</pre>
+      <div v-if="isActive && streamedNodes.length === 0" class="macro-modal-skeleton-wrap">
+        <div class="skel-row skel-row--part">
+          <div class="skel-icon shimmer" />
+          <div class="skel-lines">
+            <div class="skel-line skel-line--title shimmer" style="width: 56%" />
+            <div class="skel-line skel-line--desc shimmer" style="width: 74%" />
+          </div>
+        </div>
       </div>
 
-      <!-- node list -->
-      <div class="node-scroll" ref="nodeScrollRef">
-        <!-- arrived nodes -->
-        <TransitionGroup name="node-arrive" tag="div" class="node-list">
+      <div ref="nodeScrollRef" class="node-scroll">
+        <TransitionGroup
+          v-if="streamedNodes.length > 0"
+          name="node-arrive"
+          tag="div"
+          class="node-list"
+        >
           <div
             v-for="node in streamedNodes"
             :key="node.key"
@@ -72,22 +75,6 @@
           </div>
         </TransitionGroup>
 
-        <!-- skeleton placeholders -->
-        <template v-if="isActive">
-          <div
-            v-for="skel in skeletonRows"
-            :key="skel.key"
-            :class="['skel-row', `skel-row--${skel.type}`]"
-          >
-            <div class="skel-icon shimmer" />
-            <div class="skel-lines">
-              <div class="skel-line skel-line--title shimmer" :style="{ width: skel.titleWidth }" />
-              <div class="skel-line skel-line--desc shimmer" :style="{ width: skel.descWidth }" />
-            </div>
-          </div>
-        </template>
-
-        <!-- done empty state -->
         <div v-if="phase === 'done' && streamedNodes.length === 0" class="empty-hint">
           AI 未返回有效结构，请重试或检查 AI 配置
         </div>
@@ -113,7 +100,7 @@
 
         <template v-else-if="isActive">
           <n-button @click="abortGenerate" quaternary>取消生成</n-button>
-          <span class="gen-counter">{{ streamedNodes.length }} 个节点已生成</span>
+          <span class="gen-counter">生成完成后展示全文结构</span>
         </template>
 
         <template v-else-if="phase === 'done'">
@@ -144,6 +131,8 @@ import {
   planningApi,
   type MacroStreamNodeEvent,
   type MacroPartNode,
+  type MacroVolumeNode,
+  type MacroActNode,
 } from '../../api/planning'
 
 const props = defineProps<{ show: boolean; novelId: string }>()
@@ -167,8 +156,6 @@ const progressPct = ref(0)
 const errorMessage = ref('')
 const isConfirming = ref(false)
 const generationTime = ref(0)
-const llmStreamPreview = ref('')
-const llmStreamOuterRef = ref<HTMLElement | null>(null)
 
 interface StreamedNode extends MacroStreamNodeEvent {
   key: string
@@ -202,37 +189,52 @@ const doneSummary = computed(() => {
   return `${partCount} 部 · ${volCount} 卷 · ${actCount} 幕${t}`
 })
 
-// ─── Skeleton rows ────────────────────────────────────────────────────────
-const SKELETON_TEMPLATE: Array<{ type: 'part' | 'volume' | 'act'; titleWidth: string; descWidth: string }> = [
-  { type: 'part',   titleWidth: '55%', descWidth: '75%' },
-  { type: 'volume', titleWidth: '48%', descWidth: '68%' },
-  { type: 'act',    titleWidth: '42%', descWidth: '60%' },
-  { type: 'act',    titleWidth: '38%', descWidth: '55%' },
-  { type: 'volume', titleWidth: '50%', descWidth: '70%' },
-  { type: 'act',    titleWidth: '44%', descWidth: '62%' },
-  { type: 'part',   titleWidth: '52%', descWidth: '72%' },
-  { type: 'volume', titleWidth: '46%', descWidth: '66%' },
-]
-
-const skeletonRows = computed(() => {
-  if (!isActive.value) return []
-  const arrived = streamedNodes.value.length
-  const slots = Math.max(SKELETON_TEMPLATE.length - arrived, 2)
-  return SKELETON_TEMPLATE.slice(arrived % SKELETON_TEMPLATE.length).slice(0, slots).map((t, i) => ({
-    ...t,
-    key: `skel-${i}`,
-  }))
-})
-
 // ─── Helpers ──────────────────────────────────────────────────────────────
+function structureToStreamedNodes(parts: MacroPartNode[]): StreamedNode[] {
+  const out: StreamedNode[] = []
+  parts.forEach((part, pi) => {
+    out.push({
+      type: 'part',
+      part_index: pi,
+      title: part.title ?? '',
+      description: typeof part.description === 'string' ? part.description : '',
+      key: `part-${pi}`,
+    })
+    const volumes: MacroVolumeNode[] = part.volumes ?? []
+    volumes.forEach((vol, vi) => {
+      out.push({
+        type: 'volume',
+        part_index: pi,
+        volume_index: vi,
+        title: vol.title ?? '',
+        description: typeof vol.description === 'string' ? vol.description : '',
+        key: `vol-${pi}-${vi}`,
+      })
+      const acts: MacroActNode[] = vol.acts ?? []
+      acts.forEach((act, ai) => {
+        out.push({
+          type: 'act',
+          part_index: pi,
+          volume_index: vi,
+          act_index: ai,
+          title: act.title ?? '',
+          description: typeof act.description === 'string' ? act.description : '',
+          estimated_chapters:
+            typeof act.estimated_chapters === 'number' ? act.estimated_chapters : undefined,
+          narrative_goal:
+            typeof act.narrative_goal === 'string' ? act.narrative_goal : undefined,
+          key: `act-${pi}-${vi}-${ai}`,
+        })
+      })
+    })
+  })
+  return out
+}
+
 function nodeIcon(type: string) {
   if (type === 'part') return '📚'
   if (type === 'volume') return '📖'
   return '🎬'
-}
-
-function makeNodeKey(node: MacroStreamNodeEvent): string {
-  return `${node.type}-${node.part_index ?? 0}-${node.volume_index ?? 0}-${node.act_index ?? 0}`
 }
 
 // ─── Generate ─────────────────────────────────────────────────────────────
@@ -244,7 +246,6 @@ function startGenerate() {
   statusMessage.value = '正在连接…'
   progressPct.value = 0
   errorMessage.value = ''
-  llmStreamPreview.value = ''
   phase.value = 'generating'
   isConfirming.value = false
 
@@ -254,31 +255,19 @@ function startGenerate() {
       progressPct.value = e.percent ?? progressPct.value
       if (e.phase === 'streaming') {
         phase.value = 'streaming'
-        llmStreamPreview.value = ''
       }
-    },
-    onChunk({ text }) {
-      llmStreamPreview.value += text
-      nextTick(() => {
-        const outer = llmStreamOuterRef.value
-        const pre = outer?.querySelector('.llm-stream-pre')
-        if (pre) (pre as HTMLElement).scrollTop = pre.scrollHeight
-      })
-    },
-    onNode(e) {
-      if (phase.value !== 'streaming') phase.value = 'streaming'
-      streamedNodes.value.push({ ...e, key: makeNodeKey(e) })
-      nextTick(() => {
-        const el = nodeScrollRef.value
-        if (el) el.scrollTop = el.scrollHeight
-      })
     },
     onDone(e) {
       doneStructure.value = e.structure
+      streamedNodes.value = structureToStreamedNodes(e.structure ?? [])
       generationTime.value = e.generation_time ?? 0
       progressPct.value = 100
       phase.value = 'done'
       abortCtrl = null
+      void nextTick(() => {
+        const el = nodeScrollRef.value
+        if (el) el.scrollTop = 0
+      })
     },
     onError(msg) {
       errorMessage.value = msg
@@ -293,7 +282,6 @@ function abortGenerate() {
   abortCtrl = null
   phase.value = 'idle'
   streamedNodes.value = []
-  llmStreamPreview.value = ''
 }
 
 // ─── Confirm ──────────────────────────────────────────────────────────────
@@ -336,7 +324,6 @@ function resetState() {
   statusMessage.value = ''
   progressPct.value = 0
   errorMessage.value = ''
-  llmStreamPreview.value = ''
   isConfirming.value = false
 }
 
@@ -441,31 +428,9 @@ onUnmounted(() => { abortCtrl?.abort() })
   transition: width 0.6s ease;
 }
 
-.llm-stream-preview {
+.macro-modal-skeleton-wrap {
   margin-bottom: 12px;
-  border-radius: 8px;
-  border: 1px solid var(--plotpilot-split-border, rgba(15, 23, 42, 0.12));
-  background: var(--app-surface-subtle, #f8fafc);
-  overflow: hidden;
-}
-.llm-stream-label {
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--app-text-secondary, #64748b);
-  border-bottom: 1px solid var(--plotpilot-split-border, rgba(15, 23, 42, 0.08));
-}
-.llm-stream-pre {
-  margin: 0;
-  padding: 10px 12px;
-  max-height: 180px;
-  overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--app-text-primary, #1e293b);
-  white-space: pre-wrap;
-  word-break: break-word;
+  padding: 4px 0;
 }
 
 /* node scroll area */

@@ -12,7 +12,7 @@
 
     <n-alert v-if="loadError" type="error" :title="loadError" closable @close="loadError = ''" class="timeline-alert" />
 
-    <n-spin :show="loading">
+    <n-spin :show="loading" class="timeline-spin">
       <div v-if="rows.length > 0" class="timeline-list">
         <div
           v-for="row in rows"
@@ -244,11 +244,31 @@ async function handleCreateSnapshot() {
   margin: 12px 16px;
 }
 
+/* 与编年史双螺旋一致：占满中栏剩余高度，保证列表区域出现纵向滚动条 */
+.timeline-spin {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-spin :deep(.n-spin-content) {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .timeline-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 16px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .timeline-chapter {

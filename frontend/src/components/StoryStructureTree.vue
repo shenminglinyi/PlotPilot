@@ -1,13 +1,13 @@
 <template>
   <div class="story-structure" @click="closeMenu">
-    <div class="structure-body" v-if="treeData.length > 0">
+    <div class="structure-body" v-if="displayTreeData.length > 0">
       <n-tree
-        :data="treeData"
+        :data="displayTreeData"
         :node-props="nodeProps"
         :render-label="renderLabel"
         :render-suffix="renderSuffix"
         :selected-keys="selectedKeys"
-        :default-expanded-keys="expandedKeys"
+        v-model:expanded-keys="expandedKeys"
         block-line
         expand-on-click
         selectable
@@ -16,17 +16,34 @@
     </div>
 
     <div v-else class="structure-empty-wrap">
+      <!-- 宏观规划：完成后一次性拉取结构树；进行中仅单行骨架 + 状态 -->
+      <div v-if="autopilotEmptyMode === 'planning'" class="structure-macro-live">
+        <div class="macro-live-status">
+          <span class="macro-live-dot" :class="{ 'is-live': macroWatchAlive }" aria-hidden="true" />
+          <span class="macro-live-text">{{ macroLiveHeadline }}</span>
+        </div>
+        <p v-if="macroPlanningSubtitle" class="macro-live-sub macro-live-sub--compact">{{ macroPlanningSubtitle }}</p>
+        <p v-if="macroWatchError" class="macro-live-error">{{ macroWatchError }}</p>
+        <div
+          v-if="showMacroPlanningSkeleton"
+          class="macro-planning-skeleton-line"
+          aria-busy="true"
+          aria-label="宏观规划生成中"
+        >
+          <n-spin size="small" />
+          <n-skeleton height="14" round class="macro-planning-skeleton-bar" />
+        </div>
+      </div>
+
       <n-empty
+        v-else
         :description="structureEmptyDescription"
         class="structure-empty"
       >
         <template #extra>
           <n-space vertical :size="8" align="center">
             <n-spin v-if="loading" size="small" />
-            <n-button v-if="autopilotEmptyMode" type="primary" @click="loadTree">
-              刷新结构树
-            </n-button>
-            <n-alert v-else type="info" :show-icon="false" style="font-size: 12px; max-width: 240px; text-align: center;">
+            <n-alert v-if="!autopilotEmptyMode" type="info" :show-icon="false" style="font-size: 12px; max-width: 240px; text-align: center;">
               <strong>提示</strong>：切换到「托管撰稿」模式，点击「启动全托管」即可自动生成大纲与正文
             </n-alert>
           </n-space>
@@ -73,13 +90,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, onMounted, watch } from 'vue'
-import { NTree, NEmpty, NSpin, NTag, NButton, NSpace, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
+import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
+import { NTree, NEmpty, NSpin, NTag, NSpace, NSkeleton, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
 import { resolveHttpUrl } from '@/api/config'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeTreeChapterLine } from '@/utils/narrativeUnitLabel'
+import { watchMacroPlanProgress, planningApi, type MacroProgressWatchTerminalEvent } from '@/api/planning'
 
 const props = defineProps<{
   slug: string
@@ -103,23 +121,157 @@ const loading = ref(false)
 let loadTreeDepth = 0
 /** 只采纳最近一次 loadTree 的响应，避免慢请求覆盖新数据造成树/空态来回切 */
 let loadTreeRequestId = 0
+
+const treeData = ref<any[]>([])
+const selectedKeys = ref<string[]>([])
+const expandedKeys = ref<string[]>([])
+
 /** 全托管时空侧栏提示：引导用户使用全托管 */
 const autopilotEmptyMode = ref<null | 'planning' | 'review'>(null)
+
+let macroPlanWatchCtrl: AbortController | null = null
+const macroSseActive = ref(false)
+/** SSE 不可用时仍轮询 GET macro/progress，避免界面永远停在「骨架」态 */
+const macroProgressPolling = ref(false)
+let macroProgressPollTimer: ReturnType<typeof setInterval> | null = null
+
+function clearMacroProgressPoll() {
+  if (macroProgressPollTimer != null) {
+    clearInterval(macroProgressPollTimer)
+    macroProgressPollTimer = null
+  }
+  macroProgressPolling.value = false
+}
+
+const macroWatchError = ref('')
+const macroLiveMessage = ref('')
+
+const macroWatchAlive = computed(
+  () =>
+    autopilotEmptyMode.value === 'planning' &&
+    !macroWatchError.value &&
+    (macroSseActive.value || macroProgressPolling.value),
+)
+
+const macroLiveHeadline = computed(() => {
+  if (macroWatchError.value) return '宏观规划异常'
+  return '正在生成叙事结构…'
+})
+
+/** 规划进行中且侧栏尚无真实树：单行骨架 + loading */
+const showMacroPlanningSkeleton = computed(
+  () =>
+    autopilotEmptyMode.value === 'planning' && !macroWatchError.value && treeData.value.length === 0,
+)
+
+/** 仅展示非重复的进度句（避免标题 + 长说明 + SSE 默认句叠三层） */
+const GENERIC_MACRO_MESSAGES = new Set([
+  '正在连接宏观规划 SSE…',
+  '已连接宏观规划输出流，等待模型生成…',
+])
+
+const macroPlanningSubtitle = computed(() => {
+  if (macroWatchError.value) return ''
+  const m = macroLiveMessage.value?.trim()
+  if (!m || GENERIC_MACRO_MESSAGES.has(m)) return ''
+  return m
+})
+
+function stopMacroPlanWatch() {
+  macroPlanWatchCtrl?.abort()
+  macroPlanWatchCtrl = null
+  macroSseActive.value = false
+}
+
+async function loadTreeAfterMacroPersist() {
+  for (let i = 0; i < 12; i++) {
+    await loadTree()
+    if (treeData.value.length > 0) {
+      return
+    }
+    await new Promise((r) => setTimeout(r, 400))
+  }
+}
+
+function startMacroProgressPoll(slug: string) {
+  clearMacroProgressPoll()
+  macroProgressPolling.value = true
+  macroProgressPollTimer = window.setInterval(async () => {
+    if (autopilotEmptyMode.value !== 'planning') {
+      clearMacroProgressPoll()
+      return
+    }
+    try {
+      const res = await planningApi.getMacroProgress(slug)
+      const prog = res.data
+      if (!prog) return
+      if (prog.message?.trim()) {
+        macroLiveMessage.value = prog.message.trim()
+      }
+      if (prog.status === 'completed') {
+        await loadTreeAfterMacroPersist()
+        clearMacroProgressPoll()
+        return
+      }
+      if (prog.status === 'failed') {
+        macroWatchError.value = prog.message || '宏观规划失败'
+        clearMacroProgressPoll()
+      }
+    } catch {
+      /* 轮询失败不打断 SSE */
+    }
+  }, 3200)
+}
+
+watch(
+  () => autopilotEmptyMode.value === 'planning',
+  (planning) => {
+    stopMacroPlanWatch()
+    clearMacroProgressPoll()
+    macroWatchError.value = ''
+    macroLiveMessage.value = ''
+    if (!planning || !props.slug) return
+    startMacroProgressPoll(props.slug)
+    macroLiveMessage.value = '正在连接宏观规划 SSE…'
+    macroSseActive.value = true
+    macroPlanWatchCtrl = watchMacroPlanProgress(props.slug, {
+      onStatus: (e) => {
+        if (e.message) macroLiveMessage.value = e.message
+      },
+      onTerminal: async (t: MacroProgressWatchTerminalEvent) => {
+        stopMacroPlanWatch()
+        clearMacroProgressPoll()
+        if (t.status === 'completed') {
+          await loadTreeAfterMacroPersist()
+        } else if (t.status === 'failed') {
+          macroWatchError.value = t.message || '宏观规划失败'
+        }
+      },
+      onError: (m) => {
+        stopMacroPlanWatch()
+        macroLiveMessage.value = `输出流异常：${m}（已改用接口轮询进度）`
+        /* 不塞 macroWatchError，以便轮询在 completed 时仍能拉树 */
+      },
+      onStreamClosed: () => {
+        macroSseActive.value = false
+      },
+    })
+  },
+  { immediate: true },
+)
+
 const structureEmptyDescription = computed(() => {
   if (loading.value && autopilotEmptyMode.value == null) {
     return '正在加载叙事结构…'
   }
   if (autopilotEmptyMode.value === 'planning') {
-    return '全托管正在生成部-卷-幕结构，请稍候后点击「刷新结构树」'
+    return '宏观规划完成后结构树会自动更新'
   }
   if (autopilotEmptyMode.value === 'review') {
-    return '待审阅状态下若结构未显示，请点「刷新结构树」并确认守护进程已运行'
+    return '待审阅：结构将在确认流程写入后显示；若已开始撰写，正文区刷新后会同步侧栏。'
   }
   return '暂无叙事结构，请使用「全托管」自动生成'
 })
-const treeData = ref<any[]>([])
-const selectedKeys = ref<string[]>([])
-const expandedKeys = ref<string[]>([])
 
 // 右键菜单状态
 const menuVisible = ref(false)
@@ -220,6 +372,8 @@ const convertToTreeNode = (node: StoryNode): any => {
   }
 }
 
+const displayTreeData = computed(() => treeData.value)
+
 /** 收集所有非章节节点的 key，用于自动展开 */
 const collectNonChapterKeys = (nodes: StoryNode[]): string[] => {
   const keys: string[] = []
@@ -232,6 +386,14 @@ const collectNonChapterKeys = (nodes: StoryNode[]): string[] => {
   nodes.forEach(traverse)
   return keys
 }
+
+watch(
+  displayTreeData,
+  (nodes) => {
+    expandedKeys.value = collectNonChapterKeys(nodes as unknown as StoryNode[])
+  },
+  { deep: true, immediate: true },
+)
 
 function isAutopilotMacroPlanningStage(s: Record<string, unknown>): boolean {
   const stage = String(s.current_stage ?? '').toLowerCase()
@@ -282,9 +444,6 @@ const loadTree = async () => {
     }
     const nodes = Array.isArray(res.tree) ? res.tree : (res.tree?.nodes ?? [])
     treeData.value = nodes.length > 0 ? nodes.map(convertToTreeNode) : []
-
-    // 自动展开所有非章节节点
-    expandedKeys.value = collectNonChapterKeys(treeData.value)
 
     const hasData = treeData.value.length > 0
     emit('treeLoaded', hasData)
@@ -513,13 +672,22 @@ const renderSuffix = ({ option }: { option: any }) => {
 // 节点属性（右键绑定）
 const nodeProps = ({ option }: { option: any }) => {
   const node = option as StoryNode
+  const lv = node.level ?? 1
+  const base = {
+    class: `node-level-${lv}`,
+  }
   return {
-    class: `node-level-${node.level}`,
+    ...base,
     onContextmenu: (e: MouseEvent) => handleContextMenu(e, node),
   }
 }
 
 onMounted(() => { loadTree() })
+
+onUnmounted(() => {
+  clearMacroProgressPoll()
+  stopMacroPlanWatch()
+})
 
 defineExpose({ loadTree })
 </script>
@@ -542,6 +710,89 @@ defineExpose({ loadTree })
 .structure-empty {
   padding: 40px 0;
 }
+
+.macro-preview-ribbon {
+  font-size: 11px;
+  color: var(--n-text-color-3);
+  padding: 6px 10px;
+  margin: 0 0 8px;
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.structure-macro-live {
+  padding: 12px 12px 20px;
+}
+
+.macro-live-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.macro-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--n-text-color-3);
+  flex-shrink: 0;
+}
+
+.macro-live-dot.is-live {
+  background: #18a058;
+  box-shadow: 0 0 0 3px rgba(24, 160, 88, 0.22);
+  animation: macro-dot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes macro-dot-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.macro-live-text {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.macro-live-sub {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--n-text-color-3);
+  text-align: center;
+}
+
+.macro-live-error {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: #d03050;
+  text-align: center;
+}
+
+.macro-live-sub--compact {
+  margin: 0 0 10px;
+  font-size: 11px;
+}
+
+.macro-planning-skeleton-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 12px 10px;
+  border-radius: 10px;
+  border: 1px dashed var(--n-border-color);
+  background: rgba(128, 128, 128, 0.04);
+}
+
+.macro-planning-skeleton-bar {
+  flex: 1;
+  max-width: 88%;
+}
+
 .node-label {
   display: flex;
   align-items: center;
