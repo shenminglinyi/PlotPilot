@@ -83,7 +83,7 @@
                   <div class="chapter-editor">
                 <div class="editor-header">
                   <div class="editor-title">
-                    <h3>{{ currentChapter.title || `第${currentChapter.number}章` }}</h3>
+                    <h3>{{ currentChapter.title || deskChapterTitle }}</h3>
                     <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
                       {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
                     </n-tag>
@@ -650,6 +650,7 @@ import {
   saveChapterDraft,
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
+import type { GenerationPrefsDTO } from '@/api/novel'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
@@ -670,6 +671,7 @@ import {
   type ChapterDeskAuxPaneId,
   type PrimaryChapterDeskTab,
 } from '../../workbench/chapterDeskSurface'
+import { narrativeOrdinalLabel } from '@/utils/narrativeUnitLabel'
 import { AppsOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 
 interface Chapter {
@@ -687,14 +689,20 @@ interface WorkAreaProps {
   currentChapterId?: number | null
   chapterContent?: string
   chapterLoading?: boolean
+  generationPrefs?: GenerationPrefsDTO | null
 }
 
 const props = withDefaults(defineProps<WorkAreaProps>(), {
   chapters: () => [],
   currentChapterId: null,
   chapterContent: '',
-  chapterLoading: false
+  chapterLoading: false,
+  generationPrefs: null,
 })
+
+function ordinalUnit(n: number) {
+  return narrativeOrdinalLabel(n, props.generationPrefs ?? undefined)
+}
 
 const emit = defineEmits<{
   chapterUpdated: []
@@ -1016,8 +1024,8 @@ const contextPreview = ref<ContextPreviewResult | null>(null)
 const loadingContext = ref(false)
 
 const chapterSelectOptions = computed(() =>
-  props.chapters.map(ch => ({
-    label: `第 ${ch.number} 章${ch.title ? ` · ${ch.title.slice(0, 22)}` : ''}`,
+  props.chapters.map((ch) => ({
+    label: `${ordinalUnit(ch.number)}${ch.title ? ` · ${ch.title.slice(0, 22)}` : ''}`,
     value: ch.id,
   }))
 )
@@ -1036,7 +1044,7 @@ const previewContext = async () => {
     contextPreview.value = await retrieveContext(
       props.slug,
       chNum,
-      generateOutline.value || `第${chNum}章：承接前情，推进主线`,
+      generateOutline.value || `${ordinalUnit(chNum)}：承接前情，推进主线`,
     )
   } catch {
     contextPreview.value = null
@@ -1095,6 +1103,12 @@ const generating = computed(
 const currentChapter = computed(() => {
   if (!props.currentChapterId) return null
   return props.chapters.find(ch => ch.id === props.currentChapterId) || null
+})
+
+const deskChapterTitle = computed(() => {
+  const ch = currentChapter.value
+  if (!ch) return ''
+  return ordinalUnit(ch.number)
 })
 
 /** 当前是否有可重写的正文：以编辑器 `chapterContent` 为准（列表项通常不带全文，不能用 currentChapter.content） */
@@ -1273,7 +1287,7 @@ const handleGenerateChapter = async () => {
   isRegenerationMode.value = false
   regenerationGuidance.value = ''
   generateTargetChapterId.value = currentChapter.value.id
-  generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
+  generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
@@ -1293,7 +1307,7 @@ const handleRegenerateChapter = async () => {
   regenerationGuidance.value = ''
   generateTargetChapterId.value = currentChapter.value.id
   // 列表项不带 outline，统一用默认模板做种子；用户可在弹窗里编辑
-  generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
+  generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
@@ -1372,7 +1386,7 @@ const handleStartGenerate = async () => {
   if (useSceneDirector.value && !sceneDirectorResult) {
     analyzingScene.value = true
     try {
-      const outline = generateOutline.value || `第${targetChapterNumber}章：承接前情，推进主线`
+      const outline = generateOutline.value || `${ordinalUnit(targetChapterNumber)}：承接前情，推进主线`
       const analysis = await analyzeScene(props.slug, targetChapterNumber, outline)
       sceneDirectorResult = analysis as Record<string, unknown>
     } catch (e: unknown) {
@@ -1382,7 +1396,7 @@ const handleStartGenerate = async () => {
     }
   }
 
-  const defaultOutline = `第${targetChapterNumber}章：承接前情，推进主线`
+  const defaultOutline = `${ordinalUnit(targetChapterNumber)}：承接前情，推进主线`
 
   // 重新生成模式：先快照当前内容；快照失败时弹确认（422 无正文仅提示后继续）
   if (isRegenerationMode.value) {
@@ -1459,7 +1473,7 @@ const handleStartGenerate = async () => {
           if (props.currentChapterId === targetChapterId) {
             message.success('生成完成，质检已同步到本章侧栏')
           } else {
-            message.success(`第 ${targetChapterNumber} 章生成完成，请在对应章侧栏查看质检`)
+            message.success(`${ordinalUnit(targetChapterNumber)}生成完成，请在对应章侧栏查看质检`)
           }
           desk.nudgeRailAfterGeneration()
         },
@@ -1500,7 +1514,7 @@ const handleSaveGenerated = async () => {
       chapterContent.value = generatedContent.value
       originalContent.value = generatedContent.value
     }
-    message.success(`已保存到第 ${saveTarget.number} 章`)
+    message.success(`已保存到${ordinalUnit(saveTarget.number)}`)
     emit('chapterUpdated')
     showGenerateModal.value = false
     window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)

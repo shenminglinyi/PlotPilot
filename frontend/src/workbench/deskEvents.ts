@@ -5,6 +5,10 @@
  */
 export const WORKBENCH_CHAPTER_DESK_CHANGE_EVENT = 'plotpilot:workbench:chapter-desk-change' as const
 
+/** 书目 generation_prefs（如阶段模式）已更新；工作台应 `loadDesk` 并刷新结构树标签 */
+export const WORKBENCH_GENERATION_PREFS_UPDATED_EVENT =
+  'plotpilot:workbench:generation-prefs-updated' as const
+
 /** 与 SettingsPanel 中 `n-tab-pane` 的 `name` 一致 */
 export const WORKBENCH_SETTINGS_PANEL_NAMES = [
   'bible',

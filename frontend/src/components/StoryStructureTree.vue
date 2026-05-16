@@ -78,10 +78,14 @@ import { NTree, NEmpty, NSpin, NTag, NButton, NSpace, NDropdown, NModal, NInput,
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
 import { resolveHttpUrl } from '@/api/config'
+import type { GenerationPrefsDTO } from '@/api/novel'
+import { narrativeTreeChapterLine } from '@/utils/narrativeUnitLabel'
 
 const props = defineProps<{
   slug: string
   currentChapterId?: number | null
+  /** 与 NovelDTO.generation_prefs 一致；影响章节节点展示文案 */
+  generationPrefs?: GenerationPrefsDTO | null
 }>()
 
 const emit = defineEmits<{
@@ -204,7 +208,7 @@ const convertToTreeNode = (node: StoryNode): any => {
   const n = node.number
   const displayName =
     node.node_type === 'chapter' && typeof n === 'number' && n >= 1
-      ? `第${n}章 ${node.title || ''}`.trim()
+      ? narrativeTreeChapterLine(n, node.title || '', props.generationPrefs ?? undefined)
       : node.title
   return {
     key: node.id,
@@ -299,6 +303,38 @@ const loadTree = async () => {
     }
   }
 }
+
+function relabelTreeChapterNodes(nodes: unknown[]): unknown[] {
+  return nodes.map((raw) => {
+    const node = raw as Record<string, unknown>
+    const n = node.number
+    const next: Record<string, unknown> = { ...node }
+    if (node.node_type === 'chapter' && typeof n === 'number' && n >= 1) {
+      const line = narrativeTreeChapterLine(
+        n,
+        String(node.title ?? ''),
+        props.generationPrefs ?? undefined
+      )
+      next.label = line
+      next.display_name = line
+    }
+    const ch = node.children
+    if (Array.isArray(ch) && ch.length) {
+      next.children = relabelTreeChapterNodes(ch)
+    }
+    return next
+  })
+}
+
+watch(
+  () => props.generationPrefs,
+  () => {
+    if (treeData.value.length > 0) {
+      treeData.value = relabelTreeChapterNodes(treeData.value) as typeof treeData.value
+    }
+  },
+  { deep: true }
+)
 
 /** 从结构树章节节点解析「全书章节号」（与 GET .../chapters/{chapter_number} 一致） */
 function resolveBookChapterNumber(node: StoryNode): number | null {

@@ -1,7 +1,7 @@
 import { ref, computed, toValue, type MaybeRefOrGetter } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
-import { novelApi } from '../api/novel'
+import { novelApi, type GenerationPrefsDTO } from '../api/novel'
 import { chapterApi } from '../api/chapter'
 import { useStatsStore } from '../stores/statsStore'
 
@@ -41,6 +41,8 @@ export function useWorkbench(options: UseWorkbenchOptions) {
   const bookTitle = ref('')
   const chapters = ref<{ id: number; number: number; title: string; word_count: number }[]>([])
   const bookMeta = ref<BookMeta>({})
+  /** 本书展示偏好（阶段/章标签等），与 NovelDTO.generation_prefs 对齐 */
+  const generationPrefs = ref<GenerationPrefsDTO>({})
   const pageLoading = ref(true)
   const currentChapterId = ref<number | null>(null)
   const chapterContent = ref('')
@@ -81,6 +83,10 @@ export function useWorkbench(options: UseWorkbenchOptions) {
       has_bible: novelData.has_bible,
       has_outline: novelData.has_outline,
     }
+
+    const gp = novelData.generation_prefs
+    generationPrefs.value =
+      gp && typeof gp === 'object' ? (gp as GenerationPrefsDTO) : {}
   }
 
   const loadData = async (includeStats = false) => {
@@ -185,6 +191,7 @@ export function useWorkbench(options: UseWorkbenchOptions) {
     // State
     bookTitle,
     chapters,
+    generationPrefs,
     rightPanel,
     pageLoading,
     bookMeta,
