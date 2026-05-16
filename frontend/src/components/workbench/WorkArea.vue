@@ -1182,7 +1182,7 @@ const signalStrip = computed(() => {
   }
 })
 
-/** 护栏尚无快照（404→null）时 deskTick 会高频触发：退避期内不再打 GET，减轻日志与 UI 闪烁 */
+/** 护栏尚无快照（GET 返回 JSON null）时 deskTick 会高频触发：退避期内不再打 GET，减轻日志与 UI 闪烁 */
 const guardrailNullBackoffUntil = ref(0)
 const guardrailBackoffKey = ref('')
 
