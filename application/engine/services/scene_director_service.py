@@ -6,7 +6,7 @@ import os
 from typing import Optional
 
 from application.ai.llm_json_extract import parse_llm_json_to_dict
-from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
+from application.engine.dtos.scene_director_dto import ActionTransitionGraphPayload, SceneDirectorAnalysis
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
 
@@ -16,19 +16,37 @@ logger = logging.getLogger(__name__)
 _SCENE_DIRECTOR_NODE_KEY = "scene-director-analysis"
 
 # 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_SCENE_DIRECTOR_SYSTEM = """你是小说场记。根据给定章节大纲，只输出一个 JSON 对象，键为：
-characters, locations, action_types, trigger_keywords, emotional_state, pov, performance_notes。
-characters/locations/action_types/trigger_keywords/performance_notes 均为字符串数组；emotional_state 为简短英文或中文单词；pov 为视点人物名字符串或 null。
-performance_notes 是可选的表演指令列表，描述动作级别的导演指示（如"眼神闪烁"、"握紧拳头"）。
-注意：不要在表演指令中透露角色的隐藏身份或设定，只描述可观察的动作和情绪。
-不要 markdown，不要解释。"""
+_FALLBACK_SCENE_DIRECTOR_SYSTEM = """[Task]
+你是小说场记规则引擎。根据章节大纲只输出一个 JSON 对象（不要 markdown，不要解释）。
+
+[Root keys]
+characters, locations, action_types, trigger_keywords, emotional_state, pov, performance_notes, atg
+
+[Flat fields]
+- characters/locations/action_types/trigger_keywords/performance_notes: 字符串数组
+- emotional_state: 简短词
+- pov: 视点人物字符串或 null
+- performance_notes: 可选，仅可观察的动作/情绪指令列表
+
+[atg — Action Transition Graph]
+"atg": {
+  "nodes": [{"location_id":"精确微观坐标_禁止仅用室内或室外","initial_props":[],"is_entry_point":false}],
+  "transitions": [{"source_location":"","target_location":"","required_action":"","trigger_characters":[]}],
+  "visit_sequence": ["按叙事顺序列出 location_id"]
+}
+
+[ATG Rules]
+1. location_id 必须具体（如 金蔷薇府邸_地下室外走廊），禁止仅用「室内」「室外」作为唯一坐标。
+2. 角色从地点 A 至 B 必须在 transitions 中给出 required_action（可观察的动作短语），并填写 trigger_characters。
+3. visit_sequence 顺序必须与大纲叙事游走一致；nodes 须覆盖 visit_sequence 中全部坐标。
+4. performance_notes 不得泄露隐藏设定。"""
 
 
 class SceneDirectorService:
     """场景导演服务 - 使用 LLM 分析章节大纲"""
 
-    # LLM generation configuration constants
-    _DEFAULT_MAX_TOKENS = 1024
+    # LLM generation configuration constants（含 ATG 时需更长 JSON）
+    _DEFAULT_MAX_TOKENS = 4096
     _DEFAULT_TEMPERATURE = 0.2
 
     def __init__(self, llm_service: LLMService, *, model: str = ""):
@@ -131,6 +149,16 @@ class SceneDirectorService:
         else:
             emotional_state = str(emotional_state).strip()
 
+        atg_payload: Optional[ActionTransitionGraphPayload] = None
+        raw_atg = data.get("atg")
+        if not isinstance(raw_atg, dict):
+            raw_atg = data.get("action_transition_graph")
+        if isinstance(raw_atg, dict):
+            try:
+                atg_payload = ActionTransitionGraphPayload.model_validate(raw_atg)
+            except Exception as exc:
+                logger.warning("scene director ATG validation failed: %s", exc)
+
         return SceneDirectorAnalysis(
             characters=as_str_list("characters"),
             locations=as_str_list("locations"),
@@ -139,4 +167,5 @@ class SceneDirectorService:
             emotional_state=emotional_state,
             pov=pov,
             performance_notes=as_optional_str_list("performance_notes"),
+            action_transition_graph=atg_payload,
         )

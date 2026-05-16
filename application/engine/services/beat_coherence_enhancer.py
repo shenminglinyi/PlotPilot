@@ -9,8 +9,7 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
-from application.engine.services.context_builder import ContextBuilder
-from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
+from domain.novel.value_objects.action_transition_graph import ActionTransitionGraph
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +63,41 @@ class BeatCoherenceEnhancer:
             '不料', '谁知', '转折', '变化'
         ]
     
+    def extract_character_names(self, content: str) -> List[str]:
+        """供拓扑闸门使用的轻量角色词表抽取（与 analyze_beat_context 同源）。"""
+        return self._extract_characters(content)
+
+    def build_atg_transition_directive(
+        self,
+        prev_loc: str,
+        curr_loc: str,
+        graph: Optional[ActionTransitionGraph],
+    ) -> str:
+        """消费 ATG：生成节拍级空间约束（无图则返回空串）。"""
+        if not graph or not curr_loc:
+            return ""
+        ploc = (prev_loc or "").strip()
+        cloc = curr_loc.strip()
+        if not ploc:
+            return ""
+        if ploc == cloc:
+            return (
+                f"【空间锁定】维持当前微观场景「{cloc}」，禁止在无过渡描写下切换空间；"
+                "在场道具与环境须与该坐标一致。\n"
+            )
+        edge = graph.get_transition_path(ploc, cloc)
+        if edge:
+            triggers = "、".join(edge.trigger_characters) if edge.trigger_characters else "视点角色"
+            return (
+                "【强制物理过渡】本节拍必须以可观察的动作完成空间转移。"
+                f"执行者：{triggers}；动作锚点：{edge.required_action}；"
+                f"路径：「{ploc}」→「{cloc}」。禁止瞬移。\n"
+            )
+        return (
+            "【拓扑告警】登记的 ATG 中未找到「{}→{}」的过场边；"
+            "请补充合理过渡描写，禁止凭空切换场景。\n".format(ploc, cloc)
+        )
+
     def analyze_beat_context(self, content: str, beat_focus: str) -> BeatContext:
         """分析单个节拍的上下文信息"""
         characters = self._extract_characters(content)

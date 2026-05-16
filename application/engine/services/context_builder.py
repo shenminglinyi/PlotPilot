@@ -43,6 +43,7 @@ class Beat:
     expansion_hints: List[str] = None  # 扩写维度提示（如何达到目标字数）
     scene_goal: str = ""  # 场景目标（从规划阶段继承）
     transition_from_prev: str = ""  # 🔗 从上一节拍如何过渡（对话延续/动作接续/情绪过渡/场景切换）
+    location_id: str = ""  # 微观坐标（由 ATG visit_sequence 绑定；无 ATG 时为空）
 
     def __post_init__(self):
         if self.expansion_hints is None:
@@ -77,6 +78,7 @@ class ContextBuilder:
         # 故事线 + 汇流点（供预算分配器使用）
         storyline_repository=None,
         confluence_point_repository=None,
+        worldbuilding_repository=None,
     ):
         self.bible_service = bible_service
         self.storyline_manager = storyline_manager
@@ -93,6 +95,7 @@ class ContextBuilder:
         self.triple_repository = triple_repository
         self.storyline_repository = storyline_repository
         self.confluence_point_repository = confluence_point_repository
+        self.worldbuilding_repository = worldbuilding_repository
 
         # ContextAssembler：提供 ANCHOR / SCARS / DEBT_DUE / CAUSAL_CHAINS 槽位
         context_assembler = None
@@ -107,6 +110,7 @@ class ContextBuilder:
                 bible_repo=bible_repository,
                 story_node_repo=story_node_repository,
                 novel_repository=novel_repository,
+                storyline_repo=storyline_repository,
             )
         except Exception as _e:
             logger.warning("ContextAssembler 初始化失败: %s", _e)
@@ -139,6 +143,7 @@ class ContextBuilder:
             memory_engine=memory_engine,
             storyline_repository=storyline_repository,
             confluence_point_repository=confluence_point_repository,
+            worldbuilding_repository=worldbuilding_repository,
         )
 
     def estimate_tokens(self, text: str) -> int:
@@ -302,6 +307,7 @@ class ContextBuilder:
         outline: str,
         target_chapter_words: int = 2500,
         beat_sheet: Optional[Any] = None,
+        scene_director: Optional[Any] = None,
     ) -> List[Beat]:
         """节拍放大器：将章节大纲拆分为微观节拍
 
@@ -319,7 +325,30 @@ class ContextBuilder:
             # === 路径 B：无 BeatSheet，回退到关键词识别 ===
             beats = self._build_beats_from_outline(chapter_number, outline, target_chapter_words)
 
-        return self._cap_and_merge_beats(beats, target_chapter_words)
+        beats = self._cap_and_merge_beats(beats, target_chapter_words)
+        self._bind_atg_locations_if_present(beats, scene_director)
+        return beats
+
+    def _bind_atg_locations_if_present(self, beats: List[Beat], scene_director: Optional[Any]) -> None:
+        """若场记携带 ATG，将 visit_sequence 映射到各节拍。"""
+        if not beats or scene_director is None:
+            return
+        graph_payload = getattr(scene_director, "action_transition_graph", None)
+        if graph_payload is None:
+            return
+        try:
+            from application.engine.services.spatial_coherence import assign_visit_locations_to_beats
+        except ImportError:
+            return
+        seq = list(graph_payload.visit_sequence or [])
+        if not seq:
+            entry_first = [n.location_id for n in graph_payload.nodes if getattr(n, "is_entry_point", False)]
+            seen = set(entry_first)
+            tail = [n.location_id for n in graph_payload.nodes if n.location_id and n.location_id not in seen]
+            seq = entry_first + tail
+        if not seq:
+            seq = [n.location_id for n in graph_payload.nodes if getattr(n, "location_id", "").strip()]
+        assign_visit_locations_to_beats(beats, seq)
 
     def _cap_and_merge_beats(self, beats: List[Beat], target_chapter_words: int) -> List[Beat]:
         """控制节拍数量与最低字数。
@@ -381,6 +410,7 @@ class ContextBuilder:
             expansion_hints=list(dict.fromkeys(a.expansion_hints + b.expansion_hints))[:4],
             scene_goal=f"{a.scene_goal or ''} {b.scene_goal or ''}".strip(),
             transition_from_prev=a.transition_from_prev or '',
+            location_id=(a.location_id or b.location_id or "").strip(),
         )
         return beats[:idx] + [merged] + beats[idx + 2:]
 

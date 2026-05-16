@@ -29,6 +29,7 @@ from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepo
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.bible.repositories.bible_repository import BibleRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.ai.vector_retrieval_facade import VectorRetrievalFacade
@@ -176,6 +177,7 @@ class ContextBudgetAllocator:
     MAX_ACT_SUMMARIES_TOKENS = 1500
     MAX_RECENT_CHAPTERS_TOKENS = 8000   # 扩容：N-1 完整 + N-2 半量 + N-3~5 预览
     MAX_VECTOR_RECALL_TOKENS = 5000
+    MAX_NARRATIVE_CONTRACT_TOKENS = 1400  # 向导五维 + 文风公约 + Bible 规则条目
 
     # 最近章节槽位：紧邻上一章侧重章末承接；更早章节仅章首短预览以省预算
     # V8 优化：增加章末保留量，提升章节间连贯性
@@ -200,6 +202,7 @@ class ContextBudgetAllocator:
         context_assembler: Optional[Any] = None,
         storyline_repository=None,
         confluence_point_repository=None,
+        worldbuilding_repository: Optional[WorldbuildingRepository] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -215,6 +218,7 @@ class ContextBudgetAllocator:
         self.context_assembler = context_assembler
         self.storyline_repo = storyline_repository
         self.confluence_repo = confluence_point_repository
+        self.worldbuilding_repo = worldbuilding_repository
 
         # ★ Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
         self._phase_thresholds = phase_thresholds or self._load_phase_thresholds()
@@ -250,6 +254,26 @@ class ContextBudgetAllocator:
             lines.append(self._format_storyline_block(sl, confluences, chapter_number))
 
         return "\n".join(lines)
+
+    def _build_narrative_contract_slot(self, novel_id: str) -> str:
+        """向导确认的五维世界观 + Bible 文风/规则；与 DB 同步，不读共享内存。"""
+        from application.world.services.narrative_contract_text import build_narrative_contract_block
+
+        bible = None
+        if self.bible_repo:
+            try:
+                bible = self.bible_repo.get_by_novel_id(NovelId(novel_id))
+            except Exception as e:
+                logger.debug("创作契约：读取 Bible 跳过 novel=%s err=%s", novel_id, e)
+
+        wb = None
+        if self.worldbuilding_repo:
+            try:
+                wb = self.worldbuilding_repo.get_by_novel_id(novel_id)
+            except Exception as e:
+                logger.debug("创作契约：读取 Worldbuilding 跳过 novel=%s err=%s", novel_id, e)
+
+        return build_narrative_contract_block(bible=bible, worldbuilding=wb)
 
     def _format_storyline_block(self, sl, confluences, chapter_number: int) -> str:
         """格式化单条故事线的上下文块。"""
@@ -505,6 +529,17 @@ class ContextBudgetAllocator:
             tokens=self.estimate_tokens(anchor_content),
             max_tokens=300,  # V9: 从 500 砍到 300——一句话主线，不需要更多
             priority=125,
+        )
+
+        # ── T0-2b: 创作契约（向导五维 + 文风公约 + Bible 规则）—— priority=122 ──
+        narrative_contract = self._build_narrative_contract_slot(novel_id)
+        slots["narrative_contract"] = ContextSlot(
+            name="📜创作契约(NARRATIVE_CONTRACT)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=narrative_contract,
+            tokens=self.estimate_tokens(narrative_contract),
+            max_tokens=self.MAX_NARRATIVE_CONTRACT_TOKENS,
+            priority=122,
         )
 
         # ── T0-3: FACT_LOCK（不可篡改事实块）—— priority=120 ──

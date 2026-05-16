@@ -4,6 +4,61 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
+from domain.novel.value_objects.action_transition_graph import (
+    ActionTransitionGraph as ActionTransitionGraphVO,
+)
+
+
+class SceneNodePayload(BaseModel):
+    """ATG 微观场景节点（DTO ↔ LLM JSON）。"""
+
+    location_id: str = ""
+    initial_props: List[str] = Field(default_factory=list)
+    is_entry_point: bool = False
+
+
+class TransitionEdgePayload(BaseModel):
+    """空间转移边（DTO ↔ LLM JSON）。"""
+
+    source_location: str = ""
+    target_location: str = ""
+    required_action: str = ""
+    trigger_characters: List[str] = Field(default_factory=list)
+
+
+class ActionTransitionGraphPayload(BaseModel):
+    """动作过场流转图载荷 — 由 SceneDirector 产出，供节拍管线消费。"""
+
+    nodes: List[SceneNodePayload] = Field(default_factory=list)
+    transitions: List[TransitionEdgePayload] = Field(default_factory=list)
+    visit_sequence: List[str] = Field(default_factory=list)
+
+    def to_domain(self) -> ActionTransitionGraphVO:
+        nodes: Dict[str, Any] = {}
+        from domain.novel.value_objects.action_transition_graph import SceneNode, TransitionEdge
+
+        for n in self.nodes:
+            lid = (n.location_id or "").strip()
+            if not lid:
+                continue
+            nodes[lid] = SceneNode(
+                location_id=lid,
+                initial_props=tuple(n.initial_props or ()),
+                is_entry_point=bool(n.is_entry_point),
+            )
+        transitions = tuple(
+            TransitionEdge(
+                source_location=(e.source_location or "").strip(),
+                target_location=(e.target_location or "").strip(),
+                required_action=(e.required_action or "").strip(),
+                trigger_characters=tuple(str(x) for x in (e.trigger_characters or []) if x),
+            )
+            for e in self.transitions
+            if (e.source_location or "").strip() and (e.target_location or "").strip()
+        )
+        visit_sequence = tuple(str(x).strip() for x in self.visit_sequence if str(x).strip())
+        return ActionTransitionGraphVO(nodes=nodes, transitions=transitions, visit_sequence=visit_sequence)
+
 
 def validate_outline_not_empty(v: str) -> str:
     """Validate that outline is not empty or whitespace-only.
@@ -55,6 +110,7 @@ class SceneDirectorAnalysis(BaseModel):
             (e.g., "eyes flicker", "clenches fist"). Should describe observable
             actions and emotions without revealing hidden character settings.
             Defaults to None for backward compatibility.
+        action_transition_graph: 可选 ATG；存在时节拍装配优先消费图拓扑而非正文盲猜。
     """
     characters: List[str] = Field(default_factory=list)
     locations: List[str] = Field(default_factory=list)
@@ -63,6 +119,7 @@ class SceneDirectorAnalysis(BaseModel):
     emotional_state: str = ""
     pov: Optional[str] = None
     performance_notes: Optional[List[str]] = None
+    action_transition_graph: Optional[ActionTransitionGraphPayload] = None
 
 
 class SceneDirectorAnalyzeResponse(SceneDirectorAnalysis):

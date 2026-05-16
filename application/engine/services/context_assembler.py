@@ -28,6 +28,7 @@ from domain.novel.repositories.character_state_repository import CharacterStateR
 from domain.novel.repositories.narrative_debt_repository import NarrativeDebtRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
+from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.bible.repositories.bible_repository import BibleRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
@@ -70,6 +71,7 @@ class ContextAssembler:
         bible_repo: Optional[BibleRepository] = None,
         story_node_repo: Optional[StoryNodeRepository] = None,
         novel_repository: Optional[NovelRepository] = None,
+        storyline_repo: Optional[StorylineRepository] = None,
     ):
         self.causal_edge_repo = causal_edge_repo
         self.character_state_repo = character_state_repo
@@ -79,6 +81,7 @@ class ContextAssembler:
         self.bible_repo = bible_repo
         self.story_node_repo = story_node_repo
         self.novel_repository = novel_repository
+        self.storyline_repo = storyline_repo
 
     # ============================================================
     # T0 槽位构建方法
