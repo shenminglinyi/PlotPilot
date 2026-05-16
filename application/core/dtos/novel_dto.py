@@ -1,6 +1,6 @@
 """Novel 数据传输对象"""
-from dataclasses import dataclass
-from typing import List, Optional, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from datetime import datetime
 
 if TYPE_CHECKING:
@@ -83,6 +83,7 @@ class NovelDTO:
     locked_genre: str = ""
     locked_world_preset: str = ""
     target_words_per_chapter: int = 2500
+    generation_prefs: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_domain(cls, novel: 'Novel') -> 'NovelDTO':
@@ -104,6 +105,9 @@ class NovelDTO:
 
         lg, lw = parse_genre_world_from_premise(premise_text)
 
+        _gp = getattr(novel, "generation_prefs", None)
+        gp_dict = _gp.to_dict() if _gp is not None and hasattr(_gp, "to_dict") else {}
+
         return cls(
             id=novel.novel_id.value,
             slug=getattr(novel, 'slug', novel.novel_id.value) or novel.novel_id.value,
@@ -119,4 +123,5 @@ class NovelDTO:
             locked_genre=lg,
             locked_world_preset=lw,
             target_words_per_chapter=int(getattr(novel, "target_words_per_chapter", 2500) or 2500),
+            generation_prefs=gp_dict,
         )

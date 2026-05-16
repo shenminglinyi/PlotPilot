@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Optional, Tuple
 
+from application.core.chapter_target_limits import clamp_chapter_target_words
+
 # 档位 id → 约总字数（规划目标，非公证成稿字数）
 V1_LENGTH_TIERS: Dict[str, Dict[str, Any]] = {
     "short": {
@@ -43,14 +45,14 @@ def resolve_v1_length_params(
         wpc = target_words_per_chapter if target_words_per_chapter and target_words_per_chapter > 0 else int(
             meta["default_chapter_words"]
         )
-        wpc = max(500, min(10000, wpc))
+        wpc = clamp_chapter_target_words(wpc)
         total = int(meta["approx_total_words"])
         chapters = max(1, math.ceil(total / wpc))
         return chapters, wpc, tier
 
     tc = target_chapters if target_chapters and target_chapters > 0 else 100
     tw = target_words_per_chapter if target_words_per_chapter and target_words_per_chapter > 0 else 2500
-    tw = max(500, min(10000, tw))
+    tw = clamp_chapter_target_words(tw)
     return tc, tw, None
 
 
