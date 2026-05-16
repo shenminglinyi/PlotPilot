@@ -26,6 +26,7 @@ from application.workflows.auto_novel_generation_workflow import AutoNovelGenera
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
 from application.engine.services.style_constraint_builder import build_style_summary
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
+from application.ai.prose_fragment_aggregator import aggregate_inline_prose_fragments
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
 from application.workflows.beat_continuation import format_prior_draft_for_prompt
 from domain.novel.value_objects.chapter_id import ChapterId
@@ -2418,19 +2419,32 @@ class AutopilotDaemon:
             tension = old_scale_tension * 10  # 1-10 → 0-100
             logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 旧式张力值：{old_scale_tension}/10 → {tension}/100")
         novel.last_chapter_tension = tension
-        # 🔥 架构优化：审计期间只写共享内存，不写 DB，避免持锁导致前端卡死
-        # DB 写入延迟到审计结束时统一落盘
+        # 共享内存：供 /status 等高频读路径；章节张力另见下方 _write_tension_ephemeral
         self._update_shared_state(
             novel.novel_id.value,
             last_chapter_tension=tension,
         )
+        # 同步章节张力到 chapters 表，供 /monitor/tension-curve 与「audit_tension_result」SSE 刷新一致读库
+        #（章后管线可能已写过多维张力，此处幂等 UPDATE 覆盖 composite；旧式打分路径则依赖本次写入）
+        try:
+            from application.world.services.chapter_narrative_sync import _write_tension_ephemeral
+
+            _write_tension_ephemeral(
+                novel.novel_id.value, chapter_num, float(tension), None
+            )
+        except Exception as e:
+            logger.debug(
+                "[%s] 张力同步 chapters 表失败（非致命）: %s",
+                novel.novel_id.value,
+                e,
+            )
         # 🔥 发布张力打分结果事件
         self._publish_audit_event(
             novel.novel_id.value,
             "audit_tension_result",
             {"tension": tension, "chapter_number": chapter_num}
         )
-        logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 张力值：{tension}/100（已写入共享内存）")
+        logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 张力值：{tension}/100（共享内存 + 章节表已对齐）")
 
         # 章末审阅快照（写入 novels，供 /autopilot/status 与前台「章节状态 / 章节元素」）
         previous_same_chapter_drift = (
@@ -3474,7 +3488,16 @@ class AutopilotDaemon:
         from domain.novel.value_objects.novel_id import NovelId
         from application.engine.services.persistence_queue import PersistenceCommandType
 
-        content_str = (content or "").strip()
+        stripped = (content or "").strip()
+        try:
+            if getattr(novel, "generation_prefs", None) is not None and getattr(
+                novel.generation_prefs, "inline_prose_aggregation_enabled", False
+            ):
+                content_str = aggregate_inline_prose_fragments(stripped)
+            else:
+                content_str = stripped
+        except Exception:
+            content_str = stripped
         novel_id = novel.novel_id.value
         chapter_number = chapter_node.number
 

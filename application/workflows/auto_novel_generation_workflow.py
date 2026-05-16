@@ -24,6 +24,7 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
+from application.ai.prose_fragment_aggregator import aggregate_inline_prose_fragments
 from application.workflows.beat_continuation import format_prior_draft_for_prompt
 from application.workflows.prose_discipline import build_prose_discipline_block
 from application.engine.services.beat_coherence_enhancer import BeatCoherenceEnhancer, BeatContext
@@ -439,6 +440,24 @@ class AutoNovelGenerationWorkflow:
             logger.debug("读取 target_words_per_chapter 失败，使用默认 2500: %s", e)
         return 2500
 
+    def _finalize_chapter_body_text(self, novel_id: str, raw: str) -> str:
+        """推理块清洗 + 按书目偏好可选段内短句聚合。"""
+        stripped = strip_reasoning_artifacts(raw)
+        try:
+            novel = self.context_builder.novel_repository.get_by_id(NovelId(novel_id))
+            if (
+                novel is not None
+                and getattr(novel.generation_prefs, "inline_prose_aggregation_enabled", False)
+            ):
+                return aggregate_inline_prose_fragments(stripped)
+        except Exception as e:
+            logger.debug(
+                "inline_prose_aggregation 偏好读取失败，跳过聚合 novel=%s: %s",
+                novel_id,
+                e,
+            )
+        return stripped
+
     def build_fallback_chapter_bundle(
         self,
         novel_id: str,
@@ -742,7 +761,7 @@ class AutoNovelGenerationWorkflow:
 
                 content_parts.append(beat_content)
             
-            content = strip_reasoning_artifacts("\n\n".join(content_parts))
+            content = self._finalize_chapter_body_text(novel_id, "\n\n".join(content_parts))
             logger.info(f"  ✓ 节拍生成完成: {len(beats)} 个节拍, {len(content)} 字符")
         else:
             # 传统单段生成
@@ -757,7 +776,7 @@ class AutoNovelGenerationWorkflow:
             )
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
             llm_result = await self.llm_service.generate(prompt, config)
-            content = strip_reasoning_artifacts(llm_result.content or "")
+            content = self._finalize_chapter_body_text(novel_id, llm_result.content or "")
             logger.info(f"  ✓ LLM 响应已接收: {len(content)} 字符")
         
         # 保存微观节拍用于后续处理
@@ -1016,7 +1035,7 @@ class AutoNovelGenerationWorkflow:
                     content_parts.append(beat_content)
                     yield {"type": "beat_done", "beat_index": i, "beat_content_length": len(beat_content)}
                 
-                content = strip_reasoning_artifacts("\n\n".join(content_parts))
+                content = self._finalize_chapter_body_text(novel_id, "\n\n".join(content_parts))
             else:
                 # 传统单段生成
                 prompt = self._build_prompt(
@@ -1049,7 +1068,7 @@ class AutoNovelGenerationWorkflow:
                         }
                     }
 
-                content = strip_reasoning_artifacts("".join(parts))
+                content = self._finalize_chapter_body_text(novel_id, "".join(parts))
             logger.info(f"  ✓ LLM 流式响应完成: {chunk_count} 个块, {len(content)} 字符")
 
             if not content.strip():
