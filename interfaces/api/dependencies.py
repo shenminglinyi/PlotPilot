@@ -638,6 +638,8 @@ def get_context_builder() -> ContextBuilder:
     from infrastructure.persistence.database.sqlite_causal_edge_repository import SqliteCausalEdgeRepository
     from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
     from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+    from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
+    from application.paths import get_db_path
 
     db = get_database()
 
@@ -678,6 +680,7 @@ def get_context_builder() -> ContextBuilder:
         narrative_debt_repository=debt_repo,
         storyline_repository=get_storyline_manager().repository,
         confluence_point_repository=get_confluence_point_repository(),
+        worldbuilding_repository=WorldbuildingRepository(get_db_path()),
     )
 
 

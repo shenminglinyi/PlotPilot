@@ -868,7 +868,7 @@ async def bulk_update_bible(
         HTTPException: 如果 Bible 不存在或参数无效
     """
     try:
-        return service.update_bible(
+        dto = service.update_bible(
             novel_id=novel_id,
             characters=request.characters,
             world_settings=request.world_settings,
@@ -880,3 +880,9 @@ async def bulk_update_bible(
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    try:
+        from application.engine.services.state_bootstrap import refresh_narrative_contract_in_shared_state
+        refresh_narrative_contract_in_shared_state(novel_id)
+    except Exception:
+        pass
+    return dto
