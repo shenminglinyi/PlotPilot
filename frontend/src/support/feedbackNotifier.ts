@@ -271,10 +271,10 @@ function showAggregatedFeedbackNotification(
           },
           previewLine,
         ),
-        h(NTagMuted, codes),
+        NTagMuted(codes),
       ]),
     type: 'error',
-    duration: preferDl ? 0 : 0,
+    duration: 0,
     closable: true,
     meta: () =>
       h(

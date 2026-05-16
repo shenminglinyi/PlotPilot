@@ -787,12 +787,15 @@ const renderSuffix = ({ option }: { option: any }) => {
   return elements.length > 0 ? h('span', {}, elements) : null
 }
 
-// 节点属性（右键绑定）
+// 节点属性（右键绑定；预览树禁用菜单）
 const nodeProps = ({ option }: { option: any }) => {
   const node = option as StoryNode
   const lv = node.level ?? 1
   const base = {
     class: `node-level-${lv}`,
+  }
+  if (isMacroPreviewTree.value) {
+    return base
   }
   return {
     ...base,
