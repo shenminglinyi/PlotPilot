@@ -21,6 +21,13 @@ class GenerationPreferences:
     conductor_land_threshold: Optional[float] = None
     # 落盘前将段内碎片换行连片（逗号衔接）；默认关闭
     inline_prose_aggregation_enabled: bool = False
+    # ── 章末审计 → 人工闸门（paused_for_review；与小说家「一章一停 / 硬伤打回」对齐）──
+    # 每章审计通过后进入待审阅，点「恢复」再走下一章（全自动 auto_approve 模式仍会跳过闸门）
+    pause_after_each_chapter_audit: bool = False
+    # 叙事管线明确失败（narrative_sync_ok=False），或文风在有限次改写后仍低于阈值 → 停机待人（需结合上一项均为可选项）
+    audit_pause_on_hard_fail: bool = False
+    # Anti-AI 审计综合判定为「严重」时停机待人（仅当章节闸门开启相关项时与其它条件并列生效）
+    audit_pause_on_anti_ai_severe: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -70,6 +77,10 @@ class GenerationPreferences:
             inline_prose_aggregation_enabled = False
         else:
             inline_prose_aggregation_enabled = bool(raw["inline_prose_aggregation_enabled"])
+        # 章末闸门：旧库缺失键时默认为 False（不突然改变全自动行为）
+        pause_after_each_chapter_audit = bool(raw.get("pause_after_each_chapter_audit", False))
+        audit_pause_on_hard_fail = bool(raw.get("audit_pause_on_hard_fail", False))
+        audit_pause_on_anti_ai_severe = bool(raw.get("audit_pause_on_anti_ai_severe", False))
         return cls(
             phase_display_mode=phase_display_mode,
             smart_truncate_enabled=smart_truncate_enabled,
@@ -77,6 +88,9 @@ class GenerationPreferences:
             conductor_converge_threshold=converge,
             conductor_land_threshold=land_v,
             inline_prose_aggregation_enabled=inline_prose_aggregation_enabled,
+            pause_after_each_chapter_audit=pause_after_each_chapter_audit,
+            audit_pause_on_hard_fail=audit_pause_on_hard_fail,
+            audit_pause_on_anti_ai_severe=audit_pause_on_anti_ai_severe,
         )
 
     @classmethod

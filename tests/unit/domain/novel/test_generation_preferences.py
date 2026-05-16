@@ -19,3 +19,27 @@ def test_merge_patch_roundtrip_key():
     )
     assert patched.inline_prose_aggregation_enabled is True
     assert "inline_prose_aggregation_enabled" in patched.to_dict()
+
+
+def test_audit_gate_prefs_default_false_when_missing():
+    gp = GenerationPreferences.from_dict({"phase_display_mode": True})
+    assert gp.pause_after_each_chapter_audit is False
+    assert gp.audit_pause_on_hard_fail is False
+    assert gp.audit_pause_on_anti_ai_severe is False
+
+
+def test_audit_gate_prefs_from_dict_merge_patch():
+    gp = GenerationPreferences.from_dict(
+        {
+            "pause_after_each_chapter_audit": True,
+            "audit_pause_on_hard_fail": True,
+            "audit_pause_on_anti_ai_severe": True,
+        }
+    )
+    assert gp.pause_after_each_chapter_audit is True
+    assert gp.audit_pause_on_hard_fail is True
+    assert gp.audit_pause_on_anti_ai_severe is True
+
+    patched = GenerationPreferences.merge_patch(gp, {"pause_after_each_chapter_audit": False})
+    assert patched.pause_after_each_chapter_audit is False
+    assert patched.audit_pause_on_hard_fail is True
