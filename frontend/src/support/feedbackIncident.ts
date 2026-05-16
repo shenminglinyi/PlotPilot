@@ -143,11 +143,31 @@ export function buildIncidentFromUnknown(
   }
 }
 
+/** 服务端日志快照附录（`/api/v1/system/feedback-log-snapshot`） */
+export interface BackendFeedbackAppendix {
+  generated_at?: string
+  backend_release?: string
+  backend_build_id?: string
+  backend_uptime_seconds?: number | null
+  log_file_env?: string
+  log_file_resolved?: string
+  log_file_missing?: boolean
+  log_truncated?: boolean
+  log_tail_line_count?: number
+  log_tail_lines?: string[]
+  memory_ring_recent?: Array<Record<string, unknown>>
+  /** 前端拉取失败 */
+  fetch_error?: string
+}
+
 /** 前端上报包：用于复制 / 下载，结构稳定便于后端工单系统对接 */
-export function buildDiagnosticBundle(incidents: FeedbackIncidentPayload[]) {
+export function buildDiagnosticBundle(
+  incidents: FeedbackIncidentPayload[],
+  backendAppendix?: BackendFeedbackAppendix | null,
+) {
   return {
     kind: 'plotpilot_frontend_diagnostic_bundle',
-    bundle_version: 1,
+    bundle_version: 2,
     generated_at: new Date().toISOString(),
     app: {
       name: 'PlotPilot',
@@ -164,6 +184,7 @@ export function buildDiagnosticBundle(incidents: FeedbackIncidentPayload[]) {
         typeof navigator !== 'undefined' && typeof navigator.language === 'string' ? navigator.language : '',
     },
     incidents,
+    ...(backendAppendix && Object.keys(backendAppendix).length > 0 ? { backend_appendix: backendAppendix } : {}),
   }
 }
 
@@ -195,10 +216,45 @@ export function wasErrorFeedbackEmitted(reason: unknown): boolean {
   return false
 }
 
+function appendBackendAppendixPlain(lines: string[], be?: BackendFeedbackAppendix | null) {
+  if (!be) return
+  lines.push('## 后端附录（同日志文件尾部 / 内存环）')
+  lines.push('')
+  if (be.fetch_error) {
+    lines.push(`拉取后端快照失败：${be.fetch_error}`)
+    lines.push('')
+    return
+  }
+  lines.push(`生成(UTC)：${be.generated_at ?? ''}`)
+  lines.push(`版本：${be.backend_release ?? ''} · 构建 ${be.backend_build_id ?? ''} · uptime_s ${be.backend_uptime_seconds ?? ''}`)
+  lines.push(`日志配置路径：${be.log_file_env ?? ''}`)
+  lines.push(`解析路径：${be.log_file_resolved ?? ''}`)
+  lines.push(`文件缺失：${Boolean(be.log_file_missing)} · 内容截断标记：${Boolean(be.log_truncated)} · 行数：${be.log_tail_line_count ?? be.log_tail_lines?.length ?? 0}`)
+  lines.push('')
+  lines.push('### LOG 尾部')
+  lines.push('')
+  for (const row of be.log_tail_lines ?? []) {
+    lines.push(row)
+  }
+  lines.push('')
+  const ring = be.memory_ring_recent ?? []
+  if (ring.length > 0) {
+    lines.push('### API 内存环（近期）')
+    lines.push('')
+    for (const r of ring) {
+      lines.push(JSON.stringify(r))
+    }
+    lines.push('')
+  }
+}
+
 /** 可读性更好的纯文本，适合直接贴工单 */
-export function serializeIncidentsPlain(incidents: FeedbackIncidentPayload[]): string {
+export function serializeIncidentsPlain(
+  incidents: FeedbackIncidentPayload[],
+  backendAppendix?: BackendFeedbackAppendix | null,
+): string {
   const lines: string[] = []
-  lines.push('# PlotPilot 前端诊断')
+  lines.push('# PlotPilot 诊断（前端事故快照 + 后端日志附录）')
   lines.push(`生成时间：${bundleNow()}`)
   lines.push(`会话：${incidents[0]?.meta.session_id ?? sessionId()}`)
   lines.push('')
@@ -221,6 +277,7 @@ export function serializeIncidentsPlain(incidents: FeedbackIncidentPayload[]): s
     lines.push(inc.detail)
     lines.push('')
   }
+  appendBackendAppendixPlain(lines, backendAppendix)
   return lines.join('\n').trimEnd() + '\n'
 }
 
