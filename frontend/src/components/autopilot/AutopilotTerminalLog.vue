@@ -59,7 +59,7 @@ const props = defineProps<{ novelId: string }>()
 
 const emit = defineEmits<{
   'desk-refresh': []
-  /** 单章审计落库等：驱动张力曲线等「按章更新即可」的指标，避免 beat_complete 级别刷屏 */
+  /** 张力打分结果 / 单章审计完成等：驱动张力心电图等「按章更新即可」的指标 */
   'chapter-metrics-refresh': []
 }>()
 
@@ -340,9 +340,12 @@ function pushRow(data: Record<string, unknown>) {
   if (t === 'autopilot_complete') {
     emit('chapter-metrics-refresh')
   }
-  // 🔥 审计完成（单章落库）：立即刷新，让前端立刻看到「已收稿」
+  // 🔥 审计事件：张力打分结果优先驱动心电图（不必等整段审计收尾）；audit_complete 再刷一次侧栏/曲线
   if (t === 'audit_event') {
     const evtType = meta?.event_type ?? (data as Record<string, unknown>).event_type
+    if (evtType === 'audit_tension_result') {
+      emit('chapter-metrics-refresh')
+    }
     if (evtType === 'audit_complete') {
       scheduleDeskRefresh()
       emit('chapter-metrics-refresh')

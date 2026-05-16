@@ -35,6 +35,26 @@
       </div>
     </div>
 
+    <div class="font-size-block">
+      <div class="font-size-heading">界面字体大小</div>
+      <div class="font-size-options">
+        <button
+          v-for="opt in fontSizeOptions"
+          :key="opt.value"
+          type="button"
+          class="font-size-chip"
+          :class="{ active: fontSizeStore.preset === opt.value }"
+          @click="handleFontSizeChange(opt.value)"
+        >
+          <span class="chip-label">{{ opt.label }}</span>
+          <span class="chip-hint">{{ opt.hint }}</span>
+        </button>
+      </div>
+      <n-alert type="default" style="margin-top: 14px" :bordered="false">
+        调整浏览器根字号与组件内文字，立即生效并自动保存。
+      </n-alert>
+    </div>
+
     <n-alert type="info" style="margin-top: 20px" :bordered="false">
       主题切换会立即生效并自动保存。选择「跟随系统」时，将根据操作系统的亮/暗模式自动切换。
     </n-alert>
@@ -45,9 +65,18 @@
 import { computed } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useThemeStore, type ThemeMode } from '@/stores/themeStore'
+import { useFontSizeStore, type FontSizePreset } from '@/stores/fontSizeStore'
 
 const message = useMessage()
 const themeStore = useThemeStore()
+const fontSizeStore = useFontSizeStore()
+
+const fontSizeOptions: { value: FontSizePreset; label: string; hint: string }[] = [
+  { value: 'small', label: '较小', hint: '约 87.5%' },
+  { value: 'medium', label: '默认', hint: '100%' },
+  { value: 'large', label: '较大', hint: '约 112.5%' },
+  { value: 'xlarge', label: '特大', hint: '约 125%' },
+]
 
 const themeOptions = computed(() => [
   {
@@ -75,6 +104,13 @@ const themeOptions = computed(() => [
     icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="26" height="26"><rect x="2" y="4" width="20" height="16" rx="2" stroke="#94a3b8" stroke-width="2" fill="none"/><path d="M8 14h8M10 10h4" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/></svg>',
   },
 ])
+
+function handleFontSizeChange(next: FontSizePreset) {
+  if (fontSizeStore.preset === next) return
+  fontSizeStore.setPreset(next)
+  const label = fontSizeOptions.find((o) => o.value === next)?.label ?? next
+  message.success(`字体大小已设为「${label}」`)
+}
 
 function handleThemeChange(newMode: ThemeMode) {
   const opt = themeOptions.value.find((o) => o.value === newMode)
@@ -280,5 +316,77 @@ function handleThemeChange(newMode: ThemeMode) {
 
 .theme-mode-card.active[data-mode="anchor"] .mode-card-check {
   color: var(--color-gold, #d4a843);
+}
+
+.font-size-block {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--app-border, #e2e8f0);
+}
+
+.font-size-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+  letter-spacing: 0.02em;
+  margin-bottom: 12px;
+}
+
+.font-size-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (min-width: 520px) {
+  .font-size-options {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.font-size-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1.5px solid var(--app-border, #e2e8f0);
+  background: var(--app-surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.font-size-chip:hover {
+  border-color: #a5b4fc;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.08);
+}
+
+.font-size-chip.active {
+  border-color: #4f46e5;
+  background: rgba(79, 70, 229, 0.06);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
+}
+
+.chip-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.chip-hint {
+  font-size: 11.5px;
+  color: var(--app-text-secondary);
+}
+
+[data-theme='anchor'] .font-size-chip.active {
+  border-color: var(--color-gold, #d4a843);
+  background: rgba(212, 168, 67, 0.08);
+  box-shadow: 0 0 0 3px rgba(212, 168, 67, 0.12);
+}
+
+[data-theme='anchor'] .font-size-chip:hover {
+  border-color: rgba(212, 168, 67, 0.45);
 }
 </style>

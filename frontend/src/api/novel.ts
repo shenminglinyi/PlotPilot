@@ -32,6 +32,8 @@ export interface GenerationPrefsDTO {
   phase_display_mode?: boolean
   smart_truncate_enabled?: boolean
   beat_hard_cap_enabled?: boolean
+  /** 落盘前段内碎片换行连片；默认关闭 */
+  inline_prose_aggregation_enabled?: boolean
   conductor_converge_threshold?: number | null
   conductor_land_threshold?: number | null
 }

@@ -17,7 +17,7 @@ const registry: AppSettingsSectionMeta[] = [
   {
     id: 'appearance',
     label: '外观与主题',
-    description: '亮暗色、黑金模式与系统联动',
+    description: '亮暗色、黑金模式、字体大小与系统联动',
     order: 10,
     component: () => import('@/components/settings/sections/ThemeAppearanceSection.vue'),
   },

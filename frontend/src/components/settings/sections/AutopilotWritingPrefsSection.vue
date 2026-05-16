@@ -98,6 +98,33 @@
             </div>
           </n-card>
 
+          <!-- 落盘排版 -->
+          <n-card size="small" :bordered="true" class="prefs-card">
+            <div class="card-head">
+              <span class="card-title">落盘排版</span>
+              <n-text depth="3" class="card-caption">与模型输出观感相关；按需开启</n-text>
+            </div>
+            <n-divider class="card-divider" />
+
+            <div class="row">
+              <div class="row-label">
+                <span class="row-title">正文短句聚合</span>
+                <n-text depth="3" class="row-hint">
+                  开启后在保存正文前合并段内单行碎片换行为连片叙述（对话「」与【】分段仍保留）。默认关闭。
+                </n-text>
+              </div>
+              <n-switch
+                :value="inlineProseAggregation"
+                :loading="patching === 'inline_prose_aggregation_enabled'"
+                size="large"
+                @update:value="(v: boolean) => onBoolPref('inline_prose_aggregation_enabled', v)"
+              >
+                <template #checked>已启用</template>
+                <template #unchecked>已关闭</template>
+              </n-switch>
+            </div>
+          </n-card>
+
           <!-- 指挥器相位 -->
           <n-card size="small" :bordered="true" class="prefs-card prefs-card-advanced">
             <div class="card-head">
@@ -186,6 +213,7 @@ const savingConductor = ref(false)
 const smartTruncate = ref(false)
 const beatHardCap = ref(true)
 const phaseDisplay = ref(true)
+const inlineProseAggregation = ref(false)
 
 const convergeInput = ref<number | null>(null)
 const landInput = ref<number | null>(null)
@@ -208,6 +236,11 @@ function applyPrefs(p?: GenerationPrefsDTO | null) {
     phaseDisplay.value = Boolean(p2.phase_display_mode)
   } else {
     phaseDisplay.value = true
+  }
+  if (Object.prototype.hasOwnProperty.call(p2, 'inline_prose_aggregation_enabled')) {
+    inlineProseAggregation.value = Boolean(p2.inline_prose_aggregation_enabled)
+  } else {
+    inlineProseAggregation.value = false
   }
 
   convergeInput.value =
@@ -277,7 +310,13 @@ async function mergePrefs(patch: Partial<GenerationPrefsDTO>) {
   window.dispatchEvent(new CustomEvent(WORKBENCH_GENERATION_PREFS_UPDATED_EVENT))
 }
 
-async function onBoolPref(key: 'smart_truncate_enabled' | 'beat_hard_cap_enabled', value: boolean) {
+async function onBoolPref(
+  key:
+    | 'smart_truncate_enabled'
+    | 'beat_hard_cap_enabled'
+    | 'inline_prose_aggregation_enabled',
+  value: boolean
+) {
   const slug = novelSlug.value
   if (!slug) return
   patching.value = key
