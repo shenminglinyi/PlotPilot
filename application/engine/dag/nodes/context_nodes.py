@@ -61,23 +61,29 @@ class BlueprintNode(BaseNode):
         novel_id = inputs.get("novel_id") or context.get("novel_id", "")
 
         try:
-            # 尝试调用 BibleService
             world_rules = ""
             taboos = ""
             atmosphere = ""
 
             try:
-                from application.world.services.bible_service import BibleService
+                from application.paths import get_db_path
+                from application.world.services.narrative_contract_text import build_ctx_blueprint_outputs
+                from domain.novel.value_objects.novel_id import NovelId
                 from infrastructure.persistence.database.connection import get_database
+                from infrastructure.persistence.database.sqlite_bible_repository import SqliteBibleRepository
+                from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
+
                 db = get_database()
-                bible_svc = BibleService(db)
-                bible = bible_svc.get_bible(novel_id)
-                if bible:
-                    world_rules = getattr(bible, "world_rules", "") or ""
-                    taboos = getattr(bible, "taboos", "") or ""
-                    atmosphere = getattr(bible, "atmosphere", "") or ""
+                bible_repo = SqliteBibleRepository(db)
+                bible = bible_repo.get_by_novel_id(NovelId(novel_id))
+                wb_repo = WorldbuildingRepository(get_db_path())
+                wb = wb_repo.get_by_novel_id(novel_id)
+                out = build_ctx_blueprint_outputs(bible=bible, worldbuilding=wb)
+                world_rules = out["world_rules"]
+                taboos = out["taboos"]
+                atmosphere = out["atmosphere"]
             except Exception as e:
-                logger.warning(f"BibleService 调用失败，使用空值: {e}")
+                logger.warning(f"剧本基建(Bible/Worldbuilding)加载失败，使用空值: {e}")
 
             return NodeResult(
                 outputs={"world_rules": world_rules, "taboos": taboos, "atmosphere": atmosphere},

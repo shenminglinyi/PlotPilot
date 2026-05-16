@@ -3,11 +3,10 @@
 供 ContextBudgetAllocator、DAG ctx_blueprint 等复用，避免各处重复拼接。"""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
-if TYPE_CHECKING:
-    from domain.bible.entities.bible import Bible
-    from domain.worldbuilding.worldbuilding import Worldbuilding
+from domain.bible.entities.bible import Bible
+from domain.worldbuilding.worldbuilding import Worldbuilding
 
 
 # 与前端向导 WB_DIMS / domain Worldbuilding 字段一致
