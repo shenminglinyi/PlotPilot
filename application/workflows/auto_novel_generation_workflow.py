@@ -602,7 +602,7 @@ class AutoNovelGenerationWorkflow:
                 
                 content_parts.append(beat_content)
             
-            content = strip_reasoning_artifacts("".join(content_parts))
+            content = strip_reasoning_artifacts("\n\n".join(content_parts))
             logger.info(f"  ✓ 节拍生成完成: {len(beats)} 个节拍, {len(content)} 字符")
         else:
             # 传统单段生成
@@ -781,7 +781,7 @@ class AutoNovelGenerationWorkflow:
                     content_parts.append(beat_content)
                     yield {"type": "beat_done", "beat_index": i, "beat_content_length": len(beat_content)}
                 
-                content = strip_reasoning_artifacts("".join(content_parts))
+                content = strip_reasoning_artifacts("\n\n".join(content_parts))
             else:
                 # 传统单段生成
                 prompt = self._build_prompt(

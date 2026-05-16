@@ -51,6 +51,46 @@ def _character_masks_for_novel(novel_id: str) -> Dict[str, Any]:
     return masks
 
 
+def _character_names_fallback_from_text(novel_id: str, text: str) -> Optional[List[str]]:
+    """本章实际出现的登场角色（来自 Cast）；None 表示无法推断。"""
+    masks = _character_masks_for_novel(novel_id)
+    if not masks:
+        return None
+    names_sorted = sorted(masks.keys(), key=len, reverse=True)
+    appearing: List[str] = []
+    for nm in names_sorted:
+        if nm and nm in text:
+            appearing.append(nm)
+    appearing = list(dict.fromkeys(appearing))
+    if not appearing:
+        return None
+    return appearing[:32]
+
+
+def _minimal_scene_context(novel_id: str, text: str) -> Optional[Dict[str, Any]]:
+    """从 Cast + 正文出现角色推断最小视点语境；不足两人同框时不返回（仍以保守分兜底）。"""
+    masks = _character_masks_for_novel(novel_id)
+    if not masks:
+        return None
+    names_sorted = sorted(masks.keys(), key=len, reverse=True)
+    appearing = [nm for nm in names_sorted if nm and nm in text]
+    appearing = list(dict.fromkeys(appearing))
+    if len(appearing) < 2:
+        return None
+
+    pov = min(appearing, key=lambda n: text.find(n))
+    chars = appearing[:24]
+    if pov not in chars:
+        return None
+
+    return {
+        "viewpoint_character": pov,
+        "characters_present": chars,
+        "key_event": "",
+        "information_asymmetry": {},
+    }
+
+
 def _violations_from_quality_error(e: Any) -> List[Dict[str, Any]]:
     violations: List[Dict[str, Any]] = []
     for v in getattr(e, "violations", []) or []:
@@ -126,13 +166,21 @@ def run_guardrail_sync(
     guardrail = get_quality_guardrail()
     character_masks = _character_masks_for_novel(novel_id) or None
 
+    name_list = (
+        character_names
+        if character_names is not None
+        else _character_names_fallback_from_text(novel_id, text)
+    )
+    scene_ctx = _minimal_scene_context(novel_id, text)
+
     try:
         if mode == "enforce":
             report = guardrail.enforce(
                 text=text,
                 character_masks=character_masks,
                 chapter_goal=chapter_goal,
-                character_names=character_names or None,
+                character_names=name_list,
+                scene_info=scene_ctx,
                 era=era,
                 scene_type=scene_type,
             )
@@ -141,7 +189,8 @@ def run_guardrail_sync(
                 text=text,
                 character_masks=character_masks,
                 chapter_goal=chapter_goal,
-                character_names=character_names or None,
+                character_names=name_list,
+                scene_info=scene_ctx,
                 era=era,
                 scene_type=scene_type,
             )
