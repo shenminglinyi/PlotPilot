@@ -53,6 +53,20 @@ _PREFACE_ANALYSIS = re.compile(
 )
 
 
+def strip_and_aggregate_prose_fragments(
+    raw: str,
+    *,
+    short_line_max_chars: int = 52,
+) -> str:
+    """先去推理块，再在段落内连片短行换行（见 prose_fragment_aggregator）。"""
+    from application.ai.prose_fragment_aggregator import aggregate_inline_prose_fragments
+
+    return aggregate_inline_prose_fragments(
+        strip_reasoning_artifacts(raw),
+        short_line_max_chars=short_line_max_chars,
+    )
+
+
 def strip_reasoning_artifacts(raw: str) -> str:
     """移除常见推理块标签与围栏，保留其余文本顺序不变。
 
