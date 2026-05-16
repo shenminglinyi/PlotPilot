@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -13,9 +14,11 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -82,6 +85,92 @@ def _check_extensions_installed() -> dict:
     return result
 
 
+def _tail_log_file_lines(
+    log_path_raw: str,
+    max_lines: int,
+    max_bytes: int = 768_000,
+) -> Tuple[List[str], str, bool, bool]:
+    """尾部若干行：(lines, resolved_path, missing, truncated_early_content)"""
+    raw = Path(log_path_raw)
+    path = raw.resolve() if raw.is_absolute() else (Path.cwd() / raw).resolve()
+    resolved = str(path)
+    if not path.is_file():
+        return [], resolved, True, False
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return [], resolved, True, False
+    start = max(0, size - max_bytes)
+    truncated_window = start > 0
+    try:
+        with path.open("rb") as fh:
+            fh.seek(start)
+            chunk = fh.read()
+    except OSError:
+        return [], resolved, True, truncated_window
+    if start > 0 and b"\n" in chunk:
+        chunk = chunk.split(b"\n", 1)[1]
+    text = chunk.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    line_truncated = len(lines) > max_lines
+    if line_truncated:
+        lines = lines[-max_lines:]
+    return lines, resolved, False, truncated_window or line_truncated
+
+
+def _snapshot_feedback_bundle_sync(max_lines: int, ring_limit: int) -> Dict[str, Any]:
+    """运行于线程池，避免磁盘 IO 卡住事件循环。"""
+    log_env = os.getenv("LOG_FILE", "logs/plotpilot.log")
+    lines, resolved, missing, log_truncated = _tail_log_file_lines(log_env, max_lines)
+
+    backend_release = "unknown"
+    backend_build_id = "unknown"
+    uptime_sec: Any = None
+    try:
+        from interfaces import main as app_main
+
+        backend_release = getattr(app_main, "APP_RELEASE_VERSION", backend_release)
+        backend_build_id = getattr(app_main, "BACKEND_BUILD_ID", backend_build_id)
+        st = getattr(app_main, "STARTUP_TIME", None)
+        if isinstance(st, (int, float)):
+            uptime_sec = round(time.time() - st, 2)
+    except Exception:
+        pass
+
+    ring_out: List[Dict[str, Any]] = []
+    if ring_limit > 0:
+        try:
+            from application.engine.services.autopilot_log_ring import snapshot_global_ring
+
+            for entry in snapshot_global_ring(ring_limit):
+                ring_out.append(
+                    {
+                        "seq": entry.seq,
+                        "timestamp": entry.timestamp_iso,
+                        "level": entry.level,
+                        "logger": entry.logger_name,
+                        "novel_id": entry.novel_id,
+                        "message": (entry.message or "")[:4000],
+                    }
+                )
+        except Exception as e:
+            logger.warning("snapshot_global_ring failed: %s", e)
+
+    return {
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "backend_release": backend_release,
+        "backend_build_id": backend_build_id,
+        "backend_uptime_seconds": uptime_sec,
+        "log_file_env": log_env,
+        "log_file_resolved": resolved,
+        "log_file_missing": missing,
+        "log_truncated": log_truncated,
+        "log_tail_line_count": len(lines),
+        "log_tail_lines": lines,
+        "memory_ring_recent": ring_out,
+    }
+
+
 # ════════════════════════════════════════════
 # Schema
 # ════════════════════════════════════════════
@@ -95,6 +184,20 @@ class InstallExtensionsResponse(BaseModel):
 # ════════════════════════════════════════════
 # 端点
 # ════════════════════════════════════════════
+
+
+@router.get("/feedback-log-snapshot")
+async def feedback_log_snapshot(
+    request: Request,
+    max_lines: int = Query(600, ge=1, le=2500),
+    ring_limit: int = Query(200, ge=0, le=800),
+):
+    """供前端一键反馈：LOG_FILE 尾部 + API 进程内存日志环。
+
+    与 /system/extensions-* 一致，仅限本机（127.0.0.1 / ::1）访问，减轻远程泄漏风险。
+    """
+    _assert_localhost(request)
+    return await asyncio.to_thread(_snapshot_feedback_bundle_sync, max_lines, ring_limit)
 
 
 @router.get("/extensions-status")
