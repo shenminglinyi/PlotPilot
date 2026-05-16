@@ -1,6 +1,6 @@
 """Novel API 路由"""
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Response
-from typing import List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 import logging
 
@@ -8,6 +8,7 @@ from application.core.services.novel_service import NovelService
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
 from application.core.dtos.novel_dto import NovelDTO
+from application.core.chapter_target_limits import CHAPTER_TARGET_WORDS_MAX, CHAPTER_TARGET_WORDS_MIN
 from interfaces.api.dependencies import (
     get_novel_service,
     get_auto_bible_generator,
@@ -40,6 +41,8 @@ class CreateNovelRequest(BaseModel):
     )
     target_words_per_chapter: Optional[int] = Field(
         None,
+        ge=CHAPTER_TARGET_WORDS_MIN,
+        le=CHAPTER_TARGET_WORDS_MAX,
         description="每章目标字数；可选，与体量档或自定义章数搭配",
     )
 
@@ -57,9 +60,13 @@ class UpdateNovelRequest(BaseModel):
     premise: str = Field(None, description="故事梗概/创意")
     target_words_per_chapter: Optional[int] = Field(
         None,
-        ge=500,
-        le=10000,
+        ge=CHAPTER_TARGET_WORDS_MIN,
+        le=CHAPTER_TARGET_WORDS_MAX,
         description="每章目标字数（全托管节拍与章长参考）",
+    )
+    generation_prefs: Optional[Dict[str, Any]] = Field(
+        None,
+        description="生成偏好（与库内合并）；键示例：phase_display_mode, smart_truncate_enabled, beat_hard_cap_enabled, conductor_converge_threshold, conductor_land_threshold",
     )
 
 
@@ -209,6 +216,7 @@ async def update_novel(
             request.target_chapters,
             request.premise,
             target_words_per_chapter=request.target_words_per_chapter,
+            generation_prefs=request.generation_prefs,
         )
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
