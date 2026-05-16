@@ -223,7 +223,11 @@ const lastTruncateLine = computed(() => {
   const tb = o.total_beats
   const ph = o.phase
   if (from == null && to == null) return ''
-  return `节拍 ${bi}/${tb} · ${from}→${to} 字 · 硬上限 ${cap} · 相位 ${ph}`
+  const modeRaw = o.truncate_mode
+  const modeLabel =
+    modeRaw === 'hard' ? '硬截断' : modeRaw === 'smart' ? '智能截断' : ''
+  const modeSeg = modeLabel ? ` · ${modeLabel}` : ''
+  return `节拍 ${bi}/${tb} · ${from}→${to} 字 · 硬上限 ${cap} · 相位 ${ph}${modeSeg}`
 })
 
 async function fetchWritingTelemetry() {

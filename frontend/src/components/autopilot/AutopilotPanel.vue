@@ -209,7 +209,7 @@
             <n-input-number
               v-model:value="startConfig.target_words_per_chapter"
               :min="500"
-              :max="10000"
+              :max="20000"
               :step="500"
               style="width: 100%"
             />
