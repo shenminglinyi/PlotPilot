@@ -22,6 +22,13 @@ const registry: AppSettingsSectionMeta[] = [
     component: () => import('@/components/settings/sections/ThemeAppearanceSection.vue'),
   },
   {
+    id: 'autopilot-writing',
+    label: '写作与全托管',
+    description: '指挥相位、字数硬帽、叙事标签（按书目保存）',
+    order: 15,
+    component: () => import('@/components/settings/sections/AutopilotWritingPrefsSection.vue'),
+  },
+  {
     id: 'engine',
     label: '核心引擎',
     description: '多角色模型端点；统一或独立 API 配置',

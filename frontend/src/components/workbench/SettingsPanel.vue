@@ -2,7 +2,7 @@
   <div class="right-panel">
     <!-- 章节上下文（当有章节时显示） -->
     <div v-if="currentChapter" class="chapter-context-bar">
-      <span class="chapter-context-label">第{{ currentChapter.number }}章</span>
+      <span class="chapter-context-label">{{ narrativeContextLabel }}</span>
       <n-tag
         :type="currentChapter.word_count > 0 ? 'success' : 'default'"
         size="tiny"
@@ -50,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import BiblePanel from '../panels/BiblePanel.vue'
 import ManuscriptPropsPanel from './ManuscriptPropsPanel.vue'
 import KnowledgePanel from '../knowledge/KnowledgePanel.vue'
@@ -58,6 +58,8 @@ import WorldbuildingPanel from './WorldbuildingPanel.vue'
 import StoryEvolutionPanel from './StoryEvolutionPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import CharacterDialoguePanel from './CharacterDialoguePanel.vue'
+import type { GenerationPrefsDTO } from '@/api/novel'
+import { narrativeOrdinalLabel } from '@/utils/narrativeUnitLabel'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
@@ -98,11 +100,19 @@ interface Props {
   slug: string
   currentPanel?: string
   currentChapter?: Chapter | null
+  generationPrefs?: GenerationPrefsDTO | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   currentPanel: 'bible',
   currentChapter: null,
+  generationPrefs: null,
+})
+
+const narrativeContextLabel = computed(() => {
+  const ch = props.currentChapter
+  if (!ch) return ''
+  return narrativeOrdinalLabel(ch.number, props.generationPrefs ?? undefined)
 })
 
 const emit = defineEmits<{
