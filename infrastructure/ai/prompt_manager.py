@@ -1,11 +1,11 @@
-"""PromptManager — 提示词统一管理服务（数据库驱动版）。
+"""PromptManager — 提示词统一管理服务（CPMS v5）。
 
 核心设计：
 - 提示词存入 SQLite（prompt_templates / prompt_nodes / prompt_versions）
 - 单节点版本管理（每次编辑创建新版本，支持回滚）
 - 整体模板概念（template 包含多个 node，可组合成工作流）
-- 内置种子优先从 ``infrastructure/ai/prompt_packages/`` 加载（YAML 元数据 + Markdown 正文）
-- 若包目录为空则回退合并旧版 ``prompts_defaults.json`` + ``prompts_*.json``（兼容未迁移工作区）
+- 内置种子仅从 ``infrastructure/ai/prompt_packages/nodes/*/`` 加载（YAML 元数据 + Markdown 正文）
+- 旧版 JSON 种子已废弃
 - Jinja2 兼容的变量渲染
 
 数据模型：
@@ -311,35 +311,25 @@ class PromptManager:
     def ensure_seeded(self) -> bool:
         """确保内置种子已导入数据库（幂等）。
 
-        v4 加载策略：
-        1. 优先 ``prompt_packages/nodes/*/``（package.yaml + system.md + user.md + extras.json）
-        2. 若包为空，回退合并 ``prompts_defaults.json`` + ``prompts_*.json``（与 v3 行为一致）
+        CPMS v5 加载策略：
+        仅从 ``prompt_packages/nodes/*/`` 加载（package.yaml + system.md + user.md）。
+        旧版 prompts_defaults.json / prompts_*.json 已废弃，不再回退。
         """
         if self._seeded:
             return True
         db = self._get_db()
         conn = db.get_connection()
 
-        from infrastructure.ai.prompt_seed.loader import load_seed_bundle, merge_legacy_json_prompts
+        from infrastructure.ai.prompt_seed.loader import load_seed_bundle
 
         bundle_meta, prompt_list = load_seed_bundle()
-        seed_data: Optional[Dict[str, Any]] = None
-        if prompt_list:
-            seed_data = {"_meta": bundle_meta, "prompts": prompt_list}
-            logger.info("PromptManager: 使用 prompt_packages 种子（%d 个节点）", len(prompt_list))
-        else:
-            merged_meta, plist = merge_legacy_json_prompts(_PROMPTS_DIR)
-            if plist:
-                seed_data = {"_meta": merged_meta, "prompts": plist}
-                logger.warning(
-                    "prompt_packages 无节点，已回退 legacy JSON（%d 个）；"
-                    "请运行: python -m infrastructure.ai.prompt_seed.export_legacy",
-                    len(plist),
-                )
 
-        if not seed_data or not seed_data.get("prompts"):
-            logger.error("没有找到任何提示词种子（prompt_packages 与 legacy JSON 均为空）")
+        if not prompt_list:
+            logger.error("没有找到任何提示词种子（prompt_packages/nodes/ 为空），请检查节点包目录")
             return False
+
+        logger.info("PromptManager: 使用 prompt_packages 种子（%d 个节点）", len(prompt_list))
+        seed_data = {"_meta": bundle_meta, "prompts": prompt_list}
 
         meta = seed_data.get("_meta", {})
         seed_version = meta.get("version", "1.0.0")

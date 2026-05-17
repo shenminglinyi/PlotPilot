@@ -1,92 +1,63 @@
-"""PromptRuntimeService — 提示词运行时服务
+"""PromptRuntimeService — 提示词运行时服务（CPMS 统一代理）
 
-核心改进：
-- DB激活版优先 → JSON回退
-- render方法支持rule_keys组合 + 变量注入 + 上下文块去重
-- 支持节点类型分类（rule/template/workflow/extractor/reviewer/formatter）
+重构后：
+- 所有读取操作委托给 PromptRegistry（CPMS 核心门面）
+- 保留 render 方法兼容评估脚本
+- 消除旧 JSON / 旧 prompts 表的直接读取
+- rule_keys 组合渲染 + 变量注入 + 上下文块去重
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
-from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
+
+from infrastructure.ai.prompt_registry import get_prompt_registry
 
 logger = logging.getLogger(__name__)
 
 
 class PromptRuntimeService:
-    """提示词运行时服务
+    """提示词运行时服务（CPMS 统一代理）
 
     设计原则：
-    - DB激活版优先，JSON回退
-    - rule_keys组合渲染 + 变量注入
+    - 所有读取委托 PromptRegistry
+    - rule_keys 组合渲染 + 变量注入
     - 上下文块去重（避免重复信息）
-    - 二级分类 + 节点类型
     """
 
     def __init__(self, db_pool=None, prompts_dir: str = None):
-        self._db_pool = db_pool
-        self._prompts_dir = Path(prompts_dir) if prompts_dir else None
-        self._json_cache: Dict[str, Dict[str, Any]] = {}
-        self._load_json_prompts()
-
-    def _load_json_prompts(self):
-        """加载规则类 JSON（rules_seed.json）。CPMS 节点种子已迁至 prompt_packages/。"""
-        if not self._prompts_dir or not self._prompts_dir.exists():
-            return
-
-        rules_file = self._prompts_dir / "rules_seed.json"
-        if rules_file.is_file():
-            try:
-                with open(rules_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                names: List[str] = []
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict) and "name" in item:
-                            self._json_cache[item["name"]] = item
-                            names.append(str(item["name"]))
-                logger.info(
-                    "prompt_runtime: rules_seed loaded file=%s entries=%d names=%s",
-                    rules_file.name,
-                    len(names),
-                    names,
-                )
-            except Exception as e:
-                logger.warning(f"加载规则种子失败 {rules_file}: {e}")
-
-    async def get_prompt(self, name: str) -> Optional[Dict[str, Any]]:
-        """获取提示词（DB优先 → JSON回退）
+        """初始化。
 
         Args:
-            name: 提示词名称
+            db_pool: 保留参数（兼容旧调用），不再直接使用
+            prompts_dir: 保留参数（兼容旧调用），不再直接使用
+        """
+        self._registry = get_prompt_registry()
+
+    async def get_prompt(self, name: str) -> Optional[Dict[str, Any]]:
+        """获取提示词节点详情（通过 PromptRegistry）。
+
+        Args:
+            name: 提示词节点 node_key
 
         Returns:
-            提示词对象
+            节点详情字典，不存在则 None
         """
-        # 1. 尝试从DB读取激活版
-        if self._db_pool:
-            try:
-                with self._db_pool.get_connection() as conn:
-                    row = conn.execute(
-                        """SELECT * FROM prompts
-                           WHERE name = ? AND is_active = 1
-                           ORDER BY version DESC LIMIT 1""",
-                        (name,)
-                    ).fetchone()
+        node = self._registry.get_node(name)
+        if not node:
+            return None
 
-                    if row:
-                        return dict(row)
-            except Exception as e:
-                logger.debug(f"DB读取提示词失败: {e}")
-
-        # 2. 回退到JSON缓存
-        if name in self._json_cache:
-            return self._json_cache[name]
-
-        return None
+        return {
+            "name": node.node_key,
+            "content": node.get_active_system(),
+            "template": node.get_active_user_template(),
+            "category": node.category,
+            "description": node.description,
+            "tags": node.tags,
+            "variables": node.variables,
+            "is_builtin": node.is_builtin,
+        }
 
     async def render(
         self,
@@ -111,12 +82,13 @@ class PromptRuntimeService:
 
         # 1. 加载rule节点
         for key in rule_keys:
-            prompt = await self.get_prompt(key)
-            if not prompt:
-                logger.warning(f"提示词节点不存在: {key}")
+            node = self._registry.get_node(key)
+            if not node:
+                logger.warning("提示词节点不存在: %s", key)
                 continue
 
-            content = prompt.get("content", "") or prompt.get("template", "")
+            # 优先取 system，回退取 user_template
+            content = node.get_active_system() or node.get_active_user_template()
 
             # 变量注入
             if variables:
@@ -169,71 +141,50 @@ class PromptRuntimeService:
         node_type: str = None,
         subcategory: str = None,
     ) -> List[Dict[str, Any]]:
-        """列出提示词节点
+        """列出提示词节点（通过 PromptRegistry）。
 
         Args:
             node_type: 节点类型过滤 (rule/template/workflow/extractor/reviewer/formatter)
-            subcategory: 二级分类过滤
+            subcategory: 二级分类过滤（映射为 category）
 
         Returns:
             提示词节点列表
         """
+        category = subcategory or node_type
+        nodes = self._registry.list_nodes(category=category)
         results = []
-
-        # 从JSON缓存收集
-        for name, prompt in self._json_cache.items():
-            metadata = prompt.get("metadata", {})
-            if node_type and metadata.get("node_type") != node_type:
-                continue
-            if subcategory and metadata.get("subcategory") != subcategory:
-                continue
-            results.append(prompt)
-
-        # 从DB收集
-        if self._db_pool:
-            try:
-                with self._db_pool.get_connection() as conn:
-                    query = "SELECT * FROM prompts WHERE is_active = 1"
-                    params = []
-                    if node_type:
-                        query += " AND metadata->>'node_type' = ?"
-                        params.append(node_type)
-                    if subcategory:
-                        query += " AND metadata->>'subcategory' = ?"
-                        params.append(subcategory)
-
-                    rows = conn.execute(query, params).fetchall()
-                    for row in rows:
-                        results.append(dict(row))
-            except Exception as e:
-                logger.debug(f"DB列出提示词失败: {e}")
-
+        for node in nodes:
+            results.append({
+                "name": node.node_key,
+                "content": node.get_active_system(),
+                "template": node.get_active_user_template(),
+                "category": node.category,
+                "description": node.description,
+                "tags": node.tags,
+                "is_builtin": node.is_builtin,
+            })
         return results
 
     async def create_or_update(self, name: str, content: str, metadata: Dict[str, Any] = None) -> bool:
-        """创建或更新提示词节点"""
-        if not self._db_pool:
-            # 只能更新JSON缓存
-            self._json_cache[name] = {
-                "name": name,
-                "content": content,
-                "metadata": metadata or {},
-            }
-            return True
+        """创建或更新提示词节点（通过 PromptRegistry）。
+
+        注意：CPMS 中节点的创建/更新由 PromptManager 管理。
+        此方法提供兼容接口，直接委托给 PromptManager。
+        """
+        from infrastructure.ai.prompt_manager import get_prompt_manager
 
         try:
-            with self._db_pool.get_connection() as conn:
-                conn.execute(
-                    """INSERT INTO prompts (name, content, metadata, is_active, version)
-                       VALUES (?, ?, ?, 1, 1)
-                       ON CONFLICT(name) DO UPDATE SET
-                           content = excluded.content,
-                           metadata = excluded.metadata,
-                           version = version + 1""",
-                    (name, content, json.dumps(metadata or {}, ensure_ascii=False))
-                )
-                conn.commit()
+            mgr = get_prompt_manager()
+            mgr.ensure_seeded()
+            # 通过 PromptManager 更新节点
+            mgr.upsert_node_content(
+                node_key=name,
+                system_content=content,
+                user_template=metadata.get("template", "") if metadata else "",
+            )
+            # 刷新缓存
+            self._registry.invalidate_cache(name)
             return True
         except Exception as e:
-            logger.error(f"创建/更新提示词失败: {e}")
+            logger.error("创建/更新提示词失败: %s", e)
             return False
