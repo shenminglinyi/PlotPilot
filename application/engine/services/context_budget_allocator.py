@@ -2090,7 +2090,7 @@ class ContextBudgetAllocator:
         "finale": 1.01,        # 90% ~ 100%: 终局期（设为 1.01 确保边界）
     }
 
-    _LIFECYCLE_PROMPT_ID = "lifecycle-phase-directives"
+    from infrastructure.ai.prompt_keys import LIFECYCLE_PHASE_DIRECTIVES as _LIFECYCLE_PROMPT_ID
 
     def _load_phase_thresholds(self) -> Dict[str, float]:
         """★ Phase 3: 从 CPMS 节点加载沙漏阶段阈值（lifecycle-phase-directives 的 _phase_thresholds）。"""

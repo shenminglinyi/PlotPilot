@@ -51,7 +51,7 @@ class StateExtractionNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="chapter-state-extraction",
+        cpms_node_key="chapter-state-extraction",  # prompt_keys: CHAPTER_STATE_EXTRACTION
         prompt_mode=PromptMode.CPMS_FIRST,
         description="9维度结构化状态提取：人物、关系、伏笔、事件、时间线、故事线",
         default_edges=["val_narrative"],
@@ -208,7 +208,7 @@ class NarrativeSyncExtractionNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="chapter-narrative-sync",
+        cpms_node_key="chapter-narrative-sync",  # prompt_keys: CHAPTER_NARRATIVE_SYNC
         prompt_mode=PromptMode.CPMS_FIRST,
         description="增强版叙事提取：为后续大纲修正提供精准的'状态机'快照",
         default_edges=["val_foreshadow"],

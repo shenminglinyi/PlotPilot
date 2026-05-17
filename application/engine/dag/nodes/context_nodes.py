@@ -197,7 +197,7 @@ class VoiceNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=30,
-        cpms_node_key="context-voice-style",
+        cpms_node_key="voice-style-analysis",
         description="style_constraint_builder + character_state_vector",
         default_edges=["exec_writer"],
     )

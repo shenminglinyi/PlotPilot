@@ -92,9 +92,11 @@ class PlanningNode(BaseNode):
 
 # ─── exec_writer: 剧情引擎 ───
 
-# CPMS 提示词节点 key（复用主工作流提示词体系，减少维护成本）
-_WORKFLOW_CHAPTER_GEN_NODE_KEY = "chapter-generation-main"
-_WORKFLOW_BEAT_NODE_KEY = "autopilot-stream-beat"
+# CPMS 提示词节点 key（统一从 prompt_keys 导入）
+from infrastructure.ai.prompt_keys import (
+    CHAPTER_GENERATION_MAIN as _WORKFLOW_CHAPTER_GEN_NODE_KEY,
+    AUTOPILOT_STREAM_BEAT as _WORKFLOW_BEAT_NODE_KEY,
+)
 
 
 @NodeRegistry.register("exec_writer")
@@ -136,7 +138,7 @@ class WriterNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=300,
-        cpms_node_key="chapter-generation-main",
+        cpms_node_key=_WORKFLOW_CHAPTER_GEN_NODE_KEY,
         # ★ CPMS 子提示词自动注入（Anti-AI 层）
         cpms_sub_keys=[
             CPMSInjectionPoint(cpms_node_key="anti-ai-behavior-protocol", target_variable="behavior_protocol", description="Anti-AI 行为协议 P1-P5+R1-R8"),
@@ -258,7 +260,7 @@ class BeatNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="autopilot-stream-beat",
+        cpms_node_key=_WORKFLOW_BEAT_NODE_KEY,
         description="ContextBuilder.magnify_outline_to_beats；产出 beats 供剧情引擎按节拍写作与指挥遥测",
         default_edges=["exec_writer"],
     )

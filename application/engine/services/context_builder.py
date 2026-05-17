@@ -829,7 +829,7 @@ class ContextBuilder:
 
     # 节拍聚焦指令：CPMS 节点 beat-focus-instructions（prompt_packages）
     # 通过 PromptRegistry 统一读取，不再在此硬编码
-    _BEAT_PROMPT_ID = "beat-focus-instructions"
+    from infrastructure.ai.prompt_keys import BEAT_FOCUS_INSTRUCTIONS as _BEAT_PROMPT_ID
 
     def build_beat_prompt(self, beat: Beat, beat_index: int, total_beats: int) -> str:
         """构建单个节拍的生成提示（指令从 CPMS beat-focus-instructions 读取）"""
