@@ -18,7 +18,7 @@ from application.ai.llm_control_service import (
     LLMControlService,
 )
 from infrastructure.ai.provider_factory import LLMProviderFactory
-from infrastructure.ai.prompt_manager import get_prompt_manager
+from infrastructure.ai.prompt_manager import get_prompt_manager, BUILTIN_CATEGORIES
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/llm-control', tags=['llm-control'])
@@ -229,6 +229,61 @@ class CreateTemplateRequest(BaseModel):
 # 统计 & 分类
 # ------------------------------------------------------------------
 
+# 进程级缓存：提示词广场首屏聚合数据（写操作时失效）
+_plaza_cache: Dict[str, Any] = {}
+_plaza_cache_ts: float = 0.0
+_PLAZA_CACHE_TTL = 60.0  # 秒；提示词数据变化低频，1 分钟缓存足够
+
+
+def _invalidate_plaza_cache() -> None:
+    """写操作后使缓存失效。"""
+    global _plaza_cache, _plaza_cache_ts
+    _plaza_cache = {}
+    _plaza_cache_ts = 0.0
+
+
+@router.get('/prompts/plaza-init')
+async def plaza_init() -> Dict[str, Any]:
+    """提示词广场首屏聚合接口（stats + categories + nodes 一次返回）。
+
+    将前端原来 3 次请求合并为 1 次，减少 HTTP 往返与 SQLite 并发。
+    带进程级 TTL 缓存，避免全托管写 DB 期间的锁竞争。
+    """
+    import time
+    global _plaza_cache, _plaza_cache_ts
+
+    now = time.time()
+    if _plaza_cache and (now - _plaza_cache_ts) < _PLAZA_CACHE_TTL:
+        return _plaza_cache
+
+    mgr = get_prompt_manager()
+    mgr.ensure_seeded()
+
+    # 一次取 stats，复用到 categories（消除原 categories-info 对 get_stats 的重复调用）
+    stats = mgr.get_stats()
+    cat_counts = stats.get("categories", {})
+    categories = []
+    for cat_def in BUILTIN_CATEGORIES:
+        info = dict(cat_def)
+        info["count"] = cat_counts.get(cat_def["key"], 0)
+        categories.append(info)
+
+    # 按分类分组节点
+    grouped = mgr.get_nodes_by_category()
+    nodes_by_category: Dict[str, List[Dict[str, Any]]] = {}
+    for cat, nodes in grouped.items():
+        nodes_by_category[cat] = [n.to_dict() for n in nodes]
+
+    result = {
+        "stats": stats,
+        "categories": categories,
+        "nodes_by_category": nodes_by_category,
+    }
+    _plaza_cache = result
+    _plaza_cache_ts = now
+    return result
+
+
 @router.get('/prompts/stats')
 async def get_prompt_stats() -> Dict[str, Any]:
     """获取提示词库统计信息。"""
@@ -266,6 +321,7 @@ async def create_template(payload: CreateTemplateRequest) -> Dict[str, Any]:
         description=payload.description,
         category=payload.category,
     )
+    _invalidate_plaza_cache()
     return {"status": "ok", "template": tmpl.to_dict()}
 
 
@@ -459,6 +515,7 @@ async def import_prompts(payload: ImportPayload) -> Dict[str, Any]:
             errors.append(f"{key_hint}: {exc}")
             skipped_count += 1
 
+    _invalidate_plaza_cache()
     return {
         "status": "ok",
         "summary": {
@@ -514,6 +571,7 @@ async def create_node(payload: CreateNodeRequest) -> Dict[str, Any]:
         description=payload.description,
         category=payload.category,
     )
+    _invalidate_plaza_cache()
     return {"status": "ok", "node": node.to_dict()}
 
 
@@ -526,6 +584,7 @@ async def delete_node(node_id: str) -> Dict[str, str]:
     if node and node.is_builtin:
         raise HTTPException(status_code=403, detail="Cannot delete built-in prompt")
     success = mgr.delete_node(node_id)
+    _invalidate_plaza_cache()
     if not success:
         raise HTTPException(status_code=404, detail="Node not found")
     return {"status": "ok", "node_id": node_id}
@@ -575,6 +634,7 @@ async def update_node(node_key: str, payload: PromptUpdateRequest) -> Dict[str, 
         description=payload.description,
         tags=payload.tags,
     )
+    _invalidate_plaza_cache()
     return {
         "status": "ok",
         "node": updated.to_dict() if updated else None,
@@ -595,6 +655,7 @@ async def rollback_node(node_key: str, version_id: str) -> Dict[str, Any]:
     if not rolled_back:
         raise HTTPException(status_code=400, detail="Rollback failed")
 
+    _invalidate_plaza_cache()
     return {
         "status": "ok",
         "node": rolled_back.to_dict(),
