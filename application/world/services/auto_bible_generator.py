@@ -12,6 +12,10 @@ from application.world.services.worldbuilding_service import WorldbuildingServic
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
+from infrastructure.ai.prompt_keys import (
+    BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
+    BIBLE_STYLE_CONVENTION, BIBLE_WORLDBUILDING_DIMENSION, BIBLE_WORLDBUILDING_FIELD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -684,7 +688,7 @@ class AutoBibleGenerator:
         """使用 LLM 生成 Bible 数据和世界观"""
 
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-all", fallback=_FALLBACK_BIBLE_ALL_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_ALL, fallback=_FALLBACK_BIBLE_ALL_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量 _FALLBACK_BIBLE_ALL_SYSTEM
         _cpms_placeholder = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
@@ -998,7 +1002,7 @@ JSON 格式（不要有其他文字）：
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风（一次性生成全部5维度，向后兼容非SSE场景）"""
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-worldbuilding", fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_WORLDBUILDING, fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量
         _cpms_placeholder = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
 
@@ -1498,7 +1502,7 @@ JSON 格式：
         wb_summary = self._summarize_worldbuilding(worldbuilding)
 
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-characters", fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量
         _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观生成主要人物。
 
@@ -1563,7 +1567,7 @@ JSON 格式：
         """
         wb_summary = self._summarize_worldbuilding(worldbuilding)
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-characters", fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
         user_prompt = f"""故事创意：{premise}
 
 已有世界观：
@@ -1617,7 +1621,7 @@ JSON 格式：
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-locations", fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量
         _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
 
@@ -1684,7 +1688,7 @@ JSON 格式：
         wb_summary = self._summarize_worldbuilding(worldbuilding)
         char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-locations", fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
         user_prompt = f"""故事创意：{premise}
 
 已有世界观：
