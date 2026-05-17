@@ -1206,8 +1206,31 @@ JSON 格式：
 }}
 ```"""
 
+        # CPMS render
+        from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_DIMENSION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+
+        variables = {
+            "dim_label": dim_label,
+            "premise": premise,
+            "target_chapters": str(target_chapters),
+            "context_block": context_block,
+            "fields_desc": fields_desc,
+        }
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_DIMENSION, variables)
+
         try:
-            result = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt, max_retries=2)
+            if prompt:
+                # CPMS 成功：直接用 Prompt 对象调用 LLM
+                config = GenerationConfig(max_tokens=4096, temperature=0.7)
+                result_raw = await self.llm_service.generate(prompt, config)
+                raw_text = result_raw.content if hasattr(result_raw, "content") else str(result_raw)
+                result = _extract_json_object(raw_text)
+                if not isinstance(result, dict):
+                    raise ValueError("LLM returned non-dict")
+            else:
+                result = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt, max_retries=2)
             # 确保返回的是 dict 且字段名正确
             if not isinstance(result, dict):
                 logger.warning("Dimension %s LLM returned non-dict: %s", dim_key, type(result))
@@ -1292,7 +1315,21 @@ JSON 格式：
 ```"""
 
         try:
-            prompt = Prompt(system=system_prompt, user=user_prompt)
+            # CPMS render
+            from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_DIMENSION
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+
+            variables = {
+                "dim_label": dim_label,
+                "premise": premise,
+                "target_chapters": str(target_chapters),
+                "context_block": context_block,
+                "fields_desc": fields_desc,
+            }
+            registry = get_prompt_registry()
+            prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_DIMENSION, variables)
+            if not prompt:
+                prompt = Prompt(system=system_prompt, user=user_prompt)
             config = GenerationConfig(max_tokens=4096, temperature=0.7)
             async for chunk in self.llm_service.stream_generate(prompt, config):
                 yield chunk
@@ -1398,7 +1435,23 @@ JSON 格式：
 直接输出这段文本即可，不要输出JSON，不要有任何解释。"""
 
         try:
-            prompt = Prompt(system=system_prompt, user=user_prompt)
+            # CPMS render
+            from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_FIELD
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+
+            variables = {
+                "dim_label": dim_label,
+                "field_label_cn": field_label_cn,
+                "premise": premise,
+                "target_chapters": str(target_chapters),
+                "field_desc": field_desc,
+                "context_block": context_block,
+                "sibling_block": sibling_block,
+            }
+            registry = get_prompt_registry()
+            prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_FIELD, variables)
+            if not prompt:
+                prompt = Prompt(system=system_prompt, user=user_prompt)
             config = GenerationConfig(max_tokens=1024, temperature=0.7)
             async for chunk in self.llm_service.stream_generate(prompt, config):
                 yield chunk
