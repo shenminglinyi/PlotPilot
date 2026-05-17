@@ -103,6 +103,15 @@ def _stage_after_review(novel) -> NovelStage:
     return NovelStage.ACT_PLANNING
 
 
+def _stage_needs_human_review(stage: Optional[str]) -> bool:
+    """是否与人工审阅闸门对齐（须调用 /resume）。
+
+    「reviewing」为历史/兼容舞台值；闸门主路径使用 paused_for_review。两者均需展示确认按钮。
+    """
+    s = (stage or "").strip().lower()
+    return s in ("paused_for_review", "reviewing")
+
+
 router = APIRouter(prefix="/autopilot", tags=["autopilot"])
 
 # ── 使用统一资源管理器管理线程池和缓存 ──
@@ -247,7 +256,9 @@ def _build_fallback_status(novel) -> Dict[str, Any]:
         "manuscript_chapters": 0,  # 降级
         "progress_pct_manuscript": 0.0,  # 降级
         "current_chapter_number": None,
-        "needs_review": (novel.current_stage.value if hasattr(novel.current_stage, "value") else novel.current_stage) == "paused_for_review",
+        "needs_review": _stage_needs_human_review(
+            novel.current_stage.value if hasattr(novel.current_stage, "value") else str(novel.current_stage)
+        ),
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": getattr(novel, "audit_progress", None),
@@ -422,7 +433,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
         "manuscript_chapters": in_manuscript_count,
         "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
-        "needs_review": _stage_str == "paused_for_review",
+        "needs_review": _stage_needs_human_review(_stage_str),
         "auto_approve_mode": novel.get("auto_approve_mode") if isinstance(novel, dict) else getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": novel.get("audit_progress") if isinstance(novel, dict) else getattr(novel, "audit_progress", None),
@@ -537,7 +548,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "manuscript_chapters": manuscript_count,
         "progress_pct_manuscript": round(manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": shared.get("_cached_current_chapter_number"),
-        "needs_review": stage == "paused_for_review",
+        "needs_review": _stage_needs_human_review(stage),
         "auto_approve_mode": shared.get("auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
@@ -694,7 +705,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "manuscript_chapters": in_manuscript_count,
         "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
-        "needs_review": stage == "paused_for_review",
+        "needs_review": _stage_needs_human_review(stage),
         "auto_approve_mode": auto_approve_mode,
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
@@ -869,13 +880,13 @@ def _autopilot_events_tick_sync(novel_repo, chapter_repo, novel_id: str) -> Tupl
         "progress_pct_manuscript": round(ev_in_manuscript / tgt * 100, 1) if tgt else 0,
         "total_words": ev_total_words,
         "target_chapters": novel.target_chapters,
-        "needs_review": novel.current_stage.value == "paused_for_review",
+        "needs_review": _stage_needs_human_review(novel.current_stage.value),
         "consecutive_error_count": getattr(novel, "consecutive_error_count", 0),
     }
     terminal_states = {"stopped", "error", "completed"}
     should_break = (
         novel.autopilot_status.value in terminal_states
-        and novel.current_stage.value != "paused_for_review"
+        and not _stage_needs_human_review(novel.current_stage.value)
     )
     return data, should_break
 
@@ -1316,7 +1327,7 @@ async def resume_from_review(novel_id: str):
         current_stage_str = shared.get("current_stage", "")
         current_act = shared.get("current_act", 0) or 0
 
-        if current_stage_str != "paused_for_review":
+        if not _stage_needs_human_review(current_stage_str):
             raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
     else:
         # 降级路径：共享内存无数据，读 DB（在线程池中）
@@ -1344,7 +1355,7 @@ async def resume_from_review(novel_id: str):
         current_stage_str = novel_data["current_stage"]
         current_act = novel_data["current_act"]
 
-        if current_stage_str != "paused_for_review":
+        if not _stage_needs_human_review(current_stage_str):
             raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
 
     # 计算下一阶段
@@ -2006,7 +2017,7 @@ async def autopilot_chapter_stream(novel_id: str):
                     break
 
                 # 审阅状态时断开 SSE，避免卡界面
-                if novel.current_stage.value == "paused_for_review":
+                if _stage_needs_human_review(novel.current_stage.value):
                     event = {
                         "type": "paused_for_review",
                         "message": "等待审阅确认",

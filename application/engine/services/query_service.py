@@ -335,7 +335,10 @@ class QueryService:
                 manuscript_chapters=manuscript_chapters,
                 progress_pct_manuscript=round(manuscript_chapters / target_chapters * 100, 1) if target_chapters else 0,
                 current_chapter_number=current_chapter_number,
-                needs_review=(novel_row['current_stage'] or "") == "paused_for_review",
+                needs_review=(
+                    str(novel_row["current_stage"] or "").strip().lower()
+                    in ("paused_for_review", "reviewing")
+                ),
                 auto_approve_mode=bool(novel_row['auto_approve_mode']),
                 last_chapter_audit=None,
                 audit_progress=None,

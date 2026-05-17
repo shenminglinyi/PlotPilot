@@ -151,8 +151,14 @@
 
     <!-- 审阅等待 -->
     <n-alert v-if="needsReview" type="warning" :show-icon="true" style="margin: 4px 0; font-size: 12px">
-      <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲/结构，确认后点
-      <strong>「确认大纲，继续写作」</strong>。
+      <div class="ap-review-alert">
+        <span>
+          <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲或结构树，核对无误后点击按钮继续。
+        </span>
+        <n-button type="warning" size="small" :loading="toggling" @click="resume">
+          确认大纲，继续写作
+        </n-button>
+      </div>
     </n-alert>
 
     <!-- 仅流式正文预览（审阅状态时停止 SSE，避免卡界面） -->
@@ -175,8 +181,8 @@
 
     <!-- 操作按钮 -->
     <n-space justify="end" size="small">
-      <n-button v-if="needsReview" type="warning" size="small" :loading="toggling" @click="resume">
-        确认大纲，继续写作
+      <n-button v-if="needsReview" type="warning" ghost size="small" :loading="toggling" @click="resume">
+        再次确认 · 继续
       </n-button>
       <n-button v-if="!isRunning && !needsReview && !needsRecovery" type="primary" size="small" :loading="toggling" @click="openStartModal">
         🚀 启动全托管
@@ -315,7 +321,16 @@ let lastStatusPollIntervalMs = -1
 
 // 计算属性
 const isRunning = computed(() => status.value?.autopilot_status === 'running')
-const needsReview = computed(() => status.value?.needs_review === true)
+// 是否与人工审阅闸门对齐（须点 resume）。
+// 「reviewing」为兼容舞台值；主路径 paused_for_review。避免仅展示「待审阅」却无按钮。
+function statusNeedsManualReview(s) {
+  if (!s) return false
+  if (s.needs_review === true) return true
+  const stage = String(s.current_stage ?? '').trim().toLowerCase()
+  return stage === 'paused_for_review' || stage === 'reviewing'
+}
+
+const needsReview = computed(() => statusNeedsManualReview(status.value))
 // 🔥 只有运行中且阶段为 writing 时才是真正的"撰写中"
 const isWriting = computed(() =>
   status.value?.autopilot_status === 'running' && status.value?.current_stage === 'writing'
@@ -571,7 +586,7 @@ async function fetchStatus() {
       // 仍在跑且非审阅，但章节流已掉线且自动重连已放弃 → 由轮询周期性再给机会（避免永久无正文流）
       if (
         body.autopilot_status === 'running' &&
-        !body.needs_review &&
+        !statusNeedsManualReview(body) &&
         !chapterStreamCtrl &&
         !sseReconnecting.value &&
         reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
@@ -1374,6 +1389,17 @@ onUnmounted(() => {
 
 @media (max-width: 720px) {
   .ap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.ap-review-alert {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ap-review-alert span {
+  line-height: 1.55;
 }
 
 .recovery-hint p { margin: 0 0 6px; line-height: 1.5; }
