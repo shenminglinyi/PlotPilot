@@ -1,6 +1,6 @@
-version: 4.0.0-prompt-packages
+version: 5.0.0-cpms-unified
 name: PlotPilot 内置
-description: PlotPilot 提示词库 v2 - 反AI风/爽文沉浸式/上下文强一致性重写版
-author: PlotPilot Team x Anti-AI Style Specialist
+description: CPMS v5 统一提示词库 — 全节点中文提示词、统一注册表、消除硬编码
+author: PlotPilot Team
 engine: jinja2
-changelog: 'v4: 种子迁移为 prompt_packages（YAML 元数据 + Markdown 正文 + extras.json）'
+changelog: 'v5: CPMS统一架构 — 所有节点中文1:1还原、prompt_keys注册表、消除旧JSON回退'
