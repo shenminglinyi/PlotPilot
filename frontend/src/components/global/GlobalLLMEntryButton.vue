@@ -310,7 +310,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NModal, NTag, NButton, NSwitch, NForm, NFormItem, NInput, NSelect, NSpin, NAlert, NProgress } from 'naive-ui'
 import {
   llmControlApi,
@@ -365,7 +365,7 @@ function handleModalShowChange(value: boolean) {
   showPanel.value = value
   if (value) {
     llmPanelInitialized.value = true // 首次打开时初始化，之后保持
-    void refreshRuntimeSummary()
+    // ★ 优化：LLMControlPanel.onMounted 会自己 loadPanel，不重复请求
   }
 }
 
@@ -493,11 +493,20 @@ async function handleFetchEmbeddingModels() {
 
 function openPanel() {
   llmPanelInitialized.value = true // 首次打开时初始化，之后保持
-  void refreshRuntimeSummary()
-  void loadEmbeddingConfig()
-  void checkExtensionsStatus()
+  // ★ 优化：不再同时 fire 3 个请求。LLMControlPanel.onMounted 会自己 loadPanel，
+  // refreshRuntimeSummary 重复了。embedding 和 extensions 延迟到切换 tab 时加载。
   showPanel.value = true
 }
+
+// ── 延迟加载：切换到 embedding tab 时才加载配置和扩展状态 ──
+let embeddingLoaded = false
+watch(drawerTab, (tab) => {
+  if (tab === 'embedding' && !embeddingLoaded) {
+    embeddingLoaded = true
+    void loadEmbeddingConfig()
+    void checkExtensionsStatus()
+  }
+})
 </script>
 
 <style scoped>

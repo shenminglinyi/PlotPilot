@@ -163,13 +163,38 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
 
 # ---------- 核心 CRUD + 测试 ----------
 
+# LLM 控制面板进程级缓存（写操作时失效）
+_llm_panel_cache: Optional[LLMControlPanelData] = None
+_llm_panel_cache_ts: float = 0.0
+_LLM_PANEL_CACHE_TTL = 10.0  # 10 秒；配置低频变化，短 TTL 即可
+
+
+def _invalidate_llm_panel_cache() -> None:
+    """写操作后使缓存失效。"""
+    global _llm_panel_cache, _llm_panel_cache_ts
+    _llm_panel_cache = None
+    _llm_panel_cache_ts = 0.0
+
+
 @router.get('', response_model=LLMControlPanelData)
 async def get_llm_control_panel() -> LLMControlPanelData:
-    return _service.get_control_panel_data()
+    """获取 LLM 控制面板数据（带短 TTL 进程缓存）。"""
+    import time
+    global _llm_panel_cache, _llm_panel_cache_ts
+
+    now = time.time()
+    if _llm_panel_cache is not None and (now - _llm_panel_cache_ts) < _LLM_PANEL_CACHE_TTL:
+        return _llm_panel_cache
+
+    data = _service.get_control_panel_data()
+    _llm_panel_cache = data
+    _llm_panel_cache_ts = now
+    return data
 
 
 @router.put('', response_model=LLMControlPanelData)
 async def save_llm_control_panel(config: LLMControlConfig) -> LLMControlPanelData:
+    _invalidate_llm_panel_cache()
     saved = _service.save_config(config)
     return LLMControlPanelData(
         config=saved,
