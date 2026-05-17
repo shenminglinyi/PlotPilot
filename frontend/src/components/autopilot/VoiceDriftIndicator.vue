@@ -17,7 +17,7 @@
           :rail-color="railColor"
           :stroke-width="8"
           :show-indicator="false"
-          :style="{ width: '100px', height: '100px' }"
+          :style="{ width: '76px', height: '76px' }"
         />
         <div class="progress-center">
           <div class="drift-icon">{{ driftIcon }}</div>
@@ -281,14 +281,14 @@ onUnmounted(() => {
   background: var(--card-color);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .indicator-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .indicator-title {
@@ -317,12 +317,12 @@ onUnmounted(() => {
 }
 
 .drift-icon {
-  font-size: 24px;
-  margin-bottom: 4px;
+  font-size: 18px;
+  margin-bottom: 2px;
 }
 
 .drift-score {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-color-1);
   font-variant-numeric: tabular-nums;

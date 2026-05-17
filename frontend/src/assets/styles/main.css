@@ -130,12 +130,12 @@ body {
   --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
   --font-serif: 'Noto Serif SC', 'Source Han Serif CN', 'Songti SC', Georgia, serif;
 
-  /* ── 字号阶梯（最小 12px，确保可读性）── */
-  --font-size-xs: 12px;
-  --font-size-sm: 13px;
-  --font-size-base: 14px;
-  --font-size-lg: 16px;
-  --font-size-xl: 18px;
+  /* ── 字号阶梯：使用 rem，随 html font-size（即 --app-font-scale）自动缩放 ── */
+  --font-size-xs:   0.75rem;    /* 12px @ scale=1 */
+  --font-size-sm:   0.8125rem;  /* 13px @ scale=1 */
+  --font-size-base: 0.875rem;   /* 14px @ scale=1 */
+  --font-size-lg:   1rem;       /* 16px @ scale=1 */
+  --font-size-xl:   1.125rem;   /* 18px @ scale=1 */
 
   /* ── DAG 画布专用 ── */
   --dag-canvas-bg: #eef1f6;
@@ -406,18 +406,18 @@ body {
 }
 
 .plotpilot-panel-title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--app-text-primary);
-  margin: 0 0 8px;
+  margin: 0 0 var(--plotpilot-space-3, 8px);
 }
 
 .plotpilot-panel-desc {
   font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--app-text-muted);
-  margin-bottom: 12px;
+  margin-bottom: var(--plotpilot-space-5, 12px);
 }
 
 .plotpilot-composer-hint {
@@ -429,8 +429,8 @@ body {
 /* Markdown 正文 */
 .md-body {
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.75;
+  font-size: var(--font-size-base);
+  line-height: 1.72;
   letter-spacing: 0.01em;
   word-break: break-word;
   overflow-wrap: break-word;

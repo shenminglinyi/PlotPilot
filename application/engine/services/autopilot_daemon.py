@@ -1685,11 +1685,19 @@ class AutopilotDaemon:
                 novel.current_beat_index = 0
                 novel.beats_completed = False
 
-        if existing_content and start_beat > 0:
-            logger.info(
-                f"[{novel.novel_id}] 断点续写：已有 {len(existing_content)} 字，"
-                f"从第 {start_beat + 1}/{len(beats)} 个节拍继续"
-            )
+        # 日志：start_beat 为 0-based；当 start_beat == len(beats) 时表示节拍已耗尽、仅收章复核，
+        # 不得再打印「从第 len+1 拍继续」，否则会出现「从第 2/1 拍继续」类矛盾日志。
+        if existing_content and len(beats) > 0:
+            if 0 < start_beat < len(beats):
+                logger.info(
+                    f"[{novel.novel_id}] 断点续写：已有 {len(existing_content)} 字，"
+                    f"从第 {start_beat + 1}/{len(beats)} 个节拍继续"
+                )
+            elif start_beat >= len(beats):
+                logger.info(
+                    f"[{novel.novel_id}] 断点续写：已有 {len(existing_content)} 字，"
+                    f"节拍已全部处理（{len(beats)}/{len(beats)}），进入收章复核（本轮不再撰写新节拍）"
+                )
 
         # 批量写入计数器
         write_counter = 0

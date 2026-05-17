@@ -10,11 +10,8 @@
         {{ statusLabel }}
       </n-tag>
     </div>
-    <n-text depth="3" style="font-size: 11px; line-height: 1.45; display: block; margin: -4px 0 8px">
-      单本连续失败达到阈值会挂起；未启动托管时多为「正常」。
-      守护进程内另有<strong>全局</strong> LLM 熔断（防 API 雪崩），本卡无法显示其开闭；若所有书长时间不推进，请查看
-      <code style="font-size:10px">logs/autopilot_daemon.log</code>
-      或重启守护进程并等待冷却。
+    <n-text depth="3" style="font-size: 10.5px; line-height: 1.4; display: block; margin: -2px 0 6px">
+      达阈值自动挂起。全局 LLM 熔断由守护进程控制；长时间不推进请查看日志或重启守护进程。
     </n-text>
 
     <div class="breaker-body">
@@ -341,14 +338,14 @@ onUnmounted(() => {
   background: var(--card-color);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .breaker-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .breaker-title {

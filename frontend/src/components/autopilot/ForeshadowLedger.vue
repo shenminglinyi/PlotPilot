@@ -4,7 +4,7 @@
       <div class="ledger-title-block">
         <span class="ledger-title">📖 伏笔雷达</span>
         <n-text depth="3" class="ledger-sub">
-          只读摘要。新增 / 编辑伏笔：侧栏「片场 → 伏笔账本」→「+ 添加伏笔」（与本卡数据同源）。
+          只读摘要 · 编辑见侧栏伏笔账本
         </n-text>
       </div>
       <n-space :size="8">
@@ -328,7 +328,7 @@ onUnmounted(() => {
   background: var(--card-color);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .ledger-header {
@@ -336,7 +336,7 @@ onUnmounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .ledger-title-block {

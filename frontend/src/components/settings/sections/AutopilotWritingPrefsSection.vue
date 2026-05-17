@@ -13,9 +13,9 @@
     <template v-else>
       <header class="prefs-header">
         <div class="prefs-header-text">
-          <h2 class="prefs-title">本书生成偏好</h2>
+          <h2 class="prefs-title">全托管控制</h2>
           <p class="prefs-sub">
-            与全托管节拍指挥、字数安全网及界面文案相关；开关即时保存，相位阈值需点击保存。
+            节拍硬帽、智能截断、章末审阅闸门与指挥器相位阈值；开关即时保存，相位阈值需点击保存。
           </p>
         </div>
         <n-tag v-if="novelTitle" size="small" :bordered="false" class="book-tag">{{ novelTitle }}</n-tag>
@@ -23,26 +23,6 @@
 
       <n-spin :show="loading">
         <div class="prefs-stack">
-          <!-- 展示：单一开关，阶段模式默认；打开阶段时顺带关闭智能截断 -->
-          <n-card size="small" :bordered="true" class="prefs-card">
-            <div class="card-head">
-              <span class="card-title">展示</span>
-            </div>
-            <n-divider class="card-divider" />
-            <div class="row row-valign">
-              <span class="row-title solo-title">阶段模式</span>
-              <n-switch
-                :value="phaseDisplay"
-                :loading="patching === 'phase_display_mode'"
-                size="large"
-                @update:value="onPhaseDisplaySwitch"
-              >
-                <template #checked>阶段</template>
-                <template #unchecked>章</template>
-              </n-switch>
-            </div>
-          </n-card>
-
           <!-- 字数与安全网 -->
           <n-card size="small" :bordered="true" class="prefs-card">
             <div class="card-head">
@@ -95,33 +75,6 @@
                 </template>
                 请先启用节拍硬帽，智能截断才有意义。
               </n-tooltip>
-            </div>
-          </n-card>
-
-          <!-- 落盘排版 -->
-          <n-card size="small" :bordered="true" class="prefs-card">
-            <div class="card-head">
-              <span class="card-title">落盘排版</span>
-              <n-text depth="3" class="card-caption">与模型输出观感相关；按需开启</n-text>
-            </div>
-            <n-divider class="card-divider" />
-
-            <div class="row">
-              <div class="row-label">
-                <span class="row-title">正文短句聚合</span>
-                <n-text depth="3" class="row-hint">
-                  开启后在保存正文前合并段内单行碎片换行为连片叙述（对话「」与【】分段仍保留）。默认关闭。
-                </n-text>
-              </div>
-              <n-switch
-                :value="inlineProseAggregation"
-                :loading="patching === 'inline_prose_aggregation_enabled'"
-                size="large"
-                @update:value="(v: boolean) => onBoolPref('inline_prose_aggregation_enabled', v)"
-              >
-                <template #checked>已启用</template>
-                <template #unchecked>已关闭</template>
-              </n-switch>
             </div>
           </n-card>
 
@@ -281,8 +234,6 @@ const savingConductor = ref(false)
 
 const smartTruncate = ref(false)
 const beatHardCap = ref(true)
-const phaseDisplay = ref(true)
-const inlineProseAggregation = ref(false)
 
 const pauseAfterEachAudit = ref(false)
 const auditPauseOnHardFail = ref(false)
@@ -295,26 +246,12 @@ const conductorError = ref('')
 
 function applyPrefs(p?: GenerationPrefsDTO | null) {
   const p2 = p ?? {}
-  if (Object.prototype.hasOwnProperty.call(p2, 'smart_truncate_enabled')) {
-    smartTruncate.value = Boolean(p2.smart_truncate_enabled)
-  } else {
-    smartTruncate.value = true
-  }
-  if (Object.prototype.hasOwnProperty.call(p2, 'beat_hard_cap_enabled')) {
-    beatHardCap.value = Boolean(p2.beat_hard_cap_enabled)
-  } else {
-    beatHardCap.value = true
-  }
-  if (Object.prototype.hasOwnProperty.call(p2, 'phase_display_mode')) {
-    phaseDisplay.value = Boolean(p2.phase_display_mode)
-  } else {
-    phaseDisplay.value = true
-  }
-  if (Object.prototype.hasOwnProperty.call(p2, 'inline_prose_aggregation_enabled')) {
-    inlineProseAggregation.value = Boolean(p2.inline_prose_aggregation_enabled)
-  } else {
-    inlineProseAggregation.value = false
-  }
+  smartTruncate.value = Object.prototype.hasOwnProperty.call(p2, 'smart_truncate_enabled')
+    ? Boolean(p2.smart_truncate_enabled)
+    : true
+  beatHardCap.value = Object.prototype.hasOwnProperty.call(p2, 'beat_hard_cap_enabled')
+    ? Boolean(p2.beat_hard_cap_enabled)
+    : true
 
   pauseAfterEachAudit.value = Boolean(p2.pause_after_each_chapter_audit)
   auditPauseOnHardFail.value = Boolean(p2.audit_pause_on_hard_fail)
@@ -409,10 +346,7 @@ async function onAuditGatePref(
 }
 
 async function onBoolPref(
-  key:
-    | 'smart_truncate_enabled'
-    | 'beat_hard_cap_enabled'
-    | 'inline_prose_aggregation_enabled',
+  key: 'smart_truncate_enabled' | 'beat_hard_cap_enabled',
   value: boolean
 ) {
   const slug = novelSlug.value
@@ -420,25 +354,6 @@ async function onBoolPref(
   patching.value = key
   try {
     await mergePrefs({ [key]: value })
-    message.success('已保存')
-  } catch (e) {
-    message.error(e instanceof Error ? e.message : '保存失败')
-    await loadNovel()
-  } finally {
-    patching.value = null
-  }
-}
-
-async function onPhaseDisplaySwitch(phaseOn: boolean) {
-  const slug = novelSlug.value
-  if (!slug) return
-  patching.value = 'phase_display_mode'
-  try {
-    if (phaseOn) {
-      await mergePrefs({ phase_display_mode: true, smart_truncate_enabled: false })
-    } else {
-      await mergePrefs({ phase_display_mode: false })
-    }
     message.success('已保存')
   } catch (e) {
     message.error(e instanceof Error ? e.message : '保存失败')
@@ -515,8 +430,8 @@ watch(
 }
 
 .prefs-title {
-  margin: 0 0 6px;
-  font-size: 18px;
+  margin: 0 0 0.375rem;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--app-text-primary, #0f172a);
@@ -524,7 +439,7 @@ watch(
 
 .prefs-sub {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.55;
   color: var(--app-text-secondary, #64748b);
   max-width: 520px;
@@ -563,13 +478,13 @@ watch(
 }
 
 .card-title {
-  font-size: 15px;
+  font-size: calc(var(--font-size-base) * 1.06);
   font-weight: 600;
   color: var(--app-text-primary, #0f172a);
 }
 
 .card-caption {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   max-width: 640px;
 }
@@ -600,14 +515,14 @@ watch(
 
 .row-title {
   display: block;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--app-text-primary, #1e293b);
-  margin-bottom: 4px;
+  margin-bottom: 0.25rem;
 }
 
 .row-hint {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.55;
   display: block;
   max-width: 460px;
@@ -619,7 +534,7 @@ watch(
 
 .row-title.solo-title {
   margin-bottom: 0;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--app-text-primary, #1e293b);
 }
@@ -627,19 +542,19 @@ watch(
 .field-block {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.25rem;
 }
 
 .field-label {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--app-text-primary, #334155);
 }
 
 .field-sublabel {
-  font-size: 11px;
+  font-size: calc(var(--font-size-xs) * 0.92);
   line-height: 1.45;
-  margin-bottom: 4px;
+  margin-bottom: 0.25rem;
 }
 
 .field-input {
@@ -649,8 +564,8 @@ watch(
 
 .conductor-error {
   display: block;
-  margin-top: 12px;
-  font-size: 12px;
+  margin-top: 0.75rem;
+  font-size: var(--font-size-xs);
 }
 
 .actions {
@@ -671,21 +586,21 @@ watch(
 }
 
 .empty-title {
-  font-size: 15px;
+  font-size: calc(var(--font-size-base) * 1.06);
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: 0.5rem;
   color: var(--app-text-primary, #0f172a);
 }
 
 .empty-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   color: var(--app-text-secondary, #64748b);
 }
 
 .mono {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   padding: 0 5px;
   border-radius: 4px;

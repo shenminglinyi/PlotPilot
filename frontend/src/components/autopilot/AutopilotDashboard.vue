@@ -153,53 +153,72 @@ function handleSwitchView(mode: 'card' | 'dag') {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;       /* 面板自身不滚动；内部各区域自管高度 */
 }
 
-/* DAG 视图：禁止外层滚动，画布自行平移/缩放 */
+/* DAG 视图：同样禁止外层滚动 */
 .dashboard--dag {
   overflow: hidden;
 }
 
 .dashboard-topbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 16px;
+  padding: 5px 14px;
   border-bottom: 1px solid var(--app-border);
   background: var(--app-surface);
-  min-height: 40px;
+  min-height: 36px;
 }
 
 .topbar-title {
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   color: var(--app-text-primary);
 }
 
+/* 说明行：单行紧凑，不占多余高度 */
 .monitor-copy-hint {
-  margin: 0 4px 12px;
-  padding: 8px 12px;
+  flex-shrink: 0;
+  margin: 4px 4px 5px;
+  padding: 4px 10px;
 }
 
+.monitor-copy-hint :deep(.n-alert__content) {
+  font-size: var(--font-size-xs) !important;
+  line-height: 1.45;
+}
+
+/* 主网格：填满剩余高度 */
 .monitor-grid {
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  padding: 4px;
+  /* 第一行（图表+日志）弹性拉伸；第二行（三小卡）按内容自然高度 */
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 0 4px 4px;
+  overflow: hidden;
 }
 
+/* 网格单元：无固定高度，跟随行高 */
 .grid-cell {
-  min-height: 280px;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 第一行单元：让内容 card 填满整格 */
+.grid-cell.span-2,
+.grid-cell--terminal {
+  height: 100%;
 }
 
 .grid-cell--terminal {
-  display: flex;
-  flex-direction: column;
-  align-self: start;
   width: 100%;
   min-width: 0;
-  height: clamp(220px, 42vh, 340px);
-  overflow: hidden;
 }
 
 .grid-cell.span-1 {
@@ -214,7 +233,6 @@ function handleSwitchView(mode: 'card' | 'dag') {
   .monitor-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-
   .grid-cell.span-2 {
     grid-column: span 2;
   }
@@ -223,11 +241,14 @@ function handleSwitchView(mode: 'card' | 'dag') {
 @media (max-width: 900px) {
   .monitor-grid {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
+    overflow-y: auto;
   }
-
+  .grid-cell,
   .grid-cell.span-1,
   .grid-cell.span-2 {
     grid-column: span 1;
+    height: auto;
   }
 }
 </style>

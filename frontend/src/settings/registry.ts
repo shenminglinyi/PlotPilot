@@ -16,23 +16,30 @@ export interface AppSettingsSectionMeta {
 const registry: AppSettingsSectionMeta[] = [
   {
     id: 'appearance',
-    label: '外观与主题',
-    description: '亮暗色、黑金模式、字体大小与系统联动',
+    label: '外观 & 显示',
+    description: '配色主题、界面字号与实时预览',
     order: 10,
     component: () => import('@/components/settings/sections/ThemeAppearanceSection.vue'),
   },
   {
+    id: 'writing',
+    label: '写作偏好',
+    description: '每章目标字数、章节计数标签与落盘排版（按书目保存）',
+    order: 20,
+    component: () => import('@/components/settings/sections/WritingDisplaySection.vue'),
+  },
+  {
     id: 'autopilot-writing',
-    label: '写作与全托管',
-    description: '指挥相位、字数硬帽、叙事标签（按书目保存）',
-    order: 15,
+    label: '全托管控制',
+    description: '节拍硬帽、审阅闸门与指挥器相位阈值（按书目保存）',
+    order: 30,
     component: () => import('@/components/settings/sections/AutopilotWritingPrefsSection.vue'),
   },
   {
     id: 'engine',
-    label: '核心引擎',
-    description: '多角色模型端点；统一或独立 API 配置',
-    order: 20,
+    label: '模型引擎',
+    description: '多角色端点配置；统一或独立 API Key',
+    order: 40,
     component: () => import('@/components/settings/sections/EngineMatrixSection.vue'),
   },
 ]

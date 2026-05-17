@@ -1,5 +1,5 @@
 <template>
-  <n-card title="📈 张力心电图" size="small" :bordered="true">
+  <n-card title="📈 张力心电图" size="small" :bordered="true" class="tension-card">
     <template #header-extra>
       <n-text
         v-if="loading && tensionData.length > 0"
@@ -14,7 +14,10 @@
       <n-tag v-else-if="hasLowTension" type="warning" size="small">
         ⚠️ 检测到低张力章节
       </n-tag>
-      <n-button v-if="tensionData.length > 0" size="tiny" quaternary @click="loadTensionData">↻</n-button>
+      <n-button v-if="tensionData.length > 0" size="tiny" quaternary @click="manualRefresh">↻</n-button>
+      <n-text v-if="!loading && tensionData.length > 0" depth="3" style="font-size: 10px; min-width: 2.8em; text-align: right">
+        {{ countdown }}s
+      </n-text>
     </template>
 
     <!-- 仅首轮无数据时占满卡片；有数据时保留图表 DOM，避免反复卸载导致「刚出来就没了」 -->
@@ -105,6 +108,9 @@ import { monitorApi } from '../../api/monitor'
 import type { TensionCurveStats } from '../../api/monitor'
 import { isRequestCanceled } from '../../utils/requestCancel'
 
+/** 自动刷新间隔（秒），0 = 禁用 */
+const AUTO_REFRESH_SECONDS = 30
+
 interface TensionData {
   chapter_number: number
   tension_score: number  // 0-10 刻度
@@ -128,6 +134,30 @@ const tensionData = ref<TensionData[]>([])
 const curveStats = ref<TensionCurveStats | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+
+/** 倒计时（秒），用于展示下次刷新剩余时间 */
+const countdown = ref(AUTO_REFRESH_SECONDS)
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  if (AUTO_REFRESH_SECONDS <= 0) return
+  countdown.value = AUTO_REFRESH_SECONDS
+  countdownTimer = setInterval(() => {
+    countdown.value -= 1
+    if (countdown.value <= 0) countdown.value = AUTO_REFRESH_SECONDS
+  }, 1000)
+  autoRefreshTimer = setInterval(() => {
+    countdown.value = AUTO_REFRESH_SECONDS
+    void loadTensionData()
+  }, AUTO_REFRESH_SECONDS * 1000)
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer !== null) { clearInterval(autoRefreshTimer); autoRefreshTimer = null }
+  if (countdownTimer !== null)   { clearInterval(countdownTimer);   countdownTimer = null }
+}
 
 let chartInstance: echarts.ECharts | null = null
 /** 监听卡片/分栏拖拽导致的容器宽高变化（不会触发 window resize） */
@@ -427,12 +457,21 @@ function handleResize() {
   chartInstance?.resize()
 }
 
+/** 手动刷新：拉取数据并重置倒计时 */
+function manualRefresh() {
+  startAutoRefresh()           // 重置倒计时
+  void loadTensionData()
+}
+
 // ==================== 监听 ====================
 watch(() => props.novelId, () => void loadTensionData())
 
-// 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动）
+// 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动），同时重置倒计时
 watch(() => props.refreshKey, (newKey) => {
-  if (newKey && newKey > 0) void loadTensionData()
+  if (newKey && newKey > 0) {
+    startAutoRefresh()
+    void loadTensionData()
+  }
 })
 
 // 数据变化时重新渲染（防抖）
@@ -449,9 +488,11 @@ watch(tensionData, () => {
 onMounted(() => {
   void loadTensionData()
   window.addEventListener('resize', handleResize)
+  startAutoRefresh()
 })
 
 onUnmounted(() => {
+  stopAutoRefresh()
   tensionLoadAbort?.abort()
   tensionLoadAbort = null
   window.removeEventListener('resize', handleResize)
@@ -463,9 +504,26 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 让整张卡片填满网格单元 */
+.tension-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.tension-card :deep(.n-card__content) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px !important;
+}
+
+/* 图表容器：弹性拉伸，最小保底高度防止 echarts 报零尺寸 */
 .chart-container {
   width: 100%;
-  height: 200px;
+  flex: 1;
+  min-height: 100px;
   position: relative;
 }
 
@@ -488,12 +546,15 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px 0;
+  flex: 1;
+  min-height: 100px;
+  padding: 8px 0;
 }
 
 .chart-stats {
-  margin-top: 6px;
-  padding-top: 8px;
+  flex-shrink: 0;
+  margin-top: 4px;
+  padding-top: 6px;
   border-top: 1px solid var(--n-border-color, rgba(0,0,0,0.08));
 }
 </style>

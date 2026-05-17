@@ -11,6 +11,7 @@ import installECharts from './plugins/echarts'
 
 // 样式
 import './assets/styles/main.css'
+import './assets/styles/tokens-layout.css'
 
 // Tauri API 初始化（动态端口、环境检测）
 import { initApiClient } from './api/config'

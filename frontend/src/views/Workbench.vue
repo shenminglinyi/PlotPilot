@@ -4,7 +4,12 @@
 
     <n-spin :show="pageLoading" class="workbench-spin" description="加载工作台…">
       <div class="workbench-inner">
-        <n-split direction="horizontal" :min="0.12" :max="0.30" :default-size="0.18">
+        <n-split
+          direction="horizontal"
+          :min="WORKBENCH_SPLIT.sidebarMin"
+          :max="WORKBENCH_SPLIT.sidebarMax"
+          :default-size="WORKBENCH_SPLIT.sidebarDefault"
+        >
           <template #1>
             <ChapterList
               ref="chapterListRef"
@@ -20,7 +25,12 @@
           </template>
 
           <template #2>
-            <n-split direction="horizontal" :min="0.40" :max="0.75" :default-size="0.60">
+            <n-split
+              direction="horizontal"
+              :min="WORKBENCH_SPLIT.mainMin"
+              :max="WORKBENCH_SPLIT.mainMax"
+              :default-size="WORKBENCH_SPLIT.mainDefault"
+            >
               <template #1>
                 <WorkArea
                   ref="workAreaRef"
@@ -79,6 +89,7 @@ import {
   WORKBENCH_GENERATION_PREFS_UPDATED_EVENT,
   isWorkbenchSettingsPanelName,
 } from '../workbench/deskEvents'
+import { WORKBENCH_SPLIT } from '../design/layoutDensity'
 
 const route = useRoute()
 const message = useMessage()

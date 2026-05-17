@@ -78,7 +78,7 @@ const emit = defineEmits<{
   'update:railExpanded': [v: boolean]
 }>()
 
-const drawerW = computed(() => 'min(440px, 94vw)')
+const drawerW = computed(() => 'var(--plotpilot-chapter-rail-drawer)')
 
 function emitRail(v: boolean) {
   emit('update:railExpanded', v)
@@ -106,13 +106,13 @@ function emitRail(v: boolean) {
 
 .cws-toolbar {
   flex-shrink: 0;
-  padding: 8px 16px 0;
+  padding: var(--plotpilot-shell-toolbar-pad-top) var(--plotpilot-shell-toolbar-pad-x) 0;
   border-bottom: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.06));
 }
 
 .cws--stacked .cws-toolbar {
-  padding-left: 12px;
-  padding-right: 12px;
+  padding-left: var(--plotpilot-space-5);
+  padding-right: var(--plotpilot-space-5);
 }
 
 .cws-primary {
@@ -124,7 +124,7 @@ function emitRail(v: boolean) {
 }
 
 .cws-rail {
-  width: min(400px, 38vw);
+  width: var(--plotpilot-chapter-rail-width);
   flex-shrink: 0;
   border-left: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
   min-height: 0;
@@ -142,18 +142,18 @@ function emitRail(v: boolean) {
 }
 
 .cws-rail-inner--drawer {
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - var(--plotpilot-rail-drawer-body-offset));
 }
 
 .cws-rail-collapsed {
-  width: 40px;
+  width: var(--plotpilot-chapter-rail-collapsed);
   flex-shrink: 0;
   border-left: 1px solid var(--plotpilot-split-border, rgba(0, 0, 0, 0.08));
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 0;
-  gap: 6px;
+  padding: var(--plotpilot-space-3) 0;
+  gap: var(--plotpilot-space-2);
   background: color-mix(in srgb, var(--app-surface) 94%, var(--app-page-bg, #f0f2f8) 6%);
 }
 
