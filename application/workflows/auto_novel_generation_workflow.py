@@ -71,7 +71,7 @@ def _safe_format(template: str, variables: Dict[str, Any]) -> str:
 
 
 # CPMS: 主工作流提示词节点 key（与 prompt_packages 中节点 id 一致）
-_WORKFLOW_CHAPTER_GEN_NODE_KEY = "chapter-generation-main"
+from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN as _WORKFLOW_CHAPTER_GEN_NODE_KEY
 
 # 硬编码回退：system 模板框架（仅在 PromptRegistry 不可用时使用）
 _FALLBACK_SYSTEM_TEMPLATE = (

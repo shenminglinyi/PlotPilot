@@ -73,7 +73,7 @@ class LlmExtractor:
         }
         prompt = registry.render_to_prompt(PROP_EVENT_EXTRACTION, variables)
 
-        # Fallback
+        # 降级
         if not prompt:
             from domain.ai.value_objects.prompt import Prompt
             user_msg = (
@@ -94,7 +94,7 @@ class LlmExtractor:
             if not isinstance(items, list):
                 return []
         except Exception as e:
-            logger.warning("[LlmExtractor] extraction failed: %s", e)
+            logger.warning("[LlmExtractor] 提取失败: %s", e)
             return []
 
         events: List[PropEvent] = []

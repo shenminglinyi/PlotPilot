@@ -244,7 +244,7 @@ async def llm_chapter_extract_bundle(
     prompt = registry.render_to_prompt(CHAPTER_NARRATIVE_SYNC, variables)
 
     if not prompt:
-        # Fallback: direct assembly
+        # 降级：直接拼接
         from infrastructure.ai.prompt_utils import get_prompt_system
         system = get_prompt_system(CHAPTER_NARRATIVE_SYNC)
         if not system:

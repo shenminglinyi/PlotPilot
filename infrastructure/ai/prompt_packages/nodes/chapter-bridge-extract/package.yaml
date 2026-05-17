@@ -1,0 +1,17 @@
+name: Chapter bridge extract
+category: chapter
+source: application/engine/services/chapter_bridge_service.py
+description: Extract 5-dimension transition anchors from chapter ending
+builtin: true
+tags:
+- chapter
+- bridge
+- extract
+output_format: json
+variables:
+- name: chapter_text
+  desc: Chapter text to extract bridge from
+  type: string
+  required: true
+id: chapter-bridge-extract
+sort_order: 60
