@@ -1,10 +1,10 @@
-The following chapter content lacks information density. Please write a supplementary passage (approximately {supplement_words} words) to append after the existing content.
+【信息密度补写指令】
+本章已生成正文（末尾约400字供参考）：
+…{existing_content}
 
-Requirements:
-1. At least one character makes a concrete decision or takes action with consequences
-2. Or introduce new information / clue / conflict
-3. Seamlessly connect with the preceding emotion and scene, do not repeat existing content
-4. Do not write a chapter title, output prose directly
-
-Existing chapter content:
-{existing_content}
+请接续已有正文，补写一段约 {supplement_words} 字的情节推进段落。
+要求：
+1. 至少包含一个角色做出具体决定或行动并产生后果
+2. 或引入一条新信息/线索/冲突
+3. 与前文情绪和场景无缝衔接，不重复已有内容
+4. 不要写章节标题，直接输出正文

@@ -1,0 +1,17 @@
+name: Main plot option suggestion
+category: planning
+source: application/blueprint/services/setup_main_plot_suggestion_service.py
+description: Suggest 3 distinct main plot options with strong commercial tension based on world/character setup
+builtin: true
+tags:
+- planning
+- main-plot
+- suggestion
+output_format: json
+variables:
+- name: context_blob
+  desc: JSON context blob (world, characters, locations)
+  type: string
+  required: true
+id: planning-main-plot-option
+sort_order: 23

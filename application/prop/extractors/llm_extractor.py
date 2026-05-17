@@ -11,27 +11,27 @@ from domain.shared.time_utils import utcnow_iso
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
-    "You are a narrative analysis engine. Identify prop-related events from novel chapter text."
-    " Only output valid JSON array, no markdown fences, no explanation."
+    "你是一个叙事分析引擎。根据小说章节正文，识别道具相关事件。"
+    "只输出 JSON 数组，不要 markdown 围栏，不要解释。"
 )
 
-_SCHEMA = """Output format (JSON array):
+_SCHEMA = """输出格式（JSON 数组）：
 [
   {
     "prop_id": "...",
     "event_type": "TRANSFERRED|DAMAGED|REPAIRED|UPGRADED|RESOLVED",
-    "actor_character": "character name (optional)",
-    "from_holder": "transfer source character (for TRANSFERRED)",
-    "to_holder": "transfer target character (for TRANSFERRED)",
-    "description": "one-line description"
+    "actor_character": "角色名（可选）",
+    "from_holder": "转出方角色名（TRANSFERRED 时填）",
+    "to_holder": "转入方角色名（TRANSFERRED 时填）",
+    "description": "一句话描述"
   }
 ]
-Output empty array [] if no relevant events."""
+无相关事件时输出空数组 []"""
 
 
 
 class LlmExtractor:
-    """LLM extractor for high-value prop events (TRANSFERRED/DAMAGED/REPAIRED/RESOLVED)."""
+    """LLM 提取器 — 仅提取高价值事件（TRANSFERRED/DAMAGED/REPAIRED/RESOLVED）。"""
 
     priority: int = 10
     name: str = "llm"
@@ -57,7 +57,7 @@ class LlmExtractor:
             return []
 
         props_summary = "\n".join(
-            f"- {p['name']} (id={p['id']}, holder={p.get('holder', 'none')})"
+            f"- {p['name']}（id={p['id']}，持有者={p.get('holder', '无')}）"
             for p in active_props[:20]
         )
 
@@ -77,8 +77,8 @@ class LlmExtractor:
         if not prompt:
             from domain.ai.value_objects.prompt import Prompt
             user_msg = (
-                f"Current ACTIVE prop list:\n{props_summary}\n\n"
-                f"Chapter text (excerpt, first 1500 chars):\n{content[:1500]}\n\n"
+                f"当前 ACTIVE 道具列表：\n{props_summary}\n\n"
+                f"章节正文（节选，前 1500 字）：\n{content[:1500]}\n\n"
                 f"{_SCHEMA}"
             )
             prompt = Prompt(system=self._get_system_prompt(), user=user_msg)

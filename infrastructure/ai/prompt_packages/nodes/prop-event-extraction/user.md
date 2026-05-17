@@ -1,7 +1,7 @@
-Current ACTIVE prop list:
+当前 ACTIVE 道具列表：
 {props_summary}
 
-Chapter text (excerpt, first 1500 chars):
+章节正文（节选，前 1500 字）：
 {chapter_excerpt}
 
 {output_schema}

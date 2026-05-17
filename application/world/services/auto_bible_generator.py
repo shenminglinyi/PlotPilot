@@ -1075,7 +1075,7 @@ JSON 格式：
             # Fallback
             from infrastructure.ai.prompt_utils import get_prompt_system as _get_prompt_system
             system = _get_prompt_system(BIBLE_STYLE_CONVENTION)
-            user = f"Story concept: {premise}\nTarget chapters: {target_chapters}"
+            user = f"故事创意：{premise}\n\n目标章节数：{target_chapters}章\n\n请生成文风公约。直接输出文本即可。"
             prompt = Prompt(system=system, user=user)
 
         config = GenerationConfig(max_tokens=1024, temperature=0.7)

@@ -960,13 +960,6 @@ class AutopilotDaemon:
         补写内容追加到原正文末尾。
         """
         supplement_words = max(400, target_word_count // 5)
-        prompt_text = (
-            f"Information density supplement instruction\n"
-            f"Chapter outline: {outline}\n\n"
-            f"Existing chapter content (last ~400 chars for reference):\n"
-            f"...{existing_content[-400:]}\n\n"
-            f"Supplement word count target: {supplement_words}\n"
-        )
         try:
             from domain.ai.value_objects.prompt import Prompt
             from domain.ai.services.llm_service import GenerationConfig
@@ -984,7 +977,19 @@ class AutopilotDaemon:
             if not p:
                 from infrastructure.ai.prompt_utils import get_prompt_system
                 system = get_prompt_system(AUTOPILOT_INFO_DENSITY_SUPPLEMENT)
-                p = Prompt(system=system, user=prompt_text)
+                user_msg = (
+                    f"【信息密度补写指令】\n"
+                    f"本章大纲：{outline}\n\n"
+                    f"本章已生成正文（末尾约400字供参考）：\n"
+                    f"…{existing_content[-400:]}\n\n"
+                    f"请接续已有正文，补写一段约 {supplement_words} 字的情节推进段落。\n"
+                    f"要求：\n"
+                    f"1. 至少包含一个角色做出具体决定或行动并产生后果\n"
+                    f"2. 或引入一条新信息/线索/冲突\n"
+                    f"3. 与前文情绪和场景无缝衔接，不重复已有内容\n"
+                    f"4. 不要写章节标题，直接输出正文\n"
+                )
+                p = Prompt(system=system, user=user_msg)
             cfg = GenerationConfig(max_tokens=int(supplement_words * 1.5), temperature=0.82)
             result = await self.llm_service.generate(p, cfg)
             supplement = (result.content if hasattr(result, "content") else str(result)).strip()
@@ -2911,9 +2916,9 @@ class AutopilotDaemon:
             except Exception as e:
                 logger.debug("[%s] voice anchors 获取失败: %s", novel.novel_id, e)
 
-        style_block = style_summary.strip() or "No style summary available. Maintain existing author voice and sentence rhythm."
-        anchor_block = voice_anchors.strip() or "No additional character voice anchors."
-        outline = (getattr(chapter, "outline", "") or "").strip() or "No separate outline. Must strictly preserve existing plot facts."
+        style_block = style_summary.strip() or "暂无明确统计摘要，优先保持既有作者语气与句式节奏。"
+        anchor_block = voice_anchors.strip() or "无额外角色声线锚点。"
+        outline = (getattr(chapter, "outline", "") or "").strip() or "无单独大纲，必须严格保留现有剧情事实。"
 
         # CPMS render
         from infrastructure.ai.prompt_keys import VOICE_REWRITE

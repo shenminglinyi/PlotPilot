@@ -358,11 +358,11 @@ class BeatSheetService:
         previous_chapter_block = ""
         if context.get("previous_chapter"):
             prev = context["previous_chapter"]
-            previous_chapter_block = f"Chapter {prev['number']} '{prev['title']}': {prev['summary']}"
+            previous_chapter_block = f"第 {prev['number']} 章《{prev['title']}》: {prev['summary']}"
 
         foreshadowings_block = ""
         if context.get("foreshadowings"):
-            lines = [f"- {foreshadowing['description']} (Chapter {foreshadowing['chapter']})" for foreshadowing in context["foreshadowings"]]
+            lines = [f"- {foreshadowing['description']} (第 {foreshadowing['chapter']} 章)" for foreshadowing in context["foreshadowings"]]
             foreshadowings_block = "\n".join(lines)
 
         locations_block = ""
@@ -372,7 +372,7 @@ class BeatSheetService:
 
         timeline_block = ""
         if context.get("timeline_events"):
-            lines = [f"- Chapter {event['chapter']}: {event['description']} ({event['time_type']})" for event in context["timeline_events"]]
+            lines = [f"- 第 {event['chapter']} 章: {event['description']} ({event['time_type']})" for event in context["timeline_events"]]
             timeline_block = "\n".join(lines)
 
         variables = {
@@ -391,22 +391,22 @@ class BeatSheetService:
         if prompt:
             return prompt
 
-        # Fallback: direct assembly
+        # 降级：直接拼接
         system = self._get_system_prompt()
-        user = f"Chapter outline:\n{outline}\n"
+        user = f"章节大纲：\n{outline}\n"
         if characters_block:
-            user += f"\n=== Main characters ===\n{characters_block}\n"
+            user += f"\n=== 主要人物 ===\n{characters_block}\n"
         if storylines_block:
-            user += f"\n=== Active storylines ===\n{storylines_block}\n"
+            user += f"\n=== 活跃故事线 ===\n{storylines_block}\n"
         if previous_chapter_block:
-            user += f"\n=== Previous chapter ===\n{previous_chapter_block}\n"
+            user += f"\n=== 前一章节 ===\n{previous_chapter_block}\n"
         if foreshadowings_block:
-            user += f"\n=== Foreshadowings ===\n{foreshadowings_block}\n"
+            user += f"\n=== 相关伏笔（可以在场景中呼应） ===\n{foreshadowings_block}\n"
         if locations_block:
-            user += f"\n=== Locations ===\n{locations_block}\n"
+            user += f"\n=== 可用地点 ===\n{locations_block}\n"
         if timeline_block:
-            user += f"\n=== Timeline ===\n{timeline_block}\n"
-        user += "\nGenerate scene list (JSON format):"
+            user += f"\n=== 时间线（最近事件） ===\n{timeline_block}\n"
+        user += "\n请基于以上信息生成场景列表（JSON 格式）："
         return Prompt(system=system, user=user)
 
     def _parse_llm_response(self, response) -> List[Scene]:

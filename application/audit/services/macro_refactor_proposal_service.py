@@ -63,55 +63,25 @@ class MacroRefactorProposalService:
             return self._create_fallback_proposal()
 
     def _build_prompt(self, request: RefactorProposalRequest) -> Prompt:
-        """构建 LLM prompt
+        """构建 LLM prompt（CPMS 统一入口）"""
+        from infrastructure.ai.prompt_keys import REFACTOR_PROPOSAL_MACRO
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-        Args:
-            request: 提案请求
+        variables = {
+            "event_data": request.current_event_summary,
+            "intent": request.author_intent or "",
+        }
 
-        Returns:
-            Prompt: 构建的提示词
-        """
-        system_prompt = """你是一个专业的小说编辑助手，帮助作者修复人设冲突和叙事不一致问题。
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(REFACTOR_PROPOSAL_MACRO, variables)
+        if prompt:
+            return prompt
 
-你的任务是分析当前事件，根据作者意图提供修复建议。
-
-请以 JSON 格式输出，包含以下字段：
-- natural_language_suggestion: 自然语言建议（简洁明了）
-- suggested_mutations: 建议的修改操作列表，每个操作是一个对象，包含：
-  * type: 操作类型（"add_tag" | "remove_tag" | "replace_tag"）
-  * tag: 要添加/删除的标签（add_tag/remove_tag）
-  * old/new: 要替换的旧标签和新标签（replace_tag）
-- suggested_tags: 建议的新标签列表
-- reasoning: 推理过程（解释为什么这样修改）
-
-示例输出：
-{
-    "natural_language_suggestion": "建议将角色的冲动行为改为理性决策",
-    "suggested_mutations": [
-        {"type": "replace_tag", "old": "动机:冲动", "new": "动机:理性"},
-        {"type": "remove_tag", "tag": "情感:同情"}
-    ],
-    "suggested_tags": ["动机:理性", "性格:冷酷"],
-    "reasoning": "冷酷的角色不会冲动行事，应该基于理性判断"
-}"""
-
-        user_prompt = f"""请分析以下事件并提供修复建议：
-
-**作者意图：**
-{request.author_intent}
-
-**当前事件摘要：**
-{request.current_event_summary}
-
-**当前标签：**
-{', '.join(request.current_tags)}
-
-**事件 ID：**
-{request.event_id}
-
-请提供修复建议（JSON 格式）："""
-
-        return Prompt(system=system_prompt, user=user_prompt)
+        # 降级：直接拼接
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system = get_prompt_system(REFACTOR_PROPOSAL_MACRO)
+        user = f"请分析以下事件并提供修复建议：\n\n**作者意图：**\n{request.author_intent}\n\n**当前事件摘要：**\n{request.current_event_summary}\n\n**当前标签：**\n{', '.join(request.current_tags)}\n\n**事件 ID：**\n{request.event_id}\n\n请提供修复建议（JSON 格式）："
+        return Prompt(system=system, user=user)
 
     def _create_fallback_proposal(self) -> RefactorProposal:
         """创建降级提案（当 LLM 失败时）

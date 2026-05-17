@@ -1,5 +1,5 @@
-Story concept: {premise}
+故事创意：{premise}
 
-Target chapters: {target_chapters}
+目标章节数：{target_chapters}章
 
-Please generate the style convention. Output text directly.
+请生成文风公约。直接输出文本即可。

@@ -222,15 +222,15 @@ async def llm_chapter_extract_bundle(
     if len(body) > 24000:
         body = body[:24000] + "\n\n…（正文过长已截断）"
 
-    # Build foreshadow context hint
+    # 构建待回收伏笔提示
     foreshadow_context = ""
     if pending_foreshadows:
         foreshadow_list = "\n".join(f"  - {f}" for f in pending_foreshadows[:15])
         foreshadow_context = f"""
-Pending foreshadow list:
+【待回收伏笔清单】
 {foreshadow_list}
 
-Please check if this chapter echoes/resolves any of the above foreshadows. If the chapter content explicitly reveals or responds to a foreshadowing suspense, list the original description in consumed_foreshadows (must closely match the description in the list)."""
+请判断本章是否呼应/回收了上述伏笔。如果章节内容明确揭示或回应了某个伏笔的悬念，则在 consumed_foreshadows 中列出该伏笔的原描述（需与清单中的描述高度匹配）。"""
 
     # CPMS render
     from infrastructure.ai.prompt_keys import CHAPTER_NARRATIVE_SYNC
@@ -248,8 +248,8 @@ Please check if this chapter echoes/resolves any of the above foreshadows. If th
         from infrastructure.ai.prompt_utils import get_prompt_system
         system = get_prompt_system(CHAPTER_NARRATIVE_SYNC)
         if not system:
-            system = f"Extract narrative sync data from the chapter. Output one JSON object. {foreshadow_context}"
-        user = f"Chapter {chapter_number} text:\n\n{body}"
+            system = f"你是网文叙事编辑与信息抽取。根据章节正文输出一个JSON对象。{foreshadow_context}"
+        user = f"第 {chapter_number} 章正文如下：\n\n{body}"
         prompt = Prompt(system=system, user=user)
     config = GenerationConfig(max_tokens=4096, temperature=0.45)
 
