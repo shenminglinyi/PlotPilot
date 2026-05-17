@@ -1,5 +1,7 @@
 ﻿# PlotPilot（墨枢）
 
+>大家PR和ISSUE都看到，休息一段时间后审阅哈~
+
 <p align="center">
   <img src="docs/plotpilot-readme.256.png" alt="PlotPilot 墨枢" width="120" />
 </p>
