@@ -1,2 +1,2 @@
-【最新下线章节】
+Chapter {content} text:
 {content}

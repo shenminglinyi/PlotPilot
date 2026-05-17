@@ -83,7 +83,10 @@ class SandboxDialogueService:
         all_characters: Optional[Iterable[Any]] = None,
         recent_dialogues: Optional[Iterable[DialogueEntry]] = None,
     ) -> Prompt:
-        """Build a grounded prompt for character dialogue generation."""
+        """Build a grounded prompt for character dialogue generation (CPMS)."""
+        from infrastructure.ai.prompt_keys import DIALOGUE_GENERATION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+
         character_name = self._stringify(getattr(character, "name", ""))
         description = self._stringify(getattr(character, "description", ""))
         public_profile = self._stringify(getattr(character, "public_profile", ""))
@@ -94,47 +97,34 @@ class SandboxDialogueService:
             all_characters=all_characters,
         )
 
-        system = (
-            "你是长篇小说的角色对白润色器。"
-            "你的任务是让指定角色在给定场景里说出符合其人设、关系位置、历史声线和当前心理锚点的话。"
-            "优先级：历史对白习惯 > 角色设定 > 当前心理状态/口头禅/动作 > 场景目标。"
-            "不要输出分析、设定说明、JSON、标题或额外注释。"
-            "如果场景里出现其他角色，他们只能作为陪衬，不能抢走目标角色的口吻与主导发言权。"
-        )
-
         relationship_block = self._format_relationships(relationships)
         history_block = self._format_recent_dialogues(recent_dialogues)
         related_block = self._format_scene_related_characters(scene_related_characters)
-        scene_text = self._stringify(scene_prompt) or "（未提供场景）"
+        scene_text = self._stringify(scene_prompt) or "(no scene provided)"
 
-        user = f"""目标角色：{character_name}
+        variables = {
+            "character_name": character_name,
+            "description": description or "N/A",
+            "public_profile": public_profile or "N/A",
+            "mental_state": mental_state or "NORMAL",
+            "verbal_tic": verbal_tic or "none",
+            "idle_behavior": idle_behavior or "none",
+            "relationship_block": relationship_block,
+            "related_block": related_block,
+            "history_block": history_block,
+            "scene_text": scene_text,
+        }
 
-【角色基础设定】
-- 人设描述：{description or "暂无"}
-- 公开档案：{public_profile or "暂无"}
-- 当前心理状态：{mental_state or "NORMAL"}
-- 口头禅：{verbal_tic or "无"}
-- 常见动作：{idle_behavior or "无"}
+        # CPMS render
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(DIALOGUE_GENERATION, variables)
+        if prompt:
+            return prompt
 
-【角色关系】
-{relationship_block}
-
-【场景点名的相关角色】
-{related_block}
-
-【历史对白样本（模仿语气，不要照抄）】
-{history_block}
-
-【当前场景】
-{scene_text}
-
-请直接生成这名角色在当前场景中的一小段对白，要求：
-1. 只写成品台词，可夹带极少量动作描写；
-2. 重点保持这个角色自己的语气、身份位置和情绪，不要串成别的角色；
-3. 若场景里有其他角色，可以被提及或简短回应，但不要让其他角色成为主说话人；
-4. 长度控制在 2-4 句话；
-5. 不要输出角色名标签、分析说明、引号外注释。"""
-
+        # Fallback: direct assembly
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system = get_prompt_system(DIALOGUE_GENERATION)
+        user = f"Target character: {character_name}\n\nCharacter settings:\n- Description: {description or 'N/A'}\n- Public profile: {public_profile or 'N/A'}\n- Mental state: {mental_state or 'NORMAL'}\n- Verbal tic: {verbal_tic or 'none'}\n- Idle behavior: {idle_behavior or 'none'}\n\nRelationships:\n{relationship_block}\n\nScene-related characters:\n{related_block}\n\nRecent dialogue samples:\n{history_block}\n\nCurrent scene:\n{scene_text}\n"
         return Prompt(system=system, user=user)
 
     def clean_generated_dialogue(self, content: str, character_name: str) -> str:
