@@ -5,6 +5,7 @@ from domain.shared.base_entity import BaseEntity
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.entities.chapter import Chapter, ChapterStatus
 from domain.novel.value_objects.story_phase import StoryPhase
+from domain.novel.value_objects.generation_preferences import GenerationPreferences
 from domain.shared.exceptions import InvalidOperationError
 
 
@@ -64,6 +65,7 @@ class Novel(BaseEntity):
         target_words_per_chapter: int = 2500,
         # 审计进度指示
         audit_progress: Optional[str] = None,
+        generation_prefs: Optional[GenerationPreferences] = None,
     ):
         super().__init__(id.value)
         self.novel_id = id
@@ -105,6 +107,7 @@ class Novel(BaseEntity):
         self.target_words_per_chapter = target_words_per_chapter
         # 审计进度指示
         self.audit_progress = audit_progress
+        self.generation_prefs = generation_prefs or GenerationPreferences()
 
     def add_chapter(self, chapter: Chapter) -> None:
         """添加章节（必须连续）"""

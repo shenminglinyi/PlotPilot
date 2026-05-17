@@ -83,7 +83,7 @@
                   <div class="chapter-editor">
                 <div class="editor-header">
                   <div class="editor-title">
-                    <h3>{{ currentChapter.title || `第${currentChapter.number}章` }}</h3>
+                    <h3>{{ currentChapter.title || deskChapterTitle }}</h3>
                     <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
                       {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
                     </n-tag>
@@ -650,6 +650,7 @@ import {
   saveChapterDraft,
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
+import type { GenerationPrefsDTO } from '@/api/novel'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
@@ -670,6 +671,7 @@ import {
   type ChapterDeskAuxPaneId,
   type PrimaryChapterDeskTab,
 } from '../../workbench/chapterDeskSurface'
+import { narrativeOrdinalLabel } from '@/utils/narrativeUnitLabel'
 import { AppsOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 
 interface Chapter {
@@ -687,14 +689,20 @@ interface WorkAreaProps {
   currentChapterId?: number | null
   chapterContent?: string
   chapterLoading?: boolean
+  generationPrefs?: GenerationPrefsDTO | null
 }
 
 const props = withDefaults(defineProps<WorkAreaProps>(), {
   chapters: () => [],
   currentChapterId: null,
   chapterContent: '',
-  chapterLoading: false
+  chapterLoading: false,
+  generationPrefs: null,
 })
+
+function ordinalUnit(n: number) {
+  return narrativeOrdinalLabel(n, props.generationPrefs ?? undefined)
+}
 
 const emit = defineEmits<{
   chapterUpdated: []
@@ -770,7 +778,9 @@ const isAssistedReadOnly = computed(
 /** 与左侧章节「已收稿」、结构树同步：全托管推进时刷新 desk（首次快照只记录不 emit，避免与进入页重复请求） */
 const lastAutopilotDeskSnap = ref<string | null>(null)
 
-/** 仅纳入「会改变侧栏章节列表 / 结构树骨架」的字段；排除 total_words、beat 索引等写作过程高频抖动，避免每秒整桌 loadDesk。 */
+/** 仅纳入「会改变侧栏章节列表 / 结构树骨架」的字段；排除 total_words、beat 索引等写作过程高频抖动，避免每秒整桌 loadDesk。
+ * 注意：不要把章末审阅的 narrative_sync_ok 等纳入 —— 守护进程写入时易抖动，会导致整桌刷新与规划区反复重拉，观感像「整页自动刷新」。
+ */
 function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefined): string {
   if (!status) return ''
   const s = status
@@ -779,7 +789,6 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     audit != null
       ? (audit.chapter_number ?? audit.chapterNumber ?? '')
       : ''
-  const auditSync = audit != null && audit.narrative_sync_ok === true ? '1' : '0'
   return [
     s.completed_chapters ?? 0,
     s.manuscript_chapters ?? 0,
@@ -790,7 +799,6 @@ function deskSnapFromAutopilot(status: Record<string, unknown> | null | undefine
     s.needs_review === true ? '1' : '0',
     s.autopilot_status ?? '',
     auditCh,
-    auditSync,
   ].join('|')
 }
 
@@ -818,7 +826,61 @@ function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined
 }
 
 const handleAutopilotStatusChange = (status: any) => {
-  autopilotStatus.value = status
+  applyAutopilotStatusPayload(status)
+}
+
+/** 排除纳秒级抖动字段（context_tokens、daemon 心跳等），仅在「读者可见状态」变化时更新 Vue，减轻辅助撰稿区重绘 */
+const lastAutopilotReactiveFp = ref<string>('')
+
+function autopilotReactiveFingerprint(j: Record<string, unknown>): string {
+  const audit = j.last_chapter_audit as Record<string, unknown> | undefined
+  const auditMini = audit
+    ? [
+        audit.chapter_number ?? audit.chapterNumber ?? '',
+        audit.tension ?? '',
+        audit.narrative_sync_ok === true ? '1' : '0',
+        audit.similarity_score ?? '',
+        audit.at ?? '',
+        audit.drift_alert === true ? '1' : '0',
+      ].join(':')
+    : ''
+  const lst = j.last_smart_truncate
+  const lstS = lst && typeof lst === 'object' ? JSON.stringify(lst) : String(lst ?? '')
+  return [
+    j.autopilot_status,
+    j.current_stage,
+    j.current_chapter_number,
+    j.completed_chapters,
+    j.manuscript_chapters,
+    j.current_beat_index,
+    j.total_beats,
+    j.writing_substep,
+    j.writing_substep_label,
+    j.accumulated_words,
+    j.beat_phase,
+    j.beat_focus,
+    j.beat_hard_cap,
+    j.beat_target_words,
+    j.chapter_target_words,
+    j.beat_remaining_budget,
+    j.beat_max_words_hint,
+    auditMini,
+    lstS,
+  ].join('|')
+}
+
+function applyAutopilotStatusPayload(status: Record<string, unknown> | null | undefined) {
+  if (status == null) {
+    autopilotStatus.value = null
+    lastAutopilotReactiveFp.value = ''
+    maybeEmitDeskRefresh(status)
+    return
+  }
+  const fp = autopilotReactiveFingerprint(status)
+  if (fp !== lastAutopilotReactiveFp.value) {
+    lastAutopilotReactiveFp.value = fp
+    autopilotStatus.value = status
+  }
   maybeEmitDeskRefresh(status)
 }
 
@@ -910,8 +972,7 @@ async function pollAutopilotStatusWhileAssisted() {
     if (res.ok) {
       assistAutopilotPollFailures = 0
       const json = await res.json()
-      autopilotStatus.value = json
-      maybeEmitDeskRefresh(json)
+      applyAutopilotStatusPayload(json as Record<string, unknown>)
     } else {
       assistAutopilotPollFailures += 1
     }
@@ -924,6 +985,7 @@ watch(
   () => props.slug,
   () => {
     lastAutopilotDeskSnap.value = null
+    lastAutopilotReactiveFp.value = ''
     assistedAutopilot404 = false
     assistAutopilotPollFailures = 0
     clearAssistedAutopilotPoll()
@@ -1016,8 +1078,8 @@ const contextPreview = ref<ContextPreviewResult | null>(null)
 const loadingContext = ref(false)
 
 const chapterSelectOptions = computed(() =>
-  props.chapters.map(ch => ({
-    label: `第 ${ch.number} 章${ch.title ? ` · ${ch.title.slice(0, 22)}` : ''}`,
+  props.chapters.map((ch) => ({
+    label: `${ordinalUnit(ch.number)}${ch.title ? ` · ${ch.title.slice(0, 22)}` : ''}`,
     value: ch.id,
   }))
 )
@@ -1036,7 +1098,7 @@ const previewContext = async () => {
     contextPreview.value = await retrieveContext(
       props.slug,
       chNum,
-      generateOutline.value || `第${chNum}章：承接前情，推进主线`,
+      generateOutline.value || `${ordinalUnit(chNum)}：承接前情，推进主线`,
     )
   } catch {
     contextPreview.value = null
@@ -1097,6 +1159,12 @@ const currentChapter = computed(() => {
   return props.chapters.find(ch => ch.id === props.currentChapterId) || null
 })
 
+const deskChapterTitle = computed(() => {
+  const ch = currentChapter.value
+  if (!ch) return ''
+  return ordinalUnit(ch.number)
+})
+
 /** 当前是否有可重写的正文：以编辑器 `chapterContent` 为准（列表项通常不带全文，不能用 currentChapter.content） */
 const hasChapterContent = computed(() => {
   const fromEditor = chapterContent.value?.trim() ?? ''
@@ -1114,7 +1182,7 @@ const signalStrip = computed(() => {
   }
 })
 
-/** 护栏尚无快照（404→null）时 deskTick 会高频触发：退避期内不再打 GET，减轻日志与 UI 闪烁 */
+/** 护栏尚无快照（GET 返回 JSON null）时 deskTick 会高频触发：退避期内不再打 GET，减轻日志与 UI 闪烁 */
 const guardrailNullBackoffUntil = ref(0)
 const guardrailBackoffKey = ref('')
 
@@ -1273,7 +1341,7 @@ const handleGenerateChapter = async () => {
   isRegenerationMode.value = false
   regenerationGuidance.value = ''
   generateTargetChapterId.value = currentChapter.value.id
-  generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
+  generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
@@ -1293,7 +1361,7 @@ const handleRegenerateChapter = async () => {
   regenerationGuidance.value = ''
   generateTargetChapterId.value = currentChapter.value.id
   // 列表项不带 outline，统一用默认模板做种子；用户可在弹窗里编辑
-  generateOutline.value = `第${currentChapter.value.number}章：${currentChapter.value.title || ''}
+  generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
 
 承接前情，推进主线与人物节拍；保持人设与叙事节奏一致。`
   generatedContent.value = ''
@@ -1372,7 +1440,7 @@ const handleStartGenerate = async () => {
   if (useSceneDirector.value && !sceneDirectorResult) {
     analyzingScene.value = true
     try {
-      const outline = generateOutline.value || `第${targetChapterNumber}章：承接前情，推进主线`
+      const outline = generateOutline.value || `${ordinalUnit(targetChapterNumber)}：承接前情，推进主线`
       const analysis = await analyzeScene(props.slug, targetChapterNumber, outline)
       sceneDirectorResult = analysis as Record<string, unknown>
     } catch (e: unknown) {
@@ -1382,7 +1450,7 @@ const handleStartGenerate = async () => {
     }
   }
 
-  const defaultOutline = `第${targetChapterNumber}章：承接前情，推进主线`
+  const defaultOutline = `${ordinalUnit(targetChapterNumber)}：承接前情，推进主线`
 
   // 重新生成模式：先快照当前内容；快照失败时弹确认（422 无正文仅提示后继续）
   if (isRegenerationMode.value) {
@@ -1459,7 +1527,7 @@ const handleStartGenerate = async () => {
           if (props.currentChapterId === targetChapterId) {
             message.success('生成完成，质检已同步到本章侧栏')
           } else {
-            message.success(`第 ${targetChapterNumber} 章生成完成，请在对应章侧栏查看质检`)
+            message.success(`${ordinalUnit(targetChapterNumber)}生成完成，请在对应章侧栏查看质检`)
           }
           desk.nudgeRailAfterGeneration()
         },
@@ -1500,7 +1568,7 @@ const handleSaveGenerated = async () => {
       chapterContent.value = generatedContent.value
       originalContent.value = generatedContent.value
     }
-    message.success(`已保存到第 ${saveTarget.number} 章`)
+    message.success(`已保存到${ordinalUnit(saveTarget.number)}`)
     emit('chapterUpdated')
     showGenerateModal.value = false
     window.setTimeout(() => void loadGuardrailSnapshot({ force: true }), 3500)

@@ -98,4 +98,9 @@ def update_worldbuilding(
         culture=request.culture.dict() if request.culture else None,
         daily_life=request.daily_life.dict() if request.daily_life else None,
     )
+    try:
+        from application.engine.services.state_bootstrap import refresh_narrative_contract_in_shared_state
+        refresh_narrative_contract_in_shared_state(slug)
+    except Exception:
+        pass
     return worldbuilding.to_dict()

@@ -5,6 +5,8 @@ import pytest
 from application.blueprint.services.continuous_planning_service import (
     ContinuousPlanningService,
     _extract_outer_json_value,
+    _incremental_macro_parts_trustworthy,
+    _try_parse_parts_from_llm_buffer,
     get_macro_plan_progress,
 )
 
@@ -108,6 +110,36 @@ def test_extract_outer_json_value_prefers_object_root_over_leading_array():
     result = _extract_outer_json_value(text)
 
     assert result == '{"parts": [], "theme": "x"}'
+
+
+def test_incremental_macro_parts_trustworthy_rejects_single_char_titles():
+    bad = [
+        {
+            "title": "第一部",
+            "volumes": [
+                {"title": "卷一", "acts": [{"title": "X", "description": ""}]},
+            ],
+        }
+    ]
+    assert _incremental_macro_parts_trustworthy(bad) is False
+
+    ok = [
+        {
+            "title": "第一部",
+            "volumes": [
+                {"title": "卷一", "acts": [{"title": "初入山门", "description": ""}]},
+            ],
+        }
+    ]
+    assert _incremental_macro_parts_trustworthy(ok) is True
+
+
+def test_try_parse_parts_from_llm_buffer_accepts_complete_valid_minimal_json():
+    raw = '{"parts": [{"title": "第一部", "volumes": [{"title": "卷一", "acts": [{"title": "序幕", "description": ""}]}]}], "theme": "x"}'
+    parts = _try_parse_parts_from_llm_buffer(raw)
+    assert parts is not None
+    assert parts[0]["title"] == "第一部"
+    assert parts[0]["volumes"][0]["acts"][0]["title"] == "序幕"
 
 
 @pytest.mark.asyncio

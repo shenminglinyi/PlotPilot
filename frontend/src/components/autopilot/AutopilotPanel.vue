@@ -48,6 +48,7 @@
       <strong>{{ status.target_chapters ?? '—' }}</strong> 章 ×
       <strong>{{ status.target_words_per_chapter ?? 2500 }}</strong> 字/章）。全托管写满目标章即停；节拍拆分按「每章字数」执行。
       写作过程中流式字数可能暂时高于该目标，属正常现象，每节拍末会收束后再落稿。
+      进度条、幕/章/节拍与顶栏阶段可能短暂不同步，以守护进程状态为准，不影响落稿。
     </p>
 
     <!-- 数据格 -->
@@ -169,6 +170,7 @@
       :context-tokens="status?.context_tokens"
       :runner-stage-label="stageLabel"
       :status-chapter-number="status?.current_chapter_number ?? null"
+      :is-writing-phase="isWriting"
     />
 
     <!-- 操作按钮 -->
@@ -209,7 +211,7 @@
             <n-input-number
               v-model:value="startConfig.target_words_per_chapter"
               :min="500"
-              :max="10000"
+              :max="20000"
               :step="500"
               style="width: 100%"
             />

@@ -31,7 +31,10 @@
       </div>
 
       <n-alert type="info" :show-icon="true" size="small" style="margin-bottom: 8px">
-        保存章节正文后，系统会在后台自动运行建议模式护栏并写入快照；此处可查看快照或手动再次检查。
+        <div>保存章节正文后，系统会在后台自动运行建议模式护栏并写入快照；此处可查看快照或手动再次检查。</div>
+        <div style="margin-top: 6px; opacity: 0.92">
+          分数为小说家向启发式标尺（非读者打分）：缺具体章节目标、视点元数据或可用的人设约束时会保守折价，分项意在标出问题而非追求虚高。
+        </div>
       </n-alert>
 
       <!-- 检查结果 -->
@@ -76,7 +79,7 @@
                 <n-text style="font-size: 12px; min-width: 36px; text-align: right">
                   {{ Math.round(dim.score * 100) }}
                 </n-text>
-                <n-text depth="3" style="font-size: 10px; min-width: 32px; text-align: right">
+                <n-text depth="3" style="font-size: 10px; min-width: 48px; text-align: right; white-space: nowrap">
                   ×{{ (dim.weight * 100).toFixed(0) }}%
                 </n-text>
               </div>

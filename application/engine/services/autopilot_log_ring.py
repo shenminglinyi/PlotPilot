@@ -222,6 +222,20 @@ def snapshot_for_novel(novel_id: str, limit: int = 400) -> List[AutopilotLogEntr
     return out
 
 
+def snapshot_global_ring(limit: int = 200) -> List[AutopilotLogEntry]:
+    """诊断导出：全局内存环近期条目（不按书目过滤，仍应用高频降噪规则）。"""
+    out: List[AutopilotLogEntry] = []
+    with _lock:
+        for e in reversed(_ring):
+            if should_skip_autopilot_log_line(e.level, e.message, e.logger_name):
+                continue
+            out.append(e)
+            if len(out) >= limit:
+                break
+    out.reverse()
+    return out
+
+
 class AutopilotRingLogHandler(logging.Handler):
     """将指定 logger 的日志写入内存环。"""
 

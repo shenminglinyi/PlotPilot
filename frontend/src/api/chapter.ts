@@ -90,22 +90,17 @@ export const chapterApi = {
     apiClient.get<ChapterStructureDTO>(`/novels/${novelId}/chapters/${chapterNumber}/structure`) as Promise<ChapterStructureDTO>,
 
   /**
-   * 保存后自动护栏快照（建议模式）；尚无快照时返回 null（对应 HTTP 404）
+   * 保存后自动护栏快照（建议模式）。尚无快照时服务端返回 JSON null（HTTP 200）。
    * GET /novels/{novelId}/chapters/{chapterNumber}/guardrail-snapshot
    */
   getGuardrailSnapshot: async (
     novelId: string,
     chapterNumber: number
   ): Promise<GuardrailCheckResponse | null> => {
-    try {
-      return (await apiClient.get(
-        `/novels/${novelId}/chapters/${chapterNumber}/guardrail-snapshot`
-      )) as GuardrailCheckResponse
-    } catch (e: unknown) {
-      const ax = e as { response?: { status?: number } }
-      if (ax.response?.status === 404) return null
-      throw e
-    }
+    const data = (await apiClient.get(
+      `/novels/${novelId}/chapters/${chapterNumber}/guardrail-snapshot`
+    )) as GuardrailCheckResponse | null
+    return data ?? null
   },
 
   /**

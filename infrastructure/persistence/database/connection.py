@@ -194,6 +194,21 @@ def _apply_last_chapter_audit_columns(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _apply_novel_generation_prefs_json(conn: sqlite3.Connection) -> None:
+    """小说表：生成偏好 JSON（节拍截断、阶段展示等，幂等）。"""
+    cur = conn.execute("PRAGMA table_info(novels)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "generation_prefs_json" not in cols:
+        try:
+            conn.execute(
+                "ALTER TABLE novels ADD COLUMN generation_prefs_json TEXT DEFAULT '{}'"
+            )
+            logger.info("novels migration: added column generation_prefs_json")
+        except sqlite3.OperationalError as e:
+            logger.warning("novels migration skip generation_prefs_json: %s", e)
+    conn.commit()
+
+
 def _apply_bible_character_four_d_sqlite(conn: sqlite3.Connection) -> None:
     """Bible 人物：四维心理与 POV 扩展列（与引擎 T0 / 工作台锚点对齐）。"""
     cur = conn.execute("PRAGMA table_info(bible_characters)")
@@ -483,6 +498,7 @@ class DatabaseConnection:
         _migrate_triples_columns(conn)
         _apply_autopilot_v2_migrations(conn)
         _apply_last_chapter_audit_columns(conn)
+        _apply_novel_generation_prefs_json(conn)
         _apply_character_enhancements(conn)
         _apply_bible_character_four_d_sqlite(conn)
         _apply_chapter_summaries_enhancements(conn)

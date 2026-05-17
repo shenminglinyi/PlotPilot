@@ -580,7 +580,21 @@ class BaseStoryPipeline(ABC):
         """生成后处理 — 子类可覆写以添加后处理逻辑"""
         try:
             from application.ai.llm_output_sanitize import strip_reasoning_artifacts
-            return strip_reasoning_artifacts(content)
+            from application.ai.prose_fragment_aggregator import aggregate_inline_prose_fragments
+            from domain.novel.value_objects.novel_id import NovelId
+
+            s = strip_reasoning_artifacts(content)
+            enabled = False
+            try:
+                if ctx.novel_id and ctx.novel_repository is not None:
+                    nov = ctx.novel_repository.get_by_id(NovelId(ctx.novel_id))
+                    if nov is not None:
+                        enabled = bool(nov.generation_prefs.inline_prose_aggregation_enabled)
+            except Exception:
+                enabled = False
+            if enabled:
+                return aggregate_inline_prose_fragments(s)
+            return s
         except ImportError:
             return content
 

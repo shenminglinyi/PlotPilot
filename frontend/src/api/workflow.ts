@@ -256,10 +256,8 @@ export async function consumeGenerateChapterStream(
   const dec = new TextDecoder()
   let buf = ''
   try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
+    /** 排空 buf 中的完整 SSE 帧；返回是否需要结束本次 consume */
+    const drainCompleteFrames = (): boolean => {
       let sep: number
       while ((sep = buf.indexOf('\n\n')) >= 0) {
         const block = buf.slice(0, sep)
@@ -306,15 +304,27 @@ export async function consumeGenerateChapterStream(
             }
             handlers.onEvent?.(ev)
             handlers.onDone?.(result)
-            return
+            return true
           } else if (typ === 'error') {
             const msg = String(o.message ?? '生成失败')
             const ev: GenerateChapterStreamEvent = { type: 'error', message: msg }
             handlers.onEvent?.(ev)
             handlers.onError?.(msg)
-            return
+            return true
           }
         }
+      }
+      return false
+    }
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      if (drainCompleteFrames()) return
+      if (done) {
+        buf += dec.decode()
+        drainCompleteFrames()
+        break
       }
     }
   } catch (e: unknown) {
@@ -358,10 +368,7 @@ export async function consumeHostedWriteStream(
   const dec = new TextDecoder()
   let buf = ''
   try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
+    const drainFrames = (): boolean => {
       let sep: number
       while ((sep = buf.indexOf('\n\n')) >= 0) {
         const block = buf.slice(0, sep)
@@ -373,9 +380,20 @@ export async function consumeHostedWriteStream(
           handlers.onEvent?.(o)
           if (o.type === 'error') {
             handlers.onError?.(String(o.message ?? 'error'))
-            return
+            return true
           }
         }
+      }
+      return false
+    }
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      if (drainFrames()) return
+      if (done) {
+        buf += dec.decode()
+        drainFrames()
+        break
       }
     }
   } catch (e: unknown) {

@@ -16,6 +16,10 @@ import logging
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any
 
+from engine.runtime.quality_guardrails.novelist_surface_audit import (
+    default_scene_rhythm_penalty,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,6 +37,7 @@ class RhythmViolation:
             "action_bloat": "打斗场景臃肿",
             "reveal_rush": "揭秘场景仓促",
             "event_detour": "大事件跑偏",
+            "general_pacing": "行文节奏（专业向）",
         }
         return names.get(self.violation_type, self.violation_type)
 
@@ -87,6 +92,18 @@ class RhythmGuardrail:
             violations.extend(self._check_reveal_rhythm(text))
         elif scene_type == "major_event":
             violations.extend(self._check_major_event_rhythm(text))
+        else:
+            # default / generic：仍可评估「块状排版 + 标点呼吸」等对节奏的影响
+            pen, hint = default_scene_rhythm_penalty(text)
+            if pen >= 0.05:
+                violations.append(RhythmViolation(
+                    violation_type="general_pacing",
+                    severity=min(1.35, pen * 3.15),
+                    description=(
+                        ("通用叙事节奏偏重正文块：" + hint) if hint else "通用叙事节奏：段落块状感偏强，阅读呼吸不足"
+                    ),
+                    suggestion="尝试拆段、穿插对白/小动作、在长段中埋入显性转折或疑点，避免匀速说明。",
+                ))
 
         if not violations:
             return 1.0, []

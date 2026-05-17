@@ -11,6 +11,8 @@
 html {
   scroll-behavior: smooth;
   text-rendering: optimizeLegibility;
+  /* 应用设置「字体大小」：与 fontSizeStore 写入的 --app-font-scale 联动 */
+  font-size: calc(16px * var(--app-font-scale, 1));
 }
 
 body {
@@ -41,6 +43,9 @@ body {
    亮色模式 (默认)
    ═══════════════════════════════════════════════════ */
 :root {
+  /* 应用设置「字体大小」基准倍率；运行时由 fontSizeStore 覆盖 */
+  --app-font-scale: 1;
+
   /* ── 品牌色 ── */
   --color-brand: #2563eb;
   --color-brand-hover: #3b82f6;

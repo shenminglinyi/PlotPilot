@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN, darkTheme } from 'naive-ui'
+import AppSettingsModal from './components/settings/AppSettingsModal.vue'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useThemeStore } from './stores/themeStore'
+import { useFontSizeStore, scaledUiPx } from './stores/fontSizeStore'
 
 const themeStore = useThemeStore()
+const fontSizeStore = useFontSizeStore()
 
 const naiveTheme = computed(() =>
   themeStore.isDark ? darkTheme : undefined
@@ -86,16 +89,20 @@ const SHAPE_OVERRIDES: GlobalThemeOverrides = Object.freeze({
   Alert:      { border: 'none' },
 })
 
-// ─── 只有颜色部分是动态的，量少性能好 ─────────────────────────────────────
+// ─── 颜色 + 字号档位是动态的，量少性能好 ─────────────────────────────────────
 const themeOverrides = computed<GlobalThemeOverrides>(() => {
   const p = themeStore.isAnchor ? ANCHOR_PALETTE
           : themeStore.isDark   ? DARK_PALETTE
           :                       LIGHT_PALETTE
+  const fz = fontSizeStore.preset
 
   return {
     ...SHAPE_OVERRIDES,
     common: {
       ...SHAPE_OVERRIDES.common,
+      fontSize:       scaledUiPx(14, fz),
+      fontSizeMedium: scaledUiPx(15, fz),
+      heightMedium:   scaledUiPx(38, fz),
       primaryColor:        p.primary,
       primaryColorHover:   p.primaryHover,
       primaryColorPressed: p.primaryPressed,
@@ -150,6 +157,7 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
             <component :is="Component" />
           </transition>
         </router-view>
+        <AppSettingsModal />
       </n-dialog-provider>
     </n-message-provider>
   </n-config-provider>

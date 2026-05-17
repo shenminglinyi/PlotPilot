@@ -282,11 +282,7 @@ export async function consumeBibleGenerateStream(
   }
 
   try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += dec.decode(value, { stream: true })
-
+    const drainCompleteFrames = (): boolean => {
       let sep: number
       while ((sep = buf.indexOf('\n\n')) >= 0) {
         const block = buf.slice(0, sep)
@@ -353,11 +349,23 @@ export async function consumeBibleGenerateStream(
           }
         } else if (event === 'done') {
           handlers.onDone?.(String(payload?.novel_id ?? novelId))
-          return
+          return true
         } else if (event === 'error') {
           handlers.onError?.(String(payload?.message ?? '生成失败'))
-          return
+          return true
         }
+      }
+      return false
+    }
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      if (drainCompleteFrames()) return
+      if (done) {
+        buf += dec.decode()
+        drainCompleteFrames()
+        break
       }
     }
   } catch (e: unknown) {

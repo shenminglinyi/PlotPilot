@@ -40,6 +40,15 @@ from interfaces.api.dependencies import (
 
 logger = logging.getLogger(__name__)
 
+
+def _refresh_narrative_contract_shared(novel_id: str) -> None:
+    try:
+        from application.engine.services.state_bootstrap import refresh_narrative_contract_in_shared_state
+        refresh_narrative_contract_in_shared_state(novel_id)
+    except Exception as e:
+        logger.debug("共享叙事契约刷新跳过 novel=%s: %s", novel_id, e)
+
+
 router = APIRouter(prefix="/novels", tags=["generation"])
 
 
@@ -536,6 +545,8 @@ def create_storyline(
             chapter_weight=getattr(request, 'chapter_weight', 1.0),
         )
 
+        _refresh_narrative_contract_shared(novel_id)
+
         return _storyline_to_response(storyline)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -589,6 +600,8 @@ def update_storyline(
 
         manager.repository.save(storyline)
 
+        _refresh_narrative_contract_shared(novel_id)
+
         return _storyline_to_response(storyline)
     except HTTPException:
         raise
@@ -616,6 +629,7 @@ def delete_storyline(
         if storyline is None or str(storyline.novel_id) != novel_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Storyline not found")
         manager.repository.delete(storyline_id)
+        _refresh_narrative_contract_shared(novel_id)
     except HTTPException:
         raise
     except Exception as e:

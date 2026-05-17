@@ -611,8 +611,7 @@ class MemoryEngine:
             return MemoryState(novel_id=novel_id)
 
         try:
-            cursor = self.db_connection.cursor()
-            cursor.execute(
+            row = self.db_connection.execute(
                 """
                 SELECT state_json, last_updated_chapter 
                 FROM memory_engine_state 
@@ -621,8 +620,7 @@ class MemoryEngine:
                 LIMIT 1
                 """,
                 (novel_id,),
-            )
-            row = cursor.fetchone()
+            ).fetchone()
 
             if row and row[0]:
                 data = json.loads(row[0])
@@ -636,9 +634,35 @@ class MemoryEngine:
                 logger.debug(f"MemoryEngine 从 DB 加载状态: novel={novel_id}, ch={state.last_updated_chapter}")
                 return state
         except Exception as e:
-            logger.warning(f"MemoryEngine DB 加载失败（可能表不存在）: {e}")
+            logger.warning(f"MemoryEngine DB 加载失败: {e}")
 
         return MemoryState(novel_id=novel_id)
+
+    def _memory_state_to_json(self, state: MemoryState) -> str:
+        return json.dumps(
+            {
+                "completed_beats": state.completed_beats,
+                "revealed_clues": state.revealed_clues,
+                "fact_violations_history": state.fact_violations_history,
+            },
+            ensure_ascii=False,
+        )
+
+    def _upsert_state_row(self, novel_id: str, state: MemoryState) -> None:
+        """将当前 MemoryState UPSERT 到 memory_engine_state（使用 DatabaseConnection / sqlite3 均支持的 execute API）"""
+        state_json = self._memory_state_to_json(state)
+        self.db_connection.execute(
+            """
+            INSERT INTO memory_engine_state (novel_id, state_json, last_updated_chapter, updated_at)
+            VALUES (?, ?, ?, datetime('now'))
+            ON CONFLICT(novel_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                last_updated_chapter = excluded.last_updated_chapter,
+                updated_at = datetime('now')
+            """,
+            (novel_id, state_json, state.last_updated_chapter),
+        )
+        self.db_connection.commit()
 
     def _persist_state(self, novel_id: str, state: MemoryState) -> None:
         """持久化状态到数据库"""
@@ -647,26 +671,7 @@ class MemoryEngine:
             return
 
         try:
-            cursor = self.db_connection.cursor()
-            state_json = json.dumps({
-                "completed_beats": state.completed_beats,
-                "revealed_clues": state.revealed_clues,
-                "fact_violations_history": state.fact_violations_history,
-            }, ensure_ascii=False)
-
-            # UPSERT
-            cursor.execute(
-                """
-                INSERT INTO memory_engine_state (novel_id, state_json, last_updated_chapter, updated_at)
-                VALUES (?, ?, ?, datetime('now'))
-                ON CONFLICT(novel_id) DO UPDATE SET
-                    state_json = excluded.state_json,
-                    last_updated_chapter = excluded.last_updated_chapter,
-                    updated_at = datetime('now')
-                """,
-                (novel_id, state_json, state.last_updated_chapter),
-            )
-            self.db_connection.commit()
+            self._upsert_state_row(novel_id, state)
             logger.debug(f"MemoryEngine 状态已持久化: novel={novel_id}, ch={state.last_updated_chapter}")
 
         except Exception as e:
@@ -675,24 +680,7 @@ class MemoryEngine:
                 self._ensure_table_exists()
                 # 重试一次
                 try:
-                    cursor = self.db_connection.cursor()
-                    state_json = json.dumps({
-                        "completed_beats": state.completed_beats,
-                        "revealed_clues": state.revealed_clues,
-                        "fact_violations_history": state.fact_violations_history,
-                    }, ensure_ascii=False)
-                    cursor.execute(
-                        """
-                        INSERT INTO memory_engine_state (novel_id, state_json, last_updated_chapter, updated_at)
-                        VALUES (?, ?, ?, datetime('now'))
-                        ON CONFLICT(novel_id) DO UPDATE SET
-                            state_json = excluded.state_json,
-                            last_updated_chapter = excluded.last_updated_chapter,
-                            updated_at = datetime('now')
-                        """,
-                        (novel_id, state_json, state.last_updated_chapter),
-                    )
-                    self.db_connection.commit()
+                    self._upsert_state_row(novel_id, state)
                 except Exception as retry_err:
                     logger.error(f"MemoryEngine 持久化重试失败: {retry_err}")
             else:
@@ -703,8 +691,7 @@ class MemoryEngine:
         if not self.db_connection:
             return
         try:
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
+            self.db_connection.execute("""
                 CREATE TABLE IF NOT EXISTS memory_engine_state (
                     novel_id TEXT PRIMARY KEY,
                     state_json TEXT NOT NULL DEFAULT '{}',
@@ -816,8 +803,7 @@ class MemoryEngine:
 
         if self.db_connection:
             try:
-                cursor = self.db_connection.cursor()
-                cursor.execute(
+                self.db_connection.execute(
                     "DELETE FROM memory_engine_state WHERE novel_id = ?",
                     (novel_id,),
                 )

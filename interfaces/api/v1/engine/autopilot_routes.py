@@ -16,6 +16,11 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.word_count import WordCount
 from interfaces.api.dependencies import get_novel_repository, get_chapter_repository
 from application.paths import get_db_path
+from application.core.chapter_target_limits import (
+    CHAPTER_TARGET_WORDS_MAX,
+    CHAPTER_TARGET_WORDS_MIN,
+    clamp_chapter_target_words,
+)
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from application.engine.services.autopilot_log_ring import (
     file_end_offset,
@@ -1033,7 +1038,7 @@ def _clamp_autopilot_target_chapters(tc: int) -> int:
 
 
 def _clamp_autopilot_words_per_chapter(w: int) -> int:
-    return max(500, min(10000, int(w)))
+    return clamp_chapter_target_words(int(w))
 
 
 class StartRequest(BaseModel):
@@ -1046,9 +1051,9 @@ class StartRequest(BaseModel):
     )
     target_words_per_chapter: Optional[int] = Field(
         default=None,
-        ge=500,
-        le=10000,
-        description="每章目标字数（与 resolve_v1_length_params 上限对齐）",
+        ge=CHAPTER_TARGET_WORDS_MIN,
+        le=CHAPTER_TARGET_WORDS_MAX,
+        description="每章目标字数（与 chapter_target_limits 上限对齐）",
     )
 
 

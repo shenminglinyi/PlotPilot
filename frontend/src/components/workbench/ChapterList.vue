@@ -34,7 +34,7 @@
               :class="{ 'is-active': currentChapterId === ch.id }"
               @click="handleChapterClick(ch.id, ch.title)"
             >
-              <n-thing :title="`第${ch.number}章`">
+              <n-thing :title="narrativeOrdinalLabel(ch.number, generationPrefs)">
                 <template #description>
                   <div style="display: flex; flex-direction: column; gap: 4px;">
                     <n-text depth="3" style="font-size: 12px;">{{ ch.title }}</n-text>
@@ -48,7 +48,7 @@
           </n-list>
           <div v-if="hasMoreChapters" class="load-more-bar">
             <n-button text size="small" @click="loadMoreChapters">
-              查看更多 ({{ chapters.length - visibleCount }} 章)
+              查看更多（剩余 {{ chapters.length - visibleCount }} {{ narrativeUnitNoun(generationPrefs) }}）
             </n-button>
           </div>
         </template>
@@ -60,6 +60,7 @@
           ref="storyTreeRef"
           :slug="slug"
           :current-chapter-id="currentChapterId"
+          :generation-prefs="generationPrefs"
           @select-chapter="handleChapterClick"
           @plan-act="handlePlanAct"
           @open-plan-modal="showMacroPlan = true"
@@ -87,6 +88,8 @@
 import { ref, computed, type ComponentPublicInstance } from 'vue'
 import StoryStructureTree from '@/components/StoryStructureTree.vue'
 import MacroPlanModal from '@/components/workbench/MacroPlanModal.vue'
+import type { GenerationPrefsDTO } from '@/api/novel'
+import { narrativeOrdinalLabel, narrativeUnitNoun } from '@/utils/narrativeUnitLabel'
 
 const INITIAL_VISIBLE_COUNT = 50
 const LOAD_MORE_STEP = 50
@@ -102,11 +105,13 @@ interface ChapterListProps {
   slug: string
   chapters: Chapter[]
   currentChapterId?: number | null
+  generationPrefs?: GenerationPrefsDTO | null
 }
 
 const props = withDefaults(defineProps<ChapterListProps>(), {
   chapters: () => [],
-  currentChapterId: null
+  currentChapterId: null,
+  generationPrefs: null,
 })
 
 const emit = defineEmits<{

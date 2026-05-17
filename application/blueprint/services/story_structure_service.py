@@ -285,7 +285,7 @@ class StoryStructureService:
                 self._chapter_repository.delete(ChapterId(chapter_id))
                 coordinator = self._chapter_renumber_coordinator
                 if coordinator is not None:
-                    coordinator.on_chapter_deleted(node.novel_id, chapter_number, chapter_id)
+                    coordinator.on_chapter_deleted(node.novel_id, chapter_number)
                 deleted_any = True
 
         remaining = await self.repository.get_by_id(node_id)
@@ -294,6 +294,9 @@ class StoryStructureService:
 
         deleted_node = await self.repository.delete(node_id)
         if deleted_node:
+            return True
+        # 正文章节删除在持久化队列中可能先执行完：级联已删掉 story_nodes，本处 DELETE 影响 0 行
+        if await self.repository.get_by_id(node_id) is None:
             return True
         return False
 

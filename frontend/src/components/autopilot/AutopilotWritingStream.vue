@@ -95,9 +95,12 @@ const props = withDefaults(
     showRunnerStageInIdle?: boolean
     /** 后端当前章序号，SSE 尚未带上章节时用于展示 */
     statusChapterNumber?: number | null
+    /** 是否为撰写阶段；false 时空闲占位与顶栏一致，避免审计/规划时出现「等待流式正文」误导 */
+    isWritingPhase?: boolean
   }>(),
   {
     showRunnerStageInIdle: false,
+    isWritingPhase: true,
   }
 )
 
@@ -137,17 +140,26 @@ const displayChapter = computed(() => {
   return typeof s === 'number' && s > 0 ? s : 0
 })
 
-const idleTitle = computed(() => (displayChapter.value > 0 ? `第 ${displayChapter.value} 章` : '全托管运行中'))
+const runnerStageLabelDisplay = computed(() => (props.runnerStageLabel || '').trim() || '同步状态…')
+
+const idleTitle = computed(() => {
+  if (!props.isWritingPhase) {
+    const stage = runnerStageLabelDisplay.value
+    if (stage && stage !== '同步状态…') return stage
+    return '全托管运行中'
+  }
+  if (displayChapter.value > 0) return `第 ${displayChapter.value} 章`
+  return '全托管运行中'
+})
 
 const idleBeatTag = computed(() => {
+  if (!props.isWritingPhase) return ''
   const tb = props.totalBeats || 0
   const bi = (props.writingBeatIndex || 0) + 1
   if (tb > 0) return `节拍 ${bi} / ${tb}`
   if (displayChapter.value > 0 && bi > 0) return `节拍 ${bi}`
   return ''
 })
-
-const runnerStageLabelDisplay = computed(() => (props.runnerStageLabel || '').trim() || '同步状态…')
 
 const idleBodyPrimary = computed(() => {
   const sub = (props.writingSubstepLabel || '').trim()
@@ -176,8 +188,12 @@ const idleBeatFocusLine = computed(() => {
 })
 
 const idleHint = computed(() => {
-  const fallback = '等待流式正文或节拍收束…'
   const subPrimary = idleBodyPrimary.value
+  if (!props.isWritingPhase) {
+    if (subPrimary) return `${subPrimary}；撰写阶段会在此处显示流式正文。`
+    return '当前非撰写阶段，此处不推送流式正文；进入撰写后将显示生成内容与节拍进度。'
+  }
+  const fallback = '等待流式正文或节拍收束…'
   if (!props.showRunnerStageInIdle) {
     if (subPrimary) return '流式正文将出现在下方；当前阶段见顶栏。'
     return fallback

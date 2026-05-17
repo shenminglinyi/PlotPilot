@@ -113,11 +113,7 @@ export const settingsApi = {
         const decoder = new TextDecoder()
         let buffer = ''
 
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
+        const flushSseBlocks = (): void => {
           let sep: number
           while ((sep = buffer.indexOf('\n\n')) >= 0) {
             const block = buffer.slice(0, sep)
@@ -136,6 +132,17 @@ export const settingsApi = {
                 // 忽略解析错误
               }
             }
+          }
+        }
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (value) buffer += decoder.decode(value, { stream: true })
+          flushSseBlocks()
+          if (done) {
+            buffer += decoder.decode()
+            flushSseBlocks()
+            break
           }
         }
       } catch (e) {

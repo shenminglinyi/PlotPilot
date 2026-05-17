@@ -523,3 +523,16 @@ def bootstrap_novel(novel_id: str) -> bool:
     """加载单个小说状态（便捷函数）"""
     bootstrap = StateBootstrap()
     return bootstrap.load_novel(novel_id)
+
+
+def refresh_narrative_contract_in_shared_state(novel_id: str) -> None:
+    """Bible / 故事线 经 API 写库后，同步共享内存中的快照。
+
+    章节生成主链路仍从 SQLite 读最新数据；此刷新避免 Query/UI 与 DB 长时间不一致。
+    """
+    try:
+        bootstrap = StateBootstrap()
+        bootstrap._load_bible(novel_id)
+        bootstrap._load_storylines(novel_id)
+    except Exception as e:
+        logger.debug("叙事契约共享状态刷新失败 novel=%s err=%s", novel_id, e)

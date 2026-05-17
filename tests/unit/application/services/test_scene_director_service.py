@@ -269,3 +269,26 @@ def test_performance_notes_is_list_of_strings():
     assert all(isinstance(note, str) for note in result.performance_notes)
     assert result.performance_notes == ["glances around", "fidgets with hands", "voice trembles"]
 
+
+@pytest.mark.asyncio
+async def test_analyze_parses_action_transition_graph():
+    payload = (
+        '{"characters":["艾伦"],"locations":[],"action_types":[],"trigger_keywords":[],"emotional_state":"tense","pov":"艾伦",'
+        '"atg":{"nodes":[{"location_id":"府邸_走廊","initial_props":["火把"],"is_entry_point":true}],'
+        '"transitions":[{"source_location":"府邸_走廊","target_location":"府邸_房间","required_action":"推门","trigger_characters":["艾伦"]}],'
+        '"visit_sequence":["府邸_走廊","府邸_房间"]}}'
+    )
+    llm = Mock()
+    llm.generate = AsyncMock(
+        return_value=GenerationResult(
+            content=payload,
+            token_usage=TokenUsage(input_tokens=1, output_tokens=1),
+        )
+    )
+    svc = SceneDirectorService(llm_service=llm)
+    result = await svc.analyze(chapter_number=1, outline="大纲")
+    assert result.action_transition_graph is not None
+    assert result.action_transition_graph.visit_sequence == ["府邸_走廊", "府邸_房间"]
+    dom = result.action_transition_graph.to_domain()
+    assert dom.get_transition_path("府邸_走廊", "府邸_房间") is not None
+

@@ -27,6 +27,23 @@ function pickString(raw: Record<string, unknown>, keys: string[], fallback = '')
   return fallback
 }
 
+/** 与后端 novels.generation_prefs_json 一致（按需扩展） */
+export interface GenerationPrefsDTO {
+  phase_display_mode?: boolean
+  smart_truncate_enabled?: boolean
+  beat_hard_cap_enabled?: boolean
+  /** 落盘前段内碎片换行连片；默认关闭 */
+  inline_prose_aggregation_enabled?: boolean
+  conductor_converge_threshold?: number | null
+  conductor_land_threshold?: number | null
+  /** 每章审计结束后进入「待审阅」，需点恢复才写下一章；全自动书目仍跳过 */
+  pause_after_each_chapter_audit?: boolean
+  /** 叙事失败或文风仍不及格 → 待在审阅（与 pause 开关合用）*/
+  audit_pause_on_hard_fail?: boolean
+  /** Anti-AI 综合判定「严重」→ 待在审阅 */
+  audit_pause_on_anti_ai_severe?: boolean
+}
+
 /**
  * 将 GET /novels/:id/statistics 的 JSON 转为 BookStats。
  * 使用 unknown + 窄化，避免部分环境下 axios 泛型与 store 的 Map 类型推导冲突（如 vue-tsc 报 NovelStatisticsResponse）。
@@ -94,6 +111,8 @@ export interface NovelDTO {
   auto_approve_mode?: boolean
   /** 每章目标字数（与首页建档/PUT 一致；部分接口可能未返回） */
   target_words_per_chapter?: number
+  /** 生成偏好（全托管/指挥器） */
+  generation_prefs?: GenerationPrefsDTO
 }
 
 export const novelApi = {
@@ -143,13 +162,17 @@ export const novelApi = {
    * Update novel basic information
    * PUT /api/v1/novels/{novelId}
    */
-  updateNovel: (novelId: string, data: { 
-    title?: string
-    author?: string
-    target_chapters?: number
-    premise?: string
-    target_words_per_chapter?: number
-  }) => apiClient.put<NovelDTO>(`/novels/${novelId}`, data) as Promise<NovelDTO>,
+  updateNovel: (
+    novelId: string,
+    data: {
+      title?: string
+      author?: string
+      target_chapters?: number
+      premise?: string
+      target_words_per_chapter?: number
+      generation_prefs?: Partial<GenerationPrefsDTO>
+    }
+  ) => apiClient.put<NovelDTO>(`/novels/${novelId}`, data) as Promise<NovelDTO>,
 
   /**
    * 小说统计（与 Chapter 仓储一致，用于顶栏等；勿再用 /api/stats/book）

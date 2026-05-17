@@ -6,6 +6,7 @@
       class="plaza-main"
       :class="appearance === 'sidebar' ? 'variant-sidebar' : 'variant-topbar'"
       aria-label="提示词广场"
+      @mouseenter="prefetchPromptPlaza"
       @click="openModal"
     >
       <span class="plaza-glow"></span>
@@ -75,7 +76,12 @@
 
         <!-- 弹窗内容 -->
         <div class="modal-body">
-          <PromptPlaza v-if="showModal" @refresh-stats="loadStats" ref="plazaRef" />
+          <PromptPlaza
+            v-if="showModal"
+            :seed-stats="stats"
+            ref="plazaRef"
+            @refresh-stats="onPlazaRefreshStats"
+          />
         </div>
 
         <!-- 弹窗底部 -->
@@ -113,13 +119,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted, defineAsyncComponent, h } from 'vue'
 import {
   NModal, NTag, NButton,
-  NUpload, useMessage,
+  NUpload, useMessage, NSpin,
 } from 'naive-ui'
-import PromptPlaza from '../workbench/PromptPlaza.vue'
 import { promptPlazaApi, type PromptStats } from '../../api/llmControl'
+
+const PromptPlaza = defineAsyncComponent({
+  loader: () => import('../workbench/PromptPlaza.vue'),
+  delay: 0,
+  loadingComponent: {
+    name: 'PromptPlazaChunkLoading',
+    setup() {
+      return () =>
+        h(
+          'div',
+          { class: 'plaza-chunk-loading' },
+          h(NSpin, { size: 'large', description: '加载提示词广场…' }),
+        )
+    },
+  },
+})
 
 type Appearance = 'sidebar' | 'topbar'
 
@@ -209,7 +230,6 @@ async function handleImport() {
       message.warning(`部分条目未导入：${result.errors.slice(0, 3).join('；')}`)
     }
     showImportModal.value = false
-    loadStats()
     await plazaRef.value?.loadData?.()
     return true
   } catch (e: unknown) {
@@ -217,6 +237,22 @@ async function handleImport() {
     message.error(err?.response?.data?.detail || err?.message || '导入失败，请检查 JSON 格式')
     return false
   }
+}
+
+function onPlazaRefreshStats(payload: PromptStats | null) {
+  if (payload != null) {
+    stats.value = payload
+    promptCount.value = payload.total_nodes || 0
+    return
+  }
+  void loadStats()
+}
+
+let plazaChunkPrefetchStarted = false
+function prefetchPromptPlaza() {
+  if (plazaChunkPrefetchStarted) return
+  plazaChunkPrefetchStarted = true
+  void import('../workbench/PromptPlaza.vue')
 }
 
 onMounted(() => {
@@ -532,6 +568,13 @@ onMounted(() => {
   height: calc(85vh - 120px);
   overflow: hidden;
   border-radius: var(--app-radius-md, 8px);
+}
+
+.plaza-chunk-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: min(360px, 50vh);
 }
 
 /* ── Modal Footer ────────────────────────── */

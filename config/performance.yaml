@@ -11,6 +11,22 @@ autopilot:
   max_auto_chapters: 9999  # 保护上限
   consecutive_error_limit: 3  # 连续错误上限
 
+# ─── 写作引擎配置 ───
+writing:
+  # 每章字数上限（单位：字符）
+  # clamp 函数将使用此值替代旧硬编码 10000
+  max_words_per_chapter: 20000
+
+  # 智能截断：全托管默认按书目 generation_prefs.smart_truncate_enabled；
+  # false 时超长节拍按 hard_cap 字符硬截断；关硬帽时不再截断。
+  enable_smart_truncation: false
+
+  # ChapterConductor 阶段切换阈值
+  # 铺陈→收束：消耗多少预算后进入 CONVERGE 阶段（越大越晚收束）
+  conductor_converge_threshold: 0.75   # 旧值 0.60
+  # 收束→着陆：消耗多少预算后进入 LAND 阶段
+  conductor_land_threshold: 0.92       # 旧值 0.85
+
 # ─── 数据库配置 ───
 database:
   connection_pool:

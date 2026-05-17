@@ -41,6 +41,18 @@ from engine.runtime.quality_guardrails.rhythm_guardrail import (
 logger = logging.getLogger(__name__)
 
 
+def _chapter_goal_is_weak_signal(goal: str) -> bool:
+    """章节意图是否过于笼统（自动保存管线常见），情节密度对齐不可信时需折价。"""
+    g = (goal or "").strip()
+    if len(g) < 6:
+        return True
+    if "保存后自动" in g or "自动生成" in g:
+        return True
+    if g.startswith("第") and len(g) <= 28:
+        return True
+    return False
+
+
 class QualityViolationError(Exception):
     """质量违规异常 — Checkpoint保存前拦截"""
 
@@ -151,7 +163,7 @@ class QualityGuardrail:
             })
 
         # 2. 角色一致性
-        cc_score = 1.0
+        cc_score = 0.73
         if character_masks:
             cc_score, cc_violations = self._character_consistency.check(text, character_masks)
             for v in cc_violations:
@@ -174,9 +186,11 @@ class QualityGuardrail:
                 "description": v.description,
                 "suggestion": v.suggestion,
             })
+        if _chapter_goal_is_weak_signal(chapter_goal):
+            pd_score = max(0.0, pd_score * 0.92 - 0.045)
 
         # 4. 命名
-        n_score = 1.0
+        n_score = 0.82
         if character_names:
             n_score, n_violations = self._naming.check(character_names, era)
             for v in n_violations:
@@ -189,7 +203,7 @@ class QualityGuardrail:
                 })
 
         # 5. 视角
-        vp_score = 1.0
+        vp_score = 0.77
         if scene_info:
             vp_score, vp_violations = self._viewpoint.check(text, scene_info, foreshadows)
             for v in vp_violations:
@@ -231,7 +245,7 @@ class QualityGuardrail:
             viewpoint_score=vp_score,
             rhythm_score=r_score,
             all_violations=violations,
-            passed=overall >= self.MIN_PASS_SCORE and len(violations) == 0,
+            passed=overall >= self.MIN_PASS_SCORE,
         )
 
     def enforce(

@@ -3,7 +3,6 @@
     <StatsSidebar
       @create-book="focusCreateInput"
       @refresh-list="handleRefreshList"
-      @open-settings="showLLMSettings = true"
       @collapsed-change="handleSidebarCollapsedChange"
     />
     <div class="home-content" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
@@ -17,8 +16,8 @@
             circle
             size="medium"
             class="header-theme-btn"
-            aria-label="主题设置"
-            @click="showLLMSettings = true"
+            aria-label="应用设置"
+            @click="appSettingsShell.open()"
           >
             <template #icon>
               <n-icon :component="IconThemeSettings" :size="22" />
@@ -110,7 +109,7 @@
                 </n-gi>
                 <n-gi>
                   <n-form-item label="每章字数">
-                    <n-input-number v-model:value="newBook.words" :min="500" :max="10000" :step="500" class="w-full" />
+                    <n-input-number v-model:value="newBook.words" :min="500" :max="20000" :step="500" class="w-full" />
                   </n-form-item>
                 </n-gi>
               </n-grid>
@@ -322,9 +321,6 @@
       @skip="handleSetupSkip"
     />
 
-    <!-- LLM Settings Modal -->
-    <LLMSettingsModal v-model:show="showLLMSettings" />
-
     <!-- 查看全部书目弹窗 -->
     <n-modal
       v-model:show="showAllModal"
@@ -420,7 +416,7 @@ import { novelApi, type NovelDTO } from '../api/novel'
 import { isWizardCompleted } from '@/utils/wizardStageCache'
 import StatsSidebar from '@/components/stats/StatsSidebar.vue'
 import NovelSetupGuide from '@/components/onboarding/NovelSetupGuide.vue'
-import LLMSettingsModal from '@/components/LLMSettingsModal.vue'
+import { useAppSettingsShellStore } from '@/stores/appSettingsShellStore'
 import MarketTaxonomyPicker from '@/components/taxonomy/MarketTaxonomyPicker.vue'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
@@ -446,7 +442,7 @@ const IconChevronUp = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
     h('path', { fill: 'currentColor', d: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z' }))
 
-/** 与工作台顶栏「设置」一致，打开主题设置弹窗 */
+/** 与工作台顶栏一致：打开应用设置（默认「外观与主题」分区） */
 const IconThemeSettings = () =>
   h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', width: '1em', height: '1em' },
     h('path', {
@@ -467,6 +463,7 @@ interface BookListItem {
 const router = useRouter()
 const message = useMessage()
 const statsStore = useStatsStore()
+const appSettingsShell = useAppSettingsShellStore()
 
 const createInputRef = ref<any>(null)
 const showAdvanced = ref(false)
@@ -482,7 +479,6 @@ function handleSidebarCollapsedChange(isCollapsed: boolean) {
 const books = ref<BookListItem[]>([])
 const searchQuery = ref('')
 const deletingSlug = ref<string | null>(null)
-const showLLMSettings = ref(false)
 const showAllModal = ref(false)
 const modalSearchQuery = ref('')
 /** 有值时挂载向导；与 show 分离，挂载后始终 :show="true"，避免 Modal 先 false 再 true 闪烁 */

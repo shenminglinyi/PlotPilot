@@ -28,6 +28,7 @@ from domain.novel.repositories.character_state_repository import CharacterStateR
 from domain.novel.repositories.narrative_debt_repository import NarrativeDebtRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
+from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.bible.repositories.bible_repository import BibleRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
@@ -70,6 +71,7 @@ class ContextAssembler:
         bible_repo: Optional[BibleRepository] = None,
         story_node_repo: Optional[StoryNodeRepository] = None,
         novel_repository: Optional[NovelRepository] = None,
+        storyline_repo: Optional[StorylineRepository] = None,
     ):
         self.causal_edge_repo = causal_edge_repo
         self.character_state_repo = character_state_repo
@@ -79,6 +81,7 @@ class ContextAssembler:
         self.bible_repo = bible_repo
         self.story_node_repo = story_node_repo
         self.novel_repository = novel_repository
+        self.storyline_repo = storyline_repo
 
     # ============================================================
     # T0 槽位构建方法
@@ -115,6 +118,25 @@ class ContextAssembler:
                         lines.append(f"起始目标：{first_act.narrative_arc[:80]}")
             except Exception as e:
                 logger.warning("构建全书主线锚点（结构树）失败: %s", e)
+
+        substantive = "\n".join(lines[1:]).strip()
+        if len(substantive) < 80 and self.storyline_repo:
+            try:
+                from domain.novel.value_objects.novel_id import NovelId
+                from domain.novel.value_objects.storyline_type import StorylineType
+
+                sls = self.storyline_repo.get_by_novel_id(NovelId(novel_id))
+                mains = [s for s in sls if s.storyline_type == StorylineType.MAIN_PLOT]
+                if mains:
+                    mp = max(mains, key=lambda s: float(getattr(s, "chapter_weight", 1.0) or 1.0))
+                    title = (mp.name or "").strip()
+                    desc = (mp.description or "").strip()
+                    if title:
+                        lines.append(f"向导主线标题：{title[:120]}")
+                    if desc:
+                        lines.append(f"向导主线陈述：{desc[:200]}")
+            except Exception as e:
+                logger.debug("ANCHOR 故事线兜底跳过: %s", e)
 
         substantive = "\n".join(lines[1:]).strip()
         if len(substantive) < 36 and self.novel_repository:
