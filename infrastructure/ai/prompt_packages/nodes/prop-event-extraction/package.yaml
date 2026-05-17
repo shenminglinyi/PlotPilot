@@ -1,0 +1,25 @@
+name: Prop event extraction
+category: extraction
+source: application/prop/extractors/llm_extractor.py
+description: Extract prop-related events from chapter text (transfer, damage, repair, upgrade, resolve)
+builtin: true
+tags:
+- prop
+- extraction
+- event
+output_format: json
+variables:
+- name: props_summary
+  desc: Active prop list summary
+  type: string
+  required: true
+- name: chapter_excerpt
+  desc: Chapter text excerpt (first 1500 chars)
+  type: string
+  required: true
+- name: output_schema
+  desc: JSON output schema specification
+  type: string
+  required: true
+id: prop-event-extraction
+sort_order: 15

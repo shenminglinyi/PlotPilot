@@ -1,0 +1,20 @@
+name: Bible style convention
+category: world
+source: application/world/services/auto_bible_generator.py::_generate_style()
+description: Generate style convention (narrative POV, tone, pacing, atmosphere) from story premise
+builtin: true
+tags:
+- bible
+- style
+- convention
+variables:
+- name: premise
+  desc: Story premise / concept
+  type: string
+  required: true
+- name: target_chapters
+  desc: Target chapter count
+  type: integer
+  required: true
+id: bible-style-convention
+sort_order: 12
