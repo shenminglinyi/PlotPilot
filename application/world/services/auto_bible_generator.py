@@ -1059,23 +1059,25 @@ JSON 格式：
     # ── 逐维度流式生成（SSE专用） ──────────────────────────────────────
 
     async def _generate_style(self, premise: str, target_chapters: int) -> str:
-        """单独生成文风公约"""
-        system_prompt = """你是资深网文策划编辑。根据故事创意生成文风公约。
+        """Generate style convention via CPMS."""
+        from infrastructure.ai.prompt_keys import BIBLE_STYLE_CONVENTION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-要求：
-1. 明确的文风公约：叙事视角、人称、基调、节奏、氛围
-2. 符合故事类型（现代都市/古代/玄幻/科幻等）
-3. 文风公约应该是一段完整描述，不是JSON
+        variables = {
+            "premise": premise,
+            "target_chapters": str(target_chapters),
+        }
 
-直接输出文风公约文本，不要输出JSON，不要任何解释。"""
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(BIBLE_STYLE_CONVENTION, variables)
 
-        user_prompt = f"""故事创意：{premise}
+        if not prompt:
+            # Fallback
+            from infrastructure.ai.prompt_utils import get_prompt_system as _get_prompt_system
+            system = _get_prompt_system(BIBLE_STYLE_CONVENTION)
+            user = f"Story concept: {premise}\nTarget chapters: {target_chapters}"
+            prompt = Prompt(system=system, user=user)
 
-目标章节数：{target_chapters}章
-
-请生成文风公约。直接输出文本即可。"""
-
-        prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=1024, temperature=0.7)
         result = await self.llm_service.generate(prompt, config)
         return (result.content or "").strip()

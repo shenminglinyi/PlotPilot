@@ -961,21 +961,30 @@ class AutopilotDaemon:
         """
         supplement_words = max(400, target_word_count // 5)
         prompt_text = (
-            f"【信息密度补写指令】\n"
-            f"本章大纲：{outline}\n\n"
-            f"本章已生成正文（末尾约400字供参考）：\n"
-            f"…{existing_content[-400:]}\n\n"
-            f"请接续已有正文，补写一段约 {supplement_words} 字的情节推进段落。\n"
-            f"要求：\n"
-            f"1. 至少包含一个角色做出具体决定或行动并产生后果\n"
-            f"2. 或引入一条新信息/线索/冲突\n"
-            f"3. 与前文情绪和场景无缝衔接，不重复已有内容\n"
-            f"4. 不要写章节标题，直接输出正文\n"
+            f"Information density supplement instruction\n"
+            f"Chapter outline: {outline}\n\n"
+            f"Existing chapter content (last ~400 chars for reference):\n"
+            f"...{existing_content[-400:]}\n\n"
+            f"Supplement word count target: {supplement_words}\n"
         )
         try:
             from domain.ai.value_objects.prompt import Prompt
             from domain.ai.services.llm_service import GenerationConfig
-            p = Prompt(system="你是专业网文作家，擅长写有信息量的情节推进段落。", user=prompt_text)
+            from infrastructure.ai.prompt_keys import AUTOPILOT_INFO_DENSITY_SUPPLEMENT
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+
+            variables = {
+                "existing_content": existing_content[-400:],
+                "supplement_words": str(supplement_words),
+                "chapter_num": str(chapter_num),
+                "novel_id": novel_id,
+            }
+            registry = get_prompt_registry()
+            p = registry.render_to_prompt(AUTOPILOT_INFO_DENSITY_SUPPLEMENT, variables)
+            if not p:
+                from infrastructure.ai.prompt_utils import get_prompt_system
+                system = get_prompt_system(AUTOPILOT_INFO_DENSITY_SUPPLEMENT)
+                p = Prompt(system=system, user=prompt_text)
             cfg = GenerationConfig(max_tokens=int(supplement_words * 1.5), temperature=0.82)
             result = await self.llm_service.generate(p, cfg)
             supplement = (result.content if hasattr(result, "content") else str(result)).strip()
@@ -2902,24 +2911,32 @@ class AutopilotDaemon:
             except Exception as e:
                 logger.debug("[%s] voice anchors 获取失败: %s", novel.novel_id, e)
 
-        style_block = style_summary.strip() or "暂无明确统计摘要，优先保持既有作者语气与句式节奏。"
-        anchor_block = voice_anchors.strip() or "无额外角色声线锚点。"
-        outline = (getattr(chapter, "outline", "") or "").strip() or "无单独大纲，必须严格保留现有剧情事实。"
+        style_block = style_summary.strip() or "No style summary available. Maintain existing author voice and sentence rhythm."
+        anchor_block = voice_anchors.strip() or "No additional character voice anchors."
+        outline = (getattr(chapter, "outline", "") or "").strip() or "No separate outline. Must strictly preserve existing plot facts."
 
-        system = f"""你是小说文风修订编辑。在不改变故事事实的前提下修正文风偏移；勿重写剧情主链。
+        # CPMS render
+        from infrastructure.ai.prompt_keys import VOICE_REWRITE
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-必须遵守：
-1. 保留所有剧情事件、因果顺序、角色关系、伏笔信息、地点与关键信息。
-2. 保留章节的主要段落结构、对话功能与情绪走向，不要扩写新支线。
-3. 只调整叙述口吻、句式节奏、措辞密度、描写轻重，使文本更贴近既有作者文风。
-4. 输出只能是修订后的完整章节正文，不要解释，不要加标题，不要加批注。
+        variables = {
+            "style_fingerprint": style_block,
+            "anchor_block": anchor_block,
+            "chapter_number": str(chapter.number),
+            "attempt": str(attempt),
+            "similarity_score": f"{similarity_score:.4f}",
+            "threshold": f"{VOICE_REWRITE_THRESHOLD:.2f}",
+            "outline": outline,
+            "content": content,
+        }
+        registry = get_prompt_registry()
+        p = registry.render_to_prompt(VOICE_REWRITE, variables)
+        if p:
+            return p
 
-风格约束：
-{style_block}
-
-角色声线锚点：
-{anchor_block}
-"""
+        # Fallback
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        system = get_prompt_system(VOICE_REWRITE)
         user = f"""当前为第 {chapter.number} 章，第 {attempt} 次文风定向修正。
 
 当前相似度：{similarity_score:.4f}

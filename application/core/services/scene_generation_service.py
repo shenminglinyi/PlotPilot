@@ -116,6 +116,13 @@ class SceneGenerationService:
             "foreshadowings": []
         }
 
+    @staticmethod
+    def _get_system_prompt() -> str:
+        """获取场景生成 system prompt（CPMS 统一入口）。"""
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        from infrastructure.ai.prompt_keys import SCENE_GENERATION
+        return get_prompt_system(SCENE_GENERATION)
+
     def _build_scene_prompt(
         self,
         scene: Scene,
@@ -124,60 +131,57 @@ class SceneGenerationService:
         previous_scenes: List[str],
         bible_context: Optional[Dict]
     ) -> Prompt:
-        """构建场景生成提示词"""
+        """构建场景生成提示词（CPMS 渲染）。"""
+        from infrastructure.ai.prompt_keys import SCENE_GENERATION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-        system_prompt = """你是一位专业的小说作家，擅长根据场景大纲生成生动的正文。
-
-你的任务是根据场景信息生成 500-1000 字的正文，要求：
-1. 严格遵循场景目标（Scene Goal）
-2. 使用指定的 POV 角色视角叙述
-3. 体现场景的情绪基调（Tone）
-4. 与前置场景自然衔接
-5. 文笔流畅，细节生动
-
-注意事项：
-- 不要偏离场景目标
-- 不要引入场景大纲中未提及的重大情节
-- 保持与前置场景的连贯性
-- 字数控制在 500-1000 字之间
-"""
-
-        # 构建用户提示词
-        user_prompt = f"""场景信息：
-标题：{scene.title}
-目标：{scene.goal}
-POV 角色：{scene.pov_character}
-地点：{scene.location or '未指定'}
-情绪基调：{scene.tone or '未指定'}
-预估字数：{scene.estimated_words}
-
-"""
-
-        # 添加场记分析结果
+        # 构建变量
+        analysis_parts = []
         if scene_analysis.characters:
-            user_prompt += f"\n涉及角色：{', '.join(scene_analysis.characters)}"
+            analysis_parts.append(f"涉及角色：{', '.join(scene_analysis.characters)}")
         if scene_analysis.locations:
-            user_prompt += f"\n涉及地点：{', '.join(scene_analysis.locations)}"
+            analysis_parts.append(f"涉及地点：{', '.join(scene_analysis.locations)}")
         if scene_analysis.emotional_state:
-            user_prompt += f"\n情绪状态：{scene_analysis.emotional_state}"
+            analysis_parts.append(f"情绪状态：{scene_analysis.emotional_state}")
+        analysis_block = "\n".join(analysis_parts)
 
-        # 添加前置场景上下文
-        if previous_scenes:
-            user_prompt += "\n\n前置场景摘要：\n"
-            for i, prev_scene in enumerate(previous_scenes[-2:], 1):  # 最多显示最近 2 个场景
-                # 截取前 200 字作为摘要
-                summary = prev_scene[:200] + "..." if len(prev_scene) > 200 else prev_scene
-                user_prompt += f"\n场景 {i}：\n{summary}\n"
+        previous_scenes_parts = []
+        for i, prev_scene in enumerate(previous_scenes[-2:], 1):
+            summary = prev_scene[:200] + "..." if len(prev_scene) > 200 else prev_scene
+            previous_scenes_parts.append(f"场景 {i}：\n{summary}")
+        previous_scenes_block = "\n".join(previous_scenes_parts)
 
-        # 添加相关上下文（如果有）
-        if relevant_context.get("foreshadowings"):
-            user_prompt += "\n\n相关伏笔（可以在场景中呼应）：\n"
-            for foreshadowing in relevant_context["foreshadowings"][:3]:
-                user_prompt += f"- {foreshadowing.get('description', 'N/A')}\n"
+        foreshadow_parts = []
+        for foreshadowing in relevant_context.get("foreshadowings", [])[:3]:
+            foreshadow_parts.append(f"- {foreshadowing.get('description', 'N/A')}")
+        foreshadowing_block = "\n".join(foreshadow_parts)
 
-        user_prompt += "\n\n请生成场景正文："
+        variables = {
+            "title": scene.title,
+            "goal": scene.goal,
+            "pov_character": scene.pov_character,
+            "location": scene.location or "未指定",
+            "tone": scene.tone or "未指定",
+            "estimated_words": str(scene.estimated_words),
+            "analysis_block": analysis_block,
+            "previous_scenes_block": previous_scenes_block,
+            "foreshadowing_block": foreshadowing_block,
+        }
 
-        return Prompt(
-            system=system_prompt,
-            user=user_prompt
-        )
+        # CPMS 渲染
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(SCENE_GENERATION, variables)
+        if prompt:
+            return prompt
+
+        # 降级：直接拼接
+        system = self._get_system_prompt()
+        user = f"场景信息：\n标题：{scene.title}\n目标：{scene.goal}\nPOV 角色：{scene.pov_character}\n地点：{scene.location or '未指定'}\n情绪基调：{scene.tone or '未指定'}\n预估字数：{scene.estimated_words}\n"
+        if analysis_block:
+            user += f"\n{analysis_block}"
+        if previous_scenes_block:
+            user += f"\n\n前置场景摘要：\n{previous_scenes_block}"
+        if foreshadowing_block:
+            user += f"\n\n相关伏笔：\n{foreshadowing_block}"
+        user += "\n\n请生成场景正文："
+        return Prompt(system=system, user=user)

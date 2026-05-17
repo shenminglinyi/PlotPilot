@@ -11,32 +11,40 @@ from domain.shared.time_utils import utcnow_iso
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
-    "你是一个叙事分析引擎。根据小说章节正文，识别道具相关事件。"
-    "只输出 JSON 数组，不要 markdown 围栏，不要解释。"
+    "You are a narrative analysis engine. Identify prop-related events from novel chapter text."
+    " Only output valid JSON array, no markdown fences, no explanation."
 )
 
-_SCHEMA = """输出格式（JSON 数组）：
+_SCHEMA = """Output format (JSON array):
 [
   {
     "prop_id": "...",
     "event_type": "TRANSFERRED|DAMAGED|REPAIRED|UPGRADED|RESOLVED",
-    "actor_character": "角色名（可选）",
-    "from_holder": "转出方角色名（TRANSFERRED 时填）",
-    "to_holder": "转入方角色名（TRANSFERRED 时填）",
-    "description": "一句话描述"
+    "actor_character": "character name (optional)",
+    "from_holder": "transfer source character (for TRANSFERRED)",
+    "to_holder": "transfer target character (for TRANSFERRED)",
+    "description": "one-line description"
   }
 ]
-无相关事件时输出空数组 []"""
+Output empty array [] if no relevant events."""
+
 
 
 class LlmExtractor:
-    """LLM 提取器 — 仅提取高价值事件（TRANSFERRED/DAMAGED/REPAIRED/RESOLVED）。"""
+    """LLM extractor for high-value prop events (TRANSFERRED/DAMAGED/REPAIRED/RESOLVED)."""
 
     priority: int = 10
     name: str = "llm"
 
     def __init__(self, llm_service):
         self._llm = llm_service
+
+    @staticmethod
+    def _get_system_prompt() -> str:
+        """Get system prompt via CPMS."""
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        from infrastructure.ai.prompt_keys import PROP_EVENT_EXTRACTION
+        return get_prompt_system(PROP_EVENT_EXTRACTION, fallback=_SYSTEM)
 
     async def extract(
         self,
@@ -49,20 +57,36 @@ class LlmExtractor:
             return []
 
         props_summary = "\n".join(
-            f"- {p['name']}（id={p['id']}，持有者={p.get('holder', '无')}）"
+            f"- {p['name']} (id={p['id']}, holder={p.get('holder', 'none')})"
             for p in active_props[:20]
         )
-        user_msg = (
-            f"当前 ACTIVE 道具列表：\n{props_summary}\n\n"
-            f"章节正文（节选，前 1500 字）：\n{content[:1500]}\n\n"
-            f"{_SCHEMA}"
-        )
+
+        # CPMS render
+        from infrastructure.ai.prompt_keys import PROP_EVENT_EXTRACTION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+
+        registry = get_prompt_registry()
+        variables = {
+            "props_summary": props_summary,
+            "chapter_excerpt": content[:1500],
+            "output_schema": _SCHEMA,
+        }
+        prompt = registry.render_to_prompt(PROP_EVENT_EXTRACTION, variables)
+
+        # Fallback
+        if not prompt:
+            from domain.ai.value_objects.prompt import Prompt
+            user_msg = (
+                f"Current ACTIVE prop list:\n{props_summary}\n\n"
+                f"Chapter text (excerpt, first 1500 chars):\n{content[:1500]}\n\n"
+                f"{_SCHEMA}"
+            )
+            prompt = Prompt(system=self._get_system_prompt(), user=user_msg)
 
         try:
-            from domain.ai.value_objects.prompt import Prompt
             from domain.ai.services.llm_service import GenerationConfig
             result = await self._llm.generate(
-                Prompt(system=_SYSTEM, user=user_msg),
+                prompt,
                 GenerationConfig(max_tokens=600, temperature=0.1),
             )
             raw = result.content if hasattr(result, "content") else str(result)
@@ -70,7 +94,7 @@ class LlmExtractor:
             if not isinstance(items, list):
                 return []
         except Exception as e:
-            logger.warning("[LlmExtractor] 提取失败: %s", e)
+            logger.warning("[LlmExtractor] extraction failed: %s", e)
             return []
 
         events: List[PropEvent] = []
