@@ -36,8 +36,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, toRef } from 'vue'
+import { ref, watch } from 'vue'
 import { VueFlow } from '@vue-flow/core'
+import type { Edge, Node } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -47,8 +48,6 @@ import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
 import { useDAGStore } from '@/stores/dagStore'
-import { useDAGRunStore } from '@/stores/dagRunStore'
-import { useDAGSSE } from '@/composables/useDAGSSE'
 import CustomNode from './CustomNode.vue'
 import CustomEdge from './CustomEdge.vue'
 
@@ -63,16 +62,44 @@ const emit = defineEmits<{
 }>()
 
 const dagStore = useDAGStore()
-const runStore = useDAGRunStore()
 
-// SSE 连接（自动管理生命周期）
-useDAGSSE(toRef(props, 'novelId'))
+/** Pinia 里是只读 computed；Vue Flow 的 v-model 会写入节点/边，必须用可写 ref 承接再单向从 Store 同步 */
+const flowNodes = ref<Node[]>([])
+const flowEdges = ref<Edge[]>([])
 
-// ─── 响应式节点/边 ───
+function cloneNodesForFlow(nodes: Node[]): Node[] {
+  return nodes.map((n) => ({
+    ...n,
+    position: { ...n.position },
+    data: n.data != null && typeof n.data === 'object' ? { ...(n.data as object) } : n.data,
+  }))
+}
 
-const flowNodes = computed(() => dagStore.vueFlowNodes)
+function cloneEdgesForFlow(edges: Edge[]): Edge[] {
+  return edges.map((e) => ({
+    ...e,
+    style: e.style != null && typeof e.style === 'object' ? { ...(e.style as object) } : e.style,
+    data: e.data != null && typeof e.data === 'object' ? { ...(e.data as object) } : e.data,
+  }))
+}
 
-const flowEdges = computed(() => dagStore.vueFlowEdges)
+watch(
+  () => dagStore.vueFlowNodes,
+  (next) => {
+    flowNodes.value = cloneNodesForFlow(next as Node[])
+  },
+  { immediate: true },
+)
+
+watch(
+  () => dagStore.vueFlowEdges,
+  (next) => {
+    flowEdges.value = cloneEdgesForFlow(next as Edge[])
+  },
+  { immediate: true },
+)
+
+// SSE / 托管日志桥接在 AutopilotWorkspace 中统一挂载，避免切页时断开导致节点状态卡住
 
 // ─── 事件处理 ───
 
@@ -166,5 +193,10 @@ function handleCustomNodeContextmenu(event: MouseEvent) {
 /* ── 画布视口过渡 ── */
 :deep(.vue-flow__transformationpane) {
   transition: none;
+}
+
+/* 控件/小地图沉在工具栏之下，避免与顶栏视觉上「叠在一起」 */
+:deep(.vue-flow__panel) {
+  z-index: 4;
 }
 </style>

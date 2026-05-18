@@ -83,14 +83,13 @@
         v{{ dagStats.version || 1 }}
       </n-text>
 
-      <!-- ★ 卡片/DAG 切换 Switch（与标题同一排，右侧） -->
       <n-switch
-        :value="true"
-        @update:value="$emit('switch-to-card')"
+        :value="isDagSubview"
         size="small"
+        @update:value="onSubviewSwitch"
       >
-        <template #checked>DAG</template>
-        <template #unchecked>卡片</template>
+        <template #checked>DAG 画布</template>
+        <template #unchecked>实时日志</template>
       </n-switch>
     </div>
   </div>
@@ -98,9 +97,19 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useDAGStore } from '@/stores/dagStore'
+import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 
 const dagStore = useDAGStore()
+const workspace = useAutopilotWorkspaceStore()
+const { operationsSubview } = storeToRefs(workspace)
+const isDagSubview = computed(() => operationsSubview.value === 'dag')
+
+function onSubviewSwitch(isDag: boolean) {
+  workspace.setOperationsSubview(isDag ? 'dag' : 'monitor')
+}
+
 const registryGapCount = computed(() => dagStore.registryGaps.length)
 const linkageFailed = computed(() => dagStore.registryLinkageFailed)
 
@@ -135,12 +144,19 @@ defineEmits<{
   background: var(--dag-toolbar-bg);
   gap: 12px;
   min-height: 40px;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 20;
 }
 
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .toolbar-right {

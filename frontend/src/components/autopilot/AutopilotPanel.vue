@@ -18,7 +18,7 @@
         </template>
       </span>
       <!-- 🔧 新增：SSE 连接状态指示 -->
-      <span v-if="isRunning && !needsReview" class="sse-status" :class="sseConnected ? 'connected' : 'disconnected'">
+      <span v-if="isWriting" class="sse-status" :class="sseConnected ? 'connected' : 'disconnected'">
         {{ sseConnected ? '已连接' : (sseReconnecting ? '重连中...' : '未连接') }}
       </span>
     </div>
@@ -161,9 +161,9 @@
       </div>
     </n-alert>
 
-    <!-- 仅流式正文预览（审阅状态时停止 SSE，避免卡界面） -->
+    <!-- 仅写作阶段拉章节流；审计/规划时服务端会关流，避免无意义重连 -->
     <AutopilotWritingStream
-      v-if="isRunning && !needsReview"
+      v-if="isWriting"
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
       :writing-beat-index="writingBeatIndex"
@@ -269,7 +269,14 @@ import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 
 const props = defineProps({ novelId: String })
-const emit = defineEmits(['status-change', 'chapter-content-update', 'chapter-start', 'chapter-chunk', 'desk-refresh'])
+const emit = defineEmits([
+  'status-change',
+  'chapter-content-update',
+  'chapter-start',
+  'chapter-chunk',
+  'desk-refresh',
+  'beats-planned',
+])
 const message = useMessage()
 
 const status = ref(null)
@@ -288,7 +295,11 @@ const sseReconnecting = ref(false)
 let chapterStreamCtrl = null
 let reconnectTimer = null
 let reconnectAttempts = 0
+/** 递增后忽略旧连接的 onDisconnected / onStreamEnd，避免 stop→abort 与重连竞态 */
+let chapterStreamSession = 0
+let lastChapterStreamStartMs = 0
 const MAX_RECONNECT_ATTEMPTS = 5
+const MIN_CHAPTER_STREAM_RESTART_MS = 3000
 
 // 写作内容状态
 const writingContent = ref('')
@@ -405,6 +416,8 @@ const stagePresentation = computed(() =>
   buildAutopilotStagePresentation({
     current_stage: status.value?.current_stage,
     autopilot_status: status.value?.autopilot_status,
+    writing_substep: status.value?.writing_substep,
+    writing_substep_label: status.value?.writing_substep_label,
     _from_shared_memory: status.value?._from_shared_memory,
     _degraded: status.value?._degraded,
     audit_progress: status.value?.audit_progress,
@@ -495,6 +508,7 @@ const substepBadgeClass = computed(() => {
   const sub = status.value?.writing_substep || ''
   // 写作阶段
   if (sub === 'llm_calling') return 'substep-active'
+  if (sub === 'outline_planning') return 'substep-plan'
   if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
   if (sub === 'soft_landing' || sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
   // 审计阶段
@@ -583,16 +597,16 @@ async function fetchStatus() {
         )
       }
 
-      // 仍在跑且非审阅，但章节流已掉线且自动重连已放弃 → 由轮询周期性再给机会（避免永久无正文流）
+      // 写作阶段流掉线且已放弃重连：由轮询在冷却后再试（勿在此处清零 reconnectAttempts，否则会死循环）
       if (
-        body.autopilot_status === 'running' &&
-        !statusNeedsManualReview(body) &&
+        shouldMaintainChapterStream(body) &&
         !chapterStreamCtrl &&
         !sseReconnecting.value &&
-        reconnectAttempts >= MAX_RECONNECT_ATTEMPTS
+        reconnectAttempts >= MAX_RECONNECT_ATTEMPTS &&
+        Date.now() - lastChapterStreamStartMs >= MIN_CHAPTER_STREAM_RESTART_MS * 4
       ) {
-        reconnectAttempts = 0
-        startChapterStream()
+        reconnectAttempts = MAX_RECONNECT_ATTEMPTS - 1
+        scheduleChapterStreamReconnect(0)
       }
     }
   } catch (err) {
@@ -635,25 +649,79 @@ function maybeRestartStatusPollTimer() {
   statusPollTimer = setInterval(() => fetchStatus(), ms)
 }
 
-// 🔧 优化：SSE 连接管理
-function startChapterStream() {
-  // 先清理旧连接
-  stopChapterStream()
+/** 章节正文 SSE 仅在「运行中 + 写作阶段」需要；审计/规划时服务端会关流，不应重连 */
+function shouldMaintainChapterStream(body = status.value) {
+  if (!body || statusPollDisabled.value) return false
+  if (body.autopilot_status !== 'running') return false
+  if (statusNeedsManualReview(body)) return false
+  return body.current_stage === 'writing'
+}
 
-  // 审阅状态时不启动 SSE
-  if (needsReview.value) {
-    console.log('[AutopilotPanel] 审阅状态，不启动 SSE')
+function wantsChapterStream() {
+  return shouldMaintainChapterStream()
+}
+
+function scheduleChapterStreamReconnect(delayMs) {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (!shouldMaintainChapterStream()) {
+    sseReconnecting.value = false
+    return
+  }
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    sseReconnecting.value = false
+    return
+  }
+  const delay = Math.max(delayMs, MIN_CHAPTER_STREAM_RESTART_MS)
+  reconnectAttempts++
+  sseReconnecting.value = true
+  console.log(
+    `[AutopilotPanel] SSE 断开，${delay / 1000}s 后重连 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`,
+  )
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    void fetchStatus().then(() => {
+      if (!shouldMaintainChapterStream()) {
+        sseReconnecting.value = false
+        reconnectAttempts = 0
+        return
+      }
+      if (!chapterStreamCtrl && !sseConnected.value) {
+        startChapterStream()
+      }
+    })
+  }, delay)
+}
+
+function startChapterStream() {
+  if (!shouldMaintainChapterStream()) {
+    stopChapterStream()
     return
   }
 
+  const now = Date.now()
+  if (now - lastChapterStreamStartMs < MIN_CHAPTER_STREAM_RESTART_MS && chapterStreamCtrl) {
+    return
+  }
+
+  stopChapterStream()
+  const session = chapterStreamSession
+  lastChapterStreamStartMs = now
   sseReconnecting.value = true
-  writingContent.value = ''
-  writingChapterNumber.value = 0
-  writingBeatIndex.value = 0
 
   console.log('[AutopilotPanel] 启动 SSE 连接...')
 
   chapterStreamCtrl = subscribeChapterStream(props.novelId, {
+    onOutlinePlanning: () => {
+      void fetchStatus()
+    },
+    onBeatsPlanned: (chapterNumber, beats) => {
+      void fetchStatus()
+      emit('desk-refresh')
+      emit('beats-planned', { chapterNumber, beats })
+    },
     onChapterStart: (num) => {
       writingChapterNumber.value = num
       writingContent.value = ''
@@ -696,54 +764,58 @@ function startChapterStream() {
       emit('desk-refresh')
     },
     onConnected: () => {
+      if (session !== chapterStreamSession) return
       sseConnected.value = true
       sseReconnecting.value = false
-      reconnectAttempts = 0
       console.log('[AutopilotPanel] SSE 已连接')
     },
-    onDisconnected: () => {
+    onStreamEnd: (reason) => {
+      if (session !== chapterStreamSession) return
       sseConnected.value = false
-      // 先同步一次状态再决定是否重连：审阅暂停时服务端会关流，若仍按旧状态重连会打满次数或假死
+      chapterStreamCtrl = null
+      sseReconnecting.value = false
       void fetchStatus().then(() => {
-        if (reconnectTimer) {
-          clearTimeout(reconnectTimer)
-          reconnectTimer = null
+        if (reason === 'stopped' || reason === 'review') {
+          reconnectAttempts = 0
+          return
         }
-        if (!isRunning.value || needsReview.value) {
+        // 服务端在非写作阶段关流（idle）：仅当仍处于 writing 时才重连
+        if (!shouldMaintainChapterStream()) {
+          reconnectAttempts = 0
+          return
+        }
+        scheduleChapterStreamReconnect(1500)
+      })
+    },
+    onDisconnected: () => {
+      if (session !== chapterStreamSession) return
+      sseConnected.value = false
+      chapterStreamCtrl = null
+      void fetchStatus().then(() => {
+        if (!shouldMaintainChapterStream()) {
           sseReconnecting.value = false
           reconnectAttempts = 0
           return
         }
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-          console.error('[AutopilotPanel] SSE 重连次数过多，停止尝试')
+          console.warn('[AutopilotPanel] SSE 重连次数过多，暂停章节流（仍可通过 /status 轮询看进度）')
           sseReconnecting.value = false
           return
         }
-        sseReconnecting.value = true
-        const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000)
-        reconnectAttempts++
-        console.log(`[AutopilotPanel] SSE 断开，${delay / 1000}s 后重连 (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`)
-        reconnectTimer = setTimeout(() => {
-          void fetchStatus().then(() => {
-            if (isRunning.value && !needsReview.value) {
-              startChapterStream()
-            } else {
-              sseReconnecting.value = false
-              reconnectAttempts = 0
-            }
-          })
-        }, delay)
+        const delay = Math.min(1000 * 2 ** (reconnectAttempts - 1), 30000)
+        scheduleChapterStreamReconnect(delay)
       })
     },
     onError: (err) => {
+      if (session !== chapterStreamSession) return
       sseConnected.value = false
       console.error('[AutopilotPanel] SSE 错误:', err)
-      // 错误时不立即重连，等待 onDisconnected 处理
-    }
+    },
   })
 }
 
 function stopChapterStream() {
+  chapterStreamSession++
   if (reconnectTimer) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
@@ -754,7 +826,6 @@ function stopChapterStream() {
   }
   sseConnected.value = false
   sseReconnecting.value = false
-  writingContent.value = ''
 }
 
 // 🔧 优化：自适应状态轮询 + SSE 协同
@@ -774,7 +845,12 @@ function getAdaptivePollInterval() {
 }
 
 watch(
-  () => [isRunning.value, needsReview.value, statusPollDisabled.value],
+  () => [
+    isRunning.value,
+    needsReview.value,
+    statusPollDisabled.value,
+    status.value?.current_stage,
+  ],
   () => {
     clearStatusPoll()
     if (statusPollDisabled.value) return
@@ -783,12 +859,13 @@ watch(
     maybeRestartStatusPollTimer()
     void fetchStatus()
 
-    // SSE 连接管理（主动拉流时清零重连计数，避免此前误判耗尽后永久无法再连）
-    if (isRunning.value && !needsReview.value) {
-      reconnectAttempts = 0
-      startChapterStream()
+    if (wantsChapterStream()) {
+      if (!chapterStreamCtrl && !sseReconnecting.value) {
+        startChapterStream()
+      }
     } else {
       stopChapterStream()
+      reconnectAttempts = 0
     }
   },
   { immediate: true }

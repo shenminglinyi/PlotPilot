@@ -144,7 +144,12 @@ function applyBehaviorFromMeta(meta?: Record<string, unknown>) {
   if (meta.stage_label != null && ap) {
     behaviorStageKey.value = ap === 'running' ? String(meta.stage ?? '') : ap
     if (ap === 'running') {
-      behaviorLabel.value = String(meta.stage_label)
+      const subLabel = String(meta.writing_substep_label || '').trim()
+      const sub = String(meta.writing_substep || '').trim()
+      behaviorLabel.value =
+        subLabel && (sub === 'outline_planning' || sub === 'context_assembly' || sub === 'beat_magnification')
+          ? subLabel
+          : String(meta.stage_label)
     } else if (meta.autopilot_status_label != null) {
       behaviorLabel.value = String(meta.autopilot_status_label)
     } else {

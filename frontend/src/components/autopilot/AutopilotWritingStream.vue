@@ -170,7 +170,7 @@ const idleBodyPrimary = computed(() => {
 
 const beatFocusTrim = computed(() => (props.beatFocus || '').trim())
 
-const PLANNING_SUBSTEPS = new Set(['macro_planning', 'act_planning'])
+const PLANNING_SUBSTEPS = new Set(['macro_planning', 'act_planning', 'outline_planning'])
 
 /** 顶栏已显示阶段名时：仅在宏观/幕级规划子步骤下补充节拍焦点，避免写作等阶段误显旧 focus */
 const idleBeatFocusLine = computed(() => {
@@ -194,6 +194,11 @@ const idleHint = computed(() => {
     return '当前非撰写阶段，此处不推送流式正文；进入撰写后将显示生成内容与节拍进度。'
   }
   const fallback = '等待流式正文或节拍收束…'
+  if (props.writingSubstep === 'outline_planning') {
+    return subPrimary
+      ? `${subPrimary}；完成后将按节拍流式撰写正文。`
+      : '章前规划进行中；完成后将按节拍流式撰写正文。'
+  }
   if (!props.showRunnerStageInIdle) {
     if (subPrimary) return '流式正文将出现在下方；当前阶段见顶栏。'
     return fallback
@@ -228,6 +233,7 @@ const substepLabel = computed(() => props.writingSubstepLabel || '')
 const substepClass = computed(() => {
   const sub = props.writingSubstep || ''
   if (sub === 'llm_calling') return 'substep-active'
+  if (sub === 'outline_planning') return 'substep-plan'
   if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
   if (sub === 'soft_landing' || sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
   if (sub.startsWith('audit_')) return 'substep-audit'
