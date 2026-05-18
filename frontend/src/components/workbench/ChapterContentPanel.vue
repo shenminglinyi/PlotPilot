@@ -44,18 +44,34 @@
                 {{ chapterPlan.outline }}
               </div>
               <n-empty v-else description="暂无大纲数据" size="small" />
+              <template v-if="narrativeBeatSections.length">
+                <n-divider style="margin: 12px 0" />
+                <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
+                  知识库<strong>叙事节拍条</strong>（章后同步 · beat_sections）— 按句切分的大纲要点，<strong>不是</strong>写作指挥器微观节拍。
+                </n-text>
+                <n-space vertical :size="6">
+                  <div
+                    v-for="(line, i) in narrativeBeatSections"
+                    :key="`narr-${i}`"
+                    class="narrative-beat-line"
+                  >
+                    <n-text depth="3" style="font-size: 11px; flex-shrink: 0">{{ i + 1 }}.</n-text>
+                    <n-text style="font-size: 12px">{{ line }}</n-text>
+                  </div>
+                </n-space>
+              </template>
             </n-tab-pane>
             
             <n-tab-pane name="micro" tab="微观">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
                 <template v-if="microHintIsOutlineFallback">
-                  流式生成<strong>失败</strong>时的章纲拆条预览，仅供参考，<strong>不是</strong>指挥器节拍。
+                  章前规划<strong>失败或降级</strong>时的章纲拆条预览（按段落/句读），仅供参考，非指挥器节拍。
                 </template>
-                <template v-else-if="microHintIsNarrativeSections">
-                  以下为知识库<strong>叙事节拍条</strong>（beat_sections），对齐宏观意图；与指挥器微观节拍不同。
+                <template v-else-if="microHintFromKnowledgeDb">
+                  以下为知识库已落库的<strong>指挥器微观节拍</strong>（chapter_summaries.micro_beats）。
                 </template>
                 <template v-else>
-                  落库的微观节拍即写作指挥器真实 Beat。辅助撰稿流式生成成功后，此处同步展示<strong>本轮 SSE 下发的指挥节拍</strong>（保存后以知识库为准）。
+                  仅展示写作指挥器真实 Beat（流式/全托管拆拍）。叙事节拍条见「宏观」页。
                 </template>
               </n-text>
               <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
@@ -78,7 +94,7 @@
               </n-space>
               <n-empty
                 v-else
-                description="暂无指挥器微观节拍：可通过流式生成写入 SSE 节拍，或全托管审阅落库后在此查看"
+                :description="microEmptyDescription"
                 size="small"
               />
             </n-tab-pane>
@@ -170,6 +186,12 @@ const props = withDefaults(
     assistStreamBeatSession?: { chapterNumber: number; beats: StreamGeneratedBeat[] } | null
     /** 对应章节流式生成失败时，微观区才用章纲拆条兜底 */
     assistStreamFailedChapter?: number | null
+    /** 流式完成但章前拆拍失败/降级（≤1 拍） */
+    assistStreamPlanFailedChapter?: number | null
+    /** 全托管正在写的本章且 total_beats≤1（规划已结束并降级） */
+    autopilotOutlinePlanFailed?: boolean
+    /** 最近一次流式生成完成的章号（无微观节拍时用于提示） */
+    assistStreamCompletedChapter?: number | null
   }>(),
   {
     currentChapterNumber: null,
@@ -177,6 +199,9 @@ const props = withDefaults(
     autopilotChapterReview: null,
     assistStreamBeatSession: null,
     assistStreamFailedChapter: null,
+    assistStreamPlanFailedChapter: null,
+    autopilotOutlinePlanFailed: false,
+    assistStreamCompletedChapter: null,
   }
 )
 
@@ -206,16 +231,26 @@ const BEAT_LINE_CAP = 48
 /** 与后端 chapter_narrative_sync._beats_from_structure_outline 一致：先按换行，再按句读拆，避免一整段只算一条节拍 */
 const BEAT_SENTENCE_SPLIT = /[；;。！？!?]+/
 
+/** 过滤按句切分产生的空串、纯标点/引号残片 */
+function isMeaningfulBeatLine(s: string): boolean {
+  const t = String(s || '').trim()
+  if (t.length < 2) return false
+  return /[\u4e00-\u9fffA-Za-z0-9]/.test(t)
+}
+
 function expandRawBeatLines(raw: string[]): string[] {
   const out: string[] = []
   for (const line of raw) {
     const t = String(line || '').trim()
-    if (!t) continue
+    if (!isMeaningfulBeatLine(t)) continue
     const byNewline = t.split(/\n+/).map(s => s.trim()).filter(Boolean)
     for (const chunk of byNewline) {
-      const subs = chunk.split(BEAT_SENTENCE_SPLIT).map(s => s.trim()).filter(Boolean)
+      const subs = chunk
+        .split(BEAT_SENTENCE_SPLIT)
+        .map(s => s.trim())
+        .filter(isMeaningfulBeatLine)
       if (subs.length <= 1) {
-        out.push(chunk)
+        if (isMeaningfulBeatLine(chunk)) out.push(chunk)
       } else {
         out.push(...subs)
       }
@@ -227,16 +262,19 @@ function expandRawBeatLines(raw: string[]): string[] {
   return out.slice(0, BEAT_LINE_CAP)
 }
 
-const beatLines = computed(() => {
+/** 知识库叙事节拍条（仅用于宏观页展示，不进微观指挥器区） */
+const narrativeBeatSections = computed(() => {
   const k = knowledgeChapter.value
-  let raw: string[] = []
-  if (k?.beat_sections?.length) {
-    raw = k.beat_sections.map(s => String(s || '').trim()).filter(Boolean)
-  } else {
-    const ol = chapterPlan.value?.outline?.trim()
-    if (!ol) return []
-    raw = ol.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0)
-  }
+  if (!k?.beat_sections?.length) return []
+  const raw = k.beat_sections.map(s => String(s || '').trim()).filter(Boolean)
+  return expandRawBeatLines(raw)
+})
+
+/** 流式失败时从章纲拆条的兜底素材 */
+const beatLines = computed(() => {
+  const ol = chapterPlan.value?.outline?.trim()
+  if (!ol) return []
+  const raw = ol.split(/\n+/).map(s => s.trim()).filter(s => s.length > 0)
   return expandRawBeatLines(raw)
 })
 
@@ -298,7 +336,7 @@ function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
     }
     if (typeof item === 'object' && !Array.isArray(item)) {
       const o = item as Record<string, unknown>
-      const desc = String(o.description ?? o.text ?? o.summary ?? '').trim()
+      const desc = String(o.description ?? o.text ?? o.intent ?? o.scene_goal ?? o.summary ?? '').trim()
       if (!desc) continue
       const tw = o.target_words
       const targetWords =
@@ -314,43 +352,58 @@ function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
   return out
 }
 
-/** 指挥器节拍优先：落库 micro_beats → 本轮 SSE beats_generated → beat_sections（叙事条）→ 仅流式失败时用章纲拆条兜底 */
-const microBeats = computed<MicroBeat[]>(() => {
-  const k = knowledgeChapter.value
-  const ch = props.currentChapterNumber
-  if (!ch) return []
+function outlineFallbackMicroBeats(): MicroBeat[] {
+  if (!beatLines.value.length) return []
+  return beatLines.value.map(line => ({
+    description: line,
+    target_words: 0,
+    focus: 'outline_ref',
+  }))
+}
 
+/** 落库 micro_beats → 流式 SSE；不足时章纲拆条预览（与宏观叙事条分离） */
+function conductorMicroBeatsForChapter(ch: number): MicroBeat[] {
+  const k = knowledgeChapter.value
   if (k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0) {
     const parsed = normalizeMicroBeatItems(k.micro_beats as unknown[])
     if (parsed.length > 0) return parsed
   }
-
   const sess = props.assistStreamBeatSession
   if (sess && sess.chapterNumber === ch && sess.beats.length > 0) {
     const parsed = normalizeMicroBeatItems(sess.beats as unknown[])
     if (parsed.length > 0) return parsed
   }
+  return []
+}
 
-  const lines = beatLines.value
-  if (!lines.length) return []
-
-  if (k?.beat_sections?.length) {
-    return lines.map(line => ({
-      description: line,
-      target_words: 0,
-      focus: 'narrative_ref',
-    }))
+function isOutlinePlanFailedForChapter(ch: number): boolean {
+  if (props.assistStreamFailedChapter != null && props.assistStreamFailedChapter === ch) {
+    return true
   }
-
-  const allowOutlineFallback =
-    props.assistStreamFailedChapter != null && props.assistStreamFailedChapter === ch
-  if (allowOutlineFallback) {
-    return lines.map(line => ({
-      description: line,
-      target_words: 0,
-      focus: 'outline_ref',
-    }))
+  if (props.assistStreamPlanFailedChapter != null && props.assistStreamPlanFailedChapter === ch) {
+    return true
   }
+  if (props.autopilotOutlinePlanFailed && props.currentChapterNumber === ch) {
+    return true
+  }
+  return false
+}
+
+const microBeats = computed<MicroBeat[]>(() => {
+  const ch = props.currentChapterNumber
+  if (!ch) return []
+
+  const conductor = conductorMicroBeatsForChapter(ch)
+  const outlinePreview = outlineFallbackMicroBeats()
+  const planFailed = isOutlinePlanFailedForChapter(ch)
+
+  if (conductor.length > 1) return conductor
+
+  if (planFailed && outlinePreview.length > 1) return outlinePreview
+
+  if (conductor.length >= 1) return conductor
+
+  if (planFailed && outlinePreview.length) return outlinePreview
 
   return []
 })
@@ -361,14 +414,29 @@ const microHintIsOutlineFallback = computed(() => {
   return microBeats.value.every(b => b.focus === 'outline_ref')
 })
 
-const microHintIsNarrativeSections = computed(() => {
-  if (!microBeats.value.length || microHintIsOutlineFallback.value) return false
+const microHintFromKnowledgeDb = computed(() => {
   const k = knowledgeChapter.value
-  if (k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0) return false
+  return !!(k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0)
+})
+
+const microEmptyDescription = computed(() => {
   const ch = props.currentChapterNumber
-  const sess = props.assistStreamBeatSession
-  if (sess && sess.chapterNumber === ch && sess.beats.length > 0) return false
-  return microBeats.value.every(b => b.focus === 'narrative_ref')
+  if (ch && isOutlinePlanFailedForChapter(ch) && beatLines.value.length > 0) {
+    return '章前规划失败，但章纲无法拆出有效预览句段'
+  }
+  if (props.assistStreamCompletedChapter === ch) {
+    return '本轮流式未产出指挥器节拍；可重试生成或查看宏观大纲'
+  }
+  if (narrativeBeatSections.value.length > 0) {
+    return '章前规划拆拍将在写作时产出；知识库叙事条见「宏观」页'
+  }
+  if (
+    props.autopilotOutlinePlanFailed === false &&
+    beatLines.value.length > 0
+  ) {
+    return '章前规划进行中或尚未开始；规划完成后将显示指挥器节拍'
+  }
+  return '暂无指挥器微观节拍：流式生成或全托管写作时将进行章前规划（outline_planning）'
 })
 
 const getBeatTypeColor = (focus: string): 'success' | 'warning' | 'error' | 'info' | 'default' => {
@@ -532,6 +600,16 @@ onUnmounted(() => {
   line-height: 1.9;
   color: var(--n-text-color-1);
   white-space: pre-wrap;
+}
+
+.narrative-beat-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--n-color-modal);
+  border: 1px dashed var(--n-border-color);
 }
 
 /* 微观节拍 */

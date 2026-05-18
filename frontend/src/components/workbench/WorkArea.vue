@@ -242,8 +242,11 @@
                   :current-chapter-number="currentChapter?.number ?? null"
                   :read-only="isAssistedReadOnly"
                   :autopilot-chapter-review="autopilotChapterReview"
-                  :assist-stream-beat-session="assistStreamBeatSession"
+                  :assist-stream-beat-session="railAssistBeatSession"
                   :assist-stream-failed-chapter="assistStreamFailedChapter"
+                  :assist-stream-plan-failed-chapter="assistStreamPlanFailedChapter"
+                  :autopilot-outline-plan-failed="autopilotOutlinePlanFailedForRail"
+                  :assist-stream-completed-chapter="lastQcChapterNumber"
                 />
                 <ChapterStatusPanel
                   :slug="slug"
@@ -275,28 +278,18 @@
         </ChapterWorkbenchShell>
       </div>
 
-      <!-- 托管撰稿：驾驶舱 + 监控大盘（点击左侧章节会显示辅助撰稿面板，托管组件仍挂载以保持 SSE） -->
-      <div v-show="workMode === 'managed'" class="managed-stack">
-        <n-alert type="success" :show-icon="true" class="managed-daemon-hint">
-          <strong>全托管模式</strong>：后端已自动启动守护进程线程，点击「启动全托管」即可开始自动写作。
-          系统将自动进行宏观规划、幕级规划、章节撰写和审计。
-        </n-alert>
-        <div class="autopilot-container managed-autopilot">
-          <AutopilotPanel
-            :novel-id="slug"
-            @status-change="handleAutopilotStatusChange"
-            @chapter-content-update="handleChapterContentUpdate"
-            @chapter-chunk="handleChapterChunkStream"
-            @desk-refresh="handleAutopilotDeskRefreshFromStream"
-          />
-        </div>
-        <div class="managed-monitor">
-          <AutopilotDashboard
-            :novel-id="slug"
-            @desk-refresh="handleAutopilotDeskRefreshFromStream"
-          />
-        </div>
-      </div>
+      <!-- 托管撰稿：驾驶舱 / 仪表盘 / 监控·DAG；组件内 v-show 保持 SSE -->
+      <AutopilotWorkspace
+        v-show="workMode === 'managed'"
+        class="managed-stack"
+        :novel-id="slug"
+        @status-change="handleAutopilotStatusChange"
+        @chapter-content-update="handleChapterContentUpdate"
+        @chapter-chunk="handleChapterChunkStream"
+        @desk-refresh="handleAutopilotDeskRefreshFromStream"
+        @beats-planned="handleAutopilotBeatsPlanned"
+      />
+
     </div>
 
     <!-- AI 生成本章弹窗（流式 + 质检结果在「章节状态」） -->
@@ -703,11 +696,12 @@ import {
   analyzeScene,
   retrieveContext,
   saveChapterDraft,
+  parseStreamGeneratedBeats,
 } from '../../api/workflow'
 import type { ContextPreviewResult, GenerateChapterWorkflowResponse, StreamGeneratedBeat } from '../../api/workflow'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
-import { chapterApi } from '../../api/chapter'
+import { chapterApi, type ChapterMicroBeatPayload } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
 import ChapterElementPanel from './ChapterElementPanel.vue'
@@ -716,8 +710,7 @@ import ChapterStatusPanel from './ChapterStatusPanel.vue'
 import ChapterWorkbenchShell from './ChapterWorkbenchShell.vue'
 import QualityGuardrailPanel from './QualityGuardrailPanel.vue'
 import TraceRecordPanel from './TraceRecordPanel.vue'
-import AutopilotPanel from '../autopilot/AutopilotPanel.vue'
-import AutopilotDashboard from '../autopilot/AutopilotDashboard.vue'
+import AutopilotWorkspace from '../autopilot/AutopilotWorkspace.vue'
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import {
@@ -727,6 +720,7 @@ import {
   type PrimaryChapterDeskTab,
 } from '../../workbench/chapterDeskSurface'
 import { narrativeOrdinalLabel } from '@/utils/narrativeUnitLabel'
+import { loadAssistBeatSession, persistAssistBeatSession } from '@/utils/assistBeatSession'
 import { AppsOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 
 interface Chapter {
@@ -816,6 +810,127 @@ const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
 const assistStreamBeatSession = ref<{ chapterNumber: number; beats: StreamGeneratedBeat[] } | null>(null)
 /** 对应章节流式调用失败时，侧栏微观节拍才降级为章纲分条预览 */
 const assistStreamFailedChapter = ref<number | null>(null)
+/** 流式完成但章前拆拍失败或仅 1 拍（降级） */
+const assistStreamPlanFailedChapter = ref<number | null>(null)
+
+/** 全托管：当前章规划已结束且 total_beats≤1 → 微观区才用章纲拆条 */
+const AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS = new Set([
+  'beat_magnification',
+  'llm_calling',
+  'soft_landing',
+  'persisting',
+  'continuity_check',
+  'density_supplement',
+  'chapter_persist',
+  'audit_voice_check',
+  'audit_aftermath',
+  'audit_tension',
+  'audit_anti_ai',
+])
+
+const autopilotOutlinePlanFailedForRail = computed(() => {
+  const ch = currentChapter.value?.number
+  if (!ch || !isAutopilotRunning.value) return false
+  const st = autopilotStatus.value
+  if (!st) return false
+  if (Number(st.current_chapter_number) !== ch) return false
+  const sub = String(st.writing_substep ?? '')
+  if (!AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS.has(sub)) return false
+  const planned = Array.isArray(st.planned_micro_beats) ? st.planned_micro_beats.length : 0
+  if (planned > 1) return false
+  return Number(st.total_beats ?? 0) <= 1
+})
+
+/** 全托管章前规划节拍：session 缓存优先，再读 /status planned_micro_beats */
+const autopilotPlannedBeatSession = computed(() => {
+  const ch = currentChapter.value?.number
+  if (!ch) return null
+  const cached = loadAssistBeatSession(props.slug, ch)
+  if (cached?.length) return { chapterNumber: ch, beats: cached }
+  const st = autopilotStatus.value
+  if (!st) return null
+  const raw = st.planned_micro_beats
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const beats = parseStreamGeneratedBeats(raw)
+  if (!beats.length) return null
+  if (Number(st.current_chapter_number) !== ch && !isAutopilotRunning.value) return null
+  return { chapterNumber: ch, beats }
+})
+
+function syncPlannedBeatsFromAutopilotStatus(status: Record<string, unknown> | null | undefined) {
+  if (!status) return
+  const ch = Number(status.current_chapter_number)
+  if (!Number.isFinite(ch) || ch < 1) return
+  const raw = status.planned_micro_beats
+  if (!Array.isArray(raw) || raw.length === 0) return
+  const beats = parseStreamGeneratedBeats(raw)
+  if (!beats.length) return
+  persistAssistBeatSession(props.slug, ch, beats)
+  if (currentChapter.value?.number === ch) {
+    assistStreamBeatSession.value = { chapterNumber: ch, beats: [...beats] }
+  }
+}
+
+function handleAutopilotBeatsPlanned(payload: {
+  chapterNumber: number
+  beats: Array<Record<string, unknown>>
+}) {
+  const ch = payload.chapterNumber
+  if (!Number.isFinite(ch) || ch < 1) return
+  const beats = parseStreamGeneratedBeats(payload.beats)
+  if (!beats.length) return
+  persistAssistBeatSession(props.slug, ch, beats)
+  if (currentChapter.value?.number === ch) {
+    assistStreamBeatSession.value = { chapterNumber: ch, beats: [...beats] }
+  }
+}
+
+const railAssistBeatSession = computed(() => {
+  const manual = assistStreamBeatSession.value
+  if (manual?.beats.length) return manual
+  return autopilotPlannedBeatSession.value
+})
+
+function microBeatsForApi(beats: StreamGeneratedBeat[]): ChapterMicroBeatPayload[] {
+  return beats.map(b => ({
+    description: b.description,
+    target_words: b.target_words,
+    focus: b.focus,
+    location_id: b.location_id,
+  }))
+}
+
+async function persistMicroBeatsToDb(chapterNumber: number, beats: StreamGeneratedBeat[]) {
+  if (chapterNumber < 1 || !beats.length) return
+  try {
+    await chapterApi.upsertChapterMicroBeats(props.slug, chapterNumber, microBeatsForApi(beats))
+    desk.nudgeRailAfterGeneration()
+  } catch {
+    /* 内存 / sessionStorage 节拍仍可供侧栏展示 */
+  }
+}
+
+function applyAssistStreamBeats(chapterNumber: number, beats: StreamGeneratedBeat[]) {
+  if (chapterNumber < 1 || !beats.length) return
+  assistStreamBeatSession.value = { chapterNumber, beats: [...beats] }
+  persistAssistBeatSession(props.slug, chapterNumber, beats)
+  void persistMicroBeatsToDb(chapterNumber, beats)
+}
+
+function restoreAssistStreamBeatsForChapter(chapterNumber: number | null | undefined) {
+  if (chapterNumber == null || chapterNumber < 1) {
+    assistStreamBeatSession.value = null
+    return
+  }
+  const sess = assistStreamBeatSession.value
+  if (sess?.chapterNumber === chapterNumber && sess.beats.length > 0) return
+  const loaded = loadAssistBeatSession(props.slug, chapterNumber)
+  if (loaded?.length) {
+    assistStreamBeatSession.value = { chapterNumber, beats: loaded }
+  } else if (sess?.chapterNumber !== chapterNumber) {
+    assistStreamBeatSession.value = null
+  }
+}
 
 const MAX_SSE_LOG_LINES = 7
 const generateSseLog = ref<{ tag: string; msg: string }[]>([])
@@ -855,7 +970,8 @@ function planningSkeletonWidthPct(i: number): string {
 const planningSkeletonRows = computed(() => {
   if (!generateInProgress.value || generateStreamPhase.value !== 'outline_planning') return 0
   const c = outlinePartitionChunkCount.value
-  return Math.min(8, Math.max(1, c))
+  // 首条骨架在 phase 到时即显示；每收到一段 outline_partition 增量多一行（上限 8）
+  return Math.min(8, Math.max(1, c + 1))
 })
 
 function briefPhaseLogLabel(phase: string): string {
@@ -967,6 +1083,8 @@ function autopilotReactiveFingerprint(j: Record<string, unknown>): string {
     j.manuscript_chapters,
     j.current_beat_index,
     j.total_beats,
+    Array.isArray(j.planned_micro_beats) ? j.planned_micro_beats.length : 0,
+    j.outline_plan_mode,
     j.writing_substep,
     j.writing_substep_label,
     j.accumulated_words,
@@ -993,6 +1111,7 @@ function applyAutopilotStatusPayload(status: Record<string, unknown> | null | un
   if (fp !== lastAutopilotReactiveFp.value) {
     lastAutopilotReactiveFp.value = fp
     autopilotStatus.value = status
+    syncPlannedBeatsFromAutopilotStatus(status)
   }
   maybeEmitDeskRefresh(status)
 }
@@ -1095,6 +1214,15 @@ async function pollAutopilotStatusWhileAssisted() {
 }
 
 watch(
+  () => props.currentChapterId,
+  (id) => {
+    const ch = id != null ? props.chapters.find(c => c.id === id)?.number : null
+    restoreAssistStreamBeatsForChapter(ch ?? null)
+  },
+  { immediate: true },
+)
+
+watch(
   () => props.slug,
   () => {
     lastAutopilotDeskSnap.value = null
@@ -1103,6 +1231,7 @@ watch(
     assistAutopilotPollFailures = 0
     assistStreamBeatSession.value = null
     assistStreamFailedChapter.value = null
+    assistStreamPlanFailedChapter.value = null
     generateSseLog.value = []
     generateStreamPhase.value = ''
     outlinePartitionChunkCount.value = 0
@@ -1550,6 +1679,7 @@ const handleStartGenerate = async () => {
   generateInProgress.value = true
   assistStreamBeatSession.value = null
   assistStreamFailedChapter.value = null
+  assistStreamPlanFailedChapter.value = null
   generateSseLog.value = []
   generateStreamPhase.value = ''
   outlinePartitionChunkCount.value = 0
@@ -1653,9 +1783,14 @@ const handleStartGenerate = async () => {
             '节拍',
             beats.length > 0 ? `beats_generated ×${beats.length}` : 'beats_generated（0）',
           )
-          if (beats.length > 0) {
-            assistStreamBeatSession.value = { chapterNumber: targetChapterNumber, beats }
+          if (beats.length >= 2) {
+            if (assistStreamPlanFailedChapter.value === targetChapterNumber) {
+              assistStreamPlanFailedChapter.value = null
+            }
+          } else if (beats.length === 0) {
+            assistStreamPlanFailedChapter.value = targetChapterNumber
           }
+          applyAssistStreamBeats(targetChapterNumber, beats)
         },
         onLLMChunk: (stage, text) => {
           if (stage === 'outline_partition') {
@@ -1693,6 +1828,19 @@ const handleStartGenerate = async () => {
           streamProgressPct.value = 100
           streamPhaseLabel.value = '已完成'
           assistStreamFailedChapter.value = null
+          if (result.beats?.length) {
+            applyAssistStreamBeats(targetChapterNumber, result.beats)
+          }
+          const beatCount =
+            result.beats?.length ??
+            (assistStreamBeatSession.value?.chapterNumber === targetChapterNumber
+              ? assistStreamBeatSession.value.beats.length
+              : 0)
+          if (beatCount <= 1) {
+            assistStreamPlanFailedChapter.value = targetChapterNumber
+          } else if (assistStreamPlanFailedChapter.value === targetChapterNumber) {
+            assistStreamPlanFailedChapter.value = null
+          }
           if (props.currentChapterId === targetChapterId) {
             message.success('生成完成，质检已同步到本章侧栏')
           } else {
@@ -1704,6 +1852,8 @@ const handleStartGenerate = async () => {
           if (!ctrl.signal.aborted) {
             message.error(`生成失败: ${err}`)
             assistStreamFailedChapter.value = targetChapterNumber
+            assistStreamPlanFailedChapter.value = targetChapterNumber
+            pushGenerateSseLog('SSE', `error · ${err}`)
           }
         },
       }
@@ -1712,6 +1862,8 @@ const handleStartGenerate = async () => {
     if (!ctrl.signal.aborted) {
       message.error('生成失败')
       assistStreamFailedChapter.value = targetChapterNumber
+      assistStreamPlanFailedChapter.value = targetChapterNumber
+      pushGenerateSseLog('SSE', 'catch · 请求异常')
     }
   } finally {
     generateInProgress.value = false
@@ -1734,7 +1886,15 @@ const handleSaveGenerated = async () => {
 
   saving.value = true
   try {
-    await chapterApi.updateChapter(props.slug, saveTarget.number, { content: generatedContent.value })
+    const sess = assistStreamBeatSession.value
+    const mb =
+      sess?.chapterNumber === saveTarget.number && sess.beats.length > 0
+        ? microBeatsForApi(sess.beats)
+        : undefined
+    await chapterApi.updateChapter(props.slug, saveTarget.number, {
+      content: generatedContent.value,
+      ...(mb?.length ? { micro_beats: mb } : {}),
+    })
     if (saveTarget.id === props.currentChapterId) {
       chapterContent.value = generatedContent.value
       originalContent.value = generatedContent.value
@@ -1757,6 +1917,10 @@ const stopGenerate = () => {
   generateInProgress.value = false
   streamPhaseLabel.value = ''
   streamProgressPct.value = 0
+  generateStreamPhase.value = ''
+  outlinePartitionChunkCount.value = 0
+  proseChunkLogCount.value = 0
+  generateSseLog.value = []
   message.info('已停止生成')
 }
 
@@ -1904,40 +2068,6 @@ defineExpose({ ensureAssistedMode })
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.managed-daemon-hint {
-  flex-shrink: 0;
-  margin: 0 16px 10px;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.managed-daemon-hint .inline-code {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(128, 128, 128, 0.12);
-}
-
-.managed-autopilot {
-  flex-shrink: 0;
-}
-
-.managed-monitor {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  background: var(--app-surface);
-}
-
-.managed-monitor :deep(.autopilot-dashboard) {
-  flex: 1;
-  min-height: 0;
-  /* 纵向滚动仅发生在 Dashboard 内部的 .monitor-stack，避免与侧栏双滚动条 */
   overflow: hidden;
 }
 
@@ -2221,5 +2351,32 @@ defineExpose({ ensureAssistedMode })
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.gen-stream-meta-card {
+  margin-top: 10px;
+}
+
+.plan-skel-line {
+  margin-bottom: 8px;
+}
+
+.plan-skel-line:last-child {
+  margin-bottom: 0;
+}
+
+.sse-log-scroll {
+  max-height: 168px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: var(--n-border-radius);
+  border: 1px solid var(--n-border-color);
+  background: var(--n-color-modal);
+}
+
+.sse-log-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
 }
 </style>

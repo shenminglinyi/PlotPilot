@@ -20,6 +20,7 @@ export interface StagePrimaryRule {
 export const AUTOPILOT_SUBSTEP_PRIMARY_RULES: readonly SubstepPrimaryRule[] = [
   { substeps: ['macro_planning'], primaryNodeType: 'ctx_blueprint' },
   { substeps: ['act_planning'], primaryNodeType: 'ctx_memory' },
+  { substeps: ['outline_planning'], primaryNodeType: 'exec_beat' },
   { substeps: ['llm_calling'], primaryNodeType: 'exec_writer' },
   { substeps: ['chapter_found', 'context_assembly', 'beat_magnification'], primaryNodeType: 'exec_beat' },
   {
