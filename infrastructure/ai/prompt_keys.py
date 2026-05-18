@@ -64,6 +64,7 @@ MEMORY_EXTRACTION = "memory-extraction"
 PLANNING_QUICK_MACRO = "planning-quick-macro"
 PLANNING_ACT = "planning-act"
 PLANNING_MAIN_PLOT_SUGGEST = "planning-main-plot-suggest"
+OUTLINE_BEAT_PARTITION = "outline-beat-partition"
 
 # ── Style / Voice ────────────────────────────────────────────────────────
 STYLE_ANALYSIS = "style-analysis"
@@ -135,6 +136,7 @@ ALL_KEYS: frozenset[str] = frozenset({
     MEMORY_EXTRACTION,
     # Planning
     PLANNING_QUICK_MACRO, PLANNING_ACT, PLANNING_MAIN_PLOT_SUGGEST,
+    OUTLINE_BEAT_PARTITION,
     # Style
     STYLE_ANALYSIS, VOICE_STYLE_ANALYSIS, VOICE_BASELINE_ANALYSIS,
     VOICE_REWRITE,
