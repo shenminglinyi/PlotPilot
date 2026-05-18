@@ -24,6 +24,10 @@ from infrastructure.persistence.database.chapter_element_repository import Chapt
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.audit.services.macro_merge_engine import MacroMergeEngine, MergePlan, MergeConflictException
+from application.blueprint.services.chapter_book_structure_sync import (
+    collect_structure_chapter_numbers,
+    purge_chapter_book_rows_not_matching_structure,
+)
 
 logger = logging.getLogger(__name__)
 _macro_plan_progress_store: Dict[str, Dict] = {}
@@ -1486,6 +1490,24 @@ class ContinuousPlanningService:
                 self.chapter_repository.delete(ChapterId(n.id))
             await self.story_node_repo.delete(n.id)
 
+    def _assert_chapter_number_range_free(
+        self, novel_id_vo: NovelId, start: int, length: int
+    ) -> None:
+        """写入前兜底：若区间内仍有正文行残留（异步删未落盘等），报错。"""
+        if not self.chapter_repository:
+            return
+        bad: List[int] = []
+        for n in range(start, start + length):
+            existing = self.chapter_repository.get_by_novel_and_number(novel_id_vo, n)
+            if existing is not None:
+                bad.append(int(n))
+        if bad:
+            raise ValueError(
+                f"无法在本书写入新章节序号 {bad[0]}—{bad[-1]} ："
+                f"正文表中已存在行 {bad[:5]}{'…' if len(bad) > 5 else ''}，或与结构树未完成同步。"
+                f"请重试载入结构树以对齐。"
+            )
+
     async def confirm_act_planning(self, act_id: str, chapters: List[Dict]) -> Dict:
         """确认幕级规划：写入 story_nodes + chapters 表（供工作台侧栏列表），并关联 Bible 元素。"""
         logger.info(f"Confirming act planning for act {act_id}")
@@ -1496,12 +1518,22 @@ class ContinuousPlanningService:
 
         await self._remove_chapter_children_of_act(act_id)
 
-        novel_id_vo = NovelId(act_node.novel_id)
-        existing_book = []
-        if self.chapter_repository:
-            existing_book = self.chapter_repository.list_by_novel(novel_id_vo)
-        max_num = max((c.number for c in existing_book), default=0)
-        next_global_number = max_num + 1
+        novel_id_str = act_node.novel_id
+        novel_id_vo = NovelId(novel_id_str)
+        # ★ 树为真源：正文表多出或无对应树上章节的行一律清掉后再顺延编号
+        pruned = purge_chapter_book_rows_not_matching_structure(
+            self.story_node_repo,
+            self.chapter_repository,
+            novel_id_str,
+        )
+        if pruned:
+            logger.info("[ActPlanning] novel=%s 已对齐全书正文↔结构，删行 %s 条", novel_id_str, pruned)
+
+        chapter_nums_on_tree = collect_structure_chapter_numbers(self.story_node_repo, novel_id_str)
+        next_global_number = (max(chapter_nums_on_tree) + 1) if chapter_nums_on_tree else 1
+        self._assert_chapter_number_range_free(
+            novel_id_vo, next_global_number, len(chapters)
+        )
 
         created_chapters: List[StoryNode] = []
         created_elements: List[ChapterElement] = []

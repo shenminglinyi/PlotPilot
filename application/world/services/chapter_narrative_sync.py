@@ -1,9 +1,7 @@
-"""章节保存后：LLM 生成章末总结 → 节拍沿用既有规划 → StoryKnowledge → 向量索引。
+"""章节保存后：LLM 生成章末总结 → StoryKnowledge → 向量索引。
 
-节拍来源（按优先级，不由 LLM 现编）：
-1. 知识库里该章已有 beat_sections（宏观规划 / 用户手填）
-2. 结构树中该章节点 outline（规划节拍，按换行/分号拆条）
-3. 仍无则保持空列表，仅写 summary。
+beat_sections：`_resolve_beat_sections`（宏观条，叙事节拍或结构树大纲）。
+micro_beats：写作指挥器快照或 bundle；**不作为** magnify_outline 的假微观节拍。
 """
 from __future__ import annotations
 
@@ -1717,8 +1715,12 @@ async def sync_chapter_narrative_after_save(
     character_state_repository: Any = None,
     debt_repository: Any = None,
     bible_repository: Any = None,
+    chapter_micro_beats: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, bool]:
-    """异步：一次 LLM 写 summary/事件/埋线 + 可选三元组与伏笔 + 故事线/张力/对话 + 因果边/人物状态/债务 → 节拍来自规划 → upsert knowledge → 向量索引。
+    """异步：LLM bundle + 向量等落库。
+
+    ``chapter_micro_beats``：全托管等管线传入的写作侧 Beat 快照；若缺省则仅从 bundle 继承，
+    **不再**用章纲放大镜伪造微观节拍。
 
     返回各子步骤是否成功落库，供章后管线写入 last_audit_* 审阅快照。
     """
@@ -1863,50 +1865,17 @@ async def sync_chapter_narrative_after_save(
             open_threads = existing.open_threads or ""
 
     beat_sections = _resolve_beat_sections(novel_id, chapter_number, existing_beats)
-    
-    # 生成微观节拍
-    micro_beats = []
+
+    mb_out: List[Any] = []
     try:
-        # 如果生成时已经创建，直接使用
-        if bundle.get("micro_beats"):
-            micro_beats = bundle.get("micro_beats")
-        else:
-            # 否则从大纲动态生成
-            # 获取章节大纲（从结构树或 beat_sections 推断）
-            outline_text = ""
-            try:
-                # 尝试从结构树获取大纲
-                from application.paths import get_db_path
-                from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
-                from domain.structure.story_node import NodeType
-                
-                repo = StoryNodeRepository(str(get_db_path()))
-                nodes = repo.get_by_novel_sync(novel_id)
-                for n in nodes:
-                    if n.node_type == NodeType.CHAPTER and int(n.number) == int(chapter_number):
-                        outline_text = (n.outline or "").strip()
-                        break
-            except Exception as e:
-                logger.debug("从结构树获取大纲失败: %s", e)
-            
-            # 如果有大纲，使用静态方法生成节拍
-            if outline_text:
-                try:
-                    from application.engine.services.context_builder import ContextBuilder
-                    # 使用静态启发式生成节拍（无需实例化）
-                    beats = ContextBuilder(None, None, None, None, None, None).magnify_outline_to_beats(chapter_number, outline_text)
-                    micro_beats = [
-                        {
-                            "description": beat.description,
-                            "target_words": beat.target_words,
-                            "focus": beat.focus
-                        } for beat in beats
-                    ]
-                    logger.debug("从大纲生成微观节拍: %d 个", len(micro_beats))
-                except Exception as e:
-                    logger.debug("生成微观节拍失败: %s", e)
+        if chapter_micro_beats:
+            mb_out = list(chapter_micro_beats)
+        elif bundle.get("micro_beats"):
+            mb_out = bundle.get("micro_beats") or []
+        elif existing and getattr(existing, "micro_beats", None):
+            mb_out = list(existing.micro_beats or [])
     except Exception as e:
-        logger.debug("微观节拍处理失败: %s", e)
+        logger.debug("微观节拍赋值失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
     
     knowledge_service.upsert_chapter_summary(
         novel_id=novel_id,
@@ -1916,7 +1885,7 @@ async def sync_chapter_narrative_after_save(
         open_threads=open_threads or "无",
         consistency_note=consistency_note,
         beat_sections=beat_sections,
-        micro_beats=micro_beats if micro_beats else None,
+        micro_beats=mb_out if mb_out else None,
         sync_status="synced" if summary else "draft",
     )
 
@@ -2032,6 +2001,7 @@ def sync_chapter_narrative_after_save_blocking(
     character_state_repository: Any = None,
     debt_repository: Any = None,
     bible_repository: Any = None,
+    chapter_micro_beats: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """供 FastAPI BackgroundTasks 同步入口调用。"""
     _kwargs = dict(
@@ -2043,6 +2013,7 @@ def sync_chapter_narrative_after_save_blocking(
         character_state_repository=character_state_repository,
         debt_repository=debt_repository,
         bible_repository=bible_repository,
+        chapter_micro_beats=chapter_micro_beats,
     )
     try:
         asyncio.run(

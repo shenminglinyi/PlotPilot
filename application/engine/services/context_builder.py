@@ -27,6 +27,7 @@ from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepo
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.engine.services.context_budget_allocator import ContextBudgetAllocator
+from application.engine.dag.plan.schema import ChapterExecutionPlan
 
 logger = logging.getLogger(__name__)
 
@@ -307,26 +308,87 @@ class ContextBuilder:
         outline: str,
         target_chapter_words: int = 2500,
         beat_sheet: Optional[Any] = None,
+        chapter_execution_plan: Optional[ChapterExecutionPlan] = None,
         scene_director: Optional[Any] = None,
     ) -> List[Beat]:
         """节拍放大器：将章节大纲拆分为微观节拍
 
         核心策略（选项 C：动态弹性扩写与前置预估）：
-        1. 优先使用规划阶段的 BeatSheet（含 estimated_words）
-        2. 无 BeatSheet 时回退到关键词识别 + 25% 均分
-        3. 根据 focus 类型注入扩写维度提示（expansion_hints）
-        4. 不再强制 75% 缩减，相信规划阶段的预估
+        1. 优先使用章前执行计划 ``chapter_execution_plan``（planning_outline_partition / CPMS 拆拍）
+        2. 否则使用规划阶段的 BeatSheet（含 estimated_words）
+        3. 无上述二者时回退到关键词识别 + 25% 均分
+        4. 根据 focus 类型注入扩写维度提示（expansion_hints）
         5. 拍数上限 MAX_BEATS；每拍目标字数 < MIN_BEAT_WORDS 时合并相邻拍
         """
-        # === 路径 A：有规划阶段的 BeatSheet ===
-        if beat_sheet is not None and hasattr(beat_sheet, 'scenes') and beat_sheet.scenes:
+        beats: List[Beat]
+        # === 路径 A：章前执行计划（与 DAG planning_outline_partition 同源）===
+        if chapter_execution_plan is not None and chapter_execution_plan.atoms:
+            beats = self._build_beats_from_execution_plan(
+                chapter_execution_plan, outline, target_chapter_words
+            )
+        # === 路径 B：有规划阶段的 BeatSheet ===
+        elif beat_sheet is not None and hasattr(beat_sheet, 'scenes') and beat_sheet.scenes:
             beats = self._build_beats_from_beat_sheet(beat_sheet, outline, target_chapter_words)
         else:
-            # === 路径 B：无 BeatSheet，回退到关键词识别 ===
+            # === 路径 C：无 Plan/BeatSheet，回退到关键词识别 ===
             beats = self._build_beats_from_outline(chapter_number, outline, target_chapter_words)
 
         beats = self._cap_and_merge_beats(beats, target_chapter_words)
         self._bind_atg_locations_if_present(beats, scene_director)
+        return beats
+
+    def _build_beats_from_execution_plan(
+        self,
+        plan: ChapterExecutionPlan,
+        outline: str,
+        target_chapter_words: int,
+    ) -> List[Beat]:
+        """将 ``ChapterExecutionPlan.atoms`` 投影为微观节拍（须落实章纲意图）。"""
+        atoms = plan.atoms
+        if not atoms:
+            return []
+        total_w = sum(max(0.01, float(a.weight)) for a in atoms)
+        mode = (plan.provenance or {}).get("mode", "")
+        logger.info(
+            "节拍放大器（章前执行计划）：%d 拍，provenance_mode=%s outline≈%d 字，整章目标 %d 字",
+            len(atoms),
+            mode,
+            len((outline or "").strip()),
+            target_chapter_words,
+        )
+        beats: List[Beat] = []
+        for atom in atoms:
+            intent = (atom.intent or "").strip()
+            if not intent:
+                continue
+            share = max(0.01, float(atom.weight)) / total_w
+            w = max(1, int(target_chapter_words * share))
+            ext = atom.extensions if isinstance(atom.extensions, dict) else {}
+            raw_focus = ext.get("focus") or ext.get("type")
+            if isinstance(raw_focus, str) and raw_focus.strip():
+                focus_s = raw_focus.strip()
+            else:
+                focus_s = self._infer_focus_from_outline(intent)
+            trans = ext.get("transition_from_prev")
+            transition = str(trans).strip() if trans else ""
+            loc_id = ext.get("location_id")
+            location_id = str(loc_id).strip() if isinstance(loc_id, str) and loc_id.strip() else ""
+
+            beats.append(
+                Beat(
+                    description=(
+                        "【章纲节选·须落实】以下要点必须写入正文（可合理扩写，不得跳过核心因果；"
+                        "人物姓名须与 Bible 一致）：\n"
+                        + intent
+                    ),
+                    target_words=w,
+                    focus=focus_s,
+                    expansion_hints=self._generate_expansion_hints(focus_s, w),
+                    scene_goal=intent,
+                    transition_from_prev=transition,
+                    location_id=location_id,
+                )
+            )
         return beats
 
     def _bind_atg_locations_if_present(self, beats: List[Beat], scene_director: Optional[Any]) -> None:

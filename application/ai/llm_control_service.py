@@ -18,6 +18,7 @@ from infrastructure.ai.url_utils import (
 logger = logging.getLogger(__name__)
 
 LLMProtocol = Literal['openai', 'anthropic', 'gemini']
+LLMEndpointMode = Literal['unified', 'independent']
 
 
 class LLMPreset(BaseModel):
@@ -76,6 +77,8 @@ class LLMProfile(BaseModel):
 class LLMControlConfig(BaseModel):
     version: int = 1
     active_profile_id: Optional[str] = None
+    #: 统一 = 单档案主力端点；独立 = 主力 / 经济 / 知识图谱 等分档案（持久化在 llm_config_meta）
+    endpoint_mode: LLMEndpointMode = 'unified'
     profiles: List[LLMProfile] = Field(default_factory=list)
 
     @model_validator(mode='after')
@@ -85,6 +88,8 @@ class LLMControlConfig(BaseModel):
         ids = [profile.id for profile in self.profiles]
         if not self.active_profile_id or self.active_profile_id not in ids:
             self.active_profile_id = ids[0]
+        if self.endpoint_mode not in ('unified', 'independent'):
+            self.endpoint_mode = 'unified'
         return self
 
 
@@ -293,7 +298,24 @@ class LLMControlService:
         if not active_id or active_id not in valid_ids:
             active_id = profiles[0].id
 
-        return LLMControlConfig(version=1, active_profile_id=active_id, profiles=profiles)
+        endpoint_mode = self._get_meta('endpoint_mode', '')
+        if endpoint_mode not in ('unified', 'independent'):
+            endpoint_mode = self._infer_endpoint_mode_from_profiles(profiles)
+        return LLMControlConfig(
+            version=1,
+            active_profile_id=active_id,
+            endpoint_mode=endpoint_mode,  # type: ignore[arg-type]
+            profiles=profiles,
+        )
+
+    @staticmethod
+    def _infer_endpoint_mode_from_profiles(profiles: List[LLMProfile]) -> LLMEndpointMode:
+        """无 meta 时的向后兼容：存在「经济模型」「知识图谱模型」档案则视为独立端点 UI。"""
+        for p in profiles:
+            n = p.name or ''
+            if '经济模型' in n or '知识图谱' in n or '知识图谱模型' in n:
+                return 'independent'
+        return 'unified'
 
     def save_config(self, config: LLMControlConfig) -> LLMControlConfig:
         """将配置全量写入数据库（先清后写）。"""
@@ -308,6 +330,10 @@ class LLMControlService:
         db.execute(
             "INSERT OR REPLACE INTO llm_config_meta (key, value) VALUES (?, ?)",
             ('active_profile_id', sanitized.active_profile_id or ''),
+        )
+        db.execute(
+            "INSERT OR REPLACE INTO llm_config_meta (key, value) VALUES (?, ?)",
+            ('endpoint_mode', sanitized.endpoint_mode),
         )
 
         # 批量写入 profiles
@@ -488,7 +514,13 @@ class LLMControlService:
             profiles = self._build_initial_config().profiles
 
         active_profile_id = config.active_profile_id if config.active_profile_id in {p.id for p in profiles} else profiles[0].id
-        return LLMControlConfig(version=1, active_profile_id=active_profile_id, profiles=profiles)
+        mode = config.endpoint_mode if config.endpoint_mode in ('unified', 'independent') else 'unified'
+        return LLMControlConfig(
+            version=1,
+            active_profile_id=active_profile_id,
+            endpoint_mode=mode,  # type: ignore[arg-type]
+            profiles=profiles,
+        )
 
     @staticmethod
     def _normalize_base_url(protocol: LLMProtocol, base_url: str) -> str:
@@ -567,4 +599,9 @@ class LLMControlService:
             })
             active_profile_id = profiles[0].id
 
-        return LLMControlConfig(version=1, active_profile_id=active_profile_id, profiles=profiles)
+        return LLMControlConfig(
+            version=1,
+            active_profile_id=active_profile_id,
+            endpoint_mode='unified',
+            profiles=profiles,
+        )

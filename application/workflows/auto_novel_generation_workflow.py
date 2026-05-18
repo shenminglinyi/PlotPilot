@@ -2,8 +2,9 @@
 
 整合所有子项目组件，实现完整的章节生成流程。
 """
+import asyncio
 import logging
-from typing import Tuple, Dict, Any, AsyncIterator, Optional, List
+from typing import Tuple, Dict, Any, AsyncIterator, Optional, List, Callable, Awaitable
 from application.engine.services.context_builder import ContextBuilder
 from application.analyst.services.state_extractor import StateExtractor
 from application.analyst.services.state_updater import StateUpdater
@@ -617,10 +618,12 @@ class AutoNovelGenerationWorkflow:
         beats = []
         if enable_beats:
             logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
-            beats = self.context_builder.magnify_outline_to_beats(
+            beats = await self._magnify_outline_with_execution_plan(
+                novel_id,
                 chapter_number,
                 outline,
-                target_chapter_words=target_words,
+                target_words,
+                beat_sheet=None,
                 scene_director=scene_director,
             )
             logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
@@ -818,6 +821,63 @@ class AutoNovelGenerationWorkflow:
             style_warnings=style_warnings
         )
 
+    async def _magnify_outline_with_execution_plan(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        target_words: int,
+        *,
+        beat_sheet: Optional[Any] = None,
+        scene_director: Optional[SceneDirectorAnalysis] = None,
+        emit_llm_delta: Optional[Callable[[str], Awaitable[None]]] = None,
+    ) -> List[Any]:
+        """章纲拆节拍：经 ``build_chapter_execution_plan_async``（与 DAG planning_outline_partition 同源）再投影为 Beat。"""
+        from application.engine.dag.plan.outline_beat_planner import (
+            build_chapter_execution_plan_async,
+        )
+
+        beat_sheet_json: Optional[Dict[str, Any]] = None
+        if beat_sheet is not None and getattr(beat_sheet, "scenes", None):
+            beat_sheet_json = {
+                "scenes": [
+                    {
+                        "title": getattr(s, "title", "") or "",
+                        "goal": getattr(s, "goal", "") or "",
+                        "estimated_words": getattr(s, "estimated_words", None) or 600,
+                        "pov_character": getattr(s, "pov_character", "") or "",
+                        "location": getattr(s, "location", None),
+                        "tone": getattr(s, "tone", None),
+                        "transition_from_prev": getattr(s, "transition_from_prev", None),
+                    }
+                    for s in beat_sheet.scenes
+                ]
+            }
+
+        chapter_plan = None
+        try:
+            chapter_plan = await build_chapter_execution_plan_async(
+                outline,
+                target_chapter_words=target_words,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                beat_sheet_json=beat_sheet_json,
+                use_llm=True,
+                emit_llm_delta=emit_llm_delta,
+            )
+        except Exception as e:
+            logger.warning("章前执行计划（拆节拍）失败，降级：%s", e)
+
+        use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
+        return self.context_builder.magnify_outline_to_beats(
+            chapter_number,
+            outline,
+            target_chapter_words=target_words,
+            chapter_execution_plan=chapter_plan if use_plan else None,
+            beat_sheet=None if use_plan else beat_sheet,
+            scene_director=scene_director,
+        )
+
     async def generate_chapter_stream(
         self,
         novel_id: str,
@@ -831,7 +891,9 @@ class AutoNovelGenerationWorkflow:
 
         事件类型：
         - phase: planning | context | llm | post
-        - chunk: { text }
+        - llm_chunk: stage=out outline_partition 时为章纲节拍划分模型的流式增量（JSON 未完成前）
+        - beats_generated: beats 列表（指挥器微观节拍，供前端侧栏展示）
+        - chunk: { text }（正文）
         - done: { content, consistency_report, token_count }
         - error: { message }
 
@@ -859,25 +921,53 @@ class AutoNovelGenerationWorkflow:
             context_tokens = bundle["context_tokens"]
             logger.info(f"  ✓ 上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
 
-            yield {"type": "phase", "phase": "llm"}
-            logger.info("阶段 3: 生成 - 调用 LLM 流式生成")
             config = GenerationConfig()
             chunk_count = 0
             target_words = self._resolve_target_chapter_words(novel_id)
-            
-            # 如果使用节拍模式，先放大节拍
-            beats = []
+
+            beats: List[Any] = []
             if enable_beats:
-                logger.info("  → 启用节拍模式，拆分大纲为微观节拍")
-                beats = self.context_builder.magnify_outline_to_beats(
-                    chapter_number,
-                    outline,
-                    target_chapter_words=target_words,
-                    scene_director=scene_director,
+                yield {"type": "phase", "phase": "outline_planning"}
+                logger.info("阶段 3a: 章前规划 — 节拍划分 LLM（SSE llm_chunk / outline_partition）")
+                chunk_queue: asyncio.Queue[str] = asyncio.Queue()
+
+                async def emit_outline_partition(text: str) -> None:
+                    if text:
+                        await chunk_queue.put(text)
+
+                plan_task = asyncio.create_task(
+                    self._magnify_outline_with_execution_plan(
+                        novel_id,
+                        chapter_number,
+                        outline,
+                        target_words,
+                        beat_sheet=None,
+                        scene_director=scene_director,
+                        emit_llm_delta=emit_outline_partition,
+                    )
                 )
+
+                while not plan_task.done():
+                    try:
+                        piece = await asyncio.wait_for(chunk_queue.get(), timeout=0.05)
+                        yield {"type": "llm_chunk", "stage": "outline_partition", "text": piece}
+                    except asyncio.TimeoutError:
+                        continue
+
+                while True:
+                    try:
+                        piece = chunk_queue.get_nowait()
+                        yield {"type": "llm_chunk", "stage": "outline_partition", "text": piece}
+                    except asyncio.QueueEmpty:
+                        break
+
+                exc = plan_task.exception()
+                if exc is not None:
+                    raise exc
+                beats = plan_task.result()
+
                 logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
-                
-                # 发送节拍信息用于前端展示
+
                 yield {
                     "type": "beats_generated",
                     "beats": [
@@ -886,12 +976,15 @@ class AutoNovelGenerationWorkflow:
                             "target_words": beat.target_words,
                             "focus": beat.focus,
                             "location_id": getattr(beat, "location_id", "") or "",
-                        } for beat in beats
-                    ]
+                        }
+                        for beat in beats
+                    ],
                 }
-            
+
             # 根据是否使用节拍选择不同的生成策略
             if enable_beats and beats:
+                yield {"type": "phase", "phase": "prose"}
+                logger.info("阶段 3b: 正文撰写 — 按节拍流式生成")
                 graph_dom = self._maybe_action_transition_graph(scene_director)
                 micro_ctx: Optional[MicroSceneContext] = None
                 if graph_dom is not None and beats and scene_director:
@@ -1037,6 +1130,8 @@ class AutoNovelGenerationWorkflow:
                 
                 content = self._finalize_chapter_body_text(novel_id, "\n\n".join(content_parts))
             else:
+                yield {"type": "phase", "phase": "prose"}
+                logger.info("阶段 3: 正文撰写 — 单段流式生成")
                 # 传统单段生成
                 prompt = self._build_prompt(
                     context,

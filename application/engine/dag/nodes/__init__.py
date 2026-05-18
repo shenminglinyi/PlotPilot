@@ -9,7 +9,7 @@
 - World (4): world_bible_all, world_worldbuilding, world_characters, world_locations
 - Review (5): review_character, review_timeline, review_storyline, review_foreshadowing, review_improvement
 - Anti-AI (6): anti_ai_behavior, anti_ai_allowlist, anti_ai_char_lock, anti_ai_mid_refresh, anti_ai_audit, anti_ai_finale
-- Planning (3): planning_beat_sheet, planning_quick_macro, planning_act
+- Planning (4): planning_beat_sheet, planning_quick_macro, planning_act, planning_outline_partition
 
 CPMS 联动：
 - 所有节点通过 cpms_node_key 关联提示词广场
@@ -24,5 +24,6 @@ from application.engine.dag.nodes.world_nodes import *  # noqa: F401 F403
 from application.engine.dag.nodes.review_nodes import *  # noqa: F401 F403
 from application.engine.dag.nodes.anti_ai_nodes import *  # noqa: F401 F403
 from application.engine.dag.nodes.planning_nodes import *  # noqa: F401 F403
+from application.engine.dag.nodes.planning_chapter_outline_node import *  # noqa: F401 F403
 from application.engine.dag.nodes.gen_supplement_nodes import *  # noqa: F401 F403
 from application.engine.dag.nodes.ext_supplement_nodes import *  # noqa: F401 F403

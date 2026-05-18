@@ -92,6 +92,9 @@ class AutopilotDaemon:
         # 防止清除重写陷入新的无限循环
         self._beat_exhausted_rewrite_count: Dict[tuple, int] = {}
 
+        #: 本章写作阶段产生的 Beat 快照，供章后叙事同步写入 micro_beats（非章纲句读切分）
+        self._pending_chapter_micro_beats: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+
         # 惰性初始化 VolumeSummaryService
         if not self.volume_summary_service and llm_service and story_node_repo:
             from application.blueprint.services.volume_summary_service import VolumeSummaryService
@@ -1548,13 +1551,38 @@ class AutopilotDaemon:
             except Exception:
                 voice_anchors = ""
 
-        # 6. 节拍放大（优先使用 BeatSheet 的预估字数）
+        # 6. 节拍放大：先走章前执行计划（与 DAG planning_outline_partition / CPMS 同源），再投影为 Beat
         beats = []
         if self.context_builder:
+            beat_sheet_json = self._beat_sheet_to_plan_json(beat_sheet)
+            chapter_plan = None
+            try:
+                from application.engine.dag.plan.outline_beat_planner import (
+                    build_chapter_execution_plan_async,
+                )
+
+                chapter_plan = await build_chapter_execution_plan_async(
+                    outline,
+                    target_chapter_words=target_word_count,
+                    novel_id=novel.novel_id.value,
+                    chapter_number=chapter_num,
+                    beat_sheet_json=beat_sheet_json,
+                    use_llm=True,
+                )
+            except Exception as e:
+                logger.warning(
+                    "[%s] 章前执行计划（拆节拍）失败，降级为直接用 BeatSheet / 章纲启发式：%s",
+                    novel.novel_id.value,
+                    e,
+                )
+
+            use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
             beats = self.context_builder.magnify_outline_to_beats(
-                chapter_num, outline,
+                chapter_num,
+                outline,
                 target_chapter_words=target_word_count,
-                beat_sheet=beat_sheet,  # 传递规划阶段的 BeatSheet
+                chapter_execution_plan=chapter_plan if use_plan else None,
+                beat_sheet=None if use_plan else beat_sheet,
             )
 
         # ★ 子步骤状态：节拍拆分完成
@@ -2206,6 +2234,19 @@ class AutopilotDaemon:
         novel.current_chapter_in_act += 1
         novel.current_beat_index = 0
         novel.beats_completed = False  # 重置节拍完成标志
+        nid = novel.novel_id.value
+        if beats:
+            self._pending_chapter_micro_beats[(nid, chapter_num)] = [
+                {
+                    "description": b.description,
+                    "target_words": b.target_words,
+                    "focus": b.focus,
+                    "location_id": getattr(b, "location_id", "") or "",
+                }
+                for b in beats
+            ]
+        else:
+            self._pending_chapter_micro_beats.pop((nid, chapter_num), None)
         novel.current_stage = NovelStage.AUDITING
         # 章节正常完成，清理对应的重写计数
         self._beat_exhausted_rewrite_count.pop((novel.novel_id.value, chapter_num), None)
@@ -2286,6 +2327,30 @@ class AutopilotDaemon:
             f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{actual_word_count} 字 "
             f"(目标 {target_word_count} 字，共 {novel.current_auto_chapters}/{novel.target_chapters} 章)"
         )
+
+    @staticmethod
+    def _beat_sheet_to_plan_json(beat_sheet: Optional[Any]) -> Optional[Dict[str, Any]]:
+        """将仓储 BeatSheet 转为 ``build_chapter_execution_plan_async`` 的 beat_sheet_json。"""
+        if not beat_sheet:
+            return None
+        scenes_raw = getattr(beat_sheet, "scenes", None)
+        if not scenes_raw:
+            return None
+
+        scenes: List[Dict[str, Any]] = []
+        for s in scenes_raw:
+            scenes.append(
+                {
+                    "title": getattr(s, "title", "") or "",
+                    "goal": getattr(s, "goal", "") or "",
+                    "estimated_words": getattr(s, "estimated_words", None) or 600,
+                    "pov_character": getattr(s, "pov_character", "") or "",
+                    "location": getattr(s, "location", None),
+                    "tone": getattr(s, "tone", None),
+                    "transition_from_prev": getattr(s, "transition_from_prev", None),
+                }
+            )
+        return {"scenes": scenes}
 
     async def _get_beat_sheet_for_chapter(self, novel_id: str, chapter_number: int) -> Optional[Any]:
         """获取章节的 BeatSheet（规划阶段的预估字数）
@@ -2527,11 +2592,15 @@ class AutopilotDaemon:
         )
         if self.aftermath_pipeline:
             try:
+                _mb = self._pending_chapter_micro_beats.pop(
+                    (novel.novel_id.value, chapter_num), None
+                )
                 drift_result = await self._call_with_timeout(
                     self.aftermath_pipeline.run_after_chapter_saved(
                         novel.novel_id.value,
                         chapter_num,
                         content,
+                        chapter_micro_beats=_mb,
                     ),
                     timeout=300.0,  # 章后管线最多 5 分钟（含多次 LLM）
                     novel_id=novel.novel_id.value,
