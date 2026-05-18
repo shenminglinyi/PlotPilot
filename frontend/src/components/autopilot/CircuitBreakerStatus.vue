@@ -10,7 +10,7 @@
         {{ statusLabel }}
       </n-tag>
     </div>
-    <n-text depth="3" style="font-size: 10.5px; line-height: 1.4; display: block; margin: -2px 0 6px">
+    <n-text depth="3" class="breaker-lede">
       达阈值自动挂起。全局 LLM 熔断由守护进程控制；长时间不推进请查看日志或重启守护进程。
     </n-text>
 
@@ -337,15 +337,15 @@ onUnmounted(() => {
 .circuit-breaker-status {
   background: var(--card-color);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 14px 16px;
 }
 
 .breaker-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 
 .breaker-title {
@@ -357,13 +357,20 @@ onUnmounted(() => {
 .breaker-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+}
+
+.breaker-lede {
+  font-size: 11px;
+  line-height: 1.5;
+  display: block;
+  margin: 0 0 2px;
 }
 
 .status-indicator {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 14px;
 }
 
 .indicator-ring {
@@ -416,8 +423,10 @@ onUnmounted(() => {
 .status-text {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   flex: 1;
+  min-width: 0;
+  padding-top: 4px;
 }
 
 .status-main {

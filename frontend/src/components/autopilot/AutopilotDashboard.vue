@@ -25,42 +25,44 @@
     <!-- 卡片视图（原有） -->
     <template v-else>
       <n-alert type="default" :show-icon="false" class="monitor-copy-hint">
-        <n-text depth="3" style="font-size: 12px; line-height: 1.5">
+        <n-text depth="3" class="monitor-copy-hint__text">
           <strong>监控说明</strong>：「文风」卡片为按<strong>角色声线</strong>的偏离监测。全书<strong>作者文风指纹</strong>与侧栏「剧本基建」规划为不同能力，与此处互补。
         </n-text>
       </n-alert>
-      <!-- 监控网格 -->
-      <div class="monitor-grid">
-        <!-- 第一行：张力图表 + 实时日志 -->
-        <div class="grid-cell span-2">
-          <TensionChart :novel-id="novelId" :refresh-key="chapterMetricsRefreshKey" />
+      <!-- 顶部：心电图 + 日志（独立占高，避免与下方卡片争 1fr 被压扁） -->
+      <div class="monitor-stack">
+        <div class="monitor-top-row">
+          <div class="monitor-top-chart">
+            <TensionChart :novel-id="novelId" :refresh-key="chapterMetricsRefreshKey" />
+          </div>
+          <div class="monitor-top-log">
+            <AutopilotTerminalLog
+              :novel-id="novelId"
+              @desk-refresh="handleMonitorRefresh"
+              @chapter-metrics-refresh="handleChapterMetricsRefresh"
+            />
+          </div>
         </div>
-        <div class="grid-cell span-1 grid-cell--terminal">
-          <AutopilotTerminalLog
-            :novel-id="novelId"
-            @desk-refresh="handleMonitorRefresh"
-            @chapter-metrics-refresh="handleChapterMetricsRefresh"
-          />
-        </div>
-
         <!-- 第二行：文风警报 + 伏笔账本 + 熔断器 -->
-        <div class="grid-cell">
-          <VoiceDriftIndicator
-            :novel-id="novelId"
-            :refresh-key="monitorRefreshKey"
-            @drift-alert="handleDriftAlert"
-          />
-        </div>
-        <div class="grid-cell">
-          <ForeshadowLedger :novel-id="novelId" :refresh-key="monitorRefreshKey" />
-        </div>
-        <div class="grid-cell">
-          <CircuitBreakerStatus
-            :novel-id="novelId"
-            :refresh-key="monitorRefreshKey"
-            @breaker-open="handleBreakerOpen"
-            @breaker-reset="handleBreakerReset"
-          />
+        <div class="monitor-bottom-row">
+          <div class="grid-cell">
+            <VoiceDriftIndicator
+              :novel-id="novelId"
+              :refresh-key="monitorRefreshKey"
+              @drift-alert="handleDriftAlert"
+            />
+          </div>
+          <div class="grid-cell">
+            <ForeshadowLedger :novel-id="novelId" :refresh-key="monitorRefreshKey" />
+          </div>
+          <div class="grid-cell">
+            <CircuitBreakerStatus
+              :novel-id="novelId"
+              :refresh-key="monitorRefreshKey"
+              @breaker-open="handleBreakerOpen"
+              @breaker-reset="handleBreakerReset"
+            />
+          </div>
         </div>
       </div>
     </template>
@@ -153,7 +155,9 @@ function handleSwitchView(mode: 'card' | 'dag') {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;       /* 面板自身不滚动；内部各区域自管高度 */
+  /* 仅卡片根容器裁剪横向；纵向交给 monitor-stack 滚动，避免底部伏笔等卡片被裁掉 */
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 
 /* DAG 视图：同样禁止外层滚动 */
@@ -166,10 +170,10 @@ function handleSwitchView(mode: 'card' | 'dag') {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 5px 14px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--app-border);
   background: var(--app-surface);
-  min-height: 36px;
+  min-height: 44px;
 }
 
 .topbar-title {
@@ -177,78 +181,102 @@ function handleSwitchView(mode: 'card' | 'dag') {
   color: var(--app-text-primary);
 }
 
-/* 说明行：单行紧凑，不占多余高度 */
 .monitor-copy-hint {
   flex-shrink: 0;
-  margin: 4px 4px 5px;
-  padding: 4px 10px;
+  margin: 10px 12px 0;
+  padding: 12px 16px;
+  border-radius: 10px;
 }
 
 .monitor-copy-hint :deep(.n-alert__content) {
-  font-size: var(--font-size-xs) !important;
-  line-height: 1.45;
+  padding: 0 !important;
 }
 
-/* 主网格：填满剩余高度 */
-.monitor-grid {
+.monitor-copy-hint__text {
+  font-size: 12px;
+  line-height: 1.6;
+  display: block;
+}
+
+/* 上：曲线+日志（高度有上限，避免占满视口把伏笔区顶出可视区）；下：三卡始终随内容完整占位，整块可滚动 */
+.monitor-stack {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 14px 12px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-bottom: 16px;
+}
+
+.monitor-top-row {
+  flex: 1 1 0;
+  min-height: clamp(200px, 28vh, 380px);
+  max-height: min(52vh, 600px);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  /* 第一行（图表+日志）弹性拉伸；第二行（三小卡）按内容自然高度 */
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 8px;
-  padding: 0 4px 4px;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.monitor-top-chart,
+.monitor-top-log {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
-/* 网格单元：无固定高度，跟随行高 */
+.monitor-bottom-row {
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
 .grid-cell {
+  min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
 }
 
-/* 第一行单元：让内容 card 填满整格 */
-.grid-cell.span-2,
-.grid-cell--terminal {
-  height: 100%;
-}
-
-.grid-cell--terminal {
-  width: 100%;
-  min-width: 0;
-}
-
-.grid-cell.span-1 {
-  grid-column: span 1;
-}
-
-.grid-cell.span-2 {
-  grid-column: span 2;
-}
-
 @media (max-width: 1400px) {
-  .monitor-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .monitor-bottom-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .grid-cell.span-2 {
-    grid-column: span 2;
+}
+
+@media (max-width: 1100px) {
+  .monitor-top-row {
+    grid-template-columns: 1fr;
+    min-height: clamp(220px, 32vh, 400px);
+    max-height: min(58vh, 640px);
+  }
+  .monitor-top-log {
+    min-height: 200px;
+    max-height: min(38vh, 360px);
+  }
+  .monitor-top-chart {
+    min-height: 180px;
+    flex: 1 1 55%;
   }
 }
 
 @media (max-width: 900px) {
-  .monitor-grid {
+  .monitor-bottom-row {
     grid-template-columns: 1fr;
-    grid-template-rows: none;
-    overflow-y: auto;
   }
-  .grid-cell,
-  .grid-cell.span-1,
-  .grid-cell.span-2 {
-    grid-column: span 1;
-    height: auto;
+  .monitor-top-row {
+    min-height: 260px;
+    max-height: none;
   }
 }
 </style>

@@ -48,7 +48,15 @@
             
             <n-tab-pane name="micro" tab="微观">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-                写作时智能拆分，控制节奏和感官细节；下方为本章节拍（优先展示落库的微观节拍，否则与叙事节拍/大纲一致）
+                <template v-if="microHintIsOutlineFallback">
+                  流式生成<strong>失败</strong>时的章纲拆条预览，仅供参考，<strong>不是</strong>指挥器节拍。
+                </template>
+                <template v-else-if="microHintIsNarrativeSections">
+                  以下为知识库<strong>叙事节拍条</strong>（beat_sections），对齐宏观意图；与指挥器微观节拍不同。
+                </template>
+                <template v-else>
+                  落库的微观节拍即写作指挥器真实 Beat。辅助撰稿流式生成成功后，此处同步展示<strong>本轮 SSE 下发的指挥节拍</strong>（保存后以知识库为准）。
+                </template>
               </n-text>
               <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
                 <div v-for="(beat, i) in microBeats" :key="i" class="micro-beat-item">
@@ -65,10 +73,14 @@
                       （约 {{ beat.target_words }} 字）
                     </n-text>
                   </div>
-                  <div class="micro-beat-desc">{{ beat.description }}</div>
+                  <div class="micro-beat-desc">{{ formatBeatDescription(beat.description) }}</div>
                 </div>
               </n-space>
-              <n-empty v-else description="暂无节拍：请在知识库填写本章叙事节拍，或待章节生成/审阅落库后自动写入" size="small" />
+              <n-empty
+                v-else
+                description="暂无指挥器微观节拍：可通过流式生成写入 SSE 节拍，或全托管审阅落库后在此查看"
+                size="small"
+              />
             </n-tab-pane>
           </n-tabs>
         </n-card>
@@ -145,6 +157,7 @@ import type { StoryNode } from '../../api/planning'
 import { knowledgeApi } from '../../api/knowledge'
 import type { ChapterSummary } from '../../api/knowledge'
 import { bibleApi, type CharacterDTO } from '../../api/bible'
+import type { StreamGeneratedBeat } from '../../api/workflow'
 import type { AutopilotChapterAudit } from './ChapterStatusPanel.vue'
 
 const props = withDefaults(
@@ -153,11 +166,17 @@ const props = withDefaults(
     currentChapterNumber?: number | null
     readOnly?: boolean
     autopilotChapterReview?: AutopilotChapterAudit | null
+    /** 辅助撰稿 · 最近一次流式生成下发的指挥器节拍（与 SSE beats_generated 一致） */
+    assistStreamBeatSession?: { chapterNumber: number; beats: StreamGeneratedBeat[] } | null
+    /** 对应章节流式生成失败时，微观区才用章纲拆条兜底 */
+    assistStreamFailedChapter?: number | null
   }>(),
   {
     currentChapterNumber: null,
     readOnly: false,
     autopilotChapterReview: null,
+    assistStreamBeatSession: null,
+    assistStreamFailedChapter: null,
   }
 )
 
@@ -223,8 +242,16 @@ const beatLines = computed(() => {
 
 const showBeatsCard = computed(() => {
   if (!props.currentChapterNumber) return false
-  if (beatLines.value.length > 0) return true
-  return !!(chapterPlan.value?.outline?.trim() || knowledgeChapter.value)
+  if (chapterPlan.value?.outline?.trim()) return true
+  if (knowledgeChapter.value) return true
+  if (
+    props.assistStreamBeatSession?.chapterNumber === props.currentChapterNumber &&
+    props.assistStreamBeatSession.beats.length > 0
+  ) {
+    return true
+  }
+  if (props.assistStreamFailedChapter === props.currentChapterNumber) return true
+  return false
 })
 
 interface MicroBeat {
@@ -239,7 +266,18 @@ const BEAT_FOCUS_LABELS: Record<string, string> = {
   action: '动作',
   emotion: '情绪',
   pacing: '节奏',
+  outline_ref: '大纲参考',
+  narrative_ref: '叙事节拍',
   transition: '过渡',
+}
+
+function formatBeatDescription(raw: string): string {
+  const s = String(raw || '').trim()
+  const prefix = '【章纲节选·须落实】'
+  if (!s.startsWith(prefix)) return s
+  const nl = s.indexOf('\n')
+  if (nl === -1) return s
+  return s.slice(nl + 1).trim() || s
 }
 
 function beatFocusLabel(focus: string): string {
@@ -276,22 +314,61 @@ function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
   return out
 }
 
-/** 结构化微观节拍（micro_beats）；若无则用 beat_sections / 大纲行作为可读占位，与「宏观」同源数据、卡片化展示 */
+/** 指挥器节拍优先：落库 micro_beats → 本轮 SSE beats_generated → beat_sections（叙事条）→ 仅流式失败时用章纲拆条兜底 */
 const microBeats = computed<MicroBeat[]>(() => {
   const k = knowledgeChapter.value
+  const ch = props.currentChapterNumber
+  if (!ch) return []
+
   if (k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0) {
     const parsed = normalizeMicroBeatItems(k.micro_beats as unknown[])
     if (parsed.length > 0) return parsed
   }
+
+  const sess = props.assistStreamBeatSession
+  if (sess && sess.chapterNumber === ch && sess.beats.length > 0) {
+    const parsed = normalizeMicroBeatItems(sess.beats as unknown[])
+    if (parsed.length > 0) return parsed
+  }
+
   const lines = beatLines.value
-  if (lines.length > 0) {
+  if (!lines.length) return []
+
+  if (k?.beat_sections?.length) {
     return lines.map(line => ({
       description: line,
       target_words: 0,
-      focus: 'pacing',
+      focus: 'narrative_ref',
     }))
   }
+
+  const allowOutlineFallback =
+    props.assistStreamFailedChapter != null && props.assistStreamFailedChapter === ch
+  if (allowOutlineFallback) {
+    return lines.map(line => ({
+      description: line,
+      target_words: 0,
+      focus: 'outline_ref',
+    }))
+  }
+
   return []
+})
+
+const microHintIsOutlineFallback = computed(() => {
+  const ch = props.currentChapterNumber
+  if (!ch || !microBeats.value.length) return false
+  return microBeats.value.every(b => b.focus === 'outline_ref')
+})
+
+const microHintIsNarrativeSections = computed(() => {
+  if (!microBeats.value.length || microHintIsOutlineFallback.value) return false
+  const k = knowledgeChapter.value
+  if (k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0) return false
+  const ch = props.currentChapterNumber
+  const sess = props.assistStreamBeatSession
+  if (sess && sess.chapterNumber === ch && sess.beats.length > 0) return false
+  return microBeats.value.every(b => b.focus === 'narrative_ref')
 })
 
 const getBeatTypeColor = (focus: string): 'success' | 'warning' | 'error' | 'info' | 'default' => {
@@ -301,6 +378,8 @@ const getBeatTypeColor = (focus: string): 'success' | 'warning' | 'error' | 'inf
     action: 'warning',
     emotion: 'error',
     pacing: 'default',
+    outline_ref: 'default',
+    narrative_ref: 'info',
     transition: 'info',
   }
   return colorMap[focus] || 'default'

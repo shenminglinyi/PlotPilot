@@ -33,6 +33,8 @@ export interface LLMProfile {
 export interface LLMControlConfig {
   version: number
   active_profile_id: string | null
+  /** 与后端一致：unified = 共用主力端点；independent = 分角色档案 */
+  endpoint_mode?: 'unified' | 'independent'
   profiles: LLMProfile[]
 }
 

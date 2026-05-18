@@ -210,8 +210,18 @@ export interface ChunkStats {
   estimated_tokens: number
 }
 
+/** 流式生成阶段下发的指挥器节拍（与后端 beats_generated 一致） */
+export interface StreamGeneratedBeat {
+  description: string
+  target_words: number
+  focus: string
+  location_id?: string
+}
+
 export type GenerateChapterStreamEvent =
-  | { type: 'phase'; phase: 'planning' | 'context' | 'llm' | 'post' }
+  | { type: 'phase'; phase: 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post' }
+  | { type: 'llm_chunk'; stage: string; text: string }
+  | { type: 'beats_generated'; beats: StreamGeneratedBeat[] }
   | { type: 'chunk'; text: string; stats: ChunkStats }
   | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number; output_tokens: number; total_tokens: number; chars: number; style_warnings?: StyleWarning[]; ghost_annotations?: unknown[] }
   | { type: 'error'; message: string }
@@ -227,7 +237,7 @@ function parseSseDataLine(line: string): unknown | null {
 
 /**
  * POST /api/v1/novels/{novel_id}/generate-chapter-stream（SSE）
- * 阶段进度 + 正文流式；结束事件含 done 或 error。
+ * 阶段进度 + 正文流式；章纲节拍划分阶段可下发 llm_chunk（stage=outline_partition）；结束事件含 done 或 error。
  */
 export async function consumeGenerateChapterStream(
   novelId: string,
@@ -235,6 +245,10 @@ export async function consumeGenerateChapterStream(
   handlers: {
     onEvent?: (ev: GenerateChapterStreamEvent) => void
     onPhase?: (phase: string) => void
+    /** 节拍拆分完成（撰写正文前），与写作指挥器 Beat 一致 */
+    onBeatsGenerated?: (beats: StreamGeneratedBeat[]) => void
+    /** 非正文 LLM 的流式增量（如 outline_partition 节拍划分 JSON） */
+    onLLMChunk?: (stage: string, text: string) => void
     onChunk?: (text: string, stats?: ChunkStats) => void
     onDone?: (result: GenerateChapterWorkflowResponse) => void
     onError?: (message: string) => void
@@ -272,6 +286,39 @@ export async function consumeGenerateChapterStream(
             const ev: GenerateChapterStreamEvent = { type: 'phase', phase: ph as 'planning' | 'context' | 'llm' | 'post' }
             handlers.onEvent?.(ev)
             handlers.onPhase?.(ph)
+          } else if (typ === 'beats_generated') {
+            const raw = o.beats
+            const beats: StreamGeneratedBeat[] = []
+            if (Array.isArray(raw)) {
+              for (const row of raw) {
+                if (!row || typeof row !== 'object') continue
+                const r = row as Record<string, unknown>
+                const description = String(r.description ?? r.text ?? '').trim()
+                if (!description) continue
+                const tw = r.target_words
+                const target_words =
+                  typeof tw === 'number' && Number.isFinite(tw)
+                    ? tw
+                    : typeof tw === 'string' && tw.trim() !== '' && Number.isFinite(Number(tw))
+                      ? Number(tw)
+                      : 0
+                beats.push({
+                  description,
+                  target_words,
+                  focus: String(r.focus ?? r.type ?? 'pacing').trim() || 'pacing',
+                  location_id: typeof r.location_id === 'string' ? r.location_id : undefined,
+                })
+              }
+            }
+            const ev: GenerateChapterStreamEvent = { type: 'beats_generated', beats }
+            handlers.onEvent?.(ev)
+            handlers.onBeatsGenerated?.(beats)
+          } else if (typ === 'llm_chunk') {
+            const stage = String(o.stage ?? '')
+            const text = String(o.text ?? '')
+            const ev: GenerateChapterStreamEvent = { type: 'llm_chunk', stage, text }
+            handlers.onEvent?.(ev)
+            handlers.onLLMChunk?.(stage, text)
           } else if (typ === 'chunk') {
             const text = String(o.text ?? '')
             const stats = o.stats as ChunkStats | undefined

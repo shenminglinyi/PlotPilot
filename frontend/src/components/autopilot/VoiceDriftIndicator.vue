@@ -280,15 +280,15 @@ onUnmounted(() => {
 .voice-drift-indicator {
   background: var(--card-color);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 14px 16px;
 }
 
 .indicator-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .indicator-title {
@@ -299,8 +299,8 @@ onUnmounted(() => {
 
 .indicator-body {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 18px;
 }
 
 .progress-circle {
@@ -331,18 +331,20 @@ onUnmounted(() => {
 .status-info {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   flex: 1;
+  min-width: 0;
+  padding-top: 2px;
 }
 
 .status-label {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .status-desc {
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .last-check {

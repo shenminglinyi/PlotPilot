@@ -7,17 +7,19 @@
           只读摘要 · 编辑见侧栏伏笔账本
         </n-text>
       </div>
-      <n-space :size="8">
-        <n-tag :bordered="false" size="small" type="success">
-          已回收 {{ collectedCount }}
-        </n-tag>
-        <n-tag :bordered="false" size="small" type="warning">
-          待回收 {{ pendingCount }}
-        </n-tag>
-        <n-button size="tiny" quaternary @click="showFullLedger">
-          查看全部
-        </n-button>
-      </n-space>
+      <div class="ledger-actions">
+        <n-space :size="10" :wrap="true">
+          <n-tag :bordered="false" size="small" type="success">
+            已回收 {{ collectedCount }}
+          </n-tag>
+          <n-tag :bordered="false" size="small" type="warning">
+            待回收 {{ pendingCount }}
+          </n-tag>
+          <n-button size="tiny" quaternary @click="showFullLedger">
+            查看全部
+          </n-button>
+        </n-space>
+      </div>
     </div>
 
     <div class="ledger-body">
@@ -327,23 +329,30 @@ onUnmounted(() => {
 .foreshadow-ledger {
   background: var(--card-color);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 10px;
+  padding: 14px 16px;
 }
 
 .ledger-header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .ledger-title-block {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
+}
+
+.ledger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .ledger-title {
@@ -354,33 +363,33 @@ onUnmounted(() => {
 
 .ledger-sub {
   font-size: 11px;
-  line-height: 1.35;
+  line-height: 1.45;
 }
 
 .ledger-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 10px;
 }
 
 .stat-card {
   background: var(--color-target-modal);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: 8px;
+  padding: 10px 8px;
   text-align: center;
 }
 
 .stat-label {
   font-size: 11px;
   color: var(--text-color-3);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .stat-value {

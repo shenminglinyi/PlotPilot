@@ -242,6 +242,8 @@
                   :current-chapter-number="currentChapter?.number ?? null"
                   :read-only="isAssistedReadOnly"
                   :autopilot-chapter-review="autopilotChapterReview"
+                  :assist-stream-beat-session="assistStreamBeatSession"
+                  :assist-stream-failed-chapter="assistStreamFailedChapter"
                 />
                 <ChapterStatusPanel
                   :slug="slug"
@@ -510,6 +512,59 @@
                 </n-text>
               </n-space>
             </n-space>
+
+            <!-- SSE 实时日志 + 章前规划骨架 -->
+            <n-card v-if="generateInProgress" size="small" bordered class="gen-stream-meta-card">
+              <template #header>
+                <n-space justify="space-between" align="center" style="width: 100%">
+                  <n-text strong style="font-size: 13px">实时日志 · SSE</n-text>
+                  <n-text depth="3" style="font-size: 11px">
+                    {{ generateSseLog.length }} / {{ MAX_SSE_LOG_LINES }} 条
+                  </n-text>
+                </n-space>
+              </template>
+              <n-space vertical :size="10">
+                <div v-if="planningSkeletonRows > 0">
+                  <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
+                    章前规划 · 流式 Loading（逐条骨架）
+                  </n-text>
+                  <div
+                    v-for="i in planningSkeletonRows"
+                    :key="'plan-sk-' + i"
+                    class="plan-skel-line"
+                  >
+                    <n-skeleton height="14px" round :style="{ width: planningSkeletonWidthPct(i) }" />
+                  </div>
+                </div>
+                <div>
+                  <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 6px">
+                    事件流
+                  </n-text>
+                  <div ref="sseLogScrollEl" class="sse-log-scroll">
+                    <n-space vertical :size="6">
+                      <div v-for="(line, idx) in generateSseLog" :key="idx" class="sse-log-row">
+                        <n-tag size="tiny" round :type="sseTagType(line.tag)">{{ line.tag }}</n-tag>
+                        <n-text style="font-size: 11px; margin-left: 8px" depth="2">{{ line.msg }}</n-text>
+                      </div>
+                      <n-text v-if="generateSseLog.length === 0" depth="3" style="font-size: 11px">
+                        等待 SSE…
+                      </n-text>
+                    </n-space>
+                  </div>
+                  <n-button
+                    v-if="generateSseLog.length > 0"
+                    size="tiny"
+                    quaternary
+                    block
+                    style="margin-top: 8px"
+                    @click="scrollGenerateSseLogBottom()"
+                  >
+                    回到底部
+                  </n-button>
+                </div>
+              </n-space>
+            </n-card>
+
             <n-scrollbar style="max-height: 500px">
               <n-input
                 v-model:value="generatedContent"
@@ -649,7 +704,7 @@ import {
   retrieveContext,
   saveChapterDraft,
 } from '../../api/workflow'
-import type { ContextPreviewResult, GenerateChapterWorkflowResponse } from '../../api/workflow'
+import type { ContextPreviewResult, GenerateChapterWorkflowResponse, StreamGeneratedBeat } from '../../api/workflow'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi } from '../../api/chapter'
@@ -756,6 +811,11 @@ const outlineBlurAnalyzing = ref(false)
 const streamPhaseLabel = ref('')
 const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
+
+/** 辅助撰稿 · 流式生成下发的指挥器节拍（SSE beats_generated） */
+const assistStreamBeatSession = ref<{ chapterNumber: number; beats: StreamGeneratedBeat[] } | null>(null)
+/** 对应章节流式调用失败时，侧栏微观节拍才降级为章纲分条预览 */
+const assistStreamFailedChapter = ref<number | null>(null)
 
 /** 重新生成模式：开启时弹窗中显示「改进方向」输入框，并在生成前自动快照当前内容 */
 const isRegenerationMode = ref(false)
@@ -988,6 +1048,8 @@ watch(
     lastAutopilotReactiveFp.value = ''
     assistedAutopilot404 = false
     assistAutopilotPollFailures = 0
+    assistStreamBeatSession.value = null
+    assistStreamFailedChapter.value = null
     clearAssistedAutopilotPoll()
     if (workMode.value === 'assisted') {
       void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
@@ -1425,6 +1487,8 @@ const handleStartGenerate = async () => {
   const targetChapterNumber = target.number
   generatingChapterId.value = targetChapterId
   generateInProgress.value = true
+  assistStreamBeatSession.value = null
+  assistStreamFailedChapter.value = null
   generatedContent.value = ''
   sceneDirectorError.value = ''
   lastWorkflowResult.value = null
@@ -1512,6 +1576,16 @@ const handleStartGenerate = async () => {
           streamPhaseLabel.value = streamPhaseToLabel(phase)
           streamProgressPct.value = streamPhaseToProgress(phase)
         },
+        onBeatsGenerated: (beats) => {
+          if (beats.length > 0) {
+            assistStreamBeatSession.value = { chapterNumber: targetChapterNumber, beats }
+          }
+        },
+        onLLMChunk: (stage) => {
+          if (stage === 'outline_partition') {
+            streamPhaseLabel.value = '划分章节节拍（模型 SSE）…'
+          }
+        },
         onChunk: (text, stats) => {
           generatedContent.value += text
           if (stats) {
@@ -1524,6 +1598,7 @@ const handleStartGenerate = async () => {
           generatedContent.value = result.content
           streamProgressPct.value = 100
           streamPhaseLabel.value = '已完成'
+          assistStreamFailedChapter.value = null
           if (props.currentChapterId === targetChapterId) {
             message.success('生成完成，质检已同步到本章侧栏')
           } else {
@@ -1534,6 +1609,7 @@ const handleStartGenerate = async () => {
         onError: (err) => {
           if (!ctrl.signal.aborted) {
             message.error(`生成失败: ${err}`)
+            assistStreamFailedChapter.value = targetChapterNumber
           }
         },
       }
@@ -1541,6 +1617,7 @@ const handleStartGenerate = async () => {
   } catch {
     if (!ctrl.signal.aborted) {
       message.error('生成失败')
+      assistStreamFailedChapter.value = targetChapterNumber
     }
   } finally {
     generateInProgress.value = false
@@ -1766,7 +1843,8 @@ defineExpose({ ensureAssistedMode })
 .managed-monitor :deep(.autopilot-dashboard) {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  /* 纵向滚动仅发生在 Dashboard 内部的 .monitor-stack，避免与侧栏双滚动条 */
+  overflow: hidden;
 }
 
 .work-header {

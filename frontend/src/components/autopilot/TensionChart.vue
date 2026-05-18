@@ -509,6 +509,15 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+  border-radius: 10px;
+}
+
+.tension-card :deep(.n-card-header) {
+  padding: 12px 16px 10px;
+}
+
+.tension-card :deep(.n-card-header__main) {
+  min-width: 0;
 }
 
 .tension-card :deep(.n-card__content) {
@@ -516,14 +525,14 @@ onUnmounted(() => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding-bottom: 8px !important;
+  padding: 12px 16px 14px !important;
 }
 
 /* 图表容器：弹性拉伸，最小保底高度防止 echarts 报零尺寸 */
 .chart-container {
   width: 100%;
   flex: 1;
-  min-height: 100px;
+  min-height: 140px;
   position: relative;
 }
 
@@ -547,14 +556,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   flex: 1;
-  min-height: 100px;
-  padding: 8px 0;
+  min-height: 120px;
+  padding: 16px 0 20px;
 }
 
 .chart-stats {
   flex-shrink: 0;
-  margin-top: 4px;
-  padding-top: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--n-border-color, rgba(0,0,0,0.08));
 }
 </style>
