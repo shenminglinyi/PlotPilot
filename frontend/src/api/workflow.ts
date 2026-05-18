@@ -202,6 +202,8 @@ export interface GenerateChapterWorkflowResponse {
   token_count: number
   style_warnings?: StyleWarning[]
   ghost_annotations?: unknown[]
+  /** 流式 done 事件附带的指挥器节拍（与 beats_generated 一致，兜底） */
+  beats?: StreamGeneratedBeat[]
 }
 
 export interface ChunkStats {
@@ -216,6 +218,34 @@ export interface StreamGeneratedBeat {
   target_words: number
   focus: string
   location_id?: string
+}
+
+/** 解析 SSE beats 行（beats_generated / done.beats 共用） */
+export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
+  const beats: StreamGeneratedBeat[] = []
+  if (!Array.isArray(raw)) return beats
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    const description = String(
+      r.description ?? r.text ?? r.intent ?? r.scene_goal ?? '',
+    ).trim()
+    if (!description) continue
+    const tw = r.target_words
+    const target_words =
+      typeof tw === 'number' && Number.isFinite(tw)
+        ? tw
+        : typeof tw === 'string' && tw.trim() !== '' && Number.isFinite(Number(tw))
+          ? Number(tw)
+          : 0
+    beats.push({
+      description,
+      target_words,
+      focus: String(r.focus ?? r.type ?? 'pacing').trim() || 'pacing',
+      location_id: typeof r.location_id === 'string' ? r.location_id : undefined,
+    })
+  }
+  return beats
 }
 
 export type GenerateChapterStreamEvent =
@@ -283,33 +313,14 @@ export async function consumeGenerateChapterStream(
           const typ = o.type as string
           if (typ === 'phase') {
             const ph = String(o.phase ?? '')
-            const ev: GenerateChapterStreamEvent = { type: 'phase', phase: ph as 'planning' | 'context' | 'llm' | 'post' }
+            const ev: GenerateChapterStreamEvent = {
+              type: 'phase',
+              phase: ph as 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post',
+            }
             handlers.onEvent?.(ev)
             handlers.onPhase?.(ph)
           } else if (typ === 'beats_generated') {
-            const raw = o.beats
-            const beats: StreamGeneratedBeat[] = []
-            if (Array.isArray(raw)) {
-              for (const row of raw) {
-                if (!row || typeof row !== 'object') continue
-                const r = row as Record<string, unknown>
-                const description = String(r.description ?? r.text ?? '').trim()
-                if (!description) continue
-                const tw = r.target_words
-                const target_words =
-                  typeof tw === 'number' && Number.isFinite(tw)
-                    ? tw
-                    : typeof tw === 'string' && tw.trim() !== '' && Number.isFinite(Number(tw))
-                      ? Number(tw)
-                      : 0
-                beats.push({
-                  description,
-                  target_words,
-                  focus: String(r.focus ?? r.type ?? 'pacing').trim() || 'pacing',
-                  location_id: typeof r.location_id === 'string' ? r.location_id : undefined,
-                })
-              }
-            }
+            const beats = parseStreamGeneratedBeats(o.beats)
             const ev: GenerateChapterStreamEvent = { type: 'beats_generated', beats }
             handlers.onEvent?.(ev)
             handlers.onBeatsGenerated?.(beats)
@@ -335,6 +346,10 @@ export async function consumeGenerateChapterStream(
               content: String(o.content ?? ''),
               consistency_report,
               token_count: Number(o.token_count ?? 0),
+            }
+            const doneBeats = parseStreamGeneratedBeats(o.beats)
+            if (doneBeats.length > 0) {
+              result.beats = doneBeats
             }
             if (Array.isArray(o.style_warnings)) {
               result.style_warnings = o.style_warnings as StyleWarning[]
