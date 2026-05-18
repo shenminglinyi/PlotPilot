@@ -1,10 +1,9 @@
 <template>
   <div class="ap-metrics">
-    <n-alert type="default" :show-icon="false" class="ap-metrics__hint">
-      <n-text depth="3" class="ap-metrics__hint-text">
-        <strong>仪表盘</strong>：全书张力走势与角色声线、伏笔、熔断等质量指标。实时日志与 DAG 画布请切换到「监控 · DAG」。
-      </n-text>
-    </n-alert>
+    <header class="ap-metrics__head">
+      <h2 class="ap-metrics__title">仪表盘</h2>
+      <p class="ap-metrics__desc">张力走势、文风偏离、伏笔账本与熔断状态</p>
+    </header>
 
     <div class="ap-metrics__stack">
       <section class="ap-metrics__hero" aria-label="张力曲线">
@@ -101,16 +100,25 @@ defineExpose({ bumpRefresh: handleMonitorRefresh })
   background: var(--app-surface-subtle);
 }
 
-.ap-metrics__hint {
+.ap-metrics__head {
   flex-shrink: 0;
-  margin: 12px 16px 0;
-  border-radius: var(--app-radius-md);
+  margin: 14px 16px 0;
+  padding-bottom: 4px;
 }
 
-.ap-metrics__hint-text {
+.ap-metrics__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.ap-metrics__desc {
+  margin: 4px 0 0;
   font-size: 12px;
-  line-height: 1.6;
-  display: block;
+  color: var(--app-text-muted);
+  line-height: 1.5;
 }
 
 .ap-metrics__stack {

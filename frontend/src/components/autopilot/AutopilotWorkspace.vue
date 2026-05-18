@@ -9,9 +9,6 @@
         class="ap-workspace__pane ap-workspace__pane--cockpit"
         aria-label="全托管驾驶"
       >
-        <n-alert type="success" :show-icon="true" class="ap-workspace__hint">
-          <strong>全托管模式</strong>：后端守护进程自动宏观规划、幕级规划、章节撰写与审计。启动后可在「仪表盘」看质量指标，在「监控 · DAG」看日志与画布。
-        </n-alert>
         <AutopilotPanel
           class="ap-workspace__cockpit-panel"
           :novel-id="novelId"
@@ -140,22 +137,12 @@ function onBeatsPlanned(payload: { chapterNumber: number; beats: Array<Record<st
 
 .ap-workspace__pane--cockpit {
   overflow-y: auto;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--color-success, #16a34a) 4%, var(--app-surface)) 0%,
-    var(--app-surface) 120px
-  );
-}
-
-.ap-workspace__hint {
-  flex-shrink: 0;
-  margin: 12px 16px 0;
-  font-size: 12px;
-  line-height: 1.55;
+  background: var(--app-page-bg);
 }
 
 .ap-workspace__cockpit-panel {
   flex-shrink: 0;
+  margin: 12px 16px 16px;
 }
 
 .ap-workspace__pane--ops {

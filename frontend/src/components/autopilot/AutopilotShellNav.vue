@@ -164,7 +164,11 @@ const activeMeta = computed(() => {
 }
 
 .ap-shell-nav__segment.is-active .ap-shell-nav__segment-hint {
-  color: color-mix(in srgb, var(--color-primary, #2563eb) 55%, var(--app-text-muted));
+  color: color-mix(in srgb, var(--color-primary) 55%, var(--app-text-muted));
+}
+
+.ap-shell-nav__segment.is-active .ap-shell-nav__segment-label {
+  color: var(--color-primary);
 }
 
 .ap-shell-nav__desc {

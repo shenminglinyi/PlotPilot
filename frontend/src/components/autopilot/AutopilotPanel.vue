@@ -1,132 +1,169 @@
 <template>
   <div class="autopilot-panel">
-    <!-- 状态头 -->
-    <div class="ap-header">
-      <span class="ap-dot" :class="dotClass"></span>
-      <span class="ap-title">全托管驾驶</span>
-      <span class="ap-stage-tag" :class="stageTagClass">
-        <template v-if="stageTransitioning">
-          <span class="skeleton-inline skeleton-pulse"></span>
-          <span class="stage-transition-label">
-            <span class="stage-text">{{ stagePresentation.text }}</span>
-            <span v-if="stagePresentation.live" class="ap-stage-live" aria-label="实时同步" />
+    <section class="ap-hero" aria-label="运行状态">
+      <div class="ap-hero__top">
+        <div class="ap-hero__status">
+          <span class="ap-dot" :class="dotClass" aria-hidden="true" />
+          <span class="ap-hero__eyebrow">守护进程</span>
+          <span class="ap-stage-tag" :class="stageTagClass">
+            <template v-if="stageTransitioning">
+              <span class="skeleton-inline skeleton-pulse" />
+              <span class="stage-transition-label">
+                <span class="stage-text">{{ stagePresentation.text }}</span>
+                <span v-if="stagePresentation.live" class="ap-stage-live" aria-label="实时同步" />
+              </span>
+            </template>
+            <template v-else>
+              <span class="stage-text">{{ stagePresentation.text }}</span>
+              <span v-if="stagePresentation.live" class="ap-stage-live" aria-label="实时同步" />
+            </template>
           </span>
-        </template>
-        <template v-else>
-          <span class="stage-text">{{ stagePresentation.text }}</span>
-          <span v-if="stagePresentation.live" class="ap-stage-live" aria-label="实时同步" />
-        </template>
-      </span>
-      <!-- 🔧 新增：SSE 连接状态指示 -->
-      <span v-if="isWriting" class="sse-status" :class="sseConnected ? 'connected' : 'disconnected'">
-        {{ sseConnected ? '已连接' : (sseReconnecting ? '重连中...' : '未连接') }}
-      </span>
-    </div>
+          <span
+            v-if="isWriting"
+            class="ap-sse-pill"
+            :class="sseConnected ? 'is-on' : 'is-off'"
+          >
+            {{ sseConnected ? '流式已连接' : (sseReconnecting ? '重连中' : '流式未连接') }}
+          </span>
+        </div>
+        <div class="ap-hero__pct" :class="{ 'is-active': isRunning }">
+          <span class="ap-hero__pct-value">{{ progressPctDisplay }}</span>
+          <span class="ap-hero__pct-label">全书进度</span>
+        </div>
+      </div>
+      <n-progress
+        class="ap-hero__bar"
+        type="line"
+        :percentage="progressPct"
+        :color="progressColor"
+        :show-indicator="false"
+        :height="8"
+        :border-radius="4"
+      />
+      <p v-if="status" class="ap-hero__plan-line">
+        目标篇幅（与首页一致）
+        <strong>{{ formatWords(planTotalWordsHint) }}</strong> 字 ·
+        <strong>{{ status.target_chapters ?? '—' }}</strong> 章 ×
+        <strong>{{ status.target_words_per_chapter ?? 2500 }}</strong> 字/章
+        <n-button
+          text
+          type="primary"
+          size="tiny"
+          class="ap-hero__plan-toggle"
+          @click="planExpanded = !planExpanded"
+        >
+          {{ planExpanded ? '收起说明' : '说明' }}
+        </n-button>
+      </p>
+      <p v-if="status && planExpanded" class="ap-plan-detail">
+        写满目标章即停；节拍按每章字数拆分。流式字数可能暂时高于章目标，节拍末会收束再落稿。
+        进度条、幕/章/节拍与阶段标签可能短暂不同步，以守护进程状态为准。
+      </p>
+    </section>
 
     <n-alert
       v-if="statusConnectivityFailures >= 2 && !statusPollDisabled"
       type="warning"
       :show-icon="true"
-      style="margin: 4px 0; font-size: 12px"
+      class="ap-inline-alert"
     >
-      无法连接写作后端（开发与 Vite 约定为 <code>127.0.0.1:8005</code>）。已自动<strong>拉长轮询间隔</strong>，请启动 API 后再试。
+      无法连接写作后端（开发约定 <code>127.0.0.1:8005</code>）。已自动拉长轮询间隔，请启动 API 后再试。
     </n-alert>
 
-    <!-- 进度条 -->
-    <n-progress
-      type="line"
-      :percentage="progressPct"
-      :color="progressColor"
-      indicator-placement="inside"
-      :height="14"
-      style="margin: 4px 0"
-    />
-
-    <p v-if="status" class="ap-plan-hint">
-      与首页「目标篇幅」同一套落库参数：计划约
-      <strong>{{ formatWords(planTotalWordsHint) }}</strong> 字（
-      <strong>{{ status.target_chapters ?? '—' }}</strong> 章 ×
-      <strong>{{ status.target_words_per_chapter ?? 2500 }}</strong> 字/章）。全托管写满目标章即停；节拍拆分按「每章字数」执行。
-      写作过程中流式字数可能暂时高于该目标，属正常现象，每节拍末会收束后再落稿。
-      进度条、幕/章/节拍与顶栏阶段可能短暂不同步，以守护进程状态为准，不影响落稿。
-    </p>
-
-    <!-- 数据格 -->
-    <div class="ap-grid">
-      <div class="ap-cell">
-        <div class="label">完稿 / 书稿</div>
-        <div class="value">
-          {{ status?.completed_chapters || 0 }} / {{ status?.manuscript_chapters ?? status?.completed_chapters ?? 0 }} / {{ status?.target_chapters || '-' }}
-        </div>
-      </div>
-      <div class="ap-cell">
-        <div class="label">总字数</div>
-        <div class="value">{{ formatWords(status?.total_words) }}</div>
-      </div>
-      <div class="ap-cell">
-        <div class="label">当前幕 / 章 / 节拍</div>
-        <div class="value">
-          第 {{ (status?.current_act || 0) + 1 }} 幕
-          <span v-if="status?.current_act_title" class="act-title">{{ status.current_act_title }}</span>
-          <template v-if="status?.current_chapter_number != null && isWriting">
+    <section v-if="status" class="ap-kpi-grid" aria-label="关键指标">
+      <article class="ap-kpi">
+        <span class="ap-kpi__label">完稿 / 书稿 / 目标</span>
+        <span class="ap-kpi__value">
+          {{ status.completed_chapters || 0 }}
+          <span class="ap-kpi__sep">/</span>
+          {{ status.manuscript_chapters ?? status.completed_chapters ?? 0 }}
+          <span class="ap-kpi__sep">/</span>
+          {{ status.target_chapters || '—' }}
+        </span>
+      </article>
+      <article class="ap-kpi">
+        <span class="ap-kpi__label">总字数</span>
+        <span class="ap-kpi__value">{{ formatWords(status.total_words) }}</span>
+      </article>
+      <article class="ap-kpi">
+        <span class="ap-kpi__label">当前位置</span>
+        <span class="ap-kpi__value ap-kpi__value--wrap">
+          第 {{ (status.current_act || 0) + 1 }} 幕
+          <template v-if="status.current_act_title">
+            <span class="ap-kpi__act">{{ status.current_act_title }}</span>
+          </template>
+          <template v-if="status.current_chapter_number != null && isWriting">
             · 第 {{ status.current_chapter_number }} 章
           </template>
-          <span v-if="isWriting"> · {{ beatLabel }}</span>
-        </div>
-        <!-- 🔥 幕描述：更醒目的展示 -->
-        <div v-if="status?.current_act_description" class="act-desc">
-          <span class="act-desc-icon">📖</span> {{ status.current_act_description }}
-        </div>
-        <!-- 🔥 幕无描述但有标题时也提示 -->
-        <div v-else-if="status?.current_act_title && !status?.current_act_description" class="act-desc act-desc-placeholder">
-          暂无幕描述
-        </div>
-      </div>
-      <div class="ap-cell">
-        <div class="label">上章张力</div>
-        <div class="value" :style="{ color: tensionColor }">{{ tensionLabel }}</div>
-      </div>
-    </div>
+          <span v-if="isWriting" class="ap-kpi__muted">· {{ beatLabel }}</span>
+        </span>
+      </article>
+      <article class="ap-kpi">
+        <span class="ap-kpi__label">上章张力</span>
+        <span class="ap-kpi__value" :style="{ color: tensionColor }">{{ tensionLabel }}</span>
+      </article>
+    </section>
 
-    <!-- ★ V9 细化状态条：运行中时展示子步骤、节拍进度、字数进度 -->
-    <div v-if="isRunning && writingSubstepDetail" class="ap-detail-strip">
-      <div class="detail-row">
-        <span class="detail-label">子步骤</span>
-        <span class="detail-value">
-          <span class="substep-badge" :class="substepBadgeClass">{{ writingSubstepDetail.substepLabel }}</span>
-        </span>
-      </div>
-      <div class="detail-row" v-if="writingSubstepDetail.totalBeats > 0">
-        <span class="detail-label">节拍进度</span>
-        <span class="detail-value">
-          {{ writingSubstepDetail.beatIndex }}/{{ writingSubstepDetail.totalBeats }}
-          <div class="mini-progress">
-            <div class="mini-progress-fill" :style="{ width: writingSubstepDetail.beatPct + '%' }"></div>
-          </div>
-        </span>
-      </div>
-      <div class="detail-row" v-if="writingSubstepDetail.accumulatedWords > 0">
-        <span class="detail-label">字数进度</span>
-        <span class="detail-value">
-          {{ writingSubstepDetail.accumulatedWords }}/{{ writingSubstepDetail.chapterTargetWords }}字
-          <span class="pct-tag">{{ writingSubstepDetail.wordPct }}%</span>
-          <div class="mini-progress">
-            <div class="mini-progress-fill word-fill" :style="{ width: writingSubstepDetail.wordPct + '%' }"></div>
-          </div>
-        </span>
-      </div>
-      <div class="detail-row" v-if="writingSubstepDetail.beatFocus">
-        <span class="detail-label">节拍焦点</span>
-        <span class="detail-value focus-text">{{ writingSubstepDetail.beatFocus }}</span>
-      </div>
-      <div class="detail-row" v-if="writingSubstepDetail.contextTokens > 0">
-        <span class="detail-label">上下文</span>
-        <span class="detail-value">{{ writingSubstepDetail.contextTokens }} tokens</span>
-      </div>
-    </div>
+    <section
+      v-if="status?.current_act_description || (status?.current_act_title && !status?.current_act_description)"
+      class="ap-narrative"
+      aria-label="当前幕叙事"
+    >
+      <span class="ap-narrative__label">当前幕</span>
+      <p v-if="status.current_act_description" class="ap-narrative__body">
+        <span v-if="status.current_act_title" class="ap-narrative__title">{{ status.current_act_title }}</span>
+        {{ status.current_act_description }}
+      </p>
+      <p v-else class="ap-narrative__body ap-narrative__body--muted">暂无幕描述</p>
+    </section>
 
+    <section
+      v-if="isRunning && writingSubstepDetail"
+      class="ap-telemetry"
+      aria-label="实时子步骤"
+    >
+      <header class="ap-telemetry__head">
+        <span class="ap-telemetry__title">实时管线</span>
+        <span class="substep-badge" :class="substepBadgeClass">{{ writingSubstepDetail.substepLabel }}</span>
+      </header>
+      <div class="ap-telemetry__grid">
+        <div v-if="writingSubstepDetail.totalBeats > 0" class="ap-telemetry__item">
+          <span class="ap-telemetry__key">节拍</span>
+          <span class="ap-telemetry__val">
+            {{ writingSubstepDetail.beatIndex }}/{{ writingSubstepDetail.totalBeats }}
+          </span>
+          <div class="ap-meter">
+            <div
+              class="ap-meter__fill ap-meter__fill--beat"
+              :style="{ width: writingSubstepDetail.beatPct + '%' }"
+            />
+          </div>
+        </div>
+        <div v-if="writingSubstepDetail.accumulatedWords > 0" class="ap-telemetry__item">
+          <span class="ap-telemetry__key">本章字数</span>
+          <span class="ap-telemetry__val">
+            {{ writingSubstepDetail.accumulatedWords }}/{{ writingSubstepDetail.chapterTargetWords }}
+            <span class="pct-tag">{{ writingSubstepDetail.wordPct }}%</span>
+          </span>
+          <div class="ap-meter">
+            <div
+              class="ap-meter__fill ap-meter__fill--word"
+              :style="{ width: Math.min(100, writingSubstepDetail.wordPct) + '%' }"
+            />
+          </div>
+        </div>
+        <div v-if="writingSubstepDetail.beatFocus" class="ap-telemetry__item ap-telemetry__item--wide">
+          <span class="ap-telemetry__key">焦点</span>
+          <span class="ap-telemetry__val ap-telemetry__val--focus">{{ writingSubstepDetail.beatFocus }}</span>
+        </div>
+        <div v-if="writingSubstepDetail.contextTokens > 0" class="ap-telemetry__item">
+          <span class="ap-telemetry__key">上下文</span>
+          <span class="ap-telemetry__val">{{ writingSubstepDetail.contextTokens }} tokens</span>
+        </div>
+      </div>
+    </section>
     <!-- 单本挂起 / 失败计数过高 -->
-    <n-alert v-if="needsRecovery" type="error" :show-icon="true" style="margin: 4px 0; font-size: 12px">
+    <n-alert v-if="needsRecovery" type="error" :show-icon="true" class="ap-inline-alert">
       <div class="recovery-hint">
         <p v-if="status?.autopilot_status === 'error'">
           本书已因<strong>连续失败</strong>被标为<strong>异常挂起</strong>。
@@ -150,7 +187,7 @@
     </n-alert>
 
     <!-- 审阅等待 -->
-    <n-alert v-if="needsReview" type="warning" :show-icon="true" style="margin: 4px 0; font-size: 12px">
+    <n-alert v-if="needsReview" type="warning" :show-icon="true" class="ap-inline-alert">
       <div class="ap-review-alert">
         <span>
           <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲或结构树，核对无误后点击按钮继续。
@@ -281,6 +318,7 @@ const message = useMessage()
 
 const status = ref(null)
 const toggling = ref(false)
+const planExpanded = ref(false)
 const showStartModal = ref(false)
 const startConfig = ref({
   target_chapters: 100,
@@ -399,10 +437,16 @@ const progressPct = computed(() => {
   return s.progress_pct ?? 0
 })
 
+const progressPctDisplay = computed(() => {
+  const n = Number(progressPct.value)
+  if (!Number.isFinite(n)) return '0%'
+  return `${n < 10 ? n.toFixed(1) : Math.round(n * 10) / 10}%`
+})
+
 const progressColor = computed(() => {
-  if (needsRecovery.value) return '#d03050'
-  if (needsReview.value) return '#f0a020'
-  return '#18a058'
+  if (needsRecovery.value) return 'var(--color-danger, #ef4444)'
+  if (needsReview.value) return 'var(--color-warning, #f59e0b)'
+  return 'var(--color-success, #22c55e)'
 })
 
 const dotClass = computed(() => ({
@@ -1152,65 +1196,187 @@ onUnmounted(() => {
 
 <style scoped>
 .autopilot-panel {
-  background: linear-gradient(135deg, rgba(24, 160, 88, 0.05) 0%, rgba(24, 160, 88, 0.02) 100%);
-  border: 1px solid rgba(24, 160, 88, 0.15);
-  border-radius: 12px;
-  padding: 16px 18px;
+  --ap-accent: var(--color-success, #22c55e);
+  --ap-card-bg: var(--app-surface-raised, var(--app-surface));
+  --ap-card-border: var(--app-border);
+  background: var(--ap-card-bg);
+  border: 1px solid var(--ap-card-border);
+  border-radius: var(--app-radius-lg, 14px);
+  padding: 16px 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  gap: 14px;
+  box-shadow: var(--app-shadow-md);
 }
 
-.ap-header {
+.ap-hero {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--app-radius-md, 10px);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--color-primary, #2563eb) 5%, var(--app-surface-subtle)) 0%,
+    var(--app-surface-subtle) 55%
+  );
+  border: 1px solid var(--app-border);
+}
+
+.ap-hero__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
+.ap-hero__status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+
+.ap-hero__eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+}
+
+.ap-hero__pct {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.ap-hero__pct-value {
+  display: block;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--app-text-primary);
+  letter-spacing: -0.03em;
+}
+
+.ap-hero__pct.is-active .ap-hero__pct-value {
+  color: var(--ap-accent);
+}
+
+.ap-hero__pct-label {
+  font-size: 10px;
+  color: var(--app-text-muted);
+  margin-top: 2px;
+}
+
+.ap-hero__bar :deep(.n-progress-graph) {
+  border-radius: 4px;
+}
+
+.ap-hero__plan-line {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--app-text-secondary);
+}
+
+.ap-hero__plan-line strong {
+  color: var(--app-text-primary);
+  font-weight: 600;
+}
+
+.ap-hero__plan-toggle {
+  margin-left: 4px;
+  vertical-align: baseline;
+}
+
+.ap-plan-detail {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--app-text-muted);
+  background: color-mix(in srgb, var(--app-text-primary) 3%, transparent);
+  border-radius: var(--app-radius-sm, 8px);
+  border-left: 3px solid var(--color-primary, #2563eb);
+}
+
+.ap-inline-alert {
+  font-size: 12px;
+}
+
+.ap-inline-alert :deep(.n-alert-body) {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
 .ap-dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 0 8px currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
 }
 
-.dot-running { background: #18a058; animation: pulse 1.4s ease-in-out infinite; }
-.dot-review { background: #f0a020; animation: pulse 0.8s ease-in-out infinite; }
-.dot-error { background: #d03050; }
-.dot-stopped { background: #999; }
+.dot-running {
+  background: var(--color-success, #22c55e);
+  color: var(--color-success, #22c55e);
+  animation: ap-dot-pulse 1.4s ease-in-out infinite;
+}
 
-@keyframes pulse {
+.dot-review {
+  background: var(--color-warning, #f59e0b);
+  color: var(--color-warning, #f59e0b);
+  animation: ap-dot-pulse 0.9s ease-in-out infinite;
+}
+
+.dot-error {
+  background: var(--color-danger, #ef4444);
+  color: var(--color-danger, #ef4444);
+}
+
+.dot-stopped {
+  background: var(--app-text-muted);
+  color: var(--app-text-muted);
+}
+
+@keyframes ap-dot-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.9); }
-}
-
-.ap-title {
-  font-weight: 600;
-  color: var(--n-text-color);
-  font-size: 15px;
+  50% { opacity: 0.55; transform: scale(0.92); }
 }
 
 .ap-stage-tag {
-  margin-left: auto;
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 12px;
-  font-weight: 500;
+  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-weight: 600;
+  border: 1px solid transparent;
 }
 
-.tag-review { background: rgba(240, 160, 32, 0.15); color: #f0a020; }
-.tag-idle { background: rgba(100, 100, 100, 0.08); color: var(--app-text-muted, #94a3b8); }
+.tag-review {
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 25%, transparent);
+}
 
-/* 运行中：随阶段语义着色（与 main.css 语义 token 对齐） */
+.tag-idle {
+  background: color-mix(in srgb, var(--app-text-muted) 12%, transparent);
+  color: var(--app-text-muted);
+}
+
 .tag-sem-plan { background: var(--color-brand-light); color: var(--color-brand); }
 .tag-sem-write { background: var(--color-success-dim); color: var(--color-success); }
 .tag-sem-audit { background: var(--color-warning-dim); color: var(--color-warning); }
 .tag-sem-sync { background: var(--color-info-dim); color: var(--color-info); }
 .tag-sem-review { background: var(--color-warning-dim); color: var(--color-warning); }
-.tag-sem-idle { background: var(--color-purple-light, rgba(139, 92, 246, 0.12)); color: var(--color-purple, #8b5cf6); }
+.tag-sem-idle {
+  background: var(--color-purple-light, rgba(139, 92, 246, 0.12));
+  color: var(--color-purple, #8b5cf6);
+}
 .tag-sem-daemon_wait { background: var(--color-info-dim); color: var(--color-info); }
 
 .stage-text { vertical-align: middle; }
@@ -1223,21 +1389,15 @@ onUnmounted(() => {
   border-radius: 50%;
   background: currentColor;
   vertical-align: middle;
-  opacity: 0.85;
-  box-shadow: 0 0 6px currentColor;
   animation: ap-live-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes ap-live-pulse {
-  0%, 100% { opacity: 0.85; transform: scale(1); }
+  0%, 100% { opacity: 0.9; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(0.88); }
 }
 
-/* 🔥 阶段变更过渡态：骨架 loading 闪烁 */
-.tag-transitioning {
-  position: relative;
-  overflow: hidden;
-}
+.tag-transitioning { position: relative; overflow: hidden; }
 
 .skeleton-inline {
   position: absolute;
@@ -1247,10 +1407,11 @@ onUnmounted(() => {
 }
 
 .skeleton-pulse {
-  background: linear-gradient(90deg,
-    rgba(99, 102, 241, 0.08) 25%,
-    rgba(99, 102, 241, 0.22) 50%,
-    rgba(99, 102, 241, 0.08) 75%
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-primary) 6%, transparent) 25%,
+    color-mix(in srgb, var(--color-primary) 18%, transparent) 50%,
+    color-mix(in srgb, var(--color-primary) 6%, transparent) 75%
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s ease-in-out infinite;
@@ -1264,7 +1425,7 @@ onUnmounted(() => {
 .stage-transition-label {
   position: relative;
   z-index: 2;
-  animation: fade-in-up 0.4s ease;
+  animation: fade-in-up 0.35s ease;
 }
 
 @keyframes fade-in-up {
@@ -1272,200 +1433,271 @@ onUnmounted(() => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 🔧 新增：SSE 连接状态 */
-.sse-status {
+.ap-sse-pill {
   font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  margin-left: 4px;
-}
-.sse-status.connected { background: rgba(24, 160, 88, 0.15); color: #18a058; }
-.sse-status.disconnected { background: rgba(200, 200, 200, 0.15); color: #999; }
-
-.ap-plan-hint {
-  margin: 0 0 8px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--app-text-secondary, #64748b);
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--app-border);
 }
 
-.ap-plan-hint strong { color: var(--app-text-primary, #111827); font-weight: 600; }
+.ap-sse-pill.is-on {
+  background: var(--color-success-dim);
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+}
 
-.ap-grid {
+.ap-sse-pill.is-off {
+  background: color-mix(in srgb, var(--app-text-muted) 10%, transparent);
+  color: var(--app-text-muted);
+}
+
+.ap-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 4px 0;
+  gap: 10px;
 }
 
-.ap-cell {
-  text-align: center;
-  padding: 6px 4px;
-  min-width: 0;
-  background: rgba(255, 255, 255, 0.4);
-  border-radius: 8px;
-}
-
-.ap-cell .label {
-  font-size: 10px;
-  color: var(--n-text-color-3);
-  margin-bottom: 2px;
-  font-weight: 500;
-}
-
-.ap-cell .value {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--n-text-color);
-  font-variant-numeric: tabular-nums;
-  word-break: break-word;
-}
-
-.act-title {
-  font-weight: 500;
-  color: var(--n-text-color-2);
-  margin-left: 4px;
-}
-
-.act-desc {
-  font-size: 11px;
-  color: var(--n-text-color-3);
-  margin-top: 3px;
-  line-height: 1.5;
-  word-break: break-word;
-  padding: 3px 6px;
-  background: rgba(0, 0, 0, 0.02);
-  border-radius: 4px;
-  border-left: 2px solid rgba(24, 160, 88, 0.3);
-}
-
-.act-desc-icon {
-  margin-right: 2px;
-}
-
-.act-desc-placeholder {
-  color: var(--n-text-color-4);
-  font-style: italic;
-  border-left-color: rgba(0, 0, 0, 0.1);
-}
-
-/* ★ V9 细化状态条 */
-.ap-detail-strip {
-  margin: 2px 0;
-  padding: 6px 8px;
-  background: rgba(99, 102, 241, 0.06);
-  border: 1px solid rgba(99, 102, 241, 0.15);
-  border-radius: 6px;
+.ap-kpi {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: 6px;
+  padding: 12px 12px 10px;
+  min-width: 0;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md, 10px);
+  transition: border-color var(--app-transition), box-shadow var(--app-transition);
 }
 
-.detail-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.ap-kpi:hover {
+  border-color: var(--app-border-strong);
+  box-shadow: var(--app-shadow-sm);
 }
 
-.detail-label {
-  flex-shrink: 0;
-  width: 56px;
-  color: var(--n-text-color-3);
-  font-size: 11px;
+.ap-kpi__label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+}
+
+.ap-kpi__value {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.ap-kpi__value--wrap {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.ap-kpi__sep {
+  margin: 0 2px;
+  color: var(--app-text-muted);
   font-weight: 500;
 }
 
-.detail-value {
-  flex: 1;
+.ap-kpi__act {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+}
+
+.ap-kpi__muted {
+  color: var(--app-text-muted);
+  font-weight: 500;
+}
+
+.ap-narrative {
+  padding: 12px 14px;
+  border-radius: var(--app-radius-md, 10px);
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
+  border-left: 3px solid var(--color-primary, #2563eb);
+}
+
+.ap-narrative__label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+  margin-bottom: 6px;
+}
+
+.ap-narrative__title {
+  display: block;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  margin-bottom: 4px;
+}
+
+.ap-narrative__body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--app-text-secondary);
+}
+
+.ap-narrative__body--muted {
+  font-style: italic;
+  color: var(--app-text-muted);
+}
+
+.ap-telemetry {
+  padding: 12px 14px;
+  border-radius: var(--app-radius-md, 10px);
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--app-surface-subtle));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--app-border));
+}
+
+.ap-telemetry__head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--n-text-color);
-  font-variant-numeric: tabular-nums;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ap-telemetry__title {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
+}
+
+.ap-telemetry__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.ap-telemetry__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 4px 10px;
+  align-items: center;
+}
+
+.ap-telemetry__item--wide {
+  grid-column: 1 / -1;
+}
+
+.ap-telemetry__key {
+  font-size: 11px;
+  color: var(--app-text-muted);
+  font-weight: 500;
+}
+
+.ap-telemetry__val {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--app-text-primary);
+  font-variant-numeric: tabular-nums;
+  justify-self: end;
+}
+
+.ap-telemetry__val--focus {
+  justify-self: start;
+  grid-column: 2;
+  font-weight: 500;
+  color: var(--app-text-secondary);
+  word-break: break-word;
+}
+
+.ap-meter {
+  grid-column: 1 / -1;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-text-primary) 8%, transparent);
+  overflow: hidden;
+}
+
+.ap-meter__fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.45s ease;
+}
+
+.ap-meter__fill--beat {
+  background: linear-gradient(90deg, var(--color-primary), var(--color-brand-hover, #3b82f6));
+}
+
+.ap-meter__fill--word {
+  background: linear-gradient(90deg, var(--color-success), color-mix(in srgb, var(--color-success) 70%, #fff));
 }
 
 .substep-badge {
   display: inline-block;
-  padding: 1px 8px;
-  border-radius: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
   font-size: 11px;
   font-weight: 600;
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
+  background: var(--color-brand-light);
+  color: var(--color-brand);
 }
 
 .substep-badge.substep-active {
-  background: rgba(34, 197, 94, 0.15);
-  color: #16a34a;
+  background: var(--color-success-dim);
+  color: var(--color-success);
   animation: pulse-subtle 2s infinite;
 }
 
-.substep-badge.substep-prepare {
-  background: rgba(59, 130, 246, 0.12);
-  color: #3b82f6;
+.substep-badge.substep-prepare,
+.substep-badge.substep-plan {
+  background: var(--color-info-dim, var(--color-brand-light));
+  color: var(--color-info, var(--color-brand));
 }
 
 .substep-badge.substep-finish {
-  background: rgba(249, 115, 22, 0.12);
-  color: #f97316;
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
 }
 
 .substep-badge.substep-audit {
-  background: rgba(234, 179, 8, 0.12);
-  color: #ca8a04;
-}
-
-.substep-badge.substep-plan {
-  background: rgba(59, 130, 246, 0.12);
-  color: #3b82f6;
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
 }
 
 @keyframes pulse-subtle {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+  50% { opacity: 0.72; }
 }
 
 .pct-tag {
   font-size: 10px;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: rgba(34, 197, 94, 0.12);
-  color: #16a34a;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-success-dim);
+  color: var(--color-success);
   font-weight: 600;
+  margin-left: 4px;
 }
 
-.mini-progress {
-  width: 50px;
-  height: 3px;
-  background: rgba(0, 0, 0, 0.08);
-  border-radius: 2px;
-  overflow: hidden;
+@media (max-width: 900px) {
+  .ap-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ap-telemetry__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-.mini-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #6366f1, #818cf8);
-  border-radius: 2px;
-  transition: width 0.5s ease;
-}
-
-.mini-progress-fill.word-fill {
-  background: linear-gradient(90deg, #22c55e, #4ade80);
-}
-
-.focus-text {
-  font-size: 11px;
-  color: var(--n-text-color-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 200px;
-}
-
-@media (max-width: 720px) {
-  .ap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 520px) {
+  .ap-hero__pct-value {
+    font-size: 22px;
+  }
 }
 
 .ap-review-alert {
@@ -1482,3 +1714,4 @@ onUnmounted(() => {
 .recovery-hint p { margin: 0 0 6px; line-height: 1.5; }
 .recovery-sub { font-size: 11px; opacity: 0.95; margin-bottom: 8px !important; }
 </style>
+

@@ -19,11 +19,7 @@
     />
 
     <div v-else class="ap-ops__monitor">
-      <n-alert type="default" :show-icon="false" class="ap-ops__hint">
-        <n-text depth="3" style="font-size: 12px; line-height: 1.55">
-          <strong>实时监控</strong>：引擎子步骤、节拍与章节流日志。DAG 节点高亮与画布请打开右侧开关。
-        </n-text>
-      </n-alert>
+      <p class="ap-ops__hint">引擎子步骤、节拍与章节流日志；DAG 节点高亮请切换上方开关。</p>
       <AutopilotTerminalLog
         class="ap-ops__log"
         :novel-id="novelId"
@@ -103,8 +99,10 @@ function handleChapterMetricsRefresh() {
 
 .ap-ops__hint {
   flex-shrink: 0;
-  margin: 10px 14px 0;
-  border-radius: var(--app-radius-md);
+  margin: 8px 14px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-text-muted);
 }
 
 .ap-ops__log {

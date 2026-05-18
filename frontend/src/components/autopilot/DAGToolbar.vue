@@ -82,33 +82,15 @@
       <n-text depth="3" class="toolbar-version" v-if="dagStats">
         v{{ dagStats.version || 1 }}
       </n-text>
-
-      <n-switch
-        :value="isDagSubview"
-        size="small"
-        @update:value="onSubviewSwitch"
-      >
-        <template #checked>DAG 画布</template>
-        <template #unchecked>实时日志</template>
-      </n-switch>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useDAGStore } from '@/stores/dagStore'
-import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 
 const dagStore = useDAGStore()
-const workspace = useAutopilotWorkspaceStore()
-const { operationsSubview } = storeToRefs(workspace)
-const isDagSubview = computed(() => operationsSubview.value === 'dag')
-
-function onSubviewSwitch(isDag: boolean) {
-  workspace.setOperationsSubview(isDag ? 'dag' : 'monitor')
-}
 
 const registryGapCount = computed(() => dagStore.registryGaps.length)
 const linkageFailed = computed(() => dagStore.registryLinkageFailed)
