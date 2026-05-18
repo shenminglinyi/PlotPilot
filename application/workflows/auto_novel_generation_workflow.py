@@ -890,8 +890,7 @@ class AutoNovelGenerationWorkflow:
         """流式生成章节：阶段事件 + 正文 token 流 + 最终 done（含一致性报告）。
 
         事件类型：
-        - phase: planning | context | llm | post
-        - llm_chunk: stage=out outline_partition 时为章纲节拍划分模型的流式增量（JSON 未完成前）
+        - phase: planning | context | outline_planning | prose | post（已无节拍时的正文亦走 prose）
         - beats_generated: beats 列表（指挥器微观节拍，供前端侧栏展示）
         - chunk: { text }（正文）
         - done: { content, consistency_report, token_count }

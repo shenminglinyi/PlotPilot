@@ -694,7 +694,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted, type Component } from 'vue'
+import { ref, watch, computed, nextTick, onMounted, onUnmounted, type Component } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDialog, useMessage } from 'naive-ui'
 import { resolveHttpUrl } from '../../api/config'
@@ -816,6 +816,59 @@ const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
 const assistStreamBeatSession = ref<{ chapterNumber: number; beats: StreamGeneratedBeat[] } | null>(null)
 /** 对应章节流式调用失败时，侧栏微观节拍才降级为章纲分条预览 */
 const assistStreamFailedChapter = ref<number | null>(null)
+
+const MAX_SSE_LOG_LINES = 7
+const generateSseLog = ref<{ tag: string; msg: string }[]>([])
+/** 与 SSE phase 对齐，用于章前规划骨架显隐 */
+const generateStreamPhase = ref('')
+const outlinePartitionChunkCount = ref(0)
+const proseChunkLogCount = ref(0)
+const sseLogScrollEl = ref<HTMLElement | null>(null)
+
+function pushGenerateSseLog(tag: string, msg: string) {
+  generateSseLog.value = [...generateSseLog.value, { tag, msg }].slice(-MAX_SSE_LOG_LINES)
+  void nextTick(() => scrollGenerateSseLogBottom(false))
+}
+
+function scrollGenerateSseLogBottom(smooth = true) {
+  const el = sseLogScrollEl.value
+  if (!el) return
+  el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+}
+
+function sseTagType(
+  tag: string,
+): 'default' | 'primary' | 'success' | 'info' | 'warning' | 'error' {
+  const map: Record<string, 'default' | 'primary' | 'success' | 'info' | 'warning' | 'error'> = {
+    SSE: 'info',
+    规划: 'warning',
+    节拍: 'success',
+    正文: 'primary',
+  }
+  return map[tag] ?? 'default'
+}
+
+function planningSkeletonWidthPct(i: number): string {
+  return `${Math.min(94, 36 + i * 10)}%`
+}
+
+const planningSkeletonRows = computed(() => {
+  if (!generateInProgress.value || generateStreamPhase.value !== 'outline_planning') return 0
+  const c = outlinePartitionChunkCount.value
+  return Math.min(8, Math.max(1, c))
+})
+
+function briefPhaseLogLabel(phase: string): string {
+  const map: Record<string, string> = {
+    planning: '宏观 planning',
+    context: '上下文 context',
+    outline_planning: '章前规划 outline_planning',
+    prose: '正文撰写 prose',
+    llm: '正文撰写 llm（兼容）',
+    post: '质检 post',
+  }
+  return map[phase] ?? phase
+}
 
 /** 重新生成模式：开启时弹窗中显示「改进方向」输入框，并在生成前自动快照当前内容 */
 const isRegenerationMode = ref(false)
@@ -1050,6 +1103,10 @@ watch(
     assistAutopilotPollFailures = 0
     assistStreamBeatSession.value = null
     assistStreamFailedChapter.value = null
+    generateSseLog.value = []
+    generateStreamPhase.value = ''
+    outlinePartitionChunkCount.value = 0
+    proseChunkLogCount.value = 0
     clearAssistedAutopilotPoll()
     if (workMode.value === 'assisted') {
       void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
@@ -1434,8 +1491,10 @@ const handleRegenerateChapter = async () => {
 
 function streamPhaseToProgress(phase: string): number {
   const map: Record<string, number> = {
-    planning: 18,
-    context: 40,
+    planning: 14,
+    context: 28,
+    outline_planning: 48,
+    prose: 78,
     llm: 72,
     post: 92,
   }
@@ -1444,8 +1503,10 @@ function streamPhaseToProgress(phase: string): number {
 
 function streamPhaseToLabel(phase: string): string {
   const map: Record<string, string> = {
-    planning: '规划节拍…',
+    planning: '宏观 planning…',
     context: '组装上下文…',
+    outline_planning: '章前规划 · LLM 流式划分节拍…',
+    prose: '正文撰写…',
     llm: '撰写正文…',
     post: '质检与收尾…',
   }
@@ -1489,6 +1550,10 @@ const handleStartGenerate = async () => {
   generateInProgress.value = true
   assistStreamBeatSession.value = null
   assistStreamFailedChapter.value = null
+  generateSseLog.value = []
+  generateStreamPhase.value = ''
+  outlinePartitionChunkCount.value = 0
+  proseChunkLogCount.value = 0
   generatedContent.value = ''
   sceneDirectorError.value = ''
   lastWorkflowResult.value = null
@@ -1496,6 +1561,7 @@ const handleStartGenerate = async () => {
   streamPhaseLabel.value = '连接中…'
   streamProgressPct.value = 8
   streamStats.value = { chars: 0, estimated_tokens: 0, chunks: 0 }
+  pushGenerateSseLog('SSE', '正在连接 generate-chapter-stream…')
 
   const ctrl = new AbortController()
   generateAbortCtrl.value = ctrl
@@ -1573,26 +1639,54 @@ const handleStartGenerate = async () => {
       {
         signal: ctrl.signal,
         onPhase: (phase) => {
+          generateStreamPhase.value = phase
           streamPhaseLabel.value = streamPhaseToLabel(phase)
           streamProgressPct.value = streamPhaseToProgress(phase)
+          pushGenerateSseLog('SSE', briefPhaseLogLabel(phase))
         },
         onBeatsGenerated: (beats) => {
+          outlinePartitionChunkCount.value = 0
+          generateStreamPhase.value = 'prose'
+          streamPhaseLabel.value = streamPhaseToLabel('prose')
+          streamProgressPct.value = streamPhaseToProgress('prose')
+          pushGenerateSseLog(
+            '节拍',
+            beats.length > 0 ? `beats_generated ×${beats.length}` : 'beats_generated（0）',
+          )
           if (beats.length > 0) {
             assistStreamBeatSession.value = { chapterNumber: targetChapterNumber, beats }
           }
         },
-        onLLMChunk: (stage) => {
+        onLLMChunk: (stage, text) => {
           if (stage === 'outline_partition') {
-            streamPhaseLabel.value = '划分章节节拍（模型 SSE）…'
+            outlinePartitionChunkCount.value += 1
+            generateStreamPhase.value = 'outline_planning'
+            streamPhaseLabel.value = '章前规划 · 流式划分节拍…'
+            streamProgressPct.value = Math.max(
+              streamProgressPct.value,
+              streamPhaseToProgress('outline_planning'),
+            )
+            const n = outlinePartitionChunkCount.value
+            if (n === 1 || n % 4 === 0) {
+              pushGenerateSseLog('规划', `outline_partition Δ ×${n}（+${text.length}）`)
+            }
           }
         },
         onChunk: (text, stats) => {
           generatedContent.value += text
+          proseChunkLogCount.value += 1
+          const pc = proseChunkLogCount.value
+          if (pc === 1) {
+            pushGenerateSseLog('正文', 'chunk 流式输出开始…')
+          } else if (pc % 32 === 0) {
+            pushGenerateSseLog('正文', `chunk ×${pc}`)
+          }
           if (stats) {
             streamStats.value = stats
           }
         },
         onDone: (result) => {
+          pushGenerateSseLog('SSE', 'done · 生成完成')
           lastWorkflowResult.value = result
           lastQcChapterNumber.value = targetChapterNumber
           generatedContent.value = result.content
