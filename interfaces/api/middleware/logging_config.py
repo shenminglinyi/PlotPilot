@@ -135,7 +135,12 @@ def setup_logging(
                 format_string,
                 datefmt="%Y-%m-%d %H:%M:%S"
             )
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
+            from logging.handlers import RotatingFileHandler
+            file_handler = RotatingFileHandler(
+                log_file, encoding="utf-8",
+                maxBytes=10 * 1024 * 1024,  # 10MB 自动轮转
+                backupCount=3,               # 保留最近 3 个备份
+            )
             file_handler.setLevel(level)
             file_handler.setFormatter(file_formatter)
             root_logger.addHandler(file_handler)

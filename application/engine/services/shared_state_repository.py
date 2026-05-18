@@ -10,6 +10,8 @@
 - 写入先更新内存，再异步持久化
 - 数据结构轻量化，避免内存过大
 """
+from __future__ import annotations
+
 import logging
 import time
 from dataclasses import dataclass, field

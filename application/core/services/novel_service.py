@@ -1,4 +1,5 @@
 """Novel 应用服务"""
+import time as _time
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from domain.novel.entities.novel import Novel, NovelStage
@@ -142,6 +143,7 @@ class NovelService:
         )
 
         self.novel_repository.save(novel)
+        self._invalidate_novels_cache()
 
         return NovelDTO.from_domain(novel)
 
@@ -185,19 +187,56 @@ class NovelService:
         except Exception:
             return False
 
+    # ── 小说列表 TTL 缓存（模块级，跨请求共享）──
+    _NOVELS_LIST_CACHE_TTL = 10.0  # 秒
+
+    _novels_list_cache: Dict[str, Dict[str, Any]] = {}
+
+    @staticmethod
+    def _invalidate_novels_cache() -> None:
+        """创建/更新/删除小说时清除列表缓存。"""
+        NovelService._novels_list_cache.pop("_all_novels_dtos", None)
+
     def list_novels(self) -> List[NovelDTO]:
-        """列出所有小说
+        """列出所有小说（批量查询 + TTL 缓存）。
+
+        优化：使用 LEFT JOIN 一次性加载 novels + chapters + bible + outline，
+        查询数从 1+3N 降至 3 次。模块级 TTL 缓存避免重复查询。
 
         Returns:
             NovelDTO 列表
         """
-        novels = self.novel_repository.list_all()
+        cache_key = "_all_novels_dtos"
+        cached = self._novels_list_cache.get(cache_key)
+        if cached is not None and _time.time() - cached["ts"] < self._NOVELS_LIST_CACHE_TTL:
+            return cached["data"]
+
+        # 尝试批量优化查询
+        try:
+            from infrastructure.persistence.database.query_optimizations import (
+                list_all_novels_optimized,
+            )
+            db = getattr(self.novel_repository, "db", None)
+            if db is not None:
+                novels = list_all_novels_optimized(db)
+            else:
+                novels = self.novel_repository.list_all()
+                for novel in novels:
+                    self._hydrate_chapters(novel)
+        except Exception:
+            novels = self.novel_repository.list_all()
+            for novel in novels:
+                self._hydrate_chapters(novel)
+
         dtos = []
         for novel in novels:
-            dto = NovelDTO.from_domain(self._hydrate_chapters(novel))
-            dto.has_bible = self._check_has_bible(novel.novel_id.value)
-            dto.has_outline = self._check_has_outline(novel.novel_id.value)
+            dto = NovelDTO.from_domain(novel)
+            # 批量查询已预计算 has_bible / has_outline
+            dto.has_bible = getattr(novel, "_has_bible", self._check_has_bible(novel.novel_id.value))
+            dto.has_outline = getattr(novel, "_has_outline", self._check_has_outline(novel.novel_id.value))
             dtos.append(dto)
+
+        self._novels_list_cache[cache_key] = {"data": dtos, "ts": _time.time()}
         return dtos
 
     def delete_novel(self, novel_id: str) -> None:
@@ -207,6 +246,7 @@ class NovelService:
             novel_id: 小说 ID
         """
         self.novel_repository.delete(NovelId(novel_id))
+        self._invalidate_novels_cache()
 
     def add_chapter(
         self,
@@ -259,6 +299,7 @@ class NovelService:
         if not any(getattr(c, "number", None) == chapter.number for c in novel.chapters):
             novel.chapters.append(chapter)
         self.novel_repository.save(novel)
+        self._invalidate_novels_cache()
 
         # 同步创建 StoryNode 章节节点，并关联到当前活跃的幕
         if self.story_node_repository:
@@ -358,6 +399,7 @@ class NovelService:
             )
 
         self.novel_repository.save(novel)
+        self._invalidate_novels_cache()
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 
     def update_novel_stage(self, novel_id: str, stage: str) -> NovelDTO:
@@ -379,6 +421,7 @@ class NovelService:
 
         novel.stage = NovelStage(stage)
         self.novel_repository.save(novel)
+        self._invalidate_novels_cache()
 
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 
@@ -401,6 +444,7 @@ class NovelService:
 
         novel.auto_approve_mode = auto_approve_mode
         self.novel_repository.save(novel)
+        self._invalidate_novels_cache()
 
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 

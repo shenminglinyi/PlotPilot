@@ -463,8 +463,11 @@ class DatabaseConnection:
     - 应用关闭时 close_all() 清理所有线程连接
     """
 
-    # WAL checkpoint 阈值：每 N 次写操作触发一次 PRAGMA wal_checkpoint(TRUNCATE)
-    _WAL_CHECKPOINT_INTERVAL = 20
+    # WAL checkpoint 策略（防止 WAL 文件无限增长）：
+    #   - 每 N 次写操作触发 PASSIVE checkpoint（非阻塞，不依赖无 reader）
+    #   - 每 M 次写操作尝试 TRUNCATE（需要无 reader，失败也不阻塞写入）
+    _WAL_CHECKPOINT_PASSIVE_INTERVAL = 20   # PASSIVE：高频、非阻塞
+    _WAL_CHECKPOINT_TRUNCATE_INTERVAL = 200  # TRUNCATE：低频、收缩文件
 
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -681,18 +684,32 @@ class DatabaseConnection:
         logger.info("All database connections closed (%d, skip_checkpoint=%s)", len(connections), skip_checkpoint)
 
     def _maybe_checkpoint(self) -> None:
-        """定期 WAL checkpoint：每 _WAL_CHECKPOINT_INTERVAL 次写操作触发 TRUNCATE。"""
+        """定期 WAL checkpoint（PASSIVE + 低频 TRUNCATE）。
+
+        PASSIVE 模式不阻塞写入者、不要求无 reader，每 20 次写入触发，
+        确保 WAL 数据被持续刷入主 DB。TRUNCATE 模式每 200 次写入
+        尝试收缩 WAL 文件（需要无 reader 时才成功，失败不阻塞）。
+        """
         with self._write_counter_lock:
             self._write_counter += 1
-            if self._write_counter < self._WAL_CHECKPOINT_INTERVAL:
-                return
-            self._write_counter = 0
-        try:
-            conn = self.get_connection()
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            logger.debug("WAL checkpoint triggered (interval=%d)", self._WAL_CHECKPOINT_INTERVAL)
-        except Exception as e:
-            logger.debug("WAL checkpoint skipped: %s", e)
+            cnt = self._write_counter
+
+        # PASSIVE：高频、非阻塞
+        if cnt % self._WAL_CHECKPOINT_PASSIVE_INTERVAL == 0:
+            try:
+                conn = self.get_connection()
+                conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            except Exception as e:
+                logger.debug("WAL PASSIVE checkpoint skipped: %s", e)
+
+        # TRUNCATE：低频、收缩 WAL 文件
+        if cnt % self._WAL_CHECKPOINT_TRUNCATE_INTERVAL == 0:
+            try:
+                conn = self.get_connection()
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                logger.debug("WAL TRUNCATE checkpoint succeeded (cnt=%d)", cnt)
+            except Exception as e:
+                logger.debug("WAL TRUNCATE checkpoint skipped: %s", e)
 
 
 # 全局数据库实例

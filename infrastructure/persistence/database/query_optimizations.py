@@ -247,3 +247,151 @@ def benchmark_query_performance(db_pool, status: str = "running", iterations: in
         'new_time_ms': elapsed_new * 1000,
         'speedup': speedup,
     }
+
+
+def list_all_novels_optimized(db) -> List[Novel]:
+    """批量查询全部小说及其章节、bible 和 outline 状态。
+
+    替代原 N+1 模式（1 次 novels + N 次 chapters + N 次 bible + N 次 outline）。
+    优化为 3 次查询：
+      1. novels LEFT JOIN chapters（一次性加载所有数据）
+      2. 查询有 bible 的 novel_id 集合
+      3. 查询有 outline（ACT 节点）的 novel_id 集合
+
+    总查询从 1+3N 降至 3 次。
+    """
+    # ── 查询 1：小说 + 章节 ──
+    rows = db.fetch_all(
+        """SELECT
+            n.id as novel_id,
+            n.title,
+            n.author,
+            n.target_chapters,
+            n.premise,
+            n.autopilot_status,
+            n.auto_approve_mode,
+            n.current_stage,
+            n.current_act,
+            n.current_chapter_in_act,
+            n.max_auto_chapters,
+            n.current_auto_chapters,
+            n.last_chapter_tension,
+            n.consecutive_error_count,
+            n.current_beat_index,
+            n.beats_completed,
+            n.last_audit_chapter_number,
+            n.last_audit_similarity,
+            n.last_audit_drift_alert,
+            n.last_audit_narrative_ok,
+            n.last_audit_at,
+            n.last_audit_vector_stored,
+            n.last_audit_foreshadow_stored,
+            n.last_audit_triples_extracted,
+            n.last_audit_quality_scores,
+            n.last_audit_issues,
+            n.target_words_per_chapter,
+            n.audit_progress,
+            n.generation_prefs_json,
+            c.id as chapter_id,
+            c.number as chapter_number,
+            c.title as chapter_title,
+            c.content as chapter_content,
+            c.outline as chapter_outline,
+            c.status as chapter_status,
+            c.tension_score as chapter_tension_score,
+            c.plot_tension as chapter_plot_tension,
+            c.emotional_tension as chapter_emotional_tension,
+            c.pacing_tension as chapter_pacing_tension
+        FROM novels n
+        LEFT JOIN chapters c ON n.id = c.novel_id
+        ORDER BY n.created_at DESC, c.number ASC"""
+    )
+
+    # ── 查询 2：哪些小说有 bible ──
+    bible_rows = db.fetch_all("SELECT DISTINCT novel_id FROM bibles")
+    has_bible_set = {r["novel_id"] for r in bible_rows}
+
+    # ── 查询 3：哪些小说有 outline（至少一个 ACT 节点）──
+    outline_rows = db.fetch_all(
+        "SELECT DISTINCT novel_id FROM story_nodes WHERE node_type = 'act'"
+    )
+    has_outline_set = {r["novel_id"] for r in outline_rows}
+
+    # ── 组装结果 ──
+    novels_map: Dict[str, Dict] = {}
+
+    for row in rows:
+        nid = row["novel_id"]
+
+        if nid not in novels_map:
+            novels_map[nid] = {
+                "novel_data": {
+                    "id": nid,
+                    "title": row["title"],
+                    "author": row["author"],
+                    "target_chapters": row["target_chapters"],
+                    "premise": row["premise"],
+                    "autopilot_status": row["autopilot_status"],
+                    "auto_approve_mode": row["auto_approve_mode"],
+                    "current_stage": row["current_stage"],
+                    "current_act": row["current_act"],
+                    "current_chapter_in_act": row["current_chapter_in_act"],
+                    "max_auto_chapters": row["max_auto_chapters"],
+                    "current_auto_chapters": row["current_auto_chapters"],
+                    "last_chapter_tension": row["last_chapter_tension"],
+                    "consecutive_error_count": row["consecutive_error_count"],
+                    "current_beat_index": row["current_beat_index"],
+                    "beats_completed": row["beats_completed"],
+                    "last_audit_chapter_number": row["last_audit_chapter_number"],
+                    "last_audit_similarity": row["last_audit_similarity"],
+                    "last_audit_drift_alert": row["last_audit_drift_alert"],
+                    "last_audit_narrative_ok": row["last_audit_narrative_ok"],
+                    "last_audit_at": row["last_audit_at"],
+                    "last_audit_vector_stored": row["last_audit_vector_stored"],
+                    "last_audit_foreshadow_stored": row["last_audit_foreshadow_stored"],
+                    "last_audit_triples_extracted": row["last_audit_triples_extracted"],
+                    "last_audit_quality_scores": row["last_audit_quality_scores"],
+                    "last_audit_issues": row["last_audit_issues"],
+                    "target_words_per_chapter": row["target_words_per_chapter"],
+                    "audit_progress": row["audit_progress"],
+                    "generation_prefs_json": row.get("generation_prefs_json"),
+                },
+                "chapters": [],
+                "has_bible": nid in has_bible_set,
+                "has_outline": nid in has_outline_set,
+            }
+
+        if row["chapter_id"]:
+            novels_map[nid]["chapters"].append({
+                "id": row["chapter_id"],
+                "novel_id": nid,
+                "number": row["chapter_number"],
+                "title": row["chapter_title"],
+                "content": row.get("chapter_content", ""),
+                "outline": row.get("chapter_outline", ""),
+                "status": row["chapter_status"],
+                "tension_score": row["chapter_tension_score"],
+                "plot_tension": row.get("chapter_plot_tension", 50.0),
+                "emotional_tension": row.get("chapter_emotional_tension", 50.0),
+                "pacing_tension": row.get("chapter_pacing_tension", 50.0),
+            })
+
+    # 构建 Novel 实体
+    novels = []
+    for nid, data in novels_map.items():
+        novel = _build_novel_from_dict(data["novel_data"])
+        if data["chapters"]:
+            novel.chapters = [_build_chapter_from_dict(ch) for ch in data["chapters"]]
+        # 将 has_bible / has_outline 暂存到私有属性，供 service 层取出
+        novel._has_bible = data["has_bible"]
+        novel._has_outline = data["has_outline"]
+        novels.append(novel)
+
+    logger.debug(
+        "list_all 优化查询: %s 本小说, %s 章, %s 有bible, %s 有outline",
+        len(novels),
+        sum(len(data["chapters"]) for data in novels_map.values()),
+        len(has_bible_set),
+        len(has_outline_set),
+    )
+    return novels

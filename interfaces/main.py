@@ -3,6 +3,7 @@
 提供 RESTful API 接口。
 """
 # 必须在任何 HuggingFace/Transformers 导入前设置离线模式
+from __future__ import annotations
 import os
 os.environ['HF_HUB_OFFLINE'] = '1'
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
@@ -176,6 +177,9 @@ async def startup_event():
 
     with startup_sqlite_writes_bypass_queue():
         _stop_all_running_novels()
+
+    # 清理上次运行时残留的 WAL（PASSIVE 模式不阻塞，安全执行）
+    _checkpoint_sqlite_wal_safe()
 
     _bootstrap_persistence_consumer_early()
 

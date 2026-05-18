@@ -1,4 +1,5 @@
 """Statistics service layer for business logic."""
+import time as _time
 from typing import Optional, List, Dict
 from datetime import datetime
 import logging
@@ -17,6 +18,10 @@ class StatsService:
     repository layer (data access) and models (data structures).
     """
 
+    # ── 全局统计 TTL 缓存 ──
+    _GLOBAL_STATS_CACHE_TTL = 30.0  # 秒
+    _global_stats_cache: Optional[Dict] = None  # {"data": GlobalStats, "ts": float}
+
     def __init__(self, repository: StatsRepository):
         """Initialize the service with a repository.
 
@@ -27,20 +32,91 @@ class StatsService:
         logger.info("StatsService initialized")
 
     def get_global_stats(self) -> GlobalStats:
-        """Get global statistics across all books.
+        """获取全局统计（SQL 聚合 + TTL 缓存）。
 
-        Iterates through all books and aggregates totals:
-        - Total books count
-        - Total chapters across all books
-        - Total word count
-        - Total character count
-        - Books categorized by stage
+        原实现：N 本小说 × M 章 = N×M 次 content 查询（每次拉全文字段），
+        10 本 × 100 章 = 1000+ 次 SQL，极其缓慢。
 
-        Returns:
-            GlobalStats object with aggregated data
+        优化后：用 SQL SUM(LENGTH(content)) 在 DB 内直接聚合，
+        1 条查询替代 1000+ 条。TTL 缓存避免高频重复计算。
         """
-        logger.info("Calculating global statistics")
+        # 检查 TTL 缓存
+        cache = self._global_stats_cache
+        if cache is not None and _time.time() - cache["ts"] < self._GLOBAL_STATS_CACHE_TTL:
+            return cache["data"]
 
+        logger.info("Calculating global statistics (optimized SQL aggregation)")
+
+        # ── 1 条 SQL 聚合所有数据 ──
+        # 从 SqliteStatsRepositoryAdapter 获取原始 db 连接
+        db = getattr(self.repository, "db", None)
+        if db is not None:
+            stats = self._get_global_stats_via_sql(db)
+        else:
+            stats = self._get_global_stats_fallback()
+
+        self._global_stats_cache = {"data": stats, "ts": _time.time()}
+        logger.info(
+            "Global stats: %s books, %s chapters, %s chars",
+            stats.total_books, stats.total_chapters, stats.total_characters,
+        )
+        return stats
+
+    def _get_global_stats_via_sql(self, db) -> GlobalStats:
+        """直接 SQL 聚合（快速路径）。"""
+        import re as _re
+
+        # 阶段映射（SQL 内用 CASE WHEN 直接算出 public stage）
+        # 复用与 SqliteStatsRepositoryAdapter._public_stage_from_row 相同的逻辑
+        row = db.fetch_one("""
+            SELECT
+                COUNT(DISTINCT n.id)                                   AS total_books,
+                COUNT(c.id)                                            AS total_chapters,
+                COALESCE(SUM(LENGTH(c.content)), 0)                    AS total_characters,
+                COALESCE(SUM(CASE WHEN c.content IS NOT NULL
+                                  AND c.content != '' THEN 1 ELSE 0 END), 0) AS chapters_with_content
+            FROM novels n
+            LEFT JOIN chapters c ON n.id = c.novel_id
+        """)
+
+        total_books = row["total_books"] if row else 0
+        total_chapters = row["total_chapters"] if row else 0
+        total_characters = row["total_characters"] if row else 0
+        chapters_with_content = row["chapters_with_content"] if row else 0
+
+        # 估算总字数：中文为主时 ≈ 字符数；有英文时需加回英文单词
+        # 作为近似，用 总字符数 作为 total_words（对中文写作已是准确值）
+        total_words = total_characters
+
+        # 按阶段分组
+        stage_rows = db.fetch_all("""
+            SELECT current_stage, COUNT(*) AS c
+            FROM novels
+            GROUP BY current_stage
+        """)
+
+        stage_map = {
+            "planning": "planning", "macro_planning": "planning",
+            "act_planning": "planning", "writing": "writing",
+            "auditing": "reviewing", "reviewing": "reviewing",
+            "paused_for_review": "reviewing", "completed": "completed",
+        }
+        books_by_stage: Dict[str, int] = {}
+        for sr in stage_rows:
+            raw = sr["current_stage"] or "planning"
+            public = stage_map.get(raw, raw)
+            books_by_stage[public] = books_by_stage.get(public, 0) + sr["c"]
+
+        return GlobalStats(
+            total_books=total_books,
+            total_chapters=total_chapters,
+            total_words=total_words,
+            total_characters=total_characters,
+            books_by_stage=books_by_stage,
+        )
+
+    def _get_global_stats_fallback(self) -> GlobalStats:
+        """降级路径：通过 repository 接口逐 novel 聚合（无 db 直连时使用）。"""
         book_slugs = self.repository.get_all_book_slugs()
         total_books = len(book_slugs)
         total_chapters = 0
@@ -57,27 +133,21 @@ class StatsService:
             outline = self.repository.get_book_outline(slug)
             if outline and "chapters" in outline:
                 total_chapters += len(outline["chapters"])
-
-                # Calculate words and characters for this book
                 for chapter_info in outline["chapters"]:
                     chapter_id = chapter_info.get("id")
                     if chapter_id:
                         content = self.repository.get_chapter_content(slug, chapter_id)
                         if content:
-                            word_count = self.repository.count_words(content)
-                            total_words += word_count
+                            total_words += self.repository.count_words(content)
                             total_characters += len(content)
 
-        stats = GlobalStats(
+        return GlobalStats(
             total_books=total_books,
             total_chapters=total_chapters,
             total_words=total_words,
             total_characters=total_characters,
-            books_by_stage=books_by_stage
+            books_by_stage=books_by_stage,
         )
-
-        logger.info(f"Global stats: {total_books} books, {total_chapters} chapters, {total_words} words")
-        return stats
 
     def get_book_stats(self, slug: str) -> Optional[BookStats]:
         """Get statistics for a specific book.

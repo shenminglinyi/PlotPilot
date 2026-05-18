@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse, urlunparse
@@ -309,12 +310,26 @@ async def plaza_init() -> Dict[str, Any]:
     return result
 
 
+# ── 提示词统计 TTL 缓存 ──
+_prompt_stats_cache: Optional[Dict[str, Any]] = None
+_prompt_stats_cache_ts: float = 0.0
+_PROMPT_STATS_CACHE_TTL: float = 30.0  # 秒
+
+
 @router.get('/prompts/stats')
 async def get_prompt_stats() -> Dict[str, Any]:
-    """获取提示词库统计信息。"""
+    """获取提示词库统计信息（带 TTL 缓存）。"""
+    global _prompt_stats_cache, _prompt_stats_cache_ts
+    now = time.time()
+    if _prompt_stats_cache is not None and (now - _prompt_stats_cache_ts) < _PROMPT_STATS_CACHE_TTL:
+        return _prompt_stats_cache
+
     mgr = get_prompt_manager()
     mgr.ensure_seeded()
-    return mgr.get_stats()
+    stats = mgr.get_stats()
+    _prompt_stats_cache = stats
+    _prompt_stats_cache_ts = now
+    return stats
 
 
 @router.get('/prompts/categories-info')
