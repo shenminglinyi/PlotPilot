@@ -24,6 +24,50 @@ from application.engine.services.shared_state_repository import (
 
 logger = logging.getLogger(__name__)
 
+# 守护进程经 _update_shared_state 写入、/status 需透出的运行时字段（不在 NovelState 模型内）
+_RUNTIME_STATUS_KEYS: tuple[str, ...] = (
+    "writing_substep",
+    "writing_substep_label",
+    "total_beats",
+    "beat_focus",
+    "beat_target_words",
+    "accumulated_words",
+    "chapter_target_words",
+    "context_tokens",
+    "beat_hard_cap",
+    "beat_phase",
+    "beat_max_words_hint",
+    "beat_remaining_budget",
+    "last_smart_truncate",
+    "planned_micro_beats",
+    "outline_plan_mode",
+    "current_act_title",
+    "current_act_description",
+)
+
+
+def _merge_runtime_fields_from_raw(
+    payload: Dict[str, Any],
+    raw: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """将共享内存原始 dict 中的 V9 运行时字段并入 /status 响应。"""
+    if not raw:
+        return payload
+    for key in _RUNTIME_STATUS_KEYS:
+        if key in raw:
+            payload[key] = raw[key]
+    cn = raw.get("current_chapter_number")
+    if cn is None:
+        cn = raw.get("_cached_current_chapter_number")
+    if cn is not None:
+        try:
+            payload["current_chapter_number"] = int(cn)
+        except (TypeError, ValueError):
+            pass
+    if raw.get("last_chapter_audit") is not None:
+        payload["last_chapter_audit"] = raw.get("last_chapter_audit")
+    return payload
+
 
 @dataclass
 class NovelStatusResponse:
@@ -352,9 +396,12 @@ class QueryService:
             return None
 
     def get_novel_status_dict(self, novel_id: str) -> Optional[Dict[str, Any]]:
-        """获取小说状态（字典形式，兼容旧代码）"""
+        """获取小说状态（字典形式，含 planned_micro_beats 等运行时字段）"""
         response = self.get_novel_status(novel_id)
-        return response.to_dict() if response else None
+        if response is None:
+            return None
+        raw = self._shared.get_raw_state(novel_id)
+        return _merge_runtime_fields_from_raw(response.to_dict(), raw)
 
     # ==================== 工作台上下文 ====================
 

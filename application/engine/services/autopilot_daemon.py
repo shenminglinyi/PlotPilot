@@ -186,8 +186,38 @@ class AutopilotDaemon:
             time.sleep(self.poll_interval)
 
     def _get_active_novels(self) -> List[Novel]:
-        """获取所有活跃小说（快速只读）"""
-        return self.novel_repository.find_by_autopilot_status(AutopilotStatus.RUNNING.value)
+        """获取所有活跃小说（DB + 共享内存，避免 DB 与前端状态短暂不一致时漏捞）"""
+        running = self.novel_repository.find_by_autopilot_status(
+            AutopilotStatus.RUNNING.value
+        )
+        seen = {n.novel_id.value for n in running}
+
+        try:
+            from application.engine.services.shared_state_repository import (
+                get_shared_state_repository,
+            )
+
+            shared_repo = get_shared_state_repository()
+            for nid in shared_repo.get_all_novel_ids():
+                if nid in seen:
+                    continue
+                state = shared_repo.get_novel_state(nid)
+                if not state or state.autopilot_status != AutopilotStatus.RUNNING.value:
+                    continue
+                novel = self.novel_repository.get_by_id(NovelId(nid))
+                if novel is None:
+                    continue
+                novel.autopilot_status = AutopilotStatus.RUNNING
+                running.append(novel)
+                seen.add(nid)
+                logger.info(
+                    "[%s] 共享内存为 running、DB 未同步，已纳入守护进程处理队列",
+                    nid,
+                )
+        except Exception as e:
+            logger.debug("合并共享内存 running 小说失败（可忽略）: %s", e)
+
+        return running
 
     def _write_daemon_heartbeat(self) -> None:
         """写入守护进程心跳到共享内存，让前端判断后端是否存活。
@@ -1488,6 +1518,9 @@ class AutopilotDaemon:
             writing_substep="chapter_found",
             writing_substep_label="章节定位",
             current_chapter_number=chapter_num,
+            planned_micro_beats=[],
+            outline_plan_mode="",
+            total_beats=0,
         )
 
         if not self._is_still_running(novel):
@@ -1552,7 +1585,9 @@ class AutopilotDaemon:
                 voice_anchors = ""
 
         # 6. 节拍放大：先走章前执行计划（与 DAG planning_outline_partition / CPMS 同源），再投影为 Beat
-        beats = []
+        beats: List[Any] = []
+        planned_mb: List[Dict[str, Any]] = []
+        plan_mode = ""
         if self.context_builder:
             beat_sheet_json = self._beat_sheet_to_plan_json(beat_sheet)
             chapter_plan = None
@@ -1561,6 +1596,31 @@ class AutopilotDaemon:
                     build_chapter_execution_plan_async,
                 )
 
+                logger.info(
+                    "[%s] 📑 章前规划开始（outline_planning / CPMS outline-beat-partition）第 %s 章",
+                    novel.novel_id.value,
+                    chapter_num,
+                )
+                self._update_shared_state(
+                    novel.novel_id.value,
+                    writing_substep="outline_planning",
+                    writing_substep_label="章前规划 · 划分节拍",
+                    current_chapter_number=chapter_num,
+                    context_tokens=bundle.get("context_tokens", 0) if bundle else 0,
+                    planned_micro_beats=[],
+                    outline_plan_mode="",
+                    total_beats=0,
+                )
+
+                async def _emit_outline_planning_delta(_piece: str) -> None:
+                    if not _piece:
+                        return
+                    self._update_shared_state(
+                        novel.novel_id.value,
+                        writing_substep="outline_planning",
+                        writing_substep_label="章前规划 · 流式划分节拍…",
+                    )
+
                 chapter_plan = await build_chapter_execution_plan_async(
                     outline,
                     target_chapter_words=target_word_count,
@@ -1568,6 +1628,8 @@ class AutopilotDaemon:
                     chapter_number=chapter_num,
                     beat_sheet_json=beat_sheet_json,
                     use_llm=True,
+                    emit_llm_delta=_emit_outline_planning_delta,
+                    llm_service=self.llm_service,
                 )
             except Exception as e:
                 logger.warning(
@@ -1585,12 +1647,26 @@ class AutopilotDaemon:
                 beat_sheet=None if use_plan else beat_sheet,
             )
 
+            plan_mode = ""
+            if chapter_plan is not None and isinstance(getattr(chapter_plan, "provenance", None), dict):
+                plan_mode = str(chapter_plan.provenance.get("mode") or "")
+            planned_mb = self._beats_to_planned_micro_beats(beats)
+            logger.info(
+                "[%s] ✓ 章前规划完成 mode=%s → %d 个指挥器节拍（第 %s 章）",
+                novel.novel_id.value,
+                plan_mode or "unknown",
+                len(beats),
+                chapter_num,
+            )
+
         # ★ 子步骤状态：节拍拆分完成
         self._update_shared_state(
             novel.novel_id.value,
             writing_substep="beat_magnification",
             writing_substep_label=f"节拍拆分（{len(beats)}个）",
             total_beats=len(beats),
+            planned_micro_beats=planned_mb,
+            outline_plan_mode=plan_mode,
             context_tokens=bundle.get('context_tokens', 0) if bundle else 0,
         )
 
@@ -2327,6 +2403,21 @@ class AutopilotDaemon:
             f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{actual_word_count} 字 "
             f"(目标 {target_word_count} 字，共 {novel.current_auto_chapters}/{novel.target_chapters} 章)"
         )
+
+    @staticmethod
+    def _beats_to_planned_micro_beats(beats: List[Any]) -> List[Dict[str, Any]]:
+        """供共享内存 /status 与前端侧栏展示的指挥器节拍快照。"""
+        out: List[Dict[str, Any]] = []
+        for b in beats or []:
+            out.append(
+                {
+                    "description": getattr(b, "description", "") or "",
+                    "target_words": int(getattr(b, "target_words", 0) or 0),
+                    "focus": getattr(b, "focus", "") or "pacing",
+                    "location_id": getattr(b, "location_id", "") or "",
+                }
+            )
+        return out
 
     @staticmethod
     def _beat_sheet_to_plan_json(beat_sheet: Optional[Any]) -> Optional[Dict[str, Any]]:

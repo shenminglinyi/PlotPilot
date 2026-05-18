@@ -44,6 +44,24 @@ from application.core.chapter_target_limits import clamp_chapter_target_words
 logger = logging.getLogger(__name__)
 
 
+def _beats_for_sse(beats: List[Any]) -> List[Dict[str, Any]]:
+    """指挥器微观节拍 → SSE / done 载荷（与前端 StreamGeneratedBeat 对齐）。"""
+    out: List[Dict[str, Any]] = []
+    for beat in beats or []:
+        desc = (getattr(beat, "description", None) or getattr(beat, "scene_goal", None) or "").strip()
+        if not desc:
+            continue
+        out.append(
+            {
+                "description": desc,
+                "target_words": int(getattr(beat, "target_words", 0) or 0),
+                "focus": (getattr(beat, "focus", None) or "pacing"),
+                "location_id": getattr(beat, "location_id", "") or "",
+            }
+        )
+    return out
+
+
 # ─── 模板安全渲染工具 ───
 
 class _SafeDict(dict):
@@ -864,6 +882,7 @@ class AutoNovelGenerationWorkflow:
                 beat_sheet_json=beat_sheet_json,
                 use_llm=True,
                 emit_llm_delta=emit_llm_delta,
+                llm_service=self.llm_service,
             )
         except Exception as e:
             logger.warning("章前执行计划（拆节拍）失败，降级：%s", e)
@@ -967,18 +986,8 @@ class AutoNovelGenerationWorkflow:
 
                 logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
 
-                yield {
-                    "type": "beats_generated",
-                    "beats": [
-                        {
-                            "description": beat.description,
-                            "target_words": beat.target_words,
-                            "focus": beat.focus,
-                            "location_id": getattr(beat, "location_id", "") or "",
-                        }
-                        for beat in beats
-                    ],
-                }
+                beats_payload = _beats_for_sse(beats)
+                yield {"type": "beats_generated", "beats": beats_payload}
 
             # 根据是否使用节拍选择不同的生成策略
             if enable_beats and beats:
@@ -1198,6 +1207,7 @@ class AutoNovelGenerationWorkflow:
                 "output_tokens": output_tokens,
                 "total_tokens": total_tokens,
                 "chars": len(content),
+                "beats": _beats_for_sse(beats),
                 "ghost_annotations": [ann.to_dict() for ann in ghost_annotations],
                 "style_warnings": [
                     {

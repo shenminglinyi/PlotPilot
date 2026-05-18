@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 _MAX_ATOMS = 8
 
 
+def _resolve_llm_service(llm_service: Any = None) -> Any:
+    """使用注入的 LLM 实现；未传入时走 ``get_llm_service()``（与守护进程 / API 同源）。"""
+    if llm_service is not None:
+        return llm_service
+    from interfaces.api.dependencies import get_llm_service
+
+    return get_llm_service()
+
+
 def render_cpms_outline_partition_prompts(
     outline: str,
     target_chapter_words: int,
@@ -233,6 +242,7 @@ async def llm_decompose_outline(
     system: str = "",
     user: str = "",
     emit_delta: OutlinePartitionEmitDelta = None,
+    llm_service: Any = None,
 ) -> Optional[List[PlanAtomSpec]]:
     """调用 LLM 拆 atoms。未显式传入 ``user`` 时从 CPMS ``outline-beat-partition`` 渲染。
 
@@ -250,10 +260,10 @@ async def llm_decompose_outline(
         return None
 
     try:
-        from domain.ai.services.llm_service import GenerationConfig, LLMService
+        from domain.ai.services.llm_service import GenerationConfig
         from domain.ai.value_objects.prompt import Prompt
 
-        llm = LLMService()
+        llm = _resolve_llm_service(llm_service)
         prompt = Prompt(system=system.strip() if system else "", user=user)
         config = GenerationConfig(max_tokens=2000, temperature=0.45)
         pieces: List[str] = []
@@ -302,6 +312,7 @@ async def build_chapter_execution_plan_async(
     llm_user: str = "",
     decomposition_label: str = "planning_outline_partition",
     emit_llm_delta: OutlinePartitionEmitDelta = None,
+    llm_service: Any = None,
 ) -> ChapterExecutionPlan:
     """构建章前执行计划。LLM 默认经 CPMS outline-beat-partition；可传 llm_system / llm_user 覆写。"""
     raw = (outline or "").strip()
@@ -338,6 +349,7 @@ async def build_chapter_execution_plan_async(
             system=llm_system,
             user=llm_user,
             emit_delta=emit_llm_delta,
+            llm_service=llm_service,
         )
         if llm_atoms:
             atoms = llm_atoms

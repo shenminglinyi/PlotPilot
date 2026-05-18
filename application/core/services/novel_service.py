@@ -1,4 +1,5 @@
 """Novel 应用服务"""
+import json
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from domain.novel.entities.novel import Novel, NovelStage
@@ -357,7 +358,25 @@ class NovelService:
                 novel.generation_prefs, generation_prefs
             )
 
-        self.novel_repository.save(novel)
+        # 增量 patch：避免全量 save 把 autopilot_status 等未改字段写回 stopped
+        patch_fields: Dict[str, Any] = {}
+        if title is not None:
+            patch_fields["title"] = title
+        if author is not None:
+            patch_fields["author"] = author
+        if target_chapters is not None:
+            patch_fields["target_chapters"] = target_chapters
+        if premise is not None:
+            patch_fields["premise"] = premise
+        if target_words_per_chapter is not None:
+            patch_fields["target_words_per_chapter"] = novel.target_words_per_chapter
+        if generation_prefs is not None:
+            patch_fields["generation_prefs_json"] = json.dumps(
+                novel.generation_prefs.to_dict(), ensure_ascii=False
+            )
+        if patch_fields:
+            self.novel_repository.patch(NovelId(novel_id), **patch_fields)
+
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 
     def update_novel_stage(self, novel_id: str, stage: str) -> NovelDTO:
