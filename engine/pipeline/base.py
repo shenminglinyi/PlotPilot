@@ -281,6 +281,7 @@ class BaseStoryPipeline(ABC):
                         chapter_number=ctx.chapter_number,
                         beat_sheet_json=beat_sheet_json,
                         use_llm=True,
+                        llm_service=ctx.llm_service,
                     )
                 except Exception as e:
                     logger.warning("章前执行计划（拆节拍）失败，降级：%s", e)
