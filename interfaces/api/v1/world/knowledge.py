@@ -12,13 +12,60 @@ from application.world.dtos.knowledge_dto import (
     StoryKnowledgeDTO,
     ChapterSummaryDTO,
     KnowledgeTripleDTO,
-    KnowledgeSearchResponseDTO
+    KnowledgeSearchResponseDTO,
 )
+from domain.knowledge.chapter_summary import ChapterSummary
+from domain.knowledge.story_knowledge import StoryKnowledge
 from interfaces.api.dependencies import get_knowledge_service
 from domain.shared.exceptions import EntityNotFoundError
 
 
 router = APIRouter(prefix="/novels/{novel_id}/knowledge", tags=["knowledge"])
+
+
+def _chapter_summary_to_dto(ch: ChapterSummary) -> ChapterSummaryDTO:
+    return ChapterSummaryDTO(
+        chapter_id=ch.chapter_id,
+        summary=ch.summary,
+        key_events=ch.key_events,
+        open_threads=ch.open_threads,
+        consistency_note=ch.consistency_note,
+        beat_sections=list(ch.beat_sections or []),
+        micro_beats=list(ch.micro_beats or []),
+        sync_status=ch.sync_status,
+    )
+
+
+def _knowledge_to_dto(knowledge: StoryKnowledge) -> StoryKnowledgeDTO:
+    return StoryKnowledgeDTO(
+        version=knowledge.version,
+        premise_lock=knowledge.premise_lock,
+        chapters=[_chapter_summary_to_dto(ch) for ch in knowledge.chapters],
+        facts=[
+            KnowledgeTripleDTO(
+                id=fact.id,
+                subject=fact.subject,
+                predicate=fact.predicate,
+                object=fact.object,
+                chapter_id=fact.chapter_id,
+                note=fact.note,
+                entity_type=fact.entity_type,
+                importance=fact.importance,
+                location_type=fact.location_type,
+                description=fact.description,
+                first_appearance=fact.first_appearance,
+                related_chapters=fact.related_chapters,
+                tags=fact.tags,
+                attributes=fact.attributes,
+                confidence=fact.confidence,
+                source_type=fact.source_type,
+                subject_entity_id=fact.subject_entity_id,
+                object_entity_id=fact.object_entity_id,
+                provenance=list(getattr(fact, "provenance", []) or []),
+            )
+            for fact in knowledge.facts
+        ],
+    )
 
 
 # Request Models
@@ -46,47 +93,7 @@ async def get_knowledge(
         故事知识 DTO
     """
     knowledge = service.get_knowledge(novel_id)
-
-    return StoryKnowledgeDTO(
-        version=knowledge.version,
-        premise_lock=knowledge.premise_lock,
-        chapters=[
-            ChapterSummaryDTO(
-                chapter_id=ch.chapter_id,
-                summary=ch.summary,
-                key_events=ch.key_events,
-                open_threads=ch.open_threads,
-                consistency_note=ch.consistency_note,
-                beat_sections=ch.beat_sections,
-                sync_status=ch.sync_status
-            )
-            for ch in knowledge.chapters
-        ],
-        facts=[
-            KnowledgeTripleDTO(
-                id=fact.id,
-                subject=fact.subject,
-                predicate=fact.predicate,
-                object=fact.object,
-                chapter_id=fact.chapter_id,
-                note=fact.note,
-                entity_type=fact.entity_type,
-                importance=fact.importance,
-                location_type=fact.location_type,
-                description=fact.description,
-                first_appearance=fact.first_appearance,
-                related_chapters=fact.related_chapters,
-                tags=fact.tags,
-                attributes=fact.attributes,
-                confidence=fact.confidence,
-                source_type=fact.source_type,
-                subject_entity_id=fact.subject_entity_id,
-                object_entity_id=fact.object_entity_id,
-                provenance=list(getattr(fact, "provenance", []) or []),
-            )
-            for fact in knowledge.facts
-        ]
-    )
+    return _knowledge_to_dto(knowledge)
 
 
 @router.put("", response_model=StoryKnowledgeDTO)
@@ -120,46 +127,7 @@ async def update_knowledge(
         logger.error("update_knowledge failed for %s: %s", novel_id, e)
         raise
 
-    return StoryKnowledgeDTO(
-        version=knowledge.version,
-        premise_lock=knowledge.premise_lock,
-        chapters=[
-            ChapterSummaryDTO(
-                chapter_id=ch.chapter_id,
-                summary=ch.summary,
-                key_events=ch.key_events,
-                open_threads=ch.open_threads,
-                consistency_note=ch.consistency_note,
-                beat_sections=ch.beat_sections,
-                sync_status=ch.sync_status
-            )
-            for ch in knowledge.chapters
-        ],
-        facts=[
-            KnowledgeTripleDTO(
-                id=fact.id,
-                subject=fact.subject,
-                predicate=fact.predicate,
-                object=fact.object,
-                chapter_id=fact.chapter_id,
-                note=fact.note,
-                entity_type=fact.entity_type,
-                importance=fact.importance,
-                location_type=fact.location_type,
-                description=fact.description,
-                first_appearance=fact.first_appearance,
-                related_chapters=fact.related_chapters,
-                tags=fact.tags,
-                attributes=fact.attributes,
-                confidence=fact.confidence,
-                source_type=fact.source_type,
-                subject_entity_id=fact.subject_entity_id,
-                object_entity_id=fact.object_entity_id,
-                provenance=list(getattr(fact, "provenance", []) or []),
-            )
-            for fact in knowledge.facts
-        ]
-    )
+    return _knowledge_to_dto(knowledge)
 
 
 @router.get("/search", response_model=KnowledgeSearchResponseDTO)
