@@ -10,6 +10,8 @@
 - 用户立即可见更新
 - DB 作为持久化快照
 """
+from __future__ import annotations
+
 import logging
 import time
 from typing import Any, Dict, List, Optional

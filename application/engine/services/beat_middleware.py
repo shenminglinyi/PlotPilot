@@ -33,7 +33,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Optional, Protocol, Tuple
+from typing import Any, List, Optional, Protocol, Tuple
 
 from application.engine.services.context_builder import Beat
 
