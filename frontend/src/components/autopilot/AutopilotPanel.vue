@@ -299,7 +299,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
 import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
@@ -889,11 +889,11 @@ function getAdaptivePollInterval() {
 }
 
 watch(
-  () => [
-    isRunning.value,
-    needsReview.value,
-    statusPollDisabled.value,
-    status.value?.current_stage,
+  [
+    () => isRunning.value,
+    () => needsReview.value,
+    () => statusPollDisabled.value,
+    () => status.value?.current_stage,
   ],
   () => {
     clearStatusPoll()
@@ -1181,7 +1181,6 @@ async function forceStopFromError() {
   }
 }
 
-onMounted(() => { fetchStatus() })
 onUnmounted(() => {
   statusFetchSeq += 1
   statusFetchInFlight = false  // 🔥 重置请求去重标志
