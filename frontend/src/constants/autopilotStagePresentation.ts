@@ -47,6 +47,8 @@ function semanticForRunningStage(stage: string | undefined): AutopilotStageSeman
 export function buildAutopilotStagePresentation(input: {
   current_stage?: string | null
   autopilot_status?: string | null
+  writing_substep?: string | null
+  writing_substep_label?: string | null
   _from_shared_memory?: boolean
   _degraded?: boolean
   audit_progress?: string | null
@@ -55,6 +57,24 @@ export function buildAutopilotStagePresentation(input: {
 }): AutopilotStagePresentation {
   const stage = input.current_stage ?? undefined
   const apStatus = input.autopilot_status ?? undefined
+  const writingSubstep = String(input.writing_substep ?? '').trim()
+  const writingSubstepLabel = String(input.writing_substep_label ?? '').trim()
+
+  /** writing 阶段内：章前规划子步骤优先于笼统的「撰写中」 */
+  const writingPhaseText = (): string | null => {
+    if (stage !== 'writing') return null
+    if (writingSubstep === 'outline_planning') {
+      return writingSubstepLabel || '章前规划'
+    }
+    if (writingSubstep === 'context_assembly') {
+      return writingSubstepLabel || '组装上下文'
+    }
+    if (writingSubstep === 'beat_magnification') {
+      return writingSubstepLabel || '节拍拆分'
+    }
+    return null
+  }
+  const writingPhase = writingPhaseText()
 
   if (apStatus === 'stopped' || apStatus === 'error') {
     if (apStatus === 'error') return { text: '异常挂起', live: false, semantic: 'error' }
@@ -78,6 +98,15 @@ export function buildAutopilotStagePresentation(input: {
       return { text: '审计中', live: true, semantic: 'audit' }
     }
     if (stage === 'syncing') return { text: '数据同步中', live: true, semantic: 'sync' }
+    if (writingPhase) {
+      const sem =
+        writingSubstep === 'outline_planning' ||
+        writingSubstep === 'context_assembly' ||
+        writingSubstep === 'beat_magnification'
+          ? 'plan'
+          : semanticForRunningStage(stage)
+      return { text: writingPhase, live: true, semantic: sem }
+    }
     const name = (stage && STAGE_NAMES[stage]) || '待机'
     return { text: name, live: true, semantic: semanticForRunningStage(stage) }
   }
@@ -94,6 +123,15 @@ export function buildAutopilotStagePresentation(input: {
       return { text: '审计中（数据同步中...）', live: false, semantic: 'audit' }
     }
     if (stage === 'syncing') return { text: '数据同步中...', live: false, semantic: 'sync' }
+    if (writingPhase) {
+      const sem =
+        writingSubstep === 'outline_planning' ||
+        writingSubstep === 'context_assembly' ||
+        writingSubstep === 'beat_magnification'
+          ? 'plan'
+          : semanticForRunningStage(stage)
+      return { text: `${writingPhase}（数据同步中...）`, live: false, semantic: sem }
+    }
     const name = (stage && STAGE_NAMES[stage]) || '待机'
     return { text: `${name}（数据同步中...）`, live: false, semantic: semanticForRunningStage(stage) }
   }
@@ -104,6 +142,16 @@ export function buildAutopilotStagePresentation(input: {
     if (progress === 'aftermath_pipeline') return { text: '审计中（章后管线）', live: false, semantic: 'audit' }
     if (progress === 'tension_scoring') return { text: '审计中（张力打分）', live: false, semantic: 'audit' }
     return { text: '审计中', live: false, semantic: 'audit' }
+  }
+
+  if (writingPhase) {
+    const sem =
+      writingSubstep === 'outline_planning' ||
+      writingSubstep === 'context_assembly' ||
+      writingSubstep === 'beat_magnification'
+        ? 'plan'
+        : semanticForRunningStage(stage)
+    return { text: writingPhase, live: false, semantic: sem }
   }
 
   const name = (stage && STAGE_NAMES[stage]) || '待机'

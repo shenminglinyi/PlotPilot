@@ -1,13 +1,25 @@
 """
 API routes for Worldbuilding
 """
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
 from application.world.services.worldbuilding_service import WorldbuildingService
+from application.world.services.bible_service import BibleService
 from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
 from application.paths import get_db_path
+
+from interfaces.api.dependencies import get_bible_service
+from application.world.worldbuilding_merge import (
+    bible_dto_world_settings_to_slices,
+    merge_worldbuilding_table_and_bible_slices,
+    project_slices_to_legacy_api_shape,
+    worldbuilding_entity_to_slices,
+    worldbuilding_slices_nonempty,
+)
 
 
 router = APIRouter(prefix="/novels", tags=["worldbuilding"])
@@ -62,15 +74,48 @@ class UpdateWorldbuildingRequest(BaseModel):
 @router.get("/{slug}/worldbuilding")
 def get_worldbuilding(
     slug: str,
-    service: WorldbuildingService = Depends(get_worldbuilding_service)
+    service: WorldbuildingService = Depends(get_worldbuilding_service),
+    bible_service: BibleService = Depends(get_bible_service),
 ):
-    """获取小说的世界观"""
-    worldbuilding = service.get_worldbuilding(slug)
+    """获取小说的世界观（合并 worldbuilding 表与 Bible.world_settings）
 
-    if not worldbuilding:
-        raise HTTPException(status_code=404, detail="Worldbuilding not found")
+    SSE 向导会把超出 ORM 槽位的扩展字段写入 Bible；若仅用表读出，会与流式观感不一致，
+    故 GET 在此处做合并后再投影成前端使用的 15 个经典字段。
+    """
+    bible = bible_service.get_bible_by_novel(slug)
+    bible_slices = bible_dto_world_settings_to_slices(bible)
 
-    return worldbuilding.to_dict()
+    wb_entity = service.get_worldbuilding(slug)
+
+    if wb_entity is None:
+        if not worldbuilding_slices_nonempty(bible_slices):
+            raise HTTPException(status_code=404, detail="Worldbuilding not found")
+
+        display = project_slices_to_legacy_api_shape(bible_slices)
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+        return {
+            "id": f"bible-{slug}",
+            "novel_id": slug,
+            **display,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    merged_slices = merge_worldbuilding_table_and_bible_slices(
+        worldbuilding_entity_to_slices(wb_entity),
+        bible_slices,
+    )
+    display = project_slices_to_legacy_api_shape(merged_slices)
+
+    dto = wb_entity.to_dict()
+    dto["core_rules"] = display["core_rules"]
+    dto["geography"] = display["geography"]
+    dto["society"] = display["society"]
+    dto["culture"] = display["culture"]
+    dto["daily_life"] = display["daily_life"]
+
+    return dto
 
 
 @router.post("/{slug}/worldbuilding")

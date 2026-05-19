@@ -13,8 +13,17 @@ export interface ChapterDTO {
   updated_at: string
 }
 
+export interface ChapterMicroBeatPayload {
+  description: string
+  target_words?: number
+  focus?: string
+  location_id?: string
+}
+
 export interface UpdateChapterRequest {
   content: string
+  /** 指挥器微观节拍；保存时写入 chapter_summaries.micro_beats */
+  micro_beats?: ChapterMicroBeatPayload[]
 }
 
 export interface ChapterReviewDTO {
@@ -60,6 +69,17 @@ export const chapterApi = {
    */
   updateChapter: (novelId: string, chapterNumber: number, data: UpdateChapterRequest) =>
     apiClient.put<ChapterDTO>(`/novels/${novelId}/chapters/${chapterNumber}`, data) as Promise<ChapterDTO>,
+
+  /** 仅落库指挥器微观节拍（流式生成完成后可先于正文保存调用） */
+  upsertChapterMicroBeats: (
+    novelId: string,
+    chapterNumber: number,
+    micro_beats: ChapterMicroBeatPayload[],
+  ) =>
+    apiClient.put<{ ok: boolean; chapter_number: number; count: number }>(
+      `/novels/${novelId}/chapters/${chapterNumber}/micro-beats`,
+      { micro_beats },
+    ) as Promise<{ ok: boolean; chapter_number: number; count: number }>,
 
   /**
    * Get chapter review

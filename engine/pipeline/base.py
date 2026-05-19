@@ -251,11 +251,49 @@ class BaseStoryPipeline(ABC):
 
         if ctx.context_builder is not None:
             try:
+                beat_sheet_json = None
+                bs = ctx.beat_sheet
+                if bs is not None and getattr(bs, "scenes", None):
+                    beat_sheet_json = {
+                        "scenes": [
+                            {
+                                "title": getattr(s, "title", "") or "",
+                                "goal": getattr(s, "goal", "") or "",
+                                "estimated_words": getattr(s, "estimated_words", None) or 600,
+                                "pov_character": getattr(s, "pov_character", "") or "",
+                                "location": getattr(s, "location", None),
+                                "tone": getattr(s, "tone", None),
+                                "transition_from_prev": getattr(s, "transition_from_prev", None),
+                            }
+                            for s in bs.scenes
+                        ]
+                    }
+                from application.engine.dag.plan.outline_beat_planner import (
+                    build_chapter_execution_plan_async,
+                )
+
+                chapter_plan = None
+                try:
+                    chapter_plan = await build_chapter_execution_plan_async(
+                        ctx.outline or "",
+                        target_chapter_words=ctx.target_word_count,
+                        novel_id=ctx.novel_id,
+                        chapter_number=ctx.chapter_number,
+                        beat_sheet_json=beat_sheet_json,
+                        use_llm=True,
+                        llm_service=ctx.llm_service,
+                    )
+                except Exception as e:
+                    logger.warning("章前执行计划（拆节拍）失败，降级：%s", e)
+
+                use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
                 ctx.beats = ctx.context_builder.magnify_outline_to_beats(
                     ctx.chapter_number,
                     ctx.outline,
                     target_chapter_words=ctx.target_word_count,
-                    beat_sheet=ctx.beat_sheet,
+                    chapter_execution_plan=chapter_plan if use_plan else None,
+                    beat_sheet=None if use_plan else ctx.beat_sheet,
+                    scene_director=getattr(ctx, "scene_director", None),
                 )
                 logger.info(f"[{ctx.novel_id}] 节拍拆分: {len(ctx.beats)} 个节拍")
             except Exception as e:

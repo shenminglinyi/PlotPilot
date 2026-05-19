@@ -9,6 +9,11 @@ from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_service import WorldbuildingService
+from application.world.worldbuilding_merge import (
+    bible_dto_world_settings_to_slices,
+    merge_worldbuilding_table_and_bible_slices,
+    worldbuilding_entity_to_slices,
+)
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
@@ -929,72 +934,32 @@ JSON 格式（不要有其他文字）：
         except Exception as e:
             logger.error(f"Failed to save to Bible.world_settings: {e}")
 
-    def _worldbuilding_dict_nonempty(self, data: Dict[str, Any]) -> bool:
-        for block in data.values():
-            if not isinstance(block, dict):
-                continue
-            if any(str(v).strip() for v in block.values()):
-                return True
-        return False
-
-    def _worldbuilding_from_bible_world_settings(self, novel_id: str) -> Dict[str, Any]:
-        """从 Bible.world_settings 的「维度.键」扁平名还原五维 dict（与向导第 1 步写入格式一致）。"""
-        dims: Dict[str, Dict[str, str]] = {
-            "core_rules": {},
-            "geography": {},
-            "society": {},
-            "culture": {},
-            "daily_life": {},
-        }
-        dim_keys = frozenset(dims.keys())
-        try:
-            bible = self.bible_service.get_bible(novel_id)
-        except Exception:
-            return {}
-        if bible is None:
-            return {}
-        for s in bible.world_settings or []:
-            name = (getattr(s, "name", None) or "").strip()
-            dot = name.find(".")
-            if dot < 0:
-                continue
-            dim, key = name[:dot], name[dot + 1 :].strip()
-            if dim not in dim_keys or not key:
-                continue
-            desc = (getattr(s, "description", None) or "").strip()
-            dims[dim][key] = desc
-        return dims
-
     def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
-        """加载已有世界观：优先 worldbuilding 表，若为空则回退 Bible.world_settings（避免第 1 步只落 Bible 时角色步拿到「无」）。"""
-        merged: Dict[str, Any] = {}
+        """加载已有世界观：合并 Bible.world_settings 与 worldbuilding 映射表字段。"""
+        table_slices = {}
         if self.worldbuilding_service:
             try:
                 wb = self.worldbuilding_service.get_worldbuilding(novel_id)
-                if wb is not None:
-                    merged = {
-                        "core_rules": dict(wb.core_rules),
-                        "geography": dict(wb.geography),
-                        "society": dict(wb.society),
-                        "culture": dict(wb.culture),
-                        "daily_life": dict(wb.daily_life),
-                    }
+                table_slices = worldbuilding_entity_to_slices(wb)
             except Exception:
-                merged = {}
+                table_slices = worldbuilding_entity_to_slices(None)
 
-        if self._worldbuilding_dict_nonempty(merged):
-            return merged
+        bible = None
+        try:
+            bible = self.bible_service.get_bible_by_novel(novel_id)
+        except Exception:
+            bible = None
+        bible_slices = bible_dto_world_settings_to_slices(bible)
 
-        from_bible = self._worldbuilding_from_bible_world_settings(novel_id)
-        if self._worldbuilding_dict_nonempty(from_bible):
-            return from_bible
-
-        return merged
+        # Bible.world_settings 含 SSE 生成的扩展字段，作完整基底；世界映射表中非空的槽位字段覆盖同名键。
+        return merge_worldbuilding_table_and_bible_slices(table_slices, bible_slices)
 
     def _load_characters(self, novel_id: str) -> list:
         """加载已有人物"""
         try:
-            bible = self.bible_service.get_bible(novel_id)
+            bible = self.bible_service.get_bible_by_novel(novel_id)
+            if bible is None:
+                return []
             return [{"name": c.name, "description": c.description} for c in bible.characters]
         except Exception:
             return []

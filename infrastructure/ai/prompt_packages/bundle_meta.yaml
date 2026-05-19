@@ -1,6 +1,6 @@
-version: 5.0.0-cpms-unified
+version: 5.1.0-outline-beat-partition
 name: PlotPilot 内置
 description: CPMS v5 统一提示词库 — 全节点中文提示词、统一注册表、消除硬编码
 author: PlotPilot Team
 engine: jinja2
-changelog: 'v5: CPMS统一架构 — 所有节点中文1:1还原、prompt_keys注册表、消除旧JSON回退'
+changelog: 'v5.1: 新增 outline-beat-partition；v5: CPMS统一架构'

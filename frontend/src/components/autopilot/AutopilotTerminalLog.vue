@@ -144,7 +144,12 @@ function applyBehaviorFromMeta(meta?: Record<string, unknown>) {
   if (meta.stage_label != null && ap) {
     behaviorStageKey.value = ap === 'running' ? String(meta.stage ?? '') : ap
     if (ap === 'running') {
-      behaviorLabel.value = String(meta.stage_label)
+      const subLabel = String(meta.writing_substep_label || '').trim()
+      const sub = String(meta.writing_substep || '').trim()
+      behaviorLabel.value =
+        subLabel && (sub === 'outline_planning' || sub === 'context_assembly' || sub === 'beat_magnification')
+          ? subLabel
+          : String(meta.stage_label)
     } else if (meta.autopilot_status_label != null) {
       behaviorLabel.value = String(meta.autopilot_status_label)
     } else {
@@ -542,8 +547,8 @@ onUnmounted(() => {
 .terminal-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 10px;
+  padding: 10px 14px;
   font-size: 12px;
   background: rgba(15, 23, 42, 0.95);
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
@@ -582,7 +587,7 @@ onUnmounted(() => {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
   min-width: 0;
@@ -624,14 +629,14 @@ onUnmounted(() => {
 }
 
 .progress-strip {
-  padding: 4px 10px;
+  padding: 8px 14px;
   font-size: 11px;
   color: #a5b4fc;
   background: rgba(30, 41, 59, 0.9);
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .progress-text {
@@ -664,17 +669,17 @@ onUnmounted(() => {
   overflow-x: hidden;
   scroll-behavior: auto;
   overscroll-behavior: contain;
-  padding: 8px 10px 10px;
+  padding: 12px 14px 14px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   font-size: 11px;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .line {
   display: flex;
-  gap: 8px;
-  padding: 2px 0;
+  gap: 10px;
+  padding: 3px 0;
   word-break: break-word;
 }
 

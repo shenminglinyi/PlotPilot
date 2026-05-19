@@ -92,6 +92,9 @@ class AutopilotDaemon:
         # 防止清除重写陷入新的无限循环
         self._beat_exhausted_rewrite_count: Dict[tuple, int] = {}
 
+        #: 本章写作阶段产生的 Beat 快照，供章后叙事同步写入 micro_beats（非章纲句读切分）
+        self._pending_chapter_micro_beats: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+
         # 惰性初始化 VolumeSummaryService
         if not self.volume_summary_service and llm_service and story_node_repo:
             from application.blueprint.services.volume_summary_service import VolumeSummaryService
@@ -183,8 +186,38 @@ class AutopilotDaemon:
             time.sleep(self.poll_interval)
 
     def _get_active_novels(self) -> List[Novel]:
-        """获取所有活跃小说（快速只读）"""
-        return self.novel_repository.find_by_autopilot_status(AutopilotStatus.RUNNING.value)
+        """获取所有活跃小说（DB + 共享内存，避免 DB 与前端状态短暂不一致时漏捞）"""
+        running = self.novel_repository.find_by_autopilot_status(
+            AutopilotStatus.RUNNING.value
+        )
+        seen = {n.novel_id.value for n in running}
+
+        try:
+            from application.engine.services.shared_state_repository import (
+                get_shared_state_repository,
+            )
+
+            shared_repo = get_shared_state_repository()
+            for nid in shared_repo.get_all_novel_ids():
+                if nid in seen:
+                    continue
+                state = shared_repo.get_novel_state(nid)
+                if not state or state.autopilot_status != AutopilotStatus.RUNNING.value:
+                    continue
+                novel = self.novel_repository.get_by_id(NovelId(nid))
+                if novel is None:
+                    continue
+                novel.autopilot_status = AutopilotStatus.RUNNING
+                running.append(novel)
+                seen.add(nid)
+                logger.info(
+                    "[%s] 共享内存为 running、DB 未同步，已纳入守护进程处理队列",
+                    nid,
+                )
+        except Exception as e:
+            logger.debug("合并共享内存 running 小说失败（可忽略）: %s", e)
+
+        return running
 
     def _write_daemon_heartbeat(self) -> None:
         """写入守护进程心跳到共享内存，让前端判断后端是否存活。
@@ -1485,6 +1518,9 @@ class AutopilotDaemon:
             writing_substep="chapter_found",
             writing_substep_label="章节定位",
             current_chapter_number=chapter_num,
+            planned_micro_beats=[],
+            outline_plan_mode="",
+            total_beats=0,
         )
 
         if not self._is_still_running(novel):
@@ -1548,13 +1584,79 @@ class AutopilotDaemon:
             except Exception:
                 voice_anchors = ""
 
-        # 6. 节拍放大（优先使用 BeatSheet 的预估字数）
-        beats = []
+        # 6. 节拍放大：先走章前执行计划（与 DAG planning_outline_partition / CPMS 同源），再投影为 Beat
+        beats: List[Any] = []
+        planned_mb: List[Dict[str, Any]] = []
+        plan_mode = ""
         if self.context_builder:
+            beat_sheet_json = self._beat_sheet_to_plan_json(beat_sheet)
+            chapter_plan = None
+            try:
+                from application.engine.dag.plan.outline_beat_planner import (
+                    build_chapter_execution_plan_async,
+                )
+
+                logger.info(
+                    "[%s] 📑 章前规划开始（outline_planning / CPMS outline-beat-partition）第 %s 章",
+                    novel.novel_id.value,
+                    chapter_num,
+                )
+                self._update_shared_state(
+                    novel.novel_id.value,
+                    writing_substep="outline_planning",
+                    writing_substep_label="章前规划 · 划分节拍",
+                    current_chapter_number=chapter_num,
+                    context_tokens=bundle.get("context_tokens", 0) if bundle else 0,
+                    planned_micro_beats=[],
+                    outline_plan_mode="",
+                    total_beats=0,
+                )
+
+                async def _emit_outline_planning_delta(_piece: str) -> None:
+                    if not _piece:
+                        return
+                    self._update_shared_state(
+                        novel.novel_id.value,
+                        writing_substep="outline_planning",
+                        writing_substep_label="章前规划 · 流式划分节拍…",
+                    )
+
+                chapter_plan = await build_chapter_execution_plan_async(
+                    outline,
+                    target_chapter_words=target_word_count,
+                    novel_id=novel.novel_id.value,
+                    chapter_number=chapter_num,
+                    beat_sheet_json=beat_sheet_json,
+                    use_llm=True,
+                    emit_llm_delta=_emit_outline_planning_delta,
+                    llm_service=self.llm_service,
+                )
+            except Exception as e:
+                logger.warning(
+                    "[%s] 章前执行计划（拆节拍）失败，降级为直接用 BeatSheet / 章纲启发式：%s",
+                    novel.novel_id.value,
+                    e,
+                )
+
+            use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
             beats = self.context_builder.magnify_outline_to_beats(
-                chapter_num, outline,
+                chapter_num,
+                outline,
                 target_chapter_words=target_word_count,
-                beat_sheet=beat_sheet,  # 传递规划阶段的 BeatSheet
+                chapter_execution_plan=chapter_plan if use_plan else None,
+                beat_sheet=None if use_plan else beat_sheet,
+            )
+
+            plan_mode = ""
+            if chapter_plan is not None and isinstance(getattr(chapter_plan, "provenance", None), dict):
+                plan_mode = str(chapter_plan.provenance.get("mode") or "")
+            planned_mb = self._beats_to_planned_micro_beats(beats)
+            logger.info(
+                "[%s] ✓ 章前规划完成 mode=%s → %d 个指挥器节拍（第 %s 章）",
+                novel.novel_id.value,
+                plan_mode or "unknown",
+                len(beats),
+                chapter_num,
             )
 
         # ★ 子步骤状态：节拍拆分完成
@@ -1563,6 +1665,8 @@ class AutopilotDaemon:
             writing_substep="beat_magnification",
             writing_substep_label=f"节拍拆分（{len(beats)}个）",
             total_beats=len(beats),
+            planned_micro_beats=planned_mb,
+            outline_plan_mode=plan_mode,
             context_tokens=bundle.get('context_tokens', 0) if bundle else 0,
         )
 
@@ -2206,6 +2310,19 @@ class AutopilotDaemon:
         novel.current_chapter_in_act += 1
         novel.current_beat_index = 0
         novel.beats_completed = False  # 重置节拍完成标志
+        nid = novel.novel_id.value
+        if beats:
+            self._pending_chapter_micro_beats[(nid, chapter_num)] = [
+                {
+                    "description": b.description,
+                    "target_words": b.target_words,
+                    "focus": b.focus,
+                    "location_id": getattr(b, "location_id", "") or "",
+                }
+                for b in beats
+            ]
+        else:
+            self._pending_chapter_micro_beats.pop((nid, chapter_num), None)
         novel.current_stage = NovelStage.AUDITING
         # 章节正常完成，清理对应的重写计数
         self._beat_exhausted_rewrite_count.pop((novel.novel_id.value, chapter_num), None)
@@ -2286,6 +2403,45 @@ class AutopilotDaemon:
             f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{actual_word_count} 字 "
             f"(目标 {target_word_count} 字，共 {novel.current_auto_chapters}/{novel.target_chapters} 章)"
         )
+
+    @staticmethod
+    def _beats_to_planned_micro_beats(beats: List[Any]) -> List[Dict[str, Any]]:
+        """供共享内存 /status 与前端侧栏展示的指挥器节拍快照。"""
+        out: List[Dict[str, Any]] = []
+        for b in beats or []:
+            out.append(
+                {
+                    "description": getattr(b, "description", "") or "",
+                    "target_words": int(getattr(b, "target_words", 0) or 0),
+                    "focus": getattr(b, "focus", "") or "pacing",
+                    "location_id": getattr(b, "location_id", "") or "",
+                }
+            )
+        return out
+
+    @staticmethod
+    def _beat_sheet_to_plan_json(beat_sheet: Optional[Any]) -> Optional[Dict[str, Any]]:
+        """将仓储 BeatSheet 转为 ``build_chapter_execution_plan_async`` 的 beat_sheet_json。"""
+        if not beat_sheet:
+            return None
+        scenes_raw = getattr(beat_sheet, "scenes", None)
+        if not scenes_raw:
+            return None
+
+        scenes: List[Dict[str, Any]] = []
+        for s in scenes_raw:
+            scenes.append(
+                {
+                    "title": getattr(s, "title", "") or "",
+                    "goal": getattr(s, "goal", "") or "",
+                    "estimated_words": getattr(s, "estimated_words", None) or 600,
+                    "pov_character": getattr(s, "pov_character", "") or "",
+                    "location": getattr(s, "location", None),
+                    "tone": getattr(s, "tone", None),
+                    "transition_from_prev": getattr(s, "transition_from_prev", None),
+                }
+            )
+        return {"scenes": scenes}
 
     async def _get_beat_sheet_for_chapter(self, novel_id: str, chapter_number: int) -> Optional[Any]:
         """获取章节的 BeatSheet（规划阶段的预估字数）
@@ -2527,11 +2683,15 @@ class AutopilotDaemon:
         )
         if self.aftermath_pipeline:
             try:
+                _mb = self._pending_chapter_micro_beats.pop(
+                    (novel.novel_id.value, chapter_num), None
+                )
                 drift_result = await self._call_with_timeout(
                     self.aftermath_pipeline.run_after_chapter_saved(
                         novel.novel_id.value,
                         chapter_num,
                         content,
+                        chapter_micro_beats=_mb,
                     ),
                     timeout=300.0,  # 章后管线最多 5 分钟（含多次 LLM）
                     novel_id=novel.novel_id.value,

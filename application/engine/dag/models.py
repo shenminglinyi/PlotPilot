@@ -6,11 +6,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 # ─── 枚举 ───
@@ -103,6 +106,32 @@ class CPMSInjectionPoint(BaseModel):
     required: bool = False          # 是否必须
 
 
+class DefaultDagSlot(BaseModel):
+    """并入 ``get_default_dag()`` 时自动追加的画布实例与拓扑边。
+
+    - 不写死在 ``get_default_dag`` 清单里登记类型；节点在 ``NodeMeta`` 上声明即可随注册表生效。
+    - 边语义与引擎一致：**扁平 state**，边只影响拓扑序；数据仍靠运行前 ``initial_state`` / 上游节点写入的 key。
+    """
+
+    instance_id: str = Field(
+        ...,
+        pattern=r"^[a-z][a-z0-9_]*$",
+        description="画布节点 id，须在默认 DAG 内唯一",
+    )
+    position: Dict[str, float] = Field(
+        default_factory=lambda: {"x": 500.0, "y": 80.0},
+        description="前端坐标",
+    )
+    incoming_from: List[str] = Field(
+        default_factory=list,
+        description="追加入边：source 为既有节点 id → 本实例",
+    )
+    outgoing_to: List[str] = Field(
+        default_factory=list,
+        description="追加出边：本实例 → target 既有节点 id",
+    )
+
+
 class NodeMeta(BaseModel):
     """节点元数据 — 注册表中的类型描述
 
@@ -137,6 +166,7 @@ class NodeMeta(BaseModel):
     prompt_mode: PromptMode = PromptMode.CPMS_FIRST
     description: str = ""             # 节点功能描述（展示用）
     default_edges: List[str] = Field(default_factory=list)  # 默认下游节点类型
+    default_dag_slot: Optional[DefaultDagSlot] = None  # 并入 get_default_dag() 画布
 
 
 # ─── 节点配置 ───
@@ -297,6 +327,7 @@ class NovelWorkflowState(BaseModel):
 
     # Execution 节点输出
     outline: str = ""
+    chapter_plan_json: Optional[Dict[str, Any]] = None
     beats: List[Dict[str, Any]] = Field(default_factory=list)
     content: str = ""
     word_count: int = 0
@@ -356,12 +387,95 @@ class NodeEvent(BaseModel):
 # ─── 默认 DAG 实例 ───
 
 
+def _merge_registered_default_slots(dag: DAGDefinition) -> DAGDefinition:
+    """并入各节点 ``NodeMeta.default_dag_slot`` 的画布实例与边。
+
+    通过注册表聚合，无需在 ``get_default_dag`` 里逐个手写新增类型。
+    """
+
+    import application.engine.dag.nodes  # noqa: F401 — 触发 ``NodeRegistry`` 副作用注册
+    from application.engine.dag.registry import NodeRegistry
+
+    merged_nodes = list(dag.nodes)
+    merged_edges = list(dag.edges)
+    id_set = {n.id for n in merged_nodes}
+
+    def edge_key(e: EdgeDefinition) -> tuple:
+        return (e.source, e.target, e.source_port, e.condition)
+
+    edge_keys = {edge_key(e) for e in merged_edges}
+    ctr = {"n": 0}
+
+    def fresh_edge(prefix: str) -> str:
+        ctr["n"] += 1
+        return f"edge_autoslot_{prefix}_{ctr['n']}"
+
+    extras_items: List[tuple[NodeMeta, DefaultDagSlot]] = []
+    for m in NodeRegistry.all_meta().values():
+        slot = m.default_dag_slot
+        if slot is not None:
+            extras_items.append((m, slot))
+    extras_items.sort(key=lambda pair: pair[1].instance_id)
+
+    for meta, slot in extras_items:
+        iid = slot.instance_id
+        if iid in id_set:
+            logger.warning(
+                "default_dag_slot id=%s 与默认 DAG 已有节点冲突，跳过并入（类型 %s）",
+                iid,
+                meta.node_type,
+            )
+            continue
+
+        merged_nodes.append(
+            NodeDefinition(
+                id=iid,
+                type=meta.node_type,
+                label=(meta.display_name or meta.node_type)[:120],
+                position=dict(slot.position),
+            ),
+        )
+        id_set.add(iid)
+
+        for src in slot.incoming_from:
+            if src not in id_set:
+                logger.warning(
+                    "default_dag_slot 入边跳过：来源 %s 不在 DAG 内（→ %s）",
+                    src,
+                    iid,
+                )
+                continue
+            tup = (src, iid, "", EdgeCondition.ALWAYS)
+            if tup not in edge_keys:
+                merged_edges.append(
+                    EdgeDefinition(id=fresh_edge("in"), source=src, target=iid),
+                )
+                edge_keys.add(tup)
+
+        for tgt in slot.outgoing_to:
+            if tgt not in id_set:
+                logger.warning(
+                    "default_dag_slot 出边跳过：目标 %s 不在 DAG 内（%s →）",
+                    tgt,
+                    iid,
+                )
+                continue
+            tup = (iid, tgt, "", EdgeCondition.ALWAYS)
+            if tup not in edge_keys:
+                merged_edges.append(
+                    EdgeDefinition(id=fresh_edge("out"), source=iid, target=tgt),
+                )
+                edge_keys.add(tup)
+
+    return dag.model_copy(update={"nodes": merged_nodes, "edges": merged_edges})
+
+
 def get_default_dag() -> DAGDefinition:
     """获取默认 DAG 实例（单幕全流程）"""
-    return DAGDefinition(
+    base = DAGDefinition(
         id="dag_default_single_act",
         name="单幕全流程（默认）",
-        version=1,
+        version=2,
         nodes=[
             NodeDefinition(id="ctx_blueprint", type="ctx_blueprint", label="📋 剧本基建", position={"x": 100, "y": 100}),
             NodeDefinition(id="ctx_memory", type="ctx_memory", label="🧠 记忆引擎", position={"x": 100, "y": 250}),
@@ -425,3 +539,4 @@ def get_default_dag() -> DAGDefinition:
             EdgeDefinition(id="edge_18", source="val_kg_infer", target="gw_review"),
         ],
     )
+    return _merge_registered_default_slots(base)

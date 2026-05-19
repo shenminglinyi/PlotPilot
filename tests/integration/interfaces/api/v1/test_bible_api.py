@@ -39,7 +39,11 @@ def setup_test_env(tmp_path):
     story_repo = StoryNodeRepository(db_path)
 
     _test_novel_service = NovelService(novel_repo, chapter_repo, story_repo)
-    _test_bible_service = BibleService(bible_repo)
+    _test_bible_service = BibleService(
+        bible_repo,
+        novel_repository=novel_repo,
+        chapter_repository=chapter_repo,
+    )
 
     app.dependency_overrides[get_novel_service] = get_test_novel_service
     app.dependency_overrides[get_bible_service] = get_test_bible_service
@@ -98,11 +102,14 @@ class TestGetBible:
         assert isinstance(data["characters"], list)
         assert isinstance(data["world_settings"], list)
 
-    def test_get_bible_not_found(self, test_novel):
-        """测试获取不存在的 Bible"""
+    def test_get_bible_lazy_created_when_missing(self, test_novel):
+        """小说已创建但 Bible 尚未显式 POST 时，GET 会惰性创建空 Bible。"""
         response = client.get("/api/v1/bible/novels/test-novel-bible/bible")
-        assert response.status_code == 404
-        assert "not found" in response.json()["detail"].lower()
+        assert response.status_code == 200
+        data = response.json()
+        assert data["novel_id"] == "test-novel-bible"
+        assert data["characters"] == []
+        assert data["world_settings"] == []
 
     def test_get_bible_wrong_novel(self):
         """测试从不存在的小说获取 Bible"""
@@ -140,10 +147,13 @@ class TestListCharacters:
         assert data[0]["name"] == "张三"
         assert data[1]["name"] == "李四"
 
-    def test_list_characters_bible_not_found(self, test_novel):
-        """测试从不存在的 Bible 列出人物"""
+    def test_list_characters_lazy_creates_empty_bible(self, test_novel):
+        """尚无 Bible 行时列出人物返回空数组（与惰性创建一致）。"""
         response = client.get("/api/v1/bible/novels/test-novel-bible/bible/characters")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert len(data) == 0
 
 
 class TestAddCharacter:
