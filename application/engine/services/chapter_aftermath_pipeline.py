@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from domain.ai.services.llm_service import LLMService
 
@@ -100,6 +100,7 @@ class ChapterAftermathPipeline:
         novel_id: str,
         chapter_number: int,
         content: str,
+        chapter_micro_beats: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """保存正文后执行完整管线。返回文风结果供托管/审计门控使用。
 
@@ -147,6 +148,7 @@ class ChapterAftermathPipeline:
                 character_state_repository=self._character_state_repository,
                 debt_repository=self._debt_repository,
                 bible_repository=self._bible_repository,
+                chapter_micro_beats=chapter_micro_beats,
             )
             out["narrative_sync_ok"] = True
             out["vector_stored"] = bool(sync_flags.get("vector_stored"))

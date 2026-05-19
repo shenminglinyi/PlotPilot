@@ -219,6 +219,8 @@ export const apiClient: ApiClient = axiosInstance as unknown as ApiClient
 export interface ChapterStreamEvent {
   type:
     | 'connected'
+    | 'outline_planning'
+    | 'beats_planned'
     | 'chapter_start'
     | 'chapter_chunk'
     | 'chapter_content'
@@ -233,12 +235,21 @@ export interface ChapterStreamEvent {
     beat_index?: number
     content?: string
     word_count?: number
+    beats?: Array<Record<string, unknown>>
+    outline_plan_mode?: string
+    total_beats?: number
   }
 }
 
 export function subscribeChapterStream(
   novelId: string,
   handlers: {
+    onOutlinePlanning?: (chapterNumber: number, message: string) => void
+    onBeatsPlanned?: (
+      chapterNumber: number,
+      beats: Array<Record<string, unknown>>,
+      outlinePlanMode: string,
+    ) => void
     onChapterStart?: (chapterNumber: number) => void
     onChapterChunk?: (chunk: string, beatIndex: number) => void
     onChapterContent?: (data: { chapterNumber: number; content: string; wordCount: number; beatIndex: number }) => void
@@ -247,12 +258,16 @@ export function subscribeChapterStream(
     onPausedForReview?: () => void
     onError?: (error: Error) => void
     onConnected?: () => void
+    /** 流异常结束，可重连 */
     onDisconnected?: () => void
+    /** 服务端主动结束（停止/审阅/非写作阶段关流），不应重连 */
+    onStreamEnd?: (reason: 'stopped' | 'review' | 'idle') => void
   }
 ): AbortController {
   const ctrl = new AbortController()
 
   void (async () => {
+    let streamTerminal: 'stopped' | 'review' | 'idle' | null = null
     try {
       const streamUrl = resolveHttpUrl(`/api/v1/autopilot/${novelId}/chapter-stream`)
       const res = await fetch(streamUrl, {
@@ -276,7 +291,16 @@ export function subscribeChapterStream(
       let buffer = ''
 
       const dispatchSseEvent = (event: ChapterStreamEvent) => {
-        if (event.type === 'chapter_start' && event.metadata?.chapter_number) {
+        if (event.type === 'outline_planning' && event.metadata?.chapter_number != null) {
+          handlers.onOutlinePlanning?.(event.metadata.chapter_number, event.message)
+        } else if (event.type === 'beats_planned' && event.metadata?.chapter_number != null) {
+          const raw = event.metadata.beats
+          handlers.onBeatsPlanned?.(
+            event.metadata.chapter_number,
+            Array.isArray(raw) ? raw : [],
+            String(event.metadata.outline_plan_mode ?? ''),
+          )
+        } else if (event.type === 'chapter_start' && event.metadata?.chapter_number) {
           handlers.onChapterStart?.(event.metadata.chapter_number)
         } else if (event.type === 'chapter_chunk' && event.metadata?.chunk) {
           handlers.onChapterChunk?.(event.metadata.chunk, event.metadata.beat_index || 0)
@@ -288,8 +312,10 @@ export function subscribeChapterStream(
             beatIndex: event.metadata.beat_index || 0,
           })
         } else if (event.type === 'autopilot_stopped') {
+          streamTerminal = 'stopped'
           handlers.onAutopilotStopped?.(event.message)
         } else if (event.type === 'paused_for_review') {
+          streamTerminal = 'review'
           handlers.onPausedForReview?.()
         }
       }
@@ -323,8 +349,13 @@ export function subscribeChapterStream(
         }
       }
 
-      // 服务端正常结束 SSE（审阅暂停、停止全托管等）时也要走断开逻辑，否则会一直认为「仍连接」且不重拉状态
-      handlers.onDisconnected?.()
+      if (ctrl.signal.aborted) return
+      if (streamTerminal) {
+        handlers.onStreamEnd?.(streamTerminal)
+      } else {
+        // 非写作阶段等服务端关流：无 terminal 事件时也视为 idle，避免前端死循环重连
+        handlers.onStreamEnd?.('idle')
+      }
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return
       handlers.onError?.(e instanceof Error ? e : new Error('Stream error'))

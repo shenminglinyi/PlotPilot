@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div v-if="loading" class="stats-top-bar loading">
     <n-spin size="medium" />
   </div>
@@ -272,21 +272,20 @@ onMounted(loadStats)
    使用 CSS 变量，自动适配亮/暗主题
    ═══════════════════════════════════════════════════ */
 .stats-top-bar {
-  height: 64px;
+  height: var(--plotpilot-topbar-height);
   background: var(--stats-bar-gradient);
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 var(--plotpilot-topbar-padding-x);
   color: var(--nav-hero-text, #ffffff);
   position: relative;
-  gap: 16px;
+  gap: var(--plotpilot-topbar-inner-gap);
   min-width: 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
+  /* 横向不允许出现滚动条：内容若溢出则靠中间 stat 区自然收窄 */
+  overflow: hidden;
   border-bottom: 1px solid var(--app-border, rgba(255, 255, 255, 0.08));
   box-shadow:
     var(--app-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.08)),
@@ -301,7 +300,7 @@ onMounted(loadStats)
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 10px;
+  gap: var(--plotpilot-topbar-inner-gap);
 }
 
 /* 隐藏的 AI 入口组件（仅保留功能，不参与布局） */
@@ -319,8 +318,8 @@ onMounted(loadStats)
 .ai-tools-trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
+  gap: var(--plotpilot-space-2);
+  padding: var(--plotpilot-ai-trigger-pad-y) var(--plotpilot-ai-trigger-pad-x);
   border-radius: var(--app-radius-md);
   cursor: pointer;
   background: var(--nav-hero-pill-bg-top, rgba(255, 255, 255, 0.16));
@@ -353,8 +352,7 @@ onMounted(loadStats)
   gap: 4px;
   min-width: 0;
   z-index: 1;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
 }
 
 .stats-top-bar.loading,
@@ -368,7 +366,7 @@ onMounted(loadStats)
 }
 
 .stat-item {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   text-align: center;
   cursor: help;
   padding: 4px 10px;
@@ -397,7 +395,7 @@ onMounted(loadStats)
 }
 
 .stat-value {
-  font-size: 20px;
+  font-size: var(--plotpilot-topbar-stat-value-size);
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -415,14 +413,14 @@ onMounted(loadStats)
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: var(--plotpilot-space-2);
   flex: 0 0 auto;
   align-items: center;
 }
 
 .action-trigger {
-  width: 40px;
-  height: 40px;
+  width: var(--plotpilot-topbar-hit-lg);
+  height: var(--plotpilot-topbar-hit-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -442,8 +440,8 @@ onMounted(loadStats)
 /* 右侧：设置触发器 */
 .settings-trigger {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: var(--plotpilot-topbar-hit-md);
+  height: var(--plotpilot-topbar-hit-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -480,13 +478,9 @@ onMounted(loadStats)
 /* Responsive design — 全程单行横向，窄屏可横向滚动 */
 @media (max-width: 900px) {
   .stats-top-bar {
-    height: 56px;
     flex-wrap: nowrap;
-    padding: 8px 12px;
-    gap: 8px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
+    padding: var(--plotpilot-space-3) var(--plotpilot-topbar-padding-x);
+    gap: var(--plotpilot-topbar-inner-gap);
   }
 
   .topbar-left {
@@ -505,7 +499,7 @@ onMounted(loadStats)
   }
 
   .stat-value {
-    font-size: 15px;
+    font-size: clamp(13px, 0.9rem + 0.2vw, 15px);
   }
 
   .settings-trigger {

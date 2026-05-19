@@ -1,0 +1,22 @@
+name: 章纲节拍划分
+category: planning
+source: application/engine/dag/plan/outline_beat_planner.py
+description: 将单段/散文式章纲拆为有序叙事 atoms（JSON），供 DAG planning_outline_partition 与章前规划使用；禁止按句读硬切
+builtin: true
+tags:
+- 规划
+- DAG
+- 节拍
+- JSON输出
+output_format: json
+variables:
+- name: outline
+  desc: 章节大纲原文
+  type: string
+  required: true
+- name: target_chapter_words
+  desc: 本章目标字数（参考分配）
+  type: string
+  required: true
+id: outline-beat-partition
+sort_order: 19

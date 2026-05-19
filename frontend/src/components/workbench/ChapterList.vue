@@ -181,13 +181,13 @@ const handleTreeLoaded = (hasData: boolean) => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px 10px;
+  padding: var(--plotpilot-sidebar-pad-y) var(--plotpilot-sidebar-pad-x);
   background: var(--app-surface);
   border-right: 1px solid var(--plotpilot-split-border);
 }
 
 .sidebar-head {
-  margin-bottom: 10px;
+  margin-bottom: var(--plotpilot-sidebar-head-gap);
 }
 
 .back-btn {

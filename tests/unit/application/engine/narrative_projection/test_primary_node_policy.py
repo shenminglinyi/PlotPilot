@@ -17,6 +17,11 @@ def _clear_hooks_after_each() -> None:
     clear_policy_hooks_for_tests()
 
 
+def test_resolve_outline_planning_before_writer():
+    s = NarrativeRuntimeSnapshot("n1", "running", "writing", "outline_planning", None)
+    assert resolve_primary_node_type(s) == ("exec_beat", "running")
+
+
 def test_resolve_llm_calling():
     s = NarrativeRuntimeSnapshot("n1", "running", "writing", "llm_calling", None)
     assert resolve_primary_node_type(s) == ("exec_writer", "running")

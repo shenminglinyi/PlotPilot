@@ -1,0 +1,22 @@
+name: Chapter bridge continuity check
+category: chapter
+source: application/engine/services/chapter_bridge_service.py
+description: Evaluate chapter opening continuity with previous chapter ending
+builtin: true
+tags:
+- chapter
+- bridge
+- check
+- continuity
+output_format: json
+variables:
+- name: bridge_data
+  desc: Previous chapter bridge data
+  type: string
+  required: true
+- name: chapter_opening
+  desc: Current chapter opening text
+  type: string
+  required: true
+id: chapter-bridge-check
+sort_order: 61

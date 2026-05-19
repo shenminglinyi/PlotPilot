@@ -82,16 +82,6 @@
       <n-text depth="3" class="toolbar-version" v-if="dagStats">
         v{{ dagStats.version || 1 }}
       </n-text>
-
-      <!-- ★ 卡片/DAG 切换 Switch（与标题同一排，右侧） -->
-      <n-switch
-        :value="true"
-        @update:value="$emit('switch-to-card')"
-        size="small"
-      >
-        <template #checked>DAG</template>
-        <template #unchecked>卡片</template>
-      </n-switch>
     </div>
   </div>
 </template>
@@ -101,6 +91,7 @@ import { computed } from 'vue'
 import { useDAGStore } from '@/stores/dagStore'
 
 const dagStore = useDAGStore()
+
 const registryGapCount = computed(() => dagStore.registryGaps.length)
 const linkageFailed = computed(() => dagStore.registryLinkageFailed)
 
@@ -135,12 +126,19 @@ defineEmits<{
   background: var(--dag-toolbar-bg);
   gap: 12px;
   min-height: 40px;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 20;
 }
 
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .toolbar-right {

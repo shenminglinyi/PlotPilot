@@ -9,9 +9,18 @@ from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_service import WorldbuildingService
+from application.world.worldbuilding_merge import (
+    bible_dto_world_settings_to_slices,
+    merge_worldbuilding_table_and_bible_slices,
+    worldbuilding_entity_to_slices,
+)
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
+from infrastructure.ai.prompt_keys import (
+    BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
+    BIBLE_STYLE_CONVENTION, BIBLE_WORLDBUILDING_DIMENSION, BIBLE_WORLDBUILDING_FIELD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -684,7 +693,7 @@ class AutoBibleGenerator:
         """使用 LLM 生成 Bible 数据和世界观"""
 
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-all", fallback=_FALLBACK_BIBLE_ALL_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_ALL, fallback=_FALLBACK_BIBLE_ALL_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量 _FALLBACK_BIBLE_ALL_SYSTEM
         _cpms_placeholder = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
@@ -925,72 +934,32 @@ JSON 格式（不要有其他文字）：
         except Exception as e:
             logger.error(f"Failed to save to Bible.world_settings: {e}")
 
-    def _worldbuilding_dict_nonempty(self, data: Dict[str, Any]) -> bool:
-        for block in data.values():
-            if not isinstance(block, dict):
-                continue
-            if any(str(v).strip() for v in block.values()):
-                return True
-        return False
-
-    def _worldbuilding_from_bible_world_settings(self, novel_id: str) -> Dict[str, Any]:
-        """从 Bible.world_settings 的「维度.键」扁平名还原五维 dict（与向导第 1 步写入格式一致）。"""
-        dims: Dict[str, Dict[str, str]] = {
-            "core_rules": {},
-            "geography": {},
-            "society": {},
-            "culture": {},
-            "daily_life": {},
-        }
-        dim_keys = frozenset(dims.keys())
-        try:
-            bible = self.bible_service.get_bible(novel_id)
-        except Exception:
-            return {}
-        if bible is None:
-            return {}
-        for s in bible.world_settings or []:
-            name = (getattr(s, "name", None) or "").strip()
-            dot = name.find(".")
-            if dot < 0:
-                continue
-            dim, key = name[:dot], name[dot + 1 :].strip()
-            if dim not in dim_keys or not key:
-                continue
-            desc = (getattr(s, "description", None) or "").strip()
-            dims[dim][key] = desc
-        return dims
-
     def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
-        """加载已有世界观：优先 worldbuilding 表，若为空则回退 Bible.world_settings（避免第 1 步只落 Bible 时角色步拿到「无」）。"""
-        merged: Dict[str, Any] = {}
+        """加载已有世界观：合并 Bible.world_settings 与 worldbuilding 映射表字段。"""
+        table_slices = {}
         if self.worldbuilding_service:
             try:
                 wb = self.worldbuilding_service.get_worldbuilding(novel_id)
-                if wb is not None:
-                    merged = {
-                        "core_rules": dict(wb.core_rules),
-                        "geography": dict(wb.geography),
-                        "society": dict(wb.society),
-                        "culture": dict(wb.culture),
-                        "daily_life": dict(wb.daily_life),
-                    }
+                table_slices = worldbuilding_entity_to_slices(wb)
             except Exception:
-                merged = {}
+                table_slices = worldbuilding_entity_to_slices(None)
 
-        if self._worldbuilding_dict_nonempty(merged):
-            return merged
+        bible = None
+        try:
+            bible = self.bible_service.get_bible_by_novel(novel_id)
+        except Exception:
+            bible = None
+        bible_slices = bible_dto_world_settings_to_slices(bible)
 
-        from_bible = self._worldbuilding_from_bible_world_settings(novel_id)
-        if self._worldbuilding_dict_nonempty(from_bible):
-            return from_bible
-
-        return merged
+        # Bible.world_settings 含 SSE 生成的扩展字段，作完整基底；世界映射表中非空的槽位字段覆盖同名键。
+        return merge_worldbuilding_table_and_bible_slices(table_slices, bible_slices)
 
     def _load_characters(self, novel_id: str) -> list:
         """加载已有人物"""
         try:
-            bible = self.bible_service.get_bible(novel_id)
+            bible = self.bible_service.get_bible_by_novel(novel_id)
+            if bible is None:
+                return []
             return [{"name": c.name, "description": c.description} for c in bible.characters]
         except Exception:
             return []
@@ -998,7 +967,7 @@ JSON 格式（不要有其他文字）：
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风（一次性生成全部5维度，向后兼容非SSE场景）"""
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-worldbuilding", fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_WORLDBUILDING, fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量
         _cpms_placeholder = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
 
@@ -1059,23 +1028,25 @@ JSON 格式：
     # ── 逐维度流式生成（SSE专用） ──────────────────────────────────────
 
     async def _generate_style(self, premise: str, target_chapters: int) -> str:
-        """单独生成文风公约"""
-        system_prompt = """你是资深网文策划编辑。根据故事创意生成文风公约。
+        """Generate style convention via CPMS."""
+        from infrastructure.ai.prompt_keys import BIBLE_STYLE_CONVENTION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-要求：
-1. 明确的文风公约：叙事视角、人称、基调、节奏、氛围
-2. 符合故事类型（现代都市/古代/玄幻/科幻等）
-3. 文风公约应该是一段完整描述，不是JSON
+        variables = {
+            "premise": premise,
+            "target_chapters": str(target_chapters),
+        }
 
-直接输出文风公约文本，不要输出JSON，不要任何解释。"""
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(BIBLE_STYLE_CONVENTION, variables)
 
-        user_prompt = f"""故事创意：{premise}
+        if not prompt:
+            # Fallback
+            from infrastructure.ai.prompt_utils import get_prompt_system as _get_prompt_system
+            system = _get_prompt_system(BIBLE_STYLE_CONVENTION)
+            user = f"故事创意：{premise}\n\n目标章节数：{target_chapters}章\n\n请生成文风公约。直接输出文本即可。"
+            prompt = Prompt(system=system, user=user)
 
-目标章节数：{target_chapters}章
-
-请生成文风公约。直接输出文本即可。"""
-
-        prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=1024, temperature=0.7)
         result = await self.llm_service.generate(prompt, config)
         return (result.content or "").strip()
@@ -1204,8 +1175,31 @@ JSON 格式：
 }}
 ```"""
 
+        # CPMS render
+        from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_DIMENSION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+
+        variables = {
+            "dim_label": dim_label,
+            "premise": premise,
+            "target_chapters": str(target_chapters),
+            "context_block": context_block,
+            "fields_desc": fields_desc,
+        }
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_DIMENSION, variables)
+
         try:
-            result = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt, max_retries=2)
+            if prompt:
+                # CPMS 成功：直接用 Prompt 对象调用 LLM
+                config = GenerationConfig(max_tokens=4096, temperature=0.7)
+                result_raw = await self.llm_service.generate(prompt, config)
+                raw_text = result_raw.content if hasattr(result_raw, "content") else str(result_raw)
+                result = _extract_json_object(raw_text)
+                if not isinstance(result, dict):
+                    raise ValueError("LLM returned non-dict")
+            else:
+                result = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt, max_retries=2)
             # 确保返回的是 dict 且字段名正确
             if not isinstance(result, dict):
                 logger.warning("Dimension %s LLM returned non-dict: %s", dim_key, type(result))
@@ -1290,7 +1284,21 @@ JSON 格式：
 ```"""
 
         try:
-            prompt = Prompt(system=system_prompt, user=user_prompt)
+            # CPMS render
+            from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_DIMENSION
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+
+            variables = {
+                "dim_label": dim_label,
+                "premise": premise,
+                "target_chapters": str(target_chapters),
+                "context_block": context_block,
+                "fields_desc": fields_desc,
+            }
+            registry = get_prompt_registry()
+            prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_DIMENSION, variables)
+            if not prompt:
+                prompt = Prompt(system=system_prompt, user=user_prompt)
             config = GenerationConfig(max_tokens=4096, temperature=0.7)
             async for chunk in self.llm_service.stream_generate(prompt, config):
                 yield chunk
@@ -1396,7 +1404,23 @@ JSON 格式：
 直接输出这段文本即可，不要输出JSON，不要有任何解释。"""
 
         try:
-            prompt = Prompt(system=system_prompt, user=user_prompt)
+            # CPMS render
+            from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_FIELD
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+
+            variables = {
+                "dim_label": dim_label,
+                "field_label_cn": field_label_cn,
+                "premise": premise,
+                "target_chapters": str(target_chapters),
+                "field_desc": field_desc,
+                "context_block": context_block,
+                "sibling_block": sibling_block,
+            }
+            registry = get_prompt_registry()
+            prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_FIELD, variables)
+            if not prompt:
+                prompt = Prompt(system=system_prompt, user=user_prompt)
             config = GenerationConfig(max_tokens=1024, temperature=0.7)
             async for chunk in self.llm_service.stream_generate(prompt, config):
                 yield chunk
@@ -1443,7 +1467,7 @@ JSON 格式：
         wb_summary = self._summarize_worldbuilding(worldbuilding)
 
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-characters", fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量
         _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观生成主要人物。
 
@@ -1508,7 +1532,7 @@ JSON 格式：
         """
         wb_summary = self._summarize_worldbuilding(worldbuilding)
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-characters", fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
         user_prompt = f"""故事创意：{premise}
 
 已有世界观：
@@ -1562,7 +1586,7 @@ JSON 格式：
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-locations", fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
         # CPMS: 原硬编码已提取为回退常量
         _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
 
@@ -1629,7 +1653,7 @@ JSON 格式：
         wb_summary = self._summarize_worldbuilding(worldbuilding)
         char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
         from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system("bible-locations", fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
+        system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
         user_prompt = f"""故事创意：{premise}
 
 已有世界观：

@@ -328,92 +328,86 @@ class BeatSheetService:
 
         return context
 
+    @staticmethod
+    def _get_system_prompt() -> str:
+        """Get beat sheet system prompt via CPMS."""
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        from infrastructure.ai.prompt_keys import BEAT_SHEET_DECOMPOSITION
+        return get_prompt_system(BEAT_SHEET_DECOMPOSITION)
+
     def _build_beat_sheet_prompt(
         self,
         outline: str,
         context: Dict
     ) -> Prompt:
-        """构建节拍表生成提示词（使用增强的上下文）"""
+        """Build beat sheet generation prompt (CPMS render)."""
+        from infrastructure.ai.prompt_keys import BEAT_SHEET_DECOMPOSITION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-        system_prompt = """你是一位专业的小说编剧，擅长将章节大纲拆解为具体的场景（Scene）。
-
-你的任务是将章节大纲拆解为 3-5 个场景，每个场景应该：
-1. 有明确的场景目标（Scene Goal）
-2. 指定 POV 角色（从哪个角色的视角叙述）
-3. 指定地点（可选）
-4. 指定情绪基调（例如：紧张、温馨、悲伤、激烈）
-5. 预估字数（每个场景 500-1000 字）
-
-请以 JSON 格式返回场景列表，格式如下：
-{
-  "scenes": [
-    {
-      "title": "场景标题",
-      "goal": "这个场景要达成什么目标",
-      "pov_character": "POV 角色名称",
-      "location": "地点（可选）",
-      "tone": "情绪基调",
-      "estimated_words": 800
-    }
-  ]
-}
-
-注意事项：
-- 场景之间要有逻辑连贯性
-- 每个场景聚焦一个明确目标，避免贪多
-- POV 角色应该是章节中的主要角色
-- 预估字数总和应该在 2000-4000 字之间
-- 充分利用提供的上下文信息（人物、故事线、伏笔、地点、时间线）
-"""
-
-        # 构建用户提示词
-        user_prompt = f"""章节大纲：
-{outline}
-
-"""
-
-        # 添加主要人物信息
+        # Build context blocks
+        characters_block = ""
         if context.get("characters"):
-            user_prompt += "\n=== 主要人物 ===\n"
-            for char in context["characters"]:
-                user_prompt += f"- {char['name']} ({char['role']}): {char['brief']}\n"
+            lines = [f"- {char['name']} ({char['role']}): {char['brief']}" for char in context["characters"]]
+            characters_block = "\n".join(lines)
 
-        # 添加活跃故事线
+        storylines_block = ""
         if context.get("storylines"):
-            user_prompt += "\n=== 活跃故事线 ===\n"
-            for sl in context["storylines"]:
-                user_prompt += f"- {sl['name']} ({sl['type']}): {sl['progress']}\n"
+            lines = [f"- {sl['name']} ({sl['type']}): {sl['progress']}" for sl in context["storylines"]]
+            storylines_block = "\n".join(lines)
 
-        # 添加前置章节状态
+        previous_chapter_block = ""
         if context.get("previous_chapter"):
             prev = context["previous_chapter"]
-            user_prompt += f"\n=== 前一章节 ===\n"
-            user_prompt += f"第 {prev['number']} 章《{prev['title']}》: {prev['summary']}\n"
+            previous_chapter_block = f"第 {prev['number']} 章《{prev['title']}》: {prev['summary']}"
 
-        # 添加相关伏笔
+        foreshadowings_block = ""
         if context.get("foreshadowings"):
-            user_prompt += "\n=== 相关伏笔（可以在场景中呼应） ===\n"
-            for foreshadowing in context["foreshadowings"]:
-                user_prompt += f"- {foreshadowing['description']} (第 {foreshadowing['chapter']} 章)\n"
+            lines = [f"- {foreshadowing['description']} (第 {foreshadowing['chapter']} 章)" for foreshadowing in context["foreshadowings"]]
+            foreshadowings_block = "\n".join(lines)
 
-        # 添加相关地点
+        locations_block = ""
         if context.get("locations"):
-            user_prompt += "\n=== 可用地点 ===\n"
-            for loc in context["locations"]:
-                user_prompt += f"- {loc['name']}: {loc['description']}\n"
+            lines = [f"- {loc['name']}: {loc['description']}" for loc in context["locations"]]
+            locations_block = "\n".join(lines)
 
-        # 添加时间线事件
+        timeline_block = ""
         if context.get("timeline_events"):
-            user_prompt += "\n=== 时间线（最近事件） ===\n"
-            for event in context["timeline_events"]:
-                user_prompt += f"- 第 {event['chapter']} 章: {event['description']} ({event['time_type']})\n"
+            lines = [f"- 第 {event['chapter']} 章: {event['description']} ({event['time_type']})" for event in context["timeline_events"]]
+            timeline_block = "\n".join(lines)
 
-        user_prompt += "\n请基于以上信息生成场景列表（JSON 格式）："
+        variables = {
+            "outline": outline,
+            "characters_block": characters_block,
+            "storylines_block": storylines_block,
+            "previous_chapter_block": previous_chapter_block,
+            "foreshadowings_block": foreshadowings_block,
+            "locations_block": locations_block,
+            "timeline_block": timeline_block,
+        }
 
-        return Prompt(
-            system=system_prompt,
-            user=user_prompt
-        )
+        # CPMS render
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(BEAT_SHEET_DECOMPOSITION, variables)
+        if prompt:
+            return prompt
+
+        # 降级：直接拼接
+        system = self._get_system_prompt()
+        user = f"章节大纲：\n{outline}\n"
+        if characters_block:
+            user += f"\n=== 主要人物 ===\n{characters_block}\n"
+        if storylines_block:
+            user += f"\n=== 活跃故事线 ===\n{storylines_block}\n"
+        if previous_chapter_block:
+            user += f"\n=== 前一章节 ===\n{previous_chapter_block}\n"
+        if foreshadowings_block:
+            user += f"\n=== 相关伏笔（可以在场景中呼应） ===\n{foreshadowings_block}\n"
+        if locations_block:
+            user += f"\n=== 可用地点 ===\n{locations_block}\n"
+        if timeline_block:
+            user += f"\n=== 时间线（最近事件） ===\n{timeline_block}\n"
+        user += "\n请基于以上信息生成场景列表（JSON 格式）："
+        return Prompt(system=system, user=user)
 
     def _parse_llm_response(self, response) -> List[Scene]:
         """解析 LLM 响应，提取场景列表"""

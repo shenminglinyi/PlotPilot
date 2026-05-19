@@ -171,46 +171,23 @@ class SetupMainPlotSuggestionService:
         ctx = self._build_context(novel_id)
         user_blob = json.dumps(ctx, ensure_ascii=False, indent=2)
 
-        system_prompt = """你是一位拥有十年经验的华语网络小说白金级编辑。作者已完成世界观与人物等静态设定，你需要推演 3 个截然不同、但都具有强商业张力与可读性的主线故事轴（Main Plot Options）。
+        from infrastructure.ai.prompt_keys import PLANNING_MAIN_PLOT_OPTION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-推演原则：
-1. 切入点差异化：
-   - 选项 A：自下而上的爆发（复仇、生存危机、底层逆袭、资源争夺战）。
-   - 选项 B：自上而下的阴谋（卷入高层博弈、发现世界运转的虚假或黑箱规则）。
-   - 选项 C：异类/变数觉醒（主角具备颠覆当前世界规则的异常属性或认知）。
-2. 张力前置：每个方案必须写清核心冲突（谁对抗谁、赌注/代价是什么）。
-3. 结合输入中的世界观、主角与地点，避免空泛套路句，要有具体钩子。
+        variables = {
+            "context_blob": f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n{user_blob}\n\n请输出仅包含 plot_options 数组的 JSON 对象。",
+        }
 
-JSON Schema：
-{
-  "plot_options": [
-    {
-      "id": "option_a_xxx",
-      "type": "简短类型标签",
-      "title": "标题（8-16字为宜）",
-      "logline": "一句话故事梗概",
-      "core_conflict": "核心冲突（谁 vs 谁，代价）",
-      "starting_hook": "开篇钩子场景或事件"
-    }
-  ]
-}
-必须恰好包含 3 个元素，顺序对应 A/B/C 三类切入点。
+        registry = get_prompt_registry()
+        prompt = registry.render_to_prompt(PLANNING_MAIN_PLOT_OPTION, variables)
 
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{
-  "plot_options": []
-}
-```"""
+        if not prompt:
+            # 降级：直接拼接
+            from infrastructure.ai.prompt_utils import get_prompt_system
+            system = get_prompt_system(PLANNING_MAIN_PLOT_OPTION)
+            user = f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n{user_blob}\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
+            prompt = Prompt(system=system, user=user)
 
-        user_prompt = f"""{SETUP_TASK_MARKER}
-
-以下为小说设定简报（JSON）：
-{user_blob}
-
-请输出仅包含 plot_options 数组的 JSON 对象。"""
-
-        prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=2048, temperature=0.85)
 
         try:

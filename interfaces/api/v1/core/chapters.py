@@ -1,6 +1,6 @@
 """Chapter API 路由"""
 import logging
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
@@ -19,7 +19,9 @@ from interfaces.api.dependencies import (
     get_novel_service,
     get_chapter_aftermath_pipeline,
     get_chapter_repository,
+    get_knowledge_service,
 )
+from application.world.services.knowledge_service import KnowledgeService
 from infrastructure.persistence.database.chapter_draft_repository import ChapterDraftRepository
 from application.paths import get_db_path
 from domain.shared.exceptions import EntityNotFoundError
@@ -37,18 +39,40 @@ async def _run_chapter_aftermath(
     chapter_number: int,
     content: str,
     pipeline: ChapterAftermathPipeline,
+    chapter_micro_beats: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """与托管/守护进程同源的章后管线（叙事/向量、文风、KG；三元组与伏笔单次 LLM）。"""
-    await pipeline.run_after_chapter_saved(novel_id, chapter_number, content)
+    await pipeline.run_after_chapter_saved(
+        novel_id,
+        chapter_number,
+        content,
+        chapter_micro_beats=chapter_micro_beats,
+    )
 
 
 router = APIRouter(tags=["chapters"])
 
 
 # Request Models
+class ChapterMicroBeatPayload(BaseModel):
+    """写作指挥器微观节拍（与 chapter_summaries.micro_beats JSON 一致）"""
+    description: str = Field(..., min_length=1)
+    target_words: int = Field(default=0, ge=0)
+    focus: str = Field(default="pacing")
+    location_id: str = Field(default="")
+
+
+class ChapterMicroBeatsRequest(BaseModel):
+    micro_beats: List[ChapterMicroBeatPayload] = Field(default_factory=list)
+
+
 class UpdateChapterContentRequest(BaseModel):
     """更新章节内容请求"""
     content: str = Field(..., min_length=0, max_length=100000, description="章节内容")
+    micro_beats: Optional[List[ChapterMicroBeatPayload]] = Field(
+        None,
+        description="可选：本章指挥器节拍快照；落库后侧栏「微观」以知识库为准",
+    )
 
 
 class SaveChapterReviewRequest(BaseModel):
@@ -205,6 +229,19 @@ async def ensure_chapter(
     return service.ensure_chapter(novel_id, chapter_number, request.title)
 
 
+@router.put("/{novel_id}/chapters/{chapter_number}/micro-beats")
+async def upsert_chapter_micro_beats(
+    novel_id: str,
+    request: ChapterMicroBeatsRequest,
+    chapter_number: int = Path(..., gt=0, description="章节编号"),
+    knowledge_service: KnowledgeService = Depends(get_knowledge_service),
+):
+    """将指挥器微观节拍写入 chapter_summaries（不触发章后叙事 LLM）。"""
+    beats = [b.model_dump() for b in request.micro_beats]
+    knowledge_service.patch_chapter_micro_beats(novel_id, chapter_number, beats)
+    return {"ok": True, "chapter_number": chapter_number, "count": len(beats)}
+
+
 @router.put("/{novel_id}/chapters/{chapter_number}", response_model=ChapterDTO)
 async def update_chapter(
     novel_id: str,
@@ -213,6 +250,7 @@ async def update_chapter(
     chapter_number: int = Path(..., gt=0, description="章节编号"),
     service: ChapterService = Depends(get_chapter_service),
     pipeline: ChapterAftermathPipeline = Depends(get_chapter_aftermath_pipeline),
+    knowledge_service: KnowledgeService = Depends(get_knowledge_service),
 ):
     """更新章节内容，保存成功后后台执行统一章后管线（见 ChapterAftermathPipeline）。"""
     try:
@@ -225,12 +263,20 @@ async def update_chapter(
         raise HTTPException(status_code=404, detail=str(e))
 
     content = request.content
+    micro_beats_dicts: Optional[List[Dict[str, Any]]] = None
+    if request.micro_beats:
+        micro_beats_dicts = [b.model_dump() for b in request.micro_beats]
+        knowledge_service.patch_chapter_micro_beats(
+            novel_id, chapter_number, micro_beats_dicts
+        )
+
     background_tasks.add_task(
         _run_chapter_aftermath,
         novel_id,
         chapter_number,
         content,
         pipeline,
+        micro_beats_dicts,
     )
     background_tasks.add_task(
         reindex_chapter_entity_mentions,

@@ -383,6 +383,42 @@ class KnowledgeService:
         logger.info(f"Upserted chapter summary for {novel_id}, chapter {chapter_id}")
         return knowledge
 
+    def patch_chapter_micro_beats(
+        self,
+        novel_id: str,
+        chapter_id: int,
+        micro_beats: List[Dict[str, Any]],
+    ) -> StoryKnowledge:
+        """仅更新指挥器微观节拍（合并已有章节摘要字段，不覆盖叙事总结）。"""
+        knowledge = self.get_knowledge(novel_id)
+        existing = knowledge.get_chapter(chapter_id)
+        if existing:
+            chapter = ChapterSummary(
+                chapter_id=chapter_id,
+                summary=existing.summary,
+                key_events=existing.key_events,
+                open_threads=existing.open_threads,
+                consistency_note=existing.consistency_note,
+                beat_sections=list(existing.beat_sections or []),
+                micro_beats=list(micro_beats or []),
+                sync_status=existing.sync_status or "draft",
+            )
+        else:
+            chapter = ChapterSummary(
+                chapter_id=chapter_id,
+                micro_beats=list(micro_beats or []),
+                sync_status="draft",
+            )
+        knowledge.add_or_update_chapter(chapter)
+        self.knowledge_repository.save(knowledge)
+        logger.info(
+            "Patched micro_beats for %s ch=%s (%d beats)",
+            novel_id,
+            chapter_id,
+            len(micro_beats or []),
+        )
+        return knowledge
+
     def upsert_fact(
         self,
         novel_id: str,

@@ -137,8 +137,7 @@ class StateBootstrap:
             from infrastructure.persistence.database.connection import get_database
 
             db = get_database()
-            # 🔥 needs_review 是计算字段，不存储在数据库中
-            # 由 current_stage == 'paused_for_review' 推导
+            # 🔥 needs_review 是计算字段：paused_for_review 或兼容值 reviewing
             rows = db.fetch_all(
                 """SELECT id, title, autopilot_status, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
@@ -151,7 +150,8 @@ class StateBootstrap:
             for row in rows:
                 novel = dict(row)
                 # 计算 needs_review
-                novel['needs_review'] = novel.get('current_stage') == 'paused_for_review'
+                _stage = (novel.get('current_stage') or '').strip().lower()
+                novel['needs_review'] = _stage in ('paused_for_review', 'reviewing')
                 result.append(novel)
             return result
 
@@ -179,7 +179,8 @@ class StateBootstrap:
                 return None
             novel = dict(row)
             # 计算 needs_review
-            novel['needs_review'] = novel.get('current_stage') == 'paused_for_review'
+            _stage = (novel.get('current_stage') or '').strip().lower()
+            novel['needs_review'] = _stage in ('paused_for_review', 'reviewing')
             return novel
 
         except Exception as e:

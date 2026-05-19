@@ -1,0 +1,44 @@
+name: Voice rewrite (style alignment)
+category: generation
+source: application/engine/services/autopilot_daemon.py::_build_voice_rewrite_prompt()
+description: Rewrite chapter content to align with established narrative voice and style
+builtin: true
+tags:
+- voice
+- rewrite
+- style-alignment
+variables:
+- name: style_fingerprint
+  desc: Style fingerprint from voice analysis
+  type: string
+  required: true
+- name: anchor_block
+  desc: Character voice anchor points
+  type: string
+  required: true
+- name: chapter_number
+  desc: Current chapter number
+  type: integer
+  required: true
+- name: attempt
+  desc: Rewrite attempt number
+  type: integer
+  required: true
+- name: similarity_score
+  desc: Current style similarity score
+  type: string
+  required: true
+- name: threshold
+  desc: Auto-rewrite trigger threshold
+  type: string
+  required: true
+- name: outline
+  desc: Chapter outline
+  type: string
+  required: true
+- name: content
+  desc: Current chapter content to rewrite
+  type: string
+  required: true
+id: voice-rewrite
+sort_order: 21

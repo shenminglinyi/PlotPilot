@@ -54,14 +54,27 @@ class AutoKnowledgeGenerator:
         return knowledge_data
 
     async def _generate_knowledge_data(self, title: str, bible_summary: str) -> Dict[str, Any]:
-        """使用 LLM 生成 Knowledge 数据"""
+        """使用 LLM 生成 Knowledge 数据（CPMS 统一入口）"""
 
         context_section = f"\n\n**小说设定摘要：**\n{bible_summary}" if bible_summary.strip() else ""
 
-        system_prompt = build_initial_knowledge_system_prompt()
-        user_prompt = f"小说标题：《{title}》{context_section}"
+        # CPMS render
+        from infrastructure.ai.prompt_keys import KNOWLEDGE_INITIAL
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-        prompt = Prompt(system=system_prompt, user=user_prompt)
+        registry = get_prompt_registry()
+        variables = {
+            "title": title,
+            "bible_summary": bible_summary or "",
+        }
+        prompt = registry.render_to_prompt(KNOWLEDGE_INITIAL, variables)
+
+        if not prompt:
+            # 降级：使用契约中的系统提示词
+            system_prompt = build_initial_knowledge_system_prompt()
+            user_prompt = f"小说标题：《{title}》{context_section}"
+            prompt = Prompt(system=system_prompt, user=user_prompt)
+
         config = GenerationConfig(max_tokens=2048, temperature=0.4)
 
         result = await self.llm_service.generate(prompt, config)

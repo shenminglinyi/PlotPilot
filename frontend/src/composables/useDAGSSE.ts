@@ -266,6 +266,16 @@ export function useDAGSSE(novelId: Ref<string>) {
     }
   })
 
+  /** DAG 定义异步到手后补一次权威状态，避免先进卡片页时 sync 跳过导致画布全灰/卡住 */
+  watch(
+    () => dagStore.dagDefinition?.version,
+    (v) => {
+      if (v != null && novelId.value) {
+        void syncFromAutopilotStatus(novelId.value)
+      }
+    },
+  )
+
   // ─── 托管模式日志流 → DAG 节点状态桥接（保持原有逻辑）───
 
   function handleAutopilotLogEvent(data: {

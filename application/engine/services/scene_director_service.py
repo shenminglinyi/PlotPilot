@@ -12,8 +12,8 @@ from domain.ai.value_objects.prompt import Prompt
 
 logger = logging.getLogger(__name__)
 
-# CPMS: 提示词节点 key
-_SCENE_DIRECTOR_NODE_KEY = "scene-director-analysis"
+# CPMS: 提示词节点 key（统一从 prompt_keys 导入）
+from infrastructure.ai.prompt_keys import SCENE_DIRECTOR as _SCENE_DIRECTOR_NODE_KEY
 
 # 硬编码回退（仅在 PromptRegistry 不可用时使用）
 _FALLBACK_SCENE_DIRECTOR_SYSTEM = """[Task]

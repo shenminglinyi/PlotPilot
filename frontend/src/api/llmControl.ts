@@ -33,6 +33,8 @@ export interface LLMProfile {
 export interface LLMControlConfig {
   version: number
   active_profile_id: string | null
+  /** 与后端一致：unified = 共用主力端点；independent = 分角色档案 */
+  endpoint_mode?: 'unified' | 'independent'
   profiles: LLMProfile[]
 }
 
@@ -328,7 +330,16 @@ export interface RenderPayload {
 
 // ---------- API 调用 ----------
 
+export interface PlazaInitResult {
+  stats: PromptStats
+  categories: PromptCategoryInfo[]
+  nodes_by_category: Record<string, PromptNode[]>
+}
+
 export const promptPlazaApi = {
+  /** 首屏聚合接口：stats + categories + nodes 一次返回 */
+  plazaInit: () => apiClient.get<PlazaInitResult>('/llm-control/prompts/plaza-init'),
+
   /** 统计 */
   getStats: () => apiClient.get<PromptStats>('/llm-control/prompts/stats'),
 

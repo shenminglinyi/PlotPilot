@@ -10,7 +10,10 @@ from typing import List, Optional, Dict, Any, TYPE_CHECKING, Set
 
 from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.novel_id import NovelId
-from domain.structure.story_node import StoryNode, StoryTree, NodeType
+from domain.structure.story_node import StoryNode, NodeType
+from application.blueprint.services.chapter_book_structure_sync import (
+    purge_chapter_book_rows_not_matching_structure,
+)
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 
 if TYPE_CHECKING:
@@ -24,8 +27,9 @@ class StoryStructureService:
 
     核心特性：
     1. AI 动态规划：利用 LLM 生成"部-卷-幕"结构，非固定模板
-    2. 安全合并机制：带有血缘继承的智能合并，保护已有正文章节
-    3. 持续优化：支持通过提示词迭代和测试不断提升规划质量
+    2. 安全合并机制：带有血缘继承的智能合并
+    3. 结构与正文表对齐：树上无章节节点的正文占位在载入整树或删节点后对齐删除
+    4. 持续优化：支持通过提示词迭代和测试不断提升规划质量
     """
 
     def __init__(
@@ -88,9 +92,11 @@ class StoryStructureService:
             n["status"] = st
 
     async def get_tree(self, novel_id: str) -> Dict[str, Any]:
-        """获取小说的完整结构树"""
-        # 同步 chapters 表中缺失的章节节点到 story_nodes 表
-        await self._sync_orphan_chapters_to_nodes(novel_id)
+        """获取小说的完整结构树。"""
+        # 结构树是唯一真源：正文表里凡无对应章节节点的行先清掉（与删树语义一致）。
+        purge_chapter_book_rows_not_matching_structure(
+            self.repository, self._chapter_repository, novel_id
+        )
 
         tree = await self.repository.get_tree(novel_id)
         data = tree.to_tree_dict()
@@ -99,80 +105,6 @@ class StoryStructureService:
             "novel_id": novel_id,
             "tree": data,
         }
-
-    async def _sync_orphan_chapters_to_nodes(self, novel_id: str) -> None:
-        """将 chapters 表中存在但 story_nodes 表中缺失的章节同步到 story_nodes 表"""
-        if not self._chapter_repository:
-            return
-
-        try:
-            # 获取所有章节
-            chapters = self._chapter_repository.list_by_novel(NovelId(novel_id))
-            if not chapters:
-                return
-
-            # 获取现有的章节节点
-            all_nodes = await self.repository.get_by_novel(novel_id)
-            existing_chapter_nums = {
-                n.number for n in all_nodes if n.node_type.value == "chapter" and n.number is not None
-            }
-
-            # 为缺失的章节创建节点
-            orphan_chapters = [c for c in chapters if c.number not in existing_chapter_nums]
-            if not orphan_chapters:
-                return
-
-            # 找到合适的父节点：优先找最后一个幕，其次最后一个卷，最后为 None（顶级）
-            act_nodes = sorted(
-                [n for n in all_nodes if n.node_type.value == "act"],
-                key=lambda n: n.number or 0
-            )
-            volume_nodes = sorted(
-                [n for n in all_nodes if n.node_type.value == "volume"],
-                key=lambda n: n.number or 0
-            )
-
-            # 根据章节号分配到合适的幕
-            from domain.structure.story_node import StoryNode, NodeType, PlanningStatus, PlanningSource
-            import logging
-            logger = logging.getLogger(__name__)
-
-            for chapter in sorted(orphan_chapters, key=lambda c: c.number):
-                # 尝试找到包含这个章节号的幕节点
-                parent_id = None
-                for act in act_nodes:
-                    if act.chapter_start and act.chapter_end:
-                        if act.chapter_start <= chapter.number <= act.chapter_end:
-                            parent_id = act.id
-                            break
-
-                # 如果没有找到匹配的幕，放到最后一个幕下面
-                if parent_id is None and act_nodes:
-                    parent_id = act_nodes[-1].id
-                elif parent_id is None and volume_nodes:
-                    parent_id = volume_nodes[-1].id
-
-                node_id = f"chapter-{novel_id}-chapter-{chapter.number}"
-                node = StoryNode(
-                    id=node_id,
-                    novel_id=novel_id,
-                    parent_id=parent_id,
-                    node_type=NodeType.CHAPTER,
-                    number=chapter.number,
-                    title=chapter.title or f"第{chapter.number}章",
-                    description="",
-                    order_index=chapter.number - 1,
-                    planning_status=PlanningStatus.CONFIRMED,
-                    planning_source=PlanningSource.MANUAL,
-                    word_count=chapter.word_count.value if hasattr(chapter.word_count, "value") else chapter.word_count,
-                    status=chapter.status.value if hasattr(chapter.status, "value") else chapter.status,
-                )
-                await self.repository.save(node)
-                logger.info(f"[StoryStructure] 已同步孤儿章节到 story_nodes: 第{chapter.number}章")
-
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"_sync_orphan_chapters_to_nodes 失败: {e}")
 
     async def get_children(self, novel_id: str, parent_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取子节点（用于渐进式加载）"""
@@ -288,17 +220,27 @@ class StoryStructureService:
                     coordinator.on_chapter_deleted(node.novel_id, chapter_number)
                 deleted_any = True
 
+        novel_id_scope = node.novel_id
+        outcome: bool
         remaining = await self.repository.get_by_id(node_id)
         if remaining is None:
-            return node.node_type == NodeType.CHAPTER and deleted_any
-
-        deleted_node = await self.repository.delete(node_id)
-        if deleted_node:
-            return True
-        # 正文章节删除在持久化队列中可能先执行完：级联已删掉 story_nodes，本处 DELETE 影响 0 行
-        if await self.repository.get_by_id(node_id) is None:
-            return True
-        return False
+            outcome = node.node_type == NodeType.CHAPTER and deleted_any
+        else:
+            deleted_node = await self.repository.delete(node_id)
+            if deleted_node:
+                outcome = True
+            elif await self.repository.get_by_id(node_id) is None:
+                outcome = True
+            else:
+                outcome = False
+        # 删掉子树后再扫一遍全书，摘掉「树上没有的」残留正文行。
+        if outcome and self._chapter_repository is not None:
+            purge_chapter_book_rows_not_matching_structure(
+                self.repository,
+                self._chapter_repository,
+                novel_id_scope,
+            )
+        return outcome
 
     async def reorder_nodes(self, node_ids: List[str]) -> List[Dict[str, Any]]:
         """重新排序节点"""

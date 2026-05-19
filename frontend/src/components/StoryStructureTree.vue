@@ -652,16 +652,23 @@ watch(
   { deep: true }
 )
 
-/** 从结构树章节节点解析「全书章节号」（与 GET .../chapters/{chapter_number} 一致） */
+/** 从结构树章节节点解析「全书章节号」（与 GET .../chapters/{chapter_number} 一致）
+ *
+ * node.number 是权威来源：章节删除重排时 story_nodes.number 会被级联更新，
+ * 但 story_nodes.id 中编码的数字不会更新，因此必须优先使用 node.number。
+ * 仅当 node.number 缺失时才回退到从 ID 中提取编号。
+ */
 function resolveBookChapterNumber(node: StoryNode): number | null {
   if (node.node_type !== 'chapter') return null
+  // 优先使用 node.number（重排后始终保持最新）
+  const n = node.number
+  if (typeof n === 'number' && n >= 1) return n
+  // 降级：从 ID 中提取（仅用于 node.number 缺失的老数据）
   const id = node.id
   const mGlobal = id.match(/-chapter-(\d+)$/)
   if (mGlobal) return parseInt(mGlobal[1], 10)
   const mEnd = id.match(/chapter-(\d+)$/)
   if (mEnd) return parseInt(mEnd[1], 10)
-  const n = node.number
-  if (typeof n === 'number' && n >= 1) return n
   const mTail = id.match(/-(\d+)$/)
   if (mTail) return parseInt(mTail[1], 10)
   return null

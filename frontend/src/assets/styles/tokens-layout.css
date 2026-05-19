@@ -1,0 +1,49 @@
+/*
+ * PlotPilot — 壳层排版 token（工作台 / 顶栏 / 章节轨 / 侧栏）
+ * 组件内请优先使用下列变量，避免重复硬编码间距与高度。
+ * TS 常量：src/design/layoutDensity.ts
+ */
+
+:root {
+  --plotpilot-space-1: 4px;
+  --plotpilot-space-2: 6px;
+  --plotpilot-space-3: 8px;
+  --plotpilot-space-4: 10px;
+  --plotpilot-space-5: 12px;
+  --plotpilot-space-6: 14px;
+  --plotpilot-space-7: 16px;
+
+  --plotpilot-topbar-height: 52px;
+  --plotpilot-topbar-padding-x: 20px;
+  --plotpilot-topbar-inner-gap: var(--plotpilot-space-5);
+  --plotpilot-topbar-stat-value-size: clamp(14px, 0.94rem + 0.35vw, 17px);
+
+  --plotpilot-ai-trigger-pad-y: 6px;
+  --plotpilot-ai-trigger-pad-x: var(--plotpilot-space-6);
+
+  --plotpilot-sidebar-pad-x: var(--plotpilot-space-4);
+  --plotpilot-sidebar-pad-y: var(--plotpilot-space-5);
+  --plotpilot-sidebar-head-gap: var(--plotpilot-space-4);
+
+  --plotpilot-chapter-rail-width: min(360px, 36vw);
+  --plotpilot-chapter-rail-collapsed: 34px;
+  --plotpilot-chapter-rail-drawer: min(400px, 92vw);
+
+  --plotpilot-shell-toolbar-pad-x: var(--plotpilot-space-7);
+  --plotpilot-shell-toolbar-pad-top: var(--plotpilot-space-3);
+
+  --plotpilot-topbar-hit-md: 34px;
+  --plotpilot-topbar-hit-lg: 36px;
+  /** 窄屏抽屉内 rail 纵向预留（标题栏 + 安全区近似）*/
+  --plotpilot-rail-drawer-body-offset: 108px;
+
+  --plotpilot-split-pane-min-height: 0px;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --plotpilot-topbar-height: 48px;
+    --plotpilot-topbar-padding-x: 14px;
+    --plotpilot-topbar-inner-gap: var(--plotpilot-space-3);
+  }
+}

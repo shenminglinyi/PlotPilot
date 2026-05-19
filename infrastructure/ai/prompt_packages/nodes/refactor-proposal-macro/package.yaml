@@ -1,0 +1,21 @@
+name: Macro refactor proposal
+category: review
+source: application/audit/services/macro_refactor_proposal_service.py
+description: Analyze narrative events and provide character consistency fix suggestions
+builtin: true
+tags:
+- refactor
+- proposal
+- consistency
+output_format: json
+variables:
+- name: event_data
+  desc: Event data to analyze
+  type: string
+  required: true
+- name: intent
+  desc: Author intent description
+  type: string
+  required: false
+id: refactor-proposal-macro
+sort_order: 22

@@ -289,6 +289,37 @@ class PersistenceQueue:
         if time.monotonic() >= deadline:
             logger.warning("排空队列超时（3s），可能还有未处理命令")
 
+    def wait_until_idle(self, timeout: float = 5.0) -> bool:
+        """等待持久化队列排空（启动/停止等关键路径：守护进程依赖 DB 读到最新状态）。"""
+        if self._queue is None:
+            return True
+
+        deadline = time.monotonic() + timeout
+        stable_empty = 0
+        while time.monotonic() < deadline:
+            try:
+                pending = self._queue.qsize()
+            except Exception:
+                pending = 0
+            if pending <= 0:
+                stable_empty += 1
+                if stable_empty >= 3:
+                    return True
+            else:
+                stable_empty = 0
+            time.sleep(0.05)
+
+        try:
+            pending = self._queue.qsize()
+        except Exception:
+            pending = -1
+        logger.warning(
+            "持久化队列 wait_until_idle 超时 (%.1fs)，剩余约 %s 条",
+            timeout,
+            pending,
+        )
+        return False
+
     def get_stats(self) -> Dict:
         """获取统计信息"""
         queue_size = 0

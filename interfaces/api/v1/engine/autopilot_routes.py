@@ -103,6 +103,79 @@ def _stage_after_review(novel) -> NovelStage:
     return NovelStage.ACT_PLANNING
 
 
+def _persist_autopilot_running_sync(
+    novel_id: str,
+    *,
+    max_auto_chapters: int,
+    target_chapters: int,
+    target_words_per_chapter: int,
+) -> None:
+    """将 RUNNING 写入 DB 并等待持久化队列落盘。
+
+    守护进程仅按 DB autopilot_status=running 捞书；全量 save() 易与首页改篇幅等
+    并发写回 stopped，故用 patch + 兜底 UPDATE。
+    """
+    from application.engine.services.persistence_queue import get_persistence_queue
+    from infrastructure.persistence.database.connection import get_database
+
+    repo = get_novel_repository()
+    novel = repo.get_by_id(NovelId(novel_id))
+    if not novel:
+        return
+
+    fresh_stages_obj = {NovelStage.PLANNING, NovelStage.MACRO_PLANNING}
+    if novel.current_stage in fresh_stages_obj:
+        patch_stage = NovelStage.MACRO_PLANNING
+    elif novel.current_stage == NovelStage.PAUSED_FOR_REVIEW:
+        patch_stage = _stage_after_review(novel)
+    else:
+        patch_stage = novel.current_stage
+
+    repo.patch(
+        NovelId(novel_id),
+        autopilot_status=AutopilotStatus.RUNNING,
+        max_auto_chapters=max_auto_chapters,
+        current_auto_chapters=novel.current_auto_chapters or 0,
+        consecutive_error_count=0,
+        target_chapters=target_chapters,
+        target_words_per_chapter=target_words_per_chapter,
+        current_stage=patch_stage,
+    )
+
+    pq = get_persistence_queue()
+    if pq is not None:
+        pq.wait_until_idle(timeout=5.0)
+
+    row = get_database().fetch_one(
+        "SELECT autopilot_status FROM novels WHERE id = ?",
+        (novel_id,),
+    )
+    ap = (row or {}).get("autopilot_status") if row else None
+    if ap != "running":
+        logger.warning(
+            "autopilot persist: novel_id=%s DB 仍为 %r，兜底 UPDATE running",
+            novel_id,
+            ap,
+        )
+        get_database().execute(
+            """UPDATE novels SET autopilot_status = 'running', updated_at = CURRENT_TIMESTAMP
+               WHERE id = ?""",
+            (novel_id,),
+        )
+        get_database().commit()
+        if pq is not None:
+            pq.wait_until_idle(timeout=3.0)
+
+
+def _stage_needs_human_review(stage: Optional[str]) -> bool:
+    """是否与人工审阅闸门对齐（须调用 /resume）。
+
+    「reviewing」为历史/兼容舞台值；闸门主路径使用 paused_for_review。两者均需展示确认按钮。
+    """
+    s = (stage or "").strip().lower()
+    return s in ("paused_for_review", "reviewing")
+
+
 router = APIRouter(prefix="/autopilot", tags=["autopilot"])
 
 # ── 使用统一资源管理器管理线程池和缓存 ──
@@ -247,7 +320,9 @@ def _build_fallback_status(novel) -> Dict[str, Any]:
         "manuscript_chapters": 0,  # 降级
         "progress_pct_manuscript": 0.0,  # 降级
         "current_chapter_number": None,
-        "needs_review": (novel.current_stage.value if hasattr(novel.current_stage, "value") else novel.current_stage) == "paused_for_review",
+        "needs_review": _stage_needs_human_review(
+            novel.current_stage.value if hasattr(novel.current_stage, "value") else str(novel.current_stage)
+        ),
         "auto_approve_mode": getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": getattr(novel, "audit_progress", None),
@@ -422,7 +497,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
         "manuscript_chapters": in_manuscript_count,
         "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
-        "needs_review": _stage_str == "paused_for_review",
+        "needs_review": _stage_needs_human_review(_stage_str),
         "auto_approve_mode": novel.get("auto_approve_mode") if isinstance(novel, dict) else getattr(novel, "auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": novel.get("audit_progress") if isinstance(novel, dict) else getattr(novel, "audit_progress", None),
@@ -537,7 +612,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "manuscript_chapters": manuscript_count,
         "progress_pct_manuscript": round(manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": shared.get("_cached_current_chapter_number"),
-        "needs_review": stage == "paused_for_review",
+        "needs_review": _stage_needs_human_review(stage),
         "auto_approve_mode": shared.get("auto_approve_mode", False),
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
@@ -557,6 +632,8 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
         "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
         "last_smart_truncate": shared.get("last_smart_truncate"),
+        "planned_micro_beats": shared.get("planned_micro_beats") or [],
+        "outline_plan_mode": shared.get("outline_plan_mode", ""),
     }
 
 
@@ -694,7 +771,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "manuscript_chapters": in_manuscript_count,
         "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
-        "needs_review": stage == "paused_for_review",
+        "needs_review": _stage_needs_human_review(stage),
         "auto_approve_mode": auto_approve_mode,
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
@@ -715,6 +792,8 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
         "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
         "last_smart_truncate": shared.get("last_smart_truncate"),
+        "planned_micro_beats": shared.get("planned_micro_beats") or [],
+        "outline_plan_mode": shared.get("outline_plan_mode", ""),
     }
 
 
@@ -869,13 +948,13 @@ def _autopilot_events_tick_sync(novel_repo, chapter_repo, novel_id: str) -> Tupl
         "progress_pct_manuscript": round(ev_in_manuscript / tgt * 100, 1) if tgt else 0,
         "total_words": ev_total_words,
         "target_chapters": novel.target_chapters,
-        "needs_review": novel.current_stage.value == "paused_for_review",
+        "needs_review": _stage_needs_human_review(novel.current_stage.value),
         "consecutive_error_count": getattr(novel, "consecutive_error_count", 0),
     }
     terminal_states = {"stopped", "error", "completed"}
     should_break = (
         novel.autopilot_status.value in terminal_states
-        and novel.current_stage.value != "paused_for_review"
+        and not _stage_needs_human_review(novel.current_stage.value)
     )
     return data, should_break
 
@@ -1166,24 +1245,12 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
     def _start_persist_sync():
         """线程池中执行：DB 读取 + 写入"""
         try:
-            repo = get_novel_repository()
-            novel = repo.get_by_id(NovelId(novel_id))
-            if not novel:
-                return
-            novel.autopilot_status = AutopilotStatus.RUNNING
-            novel.max_auto_chapters = body.max_auto_chapters
-            novel.current_auto_chapters = novel.current_auto_chapters or 0
-            novel.consecutive_error_count = 0
-            novel.target_chapters = resolved_tc
-            novel.target_words_per_chapter = resolved_twpc
-
-            fresh_stages_obj = {NovelStage.PLANNING, NovelStage.MACRO_PLANNING}
-            if novel.current_stage in fresh_stages_obj:
-                novel.current_stage = NovelStage.MACRO_PLANNING
-            if novel.current_stage == NovelStage.PAUSED_FOR_REVIEW:
-                novel.current_stage = _stage_after_review(novel)
-
-            repo.save(novel)
+            _persist_autopilot_running_sync(
+                novel_id,
+                max_auto_chapters=body.max_auto_chapters,
+                target_chapters=resolved_tc,
+                target_words_per_chapter=resolved_twpc,
+            )
             logger.info(
                 "autopilot start: novel_id=%s persisted RUNNING (DB) tc=%s twpc=%s",
                 novel_id,
@@ -1316,7 +1383,7 @@ async def resume_from_review(novel_id: str):
         current_stage_str = shared.get("current_stage", "")
         current_act = shared.get("current_act", 0) or 0
 
-        if current_stage_str != "paused_for_review":
+        if not _stage_needs_human_review(current_stage_str):
             raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
     else:
         # 降级路径：共享内存无数据，读 DB（在线程池中）
@@ -1344,7 +1411,7 @@ async def resume_from_review(novel_id: str):
         current_stage_str = novel_data["current_stage"]
         current_act = novel_data["current_act"]
 
-        if current_stage_str != "paused_for_review":
+        if not _stage_needs_human_review(current_stage_str):
             raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
 
     # 计算下一阶段
@@ -1373,14 +1440,23 @@ async def resume_from_review(novel_id: str):
             novel = repo.get_by_id(NovelId(novel_id))
             if not novel:
                 return
-            novel.autopilot_status = AutopilotStatus.RUNNING
-            novel.current_stage = _stage_after_review(novel)
-            repo.save(novel)
+            _persist_autopilot_running_sync(
+                novel_id,
+                max_auto_chapters=getattr(novel, "max_auto_chapters", 9999) or 9999,
+                target_chapters=novel.target_chapters or 1,
+                target_words_per_chapter=getattr(novel, "target_words_per_chapter", None) or 2500,
+            )
             logger.info("autopilot resume: novel_id=%s persisted (DB)", novel_id)
         except Exception as e:
             logger.warning("autopilot resume DB 持久化失败（共享内存已生效）: %s", e)
 
-    loop.run_in_executor(_SSE_THREAD_POOL, _resume_persist_sync)  # 🔥 fire-and-forget
+    try:
+        await asyncio.wait_for(
+            loop.run_in_executor(_SSE_THREAD_POOL, _resume_persist_sync),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("autopilot resume DB 持久化超时 novel=%s", novel_id)
 
     # ── 第四步：发布 IPC 启动信号 ──
     try:
@@ -1405,14 +1481,14 @@ async def get_autopilot_status(novel_id: str):
     from application.engine.services.query_service import get_query_service
 
     query = get_query_service()
-    status = query.get_novel_status(novel_id)
+    status = query.get_novel_status_dict(novel_id)
 
     if status is None:
         # 小说不在共享内存中，可能是不存在或未加载
         # 返回 404 而不是尝试读 DB（避免阻塞）
         raise HTTPException(404, "小说不存在或未加载")
 
-    return status.to_dict()
+    return status
 
 
 @router.get("/{novel_id}/circuit-breaker")
@@ -1902,8 +1978,10 @@ async def autopilot_chapter_stream(novel_id: str):
     """SSE 实时推送正在写作的章节内容（优化版 v2）
 
     推送事件类型：
+    - outline_planning: 章前规划（CPMS 拆节拍）进行中
+    - beats_planned: 章前规划完成，指挥器节拍已就绪
     - chapter_chunk: 增量文字片段
-    - chapter_start: 开始写新章节
+    - chapter_start: 开始撰写正文（首个节拍流式输出前）
     - autopilot_stopped: 自动驾驶停止
 
     优化点：
@@ -1927,9 +2005,21 @@ async def autopilot_chapter_stream(novel_id: str):
         yield f"data: {json.dumps(init_event, ensure_ascii=False)}\n\n"
 
         last_chapter_number = None
+        last_outline_planning_key: Optional[str] = None
+        last_beats_planned_key: Optional[str] = None
         heartbeat_counter = 0
         empty_poll_count = 0
         MAX_EMPTY_POLLS = 24  # 连续空轮询约 12 秒后检查状态
+        _PROSE_SUBSTEPS = frozenset(
+            {
+                "llm_calling",
+                "soft_landing",
+                "persisting",
+                "continuity_check",
+                "density_supplement",
+                "chapter_persist",
+            }
+        )
 
         try:
             while True:
@@ -2006,7 +2096,7 @@ async def autopilot_chapter_stream(novel_id: str):
                     break
 
                 # 审阅状态时断开 SSE，避免卡界面
-                if novel.current_stage.value == "paused_for_review":
+                if _stage_needs_human_review(novel.current_stage.value):
                     event = {
                         "type": "paused_for_review",
                         "message": "等待审阅确认",
@@ -2015,26 +2105,71 @@ async def autopilot_chapter_stream(novel_id: str):
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     break
 
-                # 检测新章节开始
-                if novel.current_stage.value == "writing" and chapters:
-                    _st = lambda c: c.status.value if hasattr(c.status, "value") else c.status
-                    drafts = sorted(
-                        [c for c in chapters if _st(c) == "draft"],
-                        key=lambda c: c.number
-                    )
-                    if drafts:
-                        chapter_number = drafts[0].number
-                        # 发送章节开始事件
-                        if last_chapter_number is None or chapter_number != last_chapter_number:
+                shared_live = _get_shared_state_for_novel_cached(novel_id) or {}
+                ch_live = shared_live.get("current_chapter_number")
+                sub_live = str(shared_live.get("writing_substep") or "")
+
+                if ch_live is not None:
+                    ch_n = int(ch_live)
+                    if sub_live == "outline_planning":
+                        op_key = f"op:{ch_n}"
+                        if op_key != last_outline_planning_key:
                             event = {
-                                "type": "chapter_start",
-                                "message": f"开始写第 {chapter_number} 章",
+                                "type": "outline_planning",
+                                "message": shared_live.get(
+                                    "writing_substep_label", "章前规划 · 划分节拍"
+                                ),
                                 "timestamp": datetime.now().isoformat(),
-                                "metadata": {"chapter_number": chapter_number},
+                                "metadata": {"chapter_number": ch_n},
                             }
                             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                            logger.debug(f"[SSE] chapter_start: 第 {chapter_number} 章")
-                            # 注意：不再调用 clear()，避免丢失队列中的数据
+                            logger.debug("[SSE] outline_planning: 第 %s 章", ch_n)
+                            last_outline_planning_key = op_key
+
+                    planned = shared_live.get("planned_micro_beats") or []
+                    tb = int(shared_live.get("total_beats") or 0)
+                    if planned and tb > 0:
+                        bp_key = f"bp:{ch_n}:{tb}"
+                        if bp_key != last_beats_planned_key:
+                            event = {
+                                "type": "beats_planned",
+                                "message": f"章前规划完成，{tb} 个节拍",
+                                "timestamp": datetime.now().isoformat(),
+                                "metadata": {
+                                    "chapter_number": ch_n,
+                                    "beats": planned,
+                                    "outline_plan_mode": shared_live.get("outline_plan_mode", ""),
+                                    "total_beats": tb,
+                                },
+                            }
+                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                            logger.debug("[SSE] beats_planned: 第 %s 章 ×%s", ch_n, tb)
+                            last_beats_planned_key = bp_key
+
+                # 正文撰写开始：进入 llm_calling 或已有流式 chunk（不再在 draft 创建时误报「开写」）
+                prose_started = bool(chunks) or sub_live in _PROSE_SUBSTEPS
+                if novel.current_stage.value == "writing" and prose_started:
+                    chapter_number = int(ch_live) if ch_live is not None else None
+                    if chapter_number is None and chapters:
+                        _st = lambda c: c.status.value if hasattr(c.status, "value") else c.status
+                        drafts = sorted(
+                            [c for c in chapters if _st(c) == "draft"],
+                            key=lambda c: c.number,
+                        )
+                        if drafts:
+                            chapter_number = drafts[0].number
+                    if chapter_number is not None and (
+                        last_chapter_number is None or chapter_number != last_chapter_number
+                    ):
+                        event = {
+                            "type": "chapter_start",
+                            "message": f"开始撰写第 {chapter_number} 章正文",
+                            "timestamp": datetime.now().isoformat(),
+                            "metadata": {"chapter_number": chapter_number},
+                        }
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                        logger.debug("[SSE] chapter_start: 第 %s 章（正文）", chapter_number)
+                    if chapter_number is not None:
                         last_chapter_number = chapter_number
 
                 if chunks:

@@ -278,6 +278,17 @@ def _parse_dimension_json(raw_text: str, dim_key: str) -> dict:
     if not isinstance(parsed, dict):
         return {}
 
+    # LLM 可能多包一层：{"worldbuilding": {dim_key: {...}}} 或单键 {"dim_key": {...}}
+    wb_outer = parsed.get("worldbuilding")
+    if isinstance(wb_outer, dict):
+        wb_inner = wb_outer.get(dim_key)
+        if isinstance(wb_inner, dict):
+            parsed = wb_inner
+    if len(parsed) == 1:
+        lone_k, lone_v = next(iter(parsed.items()))
+        if lone_k == dim_key and isinstance(lone_v, dict):
+            parsed = lone_v
+
     # 标准化：只保留字符串字段
     normalized = {}
     for k, v in parsed.items():
@@ -647,25 +658,11 @@ async def get_bible_by_novel(
     novel_id: str,
     service: BibleService = Depends(get_bible_service)
 ):
-    """获取小说的 Bible
-
-    Args:
-        novel_id: 小说 ID
-        service: Bible 服务
-
-    Returns:
-        Bible DTO
-
-    Raises:
-        HTTPException: 如果 Bible 不存在
-    """
-    bible = service.get_bible_by_novel(novel_id)
-    if bible is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Bible not found for novel: {novel_id}"
-        )
-    return bible
+    """获取小说的 Bible（小说存在但尚无 Bible 时自动建空 Bible，避免工作台首屏 404）"""
+    try:
+        return service.ensure_bible_for_novel(novel_id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.get("/novels/{novel_id}/bible/characters", response_model=list)
@@ -673,24 +670,11 @@ async def list_characters(
     novel_id: str,
     service: BibleService = Depends(get_bible_service)
 ):
-    """列出 Bible 中的所有人物
-
-    Args:
-        novel_id: 小说 ID
-        service: Bible 服务
-
-    Returns:
-        人物 DTO 列表
-
-    Raises:
-        HTTPException: 如果 Bible 不存在
-    """
-    bible = service.get_bible_by_novel(novel_id)
-    if bible is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Bible not found for novel: {novel_id}"
-        )
+    """列出 Bible 中的所有人物"""
+    try:
+        bible = service.ensure_bible_for_novel(novel_id)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return bible.characters
 
 

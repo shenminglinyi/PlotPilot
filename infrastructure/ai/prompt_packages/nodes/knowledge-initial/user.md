@@ -1,4 +1,3 @@
-项目代号：{title}
+小说标题：《{title}》
 
-初始设定素材包：
-{settings}
+{bible_summary}

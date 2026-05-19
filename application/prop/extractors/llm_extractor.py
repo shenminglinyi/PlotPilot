@@ -29,6 +29,7 @@ _SCHEMA = """输出格式（JSON 数组）：
 无相关事件时输出空数组 []"""
 
 
+
 class LlmExtractor:
     """LLM 提取器 — 仅提取高价值事件（TRANSFERRED/DAMAGED/REPAIRED/RESOLVED）。"""
 
@@ -37,6 +38,13 @@ class LlmExtractor:
 
     def __init__(self, llm_service):
         self._llm = llm_service
+
+    @staticmethod
+    def _get_system_prompt() -> str:
+        """Get system prompt via CPMS."""
+        from infrastructure.ai.prompt_utils import get_prompt_system
+        from infrastructure.ai.prompt_keys import PROP_EVENT_EXTRACTION
+        return get_prompt_system(PROP_EVENT_EXTRACTION, fallback=_SYSTEM)
 
     async def extract(
         self,
@@ -52,17 +60,33 @@ class LlmExtractor:
             f"- {p['name']}（id={p['id']}，持有者={p.get('holder', '无')}）"
             for p in active_props[:20]
         )
-        user_msg = (
-            f"当前 ACTIVE 道具列表：\n{props_summary}\n\n"
-            f"章节正文（节选，前 1500 字）：\n{content[:1500]}\n\n"
-            f"{_SCHEMA}"
-        )
+
+        # CPMS render
+        from infrastructure.ai.prompt_keys import PROP_EVENT_EXTRACTION
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+
+        registry = get_prompt_registry()
+        variables = {
+            "props_summary": props_summary,
+            "chapter_excerpt": content[:1500],
+            "output_schema": _SCHEMA,
+        }
+        prompt = registry.render_to_prompt(PROP_EVENT_EXTRACTION, variables)
+
+        # 降级
+        if not prompt:
+            from domain.ai.value_objects.prompt import Prompt
+            user_msg = (
+                f"当前 ACTIVE 道具列表：\n{props_summary}\n\n"
+                f"章节正文（节选，前 1500 字）：\n{content[:1500]}\n\n"
+                f"{_SCHEMA}"
+            )
+            prompt = Prompt(system=self._get_system_prompt(), user=user_msg)
 
         try:
-            from domain.ai.value_objects.prompt import Prompt
             from domain.ai.services.llm_service import GenerationConfig
             result = await self._llm.generate(
-                Prompt(system=_SYSTEM, user=user_msg),
+                prompt,
                 GenerationConfig(max_tokens=600, temperature=0.1),
             )
             raw = result.content if hasattr(result, "content") else str(result)

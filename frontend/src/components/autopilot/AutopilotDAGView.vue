@@ -69,10 +69,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
+import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 import DAGToolbar from './DAGToolbar.vue'
 import DAGCanvas from './DAGCanvas.vue'
 import NodeContextMenu from './NodeContextMenu.vue'
@@ -107,6 +108,9 @@ const gapSummary = computed(() =>
   dagStore.registryGaps.map(g => `${g.node_id} (${g.node_type})`).join('、'),
 )
 
+/** 周期性拉权威 /status ，避免仅用 DAG Run SSE 把「人工审阅」误标成「运行中」 */
+let autopilotStatusPollTimer: ReturnType<typeof setInterval> | null = null
+
 async function retryHydrate() {
   await dagStore.hydrateDagForNovel(props.novelId)
   await runStore.fetchStatus(props.novelId)
@@ -117,18 +121,25 @@ onMounted(async () => {
   await dagStore.hydrateDagForNovel(props.novelId)
   await runStore.fetchStatus(props.novelId)
   await fetchAutopilotStatus()
+  autopilotStatusPollTimer = window.setInterval(() => {
+    void fetchAutopilotStatus()
+  }, 7000)
 })
 
-// ★ 监听托管模式 SSE 日志更新状态
-watch(() => runStore.runStatus, (status) => {
-  if (status === 'running') {
-    autopilotStatus.value = 'running'
-  } else if (status === 'completed') {
-    autopilotStatus.value = 'completed'
-  } else if (status === 'error') {
-    autopilotStatus.value = 'error'
+onUnmounted(() => {
+  if (autopilotStatusPollTimer != null) {
+    clearInterval(autopilotStatusPollTimer)
+    autopilotStatusPollTimer = null
   }
 })
+
+// ★ 监听托管模式 SSE 日志：以 /status 为准合并「人工审阅」态
+watch(
+  () => runStore.runStatus,
+  () => {
+    void fetchAutopilotStatus()
+  },
+)
 
 // ─── 画布右键菜单 ───
 
@@ -167,9 +178,9 @@ async function handleToggleNode(nodeId: string) {
   message.success(node?.enabled ? '节点已启用' : '节点已禁用')
 }
 
-/** ★ 切换到卡片视图 */
+/** 切回「监控 · DAG」页的实时日志 */
 function handleSwitchToCard() {
-  dagStore.switchView('card')
+  useAutopilotWorkspaceStore().openMonitor()
 }
 
 // ─── 获取托管模式状态 ───
@@ -178,12 +189,29 @@ async function fetchAutopilotStatus() {
   try {
     const { apiClient } = await import('@/api/config')
     const result = await apiClient.get(`/autopilot/${props.novelId}/status`) as Record<string, unknown>
-    const status = String(result.autopilot_status || result.status || 'idle')
-    if (['running', 'paused_for_review', 'completed', 'error'].includes(status)) {
-      autopilotStatus.value = status === 'paused_for_review' ? 'paused' : status as typeof autopilotStatus.value
-    } else {
-      autopilotStatus.value = 'idle'
+    const ap = String(result.autopilot_status ?? result.status ?? 'stopped')
+    const needs = Boolean(result.needs_review)
+    const stage = String(result.current_stage ?? '').trim().toLowerCase()
+    const humanGate =
+      needs || stage === 'paused_for_review' || stage === 'reviewing'
+
+    if (ap === 'completed') {
+      autopilotStatus.value = 'completed'
+      return
     }
+    if (ap === 'error') {
+      autopilotStatus.value = 'error'
+      return
+    }
+    if (ap === 'running' && humanGate) {
+      autopilotStatus.value = 'paused'
+      return
+    }
+    if (ap === 'running') {
+      autopilotStatus.value = 'running'
+      return
+    }
+    autopilotStatus.value = 'idle'
   } catch {
     autopilotStatus.value = 'idle'
   }
@@ -194,14 +222,19 @@ async function fetchAutopilotStatus() {
 .dag-view-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
   background: var(--dag-canvas-bg);
 }
 
 .dag-canvas-wrapper {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   overflow: hidden;
   position: relative;
+  z-index: 1;
+  isolation: isolate;
 }
 
 .dag-loading,
@@ -222,6 +255,8 @@ async function fetchAutopilotStatus() {
 .dag-banner {
   padding: 8px 16px 0;
   flex-shrink: 0;
+  position: relative;
+  z-index: 18;
 }
 
 .dag-banner :deep(.n-alert) {

@@ -1,0 +1,26 @@
+name: Chapter bridge fix
+category: chapter
+source: application/engine/services/chapter_bridge_service.py
+description: Rewrite chapter opening for better continuity with previous chapter
+builtin: true
+tags:
+- chapter
+- bridge
+- fix
+- rewrite
+output_format: text
+variables:
+- name: bridge_data
+  desc: Previous chapter bridge data
+  type: string
+  required: true
+- name: issues
+  desc: Continuity issues found
+  type: string
+  required: true
+- name: original_opening
+  desc: Original chapter opening text
+  type: string
+  required: true
+id: chapter-bridge-fix
+sort_order: 62

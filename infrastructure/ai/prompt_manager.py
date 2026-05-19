@@ -1,11 +1,11 @@
-"""PromptManager — 提示词统一管理服务（数据库驱动版）。
+"""PromptManager — 提示词统一管理服务（CPMS v5）。
 
 核心设计：
 - 提示词存入 SQLite（prompt_templates / prompt_nodes / prompt_versions）
 - 单节点版本管理（每次编辑创建新版本，支持回滚）
 - 整体模板概念（template 包含多个 node，可组合成工作流）
-- 内置种子优先从 ``infrastructure/ai/prompt_packages/`` 加载（YAML 元数据 + Markdown 正文）
-- 若包目录为空则回退合并旧版 ``prompts_defaults.json`` + ``prompts_*.json``（兼容未迁移工作区）
+- 内置种子仅从 ``infrastructure/ai/prompt_packages/nodes/*/`` 加载（YAML 元数据 + Markdown 正文）
+- 旧版 JSON 种子已废弃
 - Jinja2 兼容的变量渲染
 
 数据模型：
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -295,6 +296,7 @@ class PromptManager:
         """
         self._db = db_connection
         self._seeded = False
+        self._seed_lock = threading.Lock()  # 防止多线程并发写种子导致 SQLite 锁竞争
 
     def _get_db(self):
         """与主应用共用同一 SQLite（含桌面版 `PLOTPILOT_PROD_DATA_DIR` / 旧名 `AITEXT_PROD_DATA_DIR`）。"""
@@ -311,35 +313,37 @@ class PromptManager:
     def ensure_seeded(self) -> bool:
         """确保内置种子已导入数据库（幂等）。
 
-        v4 加载策略：
-        1. 优先 ``prompt_packages/nodes/*/``（package.yaml + system.md + user.md + extras.json）
-        2. 若包为空，回退合并 ``prompts_defaults.json`` + ``prompts_*.json``（与 v3 行为一致）
+        CPMS v5 加载策略：
+        仅从 ``prompt_packages/nodes/*/`` 加载（package.yaml + system.md + user.md）。
+        旧版 prompts_defaults.json / prompts_*.json 已废弃，不再回退。
+
+        线程安全：加锁防止自动托管后台线程与前端 API 并发触发种子写入，
+        避免 SQLite 锁竞争（database is locked）。
         """
         if self._seeded:
             return True
+
+        with self._seed_lock:
+            # 双重检查：拿到锁后再看一次，可能其它线程已经完成了 seed
+            if self._seeded:
+                return True
+            return self._do_ensure_seeded()
+
+    def _do_ensure_seeded(self) -> bool:
+        """ensure_seeded 的实际实现（已在锁内调用）。"""
         db = self._get_db()
         conn = db.get_connection()
 
-        from infrastructure.ai.prompt_seed.loader import load_seed_bundle, merge_legacy_json_prompts
+        from infrastructure.ai.prompt_seed.loader import load_seed_bundle
 
         bundle_meta, prompt_list = load_seed_bundle()
-        seed_data: Optional[Dict[str, Any]] = None
-        if prompt_list:
-            seed_data = {"_meta": bundle_meta, "prompts": prompt_list}
-            logger.info("PromptManager: 使用 prompt_packages 种子（%d 个节点）", len(prompt_list))
-        else:
-            merged_meta, plist = merge_legacy_json_prompts(_PROMPTS_DIR)
-            if plist:
-                seed_data = {"_meta": merged_meta, "prompts": plist}
-                logger.warning(
-                    "prompt_packages 无节点，已回退 legacy JSON（%d 个）；"
-                    "请运行: python -m infrastructure.ai.prompt_seed.export_legacy",
-                    len(plist),
-                )
 
-        if not seed_data or not seed_data.get("prompts"):
-            logger.error("没有找到任何提示词种子（prompt_packages 与 legacy JSON 均为空）")
+        if not prompt_list:
+            logger.error("没有找到任何提示词种子（prompt_packages/nodes/ 为空），请检查节点包目录")
             return False
+
+        logger.info("PromptManager: 使用 prompt_packages 种子（%d 个节点）", len(prompt_list))
+        seed_data = {"_meta": bundle_meta, "prompts": prompt_list}
 
         meta = seed_data.get("_meta", {})
         seed_version = meta.get("version", "1.0.0")
@@ -1011,14 +1015,17 @@ class PromptManager:
     # ------------------------------------------------------------------
 
     def get_stats(self) -> Dict[str, Any]:
-        """获取提示词库统计。"""
+        """获取提示词库统计（单条 SQL 合并 4 个 COUNT + 分类计数）。"""
         db = self._get_db()
-        total_nodes = db.execute("SELECT COUNT(*) AS c FROM prompt_nodes").fetchone()["c"]
-        total_templates = db.execute("SELECT COUNT(*) AS c FROM prompt_templates").fetchone()["c"]
-        total_versions = db.execute("SELECT COUNT(*) AS c FROM prompt_versions").fetchone()["c"]
-        builtin_count = db.execute(
-            "SELECT COUNT(*) AS c FROM prompt_nodes WHERE is_builtin=1"
-        ).fetchone()["c"]
+        row = db.execute("""
+            SELECT
+                (SELECT COUNT(*) FROM prompt_nodes)   AS total_nodes,
+                (SELECT COUNT(*) FROM prompt_templates) AS total_templates,
+                (SELECT COUNT(*) FROM prompt_versions)  AS total_versions,
+                (SELECT COUNT(*) FROM prompt_nodes WHERE is_builtin=1) AS builtin_count
+        """).fetchone()
+        total_nodes = row["total_nodes"]
+        builtin_count = row["builtin_count"]
         custom_count = total_nodes - builtin_count
 
         # 各分类数量
@@ -1029,8 +1036,8 @@ class PromptManager:
 
         return {
             "total_nodes": total_nodes,
-            "total_templates": total_templates,
-            "total_versions": total_versions,
+            "total_templates": row["total_templates"],
+            "total_versions": row["total_versions"],
             "builtin_count": builtin_count,
             "custom_count": custom_count,
             "categories": categories,
@@ -1092,11 +1099,14 @@ class PromptManager:
 # ------------------------------------------------------------------
 
 _manager_instance: Optional[PromptManager] = None
+_manager_lock = threading.Lock()
 
 
 def get_prompt_manager() -> PromptManager:
-    """获取全局 PromptManager 单例。"""
+    """获取全局 PromptManager 单例（线程安全）。"""
     global _manager_instance
     if _manager_instance is None:
-        _manager_instance = PromptManager()
+        with _manager_lock:
+            if _manager_instance is None:
+                _manager_instance = PromptManager()
     return _manager_instance

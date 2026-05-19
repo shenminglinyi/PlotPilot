@@ -271,7 +271,7 @@ import {
   NButton, NTag, NInput, NSpin, NEmpty,
   NModal, NForm, NFormItem, NSelect, NUpload, useMessage,
 } from 'naive-ui'
-import { promptPlazaApi, type PromptNode, type PromptCategoryInfo, type PromptStats } from '../../api/llmControl'
+import { promptPlazaApi, type PromptNode, type PromptCategoryInfo, type PromptStats, type PlazaInitResult } from '../../api/llmControl'
 import NodeCard from './promptPlaza/NodeCard.vue'
 
 /** 详情 / Anti-AI 惰性分包，缩短首屏解析与请求前排队的链路 */
@@ -369,21 +369,36 @@ const categoryOptions = computed(() =>
 async function loadData() {
   loading.value = true
   try {
-    const statsP = stats.value
-      ? Promise.resolve(stats.value)
-      : (promptPlazaApi.getStats() as Promise<PromptStats>)
-    const [statsRes, catsRes, nodesRes] = await Promise.all([
-      statsP,
-      promptPlazaApi.getCategoriesInfo(),
-      promptPlazaApi.listNodesByCategory(),
-    ])
-    stats.value = statsRes as unknown as PromptStats
-    categories.value = catsRes as unknown as PromptCategoryInfo[]
-    const nodesMap = nodesRes as unknown as Record<string, PromptNode[]>
+    // ★ 优化：单次聚合请求替代原来 3 次并发请求
+    const res = await promptPlazaApi.plazaInit() as unknown as PlazaInitResult
+
+    if (res.stats) stats.value = res.stats
+    categories.value = res.categories || []
+    const nodesMap = res.nodes_by_category || {}
     allNodes.value = Object.values(nodesMap).flat()
+
+    if (!res.stats && categories.value.length === 0 && allNodes.value.length === 0) {
+      message.error('加载提示词数据失败，请稍后重试')
+    }
   } catch (e) {
     console.error('加载提示词广场失败:', e)
-    message.error('加载提示词数据失败')
+    // 降级：回退到分散请求
+    try {
+      const [statsRes, catsRes, nodesRes] = await Promise.all([
+        promptPlazaApi.getStats().catch(() => null),
+        promptPlazaApi.getCategoriesInfo().catch(() => []),
+        promptPlazaApi.listNodesByCategory().catch(() => ({})),
+      ])
+      if (statsRes) stats.value = statsRes as unknown as PromptStats
+      categories.value = (catsRes as unknown as PromptCategoryInfo[]) || []
+      const nodesMap = (nodesRes as unknown as Record<string, PromptNode[]>) || {}
+      allNodes.value = Object.values(nodesMap).flat()
+      if (!statsRes && categories.value.length === 0 && allNodes.value.length === 0) {
+        message.error('加载提示词数据失败，请稍后重试')
+      }
+    } catch {
+      message.error('加载提示词数据失败')
+    }
   } finally {
     loading.value = false
   }

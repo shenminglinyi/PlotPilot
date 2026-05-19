@@ -30,13 +30,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# CPMS: 审稿提示词节点 key 映射
+# CPMS: 审稿提示词节点 key 映射（统一从 prompt_keys 导入）
+from infrastructure.ai.prompt_keys import (
+    REVIEW_CHARACTER_CONSISTENCY,
+    REVIEW_TIMELINE_CONSISTENCY,
+    REVIEW_STORYLINE_CONSISTENCY,
+    REVIEW_FORESHADOWING_USAGE,
+    REVIEW_IMPROVEMENT_SUGGESTIONS,
+)
+
 _REVIEW_PROMPT_KEYS = {
-    "character": "review-character-consistency",
-    "timeline": "review-timeline-consistency",
-    "storyline": "review-storyline-consistency",
-    "foreshadowing": "review-foreshadowing-usage",
-    "improvement": "review-improvement-suggestions",
+    "character": REVIEW_CHARACTER_CONSISTENCY,
+    "timeline": REVIEW_TIMELINE_CONSISTENCY,
+    "storyline": REVIEW_STORYLINE_CONSISTENCY,
+    "foreshadowing": REVIEW_FORESHADOWING_USAGE,
+    "improvement": REVIEW_IMPROVEMENT_SUGGESTIONS,
 }
 
 # 硬编码回退（仅在 PromptRegistry 不可用时使用）
