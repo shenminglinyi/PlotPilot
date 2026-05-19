@@ -72,6 +72,18 @@ def _openai_compatible_models_base(base_url: str) -> str:
     ).rstrip('/')
 
 
+def _is_minimax_anthropic_base(base_url: str) -> bool:
+    raw = (base_url or '').strip()
+    if not raw:
+        return False
+    if '://' not in raw:
+        raw = f'https://{raw}'
+    parsed = urlparse(raw)
+    host = (parsed.netloc or '').lower()
+    path = (parsed.path or '').lower()
+    return host.endswith('minimaxi.com') and '/anthropic' in path
+
+
 def _normalize_model_items(data: Dict[str, Any]) -> List[ModelItem]:
     """将不同网关的 /models 响应统一为 ModelItem 列表。"""
     items: List[ModelItem] = []
@@ -109,10 +121,16 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
 
     if api_format == 'anthropic':
         url = f"{(base_url or 'https://api.anthropic.com').rstrip('/')}/v1/models"
-        headers = {
-            'x-api-key': api_key,
-            'anthropic-version': '2023-06-01',
-        }
+        if _is_minimax_anthropic_base(base_url):
+            headers = {
+                'Authorization': f'Bearer {api_key}',
+                'anthropic-version': '2023-06-01',
+            }
+        else:
+            headers = {
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+            }
     else:
         openai_base = _openai_compatible_models_base(base_url)
         url = f'{openai_base}/models'

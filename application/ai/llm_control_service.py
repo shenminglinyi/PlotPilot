@@ -254,6 +254,15 @@ class LLMControlService:
                 tags=['domestic', 'preset'],
             ),
             LLMPreset(
+                key='minimax-anthropic',
+                label='MiniMax / Anthropic 兼容',
+                protocol='anthropic',
+                default_base_url='https://api.minimaxi.com/anthropic',
+                default_model='MiniMax-M2.7',
+                description='MiniMax Anthropic-compatible 接口；默认使用 MiniMax-M2.7，也可改为 MiniMax-M2.7-highspeed 等官方模型 ID。',
+                tags=['domestic', 'preset'],
+            ),
+            LLMPreset(
                 key='doubao-ark',
                 label='豆包 / 火山方舟 Ark',
                 protocol='openai',
@@ -564,6 +573,7 @@ class LLMControlService:
         anthropic_key = (os.getenv('ANTHROPIC_API_KEY') or os.getenv('ANTHROPIC_AUTH_TOKEN') or '').strip()
         openai_key = (os.getenv('OPENAI_API_KEY') or '').strip()
         gemini_key = (os.getenv('GEMINI_API_KEY') or '').strip()
+        minimax_key = (os.getenv('MINIMAX_API_KEY') or '').strip()
         ark_key = (os.getenv('ARK_API_KEY') or '').strip()
 
         if anthropic_key and (llm_provider == 'anthropic' or not llm_provider):
@@ -589,6 +599,16 @@ class LLMControlService:
                 'model': (os.getenv('GEMINI_MODEL') or '').strip() or profiles[2].model,
             })
             active_profile_id = profiles[2].id
+        elif minimax_key:
+            profiles[1] = profiles[1].model_copy(update={
+                'name': 'MiniMax / Anthropic',
+                'preset_key': 'minimax-anthropic',
+                'api_key': minimax_key,
+                'base_url': (os.getenv('MINIMAX_BASE_URL') or '').strip() or 'https://api.minimaxi.com/anthropic',
+                'model': (os.getenv('MINIMAX_MODEL') or '').strip() or 'MiniMax-M2.7',
+                'temperature': 1.0,
+            })
+            active_profile_id = profiles[1].id
         elif ark_key:
             profiles[0] = profiles[0].model_copy(update={
                 'name': '豆包 / Ark',
