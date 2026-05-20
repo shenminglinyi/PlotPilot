@@ -3,23 +3,18 @@ import logging
 import json
 import uuid
 import re
-from typing import Dict, Any, AsyncIterator
+from typing import Dict, Any, AsyncIterator, List
 from datetime import datetime
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_service import WorldbuildingService
-from application.world.worldbuilding_merge import (
-    bible_dto_world_settings_to_slices,
-    merge_worldbuilding_table_and_bible_slices,
-    worldbuilding_entity_to_slices,
-)
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
 from infrastructure.ai.prompt_keys import (
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
-    BIBLE_STYLE_CONVENTION, BIBLE_WORLDBUILDING_DIMENSION, BIBLE_WORLDBUILDING_FIELD,
+    BIBLE_STYLE_CONVENTION,
 )
 
 logger = logging.getLogger(__name__)
@@ -936,23 +931,22 @@ JSON 格式（不要有其他文字）：
 
     def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
         """加载已有世界观：合并 Bible.world_settings 与 worldbuilding 映射表字段。"""
-        table_slices = {}
-        if self.worldbuilding_service:
-            try:
-                wb = self.worldbuilding_service.get_worldbuilding(novel_id)
-                table_slices = worldbuilding_entity_to_slices(wb)
-            except Exception:
-                table_slices = worldbuilding_entity_to_slices(None)
+        from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
 
         bible = None
         try:
             bible = self.bible_service.get_bible_by_novel(novel_id)
         except Exception:
             bible = None
-        bible_slices = bible_dto_world_settings_to_slices(bible)
 
-        # Bible.world_settings 含 SSE 生成的扩展字段，作完整基底；世界映射表中非空的槽位字段覆盖同名键。
-        return merge_worldbuilding_table_and_bible_slices(table_slices, bible_slices)
+        wb_entity = None
+        if self.worldbuilding_service:
+            try:
+                wb_entity = self.worldbuilding_service.get_worldbuilding(novel_id)
+            except Exception:
+                wb_entity = None
+
+        return load_merged_worldbuilding_slices(bible=bible, worldbuilding=wb_entity)
 
     def _load_characters(self, novel_id: str) -> list:
         """加载已有人物"""
@@ -1025,7 +1019,107 @@ JSON 格式：
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
-    # ── 逐维度流式生成（SSE专用） ──────────────────────────────────────
+    def _build_worldbuilding_json_schema_desc(self) -> str:
+        """五维完整字段模板（单次流式输出用）。"""
+        lines: List[str] = []
+        for dim_key, dim_def in self._DIMENSION_DEFS.items():
+            lines.append(f'    "{dim_key}": {{')
+            for fk, fd in dim_def["fields"].items():
+                lines.append(f'      "{fk}": "{fd}"')
+            lines.append("    },")
+        return "\n".join(lines)
+
+    async def _stream_worldbuilding_full(
+        self,
+        premise: str,
+        target_chapters: int,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """单次 LLM 流式生成完整五维世界观（维度间由模型一次联动，避免分五次调用脱节）。
+
+        Yields:
+            {"type": "chunk", "text": str}
+            {"type": "dimension", "key": str, "content": dict}
+            {"type": "done", "worldbuilding": dict}
+        """
+        from application.world.services.worldbuilding_stream_parser import (
+            WorldbuildingStreamIncrementalParser,
+        )
+        from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+        from infrastructure.ai.prompt_utils import get_prompt_system
+
+        fields_desc = self._build_worldbuilding_json_schema_desc()
+        linkage_note = (
+            "五维必须在同一套世界逻辑下互相约束：力量体系影响社会结构，地理影响日常生存，"
+            "历史/禁忌影响人物行为边界，禁止各维度各写各的、彼此矛盾。"
+        )
+
+        system_prompt = get_prompt_system(
+            BIBLE_WORLDBUILDING,
+            fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM
+            + "\n\n**单次输出完整 worldbuilding 对象，五维联动一致。**",
+        )
+        user_prompt = f"""故事创意：{premise}
+
+目标章节数：{target_chapters}章
+
+{linkage_note}
+
+请生成完整世界观（五个维度全部填写，字段名不可修改，每字段至少 50 字具体细节）。
+
+```json
+{{
+  "worldbuilding": {{
+{fields_desc}
+  }}
+}}
+```"""
+
+        registry = get_prompt_registry()
+        variables = {
+            "premise": premise,
+            "target_chapters": str(target_chapters),
+        }
+        prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING, variables)
+        if not prompt:
+            prompt = Prompt(system=system_prompt, user=user_prompt)
+
+        config = GenerationConfig(max_tokens=16384, temperature=0.7)
+        parser = WorldbuildingStreamIncrementalParser()
+        accumulated: Dict[str, Dict[str, str]] = {}
+
+        try:
+            async for chunk in self.llm_service.stream_generate(prompt, config):
+                yield {"type": "chunk", "text": chunk}
+                for ev in parser.feed(chunk):
+                    dim_key = ev["key"]
+                    dim_data = ev["content"]
+                    accumulated[dim_key] = dim_data
+                    yield ev
+
+            full_wb = parser.parse_full_worldbuilding(
+                sanitize=_sanitize_llm_json_output,
+                repair=_repair_json_string,
+            )
+            for dim_key, dim_data in full_wb.items():
+                if dim_key not in accumulated and dim_data:
+                    accumulated[dim_key] = dim_data
+                    yield {"type": "dimension", "key": dim_key, "content": dim_data}
+
+        except Exception as e:
+            logger.error("Stream worldbuilding (full) failed: %s", e)
+            full_wb = parser.parse_full_worldbuilding(
+                sanitize=_sanitize_llm_json_output,
+                repair=_repair_json_string,
+            )
+            for dim_key, dim_data in full_wb.items():
+                if dim_data and dim_key not in accumulated:
+                    accumulated[dim_key] = dim_data
+                    yield {"type": "dimension", "key": dim_key, "content": dim_data}
+
+        yield {"type": "done", "worldbuilding": accumulated}
+
+    # ── 文风公约（世界观由 _stream_worldbuilding_full 单次流式生成）────────
 
     async def _generate_style(self, premise: str, target_chapters: int) -> str:
         """Generate style convention via CPMS."""
@@ -1108,358 +1202,6 @@ JSON 格式：
                 "slang_and_profanity": "粗话、黑话与市井语言",
             },
         },
-    }
-
-    async def _generate_single_dimension(
-        self,
-        premise: str,
-        target_chapters: int,
-        dim_key: str,
-        existing_worldbuilding: Dict[str, Any] | None = None,
-    ) -> Dict[str, str]:
-        """逐维度生成：独立调用 LLM 生成单个世界观维度，确保字段名和内容完整。
-
-        Args:
-            premise: 故事创意
-            target_chapters: 目标章节数
-            dim_key: 维度 key（core_rules / geography / society / culture / daily_life）
-            existing_worldbuilding: 已生成的其他维度数据（用于上下文连贯性）
-
-        Returns:
-            该维度的字段字典 {field_key: field_value}
-        """
-        dim_def = self._DIMENSION_DEFS.get(dim_key)
-        if not dim_def:
-            logger.warning("Unknown dimension key: %s", dim_key)
-            return {}
-
-        dim_label = dim_def["label"]
-        fields = dim_def["fields"]
-
-        # 构建字段说明
-        fields_desc = "\n".join(
-            f'    "{k}": "{v}"' for k, v in fields.items()
-        )
-
-        # 构建已生成维度的上下文（帮助 LLM 保持一致性）
-        context_block = ""
-        if existing_worldbuilding:
-            context_parts = []
-            for dk, dv in existing_worldbuilding.items():
-                if dv and isinstance(dv, dict):
-                    items = ", ".join(f"{fk}: {fv}" for fk, fv in dv.items() if fv)
-                    if items:
-                        context_parts.append(f"- {dk}: {items}")
-            if context_parts:
-                context_block = f"\n\n已生成的其他维度（请保持一致性）：\n" + "\n".join(context_parts)
-
-        system_prompt = f"""你是资深网文策划编辑。根据故事创意生成世界观的「{dim_label}」维度。
-
-**关键要求：**
-1. 必须严格按照指定的字段名输出，不要自创字段名
-2. 每个字段都必须填写具体、生动、有细节的内容（至少50字），不要写「待生成」或留空
-3. 内容要符合故事类型，有沉浸感和张力
-4. 字段值是纯文本字符串，不要嵌套对象
-5. 只输出JSON，不要有任何其他文字"""
-
-        user_prompt = f"""故事创意：{premise}
-
-目标章节数：{target_chapters}章
-
-请生成世界观的「{dim_label}」维度。{context_block}
-
-请严格按照以下JSON格式输出，字段名不要修改，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{{
-{fields_desc}
-}}
-```"""
-
-        # CPMS render
-        from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_DIMENSION
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-
-        variables = {
-            "dim_label": dim_label,
-            "premise": premise,
-            "target_chapters": str(target_chapters),
-            "context_block": context_block,
-            "fields_desc": fields_desc,
-        }
-        registry = get_prompt_registry()
-        prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_DIMENSION, variables)
-
-        try:
-            if prompt:
-                # CPMS 成功：直接用 Prompt 对象调用 LLM
-                config = GenerationConfig(max_tokens=4096, temperature=0.7)
-                result_raw = await self.llm_service.generate(prompt, config)
-                raw_text = result_raw.content if hasattr(result_raw, "content") else str(result_raw)
-                result = _extract_json_object(raw_text)
-                if not isinstance(result, dict):
-                    raise ValueError("LLM returned non-dict")
-            else:
-                result = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt, max_retries=2)
-            # 确保返回的是 dict 且字段名正确
-            if not isinstance(result, dict):
-                logger.warning("Dimension %s LLM returned non-dict: %s", dim_key, type(result))
-                return {}
-            # 标准化：只保留已定义的字段，但也不丢弃 LLM 生成的有效额外字段
-            normalized = {}
-            for k, v in result.items():
-                if isinstance(v, str) and v.strip():
-                    normalized[k] = v.strip()
-                elif isinstance(v, (list, dict)):
-                    # LLM 偶尔返回嵌套结构，扁平化处理
-                    normalized[k] = str(v)
-            return normalized
-        except Exception as e:
-            logger.error("Failed to generate dimension %s: %s", dim_key, e)
-            return {}
-
-    async def _stream_single_dimension(
-        self,
-        premise: str,
-        target_chapters: int,
-        dim_key: str,
-        existing_worldbuilding: Dict[str, Any] | None = None,
-    ):
-        """流式生成单个世界观维度：逐 token yield LLM 输出。
-
-        复用 _generate_single_dimension 的 prompt 构建，但用 stream_generate 逐 token 输出。
-        SSE 路由层收集完整输出后解析 JSON 得到字段值。
-
-        Args:
-            premise: 故事创意
-            target_chapters: 目标章节数
-            dim_key: 维度 key
-            existing_worldbuilding: 已生成的其他维度数据
-
-        Yields:
-            str: LLM 逐 token 输出的文本片段
-        """
-        dim_def = self._DIMENSION_DEFS.get(dim_key)
-        if not dim_def:
-            logger.warning("Unknown dimension key: %s", dim_key)
-            return
-
-        dim_label = dim_def["label"]
-        fields = dim_def["fields"]
-
-        fields_desc = "\n".join(
-            f'    "{k}": "{v}"' for k, v in fields.items()
-        )
-
-        context_block = ""
-        if existing_worldbuilding:
-            context_parts = []
-            for dk, dv in existing_worldbuilding.items():
-                if dv and isinstance(dv, dict):
-                    items = ", ".join(f"{fk}: {fv}" for fk, fv in dv.items() if fv)
-                    if items:
-                        context_parts.append(f"- {dk}: {items}")
-            if context_parts:
-                context_block = f"\n\n已生成的其他维度（请保持一致性）：\n" + "\n".join(context_parts)
-
-        system_prompt = f"""你是资深网文策划编辑。根据故事创意生成世界观的「{dim_label}」维度。
-
-**关键要求：**
-1. 必须严格按照指定的字段名输出，不要自创字段名
-2. 每个字段都必须填写具体、生动、有细节的内容（至少50字），不要写「待生成」或留空
-3. 内容要符合故事类型，有沉浸感和张力
-4. 字段值是纯文本字符串，不要嵌套对象
-5. 只输出JSON，不要有任何其他文字"""
-
-        user_prompt = f"""故事创意：{premise}
-
-目标章节数：{target_chapters}章
-
-请生成世界观的「{dim_label}」维度。{context_block}
-
-请严格按照以下JSON格式输出，字段名不要修改，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{{
-{fields_desc}
-}}
-```"""
-
-        try:
-            # CPMS render
-            from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_DIMENSION
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-
-            variables = {
-                "dim_label": dim_label,
-                "premise": premise,
-                "target_chapters": str(target_chapters),
-                "context_block": context_block,
-                "fields_desc": fields_desc,
-            }
-            registry = get_prompt_registry()
-            prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_DIMENSION, variables)
-            if not prompt:
-                prompt = Prompt(system=system_prompt, user=user_prompt)
-            config = GenerationConfig(max_tokens=4096, temperature=0.7)
-            async for chunk in self.llm_service.stream_generate(prompt, config):
-                yield chunk
-        except Exception as e:
-            logger.error("Failed to stream dimension %s: %s", dim_key, e)
-            return
-
-    async def _generate_single_field(
-        self,
-        premise: str,
-        target_chapters: int,
-        dim_key: str,
-        field_key: str,
-        existing_worldbuilding: Dict[str, Any] | None = None,
-        existing_dim_fields: Dict[str, str] | None = None,
-    ) -> str:
-        """逐字段生成：独立调用 LLM 生成单个世界观字段，确保内容完整。
-
-        Args:
-            premise: 故事创意
-            target_chapters: 目标章节数
-            dim_key: 维度 key
-            field_key: 字段 key（如 power_system, terrain 等）
-            existing_worldbuilding: 已生成的其他维度数据（上下文连贯性）
-            existing_dim_fields: 同维度已生成的字段（避免重复，保持一致性）
-
-        Returns:
-            字段值的纯文本字符串
-        """
-        parts: list[str] = []
-        async for chunk in self._stream_single_field(
-            premise, target_chapters, dim_key, field_key,
-            existing_worldbuilding, existing_dim_fields,
-        ):
-            parts.append(chunk)
-        return "".join(parts).strip()
-
-    async def _stream_single_field(
-        self,
-        premise: str,
-        target_chapters: int,
-        dim_key: str,
-        field_key: str,
-        existing_worldbuilding: Dict[str, Any] | None = None,
-        existing_dim_fields: Dict[str, str] | None = None,
-    ):
-        """流式逐字段生成：逐 token yield 字段内容。
-
-        Args:
-            premise: 故事创意
-            target_chapters: 目标章节数
-            dim_key: 维度 key
-            field_key: 字段 key
-            existing_worldbuilding: 已生成的其他维度数据
-            existing_dim_fields: 同维度已生成的字段
-
-        Yields:
-            str: LLM 逐 token 输出的文本片段
-        """
-        dim_def = self._DIMENSION_DEFS.get(dim_key)
-        if not dim_def:
-            logger.warning("Unknown dimension key: %s", dim_key)
-            return
-
-        dim_label = dim_def["label"]
-        field_desc = dim_def["fields"].get(field_key, "")
-        field_label_cn = self._FIELD_LABELS.get(field_key, field_key)
-
-        # 构建已生成维度的上下文
-        context_block = ""
-        if existing_worldbuilding:
-            context_parts = []
-            for dk, dv in existing_worldbuilding.items():
-                if dv and isinstance(dv, dict):
-                    items = ", ".join(f"{fk}: {fv}" for fk, fv in dv.items() if fv)
-                    if items:
-                        context_parts.append(f"- {dk}: {items}")
-            if context_parts:
-                context_block = f"\n\n已生成的其他维度（请保持一致性）：\n" + "\n".join(context_parts)
-
-        # 构建同维度已生成字段的上下文
-        sibling_block = ""
-        if existing_dim_fields:
-            sibling_parts = [f"  - {fk}: {fv}" for fk, fv in existing_dim_fields.items() if fv]
-            if sibling_parts:
-                sibling_block = f"\n\n同维度「{dim_label}」已生成的字段（请保持内容不重复、风格一致）：\n" + "\n".join(sibling_parts)
-
-        system_prompt = f"""你是资深网文策划编辑。根据故事创意生成世界观「{dim_label}」维度中的「{field_label_cn}」字段。
-
-**关键要求：**
-1. 只生成这一个字段的内容，不要生成其他字段
-2. 内容必须具体、生动、有细节（至少80字），不要写「待生成」或留空
-3. 内容要符合故事类型，有沉浸感和张力
-4. 直接输出纯文本，不要输出JSON，不要有任何其他文字
-5. 不要与其他已生成字段的内容重复"""
-
-        user_prompt = f"""故事创意：{premise}
-
-目标章节数：{target_chapters}章
-
-请生成世界观「{dim_label}」中的「{field_label_cn}」字段。{field_desc}{context_block}{sibling_block}
-
-直接输出这段文本即可，不要输出JSON，不要有任何解释。"""
-
-        try:
-            # CPMS render
-            from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING_FIELD
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-
-            variables = {
-                "dim_label": dim_label,
-                "field_label_cn": field_label_cn,
-                "premise": premise,
-                "target_chapters": str(target_chapters),
-                "field_desc": field_desc,
-                "context_block": context_block,
-                "sibling_block": sibling_block,
-            }
-            registry = get_prompt_registry()
-            prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING_FIELD, variables)
-            if not prompt:
-                prompt = Prompt(system=system_prompt, user=user_prompt)
-            config = GenerationConfig(max_tokens=1024, temperature=0.7)
-            async for chunk in self.llm_service.stream_generate(prompt, config):
-                yield chunk
-        except Exception as e:
-            logger.error("Failed to stream field %s.%s: %s", dim_key, field_key, e)
-            return
-
-    # 字段中文标签映射
-    _FIELD_LABELS = {
-        "power_system": "力量体系",
-        "physics_rules": "物理规律",
-        "magic_tech": "魔法/科技",
-        "cost_and_limitation": "代价与限制",
-        "resource_scarcity": "稀缺资源",
-        "terrain": "地形",
-        "climate": "气候",
-        "resources": "资源",
-        "ecology": "生态",
-        "forbidden_zones": "禁区",
-        "urban_core": "核心城市",
-        "hidden_realms": "秘境",
-        "politics": "政治体制",
-        "economy": "经济模式",
-        "class_system": "阶级系统",
-        "power_structure": "权力结构",
-        "oppression_mechanism": "压迫机制",
-        "class_division": "阶层划分",
-        "history": "历史事件",
-        "religion": "宗教信仰",
-        "taboos": "文化禁忌",
-        "worship": "崇拜与祭祀",
-        "oaths_and_curses": "誓言与诅咒",
-        "food_clothing": "衣食住行",
-        "language_slang": "俚语与口音",
-        "entertainment": "娱乐方式",
-        "survival_tactics": "生存策略",
-        "market_reality": "市场状况",
-        "food_and_drink": "饮食文化",
-        "slang_and_profanity": "粗话与黑话",
     }
 
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:

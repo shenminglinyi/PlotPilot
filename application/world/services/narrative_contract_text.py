@@ -7,6 +7,10 @@ from typing import Dict, List, Optional
 
 from domain.bible.entities.bible import Bible
 from domain.worldbuilding.worldbuilding import Worldbuilding
+from application.world.worldbuilding_merge import (
+    WORLD_BUILDING_DIMENSION_KEYS,
+    worldbuilding_slices_nonempty,
+)
 
 
 # 与前端向导 WB_DIMS / domain Worldbuilding 字段一致
@@ -53,6 +57,42 @@ _WB_SECTIONS: List[tuple[str, List[tuple[str, str]]]] = [
         ],
     ),
 ]
+
+_DIM_DISPLAY: Dict[str, str] = {
+    "core_rules": "核心法则与底层逻辑",
+    "geography": "地理与生态",
+    "society": "社会与权力",
+    "culture": "历史、信仰与文化",
+    "daily_life": "日常生活与沉浸细节",
+}
+
+_FIELD_LABELS: Dict[str, str] = {}
+for _title, _fields in _WB_SECTIONS:
+    for _label, _attr in _fields:
+        _FIELD_LABELS[_attr] = _label
+
+
+def format_worldbuilding_slices_for_prompt(
+    slices: Optional[Dict[str, Dict[str, str]]],
+) -> str:
+    """合并后的五维 dict → 紧凑正文（含 SSE 扩展字段）。"""
+    if not slices or not worldbuilding_slices_nonempty(slices):
+        return ""
+
+    lines: List[str] = ["【世界观五维（作者确认）】"]
+    for dim in WORLD_BUILDING_DIMENSION_KEYS:
+        blk = slices.get(dim) or {}
+        items = [(k, str(v).strip()) for k, v in sorted(blk.items()) if str(v).strip()]
+        if not items:
+            continue
+        lines.append(f"▸ {_DIM_DISPLAY.get(dim, dim)}")
+        for key, val in items:
+            label = _FIELD_LABELS.get(key, key.replace("_", " "))
+            lines.append(f"- {label}：{val}")
+
+    if len(lines) <= 1:
+        return ""
+    return "\n".join(lines)
 
 
 def format_worldbuilding_for_prompt(wb: Optional[Worldbuilding]) -> str:
@@ -132,14 +172,18 @@ def format_world_setting_rules_for_prompt(bible: Optional[Bible]) -> str:
 def build_narrative_contract_block(
     *,
     bible: Optional[Bible],
-    worldbuilding: Optional[Worldbuilding],
+    worldbuilding: Optional[Worldbuilding] = None,
+    worldbuilding_slices: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> str:
     """合并：文风公约 → 五维世界观 → Bible 规则条目。空段自动省略。"""
     parts: List[str] = []
     style = format_style_notes_for_prompt(bible)
     if style:
         parts.append(style)
-    wb_text = format_worldbuilding_for_prompt(worldbuilding)
+    if worldbuilding_slices is not None:
+        wb_text = format_worldbuilding_slices_for_prompt(worldbuilding_slices)
+    else:
+        wb_text = format_worldbuilding_for_prompt(worldbuilding)
     if wb_text:
         parts.append(wb_text)
     rules = format_world_setting_rules_for_prompt(bible)
@@ -154,21 +198,33 @@ def build_narrative_contract_block(
 def build_ctx_blueprint_outputs(
     *,
     bible: Optional[Bible],
-    worldbuilding: Optional[Worldbuilding],
+    worldbuilding: Optional[Worldbuilding] = None,
+    worldbuilding_slices: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Dict[str, str]:
     """ctx_blueprint 节点三路输出：规则摘要 / 禁忌 / 氛围感。"""
+    if worldbuilding_slices is None and (bible is not None or worldbuilding is not None):
+        from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
+
+        worldbuilding_slices = load_merged_worldbuilding_slices(
+            bible=bible, worldbuilding=worldbuilding
+        )
+
     world_rules = ""
     if bible:
         world_rules = format_world_setting_rules_for_prompt(bible)
-    wb_for_rules = format_worldbuilding_for_prompt(worldbuilding)
+    wb_for_rules = format_worldbuilding_slices_for_prompt(worldbuilding_slices)
+    if not wb_for_rules:
+        wb_for_rules = format_worldbuilding_for_prompt(worldbuilding)
     if wb_for_rules:
         world_rules = f"{wb_for_rules}\n\n{world_rules}".strip() if world_rules else wb_for_rules
 
     taboos = ""
-    if worldbuilding is not None:
+    culture = (worldbuilding_slices or {}).get("culture") or {}
+    t = (culture.get("taboos") or "").strip()
+    if not t and worldbuilding is not None:
         t = (worldbuilding.taboos or "").strip()
-        if t:
-            taboos = f"【文化禁忌】\n{t}"
+    if t:
+        taboos = f"【文化禁忌】\n{t}"
 
     atmosphere = format_style_notes_for_prompt(bible)
 
