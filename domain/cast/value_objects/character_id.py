@@ -1,16 +1,4 @@
-"""Character ID value object"""
-from dataclasses import dataclass
+"""兼容层 — 请使用 domain.shared.character_id"""
+from domain.shared.character_id import CharacterId
 
-
-@dataclass(frozen=True)
-class CharacterId:
-    """Character ID value object"""
-
-    value: str
-
-    def __post_init__(self):
-        if not self.value or not self.value.strip():
-            raise ValueError("Character ID cannot be empty")
-
-    def __str__(self) -> str:
-        return self.value
+__all__ = ["CharacterId"]
