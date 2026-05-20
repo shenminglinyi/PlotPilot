@@ -31,7 +31,6 @@ from infrastructure.persistence.database.sqlite_storyline_repository import Sqli
 from infrastructure.persistence.database.sqlite_plot_arc_repository import SqlitePlotArcRepository
 from infrastructure.persistence.database.sqlite_narrative_event_repository import SqliteNarrativeEventRepository
 
-from application.engine.services.autopilot_daemon import AutopilotDaemon
 from application.engine.services.background_task_service import BackgroundTaskService
 from application.engine.services.chapter_aftermath_pipeline import ChapterAftermathPipeline
 from application.engine.services.circuit_breaker import CircuitBreaker
@@ -61,7 +60,7 @@ setup_logging(level=_log_level, log_file=_log_file)
 logger = logging.getLogger(__name__)
 
 
-def build_daemon() -> AutopilotDaemon:
+def build_daemon():
     db_path = get_db_path()
     db = get_database(db_path)
 
@@ -181,7 +180,11 @@ def build_daemon() -> AutopilotDaemon:
         reset_timeout=180,     # 从 120 增加到 180 秒，给 API 更多恢复时间
     )
 
-    return AutopilotDaemon(
+    from engine.runtime.engine_daemon import EngineDaemon
+    from engine.runtime.writing_delegate import get_story_pipeline_mode
+
+    pipeline_mode = get_story_pipeline_mode()
+    daemon_kwargs = dict(
         novel_repository=novel_repo,
         llm_service=llm_service,
         context_builder=context_builder,
@@ -189,12 +192,31 @@ def build_daemon() -> AutopilotDaemon:
         planning_service=planning_service,
         story_node_repo=story_node_repo,
         chapter_repository=chapter_repo,
-        poll_interval=10,  # 从 5 秒增加到 10 秒，降低轮询频率以减少 API 压力
+        poll_interval=10,
         voice_drift_service=voice_drift_service,
         circuit_breaker=circuit_breaker,
         chapter_workflow=chapter_workflow,
         aftermath_pipeline=aftermath_pipeline,
         knowledge_service=get_knowledge_service(),
+    )
+
+    use_pipeline_writing = pipeline_mode in ("writing", "full")
+    if pipeline_mode == "full":
+        logger.info(
+            "PLOTPILOT_USE_STORY_PIPELINE=full — EngineDaemon（StoryPipeline 写作）"
+        )
+    elif pipeline_mode == "writing":
+        logger.info(
+            "PLOTPILOT_USE_STORY_PIPELINE=writing — EngineDaemon（仅写作走 StoryPipeline）"
+        )
+    else:
+        logger.info(
+            "PLOTPILOT_USE_STORY_PIPELINE=off — EngineDaemon（legacy 节拍写作）"
+        )
+
+    return EngineDaemon(
+        **daemon_kwargs,
+        use_story_pipeline_for_writing=use_pipeline_writing,
     )
 
 

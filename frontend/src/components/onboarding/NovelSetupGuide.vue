@@ -767,62 +767,6 @@ const emit = defineEmits<{
   (e: 'skip'): void
 }>()
 
-/** 增量 JSON 解析器：从流式文本中提取已完成和正在流式的字段 */
-function parseStreamingJsonFields(text: string): {
-  completed: Record<string, string>
-  streamingKey: string
-  streamingValue: string
-} {
-  const result: { completed: Record<string, string>; streamingKey: string; streamingValue: string } = {
-    completed: {},
-    streamingKey: '',
-    streamingValue: '',
-  }
-
-  if (!text) return result
-
-  // 提取 JSON 内容（去除 markdown 代码块标记）
-  let jsonStr = text
-  const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (jsonMatch) {
-    jsonStr = jsonMatch[1]
-  }
-  // 尝试提取 { ... } 部分
-  const braceStart = jsonStr.indexOf('{')
-  if (braceStart === -1) return result
-  jsonStr = jsonStr.slice(braceStart)
-
-  // 用正则逐个匹配 "key": "value" 对
-  // 已完成的字段：key 和 value 都完整闭合
-  const completedRe = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g
-  let m: RegExpExecArray | null
-  while ((m = completedRe.exec(jsonStr)) !== null) {
-    result.completed[m[1]] = m[2]
-      .replace(/\\n/g, '\n')
-      .replace(/\\t/g, '\t')
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, '\\')
-  }
-
-  // 正在流式的字段：key 完整但 value 还没闭合
-  // 匹配 "key": "value_so_far... (末尾没有闭合引号)
-  const streamingRe = /"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)$/
-  const streamMatch = streamingRe.exec(jsonStr)
-  if (streamMatch) {
-    // 确保这个字段不在已完成列表中（可能是最后一个字段刚好闭合了）
-    if (!(streamMatch[1] in result.completed)) {
-      result.streamingKey = streamMatch[1]
-      result.streamingValue = streamMatch[2]
-        .replace(/\\n/g, '\n')
-        .replace(/\\t/g, '\t')
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, '\\')
-    }
-  }
-
-  return result
-}
-
 const modalOpen = computed({
   get: () => props.show,
   set: (v: boolean) => {
@@ -1328,11 +1272,10 @@ bibleError.value = ''
           // 其他 worldbuilding_* phase 事件（如 worldbuilding_done），忽略
         }
       }
-      if (phase === 'worldbuilding') {
-        // 进入世界观阶段，暂时不设置维度为"生成中"
-        // 等待 worldbuilding_style 或 worldbuilding_core_rules phase 再设置
+      if (phase === 'worldbuilding' || phase === 'worldbuilding_streaming') {
         activeDimension.value = ''
         activeField.value = ''
+        streamingDimText.value = ''
       }
       if (phase === 'worldbuilding_done') {
         completedDimensions.value = new Set(WB_DIMS)
@@ -1368,11 +1311,16 @@ bibleError.value = ''
     onWorldbuildingFieldDone: (dimension, field, value) => {
       // 已弃用，保留空实现以兼容旧版
     },
-    onWorldbuildingDimChunk: (dimension, chunk) => {
-      // 维度级流式 chunk：增量解析 JSON，实时提取字段
+    onWorldbuildingChunk: (chunk) => {
       streamingDimText.value += chunk
+    },
+    onWorldbuildingDimChunk: (dimension, chunk) => {
+      streamingDimText.value += chunk
+      // 单次五维 JSON 流：dimension 为空，主要靠 worldbuilding_dimension / field 事件落库
+      if (!dimension) {
+        return
+      }
 
-      // 确保当前维度标记为 active
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
           completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
@@ -1380,11 +1328,8 @@ bibleError.value = ''
         activeDimension.value = dimension
       }
 
-      // ── 增量 JSON 解析：提取已完成和正在流式的字段 ──
       const parsed = parseStreamingJsonFields(streamingDimText.value)
       const dim = dimension as keyof typeof worldbuildingData.value
-
-      // 已完成的字段 → 更新到 worldbuildingData
       const completedFields: Record<string, string> = {}
       for (const [k, v] of Object.entries(parsed.completed)) {
         completedFields[k] = v
@@ -1392,15 +1337,12 @@ bibleError.value = ''
           arrivedFields.value = new Set([...arrivedFields.value, k])
         }
       }
-
-      // 正在流式的字段 → 也更新到 worldbuildingData（带流式光标）
       if (parsed.streamingKey && parsed.streamingValue !== undefined) {
         completedFields[parsed.streamingKey] = parsed.streamingValue
         activeField.value = parsed.streamingKey
       } else {
         activeField.value = ''
       }
-
       if (Object.keys(completedFields).length > 0) {
         worldbuildingData.value = {
           ...worldbuildingData.value,
