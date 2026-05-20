@@ -1305,50 +1305,8 @@ bibleError.value = ''
       arrivedFields.value = new Set([...arrivedFields.value, field])
       activeField.value = ''
     },
-    onWorldbuildingFieldChunk: (dimension, field, chunk) => {
-      // 已弃用，保留空实现以兼容旧版
-    },
-    onWorldbuildingFieldDone: (dimension, field, value) => {
-      // 已弃用，保留空实现以兼容旧版
-    },
     onWorldbuildingChunk: (chunk) => {
       streamingDimText.value += chunk
-    },
-    onWorldbuildingDimChunk: (dimension, chunk) => {
-      streamingDimText.value += chunk
-      // 单次五维 JSON 流：dimension 为空，主要靠 worldbuilding_dimension / field 事件落库
-      if (!dimension) {
-        return
-      }
-
-      if (activeDimension.value !== dimension) {
-        if (activeDimension.value) {
-          completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-        }
-        activeDimension.value = dimension
-      }
-
-      const parsed = parseStreamingJsonFields(streamingDimText.value)
-      const dim = dimension as keyof typeof worldbuildingData.value
-      const completedFields: Record<string, string> = {}
-      for (const [k, v] of Object.entries(parsed.completed)) {
-        completedFields[k] = v
-        if (!arrivedFields.value.has(k)) {
-          arrivedFields.value = new Set([...arrivedFields.value, k])
-        }
-      }
-      if (parsed.streamingKey && parsed.streamingValue !== undefined) {
-        completedFields[parsed.streamingKey] = parsed.streamingValue
-        activeField.value = parsed.streamingKey
-      } else {
-        activeField.value = ''
-      }
-      if (Object.keys(completedFields).length > 0) {
-        worldbuildingData.value = {
-          ...worldbuildingData.value,
-          [dimension]: { ...worldbuildingData.value[dim], ...completedFields },
-        }
-      }
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value

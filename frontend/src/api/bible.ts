@@ -301,29 +301,8 @@ export async function consumeBibleGenerateStream(
           const dataType = String(payload?.type ?? '')
           if (dataType === 'style') {
             handlers.onStyle?.(String(payload?.content ?? ''))
-          } else if (dataType === 'worldbuilding_field_chunk') {
-            // 逐 token 流式 chunk：追加到字段内容
-            handlers.onWorldbuildingFieldChunk?.(
-              String(payload?.dimension ?? ''),
-              String(payload?.field ?? ''),
-              String(payload?.chunk ?? ''),
-            )
-          } else if (dataType === 'worldbuilding_field_done') {
-            // 字段流式输出完成
-            handlers.onWorldbuildingFieldDone?.(
-              String(payload?.dimension ?? ''),
-              String(payload?.field ?? ''),
-              String(payload?.value ?? ''),
-            )
           } else if (dataType === 'worldbuilding_chunk') {
             handlers.onWorldbuildingChunk?.(String(payload?.chunk ?? ''))
-            handlers.onWorldbuildingDimChunk?.('', String(payload?.chunk ?? ''))
-          } else if (dataType === 'worldbuilding_dim_chunk') {
-            // 维度级流式 chunk：LLM 逐 token 输出维度 JSON
-            handlers.onWorldbuildingDimChunk?.(
-              String(payload?.dimension ?? ''),
-              String(payload?.chunk ?? ''),
-            )
           } else if (dataType === 'worldbuilding_field') {
             // 字段级流式推送：每个字段单独到达
             handlers.onWorldbuildingField?.(
