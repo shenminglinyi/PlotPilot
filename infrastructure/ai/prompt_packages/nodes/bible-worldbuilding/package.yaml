@@ -11,6 +11,14 @@ variables:
 - name: premise
   desc: 故事创意
   type: string
+- name: target_chapters
+  desc: 目标章节数
+  type: string
+  default: '100'
+- name: fields_desc
+  desc: 五维字段模板（由代码注入）
+  type: string
+  default: ''
 - name: existing_settings
   desc: 已有设定
   type: string

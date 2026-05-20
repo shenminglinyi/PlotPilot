@@ -118,6 +118,13 @@ def load_seed_bundle() -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
             continue
         if child.name.startswith("."):
             continue
+        pkg_path = child / "package.yaml"
+        if not pkg_path.is_file():
+            logger.warning(
+                "prompt_seed: 跳过无效节点目录（缺少 package.yaml）: %s",
+                child,
+            )
+            continue
         try:
             rows.append(load_node_dir(child))
         except Exception as exc:
