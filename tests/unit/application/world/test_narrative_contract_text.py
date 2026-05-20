@@ -29,6 +29,22 @@ def test_build_narrative_contract_block_orders_style_then_wb():
     assert idx_style < idx_wb
 
 
+def test_format_worldbuilding_slices_includes_extension_fields():
+    slices = {
+        "core_rules": {
+            "power_system": "体系",
+            "cost_and_limitation": "越级反噬",
+        },
+    }
+    from application.world.services.narrative_contract_text import (
+        format_worldbuilding_slices_for_prompt,
+    )
+
+    text = format_worldbuilding_slices_for_prompt(slices)
+    assert "越级反噬" in text
+    assert "cost_and_limitation" not in text  # 应显示中文标签或友好名
+
+
 def test_build_ctx_blueprint_splits_taboos_and_atmosphere():
     bible = Bible("b1", NovelId("n1"))
     bible.add_style_note(StyleNote("s1", "氛围", "雨夜压抑"))
