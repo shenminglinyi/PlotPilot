@@ -616,6 +616,21 @@ const dimKeyLabels: Record<string, string> = {
   market_reality: '市场真相',
   food_and_drink: '饮食文化',
   slang_and_profanity: '黑话粗话',
+  continent_name: '大陆名称',
+  key_regions: '关键区域',
+  climate_impact: '气候影响',
+  fatal_flaw: '致命缺陷',
+  realm_structure: '境界结构',
+  dominant_faith: '主流信仰',
+  doctrine: '教义',
+  rituals: '仪式',
+  values: '价值观',
+  art_and_literature: '文艺',
+  ruling_class: '统治阶层',
+  middle_class: '中间阶层',
+  lower_class: '底层',
+  black_market: '黑市',
+  slave_trade: '奴役贸易',
 }
 
 function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
@@ -1030,21 +1045,13 @@ function hydrateStepFourFromCache() {
 /** SSE 是否可用的缓存标记（同会话内只检测一次） */
 const sseAvailable = ref<boolean | null>(null)
 
-/** 检测 SSE 流式接口是否可用 */
-async function checkSseAvailable(novelId: string): Promise<boolean> {
+/** 检测 SSE 流式接口是否可用（同会话内缓存，默认走 SSE） */
+async function checkSseAvailable(_novelId: string): Promise<boolean> {
   if (sseAvailable.value !== null) return sseAvailable.value
-  try {
-    const url = resolveHttpUrl(`/api/v1/bible/novels/${novelId}/generate-stream?stage=worldbuilding`)
-    // 用 HEAD 请求快速检测（FastAPI 对 HEAD 自动返回 GET 的 headers）
-    const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
-    const ok = res.ok || res.status === 405  // 405 = Method Not Allowed 也说明路由存在
-    sseAvailable.value = ok
-    return ok
-  } catch {
-    // 检测失败不等于不可用，可能只是网络抖动，默认尝试 SSE
-    sseAvailable.value = true
-    return true
-  }
+  // generate-stream 为 POST-only，不做 HEAD/OPTIONS 预检（会 405 污染服务端日志）。
+  // 运行时 consumeBibleGenerateStream 失败会自动降级到轮询。
+  sseAvailable.value = true
+  return true
 }
 
 // ── 轮询降级逻辑（保留原轮询代码作为 fallback） ──
@@ -1253,16 +1260,12 @@ bibleError.value = ''
       if (phase.startsWith('worldbuilding_') && phase !== 'worldbuilding_done') {
         const dimKey = phase.replace('worldbuilding_', '')
         if (WB_DIMS.includes(dimKey as typeof WB_DIMS[number])) {
-          // 维度级 phase：worldbuilding_core_rules
-          // 标记上一个维度为已完成
           if (activeDimension.value && activeDimension.value !== dimKey) {
             completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
           }
           activeDimension.value = dimKey
-          // 切换到新维度时重置字段状态
           activeField.value = ''
           arrivedFields.value = new Set()
-          streamingDimText.value = ''
         } else if (dimKey === 'style') {
           // worldbuilding_style phase：文风公约生成中，清除 activeDimension
           // 让所有维度都显示"等待中"，文风信息通过 phaseMessage 显示
@@ -1275,7 +1278,6 @@ bibleError.value = ''
       if (phase === 'worldbuilding' || phase === 'worldbuilding_streaming') {
         activeDimension.value = ''
         activeField.value = ''
-        streamingDimText.value = ''
       }
       if (phase === 'worldbuilding_done') {
         completedDimensions.value = new Set(WB_DIMS)
@@ -1287,15 +1289,26 @@ bibleError.value = ''
     onStyle: (content) => {
       styleText.value = content
     },
+    onWorldbuildingFieldPartial: (dimension, field, value) => {
+      const dim = dimension as keyof typeof worldbuildingData.value
+      if (activeDimension.value !== dimension) {
+        if (activeDimension.value) {
+          completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
+        }
+        activeDimension.value = dimension
+      }
+      activeField.value = field
+      worldbuildingData.value = {
+        ...worldbuildingData.value,
+        [dimension]: { ...worldbuildingData.value[dim], [field]: value },
+      }
+    },
     onWorldbuildingField: (dimension, field, value) => {
-      // 字段级推送：维度流式完成后逐字段推送最终值
       const dim = dimension as keyof typeof worldbuildingData.value
       worldbuildingData.value = {
         ...worldbuildingData.value,
         [dimension]: { ...worldbuildingData.value[dim], [field]: value },
       }
-      // 第一个字段到达时清空流式预览文本
-      streamingDimText.value = ''
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
           completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
@@ -1304,9 +1317,6 @@ bibleError.value = ''
       }
       arrivedFields.value = new Set([...arrivedFields.value, field])
       activeField.value = ''
-    },
-    onWorldbuildingChunk: (chunk) => {
-      streamingDimText.value += chunk
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value

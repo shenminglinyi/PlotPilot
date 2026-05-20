@@ -230,9 +230,11 @@ export async function consumeBibleGenerateStream(
     onPhase?: (phase: string, message: string) => void
     onStyle?: (content: string) => void
     onWorldbuildingDimension?: (data: WorldbuildingDimensionData) => void
-    /** 字段到达时更新 UI（维度解析完成后逐字段推送） */
+    /** 字段到达时更新 UI（服务端 schema 归一化后的规范键） */
     onWorldbuildingField?: (dimension: string, field: string, value: string) => void
-    /** 整包世界观 JSON 流式 token（单次 LLM，五维联动） */
+    /** 字段流式书写中（未闭合，带打字效果） */
+    onWorldbuildingFieldPartial?: (dimension: string, field: string, value: string) => void
+    /** 整包世界观 JSON 流式 token（可选，仅调试；UI 应依赖 field/field_partial） */
     onWorldbuildingChunk?: (chunk: string) => void
     onCharacter?: (char: Record<string, unknown>, index: number) => void
     /** 人物生成时 LLM 逐 token chunk（打字效果/进度） */
@@ -304,8 +306,13 @@ export async function consumeBibleGenerateStream(
           } else if (dataType === 'worldbuilding_chunk') {
             handlers.onWorldbuildingChunk?.(String(payload?.chunk ?? ''))
           } else if (dataType === 'worldbuilding_field') {
-            // 字段级流式推送：每个字段单独到达
             handlers.onWorldbuildingField?.(
+              String(payload?.dimension ?? ''),
+              String(payload?.field ?? ''),
+              String(payload?.value ?? ''),
+            )
+          } else if (dataType === 'worldbuilding_field_partial') {
+            handlers.onWorldbuildingFieldPartial?.(
               String(payload?.dimension ?? ''),
               String(payload?.field ?? ''),
               String(payload?.value ?? ''),

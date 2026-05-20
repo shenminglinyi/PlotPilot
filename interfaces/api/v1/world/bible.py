@@ -288,7 +288,7 @@ async def _sse_bible_generator(
 
     try:
         if stage in ("all", "worldbuilding"):
-            # ── 世界观生成（逐维度流式） ──
+            # ── 世界观生成（单次 LLM 流式，五维联动） ──
             yield _sse_fmt("phase", {"phase": "worldbuilding", "message": "AI 正在构建世界观（5维度框架）..."})
             await asyncio.sleep(0)
 
@@ -342,6 +342,33 @@ async def _sse_bible_generator(
                             })
                             await asyncio.sleep(0)
 
+                    elif item["type"] == "field_partial":
+                        dim_key = item.get("key")
+                        field_key = item.get("field")
+                        field_value = item.get("value")
+                        if dim_key and field_key and field_value:
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_field_partial",
+                                "dimension": dim_key,
+                                "field": field_key,
+                                "value": field_value,
+                            })
+                            await asyncio.sleep(0)
+
+                    elif item["type"] == "field":
+                        dim_key = item.get("key")
+                        field_key = item.get("field")
+                        field_value = item.get("value")
+                        if dim_key and field_key and field_value:
+                            accumulated_wb.setdefault(dim_key, {})[field_key] = field_value
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_field",
+                                "dimension": dim_key,
+                                "field": field_key,
+                                "value": field_value,
+                            })
+                            await asyncio.sleep(0.02)
+
                     elif item["type"] == "dimension":
                         dim_key = item["key"]
                         dim_data = item.get("content") or {}
@@ -360,16 +387,6 @@ async def _sse_bible_generator(
                             "label": dim_label,
                             "content": dim_data,
                         })
-                        for field_key, field_value in dim_data.items():
-                            if field_value:
-                                yield _sse_fmt("data", {
-                                    "type": "worldbuilding_field",
-                                    "dimension": dim_key,
-                                    "field": field_key,
-                                    "value": field_value,
-                                })
-                                await asyncio.sleep(0.02)
-
                         if dim_key not in saved_dims:
                             try:
                                 await bible_generator._save_worldbuilding(
@@ -535,13 +552,13 @@ async def generate_bible_stream(
 ):
     """SSE 流式 Bible 生成接口。
 
-    逐维度逐字段推送生成进度和数据片段，每生成一个字段立即推送，前端可实时渲染。
+    世界观：单次 LLM 流式输出五维 JSON（worldbuilding_chunk），增量解析后推送
+    worldbuilding_dimension / worldbuilding_field。人物/地点仍为流式 JSON 数组解析。
 
     事件类型：
-    - phase: 阶段变更（init / worldbuilding / worldbuilding_{dim} / worldbuilding_{dim}_{field} / characters / locations / knowledge / *_done）
-    - data: 数据片段（style / worldbuilding_field / character / location）
-    - done: 全部完成
-    - error: 错误
+    - phase: init / worldbuilding_streaming / worldbuilding_{dim} / characters / locations / *_done
+    - data: style / worldbuilding_chunk / worldbuilding_dimension / worldbuilding_field / character / location
+    - done / error
     """
     return StreamingResponse(
         _sse_bible_generator(novel_id, stage, bible_generator, knowledge_generator),
