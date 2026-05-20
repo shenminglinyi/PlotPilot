@@ -532,9 +532,27 @@ class BaseStoryPipeline(ABC):
                     ctx.drift_alert = True
             except Exception as e:
                 logger.warning(f"章后管线失败: {e}")
-                return StepResult.ok(f"章后管线失败（降级）: {e}")
+
+        await self._update_emotion_ledger(ctx)
 
         return StepResult.ok()
+
+    async def _update_emotion_ledger(self, ctx: PipelineContext) -> None:
+        """章后更新 T1 情绪账本（可选，依赖 memory_orchestrator 注入）"""
+        memory = ctx.memory_orchestrator
+        if memory is None or not ctx.chapter_content:
+            return
+        try:
+            from engine.core.entities.story import StoryId
+
+            updated = await memory.update_emotion_ledger(
+                story_id=StoryId(ctx.novel_id),
+                chapter_number=ctx.chapter_number,
+                chapter_content=ctx.chapter_content,
+            )
+            ctx.emotion_ledger_updated = updated is not None
+        except Exception as e:
+            logger.warning(f"情绪账本更新失败: {e}")
 
     async def _step_score_tension(self, ctx: PipelineContext) -> StepResult:
         """步骤9：张力打分（0-100 多维评分）

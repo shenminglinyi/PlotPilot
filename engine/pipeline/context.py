@@ -88,6 +88,7 @@ class PipelineContext:
     causal_edges_stored: bool = False
     character_mutations_stored: bool = False
     debt_updated: bool = False
+    emotion_ledger_updated: bool = False
 
     # ═══ 步骤9产出：张力打分 ═══
     tension_composite: Optional[float] = None    # 多维张力 (0-100)
@@ -119,6 +120,7 @@ class PipelineContext:
     circuit_breaker: Any = None
     volume_summary_service: Any = None
     policy_validator: Any = None                 # PolicyValidator（新增）
+    memory_orchestrator: Any = None              # MemoryOrchestratorImpl
 
     # ═══ 杂项 ═══
     metadata: Dict[str, Any] = field(default_factory=dict)
