@@ -23,6 +23,7 @@ from engine.core.entities.story import StoryId
 from engine.core.value_objects.emotion_ledger import EmotionLedger
 from engine.infrastructure.memory.echo_recall import EchoRecall
 from engine.infrastructure.memory.character_psyche import CharacterPsycheEngine
+from engine.infrastructure.memory.emotion_ledger_extractor import EmotionLedgerExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +39,12 @@ class MemoryOrchestratorImpl(MemoryOrchestrator):
         db_pool=None,
         character_psyche: Optional[CharacterPsycheEngine] = None,
         echo_recall: Optional[EchoRecall] = None,
+        llm_service=None,
     ):
         self._db_pool = db_pool
         self._character_psyche = character_psyche or CharacterPsycheEngine(db_pool)
         self._echo_recall = echo_recall or EchoRecall(db_pool)
+        self._ledger_extractor = EmotionLedgerExtractor(llm_service=llm_service)
 
     async def assemble_context(
         self,
@@ -103,22 +106,39 @@ class MemoryOrchestratorImpl(MemoryOrchestrator):
     async def _assemble_t1(self, story_id: str, chapter_number: int) -> str:
         """T1 情景记忆：EmotionLedger"""
         try:
-            if self._db_pool:
-                with self._db_pool.get_connection() as conn:
-                    row = conn.execute(
-                        """SELECT emotion_ledger FROM stories
-                           WHERE id = ?""",
-                        (story_id,)
-                    ).fetchone()
-
-                    if row and row["emotion_ledger"]:
-                        ledger_data = json.loads(row["emotion_ledger"])
-                        ledger = EmotionLedger.from_dict(ledger_data)
-                        return ledger.to_t0_section()
+            ledger_data = self._load_emotion_ledger_json(story_id)
+            if ledger_data:
+                ledger = EmotionLedger.from_dict(ledger_data)
+                return ledger.to_t0_section()
         except Exception as e:
             logger.debug(f"T1情景记忆组装失败: {e}")
 
         return ""
+
+    def _load_emotion_ledger_json(self, story_id: str) -> Optional[Dict[str, Any]]:
+        """从 checkpoint 读取当前情绪账本"""
+        if not self._db_pool:
+            return None
+        with self._db_pool.get_connection() as conn:
+            row = conn.execute(
+                """SELECT c.emotion_ledger
+                   FROM checkpoint_heads h
+                   JOIN checkpoints c ON c.id = h.checkpoint_id
+                   WHERE h.story_id = ? AND c.is_active = 1""",
+                (story_id,),
+            ).fetchone()
+            if row and row["emotion_ledger"]:
+                return json.loads(row["emotion_ledger"])
+
+            row = conn.execute(
+                """SELECT emotion_ledger FROM checkpoints
+                   WHERE story_id = ? AND is_active = 1
+                   ORDER BY created_at DESC LIMIT 1""",
+                (story_id,),
+            ).fetchone()
+            if row and row["emotion_ledger"]:
+                return json.loads(row["emotion_ledger"])
+        return None
 
     async def _assemble_t2(self, story_id: str, chapter_number: int) -> str:
         """T2 工作记忆：最近10-15章的完整内容"""
@@ -227,26 +247,77 @@ class MemoryOrchestratorImpl(MemoryOrchestrator):
         chapter_content: str,
     ) -> EmotionLedger:
         """更新情绪账本（从章节内容中提取情感变化）"""
-        # 读取当前账本
         current_ledger = EmotionLedger.create_empty()
 
         try:
-            if self._db_pool:
-                with self._db_pool.get_connection() as conn:
-                    row = conn.execute(
-                        "SELECT emotion_ledger FROM stories WHERE id = ?",
-                        (story_id.value,)
-                    ).fetchone()
-
-                    if row and row["emotion_ledger"]:
-                        current_ledger = EmotionLedger.from_dict(json.loads(row["emotion_ledger"]))
+            ledger_data = self._load_emotion_ledger_json(story_id.value)
+            if ledger_data:
+                current_ledger = EmotionLedger.from_dict(ledger_data)
         except Exception as e:
             logger.debug(f"读取EmotionLedger失败: {e}")
 
-        # TODO: 使用LLM提取情感变化，这里提供简化实现
-        # 实际实现应调用LLM分析章节内容，提取Wounds/Boons/PowerShifts/OpenLoops
+        content = (chapter_content or "").strip()
+        if len(content) < 100:
+            return current_ledger
 
-        return current_ledger
+        deltas = await self._ledger_extractor.extract_deltas(
+            chapter_content=content,
+            chapter_number=chapter_number,
+            current_ledger=current_ledger,
+        )
+        updated_ledger = self._ledger_extractor.merge_ledger(
+            current_ledger, deltas, chapter_number
+        )
+
+        if updated_ledger != current_ledger:
+            await self._persist_emotion_ledger(story_id, updated_ledger)
+
+        return updated_ledger
+
+    async def _persist_emotion_ledger(self, story_id: StoryId, ledger: EmotionLedger) -> None:
+        """将情绪账本写入 checkpoint"""
+        if not self._db_pool:
+            return
+        payload = json.dumps(ledger.to_dict(), ensure_ascii=False)
+        try:
+            with self._db_pool.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT checkpoint_id FROM checkpoint_heads WHERE story_id = ?",
+                    (story_id.value,),
+                ).fetchone()
+                checkpoint_id = row["checkpoint_id"] if row else None
+
+                if not checkpoint_id:
+                    row = conn.execute(
+                        """SELECT id FROM checkpoints
+                           WHERE story_id = ? AND is_active = 1
+                           ORDER BY created_at DESC LIMIT 1""",
+                        (story_id.value,),
+                    ).fetchone()
+                    checkpoint_id = row["id"] if row else None
+
+                if not checkpoint_id:
+                    logger.debug(
+                        "[EmotionLedger] 无 checkpoint，跳过持久化 story=%s",
+                        story_id.value,
+                    )
+                    return
+
+                conn.execute(
+                    "UPDATE checkpoints SET emotion_ledger = ? WHERE id = ?",
+                    (payload, checkpoint_id),
+                )
+                conn.commit()
+            logger.info(
+                "[EmotionLedger] 已更新 story=%s checkpoint=%s wounds=%d boons=%d loops=%d",
+                story_id.value,
+                checkpoint_id,
+                len(ledger.wounds),
+                len(ledger.boons),
+                len(ledger.open_loops),
+            )
+        except Exception as e:
+            logger.warning("[EmotionLedger] 持久化失败: %s", e)
 
     async def restore_state(
         self,
@@ -261,13 +332,19 @@ class MemoryOrchestratorImpl(MemoryOrchestrator):
         if not self._db_pool:
             return
         try:
+            payload = json.dumps(emotion_ledger, ensure_ascii=False)
             with self._db_pool.get_connection() as conn:
-                if emotion_ledger:
+                row = conn.execute(
+                    "SELECT checkpoint_id FROM checkpoint_heads WHERE story_id = ?",
+                    (story_id.value,),
+                ).fetchone()
+                checkpoint_id = row["checkpoint_id"] if row else None
+                if checkpoint_id:
                     conn.execute(
-                        "UPDATE stories SET emotion_ledger = ? WHERE id = ?",
-                        (json.dumps(emotion_ledger, ensure_ascii=False), story_id.value),
+                        "UPDATE checkpoints SET emotion_ledger = ? WHERE id = ?",
+                        (payload, checkpoint_id),
                     )
-                conn.commit()
+                    conn.commit()
             logger.info("[MemoryRestore] 情绪账本已恢复 story=%s", story_id.value)
         except Exception as e:
             logger.warning("[MemoryRestore] 状态恢复失败（非致命）: %s", e)
