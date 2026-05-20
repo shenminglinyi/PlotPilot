@@ -25,6 +25,7 @@ from application.engine.dtos.scene_director_dto import SceneDirectorInput, coerc
 
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
+from engine.core.entities.story import StoryPhase
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.bible.repositories.bible_repository import BibleRepository
@@ -55,14 +56,6 @@ class PriorityTier(str, Enum):
     T1_COMPRESSIBLE = "t1_compressible"  # 按比例压缩
     T2_DYNAMIC = "t2_dynamic"        # 动态水位线
     T3_SACRIFICIAL = "t3_sacrificial"  # 可牺牲泡沫
-
-
-class StoryPhase(str, Enum):
-    """故事生命周期阶段 —— 全局收敛沙漏的核心状态机"""
-    OPENING = "opening"       # 开局期 (0% - 25%)：尽情铺陈，抛出悬念
-    DEVELOPMENT = "development" # 发展期 (25% - 75%)：激化矛盾，引入支线
-    CONVERGENCE = "convergence" # 收敛期 (75% - 90%)：禁止开新坑，强制填坑
-    FINALE = "finale"          # 终局期 (90% - 100%)：终极对决，切断日常
 
 
 @dataclass
@@ -257,23 +250,15 @@ class ContextBudgetAllocator:
 
     def _build_narrative_contract_slot(self, novel_id: str) -> str:
         """向导确认的五维世界观 + Bible 文风/规则；与 DB 同步，不读共享内存。"""
-        from application.world.services.narrative_contract_text import build_narrative_contract_block
+        from application.world.services.narrative_contract_loader import (
+            build_narrative_contract_for_novel,
+        )
 
-        bible = None
-        if self.bible_repo:
-            try:
-                bible = self.bible_repo.get_by_novel_id(NovelId(novel_id))
-            except Exception as e:
-                logger.debug("创作契约：读取 Bible 跳过 novel=%s err=%s", novel_id, e)
-
-        wb = None
-        if self.worldbuilding_repo:
-            try:
-                wb = self.worldbuilding_repo.get_by_novel_id(novel_id)
-            except Exception as e:
-                logger.debug("创作契约：读取 Worldbuilding 跳过 novel=%s err=%s", novel_id, e)
-
-        return build_narrative_contract_block(bible=bible, worldbuilding=wb)
+        return build_narrative_contract_for_novel(
+            novel_id,
+            bible_repository=self.bible_repo,
+            worldbuilding_repository=self.worldbuilding_repo,
+        )
 
     def _format_storyline_block(self, sl, confluences, chapter_number: int) -> str:
         """格式化单条故事线的上下文块。"""

@@ -67,7 +67,12 @@ class BlueprintNode(BaseNode):
 
             try:
                 from application.paths import get_db_path
-                from application.world.services.narrative_contract_text import build_ctx_blueprint_outputs
+                from application.world.services.narrative_contract_loader import (
+                    load_merged_worldbuilding_slices,
+                )
+                from application.world.services.narrative_contract_text import (
+                    build_ctx_blueprint_outputs,
+                )
                 from domain.novel.value_objects.novel_id import NovelId
                 from infrastructure.persistence.database.connection import get_database
                 from infrastructure.persistence.database.sqlite_bible_repository import SqliteBibleRepository
@@ -78,7 +83,12 @@ class BlueprintNode(BaseNode):
                 bible = bible_repo.get_by_novel_id(NovelId(novel_id))
                 wb_repo = WorldbuildingRepository(get_db_path())
                 wb = wb_repo.get_by_novel_id(novel_id)
-                out = build_ctx_blueprint_outputs(bible=bible, worldbuilding=wb)
+                wb_slices = load_merged_worldbuilding_slices(bible=bible, worldbuilding=wb)
+                out = build_ctx_blueprint_outputs(
+                    bible=bible,
+                    worldbuilding=wb,
+                    worldbuilding_slices=wb_slices,
+                )
                 world_rules = out["world_rules"]
                 taboos = out["taboos"]
                 atmosphere = out["atmosphere"]

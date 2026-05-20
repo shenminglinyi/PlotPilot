@@ -98,6 +98,21 @@ class ThemeAgentRegistry:
             return None
         return self._agents.get(genre_key)
 
+    def get_pipeline_class(self, genre_key: str):
+        """获取题材对应的 BaseStoryPipeline 子类
+
+        优先查 PipelineRegistry；未注册则返回 ThemedStoryPipeline。
+        """
+        from engine.pipelines.registry import get_pipeline_registry
+
+        return get_pipeline_registry().get_pipeline_class(genre_key)
+
+    def create_pipeline(self, genre_key: str):
+        """实例化题材 Pipeline（新内核入口）"""
+        from engine.pipelines.registry import get_pipeline_registry
+
+        return get_pipeline_registry().create_pipeline(genre_key)
+
     def list_genres(self) -> List[Dict[str, str]]:
         """列出所有已注册的题材
 
