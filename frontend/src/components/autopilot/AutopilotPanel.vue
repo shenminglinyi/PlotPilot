@@ -367,6 +367,8 @@ let statusLastAbort = null
 /** 连续无法拉取 /status（网络拒绝/超时）时倍增轮询间隔 */
 const statusConnectivityFailures = ref(0)
 let lastStatusPollIntervalMs = -1
+/** 组件卸载后禁止 maybeRestartStatusPollTimer 再创建 setInterval，防止僵尸轮询累积 */
+let panelUnmounted = false
 
 // 计算属性
 const isRunning = computed(() => status.value?.autopilot_status === 'running')
@@ -680,6 +682,7 @@ function clearStatusPoll() {
 
 /** 轮询间隔变化时（如后端断连退避）重置 timer，避免固定 3～5s 刷满 Vite 代理日志 */
 function maybeRestartStatusPollTimer() {
+  if (panelUnmounted) return
   if (statusPollDisabled.value) return
   const ms = getAdaptivePollInterval()
   if (statusPollTimer != null && ms === lastStatusPollIntervalMs) {
@@ -876,14 +879,28 @@ function stopChapterStream() {
 // 策略：
 // - SSE 已连接时：轮询降到 15s 兜底（SSE 已实时驱动刷新，轮询仅防断连漏检）
 // - SSE 未连接但运行中：5s（需要轮询补偿 SSE 的缺失）
-// - 非运行中：3s（用户可能刚操作，需要快速看到状态变化）
 // - 审阅等待中：10s（用户在看大纲，不需要高频刷新）
+// - stopped / completed：30s（无需高频，启动时 start() 会立即拉取恢复）
+// - error：15s
+// - 其他非运行中：3s（用户可能刚操作，需要快速看到状态变化）
 function getAdaptivePollInterval() {
   let base
-  if (needsReview.value) base = 10000
-  else if (!isRunning.value) base = 3000
-  else if (sseConnected.value) base = 15000
-  else base = 5000
+  if (needsReview.value) {
+    base = 10000
+  } else if (!isRunning.value) {
+    const ap = status.value?.autopilot_status
+    if (ap === 'stopped' || ap === 'completed') {
+      base = 30000
+    } else if (ap === 'error') {
+      base = 15000
+    } else {
+      base = 3000
+    }
+  } else if (sseConnected.value) {
+    base = 15000
+  } else {
+    base = 5000
+  }
   const mult = Math.min(2 ** Math.min(statusConnectivityFailures.value, 8), 128)
   return Math.min(base * mult, 120_000)
 }
@@ -1183,6 +1200,7 @@ async function forceStopFromError() {
 
 onMounted(() => { fetchStatus() })
 onUnmounted(() => {
+  panelUnmounted = true
   statusFetchSeq += 1
   statusFetchInFlight = false  // 🔥 重置请求去重标志
   if (statusLastAbort) {

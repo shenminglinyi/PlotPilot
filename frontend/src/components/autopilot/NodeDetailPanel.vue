@@ -178,6 +178,11 @@ const promptLoading = ref(false)
 const writingStatus = ref<Record<string, unknown> | null>(null)
 const writingPollError = ref('')
 let writingPollTimer: ReturnType<typeof setInterval> | null = null
+let writingFetchInFlight = false
+let writingFetchAbort: AbortController | null = null
+let writingFetchSeq = 0
+const WRITING_POLL_INTERVAL_MS = 2500
+const WRITING_FETCH_TIMEOUT_MS = 8000
 
 const WRITING_TELEMETRY_TYPES = new Set(['exec_writer', 'exec_beat'])
 
@@ -232,9 +237,25 @@ const lastTruncateLine = computed(() => {
 
 async function fetchWritingTelemetry() {
   if (!props.novelId || !showWritingTelemetry.value) return
+  if (writingFetchInFlight) return
   writingPollError.value = ''
+  writingFetchInFlight = true
+  writingFetchSeq += 1
+  const seq = writingFetchSeq
+
+  if (writingFetchAbort) {
+    writingFetchAbort.abort()
+  }
+  const ac = new AbortController()
+  writingFetchAbort = ac
+  const timeoutId = window.setTimeout(() => ac.abort(), WRITING_FETCH_TIMEOUT_MS)
+
   try {
-    const res = await fetch(resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/status`))
+    const res = await fetch(
+      resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/status`),
+      { signal: ac.signal },
+    )
+    if (seq !== writingFetchSeq) return
     if (res.status === 404) {
       writingStatus.value = null
       writingPollError.value = '该书暂无托管状态'
@@ -246,7 +267,17 @@ async function fetchWritingTelemetry() {
     }
     writingStatus.value = (await res.json()) as Record<string, unknown>
   } catch (e) {
-    writingPollError.value = e instanceof Error ? e.message : '网络错误'
+    if (seq !== writingFetchSeq) return
+    if (e instanceof Error && e.name === 'AbortError') {
+      console.warn('[NodeDetailPanel] fetchWritingTelemetry 超时')
+    } else {
+      writingPollError.value = e instanceof Error ? e.message : '网络错误'
+    }
+  } finally {
+    window.clearTimeout(timeoutId)
+    if (seq === writingFetchSeq) {
+      writingFetchInFlight = false
+    }
   }
 }
 
@@ -255,6 +286,11 @@ function clearWritingPoll() {
     clearInterval(writingPollTimer)
     writingPollTimer = null
   }
+  if (writingFetchAbort) {
+    writingFetchAbort.abort()
+    writingFetchAbort = null
+  }
+  writingFetchInFlight = false
 }
 
 watch(
@@ -263,12 +299,16 @@ watch(
     clearWritingPoll()
     writingStatus.value = null
     writingPollError.value = ''
+    writingFetchSeq = 0
     const telemetry = Boolean(nodeType && WRITING_TELEMETRY_TYPES.has(nodeType))
     if (!open || !nid || !telemetry) return
     void fetchWritingTelemetry()
-    writingPollTimer = setInterval(() => void fetchWritingTelemetry(), 2500)
+    writingPollTimer = setInterval(
+      () => void fetchWritingTelemetry(),
+      WRITING_POLL_INTERVAL_MS,
+    )
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 onUnmounted(() => clearWritingPoll())

@@ -108,8 +108,53 @@ const gapSummary = computed(() =>
   dagStore.registryGaps.map(g => `${g.node_id} (${g.node_type})`).join('、'),
 )
 
-/** 周期性拉权威 /status ，避免仅用 DAG Run SSE 把「人工审阅」误标成「运行中」 */
-let autopilotStatusPollTimer: ReturnType<typeof setInterval> | null = null
+/** 周期性拉权威 /status ，避免仅用 DAG Run SSE 把「人工审阅」误标成「运行中」。
+ *  非 running 时自动降速：paused → 15s，stopped/completed/error/idle → 60s。
+ *  页面切后台时暂停，切回时立即拉取一次再恢复。 */
+let autopilotStatusPollTimer: ReturnType<typeof setTimeout> | null = null
+/** 组件卸载后禁止再创建新 timer，防止僵尸轮询累积 */
+let dagViewUnmounted = false
+let autopilotFetchInFlight = false
+let autopilotFetchAbort: AbortController | null = null
+const AUTOPILOT_FETCH_TIMEOUT_MS = 10000
+
+function autopilotPollInterval(): number {
+  switch (autopilotStatus.value) {
+    case 'running': return 7000
+    case 'paused':  return 15000
+    default:        return 60000
+  }
+}
+
+function clearAutopilotPoll() {
+  if (autopilotStatusPollTimer != null) {
+    clearTimeout(autopilotStatusPollTimer)
+    autopilotStatusPollTimer = null
+  }
+  if (autopilotFetchAbort) {
+    autopilotFetchAbort.abort()
+    autopilotFetchAbort = null
+  }
+  autopilotFetchInFlight = false
+}
+
+function scheduleAutopilotPoll() {
+  if (dagViewUnmounted) return
+  clearAutopilotPoll()
+  if (document.hidden) return
+  autopilotStatusPollTimer = window.setTimeout(() => {
+    void fetchAutopilotStatus()
+  }, autopilotPollInterval())
+}
+
+function handleDAGVisibilityChange() {
+  if (dagViewUnmounted) return
+  if (document.hidden) {
+    clearAutopilotPoll()
+  } else {
+    void fetchAutopilotStatus()
+  }
+}
 
 async function retryHydrate() {
   await dagStore.hydrateDagForNovel(props.novelId)
@@ -121,22 +166,20 @@ onMounted(async () => {
   await dagStore.hydrateDagForNovel(props.novelId)
   await runStore.fetchStatus(props.novelId)
   await fetchAutopilotStatus()
-  autopilotStatusPollTimer = window.setInterval(() => {
-    void fetchAutopilotStatus()
-  }, 7000)
+  document.addEventListener('visibilitychange', handleDAGVisibilityChange)
 })
 
 onUnmounted(() => {
-  if (autopilotStatusPollTimer != null) {
-    clearInterval(autopilotStatusPollTimer)
-    autopilotStatusPollTimer = null
-  }
+  dagViewUnmounted = true
+  clearAutopilotPoll()
+  document.removeEventListener('visibilitychange', handleDAGVisibilityChange)
 })
 
 // ★ 监听托管模式 SSE 日志：以 /status 为准合并「人工审阅」态
 watch(
   () => runStore.runStatus,
   () => {
+    if (dagViewUnmounted) return
     void fetchAutopilotStatus()
   },
 )
@@ -186,6 +229,17 @@ function handleSwitchToCard() {
 // ─── 获取托管模式状态 ───
 
 async function fetchAutopilotStatus() {
+  if (dagViewUnmounted) return
+  if (autopilotFetchInFlight) return
+  autopilotFetchInFlight = true
+
+  if (autopilotFetchAbort) {
+    autopilotFetchAbort.abort()
+  }
+  const ac = new AbortController()
+  autopilotFetchAbort = ac
+  const timeoutId = window.setTimeout(() => ac.abort(), AUTOPILOT_FETCH_TIMEOUT_MS)
+
   try {
     const { apiClient } = await import('@/api/config')
     const result = await apiClient.get(`/autopilot/${props.novelId}/status`) as Record<string, unknown>
@@ -197,23 +251,21 @@ async function fetchAutopilotStatus() {
 
     if (ap === 'completed') {
       autopilotStatus.value = 'completed'
-      return
-    }
-    if (ap === 'error') {
+    } else if (ap === 'error') {
       autopilotStatus.value = 'error'
-      return
-    }
-    if (ap === 'running' && humanGate) {
+    } else if (ap === 'running' && humanGate) {
       autopilotStatus.value = 'paused'
-      return
-    }
-    if (ap === 'running') {
+    } else if (ap === 'running') {
       autopilotStatus.value = 'running'
-      return
+    } else {
+      autopilotStatus.value = 'idle'
     }
-    autopilotStatus.value = 'idle'
   } catch {
     autopilotStatus.value = 'idle'
+  } finally {
+    window.clearTimeout(timeoutId)
+    autopilotFetchInFlight = false
+    scheduleAutopilotPoll()
   }
 }
 </script>

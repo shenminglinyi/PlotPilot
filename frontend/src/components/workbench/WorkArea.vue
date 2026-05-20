@@ -1055,6 +1055,9 @@ function maybeEmitDeskRefresh(status: Record<string, unknown> | null | undefined
 }
 
 const handleAutopilotStatusChange = (status: any) => {
+  if (status?.autopilot_status != null) {
+    lastAssistedAutopilotStatus = String(status.autopilot_status)
+  }
   applyAutopilotStatusPayload(status)
 }
 
@@ -1156,9 +1159,16 @@ let assistedAutopilotPollTimer: ReturnType<typeof setTimeout> | null = null
 /** 该书在库中不存在(404)时不再轮询 /autopilot/.../status */
 let assistedAutopilot404 = false
 let assistAutopilotPollFailures = 0
+/** 最近一次 /status 返回的 autopilot_status，用于停止状态下延长轮询间隔 */
+let lastAssistedAutopilotStatus = ''
+/** 组件卸载后禁止再调度 assisted 轮询，防止僵尸轮询累积 */
+let assistedUnmounted = false
 
 function assistedAutopilotPollDelayMs(): number {
-  const base = 4000
+  let base = 4000
+  if (lastAssistedAutopilotStatus === 'stopped' || lastAssistedAutopilotStatus === 'completed' || lastAssistedAutopilotStatus === 'error') {
+    base = 30000
+  }
   const mult = Math.min(2 ** Math.min(assistAutopilotPollFailures, 8), 128)
   return Math.min(base * mult, 60_000)
 }
@@ -1171,6 +1181,7 @@ function clearAssistedAutopilotPoll() {
 }
 
 function scheduleAssistedAutopilotPoll() {
+  if (assistedUnmounted) return
   clearAssistedAutopilotPoll()
   if (assistedAutopilot404 || workMode.value !== 'assisted' || document.hidden) {
     return
@@ -1187,6 +1198,7 @@ function handleVisibilityChange() {
     clearAssistedAutopilotPoll()
   } else if (workMode.value === 'assisted') {
     assistAutopilotPollFailures = 0
+    lastAssistedAutopilotStatus = ''
     void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
   }
 }
@@ -1204,6 +1216,7 @@ async function pollAutopilotStatusWhileAssisted() {
     if (res.ok) {
       assistAutopilotPollFailures = 0
       const json = await res.json()
+      lastAssistedAutopilotStatus = String(json.autopilot_status ?? '')
       applyAutopilotStatusPayload(json as Record<string, unknown>)
     } else {
       assistAutopilotPollFailures += 1
@@ -1229,6 +1242,7 @@ watch(
     lastAutopilotReactiveFp.value = ''
     assistedAutopilot404 = false
     assistAutopilotPollFailures = 0
+    lastAssistedAutopilotStatus = ''
     assistStreamBeatSession.value = null
     assistStreamFailedChapter.value = null
     assistStreamPlanFailedChapter.value = null
@@ -1248,6 +1262,7 @@ watch(
   (mode) => {
     clearAssistedAutopilotPoll()
     assistAutopilotPollFailures = 0
+    lastAssistedAutopilotStatus = ''
     if (mode === 'assisted') {
       void pollAutopilotStatusWhileAssisted().finally(() => scheduleAssistedAutopilotPoll())
     }
@@ -1260,6 +1275,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  assistedUnmounted = true
   clearAssistedAutopilotPoll()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (deskRefreshDebounce) {
