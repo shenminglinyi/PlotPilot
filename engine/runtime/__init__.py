@@ -10,5 +10,6 @@
 """
 from engine.runtime.runner import StoryPipelineRunner
 from engine.runtime.policy_validator import PolicyValidator
+from engine.runtime.engine_daemon import EngineDaemon
 
-__all__ = ["StoryPipelineRunner", "PolicyValidator"]
+__all__ = ["StoryPipelineRunner", "PolicyValidator", "EngineDaemon"]
