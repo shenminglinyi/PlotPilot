@@ -23,8 +23,6 @@ from __future__ import annotations
 # ── Bible ────────────────────────────────────────────────────────────────
 BIBLE_ALL = "bible-all"
 BIBLE_WORLDBUILDING = "bible-worldbuilding"
-BIBLE_WORLDBUILDING_DIMENSION = "bible-worldbuilding-dimension"
-BIBLE_WORLDBUILDING_FIELD = "bible-worldbuilding-field"
 BIBLE_CHARACTERS = "bible-characters"
 BIBLE_LOCATIONS = "bible-locations"
 BIBLE_STYLE_CONVENTION = "bible-style-convention"
@@ -117,7 +115,7 @@ PLANNING_MAIN_PLOT_OPTION = "planning-main-plot-option"
 ALL_KEYS: frozenset[str] = frozenset({
     # Bible
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
-    BIBLE_STYLE_CONVENTION, BIBLE_WORLDBUILDING_DIMENSION, BIBLE_WORLDBUILDING_FIELD,
+    BIBLE_STYLE_CONVENTION,
     # Chapter
     CHAPTER_GENERATION_MAIN, CHAPTER_GENERATION_BASIC,
     CHAPTER_NARRATIVE_SYNC, CHAPTER_STATE_EXTRACTION, CHAPTER_SUMMARIZER,
