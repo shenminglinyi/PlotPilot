@@ -133,13 +133,11 @@ _FALLBACK_BIBLE_ALL_SYSTEM = """你是资深网文策划编辑。根据用户提
 8. **所有 description 字段必须是单行文本**
 """
 
-_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
+_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = """你是资深网文策划编辑。根据故事创意生成完整五维世界观（单次输出、五维联动）。
 
-要求：
-1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
-2. 明确的文风公约（叙事视角、人称、基调、节奏）
-3. 符合故事类型（现代都市/古代/玄幻/科幻等）
+输出约束：每个字段的值必须是中文段落字符串，禁止嵌套 JSON；禁止自创字段名；禁止值中出现英文键名。
 """
+
 
 _FALLBACK_BIBLE_CHARACTERS_SYSTEM = """你是资深网文策划编辑。基于已有世界观生成主要人物。
 
@@ -884,7 +882,16 @@ JSON 格式（不要有其他文字）：
 
     async def _save_worldbuilding(self, novel_id: str, worldbuilding_data: Dict[str, Any]) -> None:
         """保存世界观到数据库（同时保存到Worldbuilding表和Bible的world_settings）"""
+        from application.world.services.worldbuilding_field_text import normalize_dimension_fields
+
         logger.debug("_save_worldbuilding called")
+
+        normalized_wb: Dict[str, Dict[str, str]] = {}
+        for dim_key, dim_data in (worldbuilding_data or {}).items():
+            if isinstance(dim_data, dict):
+                normalized_wb[dim_key] = normalize_dimension_fields(
+                    dim_data, dim_key=dim_key,
+                )
 
         # 1. 保存到Worldbuilding表（用于后续生成人物和地点时读取）
         if self.worldbuilding_service:
@@ -892,11 +899,11 @@ JSON 格式（不要有其他文字）：
                 logger.debug("Calling worldbuilding_service.update_worldbuilding")
                 self.worldbuilding_service.update_worldbuilding(
                     novel_id=novel_id,
-                    core_rules=worldbuilding_data.get("core_rules"),
-                    geography=worldbuilding_data.get("geography"),
-                    society=worldbuilding_data.get("society"),
-                    culture=worldbuilding_data.get("culture"),
-                    daily_life=worldbuilding_data.get("daily_life")
+                    core_rules=normalized_wb.get("core_rules"),
+                    geography=normalized_wb.get("geography"),
+                    society=normalized_wb.get("society"),
+                    culture=normalized_wb.get("culture"),
+                    daily_life=normalized_wb.get("daily_life")
                 )
                 logger.debug("Worldbuilding saved to Worldbuilding table")
                 logger.info(f"Worldbuilding saved for {novel_id}")
@@ -914,17 +921,16 @@ JSON 格式（不要有其他文字）：
             # 将5维度数据转换为world_setting条目
             # WorldSetting的type只能是'rule', 'location', 'item'，所以统一使用'rule'
             import uuid
-            for dimension_name, dimension_data in worldbuilding_data.items():
-                if isinstance(dimension_data, dict):
-                    for key, value in dimension_data.items():
-                        setting_id = f"{novel_id}-ws-{uuid.uuid4().hex[:8]}"
-                        self.bible_service.add_world_setting(
-                            novel_id=novel_id,
-                            setting_id=setting_id,
-                            name=f"{dimension_name}.{key}",
-                            description=value,
-                            setting_type="rule"  # 统一使用'rule'类型
-                        )
+            for dimension_name, dimension_data in normalized_wb.items():
+                for key, value in dimension_data.items():
+                    setting_id = f"{novel_id}-ws-{uuid.uuid4().hex[:8]}"
+                    self.bible_service.add_world_setting(
+                        novel_id=novel_id,
+                        setting_id=setting_id,
+                        name=f"{dimension_name}.{key}",
+                        description=value,
+                        setting_type="rule"  # 统一使用'rule'类型
+                    )
             logger.info("Worldbuilding saved to Bible.world_settings successfully")
         except Exception as e:
             logger.error(f"Failed to save to Bible.world_settings: {e}")
@@ -1021,13 +1027,9 @@ JSON 格式：
 
     def _build_worldbuilding_json_schema_desc(self) -> str:
         """五维完整字段模板（单次流式输出用）。"""
-        lines: List[str] = []
-        for dim_key, dim_def in self._DIMENSION_DEFS.items():
-            lines.append(f'    "{dim_key}": {{')
-            for fk, fd in dim_def["fields"].items():
-                lines.append(f'      "{fk}": "{fd}"')
-            lines.append("    },")
-        return "\n".join(lines)
+        from application.world.worldbuilding_schema import build_fields_desc_for_prompt
+
+        return build_fields_desc_for_prompt()
 
     async def _stream_worldbuilding_full(
         self,
@@ -1038,6 +1040,8 @@ JSON 格式：
 
         Yields:
             {"type": "chunk", "text": str}
+            {"type": "field_partial", "key", "field", "value"}
+            {"type": "field", "key", "field", "value"}
             {"type": "dimension", "key": str, "content": dict}
             {"type": "done", "worldbuilding": dict}
         """
@@ -1049,39 +1053,25 @@ JSON 格式：
         from infrastructure.ai.prompt_utils import get_prompt_system
 
         fields_desc = self._build_worldbuilding_json_schema_desc()
-        linkage_note = (
-            "五维必须在同一套世界逻辑下互相约束：力量体系影响社会结构，地理影响日常生存，"
-            "历史/禁忌影响人物行为边界，禁止各维度各写各的、彼此矛盾。"
-        )
-
-        system_prompt = get_prompt_system(
-            BIBLE_WORLDBUILDING,
-            fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM
-            + "\n\n**单次输出完整 worldbuilding 对象，五维联动一致。**",
-        )
-        user_prompt = f"""故事创意：{premise}
-
-目标章节数：{target_chapters}章
-
-{linkage_note}
-
-请生成完整世界观（五个维度全部填写，字段名不可修改，每字段至少 50 字具体细节）。
-
-```json
-{{
-  "worldbuilding": {{
-{fields_desc}
-  }}
-}}
-```"""
 
         registry = get_prompt_registry()
         variables = {
             "premise": premise,
             "target_chapters": str(target_chapters),
+            "fields_desc": fields_desc,
+            "existing_settings": "",
         }
         prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING, variables)
         if not prompt:
+            # CPMS 不可用时的最小 fallback
+            system_prompt = get_prompt_system(
+                BIBLE_WORLDBUILDING, fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM
+            )
+            user_prompt = (
+                f"故事创意：{premise}\n\n目标章节数：{target_chapters}章\n\n"
+                "请生成完整世界观，每个字段值只能是中文段落字符串，禁止嵌套 JSON。\n\n"
+                f"```json\n{{\"worldbuilding\": {{{fields_desc}}}}}\n```"
+            )
             prompt = Prompt(system=system_prompt, user=user_prompt)
 
         config = GenerationConfig(max_tokens=16384, temperature=0.7)
@@ -1092,10 +1082,20 @@ JSON 格式：
             async for chunk in self.llm_service.stream_generate(prompt, config):
                 yield {"type": "chunk", "text": chunk}
                 for ev in parser.feed(chunk):
-                    dim_key = ev["key"]
-                    dim_data = ev["content"]
-                    accumulated[dim_key] = dim_data
-                    yield ev
+                    ev_type = ev.get("type")
+                    dim_key = ev.get("key")
+                    if ev_type == "field_partial":
+                        yield ev
+                    elif ev_type == "field":
+                        fk, fv = ev.get("field"), ev.get("value")
+                        if dim_key and fk and fv:
+                            accumulated.setdefault(dim_key, {})[fk] = fv
+                        yield ev
+                    elif ev_type == "dimension":
+                        dim_data = ev.get("content") or {}
+                        if dim_key and dim_data:
+                            accumulated[dim_key] = dim_data
+                        yield ev
 
             full_wb = parser.parse_full_worldbuilding(
                 sanitize=_sanitize_llm_json_output,
@@ -1146,64 +1146,6 @@ JSON 格式：
         return (result.content or "").strip()
 
     # 维度定义：key → (label, field_definitions)
-    _DIMENSION_DEFS = {
-        "core_rules": {
-            "label": "核心法则",
-            "fields": {
-                "power_system": "力量体系/科技树的描述",
-                "physics_rules": "物理规律的特殊之处",
-                "magic_tech": "魔法或科技的运作机制",
-                "cost_and_limitation": "力量使用的代价与限制（修炼消耗、越级代价、禁忌代价）",
-                "resource_scarcity": "稀缺资源及其分配（硬通货、垄断情况）",
-            },
-        },
-        "geography": {
-            "label": "地理生态",
-            "fields": {
-                "terrain": "主要地形特征",
-                "climate": "气候特点与环境",
-                "resources": "自然资源分布",
-                "ecology": "生态系统与生物链",
-                "forbidden_zones": "禁区/危险区域",
-                "urban_core": "核心城市/聚居地",
-                "hidden_realms": "秘境/隐藏空间",
-            },
-        },
-        "society": {
-            "label": "社会结构",
-            "fields": {
-                "politics": "政治体制与权力架构",
-                "economy": "经济模式与贸易",
-                "class_system": "阶级/等级系统",
-                "power_structure": "明暗权力结构（明面与暗面的统治体系）",
-                "oppression_mechanism": "压迫/控制机制（强者如何压制弱者）",
-                "class_division": "阶层划分与流动壁垒",
-            },
-        },
-        "culture": {
-            "label": "历史文化",
-            "fields": {
-                "history": "关键历史事件与时代背景",
-                "religion": "宗教信仰体系",
-                "taboos": "文化禁忌与违逆后果",
-                "worship": "崇拜对象与祭祀仪式",
-                "oaths_and_curses": "誓言体系与诅咒",
-            },
-        },
-        "daily_life": {
-            "label": "沉浸感细节",
-            "fields": {
-                "food_clothing": "衣食住行的日常细节",
-                "language_slang": "俚语、口音与方言",
-                "entertainment": "娱乐方式与消遣",
-                "survival_tactics": "底层/弱者的生存策略",
-                "market_reality": "市场/交易的真实状况",
-                "food_and_drink": "饮食文化与特色食物",
-                "slang_and_profanity": "粗话、黑话与市井语言",
-            },
-        },
-    }
-
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
         wb_summary = self._summarize_worldbuilding(worldbuilding)
