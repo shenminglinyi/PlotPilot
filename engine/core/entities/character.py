@@ -16,29 +16,10 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 import uuid
 
+from domain.shared.character_id import CharacterId
+
 
 # ─── 值对象 ───
-
-
-@dataclass(frozen=True)
-class CharacterId:
-    """角色ID值对象"""
-    value: str
-
-    @classmethod
-    def generate(cls) -> CharacterId:
-        return cls(value=str(uuid.uuid4()))
-
-    def __str__(self) -> str:
-        return self.value
-
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, CharacterId):
-            return False
-        return self.value == other.value
-
-    def __hash__(self) -> int:
-        return hash(self.value)
 
 
 @dataclass

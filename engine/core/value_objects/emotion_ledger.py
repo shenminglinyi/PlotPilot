@@ -181,14 +181,60 @@ class EmotionLedger:
             "wounds": [{"description": w.description, "impact": w.impact, "chapter": w.chapter_number} for w in self.wounds],
             "boons": [{"description": b.description, "value": b.value, "chapter": b.chapter_number} for b in self.boons],
             "power_shifts": [{"from": ps.from_state, "to": ps.to_state, "trigger": ps.trigger} for ps in self.power_shifts],
-            "open_loops": [{"description": ol.description, "hint": ol.hint, "urgency": ol.urgency} for ol in self.open_loops],
+            "open_loops": [
+                {
+                    "description": ol.description,
+                    "hint": ol.hint,
+                    "planted_chapter": ol.planted_chapter,
+                    "urgency": ol.urgency,
+                }
+                for ol in self.open_loops
+            ],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> EmotionLedger:
         """反序列化"""
-        wounds = [EmotionalWound(**w) for w in data.get("wounds", [])]
-        boons = [EmotionalBoon(**b) for b in data.get("boons", [])]
-        power_shifts = [PowerShift(**ps) for ps in data.get("power_shifts", [])]
-        open_loops = [OpenLoop(**ol) for ol in data.get("open_loops", [])]
+        wounds = [cls._parse_wound(w) for w in data.get("wounds", [])]
+        boons = [cls._parse_boon(b) for b in data.get("boons", [])]
+        power_shifts = [cls._parse_power_shift(ps) for ps in data.get("power_shifts", [])]
+        open_loops = [cls._parse_open_loop(ol) for ol in data.get("open_loops", [])]
         return cls(wounds=wounds, boons=boons, power_shifts=power_shifts, open_loops=open_loops)
+
+    @staticmethod
+    def _parse_wound(data: dict) -> EmotionalWound:
+        return EmotionalWound(
+            description=data.get("description", ""),
+            impact=data.get("impact", ""),
+            chapter_number=int(data.get("chapter_number", data.get("chapter", 0)) or 0),
+        )
+
+    @staticmethod
+    def _parse_boon(data: dict) -> EmotionalBoon:
+        return EmotionalBoon(
+            description=data.get("description", ""),
+            value=data.get("value", ""),
+            chapter_number=int(data.get("chapter_number", data.get("chapter", 0)) or 0),
+        )
+
+    @staticmethod
+    def _parse_power_shift(data: dict) -> PowerShift:
+        return PowerShift(
+            from_state=data.get("from_state", data.get("from", "")),
+            to_state=data.get("to_state", data.get("to", "")),
+            trigger=data.get("trigger", ""),
+        )
+
+    @staticmethod
+    def _parse_open_loop(data: dict) -> OpenLoop:
+        urgency = data.get("urgency", 0.5)
+        try:
+            urgency = max(0.0, min(1.0, float(urgency)))
+        except (TypeError, ValueError):
+            urgency = 0.5
+        return OpenLoop(
+            description=data.get("description", ""),
+            hint=data.get("hint", ""),
+            planted_chapter=int(data.get("planted_chapter", data.get("chapter", 0)) or 0),
+            urgency=urgency,
+        )
