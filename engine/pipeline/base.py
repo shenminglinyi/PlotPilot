@@ -25,6 +25,24 @@ from engine.pipeline.steps import StepResult
 
 logger = logging.getLogger(__name__)
 
+# domain.ai.Prompt 要求 system/user 均非空；管线把指令放在 user 侧，system 仅作最小角色锚定。
+_DEFAULT_PIPELINE_SYSTEM_PROMPT = (
+    "你是专业网络小说作者。仅根据用户给出的上下文与节拍要求撰写中文正文；"
+    "不要输出思考过程、元评论或重复用户指令。"
+)
+
+
+def _writing_progress(ctx: PipelineContext, substep: str, label: str, **extras: Any) -> None:
+    """推送到全托管共享状态（writing_substep*），供 /status 与前端实时展示。"""
+    sink = getattr(ctx, "writing_progress_sink", None)
+    if sink is None:
+        return
+    payload = {k: v for k, v in extras.items() if v is not None}
+    try:
+        sink(substep, label, payload)
+    except Exception as e:
+        logger.debug("[%s] writing_progress_sink 失败: %s", getattr(ctx, "novel_id", "?"), e)
+
 
 class BaseStoryPipeline(ABC):
     """写作管线基类 — 继承即扩展，开箱即用
@@ -74,18 +92,43 @@ class BaseStoryPipeline(ABC):
             step_status["find_next_chapter"] = "ok" if r.passed else ("skipped" if r.skip else "failed")
             if not r.passed and not r.skip:
                 return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
+            if r.passed:
+                _writing_progress(
+                    ctx,
+                    "chapter_found",
+                    f"章节定位 · 第 {ctx.chapter_number} 章",
+                    current_chapter_number=ctx.chapter_number,
+                    chapter_target_words=ctx.target_word_count,
+                )
 
             # 2. 组装上下文（四层洋葱挤压）
             r = await self._step_build_context(ctx)
             step_status["build_context"] = "ok" if r.passed else "failed"
             if not r.passed:
                 return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
+            _writing_progress(
+                ctx,
+                "context_assembly",
+                "组装上下文",
+                current_chapter_number=ctx.chapter_number,
+                context_tokens=int(ctx.context_tokens or 0),
+                chapter_target_words=ctx.target_word_count,
+            )
 
             # 3. 节拍放大（大纲→微观节拍）
             r = await self._step_magnify_beats(ctx)
             step_status["magnify_beats"] = "ok" if r.passed else "failed"
             if not r.passed:
                 return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
+            _writing_progress(
+                ctx,
+                "beat_magnification",
+                f"节拍拆分（{len(ctx.beats)} 个）",
+                current_chapter_number=ctx.chapter_number,
+                total_beats=len(ctx.beats),
+                current_beat_index=0,
+                chapter_target_words=ctx.target_word_count,
+            )
 
             # 4. LLM 生成（节拍级+断点续写）
             r = await self._step_generate(ctx)
@@ -343,6 +386,20 @@ class BaseStoryPipeline(ABC):
             if i < ctx.start_beat_index:
                 continue
 
+            n_beats = max(len(ctx.beats), 1)
+            acc0 = len((accumulated_content or "").strip())
+            _writing_progress(
+                ctx,
+                "llm_calling",
+                f"节拍 {i + 1}/{n_beats} 撰写",
+                current_chapter_number=ctx.chapter_number,
+                total_beats=n_beats,
+                current_beat_index=i,
+                chapter_target_words=ctx.target_word_count,
+                accumulated_words=acc0,
+                beat_focus=(str(getattr(beat, "focus", "") or "").strip() or None),
+            )
+
             # 构建 prompt
             prompt_text = self._build_generation_prompt(ctx, beat, i)
 
@@ -368,13 +425,25 @@ class BaseStoryPipeline(ABC):
                     else:
                         accumulated_content = beat_content.strip()
                     ctx.raw_beat_contents.append(beat_content.strip())
+                    _writing_progress(
+                        ctx,
+                        "llm_calling",
+                        f"节拍 {i + 1}/{n_beats} 撰写",
+                        current_chapter_number=ctx.chapter_number,
+                        total_beats=n_beats,
+                        current_beat_index=i,
+                        chapter_target_words=ctx.target_word_count,
+                        accumulated_words=len(accumulated_content.strip()),
+                        beat_focus=(str(getattr(beat, "focus", "") or "").strip() or None),
+                    )
 
             except Exception as e:
                 logger.warning(f"[{ctx.novel_id}] 节拍 {i+1} 生成失败: {e}")
                 # 继续下一个节拍
 
-        ctx.chapter_content = accumulated_content
-        ctx.word_count = len(accumulated_content)
+        ctx.chapter_content = accumulated_content or ""
+        raw = accumulated_content or ""
+        ctx.word_count = len(raw)
         return StepResult.ok()
 
     async def _step_validate_content(self, ctx: PipelineContext) -> StepResult:
@@ -441,6 +510,17 @@ class BaseStoryPipeline(ABC):
 
         if ctx.chapter_repository is None:
             return StepResult.fail("chapter_repository 未设置，无法保存")
+
+        _writing_progress(
+            ctx,
+            "chapter_persist",
+            "章节落盘",
+            current_chapter_number=ctx.chapter_number,
+            total_beats=len(ctx.beats) if ctx.beats else 0,
+            current_beat_index=getattr(ctx, "start_beat_index", 0),
+            chapter_target_words=ctx.target_word_count,
+            accumulated_words=ctx.word_count,
+        )
 
         try:
             # 尝试推持久化队列
@@ -658,7 +738,7 @@ class BaseStoryPipeline(ABC):
         """将文本转为 Prompt 对象"""
         try:
             from domain.ai.value_objects.prompt import Prompt
-            return Prompt(system="", user=text)
+            return Prompt(system=_DEFAULT_PIPELINE_SYSTEM_PROMPT, user=text)
         except ImportError:
             return text
 
@@ -675,7 +755,7 @@ class BaseStoryPipeline(ABC):
         try:
             from application.engine.services.persistence_queue import get_persistence_queue
             pq = get_persistence_queue()
-            return pq.push("save_chapter", {
+            return pq.push("upsert_chapter", {
                 "novel_id": ctx.novel_id,
                 "chapter_number": ctx.chapter_number,
                 "content": ctx.chapter_content,

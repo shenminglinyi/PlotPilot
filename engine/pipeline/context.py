@@ -122,6 +122,9 @@ class PipelineContext:
     policy_validator: Any = None                 # PolicyValidator（新增）
     memory_orchestrator: Any = None              # MemoryOrchestratorImpl
 
+    # ═══ 全托管 UI：可选进度回调（substep, label, extra_dict）→ 写入共享内存 ═══
+    writing_progress_sink: Any = None
+
     # ═══ 杂项 ═══
     metadata: Dict[str, Any] = field(default_factory=dict)
     _dependencies: Dict[str, Any] = field(default_factory=dict)
