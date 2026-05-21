@@ -67,9 +67,13 @@ def init_daemon_dependencies(
     volume_summary_service=None,
     foreshadowing_repository=None,
     knowledge_service=None,
-    use_story_pipeline_for_writing: bool = False,
+    use_story_pipeline_for_writing: bool | None = None,
 ) -> None:
     """注入守护进程依赖 — AutopilotDaemon / StoryPipelineRunner 共用（Phase 8）"""
+    if use_story_pipeline_for_writing is None:
+        from engine.runtime.writing_delegate import is_story_pipeline_writing_enabled
+
+        use_story_pipeline_for_writing = is_story_pipeline_writing_enabled()
     host.novel_repository = novel_repository
     host.llm_service = llm_service
     host.context_builder = context_builder
@@ -1650,8 +1654,13 @@ class DaemonHostMixin:
             return 5  # 解析失败，返回默认值
 
     async def _stream_llm_with_stop_watch(
-        self, prompt: Prompt, config: GenerationConfig, novel=None,
-        total_timeout: float = 600.0, idle_timeout: float = 120.0,
+        self,
+        prompt: Prompt,
+        config: GenerationConfig,
+        novel=None,
+        chapter_draft_so_far: str = "",
+        total_timeout: float = 600.0,
+        idle_timeout: float = 120.0,
     ) -> str:
         """与 workflow 共用同一套 Prompt + LLM；novel 传入时并行轮询 DB 是否已停止。
 
@@ -1674,14 +1683,22 @@ class DaemonHostMixin:
         idle_watch_task = None
         nid = getattr(novel.novel_id, "value", novel.novel_id) if novel else None
 
-        # 批量推送缓冲
+        # 批量推送缓冲（当前节拍内的 LLM 增量）
         chunk_buffer: List[str] = []
         last_push_time = time.time()
         last_chunk_time = time.time()  # 追踪最后一次收到数据的时间
-        # 🔥 高频小批量推送：实现真正的流式打字机效果
-        # 每隔 0.15 秒推送一次，让前端有足够时间渲染，但又不会积攒太多
+        # 🔥 高频推送整章累积快照，避免前端对多节拍增量做 += 时出现衔接重复/乱序
         CHUNK_PUSH_INTERVAL = 0.15
         start_time = time.time()
+
+        def _live_chapter_snapshot() -> str:
+            prior = (chapter_draft_so_far or "").rstrip()
+            beat_part = "".join(chunk_buffer)
+            if not prior:
+                return beat_part
+            if not beat_part:
+                return prior
+            return f"{prior}\n\n{beat_part}"
 
         async def _watch_stop_signal() -> None:
             """停止信号监听（三通道，快速响应）。
@@ -1766,10 +1783,12 @@ class DaemonHostMixin:
                 if novel is not None and chunk:
                     chunk_buffer.append(chunk)
                     current_time = time.time()
-                    # 定期推送（每 0.15 秒），让前端有时间渲染
+                    # 定期推送整章快照（含已完成节拍 + 当前节拍流式部分）
                     if current_time - last_push_time >= CHUNK_PUSH_INTERVAL:
-                        await self._push_streaming_chunk(novel.novel_id.value, "".join(chunk_buffer))
-                        chunk_buffer.clear()
+                        await self._push_streaming_chunk(
+                            novel.novel_id.value,
+                            content=_live_chapter_snapshot(),
+                        )
                         last_push_time = current_time
 
                 if stop_detected.is_set():
@@ -1781,9 +1800,12 @@ class DaemonHostMixin:
             logger.error(f"[{nid}] 流式生成异常: {e}")
             raise
         finally:
-            # 🔧 确保推送剩余的 chunks
+            # 🔧 确保推送最后一帧整章快照
             if novel is not None and chunk_buffer:
-                await self._push_streaming_chunk(novel.novel_id.value, "".join(chunk_buffer))
+                await self._push_streaming_chunk(
+                    novel.novel_id.value,
+                    content=_live_chapter_snapshot(),
+                )
 
             stop_detected.set()
             if watch_task is not None:
@@ -1804,14 +1826,19 @@ class DaemonHostMixin:
 
         return strip_reasoning_artifacts(content)
 
-    async def _push_streaming_chunk(self, novel_id: str, chunk: str):
-        """推送增量文字到全局流式队列，供 SSE 接口消费
-        
-        🔥 同时更新心跳——流式生成可能持续 30-120 秒，
-        期间前端需要知道守护进程仍在工作。
+    async def _push_streaming_chunk(
+        self,
+        novel_id: str,
+        chunk: str = "",
+        *,
+        content: Optional[str] = None,
+    ):
+        """推送流式正文到全局队列，供 SSE 接口消费。
+
+        ``content`` 为整章累积快照（编辑区应直接替换）；``chunk`` 为旧版增量片段。
         """
         from application.engine.services.streaming_bus import streaming_bus
-        streaming_bus.publish(novel_id, chunk)
+        streaming_bus.publish(novel_id, chunk, content=content)
         # 🔥 流式生成期间更新心跳，避免前端误判"后端无响应"
         self._write_daemon_heartbeat()
 
@@ -2095,7 +2122,9 @@ class DaemonHostMixin:
 
         prompt = Prompt(system=system, user="\n".join(user_parts))
         config = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
-        return await self._stream_llm_with_stop_watch(prompt, config, novel=novel)
+        return await self._stream_llm_with_stop_watch(
+            prompt, config, novel=novel, chapter_draft_so_far=chapter_draft_so_far
+        )
 
     async def _upsert_chapter_content(self, novel, chapter_node, content: str, status: str):
         """最小事务：只更新章节内容，不涉及其他表

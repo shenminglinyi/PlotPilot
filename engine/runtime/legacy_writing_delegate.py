@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from domain.ai.services.llm_service import GenerationConfig
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
 from domain.novel.entities.chapter import ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
@@ -450,6 +451,10 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     )
 
     if beats:
+        # 🧠 V3 CoT 桥接字典：key=beat_index(0-based)，value=BeatBridge
+        # 每个节拍完成后异步计算下一节拍的桥接，在下一节拍 build_beat_prompt 时注入
+        _beat_cot_bridges: dict = {}
+
         for i, beat in enumerate(beats):
             if i < start_beat:
                 continue  # 跳过已生成的节拍
@@ -513,10 +518,12 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
 
             adjusted_target = conductor.allocate_beat(beat.target_words, focus=beat.focus)  # ★ Phase 2: 传入 focus 用于免疫判断
 
-            beat_prompt = host.context_builder.build_beat_prompt(beat, i, len(beats))
+            # 🧠 V3 CoT 桥接：从预计算字典取桥接对象（由上一节拍完成后异步计算）
+            _cot_bridge = _beat_cot_bridges.get(i)
+            beat_prompt = host.context_builder.build_beat_prompt(beat, i, len(beats), beat_bridge=_cot_bridge)
 
-            # 🔗 V2：注入上一节拍的衔接诊断提示（如果有）
-            if hasattr(novel, '_beat_continuity_hint') and novel._beat_continuity_hint:
+            # 🔗 V2：注入上一节拍的衔接诊断提示（如果有且无 CoT 桥接时）
+            if not _cot_bridge and hasattr(novel, '_beat_continuity_hint') and novel._beat_continuity_hint:
                 beat_prompt = f"{novel._beat_continuity_hint}\n\n{beat_prompt}"
                 logger.debug(f"[{novel.novel_id}] 注入节拍衔接诊断到 beat {i+1}")
 
@@ -560,7 +567,9 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 )
                 max_tokens = int(adjusted_target * 1.3)  # 使用调整后的目标
                 cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
-                beat_content = await host._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
+                beat_content = await host._stream_llm_with_stop_watch(
+                    prompt, cfg, novel=novel, chapter_draft_so_far=accumulated_content
+                )
             else:
                 beat_content = await host._stream_one_beat(
                     outline, context, beat_prompt, beat,
@@ -679,6 +688,31 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                     except Exception as e:
                         logger.debug(f"节拍衔接检查失败（不影响主流程）: {e}")
 
+                # 🧠 V3 CoT 节拍桥接：在节拍完成后为下一节拍计算叙事状态桥接
+                # 这使每两个节拍间有"思维链"衔接，确保正文不产生拼接感
+                if i < len(beats) - 1 and beat_content.strip():
+                    try:
+                        from application.engine.services.beat_cot_bridge import compute_beat_bridge
+                        next_beat = beats[i + 1]
+                        next_intent = (next_beat.scene_goal or next_beat.description or "").strip()
+                        if next_intent:
+                            _bridge = await compute_beat_bridge(
+                                beat_content.strip(),
+                                next_intent,
+                                chapter_outline=outline or "",
+                            )
+                            if _bridge:
+                                _beat_cot_bridges[i + 1] = _bridge
+                                logger.debug(
+                                    "[%s] 🧠 节拍 %d→%d CoT 桥接完成: %r",
+                                    novel.novel_id,
+                                    i + 1,
+                                    i + 2,
+                                    _bridge.opening_line[:30] if _bridge.opening_line else "",
+                                )
+                    except Exception as _bridge_err:
+                        logger.debug(f"[{novel.novel_id}] CoT 桥接计算跳过（不影响主流程）: {_bridge_err}")
+
                 # AOF：追加写入 .draft 文件（无锁 append，崩溃恢复用）
                 try:
                     from application.engine.services.draft_aof import append_chunk
@@ -717,7 +751,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 logger.info(f"[{novel.novel_id}] 📝 所有节拍已完成，标记 beats_completed = True")
 
             # 更新流式元数据
-            if hasattr(self, '_update_stream_metadata'):
+            if hasattr(host, '_update_stream_metadata'):
                 host._update_stream_metadata(novel.novel_id.value, i + 1, len(accumulated_content))
 
             logger.info(f"[{novel.novel_id}]    ✅ 节拍 {i+1}/{len(beats)} 完成: {len(beat_content)} 字")
@@ -738,7 +772,9 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 voice_anchors=voice_anchors,
             )
             cfg = GenerationConfig(max_tokens=3000, temperature=0.85)
-            beat_content = await host._stream_llm_with_stop_watch(prompt, cfg, novel=novel)
+            beat_content = await host._stream_llm_with_stop_watch(
+                prompt, cfg, novel=novel, chapter_draft_so_far=""
+            )
         else:
             beat_content = await host._stream_one_beat(
                 outline, context, None, None, novel=novel, voice_anchors=voice_anchors
@@ -778,7 +814,8 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     )
 
     # ★ Phase 3: 计算节拍完成度（以 conductor 实际产出为准）
-    beats_completed_count = sum(1 for b in (conductor.beats or []) if b.actual > 0)
+    # 断点续写时 conductor.beats 只含本轮执行的节拍，entry_start_beat 之前的节拍是之前轮次已完成的
+    beats_completed_count = entry_start_beat + sum(1 for b in (conductor.beats or []) if b.actual > 0)
     total_beats_count = len(beats) if beats else 0
     beats_completion_ratio = beats_completed_count / max(total_beats_count, 1)
 

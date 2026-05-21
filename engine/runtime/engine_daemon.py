@@ -4,9 +4,9 @@
 `use_story_pipeline_for_writing` 控制写作走新管线或 legacy 节拍写作。
 
 环境变量 PLOTPILOT_USE_STORY_PIPELINE:
-  - off:           EngineDaemon，legacy 写作
-  - writing / 1:   EngineDaemon，StoryPipeline 写作
-  - full / engine: EngineDaemon，StoryPipeline 写作（与 writing 等价）
+  - 未设置 / writing / 1: 默认 StoryPipeline 写作
+  - full / engine:        StoryPipeline 写作（与 writing 等价）
+  - off / legacy:         legacy 节拍写作（紧急回退）
 """
 from __future__ import annotations
 

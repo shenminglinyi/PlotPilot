@@ -1,9 +1,9 @@
 """StoryPipeline 写作阶段委托
 
 环境变量 PLOTPILOT_USE_STORY_PIPELINE:
-  - off / 未设置: legacy 节拍写作（EngineDaemon + run_legacy_writing）
-  - 1 / true / writing: StoryPipeline 写作
+  - 未设置（默认）/ writing / 1 / true: StoryPipeline 写作
   - full / all / engine: StoryPipeline 写作（与 writing 等价）
+  - off / legacy / false / 0: legacy 节拍写作（紧急回退）
 
 生产入口统一为 EngineDaemon（Phase 9）。
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Literal
+from typing import Any, Dict, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +20,22 @@ PipelineMode = Literal["off", "writing", "full"]
 
 
 def get_story_pipeline_mode() -> PipelineMode:
-    """解析引擎内核模式"""
+    """解析引擎内核模式（未设置时默认 writing，Phase 4）"""
     val = os.getenv(_ENV_FLAG, "").strip().lower()
+    if val in ("off", "legacy", "false", "0", "no"):
+        return "off"
     if val in ("full", "all", "engine"):
         return "full"
     if val in ("1", "true", "yes", "on", "writing"):
         return "writing"
-    return "off"
+    if not val:
+        return "writing"
+    logger.warning(
+        "未知 %s=%r，使用默认 writing；回退 legacy 请设 off",
+        _ENV_FLAG,
+        os.getenv(_ENV_FLAG),
+    )
+    return "writing"
 
 
 def is_story_pipeline_writing_enabled() -> bool:
@@ -78,11 +87,13 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
 
     logger.info("[%s] StoryPipeline 写作模式 genre=%s", novel_id, genre or "(default)")
 
-    daemon._update_shared_state(
-        novel_id,
-        writing_substep="pipeline_run",
-        writing_substep_label="新内核写作管线",
-    )
+    def _writing_sink(substep: str, label: str, extra: Dict[str, Any]) -> None:
+        daemon._update_shared_state(
+            novel_id,
+            writing_substep=substep,
+            writing_substep_label=label,
+            **extra,
+        )
 
     ctx = runner._make_context(
         novel_id=novel_id,
@@ -92,6 +103,7 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
         genre=getattr(novel, "genre", ""),
         era=getattr(novel, "era", "ancient"),
     )
+    ctx.writing_progress_sink = _writing_sink
 
     pipeline = get_pipeline_registry().create_pipeline(genre)
     result = await pipeline.run_chapter(ctx)

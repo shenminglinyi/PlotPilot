@@ -37,7 +37,7 @@ class StoryPipelineRunner(DaemonHostMixin, BaseStoryPipeline):
         volume_summary_service=None,
         foreshadowing_repository=None,
         knowledge_service=None,
-        use_story_pipeline_for_writing: bool = False,
+        use_story_pipeline_for_writing: bool | None = None,
     ):
         BaseStoryPipeline.__init__(self)
         init_daemon_dependencies(
