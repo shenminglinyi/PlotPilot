@@ -53,9 +53,13 @@ function startStream() {
       beatIndex.value = 0
     },
     // 🔥 流式增量文字：直接追加显示
-    onChapterChunk: (chunk, beatIdx) => {
-      displayContent.value += chunk
-      beatIndex.value = beatIdx
+    onChapterChunk: (payload) => {
+      if (payload.isSnapshot && payload.content != null) {
+        displayContent.value = payload.content
+      } else if (payload.chunk) {
+        displayContent.value += payload.chunk
+      }
+      beatIndex.value = payload.beatIndex
 
       // 自动滚动到底部
       nextTick(() => {

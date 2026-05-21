@@ -1141,6 +1141,7 @@ function handleChapterChunkStream(data: {
   beatIndex: number
   content: string
   chapterNumber: number
+  isSnapshot?: boolean
 }) {
   const n = data.chapterNumber
   if (!n) return

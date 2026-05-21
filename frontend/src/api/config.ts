@@ -251,7 +251,12 @@ export function subscribeChapterStream(
       outlinePlanMode: string,
     ) => void
     onChapterStart?: (chapterNumber: number) => void
-    onChapterChunk?: (chunk: string, beatIndex: number) => void
+    onChapterChunk?: (data: {
+      chunk?: string
+      content?: string
+      beatIndex: number
+      isSnapshot: boolean
+    }) => void
     onChapterContent?: (data: { chapterNumber: number; content: string; wordCount: number; beatIndex: number }) => void
     onAutopilotStopped?: (status: string) => void
     /** 服务端因待审阅关闭章节流时触发，应尽快拉取 /status 同步 needs_review，避免误判断线重连 */
@@ -302,8 +307,21 @@ export function subscribeChapterStream(
           )
         } else if (event.type === 'chapter_start' && event.metadata?.chapter_number) {
           handlers.onChapterStart?.(event.metadata.chapter_number)
-        } else if (event.type === 'chapter_chunk' && event.metadata?.chunk) {
-          handlers.onChapterChunk?.(event.metadata.chunk, event.metadata.beat_index || 0)
+        } else if (event.type === 'chapter_chunk' && event.metadata) {
+          const meta = event.metadata
+          if (meta.content != null && String(meta.content).length > 0) {
+            handlers.onChapterChunk?.({
+              content: String(meta.content),
+              beatIndex: meta.beat_index || 0,
+              isSnapshot: true,
+            })
+          } else if (meta.chunk) {
+            handlers.onChapterChunk?.({
+              chunk: meta.chunk,
+              beatIndex: meta.beat_index || 0,
+              isSnapshot: false,
+            })
+          }
         } else if (event.type === 'chapter_content' && event.metadata) {
           handlers.onChapterContent?.({
             chapterNumber: event.metadata.chapter_number!,

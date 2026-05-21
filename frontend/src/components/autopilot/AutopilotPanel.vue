@@ -767,26 +767,34 @@ function startChapterStream() {
       emit('beats-planned', { chapterNumber, beats })
     },
     onChapterStart: (num) => {
+      const isNewChapter = writingChapterNumber.value !== num
       writingChapterNumber.value = num
-      writingContent.value = ''
-      writingBeatIndex.value = 0
+      // SSE 重连会对同一章再次发 chapter_start，勿清空已累积正文
+      if (isNewChapter) {
+        writingContent.value = ''
+        writingBeatIndex.value = 0
+      }
       reconnectAttempts = 0  // 重置重连计数
       emit('chapter-start', num)
       // 🔥 新章节开始写时刷新侧栏，让结构树/章节列表同步（规划后首次写作尤其需要）
       emit('desk-refresh')
     },
-    onChapterChunk: (chunk, beatIndex) => {
-      // 🔧 优化：限制内容长度，避免 Vue 响应式性能问题
+    onChapterChunk: (payload) => {
       const maxLen = 80000
-      if (writingContent.value.length < maxLen) {
-        writingContent.value += chunk
+      if (payload.isSnapshot && payload.content != null) {
+        if (payload.content.length <= maxLen) {
+          writingContent.value = payload.content
+        }
+      } else if (payload.chunk && writingContent.value.length < maxLen) {
+        writingContent.value += payload.chunk
       }
-      writingBeatIndex.value = beatIndex
+      writingBeatIndex.value = payload.beatIndex
       emit('chapter-chunk', {
-        chunk,
-        beatIndex,
+        chunk: payload.chunk ?? '',
+        beatIndex: payload.beatIndex,
         content: writingContent.value,
         chapterNumber: writingChapterNumber.value,
+        isSnapshot: payload.isSnapshot,
       })
     },
     onChapterContent: (data) => {

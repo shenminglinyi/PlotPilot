@@ -63,6 +63,9 @@ export function buildAutopilotStagePresentation(input: {
   /** writing 阶段内：章前规划子步骤优先于笼统的「撰写中」 */
   const writingPhaseText = (): string | null => {
     if (stage !== 'writing') return null
+    if (writingSubstep === 'chapter_found') {
+      return writingSubstepLabel || '章节定位'
+    }
     if (writingSubstep === 'outline_planning') {
       return writingSubstepLabel || '章前规划'
     }
@@ -71,6 +74,15 @@ export function buildAutopilotStagePresentation(input: {
     }
     if (writingSubstep === 'beat_magnification') {
       return writingSubstepLabel || '节拍拆分'
+    }
+    if (writingSubstep === 'llm_calling') {
+      return writingSubstepLabel || '正文生成中'
+    }
+    if (writingSubstep === 'chapter_persist' || writingSubstep === 'persisting') {
+      return writingSubstepLabel || '章节落盘'
+    }
+    if (writingSubstep === 'pipeline_run') {
+      return writingSubstepLabel || '写作管线运行中'
     }
     return null
   }
@@ -102,7 +114,8 @@ export function buildAutopilotStagePresentation(input: {
       const sem =
         writingSubstep === 'outline_planning' ||
         writingSubstep === 'context_assembly' ||
-        writingSubstep === 'beat_magnification'
+        writingSubstep === 'beat_magnification' ||
+        writingSubstep === 'chapter_found'
           ? 'plan'
           : semanticForRunningStage(stage)
       return { text: writingPhase, live: true, semantic: sem }
@@ -127,7 +140,8 @@ export function buildAutopilotStagePresentation(input: {
       const sem =
         writingSubstep === 'outline_planning' ||
         writingSubstep === 'context_assembly' ||
-        writingSubstep === 'beat_magnification'
+        writingSubstep === 'beat_magnification' ||
+        writingSubstep === 'chapter_found'
           ? 'plan'
           : semanticForRunningStage(stage)
       return { text: `${writingPhase}（数据同步中...）`, live: false, semantic: sem }
@@ -148,7 +162,8 @@ export function buildAutopilotStagePresentation(input: {
     const sem =
       writingSubstep === 'outline_planning' ||
       writingSubstep === 'context_assembly' ||
-      writingSubstep === 'beat_magnification'
+      writingSubstep === 'beat_magnification' ||
+      writingSubstep === 'chapter_found'
         ? 'plan'
         : semanticForRunningStage(stage)
     return { text: writingPhase, live: false, semantic: sem }
