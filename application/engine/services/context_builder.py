@@ -255,48 +255,7 @@ class ContextBuilder:
             },
         }
 
-    # 扩写维度提示（根据节拍类型动态注入）
-    EXPANSION_HINTS = {
-        "action": [
-            "加入招式物理碰撞细节：打击感、力量传导、声音",
-            "战斗节奏变化：快攻、僵持、反击",
-        ],
-        "dialogue": [
-            "加入微表情描写：眼神变化、嘴角牵动",
-            "肢体语言：手势、站姿、身体朝向",
-            "潜台词暗示：话中有话、欲言又止",
-            "对话节奏：打断、沉默、抢话",
-        ],
-        "sensory": [
-            "光影变化：明暗对比、光线方向",
-            "声音细节：环境音、脚步声、呼吸声",
-            "温度触感：冷热、干湿、材质纹理",
-            "气味味道：空气中的气息、食物香气",
-        ],
-        "emotion": [
-            "内心独白：想法、疑问、自我说服",
-            "身体反应：心跳、手抖、冷汗",
-            "情绪转变：从一种情绪到另一种的过渡",
-        ],
-        "suspense": [
-            "心理推演：主角的推理过程、疑点",
-            "五官感知变化：异常的细节、违和感",
-            "时间拉长：等待、观察、试探",
-            "悬念钩子：未解之谜、意外转折",
-        ],
-        "hook": [
-            "开篇冲击：立即抓住读者的事件或画面",
-            "人物特质展示：通过行动而非描述",
-            "冲突暗示：不安、危机、悬念",
-            "世界观速写：通过细节而非说明",
-        ],
-        "character_intro": [
-            "外貌特征：独特的外表标记",
-            "性格展示：通过言行而非描述",
-            "关系暗示：与其他角色的互动方式",
-            "记忆点：让读者记住的特征",
-        ],
-    }
+    EXPANSION_HINTS: dict = {}
 
     # 节拍数量上限：2000字章节目标 5-6拍，给足叙事层次
     MAX_BEATS = 12
@@ -826,12 +785,6 @@ class ContextBuilder:
         else:
             obligation = "叙事义务：推进情节或深化人物。"
 
-        # 扩写维度提示（核心改进：告诉 LLM 怎么凑够字数）
-        expansion_block = ""
-        if beat.expansion_hints:
-            hints_text = "\n".join(f"- {hint}" for hint in beat.expansion_hints)
-            expansion_block = f"\n\n【字数扩充方向】（请参考以下方向展开细节）\n{hints_text}"
-
         # 使用 PromptRegistry 渲染 user 模板
         rendered = registry.render(
             self._BEAT_PROMPT_ID,
@@ -855,13 +808,6 @@ class ContextBuilder:
                 "━━━ 写前三问",
                 f"{beat.card_prompt_block}\n\n━━━ 写前三问",
                 1,
-            )
-
-        # 注入扩写维度
-        if expansion_block:
-            prompt = prompt.replace(
-                "\n\n⚠️ 篇幅控制",
-                f"{expansion_block}\n\n⚠️ 篇幅控制"
             )
 
         # 🧠 V3：CoT 节拍桥接块（优先级最高，首先注入）

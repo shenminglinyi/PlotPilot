@@ -60,6 +60,9 @@ class ChapterMicroBeatPayload(BaseModel):
     target_words: int = Field(default=0, ge=0)
     focus: str = Field(default="pacing")
     location_id: str = Field(default="")
+    active_action: str = Field(default="")
+    emotion_gap: str = Field(default="")
+    forbidden_drift: str = Field(default="")
 
 
 class ChapterMicroBeatsRequest(BaseModel):

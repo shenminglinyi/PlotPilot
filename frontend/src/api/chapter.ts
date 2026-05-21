@@ -18,6 +18,9 @@ export interface ChapterMicroBeatPayload {
   target_words?: number
   focus?: string
   location_id?: string
+  active_action?: string
+  emotion_gap?: string
+  forbidden_drift?: string
 }
 
 export interface UpdateChapterRequest {

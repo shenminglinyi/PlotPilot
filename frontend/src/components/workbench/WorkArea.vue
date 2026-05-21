@@ -915,6 +915,9 @@ function microBeatsForApi(beats: StreamGeneratedBeat[]): ChapterMicroBeatPayload
     target_words: b.target_words,
     focus: b.focus,
     location_id: b.location_id,
+    active_action: b.active_action,
+    emotion_gap: b.emotion_gap,
+    forbidden_drift: b.forbidden_drift,
   }))
 }
 
