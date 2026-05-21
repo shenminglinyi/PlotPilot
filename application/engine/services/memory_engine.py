@@ -405,6 +405,10 @@ class MemoryEngine:
         # 运行时内存缓存（优先读缓存，miss 再查 DB）
         self._cache: Dict[str, MemoryState] = {}
 
+        if self.db_connection is not None:
+            # 与正式迁移一致；避免首次 _load_from_db 在表未建好时刷 WARNING
+            self._ensure_table_exists()
+
     # ============================================================
     # CPMS 提示词获取
     # ============================================================

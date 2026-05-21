@@ -22,7 +22,7 @@ from application.engine.dag.plan.schema import ChapterExecutionPlan, PlanningEnv
 logger = logging.getLogger(__name__)
 
 # 与 ContextBuilder.MAX_BEATS 对齐，避免 DAG 规划与 magnify 脱节
-_MAX_ATOMS = 8
+_MAX_ATOMS = 12
 
 
 def _resolve_llm_service(llm_service: Any = None) -> Any:
@@ -197,6 +197,13 @@ def _normalize_llm_atom_entries(entries: List[Dict[str, Any]]) -> List[PlanAtomS
         hint_s = str(hint).strip() if hint else None
         ext = dict(row.get("extensions") or {}) if isinstance(row.get("extensions"), dict) else {}
         ext.setdefault("decomposition_mode", "llm_outline_decompose")
+        # 提取新字段：focus 类型和节拍间过渡提示
+        focus = row.get("focus") or row.get("type") or ""
+        if focus and isinstance(focus, str):
+            ext["focus"] = focus.strip()
+        transition_hint = row.get("transition_hint") or row.get("transition_from_prev") or ""
+        if transition_hint and isinstance(transition_hint, str):
+            ext["transition_from_prev"] = transition_hint.strip()
         out.append(
             PlanAtomSpec(
                 id=atom_id[:64],

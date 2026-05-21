@@ -60,6 +60,7 @@ SUBSTEP_PRIMARY_ROWS: Tuple[SubstepPrimaryRow, ...] = (
     SubstepPrimaryRow(frozenset({"act_planning"}), "ctx_memory"),
     SubstepPrimaryRow(frozenset({"outline_planning"}), "exec_beat"),
     SubstepPrimaryRow(frozenset({"llm_calling"}), "exec_writer"),
+    SubstepPrimaryRow(frozenset({"pipeline_run"}), "exec_writer"),
     SubstepPrimaryRow(
         frozenset({"chapter_found", "context_assembly", "beat_magnification"}),
         "exec_beat",

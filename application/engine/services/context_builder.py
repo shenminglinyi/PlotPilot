@@ -297,10 +297,11 @@ class ContextBuilder:
         ],
     }
 
-    # 节拍数量上限：拍数过多时每拍字数太少，模型倾向用八股堆满
-    MAX_BEATS = 8
-    # 每拍最低字数：低于此值将合并相邻拍（略抬高以减少「碎拍」内心戏凑数）
-    MIN_BEAT_WORDS = 800
+    # 节拍数量上限：2000字章节目标 5-6拍，给足叙事层次
+    MAX_BEATS = 12
+    # 每拍最低字数：降低到 350，允许 2000字/350 ≈ 5-6 拍
+    # 专业小说家每"场景"约300-500字，节拍间CoT桥接保障连贯性
+    MIN_BEAT_WORDS = 350
 
     def magnify_outline_to_beats(
         self,
@@ -893,8 +894,21 @@ class ContextBuilder:
     # 通过 PromptRegistry 统一读取，不再在此硬编码
     from infrastructure.ai.prompt_keys import BEAT_FOCUS_INSTRUCTIONS as _BEAT_PROMPT_ID
 
-    def build_beat_prompt(self, beat: Beat, beat_index: int, total_beats: int) -> str:
-        """构建单个节拍的生成提示（指令从 CPMS beat-focus-instructions 读取）"""
+    def build_beat_prompt(
+        self,
+        beat: Beat,
+        beat_index: int,
+        total_beats: int,
+        beat_bridge: Optional[Any] = None,
+    ) -> str:
+        """构建单个节拍的生成提示（指令从 CPMS beat-focus-instructions 读取）
+
+        Args:
+            beat: 当前节拍配置
+            beat_index: 节拍索引（0-based）
+            total_beats: 总节拍数
+            beat_bridge: 可选的 BeatBridge 对象，由 beat_cot_bridge 计算，注入连贯性指令
+        """
         from infrastructure.ai.prompt_registry import get_prompt_registry
 
         registry = get_prompt_registry()
@@ -952,8 +966,18 @@ class ContextBuilder:
                 f"{expansion_block}\n\n⚠️ 篇幅控制"
             )
 
-        # 🔗 V2：注入节拍间过渡方式
-        if beat_index > 0 and hasattr(beat, 'transition_from_prev') and beat.transition_from_prev:
+        # 🧠 V3：CoT 节拍桥接块（优先级最高，首先注入）
+        # beat_bridge 由 beat_cot_bridge.compute_beat_bridge() 在上一节拍完成后计算
+        if beat_index > 0 and beat_bridge is not None:
+            try:
+                bridge_block = beat_bridge.to_prompt_block()
+                if bridge_block:
+                    prompt = bridge_block + "\n\n" + prompt
+            except Exception:
+                pass  # 桥接块生成失败不影响主流程
+
+        # 🔗 V2：注入节拍间过渡方式（仅在无 CoT 桥接时使用，作为降级）
+        elif beat_index > 0 and hasattr(beat, 'transition_from_prev') and beat.transition_from_prev:
             transition_block = (
                 f"\n\n🔗【本节拍过渡方式】{beat.transition_from_prev}\n"
                 f"→ 你的第一句话必须遵循此过渡方式与前节拍衔接"
