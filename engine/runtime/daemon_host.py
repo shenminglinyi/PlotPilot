@@ -1021,12 +1021,16 @@ class DaemonHostMixin:
         """供共享内存 /status 与前端侧栏展示的指挥器节拍快照。"""
         out: List[Dict[str, Any]] = []
         for b in beats or []:
+            card = getattr(b, "emotion_beat_card", None)
             out.append(
                 {
                     "description": getattr(b, "description", "") or "",
                     "target_words": int(getattr(b, "target_words", 0) or 0),
                     "focus": getattr(b, "focus", "") or "pacing",
                     "location_id": getattr(b, "location_id", "") or "",
+                    "active_action": (getattr(card, "active_action", "") or "") if card else "",
+                    "emotion_gap": (getattr(card, "emotion_gap", "") or "") if card else "",
+                    "forbidden_drift": (getattr(card, "forbidden_drift", "") or "") if card else "",
                 }
             )
         return out

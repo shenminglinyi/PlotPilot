@@ -218,6 +218,9 @@ export interface StreamGeneratedBeat {
   target_words: number
   focus: string
   location_id?: string
+  active_action?: string
+  emotion_gap?: string
+  forbidden_drift?: string
 }
 
 /** 解析 SSE beats 行（beats_generated / done.beats 共用） */
@@ -242,7 +245,10 @@ export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
       description,
       target_words,
       focus: String(r.focus ?? r.type ?? 'pacing').trim() || 'pacing',
-      location_id: typeof r.location_id === 'string' ? r.location_id : undefined,
+      location_id:      typeof r.location_id      === 'string' ? r.location_id      : undefined,
+      active_action:    typeof r.active_action    === 'string' ? r.active_action    : undefined,
+      emotion_gap:      typeof r.emotion_gap      === 'string' ? r.emotion_gap      : undefined,
+      forbidden_drift:  typeof r.forbidden_drift  === 'string' ? r.forbidden_drift  : undefined,
     })
   }
   return beats

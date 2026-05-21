@@ -17,6 +17,8 @@
               :chapters="chapters"
               :current-chapter-id="currentChapterId"
               :generation-prefs="generationPrefs"
+              :writing-chapter-number="writingChapterNumber"
+              :writing-pipeline-step="writingPipelineStep"
               @select="onSidebarChapterSelect"
               @back="goHome"
               @refresh="handleChapterUpdated"
@@ -100,7 +102,14 @@ const appSettingsShell = useAppSettingsShellStore()
 const slug = computed(() => String(route.params.slug ?? ''))
 
 const chapterListRef = ref<ComponentPublicInstance<{ refreshStoryTree: () => void }> | null>(null)
-const workAreaRef = ref<ComponentPublicInstance<{ ensureAssistedMode: () => void }> | null>(null)
+const workAreaRef = ref<ComponentPublicInstance<{
+  ensureAssistedMode: () => void
+  streamingChapterNumber: import('vue').Ref<number | null>
+  writingPipelineStep: import('vue').ComputedRef<number | null>
+}> | null>(null)
+
+const writingChapterNumber = computed(() => workAreaRef.value?.streamingChapterNumber?.value ?? null)
+const writingPipelineStep = computed(() => workAreaRef.value?.writingPipelineStep?.value ?? null)
 
 async function onSidebarChapterSelect(chapterId: number, title = '') {
   await handleChapterSelect(chapterId, title)

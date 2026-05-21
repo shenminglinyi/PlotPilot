@@ -34,6 +34,23 @@ _DEFAULT_PIPELINE_SYSTEM_PROMPT = (
 )
 
 
+def _serialize_beats_for_shared_state(beats: Any) -> list:
+    """将 Beat 列表序列化为共享内存快照（含 EmotionBeatCard 三字段）。"""
+    out = []
+    for b in beats or []:
+        card = getattr(b, "emotion_beat_card", None)
+        out.append({
+            "description": getattr(b, "description", "") or "",
+            "target_words": int(getattr(b, "target_words", 0) or 0),
+            "focus": getattr(b, "focus", "") or "pacing",
+            "location_id": getattr(b, "location_id", "") or "",
+            "active_action": (getattr(card, "active_action", "") or "") if card else "",
+            "emotion_gap": (getattr(card, "emotion_gap", "") or "") if card else "",
+            "forbidden_drift": (getattr(card, "forbidden_drift", "") or "") if card else "",
+        })
+    return out
+
+
 def _writing_progress(
     ctx: PipelineContext,
     substep: str,
@@ -145,6 +162,7 @@ class BaseStoryPipeline(ABC):
                 total_beats=len(ctx.beats),
                 current_beat_index=0,
                 chapter_target_words=ctx.target_word_count,
+                planned_micro_beats=_serialize_beats_for_shared_state(ctx.beats),
             )
 
             # 4. LLM 生成（节拍级+断点续写）

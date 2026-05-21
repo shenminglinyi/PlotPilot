@@ -41,6 +41,15 @@
                     <n-tag size="small" :type="ch.word_count > 0 ? 'success' : 'default'" round>
                       {{ ch.word_count > 0 ? '已收稿' : '未收稿' }}
                     </n-tag>
+                    <n-tag
+                      v-if="props.writingChapterNumber != null && ch.number === props.writingChapterNumber"
+                      size="small"
+                      type="info"
+                      round
+                      class="ch-writing-tag"
+                    >
+                      {{ props.writingPipelineStep ? `步骤${props.writingPipelineStep}·写作中` : '写作中' }}
+                    </n-tag>
                   </div>
                 </template>
               </n-thing>
@@ -106,12 +115,16 @@ interface ChapterListProps {
   chapters: Chapter[]
   currentChapterId?: number | null
   generationPrefs?: GenerationPrefsDTO | null
+  writingChapterNumber?: number | null
+  writingPipelineStep?: number | null
 }
 
 const props = withDefaults(defineProps<ChapterListProps>(), {
   chapters: () => [],
   currentChapterId: null,
   generationPrefs: null,
+  writingChapterNumber: null,
+  writingPipelineStep: null,
 })
 
 const emit = defineEmits<{
@@ -263,5 +276,14 @@ const handleTreeLoaded = (hasData: boolean) => {
   padding: 8px 12px;
   text-align: center;
   border-top: 1px solid var(--app-border);
+}
+
+.ch-writing-tag {
+  animation: ch-writing-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ch-writing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 </style>

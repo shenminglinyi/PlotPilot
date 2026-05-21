@@ -70,19 +70,21 @@ const emit = defineEmits<{
 }>()
 
 const workspace = useAutopilotWorkspaceStore()
-const { activeTab } = storeToRefs(workspace)
 const metricsRef = ref<InstanceType<typeof AutopilotMetricsDashboard> | null>(null)
 
 /** 工作区级 DAG SSE，切页不断连 */
 useDAGSSE(toRef(props, 'novelId'))
 
-watch(activeTab, (tab) => {
-  if (tab === 'dashboard') {
-    void nextTick(() => {
-      requestAnimationFrame(() => metricsRef.value?.relayoutTension?.())
-    })
-  }
-})
+watch(
+  () => workspace.activeTab,
+  (tab) => {
+    if (tab === 'dashboard') {
+      void nextTick(() => {
+        requestAnimationFrame(() => metricsRef.value?.relayoutTension?.())
+      })
+    }
+  },
+)
 
 function onOpsDeskRefresh() {
   emit('desk-refresh')

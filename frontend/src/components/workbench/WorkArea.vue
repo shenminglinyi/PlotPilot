@@ -237,6 +237,21 @@
             </div>
             <n-scrollbar class="rail-scroll">
               <div class="rail-scroll-pad">
+                <AutopilotWritingStream
+                  v-if="isAutopilotRunning && (streamingContent || isAutopilotWriting)"
+                  class="wa-inline-stream"
+                  :writing-content="streamingContent"
+                  :writing-chapter-number="streamingChapterNumber ?? undefined"
+                  :writing-beat-index="streamingBeatIndex"
+                  :writing-substep="String(autopilotStatus?.writing_substep || '')"
+                  :writing-substep-label="String(autopilotStatus?.writing_substep_label || '')"
+                  :total-beats="Number(autopilotStatus?.total_beats || 0)"
+                  :accumulated-words="Number(autopilotStatus?.accumulated_words || 0)"
+                  :chapter-target-words="Number(autopilotStatus?.chapter_target_words || 0)"
+                  :beat-focus="String(autopilotStatus?.beat_focus || '')"
+                  :is-writing-phase="isAutopilotWriting"
+                  :status-chapter-number="streamingChapterNumber"
+                />
                 <ChapterContentPanel
                   :slug="slug"
                   :current-chapter-number="currentChapter?.number ?? null"
@@ -247,6 +262,7 @@
                   :assist-stream-plan-failed-chapter="assistStreamPlanFailedChapter"
                   :autopilot-outline-plan-failed="autopilotOutlinePlanFailedForRail"
                   :assist-stream-completed-chapter="lastQcChapterNumber"
+                  :beat-tab-bump="beatTabBump"
                 />
                 <ChapterStatusPanel
                   :slug="slug"
@@ -711,6 +727,7 @@ import ChapterWorkbenchShell from './ChapterWorkbenchShell.vue'
 import QualityGuardrailPanel from './QualityGuardrailPanel.vue'
 import TraceRecordPanel from './TraceRecordPanel.vue'
 import AutopilotWorkspace from '../autopilot/AutopilotWorkspace.vue'
+import AutopilotWritingStream from '../autopilot/AutopilotWritingStream.vue'
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import {
@@ -882,6 +899,7 @@ function handleAutopilotBeatsPlanned(payload: {
   persistAssistBeatSession(props.slug, ch, beats)
   if (currentChapter.value?.number === ch) {
     assistStreamBeatSession.value = { chapterNumber: ch, beats: [...beats] }
+    beatTabBump.value += 1
   }
 }
 
@@ -996,6 +1014,14 @@ const savingDraftBeforeRegen = ref(false)
 // Autopilot 状态
 const autopilotStatus = ref<any>(null)
 const isAutopilotRunning = computed(() => autopilotStatus.value?.autopilot_status === 'running')
+const isAutopilotWriting = computed(() =>
+  isAutopilotRunning.value && autopilotStatus.value?.current_stage === 'writing'
+)
+const writingPipelineStep = computed(() => {
+  if (!isAutopilotRunning.value) return null
+  const ix = Number(autopilotStatus.value?.story_pipeline_wave_index)
+  return Number.isFinite(ix) && ix >= 1 ? ix : null
+})
 /** 守护进程章末审阅快照（与 /autopilot/status 同源） */
 const autopilotChapterReview = computed(() => autopilotStatus.value?.last_chapter_audit ?? null)
 
@@ -1124,6 +1150,8 @@ function handleAutopilotDeskRefreshFromStream() {
 /** 自动驾驶章节内容流更新：实时显示正在写作的内容 */
 const streamingChapterNumber = ref<number | null>(null)
 const streamingContent = ref('')
+const streamingBeatIndex = ref(0)
+const beatTabBump = ref(0)
 
 function handleChapterContentUpdate(data: { chapterNumber: number; content: string; wordCount: number }) {
   streamingChapterNumber.value = data.chapterNumber
@@ -1147,6 +1175,7 @@ function handleChapterChunkStream(data: {
   if (!n) return
   streamingChapterNumber.value = n
   streamingContent.value = data.content
+  streamingBeatIndex.value = data.beatIndex ?? 0
   if (currentChapter.value && currentChapter.value.number === n) {
     chapterContent.value = data.content
   }
@@ -1930,7 +1959,7 @@ function ensureAssistedMode() {
   workMode.value = 'assisted'
 }
 
-defineExpose({ ensureAssistedMode })
+defineExpose({ ensureAssistedMode, streamingChapterNumber, writingPipelineStep })
 </script>
 
 <style scoped>
@@ -2379,5 +2408,9 @@ defineExpose({ ensureAssistedMode })
   display: flex;
   align-items: flex-start;
   gap: 0;
+}
+
+.wa-inline-stream {
+  margin-bottom: 10px;
 }
 </style>

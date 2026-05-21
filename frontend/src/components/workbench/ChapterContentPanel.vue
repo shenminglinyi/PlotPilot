@@ -35,7 +35,7 @@
           <template #header>
             <span class="card-title">🎬 节拍规划</span>
           </template>
-          <n-tabs type="segment" size="small" animated>
+          <n-tabs v-model:value="activeBeatsTab" type="segment" size="small" animated>
             <n-tab-pane name="macro" tab="宏观">
               <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
                 章节大纲 — 作者意图总览
@@ -90,6 +90,17 @@
                     </n-text>
                   </div>
                   <div class="micro-beat-desc">{{ formatBeatDescription(beat.description) }}</div>
+                  <div v-if="beat.active_action || beat.emotion_gap || beat.forbidden_drift" class="mbc">
+                    <div v-if="beat.active_action" class="mbc-row">
+                      <span class="mbc-tag">行为</span><span class="mbc-val">{{ beat.active_action }}</span>
+                    </div>
+                    <div v-if="beat.emotion_gap" class="mbc-row">
+                      <span class="mbc-tag">缺口</span><span class="mbc-val">{{ beat.emotion_gap }}</span>
+                    </div>
+                    <div v-if="beat.forbidden_drift" class="mbc-row">
+                      <span class="mbc-tag mbc-tag--warn">禁止</span><span class="mbc-val mbc-val--muted">{{ beat.forbidden_drift }}</span>
+                    </div>
+                  </div>
                 </div>
               </n-space>
               <n-empty
@@ -188,6 +199,8 @@ const props = withDefaults(
     assistStreamFailedChapter?: number | null
     /** 流式完成但章前拆拍失败/降级（≤1 拍） */
     assistStreamPlanFailedChapter?: number | null
+    /** 外部 +1 时自动切到节拍规划「微观」tab */
+    beatTabBump?: number
     /** 全托管正在写的本章且 total_beats≤1（规划已结束并降级） */
     autopilotOutlinePlanFailed?: boolean
     /** 最近一次流式生成完成的章号（无微观节拍时用于提示） */
@@ -208,6 +221,9 @@ const props = withDefaults(
 const storyNodeNotFound = ref(false)
 const chapterPlan = ref<StoryNode | null>(null)
 const knowledgeChapter = ref<ChapterSummary | null>(null)
+
+const activeBeatsTab = ref<'macro' | 'micro'>('macro')
+watch(() => props.beatTabBump, (v) => { if (v && v > 0) activeBeatsTab.value = 'micro' })
 
 // Bible 数据用于 ID -> name 映射
 const bibleCharacters = ref<CharacterDTO[]>([])
@@ -296,6 +312,9 @@ interface MicroBeat {
   description: string
   target_words: number
   focus: string
+  active_action?: string
+  emotion_gap?: string
+  forbidden_drift?: string
 }
 
 const BEAT_FOCUS_LABELS: Record<string, string> = {
@@ -346,7 +365,14 @@ function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
             ? Number(tw)
             : 0
       const focus = String(o.focus ?? o.type ?? 'pacing').trim() || 'pacing'
-      out.push({ description: desc, target_words: targetWords, focus })
+      out.push({
+        description: desc,
+        target_words: targetWords,
+        focus,
+        active_action:   typeof o.active_action   === 'string' ? o.active_action   : undefined,
+        emotion_gap:     typeof o.emotion_gap      === 'string' ? o.emotion_gap     : undefined,
+        forbidden_drift: typeof o.forbidden_drift  === 'string' ? o.forbidden_drift : undefined,
+      })
     }
   }
   return out
@@ -631,6 +657,39 @@ onUnmounted(() => {
   align-items: center;
   margin-bottom: 8px;
 }
+
+.mbc {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-brand, #6366f1) 5%, var(--card-color, #fff));
+  border: 1px solid color-mix(in srgb, var(--color-brand, #6366f1) 18%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mbc-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.mbc-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-brand, #6366f1) 14%, transparent);
+  color: var(--color-brand, #6366f1);
+}
+.mbc-tag--warn {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+.mbc-val { color: var(--app-text-primary, #1e293b); }
+.mbc-val--muted { color: var(--app-text-secondary, #64748b); }
 
 .micro-beat-desc {
   margin-top: 6px;
