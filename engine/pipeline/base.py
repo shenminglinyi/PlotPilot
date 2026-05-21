@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from engine.pipeline.context import PipelineContext, PipelineResult
 from engine.pipeline.steps import StepResult
+from engine.pipeline.telemetry import story_pipeline_wave_meta
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,23 @@ _DEFAULT_PIPELINE_SYSTEM_PROMPT = (
 )
 
 
-def _writing_progress(ctx: PipelineContext, substep: str, label: str, **extras: Any) -> None:
-    """推送到全托管共享状态（writing_substep*），供 /status 与前端实时展示。"""
+def _writing_progress(
+    ctx: PipelineContext,
+    substep: str,
+    label: str,
+    *,
+    pipeline_wave_index: Optional[int] = None,
+    **extras: Any,
+) -> None:
+    """推送到全托管共享状态（writing_substep* + StoryPipeline 波次），供 /status 与 UI 管线图。"""
     sink = getattr(ctx, "writing_progress_sink", None)
     if sink is None:
         return
     payload = {k: v for k, v in extras.items() if v is not None}
+    if pipeline_wave_index is not None:
+        meta = story_pipeline_wave_meta(int(pipeline_wave_index))
+        if meta:
+            payload.update(meta)
     try:
         sink(substep, label, payload)
     except Exception as e:
@@ -97,6 +109,7 @@ class BaseStoryPipeline(ABC):
                     ctx,
                     "chapter_found",
                     f"章节定位 · 第 {ctx.chapter_number} 章",
+                    pipeline_wave_index=1,
                     current_chapter_number=ctx.chapter_number,
                     chapter_target_words=ctx.target_word_count,
                 )
@@ -110,6 +123,7 @@ class BaseStoryPipeline(ABC):
                 ctx,
                 "context_assembly",
                 "组装上下文",
+                pipeline_wave_index=2,
                 current_chapter_number=ctx.chapter_number,
                 context_tokens=int(ctx.context_tokens or 0),
                 chapter_target_words=ctx.target_word_count,
@@ -124,6 +138,7 @@ class BaseStoryPipeline(ABC):
                 ctx,
                 "beat_magnification",
                 f"节拍拆分（{len(ctx.beats)} 个）",
+                pipeline_wave_index=3,
                 current_chapter_number=ctx.chapter_number,
                 total_beats=len(ctx.beats),
                 current_beat_index=0,
