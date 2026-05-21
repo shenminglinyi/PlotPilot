@@ -47,6 +47,15 @@ def test_engine_daemon_infers_writing_from_env(monkeypatch):
         assert mock_runner_cls.call_args.kwargs["use_story_pipeline_for_writing"] is True
 
 
+def test_engine_daemon_defaults_story_pipeline_when_env_unset(monkeypatch):
+    monkeypatch.delenv("PLOTPILOT_USE_STORY_PIPELINE", raising=False)
+
+    with patch("engine.runtime.runner.StoryPipelineRunner") as mock_runner_cls:
+        mock_runner_cls.return_value = MagicMock()
+        EngineDaemon(novel_repository="repo")
+        assert mock_runner_cls.call_args.kwargs["use_story_pipeline_for_writing"] is True
+
+
 def test_engine_daemon_run_forever_delegates_to_runner():
     with patch("engine.runtime.runner.StoryPipelineRunner") as mock_runner_cls:
         mock_runner = MagicMock()

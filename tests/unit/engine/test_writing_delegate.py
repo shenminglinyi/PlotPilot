@@ -12,9 +12,21 @@ from engine.runtime.writing_delegate import (
 from engine.pipeline.context import PipelineResult
 
 
-def test_is_story_pipeline_writing_enabled_default_off(monkeypatch):
+def test_is_story_pipeline_writing_enabled_default_writing(monkeypatch):
     monkeypatch.delenv("PLOTPILOT_USE_STORY_PIPELINE", raising=False)
+    assert is_story_pipeline_writing_enabled() is True
+
+
+def test_is_story_pipeline_writing_enabled_explicit_off(monkeypatch):
+    monkeypatch.setenv("PLOTPILOT_USE_STORY_PIPELINE", "off")
     assert is_story_pipeline_writing_enabled() is False
+
+
+def test_get_story_pipeline_mode_default_writing(monkeypatch):
+    from engine.runtime.writing_delegate import get_story_pipeline_mode
+
+    monkeypatch.delenv("PLOTPILOT_USE_STORY_PIPELINE", raising=False)
+    assert get_story_pipeline_mode() == "writing"
 
 
 def test_is_story_pipeline_writing_enabled_on(monkeypatch):
