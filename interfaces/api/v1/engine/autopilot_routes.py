@@ -634,6 +634,12 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "last_smart_truncate": shared.get("last_smart_truncate"),
         "planned_micro_beats": shared.get("planned_micro_beats") or [],
         "outline_plan_mode": shared.get("outline_plan_mode", ""),
+        "story_pipeline_wave_index": shared.get("story_pipeline_wave_index"),
+        "story_pipeline_wave_total": shared.get("story_pipeline_wave_total"),
+        "story_pipeline_wave_id": shared.get("story_pipeline_wave_id", ""),
+        "story_pipeline_wave_label": shared.get("story_pipeline_wave_label", ""),
+        "story_pipeline_wave_entered_at": shared.get("story_pipeline_wave_entered_at"),
+        "story_pipeline_events": shared.get("story_pipeline_events") or [],
     }
 
 
@@ -794,6 +800,12 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "last_smart_truncate": shared.get("last_smart_truncate"),
         "planned_micro_beats": shared.get("planned_micro_beats") or [],
         "outline_plan_mode": shared.get("outline_plan_mode", ""),
+        "story_pipeline_wave_index": shared.get("story_pipeline_wave_index"),
+        "story_pipeline_wave_total": shared.get("story_pipeline_wave_total"),
+        "story_pipeline_wave_id": shared.get("story_pipeline_wave_id", ""),
+        "story_pipeline_wave_label": shared.get("story_pipeline_wave_label", ""),
+        "story_pipeline_wave_entered_at": shared.get("story_pipeline_wave_entered_at"),
+        "story_pipeline_events": shared.get("story_pipeline_events") or [],
     }
 
 

@@ -407,6 +407,7 @@ class BaseStoryPipeline(ABC):
                 ctx,
                 "llm_calling",
                 f"节拍 {i + 1}/{n_beats} 撰写",
+                pipeline_wave_index=4,
                 current_chapter_number=ctx.chapter_number,
                 total_beats=n_beats,
                 current_beat_index=i,
@@ -444,6 +445,7 @@ class BaseStoryPipeline(ABC):
                         ctx,
                         "llm_calling",
                         f"节拍 {i + 1}/{n_beats} 撰写",
+                        pipeline_wave_index=4,
                         current_chapter_number=ctx.chapter_number,
                         total_beats=n_beats,
                         current_beat_index=i,
@@ -476,6 +478,17 @@ class BaseStoryPipeline(ABC):
         - 修改验证阈值
         """
         self._log_step("validate_content", "策略验证")
+
+        _writing_progress(
+            ctx,
+            "policy_validate",
+            "策略校验（反AI·一致性）",
+            pipeline_wave_index=5,
+            current_chapter_number=ctx.chapter_number,
+            total_beats=len(ctx.beats) if ctx.beats else 0,
+            chapter_target_words=ctx.target_word_count,
+            accumulated_words=ctx.word_count,
+        )
 
         if ctx.policy_validator is not None:
             try:
@@ -530,6 +543,7 @@ class BaseStoryPipeline(ABC):
             ctx,
             "chapter_persist",
             "章节落盘",
+            pipeline_wave_index=6,
             current_chapter_number=ctx.chapter_number,
             total_beats=len(ctx.beats) if ctx.beats else 0,
             current_beat_index=getattr(ctx, "start_beat_index", 0),
@@ -566,6 +580,15 @@ class BaseStoryPipeline(ABC):
         - 文学引擎：提高声线要求
         """
         self._log_step("validate_voice", "文风审计")
+
+        _writing_progress(
+            ctx,
+            "voice_drift_check",
+            "文风审计 · 声线漂移",
+            pipeline_wave_index=7,
+            current_chapter_number=ctx.chapter_number,
+            accumulated_words=ctx.word_count,
+        )
 
         if ctx.voice_drift_service is not None:
             try:
@@ -604,6 +627,15 @@ class BaseStoryPipeline(ABC):
         把生成的文字转化为结构化知识存回数据库。
         """
         self._log_step("run_post_commit", "章后管线")
+
+        _writing_progress(
+            ctx,
+            "chapter_aftermath",
+            "章后管线（叙事/向量/伏笔等）",
+            pipeline_wave_index=8,
+            current_chapter_number=ctx.chapter_number,
+            accumulated_words=ctx.word_count,
+        )
 
         if ctx.aftermath_pipeline is not None:
             try:
@@ -661,6 +693,15 @@ class BaseStoryPipeline(ABC):
         """
         self._log_step("score_tension", "张力打分")
 
+        _writing_progress(
+            ctx,
+            "score_tension_live",
+            "张力评估",
+            pipeline_wave_index=9,
+            current_chapter_number=ctx.chapter_number,
+            accumulated_words=ctx.word_count,
+        )
+
         # 优先使用章后管线的多维张力
         if ctx.tension_composite is not None and ctx.tension_composite > 0:
             logger.info(f"[{ctx.novel_id}] 多维张力值：{int(ctx.tension_composite)}/100")
@@ -691,6 +732,15 @@ class BaseStoryPipeline(ABC):
         - 添加额外的收尾操作
         """
         self._log_step("finalize", "收尾落库")
+
+        _writing_progress(
+            ctx,
+            "pipeline_finalize",
+            "收尾（状态快照）",
+            pipeline_wave_index=10,
+            current_chapter_number=ctx.chapter_number,
+            accumulated_words=ctx.word_count,
+        )
 
         # 构建审计快照
         ctx.audit_snapshot = {

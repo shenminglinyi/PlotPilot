@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any, Dict, Literal
 
 logger = logging.getLogger(__name__)
@@ -88,11 +89,54 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
     logger.info("[%s] StoryPipeline 写作模式 genre=%s", novel_id, genre or "(default)")
 
     def _writing_sink(substep: str, label: str, extra: Dict[str, Any]) -> None:
+        merged = dict(extra)
+        nw = merged.get("story_pipeline_wave_index")
+        try:
+            import sys
+
+            shared = sys.modules.get("__shared_state")
+            if shared is not None and nw is not None:
+                nk = f"novel:{novel_id}"
+                prev = dict(shared.get(nk, {}))
+                pw = prev.get("story_pipeline_wave_index")
+                if pw != nw:
+                    merged["story_pipeline_wave_entered_at"] = time.time()
+                elif "story_pipeline_wave_entered_at" not in merged and prev.get("story_pipeline_wave_entered_at"):
+                    merged["story_pipeline_wave_entered_at"] = prev["story_pipeline_wave_entered_at"]
+                # 新的一章开篇：清零事件轨迹
+                if substep == "chapter_found" and int(nw) == 1:
+                    merged["story_pipeline_events"] = [
+                        {
+                            "t": time.time(),
+                            "wave": nw,
+                            "wave_id": merged.get("story_pipeline_wave_id"),
+                            "substep": substep,
+                            "label": label,
+                        }
+                    ]
+                else:
+                    ev = list(prev.get("story_pipeline_events") or [])
+                    ev.append(
+                        {
+                            "t": time.time(),
+                            "wave": nw,
+                            "wave_id": merged.get("story_pipeline_wave_id"),
+                            "substep": substep,
+                            "label": label,
+                        }
+                    )
+                    merged["story_pipeline_events"] = ev[-32:]
+            elif nw is not None:
+                merged.setdefault("story_pipeline_wave_entered_at", time.time())
+        except Exception:
+            if nw is not None:
+                merged.setdefault("story_pipeline_wave_entered_at", time.time())
+
         daemon._update_shared_state(
             novel_id,
             writing_substep=substep,
             writing_substep_label=label,
-            **extra,
+            **merged,
         )
 
     ctx = runner._make_context(

@@ -43,6 +43,13 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "outline_plan_mode",
     "current_act_title",
     "current_act_description",
+    # StoryPipeline 十步管线可观测性
+    "story_pipeline_wave_index",
+    "story_pipeline_wave_total",
+    "story_pipeline_wave_id",
+    "story_pipeline_wave_label",
+    "story_pipeline_wave_entered_at",
+    "story_pipeline_events",
 )
 
 

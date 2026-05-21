@@ -162,6 +162,12 @@
         </div>
       </div>
     </section>
+
+    <StoryPipelineObservability
+      v-if="storyPipelineObsVisible"
+      :status="status"
+    />
+
     <!-- 单本挂起 / 失败计数过高 -->
     <n-alert v-if="needsRecovery" type="error" :show-icon="true" class="ap-inline-alert">
       <div class="recovery-hint">
@@ -302,6 +308,7 @@
 import { ref, computed, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
+import StoryPipelineObservability from './StoryPipelineObservability.vue'
 import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 
@@ -384,6 +391,13 @@ const needsReview = computed(() => statusNeedsManualReview(status.value))
 const isWriting = computed(() =>
   status.value?.autopilot_status === 'running' && status.value?.current_stage === 'writing'
 )
+
+/** StoryPipeline（新内核写作）有可观测字段时展示十步管线图 */
+const storyPipelineObsVisible = computed(() => {
+  if (!isWriting.value || !status.value) return false
+  const ix = Number(status.value.story_pipeline_wave_index)
+  return Number.isFinite(ix) && ix >= 1 && ix <= 10
+})
 const needsRecovery = computed(
   () =>
     status.value?.autopilot_status === 'error' ||
