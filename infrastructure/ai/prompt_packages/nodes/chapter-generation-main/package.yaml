@@ -54,7 +54,7 @@ variables:
   desc: 字数规则
   type: string
   required: false
-  default: 7. 字数是硬指标：3200-4200字（含标点）。此为下限，冲突场面须充分展开，每个重要对话至少来回三轮以上交锋。宁多勿少。
+  default: 7. 字数上限约 4200 字（含标点）。节拍目标完成即止，禁止为触碰上限而凑字。每个重要对话须推进信息差或关系变化，否则删掉。
 - name: beat_extra
   desc: 节拍模式附加说明
   type: string

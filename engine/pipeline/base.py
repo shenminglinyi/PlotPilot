@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC
 from typing import Any, Dict, List, Optional
 
@@ -74,6 +75,7 @@ class BaseStoryPipeline(ABC):
     VOICE_WARNING_THRESHOLD_FALLBACK: float = 0.75
     MIN_PASS_SCORE: float = 0.6
     BATCH_WRITE_INTERVAL: int = 3
+    STREAM_PUSH_INTERVAL: float = 0.15
 
     def __init__(self):
         """初始化管线。子类可在此设置额外依赖。"""
@@ -403,6 +405,7 @@ class BaseStoryPipeline(ABC):
 
             n_beats = max(len(ctx.beats), 1)
             acc0 = len((accumulated_content or "").strip())
+            _card = getattr(beat, "emotion_beat_card", None)
             _writing_progress(
                 ctx,
                 "llm_calling",
@@ -414,23 +417,30 @@ class BaseStoryPipeline(ABC):
                 chapter_target_words=ctx.target_word_count,
                 accumulated_words=acc0,
                 beat_focus=(str(getattr(beat, "focus", "") or "").strip() or None),
+                beat_active_action=(getattr(_card, "active_action", None) if _card else None),
+                beat_emotion_gap=(getattr(_card, "emotion_gap", None) if _card else None),
+                beat_forbidden_drift=(getattr(_card, "forbidden_drift", None) if _card else None),
             )
 
             # 构建 prompt
             prompt_text = self._build_generation_prompt(ctx, beat, i)
 
-            # 调用 LLM
+            # 流式调用 LLM（推送 streaming_bus，供 Autopilot chapter-stream SSE）
             try:
                 from domain.ai.services.llm_service import GenerationConfig
                 target = getattr(beat, 'target_words', ctx.target_word_count // max(len(ctx.beats), 1))
                 max_tokens = int(target * 1.3)
                 cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
 
-                result = await ctx.llm_service.generate(
-                    prompt=self._make_prompt(prompt_text),
-                    config=cfg,
+                chapter_draft_so_far = (accumulated_content or "").strip()
+                beat_content = await self._stream_beat_llm(
+                    ctx,
+                    self._make_prompt(prompt_text),
+                    cfg,
+                    chapter_draft_so_far=chapter_draft_so_far,
+                    beat_index=i,
+                    n_beats=n_beats,
                 )
-                beat_content = result.content if hasattr(result, 'content') else str(result)
 
                 # 后处理
                 beat_content = self._post_process_generation(beat_content, ctx)
@@ -441,6 +451,8 @@ class BaseStoryPipeline(ABC):
                     else:
                         accumulated_content = beat_content.strip()
                     ctx.raw_beat_contents.append(beat_content.strip())
+                    # 后处理后的整章快照（与落库正文一致，避免流式区仍显示原始 LLM 输出）
+                    self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
                     _writing_progress(
                         ctx,
                         "llm_calling",
@@ -774,7 +786,10 @@ class BaseStoryPipeline(ABC):
             parts.append(f"【章节大纲】\n{ctx.outline}")
         beat_desc = getattr(beat, 'description', str(beat))
         beat_focus = getattr(beat, 'focus', 'mixed')
-        parts.append(f"【当前节拍 {beat_index+1}/{len(ctx.beats)}】{beat_desc} (焦点: {beat_focus})")
+        parts.append(f"【当前节拍 {beat_index+1}/{len(ctx.beats)}】{beat_desc}（焦点：{beat_focus}）")
+        card_block = getattr(beat, 'card_prompt_block', '')
+        if card_block:
+            parts.append(card_block)
         return "\n\n".join(parts)
 
     def _post_process_generation(self, content: str, ctx: PipelineContext) -> str:
@@ -806,6 +821,99 @@ class BaseStoryPipeline(ABC):
             return Prompt(system=_DEFAULT_PIPELINE_SYSTEM_PROMPT, user=text)
         except ImportError:
             return text
+
+    def _push_streaming_snapshot(self, novel_id: str, content: str) -> None:
+        """推送整章累积快照到 StreamingBus，供 /autopilot/.../chapter-stream 消费。"""
+        if not novel_id or not content:
+            return
+        try:
+            from application.engine.services.streaming_bus import streaming_bus
+
+            streaming_bus.publish(novel_id, content=content)
+        except Exception as e:
+            logger.debug("[%s] streaming_bus.publish 失败: %s", novel_id, e)
+
+    def _novel_stream_should_stop(self, novel_id: str) -> bool:
+        """与 legacy 写作一致：IPC 停止信号 + 控制队列消费。"""
+        try:
+            from application.engine.services.novel_stop_signal import is_novel_stopped
+
+            if is_novel_stopped(novel_id):
+                return True
+        except Exception:
+            pass
+        try:
+            from application.engine.services.streaming_bus import streaming_bus
+
+            streaming_bus.consume_control_signals(novel_id)
+            from application.engine.services.novel_stop_signal import is_novel_stopped
+
+            return is_novel_stopped(novel_id)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _live_chapter_snapshot(chapter_draft_so_far: str, chunk_buffer: List[str]) -> str:
+        beat_part = "".join(chunk_buffer)
+        prior = (chapter_draft_so_far or "").strip()
+        if not prior:
+            return beat_part
+        if not beat_part:
+            return prior
+        return f"{prior}\n\n{beat_part}"
+
+    async def _stream_beat_llm(
+        self,
+        ctx: PipelineContext,
+        prompt: Any,
+        config: Any,
+        *,
+        chapter_draft_so_far: str,
+        beat_index: int,
+        n_beats: int,
+    ) -> str:
+        """单节拍流式生成，周期性推送整章快照。"""
+        novel_id = ctx.novel_id
+        chunk_buffer: List[str] = []
+        last_push = time.monotonic()
+        content = ""
+
+        def _maybe_push(*, force: bool = False) -> None:
+            nonlocal last_push
+            now = time.monotonic()
+            if not force and (now - last_push) < self.STREAM_PUSH_INTERVAL:
+                return
+            snap = self._live_chapter_snapshot(chapter_draft_so_far, chunk_buffer)
+            if not snap:
+                return
+            self._push_streaming_snapshot(novel_id, snap)
+            _writing_progress(
+                ctx,
+                "llm_calling",
+                f"节拍 {beat_index + 1}/{n_beats} 撰写",
+                pipeline_wave_index=4,
+                current_chapter_number=ctx.chapter_number,
+                total_beats=n_beats,
+                current_beat_index=beat_index,
+                chapter_target_words=ctx.target_word_count,
+                accumulated_words=len(snap.strip()),
+            )
+            last_push = now
+
+        try:
+            async for piece in ctx.llm_service.stream_generate(prompt, config):
+                if self._novel_stream_should_stop(novel_id):
+                    logger.info("[%s] 流式生成收到停止信号，终止节拍 %s", novel_id, beat_index + 1)
+                    break
+                if not piece:
+                    continue
+                chunk_buffer.append(piece)
+                content += piece
+                _maybe_push()
+        finally:
+            _maybe_push(force=True)
+
+        return content
 
     def _get_character_masks(self, ctx: PipelineContext) -> Dict[str, Any]:
         """获取当前章节的角色面具（供策略验证使用）"""

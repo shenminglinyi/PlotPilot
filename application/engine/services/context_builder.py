@@ -12,8 +12,11 @@ Layer3 段名为 VECTOR RECALL（T3）；见 assemble_chapter_bundle_context_tex
 """
 import logging
 import re
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from application.engine.dtos.emotion_beat_card import EmotionBeatCard
 
 from application.engine.dtos.scene_director_dto import SceneDirectorInput
 
@@ -38,17 +41,18 @@ class Beat:
 
     将章节大纲拆分为多个微观节拍，强制 AI 放慢节奏，增加感官细节。
     """
-    description: str  # 节拍描述
+    description: str  # 节拍描述（fallback 文本；有 emotion_beat_card 时仅作备注）
     target_words: int  # 目标字数
-    focus: str  # 聚焦点：sensory（感官）、dialogue（对话）、action（动作）、emotion（情绪）
-    expansion_hints: List[str] = None  # 扩写维度提示（如何达到目标字数）
-    scene_goal: str = ""  # 场景目标（从规划阶段继承）
-    transition_from_prev: str = ""  # 🔗 从上一节拍如何过渡（对话延续/动作接续/情绪过渡/场景切换）
-    location_id: str = ""  # 微观坐标（由 ATG visit_sequence 绑定；无 ATG 时为空）
+    focus: str  # sensory / dialogue / action / emotion / suspense / hook / …
+    expansion_hints: List[str] = field(default_factory=list)
+    scene_goal: str = ""
+    transition_from_prev: str = ""
+    location_id: str = ""
+    emotion_beat_card: Optional["EmotionBeatCard"] = None  # 结构化真源
+    card_prompt_block: str = ""  # 由 BeatCardPromptRenderer 填充，供 prompt builder 消费
 
     def __post_init__(self):
-        if self.expansion_hints is None:
-            self.expansion_hints = []
+        pass  # field(default_factory=list) 已处理 expansion_hints
 
 
 class ContextBuilder:
@@ -255,8 +259,6 @@ class ContextBuilder:
     EXPANSION_HINTS = {
         "action": [
             "加入招式物理碰撞细节：打击感、力量传导、声音",
-            "描写环境破坏：招式对周围的影响、碎片飞溅",
-            "旁观者反应：惊呼、恐惧、议论",
             "战斗节奏变化：快攻、僵持、反击",
         ],
         "dialogue": [
@@ -273,7 +275,6 @@ class ContextBuilder:
         ],
         "emotion": [
             "内心独白：想法、疑问、自我说服",
-            "回忆闪回：与当前情绪相关的往事",
             "身体反应：心跳、手抖、冷汗",
             "情绪转变：从一种情绪到另一种的过渡",
         ],
@@ -336,6 +337,7 @@ class ContextBuilder:
 
         beats = self._cap_and_merge_beats(beats, target_chapter_words)
         self._bind_atg_locations_if_present(beats, scene_director)
+        self._attach_cards_if_missing(beats)
         return beats
 
     def _build_beats_from_execution_plan(
@@ -412,6 +414,27 @@ class ContextBuilder:
         if not seq:
             seq = [n.location_id for n in graph_payload.nodes if getattr(n, "location_id", "").strip()]
         assign_visit_locations_to_beats(beats, seq)
+
+    def _attach_cards_if_missing(self, beats: List[Beat]) -> None:
+        """为尚未携带 EmotionBeatCard 的 Beat 生成最小卡片并预渲染 card_prompt_block。
+
+        路径 A/B 生成的 Beat 没有 card；路径 C 的 _build_typed_beats 已经附了卡；
+        此处统一补齐，保证所有 Beat 都有 card_prompt_block。
+        """
+        from application.engine.services.beat_card_renderer import BeatCardPromptRenderer
+        renderer = BeatCardPromptRenderer()
+        for beat in beats:
+            if beat.emotion_beat_card is not None:
+                if not beat.card_prompt_block:
+                    beat.card_prompt_block = renderer.render(beat.emotion_beat_card)
+                continue
+            card = self._make_minimal_card(
+                beat.scene_goal or beat.description,
+                beat.focus,
+                beat.target_words,
+            )
+            beat.emotion_beat_card = card
+            beat.card_prompt_block = renderer.render(card)
 
     def _cap_and_merge_beats(self, beats: List[Beat], target_chapter_words: int) -> List[Beat]:
         """控制节拍数量与最低字数。
@@ -600,6 +623,7 @@ class ContextBuilder:
                     target_words=w,
                     focus=focus,
                     expansion_hints=self._generate_expansion_hints(focus, w),
+                    scene_goal=seg,
                 )
             )
         return beats
@@ -624,104 +648,11 @@ class ContextBuilder:
             )
             return beats
 
-        beats = []
-        base_beat_words = max(400, int(target_chapter_words * 0.25))
-
-        # 开篇黄金法则前三章特殊拦截
-        if chapter_number == 1:
-            beats = [
-                Beat(
-                    description="开篇黄金法则：展现核心冲突，介绍主角出场，建立情感冲击（前300字内必须抓住读者）",
-                    target_words=int(base_beat_words * 1.2),
-                    focus="hook",
-                    expansion_hints=self._generate_expansion_hints("hook", int(base_beat_words * 1.2)),
-                ),
-                Beat(
-                    description="剧情引入及人物初步互动：展现主角特质并暗示即将发生的事件",
-                    target_words=int(base_beat_words * 1.5),
-                    focus="character_intro",
-                    expansion_hints=self._generate_expansion_hints("character_intro", int(base_beat_words * 1.5)),
-                ),
-                Beat(
-                    description="世界观或当前场景细节：通过具体行动展现，不用抽象叙述",
-                    target_words=int(base_beat_words * 1.3),
-                    focus="sensory",
-                    expansion_hints=self._generate_expansion_hints("sensory", int(base_beat_words * 1.3)),
-                ),
-                Beat(
-                    description="埋下后续剧情伏笔或抛出首个悬念：铺垫第二章",
-                    target_words=int(base_beat_words * 1.0),
-                    focus="suspense",
-                    expansion_hints=self._generate_expansion_hints("suspense", int(base_beat_words * 1.0)),
-                ),
-            ]
-        elif chapter_number == 2:
-            beats = [
-                Beat(
-                    description="承接首章悬念：深化关键人物关系，展现性格差异",
-                    target_words=int(base_beat_words * 1.3),
-                    focus="dialogue",
-                    expansion_hints=self._generate_expansion_hints("dialogue", int(base_beat_words * 1.3)),
-                ),
-                Beat(
-                    description="推进主要情节线：引入新的次要冲突或阻碍",
-                    target_words=int(base_beat_words * 1.8),
-                    focus="action",
-                    expansion_hints=self._generate_expansion_hints("action", int(base_beat_words * 1.8)),
-                ),
-                Beat(
-                    description="情绪细节及内心活动：展示人物面对变故的真实反映",
-                    target_words=int(base_beat_words * 1.0),
-                    focus="emotion",
-                    expansion_hints=self._generate_expansion_hints("emotion", int(base_beat_words * 1.0)),
-                ),
-                Beat(
-                    description="为第三章冲突高潮做气氛铺垫",
-                    target_words=int(base_beat_words * 0.8),
-                    focus="suspense",
-                    expansion_hints=self._generate_expansion_hints("suspense", int(base_beat_words * 0.8)),
-                ),
-            ]
-        elif chapter_number == 3:
-            beats = [
-                Beat(
-                    description="前三章的剧情小结或高潮前奏：紧张气氛描写",
-                    target_words=int(base_beat_words * 1.0),
-                    focus="sensory",
-                    expansion_hints=self._generate_expansion_hints("sensory", int(base_beat_words * 1.0)),
-                ),
-                Beat(
-                    description="冲突爆发/悬念高潮：激烈的动作或对峙",
-                    target_words=int(base_beat_words * 2.0),
-                    focus="action",
-                    expansion_hints=self._generate_expansion_hints("action", int(base_beat_words * 2.0)),
-                ),
-                Beat(
-                    description="暴露深层问题或引出更高层面人物背景",
-                    target_words=int(base_beat_words * 1.3),
-                    focus="emotion",
-                    expansion_hints=self._generate_expansion_hints("emotion", int(base_beat_words * 1.3)),
-                ),
-                Beat(
-                    description="建立长线悬念结局：为整卷后续发展铺设巨大好奇心",
-                    target_words=int(base_beat_words * 0.7),
-                    focus="suspense",
-                    expansion_hints=self._generate_expansion_hints("suspense", int(base_beat_words * 0.7)),
-                ),
-            ]
-        # 根据大纲关键词推断
-        elif "争吵" in outline or "冲突" in outline or "质问" in outline:
-            beats = self._build_conflict_beats(base_beat_words)
-        elif "战斗" in outline or "打斗" in outline or "对决" in outline:
-            beats = self._build_battle_beats(base_beat_words)
-        elif "发现" in outline or "真相" in outline or "揭露" in outline:
-            beats = self._build_revelation_beats(base_beat_words)
-        else:
-            beats = self._build_default_beats(base_beat_words)
-
+        beats = self._build_typed_beats(outline, target_chapter_words)
         logger.info(
-            f"节拍放大器（回退）：将大纲拆分为 {len(beats)} 个节拍，"
-            f"目标 {sum(b.target_words for b in beats)} 字"
+            "节拍放大器（回退）：将大纲拆分为 %d 个节拍，目标 %d 字",
+            len(beats),
+            sum(b.target_words for b in beats),
         )
         return beats
 
@@ -774,121 +705,80 @@ class ContextBuilder:
             # 低字数节拍：只需 1-2 个方向
             return base_hints[:2]
 
-    def _build_conflict_beats(self, base_beat_words: int) -> List[Beat]:
-        """构建冲突场景的节拍"""
-        return [
-            Beat(
-                description="场景氛围描写：压抑的环境、紧张的气氛、人物的微表情",
-                target_words=int(base_beat_words * 0.9),
-                focus="sensory",
-                expansion_hints=self._generate_expansion_hints("sensory", int(base_beat_words * 0.9)),
-            ),
-            Beat(
-                description="冲突爆发：主角的质问、对方的反应、情绪的升级",
-                target_words=int(base_beat_words * 1.4),
-                focus="dialogue",
-                expansion_hints=self._generate_expansion_hints("dialogue", int(base_beat_words * 1.4)),
-            ),
-            Beat(
-                description="情绪细节：内心独白、回忆闪回、痛苦的挣扎",
-                target_words=int(base_beat_words * 1.2),
-                focus="emotion",
-                expansion_hints=self._generate_expansion_hints("emotion", int(base_beat_words * 1.2)),
-            ),
-            Beat(
-                description="冲突结果：决裂、离开、或暂时妥协（不要轻易和好）",
-                target_words=int(base_beat_words * 0.9),
-                focus="action",
-                expansion_hints=self._generate_expansion_hints("action", int(base_beat_words * 0.9)),
-            ),
-        ]
+    def _make_minimal_card(self, segment: str, focus: str, target_words: int) -> "EmotionBeatCard":
+        """用规则模板为大纲片段生成最小 EmotionBeatCard（无 LLM）。
 
-    def _build_battle_beats(self, base_beat_words: int) -> List[Beat]:
-        """构建战斗场景的节拍"""
-        return [
-            Beat(
-                description="战前准备：环境描写、双方对峙、紧张的气氛",
-                target_words=int(base_beat_words * 0.7),
-                focus="sensory",
-                expansion_hints=self._generate_expansion_hints("sensory", int(base_beat_words * 0.7)),
-            ),
-            Beat(
-                description="第一回合：试探性攻击、展示能力、观察弱点",
-                target_words=int(base_beat_words * 1.0),
-                focus="action",
-                expansion_hints=self._generate_expansion_hints("action", int(base_beat_words * 1.0)),
-            ),
-            Beat(
-                description="战斗升级：全力以赴、招式碰撞、环境破坏",
-                target_words=int(base_beat_words * 1.2),
-                focus="action",
-                expansion_hints=self._generate_expansion_hints("action", int(base_beat_words * 1.2)),
-            ),
-            Beat(
-                description="转折点：意外发生、底牌揭露、或受伤",
-                target_words=int(base_beat_words * 0.9),
-                focus="emotion",
-                expansion_hints=self._generate_expansion_hints("emotion", int(base_beat_words * 0.9)),
-            ),
-            Beat(
-                description="战斗结束：胜负揭晓、战后状态、后续影响",
-                target_words=int(base_beat_words * 0.6),
-                focus="action",
-                expansion_hints=self._generate_expansion_hints("action", int(base_beat_words * 0.6)),
-            ),
-        ]
+        quality 取决于 segment 的信息密度；ExpandedOutlineService 上线后会替换此函数。
+        """
+        from application.engine.dtos.emotion_beat_card import EmotionBeatCard
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+        forbidden = ""
+        try:
+            reg = get_prompt_registry()
+            drifts = reg.get_directives_dict(self._BEAT_PROMPT_ID, "_forbidden_drifts")
+            forbidden = drifts.get(focus, drifts.get("default", ""))
+        except Exception:
+            pass
+        # goal: 取段落前 30 字作为目标
+        goal = segment[:30].rstrip("，。！？；") if segment else "推进本拍剧情"
+        return EmotionBeatCard(
+            goal=goal,
+            obstacle="待写作过程中具体化",
+            active_action=f"主角通过可见行为推进「{goal}」",
+            delta="本拍结束时，情节/关系/信息差至少一项发生改变",
+            emotion_gap="读者此刻期待看到局势出现转变",
+            hook_delta="本拍末尾留一个让读者想翻页的疑问或画面",
+            sensory_anchor="写一处与当前处境绑定的具体感官细节",
+            forbidden_drift=forbidden or "禁止连续两段没有动作、对话、决定之一",
+            function=focus,
+            target_words=target_words,
+        )
 
-    def _build_revelation_beats(self, base_beat_words: int) -> List[Beat]:
-        """构建真相揭露场景的节拍"""
-        return [
-            Beat(
-                description="线索汇聚：主角回忆之前的疑点、逐步推理",
-                target_words=int(base_beat_words * 1.2),
-                focus="emotion",
-                expansion_hints=self._generate_expansion_hints("emotion", int(base_beat_words * 1.2)),
-            ),
-            Beat(
-                description="真相揭露：关键证据出现、震惊的反应、世界观崩塌",
-                target_words=int(base_beat_words * 1.8),
-                focus="dialogue",
-                expansion_hints=self._generate_expansion_hints("dialogue", int(base_beat_words * 1.8)),
-            ),
-            Beat(
-                description="情绪余波：接受现实、决定下一步行动",
-                target_words=int(base_beat_words * 1.3),
-                focus="emotion",
-                expansion_hints=self._generate_expansion_hints("emotion", int(base_beat_words * 1.3)),
-            ),
-        ]
+    def _build_typed_beats(self, outline: str, target_chapter_words: int) -> List[Beat]:
+        """通用回退构建器——替换原有的 conflict/battle/revelation/default 四个模板。
 
-    def _build_default_beats(self, base_beat_words: int) -> List[Beat]:
-        """构建默认「起承转合」四节拍"""
-        return [
-            Beat(
-                description="起：交代场景与人物状态，抛出本章要处理的具体麻烦或悬念（可小但须清晰）。",
-                target_words=base_beat_words,
-                focus="sensory",
-                expansion_hints=self._generate_expansion_hints("sensory", base_beat_words),
-            ),
-            Beat(
-                description="承：阻碍升级或对手施压，人物关系或信息出现新变化。",
-                target_words=base_beat_words,
-                focus="dialogue",
-                expansion_hints=self._generate_expansion_hints("dialogue", base_beat_words),
-            ),
-            Beat(
-                description="转：主角做出选择、亮出底牌或发现盲点，情节出现可感知的转折。",
-                target_words=base_beat_words,
-                focus="action",
-                expansion_hints=self._generate_expansion_hints("action", base_beat_words),
-            ),
-            Beat(
-                description="合：阶段性结果落地，同时抛出下一章钩子（勿提前剧透全书谜底）。",
-                target_words=base_beat_words,
-                focus="suspense",
-                expansion_hints=self._generate_expansion_hints("suspense", base_beat_words),
-            ),
+        策略：先尝试分段（同 _build_beats_from_outline_segments）；无法分段时
+        用起承转合四框架，每拍附最小 EmotionBeatCard。
+        """
+        from application.engine.services.beat_card_renderer import BeatCardPromptRenderer
+        renderer = BeatCardPromptRenderer()
+
+        segments = self._segment_user_outline(outline)
+        if len(segments) >= 2:
+            # 有可分段的大纲——按段生成并附卡
+            beats = self._build_beats_from_outline_segments(segments, target_chapter_words)
+            for beat in beats:
+                card = self._make_minimal_card(beat.scene_goal or beat.description, beat.focus, beat.target_words)
+                beat.emotion_beat_card = card
+                beat.card_prompt_block = renderer.render(card)
+            return beats
+
+        # 无法分段——起承转合框架，每拍附最小卡
+        base_w = max(400, int(target_chapter_words * 0.25))
+        specs = [
+            ("起：交代场景与人物状态，抛出本章要处理的具体麻烦或悬念（可小但须清晰）。",
+             "sensory", 1.0),
+            ("承：阻碍升级或对手施压，人物关系或信息出现新变化。",
+             "dialogue", 1.0),
+            ("转：主角做出选择、亮出底牌或发现盲点，情节出现可感知的转折。",
+             "action", 1.0),
+            ("合：阶段性结果落地，同时抛出下一章钩子（勿提前剧透全书谜底）。",
+             "suspense", 1.0),
         ]
+        beats = []
+        for desc, focus, ratio in specs:
+            w = max(self.MIN_BEAT_WORDS, int(base_w * ratio))
+            card = self._make_minimal_card(desc, focus, w)
+            beat = Beat(
+                description=desc,
+                target_words=w,
+                focus=focus,
+                expansion_hints=self._generate_expansion_hints(focus, w),
+                emotion_beat_card=card,
+                card_prompt_block=renderer.render(card),
+            )
+            beats.append(beat)
+        return beats
 
     # 节拍聚焦指令：CPMS 节点 beat-focus-instructions（prompt_packages）
     # 通过 PromptRegistry 统一读取，不再在此硬编码
@@ -954,13 +844,21 @@ class ContextBuilder:
                 "description": beat.description,
                 "anchor_line": anchor_line,
                 "obligation": obligation,
+                "card_block": beat.card_prompt_block or "",
             },
         )
         prompt = (rendered.user if rendered else "") or ""
 
+        # 若模板未消费 card_block（旧版 user.md），回退到直接注入
+        if beat.card_prompt_block and "{card_block}" not in (rendered.user or "") and beat.card_prompt_block not in prompt:
+            prompt = prompt.replace(
+                "━━━ 写前三问",
+                f"{beat.card_prompt_block}\n\n━━━ 写前三问",
+                1,
+            )
+
         # 注入扩写维度
         if expansion_block:
-            # 在 "密度与可检查要求" 之后插入
             prompt = prompt.replace(
                 "\n\n⚠️ 篇幅控制",
                 f"{expansion_block}\n\n⚠️ 篇幅控制"

@@ -23,6 +23,22 @@
       </div>
     </div>
 
+    <!-- 节点卡（仅在 wave 4 生成步骤时显示） -->
+    <div v-if="currentIx === 4 && beatCard.active_action" class="spo-beatcard">
+      <div class="spo-beatcard__row">
+        <span class="spo-beatcard__tag">行为</span>
+        <span class="spo-beatcard__val">{{ beatCard.active_action }}</span>
+      </div>
+      <div class="spo-beatcard__row">
+        <span class="spo-beatcard__tag">缺口</span>
+        <span class="spo-beatcard__val">{{ beatCard.emotion_gap }}</span>
+      </div>
+      <div class="spo-beatcard__row">
+        <span class="spo-beatcard__tag spo-beatcard__tag--warn">禁止</span>
+        <span class="spo-beatcard__val spo-beatcard__val--muted">{{ beatCard.forbidden_drift }}</span>
+      </div>
+    </div>
+
     <details v-if="events.length > 1" class="spo-events">
       <summary>事件轨迹（{{ events.length }}）</summary>
       <ol class="spo-events__list">
@@ -55,6 +71,10 @@ interface StatusLike {
     substep?: string
     label?: string
   }>
+  // 节点卡字段（wave 4 时非空）
+  beat_active_action?: string
+  beat_emotion_gap?: string
+  beat_forbidden_drift?: string
 }
 
 const props = defineProps<{
@@ -118,6 +138,12 @@ const displayEvents = computed(() => {
   return e.slice(-12).reverse()
 })
 
+const beatCard = computed(() => ({
+  active_action: props.status?.beat_active_action || '',
+  emotion_gap: props.status?.beat_emotion_gap || '',
+  forbidden_drift: props.status?.beat_forbidden_drift || '',
+}))
+
 function fmtRel(t?: number): string {
   if (typeof t !== 'number' || !Number.isFinite(t)) return '—'
   void tick.value
@@ -130,15 +156,33 @@ function fmtRel(t?: number): string {
 
 <style scoped>
 .spo {
+  --spo-accent: var(--color-brand);
+  --spo-accent-dim: var(--color-brand-light);
+  --spo-accent-border: var(--color-brand-border);
+  --spo-surface: var(--app-surface-raised, var(--app-surface));
+  --spo-surface-subtle: var(--app-surface-subtle);
+  --spo-text: var(--app-text-primary);
+  --spo-text-muted: var(--app-text-muted);
+  --spo-text-secondary: var(--app-text-secondary);
+  --spo-success: var(--color-success);
+  --spo-success-dim: var(--color-success-dim);
+  --spo-danger: var(--color-danger);
+  --spo-danger-dim: var(--color-danger-dim);
+
   margin-top: 10px;
   padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--color-brand, #6366f1) 35%, transparent);
+  border-radius: var(--app-radius-md, 10px);
+  border: 1px solid var(--spo-accent-border);
   background: linear-gradient(
     145deg,
-    color-mix(in srgb, var(--color-brand, #6366f1) 8%, var(--card-color)) 0%,
-    color-mix(in srgb, #8b5cf6 6%, var(--card-color)) 100%
+    color-mix(in srgb, var(--spo-accent) 7%, var(--spo-surface)) 0%,
+    color-mix(in srgb, var(--color-purple, #8b5cf6) 4%, var(--spo-surface-subtle)) 100%
   );
+  box-shadow: var(--app-shadow-sm);
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease;
 }
 
 .spo__head {
@@ -157,10 +201,10 @@ function fmtRel(t?: number): string {
 }
 
 .spo__title {
-  font-size: 13px;
+  font-size: var(--font-size-sm, 13px);
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--app-text-primary, #0f172a);
+  color: var(--spo-text);
 }
 
 .spo__badge {
@@ -168,8 +212,9 @@ function fmtRel(t?: number): string {
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 999px;
-  background: rgba(34, 197, 94, 0.18);
-  color: #16a34a;
+  background: var(--spo-success-dim);
+  color: var(--spo-success);
+  border: 1px solid color-mix(in srgb, var(--spo-success) 22%, transparent);
   animation: spo-pulse 2.2s ease-in-out infinite;
 }
 
@@ -186,13 +231,14 @@ function fmtRel(t?: number): string {
 .spo__dwell {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--app-text-secondary, #64748b);
+  color: var(--spo-text-secondary);
 }
 
 .spo__track-wrap {
   overflow-x: auto;
   padding-bottom: 4px;
   scrollbar-width: thin;
+  scrollbar-color: var(--spo-accent-border) transparent;
 }
 
 .spo__track {
@@ -206,16 +252,20 @@ function fmtRel(t?: number): string {
   flex: 0 0 auto;
   width: 86px;
   padding: 8px 6px 10px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--app-border, #cbd5e1) 80%, transparent);
-  background: var(--card-color, #fff);
-  transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s;
+  border-radius: var(--app-radius-sm, 8px);
+  border: 1px solid var(--app-border);
+  background: var(--spo-surface);
+  transition:
+    border-color var(--app-transition, 0.18s ease),
+    box-shadow var(--app-transition, 0.18s ease),
+    opacity var(--app-transition, 0.18s ease),
+    background var(--app-transition, 0.18s ease);
 }
 
 .spo-step__ix {
   font-size: 10px;
   font-weight: 800;
-  color: var(--app-text-muted, #94a3b8);
+  color: var(--spo-text-muted);
 }
 
 .spo-step__label {
@@ -223,7 +273,7 @@ function fmtRel(t?: number): string {
   font-size: 11px;
   line-height: 1.35;
   font-weight: 600;
-  color: var(--app-text-primary, #1e293b);
+  color: var(--spo-text);
 }
 
 .spo-step__ok {
@@ -231,37 +281,97 @@ function fmtRel(t?: number): string {
   top: 4px;
   right: 4px;
   font-size: 10px;
-  color: #22c55e;
+  color: var(--spo-success);
   font-weight: 800;
 }
 
 .spo-step--current {
-  border-color: color-mix(in srgb, var(--color-brand, #6366f1) 70%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-brand, #6366f1) 35%, transparent);
+  border-color: var(--spo-accent-border);
+  background: var(--spo-accent-dim);
+  box-shadow: 0 0 0 1px var(--spo-accent-border);
+}
+
+.spo-step--current .spo-step__ix,
+.spo-step--current .spo-step__label {
+  color: var(--spo-accent);
 }
 
 .spo-step--done {
-  opacity: 0.92;
+  opacity: 0.95;
+  border-color: color-mix(in srgb, var(--spo-success) 28%, var(--app-border));
+  background: color-mix(in srgb, var(--spo-success) 6%, var(--spo-surface));
+}
+
+.spo-step--done .spo-step__ix {
+  color: var(--spo-success);
 }
 
 .spo-step--pending {
-  opacity: 0.55;
+  opacity: 0.58;
 }
 
 .spo-step--muted {
-  opacity: 0.5;
+  opacity: 0.48;
+}
+
+.spo-beatcard {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--app-radius-sm, 8px);
+  background: var(--spo-accent-dim);
+  border: 1px solid var(--spo-accent-border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.spo-beatcard__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.spo-beatcard__tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--spo-accent-dim);
+  color: var(--spo-accent);
+  border: 1px solid var(--spo-accent-border);
+}
+
+.spo-beatcard__tag--warn {
+  background: var(--spo-danger-dim);
+  color: var(--spo-danger);
+  border-color: color-mix(in srgb, var(--spo-danger) 25%, transparent);
+}
+
+.spo-beatcard__val {
+  color: var(--spo-text);
+}
+
+.spo-beatcard__val--muted {
+  color: var(--spo-text-secondary);
 }
 
 .spo-events {
   margin-top: 10px;
   font-size: 11px;
-  color: var(--app-text-secondary, #475569);
+  color: var(--spo-text-secondary);
 }
 
 .spo-events summary {
   cursor: pointer;
   font-weight: 600;
-  color: var(--app-text-muted, #64748b);
+  color: var(--spo-text-muted);
+}
+
+.spo-events summary:hover {
+  color: var(--spo-accent);
 }
 
 .spo-events__list {
@@ -269,6 +379,7 @@ function fmtRel(t?: number): string {
   padding-left: 18px;
   max-height: 140px;
   overflow-y: auto;
+  scrollbar-color: var(--spo-accent-border) transparent;
 }
 
 .spo-events__item {
@@ -277,7 +388,7 @@ function fmtRel(t?: number): string {
 }
 
 .spo-events__t {
-  color: var(--app-text-muted, #94a3b8);
+  color: var(--spo-text-muted);
   margin-right: 6px;
   font-variant-numeric: tabular-nums;
 }
@@ -285,6 +396,7 @@ function fmtRel(t?: number): string {
 .spo-events__wave {
   margin-right: 6px;
   font-weight: 600;
+  color: var(--spo-accent);
 }
 
 .spo-events__sub {
@@ -292,6 +404,7 @@ function fmtRel(t?: number): string {
   margin-left: 6px;
   font-size: 10px;
   opacity: 0.75;
+  color: var(--spo-text-muted);
 }
 
 .mono {
@@ -301,6 +414,6 @@ function fmtRel(t?: number): string {
 .spo-events-lite {
   margin-top: 8px;
   font-size: 11px;
-  color: var(--app-text-muted, #64748b);
+  color: var(--spo-text-muted);
 }
 </style>

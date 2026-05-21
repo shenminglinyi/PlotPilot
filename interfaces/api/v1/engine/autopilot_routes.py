@@ -630,6 +630,9 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "beat_hard_cap": shared.get("beat_hard_cap", 0),
         "beat_phase": shared.get("beat_phase", ""),
         "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
+        "beat_active_action": shared.get("beat_active_action", ""),
+        "beat_emotion_gap": shared.get("beat_emotion_gap", ""),
+        "beat_forbidden_drift": shared.get("beat_forbidden_drift", ""),
         "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
         "last_smart_truncate": shared.get("last_smart_truncate"),
         "planned_micro_beats": shared.get("planned_micro_beats") or [],
@@ -796,6 +799,9 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "beat_hard_cap": shared.get("beat_hard_cap", 0),
         "beat_phase": shared.get("beat_phase", ""),
         "beat_max_words_hint": shared.get("beat_max_words_hint", 0),
+        "beat_active_action": shared.get("beat_active_action", ""),
+        "beat_emotion_gap": shared.get("beat_emotion_gap", ""),
+        "beat_forbidden_drift": shared.get("beat_forbidden_drift", ""),
         "beat_remaining_budget": shared.get("beat_remaining_budget", 0),
         "last_smart_truncate": shared.get("last_smart_truncate"),
         "planned_micro_beats": shared.get("planned_micro_beats") or [],
@@ -1847,6 +1853,7 @@ async def autopilot_log_stream(
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
                     # 新 beat 开始
+                    _bs_shared = _get_shared_state_for_novel_cached(novel_id) or {}
                     event = {
                         "type": "beat_start",
                         "message": f"{chapter_label}第 {act_display} 幕 · 正在生成节拍 {next_1based}",
@@ -1857,6 +1864,9 @@ async def autopilot_log_stream(
                             "act": novel.current_act,
                             "act_display": act_display,
                             "chapter_number": current_chapter_number,
+                            "beat_active_action": _bs_shared.get("beat_active_action", ""),
+                            "beat_emotion_gap": _bs_shared.get("beat_emotion_gap", ""),
+                            "beat_forbidden_drift": _bs_shared.get("beat_forbidden_drift", ""),
                         },
                     }
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -1975,6 +1985,9 @@ async def autopilot_log_stream(
                             "accumulated_words": int(accumulated_words or 0),
                             "chapter_target_words": int(chapter_target_words or 0),
                             "context_tokens": int(context_tokens or 0),
+                            "beat_active_action": _shared_sub.get("beat_active_action", ""),
+                            "beat_emotion_gap": _shared_sub.get("beat_emotion_gap", ""),
+                            "beat_forbidden_drift": _shared_sub.get("beat_forbidden_drift", ""),
                         },
                     }
                     yield f"data: {json.dumps(progress_event, ensure_ascii=False)}\n\n"
