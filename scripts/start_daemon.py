@@ -206,12 +206,17 @@ def build_daemon():
             "PLOTPILOT_USE_STORY_PIPELINE=full — EngineDaemon（StoryPipeline 写作）"
         )
     elif pipeline_mode == "writing":
-        logger.info(
-            "PLOTPILOT_USE_STORY_PIPELINE=writing — EngineDaemon（仅写作走 StoryPipeline）"
-        )
+        if not os.getenv("PLOTPILOT_USE_STORY_PIPELINE", "").strip():
+            logger.info(
+                "PLOTPILOT_USE_STORY_PIPELINE 未设置 — 默认 StoryPipeline 写作（Phase 4）"
+            )
+        else:
+            logger.info(
+                "PLOTPILOT_USE_STORY_PIPELINE=writing — EngineDaemon（StoryPipeline 写作）"
+            )
     else:
         logger.info(
-            "PLOTPILOT_USE_STORY_PIPELINE=off — EngineDaemon（legacy 节拍写作）"
+            "PLOTPILOT_USE_STORY_PIPELINE=off — EngineDaemon（legacy 节拍写作，紧急回退）"
         )
 
     return EngineDaemon(
