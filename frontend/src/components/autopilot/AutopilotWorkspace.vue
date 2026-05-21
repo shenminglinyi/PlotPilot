@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, toRef } from 'vue'
+import { ref, toRef, watch, nextTick } from 'vue'
 import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 import { useDAGSSE } from '@/composables/useDAGSSE'
 import AutopilotShellNav from './AutopilotShellNav.vue'
@@ -70,10 +70,19 @@ const emit = defineEmits<{
 }>()
 
 const workspace = useAutopilotWorkspaceStore()
+const { activeTab } = storeToRefs(workspace)
 const metricsRef = ref<InstanceType<typeof AutopilotMetricsDashboard> | null>(null)
 
 /** 工作区级 DAG SSE，切页不断连 */
 useDAGSSE(toRef(props, 'novelId'))
+
+watch(activeTab, (tab) => {
+  if (tab === 'dashboard') {
+    void nextTick(() => {
+      requestAnimationFrame(() => metricsRef.value?.relayoutTension?.())
+    })
+  }
+})
 
 function onOpsDeskRefresh() {
   emit('desk-refresh')

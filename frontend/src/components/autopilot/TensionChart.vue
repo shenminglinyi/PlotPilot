@@ -36,8 +36,8 @@
       </n-empty>
     </div>
 
-    <!-- 图表 -->
-    <div v-else ref="chartRef" class="chart-container" />
+    <!-- 图表（v-show 保持 DOM，切回仪表盘时可 resize） -->
+    <div v-show="evaluatedData.length > 0" ref="chartRef" class="chart-container" />
 
     <!-- 曲线平缓警告（优先级最高） -->
     <n-alert
@@ -162,6 +162,8 @@ function stopAutoRefresh() {
 let chartInstance: echarts.ECharts | null = null
 /** 监听卡片/分栏拖拽导致的容器宽高变化（不会触发 window resize） */
 let chartResizeObserver: ResizeObserver | null = null
+/** 仪表盘 v-show 隐藏时容器为 0；切回可见时需重新 render */
+let visibilityObserver: IntersectionObserver | null = null
 
 function teardownChartResizeObserver() {
   chartResizeObserver?.disconnect()
@@ -176,6 +178,47 @@ function setupChartResizeObserver() {
     requestAnimationFrame(() => chartInstance?.resize())
   })
   chartResizeObserver.observe(el)
+}
+
+function teardownVisibilityObserver() {
+  visibilityObserver?.disconnect()
+  visibilityObserver = null
+}
+
+function onChartPaneVisible() {
+  renderDimensionAttempts = 0
+  if (tensionData.value.length === 0) return
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      const el = chartRef.value
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      if (rect.width < 10 || rect.height < 10) {
+        setupVisibilityObserver()
+        return
+      }
+      if (chartInstance) {
+        chartInstance.resize()
+      } else {
+        renderChart()
+      }
+    })
+  })
+}
+
+function setupVisibilityObserver() {
+  teardownVisibilityObserver()
+  const el = chartRef.value
+  if (!el || typeof IntersectionObserver === 'undefined') return
+  visibilityObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((e) => e.isIntersecting && e.intersectionRatio > 0)) {
+        onChartPaneVisible()
+      }
+    },
+    { threshold: 0.02 },
+  )
+  visibilityObserver.observe(el)
 }
 
 /** 容器尚未布局完成时延迟渲染；封顶避免无限 setTimeout（隐藏标签页 / 折叠面板） */
@@ -284,11 +327,13 @@ function renderChart() {
   // 确保 DOM 可见且有尺寸
   const rect = chartRef.value.getBoundingClientRect()
   if (rect.width < 10 || rect.height < 10) {
+    // 仪表盘 v-show 隐藏时尺寸为 0：挂上可见性观察，切回 tab 时再 render
+    setupVisibilityObserver()
     renderDimensionAttempts += 1
     if (renderDimensionAttempts <= RENDER_DIMENSION_ATTEMPTS_MAX) {
       setTimeout(() => renderChart(), 200)
     } else {
-      console.warn('[TensionChart] 容器尺寸长期为 0，停止重试（请展开所在面板或切换可见标签）')
+      console.warn('[TensionChart] 容器尺寸长期为 0，等待切换可见标签后重绘')
     }
     return
   }
@@ -428,6 +473,7 @@ function renderChart() {
 
   chartInstance.setOption(option, true)
   setupChartResizeObserver()
+  setupVisibilityObserver()
   chartInstance.resize()
 
   // 点击事件
@@ -463,6 +509,18 @@ function manualRefresh() {
   void loadTensionData()
 }
 
+/** 父级切到仪表盘分页时调用（容器从 display:none 恢复尺寸） */
+function relayout() {
+  renderDimensionAttempts = 0
+  if (tensionData.value.length > 0) {
+    onChartPaneVisible()
+    return
+  }
+  if (!loading.value) {
+    void loadTensionData()
+  }
+}
+
 // ==================== 监听 ====================
 watch(() => props.novelId, () => void loadTensionData())
 
@@ -484,6 +542,13 @@ watch(tensionData, () => {
   }, 100)
 })
 
+watch(chartRef, (el) => {
+  teardownVisibilityObserver()
+  if (el && evaluatedData.value.length > 0) {
+    setupVisibilityObserver()
+  }
+})
+
 // ==================== 生命周期 ====================
 onMounted(() => {
   void loadTensionData()
@@ -498,9 +563,12 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   if (resizeTimer) clearTimeout(resizeTimer)
   teardownChartResizeObserver()
+  teardownVisibilityObserver()
   chartInstance?.dispose()
   chartInstance = null
 })
+
+defineExpose({ relayout, manualRefresh })
 </script>
 
 <style scoped>
