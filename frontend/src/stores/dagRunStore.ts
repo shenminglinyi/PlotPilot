@@ -141,12 +141,10 @@ export const useDAGRunStore = defineStore('dagRun', () => {
 
       _eventSource.onerror = () => {
         sseConnected.value = false
-        // 自动重连
-        scheduleReconnect(novelId)
+        // 重连由 useDAGSSE composable 的 sseConnected watcher 统一管理
       }
     } catch (e: unknown) {
       sseError.value = e instanceof Error ? e.message : 'SSE 连接失败'
-      scheduleReconnect(novelId)
     }
   }
 
@@ -187,6 +185,11 @@ export const useDAGRunStore = defineStore('dagRun', () => {
   function onNodeOutput(cb: SSECallback) { _nodeOutputCallbacks.push(cb) }
   function onEdgeFlow(cb: SSECallback) { _edgeFlowCallbacks.push(cb) }
   function onRunComplete(cb: RunCompleteCallback) { _runCompleteCallbacks.push(cb) }
+
+  function offNodeStatusChange(cb: SSECallback) { const i = _nodeStatusCallbacks.indexOf(cb); if (i >= 0) _nodeStatusCallbacks.splice(i, 1) }
+  function offNodeOutput(cb: SSECallback) { const i = _nodeOutputCallbacks.indexOf(cb); if (i >= 0) _nodeOutputCallbacks.splice(i, 1) }
+  function offEdgeFlow(cb: SSECallback) { const i = _edgeFlowCallbacks.indexOf(cb); if (i >= 0) _edgeFlowCallbacks.splice(i, 1) }
+  function offRunComplete(cb: RunCompleteCallback) { const i = _runCompleteCallbacks.indexOf(cb); if (i >= 0) _runCompleteCallbacks.splice(i, 1) }
 
   function handleSSEMessage(event: NodeEvent) {
     // 通用消息分发
@@ -331,6 +334,10 @@ export const useDAGRunStore = defineStore('dagRun', () => {
     onNodeOutput,
     onEdgeFlow,
     onRunComplete,
+    offNodeStatusChange,
+    offNodeOutput,
+    offEdgeFlow,
+    offRunComplete,
 
     // Autopilot log bridge
     connectAutopilotLog,
