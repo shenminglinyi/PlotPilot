@@ -834,17 +834,35 @@ def _chapter_stream_poll_sync(novel_repo, chapter_repo, novel_id: str):
     return novel, chapters
 
 
-def _chapter_stream_chunks_sync(novel_id: str, max_chunks: int) -> List[str]:
+def _chapter_stream_chunks_sync(novel_id: str, max_chunks: int) -> Dict[str, Any]:
     from application.engine.services.streaming_bus import streaming_bus
 
     return streaming_bus.get_chunks_batch(novel_id, max_chunks=max_chunks)
 
 
+def _chapter_chunk_sse_metadata(batch: Dict[str, Any], beat_idx: int) -> Optional[Dict[str, Any]]:
+    """将 StreamingBus 批次转为 chapter_chunk SSE metadata（快照优先于增量拼接）。"""
+    snapshot = batch.get("content")
+    if snapshot:
+        return {"content": str(snapshot), "beat_index": beat_idx}
+    deltas = batch.get("deltas") or []
+    if not deltas:
+        return None
+    combined = "".join(deltas)
+    if not combined:
+        return None
+    return {"chunk": combined, "beat_index": beat_idx}
+
+
 def _chapter_stream_tick_sync(novel_repo, chapter_repo, novel_id: str, max_chunks: int):
     """单次轮询：DB 读取 + chunks 获取合并在同一线程池任务中，减少 asyncio.to_thread 调用次数。"""
     novel, chapters = _chapter_stream_poll_sync(novel_repo, chapter_repo, novel_id)
-    chunks = _chapter_stream_chunks_sync(novel_id, max_chunks) if novel else []
-    return novel, chapters, chunks
+    chunk_batch = (
+        _chapter_stream_chunks_sync(novel_id, max_chunks)
+        if novel
+        else {"deltas": [], "content": None}
+    )
+    return novel, chapters, chunk_batch
 
 
 def _autopilot_events_tick_sync(novel_repo, chapter_repo, novel_id: str) -> Tuple[Optional[Dict[str, Any]], bool]:
@@ -2034,7 +2052,7 @@ async def autopilot_chapter_stream(novel_id: str):
                     break
                 # 🔥 加超时保护：DB 被锁时 2 秒超时，避免线程池被阻塞线程耗尽
                 try:
-                    novel, chapters, chunks = await asyncio.wait_for(
+                    novel, chapters, chunk_batch = await asyncio.wait_for(
                         loop.run_in_executor(
                             _SSE_THREAD_POOL, _chapter_stream_tick_sync, novel_repo, chapter_repo, novel_id, 50
                         ),
@@ -2043,7 +2061,7 @@ async def autopilot_chapter_stream(novel_id: str):
                 except asyncio.TimeoutError:
                     # DB 被锁时只读 chunks（不碰 DB），前端不会卡死
                     logger.debug("SSE chapter stream tick 超时 novel=%s，跳过 DB", novel_id)
-                    chunks = _chapter_stream_chunks_sync(novel_id, 50)
+                    chunk_batch = _chapter_stream_chunks_sync(novel_id, 50)
                     novel = None
                     # 从共享内存判断是否仍在运行
                     shared = _get_shared_state_for_novel_cached(novel_id)
@@ -2056,20 +2074,16 @@ async def autopilot_chapter_stream(novel_id: str):
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                         break
                     # 仍然推送 chunks，让前端看到正文流
-                    if chunks:
-                        combined = "".join(chunks)
-                        if combined:
-                            beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
-                            event = {
-                                "type": "chapter_chunk",
-                                "message": "",
-                                "timestamp": datetime.now().isoformat(),
-                                "metadata": {
-                                    "chunk": combined,
-                                    "beat_index": beat_idx,
-                                },
-                            }
-                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
+                    chunk_meta = _chapter_chunk_sse_metadata(chunk_batch, beat_idx)
+                    if chunk_meta:
+                        event = {
+                            "type": "chapter_chunk",
+                            "message": "",
+                            "timestamp": datetime.now().isoformat(),
+                            "metadata": chunk_meta,
+                        }
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                     await asyncio.sleep(poll_interval if 'poll_interval' in dir() else 0.8)
                     continue
                 if not novel:
@@ -2147,7 +2161,9 @@ async def autopilot_chapter_stream(novel_id: str):
                             last_beats_planned_key = bp_key
 
                 # 正文撰写开始：进入 llm_calling 或已有流式 chunk（不再在 draft 创建时误报「开写」）
-                prose_started = bool(chunks) or sub_live in _PROSE_SUBSTEPS
+                prose_started = bool(
+                    (chunk_batch.get("content") or chunk_batch.get("deltas"))
+                ) or sub_live in _PROSE_SUBSTEPS
                 if novel.current_stage.value == "writing" and prose_started:
                     chapter_number = int(ch_live) if ch_live is not None else None
                     if chapter_number is None and chapters:
@@ -2172,22 +2188,17 @@ async def autopilot_chapter_stream(novel_id: str):
                     if chapter_number is not None:
                         last_chapter_number = chapter_number
 
-                if chunks:
+                if chunk_batch.get("content") or chunk_batch.get("deltas"):
                     empty_poll_count = 0
-                    # 合并小 chunks 为单个事件，减少 SSE 事件数量
-                    combined = "".join(chunks)
-                    if combined:
-                        # 🔥 优先从共享状态读取 beat_index（实时更新），而非 DB
-                        shared = _get_shared_state_for_novel_cached(novel_id)
-                        beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
+                    shared = _get_shared_state_for_novel_cached(novel_id)
+                    beat_idx = (shared.get("current_beat_index", 0) or 0) if shared else 0
+                    chunk_meta = _chapter_chunk_sse_metadata(chunk_batch, beat_idx)
+                    if chunk_meta:
                         event = {
                             "type": "chapter_chunk",
                             "message": "",
                             "timestamp": datetime.now().isoformat(),
-                            "metadata": {
-                                "chunk": combined,
-                                "beat_index": beat_idx,
-                            },
+                            "metadata": chunk_meta,
                         }
                         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 else:
