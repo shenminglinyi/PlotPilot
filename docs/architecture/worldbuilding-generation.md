@@ -82,13 +82,15 @@ class Worldbuilding:
 
 **核心矛盾**：Worldbuilding ORM 实体只有 15 个字符串槽位（3+4+3+3+3），但 LLM 在 SSE 流式生成时会产出**扩展字段**（超出 15 个的字段）。
 
-| 维度 | ORM 经典字段（3-4个） | LLM 扩展字段（3-4个额外） |
-|------|----------------------|--------------------------|
-| `core_rules` | power_system, physics_rules, magic_tech | cost_and_limitation, resource_scarcity |
-| `geography` | terrain, climate, resources, ecology | forbidden_zones, urban_core, hidden_realms |
-| `society` | politics, economy, class_system | power_structure, oppression_mechanism, class_division |
-| `culture` | history, religion, taboos | worship, oaths_and_curses |
+
+| 维度           | ORM 经典字段（3-4个）                               | LLM 扩展字段（3-4个额外）                                                      |
+| ------------ | -------------------------------------------- | --------------------------------------------------------------------- |
+| `core_rules` | power_system, physics_rules, magic_tech      | cost_and_limitation, resource_scarcity                                |
+| `geography`  | terrain, climate, resources, ecology         | forbidden_zones, urban_core, hidden_realms                            |
+| `society`    | politics, economy, class_system              | power_structure, oppression_mechanism, class_division                 |
+| `culture`    | history, religion, taboos                    | worship, oaths_and_curses                                             |
 | `daily_life` | food_clothing, language_slang, entertainment | survival_tactics, market_reality, food_and_drink, slang_and_profanity |
+
 
 ### 2.3 维度定义（_DIMENSION_DEFS）
 
@@ -162,10 +164,12 @@ _DIMENSION_DEFS = {
 
 ### 3.1 为什么需要双存储
 
-| 存储 | 表 | 容量 | 用途 |
-|------|---|------|------|
-| **Worldbuilding 表** | `worldbuilding` | 15 个经典字段 | ORM 可直接读写，用于后续人物/地点生成的上下文读取 |
-| **Bible.world_settings** | `bible` 内嵌 | 无限制（name=`维度.字段`） | 前端显示、扩展字段存储、SSE 流式写入 |
+
+| 存储                       | 表               | 容量                | 用途                          |
+| ------------------------ | --------------- | ----------------- | --------------------------- |
+| **Worldbuilding 表**      | `worldbuilding` | 15 个经典字段          | ORM 可直接读写，用于后续人物/地点生成的上下文读取 |
+| **Bible.world_settings** | `bible` 内嵌      | 无限制（name=`维度.字段`） | 前端显示、扩展字段存储、SSE 流式写入        |
+
 
 ### 3.2 双写流程
 
@@ -211,6 +215,7 @@ GET /novels/{slug}/worldbuilding
 ```
 
 **合并规则**：
+
 - Bible 侧是完整基底（含 SSE 写入的扩展字段）
 - Worldbuilding 表中非空的字段覆盖同名键（用户在面板改过的优先）
 - 扩展字段投影时合并到经典字段的最后一个，格式：`【字段key】字段值`
@@ -221,11 +226,13 @@ GET /novels/{slug}/worldbuilding
 
 ### 4.1 三种生成模式对比
 
-| 模式 | 入口 API | 生成策略 | 适用场景 |
-|------|---------|---------|---------|
-| **一次性全量** | `POST /bible/novels/{id}/generate?stage=all` | 单次 LLM 调用生成所有内容 | 向后兼容、快速生成 |
-| **分阶段异步** | 同上，`stage=worldbuilding/characters/locations` | 每阶段一次 LLM 调用 | 轮询检查状态 |
-| **SSE 流式** | `POST /bible/novels/{id}/generate-stream` | 逐维度逐 token 流式推送 | 前端实时渲染 |
+
+| 模式         | 入口 API                                        | 生成策略            | 适用场景      |
+| ---------- | --------------------------------------------- | --------------- | --------- |
+| **一次性全量**  | `POST /bible/novels/{id}/generate?stage=all`  | 单次 LLM 调用生成所有内容 | 向后兼容、快速生成 |
+| **分阶段异步**  | 同上，`stage=worldbuilding/characters/locations` | 每阶段一次 LLM 调用    | 轮询检查状态    |
+| **SSE 流式** | `POST /bible/novels/{id}/generate-stream`     | 逐维度逐 token 流式推送 | 前端实时渲染    |
+
 
 ### 4.2 分阶段生成的依赖关系
 
@@ -240,6 +247,7 @@ worldbuilding ──▶ characters ──▶ locations ──▶ knowledge
 ```
 
 **阶段参数**：
+
 - `stage=all`：一次性生成世界观+人物+地点
 - `stage=worldbuilding`：只生成世界观5维度+文风公约
 - `stage=characters`：基于已有世界观生成人物
@@ -363,22 +371,24 @@ _sse_bible_generator(novel_id, stage, bible_generator, knowledge_generator)
 
 ### 6.2 SSE 事件类型
 
-| 事件 | 数据结构 | 说明 |
-|------|---------|------|
-| `phase` | `{phase, message}` | 阶段变更通知 |
-| `data` (style) | `{type:"style", content:"..."}` | 文风公约文本 |
-| `data` (dim_chunk) | `{type:"worldbuilding_dim_chunk", dimension, chunk}` | 维度 JSON 的逐 token 片段 |
-| `data` (field) | `{type:"worldbuilding_field", dimension, field, value}` | 解析后的完整字段值 |
-| `data` (character) | `{type:"character", index, content}` | 单个人物数据 |
-| `data` (character_chunk) | `{type:"character_chunk", chunk}` | 人物 LLM 原始 token |
-| `data` (location) | `{type:"location", index, content}` | 单个地点数据 |
-| `data` (location_chunk) | `{type:"location_chunk", chunk}` | 地点 LLM 原始 token |
-| `done` | `{message, novel_id}` | 全部完成 |
-| `error` | `{message}` | 错误 |
+
+| 事件                       | 数据结构                                                    | 说明                  |
+| ------------------------ | ------------------------------------------------------- | ------------------- |
+| `phase`                  | `{phase, message}`                                      | 阶段变更通知              |
+| `data` (style)           | `{type:"style", content:"..."}`                         | 文风公约文本              |
+| `data` (dim_chunk)       | `{type:"worldbuilding_dim_chunk", dimension, chunk}`    | 维度 JSON 的逐 token 片段 |
+| `data` (field)           | `{type:"worldbuilding_field", dimension, field, value}` | 解析后的完整字段值           |
+| `data` (character)       | `{type:"character", index, content}`                    | 单个人物数据              |
+| `data` (character_chunk) | `{type:"character_chunk", chunk}`                       | 人物 LLM 原始 token     |
+| `data` (location)        | `{type:"location", index, content}`                     | 单个地点数据              |
+| `data` (location_chunk)  | `{type:"location_chunk", chunk}`                        | 地点 LLM 原始 token     |
+| `done`                   | `{message, novel_id}`                                   | 全部完成                |
+| `error`                  | `{message}`                                             | 错误                  |
+
 
 ### 6.3 逐维度流式生成细节
 
-**`_stream_single_dimension()`** 方法：
+`**_stream_single_dimension()**` 方法：
 
 ```
 输入：premise, target_chapters, dim_key, existing_worldbuilding
@@ -405,6 +415,7 @@ _sse_bible_generator(novel_id, stage, bible_generator, knowledge_generator)
 ```
 
 **LLM 输出要求**：
+
 - 必须严格按照指定的字段名输出，不要自创字段名
 - 每个字段至少 50 字
 - 字段值是纯文本字符串，不要嵌套对象
@@ -412,7 +423,7 @@ _sse_bible_generator(novel_id, stage, bible_generator, knowledge_generator)
 
 ### 6.4 逐字段流式生成
 
-**`_stream_single_field()`** 方法：
+`**_stream_single_field()`** 方法：
 
 ```
 输入：premise, target_chapters, dim_key, field_key, existing_worldbuilding, existing_dim_fields
@@ -512,15 +523,17 @@ _load_worldbuilding(novel_id)
 
 ### 8.1 世界观相关 CPMS 节点
 
-| CPMS Key | 名称 | 类别 | 变量 | 输出格式 |
-|---------|------|------|------|---------|
-| `bible-all` | Bible 全量生成 | world | premise, target_chapters | JSON |
-| `bible-worldbuilding` | 世界观+文风 | world | premise, target_chapters | JSON |
-| `bible-worldbuilding-dimension` | 单维度生成 | world | dim_label, premise, target_chapters, context_block, fields_desc | JSON |
-| `bible-worldbuilding-field` | 单字段生成 | world | dim_label, field_label_cn, premise, target_chapters, field_desc, context_block, sibling_block | 纯文本 |
-| `bible-characters` | 人物生成 | world | premise, target_chapters, worldbuilding_block | JSON |
-| `bible-locations` | 地点生成 | world | premise, target_chapters, worldbuilding_block, characters_block | JSON |
-| `bible-style-convention` | 文风公约 | world | premise, target_chapters | 纯文本 |
+
+| CPMS Key                        | 名称         | 类别    | 变量                                                                                            | 输出格式 |
+| ------------------------------- | ---------- | ----- | --------------------------------------------------------------------------------------------- | ---- |
+| `bible-all`                     | Bible 全量生成 | world | premise, target_chapters                                                                      | JSON |
+| `bible-worldbuilding`           | 世界观+文风     | world | premise, target_chapters                                                                      | JSON |
+| `bible-worldbuilding-dimension` | 单维度生成      | world | dim_label, premise, target_chapters, context_block, fields_desc                               | JSON |
+| `bible-worldbuilding-field`     | 单字段生成      | world | dim_label, field_label_cn, premise, target_chapters, field_desc, context_block, sibling_block | 纯文本  |
+| `bible-characters`              | 人物生成       | world | premise, target_chapters, worldbuilding_block                                                 | JSON |
+| `bible-locations`               | 地点生成       | world | premise, target_chapters, worldbuilding_block, characters_block                               | JSON |
+| `bible-style-convention`        | 文风公约       | world | premise, target_chapters                                                                      | 纯文本  |
+
 
 ### 8.2 三级降级策略
 
@@ -587,34 +600,40 @@ json.loads() 成功 ✓
 
 ### 10.1 世界观 CRUD
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/novels/{slug}/worldbuilding` | 获取世界观（合并读取） |
-| `POST` | `/novels/{slug}/worldbuilding` | 创建空白世界观 |
-| `PUT` | `/novels/{slug}/worldbuilding` | 更新世界观（部分更新） |
+
+| 方法     | 路径                             | 说明          |
+| ------ | ------------------------------ | ----------- |
+| `GET`  | `/novels/{slug}/worldbuilding` | 获取世界观（合并读取） |
+| `POST` | `/novels/{slug}/worldbuilding` | 创建空白世界观     |
+| `PUT`  | `/novels/{slug}/worldbuilding` | 更新世界观（部分更新） |
+
 
 ### 10.2 Bible 生成
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/bible/novels/{id}/generate?stage=all` | 异步全量生成 |
-| `POST` | `/bible/novels/{id}/generate?stage=worldbuilding` | 异步只生成世界观 |
-| `POST` | `/bible/novels/{id}/generate?stage=characters` | 异步只生成人物 |
-| `POST` | `/bible/novels/{id}/generate?stage=locations` | 异步只生成地点 |
-| `POST` | `/bible/novels/{id}/generate-stream?stage=worldbuilding` | SSE 流式生成 |
-| `GET` | `/bible/novels/{id}/bible/status` | 检查生成状态 |
-| `GET` | `/bible/novels/{id}/bible/generation-feedback` | 获取最近一次失败原因 |
+
+| 方法     | 路径                                                       | 说明         |
+| ------ | -------------------------------------------------------- | ---------- |
+| `POST` | `/bible/novels/{id}/generate?stage=all`                  | 异步全量生成     |
+| `POST` | `/bible/novels/{id}/generate?stage=worldbuilding`        | 异步只生成世界观   |
+| `POST` | `/bible/novels/{id}/generate?stage=characters`           | 异步只生成人物    |
+| `POST` | `/bible/novels/{id}/generate?stage=locations`            | 异步只生成地点    |
+| `POST` | `/bible/novels/{id}/generate-stream?stage=worldbuilding` | SSE 流式生成   |
+| `GET`  | `/bible/novels/{id}/bible/status`                        | 检查生成状态     |
+| `GET`  | `/bible/novels/{id}/bible/generation-feedback`           | 获取最近一次失败原因 |
+
 
 ### 10.3 Bible CRUD
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/bible/novels/{id}/bible` | 获取 Bible（不存在时自动创建空 Bible） |
-| `PUT` | `/bible/novels/{id}/bible` | 批量更新 Bible |
-| `POST` | `/bible/novels/{id}/bible/characters` | 添加人物 |
-| `POST` | `/bible/novels/{id}/bible/world-settings` | 添加世界设定 |
-| `POST` | `/bible/novels/{id}/bible/locations` | 添加地点 |
-| `POST` | `/bible/novels/{id}/bible/style-notes` | 添加风格笔记 |
+
+| 方法     | 路径                                        | 说明                        |
+| ------ | ----------------------------------------- | ------------------------- |
+| `GET`  | `/bible/novels/{id}/bible`                | 获取 Bible（不存在时自动创建空 Bible） |
+| `PUT`  | `/bible/novels/{id}/bible`                | 批量更新 Bible                |
+| `POST` | `/bible/novels/{id}/bible/characters`     | 添加人物                      |
+| `POST` | `/bible/novels/{id}/bible/world-settings` | 添加世界设定                    |
+| `POST` | `/bible/novels/{id}/bible/locations`      | 添加地点                      |
+| `POST` | `/bible/novels/{id}/bible/style-notes`    | 添加风格笔记                    |
+
 
 ---
 
@@ -709,30 +728,35 @@ CREATE TABLE worldbuilding (
 
 ## 13. 关键设计决策
 
-| 决策 | 选项 | 选择 | 理由 |
-|------|------|------|------|
-| 存储方式 | A.单表 B.双存储 | **B.双存储** | ORM 15槽位固定但可类型安全读写；Bible.world_settings 灵活存扩展字段 |
-| 生成粒度 | A.全量 B.逐维度 C.逐字段 | **B.逐维度为主，C可选** | 逐维度保证字段间一致性；逐字段为编辑/重生成场景预留 |
-| 上下文传递 | A.无上下文 B.全量 C.摘要 | **C.摘要** | 已生成维度的字段值摘要注入 prompt，保持跨维度一致性 |
-| 扩展字段处理 | A.丢弃 B.单独存储 C.合并到经典字段 | **C.合并到经典字段** | 投影到经典字段末尾（`【key】value`），API 兼容且不丢内容 |
-| JSON修复 | A.简单try B.多级修复 | **B.多级修复** | LLM输出不稳定（中文引号/截断/多余逗号），需健壮修复管线 |
-| 流式生成 | A.后端缓冲 B.逐token推送 | **B.逐token推送** | 前端打字机效果，同时每维度完成后推送解析后的完整字段值 |
+
+| 决策     | 选项                    | 选择              | 理由                                              |
+| ------ | --------------------- | --------------- | ----------------------------------------------- |
+| 存储方式   | A.单表 B.双存储            | **B.双存储**       | ORM 15槽位固定但可类型安全读写；Bible.world_settings 灵活存扩展字段 |
+| 生成粒度   | A.全量 B.逐维度 C.逐字段      | **B.逐维度为主，C可选** | 逐维度保证字段间一致性；逐字段为编辑/重生成场景预留                      |
+| 上下文传递  | A.无上下文 B.全量 C.摘要      | **C.摘要**        | 已生成维度的字段值摘要注入 prompt，保持跨维度一致性                   |
+| 扩展字段处理 | A.丢弃 B.单独存储 C.合并到经典字段 | **C.合并到经典字段**   | 投影到经典字段末尾（`【key】value`），API 兼容且不丢内容             |
+| JSON修复 | A.简单try B.多级修复        | **B.多级修复**      | LLM输出不稳定（中文引号/截断/多余逗号），需健壮修复管线                  |
+| 流式生成   | A.后端缓冲 B.逐token推送     | **B.逐token推送**  | 前端打字机效果，同时每维度完成后推送解析后的完整字段值                     |
+
 
 ---
 
 ## 14. 核心文件索引
 
-| 层次 | 文件 | 核心类/函数 |
-|------|------|------------|
-| 领域模型 | `domain/worldbuilding/worldbuilding.py` | `Worldbuilding` 实体 |
-| 世界观服务 | `application/world/services/worldbuilding_service.py` | `WorldbuildingService` |
-| Bible 服务 | `application/world/services/bible_service.py` | `BibleService` |
-| 自动生成器 | `application/world/services/auto_bible_generator.py` | `AutoBibleGenerator` |
-| 数据合并 | `application/world/worldbuilding_merge.py` | `merge_worldbuilding_table_and_bible_slices()` |
-| 仓储 | `infrastructure/persistence/database/worldbuilding_repository.py` | `WorldbuildingRepository` |
-| 迁移 | `infrastructure/persistence/database/migrations/add_worldbuilding.sql` | 建表 SQL |
-| CPMS维度节点 | `infrastructure/ai/prompt_packages/nodes/bible-worldbuilding-dimension/` | 维度级提示词 |
-| CPMS字段节点 | `infrastructure/ai/prompt_packages/nodes/bible-worldbuilding-field/` | 字段级提示词 |
-| API路由 | `interfaces/api/v1/world/worldbuilding_routes.py` | 世界观 CRUD |
-| API路由 | `interfaces/api/v1/world/bible.py` | Bible 生成 + SSE 流 |
-| 前端向导 | `frontend/src/components/onboarding/NovelSetupGuide.vue` | 新书设置向导 |
+
+| 层次       | 文件                                                                       | 核心类/函数                                         |
+| -------- | ------------------------------------------------------------------------ | ---------------------------------------------- |
+| 领域模型     | `domain/worldbuilding/worldbuilding.py`                                  | `Worldbuilding` 实体                             |
+| 世界观服务    | `application/world/services/worldbuilding_service.py`                    | `WorldbuildingService`                         |
+| Bible 服务 | `application/world/services/bible_service.py`                            | `BibleService`                                 |
+| 自动生成器    | `application/world/services/auto_bible_generator.py`                     | `AutoBibleGenerator`                           |
+| 数据合并     | `application/world/worldbuilding_merge.py`                               | `merge_worldbuilding_table_and_bible_slices()` |
+| 仓储       | `infrastructure/persistence/database/worldbuilding_repository.py`        | `WorldbuildingRepository`                      |
+| 迁移       | `infrastructure/persistence/database/migrations/add_worldbuilding.sql`   | 建表 SQL                                         |
+| CPMS维度节点 | `infrastructure/ai/prompt_packages/nodes/bible-worldbuilding-dimension/` | 维度级提示词                                         |
+| CPMS字段节点 | `infrastructure/ai/prompt_packages/nodes/bible-worldbuilding-field/`     | 字段级提示词                                         |
+| API路由    | `interfaces/api/v1/world/worldbuilding_routes.py`                        | 世界观 CRUD                                       |
+| API路由    | `interfaces/api/v1/world/bible.py`                                       | Bible 生成 + SSE 流                               |
+| 前端向导     | `frontend/src/components/onboarding/NovelSetupGuide.vue`                 | 新书设置向导                                         |
+
+
