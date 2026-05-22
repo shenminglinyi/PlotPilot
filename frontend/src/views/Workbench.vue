@@ -325,6 +325,12 @@ watch(
   overflow: hidden;
 }
 
+.wb-right-collapsed :deep(.n-split-pane-1) {
+  flex: 1 1 0 !important;
+  width: 0 !important;
+  max-width: none !important;
+}
+
 .wb-right-collapsed :deep(.n-split-pane-2) {
   flex: 0 0 32px !important;
   width: 32px !important;

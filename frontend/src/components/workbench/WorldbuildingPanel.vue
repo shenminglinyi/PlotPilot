@@ -258,20 +258,20 @@
 
           </n-collapse>
 
-          <!-- 冰山理论提示（折叠） -->
-          <div class="wb-tip-wrap">
-            <n-collapse>
-              <n-collapse-item title="💡 冰山理论" name="iceberg">
-                <span class="wb-iceberg-text">
-                  你可能设定了 100% 的世界观，但在正文中只需展示 10%。
-                  不要在开篇进行说明文式的"设定倾倒"，而是让主角在行动中自然触碰这些规则。
-                </span>
-              </n-collapse-item>
-            </n-collapse>
-          </div>
-
         </div>
       </n-spin>
+    </div>
+
+    <!-- ── 冰山理论 ──────────────────────────────────── -->
+    <div class="wb-iceberg-bar">
+      <div class="wb-ice-heading">
+        <n-icon size="12" class="wb-ice-bulb"><BulbOutline /></n-icon>
+        <span class="wb-ice-title">冰山理论</span>
+      </div>
+      <p class="wb-ice-body">
+        你可能设定了 100% 的世界观，但在正文中只需展示 10%。
+        不要在开篇进行说明文式的「设定倾倒」，而是让主角在行动中自然触碰这些规则。
+      </p>
     </div>
 
     <!-- ── Sticky footer ── 纯状态栏 ─────────────────── -->
@@ -293,7 +293,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
-  FlashOutline, EarthOutline, PeopleOutline, LibraryOutline, LayersOutline,
+  FlashOutline, EarthOutline, PeopleOutline, LibraryOutline, LayersOutline, BulbOutline,
 } from '@vicons/ionicons5'
 import { worldbuildingApi } from '@/api/worldbuilding'
 
@@ -556,24 +556,39 @@ onUnmounted(() => {
   color: var(--app-text-secondary);
 }
 
-/* ── Iceberg tip ────────────────────────────────────── */
-.wb-tip-wrap {
-  margin-top: 4px;
+/* ── 冰山理论 底栏 ─────────────────────────────────── */
+.wb-iceberg-bar {
+  flex-shrink: 0;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface);
+  border-left: 3px solid #0ea5e9;
 }
 
-.wb-tip-wrap :deep(.n-collapse-item) {
-  border-radius: 8px;
-  border: 1px solid var(--app-border);
-  background: var(--app-surface-subtle);
-  margin-bottom: 0;
+.wb-ice-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 5px;
 }
 
-.wb-iceberg-text {
-  font-size: 12px;
-  line-height: 1.65;
+.wb-ice-bulb {
+  color: #0ea5e9;
+  flex-shrink: 0;
+}
+
+.wb-ice-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0ea5e9;
+  letter-spacing: 0.04em;
+}
+
+.wb-ice-body {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
   color: var(--app-text-muted);
-  display: block;
-  padding: 0 2px 4px;
 }
 
 /* ── Footer status bar ──────────────────────────────── */
