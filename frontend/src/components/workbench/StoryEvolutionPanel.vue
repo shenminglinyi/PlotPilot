@@ -4,28 +4,32 @@
     <header class="story-evolution-banner" role="region" aria-label="故事演进说明">
       <div class="story-evolution-banner__head">
         <div class="story-evolution-banner__title">
-          <span class="story-evolution-banner__icon" aria-hidden="true">📈</span>
+          <n-icon size="15" class="story-evolution-banner__icon"><PulseOutline /></n-icon>
           <n-text strong>故事演进</n-text>
+          <n-tag v-if="currentChapter" size="small" round :bordered="false" type="info" style="margin-left:2px">
+            第 {{ currentChapter }} 章
+          </n-tag>
         </div>
         <n-space size="small" align="center" wrap>
-          <n-radio-group v-model:value="activeTab" size="small" style="flex-shrink:0">
-            <n-radio-button value="timeline">时间轴</n-radio-button>
-            <n-radio-button value="worldline">🌐 世界线</n-radio-button>
-          </n-radio-group>
-          <n-tag v-if="currentChapter" size="small" round :bordered="false" type="info">
-            当前第 {{ currentChapter }} 章
-          </n-tag>
-          <n-button size="tiny" secondary @click="openCharacterAnchor">角色锚点</n-button>
+          <n-button-group size="small">
+            <n-button
+              :type="activeTab === 'timeline' ? 'primary' : 'default'"
+              @click="activeTab = 'timeline'"
+            >
+              <template #icon><n-icon><ReorderFourOutline /></n-icon></template>
+              时间轴
+            </n-button>
+            <n-button
+              :type="activeTab === 'worldline' ? 'primary' : 'default'"
+              @click="activeTab = 'worldline'"
+            >
+              <template #icon><n-icon><GitNetworkOutline /></n-icon></template>
+              世界线
+            </n-button>
+          </n-button-group>
+          <n-button size="tiny" secondary @click="openCharacterAnchor">角色档案</n-button>
         </n-space>
       </div>
-      <n-text depth="3" class="story-evolution-banner__lead">
-        <template v-if="activeTab === 'timeline'">
-          左栏选故事线与阶段；中栏按章查看剧情事件与版本快照；右栏打开明细、检查点与回滚。
-        </template>
-        <template v-else>
-          世界线模式：每章自动存档，可分叉支线、Checkout 切换历史版本。
-        </template>
-      </n-text>
     </header>
 
     <!-- 世界线 DAG 模式 -->
@@ -86,6 +90,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { PulseOutline, ReorderFourOutline, GitNetworkOutline } from '@vicons/ionicons5'
 import {
   WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
   WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
@@ -193,38 +198,31 @@ function openCharacterAnchor() {
 
 .story-evolution-banner {
   flex-shrink: 0;
-  padding: 10px 12px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
   background: var(--app-surface-elevated, var(--app-surface));
 }
 
 .story-evolution-banner__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
 }
 
 .story-evolution-banner__title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 14px;
   min-width: 0;
 }
 
 .story-evolution-banner__icon {
-  font-size: 16px;
-  line-height: 1;
-}
-
-.story-evolution-banner__lead {
-  display: block;
-  font-size: 12px;
-  line-height: 1.55;
-  max-width: 72ch;
+  color: var(--color-brand);
+  opacity: 0.8;
+  flex-shrink: 0;
 }
 
 .story-evolution-panel :deep(.n-split) {

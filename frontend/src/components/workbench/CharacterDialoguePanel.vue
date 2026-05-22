@@ -13,9 +13,6 @@
           <n-button size="tiny" secondary @click="openStoryEvolution">故事演进</n-button>
         </n-space>
       </div>
-      <n-text depth="3" class="anchor-desk-banner__lead">
-        与左侧章节列表同步：有当前章时对白语料默认筛到本章；右栏含「章内生成会带上的字段」预览。选角后联动心理状态、口癖与习惯动作、四维画像；语料来自正文抽取，仅供声线校准参考。
-      </n-text>
     </header>
     <n-split direction="horizontal" :default-size="0.24" :min="0.17" :max="0.34">
       <!-- 左栏：角色导航 -->
@@ -95,18 +92,17 @@ function onSelectCharacter(characterId: string | null) {
 
 .anchor-desk-banner {
   flex-shrink: 0;
-  padding: 10px 12px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
   background: var(--app-surface-elevated, var(--app-surface));
 }
 
 .anchor-desk-banner__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
 }
 
 .anchor-desk-banner__title {

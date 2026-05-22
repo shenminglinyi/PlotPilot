@@ -27,36 +27,43 @@
           </template>
 
           <template #2>
-            <n-split
-              direction="horizontal"
-              :min="WORKBENCH_SPLIT.mainMin"
-              :max="WORKBENCH_SPLIT.mainMax"
-              :default-size="WORKBENCH_SPLIT.mainDefault"
-            >
-              <template #1>
-                <WorkArea
-                  ref="workAreaRef"
-                  :slug="slug"
-                  :book-title="bookTitle"
-                  :chapters="chapters"
-                  :current-chapter-id="currentChapterId"
-                  :chapter-content="chapterContent"
-                  :chapter-loading="chapterLoading"
-                  :generation-prefs="generationPrefs"
-                  @chapter-updated="handleChapterUpdated"
-                />
-              </template>
+            <div class="wb-main-split" :class="{ 'wb-right-collapsed': rightCollapsed }">
+              <n-split
+                direction="horizontal"
+                :min="WORKBENCH_SPLIT.mainMin"
+                :max="WORKBENCH_SPLIT.mainMax"
+                :default-size="WORKBENCH_SPLIT.mainDefault"
+              >
+                <template #1>
+                  <WorkArea
+                    ref="workAreaRef"
+                    :slug="slug"
+                    :book-title="bookTitle"
+                    :chapters="chapters"
+                    :current-chapter-id="currentChapterId"
+                    :chapter-content="chapterContent"
+                    :chapter-loading="chapterLoading"
+                    :generation-prefs="generationPrefs"
+                    @chapter-updated="handleChapterUpdated"
+                  />
+                </template>
 
-              <template #2>
-                <SettingsPanel
-                  :slug="slug"
-                  :current-panel="rightPanel"
-                  :current-chapter="currentChapter"
-                  :generation-prefs="generationPrefs"
-                  @update:current-panel="onSettingsPanelChange"
-                />
-              </template>
-            </n-split>
+                <template #2>
+                  <div v-if="rightCollapsed" class="wb-right-strip" @click="toggleRight">
+                    <span class="wb-strip-icon">◀</span>
+                  </div>
+                  <SettingsPanel
+                    v-else
+                    :slug="slug"
+                    :current-panel="rightPanel"
+                    :current-chapter="currentChapter"
+                    :generation-prefs="generationPrefs"
+                    @update:current-panel="onSettingsPanelChange"
+                    @collapse="toggleRight"
+                  />
+                </template>
+              </n-split>
+            </div>
           </template>
         </n-split>
       </div>

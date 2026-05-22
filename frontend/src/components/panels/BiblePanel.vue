@@ -528,7 +528,7 @@ function onBiblePanelSoftReload() {
   display: flex;
   flex-direction: column;
   padding: 0 12px 10px;
-  background: linear-gradient(165deg, var(--app-surface-subtle) 0%, var(--app-border) 55%, var(--app-page-bg) 100%);
+  background: linear-gradient(165deg, var(--app-surface-subtle) 0%, var(--app-border) 55%, var(--app-surface-subtle) 100%);
 }
 
 .bible-hero {
@@ -575,7 +575,7 @@ function onBiblePanelSoftReload() {
   margin: 0 0 12px;
   font-size: 12px;
   line-height: 1.65;
-  color: #475569;
+  color: var(--app-text-muted);
   max-width: 52em;
 }
 
@@ -615,7 +615,7 @@ function onBiblePanelSoftReload() {
 .bible-role-k {
   font-size: 11px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--app-text-muted);
   letter-spacing: 0.02em;
 }
 
@@ -631,7 +631,7 @@ function onBiblePanelSoftReload() {
   align-items: center;
   gap: 6px 4px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-text-muted);
   min-height: 1.5em;
 }
 
@@ -838,7 +838,7 @@ function onBiblePanelSoftReload() {
 .bcard-desc {
   font-size: 11px;
   line-height: 1.5;
-  color: #64748b;
+  color: var(--app-text-muted);
 }
 
 .bible-textarea :deep(textarea) {
@@ -872,7 +872,7 @@ function onBiblePanelSoftReload() {
 .char-label {
   font-size: 12px;
   font-weight: 600;
-  color: #475569;
+  color: var(--app-text-muted);
 }
 
 .mb-8 {

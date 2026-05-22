@@ -1,101 +1,145 @@
 <template>
-  <div class="ctx-panel">
-    <!-- 章节标题栏（取代已移除的 chapter-context-bar） -->
+  <div class="ctx-panel pp-panel">
+
+    <!-- ── 章节仪表盘 Header ──────────────────────────── -->
     <header class="ctx-header">
-      <div class="ctx-header-left">
-        <span v-if="chapterLabel" class="ctx-chapter-label">{{ chapterLabel }}</span>
-        <n-tag
-          v-if="currentChapter"
-          :type="currentChapter.word_count > 0 ? 'success' : 'default'"
-          size="tiny"
-          round
-        >
-          {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
-        </n-tag>
+      <div class="ctx-header-main">
+        <div class="ctx-chapter-row">
+          <span v-if="chapterLabel" class="ctx-chapter-label">{{ chapterLabel }}</span>
+          <span v-if="currentChapter?.word_count" class="ctx-word-count">
+            {{ currentChapter.word_count.toLocaleString() }} 字
+          </span>
+          <span
+            v-if="currentChapter"
+            class="pp-chip"
+            :class="currentChapter.word_count > 0 ? 'pp-chip--success' : 'pp-chip--muted'"
+          >{{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}</span>
+          <span v-if="!currentChapter" class="pp-chip pp-chip--muted">未选择章节</span>
+        </div>
+        <!-- 字数进度条（有目标字数时显示） -->
+        <div v-if="targetWords && currentChapter" class="ctx-progress-row">
+          <n-progress
+            type="line"
+            :percentage="wordCountPct"
+            :height="4"
+            :border-radius="2"
+            :color="wordCountPct >= 100 ? 'var(--color-success)' : 'var(--color-brand)'"
+            :rail-color="'var(--app-border)'"
+            :show-indicator="false"
+            style="flex: 1"
+          />
+          <span class="ctx-pct-label">{{ wordCountPct }}%</span>
+        </div>
       </div>
-      <n-button size="tiny" secondary :loading="loading" @click="reload">刷新</n-button>
+      <n-tooltip>
+        <template #trigger>
+          <n-button size="tiny" quaternary :loading="loading" @click="reload">
+            <template #icon><n-icon size="13"><RefreshOutline /></n-icon></template>
+          </n-button>
+        </template>
+        刷新全部数据
+      </n-tooltip>
     </header>
 
-    <div class="ctx-body">
-      <!-- 世界规则 -->
-      <section class="ctx-section">
-        <div class="section-label">
-          世界规则
-          <span class="ctx-jump" @click="$emit('jump-tab', 'worldbuilding')">编辑 →</span>
-        </div>
-        <n-spin :show="loadingWorld" size="small">
-          <n-empty v-if="!loadingWorld && !hasWorldRules" description="未填写世界规则" size="small">
-            <template #extra>
-              <n-button size="tiny" text @click="$emit('jump-tab', 'worldbuilding')">去填写 →</n-button>
-            </template>
-          </n-empty>
-          <div v-else class="rules-list">
-            <div v-if="worldRules.power_system" class="rule-row">
-              <span class="rule-key">力量体系</span>
-              <span class="rule-val">{{ worldRules.power_system }}</span>
-            </div>
-            <div v-if="worldRules.physics_rules" class="rule-row">
-              <span class="rule-key">物理规律</span>
-              <span class="rule-val">{{ worldRules.physics_rules }}</span>
-            </div>
-            <div v-if="worldRules.magic_tech" class="rule-row">
-              <span class="rule-key">魔法/科技</span>
-              <span class="rule-val">{{ worldRules.magic_tech }}</span>
-            </div>
-          </div>
-        </n-spin>
-      </section>
+    <!-- ── 主体内容 ──────────────────────────────────── -->
+    <div class="ctx-body pp-panel-content">
 
-      <!-- 人物心理 -->
-      <section class="ctx-section">
-        <div class="section-label">
-          人物心理
-          <span class="ctx-jump" @click="$emit('jump-tab', 'sandbox')">编辑 →</span>
+      <!-- 世界规则 -->
+      <div class="pp-section">
+        <div class="pp-section-header">
+          <span class="pp-section-label">世界规则</span>
+          <n-spin v-if="loadingWorld" :size="10" />
+          <span v-if="!loadingWorld && !hasWorldRules" class="pp-chip pp-chip--muted" style="margin-left:auto">未配置</span>
+          <span class="pp-jump" @click="$emit('jump-tab', 'worldbuilding')">编辑 →</span>
         </div>
-        <n-spin :show="loadingChars" size="small">
-          <n-empty v-if="!loadingChars && characters.length === 0" description="暂无角色心理档案" size="small">
-            <template #extra>
-              <n-button size="tiny" text @click="$emit('jump-tab', 'sandbox')">去填写 →</n-button>
-            </template>
-          </n-empty>
-          <div v-else class="char-list">
-            <div v-for="c in characters" :key="c.name" class="char-row">
-              <div class="char-name">{{ c.name }}</div>
-              <div v-if="c.wound" class="char-wound">
-                <span class="wound-label">伤</span>{{ c.wound }}
-              </div>
-              <div v-if="c.core_belief" class="char-belief">
-                <span class="belief-label">信</span>{{ c.core_belief }}
-              </div>
-            </div>
+        <div v-if="!loadingWorld && !hasWorldRules" class="pp-section-body" style="padding-top:6px;padding-bottom:8px">
+          <span style="font-size:12px;color:var(--app-text-muted)">暂无世界规则，</span>
+          <span class="pp-jump" style="margin-left:0;font-size:12px" @click="$emit('jump-tab', 'worldbuilding')">去填写 →</span>
+        </div>
+        <div v-else-if="hasWorldRules" class="pp-section-body">
+          <div v-if="worldRules.power_system" class="pp-kv">
+            <span class="pp-kv-key">力量体系</span>
+            <span class="pp-kv-val">{{ worldRules.power_system }}</span>
           </div>
-        </n-spin>
-      </section>
+          <div v-if="worldRules.physics_rules" class="pp-kv">
+            <span class="pp-kv-key">物理规律</span>
+            <span class="pp-kv-val">{{ worldRules.physics_rules }}</span>
+          </div>
+          <div v-if="worldRules.magic_tech" class="pp-kv">
+            <span class="pp-kv-key">魔法/科技</span>
+            <span class="pp-kv-val">{{ worldRules.magic_tech }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 人物心理 Avatar Rail -->
+      <div class="pp-section">
+        <div class="pp-section-header">
+          <span class="pp-section-label">人物心理</span>
+          <n-spin v-if="loadingChars" :size="10" />
+          <span class="pp-jump" @click="$emit('jump-tab', 'sandbox')">编辑 →</span>
+        </div>
+        <div class="pp-section-body" style="padding-top:8px;padding-bottom:8px">
+          <div v-if="!loadingChars && characters.length === 0" style="font-size:12px;color:var(--app-text-muted)">
+            暂无角色心理档案，
+            <span class="pp-jump" style="margin-left:0;font-size:12px" @click="$emit('jump-tab', 'sandbox')">去填写 →</span>
+          </div>
+          <div v-else class="pp-rail char-rail">
+            <n-tooltip
+              v-for="c in visibleChars"
+              :key="c.name"
+              placement="bottom"
+              :style="{ maxWidth: '200px' }"
+            >
+              <template #trigger>
+                <div
+                  class="pp-avatar char-avatar"
+                  :style="{ '--pp-avatar-bg': charAvatarColor(c.name) }"
+                >{{ c.name.slice(0, 2) }}</div>
+              </template>
+              <div style="font-size:12px;line-height:1.6">
+                <div style="font-weight:700;margin-bottom:3px">{{ c.name }}</div>
+                <div v-if="c.wound"><span style="color:var(--color-danger);font-weight:600">伤</span> {{ c.wound }}</div>
+                <div v-if="c.core_belief"><span style="color:var(--color-brand);font-weight:600">信</span> {{ c.core_belief }}</div>
+              </div>
+            </n-tooltip>
+            <div
+              v-if="characters.length > 5"
+              class="char-overflow"
+              @click="$emit('jump-tab', 'sandbox')"
+            >+{{ characters.length - 5 }}</div>
+          </div>
+        </div>
+      </div>
 
       <!-- 本章到期伏笔 -->
-      <section class="ctx-section">
-        <div class="section-label">
-          本章到期伏笔
-          <span v-if="dueForeshadows.length > 0" class="section-count">{{ dueForeshadows.length }}</span>
-          <span class="ctx-jump" @click="$emit('jump-tab', 'foreshadow')">管理 →</span>
+      <div class="pp-section">
+        <div class="pp-section-header">
+          <span class="pp-section-label">本章到期伏笔</span>
+          <n-spin v-if="loadingFs" :size="10" />
+          <span v-if="dueForeshadows.length > 0" class="pp-chip pp-chip--warning" style="font-size:10px">{{ dueForeshadows.length }}</span>
+          <span class="pp-jump" @click="$emit('jump-tab', 'foreshadow')">管理 →</span>
         </div>
-        <n-spin :show="loadingFs" size="small">
-          <n-empty
-            v-if="!loadingFs && dueForeshadows.length === 0"
-            description="本章无到期伏笔"
-            size="small"
-          />
-          <div v-else class="fs-list">
+        <div class="pp-section-body" style="padding:8px 12px">
+          <div v-if="!loadingFs && dueForeshadows.length === 0" style="font-size:12px;color:var(--app-text-muted);padding:4px 0">
+            本章无到期伏笔
+          </div>
+          <div v-else class="pp-card-list fs-list">
             <div
               v-for="f in dueForeshadows"
               :key="f.id"
-              class="fs-row"
-              :class="`fs-row--${f.importance}`"
+              class="pp-accent-bar fs-row"
+              :style="{
+                '--pp-accent-color': importanceAccentColor(f.importance),
+                background: f.is_priority_for_chapter ? 'var(--color-warning-dim)' : 'transparent',
+              }"
             >
-              <div class="fs-row-main">
-                <span class="fs-importance">{{ importanceLabel(f.importance) }}</span>
+              <div class="fs-row-top">
+                <span class="pp-chip" :class="importanceChipClass(f.importance)" style="font-size:10px">
+                  {{ importanceLabel(f.importance) }}
+                </span>
                 <span class="fs-question">{{ f.question }}</span>
-                <span class="fs-chapter">第{{ f.chapter }}章</span>
+                <span class="pp-chip pp-chip--muted" style="font-size:10px">第{{ f.chapter }}章</span>
               </div>
               <div class="fs-row-actions">
                 <n-button
@@ -105,9 +149,7 @@
                   :title="f.is_priority_for_chapter ? '取消本章重点' : '标为本章重点（保证进入 AI 上下文）'"
                   :loading="priorityLoadingId === f.id"
                   @click="togglePriority(f)"
-                >
-                  {{ f.is_priority_for_chapter ? '★' : '☆' }}
-                </n-button>
+                >{{ f.is_priority_for_chapter ? '★' : '☆' }}</n-button>
                 <n-button
                   size="tiny"
                   text
@@ -115,25 +157,27 @@
                   title="标记此伏笔本章已使用"
                   :loading="consumeLoadingId === f.id"
                   @click="markConsumed(f)"
-                >
-                  ✓
-                </n-button>
+                >✓</n-button>
               </div>
             </div>
           </div>
-        </n-spin>
-      </section>
+        </div>
+      </div>
 
-      <!-- 本章生成约束（写作指挥中心核心功能） -->
-      <section class="ctx-section ctx-section--hint">
-        <div class="section-label">
-          本章生成约束
-          <n-tooltip>
+      <!-- 写作指令 -->
+      <div class="ctx-hint-zone">
+        <div class="ctx-hint-header">
+          <n-icon size="13" class="ctx-hint-icon"><CreateOutline /></n-icon>
+          <span class="ctx-hint-title">写作指令</span>
+          <n-tooltip placement="top-start">
             <template #trigger>
-              <span class="hint-info-icon">?</span>
+              <span class="ctx-hint-q">?</span>
             </template>
             填写后直接注入 AI 上下文，优先于自动推断。例：男主必须得知线人被杀的消息，场景定在夜市。
           </n-tooltip>
+          <span v-if="hintSaveStatus" class="pp-chip" :class="hintStatusChipClass" style="margin-left:auto;font-size:10px">
+            {{ hintStatusLabel }}
+          </span>
         </div>
         <n-input
           v-model:value="generationHint"
@@ -141,19 +185,18 @@
           :rows="3"
           :disabled="!currentChapter"
           placeholder="此章必须发生的事、场景限定、禁止内容……直接写给 AI"
-          class="hint-input"
+          class="ctx-hint-input"
           @blur="saveHint"
         />
-        <div v-if="hintSaveStatus" class="hint-save-status" :class="`hint-save-status--${hintSaveStatus}`">
-          {{ hintSaveStatus === 'saving' ? '保存中…' : hintSaveStatus === 'saved' ? '已保存' : '保存失败' }}
-        </div>
-      </section>
+      </div>
+
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { RefreshOutline, CreateOutline } from '@vicons/ionicons5'
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { characterPsycheApi, type CharacterPsycheDTO } from '@/api/engineCore'
 import { foreshadowApi, type ForeshadowEntry } from '@/api/foreshadow'
@@ -192,6 +235,13 @@ const chapterLabel = computed(() => {
   return narrativeOrdinalLabel(ch.number, props.generationPrefs ?? undefined)
 })
 
+// ── word count progress ─────────────────────────────────────────
+const targetWords = computed(() => props.generationPrefs?.target_chapter_words ?? 0)
+const wordCountPct = computed(() => {
+  if (!targetWords.value || !props.currentChapter?.word_count) return 0
+  return Math.min(100, Math.round((props.currentChapter.word_count / targetWords.value) * 100))
+})
+
 // ── world ───────────────────────────────────────────────────────
 const loadingWorld = ref(false)
 const worldRules = ref({ power_system: '', physics_rules: '', magic_tech: '' })
@@ -219,12 +269,24 @@ async function fetchWorld() {
 // ── characters ──────────────────────────────────────────────────
 const loadingChars = ref(false)
 const characters = ref<CharacterPsycheDTO[]>([])
+const visibleChars = computed(() => characters.value.slice(0, 5))
+
+const AVATAR_COLORS = [
+  '#2563eb', '#7c3aed', '#db2777', '#dc2626',
+  '#d97706', '#059669', '#0891b2', '#65a30d',
+]
+
+function charAvatarColor(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
+}
 
 async function fetchChars() {
   loadingChars.value = true
   try {
     const res = await characterPsycheApi.list(props.slug)
-    characters.value = (res?.characters ?? []).slice(0, 5)
+    characters.value = (res?.characters ?? []).slice(0, 8)
   } catch {
     /* silent */
   } finally {
@@ -246,13 +308,37 @@ const dueForeshadows = computed(() => {
   return allPendingFs.value
     .filter(f => f.suggested_resolve_chapter != null && f.suggested_resolve_chapter <= window)
     .sort((a, b) => {
-      // 星标优先
       if (a.is_priority_for_chapter && !b.is_priority_for_chapter) return -1
       if (!a.is_priority_for_chapter && b.is_priority_for_chapter) return 1
       return (importanceOrder[b.importance] ?? 2) - (importanceOrder[a.importance] ?? 2)
     })
     .slice(0, 6)
 })
+
+function importanceLabel(imp: string): string {
+  const map: Record<string, string> = { critical: '危急', high: '重要', medium: '一般', low: '次要' }
+  return map[imp] ?? imp
+}
+
+function importanceChipClass(imp: string): string {
+  const map: Record<string, string> = {
+    critical: 'pp-chip--danger',
+    high: 'pp-chip--warning',
+    medium: 'pp-chip--brand',
+    low: 'pp-chip--muted',
+  }
+  return map[imp] ?? 'pp-chip--muted'
+}
+
+function importanceAccentColor(imp: string): string {
+  const map: Record<string, string> = {
+    critical: 'var(--color-danger)',
+    high: 'var(--color-warning)',
+    medium: 'var(--color-brand)',
+    low: 'var(--app-border)',
+  }
+  return map[imp] ?? 'var(--app-border)'
+}
 
 async function fetchForeshadows() {
   loadingFs.value = true
@@ -298,6 +384,20 @@ const generationHint = ref('')
 const hintSaveStatus = ref<'' | 'saving' | 'saved' | 'error'>('')
 let hintSaveTimer: ReturnType<typeof setTimeout> | null = null
 
+const hintStatusLabel = computed(() => {
+  if (hintSaveStatus.value === 'saving') return '保存中…'
+  if (hintSaveStatus.value === 'saved') return '已保存'
+  if (hintSaveStatus.value === 'error') return '保存失败'
+  return ''
+})
+
+const hintStatusChipClass = computed(() => {
+  if (hintSaveStatus.value === 'saving') return 'pp-chip--muted'
+  if (hintSaveStatus.value === 'saved') return 'pp-chip--success'
+  if (hintSaveStatus.value === 'error') return 'pp-chip--danger'
+  return ''
+})
+
 async function saveHint() {
   const ch = props.currentChapter?.number
   if (ch == null || !props.slug) return
@@ -312,7 +412,6 @@ async function saveHint() {
   }
 }
 
-// ── generation hint load ────────────────────────────────────────
 async function fetchHint() {
   const ch = props.currentChapter?.number
   if (ch == null || !props.slug) return
@@ -340,291 +439,206 @@ watch(() => props.currentChapter?.number, () => {
   fetchForeshadows()
   fetchHint()
 })
-
-function importanceLabel(imp: string): string {
-  const map: Record<string, string> = { critical: '关键', high: '重要', medium: '一般', low: '次要' }
-  return map[imp] ?? imp
-}
 </script>
 
 <style scoped>
 .ctx-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
+  /* pp-panel 提供 flex-col 骨架 */
 }
 
-/* 章节标题栏（替代已移除的 chapter-context-bar） */
+/* ── Header ─────────────────────────────────────────── */
 .ctx-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
+  flex-shrink: 0;
+  padding: 8px 12px;
   background: var(--app-surface);
   border-bottom: 1px solid var(--plotpilot-split-border);
-  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.ctx-header-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.ctx-header-main {
+  flex: 1;
   min-width: 0;
 }
 
+.ctx-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .ctx-chapter-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--app-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 主体滚动区 */
-.ctx-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.ctx-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ctx-section--hint {
-  border-top: 1px solid var(--plotpilot-split-border);
-  padding-top: 12px;
-  margin-top: 2px;
-}
-
-.section-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  color: var(--app-text-primary);
+  letter-spacing: 0.01em;
+}
+
+.ctx-word-count {
+  font-size: 11px;
   color: var(--app-text-muted);
-  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
 }
 
-/* 计数徽标（到期伏笔数） */
-.section-count {
-  display: inline-flex;
+.ctx-progress-row {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 14px;
-  padding: 0 4px;
-  border-radius: 7px;
-  background: var(--n-error-color, #d03050);
-  color: #fff;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.ctx-pct-label {
   font-size: 10px;
-  font-weight: 700;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-/* 快速跳转链接 */
-.ctx-jump {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--n-primary-color, #4f46e5);
-  cursor: pointer;
-  letter-spacing: 0;
-  text-transform: none;
-  opacity: 0.8;
-  transition: opacity 0.15s;
-}
-
-.ctx-jump:hover {
-  opacity: 1;
-}
-
-/* ── world rules ── */
-.rules-list {
+/* ── Body ───────────────────────────────────────────── */
+.ctx-body {
+  gap: 8px;
   display: flex;
   flex-direction: column;
+}
+
+/* ── Character avatar rail ──────────────────────────── */
+.char-rail {
+  align-items: center;
+}
+
+.char-avatar {
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+
+.char-avatar:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+.char-overflow {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--app-text-muted);
+  background: var(--app-border);
+  border-radius: 999px;
+  padding: 2px 7px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.char-overflow:hover {
+  background: var(--app-border-strong);
+  color: var(--app-text-secondary);
+}
+
+/* ── Foreshadow rows ────────────────────────────────── */
+.fs-list {
   gap: 5px;
 }
 
-.rule-row {
-  display: flex;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.rule-key {
-  flex-shrink: 0;
-  color: var(--app-text-muted);
-  width: 56px;
-}
-
-.rule-val {
-  color: var(--app-text-secondary);
-  word-break: break-all;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* ── characters ── */
-.char-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.char-row {
-  background: var(--app-surface);
-  border: 1px solid var(--plotpilot-split-border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.char-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--app-text-primary);
-  margin-bottom: 2px;
-}
-
-.char-wound,
-.char-belief {
-  font-size: 11px;
-  color: var(--app-text-secondary);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.wound-label,
-.belief-label {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  line-height: 14px;
-  text-align: center;
-  font-size: 10px;
-  font-weight: 700;
-  border-radius: 2px;
-  margin-right: 4px;
-  flex-shrink: 0;
-}
-
-.wound-label {
-  background: rgba(240, 160, 32, 0.15);
-  color: var(--n-warning-color, #f0a020);
-}
-
-.belief-label {
-  background: rgba(32, 128, 240, 0.12);
-  color: var(--n-info-color, #2080f0);
-}
-
-/* ── foreshadows ── */
-.fs-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
 .fs-row {
+  border-radius: var(--app-radius-sm, 8px);
+  padding: 6px 8px 6px 10px;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 5px 6px;
-  border-radius: 4px;
-  background: var(--app-surface);
-  border-left: 3px solid transparent;
-}
-
-.fs-row--critical { border-left-color: var(--n-error-color, #d03050); }
-.fs-row--high     { border-left-color: var(--n-warning-color, #f0a020); }
-.fs-row--medium   { border-left-color: var(--n-info-color, #2080f0); }
-.fs-row--low      { border-left-color: var(--plotpilot-split-border); }
-
-.fs-row-main {
-  display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
-  font-size: 12px;
+  transition: background 0.15s;
 }
 
-.fs-row-actions {
+.fs-row:hover {
+  background: var(--app-surface-subtle) !important;
+}
+
+.fs-row-top {
   display: flex;
-  gap: 4px;
-  justify-content: flex-end;
-  margin-top: 1px;
-}
-
-.fs-importance {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--app-text-muted);
-  width: 26px;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
 }
 
 .fs-question {
   flex: 1;
-  color: var(--app-text-secondary);
-  line-height: 1.4;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--app-text-primary);
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.fs-chapter {
+.fs-row-actions {
   flex-shrink: 0;
-  font-size: 10px;
-  color: var(--app-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
-/* ── generation hint ── */
-.hint-info-icon {
+/* ── Writing hint zone ──────────────────────────────── */
+.ctx-hint-zone {
+  border-radius: var(--app-radius-md, 10px);
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
+  border: 1px solid var(--color-brand-border, rgba(37, 99, 235, 0.18));
+  border-left: 3px solid var(--color-brand, #2563eb);
+  overflow: hidden;
+}
+
+.ctx-hint-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px 6px;
+}
+
+.ctx-hint-icon {
+  color: var(--color-brand);
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.ctx-hint-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-brand);
+}
+
+.ctx-hint-q {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-brand-border);
+  color: var(--color-brand);
+  font-size: 10px;
+  font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  border: 1px solid var(--app-text-muted);
-  font-size: 9px;
-  color: var(--app-text-muted);
-  cursor: default;
-  letter-spacing: 0;
-  text-transform: none;
-  font-weight: 700;
+  cursor: help;
+  opacity: 0.75;
 }
 
-.hint-input :deep(textarea) {
-  font-size: 12px;
-  line-height: 1.55;
+.ctx-hint-input {
+  border: none;
+  border-radius: 0;
 }
 
-.hint-save-status {
-  font-size: 11px;
-  text-align: right;
+.ctx-hint-input :deep(.n-input) {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none !important;
 }
 
-.hint-save-status--saving { color: var(--app-text-muted); }
-.hint-save-status--saved  { color: var(--n-success-color, #18a058); }
-.hint-save-status--error  { color: var(--n-error-color, #d03050); }
+.ctx-hint-input :deep(.n-input__border),
+.ctx-hint-input :deep(.n-input__state-border) {
+  display: none;
+}
 </style>

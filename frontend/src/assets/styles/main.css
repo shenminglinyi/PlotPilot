@@ -2,6 +2,8 @@
    PlotPilot 全局样式 — 颜色架构（亮色 / 暗色 / 黑金）
    ═══════════════════════════════════════════════════ */
 
+@import './workbench-panels.css';
+
 * {
   margin: 0;
   padding: 0;

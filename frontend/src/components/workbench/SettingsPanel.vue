@@ -50,6 +50,7 @@
         <ForeshadowLedgerPanel
           v-if="visited.has('foreshadow')"
           :slug="slug"
+          :current-chapter-number="currentChapter?.number ?? null"
           @pending-count="pendingForeshadowCount = $event"
         />
       </n-tab-pane>

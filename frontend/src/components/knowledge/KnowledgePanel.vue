@@ -116,14 +116,14 @@
           <div v-if="knowledgeView === 'triples'" class="kp-triples-container">
             <!-- 统计 + 操作 -->
             <n-space justify="space-between" align="center" class="kp-triples-toolbar">
-              <n-space :size="6" align="center" wrap>
+              <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
                 <template v-if="kgStats">
-                  <n-tag type="info" size="small" round>共 {{ kgStats.total_triples }} 条</n-tag>
-                  <n-tag size="small" round>高置信 {{ kgStats.confidence_distribution.high }}</n-tag>
-                  <n-tag type="warning" size="small" round>中 {{ kgStats.confidence_distribution.medium }}</n-tag>
-                  <n-tag type="error" size="small" round>低 {{ kgStats.confidence_distribution.low }}</n-tag>
+                  <span class="pp-chip pp-chip--brand" style="font-size:10px">共 {{ kgStats.total_triples }} 条</span>
+                  <span class="pp-chip pp-chip--success" style="font-size:10px">高 {{ kgStats.confidence_distribution.high }}</span>
+                  <span class="pp-chip pp-chip--warning" style="font-size:10px">中 {{ kgStats.confidence_distribution.medium }}</span>
+                  <span class="pp-chip pp-chip--danger" style="font-size:10px">低 {{ kgStats.confidence_distribution.low }}</span>
                 </template>
-              </n-space>
+              </div>
               <n-space :size="6">
                 <n-button size="tiny" secondary :loading="inferring" @click="inferAll">全书推断</n-button>
                 <n-select
@@ -142,6 +142,8 @@
                   v-for="t in triples"
                   :key="t.id"
                   class="triple-row"
+                  :data-source="t.source_type"
+                  :data-starred="t.is_starred ? 'true' : 'false'"
                 >
                   <div class="triple-body">
                     <n-tag size="tiny" round :type="t.source_type === 'manual' ? 'success' : t.source_type === 'chapter_inferred' ? 'info' : 'default'">
@@ -936,9 +938,11 @@ onUnmounted(() => {
 }
 
 .kp-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--app-text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--app-text-muted);
 }
 
 .kp-tag-tool {
@@ -1083,11 +1087,20 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 5px 8px;
+  padding: 5px 8px 5px 12px;
   border-radius: 8px;
   background: var(--app-surface-subtle);
   border: 1px solid var(--app-divider);
+  border-left: 4px solid var(--triple-accent, var(--app-border));
   font-size: 12px;
+}
+
+.triple-row[data-source="manual"] { --triple-accent: var(--color-success); }
+.triple-row[data-source="ai_generated"] { --triple-accent: #7c3aed; }
+.triple-row[data-source="chapter_inferred"] { --triple-accent: var(--color-warning); }
+.triple-row[data-starred="true"] {
+  --triple-accent: var(--color-gold, #d97706);
+  background: var(--color-gold-dim, rgba(217, 119, 6, 0.06));
 }
 .triple-body {
   display: flex;
@@ -1112,7 +1125,7 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .estate-key {
-  color: var(--text-color-3);
+  color: var(--app-text-muted);
   word-break: break-all;
 }
 .estate-val {
