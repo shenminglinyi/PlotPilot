@@ -77,9 +77,12 @@
               <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
                 <div v-for="(beat, i) in microBeats" :key="i" class="micro-beat-item">
                   <div class="micro-beat-header">
-                    <n-tag :type="getBeatTypeColor(beat.focus)" size="small" round>
+                    <span
+                      class="beat-focus-pill"
+                      :class="`beat-focus-pill--${beatFocusTone(beat.focus)}`"
+                    >
                       {{ beatFocusLabel(beat.focus) }}
-                    </n-tag>
+                    </span>
                     <n-text strong style="margin-left: 8px">节拍 {{ i + 1 }}</n-text>
                     <n-text
                       v-if="beat.target_words > 0"
@@ -95,7 +98,7 @@
                       <span class="mbc-tag">行为</span><span class="mbc-val">{{ beat.active_action }}</span>
                     </div>
                     <div v-if="beat.emotion_gap" class="mbc-row">
-                      <span class="mbc-tag">缺口</span><span class="mbc-val">{{ beat.emotion_gap }}</span>
+                      <span class="mbc-tag mbc-tag--gap">缺口</span><span class="mbc-val">{{ beat.emotion_gap }}</span>
                     </div>
                     <div v-if="beat.forbidden_drift" class="mbc-row">
                       <span class="mbc-tag mbc-tag--warn">禁止</span><span class="mbc-val mbc-val--muted">{{ beat.forbidden_drift }}</span>
@@ -290,6 +293,22 @@ function beatFocusLabel(focus: string): string {
   return key
 }
 
+type BeatFocusTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
+
+function beatFocusTone(focus: string): BeatFocusTone {
+  const toneMap: Record<string, BeatFocusTone> = {
+    sensory: 'info',
+    dialogue: 'success',
+    action: 'warning',
+    emotion: 'danger',
+    pacing: 'neutral',
+    outline_ref: 'neutral',
+    narrative_ref: 'info',
+    transition: 'info',
+  }
+  return toneMap[(focus || '').trim()] || 'neutral'
+}
+
 function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
   const out: MicroBeat[] = []
   for (const item of raw) {
@@ -411,20 +430,6 @@ const microEmptyDescription = computed(() => {
   return '暂无指挥器微观节拍：流式生成或全托管写作时将进行章前规划（outline_planning）'
 })
 
-const getBeatTypeColor = (focus: string): 'success' | 'warning' | 'error' | 'info' | 'default' => {
-  const colorMap: Record<string, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
-    sensory: 'info',
-    dialogue: 'success',
-    action: 'warning',
-    emotion: 'error',
-    pacing: 'default',
-    outline_ref: 'default',
-    narrative_ref: 'info',
-    transition: 'info',
-  }
-  return colorMap[focus] || 'default'
-}
-
 function formatTime(t: string) {
   try {
     return new Date(t).toLocaleString('zh-CN', {
@@ -540,6 +545,15 @@ onUnmounted(() => {
 
 <style scoped>
 .cc-panel {
+  --cc-accent: var(--color-brand);
+  --cc-accent-dim: var(--color-brand-light);
+  --cc-accent-border: var(--color-brand-border);
+  --cc-surface: var(--app-surface-raised, var(--app-surface));
+  --cc-surface-subtle: var(--app-surface-subtle);
+  --cc-text: var(--app-text-primary);
+  --cc-text-secondary: var(--app-text-secondary);
+  --cc-text-muted: var(--app-text-muted);
+
   padding: 0;
   height: 100%;
   min-height: 0;
@@ -587,15 +601,25 @@ onUnmounted(() => {
 /* 微观节拍 */
 .micro-beat-item {
   padding: 12px 14px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04) 0%, rgba(139, 92, 246, 0.02) 100%);
-  border: 1px solid rgba(99, 102, 241, 0.1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: var(--app-radius-md, 10px);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--cc-accent) 5%, var(--cc-surface)) 0%,
+    color-mix(in srgb, var(--color-purple) 3%, var(--cc-surface-subtle)) 100%
+  );
+  border: 1px solid var(--cc-accent-border);
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease;
 }
 
 .micro-beat-item:hover {
-  border-color: rgba(99, 102, 241, 0.2);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06) 0%, rgba(139, 92, 246, 0.04) 100%);
+  border-color: color-mix(in srgb, var(--cc-accent) 35%, var(--app-border));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--cc-accent) 8%, var(--cc-surface)) 0%,
+    color-mix(in srgb, var(--color-purple) 5%, var(--cc-surface-subtle)) 100%
+  );
 }
 
 .micro-beat-header {
@@ -604,12 +628,53 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 
+.beat-focus-pill {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  border: 1px solid transparent;
+}
+
+.beat-focus-pill--neutral {
+  background: var(--cc-accent-dim);
+  color: var(--cc-accent);
+  border-color: var(--cc-accent-border);
+}
+
+.beat-focus-pill--info {
+  background: var(--color-info-dim);
+  color: var(--color-info);
+  border-color: color-mix(in srgb, var(--color-info) 25%, transparent);
+}
+
+.beat-focus-pill--success {
+  background: var(--color-success-dim);
+  color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 25%, transparent);
+}
+
+.beat-focus-pill--warning {
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 25%, transparent);
+}
+
+.beat-focus-pill--danger {
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 25%, transparent);
+}
+
 .mbc {
   margin-top: 6px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--color-brand, #6366f1) 5%, var(--card-color, #fff));
-  border: 1px solid color-mix(in srgb, var(--color-brand, #6366f1) 18%, transparent);
+  background: color-mix(in srgb, var(--cc-accent) 5%, var(--cc-surface));
+  border: 1px solid var(--cc-accent-border);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -627,27 +692,34 @@ onUnmounted(() => {
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--color-brand, #6366f1) 14%, transparent);
-  color: var(--color-brand, #6366f1);
+  background: color-mix(in srgb, var(--cc-accent) 14%, transparent);
+  color: var(--cc-accent);
+  border: 1px solid var(--cc-accent-border);
+}
+.mbc-tag--gap {
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 25%, transparent);
 }
 .mbc-tag--warn {
-  background: rgba(239, 68, 68, 0.12);
-  color: #dc2626;
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 25%, transparent);
 }
-.mbc-val { color: var(--app-text-primary, #1e293b); }
-.mbc-val--muted { color: var(--app-text-secondary, #64748b); }
+.mbc-val { color: var(--cc-text); }
+.mbc-val--muted { color: var(--cc-text-secondary); }
 
 .micro-beat-desc {
   margin-top: 6px;
   padding-left: 12px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--n-text-color-2);
-  border-left: 2px solid var(--n-border-color);
+  color: var(--cc-text-secondary);
+  border-left: 2px solid var(--app-border);
 }
 
 .micro-beat-item:hover .micro-beat-desc {
-  border-left-color: var(--n-primary-color);
+  border-left-color: var(--cc-accent);
 }
 
 /* 审阅行 */
@@ -671,7 +743,12 @@ onUnmounted(() => {
 
 .tension-fill {
   height: 100%;
-  background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444);
+  background: linear-gradient(
+    90deg,
+    var(--color-success),
+    var(--color-warning),
+    var(--color-danger)
+  );
   border-radius: 10px;
   transition: width 0.3s ease;
 }
