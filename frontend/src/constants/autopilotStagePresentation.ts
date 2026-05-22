@@ -54,7 +54,17 @@ export function buildAutopilotStagePresentation(input: {
   audit_progress?: string | null
   isRunning: boolean
   daemonAlive: boolean
+  current_act?: number | null
 }): AutopilotStagePresentation {
+  /** 在阶段文本前拼入「第N幕·」前缀（仅幕级规划 / 撰写 / 审计时） */
+  function withAct(text: string, stage: string | undefined): string {
+    const act = input.current_act
+    if (act == null || !Number.isFinite(Number(act))) return text
+    const actDisplay = Number(act) + 1
+    const actStages = new Set(['act_planning', 'writing', 'auditing'])
+    if (!stage || !actStages.has(stage)) return text
+    return `第 ${actDisplay} 幕 · ${text}`
+  }
   const stage = input.current_stage ?? undefined
   const apStatus = input.autopilot_status ?? undefined
   const writingSubstep = String(input.writing_substep ?? '').trim()
@@ -102,12 +112,12 @@ export function buildAutopilotStagePresentation(input: {
     if (stage === 'auditing') {
       const progress = input.audit_progress
       if (progress === 'voice_check')
-        return { text: '审计中·文风检查', live: true, semantic: 'audit' }
+        return { text: withAct('审计中·文风检查', stage), live: true, semantic: 'audit' }
       if (progress === 'aftermath_pipeline')
-        return { text: '审计中·章后管线', live: true, semantic: 'audit' }
+        return { text: withAct('审计中·章后管线', stage), live: true, semantic: 'audit' }
       if (progress === 'tension_scoring')
-        return { text: '审计中·张力打分', live: true, semantic: 'audit' }
-      return { text: '审计中', live: true, semantic: 'audit' }
+        return { text: withAct('审计中·张力打分', stage), live: true, semantic: 'audit' }
+      return { text: withAct('审计中', stage), live: true, semantic: 'audit' }
     }
     if (stage === 'syncing') return { text: '数据同步中', live: true, semantic: 'sync' }
     if (writingPhase) {
@@ -118,22 +128,22 @@ export function buildAutopilotStagePresentation(input: {
         writingSubstep === 'chapter_found'
           ? 'plan'
           : semanticForRunningStage(stage)
-      return { text: writingPhase, live: true, semantic: sem }
+      return { text: withAct(writingPhase, stage), live: true, semantic: sem }
     }
     const name = (stage && STAGE_NAMES[stage]) || '待机'
-    return { text: name, live: true, semantic: semanticForRunningStage(stage) }
+    return { text: withAct(name, stage), live: true, semantic: semanticForRunningStage(stage) }
   }
 
   if (input._degraded) {
     if (stage === 'auditing') {
       const progress = input.audit_progress
       if (progress === 'voice_check')
-        return { text: '审计中·文风检查（数据同步中...）', live: false, semantic: 'audit' }
+        return { text: withAct('审计中·文风检查（数据同步中...）', stage), live: false, semantic: 'audit' }
       if (progress === 'aftermath_pipeline')
-        return { text: '审计中·章后管线（数据同步中...）', live: false, semantic: 'audit' }
+        return { text: withAct('审计中·章后管线（数据同步中...）', stage), live: false, semantic: 'audit' }
       if (progress === 'tension_scoring')
-        return { text: '审计中·张力打分（数据同步中...）', live: false, semantic: 'audit' }
-      return { text: '审计中（数据同步中...）', live: false, semantic: 'audit' }
+        return { text: withAct('审计中·张力打分（数据同步中...）', stage), live: false, semantic: 'audit' }
+      return { text: withAct('审计中（数据同步中...）', stage), live: false, semantic: 'audit' }
     }
     if (stage === 'syncing') return { text: '数据同步中...', live: false, semantic: 'sync' }
     if (writingPhase) {
@@ -144,18 +154,18 @@ export function buildAutopilotStagePresentation(input: {
         writingSubstep === 'chapter_found'
           ? 'plan'
           : semanticForRunningStage(stage)
-      return { text: `${writingPhase}（数据同步中...）`, live: false, semantic: sem }
+      return { text: withAct(`${writingPhase}（数据同步中...）`, stage), live: false, semantic: sem }
     }
     const name = (stage && STAGE_NAMES[stage]) || '待机'
-    return { text: `${name}（数据同步中...）`, live: false, semantic: semanticForRunningStage(stage) }
+    return { text: withAct(`${name}（数据同步中...）`, stage), live: false, semantic: semanticForRunningStage(stage) }
   }
 
   if (stage === 'auditing') {
     const progress = input.audit_progress
-    if (progress === 'voice_check') return { text: '审计中（文风检查）', live: false, semantic: 'audit' }
-    if (progress === 'aftermath_pipeline') return { text: '审计中（章后管线）', live: false, semantic: 'audit' }
-    if (progress === 'tension_scoring') return { text: '审计中（张力打分）', live: false, semantic: 'audit' }
-    return { text: '审计中', live: false, semantic: 'audit' }
+    if (progress === 'voice_check') return { text: withAct('审计中（文风检查）', stage), live: false, semantic: 'audit' }
+    if (progress === 'aftermath_pipeline') return { text: withAct('审计中（章后管线）', stage), live: false, semantic: 'audit' }
+    if (progress === 'tension_scoring') return { text: withAct('审计中（张力打分）', stage), live: false, semantic: 'audit' }
+    return { text: withAct('审计中', stage), live: false, semantic: 'audit' }
   }
 
   if (writingPhase) {
@@ -166,9 +176,9 @@ export function buildAutopilotStagePresentation(input: {
       writingSubstep === 'chapter_found'
         ? 'plan'
         : semanticForRunningStage(stage)
-    return { text: writingPhase, live: false, semantic: sem }
+    return { text: withAct(writingPhase, stage), live: false, semantic: sem }
   }
 
   const name = (stage && STAGE_NAMES[stage]) || '待机'
-  return { text: name, live: false, semantic: semanticForRunningStage(stage) }
+  return { text: withAct(name, stage), live: false, semantic: semanticForRunningStage(stage) }
 }

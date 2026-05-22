@@ -427,6 +427,87 @@ class BaseStoryPipeline(ABC):
 
         return StepResult.ok()
 
+    @staticmethod
+    def _merge_beats_by_target(beats: list, total_target: int) -> list:
+        """根据总目标字数智能合并节拍。
+
+        合并策略：
+        - total ≤ 1800 字 → 1 次调用（整章一气呵成）
+        - total 1800-3200 字 → 最多 2 次调用（前半 / 后半）
+        - total > 3200 字 → 保留原始节拍，但将 < 350 字的微小节拍合入相邻拍
+
+        目的：减少 LLM 调用次数，使每次调用的 max_tokens 更贴近实际目标，
+        避免多次小调用的字数偏差叠加。
+        """
+        if not beats or len(beats) <= 1:
+            return beats
+
+        def _merge_two(a, b):
+            desc_a = getattr(a, 'description', '') or ''
+            desc_b = getattr(b, 'description', '') or ''
+            desc = f"{desc_a} → {desc_b}" if (desc_a and desc_b) else (desc_a or desc_b)
+
+            cpb_a = getattr(a, 'card_prompt_block', '') or ''
+            cpb_b = getattr(b, 'card_prompt_block', '') or ''
+            cpb = (cpb_a + '\n\n' + cpb_b).strip() if (cpb_a and cpb_b) else (cpb_a or cpb_b)
+
+            focus_a = getattr(a, 'focus', 'mixed') or 'mixed'
+            focus_b = getattr(b, 'focus', 'mixed') or 'mixed'
+            focus = focus_a if focus_a == focus_b else 'mixed'
+
+            sg_a = getattr(a, 'scene_goal', '') or ''
+            sg_b = getattr(b, 'scene_goal', '') or ''
+
+            return type('Beat', (), {
+                'description': desc,
+                'target_words': (getattr(a, 'target_words', 0) or 0) + (getattr(b, 'target_words', 0) or 0),
+                'focus': focus,
+                'expansion_hints': [],
+                'scene_goal': f"{sg_a} {sg_b}".strip(),
+                'transition_from_prev': getattr(a, 'transition_from_prev', '') or '',
+                'location_id': getattr(a, 'location_id', '') or '',
+                'emotion_beat_card': getattr(a, 'emotion_beat_card', None),
+                'card_prompt_block': cpb,
+            })()
+
+        if total_target <= 1800:
+            # 整章合并为 1 拍
+            merged = beats[0]
+            for b in beats[1:]:
+                merged = _merge_two(merged, b)
+            return [merged]
+
+        if total_target <= 3200:
+            # 二分合并为 2 拍
+            mid = max(1, len(beats) // 2)
+            first = beats[0]
+            for b in beats[1:mid]:
+                first = _merge_two(first, b)
+            second = beats[mid]
+            for b in beats[mid + 1:]:
+                second = _merge_two(second, b)
+            return [first, second]
+
+        # 大章节：合并过小的 beat（< 350 字）到相邻拍
+        MIN_BEAT = 350
+        result = list(beats)
+        changed = True
+        while changed:
+            changed = False
+            new_result = []
+            i = 0
+            while i < len(result):
+                tw = getattr(result[i], 'target_words', 0) or 0
+                if tw < MIN_BEAT and i + 1 < len(result):
+                    new_result.append(_merge_two(result[i], result[i + 1]))
+                    i += 2
+                    changed = True
+                else:
+                    new_result.append(result[i])
+                    i += 1
+            result = new_result
+        return result
+
     async def _step_generate(self, ctx: PipelineContext) -> StepResult:
         """步骤4：LLM 生成（节拍级+断点续写）
 
@@ -446,6 +527,17 @@ class BaseStoryPipeline(ABC):
         accumulated_content = ctx.existing_content
         ctx.raw_beat_contents = []
 
+        # ─── 智能节拍合并（按总目标字数控制 LLM 调用次数） ────────────
+        # 仅首次生成时合并（断点续写时保留原始 beat 索引）
+        if ctx.start_beat_index == 0 and len(ctx.beats) > 1:
+            _orig_beat_count = len(ctx.beats)
+            ctx.beats = self._merge_beats_by_target(ctx.beats, ctx.target_word_count)
+            if len(ctx.beats) != _orig_beat_count:
+                logger.info(
+                    "[%s] 节拍合并: %d → %d 拍（总目标 %d 字）",
+                    ctx.novel_id, _orig_beat_count, len(ctx.beats), ctx.target_word_count,
+                )
+
         # ─── 节拍中间件初始化（StepTension / Coherence / Transition） ────
         _beat_middlewares = []
         _mw_ctx = None
@@ -461,6 +553,8 @@ class BaseStoryPipeline(ABC):
             )
         except Exception as _mw_init_err:
             logger.debug("Beat middlewares unavailable, skipping: %s", _mw_init_err)
+
+        _stopped_by_signal = False
 
         for i, beat in enumerate(ctx.beats):
             if i < ctx.start_beat_index:
@@ -516,6 +610,15 @@ class BaseStoryPipeline(ABC):
                     n_beats=n_beats,
                 )
 
+                # 停止信号检测：若本节拍被中途打断，丢弃不完整内容并退出循环
+                if self._novel_stream_should_stop(ctx.novel_id):
+                    logger.info(
+                        "[%s] 节拍 %d/%d 被停止信号中断，丢弃不完整内容，回滚到上一快照",
+                        ctx.novel_id, i + 1, n_beats,
+                    )
+                    _stopped_by_signal = True
+                    break
+
                 # 后处理
                 beat_content = self._post_process_generation(beat_content, ctx)
 
@@ -551,6 +654,12 @@ class BaseStoryPipeline(ABC):
             except Exception as e:
                 logger.warning(f"[{ctx.novel_id}] 节拍 {i+1} 生成失败: {e}")
                 # 继续下一个节拍
+
+        if _stopped_by_signal:
+            # 恢复 streaming_bus 到上一完整快照（清空显示中的不完整内容）
+            if accumulated_content:
+                self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
+            return StepResult.fail("生成被停止信号中断，不保存（下次重新生成）")
 
         ctx.chapter_content = accumulated_content or ""
         raw = accumulated_content or ""

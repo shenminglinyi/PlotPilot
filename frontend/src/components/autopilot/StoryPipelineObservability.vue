@@ -25,17 +25,22 @@
 
     <!-- 节点卡（仅在 wave 4 生成步骤时显示） -->
     <div v-if="currentIx === 4 && beatCard.active_action" class="spo-beatcard">
-      <div class="spo-beatcard__row">
-        <span class="spo-beatcard__tag">行为</span>
-        <span class="spo-beatcard__val">{{ beatCard.active_action }}</span>
+      <div class="spo-beatcard__head">
+        <span class="spo-beatcard__beat-pill">
+          节拍 {{ beatCard.beatNum }}/{{ beatCard.totalBeats || '?' }}
+        </span>
+        <span v-if="beatCard.approxWords" class="spo-beatcard__words-hint">
+          ≈{{ beatCard.approxWords }} 字/次
+        </span>
       </div>
-      <div class="spo-beatcard__row">
-        <span class="spo-beatcard__tag">缺口</span>
-        <span class="spo-beatcard__val">{{ beatCard.emotion_gap }}</span>
-      </div>
-      <div class="spo-beatcard__row">
-        <span class="spo-beatcard__tag spo-beatcard__tag--warn">禁止</span>
-        <span class="spo-beatcard__val spo-beatcard__val--muted">{{ beatCard.forbidden_drift }}</span>
+      <div class="spo-beatcard__action">{{ beatCard.active_action }}</div>
+      <div class="spo-beatcard__chips">
+        <span v-if="beatCard.emotion_gap" class="spo-beatcard__chip">
+          <em class="spo-beatcard__chip-tag">缺</em>{{ beatCard.emotion_gap }}
+        </span>
+        <span v-if="beatCard.forbidden_drift" class="spo-beatcard__chip spo-beatcard__chip--warn">
+          <em class="spo-beatcard__chip-tag">禁</em>{{ beatCard.forbidden_drift }}
+        </span>
       </div>
     </div>
 
@@ -75,6 +80,9 @@ interface StatusLike {
   beat_active_action?: string
   beat_emotion_gap?: string
   beat_forbidden_drift?: string
+  current_beat_index?: number | null
+  total_beats?: number | null
+  chapter_target_words?: number | null
 }
 
 const props = defineProps<{
@@ -138,11 +146,22 @@ const displayEvents = computed(() => {
   return e.slice(-12).reverse()
 })
 
-const beatCard = computed(() => ({
-  active_action: props.status?.beat_active_action || '',
-  emotion_gap: props.status?.beat_emotion_gap || '',
-  forbidden_drift: props.status?.beat_forbidden_drift || '',
-}))
+const beatCard = computed(() => {
+  const totalBeats = Number(props.status?.total_beats || 0)
+  const beatNum = Number(props.status?.current_beat_index ?? 0) + 1
+  const chapterTarget = Number(props.status?.chapter_target_words || 0)
+  const approxWords = totalBeats > 0 && chapterTarget > 0
+    ? Math.round(chapterTarget / totalBeats)
+    : 0
+  return {
+    active_action: props.status?.beat_active_action || '',
+    emotion_gap: props.status?.beat_emotion_gap || '',
+    forbidden_drift: props.status?.beat_forbidden_drift || '',
+    beatNum,
+    totalBeats,
+    approxWords,
+  }
+})
 
 function fmtRel(t?: number): string {
   if (typeof t !== 'number' || !Number.isFinite(t)) return '—'
@@ -316,46 +335,92 @@ function fmtRel(t?: number): string {
 
 .spo-beatcard {
   margin-top: 8px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   border-radius: var(--app-radius-sm, 8px);
   background: var(--spo-accent-dim);
   border: 1px solid var(--spo-accent-border);
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
-.spo-beatcard__row {
+/* 头部：节拍计数 + 字数估算 */
+.spo-beatcard__head {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 1.45;
+  align-items: center;
+  gap: 8px;
 }
 
-.spo-beatcard__tag {
-  flex-shrink: 0;
+.spo-beatcard__beat-pill {
   font-size: 10px;
   font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--spo-accent-dim);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--spo-accent) 15%, transparent);
   color: var(--spo-accent);
   border: 1px solid var(--spo-accent-border);
+  letter-spacing: 0.03em;
 }
 
-.spo-beatcard__tag--warn {
+.spo-beatcard__words-hint {
+  font-size: 10px;
+  color: var(--spo-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 主行为文字（2 行截断） */
+.spo-beatcard__action {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--spo-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 缺口 / 禁止 芯片行（横向，各自单行截断） */
+.spo-beatcard__chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.spo-beatcard__chip {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--spo-text-secondary);
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.spo-beatcard__chip--warn {
+  color: color-mix(in srgb, var(--spo-danger) 80%, var(--spo-text-secondary));
+}
+
+.spo-beatcard__chip-tag {
+  flex-shrink: 0;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 0px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--spo-accent) 12%, transparent);
+  color: var(--spo-accent);
+  border: 1px solid var(--spo-accent-border);
+  letter-spacing: 0.02em;
+}
+
+.spo-beatcard__chip--warn .spo-beatcard__chip-tag {
   background: var(--spo-danger-dim);
   color: var(--spo-danger);
   border-color: color-mix(in srgb, var(--spo-danger) 25%, transparent);
-}
-
-.spo-beatcard__val {
-  color: var(--spo-text);
-}
-
-.spo-beatcard__val--muted {
-  color: var(--spo-text-secondary);
 }
 
 .spo-events {

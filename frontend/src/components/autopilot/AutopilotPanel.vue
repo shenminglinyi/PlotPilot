@@ -92,10 +92,18 @@
           <template v-if="status.current_act_title">
             <span class="ap-kpi__act">{{ status.current_act_title }}</span>
           </template>
-          <template v-if="status.current_chapter_number != null && isWriting">
+          <!-- 规划阶段：显示阶段标签 -->
+          <template v-if="!isWriting && status.current_stage === 'act_planning'">
+            <span class="ap-kpi__muted">· 幕级规划</span>
+          </template>
+          <template v-else-if="!isWriting && status.current_stage === 'macro_planning'">
+            <span class="ap-kpi__muted">· 宏观规划</span>
+          </template>
+          <!-- 撰写阶段：只有 writing_substep 激活后才显示章/节拍，避免展示上一章的残留状态 -->
+          <template v-if="isWriting && status.current_chapter_number != null && status.writing_substep">
             · 第 {{ status.current_chapter_number }} 章
           </template>
-          <span v-if="isWriting" class="ap-kpi__muted">· {{ beatLabel }}</span>
+          <span v-if="isWriting && beatLabelActive" class="ap-kpi__muted">· {{ beatLabel }}</span>
         </span>
       </article>
       <article class="ap-kpi">
@@ -481,6 +489,7 @@ const stagePresentation = computed(() =>
     audit_progress: status.value?.audit_progress,
     isRunning: isRunning.value,
     daemonAlive: daemonAlive.value,
+    current_act: status.value?.current_act ?? null,
   })
 )
 
@@ -524,9 +533,15 @@ const stageTagClass = computed(() => {
 })
 
 const beatLabel = computed(() => {
-if (!isWriting.value) return ''
-const b = status.value?.current_beat_index ?? 0
-return `节拍 ${Number(b) + 1}`
+  if (!isWriting.value) return ''
+  const b = status.value?.current_beat_index ?? 0
+  return `节拍 ${Number(b) + 1}`
+})
+
+/** 只在管线实际推进节拍时显示节拍号，避免初始启动时展示上一章的残留 beat_index */
+const beatLabelActive = computed(() => {
+  const substep = status.value?.writing_substep || ''
+  return substep === 'llm_calling' || substep === 'beat_magnification'
 })
 
 /** ★ V9 细化状态：写作/审计/规划子步骤详情 */
