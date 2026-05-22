@@ -195,6 +195,94 @@ class AnthropicProvider(BaseProvider):
         except Exception as e:
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e
 
+    def _build_message_request(
+        self,
+        prompt: Prompt,
+        config: GenerationConfig,
+        *,
+        stream: bool = False,
+    ) -> tuple[str, dict[str, Any]]:
+        """构建 Messages API 请求体，供 generate / stream 共用。"""
+        model_id = require_resolved_model_id(
+            config.model,
+            self.settings.default_model,
+            provider_label="Anthropic / Claude",
+        )
+        payload: dict[str, Any] = {
+            "model": model_id,
+            "max_tokens": config.max_tokens,
+            "temperature": config.temperature,
+            "system": prompt.system,
+            "messages": [{"role": "user", "content": prompt.user}],
+        }
+        if stream:
+            payload["stream"] = True
+        payload.update(self.settings.extra_body or {})
+        return model_id, payload
+
+    @staticmethod
+    def _format_stream_error(exc: BaseException) -> str:
+        message = str(exc).strip()
+        if message:
+            return f"{type(exc).__name__}: {message}"
+        return f"{type(exc).__name__}: {exc!r}"
+
+    async def _stream_via_httpx(
+        self,
+        prompt: Prompt,
+        config: GenerationConfig,
+    ) -> AsyncIterator[str]:
+        """通过 httpx 直接解析 SSE，兼容部分网关的非标准流式响应。"""
+        base_url = self.settings.base_url or "https://api.anthropic.com"
+        url = f"{base_url}/v1/messages"
+        logger.debug("[Stream] Using httpx endpoint: %s", url)
+
+        headers = {
+            "x-api-key": self.settings.api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "claude-cli/2.1.87 (external, cli)",
+            **(self.settings.extra_headers or {}),
+        }
+        _, payload = self._build_message_request(prompt, config, stream=True)
+
+        logger.debug("[Stream] Calling %s", url)
+        async with self._stream_http_client.stream(
+            "POST",
+            url,
+            headers=headers,
+            params=self.settings.extra_query or None,
+            json=payload,
+        ) as response:
+            if response.status_code != 200:
+                error_body = await response.aread()
+                raise RuntimeError(
+                    f"API error {response.status_code}: {error_body.decode(errors='replace')}"
+                )
+
+            buffer = ""
+            async for chunk in response.aiter_text():
+                buffer += chunk.replace("\r\n", "\n")
+                while "\n\n" in buffer:
+                    event_text, buffer = buffer.split("\n\n", 1)
+                    text_content = self._parse_sse_event(event_text)
+                    if text_content:
+                        yield text_content
+
+    async def _stream_via_sdk(
+        self,
+        prompt: Prompt,
+        config: GenerationConfig,
+    ) -> AsyncIterator[str]:
+        """通过官方 SDK 流式读取，网关断开 raw SSE 时作为回退。"""
+        model_id, payload = self._build_message_request(prompt, config, stream=False)
+        logger.info("[Stream] Falling back to SDK stream for model=%s", model_id)
+        async with self.async_client.messages.stream(**payload) as stream:
+            async for text in stream.text_stream:
+                if text:
+                    yield text
+
     async def stream_generate(
         self,
         prompt: Prompt,
@@ -202,67 +290,43 @@ class AnthropicProvider(BaseProvider):
     ) -> AsyncIterator[str]:
         """流式生成内容。
 
-        直接使用 httpx 解析 SSE 流，走代理服务器（如果配置了 base_url）。
-        用于正文生成场景，支持 HTTP 代理。
+        优先 httpx 解析 SSE（兼容部分代理）；若连接被网关提前断开或零输出，
+        自动回退到 Anthropic SDK 的 stream API。
         """
-        base_url = self.settings.base_url or "https://api.anthropic.com"
-        url = f"{base_url}/v1/messages"
-        logger.debug(f"[Stream] Using endpoint: {url}")
-
-        headers = {
-            "x-api-key": self.settings.api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-            # 伪造 User-Agent 模拟 claude-cli
-            "User-Agent": "claude-cli/2.1.87 (external, cli)",
-            **(self.settings.extra_headers or {}),
-        }
-
-        model_id = require_resolved_model_id(
-            config.model,
-            self.settings.default_model,
-            provider_label="Anthropic / Claude",
-        )
-        payload = {
-            "model": model_id,
-            "max_tokens": config.max_tokens,
-            "temperature": config.temperature,
-            "system": prompt.system,
-            "messages": [{"role": "user", "content": prompt.user}],
-            "stream": True,
-        }
-        payload.update(self.settings.extra_body or {})
-
-        logger.debug(f"[Stream] Calling {url}")
+        httpx_error: Exception | None = None
+        yielded_any = False
 
         try:
-            # 使用长生命周期 client（跨请求复用连接池，避免每次 stream_generate 重建 TCP+TLS）
-            async with self._stream_http_client.stream(
-                "POST",
-                url,
-                headers=headers,
-                params=self.settings.extra_query or None,
-                json=payload,
-            ) as response:
-                if response.status_code != 200:
-                    error_body = await response.aread()
-                    raise RuntimeError(f"API error {response.status_code}: {error_body.decode()}")
-
-                buffer = ""
-                async for chunk in response.aiter_text():
-                    buffer += chunk
-
-                    # 解析 SSE 事件
-                    while "\n\n" in buffer:
-                        event_text, buffer = buffer.split("\n\n", 1)
-                        text_content = self._parse_sse_event(event_text)
-                        if text_content:
-                            yield text_content
-
+            async for chunk in self._stream_via_httpx(prompt, config):
+                yielded_any = True
+                yield chunk
         except Exception as e:
-            logger.error(f"[Stream] Failed: {e}")
-            raise RuntimeError(f"Failed to stream text: {str(e)}") from e
+            httpx_error = e
+            logger.warning(
+                "[Stream] httpx SSE failed (%s), will try SDK fallback",
+                self._format_stream_error(e),
+            )
+
+        if yielded_any:
+            return
+
+        try:
+            async for chunk in self._stream_via_sdk(prompt, config):
+                yield chunk
+        except Exception as sdk_error:
+            sdk_detail = self._format_stream_error(sdk_error)
+            if httpx_error is not None:
+                httpx_detail = self._format_stream_error(httpx_error)
+                logger.error(
+                    "[Stream] Failed: httpx=%s; sdk=%s",
+                    httpx_detail,
+                    sdk_detail,
+                )
+                raise RuntimeError(
+                    f"Failed to stream text: httpx={httpx_detail}; sdk={sdk_detail}"
+                ) from sdk_error
+            logger.error("[Stream] Failed: %s", sdk_detail)
+            raise RuntimeError(f"Failed to stream text: {sdk_detail}") from sdk_error
 
     def _parse_sse_event(self, event_text: str) -> str:
         """解析单个 SSE 事件，返回文本内容（如果有）。"""

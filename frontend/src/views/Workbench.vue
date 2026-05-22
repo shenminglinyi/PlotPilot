@@ -165,6 +165,13 @@ const handlePlanAct = (actId: string, actTitle: string) => {
   showActPlanning.value = true
 }
 
+const rightCollapsed = ref(localStorage.getItem('plotpilot.rightPanel.collapsed') === 'true')
+
+function toggleRight() {
+  rightCollapsed.value = !rightCollapsed.value
+  localStorage.setItem('plotpilot.rightPanel.collapsed', String(rightCollapsed.value))
+}
+
 const {
   bookTitle,
   chapters,
@@ -308,5 +315,46 @@ watch(
 .workbench-inner :deep(.n-split-pane-2) {
   min-height: 0;
   overflow: hidden;
+}
+
+/* ── Right sidebar collapse ─────────────────────────── */
+
+.wb-main-split {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.wb-right-collapsed :deep(.n-split-pane-2) {
+  flex: 0 0 32px !important;
+  width: 32px !important;
+  min-width: 0 !important;
+  max-width: 32px !important;
+  overflow: hidden;
+}
+
+.wb-right-collapsed :deep(.n-split__gutter) {
+  display: none !important;
+}
+
+.wb-right-strip {
+  height: 100%;
+  width: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--app-surface);
+  border-left: 1px solid var(--plotpilot-split-border);
+  color: var(--app-text-muted);
+  font-size: 12px;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.wb-right-strip:hover {
+  background: var(--plotpilot-panel-muted);
+  color: var(--app-text-primary);
 }
 </style>

@@ -33,6 +33,9 @@
       <!-- 1. 本章实体索引（仅有 currentChapter 时显示） -->
       <div v-if="currentChapterNumber != null" class="pp-section mpp-section">
         <div class="pp-section-header">
+          <div class="wb-icon-badge" style="background:#6366f1">
+            <n-icon size="14"><BookmarkOutline /></n-icon>
+          </div>
           <span class="pp-section-label">本章实体索引</span>
           <span class="pp-chip pp-chip--muted" style="font-size:10px;margin-left:4px">自动</span>
           <div style="margin-left:auto">
@@ -69,6 +72,9 @@
       <!-- 2. 道具库 -->
       <div class="pp-section mpp-section">
         <div class="pp-section-header">
+          <div class="wb-icon-badge" style="background:#f59e0b">
+            <n-icon size="14"><BriefcaseOutline /></n-icon>
+          </div>
           <span class="pp-section-label">道具库</span>
           <span v-if="propsRows.length > 0" class="pp-chip pp-chip--muted" style="font-size:10px;margin-left:4px">
             {{ propsRows.length }} 件
@@ -151,7 +157,7 @@
 import { computed, h, onMounted, ref, watch } from 'vue'
 import type { DataTableColumns } from 'naive-ui'
 import { NButton, NTooltip, useMessage } from 'naive-ui'
-import { InformationCircleOutline } from '@vicons/ionicons5'
+import { InformationCircleOutline, BookmarkOutline, BriefcaseOutline } from '@vicons/ionicons5'
 import { manuscriptApi, type BiblePropRow, type ChapterEntityMention } from '@/api/manuscript'
 import { bibleApi } from '@/api/bible'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'

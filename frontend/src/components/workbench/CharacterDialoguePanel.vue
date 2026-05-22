@@ -3,7 +3,9 @@
     <header class="anchor-desk-banner" role="region" aria-label="角色档案说明">
       <div class="anchor-desk-banner__head">
         <div class="anchor-desk-banner__title">
-          <span class="anchor-desk-banner__icon" aria-hidden="true">⚓</span>
+          <div class="anchor-icon-badge" aria-hidden="true">
+            <n-icon size="14"><PeopleOutline /></n-icon>
+          </div>
           <n-text strong>角色档案</n-text>
         </div>
         <n-space size="small" align="center" wrap>
@@ -52,6 +54,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { PeopleOutline } from '@vicons/ionicons5'
 import CharacterNavigator from './CharacterNavigator.vue'
 import DialogueCorpus from './DialogueCorpus.vue'
 import CharacterProfile from './CharacterProfile.vue'
@@ -113,9 +116,16 @@ function onSelectCharacter(characterId: string | null) {
   min-width: 0;
 }
 
-.anchor-desk-banner__icon {
-  font-size: 16px;
-  line-height: 1;
+.anchor-icon-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: #3b82f6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
 }
 
 .anchor-desk-banner__lead {

@@ -6,31 +6,7 @@
           <h3 class="bible-title">作品设定</h3>
           <n-tag size="small" round :bordered="false" class="bible-badge">Story Bible</n-tag>
         </div>
-        <p class="bible-lead">
-          <strong>梗概锁定</strong>（主线与不可违背设定）与<strong>写作公约</strong>（人称、时态、叙事距离、基调与禁区）——全书的「写什么」与「怎么写」。
-        </p>
-        <div class="bible-roles" aria-label="资料分工">
-          <div class="bible-role-item bible-role-here">
-            <span class="bible-role-k">梗概锁定</span>
-            <span class="bible-role-v">此处 · 主线与不可违背设定（全书上下文）</span>
-          </div>
-          <div class="bible-role-item">
-            <span class="bible-role-k">世界观构建</span>
-            <span class="bible-role-v">世界观 Tab · 5维度框架</span>
-          </div>
-          <div class="bible-role-item bible-role-here">
-            <span class="bible-role-k">写作风格</span>
-            <span class="bible-role-v">本书锁定 · 文风市场预设（只读标签）</span>
-          </div>
-          <div class="bible-role-item">
-            <span class="bible-role-k">角色与地点</span>
-            <span class="bible-role-v">知识库 · 三元组关系</span>
-          </div>
-          <div class="bible-role-item">
-            <span class="bible-role-k">叙事线索</span>
-            <span class="bible-role-v">故事线/时间线</span>
-          </div>
-        </div>
+        <p class="bible-lead">梗概锁定与写作公约——全书的「写什么」与「怎么写」。</p>
         <div class="bible-stats" :aria-busy="!biblePanelDataReady">
           <template v-if="biblePanelDataReady">
             <span class="bible-stat bible-stat-premise" :class="{ 'is-done': stats.premiseOk }">

@@ -11,6 +11,7 @@
       >
         {{ g.label }}
       </button>
+      <button class="tab-collapse-btn" title="收起面板" @click="emit('collapse')">▶</button>
     </div>
 
     <!-- 写作支撑组：当前语境 / 伏笔账本 / 故事演进 -->
@@ -182,6 +183,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<{
   'update:currentPanel': [panel: string]
+  'collapse': []
 }>()
 
 const initialTab = resolveTabName(props.currentPanel)
@@ -278,6 +280,25 @@ watch(() => props.currentPanel, (newVal) => {
   background: var(--plotpilot-panel-muted);
   color: var(--app-text-primary);
   font-weight: 600;
+}
+
+.tab-collapse-btn {
+  flex-shrink: 0;
+  width: 28px;
+  padding: 4px 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 11px;
+  color: var(--app-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  margin-left: auto;
+}
+
+.tab-collapse-btn:hover {
+  background: var(--plotpilot-panel-muted);
+  color: var(--app-text-primary);
 }
 
 /* Tab 标签内容（图标 + 文字 + badge） */
