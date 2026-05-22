@@ -313,6 +313,35 @@ class BaseStoryPipeline(ABC):
             except Exception:
                 ctx.voice_anchors = ""
 
+        # ─── 伏笔主动注入（T0 强制层）：本章应推进/兑现的待回收伏笔 ────
+        if ctx.foreshadowing_repository is not None:
+            try:
+                from domain.novel.value_objects.novel_id import NovelId
+                _registry = ctx.foreshadowing_repository.get_by_novel_id(NovelId(ctx.novel_id))
+                if _registry and hasattr(_registry, "subtext_entries"):
+                    _importance_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+                    _window = ctx.chapter_number + 2
+                    _due = [
+                        e for e in _registry.subtext_entries
+                        if e.status == "pending"
+                        and e.suggested_resolve_chapter is not None
+                        and e.suggested_resolve_chapter <= _window
+                    ]
+                    _due.sort(key=lambda e: _importance_rank.get(e.importance, 2), reverse=True)
+                    if _due[:3]:
+                        _lines = "\n".join(
+                            f"- {e.question}（埋于第{e.chapter}章）"
+                            for e in _due[:3]
+                        )
+                        _fshadow_block = f"\n\n=== 本章应推进的伏笔 ===\n{_lines}"
+                        ctx.context_text = (ctx.context_text or "") + _fshadow_block
+                        logger.info(
+                            "[%s] 注入 %d 条待兑现伏笔到生成上下文",
+                            ctx.novel_id, len(_due[:3]),
+                        )
+            except Exception as _fse:
+                logger.debug("伏笔注入失败（跳过）: %s", _fse)
+
         return StepResult.ok()
 
     async def _step_magnify_beats(self, ctx: PipelineContext) -> StepResult:
@@ -417,6 +446,22 @@ class BaseStoryPipeline(ABC):
         accumulated_content = ctx.existing_content
         ctx.raw_beat_contents = []
 
+        # ─── 节拍中间件初始化（StepTension / Coherence / Transition） ────
+        _beat_middlewares = []
+        _mw_ctx = None
+        try:
+            from application.engine.services.beat_middleware import (
+                init_beat_middlewares, BeatMiddlewareContext,
+            )
+            _beat_middlewares = init_beat_middlewares()
+            _mw_ctx = BeatMiddlewareContext(
+                novel_id=ctx.novel_id or "",
+                chapter_number=ctx.chapter_number,
+                total_beats=len(ctx.beats),
+            )
+        except Exception as _mw_init_err:
+            logger.debug("Beat middlewares unavailable, skipping: %s", _mw_init_err)
+
         for i, beat in enumerate(ctx.beats):
             if i < ctx.start_beat_index:
                 continue
@@ -442,11 +487,22 @@ class BaseStoryPipeline(ABC):
 
             # 构建 prompt
             prompt_text = self._build_generation_prompt(ctx, beat, i)
+            target = getattr(beat, 'target_words', ctx.target_word_count // max(len(ctx.beats), 1))
+
+            # 节拍中间件 pre_beat（注入 STEP 张力 / 连贯性 / 过渡方式）
+            if _beat_middlewares and _mw_ctx is not None:
+                _mw_ctx.beat_index = i
+                _mw_ctx.beat = beat
+                _mw_ctx.accumulated_content = accumulated_content or ""
+                for _mw in _beat_middlewares:
+                    try:
+                        prompt_text, target = _mw.pre_beat(prompt_text, target, _mw_ctx)
+                    except Exception as _mw_err:
+                        logger.debug("Middleware pre_beat skipped: %s", _mw_err)
 
             # 流式调用 LLM（推送 streaming_bus，供 Autopilot chapter-stream SSE）
             try:
                 from domain.ai.services.llm_service import GenerationConfig
-                target = getattr(beat, 'target_words', ctx.target_word_count // max(len(ctx.beats), 1))
                 max_tokens = int(target * 1.3)
                 cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
 
@@ -462,6 +518,14 @@ class BaseStoryPipeline(ABC):
 
                 # 后处理
                 beat_content = self._post_process_generation(beat_content, ctx)
+
+                # 节拍中间件 post_beat（更新连贯性上下文，供下一节拍使用）
+                if _beat_middlewares and _mw_ctx is not None:
+                    for _mw in _beat_middlewares:
+                        try:
+                            _mw_ctx = _mw.post_beat(beat_content, _mw_ctx)
+                        except Exception as _mw_err:
+                            logger.debug("Middleware post_beat skipped: %s", _mw_err)
 
                 if beat_content.strip():
                     if accumulated_content:

@@ -209,7 +209,7 @@
                   </div>
                 </n-tab-pane>
 
-                <n-tab-pane name="elements" tab="章节元素" display-directive="if">
+                <n-tab-pane name="elements" tab="本章舞台" display-directive="if">
                   <div class="elements-tab-wrap primary-tab-pane">
                     <ChapterElementPanel
                       :slug="slug"
@@ -227,55 +227,73 @@
 
           <template #rail>
             <div class="rail-column">
-            <div class="rail-head">
-              <n-text strong style="font-size: 13px">本章任务与状态</n-text>
-              <n-button v-if="!desk.stacked" quaternary circle size="small" @click="desk.toggleRail()" title="收起侧栏">
-                <template #icon>
-                  <ChevronForwardOutline />
-                </template>
-              </n-button>
-            </div>
-            <n-scrollbar class="rail-scroll">
-              <div class="rail-scroll-pad">
-                <AutopilotWritingStream
-                  v-if="isAutopilotRunning && (streamingContent || isAutopilotWriting)"
-                  class="wa-inline-stream"
-                  :writing-content="streamingContent"
-                  :writing-chapter-number="streamingChapterNumber ?? undefined"
-                  :writing-beat-index="streamingBeatIndex"
-                  :writing-substep="String(autopilotStatus?.writing_substep || '')"
-                  :writing-substep-label="String(autopilotStatus?.writing_substep_label || '')"
-                  :total-beats="Number(autopilotStatus?.total_beats || 0)"
-                  :accumulated-words="Number(autopilotStatus?.accumulated_words || 0)"
-                  :chapter-target-words="Number(autopilotStatus?.chapter_target_words || 0)"
-                  :beat-focus="String(autopilotStatus?.beat_focus || '')"
-                  :is-writing-phase="isAutopilotWriting"
-                  :status-chapter-number="streamingChapterNumber"
-                />
-                <ChapterContentPanel
-                  :slug="slug"
-                  :current-chapter-number="currentChapter?.number ?? null"
-                  :read-only="isAssistedReadOnly"
-                  :autopilot-chapter-review="autopilotChapterReview"
-                  :assist-stream-beat-session="railAssistBeatSession"
-                  :assist-stream-failed-chapter="assistStreamFailedChapter"
-                  :assist-stream-plan-failed-chapter="assistStreamPlanFailedChapter"
-                  :autopilot-outline-plan-failed="autopilotOutlinePlanFailedForRail"
-                  :assist-stream-completed-chapter="lastQcChapterNumber"
-                  :beat-tab-bump="beatTabBump"
-                />
-                <ChapterStatusPanel
-                  :slug="slug"
-                  :chapter="currentChapter"
-                  :read-only="isAssistedReadOnly"
-                  :last-workflow-result="lastWorkflowResult"
-                  :qc-chapter-number="lastQcChapterNumber"
-                  :autopilot-chapter-review="autopilotChapterReview"
-                  @clear-qc="clearWorkflowQc"
-                  @go-editor="focusManuscriptEditor"
-                />
+              <div class="rail-head">
+                <n-text strong style="font-size: 13px">本章任务与状态</n-text>
+                <n-button v-if="!desk.stacked" quaternary circle size="small" @click="desk.toggleRail()" title="收起侧栏">
+                  <template #icon>
+                    <ChevronForwardOutline />
+                  </template>
+                </n-button>
               </div>
-            </n-scrollbar>
+              <!-- 写作流（始终置顶，覆盖两个 tab） -->
+              <AutopilotWritingStream
+                v-if="isAutopilotRunning && (streamingContent || isAutopilotWriting)"
+                class="wa-inline-stream rail-stream-bar"
+                :writing-content="streamingContent"
+                :writing-chapter-number="streamingChapterNumber ?? undefined"
+                :writing-beat-index="streamingBeatIndex"
+                :writing-substep="String(autopilotStatus?.writing_substep || '')"
+                :writing-substep-label="String(autopilotStatus?.writing_substep_label || '')"
+                :total-beats="Number(autopilotStatus?.total_beats || 0)"
+                :accumulated-words="Number(autopilotStatus?.accumulated_words || 0)"
+                :chapter-target-words="Number(autopilotStatus?.chapter_target_words || 0)"
+                :beat-focus="String(autopilotStatus?.beat_focus || '')"
+                :is-writing-phase="isAutopilotWriting"
+                :status-chapter-number="streamingChapterNumber"
+              />
+              <!-- 2-tab: 规划 / 状态 -->
+              <n-tabs
+                v-model:value="railActiveTab"
+                type="line"
+                size="small"
+                class="rail-tabs"
+                :tabs-padding="4"
+              >
+                <n-tab-pane name="plan" tab="规划" display-directive="if">
+                  <n-scrollbar class="rail-tab-scroll">
+                    <div class="rail-scroll-pad">
+                      <ChapterContentPanel
+                        :slug="slug"
+                        :current-chapter-number="currentChapter?.number ?? null"
+                        :read-only="isAssistedReadOnly"
+                        :autopilot-chapter-review="autopilotChapterReview"
+                        :assist-stream-beat-session="railAssistBeatSession"
+                        :assist-stream-failed-chapter="assistStreamFailedChapter"
+                        :assist-stream-plan-failed-chapter="assistStreamPlanFailedChapter"
+                        :autopilot-outline-plan-failed="autopilotOutlinePlanFailedForRail"
+                        :assist-stream-completed-chapter="lastQcChapterNumber"
+                        :beat-tab-bump="beatTabBump"
+                      />
+                    </div>
+                  </n-scrollbar>
+                </n-tab-pane>
+                <n-tab-pane name="status" tab="状态" display-directive="if">
+                  <n-scrollbar class="rail-tab-scroll">
+                    <div class="rail-scroll-pad">
+                      <ChapterStatusPanel
+                        :slug="slug"
+                        :chapter="currentChapter"
+                        :read-only="isAssistedReadOnly"
+                        :last-workflow-result="lastWorkflowResult"
+                        :qc-chapter-number="lastQcChapterNumber"
+                        :autopilot-chapter-review="autopilotChapterReview"
+                        @clear-qc="clearWorkflowQc"
+                        @go-editor="focusManuscriptEditor"
+                      />
+                    </div>
+                  </n-scrollbar>
+                </n-tab-pane>
+              </n-tabs>
             </div>
           </template>
 
@@ -783,6 +801,7 @@ const workbenchRefresh = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(workbenchRefresh)
 
 const primaryDeskTab = ref<PrimaryChapterDeskTab>('manuscript')
+const railActiveTab = ref<'plan' | 'status'>('plan')
 const showGuardrailModal = ref(false)
 const showTraceModal = ref(false)
 const guardrailSnapshot = ref<GuardrailCheckResponse | null>(null)
@@ -2047,6 +2066,54 @@ defineExpose({ ensureAssistedMode, streamingChapterNumber, writingPipelineStep }
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* rail 2-tab layout */
+.rail-stream-bar {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.rail-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rail-tabs :deep(.n-tabs-nav) {
+  padding: 0 8px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--plotpilot-split-border);
+  flex-shrink: 0;
+}
+
+.rail-tabs :deep(.n-tabs-content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rail-tabs :deep(.n-tabs-content-wrapper) {
+  height: 100%;
+  overflow: hidden;
+}
+
+.rail-tabs :deep(.n-tabs-pane-wrapper) {
+  height: 100%;
+  overflow: hidden;
+}
+
+.rail-tabs :deep(.n-tab-pane) {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.rail-tab-scroll {
+  flex: 1;
+  min-height: 0;
 }
 
 .rail-icon-btn {

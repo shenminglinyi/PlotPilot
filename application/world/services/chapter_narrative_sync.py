@@ -279,6 +279,9 @@ async def llm_chapter_extract_bundle(
     mutations_raw = data.get("character_mutations") or []
     if not isinstance(mutations_raw, list):
         mutations_raw = []
+    states_raw = data.get("character_states") or []
+    if not isinstance(states_raw, list):
+        states_raw = []
 
     return {
         "summary": str(data.get("summary", "")).strip(),
@@ -295,6 +298,7 @@ async def llm_chapter_extract_bundle(
         "timeline_events": timeline_raw[:5],
         "causal_edges": [{"data": c, "status": "pending"} for c in causal_raw[:3]],
         "character_mutations": [{"data": m, "status": "pending"} for m in mutations_raw[:3]],
+        "character_states": states_raw[:5],
         # V9: 新增提取元数据，记录提取时的元信息
         "_meta": {
             "extract_version": "v9",
@@ -876,6 +880,86 @@ def persist_character_mutations(
         logger.info("人物状态突变落库完成 novel=%s ch=%s processed=%d", novel_id, chapter_number, processed)
 
     return processed
+
+
+def persist_character_end_states(
+    novel_id: str,
+    chapter_number: int,
+    bundle: dict,
+    character_state_repository: Any,
+    bible_repository: Any = None,
+) -> int:
+    """将 bundle 中的 character_states（章末心理状态快照）写入 character_states 表。
+
+    每个角色更新 current_state_summary 并追加一个 EmotionalArcNode，
+    供 CurrentChapterContextPanel 读取显示「本章人物状态」。
+    """
+    if not character_state_repository:
+        return 0
+
+    states_raw = bundle.get("character_states") or []
+    if not states_raw:
+        return 0
+
+    from domain.novel.value_objects.character_state import (
+        CharacterState, EmotionalArcNode,
+    )
+
+    name_to_id: Dict[str, str] = {}
+    if bible_repository:
+        try:
+            from domain.novel.value_objects.novel_id import NovelId
+            bible = bible_repository.get_by_novel_id(NovelId(novel_id))
+            if bible and bible.characters:
+                for char in bible.characters:
+                    cid = char.character_id.value if hasattr(char.character_id, 'value') else str(char.character_id)
+                    name_to_id[char.name] = cid
+        except Exception as e:
+            logger.debug("Bible 加载失败，章末状态无法关联 character_id: %s", e)
+
+    saved = 0
+    for item in states_raw:
+        if not isinstance(item, dict):
+            continue
+        character_name = str(item.get("character_name", "")).strip()
+        mental_state = str(item.get("mental_state", "")).strip()
+        if not (character_name and mental_state):
+            continue
+
+        character_id = name_to_id.get(character_name, character_name)
+
+        state = character_state_repository.get(character_id, novel_id)
+        if not state:
+            state = CharacterState(
+                character_id=character_id,
+                novel_id=novel_id,
+                last_updated_chapter=chapter_number,
+            )
+
+        arc_node = EmotionalArcNode(
+            chapter=chapter_number,
+            emotion=mental_state,
+            trigger="章末状态快照",
+            intensity=5.0,
+            is_breakout=False,
+        )
+        state.add_emotional_arc_node(arc_node)
+        state.current_state_summary = mental_state
+        state.last_updated_chapter = chapter_number
+
+        try:
+            character_state_repository.save(state)
+            saved += 1
+            logger.debug(
+                "章末人物状态已落库 novel=%s ch=%s char=%s state=%s",
+                novel_id, chapter_number, character_name, mental_state[:30],
+            )
+        except Exception as e:
+            logger.debug("章末人物状态落库跳过: %s", e)
+
+    if saved > 0:
+        logger.info("章末人物状态落库完成 novel=%s ch=%s saved=%d", novel_id, chapter_number, saved)
+    return saved
 
 
 def _build_state_summary(state: Any) -> str:
@@ -1946,6 +2030,14 @@ async def sync_chapter_narrative_after_save(
         except Exception as e:
             logger.warning(
                 "人物状态突变落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+            )
+        try:
+            persist_character_end_states(
+                novel_id, chapter_number, bundle, character_state_repository, bible_repository
+            )
+        except Exception as e:
+            logger.warning(
+                "章末人物状态落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
 
     if debt_repository is not None:

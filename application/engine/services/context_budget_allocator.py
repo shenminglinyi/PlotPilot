@@ -791,8 +791,48 @@ class ContextBudgetAllocator:
             except Exception as _sl_err:
                 logger.warning(f"故事线上下文构建失败: {_sl_err}")
 
+        # ── T1: 世界核心规则（力量体系/物理规律/魔法机制）── priority=71 ──
+        # 单独抽出三个最高约束字段，确保预算压缩时仍清晰可见；
+        # narrative_contract 含全部五维但混合文风/文化，此槽位专注硬规则。
+        worldbuilding_core = self._build_worldbuilding_core_slot(novel_id)
+        if worldbuilding_core:
+            slots["worldbuilding_core"] = ContextSlot(
+                name="🌍世界核心规则(WORLD_RULES)",
+                tier=PriorityTier.T1_COMPRESSIBLE,
+                content=worldbuilding_core,
+                tokens=self.estimate_tokens(worldbuilding_core),
+                max_tokens=600,
+                priority=71,
+            )
+
         return slots
     
+    def _build_worldbuilding_core_slot(self, novel_id: str) -> str:
+        """提取世界观三个核心硬规则字段：力量体系 / 物理规律 / 魔法机制。
+
+        narrative_contract 含全部五维，但混合了文风公约和文化细节。
+        此方法单独格式化最高约束优先级的三个字段，供 T1 专用槽位注入。
+        """
+        if not self.worldbuilding_repo:
+            return ""
+        try:
+            wb = self.worldbuilding_repo.get_by_novel_id(novel_id)
+            if wb is None:
+                return ""
+            parts = []
+            if wb.power_system and wb.power_system.strip():
+                parts.append(f"【力量体系】{wb.power_system.strip()}")
+            if wb.physics_rules and wb.physics_rules.strip():
+                parts.append(f"【物理规律】{wb.physics_rules.strip()}")
+            if wb.magic_tech and wb.magic_tech.strip():
+                parts.append(f"【魔法/科技机制】{wb.magic_tech.strip()}")
+            if not parts:
+                return ""
+            return "=== 世界规则 ===\n" + "\n".join(parts)
+        except Exception as e:
+            logger.warning(f"世界核心规则构建失败: {e}")
+            return ""
+
     def _truncate_t0_slots(self, t0_slots: Dict[str, ContextSlot], budget: int) -> int:
         """极端情况：截断 T0 内容"""
         total = 0

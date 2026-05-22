@@ -21,6 +21,12 @@
       :tabs-padding="4"
       @update:value="onTabsUpdateValue"
     >
+      <n-tab-pane name="context" tab="当前语境" display-directive="if">
+        <CurrentChapterContextPanel
+          :slug="slug"
+          :current-chapter="currentChapter?.number ?? null"
+        />
+      </n-tab-pane>
       <n-tab-pane name="bible" tab="作品设定" display-directive="if">
         <BiblePanel :slug="slug" :reload-nonce="bibleReloadNonce" />
       </n-tab-pane>
@@ -58,11 +64,13 @@ import WorldbuildingPanel from './WorldbuildingPanel.vue'
 import StoryEvolutionPanel from './StoryEvolutionPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import CharacterDialoguePanel from './CharacterDialoguePanel.vue'
+import CurrentChapterContextPanel from './CurrentChapterContextPanel.vue'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeOrdinalLabel } from '@/utils/narrativeUnitLabel'
 
 /** 所有合法 tab 名 */
 const ALL_TABS = new Set([
+  'context',
   'props',
   'bible', 'worldbuilding', 'knowledge',
   'story-evolution',
@@ -84,9 +92,9 @@ const LEGACY_TAB_MAP: Record<string, string> = {
 }
 
 function resolveTab(panel: string | undefined): string {
-  if (!panel) return 'bible'
+  if (!panel) return 'context'
   if (ALL_TABS.has(panel)) return panel
-  return LEGACY_TAB_MAP[panel] ?? 'bible'
+  return LEGACY_TAB_MAP[panel] ?? 'context'
 }
 
 interface Chapter {
@@ -104,7 +112,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  currentPanel: 'bible',
+  currentPanel: 'context',
   currentChapter: null,
   generationPrefs: null,
 })

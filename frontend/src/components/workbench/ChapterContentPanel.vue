@@ -116,60 +116,6 @@
           未在结构树中找到第 {{ currentChapterNumber }} 章的规划节点
         </n-alert>
 
-        <!-- 全托管管线摘要 -->
-        <n-card
-          v-if="autopilotChapterReview && currentChapterNumber === autopilotChapterReview.chapter_number"
-          size="small"
-          :bordered="true"
-        >
-          <template #header>
-            <span class="card-title">🤖 自动审阅</span>
-          </template>
-          <n-space vertical :size="8">
-            <div class="review-row">
-              <n-text depth="3">张力</n-text>
-              <div class="tension-bar">
-                <div class="tension-fill" :style="{ width: `${autopilotChapterReview.tension * 10}%` }"></div>
-                <n-text class="tension-value">{{ autopilotChapterReview.tension }}/10</n-text>
-              </div>
-            </div>
-            <div class="review-row">
-              <n-text depth="3">叙事同步</n-text>
-              <n-tag
-                :type="autopilotChapterReview.narrative_sync_ok ? 'success' : 'warning'"
-                size="small"
-                round
-              >
-                {{ autopilotChapterReview.narrative_sync_ok ? '已落库' : '异常' }}
-              </n-tag>
-            </div>
-            <div class="review-row">
-              <n-text depth="3">文风相似度</n-text>
-              <n-text v-if="autopilotChapterReview.similarity_score != null">
-                {{ Number(autopilotChapterReview.similarity_score).toFixed(3) }}
-              </n-text>
-              <n-text v-else depth="3" style="font-size: 12px">
-                指纹不足（需 ≥10 样本）
-              </n-text>
-            </div>
-            <div class="review-row">
-              <n-text depth="3">漂移告警</n-text>
-              <n-tag
-                v-if="autopilotChapterReview.similarity_score != null"
-                :type="autopilotChapterReview.drift_alert ? 'error' : 'success'"
-                size="small"
-                round
-              >
-                {{ autopilotChapterReview.drift_alert ? '是' : '否' }}
-              </n-tag>
-              <n-tag v-else type="default" size="small" round>待采样</n-tag>
-            </div>
-            <div v-if="autopilotChapterReview.at" class="review-row">
-              <n-text depth="3">审阅时间</n-text>
-              <n-text depth="3" style="font-size: 12px">{{ formatTime(autopilotChapterReview.at) }}</n-text>
-            </div>
-          </n-space>
-        </n-card>
       </n-space>
     </n-scrollbar>
   </div>
