@@ -92,6 +92,11 @@ class ExportService:
             chapters = self.chapter_repository.list_by_novel(NovelId(novel_id))
             chapters.sort(key=lambda x: x.number)
             logger.info("导出: %s, 章节数 %s", novel.title, len(chapters))
+            # ★ 修复 #143：记录每章内容长度，便于排查导出内容为空的问题
+            for ch_debug in chapters:
+                ch_len = len(ch_debug.content or "")
+                if ch_len == 0:
+                    logger.warning("导出警告: 章节 %d (%s) 内容为空", ch_debug.number, ch_debug.title or "无标题")
             if format == "epub":
                 result = self._export_to_epub(novel, chapters)
             elif format == "pdf":
@@ -192,7 +197,9 @@ class ExportService:
 
         book.toc = tuple([intro] + spine_items[1:])
         book.add_item(epub.EpubNcx())
-        # 不使用空 EpubNav（ebooklib 生成 nav 时会解析正文，空文档会触发 lxml Document is empty）
+        # ★ 修复 #143：添加 EpubNav 导航文档（EPUB 3 标准要求）
+        # 缺失 nav 文档会导致部分阅读器只显示目录而无法加载正文内容
+        book.add_item(epub.EpubNav())
         book.spine = spine_items
 
         tmp_path: Optional[str] = None
