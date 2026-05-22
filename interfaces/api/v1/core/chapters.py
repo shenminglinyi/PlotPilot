@@ -290,6 +290,25 @@ async def update_chapter(
     return chapter
 
 
+class UpdateChapterHintRequest(BaseModel):
+    """更新章节生成约束请求"""
+    generation_hint: str = Field(default="", max_length=2000, description="用户手写的本章生成约束文本")
+
+
+@router.patch("/{novel_id}/chapters/{chapter_number}/hint", response_model=ChapterDTO)
+async def update_chapter_hint(
+    novel_id: str,
+    request: UpdateChapterHintRequest,
+    chapter_number: int = Path(..., gt=0, description="章节编号"),
+    service: ChapterService = Depends(get_chapter_service),
+):
+    """更新章节生成约束文本，直接注入 AI 上下文（不触发章后管线）。"""
+    try:
+        return service.update_chapter_generation_hint(novel_id, chapter_number, request.generation_hint)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{novel_id}/chapters/{chapter_number}/review", response_model=ChapterReviewResponse)
 async def get_chapter_review(
     novel_id: str,

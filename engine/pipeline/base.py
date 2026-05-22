@@ -29,8 +29,13 @@ logger = logging.getLogger(__name__)
 
 # domain.ai.Prompt 要求 system/user 均非空；管线把指令放在 user 侧，system 仅作最小角色锚定。
 _DEFAULT_PIPELINE_SYSTEM_PROMPT = (
-    "你是专业网络小说作者。仅根据用户给出的上下文与节拍要求撰写中文正文；"
-    "不要输出思考过程、元评论或重复用户指令。"
+    "你是一位正在埋头创作的中文网络小说作者，此刻的任务只有一个：按给定的节拍简报写出正文段落。\n\n"
+    "铁律（违反即判定为输出失败）：\n"
+    "1. 只输出故事正文，不得输出任何分析、点评、建议、问题、说明或思维过程。\n"
+    "2. 不得重复、引用或解释节拍简报里的任何指令文字。\n"
+    "3. 不得以「作为一名AI」、「根据你的设定」、「我注意到」、「建议」等词语开头或出现在正文中。\n"
+    "4. 用白描手法写——情绪通过动作与感官细节体现，不写'他感到愤怒'，写'他端起杯子又放下'。\n"
+    "5. 下笔即是正文第一个字，收笔即是正文最后一个字，中间没有标题、序号、换行空白。"
 )
 
 
@@ -445,11 +450,24 @@ class BaseStoryPipeline(ABC):
         def _merge_two(a, b):
             desc_a = getattr(a, 'description', '') or ''
             desc_b = getattr(b, 'description', '') or ''
-            desc = f"{desc_a} → {desc_b}" if (desc_a and desc_b) else (desc_a or desc_b)
+            # 保留分节线，让 LLM 知道是两段相连叙事而非一个混合大纲
+            if desc_a and desc_b:
+                desc = f"{desc_a}\n【随后，紧接着写】{desc_b}"
+            else:
+                desc = desc_a or desc_b
 
             cpb_a = getattr(a, 'card_prompt_block', '') or ''
             cpb_b = getattr(b, 'card_prompt_block', '') or ''
-            cpb = (cpb_a + '\n\n' + cpb_b).strip() if (cpb_a and cpb_b) else (cpb_a or cpb_b)
+            # 用明确分节线隔开两段锚点，防止 LLM 把两组约束混淆
+            if cpb_a and cpb_b:
+                tw_a = getattr(a, 'target_words', 0) or 0
+                tw_b = getattr(b, 'target_words', 0) or 0
+                cpb = (
+                    f"▶ 第一段（约{tw_a}字）\n{cpb_a}\n\n"
+                    f"▶ 第二段（约{tw_b}字，紧接上文继续写）\n{cpb_b}"
+                )
+            else:
+                cpb = cpb_a or cpb_b
 
             focus_a = getattr(a, 'focus', 'mixed') or 'mixed'
             focus_b = getattr(b, 'focus', 'mixed') or 'mixed'
@@ -470,8 +488,8 @@ class BaseStoryPipeline(ABC):
                 'card_prompt_block': cpb,
             })()
 
-        if total_target <= 1800:
-            # 整章合并为 1 拍
+        if total_target <= 2200:
+            # 整章合并为 1 拍（覆盖 2000 字/章的常见配置）
             merged = beats[0]
             for b in beats[1:]:
                 merged = _merge_two(merged, b)

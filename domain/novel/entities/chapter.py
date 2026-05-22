@@ -30,6 +30,7 @@ class Chapter(BaseEntity):
         plot_tension: float = 50.0,
         emotional_tension: float = 50.0,
         pacing_tension: float = 50.0,
+        generation_hint: str = "",
     ):
         super().__init__(id)
         self.novel_id = novel_id
@@ -42,6 +43,7 @@ class Chapter(BaseEntity):
         self.plot_tension = plot_tension  # 情节张力 0-100
         self.emotional_tension = emotional_tension  # 情绪张力 0-100
         self.pacing_tension = pacing_tension  # 节奏张力 0-100
+        self.generation_hint = generation_hint  # 用户手写的本章生成约束（直注 AI 上下文）
 
     @property
     def content(self) -> str:
@@ -57,6 +59,11 @@ class Chapter(BaseEntity):
     def update_content(self, content: str) -> None:
         """更新内容（允许空内容用于草稿）"""
         self._content_text = content
+        self.updated_at = datetime.utcnow()
+
+    def update_generation_hint(self, hint: str) -> None:
+        """更新本章生成约束文本（直接注入 AI 上下文的用户手写约束）"""
+        self.generation_hint = hint.strip()
         self.updated_at = datetime.utcnow()
 
     def update_tension_score(self, score: float) -> None:

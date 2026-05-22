@@ -85,6 +85,16 @@ export const chapterApi = {
     ) as Promise<{ ok: boolean; chapter_number: number; count: number }>,
 
   /**
+   * 更新章节生成约束（用户手写指令，直注 AI 上下文）
+   * PATCH /api/v1/novels/{novelId}/chapters/{chapterNumber}/hint
+   */
+  updateGenerationHint: (novelId: string, chapterNumber: number, generationHint: string) =>
+    apiClient.patch<ChapterDTO>(
+      `/novels/${novelId}/chapters/${chapterNumber}/hint`,
+      { generation_hint: generationHint },
+    ) as Promise<ChapterDTO>,
+
+  /**
    * Get chapter review
    * GET /api/v1/novels/{novelId}/chapters/{chapterNumber}/review
    */

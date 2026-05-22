@@ -252,6 +252,19 @@ def _apply_character_enhancements(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _apply_chapters_generation_hint_migration(conn: sqlite3.Connection) -> None:
+    """为 chapters 表补齐 generation_hint 列（用户手写本章生成约束）"""
+    cur = conn.execute("PRAGMA table_info(chapters)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "generation_hint" not in cols:
+        try:
+            conn.execute("ALTER TABLE chapters ADD COLUMN generation_hint TEXT DEFAULT ''")
+            logger.info("chapters migration: added column generation_hint")
+        except sqlite3.OperationalError as e:
+            logger.warning("chapters migration skip generation_hint: %s", e)
+    conn.commit()
+
+
 def _apply_chapters_word_count_migration(conn: sqlite3.Connection) -> None:
     """为 chapters 表补齐 word_count 列（persistence_queue 依赖此列）"""
     cur = conn.execute("PRAGMA table_info(chapters)")
@@ -503,6 +516,7 @@ class DatabaseConnection:
         _apply_bible_character_four_d_sqlite(conn)
         _apply_chapter_summaries_enhancements(conn)
         _apply_chapters_word_count_migration(conn)
+        _apply_chapters_generation_hint_migration(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
         conn.close()

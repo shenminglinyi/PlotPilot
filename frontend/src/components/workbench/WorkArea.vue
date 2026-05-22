@@ -82,31 +82,33 @@
                 <n-tab-pane name="manuscript" tab="章节编辑" display-directive="if">
                   <div class="chapter-editor">
                 <div class="editor-header">
-                  <div class="editor-title">
-                    <h3>{{ currentChapter.title || deskChapterTitle }}</h3>
-                    <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
-                      {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
-                    </n-tag>
-                    <n-tag v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number" size="small" type="info" round>
-                      生成中...
-                    </n-tag>
+                  <div class="editor-header-main">
+                    <div class="editor-title">
+                      <h3>{{ currentChapter.title || deskChapterTitle }}</h3>
+                      <n-tag size="small" :type="currentChapter.word_count > 0 ? 'success' : 'default'" round>
+                        {{ currentChapter.word_count > 0 ? '已收稿' : '未收稿' }}
+                      </n-tag>
+                      <n-tag v-if="isAutopilotRunning && streamingChapterNumber === currentChapter.number" size="small" type="info" round>
+                        生成中...
+                      </n-tag>
+                    </div>
+                    <n-space :size="8" class="editor-header-actions">
+                      <n-button size="small" @click="handleReload" :disabled="loading">重新加载</n-button>
+                      <n-button
+                        size="small"
+                        type="primary"
+                        @click="handleSave"
+                        :disabled="!hasChanges || isAssistedReadOnly"
+                        :loading="saving"
+                      >
+                        保存
+                      </n-button>
+                    </n-space>
                   </div>
                   <div v-if="autopilotStatus?.current_act_title" class="act-info-header">
                     <span class="act-info-title">第 {{ (autopilotStatus.current_act || 0) + 1 }} 幕 · {{ autopilotStatus.current_act_title }}</span>
                     <span v-if="autopilotStatus.current_act_description" class="act-info-desc">{{ autopilotStatus.current_act_description }}</span>
                   </div>
-                  <n-space :size="8">
-                    <n-button size="small" @click="handleReload" :disabled="loading">重新加载</n-button>
-                    <n-button
-                      size="small"
-                      type="primary"
-                      @click="handleSave"
-                      :disabled="!hasChanges || isAssistedReadOnly"
-                      :loading="saving"
-                    >
-                      保存
-                    </n-button>
-                  </n-space>
                 </div>
 
                 <div class="editor-body">
@@ -2286,22 +2288,40 @@ defineExpose({ ensureAssistedMode, streamingChapterNumber, writingPipelineStep }
 
 .editor-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--app-border);
+}
+
+.editor-header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.editor-header-actions {
+  flex-shrink: 0;
 }
 
 .editor-title {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .editor-title h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  line-height: 1.4;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .editor-body {
@@ -2427,30 +2447,33 @@ defineExpose({ ensureAssistedMode, streamingChapterNumber, writingPipelineStep }
   line-height: 1;
 }
 
-/* 🔥 当前幕信息 */
+/* 当前幕信息：独占一行，避免与标题、按钮横向争抢宽度 */
 .act-info-header {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 1;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
-  overflow: hidden;
+  padding: 6px 10px;
+  border-radius: var(--app-radius-sm, 8px);
+  background: var(--color-brand-light);
+  border: 1px solid var(--color-brand-border);
 }
 
 .act-info-title {
   font-size: 12px;
-  color: var(--n-text-color-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--app-text-secondary);
+  line-height: 1.45;
 }
 
 .act-info-desc {
   font-size: 11px;
-  color: var(--n-text-color-3);
-  white-space: nowrap;
+  color: var(--app-text-muted);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .gen-stream-meta-card {

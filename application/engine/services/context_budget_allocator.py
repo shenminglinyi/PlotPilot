@@ -903,6 +903,22 @@ class ContextBudgetAllocator:
     
     # ==================== 内容收集方法 ====================
     
+    def _get_chapter_generation_hint(self, novel_id: str, chapter_number: int) -> str:
+        """读取用户手写的本章生成约束（generation_hint）"""
+        try:
+            from infrastructure.persistence.database.connection import DatabaseConnection
+            from application.paths import get_db_path
+            db = DatabaseConnection(str(get_db_path()))
+            row = db.fetch_one(
+                "SELECT generation_hint FROM chapters WHERE novel_id=? AND number=?",
+                (novel_id, chapter_number),
+            )
+            if row:
+                return (row['generation_hint'] or '').strip()
+        except Exception:
+            pass
+        return ''
+
     def _build_context_brief(
         self,
         novel_id: str,
@@ -915,12 +931,14 @@ class ContextBudgetAllocator:
         COMPLETED_BEATS/REVEALED_CLUES/ACTIVE_ENTITY_MEMORY/CHARACTER_STATE_LOCK），
         用一段 200-400 字的自然语言"编辑手记"告诉 AI 当前状态。
 
-        设计哲学：
-          一段自然语言比 8 个 === xxx === 分隔符更容易被 LLM 自然地融入创作。
-          这不是"约束列表"，而是"编辑的转场笔记"——像真人的责编告诉你：
-          "注意，上一章留了个悬念，有两个坑快到期了。"
+        用户手写的 generation_hint 作为最高优先级约束前置插入，直接覆盖自动推断。
         """
         parts = []
+
+        # ── 0. 用户手写生成约束（最高优先级，前置插入）──
+        user_hint = self._get_chapter_generation_hint(novel_id, chapter_number)
+        if user_hint:
+            parts.append(f"【作者指令】{user_hint}")
 
         # ── 1. 衔接信息（替代 BRIDGE_DIRECTIVE + PREVIOUSLY_ON）──
         if chapter_number > 1:
