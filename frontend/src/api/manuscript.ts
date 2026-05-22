@@ -21,6 +21,7 @@ export interface BiblePropRow {
   aliases_json: string
   holder_character_id: string | null
   first_chapter: number | null
+  is_key: number  // 0 | 1 — sqlite boolean
   created_at: string
   updated_at: string
 }
@@ -79,6 +80,7 @@ export const manuscriptApi = {
       aliases: string[]
       holder_character_id: string | null
       first_chapter: number | null
+      is_key: boolean
     }>,
   ) => apiClient.patch<BiblePropRow>(`/novels/${novelId}/manuscript/props/${propId}`, body) as Promise<BiblePropRow>,
 

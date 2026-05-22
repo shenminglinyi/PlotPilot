@@ -123,6 +123,15 @@ export const knowledgeGraphApi = {
     ) as Promise<{ success: boolean; data: TripleDTO }>
   },
 
+  /** PATCH /api/v1/knowledge-graph/novels/{id}/triples/{tripleId}/star */
+  starTriple(novelId: string, tripleId: string, starred: boolean): Promise<{ success: boolean; triple_id: string; starred: boolean }> {
+    return apiClient.patch(
+      `/knowledge-graph/novels/${encodeURIComponent(novelId)}/triples/${encodeURIComponent(tripleId)}/star`,
+      { starred },
+      kgTimeout,
+    ) as Promise<{ success: boolean; triple_id: string; starred: boolean }>
+  },
+
   /** DELETE /api/v1/knowledge-graph/triples/{id} */
   deleteTriple(tripleId: string): Promise<{ success: boolean; message: string }> {
     return apiClient.delete(

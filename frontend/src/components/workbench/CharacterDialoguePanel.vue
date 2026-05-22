@@ -1,10 +1,10 @@
 <template>
   <div class="character-dialogue-panel">
-    <header class="anchor-desk-banner" role="region" aria-label="角色锚点说明">
+    <header class="anchor-desk-banner" role="region" aria-label="角色档案说明">
       <div class="anchor-desk-banner__head">
         <div class="anchor-desk-banner__title">
           <span class="anchor-desk-banner__icon" aria-hidden="true">⚓</span>
-          <n-text strong>角色锚点</n-text>
+          <n-text strong>角色档案</n-text>
         </div>
         <n-space size="small" align="center" wrap>
           <n-tag v-if="currentChapterNumber" size="small" round :bordered="false" type="info">

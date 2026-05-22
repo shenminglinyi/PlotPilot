@@ -28,7 +28,10 @@
         <template #header-extra>
           <n-button size="small" type="primary" @click="openCreate">新建道具</n-button>
         </template>
-        <n-spin :show="propsLoading">
+        <div v-if="!propsDataLoaded && propsLoading" class="props-skeleton">
+          <n-skeleton text :rows="3" />
+        </div>
+        <n-spin v-else :show="propsLoading && propsDataLoaded">
           <n-empty v-if="!propsRows.length && !propsLoading" description="暂无道具" size="small" />
           <n-data-table v-else :columns="columns" :data="propsRows" :pagination="false" size="small" />
         </n-spin>
@@ -88,9 +91,13 @@ const { deskTick } = storeToRefs(useWorkbenchRefreshStore())
 
 const propsRows = ref<BiblePropRow[]>([])
 const propsLoading = ref(false)
+const propsDataLoaded = ref(false)
 const mentions = ref<ChapterEntityMention[]>([])
 const mentionLoading = ref(false)
 const reindexing = ref(false)
+
+let propsLoadSeq = 0
+let mentionsLoadSeq = 0
 
 /** Bible 人物选项（用于持有者下拉） */
 interface CharOption { label: string; value: string }
@@ -133,14 +140,21 @@ function kindTagType(k: string): 'default' | 'info' | 'success' | 'warning' {
 
 async function loadProps() {
   if (!props.slug) return
+  const seq = ++propsLoadSeq
+  const slug = props.slug
   propsLoading.value = true
   try {
-    const r = await manuscriptApi.listProps(props.slug)
+    const r = await manuscriptApi.listProps(slug)
+    if (seq !== propsLoadSeq || props.slug !== slug) return
     propsRows.value = r.props || []
   } catch {
+    if (seq !== propsLoadSeq || props.slug !== slug) return
     message.error('加载道具失败')
   } finally {
-    propsLoading.value = false
+    if (seq === propsLoadSeq) {
+      propsLoading.value = false
+      propsDataLoaded.value = true
+    }
   }
 }
 
@@ -150,14 +164,18 @@ async function loadMentions() {
     mentions.value = []
     return
   }
+  const seq = ++mentionsLoadSeq
+  const slug = props.slug
   mentionLoading.value = true
   try {
-    const r = await manuscriptApi.listChapterMentions(props.slug, n)
+    const r = await manuscriptApi.listChapterMentions(slug, n)
+    if (seq !== mentionsLoadSeq || props.slug !== slug) return
     mentions.value = r.mentions || []
   } catch {
+    if (seq !== mentionsLoadSeq || props.slug !== slug) return
     mentions.value = []
   } finally {
-    mentionLoading.value = false
+    if (seq === mentionsLoadSeq) mentionLoading.value = false
   }
 }
 
@@ -257,6 +275,23 @@ async function removeRow(row: BiblePropRow) {
   }
 }
 
+const starringPropId = ref<string | null>(null)
+
+async function togglePropKey(row: BiblePropRow) {
+  if (!props.slug) return
+  starringPropId.value = row.id
+  try {
+    const newKey = !row.is_key
+    await manuscriptApi.patchProp(props.slug, row.id, { is_key: newKey })
+    const idx = propsRows.value.findIndex(r => r.id === row.id)
+    if (idx !== -1) propsRows.value[idx] = { ...propsRows.value[idx], is_key: newKey ? 1 : 0 }
+  } catch {
+    message.error('操作失败')
+  } finally {
+    starringPropId.value = null
+  }
+}
+
 const columns: DataTableColumns<BiblePropRow> = [
   { title: '名称', key: 'name', ellipsis: { tooltip: true } },
   {
@@ -272,9 +307,21 @@ const columns: DataTableColumns<BiblePropRow> = [
   {
     title: '操作',
     key: 'actions',
-    width: 140,
+    width: 160,
     render(row) {
-      return h('div', { style: 'display:flex;gap:6px' }, [
+      return h('div', { style: 'display:flex;gap:4px;align-items:center' }, [
+        h(
+          NButton,
+          {
+            size: 'tiny',
+            text: true,
+            type: row.is_key ? 'warning' : 'default',
+            title: row.is_key ? '取消关键道具（移出 AI 上下文）' : '标为本章关键道具（注入 AI 上下文）',
+            loading: starringPropId.value === row.id,
+            onClick: () => void togglePropKey(row),
+          },
+          { default: () => row.is_key ? '★' : '☆' },
+        ),
         h(
           NButton,
           { size: 'tiny', onClick: () => openEdit(row) },
@@ -329,5 +376,8 @@ watch(() => props.slug, () => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
+}
+.props-skeleton {
+  padding: 4px 0;
 }
 </style>

@@ -24,7 +24,12 @@
     </div>
 
     <div class="panel-content">
-      <n-spin :show="loading">
+      <div v-if="!dataLoaded && loading" class="fsw-skeleton">
+        <n-skeleton text :rows="3" />
+        <n-skeleton text :rows="3" style="margin-top: 12px" />
+        <n-skeleton text :rows="3" style="margin-top: 12px" />
+      </div>
+      <n-spin v-else :show="loading && dataLoaded">
         <template v-if="activeTab === 'pending'">
           <n-empty v-if="pendingEntries.length === 0" description="暂无待兑现伏笔，点击「添加伏笔」开始记录">
             <template #icon><span class="empty-ico" aria-hidden="true">🪄</span></template>
@@ -161,12 +166,16 @@ interface Props {
   slug: string
 }
 const props = defineProps<Props>()
+const emit = defineEmits<{ 'pending-count': [count: number] }>()
 const message = useMessage()
 
 const loading = ref(false)
 const saving = ref(false)
+const dataLoaded = ref(false)
 const entries = ref<ForeshadowEntry[]>([])
 const activeTab = ref<'pending' | 'consumed'>('pending')
+
+let loadSeq = 0
 
 const pendingEntries = computed(() => entries.value.filter((e) => e.status === 'pending'))
 const consumedEntries = computed(() => entries.value.filter((e) => e.status === 'consumed'))
@@ -181,13 +190,21 @@ const consumingEntry = ref<ForeshadowEntry | null>(null)
 const consumeChapter = ref(1)
 
 const load = async () => {
+  const seq = ++loadSeq
+  const slug = props.slug
   loading.value = true
   try {
-    entries.value = await foreshadowApi.list(props.slug)
+    const result = await foreshadowApi.list(slug)
+    if (seq !== loadSeq || props.slug !== slug) return
+    entries.value = result
   } catch {
+    if (seq !== loadSeq || props.slug !== slug) return
     message.error('加载伏笔账本失败')
   } finally {
-    loading.value = false
+    if (seq === loadSeq) {
+      loading.value = false
+      dataLoaded.value = true
+    }
   }
 }
 
@@ -280,6 +297,8 @@ const { foreshadowTick } = storeToRefs(refreshStore)
 
 onMounted(load)
 
+watch(pendingCount, (n) => emit('pending-count', n), { immediate: true })
+
 watch(foreshadowTick, () => {
   void load()
 })
@@ -337,6 +356,10 @@ watch(foreshadowTick, () => {
   flex: 1;
   overflow-y: auto;
   padding: 14px 16px;
+}
+
+.fsw-skeleton {
+  padding: 4px 0;
 }
 
 .empty-ico {

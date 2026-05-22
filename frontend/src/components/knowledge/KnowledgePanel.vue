@@ -158,6 +158,14 @@
                   </div>
                   <n-space :size="4" class="triple-actions">
                     <n-button
+                      size="tiny"
+                      text
+                      :type="t.is_starred ? 'warning' : 'default'"
+                      :title="t.is_starred ? '取消星标（移出 AI 优先位置）' : '星标（保证进入 AI 上下文）'"
+                      :loading="starringId === t.id"
+                      @click="doStarTriple(t)"
+                    >{{ t.is_starred ? '★' : '☆' }}</n-button>
+                    <n-button
                       v-if="t.source_type !== 'manual'"
                       size="tiny"
                       type="success"
@@ -467,6 +475,9 @@ const triples = ref<TripleDTO[]>([])
 const kgStats = ref<KGStatistics | null>(null)
 const triplesLoading = ref(false)
 const inferring = ref(false)
+
+let triplesLoadSeq = 0
+let knowledgeLoadSeq = 0
 const confirmingId = ref<string | null>(null)
 const deletingId = ref<string | null>(null)
 const tripleFilter = ref<string | undefined>(undefined)
@@ -478,18 +489,22 @@ const tripleFilterOptions = [
 ]
 
 const loadTriples = async () => {
+  const seq = ++triplesLoadSeq
+  const slug = props.slug
   triplesLoading.value = true
   try {
     const [tripleRes, statsRes] = await Promise.all([
-      knowledgeGraphApi.getTriples(props.slug, tripleFilter.value),
-      knowledgeGraphApi.getStatistics(props.slug),
+      knowledgeGraphApi.getTriples(slug, tripleFilter.value),
+      knowledgeGraphApi.getStatistics(slug),
     ])
+    if (seq !== triplesLoadSeq || props.slug !== slug) return
     triples.value = tripleRes.data.triples
     kgStats.value = statsRes.data
   } catch {
+    if (seq !== triplesLoadSeq || props.slug !== slug) return
     message.error('加载三元组失败')
   } finally {
-    triplesLoading.value = false
+    if (seq === triplesLoadSeq) triplesLoading.value = false
   }
 }
 
@@ -517,6 +532,21 @@ const doConfirmTriple = async (t: TripleDTO) => {
     message.error('确认失败')
   } finally {
     confirmingId.value = null
+  }
+}
+
+const starringId = ref<string | null>(null)
+
+const doStarTriple = async (t: TripleDTO) => {
+  starringId.value = t.id
+  try {
+    const newStarred = !t.is_starred
+    await knowledgeGraphApi.starTriple(props.slug, t.id, newStarred)
+    t.is_starred = newStarred
+  } catch {
+    message.error('星标操作失败')
+  } finally {
+    starringId.value = null
   }
 }
 
@@ -623,8 +653,11 @@ const loadOutlineTitles = async () => {
 }
 
 const load = async () => {
+  const seq = ++knowledgeLoadSeq
+  const slug = props.slug
   try {
-    const k = await knowledgeApi.getKnowledge(props.slug)
+    const k = await knowledgeApi.getKnowledge(slug)
+    if (seq !== knowledgeLoadSeq || props.slug !== slug) return
     data.value = {
       version: k.version ?? 1,
       premise_lock: k.premise_lock || '',
@@ -651,6 +684,7 @@ const load = async () => {
     }
     await loadOutlineTitles()
   } catch (e: any) {
+    if (seq !== knowledgeLoadSeq || props.slug !== slug) return
     console.error('加载叙事知识失败:', e)
     message.error(e?.response?.data?.detail || '加载叙事知识失败')
   }

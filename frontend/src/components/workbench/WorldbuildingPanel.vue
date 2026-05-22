@@ -18,7 +18,12 @@
     </header>
 
     <div class="panel-content">
-      <n-spin :show="loading">
+      <div v-if="!dataLoaded && loading" class="wb-skeleton">
+        <n-skeleton text :rows="3" />
+        <n-skeleton text :rows="3" style="margin-top: 16px" />
+        <n-skeleton text :rows="3" style="margin-top: 16px" />
+      </div>
+      <n-spin v-else :show="loading && dataLoaded">
         <div class="worldbuilding-form">
           <!-- 1. 核心法则与底层逻辑 -->
           <n-card size="small" class="wb-card" :bordered="true">
@@ -255,14 +260,15 @@
             </n-space>
           </n-card>
 
-          <!-- 冰山理论提示 -->
-          <n-alert type="info" :bordered="false" class="iceberg-tip">
-            <template #icon>
-              <span style="font-size: 18px">💡</span>
-            </template>
-            <strong>冰山理论：</strong>你可能设定了 100% 的世界观，但在正文中只需展示 10%。
-            不要在开篇进行说明文式的"设定倾倒"，而是让主角在行动中自然触碰这些规则。
-          </n-alert>
+          <!-- 冰山理论提示（默认折叠，按需展开） -->
+          <n-collapse class="iceberg-collapse">
+            <n-collapse-item title="💡 冰山理论" name="iceberg">
+              <span class="iceberg-text">
+                你可能设定了 100% 的世界观，但在正文中只需展示 10%。
+                不要在开篇进行说明文式的"设定倾倒"，而是让主角在行动中自然触碰这些规则。
+              </span>
+            </n-collapse-item>
+          </n-collapse>
         </div>
       </n-spin>
     </div>
@@ -283,6 +289,7 @@ const message = useMessage()
 
 const loading = ref(false)
 const saving = ref(false)
+const dataLoaded = ref(false)
 
 const formData = ref({
   core_rules: {
@@ -332,6 +339,7 @@ const loadWorldbuilding = async () => {
     }
   } finally {
     loading.value = false
+    dataLoaded.value = true
   }
 }
 
@@ -411,6 +419,10 @@ onMounted(() => {
   overflow-y: auto;
 }
 
+.wb-skeleton {
+  padding: 16px;
+}
+
 .worldbuilding-form {
   padding: 16px;
   display: flex;
@@ -459,9 +471,14 @@ onMounted(() => {
   color: var(--text-color-2);
 }
 
-.iceberg-tip {
+.iceberg-collapse {
   border-radius: 8px;
+  overflow: hidden;
+}
+
+.iceberg-text {
   font-size: 13px;
   line-height: 1.6;
+  color: var(--text-color-2);
 }
 </style>
