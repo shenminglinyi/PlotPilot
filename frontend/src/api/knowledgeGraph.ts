@@ -43,6 +43,7 @@ export interface TripleDTO {
   confidence: number
   source_type: string
   chapter_number: number | null
+  is_starred?: boolean
 }
 
 export interface KGStatistics {

@@ -18,6 +18,7 @@ class SubtextLedgerEntry:
     suggested_resolve_chapter: Optional[int] = None
     resolve_chapter_window: Optional[int] = None
     importance: str = "medium"
+    is_priority_for_chapter: bool = False
     created_at: datetime = None
 
     def __post_init__(self):

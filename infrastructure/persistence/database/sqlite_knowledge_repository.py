@@ -241,6 +241,7 @@ class SqliteKnowledgeRepository:
                     subject_entity_id=row.get("subject_entity_id"),
                     object_entity_id=row.get("object_entity_id"),
                     provenance=list(prov_by_triple.get(tid, [])),
+                    is_starred=bool(row["is_starred"]) if row.get("is_starred") is not None else False,
                 )
             )
         return facts
@@ -251,7 +252,8 @@ class SqliteKnowledgeRepository:
         triples_sql = """
             SELECT id, subject, predicate, object, chapter_number, note,
                    entity_type, importance, location_type, description, first_appearance,
-                   confidence, source_type, subject_entity_id, object_entity_id
+                   confidence, source_type, subject_entity_id, object_entity_id,
+                   COALESCE(is_starred, 0) AS is_starred
             FROM triples
             WHERE novel_id = ?
             ORDER BY created_at ASC

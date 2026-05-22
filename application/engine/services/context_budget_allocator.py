@@ -166,7 +166,7 @@ class ContextBudgetAllocator:
     # 各槽位的默认上限
     MAX_FORESHADOWING_TOKENS = 2000
     MAX_CHARACTER_ANCHORS_TOKENS = 1500
-    MAX_GRAPH_SUBNETWORK_TOKENS = 1000
+    MAX_GRAPH_SUBNETWORK_TOKENS = 1500
     MAX_ACT_SUMMARIES_TOKENS = 1500
     MAX_RECENT_CHAPTERS_TOKENS = 8000   # 扩容：N-1 完整 + N-2 半量 + N-3~5 预览
     MAX_VECTOR_RECALL_TOKENS = 5000
@@ -805,6 +805,31 @@ class ContextBudgetAllocator:
                 priority=71,
             )
 
+        # ── T1: 世界沉浸感细节（衣食/俚语/娱乐）── priority=66 ──
+        # 三个字段过去 100% 未注入；单独槽位避免被 narrative_contract 压缩
+        immersion_details = self._build_immersion_details_slot(novel_id)
+        if immersion_details:
+            slots["immersion_details"] = ContextSlot(
+                name="🎭世界沉浸感细节(IMMERSION)",
+                tier=PriorityTier.T1_COMPRESSIBLE,
+                content=immersion_details,
+                tokens=self.estimate_tokens(immersion_details),
+                max_tokens=400,
+                priority=66,
+            )
+
+        # ── T1: 本章关键道具（用户标记 is_key）── priority=64 ──
+        key_props = self._build_key_props_slot(novel_id)
+        if key_props:
+            slots["key_props"] = ContextSlot(
+                name="🔑本章关键道具(KEY_PROPS)",
+                tier=PriorityTier.T1_COMPRESSIBLE,
+                content=key_props,
+                tokens=self.estimate_tokens(key_props),
+                max_tokens=500,
+                priority=64,
+            )
+
         return slots
     
     def _build_worldbuilding_core_slot(self, novel_id: str) -> str:
@@ -831,6 +856,60 @@ class ContextBudgetAllocator:
             return "=== 世界规则 ===\n" + "\n".join(parts)
         except Exception as e:
             logger.warning(f"世界核心规则构建失败: {e}")
+            return ""
+
+    def _build_immersion_details_slot(self, novel_id: str) -> str:
+        """提取世界观沉浸感细节三字段：衣食住行 / 俚语口癖 / 娱乐文化。
+
+        这三个字段过去 100% 未注入 AI，此槽位修复该数据孤岛。
+        """
+        if not self.worldbuilding_repo:
+            return ""
+        try:
+            wb = self.worldbuilding_repo.get_by_novel_id(novel_id)
+            if wb is None:
+                return ""
+            parts = []
+            if getattr(wb, "food_clothing", None) and wb.food_clothing.strip():
+                parts.append(f"【衣食住行】{wb.food_clothing.strip()}")
+            if getattr(wb, "language_slang", None) and wb.language_slang.strip():
+                parts.append(f"【俚语/口癖】{wb.language_slang.strip()}")
+            if getattr(wb, "entertainment", None) and wb.entertainment.strip():
+                parts.append(f"【娱乐/文化】{wb.entertainment.strip()}")
+            if not parts:
+                return ""
+            return "=== 世界沉浸感细节 ===\n" + "\n".join(parts)
+        except Exception as e:
+            logger.warning(f"世界沉浸感细节构建失败: {e}")
+            return ""
+
+    def _build_key_props_slot(self, novel_id: str) -> str:
+        """提取用户标记 is_key=1 的关键道具，注入 T1 上下文。"""
+        try:
+            from application.paths import get_db_path
+            import sqlite3 as _sqlite3
+            db_path = get_db_path()
+            conn = _sqlite3.connect(str(db_path), timeout=5)
+            conn.row_factory = _sqlite3.Row
+            try:
+                cur = conn.execute(
+                    "SELECT name, description FROM bible_props WHERE novel_id = ? AND COALESCE(is_key, 0) = 1 LIMIT 8",
+                    (novel_id,),
+                )
+                rows = cur.fetchall()
+            except _sqlite3.OperationalError:
+                return ""
+            finally:
+                conn.close()
+            if not rows:
+                return ""
+            lines = []
+            for r in rows:
+                desc = r["description"].strip() if r.get("description") else ""
+                lines.append(f"- {r['name']}" + (f"（{desc}）" if desc else ""))
+            return "=== 本章关键道具 ===\n" + "\n".join(lines)
+        except Exception as e:
+            logger.warning(f"关键道具构建失败: {e}")
             return ""
 
     def _truncate_t0_slots(self, t0_slots: Dict[str, ContextSlot], budget: int) -> int:
@@ -1100,8 +1179,8 @@ class ContextBudgetAllocator:
         
         return ""
     
-    # ★ 爽文引擎: T0 伏笔最大展示数量（防止 T0 膨胀）
-    MAX_T0_FORESHADOWING_ITEMS = 6
+    # ★ 爽文引擎: T0 伏笔最大展示数量（防止 T0 膨胀；+2 为用户星标条目留余量）
+    MAX_T0_FORESHADOWING_ITEMS = 8
 
     def _get_pending_foreshadowings(self, novel_id: str, chapter_number: int) -> str:
         """获取待回收伏笔（轨道二核心）- 爽文引擎: 使用 T0 精选筛选，剥离冗长 pending。"""
@@ -1144,19 +1223,22 @@ class ContextBudgetAllocator:
                         f"- Ch{f.planted_in_chapter} {importance_mark} {status_mark}: {f.description}"
                     )
             
-            # 对潜台词按预期回收章节排序
+            # 对潜台词按星标 > 预期回收章节排序
             def subtext_sort_key(e):
                 suggested = getattr(e, 'suggested_resolve_chapter', None)
                 importance = getattr(e, 'importance', 'medium')
                 importance_val = {'low': 1, 'medium': 2, 'high': 3, 'critical': 4}.get(importance, 2)
-                
+                # 用户标记「本章重点」→ 最高优先级
+                is_priority = getattr(e, 'is_priority_for_chapter', False)
+                priority_tier = 0 if is_priority else 1
+
                 if suggested:
                     if suggested <= chapter_number:
-                        return (0, -importance_val, suggested)
+                        return (priority_tier, 0, -importance_val, suggested)
                     else:
-                        return (1, -importance_val, suggested)
+                        return (priority_tier, 1, -importance_val, suggested)
                 else:
-                    return (2, -importance_val, 9999)
+                    return (priority_tier, 2, -importance_val, 9999)
             
             sorted_subtext = sorted(pending_subtext, key=subtext_sort_key)
             
@@ -1556,12 +1638,14 @@ class ContextBudgetAllocator:
                 if t.id not in all_triples:
                     all_triples[t.id] = t
             
-            # 按置信度和相关性排序
+            # 星标三元组优先，其次置信度和相关章节数
+            starred_ids = set(self.triple_repo.get_starred_triple_ids_sync(novel_id))
             sorted_triples = sorted(
                 all_triples.values(),
                 key=lambda x: (
-                    -x.confidence,  # 置信度降序
-                    -len(x.related_chapters or []),  # 相关章节数降序
+                    0 if x.id in starred_ids else 1,  # 星标优先
+                    -(x.confidence or 0),
+                    -len(x.related_chapters or []),
                 )
             )[:30]  # 最多 30 条
             

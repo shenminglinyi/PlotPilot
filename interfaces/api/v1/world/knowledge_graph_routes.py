@@ -260,6 +260,24 @@ async def confirm_triple(
         raise HTTPException(status_code=500, detail=f"确认三元组失败: {str(e)}")
 
 
+class StarTripleRequest(BaseModel):
+    starred: bool = Field(..., description="true=加星标，false=取消星标")
+
+
+@router.patch("/novels/{novel_id}/triples/{triple_id}/star")
+async def star_triple(
+    novel_id: str,
+    triple_id: str,
+    request: StarTripleRequest,
+    repo: TripleRepository = Depends(get_triple_repo),
+):
+    """切换三元组星标状态。星标三元组保证进入 AI 上下文图谱子网优先位置。"""
+    found = repo.star_triple_sync(triple_id, request.starred)
+    if not found:
+        raise HTTPException(status_code=404, detail="三元组不存在")
+    return {"success": True, "triple_id": triple_id, "starred": request.starred}
+
+
 @router.delete("/triples/{triple_id}")
 async def delete_triple(
     triple_id: str,

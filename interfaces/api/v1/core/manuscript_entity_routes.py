@@ -36,6 +36,7 @@ class PropPatchBody(BaseModel):
     aliases: Optional[List[str]] = None
     holder_character_id: Optional[str] = None
     first_chapter: Optional[int] = Field(default=None, ge=1)
+    is_key: Optional[bool] = None
 
 
 @router.get("/{novel_id}/manuscript/entity-lexicon")
@@ -140,6 +141,7 @@ def patch_prop(novel_id: str, prop_id: str, body: PropPatchBody):
         aliases=body.aliases,
         holder_character_id=body.holder_character_id,
         first_chapter=body.first_chapter,
+        is_key=body.is_key,
     )
     return repo.get_prop(novel_id, prop_id)
 

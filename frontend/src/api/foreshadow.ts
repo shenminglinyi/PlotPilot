@@ -15,6 +15,7 @@ export interface ForeshadowEntry {
   suggested_resolve_chapter: number | null
   resolve_chapter_window: number | null
   importance: 'low' | 'medium' | 'high' | 'critical'
+  is_priority_for_chapter: boolean
   created_at: string
 }
 
@@ -37,6 +38,7 @@ export interface UpdateForeshadowPayload {
   suggested_resolve_chapter?: number
   resolve_chapter_window?: number
   importance?: 'low' | 'medium' | 'high' | 'critical'
+  is_priority_for_chapter?: boolean
 }
 
 export const foreshadowApi = {

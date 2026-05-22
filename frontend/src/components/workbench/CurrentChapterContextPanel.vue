@@ -101,12 +101,12 @@
                 <n-button
                   size="tiny"
                   text
-                  :type="f.is_priority ? 'warning' : 'default'"
-                  :title="f.is_priority ? '取消本章重点' : '标为本章重点（保证进入 AI 上下文）'"
+                  :type="f.is_priority_for_chapter ? 'warning' : 'default'"
+                  :title="f.is_priority_for_chapter ? '取消本章重点' : '标为本章重点（保证进入 AI 上下文）'"
                   :loading="priorityLoadingId === f.id"
                   @click="togglePriority(f)"
                 >
-                  {{ f.is_priority ? '★' : '☆' }}
+                  {{ f.is_priority_for_chapter ? '★' : '☆' }}
                 </n-button>
                 <n-button
                   size="tiny"
@@ -168,8 +168,7 @@ interface Chapter {
   word_count: number
 }
 
-/** 前端扩展：带优先标记的伏笔（is_priority 在 Task 4/5 后端加入后从 API 取得） */
-type ForeshadowEntryWithPriority = ForeshadowEntry & { is_priority?: boolean }
+type ForeshadowEntryWithPriority = ForeshadowEntry
 
 interface Props {
   slug: string
@@ -248,8 +247,8 @@ const dueForeshadows = computed(() => {
     .filter(f => f.suggested_resolve_chapter != null && f.suggested_resolve_chapter <= window)
     .sort((a, b) => {
       // 星标优先
-      if (a.is_priority && !b.is_priority) return -1
-      if (!a.is_priority && b.is_priority) return 1
+      if (a.is_priority_for_chapter && !b.is_priority_for_chapter) return -1
+      if (!a.is_priority_for_chapter && b.is_priority_for_chapter) return 1
       return (importanceOrder[b.importance] ?? 2) - (importanceOrder[a.importance] ?? 2)
     })
     .slice(0, 6)
@@ -283,11 +282,10 @@ async function markConsumed(f: ForeshadowEntryWithPriority) {
 async function togglePriority(f: ForeshadowEntryWithPriority) {
   priorityLoadingId.value = f.id
   try {
-    const newPriority = !f.is_priority
-    // Task 5 后端加入 is_priority_for_chapter 字段后，改为真实 API 调用
-    // await foreshadowApi.update(props.slug, f.id, { is_priority_for_chapter: newPriority })
+    const newPriority = !f.is_priority_for_chapter
+    await foreshadowApi.update(props.slug, f.id, { is_priority_for_chapter: newPriority })
     const idx = allPendingFs.value.findIndex(e => e.id === f.id)
-    if (idx !== -1) allPendingFs.value[idx] = { ...allPendingFs.value[idx], is_priority: newPriority }
+    if (idx !== -1) allPendingFs.value[idx] = { ...allPendingFs.value[idx], is_priority_for_chapter: newPriority }
   } catch {
     /* silent */
   } finally {

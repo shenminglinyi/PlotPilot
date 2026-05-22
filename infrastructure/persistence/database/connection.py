@@ -44,6 +44,8 @@ def _migrate_triples_columns(conn: sqlite3.Connection) -> None:
         alters.append("ALTER TABLE triples ADD COLUMN subject_entity_id TEXT")
     if "object_entity_id" not in cols:
         alters.append("ALTER TABLE triples ADD COLUMN object_entity_id TEXT")
+    if "is_starred" not in cols:
+        alters.append("ALTER TABLE triples ADD COLUMN is_starred INTEGER DEFAULT 0")
     for sql in alters:
         try:
             conn.execute(sql)
@@ -424,6 +426,21 @@ def _apply_migration_files_legacy(conn: sqlite3.Connection) -> None:
             logger.warning("Failed to apply migration %s: %s", migration_file, e)
 
 
+def _apply_bible_props_is_key_migration(conn: sqlite3.Connection) -> None:
+    """为 bible_props 表补齐 is_key 列（用户标记本章关键道具）"""
+    cur = conn.execute("PRAGMA table_info(bible_props)")
+    cols = {row[1] for row in cur.fetchall()}
+    if not cols:
+        return
+    if "is_key" not in cols:
+        try:
+            conn.execute("ALTER TABLE bible_props ADD COLUMN is_key INTEGER DEFAULT 0")
+            logger.info("bible_props migration: added column is_key")
+        except sqlite3.OperationalError as e:
+            logger.warning("bible_props migration skip is_key: %s", e)
+    conn.commit()
+
+
 def _ensure_triple_provenance_table(conn: sqlite3.Connection) -> None:
     """旧库补齐 triple_provenance 表（schema.sql 对新库已包含）。"""
     conn.execute(
@@ -517,6 +534,7 @@ class DatabaseConnection:
         _apply_chapter_summaries_enhancements(conn)
         _apply_chapters_word_count_migration(conn)
         _apply_chapters_generation_hint_migration(conn)
+        _apply_bible_props_is_key_migration(conn)
         _ensure_triple_provenance_table(conn)
         _apply_migration_files(conn)
         conn.close()
