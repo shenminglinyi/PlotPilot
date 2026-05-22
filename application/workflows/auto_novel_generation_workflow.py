@@ -1741,7 +1741,12 @@ class AutoNovelGenerationWorkflow:
                 "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
             )
 
-        logger.debug("CPMS: 使用硬编码回退 system 模板")
+        # ★ 修复 #146：将降级日志提升至 WARNING，便于排查提示词广场编辑不生效的问题
+        logger.warning(
+            "CPMS: 使用硬编码回退 system 模板 (node_key=%s)。"
+            "可能原因：PromptRegistry 不可用，或数据库中该节点未正确播种。",
+            _WORKFLOW_CHAPTER_GEN_NODE_KEY,
+        )
         return _FALLBACK_SYSTEM_TEMPLATE
 
     def _get_workflow_user_template(self) -> str:
@@ -1768,7 +1773,11 @@ class AutoNovelGenerationWorkflow:
                 "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
             )
 
-        logger.debug("CPMS: 使用硬编码回退 user_template")
+        logger.warning(
+            "CPMS: 使用硬编码回退 user_template (node_key=%s)。"
+            "可能原因：PromptRegistry 不可用，或数据库中该节点未正确播种。",
+            _WORKFLOW_CHAPTER_GEN_NODE_KEY,
+        )
         return _FALLBACK_USER_TEMPLATE
 
     async def _extract_chapter_state(self, content: str, chapter_number: int) -> ChapterState:

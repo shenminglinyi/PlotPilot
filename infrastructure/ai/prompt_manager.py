@@ -905,6 +905,10 @@ class PromptManager:
         db.execute(sql, params)
         db.commit()
 
+        # ★ 修复 #146：节点更新后使 PromptRegistry 缓存失效，
+        # 确保生成管线能立即读取到最新模板。
+        self._invalidate_registry_cache(node_id)
+
         return self.get_node(node_id, by_key=False)
 
     def rollback_node(self, node_id: str,
@@ -1082,6 +1086,20 @@ class PromptManager:
         for node in nodes:
             if node.active_version_id and node.active_version_id in ver_map:
                 node.set_active_version(ver_map[node.active_version_id])
+
+    @staticmethod
+    def _invalidate_registry_cache(node_key_or_id: str) -> None:
+        """使 PromptRegistry 缓存失效（node_key 或 node_id 均可）。"""
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+            registry = get_prompt_registry()
+            # 尝试按 node_key 失效；如果是 node_id 则清除全部缓存（更安全）
+            if '-' in node_key_or_id and len(node_key_or_id) < 50:
+                registry.invalidate_cache(node_key_or_id)
+            else:
+                registry.invalidate_cache()
+        except Exception:
+            pass  # Registry 不可用时静默跳过
 
     @staticmethod
     def _get_current_version(db, node_id: str) -> Optional[VersionInfo]:

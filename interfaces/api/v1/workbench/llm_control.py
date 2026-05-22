@@ -266,6 +266,15 @@ def _invalidate_plaza_cache() -> None:
     _plaza_cache = {}
     _plaza_cache_ts = 0.0
 
+    # ★ 修复 #146：同时清除 PromptRegistry 缓存（TTL=300s），否则
+    # 生成管线在 5 分钟内仍会读取旧版 DB 快照，导致提示词广场编辑不生效。
+    try:
+        from infrastructure.ai.prompt_registry import get_prompt_registry
+        registry = get_prompt_registry()
+        registry.invalidate_cache()
+    except Exception:
+        pass  # Registry 不可用时静默跳过，不影响 API 层功能
+
 
 @router.get('/prompts/plaza-init')
 async def plaza_init() -> Dict[str, Any]:
