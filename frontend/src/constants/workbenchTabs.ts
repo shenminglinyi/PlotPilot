@@ -10,6 +10,7 @@ export interface TabMeta {
 
 /** 写作支撑组：写作过程中高频使用 */
 export const WRITING_TABS: TabMeta[] = [
+  { name: 'narrative-brief', label: '叙事简报', icon: 'SparklesOutline' },
   { name: 'context',         label: '当前语境', icon: 'FlashOutline',        badgeKey: 'dueCount' },
   { name: 'foreshadow',      label: '伏笔账本', icon: 'BookmarkOutline',     badgeKey: 'pendingCount' },
   { name: 'story-evolution', label: '故事演进', icon: 'GitBranchOutline' },
@@ -43,9 +44,9 @@ export const LEGACY_TAB_MAP: Record<string, string> = {
 }
 
 export function resolveTabName(panel: string | undefined): string {
-  if (!panel) return 'context'
+  if (!panel) return 'narrative-brief'
   if (ALL_TAB_NAMES.has(panel)) return panel
-  return LEGACY_TAB_MAP[panel] ?? 'context'
+  return LEGACY_TAB_MAP[panel] ?? 'narrative-brief'
 }
 
 export type TabGroup = 'writing' | 'reference'

@@ -24,6 +24,19 @@
       :tabs-padding="4"
       @update:value="onTabActivated"
     >
+      <n-tab-pane name="narrative-brief" display-directive="show">
+        <template #tab>
+          <span class="tab-label">
+            <n-icon size="13" class="tab-icon"><SparklesOutline /></n-icon>叙事简报
+          </span>
+        </template>
+        <NarrativeDashboardPanel
+          v-if="visited.has('narrative-brief')"
+          :slug="slug"
+          :current-chapter="currentChapter ?? null"
+        />
+      </n-tab-pane>
+
       <n-tab-pane name="context" display-directive="show">
         <template #tab>
           <span class="tab-label">
@@ -139,7 +152,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import {
   FlashOutline, BookmarkOutline, GitBranchOutline,
   DocumentTextOutline, EarthOutline, LibraryOutline,
-  PeopleOutline, BriefcaseOutline,
+  PeopleOutline, BriefcaseOutline, SparklesOutline,
 } from '@vicons/ionicons5'
 import BiblePanel from '../panels/BiblePanel.vue'
 import ManuscriptPropsPanel from './ManuscriptPropsPanel.vue'
@@ -149,6 +162,7 @@ import StoryEvolutionPanel from './StoryEvolutionPanel.vue'
 import ForeshadowLedgerPanel from './ForeshadowLedgerPanel.vue'
 import CharacterDialoguePanel from './CharacterDialoguePanel.vue'
 import CurrentChapterContextPanel from './CurrentChapterContextPanel.vue'
+import NarrativeDashboardPanel from './NarrativeDashboardPanel.vue'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import {
   resolveTabName,
@@ -190,7 +204,7 @@ const initialTab = resolveTabName(props.currentPanel)
 const initialGroup = tabGroup(initialTab)
 
 const activeGroup = ref<TabGroup>(initialGroup)
-const activeWritingTab = ref(initialGroup === 'writing' ? initialTab : 'context')
+const activeWritingTab = ref(initialGroup === 'writing' ? initialTab : 'narrative-brief')
 const activeReferenceTab = ref(initialGroup === 'reference' ? initialTab : 'bible')
 const visited = reactive(new Set<string>([initialTab]))
 const pendingForeshadowCount = ref(0)
