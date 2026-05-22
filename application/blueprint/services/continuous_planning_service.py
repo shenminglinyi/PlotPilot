@@ -1868,6 +1868,11 @@ class ContinuousPlanningService:
 
         cleaned = _sanitize_llm_json_output(content)
         cleaned = _extract_outer_json_value(cleaned)
+
+        # ★ 修复 #162：LLM 返回空响应时提前返回友好错误，而非抛 JSONDecodeError
+        if not cleaned:
+            raise ValueError("LLM 返回内容为空，无法解析规划数据")
+
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
