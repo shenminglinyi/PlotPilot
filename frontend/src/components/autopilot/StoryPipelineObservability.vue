@@ -44,6 +44,30 @@
       </div>
     </div>
 
+    <div v-if="showAftermathCard" class="spo-aftermath" aria-label="章后管线细分">
+      <header class="spo-aftermath__head">
+        <span class="spo-aftermath__title">章后管线 · 叙事 / 向量 / KG</span>
+        <span class="spo-aftermath__hint">{{ aftermathSummary }}</span>
+      </header>
+      <div class="spo-aftermath__grid">
+        <div
+          v-for="step in aftermathSteps"
+          :key="step.id"
+          class="spo-aftermath-step"
+          :class="`spo-aftermath-step--${step.state}`"
+        >
+          <span class="spo-aftermath-step__ix">{{ step.index }}</span>
+          <span class="spo-aftermath-step__text">
+            <span class="spo-aftermath-step__label">{{ step.label }}</span>
+            <span class="spo-aftermath-step__detail">{{ step.detail }}</span>
+          </span>
+          <span v-if="step.state === 'done'" class="spo-aftermath-step__mark">✓</span>
+          <span v-else-if="step.state === 'current'" class="spo-aftermath-step__pulse" />
+          <span v-else-if="step.state === 'fail'" class="spo-aftermath-step__mark spo-aftermath-step__mark--fail">!</span>
+        </div>
+      </div>
+    </div>
+
     <details v-if="events.length > 1" class="spo-events">
       <summary>事件轨迹（{{ events.length }}）</summary>
       <ol class="spo-events__list">
@@ -83,6 +107,28 @@ interface StatusLike {
   current_beat_index?: number | null
   total_beats?: number | null
   chapter_target_words?: number | null
+  writing_substep?: string
+  writing_substep_label?: string
+  narrative_sync_ok?: boolean
+  vector_stored?: boolean
+  foreshadow_stored?: boolean
+  triples_extracted?: boolean
+  causal_edges_stored?: boolean
+  character_mutations_stored?: boolean
+  debt_updated?: boolean
+  character_reconcile_ok?: boolean
+  evolution_snapshot_ok?: boolean
+  last_chapter_audit?: {
+    narrative_sync_ok?: boolean
+    vector_stored?: boolean
+    foreshadow_stored?: boolean
+    triples_extracted?: boolean
+    causal_edges_stored?: boolean
+    character_mutations_stored?: boolean
+    debt_updated?: boolean
+    character_reconcile_ok?: boolean
+    evolution_snapshot_ok?: boolean
+  } | null
 }
 
 const props = defineProps<{
@@ -161,6 +207,75 @@ const beatCard = computed(() => {
     totalBeats,
     approxWords,
   }
+})
+
+type AftermathState = 'done' | 'current' | 'pending' | 'fail'
+
+interface AftermathStep {
+  index: number
+  id: string
+  label: string
+  detail: string
+  state: AftermathState
+}
+
+const aftermathSource = computed(() => props.status?.last_chapter_audit ?? props.status ?? null)
+
+function stepState(value: boolean | undefined, failWhenFalse = false): AftermathState {
+  if (value === true) return 'done'
+  if (value === false && failWhenFalse) return 'fail'
+  return 'pending'
+}
+
+const aftermathRunning = computed(() => {
+  const sub = String(props.status?.writing_substep || '')
+  return currentIx.value === 8 || sub === 'audit_aftermath' || sub === 'chapter_aftermath'
+})
+
+const aftermathSteps = computed<AftermathStep[]>(() => {
+  const s = aftermathSource.value
+  const steps: AftermathStep[] = [
+    { index: 1, id: 'summary', label: '摘要事件', detail: '摘要 / 事件 / 场景信号', state: stepState(s?.narrative_sync_ok, true) },
+    { index: 2, id: 'beats', label: '叙事节拍', detail: 'beat_sections 对齐', state: stepState(s?.narrative_sync_ok, true) },
+    { index: 3, id: 'vector', label: '向量索引', detail: '语义检索落库', state: stepState(s?.vector_stored) },
+    { index: 4, id: 'foreshadow', label: '伏笔账本', detail: '埋线 / 兑现记录', state: stepState(s?.foreshadow_stored) },
+    { index: 5, id: 'kg', label: 'KG 三元组', detail: '实体关系抽取', state: stepState(s?.triples_extracted) },
+    { index: 6, id: 'causal', label: '因果边', detail: '动作后果链路', state: stepState(s?.causal_edges_stored) },
+    {
+      index: 7,
+      id: 'character',
+      label: '角色状态',
+      detail: '立场 / 情绪投影',
+      state: stepState(s?.character_mutations_stored ?? s?.character_reconcile_ok),
+    },
+    {
+      index: 8,
+      id: 'debt',
+      label: '叙事债务',
+      detail: '承诺 / 风险更新',
+      state: stepState(s?.debt_updated ?? s?.evolution_snapshot_ok),
+    },
+  ]
+
+  if (aftermathRunning.value && steps.every(step => step.state === 'pending')) {
+    steps[0] = { ...steps[0], state: 'current' }
+  }
+  return steps
+})
+
+const showAftermathCard = computed(() => {
+  if (currentIx.value === 8) return true
+  if (currentIx.value > 8 && aftermathSteps.value.some(step => step.state === 'done' || step.state === 'fail')) return true
+  return aftermathRunning.value
+})
+
+const aftermathSummary = computed(() => {
+  if (aftermathRunning.value) return props.status?.writing_substep_label || '实时处理中'
+  const failed = aftermathSteps.value.filter(step => step.state === 'fail').length
+  const done = aftermathSteps.value.filter(step => step.state === 'done').length
+  if (failed > 0) return `${failed} 项需复查`
+  if (done > 0) return `${done}/${aftermathSteps.value.length} 已确认`
+  return '等待章后结果'
 })
 
 function fmtRel(t?: number): string {
@@ -421,6 +536,149 @@ function fmtRel(t?: number): string {
   background: var(--spo-danger-dim);
   color: var(--spo-danger);
   border-color: color-mix(in srgb, var(--spo-danger) 25%, transparent);
+}
+
+.spo-aftermath {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border-radius: var(--app-radius-sm, 8px);
+  border: 1px solid var(--spo-accent-border);
+  background: color-mix(in srgb, var(--spo-accent) 5%, var(--spo-surface));
+}
+
+.spo-aftermath__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.spo-aftermath__title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--spo-text);
+}
+
+.spo-aftermath__hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--spo-text-muted);
+}
+
+.spo-aftermath__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.spo-aftermath-step {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 7px 6px;
+  border-radius: 7px;
+  border: 1px solid var(--app-border);
+  background: var(--spo-surface);
+  opacity: 0.72;
+}
+
+.spo-aftermath-step__ix {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 900;
+  color: var(--spo-text-muted);
+  border: 1px solid var(--app-border);
+  background: var(--spo-surface-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.spo-aftermath-step__text {
+  min-width: 0;
+  flex: 1;
+}
+
+.spo-aftermath-step__label,
+.spo-aftermath-step__detail {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spo-aftermath-step__label {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--spo-text);
+}
+
+.spo-aftermath-step__detail {
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--spo-text-muted);
+}
+
+.spo-aftermath-step__mark {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 900;
+  color: var(--spo-success);
+}
+
+.spo-aftermath-step__mark--fail {
+  color: var(--color-warning, #f59e0b);
+}
+
+.spo-aftermath-step__pulse {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--spo-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--spo-accent) 14%, transparent);
+  animation: spo-pulse 1.4s ease-in-out infinite;
+}
+
+.spo-aftermath-step--done {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--spo-success) 28%, var(--app-border));
+  background: color-mix(in srgb, var(--spo-success) 6%, var(--spo-surface));
+}
+
+.spo-aftermath-step--done .spo-aftermath-step__ix {
+  color: var(--spo-success);
+  border-color: color-mix(in srgb, var(--spo-success) 32%, var(--app-border));
+  background: var(--spo-success-dim);
+}
+
+.spo-aftermath-step--current {
+  opacity: 1;
+  border-color: var(--spo-accent-border);
+  background: var(--spo-accent-dim);
+  box-shadow: 0 0 0 1px var(--spo-accent-border);
+}
+
+.spo-aftermath-step--current .spo-aftermath-step__ix,
+.spo-aftermath-step--current .spo-aftermath-step__label {
+  color: var(--spo-accent);
+}
+
+.spo-aftermath-step--fail {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 34%, var(--app-border));
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 7%, var(--spo-surface));
 }
 
 .spo-events {

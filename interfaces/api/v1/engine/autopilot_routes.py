@@ -584,8 +584,10 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
             "issues": shared.get("last_audit_issues", []) or [],
         }
 
-    completed_count = shared.get("_cached_completed_chapters", 0)
-    manuscript_count = shared.get("_cached_manuscript_chapters", 0)
+    completed_count = int(shared.get("_cached_completed_chapters", 0) or 0)
+    manuscript_count = int(shared.get("_cached_manuscript_chapters", 0) or 0)
+    current_auto_count = int(shared.get("current_auto_chapters", 0) or 0)
+    progress_count = max(completed_count, manuscript_count, current_auto_count)
     total_words = shared.get("_cached_total_words", 0)
     target = shared.get("target_chapters", 1) or 1
     twpc = shared.get("target_words_per_chapter", 2500) or 2500
@@ -599,7 +601,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "current_act_description": shared.get("current_act_description"),
         "current_chapter_in_act": shared.get("current_chapter_in_act"),
         "current_beat_index": shared.get("current_beat_index", 0),
-        "current_auto_chapters": shared.get("current_auto_chapters", 0),
+        "current_auto_chapters": current_auto_count,
         "max_auto_chapters": shared.get("max_auto_chapters", 9999),
         "target_chapters": target,
         "target_words_per_chapter": twpc,
@@ -608,9 +610,9 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "consecutive_error_count": shared.get("consecutive_error_count", 0),
         "total_words": total_words,
         "completed_chapters": completed_count,
-        "progress_pct": round(completed_count / target * 100, 1) if target else 0,
+        "progress_pct": round(progress_count / target * 100, 1) if target else 0,
         "manuscript_chapters": manuscript_count,
-        "progress_pct_manuscript": round(manuscript_count / target * 100, 1) if target else 0,
+        "progress_pct_manuscript": round(max(manuscript_count, current_auto_count) / target * 100, 1) if target else 0,
         "current_chapter_number": shared.get("_cached_current_chapter_number"),
         "needs_review": _stage_needs_human_review(stage),
         "auto_approve_mode": shared.get("auto_approve_mode", False),
@@ -721,8 +723,8 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         consecutive_error_count = shared.get("consecutive_error_count", 0)
         target = shared.get("target_chapters", 1) or 1
         twpc = shared.get("target_words_per_chapter", 2500) or 2500
-        completed_count = shared.get("_cached_completed_chapters", 0)
-        in_manuscript_count = shared.get("_cached_manuscript_chapters", 0)
+        completed_count = int(shared.get("_cached_completed_chapters", 0) or 0)
+        in_manuscript_count = int(shared.get("_cached_manuscript_chapters", 0) or 0)
         total_words = shared.get("_cached_total_words", 0)
         current_chapter_number = shared.get("_cached_current_chapter_number")
 
@@ -746,6 +748,8 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         }
 
     stage = shared.get("current_stage", "writing")
+    current_auto_count = int(shared.get("current_auto_chapters", 0) or 0)
+    progress_count = max(completed_count, in_manuscript_count, current_auto_count)
 
     # 🔥 读取守护进程心跳
     daemon_heartbeat = None
@@ -767,7 +771,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "current_act_description": shared.get("current_act_description"),
         "current_chapter_in_act": shared.get("current_chapter_in_act"),
         "current_beat_index": shared.get("current_beat_index", 0),
-        "current_auto_chapters": shared.get("current_auto_chapters", 0),
+        "current_auto_chapters": current_auto_count,
         "max_auto_chapters": shared.get("max_auto_chapters", 9999),
         "target_chapters": target,
         "target_words_per_chapter": twpc,
@@ -776,9 +780,9 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "consecutive_error_count": consecutive_error_count,
         "total_words": total_words,
         "completed_chapters": completed_count,
-        "progress_pct": round(completed_count / target * 100, 1) if target else 0,
+        "progress_pct": round(progress_count / target * 100, 1) if target else 0,
         "manuscript_chapters": in_manuscript_count,
-        "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
+        "progress_pct_manuscript": round(max(in_manuscript_count, current_auto_count) / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
         "needs_review": _stage_needs_human_review(stage),
         "auto_approve_mode": auto_approve_mode,

@@ -176,6 +176,11 @@
       :status="status"
     />
 
+    <AuditPipelineObservability
+      v-if="auditPipelineObsVisible"
+      :status="status"
+    />
+
     <!-- 单本挂起 / 失败计数过高 -->
     <n-alert v-if="needsRecovery" type="error" :show-icon="true" class="ap-inline-alert">
       <div class="recovery-hint">
@@ -317,6 +322,7 @@ import { ref, computed, onUnmounted, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
 import StoryPipelineObservability from './StoryPipelineObservability.vue'
+import AuditPipelineObservability from './AuditPipelineObservability.vue'
 import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 
@@ -406,6 +412,21 @@ const storyPipelineObsVisible = computed(() => {
   const ix = Number(status.value.story_pipeline_wave_index)
   return Number.isFinite(ix) && ix >= 1 && ix <= 10
 })
+
+const auditPipelineObsVisible = computed(() => {
+  if (!isRunning.value || !status.value) return false
+  const stage = String(status.value.current_stage || '')
+  const sub = String(status.value.writing_substep || '')
+  const audit = String(status.value.audit_progress || '')
+  return (
+    stage === 'auditing' ||
+    sub === 'pipeline_done' ||
+    sub.startsWith('audit_') ||
+    audit === 'voice_check' ||
+    audit === 'aftermath_pipeline' ||
+    audit === 'tension_scoring'
+  )
+})
 const needsRecovery = computed(
   () =>
     status.value?.autopilot_status === 'error' ||
@@ -452,11 +473,16 @@ const planTotalWordsHint = computed(() => {
 const progressPct = computed(() => {
   const s = status.value
   if (!s) return 0
-  const done = s.completed_chapters || 0
-  const ms = s.manuscript_chapters ?? 0
-  if (done > 0) return s.progress_pct ?? 0
-  if (ms > 0 && s.progress_pct_manuscript != null) return s.progress_pct_manuscript
-  return s.progress_pct ?? 0
+  const target = Number(s.target_chapters || 0)
+  const completed = Number(s.completed_chapters || 0)
+  const manuscript = Number(s.manuscript_chapters ?? completed)
+  const currentAuto = Number(s.current_auto_chapters || 0)
+  const bestCount = Math.max(completed, manuscript, currentAuto)
+  if (target > 0 && bestCount > 0) {
+    return Math.min(100, Math.round((bestCount / target) * 1000) / 10)
+  }
+  const serverPct = Number(s.progress_pct_manuscript ?? s.progress_pct ?? 0)
+  return Number.isFinite(serverPct) ? serverPct : 0
 })
 
 const progressPctDisplay = computed(() => {

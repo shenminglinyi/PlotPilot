@@ -81,31 +81,28 @@
 
           <!-- 叙事管线 -->
           <div class="review-section">
-            <n-text strong class="section-label">叙事管线</n-text>
-            <div class="pipeline-grid">
-              <div class="pipeline-item">
-                <n-tag :type="autopilotChapterReview.narrative_sync_ok ? 'success' : 'warning'" size="small" round>
-                  {{ autopilotChapterReview.narrative_sync_ok ? '✓ 已同步' : '✗ 同步失败' }}
-                </n-tag>
-                <n-text depth="3">叙事同步</n-text>
-              </div>
-              <div class="pipeline-item">
-                <n-tag :type="autopilotChapterReview.vector_stored ? 'success' : 'default'" size="small" round>
-                  {{ autopilotChapterReview.vector_stored ? '✓ 已存储' : '—' }}
-                </n-tag>
-                <n-text depth="3">向量落库</n-text>
-              </div>
-              <div class="pipeline-item">
-                <n-tag :type="autopilotChapterReview.foreshadow_stored ? 'success' : 'default'" size="small" round>
-                  {{ autopilotChapterReview.foreshadow_stored ? '✓ 已记录' : '—' }}
-                </n-tag>
-                <n-text depth="3">伏笔账本</n-text>
-              </div>
-              <div class="pipeline-item">
-                <n-tag :type="autopilotChapterReview.triples_extracted ? 'success' : 'default'" size="small" round>
-                  {{ autopilotChapterReview.triples_extracted ? '✓ 已抽取' : '—' }}
-                </n-tag>
-                <n-text depth="3">知识图谱</n-text>
+            <div class="section-head-row">
+              <n-text strong class="section-label">章后管线</n-text>
+              <n-tag size="tiny" round :type="aftermathSummary.type">
+                {{ aftermathSummary.text }}
+              </n-tag>
+            </div>
+            <div class="aftermath-track" aria-label="章后管线子步骤">
+              <div
+                v-for="step in aftermathSteps"
+                :key="step.id"
+                class="aftermath-step"
+                :class="`aftermath-step--${step.state}`"
+              >
+                <div class="aftermath-step__ix">{{ step.index }}</div>
+                <div class="aftermath-step__body">
+                  <div class="aftermath-step__label-row">
+                    <span class="aftermath-step__label">{{ step.label }}</span>
+                    <span v-if="step.state === 'done'" class="aftermath-step__ok">✓</span>
+                    <span v-else-if="step.state === 'fail'" class="aftermath-step__fail">!</span>
+                  </div>
+                  <span class="aftermath-step__detail">{{ step.detail }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -267,6 +264,11 @@ export interface AutopilotChapterAudit {
   vector_stored?: boolean
   foreshadow_stored?: boolean
   triples_extracted?: boolean
+  causal_edges_stored?: boolean
+  character_mutations_stored?: boolean
+  debt_updated?: boolean
+  evolution_snapshot_ok?: boolean
+  character_reconcile_ok?: boolean
   quality_scores?: Record<string, number>
   issues?: Array<{ severity: string; message: string }>
   at: string | null
@@ -312,6 +314,57 @@ const ghostAnnotationLines = computed(() => {
     }
   }
   return lines
+})
+
+type AftermathStepState = 'done' | 'fail' | 'pending'
+
+interface AftermathStep {
+  index: number
+  id: string
+  label: string
+  detail: string
+  state: AftermathStepState
+}
+
+function boolStep(
+  index: number,
+  id: string,
+  label: string,
+  detail: string,
+  value: boolean | undefined,
+  failWhenFalse = false,
+): AftermathStep {
+  return {
+    index,
+    id,
+    label,
+    detail,
+    state: value === true ? 'done' : (value === false && failWhenFalse ? 'fail' : 'pending'),
+  }
+}
+
+const aftermathSteps = computed<AftermathStep[]>(() => {
+  const r = props.autopilotChapterReview
+  return [
+    boolStep(1, 'narrative_summary', '摘要事件', '章节摘要、事件、场景信号写入叙事层', r?.narrative_sync_ok, true),
+    boolStep(2, 'beat_sections', '叙事节拍', '大纲段落与 beat_sections 对齐', r?.narrative_sync_ok, true),
+    boolStep(3, 'vector_index', '向量索引', '章节语义检索索引可被后续上下文命中', r?.vector_stored),
+    boolStep(4, 'foreshadow', '伏笔账本', '埋线、兑现、回收信号进入账本', r?.foreshadow_stored),
+    boolStep(5, 'kg_triples', 'KG 三元组', '人物、地点、道具与关系事实抽取', r?.triples_extracted),
+    boolStep(6, 'causal_edges', '因果边', '动作后果、承诺兑现链路更新', r?.causal_edges_stored),
+    boolStep(7, 'character_state', '角色状态', '角色关系、情绪与立场突变投影', r?.character_mutations_stored ?? r?.character_reconcile_ok),
+    boolStep(8, 'narrative_debt', '叙事债务', '未兑现承诺、风险与后续压力更新', r?.debt_updated ?? r?.evolution_snapshot_ok),
+  ]
+})
+
+const aftermathSummary = computed(() => {
+  const steps = aftermathSteps.value
+  const failed = steps.filter(s => s.state === 'fail').length
+  const done = steps.filter(s => s.state === 'done').length
+  if (failed > 0) return { type: 'warning' as const, text: `${failed} 项需复查` }
+  if (done === steps.length) return { type: 'success' as const, text: '全部完成' }
+  if (done > 0) return { type: 'info' as const, text: `${done}/${steps.length} 已确认` }
+  return { type: 'default' as const, text: '等待结果' }
 })
 
 function pacingLabel(p: string) {
@@ -476,6 +529,18 @@ function onLocationClick(location: number) {
   font-size: 12px;
 }
 
+.section-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-head-row .section-label {
+  margin-bottom: 0;
+}
+
 /* 张力进度条 */
 .tension-bar-wrap {
   display: flex;
@@ -506,21 +571,111 @@ function onLocationClick(location: number) {
   text-align: right;
 }
 
-/* 管线网格 */
-.pipeline-grid {
+/* 章后子管线 */
+.aftermath-track {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.pipeline-item {
+.aftermath-step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--n-border-color);
+  border-radius: var(--app-radius-sm, 8px);
+  background: var(--app-surface, var(--n-color));
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.aftermath-step__ix {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--n-text-color-3);
+  background: var(--n-color-modal);
+  border: 1px solid var(--n-border-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.aftermath-step__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.aftermath-step__label-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
+  min-width: 0;
 }
 
-.pipeline-item n-text {
+.aftermath-step__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--n-text-color-1);
+}
+
+.aftermath-step__detail {
+  display: block;
+  margin-top: 3px;
   font-size: 11px;
+  line-height: 1.45;
+  color: var(--n-text-color-3);
+}
+
+.aftermath-step__ok,
+.aftermath-step__fail {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.aftermath-step__ok {
+  color: var(--color-success, #10b981);
+}
+
+.aftermath-step__fail {
+  color: var(--color-warning, #f59e0b);
+}
+
+.aftermath-step--done {
+  border-color: color-mix(in srgb, var(--color-success, #10b981) 28%, var(--n-border-color));
+  background: color-mix(in srgb, var(--color-success, #10b981) 6%, var(--app-surface, var(--n-color)));
+}
+
+.aftermath-step--done .aftermath-step__ix {
+  color: var(--color-success, #10b981);
+  border-color: color-mix(in srgb, var(--color-success, #10b981) 34%, var(--n-border-color));
+  background: var(--color-success-dim, rgba(16, 185, 129, 0.1));
+}
+
+.aftermath-step--fail {
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 34%, var(--n-border-color));
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 7%, var(--app-surface, var(--n-color)));
+}
+
+.aftermath-step--fail .aftermath-step__ix {
+  color: var(--color-warning, #f59e0b);
+  border-color: color-mix(in srgb, var(--color-warning, #f59e0b) 34%, var(--n-border-color));
+  background: var(--color-warning-dim, rgba(245, 158, 11, 0.1));
+}
+
+.aftermath-step--pending {
+  opacity: 0.72;
 }
 
 /* 质量评分网格 */

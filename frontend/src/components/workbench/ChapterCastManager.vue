@@ -23,94 +23,96 @@
     </div>
 
     <n-spin :show="scheduling" size="small" class="ccm-spin">
-      <div class="ccm-summary">
-        <div class="ccm-stat ccm-stat--major">
-          <span class="ccm-stat-num">{{ tierCounts.major }}</span>
-          <span class="ccm-stat-label">T0 锚定</span>
+      <div class="ccm-scroll">
+        <div class="ccm-summary">
+          <div class="ccm-stat ccm-stat--major">
+            <span class="ccm-stat-num">{{ tierCounts.major }}</span>
+            <span class="ccm-stat-label">T0 锚定</span>
+          </div>
+          <div class="ccm-stat ccm-stat--normal">
+            <span class="ccm-stat-num">{{ tierCounts.normal }}</span>
+            <span class="ccm-stat-label">T1 参与</span>
+          </div>
+          <div class="ccm-stat ccm-stat--minor">
+            <span class="ccm-stat-num">{{ tierCounts.minor }}</span>
+            <span class="ccm-stat-label">T2 过场</span>
+          </div>
+          <div class="ccm-stat ccm-stat--risk">
+            <span class="ccm-stat-num">{{ reviewCount }}</span>
+            <span class="ccm-stat-label">需校准</span>
+          </div>
         </div>
-        <div class="ccm-stat ccm-stat--normal">
-          <span class="ccm-stat-num">{{ tierCounts.normal }}</span>
-          <span class="ccm-stat-label">T1 参与</span>
-        </div>
-        <div class="ccm-stat ccm-stat--minor">
-          <span class="ccm-stat-num">{{ tierCounts.minor }}</span>
-          <span class="ccm-stat-label">T2 过场</span>
-        </div>
-        <div class="ccm-stat ccm-stat--risk">
-          <span class="ccm-stat-num">{{ reviewCount }}</span>
-          <span class="ccm-stat-label">需校准</span>
-        </div>
-      </div>
 
-      <div v-if="suggestions.length > 0" class="ccm-section">
-        <div class="ccm-section-head">
-          <span class="ccm-section-label">选角合同</span>
-          <span class="ccm-section-note">后端 Character Narrative Kernel 自动生成</span>
-        </div>
-        <div class="ccm-list">
-          <div
-            v-for="item in suggestions"
-            :key="item.character_id"
-            class="ccm-item"
-            :class="`ccm-item--${item.importance}`"
-          >
-            <div class="ccm-avatar">{{ item.name.slice(0, 1) }}</div>
-            <div class="ccm-info">
-              <div class="ccm-name-row">
-                <span class="ccm-name">{{ item.name }}</span>
-                <span class="ccm-imp-tag" :class="`ccm-imp-tag--${item.importance}`">
-                  {{ slotTierLabel(item.importance) }}
+        <div v-if="suggestions.length > 0" class="ccm-section">
+          <div class="ccm-section-head">
+            <span class="ccm-section-label">选角合同</span>
+            <span class="ccm-section-note">后端 Character Narrative Kernel 自动生成</span>
+          </div>
+          <div class="ccm-list">
+            <div
+              v-for="item in suggestions"
+              :key="item.character_id"
+              class="ccm-item"
+              :class="`ccm-item--${item.importance}`"
+            >
+              <div class="ccm-avatar">{{ item.name.slice(0, 1) }}</div>
+              <div class="ccm-info">
+                <div class="ccm-name-row">
+                  <span class="ccm-name">{{ item.name }}</span>
+                  <span class="ccm-imp-tag" :class="`ccm-imp-tag--${item.importance}`">
+                    {{ slotTierLabel(item.importance) }}
+                  </span>
+                  <span v-if="item.needs_review" class="ccm-risk-tag">校准</span>
+                </div>
+                <span class="ccm-function">
+                  {{ sceneFunctionLabel(item.scene_function) }}
                 </span>
-                <span v-if="item.needs_review" class="ccm-risk-tag">校准</span>
               </div>
-              <span class="ccm-function">
-                {{ sceneFunctionLabel(item.scene_function) }}
-              </span>
             </div>
           </div>
         </div>
-      </div>
 
-      <div v-if="newCharacterCandidates.length > 0" class="ccm-section ccm-section--candidates">
-        <div class="ccm-section-head">
-          <span class="ccm-section-label">新角色准入</span>
-          <span class="ccm-section-note">默认自动采纳，只有高风险需要看</span>
-        </div>
-        <div class="ccm-candidates">
-          <div
-            v-for="candidate in newCharacterCandidates"
-            :key="String(candidate.name)"
-            class="ccm-candidate"
-            :class="candidateClass(candidate)"
-          >
-            <div class="ccm-candidate-main">
-              <span class="ccm-candidate-name">{{ candidate.name }}</span>
-              <span class="ccm-candidate-policy">
-                {{ recommendationLabel(candidate.recommendation) }}
-              </span>
+        <div v-if="newCharacterCandidates.length > 0" class="ccm-section ccm-section--candidates">
+          <div class="ccm-section-head">
+            <span class="ccm-section-label">新角色准入</span>
+            <span class="ccm-section-note">默认自动采纳，只有高风险需要看</span>
+          </div>
+          <div class="ccm-candidates">
+            <div
+              v-for="candidate in newCharacterCandidates"
+              :key="String(candidate.name)"
+              class="ccm-candidate"
+              :class="candidateClass(candidate)"
+            >
+              <div class="ccm-candidate-main">
+                <span class="ccm-candidate-name">{{ candidate.name }}</span>
+                <span class="ccm-candidate-policy">
+                  {{ recommendationLabel(candidate.recommendation) }}
+                </span>
+              </div>
+              <p class="ccm-candidate-reason">{{ candidate.reason || '内核已完成准入判断' }}</p>
             </div>
-            <p class="ccm-candidate-reason">{{ candidate.reason || '内核已完成准入判断' }}</p>
           </div>
         </div>
-      </div>
 
-      <div v-if="generatedContext || schedulingLog.length > 0" class="ccm-section ccm-section--context">
-        <div class="ccm-section-head">
-          <span class="ccm-section-label">上下文锁预览</span>
-          <span class="ccm-section-note">随本章角色合同同步生成</span>
+        <div v-if="generatedContext || schedulingLog.length > 0" class="ccm-section ccm-section--context">
+          <div class="ccm-section-head">
+            <span class="ccm-section-label">上下文锁预览</span>
+            <span class="ccm-section-note">随本章角色合同同步生成</span>
+          </div>
+          <pre v-if="generatedContext" class="ccm-context">{{ generatedContext }}</pre>
+          <div v-if="schedulingLog.length > 0" class="ccm-log">
+            <span v-for="line in schedulingLog" :key="line">{{ line }}</span>
+          </div>
         </div>
-        <pre v-if="generatedContext" class="ccm-context">{{ generatedContext }}</pre>
-        <div v-if="schedulingLog.length > 0" class="ccm-log">
-          <span v-for="line in schedulingLog" :key="line">{{ line }}</span>
-        </div>
-      </div>
 
-      <n-empty
-        v-if="!scheduling && suggestions.length === 0 && newCharacterCandidates.length === 0"
-        size="small"
-        description="暂无本章角色合同"
-        class="ccm-empty"
-      />
+        <n-empty
+          v-if="!scheduling && suggestions.length === 0 && newCharacterCandidates.length === 0"
+          size="small"
+          description="暂无本章角色合同"
+          class="ccm-empty"
+        />
+      </div>
     </n-spin>
   </div>
 </template>
@@ -270,13 +272,13 @@ watch(
 }
 
 .ccm-title {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 800;
   color: var(--app-text-primary);
 }
 
 .ccm-chapter-tag {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 2px 7px;
   border-radius: 999px;
   background: var(--color-brand-light, rgba(37, 99, 235, 0.1));
@@ -296,10 +298,35 @@ watch(
   overflow: hidden;
 }
 
+.ccm-spin :deep(.n-spin-container) {
+  height: 100%;
+  min-height: 0;
+}
+
 .ccm-spin :deep(.n-spin-content) {
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+}
+
+.ccm-scroll {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
+  padding-bottom: 64px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-border) transparent;
+}
+
+.ccm-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ccm-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--app-border);
 }
 
 .ccm-summary {
@@ -319,7 +346,7 @@ watch(
 
 .ccm-stat-num {
   display: block;
-  font-size: 18px;
+  font-size: var(--font-size-xl);
   line-height: 1;
   font-weight: 800;
   color: var(--app-text-primary);
@@ -328,7 +355,7 @@ watch(
 .ccm-stat-label {
   display: block;
   margin-top: 5px;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--app-text-muted);
   white-space: nowrap;
 }
@@ -351,13 +378,13 @@ watch(
 }
 
 .ccm-section-label {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 800;
   color: var(--app-text-primary);
 }
 
 .ccm-section-note {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   color: var(--app-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -396,7 +423,7 @@ watch(
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 800;
 }
 
@@ -423,7 +450,7 @@ watch(
 }
 
 .ccm-name {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 700;
   color: var(--app-text-primary);
   overflow: hidden;
@@ -434,7 +461,7 @@ watch(
 .ccm-function {
   display: block;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--app-text-muted);
 }
 
@@ -447,7 +474,7 @@ watch(
   height: 18px;
   padding: 0 6px;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   font-weight: 800;
 }
 
@@ -494,7 +521,7 @@ watch(
 }
 
 .ccm-candidate-name {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 800;
   color: var(--app-text-primary);
 }
@@ -516,13 +543,13 @@ watch(
 
 .ccm-candidate-reason {
   margin: 5px 0 0;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   color: var(--app-text-muted);
 }
 
 .ccm-section--context {
-  padding-bottom: 12px;
+  padding-bottom: 0;
 }
 
 .ccm-section--context .ccm-context {
@@ -538,7 +565,7 @@ watch(
   white-space: pre-wrap;
   word-break: break-word;
   padding: 8px 10px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.55;
   color: var(--app-text-secondary);
 }
@@ -551,7 +578,7 @@ watch(
 }
 
 .ccm-log span {
-  font-size: 10px;
+  font-size: var(--font-size-xs);
   padding: 2px 6px;
   border-radius: 999px;
   background: var(--app-border);
@@ -560,6 +587,6 @@ watch(
 
 .ccm-empty {
   margin-top: 16px;
-  padding: 0 16px 18px;
+  padding: 0 16px 0;
 }
 </style>

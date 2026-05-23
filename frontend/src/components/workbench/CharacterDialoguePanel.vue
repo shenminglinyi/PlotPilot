@@ -29,20 +29,24 @@
 
       <!-- 右栏：角色档案（4 tab，含对白和记忆） -->
       <template #2>
-        <n-split direction="vertical" :default-size="0.36" :min="0.22" :max="0.52">
+        <n-split class="cast-profile-split" direction="vertical" :default-size="0.44" :min="0.30" :max="0.64">
           <template #1>
-            <ChapterCastManager
-              :slug="slug"
-              :chapter-number="currentChapterNumber"
-            />
+            <div class="cast-manager-slot">
+              <ChapterCastManager
+                :slug="slug"
+                :chapter-number="currentChapterNumber"
+              />
+            </div>
           </template>
           <template #2>
-            <CharacterProfile
-              :slug="slug"
-              :selected-character-id="selectedCharacterId"
-              :current-chapter-number="currentChapterNumber"
-              :desk-chapter-number="currentChapterNumber"
-            />
+            <div class="character-profile-slot">
+              <CharacterProfile
+                :slug="slug"
+                :selected-character-id="selectedCharacterId"
+                :current-chapter-number="currentChapterNumber"
+                :desk-chapter-number="currentChapterNumber"
+              />
+            </div>
           </template>
         </n-split>
       </template>
@@ -109,7 +113,7 @@ function onSelectCharacter(characterId: string | null) {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   min-width: 0;
 }
 
@@ -139,5 +143,23 @@ function onSelectCharacter(characterId: string | null) {
 
 .character-dialogue-panel :deep(.n-split-pane-2 > .n-split) {
   height: 100%;
+}
+
+.cast-manager-slot,
+.character-profile-slot {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.character-dialogue-panel :deep(.cast-profile-split > .n-split-pane-1) {
+  position: relative;
+  z-index: 1;
+  min-height: 220px;
+}
+
+.character-dialogue-panel :deep(.cast-profile-split > .n-split-pane-2) {
+  position: relative;
+  z-index: 0;
 }
 </style>

@@ -165,7 +165,7 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
         daemon._update_shared_state(
             novel_id,
             writing_substep="pipeline_done",
-            writing_substep_label="写作完成，进入审计",
+            writing_substep_label="审计准备",
             current_chapter_number=chapter_num,
             last_chapter_tension=result.tension,
         )
