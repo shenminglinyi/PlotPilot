@@ -173,7 +173,7 @@ def atoms_from_beat_sheet_dict(data: Dict[str, Any]) -> Optional[List[PlanAtomSp
         if len(intent.strip()) < 2:
             continue
         ew = raw.get("estimated_words")
-        weight = float(ew) if isinstance(ew, (int, float)) and ew > 0 else 1.0
+        weight = min(100.0, max(0.01, float(ew))) if isinstance(ew, (int, float)) and ew > 0 else 1.0
         ext = {"decomposition_mode": "beat_sheet", "scene_index": i}
         for k in ("pov_character", "location", "tone", "transition_from_prev"):
             if raw.get(k):
@@ -375,3 +375,63 @@ async def build_chapter_execution_plan_async(
 
     provenance = {**prov, "mode": mode, "atom_count": len(atoms)}
     return ChapterExecutionPlan(envelope=env, atoms=atoms, provenance=provenance)
+
+
+def build_chapter_execution_plan_sync(
+    outline: str,
+    *,
+    target_chapter_words: int = 2500,
+    novel_id: Optional[str] = None,
+    chapter_number: Optional[int] = None,
+    beat_sheet_json: Optional[Dict[str, Any]] = None,
+    decomposition_label: str = "context_builder_sync",
+) -> ChapterExecutionPlan:
+    """Build a deterministic ChapterExecutionPlan without LLM.
+
+    This is the synchronous canonical fallback for runtime callers. It keeps the
+    planning source as ChapterExecutionPlan even when no async/LLM planning step
+    is available.
+    """
+    raw = (outline or "").strip()
+    env = PlanningEnvelope(
+        novel_id=novel_id,
+        chapter_number=chapter_number,
+        target_chapter_words=target_chapter_words,
+        source_outline_hash=outline_fingerprint(raw) if raw else None,
+    )
+    prov: Dict[str, Any] = {"node_hint": decomposition_label}
+
+    atoms: Optional[List[PlanAtomSpec]] = None
+    mode = "fallback_single"
+
+    if beat_sheet_json and isinstance(beat_sheet_json, dict):
+        atoms = atoms_from_beat_sheet_dict(beat_sheet_json)
+        if atoms:
+            mode = "beat_sheet"
+
+    if atoms is None and raw:
+        structured = segment_structured_outline(raw)
+        if structured:
+            atoms = atoms_from_segments(structured)
+            mode = "structured_outline"
+
+    if atoms is None and raw:
+        atoms = [
+            PlanAtomSpec(
+                id="b1",
+                intent=raw,
+                weight=1.0,
+                extensions={"decomposition_mode": "fallback_single"},
+            )
+        ]
+        mode = "fallback_single"
+
+    if atoms is None:
+        atoms = []
+        mode = "empty_outline"
+
+    return ChapterExecutionPlan(
+        envelope=env,
+        atoms=atoms,
+        provenance={**prov, "mode": mode, "atom_count": len(atoms)},
+    )

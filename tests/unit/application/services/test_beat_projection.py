@@ -6,6 +6,7 @@ from application.engine.dag.plan.schema import (
     PlanAtomSpec,
     PlanningEnvelope,
 )
+from application.engine.dag.plan.outline_beat_planner import build_chapter_execution_plan_sync
 from application.engine.services.beat_projection import (
     OUTLINE_OBLIGATION_PREFIX,
     beat_sheet_to_plan_json,
@@ -103,3 +104,26 @@ def test_planned_micro_beats_from_beats_uses_runtime_serializer():
     assert payload[0]["description"] == "对峙"
     assert payload[0]["active_action"] == "主角把缺页摊在桌上"
     assert payload[0]["beat_cards"][0]["forbidden_drift"] == "禁止只写心理活动"
+
+
+def test_sync_plan_builder_makes_beat_sheet_and_outline_canonical_sources():
+    beat_sheet_json = {
+        "scenes": [
+            {"title": "夜探", "goal": "主角找到账本", "estimated_words": 700},
+        ]
+    }
+
+    from_sheet = build_chapter_execution_plan_sync(
+        "章纲正文",
+        target_chapter_words=2000,
+        beat_sheet_json=beat_sheet_json,
+    )
+    from_outline = build_chapter_execution_plan_sync(
+        "1. 主角潜入库房\n2. 同伴突然背叛",
+        target_chapter_words=2000,
+    )
+
+    assert from_sheet.provenance["mode"] == "beat_sheet"
+    assert from_sheet.atoms[0].intent == "夜探：主角找到账本"
+    assert from_outline.provenance["mode"] == "structured_outline"
+    assert [a.intent for a in from_outline.atoms] == ["1. 主角潜入库房", "2. 同伴突然背叛"]

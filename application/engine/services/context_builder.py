@@ -19,11 +19,9 @@ from application.engine.services.beat_planner import (
     generate_expansion_hints,
     infer_focus_from_outline,
     make_minimal_card,
-    segment_user_outline,
 )
 from application.engine.services.beat_projection import (
-    OUTLINE_OBLIGATION_PREFIX,
-    beats_from_beat_sheet,
+    beat_sheet_to_plan_json,
     beats_from_execution_plan,
 )
 
@@ -281,32 +279,47 @@ class ContextBuilder:
         chapter_execution_plan: Optional[ChapterExecutionPlan] = None,
         scene_director: Optional[Any] = None,
     ) -> List[Beat]:
-        """节拍放大器：将章节大纲拆分为微观节拍
+        """节拍放大器：将章节计划投影为微观节拍。
 
-        核心策略（选项 C：动态弹性扩写与前置预估）：
-        1. 优先使用章前执行计划 ``chapter_execution_plan``（planning_outline_partition / CPMS 拆拍）
-        2. 否则使用规划阶段的 BeatSheet（含 estimated_words）
-        3. 无上述二者时回退到关键词识别 + 25% 均分
-        4. 根据 focus 类型注入扩写维度提示（expansion_hints）
-        5. 拍数上限 MAX_BEATS；每拍目标字数 < MIN_BEAT_WORDS 时合并相邻拍
+        入口规则：
+        1. 运行时 Beat 的唯一计划来源是 ``ChapterExecutionPlan``。
+        2. ``BeatSheet`` 与裸章纲只允许先归一成 ``ChapterExecutionPlan``。
+        3. ``micro_beats`` 只作为运行快照/复盘数据，不参与本方法的计划来源。
         """
-        beats: List[Beat]
-        # === 路径 A：章前执行计划（与 DAG planning_outline_partition 同源）===
-        if chapter_execution_plan is not None and chapter_execution_plan.atoms:
-            beats = self._build_beats_from_execution_plan(
-                chapter_execution_plan, outline, target_chapter_words
-            )
-        # === 路径 B：有规划阶段的 BeatSheet ===
-        elif beat_sheet is not None and hasattr(beat_sheet, 'scenes') and beat_sheet.scenes:
-            beats = self._build_beats_from_beat_sheet(beat_sheet, outline, target_chapter_words)
-        else:
-            # === 路径 C：无 Plan/BeatSheet，回退到关键词识别 ===
-            beats = self._build_beats_from_outline(chapter_number, outline, target_chapter_words)
+        plan = self._ensure_chapter_execution_plan(
+            chapter_number=chapter_number,
+            outline=outline,
+            target_chapter_words=target_chapter_words,
+            beat_sheet=beat_sheet,
+            chapter_execution_plan=chapter_execution_plan,
+        )
+        beats = self._build_beats_from_execution_plan(plan, outline, target_chapter_words)
 
         beats = self._cap_and_merge_beats(beats, target_chapter_words)
         self._bind_atg_locations_if_present(beats, scene_director)
         self._attach_cards_if_missing(beats)
         return beats
+
+    def _ensure_chapter_execution_plan(
+        self,
+        *,
+        chapter_number: int,
+        outline: str,
+        target_chapter_words: int,
+        beat_sheet: Optional[Any],
+        chapter_execution_plan: Optional[ChapterExecutionPlan],
+    ) -> ChapterExecutionPlan:
+        if chapter_execution_plan is not None and chapter_execution_plan.atoms:
+            return chapter_execution_plan
+
+        from application.engine.dag.plan.outline_beat_planner import build_chapter_execution_plan_sync
+
+        return build_chapter_execution_plan_sync(
+            outline or "",
+            target_chapter_words=target_chapter_words,
+            chapter_number=chapter_number,
+            beat_sheet_json=beat_sheet_to_plan_json(beat_sheet),
+        )
 
     def _build_beats_from_execution_plan(
         self,
@@ -347,8 +360,8 @@ class ContextBuilder:
     def _attach_cards_if_missing(self, beats: List[Beat]) -> None:
         """为尚未携带 EmotionBeatCard 的 Beat 生成最小卡片并预渲染 card_prompt_block。
 
-        路径 A/B 生成的 Beat 没有 card；路径 C 的 _build_typed_beats 已经附了卡；
-        此处统一补齐，保证所有 Beat 都有 card_prompt_block。
+        运行时 Beat 统一由 ChapterExecutionPlan 投影而来；此处只负责补齐
+        结构化写作义务，保证所有 Beat 都有 card_prompt_block。
         """
         from application.engine.services.beat_card_renderer import BeatCardPromptRenderer
         renderer = BeatCardPromptRenderer()
@@ -422,116 +435,6 @@ class ContextBuilder:
         merged = merge_two_beats(beats[idx], beats[idx + 1])
         return beats[:idx] + [merged] + beats[idx + 2:]
 
-    def _build_beats_from_beat_sheet(
-        self,
-        beat_sheet: Any,
-        outline: str,
-        target_chapter_words: int,
-    ) -> List[Beat]:
-        """从 BeatSheet 构建 Beat 列表（使用规划阶段的预估字数）"""
-        beats = beats_from_beat_sheet(
-            beat_sheet,
-            outline=outline,
-            infer_focus_from_scene=self._infer_focus_from_scene,
-            build_expansion_hints=self._generate_expansion_hints,
-        )
-
-        # 验证总字数
-        total_estimated = sum(b.target_words for b in beats)
-        logger.info(
-            f"节拍放大器（BeatSheet）：{len(beats)} 个场景，"
-            f"预估总字数 {total_estimated} 字（目标 {target_chapter_words} 字）"
-        )
-
-        # 如果总字数差距过大，发出警告但不强制调整
-        if total_estimated < target_chapter_words * 0.7:
-            logger.warning(
-                f"规划阶段预估字数 {total_estimated} 低于目标 {target_chapter_words} 的 70%，"
-                f"将在章节完成时弹性处理"
-            )
-
-        return beats
-
-    def _segment_user_outline(self, outline: str) -> List[str]:
-        """将用户章纲拆成多条，供「章纲优先」节拍；支持编号列表、项目符号、空行段、单段按句切分。"""
-        return segment_user_outline(outline, max_beats=self.MAX_BEATS)
-
-    def _build_beats_from_outline_segments(
-        self,
-        segments: List[str],
-        target_chapter_words: int,
-    ) -> List[Beat]:
-        """按用户章纲条文生成节拍（每段必须落实，字数按段长比例分配）。"""
-        clean = [s.strip() for s in segments if s and s.strip()]
-        if not clean:
-            return []
-        total_w = sum(max(1, len(s)) for s in clean)
-        beats: List[Beat] = []
-        for seg in clean:
-            w = max(1, int(target_chapter_words * max(1, len(seg)) / total_w))
-            focus = self._infer_focus_from_outline(seg)
-            beats.append(
-                Beat(
-                    description=(
-                        OUTLINE_OBLIGATION_PREFIX + seg
-                    ),
-                    target_words=w,
-                    focus=focus,
-                    expansion_hints=self._generate_expansion_hints(focus, w),
-                    scene_goal=seg,
-                )
-            )
-        return beats
-
-    def _build_beats_from_outline(
-        self,
-        chapter_number: int,
-        outline: str,
-        target_chapter_words: int,
-    ) -> List[Beat]:
-        """无 BeatSheet 时，从大纲关键词推断节拍（回退逻辑）"""
-        raw = (outline or "").strip()
-        segments = self._segment_user_outline(raw)
-        outline_chars = len(raw)
-        if len(segments) >= 2 or (len(segments) == 1 and outline_chars >= 15):
-            beats = self._build_beats_from_outline_segments(segments, target_chapter_words)
-            logger.info(
-                "节拍放大器（章纲优先）：用户大纲拆为 %d 个节拍，章纲约 %d 字，整章目标 %d 字",
-                len(beats),
-                outline_chars,
-                target_chapter_words,
-            )
-            return beats
-
-        beats = self._build_typed_beats(outline, target_chapter_words)
-        logger.info(
-            "节拍放大器（回退）：将大纲拆分为 %d 个节拍，目标 %d 字",
-            len(beats),
-            sum(b.target_words for b in beats),
-        )
-        return beats
-
-    def _infer_focus_from_scene(self, scene: Any, outline: str) -> str:
-        """从 Scene 推断 focus 类型"""
-        goal = getattr(scene, 'goal', '') or ''
-        title = getattr(scene, 'title', '') or ''
-        combined = f"{title} {goal}".lower()
-
-        # 关键词匹配
-        if any(kw in combined for kw in ["战斗", "打斗", "对决", "攻击", "招式"]):
-            return "action"
-        if any(kw in combined for kw in ["对话", "争吵", "谈判", "质问", "对峙"]):
-            return "dialogue"
-        if any(kw in combined for kw in ["悬念", "谜团", "发现", "真相", "揭露"]):
-            return "suspense"
-        if any(kw in combined for kw in ["情绪", "内心", "回忆", "痛苦", "挣扎"]):
-            return "emotion"
-        if any(kw in combined for kw in ["环境", "场景", "氛围", "感官"]):
-            return "sensory"
-
-        # 默认根据大纲推断
-        return self._infer_focus_from_outline(outline)
-
     def _infer_focus_from_outline(self, outline: str) -> str:
         """从大纲推断 focus 类型"""
         return infer_focus_from_outline(outline)
@@ -555,52 +458,6 @@ class ContextBuilder:
         except Exception:
             pass
         return make_minimal_card(segment, focus, target_words, forbidden_drift=forbidden)
-
-    def _build_typed_beats(self, outline: str, target_chapter_words: int) -> List[Beat]:
-        """通用回退构建器——替换原有的 conflict/battle/revelation/default 四个模板。
-
-        策略：先尝试分段（同 _build_beats_from_outline_segments）；无法分段时
-        用起承转合四框架，每拍附最小 EmotionBeatCard。
-        """
-        from application.engine.services.beat_card_renderer import BeatCardPromptRenderer
-        renderer = BeatCardPromptRenderer()
-
-        segments = self._segment_user_outline(outline)
-        if len(segments) >= 2:
-            # 有可分段的大纲——按段生成并附卡
-            beats = self._build_beats_from_outline_segments(segments, target_chapter_words)
-            for beat in beats:
-                card = self._make_minimal_card(beat.scene_goal or beat.description, beat.focus, beat.target_words)
-                beat.emotion_beat_card = card
-                beat.card_prompt_block = renderer.render(card)
-            return beats
-
-        # 无法分段——起承转合框架，每拍附最小卡
-        base_w = max(400, int(target_chapter_words * 0.25))
-        specs = [
-            ("起：交代场景与人物状态，抛出本章要处理的具体麻烦或悬念（可小但须清晰）。",
-             "sensory", 1.0),
-            ("承：阻碍升级或对手施压，人物关系或信息出现新变化。",
-             "dialogue", 1.0),
-            ("转：主角做出选择、亮出底牌或发现盲点，情节出现可感知的转折。",
-             "action", 1.0),
-            ("合：阶段性结果落地，同时抛出下一章钩子（勿提前剧透全书谜底）。",
-             "suspense", 1.0),
-        ]
-        beats = []
-        for desc, focus, ratio in specs:
-            w = max(self.MIN_BEAT_WORDS, int(base_w * ratio))
-            card = self._make_minimal_card(desc, focus, w)
-            beat = Beat(
-                description=desc,
-                target_words=w,
-                focus=focus,
-                expansion_hints=self._generate_expansion_hints(focus, w),
-                emotion_beat_card=card,
-                card_prompt_block=renderer.render(card),
-            )
-            beats.append(beat)
-        return beats
 
     # 节拍聚焦指令：CPMS 节点 beat-focus-instructions（prompt_packages）
     # 通过 PromptRegistry 统一读取，不再在此硬编码
