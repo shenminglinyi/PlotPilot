@@ -41,6 +41,14 @@ from application.engine.services.context_budget_policy import (
     allocate_tier,
     truncate_t0_slots,
 )
+from application.engine.services.context_lifecycle import (
+    DEFAULT_PHASE_THRESHOLDS,
+    build_lifecycle_directive,
+    classify_phase,
+    estimate_total_chapters,
+    get_phase_directives,
+    load_phase_thresholds,
+)
 from application.engine.services.context_slot_providers import (
     build_immersion_details_slot_content,
     build_key_props_slot_content,
@@ -2063,124 +2071,39 @@ class ContextBudgetAllocator:
         3. 已有最大章节号 × 1.2（保守估算，假设已完成 80%+）
         4. 兜底返回 100
         """
-        if not self.story_node_repo:
-            return 100
-        
-        try:
-            nodes = self.story_node_repo.get_by_novel_sync(novel_id)
-            if not nodes:
-                return 100
-            
-            # 策略 1：找根 part 节点的 chapter_end
-            part_nodes = [n for n in nodes if n.node_type.value == "part"]
-            for part in part_nodes:
-                if part.chapter_end and part.chapter_end > 0:
-                    return part.chapter_end
-            
-            # 策略 2：suggested_chapter_count 求和
-            total_suggested = sum(
-                (p.suggested_chapter_count or 0) for p in part_nodes if p.suggested_chapter_count
-            )
-            if total_suggested > 0:
-                return total_suggested
-            
-            # 策略 3：最大章节号 × 1.2
-            chapter_nodes = [n for n in nodes if n.node_type.value == "chapter"]
-            if chapter_nodes:
-                max_ch = max(n.number for n in chapter_nodes)
-                if max_ch > 0:
-                    return max(int(max_ch * 1.2), max_ch + 10)
-            
-        except Exception as e:
-            logger.warning(f"估算总章节数失败: {e}")
-        
-        return 100
+        return estimate_total_chapters(self.story_node_repo, novel_id)
     
     # ★ Phase 3: 沙漏阶段默认阈值
-    _DEFAULT_PHASE_THRESHOLDS = {
-        "opening": 0.25,      # 0% ~ 25%: 开局期
-        "development": 0.75,   # 25% ~ 75%: 发展期
-        "convergence": 0.90,   # 75% ~ 90%: 收敛期
-        "finale": 1.01,        # 90% ~ 100%: 终局期（设为 1.01 确保边界）
-    }
+    _DEFAULT_PHASE_THRESHOLDS = DEFAULT_PHASE_THRESHOLDS
 
     from infrastructure.ai.prompt_keys import LIFECYCLE_PHASE_DIRECTIVES as _LIFECYCLE_PROMPT_ID
 
     def _load_phase_thresholds(self) -> Dict[str, float]:
         """★ Phase 3: 从 CPMS 节点加载沙漏阶段阈值（lifecycle-phase-directives 的 _phase_thresholds）。"""
-        try:
-            registry = get_prompt_registry()
-            custom = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_phase_thresholds", None)
-            if isinstance(custom, dict):
-                thresholds = dict(self._DEFAULT_PHASE_THRESHOLDS)
-                for key in ["opening", "development", "convergence", "finale"]:
-                    if key in custom:
-                        val = float(custom[key])
-                        if 0.0 <= val <= 1.01:
-                            thresholds[key] = val
-                logger.info(f"沙漏阶段阈值已从配置加载: {thresholds}")
-                return thresholds
-        except Exception as e:
-            logger.debug(f"加载沙漏阶段阈值失败，使用默认值: {e}")
-
-        return dict(self._DEFAULT_PHASE_THRESHOLDS)
+        return load_phase_thresholds(
+            get_prompt_registry(),
+            self._LIFECYCLE_PROMPT_ID,
+            self._DEFAULT_PHASE_THRESHOLDS,
+        )
 
     def _classify_phase(self, progress: float) -> StoryPhase:
         """★ Phase 3: 根据可配置阈值判定当前生命周期阶段"""
-        t = self._phase_thresholds
-        if progress >= t.get("convergence", 0.90):
-            if progress >= t.get("finale", 1.01):
-                return StoryPhase.FINALE
-            return StoryPhase.CONVERGENCE
-        elif progress >= t.get("opening", 0.25):
-            return StoryPhase.DEVELOPMENT
-        else:
-            return StoryPhase.OPENING
+        return classify_phase(progress, self._phase_thresholds)
     
     def _get_phase_directives(self) -> Dict[StoryPhase, str]:
         """从 PromptRegistry / CPMS 获取阶段指令字典。"""
-        raw = get_prompt_registry().get_directives_dict(
-            self._LIFECYCLE_PROMPT_ID, directives_key="_directives"
-        )
-        if not raw:
-            logger.warning("沙漏阶段指令未找到 (id=%s)，使用空指令", self._LIFECYCLE_PROMPT_ID)
-            return {}
-
-        result: Dict[StoryPhase, str] = {}
-        for key, value in raw.items():
-            try:
-                phase = StoryPhase[key]
-                result[phase] = str(value)
-            except KeyError:
-                logger.debug("未知阶段 key=%s，跳过", key)
-        return result
+        return get_phase_directives(get_prompt_registry(), self._LIFECYCLE_PROMPT_ID)
 
     def _build_lifecycle_directive(self, novel_id: str, chapter_number: int) -> str:
         """构建生命周期行为准则文本（指令来自 CPMS lifecycle-phase-directives）。"""
-        total = self._estimate_total_chapters(novel_id)
-        progress = chapter_number / max(total, 1)
-        phase = self._classify_phase(progress)
-
-        directives = self._get_phase_directives()
-        base_directive = directives.get(phase, "")
-
-        directive = f"{base_directive}\n\n"
-        directive += f"——\n"
-        directive += f"📊 全局进度：第 {chapter_number} 章 / 约 {total} 章 ({progress:.0%})\n"
-        directive += f"🎯 当前阶段：{phase.value}\n"
-
-        registry = get_prompt_registry()
-
-        if phase == StoryPhase.CONVERGENCE:
-            remaining = total - chapter_number
-            extra_tpl = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_convergence_extra", "")
-            directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"⚠️ 剩余约 {remaining} 章完成收束，时间紧迫。\n")
-        elif phase == StoryPhase.FINALE:
-            remaining = total - chapter_number
-            extra_tpl = registry.get_field(self._LIFECYCLE_PROMPT_ID, "_finale_extra", "")
-            directive += (extra_tpl.format(remaining=remaining) if extra_tpl else f"🔥 剩余约 {remaining} 章，这是最后的冲刺。\n")
-
-        return directive
+        return build_lifecycle_directive(
+            story_node_repository=self.story_node_repo,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            thresholds=self._phase_thresholds,
+            registry=get_prompt_registry(),
+            prompt_id=self._LIFECYCLE_PROMPT_ID,
+        )
 
     # ==================== Anti-AI T0 槽位构建方法 ====================
 
