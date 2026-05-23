@@ -85,25 +85,25 @@
         <span class="ap-kpi__label">总字数</span>
         <span class="ap-kpi__value">{{ formatWords(status.total_words) }}</span>
       </article>
-      <article class="ap-kpi">
+      <article class="ap-kpi ap-kpi--location">
         <span class="ap-kpi__label">当前位置</span>
-        <span class="ap-kpi__value ap-kpi__value--wrap">
-          第 {{ (status.current_act || 0) + 1 }} 幕
-          <template v-if="status.current_act_title">
-            <span class="ap-kpi__act">{{ status.current_act_title }}</span>
-          </template>
+        <span class="ap-location">
+          <span class="ap-location__meta">第 {{ (status.current_act || 0) + 1 }} 幕</span>
+          <span class="ap-location__title">{{ status.current_act_title || '当前幕' }}</span>
           <!-- 规划阶段：显示阶段标签 -->
-          <template v-if="!isWriting && status.current_stage === 'act_planning'">
-            <span class="ap-kpi__muted">· 幕级规划</span>
-          </template>
-          <template v-else-if="!isWriting && status.current_stage === 'macro_planning'">
-            <span class="ap-kpi__muted">· 宏观规划</span>
-          </template>
-          <!-- 撰写阶段：只有 writing_substep 激活后才显示章/节拍，避免展示上一章的残留状态 -->
-          <template v-if="isWriting && status.current_chapter_number != null && status.writing_substep">
-            · 第 {{ status.current_chapter_number }} 章
-          </template>
-          <span v-if="isWriting && beatLabelActive" class="ap-kpi__muted">· {{ beatLabel }}</span>
+          <span class="ap-location__trail">
+            <span v-if="!isWriting && status.current_stage === 'act_planning'" class="ap-location__chip">
+              幕级规划
+            </span>
+            <span v-else-if="!isWriting && status.current_stage === 'macro_planning'" class="ap-location__chip">
+              宏观规划
+            </span>
+            <!-- 撰写阶段：只有 writing_substep 激活后才显示章/节拍，避免展示上一章的残留状态 -->
+            <span v-if="isWriting && status.current_chapter_number != null && status.writing_substep" class="ap-location__chip ap-location__chip--strong">
+              第 {{ status.current_chapter_number }} 章
+            </span>
+            <span v-if="isWriting && beatLabelActive" class="ap-location__chip">{{ beatLabel }}</span>
+          </span>
         </span>
       </article>
       <article class="ap-kpi">
@@ -1560,6 +1560,11 @@ onUnmounted(() => {
   line-height: 1.45;
 }
 
+.ap-kpi--location {
+  gap: 7px;
+  padding-bottom: 11px;
+}
+
 .ap-kpi__sep {
   margin: 0 2px;
   color: var(--app-text-muted);
@@ -1577,6 +1582,67 @@ onUnmounted(() => {
 .ap-kpi__muted {
   color: var(--app-text-muted);
   font-weight: 500;
+}
+
+.ap-location {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ap-location__meta {
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #2563eb) 18%, var(--app-border));
+  background: color-mix(in srgb, var(--color-primary, #2563eb) 7%, transparent);
+  color: var(--app-text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-location__title {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--app-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-location__trail {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.ap-location__chip {
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--app-text-muted) 8%, transparent);
+  color: var(--app-text-muted);
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-location__chip--strong {
+  background: var(--color-primary-light, color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent));
+  color: var(--color-primary, #2563eb);
 }
 
 .ap-narrative {
