@@ -368,6 +368,9 @@ class BaseStoryPipeline(ABC):
                 f"- 最多新增故事线：{budget.get('max_new_storylines', 0)}",
                 f"- 最多回收叙事债务：{budget.get('max_debt_closures', 0)}",
                 f"- 允许揭秘等级：{budget.get('allowed_reveal_level', 'hint')}",
+                "- 世界线规则：优先推进、交汇或回收现有世界线；不要随意开新主线/支线/暗线。",
+                "- 新线约束：若预算允许新增，也必须由既有人物、地点、道具或未结因果触发，并在章内给出可追踪的世界切片变化。",
+                "- 回滚约束：避免写出会破坏已存档人物状态、地点占用、道具归属和已公开真相的情节。",
             ]
             if tags:
                 lines.append(f"- 必须服务承诺标签：{tags}")

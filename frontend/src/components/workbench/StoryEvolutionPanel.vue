@@ -40,23 +40,10 @@
     </header>
 
     <div v-if="activeTab === 'worldline'" class="worldline-board">
-      <section class="worldline-board__timeline">
-        <StoryTimeline
-          :slug="slug"
-          :highlight-range="highlightRange"
-          :chronicles-from-bundled-parent="true"
-          :bundled-chronicle-rows="bundledChronicleRows"
-          @select-event="onSelectEvent"
-          @select-snapshot="onSelectSnapshot"
-          @request-bundle-refresh="loadBundle"
-        />
-      </section>
-      <section class="worldline-board__graph">
-        <WorldlineDAG
-          :slug="slug"
-          @checkpoint-restored="onCheckpointRestored"
-        />
-      </section>
+      <WorldlineDAG
+        :slug="slug"
+        @checkpoint-restored="onCheckpointRestored"
+      />
     </div>
 
     <div v-else-if="activeTab === 'command'" class="evolution-command">
@@ -704,17 +691,8 @@ function openCharacterAnchor() {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.25fr);
   overflow: hidden;
   background: var(--app-page-bg, var(--app-surface));
-}
-
-.worldline-board__timeline,
-.worldline-board__graph {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
 }
 
 .evolution-console {

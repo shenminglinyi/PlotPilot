@@ -88,10 +88,11 @@ def test_opening_budget_limits_new_lines_and_reveal_level():
 
     budget = service.preview_chapter_budget("n1", chapter_number=3)
 
-    assert budget.max_new_storylines == 1
+    assert budget.max_new_storylines == 0
     assert budget.max_debt_closures == 1
     assert budget.allowed_reveal_level == "hint"
     assert "剑仙" in budget.must_serve_promise_tags
+    assert "克制新增故事线" in " ".join(budget.notes)
 
 
 def test_governance_report_flags_drift_and_premature_payoff_as_pause():

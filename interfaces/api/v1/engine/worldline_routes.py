@@ -93,6 +93,12 @@ class UpdateBranchRequest(BaseModel):
     storyline_id: Optional[str] = None
 
 
+class MergeBranchRequest(BaseModel):
+    target_branch_name: str = "main"
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 # ─── API Endpoints ────────────────────────────────────────────────
 
 @router.get("/{novel_id}/worldline/graph", response_model=WorldlineGraphDTO)
@@ -300,6 +306,36 @@ async def update_worldline_branch(
         raise
     except Exception as e:
         logger.error("update_worldline_branch 失败 novel=%s branch=%s: %s", novel_id, branch_id, e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post(
+    "/{novel_id}/worldline/branches/{branch_id}/merge",
+    response_model=CreateCheckpointResponse,
+)
+async def merge_worldline_branch(
+    novel_id: str,
+    branch_id: str,
+    body: MergeBranchRequest,
+    novel_service=Depends(get_novel_service),
+    svc: UnifiedCheckpointService = Depends(get_unified_checkpoint_service),
+):
+    """将指定分支汇入目标分支，生成 MERGE checkpoint。"""
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        checkpoint_id = svc.merge_branch(
+            novel_id=novel_id,
+            source_branch_id=branch_id,
+            target_branch_name=body.target_branch_name,
+            name=body.name,
+            description=body.description,
+        )
+        return CreateCheckpointResponse(checkpoint_id=checkpoint_id, message="分支已汇入")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+    except Exception as e:
+        logger.error("merge_worldline_branch 失败 novel=%s branch=%s: %s", novel_id, branch_id, e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 

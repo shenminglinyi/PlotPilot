@@ -142,11 +142,11 @@ class NarrativeGovernanceService:
         stage = self._stage_for(novel_id, chapter_number)
 
         if stage == "opening":
-            max_new = 1
+            max_new = 0
             max_close = 1
             reveal = "hint"
         elif stage == "development":
-            max_new = 2
+            max_new = 1
             max_close = 2
             reveal = "partial"
         else:
@@ -158,6 +158,8 @@ class NarrativeGovernanceService:
         if latest_report and latest_report.severity in ("medium", "high", "critical"):
             notes.append("上一章治理报告要求本章优先修复承诺漂移或叙事债务。")
             max_new = max(0, max_new - 1)
+        if stage in ("opening", "convergence", "finale"):
+            notes.append("默认克制新增故事线；优先让现有线发生因果变化、交汇或回收。")
 
         return ChapterNarrativeBudget(
             novel_id=novel_id,
