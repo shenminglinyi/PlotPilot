@@ -788,8 +788,7 @@ function openCharacterAnchor() {
 
 @media (max-width: 900px) {
   .command-hero,
-  .command-grid,
-  .worldline-board {
+  .command-grid {
     grid-template-columns: 1fr;
   }
 

@@ -1,7 +1,7 @@
 """StoryPipeline beat contract helper tests."""
 from types import SimpleNamespace
 
-from engine.pipeline.beat_contracts import merge_beats_by_target
+from engine.pipeline.beat_contracts import merge_beats_by_target, serialize_beats_for_shared_state
 
 
 def _beat(description: str, card_block: str, target_words: int = 600):
@@ -49,3 +49,18 @@ def test_merge_beats_keeps_pipeline_compatible_shape():
     assert merged[0].focus == "action"
     assert "card A" in merged[0].card_prompt_block
     assert "card B" in merged[0].card_prompt_block
+
+
+def test_merged_beat_keeps_all_structured_cards_for_runtime_snapshots():
+    merged = merge_beats_by_target([
+        _beat("一", "card A", 300),
+        _beat("二", "card B", 300),
+    ], 5000)
+
+    snapshot = serialize_beats_for_shared_state(merged)
+
+    assert len(snapshot) == 1
+    assert snapshot[0]["active_action"] == "行动-一"
+    assert snapshot[0]["emotion_gap"] == "缺口-一"
+    assert snapshot[0]["forbidden_drift"] == "禁止-一"
+    assert [c["active_action"] for c in snapshot[0]["beat_cards"]] == ["行动-一", "行动-二"]

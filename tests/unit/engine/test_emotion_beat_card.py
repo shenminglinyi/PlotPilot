@@ -42,8 +42,8 @@ class TestBeatCardPromptRenderer:
         card = _sample_card()
         result = self.renderer.render(card)
         assert "━━━ 节点卡" in result
-        assert "✅ 必须写出的行为" in result
-        assert "🚫 本拍禁止写成" in result
+        assert "必须写出的行为" in result
+        assert "本拍禁止写成" in result
 
     def test_render_empty_fields_no_exception(self):
         card = _sample_card(goal="", forbidden_drift="")

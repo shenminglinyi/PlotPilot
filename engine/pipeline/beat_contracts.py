@@ -14,7 +14,8 @@ def serialize_beats_for_shared_state(beats: Any) -> list:
     """Serialize planned beats for shared-state snapshots."""
     out = []
     for b in beats or []:
-        card = getattr(b, "emotion_beat_card", None)
+        cards = _collect_cards(b)
+        card = cards[0] if cards else None
         out.append({
             "description": getattr(b, "description", "") or "",
             "target_words": int(getattr(b, "target_words", 0) or 0),
@@ -23,6 +24,7 @@ def serialize_beats_for_shared_state(beats: Any) -> list:
             "active_action": (getattr(card, "active_action", "") or "") if card else "",
             "emotion_gap": (getattr(card, "emotion_gap", "") or "") if card else "",
             "forbidden_drift": (getattr(card, "forbidden_drift", "") or "") if card else "",
+            "beat_cards": [_card_to_dict(c) for c in cards],
         })
     return out
 
@@ -76,26 +78,50 @@ def merge_two_beats(a: Any, b: Any) -> Any:
     sg_a = getattr(a, "scene_goal", "") or ""
     sg_b = getattr(b, "scene_goal", "") or ""
 
-    cards: List[Any] = []
-    cards.extend(getattr(a, "emotion_beat_cards", None) or [])
-    if getattr(a, "emotion_beat_card", None) is not None and not cards:
-        cards.append(getattr(a, "emotion_beat_card"))
-    cards.extend(getattr(b, "emotion_beat_cards", None) or [])
-    if getattr(b, "emotion_beat_card", None) is not None:
-        cards.append(getattr(b, "emotion_beat_card"))
+    cards = _collect_cards(a) + _collect_cards(b)
+    expansion_hints = list(dict.fromkeys(
+        list(getattr(a, "expansion_hints", None) or [])
+        + list(getattr(b, "expansion_hints", None) or [])
+    ))[:4]
 
     return SimpleNamespace(
         description=desc,
         target_words=(getattr(a, "target_words", 0) or 0) + (getattr(b, "target_words", 0) or 0),
         focus=focus,
-        expansion_hints=[],
+        expansion_hints=expansion_hints,
         scene_goal=f"{sg_a} {sg_b}".strip(),
         transition_from_prev=getattr(a, "transition_from_prev", "") or "",
         location_id=getattr(a, "location_id", "") or getattr(b, "location_id", "") or "",
-        emotion_beat_card=getattr(a, "emotion_beat_card", None),
+        emotion_beat_card=cards[0] if cards else None,
         emotion_beat_cards=cards,
         card_prompt_block=cpb,
     )
+
+
+def _collect_cards(beat: Any) -> List[Any]:
+    cards: List[Any] = []
+    seen: set[int] = set()
+    for card in getattr(beat, "emotion_beat_cards", None) or []:
+        if card is not None and id(card) not in seen:
+            cards.append(card)
+            seen.add(id(card))
+    card = getattr(beat, "emotion_beat_card", None)
+    if card is not None and id(card) not in seen:
+        cards.append(card)
+    return cards
+
+
+def _card_to_dict(card: Any) -> dict:
+    return {
+        "goal": getattr(card, "goal", "") or "",
+        "obstacle": getattr(card, "obstacle", "") or "",
+        "active_action": getattr(card, "active_action", "") or "",
+        "delta": getattr(card, "delta", "") or "",
+        "emotion_gap": getattr(card, "emotion_gap", "") or "",
+        "hook_delta": getattr(card, "hook_delta", "") or "",
+        "sensory_anchor": getattr(card, "sensory_anchor", "") or "",
+        "forbidden_drift": getattr(card, "forbidden_drift", "") or "",
+    }
 
 
 def _join_descriptions(a: Any, b: Any) -> str:

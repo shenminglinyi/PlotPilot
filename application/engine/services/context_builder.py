@@ -450,17 +450,10 @@ class ContextBuilder:
         return beats
 
     def _merge_two_beats(self, beats: List[Beat], idx: int) -> List[Beat]:
-        """将 beats[idx] 与 beats[idx+1] 合并为一拍。"""
-        a, b = beats[idx], beats[idx + 1]
-        merged = Beat(
-            description=f"{a.description} / {b.description}",
-            target_words=a.target_words + b.target_words,
-            focus=a.focus,  # 保留前拍的 focus 类型
-            expansion_hints=list(dict.fromkeys(a.expansion_hints + b.expansion_hints))[:4],
-            scene_goal=f"{a.scene_goal or ''} {b.scene_goal or ''}".strip(),
-            transition_from_prev=a.transition_from_prev or '',
-            location_id=(a.location_id or b.location_id or "").strip(),
-        )
+        """将 beats[idx] 与 beats[idx+1] 合并为一拍，并保留结构化写作义务。"""
+        from engine.pipeline.beat_contracts import merge_two_beats
+
+        merged = merge_two_beats(beats[idx], beats[idx + 1])
         return beats[:idx] + [merged] + beats[idx + 2:]
 
     def _build_beats_from_beat_sheet(
