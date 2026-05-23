@@ -39,6 +39,8 @@ from application.engine.services.context_budget_models import (
 )
 from application.engine.services.context_slot_providers import (
     build_narrative_promise_slot_content,
+    build_storyline_slot_content,
+    format_storyline_context_block,
 )
 from infrastructure.ai.prompt_registry import get_prompt_registry
 
@@ -164,30 +166,12 @@ class ContextBudgetAllocator:
     
     def _build_storyline_slot(self, novel_id: str, chapter_number: int) -> str:
         """构建故事线上下文槽位内容（按汇流距离动态分级）。"""
-        from domain.novel.value_objects.novel_id import NovelId as _NovelId
-        from domain.novel.value_objects.storyline_role import StorylineRole
-
-        storylines = self.storyline_repo.get_by_novel_id(_NovelId(novel_id))
-        confluences = self.confluence_repo.get_by_novel_id(novel_id)
-
-        # 只取本章活跃且权重够用的故事线
-        active = [
-            s for s in storylines
-            if s.estimated_chapter_start <= chapter_number <= s.estimated_chapter_end
-            and s.chapter_weight > 0.05
-        ]
-        if not active:
-            return ""
-
-        # 按 role 排序：MAIN 先，SUB 次，DARK 最后
-        role_order = {StorylineRole.MAIN: 0, StorylineRole.SUB: 1, StorylineRole.DARK: 2}
-        active.sort(key=lambda s: role_order.get(s.role, 9))
-
-        lines = ["━━━ 故事线上下文（本章活跃）━━━"]
-        for sl in active:
-            lines.append(self._format_storyline_block(sl, confluences, chapter_number))
-
-        return "\n".join(lines)
+        return build_storyline_slot_content(
+            self.storyline_repo,
+            self.confluence_repo,
+            novel_id,
+            chapter_number,
+        )
 
     def _build_narrative_contract_slot(self, novel_id: str) -> str:
         """向导确认的五维世界观 + Bible 文风/规则；与 DB 同步，不读共享内存。"""
@@ -211,58 +195,7 @@ class ContextBudgetAllocator:
 
     def _format_storyline_block(self, sl, confluences, chapter_number: int) -> str:
         """格式化单条故事线的上下文块。"""
-        from domain.novel.value_objects.storyline_role import StorylineRole
-
-        role_label = {"main": "主线", "sub": "支线", "dark": "暗线"}.get(
-            sl.role.value, sl.role.value
-        )
-
-        # 找最近未 resolved 的汇流点
-        near = None
-        min_dist = 9999
-        for cp in confluences:
-            if cp.source_storyline_id == sl.id and not cp.resolved:
-                d = cp.target_chapter - chapter_number
-                if 0 <= d < min_dist:
-                    min_dist = d
-                    near = cp
-
-        name_str = sl.name or f"故事线 {sl.id[:8]}"
-
-        # 暗线：reveal 类型在揭露前只注入行为禁忌
-        if sl.role == StorylineRole.DARK and near and near.merge_type == "reveal" and min_dist > 2:
-            lines = [f"\n● [暗线 ◎ 第{near.target_chapter}章揭露] 「{name_str}」"]
-            if near.pre_reveal_hint:
-                lines.append(f"  {near.pre_reveal_hint}")
-            for g in near.behavior_guards:
-                lines.append(f"  禁忌：{g}")
-            return "\n".join(lines)
-
-        # 普通故事线：按距离分级
-        if near:
-            label_suffix = (
-                f" ↘ 第{near.target_chapter}章汇"
-                f"{'主线' if near.merge_type in ('absorb', 'intersect') else '线'}"
-            )
-        else:
-            label_suffix = ""
-
-        lines = [f"\n● [{role_label}] 「{name_str}」{label_suffix}"]
-
-        if sl.progress_summary:
-            lines.append(f"  当前进度：{sl.progress_summary}")
-
-        current_ms = sl.get_current_milestone()
-        if current_ms:
-            lines.append(f"  当前里程碑：{current_ms.description}")
-
-        if near:
-            if min_dist <= 2:
-                lines.append(f"  ⚠️ 距汇流仅 {min_dist} 章！汇流内容：{near.context_summary}")
-            elif min_dist <= 8:
-                lines.append(f"  距汇流 {min_dist} 章，预期：{near.context_summary[:60]}…")
-
-        return "\n".join(lines)
+        return format_storyline_context_block(sl, confluences, chapter_number)
 
     def estimate_tokens(self, text: str) -> int:
         """估算文本的 Token 数量
