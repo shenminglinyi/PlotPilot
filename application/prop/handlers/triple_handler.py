@@ -105,14 +105,36 @@ class TriplePropEventHandler:
         object_entity_id: str | None = None,
         description: str = "",
     ) -> None:
+        existing = self._db.fetch_one(
+            """
+            SELECT id FROM triples
+            WHERE novel_id = ?
+              AND predicate = ?
+              AND chapter_number = ?
+              AND source_type = 'prop_event'
+              AND COALESCE(subject_entity_id, subject) = ?
+              AND COALESCE(object_entity_id, object) = ?
+            LIMIT 1
+            """,
+            (
+                novel_id,
+                predicate,
+                chapter,
+                subject_entity_id or subject,
+                object_entity_id or obj,
+            ),
+        )
+        if existing:
+            return
+
         self._db.execute(
             """
             INSERT OR IGNORE INTO triples (
                 id, novel_id, subject, predicate, object, chapter_number,
                 entity_type, description, source_type, subject_entity_id,
-                object_entity_id, created_at
+                object_entity_id, confidence, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(uuid.uuid4()),
@@ -126,6 +148,7 @@ class TriplePropEventHandler:
                 "prop_event",
                 subject_entity_id or subject,
                 object_entity_id if object_type != "chapter" else None,
+                0.85,
                 now,
             ),
         )

@@ -37,3 +37,19 @@ def test_quality_guardrail_surfaces_macro_pacing_dimension():
 
     assert report.macro_pacing_score < 1.0
     assert any(v["dimension"] == "macro_pacing" for v in report.all_violations)
+
+
+def test_macro_pacing_ignores_backstory_resolution_recap():
+    text = (
+        "拍卖师低声介绍，谷梁卿羽三年前因包庇罪被废去修为逐出宗门。"
+        "当年那桩旧案已经平反，但芦沉舟知道仍有证据缺口。"
+        "现在她被推上拍卖台，金丹修士开始竞价，新的危机才刚刚出现。"
+    )
+
+    score, violations = MacroPacingGuardrail().check(
+        text,
+        scene_info={"chapter_number": 10},
+    )
+
+    assert score == 1.0
+    assert violations == []

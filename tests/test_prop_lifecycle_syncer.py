@@ -119,6 +119,48 @@ async def test_syncer_applies_pattern_events():
 
 
 @pytest.mark.asyncio
+async def test_syncer_applies_first_pattern_hit_for_dormant_prop():
+    prop = make_prop(state=LifecycleState.DORMANT)
+    prop.introduced_chapter = None
+    prop_repo = MagicMock()
+    prop_repo.list_active.return_value = []
+    prop_repo.list_by_novel.return_value = [prop]
+    event_repo = MagicMock()
+
+    from application.prop.extractors.pattern_extractor import PatternExtractor
+    syncer = PropLifecycleSyncer(prop_repo, event_repo, [PatternExtractor()])
+
+    content = f"主角拔出了[[prop:{prop.id.value}|测试剑]]。"
+    result = await syncer.sync("n1", 3, content)
+
+    assert result["props_checked"] == 1
+    assert result["events_applied"] == 1
+    assert prop.lifecycle_state == LifecycleState.INTRODUCED
+    assert prop.introduced_chapter == 3
+
+
+@pytest.mark.asyncio
+async def test_syncer_enriches_prop_event_with_holder_for_character_link():
+    prop = make_prop(state=LifecycleState.ACTIVE)
+    prop.holder_character_id = "char_a"
+    prop_repo = MagicMock()
+    prop_repo.list_active.return_value = [prop]
+    prop_repo.list_by_novel.return_value = [prop]
+    event_repo = MagicMock()
+
+    from application.prop.extractors.pattern_extractor import PatternExtractor
+    syncer = PropLifecycleSyncer(prop_repo, event_repo, [PatternExtractor()])
+
+    content = f"[[prop:{prop.id.value}|测试剑]]破空而出。"
+    result = await syncer.sync("n1", 3, content)
+
+    assert result["events_applied"] == 1
+    saved_event = event_repo.save.call_args.args[0]
+    assert saved_event.event_type == PropEventType.USED
+    assert saved_event.actor_character_id == "char_a"
+
+
+@pytest.mark.asyncio
 async def test_syncer_deduplication():
     """同一道具同类事件只应用一次。"""
     prop = make_prop(state=LifecycleState.ACTIVE)

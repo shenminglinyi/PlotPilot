@@ -1244,18 +1244,31 @@ def _get_prop_lifecycle_syncer_safe():
 def get_prop_lifecycle_syncer():
     """构建 PropLifecycleSyncer，注入 PatternExtractor + LlmExtractor + TripleHandler。"""
     from application.prop.services.lifecycle_syncer import PropLifecycleSyncer
+    from application.narrative.entity_resolver import EntityResolver
     from application.prop.extractors.pattern_extractor import PatternExtractor
     from application.prop.extractors.llm_extractor import LlmExtractor
+    from application.prop.handlers.narrative_event_handler import NarrativePropEventHandler
     from application.prop.handlers.triple_handler import TriplePropEventHandler
+    from infrastructure.persistence.database.sqlite_narrative_event_repository import (
+        SqliteNarrativeEventRepository,
+    )
 
     prop_repo = get_unified_prop_repository()
     event_repo = get_prop_event_repository()
+    entity_resolver = EntityResolver(
+        character_repo=get_unified_character_repository(),
+        prop_repo=prop_repo,
+    )
     extractors = [PatternExtractor()]
     try:
-        extractors.append(LlmExtractor(get_llm_service()))
+        extractors.append(LlmExtractor(get_llm_service(), entity_resolver))
     except Exception:
         pass
-    handlers = [TriplePropEventHandler(get_database())]
+    db = get_database()
+    handlers = [
+        NarrativePropEventHandler(SqliteNarrativeEventRepository(db)),
+        TriplePropEventHandler(db),
+    ]
     return PropLifecycleSyncer(prop_repo, event_repo, extractors, handlers)
 
 

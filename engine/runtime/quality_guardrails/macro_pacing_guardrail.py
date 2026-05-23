@@ -30,6 +30,7 @@ class MacroPacingGuardrail:
     _RE_AUTHORITY_RESCUE = re.compile(r"(宗主|掌门|城主|长老会|执法堂).*?(亲临|裁决|宣布|作证|平反)")
     _RE_MAJOR_SECRET = re.compile(r"(失传|核心长老|神识烙印|真凶|幕后|身份|本命|仙体|天道|灵根)")
     _RE_ANTAGONIST_EXIT = re.compile(r"(真凶|长老|靠山|敌人|对手|谷梁|西门).*?(逃|跪|废|逐出|认输|败露)")
+    _RE_BACKSTORY_MARKER = re.compile(r"(三年前|十年前|当年|此前|曾经|已经|早已|后来|过去)")
 
     def check(
         self,
@@ -43,10 +44,10 @@ class MacroPacingGuardrail:
             return 1.0, []
 
         violations: List[MacroPacingViolation] = []
-        resolution_hits = len(self._RE_FULL_RESOLUTION.findall(body))
+        resolution_hits = self._count_current_hits(body, self._RE_FULL_RESOLUTION)
         authority_hits = len(self._RE_AUTHORITY_RESCUE.findall(body))
         secret_hits = len(self._RE_MAJOR_SECRET.findall(body))
-        antagonist_hits = len(self._RE_ANTAGONIST_EXIT.findall(body))
+        antagonist_hits = self._count_current_hits(body, self._RE_ANTAGONIST_EXIT)
 
         if chapter_number and chapter_number <= self.EARLY_CHAPTER_LIMIT:
             if resolution_hits >= 3 or (resolution_hits >= 2 and authority_hits >= 1):
@@ -103,3 +104,15 @@ class MacroPacingGuardrail:
         if m:
             return int(m.group(1))
         return None
+
+    @classmethod
+    def _count_current_hits(cls, text: str, pattern: re.Pattern[str]) -> int:
+        """Count hits that read like current-chapter payoff, not backstory recap."""
+        count = 0
+        for sentence in re.split(r"[。！？!?\n]+", text or ""):
+            if not sentence.strip():
+                continue
+            if cls._RE_BACKSTORY_MARKER.search(sentence):
+                continue
+            count += len(pattern.findall(sentence))
+        return count

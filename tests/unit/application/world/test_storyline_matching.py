@@ -43,3 +43,33 @@ def test_storyline_matching_merges_teacher_relic_variants():
     )
 
     assert matched is existing[0]
+
+
+def test_storyline_matching_merges_black_market_variants():
+    existing = [
+        _storyline("黑市势力接触", "与神秘面具人建立初步合作关系，打开地下交易渠道", 9, 3),
+    ]
+
+    matched = _match_storyline_for_progress_item(
+        existing,
+        line_type="主线",
+        arc_label="黑市拍卖危机",
+        description="芦沉舟进入黑市内层拍卖场，见证人口交易并与银面具修士合作",
+    )
+
+    assert matched is existing[0]
+
+
+def test_storyline_matching_merges_identity_variants():
+    existing = [
+        _storyline("身份之谜", "芦沉舟掌握失传绝技，身份疑云加深", 13, 6),
+    ]
+
+    matched = _match_storyline_for_progress_item(
+        existing,
+        line_type="主线",
+        arc_label="身份危机",
+        description="银面具修士识破其与十年前旧案有关，身份面临暴露风险",
+    )
+
+    assert matched is existing[0]

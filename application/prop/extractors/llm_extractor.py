@@ -36,8 +36,9 @@ class LlmExtractor:
     priority: int = 10
     name: str = "llm"
 
-    def __init__(self, llm_service):
+    def __init__(self, llm_service, entity_resolver=None):
         self._llm = llm_service
+        self._entity_resolver = entity_resolver
 
     @staticmethod
     def _get_system_prompt() -> str:
@@ -116,6 +117,25 @@ class LlmExtractor:
                 event_type=etype,
                 source=PropEventSource.AUTO_LLM,
                 description=item.get("description", ""),
+                actor_character_id=self._resolve_character_id(
+                    novel_id, item.get("actor_character", "")
+                ),
+                from_holder_id=self._resolve_character_id(
+                    novel_id, item.get("from_holder", "")
+                ),
+                to_holder_id=self._resolve_character_id(
+                    novel_id, item.get("to_holder", "")
+                ),
                 created_at=now,
             ))
         return events
+
+    def _resolve_character_id(self, novel_id: str, raw: str) -> str | None:
+        if not raw or not self._entity_resolver:
+            return None
+        entity = self._entity_resolver.resolve(
+            novel_id, raw, allowed_types=["character"]
+        )
+        if not entity:
+            return None
+        return entity.id

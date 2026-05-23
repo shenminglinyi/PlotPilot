@@ -17,6 +17,7 @@ from typing import Deque, Dict, List, Optional, Tuple
 
 _NOVEL_ID_IN_BRACKETS = re.compile(r"\[(novel-[a-zA-Z0-9]+)\]")
 _NOVEL_ID_LOOSE = re.compile(r"(novel-[a-zA-Z0-9]+)")
+_LOG_ICON_RE = re.compile(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]")
 
 _MAX_ENTRIES = 4000
 
@@ -87,9 +88,9 @@ def should_skip_raw_log_file_line(line: str) -> bool:
     return False
 
 
-def shorten_log_message(text: str, max_chars: int = 88) -> str:
+def shorten_log_message(text: str, max_chars: int = 2000) -> str:
     """SSE / 终端展示固定上限，减轻 payload 与 DOM。"""
-    t = (text or "").replace("\r\n", "\n").strip()
+    t = _LOG_ICON_RE.sub("", text or "").replace("\r\n", "\n").strip()
     if len(t) <= max_chars:
         return t
     return t[: max_chars - 1] + "…"

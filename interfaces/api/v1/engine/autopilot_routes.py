@@ -261,17 +261,17 @@ def _autopilot_status_zh(status: str) -> str:
 def _audit_event_message(event_type: str, data: Dict[str, Any]) -> str:
     """生成审计事件的消息文本"""
     messages = {
-        "audit_start": lambda d: f"🔍 开始审计第 {d.get('chapter_number', '?')} 章（{d.get('word_count', 0)} 字）",
-        "audit_voice_check": lambda d: f"📊 文风预检中...",
+        "audit_start": lambda d: f"开始审计第 {d.get('chapter_number', '?')} 章（{d.get('word_count', 0)} 字）",
+        "audit_voice_check": lambda d: "文风预检中...",
         "audit_voice_result": lambda d: (
-            f"📊 文风相似度: {d.get('similarity_score'):.1%}" + (" ⚠️ 偏离告警" if d.get('drift_alert') else "")
+            f"文风相似度: {d.get('similarity_score'):.1%}" + ("，偏离告警" if d.get('drift_alert') else "")
             if d.get('similarity_score') is not None
-            else "📊 文风相似度: 指纹样本不足（需 ≥10 个采血样本）"
+            else "文风相似度: 指纹样本不足（需 ≥10 个采血样本）"
         ),
-        "audit_aftermath": lambda d: f"🔄 章后管线处理中...",
-        "audit_tension": lambda d: f"⚡ 张力打分中...",
-        "audit_tension_result": lambda d: f"⚡ 张力值: {d.get('tension', 'N/A')}/10",
-        "audit_complete": lambda d: f"✅ 第 {d.get('chapter_number', '?')} 章审计完成" + (" 🎉全书完成！" if d.get('is_completed') else ""),
+        "audit_aftermath": lambda d: "章后管线处理中...",
+        "audit_tension": lambda d: "张力打分中...",
+        "audit_tension_result": lambda d: f"张力值: {d.get('tension', 'N/A')}/10",
+        "audit_complete": lambda d: f"第 {d.get('chapter_number', '?')} 章审计完成" + ("，全书完成" if d.get('is_completed') else ""),
     }
     return messages.get(event_type, lambda d: f"审计事件: {event_type}")(data)
 

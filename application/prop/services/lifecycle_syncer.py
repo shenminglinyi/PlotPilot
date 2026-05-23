@@ -8,13 +8,14 @@
 from __future__ import annotations
 import asyncio
 import logging
+from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
 from domain.prop.entities.prop import Prop
 from domain.prop.repositories.prop_repository import PropRepository
 from domain.prop.repositories.prop_event_repository import PropEventRepository
 from domain.prop.value_objects.lifecycle_state import LifecycleTransitionError
-from domain.prop.value_objects.prop_event import PropEvent
+from domain.prop.value_objects.prop_event import PropEvent, PropEventType
 from application.prop.ports.extractor_port import PropExtractor
 from application.prop.ports.event_handler_port import PropEventHandler
 
@@ -62,6 +63,7 @@ class PropLifecycleSyncer:
         if not active_props and not all_props:
             return {"skipped": True, "reason": "no_props"}
 
+        candidate_props = self._candidate_props(active_props, all_props)
         props_input = [
             {
                 "id": p.id.value,
@@ -70,7 +72,7 @@ class PropLifecycleSyncer:
                 "holder": p.holder_character_id,
                 "state": p.lifecycle_state.value,
             }
-            for p in active_props
+            for p in candidate_props
         ]
 
         all_events: List[PropEvent] = []
@@ -84,12 +86,13 @@ class PropLifecycleSyncer:
 
         deduped = self._deduplicate(all_events)
 
-        prop_map: Dict[str, Prop] = {p.id.value: p for p in active_props}
+        prop_map: Dict[str, Prop] = {p.id.value: p for p in candidate_props}
         applied = 0
         for event in deduped:
             prop = prop_map.get(event.prop_id)
             if not prop:
                 continue
+            event = self._enrich_event_from_prop(event, prop)
             try:
                 prop.apply_event(event)
                 self._prop_repo.save(prop)
@@ -114,7 +117,7 @@ class PropLifecycleSyncer:
         return {
             "novel_id": novel_id,
             "chapter": chapter_number,
-            "props_checked": len(active_props),
+            "props_checked": len(candidate_props),
             "events_extracted": len(all_events),
             "events_applied": applied,
         }
@@ -141,3 +144,29 @@ class PropLifecycleSyncer:
                 seen.add(key)
                 result.append(ev)
         return result
+
+    @staticmethod
+    def _candidate_props(active_props: List[Prop], all_props: List[Prop]) -> List[Prop]:
+        """提取候选包含已激活道具和未登场道具，避免首次标记被漏掉。"""
+        props: Dict[str, Prop] = {}
+        for prop in active_props:
+            props[prop.id.value] = prop
+        for prop in all_props:
+            props.setdefault(prop.id.value, prop)
+        return list(props.values())
+
+    @staticmethod
+    def _enrich_event_from_prop(event: PropEvent, prop: Prop) -> PropEvent:
+        """用道具当前持有人补齐 actor，便于 TripleHandler 写出角色-道具事实。"""
+        if event.actor_character_id or not prop.holder_character_id:
+            return event
+        if event.event_type in {
+            PropEventType.INTRODUCED,
+            PropEventType.USED,
+            PropEventType.DAMAGED,
+            PropEventType.REPAIRED,
+            PropEventType.UPGRADED,
+            PropEventType.RESOLVED,
+        }:
+            return replace(event, actor_character_id=prop.holder_character_id)
+        return event
