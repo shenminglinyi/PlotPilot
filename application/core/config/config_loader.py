@@ -61,7 +61,7 @@ class ConfigLoader:
 
         config_path = Path(config_path)
         if not config_path.exists():
-            print(f"⚠️  配置文件不存在: {config_path}，使用默认配置")
+            print(f"配置文件不存在: {config_path}，使用默认配置")
             return ConfigAccessor({})
 
         try:
@@ -72,7 +72,7 @@ class ConfigLoader:
             return self._config
 
         except Exception as e:
-            print(f"❌ 加载配置失败: {e}，使用默认配置")
+            print(f"加载配置失败: {e}，使用默认配置")
             return ConfigAccessor({})
 
     def reload(self, config_path: str = None) -> ConfigAccessor:

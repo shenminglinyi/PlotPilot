@@ -127,7 +127,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
         )
 
     target_word_count = int(getattr(novel, "target_words_per_chapter", None) or 2500)
-    logger.info(f"[{novel.novel_id}] 📖 开始写第 {chapter_num} 章：{outline[:60]}...")
+    logger.info(f"[{novel.novel_id}] 开始写第 {chapter_num} 章：{outline[:60]}...")
     logger.info(f"[{novel.novel_id}]    进度: {current_chapters}/{target_chapters} 章（目标 {target_word_count} 字/章）")
 
     # ★ 子步骤状态：找到下一章
@@ -148,7 +148,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     # 4. 获取规划阶段的 BeatSheet（如果有）
     beat_sheet = await host._get_beat_sheet_for_chapter(novel.novel_id.value, chapter_num)
     if beat_sheet:
-        logger.info(f"[{novel.novel_id}] 📋 使用规划阶段的 BeatSheet：{len(beat_sheet.scenes)} 个场景")
+        logger.info(f"[{novel.novel_id}] 使用规划阶段的 BeatSheet：{len(beat_sheet.scenes)} 个场景")
 
     # ★ 子步骤状态：开始组装上下文
     host._update_shared_state(
@@ -617,7 +617,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                         trunc_mode = "hard"
                         label = "硬截断"
                     logger.warning(
-                        f"[{novel.novel_id}] ⚡ {label}：节拍 {i + 1} "
+                        f"[{novel.novel_id}] {label}：节拍 {i + 1} "
                         f"{original_len} → {len(beat_content)} 字 "
                         f"(硬上限 {signal.hard_cap} 字)"
                     )
@@ -651,10 +651,9 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 # 报告实际字数给指挥
                 actual_words = len(beat_content.strip())
                 deviation = conductor.report_actual(actual_words)
-                phase_emoji = {"unfurl": "📖", "converge": "⚡", "land": "🎯"}.get(signal.phase.value, "")
                 if deviation > 50:
                     logger.info(
-                        f"[{novel.novel_id}] {phase_emoji} 节拍 {i + 1}/{len(beats)}: "
+                        f"[{novel.novel_id}] 节拍 {i + 1}/{len(beats)}: "
                         f"实际 {actual_words} 字，超额 {deviation} 字"
                     )
 
@@ -688,13 +687,13 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                             )
                             if beat_score < 0.6:
                                 logger.warning(
-                                    f"[{novel.novel_id}] 🔗 节拍衔接度低 "
+                                    f"[{novel.novel_id}] 节拍衔接度低 "
                                     f"beat={i+1}/{len(beats)} score={beat_score:.2f} "
                                     f"diag={beat_diag}"
                                 )
                                 if i < len(beats) - 1:
                                     continuity_fix_hint = (
-                                        f"\n\n⚠️【节拍衔接诊断】上一节拍衔接度={beat_score:.2f}，"
+                                        f"\n\n【节拍衔接诊断】上一节拍衔接度={beat_score:.2f}，"
                                         f"问题：{beat_diag}。本节拍开头必须特别加强衔接！"
                                     )
                                     if not hasattr(novel, '_beat_continuity_hint'):
@@ -722,7 +721,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                             if _bridge:
                                 _beat_cot_bridges[i + 1] = _bridge
                                 logger.debug(
-                                    "[%s] 🧠 节拍 %d→%d CoT 桥接完成: %r",
+                                    "[%s] 节拍 %d→%d CoT 桥接完成: %r",
                                     novel.novel_id,
                                     i + 1,
                                     i + 2,
@@ -766,13 +765,13 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             # 如果是最后一个节拍，标记完成
             if i == len(beats) - 1:
                 novel.beats_completed = True
-                logger.info(f"[{novel.novel_id}] 📝 所有节拍已完成，标记 beats_completed = True")
+                logger.info(f"[{novel.novel_id}] 所有节拍已完成，标记 beats_completed = True")
 
             # 更新流式元数据
             if hasattr(host, '_update_stream_metadata'):
                 host._update_stream_metadata(novel.novel_id.value, i + 1, len(accumulated_content))
 
-            logger.info(f"[{novel.novel_id}]    ✅ 节拍 {i+1}/{len(beats)} 完成: {len(beat_content)} 字")
+            logger.info(f"[{novel.novel_id}] 节拍 {i+1}/{len(beats)} 完成: {len(beat_content)} 字")
 
         # 循环结束后，使用累积的内容
         chapter_content = accumulated_content
@@ -815,7 +814,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             await host.chapter_workflow.post_process_generated_chapter(
                 novel.novel_id.value, chapter_num, outline, chapter_content, scene_director=None
             )
-            logger.info(f"[{novel.novel_id}]    ✅ post_process_generated_chapter 完成")
+            logger.info(f"[{novel.novel_id}] post_process_generated_chapter 完成")
         except Exception as e:
             logger.warning(f"post_process_generated_chapter 失败（仍落库）：{e}")
 
@@ -864,7 +863,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             and actual_word_count >= exception_floor
         ):
             logger.info(
-                f"[{novel.novel_id}] 📝 收紧策略例外放行：全节拍已有产出且句末完整 "
+                f"[{novel.novel_id}] 收紧策略例外放行：全节拍已有产出且句末完整 "
                 f"(字数 {actual_word_count}，约 {int(actual_word_count / target_word_count * 100)}%)"
             )
             should_complete = True
@@ -881,7 +880,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             if rewrite_count < MAX_REWRITE:
                 host._beat_exhausted_rewrite_count[rewrite_key] = rewrite_count + 1
                 logger.warning(
-                    f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章节拍已遍历完但字数不足 "
+                    f"[{novel.novel_id}] 第 {chapter_num} 章节拍已遍历完但字数不足 "
                     f"({actual_word_count}/{target_word_count})，"
                     f"清除 draft 内容并从第 0 拍重写（第 {rewrite_count + 1}/{MAX_REWRITE} 次）"
                 )
@@ -898,7 +897,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 # 已重写 MAX_REWRITE 次仍不足，强制放行避免无限循环
                 host._beat_exhausted_rewrite_count.pop(rewrite_key, None)
                 logger.warning(
-                    f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章已重写 {MAX_REWRITE} 次仍字数不足 "
+                    f"[{novel.novel_id}] 第 {chapter_num} 章已重写 {MAX_REWRITE} 次仍字数不足 "
                     f"({actual_word_count}/{target_word_count})，强制放行以打破死循环"
                 )
                 should_complete = True
@@ -907,7 +906,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 )
         else:
             logger.warning(
-                f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数不足：{actual_word_count} 字 "
+                f"[{novel.novel_id}] 第 {chapter_num} 章字数不足：{actual_word_count} 字 "
                 f"(目标 {target_word_count} 字，低于 {int(min_word_threshold / target_word_count * 100)}%)"
             )
             # 保持 draft 状态，下一轮继续生成
@@ -924,7 +923,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             if total_beats_count > 0 and beats_completion_ratio < 1.0:
                 should_complete = False
                 logger.warning(
-                    f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章字数已高 "
+                    f"[{novel.novel_id}] 第 {chapter_num} 章字数已高 "
                     f"({int(actual_word_count / target_word_count * 100)}%)，"
                     f"但节拍未全部产出 ({beats_completed_count}/{total_beats_count})，不结章"
                 )
@@ -945,7 +944,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             should_complete = True
             completion_reason = f"高能节拍+全拍完成+内容完整 ({int(actual_word_count / target_word_count * 100)}%)"
             logger.info(
-                f"[{novel.novel_id}] 📝 高能豁免放行：爽点章全拍完成，{actual_word_count} 字"
+                f"[{novel.novel_id}] 高能豁免放行：爽点章全拍完成，{actual_word_count} 字"
             )
         elif (
             last_beat_is_suspense
@@ -956,7 +955,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             should_complete = True
             completion_reason = f"悬念收尾+全拍完成 ({int(actual_word_count / target_word_count * 100)}%)"
             logger.info(
-                f"[{novel.novel_id}] 📝 悬念章全拍完成放行，{actual_word_count} 字"
+                f"[{novel.novel_id}] 悬念章全拍完成放行，{actual_word_count} 字"
             )
         elif (
             beats_completion_ratio >= 1.0
@@ -966,13 +965,13 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             should_complete = True
             completion_reason = f"节拍完成+内容完整 ({int(actual_word_count / target_word_count * 100)}%)"
             logger.info(
-                f"[{novel.novel_id}] 📝 弹性放行：所有节拍已有产出，{actual_word_count} 字"
+                f"[{novel.novel_id}] 弹性放行：所有节拍已有产出，{actual_word_count} 字"
             )
 
     if not should_complete:
         # 不满足放行条件，保持 draft 状态
         logger.warning(
-            f"[{novel.novel_id}] ⚠️ 第 {chapter_num} 章未达到放行条件，保持 draft 状态"
+            f"[{novel.novel_id}] 第 {chapter_num} 章未达到放行条件，保持 draft 状态"
         )
         host._flush_novel(novel)
         return
@@ -1016,7 +1015,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
     density = host._estimate_info_density(chapter_content)
     if density < host.INFO_DENSITY_MIN_FACTS_PER_500 and len(chapter_content) > 500:
         logger.info(
-            "[%s] 📉 信息密度低（%.2f facts/500字 < %.2f），触发补写 ch=%d",
+            "[%s] 信息密度低（%.2f facts/500字 < %.2f），触发补写 ch=%d",
             novel.novel_id.value, density, host.INFO_DENSITY_MIN_FACTS_PER_500, chapter_num,
         )
         host._update_shared_state(

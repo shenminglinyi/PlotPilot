@@ -295,7 +295,7 @@ class AutoNovelGenerationWorkflow:
             # 将 memory_engine 注入 context_builder 的 budget_allocator
             if hasattr(self.context_builder, 'budget_allocator'):
                 self.context_builder.budget_allocator.memory_engine = memory_engine
-                logger.info("✓ MemoryEngine 已注入 ContextBudgetAllocator")
+                logger.info("MemoryEngine 已注入 ContextBudgetAllocator")
 
         # V6 运行时上下文缓存（供 _build_prompt 使用）
         self._current_novel_id: str = ""
@@ -348,7 +348,7 @@ class AutoNovelGenerationWorkflow:
             from application.engine.theme.theme_integrator import ThemeIntegrator
             self._theme_integrator = ThemeIntegrator()
             if self._theme_integrator.initialize(self._genre):
-                logger.info(f"✓ Theme 集成器已初始化，题材: {self._genre or 'default'}")
+                logger.info(f"Theme 集成器已初始化，题材: {self._genre or 'default'}")
             else:
                 self._theme_integrator = None
         except Exception as e:
@@ -680,7 +680,7 @@ class AutoNovelGenerationWorkflow:
         )
         context = bundle["context"]
         context_tokens = bundle["context_tokens"]
-        logger.info(f"  ✓ 上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
+        logger.info(f"上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
 
         logger.info("阶段 3: 生成 - 调用 LLM")
         config = GenerationConfig()
@@ -698,7 +698,7 @@ class AutoNovelGenerationWorkflow:
                 beat_sheet=None,
                 scene_director=scene_director,
             )
-            logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
+            logger.info(f"已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
         
         # 根据是否使用节拍选择不同的生成策略
         if enable_beats and beats:
@@ -837,7 +837,7 @@ class AutoNovelGenerationWorkflow:
                 content_parts.append(beat_content)
             
             content = self._finalize_chapter_body_text(novel_id, "\n\n".join(content_parts))
-            logger.info(f"  ✓ 节拍生成完成: {len(beats)} 个节拍, {len(content)} 字符")
+            logger.info(f"节拍生成完成: {len(beats)} 个节拍, {len(content)} 字符")
         else:
             # 传统单段生成
             prompt = self._build_prompt(
@@ -852,7 +852,7 @@ class AutoNovelGenerationWorkflow:
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
             llm_result = await self.llm_service.generate(prompt, config)
             content = self._finalize_chapter_body_text(novel_id, llm_result.content or "")
-            logger.info(f"  ✓ LLM 响应已接收: {len(content)} 字符")
+            logger.info(f"LLM 响应已接收: {len(content)} 字符")
         
         # 保存微观节拍用于后续处理
         if beats:
@@ -874,12 +874,12 @@ class AutoNovelGenerationWorkflow:
         consistency_report = post["consistency_report"]
         ghost_annotations = post["ghost_annotations"]
         if style_warnings:
-            logger.info(f"  ✓ 俗套扫描: 检测到 {len(style_warnings)} 个俗套句式")
+            logger.info(f"俗套扫描: 检测到 {len(style_warnings)} 个俗套句式")
 
         # Phase 5: Review - 返回结果
         logger.info(f"阶段 5: 完成 - 章节生成完成")
         token_count = context_tokens
-        logger.info(f"  ✓ 总计: {len(content)} 字符, {token_count} tokens")
+        logger.info(f"总计: {len(content)} 字符, {token_count} tokens")
         logger.info(f"========================================")
         logger.info(f"章节生成完成: 小说={novel_id}, 章节={chapter_number}")
         logger.info(f"========================================")
@@ -996,7 +996,7 @@ class AutoNovelGenerationWorkflow:
             )
             context = bundle["context"]
             context_tokens = bundle["context_tokens"]
-            logger.info(f"  ✓ 上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
+            logger.info(f"上下文已构建: {len(context)} 字符, 约 {context_tokens} tokens")
 
             config = GenerationConfig()
             chunk_count = 0
@@ -1043,7 +1043,7 @@ class AutoNovelGenerationWorkflow:
                     raise exc
                 beats = plan_task.result()
 
-                logger.info(f"  ✓ 已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
+                logger.info(f"已拆分为 {len(beats)} 个微观节拍（整章目标 {target_words} 字）")
 
                 beats_payload = _beats_for_sse(beats)
                 yield {"type": "beats_generated", "beats": beats_payload}
@@ -1231,7 +1231,7 @@ class AutoNovelGenerationWorkflow:
                     }
 
                 content = self._finalize_chapter_body_text(novel_id, "".join(parts))
-            logger.info(f"  ✓ LLM 流式响应完成: {chunk_count} 个块, {len(content)} 字符")
+            logger.info(f"LLM 流式响应完成: {chunk_count} 个块, {len(content)} 字符")
 
             if not content.strip():
                 logger.error("  × 模型返回空内容")
@@ -1247,7 +1247,7 @@ class AutoNovelGenerationWorkflow:
             consistency_report = post["consistency_report"]
             ghost_annotations = post["ghost_annotations"]
             if style_warnings:
-                logger.info(f"  ✓ 俗套扫描: 检测到 {len(style_warnings)} 个俗套句式")
+                logger.info(f"俗套扫描: 检测到 {len(style_warnings)} 个俗套句式")
 
             token_count = context_tokens
             output_tokens = int(len(content) / 1.5)  # 预估输出 token

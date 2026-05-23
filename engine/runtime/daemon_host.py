@@ -901,7 +901,7 @@ class DaemonHostMixin:
                     )
                     return fixed_content
                 else:
-                    logger.info(f"[{novel_id}] 🔗 首段修整未改变内容 ch={chapter_number}")
+                    logger.info(f"[{novel_id}] 首段修整未改变内容 ch={chapter_number}")
         except Exception as e:
             logger.warning(f"[{novel_id}] 衔接自检失败（不影响主流程）ch={chapter_number}: {e}")
 
@@ -1251,7 +1251,7 @@ class DaemonHostMixin:
 
             # LLM 调用正常完成，但检查是否在等待期间收到了停止信号
             if stop_detected.is_set():
-                logger.info(f"[{novel_id}] 🛑 {label} 完成但停止信号已触发，丢弃结果")
+                logger.info(f"[{novel_id}] {label} 完成但停止信号已触发，丢弃结果")
                 return fallback
 
             return result
@@ -1586,7 +1586,7 @@ class DaemonHostMixin:
                 return
 
             total_words = self._sum_completed_chapter_words(novel.novel_id.value)
-            logger.info(f"[{novel.novel_id}] 📊 自动触发宏观诊断：{trigger_reason}")
+            logger.info(f"[{novel.novel_id}] 自动触发宏观诊断：{trigger_reason}")
 
             asyncio.create_task(
                 self._run_macro_diagnosis_background(novel.novel_id.value, total_words, trigger_reason)
@@ -1608,7 +1608,7 @@ class DaemonHostMixin:
             from application.audit.services.macro_refactor_scanner import MacroRefactorScanner
             from application.audit.services.macro_diagnosis_service import MacroDiagnosisService
             
-            logger.info(f"[{novel_id}] 📊 宏观诊断后台任务已启动")
+            logger.info(f"[{novel_id}] 宏观诊断后台任务已启动")
             
             db = get_database()
             narrative_event_repo = SqliteNarrativeEventRepository(db)
@@ -1628,7 +1628,7 @@ class DaemonHostMixin:
                     f"扫描 {result.trait} 人设，发现 {len(result.breakpoints)} 个冲突断点"
                 )
             else:
-                logger.warning(f"[{novel_id}] ⚠️ 宏观诊断失败：{result.error_message}")
+                logger.warning(f"[{novel_id}] 宏观诊断失败：{result.error_message}")
 
         except Exception as e:
             logger.warning(f"[{novel_id}] 宏观诊断后台任务失败: {e}", exc_info=True)
@@ -2378,10 +2378,10 @@ class DaemonHostMixin:
             
             # 1. 检查点摘要（每 20 章）
             if await self.volume_summary_service.should_generate_checkpoint(novel_id, completed_count):
-                logger.info(f"[{novel_id}] 📝 生成检查点摘要（第 {completed_count} 章）")
+                logger.info(f"[{novel_id}] 生成检查点摘要（第 {completed_count} 章）")
                 result = await self.volume_summary_service.generate_checkpoint_summary(novel_id, completed_count)
                 if result.success:
-                    logger.info(f"[{novel_id}] ✅ 检查点摘要生成成功")
+                    logger.info(f"[{novel_id}] 检查点摘要生成成功")
                 else:
                     logger.warning(f"[{novel_id}] 检查点摘要生成失败: {result.error}")
             
@@ -2399,10 +2399,10 @@ class DaemonHostMixin:
                         # 检查是否已生成摘要
                         has_summary = act.metadata.get("summary") if act.metadata else None
                         if not has_summary:
-                            logger.info(f"[{novel_id}] 📝 生成幕摘要: {act.title}")
+                            logger.info(f"[{novel_id}] 生成幕摘要: {act.title}")
                             result = await self.volume_summary_service.generate_act_summary(novel_id, act.id)
                             if result.success:
-                                logger.info(f"[{novel_id}] ✅ 幕摘要生成成功: {act.title}")
+                                logger.info(f"[{novel_id}] 幕摘要生成成功: {act.title}")
                             break
             
             # 3. 卷摘要（检测卷是否完成）
@@ -2415,10 +2415,10 @@ class DaemonHostMixin:
                 if vol.chapter_end and vol.chapter_end <= completed_count:
                     has_summary = vol.metadata.get("summary") if vol.metadata else None
                     if not has_summary:
-                        logger.info(f"[{novel_id}] 📝 生成卷摘要: {vol.title}")
+                        logger.info(f"[{novel_id}] 生成卷摘要: {vol.title}")
                         result = await self.volume_summary_service.generate_volume_summary(novel_id, vol.number)
                         if result.success:
-                            logger.info(f"[{novel_id}] ✅ 卷摘要生成成功: {vol.title}")
+                            logger.info(f"[{novel_id}] 卷摘要生成成功: {vol.title}")
                         break
             
             # 4. 部摘要（检测部是否完成）
@@ -2435,10 +2435,10 @@ class DaemonHostMixin:
                     if last_vol.chapter_end and last_vol.chapter_end <= completed_count:
                         has_summary = part.metadata.get("summary") if part.metadata else None
                         if not has_summary:
-                            logger.info(f"[{novel_id}] 📝 生成部摘要: {part.title}")
+                            logger.info(f"[{novel_id}] 生成部摘要: {part.title}")
                             result = await self.volume_summary_service.generate_part_summary(novel_id, part.number)
                             if result.success:
-                                logger.info(f"[{novel_id}] ✅ 部摘要生成成功: {part.title}")
+                                logger.info(f"[{novel_id}] 部摘要生成成功: {part.title}")
                             break
         
         except Exception as e:

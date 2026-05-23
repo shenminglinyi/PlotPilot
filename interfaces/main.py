@@ -611,14 +611,14 @@ def _run_daemon_in_process(
 
             except BaseException as e:
                 if stop_event.is_set() or _is_expected_daemon_shutdown_exception(e):
-                    logger.info("ℹ️ 守护进程在停止/热重载期间中断，正常退出")
+                    logger.info("守护进程在停止/热重载期间中断，正常退出")
                     break
                 logger.error(f"守护进程异常: {e}", exc_info=True)
                 stop_event.wait(timeout=10)  # 异常后等待10秒
 
     except BaseException as e:
         if stop_event.is_set() or _is_expected_daemon_shutdown_exception(e):
-            logger.info("ℹ️ 守护进程收到停止信号，正常退出")
+            logger.info("守护进程收到停止信号，正常退出")
         else:
             logger.error(f"守护进程初始化失败: {e}", exc_info=True)
     finally:

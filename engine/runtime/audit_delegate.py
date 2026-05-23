@@ -302,7 +302,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         novel.current_stage = NovelStage.WRITING
 
     if book_done and not pause_gate:
-        logger.info(f"[{novel.novel_id}] 🎉 全书完成！共 {completed_count} 章")
+        logger.info(f"[{novel.novel_id}] 全书完成，共 {completed_count} 章")
         novel.autopilot_status = AutopilotStatus.STOPPED
         novel.current_stage = NovelStage.COMPLETED
     elif book_done and pause_gate:

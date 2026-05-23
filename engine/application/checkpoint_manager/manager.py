@@ -91,7 +91,7 @@ class CheckpointManager:
         # 执行保留策略
         await self._enforce_retention(story_id, CheckpointType.CHAPTER)
 
-        logger.info(f"✅ 第{chapter_number}章Checkpoint已创建: {checkpoint_id.value}")
+        logger.info(f"第{chapter_number}章Checkpoint已创建: {checkpoint_id.value}")
         return checkpoint_id
 
     async def on_act_transition(
@@ -124,7 +124,7 @@ class CheckpointManager:
         await self._store.set_head(story_id, checkpoint_id)
 
         # ACT类型永久保留，不需要执行保留策略
-        logger.info(f"🌟 幕切换Checkpoint已创建（永久保留）: {checkpoint_id.value}")
+        logger.info(f"幕切换Checkpoint已创建（永久保留）: {checkpoint_id.value}")
         return checkpoint_id
 
     async def on_outline_change(
@@ -157,7 +157,7 @@ class CheckpointManager:
 
         await self._enforce_retention(story_id, CheckpointType.MILESTONE)
 
-        logger.info(f"📌 大纲变更Checkpoint已创建: {checkpoint_id.value}")
+        logger.info(f"大纲变更Checkpoint已创建: {checkpoint_id.value}")
         return checkpoint_id
 
     async def rollback(self, story_id: str, checkpoint_id: CheckpointId) -> Optional[Checkpoint]:
