@@ -1086,6 +1086,167 @@ def persist_character_end_states(
     return saved
 
 
+def persist_bundle_memory_atoms(
+    novel_id: str,
+    chapter_number: int,
+    bundle: dict,
+    bible_repository: Any = None,
+    memory_service: Any = None,
+) -> int:
+    """Mirror chapter extraction output into the unified MemoryAtom ledger.
+
+    This is additive and intentionally does not replace the legacy writes in this
+    module. LLM-extracted memories are candidates until the author calibrates them.
+    """
+    try:
+        from application.memory.services.legacy_memory_importer import LegacyMemoryImporter
+    except Exception as e:
+        logger.debug("memory substrate imports unavailable: %s", e)
+        return 0
+
+    name_to_id: Dict[str, str] = {}
+    if bible_repository:
+        try:
+            from domain.novel.value_objects.novel_id import NovelId
+
+            bible = bible_repository.get_by_novel_id(NovelId(novel_id))
+            for char in getattr(bible, "characters", []) or []:
+                cid = char.character_id.value if hasattr(char.character_id, "value") else str(char.character_id)
+                name_to_id[str(char.name)] = cid
+        except Exception as e:
+            logger.debug("Bible 加载失败，MemoryAtom 人物名将退化为名称ID: %s", e)
+
+    if memory_service is None:
+        try:
+            from application.memory.services.narrative_memory_service import NarrativeMemoryService
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_memory_repository import (
+                SqliteNarrativeMemoryRepository,
+            )
+
+            memory_service = NarrativeMemoryService(
+                SqliteNarrativeMemoryRepository(get_database())
+            )
+        except Exception as e:
+            logger.debug("memory substrate unavailable: %s", e)
+            return 0
+
+    importer = LegacyMemoryImporter(memory_service)
+    saved = 0
+
+    def _char_id(name: str) -> str:
+        return name_to_id.get(name, name)
+
+    for item in bundle.get("character_states") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("character_name", "")).strip()
+        if not name:
+            continue
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(name),
+            "state",
+            dict(item),
+            chapter_number=chapter_number,
+            name=name,
+            source="chapter_extract",
+            status="candidate",
+            confidence=0.55,
+        )
+        saved += 1
+
+    for wrapper in bundle.get("character_mutations") or []:
+        item = wrapper.get("data") if isinstance(wrapper, dict) and "data" in wrapper else wrapper
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("character_name", "")).strip()
+        if not name:
+            continue
+        mutation_type = str(item.get("mutation_type", "")).strip().lower()
+        memory_type = "scar" if mutation_type == "scar" else ("motivation" if mutation_type == "motivation" else "emotion")
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(name),
+            memory_type,
+            dict(item),
+            chapter_number=chapter_number,
+            name=name,
+            source="chapter_extract",
+            status="candidate",
+            confidence=0.55,
+        )
+        saved += 1
+
+    for dialogue in bundle.get("dialogues") or []:
+        if not isinstance(dialogue, dict):
+            continue
+        name = str(dialogue.get("speaker", "")).strip()
+        content = str(dialogue.get("content", "")).strip()
+        if not (name and content):
+            continue
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(name),
+            "voice",
+            dict(dialogue),
+            chapter_number=chapter_number,
+            name=name,
+            source="dialogue_extract",
+            status="candidate",
+            confidence=0.5,
+        )
+        saved += 1
+
+    for wrapper in bundle.get("relation_triples") or []:
+        item = wrapper.get("data") if isinstance(wrapper, dict) and "data" in wrapper else wrapper
+        if not isinstance(item, dict):
+            continue
+        subject = str(item.get("subject", "")).strip()
+        if not subject:
+            continue
+        importer.remember_bundle_item(
+            novel_id,
+            _char_id(subject),
+            "relationship",
+            dict(item),
+            chapter_number=chapter_number,
+            name=subject,
+            source="triple_extract",
+            status="candidate",
+            confidence=0.5,
+        )
+        saved += 1
+
+    for wrapper in bundle.get("causal_edges") or []:
+        item = wrapper.get("data") if isinstance(wrapper, dict) and "data" in wrapper else wrapper
+        if not isinstance(item, dict):
+            continue
+        involved = item.get("involved_characters") or []
+        if isinstance(involved, str):
+            involved = [involved]
+        for name_raw in involved[:4]:
+            name = str(name_raw).strip()
+            if not name:
+                continue
+            importer.remember_bundle_item(
+                novel_id,
+                _char_id(name),
+                "debt",
+                dict(item),
+                chapter_number=chapter_number,
+                name=name,
+                source="causal_extract",
+                status="candidate",
+                confidence=0.5,
+            )
+            saved += 1
+
+    if saved:
+        logger.info("MemoryAtom 双写完成 novel=%s ch=%s saved=%d", novel_id, chapter_number, saved)
+    return saved
+
+
 def _build_state_summary(state: Any) -> str:
     """根据当前状态构建简短摘要"""
     parts = []
@@ -1938,6 +2099,7 @@ async def sync_chapter_narrative_after_save(
         "triples_extracted": False,
         "causal_edges_stored": False,
         "character_mutations_stored": False,
+        "memory_atoms_stored": False,
         "debt_updated": False,
     }
     if not content or not str(content).strip():
@@ -1950,6 +2112,7 @@ async def sync_chapter_narrative_after_save(
         "triples_extracted": False,
         "causal_edges_stored": False,
         "character_mutations_stored": False,
+        "memory_atoms_stored": False,
         "debt_updated": False,
     }
 
@@ -2163,6 +2326,17 @@ async def sync_chapter_narrative_after_save(
             logger.warning(
                 "章末人物状态落库失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
+
+    try:
+        memory_saved = persist_bundle_memory_atoms(
+            novel_id, chapter_number, bundle, bible_repository
+        )
+        if memory_saved > 0:
+            flags["memory_atoms_stored"] = True
+    except Exception as e:
+        logger.warning(
+            "MemoryAtom 双写失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+        )
 
     if debt_repository is not None:
         try:

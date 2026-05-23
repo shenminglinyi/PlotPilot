@@ -138,6 +138,7 @@ class ContextBudgetAllocator:
         evolution_repository: Optional[Any] = None,
         character_narrative_kernel: Optional[Any] = None,
         novel_repository: Optional[Any] = None,
+        character_projection_service: Optional[Any] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -158,6 +159,7 @@ class ContextBudgetAllocator:
         self.evolution_repository = evolution_repository
         self.character_narrative_kernel = character_narrative_kernel
         self.novel_repository = novel_repository
+        self.character_projection_service = character_projection_service
 
         # ★ Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
         self._phase_thresholds = phase_thresholds or self._load_phase_thresholds()
@@ -1188,10 +1190,12 @@ class ContextBudgetAllocator:
                 )
                 # Generation is allowed to auto-materialize the cast contract.
                 kernel.apply_cast_plan(plan)
-                locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan)
+                locks = self._projection_locks_for_plan(novel_id, plan, tier="t0")
+                if not locks:
+                    locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan).t0.strip()
                 parts = []
-                if locks.t0.strip():
-                    parts.append("【角色状态锚点】\n" + locks.t0.strip())
+                if locks:
+                    parts.append("【角色状态锚点】\n" + locks)
                 loc_hint = self._format_scene_location_hints(
                     self.bible_repo.get_by_novel_id(NovelId(novel_id)),
                     outline,
@@ -2247,7 +2251,11 @@ class ContextBudgetAllocator:
         kernel = self._get_character_kernel()
         if kernel:
             try:
-                locks = kernel.build_context_locks(novel_id, chapter_number)
+                plan = kernel.plan_cast(novel_id, chapter_number)
+                projected = self._projection_locks_for_plan(novel_id, plan, tier="support")
+                if projected:
+                    return projected
+                locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan)
                 parts = []
                 if locks.t1.strip():
                     parts.append(locks.t1.strip())
@@ -2298,6 +2306,56 @@ class ContextBudgetAllocator:
             logger.debug("角色状态锁构建失败: %s", e)
 
         return ""
+
+    def _projection_locks_for_plan(self, novel_id: str, plan: Any, *, tier: str) -> str:
+        """Prefer unified character projections for prompt locks; fallback callers handle empty."""
+        try:
+            service = self._get_character_projection_service()
+            if not service:
+                return ""
+            lines: List[str] = []
+            for slot in getattr(plan, "slots", []) or []:
+                projection = service.get_projection(novel_id, slot.character_id)
+                locks = projection.get("context_locks") or {}
+                if tier == "t0" and slot.importance == "major" and locks.get("t0"):
+                    lines.append(str(locks["t0"]))
+                elif tier == "support":
+                    key = "t1" if slot.importance == "normal" else "t2"
+                    if locks.get(key):
+                        lines.append(str(locks[key]))
+            return "\n".join(lines)
+        except Exception as e:
+            logger.debug("角色 Projection 锁构建失败: %s", e)
+            return ""
+
+    def _get_character_projection_service(self):
+        if self.character_projection_service is not None:
+            return self.character_projection_service
+        try:
+            from application.memory.services.character_projection_service import CharacterProjectionService
+            from application.memory.services.narrative_memory_service import NarrativeMemoryService
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_character_state_repository import (
+                SqliteCharacterStateRepository,
+            )
+            from infrastructure.persistence.database.sqlite_memory_repository import (
+                SqliteNarrativeMemoryRepository,
+            )
+            from infrastructure.persistence.database.sqlite_narrative_debt_repository import (
+                SqliteNarrativeDebtRepository,
+            )
+
+            db = get_database()
+            return CharacterProjectionService(
+                memory_service=NarrativeMemoryService(SqliteNarrativeMemoryRepository(db)),
+                bible_repository=self.bible_repo,
+                character_state_repository=SqliteCharacterStateRepository(db),
+                triple_repository=self.triple_repo,
+                debt_repository=SqliteNarrativeDebtRepository(db),
+            )
+        except Exception as e:
+            logger.debug("角色 Projection 服务不可用: %s", e)
+            return None
 
     def _get_character_kernel(self):
         if self.character_narrative_kernel is not None:

@@ -1,12 +1,17 @@
 """Cast API routes"""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import logging
 
 from application.world.services.cast_service import CastService
 from application.world.dtos.cast_dto import CastGraphDTO, CastSearchResultDTO, CastCoverageDTO
-from interfaces.api.dependencies import get_cast_service, get_character_narrative_kernel
+from interfaces.api.dependencies import (
+    get_cast_service,
+    get_character_narrative_kernel,
+    get_character_projection_service,
+    get_narrative_memory_service,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["cast"])
@@ -228,4 +233,108 @@ async def get_character_narrative_profile(
         return kernel.get_character_narrative_profile(novel_id, character_id).to_dict()
     except Exception as e:
         logger.error("character narrative profile failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{novel_id}/entities/{entity_id}/memory")
+async def get_entity_memory(
+    novel_id: str,
+    entity_id: str,
+    memory = Depends(get_narrative_memory_service),
+):
+    """Unified memory atom ledger for an entity."""
+    try:
+        return {"entity_id": entity_id, "atoms": memory.atoms_for_entity(novel_id, entity_id)}
+    except Exception as e:
+        logger.error("entity memory failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{novel_id}/characters/{character_id}/projection")
+async def get_character_projection(
+    novel_id: str,
+    character_id: str,
+    projection = Depends(get_character_projection_service),
+):
+    """Character memory projection read model for frontend and context compiler."""
+    try:
+        return projection.get_projection(novel_id, character_id)
+    except Exception as e:
+        logger.error("character projection failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/novels/{novel_id}/chapters/{chapter_number}/memory-candidates")
+async def get_chapter_memory_candidates(
+    novel_id: str,
+    chapter_number: int,
+    memory = Depends(get_narrative_memory_service),
+):
+    """Candidate MemoryAtoms extracted from a chapter and awaiting calibration."""
+    try:
+        return {"chapter_number": chapter_number, "candidates": memory.candidates_for_chapter(novel_id, chapter_number)}
+    except Exception as e:
+        logger.error("chapter memory candidates failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class MemoryCalibrationRequest(BaseModel):
+    note: str = ""
+
+
+@router.post("/novels/{novel_id}/memory-atoms/{atom_id}/confirm")
+async def confirm_memory_atom(
+    novel_id: str,
+    atom_id: str,
+    body: MemoryCalibrationRequest = Body(default_factory=MemoryCalibrationRequest),
+    memory = Depends(get_narrative_memory_service),
+):
+    try:
+        atom = memory.update_status(novel_id, atom_id, "confirmed", action="confirm", note=body.note)
+        if not atom:
+            raise HTTPException(status_code=404, detail="memory atom not found")
+        return {"ok": True, "atom": atom.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("confirm memory atom failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/novels/{novel_id}/memory-atoms/{atom_id}/reject")
+async def reject_memory_atom(
+    novel_id: str,
+    atom_id: str,
+    body: MemoryCalibrationRequest = Body(default_factory=MemoryCalibrationRequest),
+    memory = Depends(get_narrative_memory_service),
+):
+    try:
+        atom = memory.update_status(novel_id, atom_id, "rejected", action="reject", note=body.note)
+        if not atom:
+            raise HTTPException(status_code=404, detail="memory atom not found")
+        return {"ok": True, "atom": atom.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("reject memory atom failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/novels/{novel_id}/memory-atoms/{atom_id}/promote")
+async def promote_memory_atom(
+    novel_id: str,
+    atom_id: str,
+    body: MemoryCalibrationRequest = Body(default_factory=MemoryCalibrationRequest),
+    memory = Depends(get_narrative_memory_service),
+):
+    """Promote a candidate to confirmed memory; Bible mutation is intentionally deferred."""
+    try:
+        atom = memory.update_status(novel_id, atom_id, "confirmed", action="promote", note=body.note)
+        if not atom:
+            raise HTTPException(status_code=404, detail="memory atom not found")
+        return {"ok": True, "atom": atom.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("promote memory atom failed: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

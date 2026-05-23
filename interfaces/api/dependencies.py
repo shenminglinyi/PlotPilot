@@ -199,6 +199,31 @@ def get_character_narrative_kernel():
     )
 
 
+def get_narrative_memory_service():
+    """获取统一叙事记忆服务。"""
+    from application.memory.services.narrative_memory_service import NarrativeMemoryService
+    from infrastructure.persistence.database.sqlite_memory_repository import SqliteNarrativeMemoryRepository
+
+    return NarrativeMemoryService(SqliteNarrativeMemoryRepository(get_database()))
+
+
+def get_character_projection_service():
+    """获取角色记忆投影服务（渐进兼容旧 CharacterState/Bible）。"""
+    from application.memory.services.character_projection_service import CharacterProjectionService
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+    from infrastructure.persistence.database.triple_repository import TripleRepository
+
+    db = get_database()
+    return CharacterProjectionService(
+        memory_service=get_narrative_memory_service(),
+        bible_repository=get_bible_repository(),
+        character_state_repository=SqliteCharacterStateRepository(db),
+        triple_repository=TripleRepository(db),
+        debt_repository=SqliteNarrativeDebtRepository(db),
+    )
+
+
 def get_unified_character_repository():
     """获取统一角色仓储（unified_characters 表）。"""
     from infrastructure.persistence.database.unified_character_repository import SqliteUnifiedCharacterRepository
