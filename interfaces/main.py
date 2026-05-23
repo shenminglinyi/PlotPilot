@@ -32,6 +32,7 @@ except Exception:
 
 # 配置日志（必须在导入其他模块前）
 from interfaces.api.middleware.logging_config import (
+    log_lifecycle_banner,
     log_startup_banner,
     parse_log_level,
     setup_logging,
@@ -106,8 +107,9 @@ STARTUP_TIME = time.time()
 
 log_startup_banner(
     logger,
-    title=f"PlotPilot backend starting - release {APP_RELEASE_VERSION}",
+    title="PlotPilot service is starting",
     fields={
+        "Release": APP_RELEASE_VERSION,
         "Build": BACKEND_BUILD_ID,
         "Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Log level": logging.getLevelName(log_level),
@@ -167,13 +169,13 @@ async def fix_redirect_host(request, call_next):
 @app.on_event("startup")
 async def startup_event():
     """应用启动事件"""
-    logger.info("📦 Loading modules and routes...")
-    logger.info("✅ FastAPI application started successfully")
-    logger.info(f"📊 Registered {len(app.routes)} routes")
+    logger.info("Startup: loading application modules and route table")
+    logger.info("Startup: FastAPI application is ready")
+    logger.info("Startup: registered routes=%s", len(app.routes))
 
     # Windows: 启动前清理上次可能残留的进程
     if os.name == "nt":
-        logger.info("🧹 Windows 启动前检查残留进程...")
+        logger.info("Startup: checking for orphan Windows backend processes")
         _cleanup_orphan_python_processes()
 
     # 先于持久化消费者复位「运行中」标志（单线程 + 短时直连 SQLite），避免与 writer 争抢连接时出现 ~busy_timeout 级卡顿
@@ -210,9 +212,9 @@ def _bootstrap_persistence_consumer_early() -> None:
         initialize_persistence_queue()
         register_persistence_handlers()
         get_persistence_queue().start_consumer()
-        logger.info("✅ 持久化消费者已先于启动钩子就绪（单写者内核）")
+        logger.info("Startup: persistence consumer is ready")
     except Exception as e:
-        logger.warning("持久化队列提前初始化失败（部分启动写将依赖直连兜底）: %s", e)
+        logger.warning("Startup: persistence consumer bootstrap failed; falling back to direct writes: %s", e)
 
 
 def _checkpoint_sqlite_wal_safe() -> None:
@@ -231,7 +233,7 @@ def _checkpoint_sqlite_wal_safe() -> None:
         finally:
             conn.close()
     except Exception as e:
-        logger.warning("WAL checkpoint 失败（可忽略）: %s", e)
+        logger.warning("Shutdown: WAL checkpoint failed: %s", e)
 
 
 def _run_backend_shutdown_hooks() -> None:
@@ -244,7 +246,7 @@ def _run_backend_shutdown_hooks() -> None:
         db = get_database()
         db.close_all(skip_checkpoint=True)
     except Exception as e:
-        logger.warning("关闭数据库连接失败: %s", e)
+        logger.warning("Shutdown: database close failed: %s", e)
     _checkpoint_sqlite_wal_safe()
 
     # 关闭 LLM Provider HTTP 连接池
@@ -265,10 +267,12 @@ def _run_backend_shutdown_hooks() -> None:
         pass
 
     uptime = time.time() - STARTUP_TIME
-    logger.info("=" * 80)
-    logger.info("\U0001f6d1 BACKEND SHUTTING DOWN")
-    logger.info("   Total uptime: %.2f seconds (%.2f hours)", uptime, uptime / 3600)
-    logger.info("=" * 80)
+    log_lifecycle_banner(
+        logger,
+        title="PlotPilot service stopped",
+        fields={"Uptime": f"{uptime:.2f}s ({uptime / 3600:.2f}h)"},
+        logo=None,
+    )
 
 
 @app.on_event("shutdown")
@@ -299,14 +303,16 @@ def _internal_shutdown_after_response() -> None:
             db = get_database()
             db.close_all(skip_checkpoint=True)
         except Exception as e:
-            logger.warning("关闭数据库连接失败: %s", e)
+            logger.warning("Shutdown: database close failed: %s", e)
         _checkpoint_sqlite_wal_safe()
 
         uptime = time.time() - STARTUP_TIME
-        logger.info("=" * 80)
-        logger.info("\U0001f6d1 BACKEND SHUTTING DOWN (Windows forced exit)")
-        logger.info("   Total uptime: %.2f seconds (%.2f hours)", uptime, uptime / 3600)
-        logger.info("=" * 80)
+        log_lifecycle_banner(
+            logger,
+            title="PlotPilot service stopped (Windows forced exit)",
+            fields={"Uptime": f"{uptime:.2f}s ({uptime / 3600:.2f}h)"},
+            logo=None,
+        )
         logging.shutdown()
         os._exit(0)
     os.kill(os.getpid(), signal.SIGINT)
@@ -342,7 +348,7 @@ def _get_shared_state() -> dict:
         return _shared_state
     _mp_manager = multiprocessing.Manager()
     _shared_state = _mp_manager.dict()
-    logger.info("✅ 跨进程共享状态字典已初始化 (multiprocessing.Manager)")
+    logger.info("Startup: multiprocessing shared state initialized")
     return _shared_state
 
 
@@ -410,7 +416,7 @@ def _stop_all_running_novels():
     db_path_obj = Path(db_path) if isinstance(db_path, str) else db_path
 
     if not db_path_obj.exists():
-        logger.warning(f"⚠️  数据库文件不存在: {db_path}")
+        logger.warning("Startup: database file does not exist: %s", db_path)
         return
 
     max_retries = 3
@@ -422,7 +428,7 @@ def _stop_all_running_novels():
                 "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='novels' LIMIT 1"
             )
             if chk is None:
-                logger.info("ℹ️  新库尚无 novels 表，跳过运行中小说复位")
+                logger.info("Startup: novels table is not present; skipping running-novel reset")
                 return
 
             cnt_row = db.fetch_one(
@@ -437,11 +443,11 @@ def _stop_all_running_novels():
                 )
                 db.commit()
                 logger.info(
-                    "🔒 已将 %s 本运行中的小说设置为停止状态（服务重启）",
+                    "Startup: marked %s running novels as stopped after service restart",
                     running_count,
                 )
             else:
-                logger.info("✅ 没有运行中的小说需要停止")
+                logger.info("Startup: no running novels need reset")
 
             try:
                 db.get_connection().execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -452,8 +458,8 @@ def _stop_all_running_novels():
         except sqlite3.OperationalError as e:
             if "disk I/O error" in str(e) and attempt < max_retries:
                 logger.warning(
-                    "⚠️  停止运行中小说遇到 disk I/O error（第 %s/%s 次），"
-                    "尝试清理 WAL 残留并重置连接后重试...",
+                    "Startup: running-novel reset hit disk I/O error on attempt %s/%s; "
+                    "clearing WAL leftovers and retrying",
                     attempt,
                     max_retries,
                 )
@@ -462,9 +468,9 @@ def _stop_all_running_novels():
                     if wal_file.exists():
                         try:
                             wal_file.unlink()
-                            logger.info("🧹 已清理残留 WAL 文件: %s", wal_file)
+                            logger.info("Startup: removed leftover WAL file: %s", wal_file)
                         except OSError as unlink_err:
-                            logger.warning("清理 WAL 文件失败: %s — %s", wal_file, unlink_err)
+                            logger.warning("Startup: failed to remove WAL file %s: %s", wal_file, unlink_err)
                 try:
                     if db_connection._db_instance is not None:
                         db_connection._db_instance.close_all(skip_checkpoint=True)
@@ -474,7 +480,7 @@ def _stop_all_running_novels():
                 time.sleep(1.0 * attempt)
             else:
                 logger.error(
-                    "❌ 停止运行中小说失败: db=%s err=%s",
+                    "Startup: failed to reset running novels: db=%s err=%s",
                     db_path_obj,
                     e,
                     exc_info=True,
@@ -482,7 +488,7 @@ def _stop_all_running_novels():
                 return
         except Exception as e:
             logger.error(
-                "❌ 停止运行中小说失败: db=%s err=%s",
+                "Startup: failed to reset running novels: db=%s err=%s",
                 db_path_obj,
                 e,
                 exc_info=True,
@@ -496,11 +502,11 @@ def _recover_drafts_on_startup():
         from application.engine.services.draft_aof import recover_all_drafts
         recovered = recover_all_drafts()
         if recovered > 0:
-            logger.info(f"🔧 AOF 崩溃恢复：已恢复 {recovered} 个章节的草稿数据")
+            logger.info("Startup: recovered %s chapter drafts from AOF", recovered)
         else:
-            logger.info("✅ AOF 检查：无残留草稿需要恢复")
+            logger.info("Startup: AOF recovery found no draft leftovers")
     except Exception as e:
-        logger.warning(f"⚠️ AOF 崩溃恢复失败（可忽略）: {e}")
+        logger.warning("Startup: AOF recovery failed: %s", e)
 
 
 def _run_daemon_in_process(

@@ -7,7 +7,7 @@ import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 
 VALID_LOGGING_LEVELS = {
@@ -33,7 +33,6 @@ LEVEL_STYLES: Mapping[int, Dict[str, str]] = {
 
 RESET = "\033[0m"
 DIM = "\033[2m"
-BOLD = "\033[1m"
 
 NOISY_LOGGERS = (
     "httpcore",
@@ -50,6 +49,14 @@ FRAMEWORK_LOGGERS = (
     "fastapi",
     "uvicorn",
     "uvicorn.error",
+)
+
+PLOTPILOT_LOGO = (
+    r"  ____  _       _   ____  _ _       _",
+    r" |  _ \| | ___ | |_|  _ \(_) | ___ | |_",
+    r" | |_) | |/ _ \| __| |_) | | |/ _ \| __|",
+    r" |  __/| | (_) | |_|  __/| | | (_) | |_",
+    r" |_|   |_|\___/ \__|_|   |_|_|\___/ \__|",
 )
 
 
@@ -217,22 +224,54 @@ def setup_logging(
     _quiet_noisy_loggers()
 
 
+def log_lifecycle_banner(
+    logger: logging.Logger,
+    *,
+    title: str,
+    fields: Mapping[str, Any],
+    logo: Iterable[str] | None = PLOTPILOT_LOGO,
+    level: int = logging.INFO,
+    stacklevel: int = 2,
+) -> None:
+    """Log an aligned lifecycle banner with an optional ASCII logo."""
+
+    logo_lines = tuple(logo or ())
+    width = max(
+        [
+            len(title),
+            *(len(line) for line in logo_lines),
+            *(len(str(k)) + len(str(v)) + 3 for k, v in fields.items()),
+        ],
+        default=20,
+    )
+    border = "-" * min(max(width + 4, 44), 88)
+    logger.log(level, border, stacklevel=stacklevel)
+    for line in logo_lines:
+        logger.log(level, "%s", line, stacklevel=stacklevel)
+    logger.log(level, "%s", title, stacklevel=stacklevel)
+    for key, value in fields.items():
+        logger.log(level, "  %-12s %s", f"{key}:", value, stacklevel=stacklevel)
+    logger.log(level, border, stacklevel=stacklevel)
+
+
 def log_startup_banner(
     logger: logging.Logger,
     *,
     title: str,
     fields: Mapping[str, Any],
+    logo: Iterable[str] | None = PLOTPILOT_LOGO,
     level: int = logging.INFO,
 ) -> None:
-    """Log a small aligned banner for lifecycle events."""
+    """Log the PlotPilot startup banner."""
 
-    width = max([len(title), *(len(str(k)) + len(str(v)) + 3 for k, v in fields.items())], default=20)
-    border = "-" * min(max(width + 4, 44), 88)
-    logger.log(level, border)
-    logger.log(level, "%s", title)
-    for key, value in fields.items():
-        logger.log(level, "  %-12s %s", f"{key}:", value)
-    logger.log(level, border)
+    log_lifecycle_banner(
+        logger,
+        title=title,
+        fields=fields,
+        logo=logo,
+        level=level,
+        stacklevel=3,
+    )
 
 
 def get_logger(name: str) -> logging.Logger:
