@@ -15,5 +15,6 @@ def test_short_text_unchanged():
 def test_long_text_keeps_tail_with_notice():
     body = "x" * 20_000
     out = format_prior_draft_for_prompt(body)
-    assert "省略" in out
-    assert out.endswith("x" * 14_000)
+    assert "结构化摘要" in out
+    assert "本章近期正文" in out
+    assert out.endswith("x" * 3_000)

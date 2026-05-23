@@ -27,21 +27,10 @@ from engine.pipeline.beat_contracts import (
     merge_beats_by_target,
     serialize_beats_for_shared_state,
 )
+from engine.pipeline.generation_prompt_builder import build_generation_prompt, make_prompt
 from engine.pipeline.telemetry import story_pipeline_wave_meta
 
 logger = logging.getLogger(__name__)
-
-# domain.ai.Prompt 要求 system/user 均非空；管线把指令放在 user 侧，system 仅作最小角色锚定。
-_DEFAULT_PIPELINE_SYSTEM_PROMPT = (
-    "你是一位正在埋头创作的中文网络小说作者，此刻的任务只有一个：按给定的节拍简报写出正文段落。\n\n"
-    "铁律（违反即判定为输出失败）：\n"
-    "1. 只输出故事正文，不得输出任何分析、点评、建议、问题、说明或思维过程。\n"
-    "2. 不得重复、引用或解释节拍简报里的任何指令文字。\n"
-    "3. 不得以「作为一名AI」、「根据你的设定」、「我注意到」、「建议」等词语开头或出现在正文中。\n"
-    "4. 用白描手法写——情绪通过动作与感官细节体现，不写'他感到愤怒'，写'他端起杯子又放下'。\n"
-    "5. 下笔即是正文第一个字，收笔即是正文最后一个字，中间没有标题、序号、换行空白。"
-)
-
 
 def _writing_progress(
     ctx: PipelineContext,
@@ -893,20 +882,7 @@ class BaseStoryPipeline(ABC):
 
     def _build_generation_prompt(self, ctx: PipelineContext, beat: Any, beat_index: int) -> str:
         """构建生成 prompt — 子类可覆写以定制 prompt 模板"""
-        parts = []
-        if ctx.context_text:
-            parts.append(ctx.context_text)
-        if ctx.voice_anchors:
-            parts.append(ctx.voice_anchors)
-        if ctx.outline:
-            parts.append(f"【章节大纲】\n{ctx.outline}")
-        beat_desc = getattr(beat, 'description', str(beat))
-        beat_focus = getattr(beat, 'focus', 'mixed')
-        parts.append(f"【当前节拍 {beat_index+1}/{len(ctx.beats)}】{beat_desc}（焦点：{beat_focus}）")
-        card_block = getattr(beat, 'card_prompt_block', '')
-        if card_block:
-            parts.append(card_block)
-        return "\n\n".join(parts)
+        return build_generation_prompt(ctx, beat, beat_index)
 
     def _post_process_generation(self, content: str, ctx: PipelineContext) -> str:
         """生成后处理 — 子类可覆写以添加后处理逻辑"""
@@ -932,11 +908,7 @@ class BaseStoryPipeline(ABC):
 
     def _make_prompt(self, text: str) -> Any:
         """将文本转为 Prompt 对象"""
-        try:
-            from domain.ai.value_objects.prompt import Prompt
-            return Prompt(system=_DEFAULT_PIPELINE_SYSTEM_PROMPT, user=text)
-        except ImportError:
-            return text
+        return make_prompt(text)
 
     def _push_streaming_snapshot(self, novel_id: str, content: str) -> None:
         """推送整章累积快照到 StreamingBus，供 /autopilot/.../chapter-stream 消费。"""
