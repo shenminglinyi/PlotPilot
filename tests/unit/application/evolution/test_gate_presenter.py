@@ -57,3 +57,29 @@ def test_presenter_hydrates_without_raw_json():
     assert "硬法则" in text
     assert "情绪余波" in text
     assert "{" not in text
+
+
+def test_gate_matches_unified_character_name():
+    class CharId:
+        value = "char-001"
+
+    class Character:
+        id = CharId()
+        name = "顾言之"
+
+    class Repo:
+        def list_by_novel(self, novel_id):
+            return [Character()]
+
+    state = EvolutionState.empty()
+    state.characters["char-001"] = {"status": "dead", "location": "", "inventory": []}
+
+    report = EvolutionGateService(character_repository=Repo()).check(
+        novel_id="n1",
+        chapter_number=2,
+        outline_content="顾言之在客栈醒来。",
+        state=state,
+    )
+
+    assert report.is_pass is False
+    assert report.violations[0].type == "DEAD_CHARACTER_REAPPEARS"

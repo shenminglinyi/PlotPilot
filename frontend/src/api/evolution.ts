@@ -55,4 +55,16 @@ export const evolutionApi = {
       `/novels/${novelId}/evolution/gate`,
       payload,
     ) as unknown as Promise<EvolutionGateReport>,
+
+  applyOverrides: (novelId: string, chapterNumber: number, patches: Array<Record<string, unknown>>, branchId = 'main') =>
+    apiClient.post<EvolutionSnapshot>(
+      `/novels/${novelId}/evolution/snapshots/${chapterNumber}/overrides`,
+      { branch_id: branchId, patches },
+    ) as unknown as Promise<EvolutionSnapshot>,
+
+  replayFrom: (novelId: string, chapterNumber: number, branchId = 'main') =>
+    apiClient.post<Record<string, unknown>>(
+      `/novels/${novelId}/evolution/replay-from/${chapterNumber}`,
+      { branch_id: branchId },
+    ) as unknown as Promise<Record<string, unknown>>,
 }

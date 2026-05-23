@@ -198,6 +198,7 @@ class ContextBudgetAllocator:
         worldbuilding_repository: Optional[WorldbuildingRepository] = None,
         evolution_presenter: Optional[Any] = None,
         evolution_repository: Optional[Any] = None,
+        character_narrative_kernel: Optional[Any] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -216,6 +217,7 @@ class ContextBudgetAllocator:
         self.worldbuilding_repo = worldbuilding_repository
         self.evolution_presenter = evolution_presenter
         self.evolution_repository = evolution_repository
+        self.character_narrative_kernel = character_narrative_kernel
 
         # ★ Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
         self._phase_thresholds = phase_thresholds or self._load_phase_thresholds()
@@ -742,7 +744,7 @@ class ContextBudgetAllocator:
         )
 
         # ── V9 降级: 角色状态锁向量 —— 从 T0(p=128) → T1(p=58) ──
-        character_state_lock_content = self._build_character_state_lock_block(novel_id)
+        character_state_lock_content = self._build_character_state_lock_block(novel_id, chapter_number)
         slots["character_state_lock"] = ContextSlot(
             name="🔒 角色状态锁(CHARACTER_STATE_LOCK)",
             tier=PriorityTier.T1_COMPRESSIBLE,
@@ -1347,6 +1349,30 @@ class ContextBudgetAllocator:
             return ""
         
         try:
+            kernel = self._get_character_kernel()
+            if kernel:
+                plan = kernel.plan_cast(
+                    novel_id,
+                    chapter_number,
+                    outline,
+                    scene_director=scene_director,
+                )
+                # Generation is allowed to auto-materialize the cast contract.
+                kernel.apply_cast_plan(plan)
+                locks = kernel.build_context_locks(novel_id, chapter_number, plan=plan)
+                parts = []
+                if locks.t0.strip():
+                    parts.append("【角色状态锚点】\n" + locks.t0.strip())
+                loc_hint = self._format_scene_location_hints(
+                    self.bible_repo.get_by_novel_id(NovelId(novel_id)),
+                    outline,
+                    scene_director,
+                )
+                if loc_hint:
+                    parts.append(loc_hint)
+                if parts:
+                    return "\n\n".join(parts)
+
             # 确保 novel_id 是正确的类型
             from domain.novel.value_objects.novel_id import NovelId
             if isinstance(novel_id, str):
@@ -2384,12 +2410,25 @@ class ContextBudgetAllocator:
 
         return ""
 
-    def _build_character_state_lock_block(self, novel_id: str) -> str:
+    def _build_character_state_lock_block(self, novel_id: str, chapter_number: int) -> str:
         """构建角色状态锁文本块（T0 注入）。
 
-        从 Bible 仓库读取当前章节出场角色的状态向量，
-        生成防记忆漂移的锚点文本。
+        从本章 cast plan 读取 normal/minor 角色，避免 Bible 前 7 个角色污染上下文。
         """
+        kernel = self._get_character_kernel()
+        if kernel:
+            try:
+                locks = kernel.build_context_locks(novel_id, chapter_number)
+                parts = []
+                if locks.t1.strip():
+                    parts.append(locks.t1.strip())
+                if locks.t2.strip():
+                    parts.append(locks.t2.strip())
+                return "\n\n".join(parts)
+            except Exception as e:
+                logger.debug("角色内核状态锁构建失败: %s", e)
+
+        # Legacy fallback for tests or deployments without repositories.
         try:
             from application.engine.rules.character_state_vector import get_character_state_vector_manager
 
@@ -2430,3 +2469,21 @@ class ContextBudgetAllocator:
             logger.debug("角色状态锁构建失败: %s", e)
 
         return ""
+
+    def _get_character_kernel(self):
+        if self.character_narrative_kernel is not None:
+            return self.character_narrative_kernel
+        if not (self.bible_repo and self.chapter_element_repo and self.story_node_repo):
+            return None
+        try:
+            from application.character.services.character_narrative_kernel import CharacterNarrativeKernel
+            self.character_narrative_kernel = CharacterNarrativeKernel(
+                bible_repository=self.bible_repo,
+                chapter_element_repository=self.chapter_element_repo,
+                story_node_repository=self.story_node_repo,
+                triple_repository=self.triple_repo,
+            )
+            return self.character_narrative_kernel
+        except Exception as e:
+            logger.debug("角色叙事内核初始化失败: %s", e)
+            return None

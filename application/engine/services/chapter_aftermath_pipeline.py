@@ -77,6 +77,7 @@ class ChapterAftermathPipeline:
         unified_checkpoint_service: Any = None,
         prop_lifecycle_syncer: Any = None,
         evolution_snapshot_service: Any = None,
+        character_narrative_kernel: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -96,6 +97,7 @@ class ChapterAftermathPipeline:
         self._unified_checkpoint = unified_checkpoint_service
         self._prop_syncer = prop_lifecycle_syncer
         self._evolution_snapshot_service = evolution_snapshot_service
+        self._character_kernel = character_narrative_kernel
 
     async def run_after_chapter_saved(
         self,
@@ -123,6 +125,8 @@ class ChapterAftermathPipeline:
             "guardrail_score": None,
             "evolution_snapshot_ok": False,
             "evolution_snapshot_id": None,
+            "character_reconcile_ok": False,
+            "character_reconcile": None,
         }
 
         if not content or not str(content).strip():
@@ -166,6 +170,22 @@ class ChapterAftermathPipeline:
         except Exception as e:
             logger.warning(
                 "叙事同步/向量失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
+            )
+
+        # 1b) 角色叙事内核对账：cast plan vs 正文，自动投影状态与风险。
+        try:
+            if self._character_kernel:
+                reconcile = self._character_kernel.reconcile_after_chapter(
+                    novel_id,
+                    chapter_number,
+                    content,
+                    None,
+                )
+                out["character_reconcile_ok"] = bool(reconcile.get("checked"))
+                out["character_reconcile"] = reconcile
+        except Exception as e:
+            logger.warning(
+                "角色叙事对账失败 novel=%s ch=%s: %s", novel_id, chapter_number, e
             )
 
         # 2) 文风（落库 chapter_style_scores）

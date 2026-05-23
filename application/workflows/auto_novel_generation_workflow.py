@@ -419,6 +419,7 @@ class AutoNovelGenerationWorkflow:
         *,
         scene_director: Optional[SceneDirectorAnalysis] = None,
         max_tokens: int = 35000,
+        allow_evolution_gate_bypass: bool = False,
     ) -> Dict[str, Any]:
         """与单章 / 流式 / 托管按节拍写作同源：结构化三层上下文 + 故事线 + 张力 + 文风。
 
@@ -435,7 +436,24 @@ class AutoNovelGenerationWorkflow:
                     outline_content=outline,
                     branch_id="main",
                 ).to_dict()
+                if (
+                    not allow_evolution_gate_bypass
+                    and any(
+                        v.get("level") == "blocking"
+                        for v in evolution_gate_report.get("violations", [])
+                    )
+                ):
+                    raise RuntimeError(
+                        "evolution_gate_blocked:"
+                        + "; ".join(
+                            str(v.get("message") or "")
+                            for v in evolution_gate_report.get("violations", [])
+                            if v.get("level") == "blocking"
+                        )
+                    )
         except Exception as e:
+            if str(e).startswith("evolution_gate_blocked:"):
+                raise
             logger.warning("EvolutionGate 写前检查跳过 novel=%s ch=%s: %s", novel_id, chapter_number, e)
         payload = self.context_builder.build_structured_context(
             novel_id=novel_id,
@@ -619,7 +637,8 @@ class AutoNovelGenerationWorkflow:
         chapter_number: int,
         outline: str,
         scene_director: Optional[SceneDirectorAnalysis] = None,
-        enable_beats: bool = True
+        enable_beats: bool = True,
+        allow_evolution_gate_bypass: bool = False,
     ) -> GenerationResult:
         """生成章节（完整工作流）
 
@@ -653,7 +672,11 @@ class AutoNovelGenerationWorkflow:
 
         logger.info("阶段 1-2: 规划 + 结构化上下文（prepare_chapter_generation）")
         bundle = self.prepare_chapter_generation(
-            novel_id, chapter_number, outline, scene_director=scene_director
+            novel_id,
+            chapter_number,
+            outline,
+            scene_director=scene_director,
+            allow_evolution_gate_bypass=allow_evolution_gate_bypass,
         )
         context = bundle["context"]
         context_tokens = bundle["context_tokens"]
@@ -936,6 +959,7 @@ class AutoNovelGenerationWorkflow:
         scene_director: Optional[SceneDirectorAnalysis] = None,
         enable_beats: bool = True,
         regeneration_guidance: Optional[str] = None,
+        allow_evolution_gate_bypass: bool = False,
     ) -> AsyncIterator[Dict[str, Any]]:
         """流式生成章节：阶段事件 + 正文 token 流 + 最终 done（含一致性报告）。
 
@@ -964,7 +988,11 @@ class AutoNovelGenerationWorkflow:
             yield {"type": "phase", "phase": "context"}
             logger.info("阶段 1-2: prepare_chapter_generation（规划 + 结构化上下文）")
             bundle = self.prepare_chapter_generation(
-                novel_id, chapter_number, outline, scene_director=scene_director
+                novel_id,
+                chapter_number,
+                outline,
+                scene_director=scene_director,
+                allow_evolution_gate_bypass=allow_evolution_gate_bypass,
             )
             context = bundle["context"]
             context_tokens = bundle["context_tokens"]

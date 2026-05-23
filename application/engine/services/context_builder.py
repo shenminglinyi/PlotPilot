@@ -139,6 +139,21 @@ class ContextBuilder:
                 logger.warning("MemoryEngine 初始化失败: %s", _e)
 
         # 预算分配器（核心组件）
+        character_kernel = None
+        try:
+            from application.character.services.character_narrative_kernel import CharacterNarrativeKernel
+            character_kernel = CharacterNarrativeKernel(
+                bible_service=bible_service,
+                bible_repository=bible_repository,
+                chapter_element_repository=chapter_element_repository,
+                story_node_repository=story_node_repository,
+                triple_repository=triple_repository,
+                character_state_repository=character_state_repository,
+                debt_repository=narrative_debt_repository,
+            )
+        except Exception as _e:
+            logger.warning("CharacterNarrativeKernel 初始化失败: %s", _e)
+
         self.budget_allocator = ContextBudgetAllocator(
             foreshadowing_repository=foreshadowing_repository,
             chapter_repository=chapter_repository,
@@ -155,6 +170,7 @@ class ContextBuilder:
             worldbuilding_repository=worldbuilding_repository,
             evolution_presenter=evolution_presenter,
             evolution_repository=evolution_repository,
+            character_narrative_kernel=character_kernel,
         )
 
     def estimate_tokens(self, text: str) -> int:

@@ -179,6 +179,26 @@ def get_chapter_element_repository():
     return ChapterElementRepository(get_db_path())
 
 
+def get_character_narrative_kernel():
+    """获取角色叙事内核（统一选角、上下文锁、章后对账与角色 read model）。"""
+    from application.character.services.character_narrative_kernel import CharacterNarrativeKernel
+    from infrastructure.persistence.database.triple_repository import TripleRepository
+    from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
+    from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
+
+    db = get_database()
+    return CharacterNarrativeKernel(
+        bible_service=get_bible_service(),
+        bible_repository=get_bible_repository(),
+        chapter_element_repository=get_chapter_element_repository(),
+        story_node_repository=get_story_node_repository(),
+        triple_repository=TripleRepository(db),
+        character_state_repository=SqliteCharacterStateRepository(db),
+        debt_repository=SqliteNarrativeDebtRepository(db),
+        unified_character_repository=get_unified_character_repository(),
+    )
+
+
 def get_unified_character_repository():
     """获取统一角色仓储（unified_characters 表）。"""
     from infrastructure.persistence.database.unified_character_repository import SqliteUnifiedCharacterRepository
@@ -392,6 +412,7 @@ def get_chapter_aftermath_pipeline():
         unified_checkpoint_service=get_unified_checkpoint_service(),
         prop_lifecycle_syncer=_get_prop_lifecycle_syncer_safe(),
         evolution_snapshot_service=get_evolution_snapshot_service(),
+        character_narrative_kernel=get_character_narrative_kernel(),
     )
 
 

@@ -4,6 +4,7 @@ import hashlib
 import re
 from typing import Any, Dict, List, Optional
 
+from domain.evolution.contracts import ActionType
 from domain.evolution.models import EvolutionAction
 
 
@@ -35,7 +36,7 @@ class EvolutionActionExtractor:
         actions.append(
             EvolutionAction(
                 action_id=self._aid(novel_id, chapter_number, "scene", tail),
-                type="SET_SCENE_STATE",
+                type=ActionType.SET_SCENE_STATE.value,
                 payload={
                     "time_anchor": f"chapter:{chapter_number}",
                     "location": self._infer_location(tail),
@@ -50,7 +51,7 @@ class EvolutionActionExtractor:
             actions.append(
                 EvolutionAction(
                     action_id=self._aid(novel_id, chapter_number, "residue", residue),
-                    type="SET_EMOTIONAL_RESIDUE",
+                    type=ActionType.SET_EMOTIONAL_RESIDUE.value,
                     payload={"description": residue},
                     confidence=0.5,
                     source_refs=refs,
@@ -60,7 +61,7 @@ class EvolutionActionExtractor:
         actions.append(
             EvolutionAction(
                 action_id=self._aid(novel_id, chapter_number, "complete", str(len(text))),
-                type="COMPLETE_EVENT",
+                type=ActionType.COMPLETE_EVENT.value,
                 payload={
                     "event_id": f"chapter:{chapter_number}:saved:{hashlib.sha1(text.encode('utf-8')).hexdigest()[:12]}"
                 },

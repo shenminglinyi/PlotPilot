@@ -9,12 +9,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple
 
-_STRING_KV_RE = re.compile(r'"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:\s*"((?:[^"\\]|\\.)*)"')
-_STREAMING_TAIL_RE = re.compile(r'"([a-zA-Z_][a-zA-Z0-9_]*)"\s*:\s*"((?:[^"\\]|\\.)*)$')
+_STRING_KV_RE = re.compile(r'"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_STREAMING_TAIL_RE = re.compile(r'"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)$')
 
 
 def _unescape_json_string(s: str) -> str:
-    return s.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+    # \\ must come first to avoid double-processing escaped sequences
+    return s.replace("\\\\", "\\").replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"')
 
 
 @dataclass

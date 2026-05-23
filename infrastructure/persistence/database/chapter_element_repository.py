@@ -87,6 +87,34 @@ class ChapterElementRepository:
         )
         return [self._row_to_entity(row) for row in rows]
 
+    def get_by_chapter_sync(self, chapter_id: str) -> List[ChapterElement]:
+        """同步获取章节的所有元素关联。"""
+        rows = self._db().fetch_all(
+            """
+                SELECT * FROM chapter_elements
+                WHERE chapter_id = ?
+                ORDER BY appearance_order, created_at
+            """,
+            (chapter_id,),
+        )
+        return [self._row_to_entity(row) for row in rows]
+
+    def get_by_chapter_and_type_sync(
+        self,
+        chapter_id: str,
+        element_type: ElementType,
+    ) -> List[ChapterElement]:
+        """同步获取章节中某类型的所有元素。"""
+        rows = self._db().fetch_all(
+            """
+                SELECT * FROM chapter_elements
+                WHERE chapter_id = ? AND element_type = ?
+                ORDER BY appearance_order, created_at
+            """,
+            (chapter_id, element_type.value),
+        )
+        return [self._row_to_entity(row) for row in rows]
+
     async def get_by_element(
         self,
         element_type: ElementType,
@@ -155,7 +183,7 @@ class ChapterElementRepository:
         """同步查询某章节的预规划角色列表（character 类型，按 importance 排序）"""
         rows = self._db().fetch_all(
             """
-            SELECT element_id, importance
+            SELECT id, element_id, importance, relation_type, appearance_order, notes
             FROM chapter_elements
             WHERE chapter_id = ? AND element_type = 'character'
             ORDER BY
@@ -164,7 +192,83 @@ class ChapterElementRepository:
             """,
             (chapter_id,),
         )
-        return [{"element_id": r["element_id"], "importance": r["importance"]} for r in rows]
+        return [
+            {
+                "id": r["id"],
+                "element_id": r["element_id"],
+                "importance": r["importance"],
+                "relation_type": r["relation_type"],
+                "appearance_order": r["appearance_order"],
+                "notes": r["notes"],
+            }
+            for r in rows
+        ]
+
+    def upsert_cast_slot_sync(
+        self,
+        *,
+        chapter_id: str,
+        character_id: str,
+        importance: str,
+        relation_type: str = "appears",
+        appearance_order: Optional[int] = None,
+        notes: Optional[str] = None,
+    ) -> Dict:
+        """Insert/update a character cast slot without touching other chapter elements."""
+        db = self._db()
+        existing = db.fetch_one(
+            """
+            SELECT id FROM chapter_elements
+            WHERE chapter_id = ? AND element_type = 'character' AND element_id = ?
+            LIMIT 1
+            """,
+            (chapter_id, character_id),
+        )
+        now = datetime.now().isoformat()
+        if existing:
+            elem_id = existing["id"]
+            db.execute(
+                """
+                UPDATE chapter_elements
+                SET relation_type = ?, importance = ?, appearance_order = ?, notes = ?
+                WHERE id = ?
+                """,
+                (relation_type, importance, appearance_order, notes, elem_id),
+            )
+        else:
+            import uuid
+
+            elem_id = f"elem-{uuid.uuid4().hex[:8]}"
+            db.execute(
+                """
+                INSERT INTO chapter_elements (
+                    id, chapter_id, element_type, element_id,
+                    relation_type, importance, appearance_order, notes, created_at
+                ) VALUES (?, ?, 'character', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    elem_id,
+                    chapter_id,
+                    character_id,
+                    relation_type,
+                    importance,
+                    appearance_order,
+                    notes,
+                    now,
+                ),
+            )
+        db.commit()
+        return {
+            "id": elem_id,
+            "chapter_id": chapter_id,
+            "element_type": "character",
+            "element_id": character_id,
+            "relation_type": relation_type,
+            "importance": importance,
+            "appearance_order": appearance_order,
+            "notes": notes,
+            "created_at": now,
+        }
 
     def get_recent_char_activity_sync(
         self, novel_id: str, chapter_number: int, window: int = 5

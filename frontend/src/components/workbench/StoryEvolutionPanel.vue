@@ -67,8 +67,17 @@
           <n-divider />
           <n-scrollbar class="state-list">
             <div v-for="[id, char] in characterRows" :key="id" class="state-row">
-              <n-text strong>{{ id }}</n-text>
-              <span>{{ char.status || 'alive' }} · {{ char.location || '未知地点' }}</span>
+              <div class="state-row__main">
+                <n-text strong>{{ char.name || id }}</n-text>
+                <span>{{ char.status || 'alive' }} · {{ char.location || '未知地点' }}</span>
+              </div>
+              <n-dropdown
+                trigger="click"
+                :options="characterStatusOptions"
+                @select="(status: string | number) => updateCharacterStatus(id, String(status))"
+              >
+                <n-button size="tiny" quaternary>状态</n-button>
+              </n-dropdown>
             </div>
           </n-scrollbar>
         </template>
@@ -89,6 +98,17 @@
           :autosize="{ minRows: 3, maxRows: 6 }"
           placeholder="粘贴下一章大纲，执行写前 Gate"
         />
+        <n-space size="small" wrap>
+          <n-button
+            v-for="tag in gateBypassTags"
+            :key="tag"
+            size="tiny"
+            secondary
+            @click="appendGateTag(tag)"
+          >
+            {{ tag }}
+          </n-button>
+        </n-space>
         <n-button size="small" type="primary" secondary :loading="gateLoading" @click="runGate">
           写前 Gate
         </n-button>
@@ -112,7 +132,10 @@
           <n-tag size="small" :bordered="false">Graph-backed</n-tag>
         </div>
         <n-scrollbar class="evidence-list">
-          <pre>{{ evidenceText }}</pre>
+          <div v-for="item in evidenceRows" :key="item.label" class="evidence-row">
+            <n-text strong>{{ item.label }}</n-text>
+            <span>{{ item.value }}</span>
+          </div>
         </n-scrollbar>
       </section>
     </div>
@@ -205,6 +228,15 @@ const snapshotsLoading = ref(false)
 const gateOutline = ref('')
 const gateLoading = ref(false)
 const gateReport = ref<EvolutionGateReport | null>(null)
+const overrideLoading = ref(false)
+const gateBypassTags = ['[TimeSkip]', '[HardCut]', '[POVSwitch]', '[AmbiguousFate]']
+const characterStatusOptions = [
+  { label: 'alive', key: 'alive' },
+  { label: 'dead', key: 'dead' },
+  { label: 'missing', key: 'missing' },
+  { label: 'ambiguous', key: 'ambiguous' },
+  { label: 'severely_injured', key: 'severely_injured' },
+]
 
 async function loadBundle() {
   bundleLoading.value = true
@@ -245,6 +277,33 @@ async function runGate() {
   }
 }
 
+function appendGateTag(tag: string) {
+  if (gateOutline.value.includes(tag)) return
+  gateOutline.value = `${tag} ${gateOutline.value || ''}`.trim()
+}
+
+function escapeJsonPointer(value: string) {
+  return value.replace(/~/g, '~0').replace(/\//g, '~1')
+}
+
+async function updateCharacterStatus(characterId: string, status: string) {
+  const snapshot = latestSnapshot.value
+  if (!snapshot || overrideLoading.value) return
+  overrideLoading.value = true
+  try {
+    await evolutionApi.applyOverrides(props.slug, snapshot.chapter_number, [
+      {
+        op: 'replace',
+        path: `/characters/${escapeJsonPointer(characterId)}/status`,
+        value: status,
+      },
+    ])
+    await loadEvolutionSnapshots()
+  } finally {
+    overrideLoading.value = false
+  }
+}
+
 const bundledChronicleRows = computed((): ChronicleRow[] => {
   const raw = bundle.value?.chronotope?.rows
   if (!Array.isArray(raw)) return []
@@ -255,17 +314,15 @@ const latestSnapshot = computed(() => snapshots.value[0] || null)
 const sceneState = computed(() => (latestSnapshot.value?.ending_state?.scene || {}) as Record<string, any>)
 const characterRows = computed(() => Object.entries((latestSnapshot.value?.ending_state?.characters || {}) as Record<string, any>).slice(0, 16))
 const latestActions = computed(() => latestSnapshot.value?.delta_actions || [])
-const evidenceText = computed(() => {
-  if (!latestSnapshot.value) return '暂无证据。'
-  return JSON.stringify(
-    {
-      source_refs: latestSnapshot.value.source_refs,
-      conflicts: latestSnapshot.value.conflicts,
-      read_model_surface: bundle.value?.evolution_surface || null,
-    },
-    null,
-    2,
-  )
+const evidenceRows = computed(() => {
+  const snapshot = latestSnapshot.value
+  if (!snapshot) return [{ label: '状态', value: '暂无证据' }]
+  return [
+    { label: 'Source refs', value: `${snapshot.source_refs.length} 条` },
+    { label: 'Conflicts', value: `${snapshot.conflicts.length} 条` },
+    { label: 'Active', value: bundle.value?.evolution_surface?.active_snapshot?.summary || '暂无水化摘要' },
+    { label: 'Actions', value: `${snapshot.delta_actions.length} 条标准动作` },
+  ]
 })
 
 watch(
@@ -422,6 +479,13 @@ function openCharacterAnchor() {
   justify-content: space-between;
 }
 
+.state-row__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .state-row span,
 .violation-row span {
   min-width: 0;
@@ -441,12 +505,19 @@ function openCharacterAnchor() {
   flex-shrink: 0;
 }
 
-.evidence-list pre {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.evidence-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--app-border-soft, rgba(0, 0, 0, 0.06));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   font-size: 12px;
+}
+
+.evidence-row span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 900px) {

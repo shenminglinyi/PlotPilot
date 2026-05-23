@@ -85,6 +85,10 @@ class GenerateChapterRequest(BaseModel):
         max_length=2000,
         description="重新生成指导（告诉 AI 改进方向；仅用于重写已有章节时）",
     )
+    allow_evolution_gate_bypass: bool = Field(
+        False,
+        description="手动确认绕过故事演进 Gate 的 blocking 风险",
+    )
 
 
 class StorylineMilestoneResponse(BaseModel):
@@ -264,6 +268,7 @@ async def generate_chapter_stream(
             outline=request.outline,
             scene_director=scene_director,
             regeneration_guidance=request.regeneration_guidance,
+            allow_evolution_gate_bypass=request.allow_evolution_gate_bypass,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

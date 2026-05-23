@@ -172,6 +172,24 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 f"约 {bundle['context_tokens']} tokens"
             )
         except Exception as e:
+            if str(e).startswith("evolution_gate_blocked:"):
+                logger.warning(
+                    "[%s] EvolutionGate blocking，第 %s 章暂停托管写作：%s",
+                    novel.novel_id.value,
+                    chapter_num,
+                    str(e).replace("evolution_gate_blocked:", ""),
+                )
+                novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+                novel.autopilot_status = AutopilotStatus.STOPPED
+                host._update_shared_state(
+                    novel.novel_id.value,
+                    current_stage="paused_for_review",
+                    writing_substep="evolution_gate_blocked",
+                    writing_substep_label="故事演进 Gate 阻断",
+                    evolution_gate_message=str(e).replace("evolution_gate_blocked:", ""),
+                )
+                host._flush_novel(novel)
+                return
             logger.warning(f"prepare_chapter_generation 失败，尝试降级：{e}")
             try:
                 bundle = host.chapter_workflow.build_fallback_chapter_bundle(

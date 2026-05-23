@@ -75,6 +75,8 @@ export interface ScheduledCharacterItem {
   name: string
   importance: 'major' | 'normal' | 'minor'
   is_new_suggestion: boolean
+  scene_function?: string
+  needs_review?: boolean
 }
 
 export interface CastScheduleRequest {
@@ -88,6 +90,25 @@ export interface CastScheduleResponse {
   chapter_number: number
   cast: ScheduledCharacterItem[]
   new_character_hints: string[]
+  new_character_candidates?: Array<Record<string, unknown>>
+  generated_context?: string
+  scheduling_log?: string[]
+}
+
+export interface CharacterNarrativeProfile {
+  character_id: string
+  name: string
+  base_profile: Record<string, unknown>
+  current_state: Record<string, unknown>
+  cast_history: Array<Record<string, unknown>>
+  relationship_edges: Array<Record<string, unknown>>
+  knowledge_facts: Array<Record<string, unknown>>
+  hidden_facts: Array<Record<string, unknown>>
+  open_debts: Array<Record<string, unknown>>
+  foreshadow_links: Array<Record<string, unknown>>
+  causal_links: Array<Record<string, unknown>>
+  recent_dialogue_samples: Array<Record<string, unknown>>
+  consistency_risks: Array<Record<string, unknown>>
 }
 
 export const castApi = {
@@ -98,7 +119,8 @@ export const castApi = {
     request.get(`/novels/${novelId}/cast`) as Promise<CastGraph>,
 
   /**
-   * Update cast graph for a novel
+   * @deprecated Cast graph is a read model generated from knowledge triples.
+   * Do not use as a write model.
    */
   putCast: (novelId: string, data: CastGraph) =>
     request.put(`/novels/${novelId}/cast`, data) as Promise<CastGraph>,
@@ -134,4 +156,9 @@ export const castApi = {
       outline,
       mode: 'suggest',
     }),
+
+  getCharacterNarrativeProfile: (novelId: string, characterId: string) =>
+    request.get(
+      `/novels/${novelId}/characters/${characterId}/narrative-profile`,
+    ) as Promise<CharacterNarrativeProfile>,
 }

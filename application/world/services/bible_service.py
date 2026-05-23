@@ -135,6 +135,7 @@ class BibleService:
         )
         bible.add_character(character)
         self.bible_repository.save(bible)
+        self._sync_to_unified_characters(novel_id, bible)
 
         return BibleDTO.from_domain(bible)
 
