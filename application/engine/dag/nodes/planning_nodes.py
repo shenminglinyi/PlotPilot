@@ -51,7 +51,6 @@ class BeatSheetNode(BaseNode):
         output_ports=[
             NodePort(name="beat_sheet_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是深谙'场景与续场'节奏的剧本拆解师...",
         prompt_variables=["outline", "characters_block", "storylines_block", "previous_chapter_block", "foreshadowings_block", "locations_block", "timeline_block"],
         is_configurable=True,
         can_disable=True,
@@ -139,7 +138,6 @@ class QuickMacroNode(BaseNode):
         output_ports=[
             NodePort(name="macro_plan_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是一位手握无数畅销书的狂热白金级主编...",
         prompt_variables=["premise", "target_chapters", "worldview", "characters"],
         is_configurable=True,
         can_disable=True,
@@ -222,7 +220,6 @@ class ActPlanningNode(BaseNode):
         output_ports=[
             NodePort(name="act_chapters_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是精密的故事工程师...",
         prompt_variables=["context", "chapter_count"],
         is_configurable=True,
         can_disable=True,

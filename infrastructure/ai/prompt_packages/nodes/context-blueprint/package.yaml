@@ -1,0 +1,16 @@
+name: 剧本基建上下文
+category: generation
+source: application/engine/dag/nodes/context_nodes.py::BlueprintNode
+description: 将 Bible 与世界观切片整理为写作前置的世界规则、禁忌与氛围约束
+builtin: true
+tags:
+- DAG
+- 上下文
+output_format: text
+variables:
+- name: novel_id
+  desc: 小说 ID
+  type: string
+  required: false
+id: context-blueprint
+sort_order: 100

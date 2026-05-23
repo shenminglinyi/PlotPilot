@@ -54,11 +54,13 @@ REVIEW_TIMELINE_CONSISTENCY = "review-timeline-consistency"
 REVIEW_STORYLINE_CONSISTENCY = "review-storyline-consistency"
 REVIEW_FORESHADOWING_USAGE = "review-foreshadowing-usage"
 REVIEW_IMPROVEMENT_SUGGESTIONS = "review-improvement-suggestions"
+CLICHE_SCAN = "cliche-scan"
 
 # ── Memory ───────────────────────────────────────────────────────────────
 MEMORY_EXTRACTION = "memory-extraction"
 
 # ── Planning ─────────────────────────────────────────────────────────────
+MACRO_PLANNING = "macro-planning"
 PLANNING_QUICK_MACRO = "planning-quick-macro"
 PLANNING_ACT = "planning-act"
 PLANNING_MAIN_PLOT_SUGGEST = "planning-main-plot-suggest"
@@ -70,6 +72,7 @@ STYLE_ANALYSIS = "style-analysis"
 VOICE_STYLE_ANALYSIS = "voice-style-analysis"
 VOICE_BASELINE_ANALYSIS = "voice-baseline-analysis"
 VOICE_REWRITE = "voice-rewrite"
+VOICE_DRIFT = "voice-drift"
 
 # ── Tension ──────────────────────────────────────────────────────────────
 TENSION_SCORING = "tension-scoring"
@@ -83,6 +86,19 @@ SUMMARY_PART = "summary-part"
 
 # ── Knowledge ────────────────────────────────────────────────────────────
 KNOWLEDGE_INITIAL = "knowledge-initial"
+KG_INFERENCE = "kg-inference"
+
+# ── DAG context / gateways ───────────────────────────────────────────────
+CONTEXT_BLUEPRINT = "context-blueprint"
+CONTEXT_FORESHADOW = "context-foreshadow"
+CONTEXT_MEMORY = "context-memory"
+CONTEXT_DEBT = "context-debt"
+FORESHADOW_CHECK = "foreshadow-check"
+CHAPTER_AFTERMATH = "chapter-aftermath"
+CIRCUIT_BREAKER = "circuit-breaker"
+REVIEW_GATEWAY = "review-gateway"
+CONDITION_GATEWAY = "condition-gateway"
+RETRY_GATEWAY = "retry-gateway"
 
 # ── Anti-AI defense ──────────────────────────────────────────────────────
 ANTI_AI_BEHAVIOR_PROTOCOL = "anti-ai-behavior-protocol"
@@ -130,21 +146,25 @@ ALL_KEYS: frozenset[str] = frozenset({
     # Review
     REVIEW_CHARACTER_CONSISTENCY, REVIEW_TIMELINE_CONSISTENCY,
     REVIEW_STORYLINE_CONSISTENCY, REVIEW_FORESHADOWING_USAGE,
-    REVIEW_IMPROVEMENT_SUGGESTIONS,
+    REVIEW_IMPROVEMENT_SUGGESTIONS, CLICHE_SCAN,
     # Memory
     MEMORY_EXTRACTION,
     # Planning
-    PLANNING_QUICK_MACRO, PLANNING_ACT, PLANNING_MAIN_PLOT_SUGGEST,
-    OUTLINE_BEAT_PARTITION, BEAT_COT_BRIDGE,
+    MACRO_PLANNING, PLANNING_QUICK_MACRO, PLANNING_ACT,
+    PLANNING_MAIN_PLOT_SUGGEST, OUTLINE_BEAT_PARTITION, BEAT_COT_BRIDGE,
     # Style
     STYLE_ANALYSIS, VOICE_STYLE_ANALYSIS, VOICE_BASELINE_ANALYSIS,
-    VOICE_REWRITE,
+    VOICE_REWRITE, VOICE_DRIFT,
     # Tension
     TENSION_SCORING, TENSION_ANALYSIS_DIAGNOSIS,
     # Summary
     SUMMARY_CHECKPOINT, SUMMARY_ACT, SUMMARY_VOLUME, SUMMARY_PART,
     # Knowledge
-    KNOWLEDGE_INITIAL,
+    KNOWLEDGE_INITIAL, KG_INFERENCE,
+    # DAG context / gateways
+    CONTEXT_BLUEPRINT, CONTEXT_FORESHADOW, CONTEXT_MEMORY, CONTEXT_DEBT,
+    FORESHADOW_CHECK, CHAPTER_AFTERMATH, CIRCUIT_BREAKER, REVIEW_GATEWAY,
+    CONDITION_GATEWAY, RETRY_GATEWAY,
     # Anti-AI
     ANTI_AI_BEHAVIOR_PROTOCOL, ANTI_AI_ALLOWLIST_EXPLAIN,
     ANTI_AI_CHAPTER_AUDIT, ANTI_AI_CHARACTER_STATE_LOCK,

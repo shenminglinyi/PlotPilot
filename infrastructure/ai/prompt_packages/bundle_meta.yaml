@@ -1,6 +1,6 @@
-version: 5.2.0-bible-prompt-overhaul
+version: 5.3.0-dag-cpms-linkage
 name: PlotPilot 内置
 description: CPMS v5 统一提示词库 — 全节点中文提示词、统一注册表、消除硬编码
 author: PlotPilot Team
 engine: jinja2
-changelog: 'v5.2: Bible提示词全面优化（去code-fence、字段约束、角色/地点schema完善）；v5.1: 新增outline-beat-partition；v5: CPMS统一架构'
+changelog: 'v5.3: 补齐DAG联动节点提示词，提示词广场成为DAG提示词唯一编辑源；v5.2: Bible提示词全面优化；v5.1: 新增outline-beat-partition；v5: CPMS统一架构'

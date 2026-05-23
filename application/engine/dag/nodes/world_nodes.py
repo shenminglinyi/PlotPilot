@@ -48,7 +48,6 @@ class BibleAllNode(BaseNode):
         output_ports=[
             NodePort(name="bible_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是一位拥有造物主思维的网文世界架构师...",
         prompt_variables=["premise", "genre"],
         is_configurable=True,
         can_disable=False,
@@ -133,7 +132,6 @@ class WorldbuildingNode(BaseNode):
         output_ports=[
             NodePort(name="worldbuilding_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是好莱坞科幻/奇幻概念设计师...",
         prompt_variables=["premise", "existing_settings"],
         is_configurable=True,
         can_disable=True,
@@ -215,7 +213,6 @@ class CharactersNode(BaseNode):
         output_ports=[
             NodePort(name="characters_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是顶级卡司导演...",
         prompt_variables=["worldbuilding", "style_guide", "existing_characters"],
         is_configurable=True,
         can_disable=True,
@@ -298,7 +295,6 @@ class LocationsNode(BaseNode):
         output_ports=[
             NodePort(name="locations_json", data_type=PortDataType.JSON),
         ],
-        prompt_template="你是关卡设计师...",
         prompt_variables=["worldbuilding", "existing_locations", "character_context"],
         is_configurable=True,
         can_disable=True,

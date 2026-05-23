@@ -1,0 +1,20 @@
+name: 审阅网关策略
+category: review
+source: application/engine/dag/nodes/gateway_nodes.py::ReviewNode
+description: 定义章节完成后是否需要人工审阅或可自动放行
+builtin: true
+tags:
+- DAG
+- 网关
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: false
+- name: metrics
+  desc: 质量指标
+  type: object
+  required: false
+id: review-gateway
+sort_order: 111

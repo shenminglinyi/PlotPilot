@@ -1,0 +1,16 @@
+name: 伏笔回收检测
+category: review
+source: application/engine/dag/nodes/validation_nodes.py::ForeshadowCheckNode
+description: 检测章节对既有伏笔的推进、误触、遗漏和回收情况
+builtin: true
+tags:
+- DAG
+- 伏笔
+output_format: json
+variables:
+- name: content
+  desc: 章节正文
+  type: string
+  required: false
+id: foreshadow-check
+sort_order: 107

@@ -1,0 +1,20 @@
+name: 角色声线上下文
+category: extraction
+source: application/engine/dag/nodes/context_nodes.py::VoiceNode
+description: 为写作节点提取角色声线、叙述习惯和应避免的语气漂移
+builtin: true
+tags:
+- DAG
+- 声线
+output_format: text
+variables:
+- name: novel_id
+  desc: 小说 ID
+  type: string
+  required: false
+- name: chapter_number
+  desc: 章节编号
+  type: integer
+  required: false
+id: voice-style-analysis
+sort_order: 102

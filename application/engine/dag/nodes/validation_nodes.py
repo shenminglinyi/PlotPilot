@@ -21,6 +21,14 @@ from application.engine.dag.models import (
     PortDataType,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    CHAPTER_AFTERMATH,
+    CLICHE_SCAN,
+    FORESHADOW_CHECK,
+    KG_INFERENCE,
+    TENSION_SCORING,
+    VOICE_DRIFT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +54,11 @@ class StyleNode(BaseNode):
             NodePort(name="drift_score", data_type=PortDataType.SCORE),
             NodePort(name="drift_alert", data_type=PortDataType.BOOLEAN),
         ],
-        prompt_template="评估以下文本是否符合角色声线...",
         prompt_variables=["voice_fingerprint", "scene_type", "drift_threshold", "content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=180,
-        cpms_node_key="voice-drift",
+        cpms_node_key=VOICE_DRIFT,
         description="VoiceDriftService 文风偏离检测",
         default_edges=["gw_circuit"],
     )
@@ -115,12 +122,11 @@ class TensionNode(BaseNode):
             NodePort(name="pacing_tension", data_type=PortDataType.SCORE),
             NodePort(name="composite", data_type=PortDataType.SCORE),
         ],
-        prompt_template="评估以下文本的叙事张力...",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="tension-scoring",
+        cpms_node_key=TENSION_SCORING,
         description="TensionScoringService 叙事张力评估",
         default_edges=["gw_circuit"],
     )
@@ -193,7 +199,7 @@ class AntiAINode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="cliche-scan",
+        cpms_node_key=CLICHE_SCAN,
         description="ClicheScanner AI 模式检测与审计",
         default_edges=["gw_circuit"],
     )
@@ -259,7 +265,7 @@ class ForeshadowCheckNode(BaseNode):
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=30,
-        cpms_node_key="foreshadow-check",
+        cpms_node_key=FORESHADOW_CHECK,
         description="ForeshadowingRegistry 伏笔回收检测",
         default_edges=["val_kg_infer"],
     )
@@ -322,12 +328,11 @@ class NarrativeNode(BaseNode):
             NodePort(name="triples", data_type=PortDataType.LIST),
             NodePort(name="causal_edges", data_type=PortDataType.LIST),
         ],
-        prompt_template="同步以下章节的叙事内容...",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=180,
-        cpms_node_key="chapter-aftermath",
+        cpms_node_key=CHAPTER_AFTERMATH,
         description="ChapterAftermathPipeline 叙事同步",
         default_edges=["val_foreshadow"],
     )
@@ -393,7 +398,7 @@ class KGInferNode(BaseNode):
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="kg-inference",
+        cpms_node_key=KG_INFERENCE,
         description="KnowledgeGraphService.infer_from_chapter",
         default_edges=["gw_review"],
     )

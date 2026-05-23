@@ -51,7 +51,6 @@ class ChapterBasicNode(BaseNode):
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="你是长篇小说的创作者...",
         prompt_variables=["novel_title", "chapter_number", "outline", "characters_section", "world_settings_section"],
         is_configurable=True,
         can_disable=True,

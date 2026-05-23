@@ -1,0 +1,20 @@
+name: 重试与重写策略
+category: review
+source: application/engine/dag/nodes/gateway_nodes.py::RetryNode
+description: 文风或质量检查失败时决定是否触发重写，以及重写应关注的修正方向
+builtin: true
+tags:
+- DAG
+- 重试
+output_format: json
+variables:
+- name: input
+  desc: 失败上下文
+  type: object
+  required: false
+- name: content
+  desc: 章节正文
+  type: string
+  required: false
+id: retry-gateway
+sort_order: 113

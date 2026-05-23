@@ -486,7 +486,6 @@ def get_default_dag() -> DAGDefinition:
             NodeDefinition(
                 id="exec_writer", type="exec_writer", label="✍️ 剧情引擎", position={"x": 800, "y": 300},
                 config=NodeConfig(
-                    prompt_template="写作姿态：回忆并讲述这段事；避免写成交差用的说明文。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
                     prompt_variables={"context": "", "outline": "", "voice_block": ""},
                 ),
             ),
@@ -494,7 +493,6 @@ def get_default_dag() -> DAGDefinition:
                 id="val_style", type="val_style", label="🎭 文风警报器", position={"x": 1200, "y": 100},
                 config=NodeConfig(
                     thresholds={"drift_warning": 0.5, "drift_critical": 0.75},
-                    prompt_template="评估以下文本是否符合角色声线...",
                 ),
             ),
             NodeDefinition(
@@ -514,7 +512,6 @@ def get_default_dag() -> DAGDefinition:
                 id="gw_retry", type="gw_retry", label="🔄 重写网关", position={"x": 1500, "y": 100},
                 config=NodeConfig(
                     max_retries=2,
-                    prompt_template="以下章节文风偏离角色声线，请重写...",
                 ),
             ),
         ],

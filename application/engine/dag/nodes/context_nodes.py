@@ -20,6 +20,13 @@ from application.engine.dag.models import (
     PortDataType,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    CONTEXT_BLUEPRINT,
+    CONTEXT_DEBT,
+    CONTEXT_FORESHADOW,
+    CONTEXT_MEMORY,
+    VOICE_STYLE_ANALYSIS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,12 +52,11 @@ class BlueprintNode(BaseNode):
             NodePort(name="taboos", data_type=PortDataType.TEXT),
             NodePort(name="atmosphere", data_type=PortDataType.TEXT),
         ],
-        prompt_template="提取以下小说的世界观规则和禁忌...",
         prompt_variables=["novel_id"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=30,
-        cpms_node_key="context-blueprint",
+        cpms_node_key=CONTEXT_BLUEPRINT,
         description="从 BibleService 提取世界规则、禁忌、氛围",
         default_edges=["ctx_memory", "exec_beat"],
     )
@@ -132,12 +138,11 @@ class ForeshadowNode(BaseNode):
         output_ports=[
             NodePort(name="foreshadowing_block", data_type=PortDataType.TEXT),
         ],
-        prompt_template="整理以下小说中待回收的伏笔...",
         prompt_variables=["novel_id", "chapter_number"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=30,
-        cpms_node_key="context-foreshadow",
+        cpms_node_key=CONTEXT_FORESHADOW,
         description="从 ContextBudgetAllocator T0 槽提取伏笔信息",
         default_edges=["exec_writer"],
     )
@@ -202,12 +207,11 @@ class VoiceNode(BaseNode):
             NodePort(name="voice_block", data_type=PortDataType.TEXT),
             NodePort(name="nervous_habits", data_type=PortDataType.TEXT),
         ],
-        prompt_template="提取以下章节涉及角色的声线特征...",
         prompt_variables=["novel_id", "chapter_number"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=30,
-        cpms_node_key="voice-style-analysis",
+        cpms_node_key=VOICE_STYLE_ANALYSIS,
         description="style_constraint_builder + character_state_vector",
         default_edges=["exec_writer"],
     )
@@ -265,12 +269,11 @@ class MemoryNode(BaseNode):
             NodePort(name="fact_lock", data_type=PortDataType.TEXT),
             NodePort(name="entity_memory", data_type=PortDataType.TEXT),
         ],
-        prompt_template="整理以下小说已确立的事实锁...",
         prompt_variables=["novel_id", "chapter_number"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=30,
-        cpms_node_key="context-memory",
+        cpms_node_key=CONTEXT_MEMORY,
         description="ContextAssembler (feed-forward) 记忆注入",
         default_edges=["exec_beat"],
     )
@@ -327,12 +330,11 @@ class DebtNode(BaseNode):
         output_ports=[
             NodePort(name="debt_due_block", data_type=PortDataType.TEXT),
         ],
-        prompt_template="整理以下小说中到期应还的叙事债务...",
         prompt_variables=["novel_id"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=20,
-        cpms_node_key="context-debt",
+        cpms_node_key=CONTEXT_DEBT,
         description="ContextAssembler DEBT_DUE 槽注入",
         default_edges=["exec_writer"],
     )

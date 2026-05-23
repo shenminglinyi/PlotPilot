@@ -62,7 +62,6 @@ class PlanningOutlinePartitionNode(AbstractPlanningNode):
                 description="ChapterExecutionPlan 序列化",
             ),
         ],
-        prompt_template="提示词正文由 CPMS 节点 outline-beat-partition 维护，请在提示词广场编辑。",
         prompt_variables=["outline", "target_chapter_words"],
         is_configurable=True,
         can_disable=True,

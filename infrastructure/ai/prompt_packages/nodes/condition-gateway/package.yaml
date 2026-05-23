@@ -1,0 +1,16 @@
+name: 条件路由策略
+category: review
+source: application/engine/dag/nodes/gateway_nodes.py::ConditionNode
+description: 根据运行状态和质量信号选择 DAG 下游路径
+builtin: true
+tags:
+- DAG
+- 网关
+output_format: json
+variables:
+- name: input
+  desc: 输入状态
+  type: object
+  required: true
+id: condition-gateway
+sort_order: 112

@@ -1,0 +1,16 @@
+name: 叙事债务上下文
+category: generation
+source: application/engine/dag/nodes/context_nodes.py::DebtNode
+description: 整理当前章节附近到期、临近到期或必须暂缓偿还的叙事债务
+builtin: true
+tags:
+- DAG
+- 叙事债务
+output_format: text
+variables:
+- name: novel_id
+  desc: 小说 ID
+  type: string
+  required: false
+id: context-debt
+sort_order: 104

@@ -21,6 +21,15 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    ANTI_AI_ALLOWLIST_EXPLAIN,
+    ANTI_AI_BEHAVIOR_PROTOCOL,
+    ANTI_AI_CHARACTER_STATE_LOCK,
+    AUTOPILOT_STREAM_BEAT as _WORKFLOW_BEAT_NODE_KEY,
+    CHAPTER_GENERATION_MAIN as _WORKFLOW_CHAPTER_GEN_NODE_KEY,
+    MACRO_PLANNING,
+    SCENE_DIRECTOR,
+)
 
 from application.workflows.prose_discipline import build_prose_discipline_block
 
@@ -80,12 +89,11 @@ class PlanningNode(BaseNode):
             NodePort(name="macro_plan", data_type=PortDataType.TEXT),
             NodePort(name="act_plan", data_type=PortDataType.TEXT),
         ],
-        prompt_template="为以下小说生成宏观规划...",
         prompt_variables=["novel_id", "target_chapters"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=120,
-        cpms_node_key="macro-planning",
+        cpms_node_key=MACRO_PLANNING,
         description="PlanningService.generate_macro_plan",
         default_edges=["exec_beat"],
     )
@@ -124,13 +132,6 @@ class PlanningNode(BaseNode):
 
 # ─── exec_writer: 剧情引擎 ───
 
-# CPMS 提示词节点 key（统一从 prompt_keys 导入）
-from infrastructure.ai.prompt_keys import (
-    CHAPTER_GENERATION_MAIN as _WORKFLOW_CHAPTER_GEN_NODE_KEY,
-    AUTOPILOT_STREAM_BEAT as _WORKFLOW_BEAT_NODE_KEY,
-)
-
-
 @NodeRegistry.register("exec_writer")
 class WriterNode(BaseNode):
     """剧情引擎 — AutoNovelGenerationWorkflow.generate_chapter_stream
@@ -165,7 +166,6 @@ class WriterNode(BaseNode):
             NodePort(name="content", data_type=PortDataType.TEXT),
             NodePort(name="word_count", data_type=PortDataType.SCORE),
         ],
-        prompt_template="写作姿态：回忆并讲述这段事；避免写成交差用的说明文。\n\n{{context}}\n{{outline}}\n{{voice_block}}",
         prompt_variables=["context", "outline", "voice_block", "fact_lock", "foreshadowing_block", "behavior_protocol", "character_state_lock", "allowlist_block", "nervous_habits"],
         is_configurable=True,
         can_disable=False,
@@ -173,9 +173,9 @@ class WriterNode(BaseNode):
         cpms_node_key=_WORKFLOW_CHAPTER_GEN_NODE_KEY,
         # ★ CPMS 子提示词自动注入（Anti-AI 层）
         cpms_sub_keys=[
-            CPMSInjectionPoint(cpms_node_key="anti-ai-behavior-protocol", target_variable="behavior_protocol", description="Anti-AI 行为协议 P1-P5+R1-R8"),
-            CPMSInjectionPoint(cpms_node_key="anti-ai-character-state-lock", target_variable="character_state_lock", description="角色状态锁 L4"),
-            CPMSInjectionPoint(cpms_node_key="anti-ai-allowlist-explain", target_variable="allowlist_block", description="场景化白名单 L3"),
+            CPMSInjectionPoint(cpms_node_key=ANTI_AI_BEHAVIOR_PROTOCOL, target_variable="behavior_protocol", description="Anti-AI 行为协议 P1-P5+R1-R8"),
+            CPMSInjectionPoint(cpms_node_key=ANTI_AI_CHARACTER_STATE_LOCK, target_variable="character_state_lock", description="角色状态锁 L4"),
+            CPMSInjectionPoint(cpms_node_key=ANTI_AI_ALLOWLIST_EXPLAIN, target_variable="allowlist_block", description="场景化白名单 L3"),
         ],
         prompt_mode=PromptMode.CPMS_FIRST,
         description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成；全托管时由 ChapterConductor（铺陈/收束/着陆）控节拍，超硬上限时按书目偏好 smart_truncate 或字符硬截断",
@@ -307,7 +307,6 @@ class BeatNode(BaseNode):
         output_ports=[
             NodePort(name="beats", data_type=PortDataType.LIST),
         ],
-        prompt_template="将以下大纲拆分为详细节拍...",
         prompt_variables=["outline"],
         is_configurable=True,
         can_disable=True,
@@ -431,12 +430,11 @@ class SceneNode(BaseNode):
         output_ports=[
             NodePort(name="scene_analysis", data_type=PortDataType.JSON),
         ],
-        prompt_template="分析以下章节大纲的场景信息...",
         prompt_variables=["outline"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="scene-director",
+        cpms_node_key=SCENE_DIRECTOR,
         description="SceneDirectorService 场景分析",
         default_edges=["exec_beat"],
     )

@@ -19,6 +19,12 @@ from application.engine.dag.models import (
     PortDataType,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    CIRCUIT_BREAKER,
+    CONDITION_GATEWAY,
+    RETRY_GATEWAY,
+    REVIEW_GATEWAY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +54,7 @@ class CircuitNode(BaseNode):
         is_configurable=False,
         can_disable=False,
         default_timeout_seconds=5,
-        cpms_node_key="circuit-breaker",
+        cpms_node_key=CIRCUIT_BREAKER,
         description="CircuitBreaker 熔断保护网关",
         default_edges=["val_narrative"],
     )
@@ -102,7 +108,7 @@ class ReviewNode(BaseNode):
         is_configurable=False,
         can_disable=True,
         default_timeout_seconds=10,
-        cpms_node_key="review-gateway",
+        cpms_node_key=REVIEW_GATEWAY,
         description="PAUSED_FOR_REVIEW 审阅网关",
         default_edges=[],
     )
@@ -160,7 +166,7 @@ class ConditionNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=5,
-        cpms_node_key="condition-gateway",
+        cpms_node_key=CONDITION_GATEWAY,
         description="条件路由网关",
         default_edges=[],
     )
@@ -217,12 +223,11 @@ class RetryNode(BaseNode):
             NodePort(name="output", data_type=PortDataType.JSON),
             NodePort(name="attempts_used", data_type=PortDataType.SCORE),
         ],
-        prompt_template="以下章节文风偏离角色声线，请重写...",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=10,
-        cpms_node_key="retry-gateway",
+        cpms_node_key=RETRY_GATEWAY,
         description="文风检查失败时触发重写的重试网关",
         default_edges=["exec_writer"],
     )

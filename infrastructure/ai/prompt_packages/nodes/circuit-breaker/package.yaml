@@ -1,0 +1,20 @@
+name: DAG 熔断策略
+category: review
+source: application/engine/dag/nodes/gateway_nodes.py::CircuitNode
+description: 定义 DAG 运行中质量异常和错误计数触发熔断的判定策略
+builtin: true
+tags:
+- DAG
+- 网关
+output_format: json
+variables:
+- name: error_count
+  desc: 当前错误数
+  type: integer
+  required: false
+- name: max_errors
+  desc: 最大错误数
+  type: integer
+  required: false
+id: circuit-breaker
+sort_order: 110
