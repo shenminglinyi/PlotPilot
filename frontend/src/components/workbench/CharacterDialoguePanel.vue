@@ -12,16 +12,12 @@
           <n-tag v-if="currentChapterNumber" size="small" round :bordered="false" type="info">
             当前第 {{ currentChapterNumber }} 章
           </n-tag>
-          <!-- 中栏模式切换 -->
-          <n-radio-group v-model:value="centerMode" size="tiny">
-            <n-radio-button value="corpus">对白语料</n-radio-button>
-            <n-radio-button value="cast">选角台</n-radio-button>
-          </n-radio-group>
           <n-button size="tiny" secondary @click="openStoryEvolution">故事演进</n-button>
         </n-space>
       </div>
     </header>
-    <n-split direction="horizontal" :default-size="0.24" :min="0.17" :max="0.34">
+
+    <n-split direction="horizontal" :default-size="0.20" :min="0.14" :max="0.32">
       <!-- 左栏：角色导航 -->
       <template #1>
         <CharacterNavigator
@@ -31,34 +27,14 @@
         />
       </template>
 
-      <!-- 中栏 + 右栏 -->
+      <!-- 右栏：角色档案（4 tab，含对白和记忆） -->
       <template #2>
-        <n-split direction="horizontal" :default-size="0.55" :min="0.40" :max="0.68">
-          <!-- 中栏：对白语料 or 选角台 -->
-          <template #1>
-            <DialogueCorpus
-              v-if="centerMode === 'corpus'"
-              :slug="slug"
-              :selected-character-id="selectedCharacterId"
-              :desk-chapter-number="currentChapterNumber"
-            />
-            <ChapterCastManager
-              v-else
-              :slug="slug"
-              :chapter-number="currentChapterNumber"
-              :outline="currentChapterOutline"
-            />
-          </template>
-
-          <!-- 右栏：锚点与心理画像 -->
-          <template #2>
-            <CharacterProfile
-              :slug="slug"
-              :selected-character-id="selectedCharacterId"
-              :current-chapter-number="currentChapterNumber"
-            />
-          </template>
-        </n-split>
+        <CharacterProfile
+          :slug="slug"
+          :selected-character-id="selectedCharacterId"
+          :current-chapter-number="currentChapterNumber"
+          :desk-chapter-number="currentChapterNumber"
+        />
       </template>
     </n-split>
   </div>
@@ -68,22 +44,16 @@
 import { ref } from 'vue'
 import { PeopleOutline } from '@vicons/ionicons5'
 import CharacterNavigator from './CharacterNavigator.vue'
-import DialogueCorpus from './DialogueCorpus.vue'
 import CharacterProfile from './CharacterProfile.vue'
-import ChapterCastManager from './ChapterCastManager.vue'
 import { WORKBENCH_OPEN_SETTINGS_PANEL_EVENT } from '@/workbench/deskEvents'
 
 interface Props {
   slug: string
-  /** 工作台当前章节号；用于语料默认筛到本章、顶栏提示 */
   currentChapterNumber?: number | null
-  /** 当前章节大纲文本，透传给 ChapterCastManager 做智能排班用 */
-  currentChapterOutline?: string
 }
 
 withDefaults(defineProps<Props>(), {
   currentChapterNumber: null,
-  currentChapterOutline: '',
 })
 
 function openStoryEvolution() {
@@ -93,7 +63,6 @@ function openStoryEvolution() {
 }
 
 const selectedCharacterId = ref<string | null>(null)
-const centerMode = ref<'corpus' | 'cast'>('corpus')
 
 function onSelectCharacter(characterId: string | null) {
   selectedCharacterId.value = characterId
@@ -143,13 +112,6 @@ function onSelectCharacter(characterId: string | null) {
   justify-content: center;
   color: #fff;
   flex-shrink: 0;
-}
-
-.anchor-desk-banner__lead {
-  display: block;
-  font-size: 12px;
-  line-height: 1.55;
-  max-width: 72ch;
 }
 
 .character-dialogue-panel :deep(.n-split) {

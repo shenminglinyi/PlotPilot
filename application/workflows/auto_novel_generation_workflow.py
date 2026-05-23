@@ -263,6 +263,7 @@ class AutoNovelGenerationWorkflow:
         voice_fingerprint_service: Optional['VoiceFingerprintService'] = None,
         cliche_scanner: Optional['ClicheScanner'] = None,
         memory_engine: Optional['MemoryEngine'] = None,
+        evolution_gate_service: Optional[Any] = None,
     ):
         """初始化工作流
 
@@ -286,6 +287,7 @@ class AutoNovelGenerationWorkflow:
         self.storyline_manager = storyline_manager
         self.plot_arc_repository = plot_arc_repository
         self.llm_service = llm_service
+        self.evolution_gate_service = evolution_gate_service
 
         # ★ V6 记忆引擎（跨章节状态机）
         self.memory_engine = memory_engine
@@ -424,6 +426,17 @@ class AutoNovelGenerationWorkflow:
         """
         storyline_context = self._get_storyline_context(novel_id, chapter_number)
         plot_tension = self._get_plot_tension(novel_id, chapter_number)
+        evolution_gate_report = None
+        try:
+            if self.evolution_gate_service:
+                evolution_gate_report = self.evolution_gate_service.check(
+                    novel_id=novel_id,
+                    chapter_number=chapter_number,
+                    outline_content=outline,
+                    branch_id="main",
+                ).to_dict()
+        except Exception as e:
+            logger.warning("EvolutionGate 写前检查跳过 novel=%s ch=%s: %s", novel_id, chapter_number, e)
         payload = self.context_builder.build_structured_context(
             novel_id=novel_id,
             chapter_number=chapter_number,
@@ -432,6 +445,19 @@ class AutoNovelGenerationWorkflow:
             scene_director=scene_director,
         )
         context = assemble_chapter_bundle_context_text(payload)
+        if evolution_gate_report:
+            blocking = [
+                v for v in evolution_gate_report.get("violations", [])
+                if v.get("level") == "blocking"
+            ]
+            gate_lines = ["=== EVOLUTION GATE ==="]
+            gate_lines.append(f"pass={evolution_gate_report.get('is_pass')}")
+            for item in blocking[:6]:
+                gate_lines.append(f"- BLOCKING {item.get('type')}: {item.get('message')}")
+            for item in evolution_gate_report.get("required_continuations", [])[:6]:
+                gate_lines.append(f"- REQUIRED: {item}")
+            if len(gate_lines) > 1:
+                context = "\n".join(gate_lines) + "\n\n" + context
         context_tokens = payload["token_usage"]["total"]
         style_summary = self._get_style_summary(novel_id)
         voice_anchors = ""
@@ -446,6 +472,11 @@ class AutoNovelGenerationWorkflow:
             "context_tokens": context_tokens,
             "style_summary": style_summary,
             "voice_anchors": voice_anchors,
+            "evolution_gate": evolution_gate_report,
+            "evolution_gate_blocked": bool(
+                evolution_gate_report
+                and any(v.get("level") == "blocking" for v in evolution_gate_report.get("violations", []))
+            ),
         }
 
     def _resolve_target_chapter_words(self, novel_id: str) -> int:

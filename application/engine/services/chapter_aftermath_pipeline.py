@@ -76,6 +76,7 @@ class ChapterAftermathPipeline:
         bible_repository: Any = None,
         unified_checkpoint_service: Any = None,
         prop_lifecycle_syncer: Any = None,
+        evolution_snapshot_service: Any = None,
     ) -> None:
         self._knowledge = knowledge_service
         self._indexing = chapter_indexing_service
@@ -94,6 +95,7 @@ class ChapterAftermathPipeline:
         self._bible_repository = bible_repository
         self._unified_checkpoint = unified_checkpoint_service
         self._prop_syncer = prop_lifecycle_syncer
+        self._evolution_snapshot_service = evolution_snapshot_service
 
     async def run_after_chapter_saved(
         self,
@@ -119,6 +121,8 @@ class ChapterAftermathPipeline:
             "debt_updated": False,
             "guardrail_passed": None,
             "guardrail_score": None,
+            "evolution_snapshot_ok": False,
+            "evolution_snapshot_id": None,
         }
 
         if not content or not str(content).strip():
@@ -254,7 +258,31 @@ class ChapterAftermathPipeline:
         except Exception as e:
             logger.warning("自动护栏/溯源失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-        # 5) 世界线快照 — 章节完成后自动打 CHAPTER checkpoint
+        # 5) 故事演进硬状态快照 — 只消费 evidence，不把 read model 当真源
+        try:
+            if self._evolution_snapshot_service:
+                import asyncio
+                snapshot = await asyncio.to_thread(
+                    self._evolution_snapshot_service.build_after_chapter_saved,
+                    novel_id,
+                    chapter_number,
+                    content,
+                    "main",
+                    dict(out),
+                )
+                out["evolution_snapshot_ok"] = snapshot.status == "active"
+                out["evolution_snapshot_id"] = snapshot.snapshot_id
+                logger.debug(
+                    "[Evolution] snapshot novel=%s ch=%s id=%s status=%s",
+                    novel_id,
+                    chapter_number,
+                    snapshot.snapshot_id,
+                    snapshot.status,
+                )
+        except Exception as e:
+            logger.warning("[Evolution] 快照创建失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e)
+
+        # 6) 世界线快照 — 章节完成后自动打 CHAPTER checkpoint
         try:
             if self._unified_checkpoint:
                 import asyncio
@@ -273,7 +301,7 @@ class ChapterAftermathPipeline:
         except Exception as e:
             logger.warning("[Worldline] 自动 checkpoint 失败（非致命）novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
-        # 6) 道具生命周期同步 — 事件提取、状态机转换、知识库三元组
+        # 7) 道具生命周期同步 — 事件提取、状态机转换、知识库三元组
         try:
             if self._prop_syncer:
                 import asyncio

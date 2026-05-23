@@ -391,6 +391,7 @@ def get_chapter_aftermath_pipeline():
         bible_repository=bible_repo,
         unified_checkpoint_service=get_unified_checkpoint_service(),
         prop_lifecycle_syncer=_get_prop_lifecycle_syncer_safe(),
+        evolution_snapshot_service=get_evolution_snapshot_service(),
     )
 
 
@@ -687,6 +688,8 @@ def get_context_builder() -> ContextBuilder:
         storyline_repository=get_storyline_manager().repository,
         confluence_point_repository=get_confluence_point_repository(),
         worldbuilding_repository=WorldbuildingRepository(get_db_path()),
+        evolution_presenter=get_context_presenter(),
+        evolution_repository=get_evolution_repository(),
     )
 
 
@@ -708,6 +711,7 @@ def build_auto_workflow(llm_service: LLMService) -> AutoNovelGenerationWorkflow:
         voice_fingerprint_service=get_voice_fingerprint_service(),
         conflict_detection_service=ConflictDetectionService(),
         cliche_scanner=ClicheScanner(),
+        evolution_gate_service=get_evolution_gate_service(),
     )
 
 
@@ -1099,6 +1103,52 @@ def get_narrative_engine_read_facade():
     from application.narrative_engine.read_facade import NarrativeEngineReadFacade
 
     return NarrativeEngineReadFacade()
+
+
+def get_evolution_repository():
+    from infrastructure.persistence.database.sqlite_evolution_repository import SqliteEvolutionRepository
+
+    return SqliteEvolutionRepository(get_database())
+
+
+def get_evolution_action_extractor():
+    from application.evolution.services.action_extractor import EvolutionActionExtractor
+
+    return EvolutionActionExtractor()
+
+
+def get_evolution_reducer():
+    from domain.evolution.reducer import EvolutionReducer
+
+    return EvolutionReducer()
+
+
+def get_context_presenter():
+    from application.evolution.services.context_presenter import ContextPresenter
+
+    return ContextPresenter()
+
+
+def get_evolution_snapshot_service():
+    from application.evolution.services.snapshot_service import EvolutionSnapshotService
+
+    return EvolutionSnapshotService(
+        snapshot_repository=get_evolution_repository(),
+        action_extractor=get_evolution_action_extractor(),
+        reducer=get_evolution_reducer(),
+    )
+
+
+def get_evolution_gate_service():
+    from application.evolution.services.gate_service import EvolutionGateService
+
+    return EvolutionGateService(get_evolution_repository(), get_unified_character_repository())
+
+
+def get_evolution_override_service():
+    from application.evolution.services.override_service import EvolutionOverrideService
+
+    return EvolutionOverrideService(get_evolution_repository())
 
 
 def get_unified_checkpoint_service():

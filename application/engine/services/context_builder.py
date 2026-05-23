@@ -84,6 +84,8 @@ class ContextBuilder:
         storyline_repository=None,
         confluence_point_repository=None,
         worldbuilding_repository=None,
+        evolution_presenter=None,
+        evolution_repository=None,
     ):
         self.bible_service = bible_service
         self.storyline_manager = storyline_manager
@@ -101,6 +103,8 @@ class ContextBuilder:
         self.storyline_repository = storyline_repository
         self.confluence_point_repository = confluence_point_repository
         self.worldbuilding_repository = worldbuilding_repository
+        self.evolution_presenter = evolution_presenter
+        self.evolution_repository = evolution_repository
 
         # ContextAssembler：提供 ANCHOR / SCARS / DEBT_DUE / CAUSAL_CHAINS 槽位
         context_assembler = None
@@ -149,6 +153,8 @@ class ContextBuilder:
             storyline_repository=storyline_repository,
             confluence_point_repository=confluence_point_repository,
             worldbuilding_repository=worldbuilding_repository,
+            evolution_presenter=evolution_presenter,
+            evolution_repository=evolution_repository,
         )
 
     def estimate_tokens(self, text: str) -> int:

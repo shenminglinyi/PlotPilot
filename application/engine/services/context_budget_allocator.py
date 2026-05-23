@@ -196,6 +196,8 @@ class ContextBudgetAllocator:
         storyline_repository=None,
         confluence_point_repository=None,
         worldbuilding_repository: Optional[WorldbuildingRepository] = None,
+        evolution_presenter: Optional[Any] = None,
+        evolution_repository: Optional[Any] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -212,6 +214,8 @@ class ContextBudgetAllocator:
         self.storyline_repo = storyline_repository
         self.confluence_repo = confluence_point_repository
         self.worldbuilding_repo = worldbuilding_repository
+        self.evolution_presenter = evolution_presenter
+        self.evolution_repository = evolution_repository
 
         # ★ Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
         self._phase_thresholds = phase_thresholds or self._load_phase_thresholds()
@@ -574,6 +578,16 @@ class ContextBudgetAllocator:
             priority=100,
         )
 
+        evolution_context = self._build_evolution_presenter_slot(novel_id, chapter_number)
+        slots["evolution_presenter"] = ContextSlot(
+            name="叙事状态锁(EVOLUTION_STATE)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=evolution_context,
+            tokens=self.estimate_tokens(evolution_context),
+            max_tokens=1200,
+            priority=98,
+        )
+
         # ── T0-6: 当前幕摘要 —— priority=95 ──
         act_summary = self._get_current_act_summary(novel_id, chapter_number)
         slots["current_act_summary"] = ContextSlot(
@@ -831,6 +845,20 @@ class ContextBudgetAllocator:
             )
 
         return slots
+
+    def _build_evolution_presenter_slot(self, novel_id: str, chapter_number: int) -> str:
+        if not self.evolution_presenter or not self.evolution_repository:
+            return ""
+        try:
+            snapshot = self.evolution_repository.get_latest_active_before(
+                novel_id, "main", chapter_number
+            )
+            if not snapshot:
+                return ""
+            return self.evolution_presenter.present(snapshot.ending_state)
+        except Exception as e:
+            logger.warning("Evolution presenter 构建失败: %s", e)
+            return ""
     
     def _build_worldbuilding_core_slot(self, novel_id: str) -> str:
         """提取世界观三个核心硬规则字段：力量体系 / 物理规律 / 魔法机制。

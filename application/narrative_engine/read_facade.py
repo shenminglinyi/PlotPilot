@@ -16,6 +16,44 @@ class NarrativeEngineReadFacade:
         ctx = get_query_service().get_workbench_context(novel_id).to_dict()
         life = resolve_story_phase_payload(novel_id)
         foreshadow = ctx.get("foreshadow_ledger") or []
+        evolution_surface: Dict[str, Any] = {
+            "active_snapshot": None,
+            "counts": {"active": 0, "stale": 0, "blocked": 0},
+            "recent_gate_risks": [],
+            "required_continuations": [],
+        }
+        try:
+            from interfaces.api.dependencies import get_context_presenter, get_evolution_repository
+
+            repo = get_evolution_repository()
+            latest = repo.get_latest_active(novel_id, "main")
+            counts = repo.count_by_status(novel_id, "main")
+            if latest:
+                required = latest.ending_state.scene.get("unresolved_actions") or []
+                evolution_surface = {
+                    "active_snapshot": {
+                        "snapshot_id": latest.snapshot_id,
+                        "chapter_number": latest.chapter_number,
+                        "status": latest.status,
+                        "schema_version": latest.schema_version,
+                        "summary": get_context_presenter().present(latest.ending_state, max_lines=12),
+                    },
+                    "counts": {
+                        "active": int(counts.get("active", 0)),
+                        "stale": int(counts.get("stale", 0)),
+                        "blocked": int(counts.get("blocked", 0)),
+                    },
+                    "recent_gate_risks": latest.conflicts[-5:],
+                    "required_continuations": [str(x) for x in required],
+                }
+            else:
+                evolution_surface["counts"] = {
+                    "active": int(counts.get("active", 0)),
+                    "stale": int(counts.get("stale", 0)),
+                    "blocked": int(counts.get("blocked", 0)),
+                }
+        except Exception:
+            pass
         return {
             "novel_id": novel_id,
             "schema_version": "1",
@@ -34,6 +72,7 @@ class NarrativeEngineReadFacade:
             "subtext_surface": {
                 "foreshadow_ledger_count": len(foreshadow),
             },
+            "evolution_surface": evolution_surface,
         }
 
     def get_persona_voice_read_model(self, novel_id: str, character_id: str) -> Dict[str, Any]:

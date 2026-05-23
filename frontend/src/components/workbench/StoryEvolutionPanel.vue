@@ -13,6 +13,13 @@
         <n-space size="small" align="center" wrap>
           <n-button-group size="small">
             <n-button
+              :type="activeTab === 'state' ? 'primary' : 'default'"
+              @click="activeTab = 'state'"
+            >
+              <template #icon><n-icon><PulseOutline /></n-icon></template>
+              状态机
+            </n-button>
+            <n-button
               :type="activeTab === 'timeline' ? 'primary' : 'default'"
               @click="activeTab = 'timeline'"
             >
@@ -38,6 +45,77 @@
       :slug="slug"
       @checkpoint-restored="onCheckpointRestored"
     />
+
+    <div v-else-if="activeTab === 'state'" class="evolution-console">
+      <section class="evolution-col">
+        <div class="evolution-col__head">
+          <n-text strong>状态树</n-text>
+          <n-tag size="small" :type="latestSnapshot?.status === 'blocked' ? 'error' : 'success'" :bordered="false">
+            {{ latestSnapshot ? `第 ${latestSnapshot.chapter_number} 章` : '未生成' }}
+          </n-tag>
+        </div>
+        <n-empty v-if="!latestSnapshot" description="保存章节后生成演进快照" />
+        <template v-else>
+          <n-descriptions size="small" :column="1" bordered>
+            <n-descriptions-item label="Schema">{{ latestSnapshot.schema_version }}</n-descriptions-item>
+            <n-descriptions-item label="状态">{{ latestSnapshot.status }}</n-descriptions-item>
+            <n-descriptions-item label="时空">
+              {{ sceneState.time_anchor || '未标定' }} / {{ sceneState.location || '未标定' }}
+            </n-descriptions-item>
+            <n-descriptions-item label="情绪余波">{{ sceneState.emotional_residue || '无' }}</n-descriptions-item>
+          </n-descriptions>
+          <n-divider />
+          <n-scrollbar class="state-list">
+            <div v-for="[id, char] in characterRows" :key="id" class="state-row">
+              <n-text strong>{{ id }}</n-text>
+              <span>{{ char.status || 'alive' }} · {{ char.location || '未知地点' }}</span>
+            </div>
+          </n-scrollbar>
+        </template>
+      </section>
+
+      <section class="evolution-col">
+        <div class="evolution-col__head">
+          <n-text strong>状态流</n-text>
+          <n-button size="tiny" secondary :loading="snapshotsLoading" @click="loadEvolutionSnapshots">刷新</n-button>
+        </div>
+        <n-alert v-if="gateReport" :type="gateReport.is_pass ? 'success' : 'warning'" class="gate-alert">
+          Gate {{ gateReport.is_pass ? '通过' : '存在风险' }} · {{ gateReport.violations.length }} 项
+        </n-alert>
+        <n-input
+          v-model:value="gateOutline"
+          type="textarea"
+          size="small"
+          :autosize="{ minRows: 3, maxRows: 6 }"
+          placeholder="粘贴下一章大纲，执行写前 Gate"
+        />
+        <n-button size="small" type="primary" secondary :loading="gateLoading" @click="runGate">
+          写前 Gate
+        </n-button>
+        <n-scrollbar class="action-list">
+          <div v-for="action in latestActions" :key="action.action_id" class="action-row">
+            <n-tag size="small" :bordered="false">{{ action.type }}</n-tag>
+            <code>{{ action.action_id }}</code>
+          </div>
+          <div v-for="violation in gateReport?.violations || []" :key="violation.type + violation.message" class="violation-row">
+            <n-tag size="small" :type="violation.level === 'blocking' ? 'error' : 'warning'" :bordered="false">
+              {{ violation.level }}
+            </n-tag>
+            <span>{{ violation.message }}</span>
+          </div>
+        </n-scrollbar>
+      </section>
+
+      <section class="evolution-col">
+        <div class="evolution-col__head">
+          <n-text strong>证据</n-text>
+          <n-tag size="small" :bordered="false">Graph-backed</n-tag>
+        </div>
+        <n-scrollbar class="evidence-list">
+          <pre>{{ evidenceText }}</pre>
+        </n-scrollbar>
+      </section>
+    </div>
 
     <!-- 传统时间轴模式（外：导航略收窄，为「时间轴 + 详情」留出宽度；内：提高右栏默认占比，避免详情过窄） -->
     <n-split
@@ -96,6 +174,7 @@ import {
   WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
 } from '@/workbench/deskEvents'
 import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativeEngine'
+import { evolutionApi, type EvolutionGateReport, type EvolutionSnapshot } from '@/api/evolution'
 import type { ChronicleRow } from '@/api/chronicles'
 import { useWorkbenchPlotTimelineReload } from '@/composables/useWorkbenchNarrativeSync'
 import StoryNavigator from './StoryNavigator.vue'
@@ -114,13 +193,18 @@ const bundle = ref<StoryEvolutionReadModel | null>(null)
 const bundleLoading = ref(false)
 
 // 活跃 tab
-const activeTab = ref<'timeline' | 'worldline'>('timeline')
+const activeTab = ref<'state' | 'timeline' | 'worldline'>('state')
 
 // 高亮范围（选中故事线时高亮对应章节）
 const highlightRange = ref<{ start: number; end: number } | null>(null)
 
 // 选中的项目（事件或快照）
 const selectedItem = ref<any>(null)
+const snapshots = ref<EvolutionSnapshot[]>([])
+const snapshotsLoading = ref(false)
+const gateOutline = ref('')
+const gateLoading = ref(false)
+const gateReport = ref<EvolutionGateReport | null>(null)
 
 async function loadBundle() {
   bundleLoading.value = true
@@ -134,10 +218,54 @@ async function loadBundle() {
   }
 }
 
+async function loadEvolutionSnapshots() {
+  snapshotsLoading.value = true
+  try {
+    const result = await evolutionApi.listSnapshots(props.slug)
+    snapshots.value = result.snapshots || []
+  } catch {
+    snapshots.value = []
+  } finally {
+    snapshotsLoading.value = false
+  }
+}
+
+async function runGate() {
+  if (!props.currentChapter) return
+  gateLoading.value = true
+  try {
+    gateReport.value = await evolutionApi.gate(props.slug, {
+      chapter_number: props.currentChapter,
+      outline_content: gateOutline.value,
+      branch_id: 'main',
+      tags: [],
+    })
+  } finally {
+    gateLoading.value = false
+  }
+}
+
 const bundledChronicleRows = computed((): ChronicleRow[] => {
   const raw = bundle.value?.chronotope?.rows
   if (!Array.isArray(raw)) return []
   return raw as ChronicleRow[]
+})
+
+const latestSnapshot = computed(() => snapshots.value[0] || null)
+const sceneState = computed(() => (latestSnapshot.value?.ending_state?.scene || {}) as Record<string, any>)
+const characterRows = computed(() => Object.entries((latestSnapshot.value?.ending_state?.characters || {}) as Record<string, any>).slice(0, 16))
+const latestActions = computed(() => latestSnapshot.value?.delta_actions || [])
+const evidenceText = computed(() => {
+  if (!latestSnapshot.value) return '暂无证据。'
+  return JSON.stringify(
+    {
+      source_refs: latestSnapshot.value.source_refs,
+      conflicts: latestSnapshot.value.conflicts,
+      read_model_surface: bundle.value?.evolution_surface || null,
+    },
+    null,
+    2,
+  )
 })
 
 watch(
@@ -146,12 +274,14 @@ watch(
     highlightRange.value = null
     selectedItem.value = null
     void loadBundle()
+    void loadEvolutionSnapshots()
   },
   { immediate: true },
 )
 
 useWorkbenchPlotTimelineReload(() => {
   void loadBundle()
+  void loadEvolutionSnapshots()
 })
 
 // 选中故事线时高亮章节范围
@@ -177,6 +307,7 @@ function onCheckpointRestored() {
   highlightRange.value = null
   selectedItem.value = null
   window.dispatchEvent(new CustomEvent(WORKBENCH_CHAPTER_DESK_CHANGE_EVENT))
+  void loadEvolutionSnapshots()
 }
 
 function openCharacterAnchor() {
@@ -235,5 +366,99 @@ function openCharacterAnchor() {
 .story-evolution-panel :deep(.n-split-pane-2) {
   min-height: 0;
   overflow: hidden;
+}
+
+.evolution-console {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(280px, 1.1fr) minmax(240px, 0.9fr);
+  gap: 0;
+  overflow: hidden;
+}
+
+.evolution-col {
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  border-right: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.evolution-col:last-child {
+  border-right: 0;
+}
+
+.evolution-col__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.state-list,
+.action-list,
+.evidence-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.state-row,
+.action-row,
+.violation-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--app-border-soft, rgba(0, 0, 0, 0.06));
+  font-size: 12px;
+}
+
+.state-row {
+  justify-content: space-between;
+}
+
+.state-row span,
+.violation-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+}
+
+.action-row code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+}
+
+.gate-alert {
+  flex-shrink: 0;
+}
+
+.evidence-list pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .evolution-console {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .evolution-col {
+    min-height: 260px;
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
+  }
 }
 </style>
