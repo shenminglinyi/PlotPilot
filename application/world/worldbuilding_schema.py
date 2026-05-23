@@ -241,18 +241,19 @@ def canonicalize_dimension_fields(
     return {k: "\n\n".join(parts) for k, parts in buckets.items() if parts}
 
 
-def build_fields_desc_for_prompt() -> str:
+def build_fields_desc_for_prompt(dimension_keys: Any = None) -> str:
     """CPMS user.md 的 {fields_desc} 占位内容。"""
     lines: list[str] = []
-    for dim_key in WORLD_BUILDING_DIMENSION_KEYS:
+    keys = tuple(dimension_keys or WORLD_BUILDING_DIMENSION_KEYS)
+    for dim_key in keys:
         dim_def = WORLDBUILDING_DIMENSION_DEFS[dim_key]
         lines.append(f'    "{dim_key}": {{')
         fields = list(dim_def["fields"].items())
         for idx, (fk, desc) in enumerate(fields):
             comma = "," if idx < len(fields) - 1 else ""
             lines.append(
-                f'      "{fk}": "（{desc}。在此写一段中文正文，不少于80字；勿嵌套JSON或英文键）"{comma}'
+                f'      "{fk}": "（{desc}。写一段60-120字中文正文；只写一段；勿嵌套JSON或英文键）"{comma}'
             )
-        dim_comma = "," if dim_key != WORLD_BUILDING_DIMENSION_KEYS[-1] else ""
+        dim_comma = "," if dim_key != keys[-1] else ""
         lines.append(f"    }}{dim_comma}")
     return "\n".join(lines)

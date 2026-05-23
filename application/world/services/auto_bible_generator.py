@@ -1010,6 +1010,12 @@ JSON 格式：
 
         return build_fields_desc_for_prompt()
 
+    def _build_worldbuilding_json_schema_desc_for(self, dimension_keys: list[str]) -> str:
+        """指定维度字段模板（用于补齐缺失维度）。"""
+        from application.world.worldbuilding_schema import build_fields_desc_for_prompt
+
+        return build_fields_desc_for_prompt(dimension_keys)
+
     async def _stream_worldbuilding_full(
         self,
         premise: str,
@@ -1061,6 +1067,7 @@ JSON 格式：
             "正确示例：\"society\": {\"politics\": \"...\", \"economy\": \"...\", \"class_system\": \"...\"}。"
             "每个维度都必须按模板字段顺序逐子项输出；写完一个字段并关闭字符串后，立刻写下一个字段。"
             "禁止把一个维度的所有内容塞进单个字符串。"
+            "每个字段严格控制在60-120个中文字符，只写单段，优先保证 daily_life 也完整输出。"
         )
         prompt = Prompt(
             system=f"{prompt.system}{format_guard}",
@@ -1072,7 +1079,7 @@ JSON 格式：
             ),
         )
 
-        config = GenerationConfig(max_tokens=16384, temperature=0.7)
+        config = GenerationConfig(max_tokens=32768, temperature=0.65)
         parser = WorldbuildingStreamIncrementalParser()
         accumulated: Dict[str, Dict[str, str]] = {}
 
@@ -1103,6 +1110,56 @@ JSON 格式：
                 if dim_key not in accumulated and dim_data:
                     accumulated[dim_key] = dim_data
                     yield {"type": "dimension", "key": dim_key, "content": dim_data}
+
+            missing_dims = [
+                dim for dim in ("core_rules", "geography", "society", "culture", "daily_life")
+                if not accumulated.get(dim)
+            ]
+            if missing_dims:
+                logger.warning("Worldbuilding stream missing dimensions, patching: %s", missing_dims)
+                patch_fields = self._build_worldbuilding_json_schema_desc_for(missing_dims)
+                patch_prompt = Prompt(
+                    system=(
+                        "你是世界观设定补全器。只输出裸 JSON，不要 markdown。"
+                        "必须只补齐用户指定的缺失维度；维度值必须是对象，字段值必须是60-120字中文单段字符串。"
+                    ),
+                    user=(
+                        f"【故事创意】\n{premise}\n\n【目标章节数】\n{target_chapters}章\n\n"
+                        f"【已完成维度】\n{json.dumps(accumulated, ensure_ascii=False)[:6000]}\n\n"
+                        "请只输出以下缺失维度，格式如下：\n"
+                        f'{{"worldbuilding": {{\n{patch_fields}\n}}}}'
+                    ),
+                )
+                patch_parser = WorldbuildingStreamIncrementalParser()
+                patch_config = GenerationConfig(max_tokens=8192, temperature=0.55)
+                async for patch_chunk in self.llm_service.stream_generate(patch_prompt, patch_config):
+                    yield {"type": "chunk", "text": patch_chunk}
+                    for ev in patch_parser.feed(patch_chunk):
+                        ev_type = ev.get("type")
+                        dim_key = ev.get("key")
+                        if dim_key not in missing_dims:
+                            continue
+                        if ev_type == "field_partial":
+                            yield ev
+                        elif ev_type == "field":
+                            fk, fv = ev.get("field"), ev.get("value")
+                            if dim_key and fk and fv:
+                                accumulated.setdefault(dim_key, {})[fk] = fv
+                            yield ev
+                        elif ev_type == "dimension":
+                            dim_data = ev.get("content") or {}
+                            if dim_key and dim_data:
+                                accumulated[dim_key] = dim_data
+                            yield ev
+
+                patch_full = patch_parser.parse_full_worldbuilding(
+                    sanitize=_sanitize_llm_json_output,
+                    repair=_repair_json_string,
+                )
+                for dim_key, dim_data in patch_full.items():
+                    if dim_key in missing_dims and dim_data:
+                        accumulated[dim_key] = dim_data
+                        yield {"type": "dimension", "key": dim_key, "content": dim_data}
 
         except Exception as e:
             logger.error("Stream worldbuilding (full) failed: %s", e)
