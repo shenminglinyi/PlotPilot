@@ -408,6 +408,7 @@ const isWriting = computed(() =>
 
 /** StoryPipeline（新内核写作）有可观测字段时展示十步管线图 */
 const storyPipelineObsVisible = computed(() => {
+  if (auditPipelineObsVisible.value) return false
   if (!isWriting.value || !status.value) return false
   const ix = Number(status.value.story_pipeline_wave_index)
   return Number.isFinite(ix) && ix >= 1 && ix <= 10

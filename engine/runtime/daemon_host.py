@@ -93,6 +93,7 @@ def init_daemon_dependencies(
 
     host._beat_exhausted_rewrite_count = {}
     host._pending_chapter_micro_beats = {}
+    host._pending_story_pipeline_aftermath = {}
 
     if not host.volume_summary_service and llm_service and story_node_repo:
         try:

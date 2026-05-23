@@ -109,6 +109,9 @@ interface StatusLike {
   chapter_target_words?: number | null
   writing_substep?: string
   writing_substep_label?: string
+  current_chapter_number?: number | null
+  aftermath_live_status?: 'running' | 'done' | 'failed' | string | null
+  aftermath_live_chapter_number?: number | null
   narrative_sync_ok?: boolean
   vector_stored?: boolean
   foreshadow_stored?: boolean
@@ -219,7 +222,22 @@ interface AftermathStep {
   state: AftermathState
 }
 
-const aftermathSource = computed(() => props.status?.last_chapter_audit ?? props.status ?? null)
+const aftermathLiveStatus = computed(() => String(props.status?.aftermath_live_status || ''))
+
+const liveAftermathMatchesChapter = computed(() => {
+  const liveChapter = props.status?.aftermath_live_chapter_number
+  const currentChapter = props.status?.current_chapter_number
+  if (liveChapter == null || currentChapter == null) return true
+  return Number(liveChapter) === Number(currentChapter)
+})
+
+const aftermathSource = computed(() => {
+  if (aftermathRunning.value && aftermathLiveStatus.value !== 'done') return null
+  if (aftermathLiveStatus.value === 'done' && liveAftermathMatchesChapter.value) {
+    return props.status ?? null
+  }
+  return props.status?.last_chapter_audit ?? props.status ?? null
+})
 
 function stepState(value: boolean | undefined, failWhenFalse = false): AftermathState {
   if (value === true) return 'done'
@@ -229,14 +247,23 @@ function stepState(value: boolean | undefined, failWhenFalse = false): Aftermath
 
 const aftermathRunning = computed(() => {
   const sub = String(props.status?.writing_substep || '')
-  return currentIx.value === 8 || sub === 'audit_aftermath' || sub === 'chapter_aftermath'
+  return currentIx.value === 8 || sub === 'audit_aftermath' || sub === 'chapter_aftermath' || sub === 'chapter_aftermath_done'
+})
+
+const activeAftermathIndex = computed(() => {
+  if (!aftermathRunning.value || aftermathLiveStatus.value === 'done') return 0
+  void tick.value
+  const ea = enteredAt.value
+  if (ea === null) return 1
+  const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - ea))
+  return Math.min(8, Math.floor(elapsed / 3) + 1)
 })
 
 const aftermathSteps = computed<AftermathStep[]>(() => {
   const s = aftermathSource.value
   const steps: AftermathStep[] = [
-    { index: 1, id: 'summary', label: '摘要事件', detail: '摘要 / 事件 / 场景信号', state: stepState(s?.narrative_sync_ok, true) },
-    { index: 2, id: 'beats', label: '叙事节拍', detail: 'beat_sections 对齐', state: stepState(s?.narrative_sync_ok, true) },
+    { index: 1, id: 'summary', label: '摘要事件', detail: '摘要 / 事件 / 场景信号', state: stepState(s?.narrative_sync_ok, aftermathLiveStatus.value === 'failed') },
+    { index: 2, id: 'beats', label: '叙事节拍', detail: 'beat_sections 对齐', state: stepState(s?.narrative_sync_ok, aftermathLiveStatus.value === 'failed') },
     { index: 3, id: 'vector', label: '向量索引', detail: '语义检索落库', state: stepState(s?.vector_stored) },
     { index: 4, id: 'foreshadow', label: '伏笔账本', detail: '埋线 / 兑现记录', state: stepState(s?.foreshadow_stored) },
     { index: 5, id: 'kg', label: 'KG 三元组', detail: '实体关系抽取', state: stepState(s?.triples_extracted) },
@@ -257,8 +284,14 @@ const aftermathSteps = computed<AftermathStep[]>(() => {
     },
   ]
 
-  if (aftermathRunning.value && steps.every(step => step.state === 'pending')) {
-    steps[0] = { ...steps[0], state: 'current' }
+  if (aftermathRunning.value && aftermathLiveStatus.value !== 'done') {
+    const ix = activeAftermathIndex.value
+    return steps.map(step => {
+      if (step.state === 'done' || step.state === 'fail') return step
+      if (step.index < ix) return { ...step, state: 'done' }
+      if (step.index === ix) return { ...step, state: 'current' }
+      return step
+    })
   }
   return steps
 })
@@ -270,9 +303,12 @@ const showAftermathCard = computed(() => {
 })
 
 const aftermathSummary = computed(() => {
-  if (aftermathRunning.value) return props.status?.writing_substep_label || '实时处理中'
   const failed = aftermathSteps.value.filter(step => step.state === 'fail').length
   const done = aftermathSteps.value.filter(step => step.state === 'done').length
+  if (aftermathRunning.value && aftermathLiveStatus.value !== 'done') {
+    const current = aftermathSteps.value.find(step => step.state === 'current')
+    return current ? `正在处理：${current.label}` : (props.status?.writing_substep_label || '实时处理中')
+  }
   if (failed > 0) return `${failed} 项需复查`
   if (done > 0) return `${done}/${aftermathSteps.value.length} 已确认`
   return '等待章后结果'

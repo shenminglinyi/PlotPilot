@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
@@ -41,6 +42,8 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         return
 
     content = chapter.content or ""
+    original_content = content
+    original_content_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
     host._sync_novel_current_act_from_chapter_number(novel, chapter_num)
     host._cache_stats_to_shared_memory(novel)
     chapter_id = ChapterId(chapter.id)
@@ -82,6 +85,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         content,
         drift_result,
     )
+    content_changed_by_audit = content != original_content
     # 🔥 发布文风预检结果事件
     host._publish_audit_event(
         novel.novel_id.value,
@@ -95,19 +99,53 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
     # 2. 统一章后管线：叙事/向量、文风（一次）、KG 推断；三元组与伏笔在叙事同步单次 LLM 中落库
     novel.audit_progress = "aftermath_pipeline"
     # 🔥 架构优化：写共享内存，零 DB IO
+    pending_aftermath = None
+    pending_map = getattr(host, "_pending_story_pipeline_aftermath", None)
+    if isinstance(pending_map, dict):
+        pending_aftermath = pending_map.pop((novel.novel_id.value, chapter_num), None)
+
+    can_reuse_aftermath = (
+        isinstance(pending_aftermath, dict)
+        and not content_changed_by_audit
+        and pending_aftermath.get("content_sha256") == original_content_sha256
+    )
+    aftermath_label = (
+        "章后管线结果复用"
+        if can_reuse_aftermath
+        else "章后管线（叙事/向量/KG）"
+    )
+
     host._update_shared_state(
         novel.novel_id.value,
         audit_progress="aftermath_pipeline",
         writing_substep="audit_aftermath",
-        writing_substep_label="章后管线（叙事/向量/KG）",
+        writing_substep_label=aftermath_label,
+        audit_aftermath_reused=can_reuse_aftermath,
     )
     # 🔥 发布章后管线事件
     host._publish_audit_event(
         novel.novel_id.value,
         "audit_aftermath",
-        {"chapter_number": chapter_num}
+        {"chapter_number": chapter_num, "reused": can_reuse_aftermath}
     )
-    if host.aftermath_pipeline:
+    if can_reuse_aftermath:
+        audit_similarity = drift_result.get("similarity_score")
+        drift_result = {
+            **pending_aftermath,
+            "similarity_score": audit_similarity
+            if audit_similarity is not None
+            else pending_aftermath.get("similarity_score"),
+            "drift_alert": bool(
+                drift_result.get("drift_alert", pending_aftermath.get("drift_alert", False))
+            ),
+            "reused": True,
+        }
+        logger.info(
+            "[%s] 章后管线复用 StoryPipeline 第 8 步结果：第%s章",
+            novel.novel_id.value,
+            chapter_num,
+        )
+    elif host.aftermath_pipeline:
         try:
             _mb = host._pending_chapter_micro_beats.pop(
                 (novel.novel_id.value, chapter_num), None
@@ -350,6 +388,9 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         last_audit_vector_stored=novel.last_audit_vector_stored,
         last_audit_foreshadow_stored=novel.last_audit_foreshadow_stored,
         last_audit_triples_extracted=novel.last_audit_triples_extracted,
+        last_audit_causal_edges_stored=bool(drift_result.get("causal_edges_stored", False)),
+        last_audit_character_mutations_stored=bool(drift_result.get("character_mutations_stored", False)),
+        last_audit_debt_updated=bool(drift_result.get("debt_updated", False)),
         last_audit_at=novel.last_audit_at,
         last_chapter_tension=novel.last_chapter_tension,
         _cached_completed_chapters=cc_sig,

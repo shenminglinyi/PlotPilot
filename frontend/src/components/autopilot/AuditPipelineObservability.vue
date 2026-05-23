@@ -11,7 +11,7 @@
     <div class="apo__track-wrap">
       <div class="apo__track">
         <div
-          v-for="step in auditSteps"
+          v-for="step in displayedAuditSteps"
           :key="step.id"
           class="apo-step"
           :class="stepClass(step.index)"
@@ -39,6 +39,7 @@ interface StatusLike {
   writing_substep?: string | null
   writing_substep_label?: string | null
   audit_progress?: string | null
+  audit_aftermath_reused?: boolean
   last_chapter_audit?: {
     similarity_score?: number | null
     drift_alert?: boolean
@@ -61,6 +62,13 @@ const auditSteps = [
   { index: 5, id: 'snapshot', label: '审计快照', desc: '结果写入状态面板' },
   { index: 6, id: 'finalize', label: '收尾推进', desc: '进入下一章或停机' },
 ] as const
+
+const displayedAuditSteps = computed(() =>
+  auditSteps.map(step => {
+    if (step.id !== 'aftermath' || !props.status?.audit_aftermath_reused) return step
+    return { ...step, label: '结果复用', desc: '沿用十步产物' }
+  })
+)
 
 const tick = ref(0)
 const stepEnteredAt = ref(Math.floor(Date.now() / 1000))
@@ -122,7 +130,7 @@ function doneCheck(ix: number) {
 const activeDetail = computed(() => {
   const ix = currentIx.value
   if (ix < 1) return null
-  const step = auditSteps.find(s => s.index === ix)
+  const step = displayedAuditSteps.value.find(s => s.index === ix)
   if (!step) return null
   const label = props.status?.writing_substep_label || step.label
   const audit = props.status?.last_chapter_audit
@@ -130,12 +138,18 @@ const activeDetail = computed(() => {
     return { label, text: `文风相似度 ${Number(audit.similarity_score).toFixed(3)}${audit.drift_alert ? ' · 漂移告警' : ''}` }
   }
   if (ix === 3 && audit) {
+    if (props.status?.audit_aftermath_reused) {
+      return { label, text: '已复用写作管线第 8 步结果，未重复执行叙事 / 向量 / KG' }
+    }
     const flags = [
       audit.narrative_sync_ok ? '叙事已同步' : '',
       audit.vector_stored ? '向量已落库' : '',
       audit.triples_extracted ? 'KG 已抽取' : '',
     ].filter(Boolean)
     return { label, text: flags.length ? flags.join(' · ') : '正在把正文转成叙事、向量与知识图谱资产' }
+  }
+  if (ix === 3 && props.status?.audit_aftermath_reused) {
+    return { label, text: '已复用写作管线第 8 步结果，未重复执行叙事 / 向量 / KG' }
   }
   if (ix === 4 && audit?.tension != null) {
     return { label, text: `张力 ${audit.tension}/100` }

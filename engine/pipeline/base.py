@@ -848,6 +848,8 @@ class BaseStoryPipeline(ABC):
             pipeline_wave_index=8,
             current_chapter_number=ctx.chapter_number,
             accumulated_words=ctx.word_count,
+            aftermath_live_status="running",
+            aftermath_live_chapter_number=ctx.chapter_number,
         )
 
         if ctx.aftermath_pipeline is not None:
@@ -870,8 +872,36 @@ class BaseStoryPipeline(ABC):
                     ctx.similarity_score = result["similarity_score"]
                 if result.get("drift_alert") and not ctx.drift_alert:
                     ctx.drift_alert = True
+                _writing_progress(
+                    ctx,
+                    "chapter_aftermath_done",
+                    "章后管线完成",
+                    pipeline_wave_index=8,
+                    current_chapter_number=ctx.chapter_number,
+                    accumulated_words=ctx.word_count,
+                    aftermath_live_status="done",
+                    aftermath_live_chapter_number=ctx.chapter_number,
+                    narrative_sync_ok=ctx.narrative_sync_ok,
+                    vector_stored=ctx.vector_stored,
+                    foreshadow_stored=ctx.foreshadow_stored,
+                    triples_extracted=ctx.triples_extracted,
+                    causal_edges_stored=ctx.causal_edges_stored,
+                    character_mutations_stored=ctx.character_mutations_stored,
+                    debt_updated=ctx.debt_updated,
+                    tension_composite=ctx.tension_composite,
+                )
             except Exception as e:
                 logger.warning(f"章后管线失败: {e}")
+                _writing_progress(
+                    ctx,
+                    "chapter_aftermath_failed",
+                    "章后管线失败",
+                    pipeline_wave_index=8,
+                    current_chapter_number=ctx.chapter_number,
+                    accumulated_words=ctx.word_count,
+                    aftermath_live_status="failed",
+                    aftermath_live_chapter_number=ctx.chapter_number,
+                )
 
         await self._update_emotion_ledger(ctx)
 

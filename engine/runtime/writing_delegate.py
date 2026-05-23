@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import hashlib
 from typing import Any, Dict, Literal
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,18 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
 
     if result.success:
         chapter_num = result.chapter_number or ctx.chapter_number
+        if getattr(result, "audit_snapshot", None):
+            pending = getattr(daemon, "_pending_story_pipeline_aftermath", None)
+            if pending is not None:
+                content = result.content or ""
+                pending[(novel_id, chapter_num)] = {
+                    **dict(result.audit_snapshot),
+                    "chapter_number": chapter_num,
+                    "tension_composite": result.tension,
+                    "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                    "source": "story_pipeline",
+                    "reused": False,
+                }
         novel.current_auto_chapters = (novel.current_auto_chapters or 0) + 1
         novel.current_chapter_in_act = (novel.current_chapter_in_act or 0) + 1
         novel.current_beat_index = 0
@@ -168,6 +181,7 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
             writing_substep_label="审计准备",
             current_chapter_number=chapter_num,
             last_chapter_tension=result.tension,
+            audit_aftermath_reused=False,
         )
         daemon._flush_novel(novel)
         logger.info(
