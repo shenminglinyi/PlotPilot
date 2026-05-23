@@ -49,11 +49,11 @@
             :completed-dimensions="completedDimensions"
           >
             <template #core_rules>
-              <div class="dimension-fields" v-if="worldbuildingData.core_rules && Object.keys(worldbuildingData.core_rules).length">
-                <div v-for="(val, key) in worldbuildingData.core_rules" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'core_rules' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('core_rules').length">
+                <div v-for="field in orderedWorldbuildingFields('core_rules')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === field.key }">
+                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'core_rules' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
               <div v-else-if="activeDimension === 'core_rules'" class="raw-stream-preview">
@@ -61,11 +61,11 @@
               </div>
             </template>
             <template #geography>
-              <div class="dimension-fields" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
-                <div v-for="(val, key) in worldbuildingData.geography" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'geography' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('geography').length">
+                <div v-for="field in orderedWorldbuildingFields('geography')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === field.key }">
+                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'geography' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
               <div v-else-if="activeDimension === 'geography'" class="raw-stream-preview">
@@ -73,11 +73,11 @@
               </div>
             </template>
             <template #society>
-              <div class="dimension-fields" v-if="worldbuildingData.society && Object.keys(worldbuildingData.society).length">
-                <div v-for="(val, key) in worldbuildingData.society" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'society' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('society').length">
+                <div v-for="field in orderedWorldbuildingFields('society')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === field.key }">
+                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'society' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
               <div v-else-if="activeDimension === 'society'" class="raw-stream-preview">
@@ -85,11 +85,11 @@
               </div>
             </template>
             <template #culture>
-              <div class="dimension-fields" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
-                <div v-for="(val, key) in worldbuildingData.culture" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'culture' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('culture').length">
+                <div v-for="field in orderedWorldbuildingFields('culture')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === field.key }">
+                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'culture' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
               <div v-else-if="activeDimension === 'culture'" class="raw-stream-preview">
@@ -97,11 +97,11 @@
               </div>
             </template>
             <template #daily_life>
-              <div class="dimension-fields" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
-                <div v-for="(val, key) in worldbuildingData.daily_life" :key="key"
-                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === key }">
-                  <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
-                  <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'daily_life' && activeField === key" class="streaming-cursor">▎</span></div>
+              <div class="dimension-fields" v-if="orderedWorldbuildingFields('daily_life').length">
+                <div v-for="field in orderedWorldbuildingFields('daily_life')" :key="field.key"
+                  class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === field.key }">
+                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'daily_life' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
               <div v-else-if="activeDimension === 'daily_life'" class="raw-stream-preview">
@@ -132,10 +132,10 @@
               <n-space vertical size="small">
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
                   <div class="dimension-fields">
-                    <div v-for="(_val, key) in dim.data" :key="key" class="field-card field-card--editable">
-                      <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
+                    <div v-for="field in orderedWorldbuildingFields(dim.key)" :key="field.key" class="field-card field-card--editable">
+                      <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
                       <n-input
-                        v-model:value="worldbuildingData[dim.key][key]"
+                        v-model:value="worldbuildingData[dim.key][field.key]"
                         type="textarea"
                         :autosize="{ minRows: 1, maxRows: 4 }"
                         size="small"
@@ -207,6 +207,14 @@
                   </div>
                 </div>
                 <div v-if="char.description" class="char-card__desc">{{ char.description }}</div>
+                <div v-if="char.core_belief" class="char-card__anchor">
+                  <span class="char-card__anchor-label">核心信念</span>
+                  <span>{{ char.core_belief }}</span>
+                </div>
+                <div v-if="char.verbal_tic || char.idle_behavior" class="char-card__anchor">
+                  <span class="char-card__anchor-label">声线/动作</span>
+                  <span>{{ [char.verbal_tic, char.idle_behavior].filter(Boolean).join('；') }}</span>
+                </div>
                 <div v-if="char.relationships && char.relationships.length" class="char-card__relations">
                   <n-tag v-for="(rel, ri) in char.relationships.slice(0, 3)" :key="ri" size="tiny" :bordered="false" type="info">
                     {{ typeof rel === 'string' ? rel : (rel.relation || rel.description || rel.target || '') }}
@@ -253,62 +261,107 @@
               与工作台「角色锚点」同一套 Bible 字段；仅填补仍为空的 T0 / 声线风格等，不覆盖已写内容。可在下方改完再点「确认修改并继续」落库。
             </n-text>
           </n-space>
-          <n-list bordered>
+          <n-list bordered class="character-editor-list">
             <n-list-item v-for="(char, idx) in editableCharacters" :key="idx">
               <div class="editable-character">
                 <n-space vertical size="small" style="width: 100%">
-                  <!-- 姓名 + 角色 + 删除 -->
-                  <n-space :size="8" align="center" wrap>
-                    <n-input v-model:value="char.name" size="small" style="width: 120px" placeholder="姓名" />
-                    <n-button size="small" secondary @click="rollCharacterName(idx)">抽卡起名</n-button>
-                    <n-input v-model:value="char.role" size="small" style="width: 100px" placeholder="角色定位" />
+                  <div class="character-editor-head">
+                    <n-input v-model:value="char.name" size="small" class="character-editor-head__name" placeholder="姓名" />
+                    <n-input v-model:value="char.role" size="small" class="character-editor-head__role" placeholder="角色定位" />
                     <n-button quaternary size="small" type="error" @click="editableCharacters.splice(idx, 1)">删除</n-button>
-                  </n-space>
-                  <!-- 简介 -->
-                  <div class="editable-field">
-                    <div class="editable-field__label">简介</div>
-                    <n-input
-                      v-model:value="char.description"
-                      type="textarea"
-                      :autosize="{ minRows: 1, maxRows: 4 }"
-                      size="small"
-                      placeholder="角色描述"
-                    />
                   </div>
-                  <!-- 心理状态 -->
-                  <div v-if="char.mental_state" class="editable-field">
-                    <div class="editable-field__label">心理状态</div>
-                    <n-input v-model:value="char.mental_state" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
-                  </div>
-                  <!-- 口头禅 -->
-                  <div v-if="char.verbal_tic" class="editable-field">
-                    <div class="editable-field__label">口头禅</div>
-                    <n-input v-model:value="char.verbal_tic" size="small" />
-                  </div>
-                  <!-- 习惯动作 -->
-                  <div v-if="char.idle_behavior" class="editable-field">
-                    <div class="editable-field__label">习惯动作</div>
-                    <n-input v-model:value="char.idle_behavior" size="small" />
-                  </div>
-                  <!-- 人物关系 -->
-                  <div v-if="char.relationships && char.relationships.length" class="editable-field">
-                    <div class="editable-field__label">人物关系</div>
-                    <n-space :size="4">
-                      <n-tag v-for="(rel, ri) in char.relationships" :key="ri" size="small" :bordered="false">
-                        {{ typeof rel === 'string' ? rel : (rel.relation || rel.description || rel.target || JSON.stringify(rel)) }}
-                      </n-tag>
-                    </n-space>
-                  </div>
-                  <!-- 公开人设 -->
-                  <div v-if="char.public_profile" class="editable-field">
-                    <div class="editable-field__label">公开人设</div>
-                    <n-input v-model:value="char.public_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
-                  </div>
-                  <!-- 隐藏身份 -->
-                  <div v-if="char.hidden_profile" class="editable-field">
-                    <div class="editable-field__label">隐藏身份</div>
-                    <n-input v-model:value="char.hidden_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
-                  </div>
+
+                  <n-grid :cols="2" :x-gap="10" :y-gap="10" responsive="screen">
+                    <n-grid-item>
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">基础</div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">功能定位</div>
+                          <n-input v-model:value="char.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">公开人设</div>
+                          <n-input v-model:value="char.public_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item>
+                      <div class="role-lock-panel role-lock-panel--strong">
+                        <div class="role-lock-panel__title">写作锁</div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">核心信念</div>
+                          <n-input v-model:value="char.core_belief" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">道德禁忌</div>
+                          <n-dynamic-tags v-model:value="char.moral_taboos" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">心理状态</div>
+                          <n-input v-model:value="char.mental_state" size="small" placeholder="例如：警惕、愧疚、亢奋" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">状态成因</div>
+                          <n-input v-model:value="char.mental_state_reason" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item>
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">声线与动作</div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">口头禅</div>
+                          <n-input v-model:value="char.verbal_tic" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">压力动作</div>
+                          <n-input v-model:value="char.idle_behavior" size="small" />
+                        </div>
+                        <div class="voice-grid">
+                          <n-input v-model:value="char.voice_profile.style" size="small" placeholder="声线风格" />
+                          <n-input v-model:value="char.voice_profile.sentence_pattern" size="small" placeholder="句式模式" />
+                          <n-input v-model:value="char.voice_profile.speech_tempo" size="small" placeholder="语速" />
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item>
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">隐藏线索</div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">隐藏身份 / 真实动机</div>
+                          <n-input v-model:value="char.hidden_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">揭示章节</div>
+                          <n-input-number v-model:value="char.reveal_chapter" size="small" :min="1" clearable style="width: 100%" />
+                        </div>
+                        <div v-if="char.relationships && char.relationships.length" class="editable-field">
+                          <div class="editable-field__label">人物关系</div>
+                          <n-space :size="4" wrap>
+                            <n-tag v-for="(rel, ri) in char.relationships" :key="ri" size="small" :bordered="false">
+                              {{ formatRelationship(rel) }}
+                            </n-tag>
+                          </n-space>
+                        </div>
+                      </div>
+                    </n-grid-item>
+
+                    <n-grid-item :span="2" v-if="char.active_wounds.length">
+                      <div class="role-lock-panel">
+                        <div class="role-lock-panel__title">创伤触发器</div>
+                        <div class="wound-grid">
+                          <div v-for="(wound, wi) in char.active_wounds" :key="wi" class="wound-row">
+                            <n-input v-model:value="wound.description" size="small" placeholder="创伤" />
+                            <n-input v-model:value="wound.trigger" size="small" placeholder="触发条件" />
+                            <n-input v-model:value="wound.effect" size="small" placeholder="触发反应" />
+                          </div>
+                        </div>
+                      </div>
+                    </n-grid-item>
+                  </n-grid>
                 </n-space>
               </div>
             </n-list-item>
@@ -578,7 +631,7 @@
 <script setup lang="ts">
 import { h, ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
+import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, type WorldSettingDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
@@ -595,9 +648,52 @@ import {
   writeWizardUiCache,
   type WizardUiCachePayload,
 } from '@/utils/wizardStageCache'
-import { drawGachaFullName } from '@/utils/characterNameGacha'
 
 const WB_DIMS = ['core_rules', 'geography', 'society', 'culture', 'daily_life'] as const
+type WorldbuildingDimKey = (typeof WB_DIMS)[number]
+
+const WB_FIELD_ORDER: Record<WorldbuildingDimKey, string[]> = {
+  core_rules: [
+    'power_system',
+    'physics_rules',
+    'magic_tech',
+    'cost_and_limitation',
+    'resource_scarcity',
+  ],
+  geography: [
+    'terrain',
+    'climate',
+    'resources',
+    'ecology',
+    'forbidden_zones',
+    'urban_core',
+    'hidden_realms',
+  ],
+  society: [
+    'politics',
+    'economy',
+    'class_system',
+    'power_structure',
+    'oppression_mechanism',
+    'class_division',
+  ],
+  culture: [
+    'history',
+    'religion',
+    'taboos',
+    'worship',
+    'oaths_and_curses',
+  ],
+  daily_life: [
+    'food_clothing',
+    'language_slang',
+    'entertainment',
+    'survival_tactics',
+    'market_reality',
+    'food_and_drink',
+    'slang_and_profanity',
+  ],
+}
 
 /** 世界观维度 key → 中文标签 */
 const dimKeyLabels: Record<string, string> = {
@@ -656,6 +752,18 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
     culture: {},
     daily_life: {},
   }
+}
+
+function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
+  const block = worldbuildingData.value[dim] || {}
+  const ordered = WB_FIELD_ORDER[dim] || []
+  const known = new Set(ordered)
+  const extras = Object.keys(block)
+    .filter(key => !known.has(key))
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  return [...ordered, ...extras]
+    .map(key => ({ key, value: String(block[key] ?? '') }))
+    .filter(field => field.value.trim().length > 0)
 }
 
 function createEmptyBible(): BibleDTO {
@@ -719,6 +827,28 @@ function mergeWorldbuildingDisplay(
     out[d] = merged
   }
   return out
+}
+
+function buildWorldSettingsForSave(existing: WorldSettingDTO[]): WorldSettingDTO[] {
+  const dimSet = new Set<string>(WB_DIMS)
+  const preserved = (existing || []).filter(setting => {
+    const [dim] = String(setting.name || '').split('.', 1)
+    return !dimSet.has(dim)
+  })
+  const generated: WorldSettingDTO[] = []
+  for (const dim of WB_DIMS) {
+    for (const [key, raw] of Object.entries(worldbuildingData.value[dim])) {
+      const description = String(raw ?? '').trim()
+      if (!description) continue
+      generated.push({
+        id: `${props.novelId}-ws-${dim}-${key}`.replace(/_/g, '-'),
+        name: `${dim}.${key}`,
+        description,
+        setting_type: 'rule',
+      })
+    }
+  }
+  return [...preserved, ...generated]
 }
 
 function styleConventionFromBible(bible: BibleDTO): string {
@@ -867,15 +997,32 @@ function nextPendingWorldbuildingDimension(): string {
 const generatingCharacters = ref(false)
 const charactersGenerated = ref(false)
 const charactersError = ref('')
-const streamingCharacters = ref<Array<{ name: string; role: string; description: string; relationships: BibleRelationshipEntry[] }>>([])
+const streamingCharacters = ref<Array<Partial<EditableCharacter> & { name: string; role: string; description: string }>>([])
 const charactersSseAbort = ref<AbortController | null>(null)
 /** 可编辑的人物列表（从 bibleData 拷贝，用户可修改后确认落库） */
+interface EditableVoiceProfile {
+  style: string
+  sentence_pattern: string
+  speech_tempo: string
+  metaphors?: string[]
+  catchphrases?: string[]
+  [key: string]: unknown
+}
+
+interface EditableWound {
+  description: string
+  trigger: string
+  effect: string
+  [key: string]: string
+}
+
 interface EditableCharacter {
   id: string
   name: string
   role: string
   description: string
   mental_state: string
+  mental_state_reason: string
   verbal_tic: string
   idle_behavior: string
   relationships: BibleRelationshipEntry[]
@@ -884,8 +1031,31 @@ interface EditableCharacter {
   reveal_chapter: number | null
   core_belief: string
   moral_taboos: string[]
-  voice_profile: Record<string, unknown>
-  active_wounds: Array<Record<string, string>>
+  voice_profile: EditableVoiceProfile
+  active_wounds: EditableWound[]
+}
+
+function normalizeVoiceProfile(raw: Record<string, unknown> | undefined): EditableVoiceProfile {
+  return {
+    ...(raw || {}),
+    style: String(raw?.style ?? ''),
+    sentence_pattern: String(raw?.sentence_pattern ?? ''),
+    speech_tempo: String(raw?.speech_tempo ?? ''),
+  }
+}
+
+function normalizeWounds(raw: Array<Record<string, string>> | undefined): EditableWound[] {
+  return (raw || []).map((w) => ({
+    ...w,
+    description: String(w.description ?? ''),
+    trigger: String(w.trigger ?? ''),
+    effect: String(w.effect ?? ''),
+  }))
+}
+
+function formatRelationship(rel: BibleRelationshipEntry | string): string {
+  if (typeof rel === 'string') return rel
+  return rel.relation || rel.description || rel.target || ''
 }
 
 /** 从 CharacterDTO 映射到 EditableCharacter，解析 description 中的 role */
@@ -909,6 +1079,7 @@ function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
     role,
     description: desc,
     mental_state: c.mental_state || '',
+    mental_state_reason: c.mental_state_reason || '',
     verbal_tic: c.verbal_tic || '',
     idle_behavior: c.idle_behavior || '',
     relationships: c.relationships || [],
@@ -917,26 +1088,12 @@ function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
     reveal_chapter: c.reveal_chapter ?? null,
     core_belief: c.core_belief || '',
     moral_taboos: [...(c.moral_taboos || [])],
-    voice_profile: { ...(c.voice_profile || {}) },
-    active_wounds: [...(c.active_wounds || [])] as Array<Record<string, string>>,
+    voice_profile: normalizeVoiceProfile(c.voice_profile || {}),
+    active_wounds: normalizeWounds(c.active_wounds as Array<Record<string, string>> | undefined),
   }
 }
 
 const editableCharacters = ref<EditableCharacter[]>([])
-
-/** 引导页第 2 步：从扩展姓氏池随机组合姓名，尽量避免与本页其他角色重名 */
-function rollCharacterName(idx: number) {
-  const row = editableCharacters.value[idx]
-  if (!row) return
-  const taken = new Set<string>()
-  for (let i = 0; i < editableCharacters.value.length; i++) {
-    if (i === idx) continue
-    const n = editableCharacters.value[i]?.name?.trim()
-    if (n) taken.add(n)
-  }
-  row.name = drawGachaFullName(taken)
-  message.success('已抽卡起名，可再点替换直到满意')
-}
 
 // ── 第3步：SSE 流式生成地点 ──
 const generatingLocations = ref(false)
@@ -1425,7 +1582,15 @@ charactersError.value = ''
       phaseMessage.value = msg
     },
     onCharacter: (char) => {
-      const c = char as { name?: string; role?: string; description?: string; relationships?: BibleRelationshipEntry[] }
+      const c = char as Partial<CharacterDTO> & {
+        role?: string
+        gender?: string
+        age?: string
+        ghost?: string
+        want?: string
+        need?: string
+        flaw?: string
+      }
       if (c.name) {
         // 从 description 中解析 role（后端可能把 role 拼到 description 开头）
         let role = c.role || ''
@@ -1443,6 +1608,17 @@ charactersError.value = ''
           role,
           description: desc,
           relationships: c.relationships || [],
+          public_profile: c.public_profile || '',
+          hidden_profile: c.hidden_profile || '',
+          reveal_chapter: c.reveal_chapter ?? null,
+          mental_state: c.mental_state || '',
+          mental_state_reason: c.mental_state_reason || '',
+          verbal_tic: c.verbal_tic || '',
+          idle_behavior: c.idle_behavior || '',
+          core_belief: c.core_belief || '',
+          moral_taboos: [...(c.moral_taboos || [])],
+          voice_profile: normalizeVoiceProfile(c.voice_profile || {}),
+          active_wounds: normalizeWounds(c.active_wounds as Array<Record<string, string>> | undefined),
         }]
       }
     },
@@ -1754,18 +1930,29 @@ async function saveWorldbuildingEdits(): Promise<boolean> {
     }
     await worldbuildingApi.updateWorldbuilding(props.novelId, wbData as any)
 
-    // 保存文风公约
+    // 保存文风公约。bulk update 是全量替换，必须带回已有 Bible 数据；
+    // 否则会把 SSE 自动落库的 world_settings 清空。
+    const existing = await bibleApi.getBible(props.novelId)
+    const worldSettings = buildWorldSettingsForSave(existing.world_settings || [])
     if (styleText.value) {
       await bibleApi.updateBible(props.novelId, {
-        characters: [],
-        world_settings: [],
-        locations: [],
-        timeline_notes: [],
+        characters: existing.characters || [],
+        world_settings: worldSettings,
+        locations: existing.locations || [],
+        timeline_notes: existing.timeline_notes || [],
         style_notes: [{
           id: `${props.novelId}-style-1`,
           category: '文风公约',
           content: styleText.value,
         }],
+      })
+    } else {
+      await bibleApi.updateBible(props.novelId, {
+        characters: existing.characters || [],
+        world_settings: worldSettings,
+        locations: existing.locations || [],
+        timeline_notes: existing.timeline_notes || [],
+        style_notes: existing.style_notes || [],
       })
     }
     return true
@@ -1778,6 +1965,7 @@ async function saveWorldbuildingEdits(): Promise<boolean> {
 /** 保存步骤2的编辑（人物）到后端 */
 async function saveCharactersEdits(): Promise<boolean> {
   try {
+    const existing = await bibleApi.getBible(props.novelId)
     await bibleApi.updateBible(props.novelId, {
       characters: editableCharacters.value.map((c, idx) => ({
         id: c.id || `${props.novelId}-char-${idx + 1}`,
@@ -1785,6 +1973,7 @@ async function saveCharactersEdits(): Promise<boolean> {
         description: c.description,
         role: c.role,
         mental_state: c.mental_state,
+        mental_state_reason: c.mental_state_reason,
         verbal_tic: c.verbal_tic,
         idle_behavior: c.idle_behavior,
         relationships: c.relationships || [],
@@ -1796,10 +1985,10 @@ async function saveCharactersEdits(): Promise<boolean> {
         voice_profile: c.voice_profile,
         active_wounds: c.active_wounds,
       })),
-      world_settings: [],
-      locations: [],
-      timeline_notes: [],
-      style_notes: [],
+      world_settings: existing.world_settings || [],
+      locations: existing.locations || [],
+      timeline_notes: existing.timeline_notes || [],
+      style_notes: existing.style_notes || [],
     })
     return true
   } catch (e) {
@@ -1840,17 +2029,18 @@ async function runBulkCharacterExtract() {
 /** 保存步骤3的编辑（地点）到后端 */
 async function saveLocationsEdits(): Promise<boolean> {
   try {
+    const existing = await bibleApi.getBible(props.novelId)
     await bibleApi.updateBible(props.novelId, {
-      characters: [],
-      world_settings: [],
+      characters: existing.characters || [],
+      world_settings: existing.world_settings || [],
       locations: editableLocations.value.map(l => ({
         id: l.id || '',
         name: l.name,
         description: l.description,
         location_type: l.location_type || '场景',
       })),
-      timeline_notes: [],
-      style_notes: [],
+      timeline_notes: existing.timeline_notes || [],
+      style_notes: existing.style_notes || [],
     })
     return true
   } catch (e) {
@@ -2243,10 +2433,30 @@ const handleComplete = () => {
 
 .char-card__desc {
   font-size: 13px;
-  color: #666;
+  color: var(--app-text-secondary, var(--n-text-color-2));
   line-height: 1.6;
   margin-top: 8px;
   padding-left: 46px;
+}
+
+.char-card__anchor {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin-top: 6px;
+  padding-left: 46px;
+  color: var(--app-text-primary, var(--n-text-color-1));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.char-card__anchor-label {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
+  color: var(--color-brand, var(--n-primary-color));
+  font-weight: 700;
 }
 
 .char-card__relations {
@@ -2444,14 +2654,83 @@ const handleComplete = () => {
   padding: 4px 0;
 }
 
+.character-editor-list :deep(.n-list-item__main) {
+  width: 100%;
+}
+
+.character-editor-head {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(100px, 150px) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.character-editor-head__name,
+.character-editor-head__role {
+  min-width: 0;
+}
+
+.role-lock-panel {
+  height: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border, var(--n-border-color));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 5%, transparent), transparent 42%),
+    var(--app-surface, var(--n-color-modal));
+}
+
+.role-lock-panel--strong {
+  border-color: color-mix(in srgb, var(--color-brand, #2563eb) 30%, var(--app-border, rgba(15, 23, 42, 0.12)));
+  box-shadow: inset 3px 0 0 var(--color-brand, var(--n-primary-color));
+}
+
+.role-lock-panel__title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-brand, var(--n-primary-color));
+}
+
 .editable-field {
   width: 100%;
+  margin-top: 8px;
 }
 .editable-field__label {
   font-size: 12px;
-  color: #999;
-  margin-bottom: 2px;
+  color: var(--app-text-muted, var(--n-text-color-3));
+  margin-bottom: 4px;
   line-height: 1.4;
+}
+
+.voice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.wound-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wound-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .character-editor-head {
+    grid-template-columns: 1fr;
+  }
+
+  .voice-grid,
+  .wound-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* 步骤导航可点击 */

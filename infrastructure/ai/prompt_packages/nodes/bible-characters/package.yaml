@@ -19,5 +19,9 @@ variables:
   desc: 已有人物
   type: string
   default: ''
+- name: surname_seed
+  desc: 后端预抽取的姓氏种子
+  type: string
+  default: ''
 id: bible-characters
 sort_order: 28

@@ -12,6 +12,7 @@ from application.world.services.worldbuilding_service import WorldbuildingServic
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
+from application.world.services.character_naming import build_character_surname_seed
 from infrastructure.ai.prompt_keys import (
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
     BIBLE_STYLE_CONVENTION,
@@ -139,16 +140,11 @@ _FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = (
 
 _FALLBACK_BIBLE_CHARACTERS_SYSTEM = (
     "你是顶级卡司导演。基于已有世界观生成主要角色阵容（主要角色3-5名，次要角色2-3名）。\n\n"
-    "中文姓名约束：禁用李、王、张、刘、陈、杨、林、赵、周、吴作为姓氏；"
-    "从以下池随机抽选（须有洗牌感）：欧阳、司马、上官、诸葛、慕容、顾、苏、沈、萧、裴、荀等。\n\n"
+    "中文姓名由用户提示中的【命名种子】约束；只输出角色全名，不解释命名过程。\n\n"
     "输出格式：直接输出裸 JSON，禁止 markdown 代码块。"
-    "每个角色对象含 name/gender/age/role/appearance/background/personality/ghost/want/need/flaw/relationship 字段，"
-    "字段值均为单行纯文本，禁止嵌套 JSON。"
-)
-
-_BIBLE_CHARACTERS_NAMING_USER_SUFFIX = (
-    "\n\n【命名】若使用中文人名：禁止使用姓氏李、王、张、刘、陈、杨、林、赵、周、吴；"
-    "每位主要角色姓氏彼此不同；须从系统提示的姓氏卡池中像「抽卡」一样均匀随机选用，勿总用列表前几项。"
+    "每个角色对象必须包含 name/gender/age/role/description/public_profile/hidden_profile/"
+    "mental_state/mental_state_reason/core_belief/moral_taboos/ghost/want/need/flaw/"
+    "verbal_tic/idle_behavior/voice_profile/active_wounds/relationships。"
 )
 
 _FALLBACK_BIBLE_LOCATIONS_SYSTEM = (
@@ -894,24 +890,39 @@ JSON 格式（不要有其他文字）：
         # 2. 同时保存到Bible的world_settings（用于前端显示）
         try:
             logger.debug("Saving worldbuilding to Bible.world_settings")
-            bible = self.bible_service.get_bible_by_novel(novel_id)
-            if not bible:
-                bible_id = f"{novel_id}-bible"
-                self.bible_service.create_bible(bible_id, novel_id)
+            from domain.bible.entities.world_setting import WorldSetting
+            from domain.novel.value_objects.novel_id import NovelId
 
-            # 将5维度数据转换为world_setting条目
-            # WorldSetting的type只能是'rule', 'location', 'item'，所以统一使用'rule'
-            import uuid
+            repo = self.bible_service.bible_repository
+            bible = repo.get_by_novel_id(NovelId(novel_id))
+            if bible is None:
+                self.bible_service.create_bible(f"{novel_id}-bible", novel_id)
+                bible = repo.get_by_novel_id(NovelId(novel_id))
+            if bible is None:
+                raise ValueError(f"Bible not found after create for novel {novel_id}")
+
+            # 将5维度数据转换为 world_setting 条目。同名 dimension.field 必须覆盖旧值，
+            # 否则读取时随机 id 排序可能让旧世界观盖过刚生成的新世界观。
+            incoming_names = {
+                f"{dimension_name}.{key}"
+                for dimension_name, dimension_data in normalized_wb.items()
+                for key in dimension_data
+            }
+            for setting in list(bible.world_settings):
+                if setting.name in incoming_names:
+                    bible.remove_world_setting(setting.id)
+
             for dimension_name, dimension_data in normalized_wb.items():
                 for key, value in dimension_data.items():
-                    setting_id = f"{novel_id}-ws-{uuid.uuid4().hex[:8]}"
-                    self.bible_service.add_world_setting(
-                        novel_id=novel_id,
-                        setting_id=setting_id,
+                    safe_key = f"{dimension_name}-{key}".replace("_", "-")
+                    setting = WorldSetting(
+                        id=f"{novel_id}-ws-{safe_key}",
                         name=f"{dimension_name}.{key}",
                         description=value,
-                        setting_type="rule"  # 统一使用'rule'类型
+                        setting_type="rule",
                     )
+                    bible.add_world_setting(setting)
+            repo.save(bible)
             logger.info("Worldbuilding saved to Bible.world_settings successfully")
         except Exception as e:
             logger.error(f"Failed to save to Bible.world_settings: {e}")
@@ -1223,6 +1234,10 @@ JSON 格式：
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
         wb_summary = self._summarize_worldbuilding(worldbuilding)
+        surname_seed = build_character_surname_seed(
+            8,
+            rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
+        )
 
         from infrastructure.ai.prompt_utils import get_prompt_system
         system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
@@ -1259,23 +1274,43 @@ JSON 格式：
         user_prompt = (
             f"【故事创意】\n{premise}\n\n"
             f"【已有世界观】\n{wb_summary}\n\n"
-            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。\n\n"
+            f"{surname_seed.to_prompt_block()}\n\n"
+            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。"
+            "人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。\n\n"
             "直接输出 JSON（不要包在代码块里），格式：\n"
             '{{\n  "characters": [\n    {{\n'
             '      "name": "角色全名",\n'
             '      "gender": "性别",\n'
             '      "age": "年龄",\n'
             '      "role": "主角/对立角色/盟友/次要角色",\n'
-            '      "appearance": "外貌特征，单行",\n'
-            '      "background": "出身背景与阶层，单行",\n'
-            '      "personality": "性格特点，单行",\n'
+            '      "description": "一句话功能定位与人物矛盾，单行",\n'
+            '      "public_profile": "其他角色可见的身份、阶层、外显行为，单行",\n'
+            '      "hidden_profile": "暂不可见的秘密/真实动机/身份雷区，单行；没有则空字符串",\n'
+            '      "reveal_chapter": null,\n'
+            '      "mental_state": "开局心理状态，2-8字",\n'
+            '      "mental_state_reason": "该心理状态的成因，单行",\n'
+            '      "core_belief": "一句可驱动选择的核心信念",\n'
+            '      "moral_taboos": ["绝不做的事1", "绝不做的事2"],\n'
             '      "ghost": "内心创伤或恐惧",\n'
             '      "want": "表层目标",\n'
             '      "need": "深层需要（角色自己可能不自知）",\n'
             '      "flaw": "致命弱点",\n'
-            '      "relationship": "与其他角色的核心羁绊"\n'
+            '      "verbal_tic": "口头禅或高频话语；没有则空字符串",\n'
+            '      "idle_behavior": "压力下的小动作/待机动作",\n'
+            '      "voice_profile": {\n'
+            '        "style": "话多/克制/讥诮/温和等",\n'
+            '        "sentence_pattern": "短句/长句/反问/命令式/混合",\n'
+            '        "speech_tempo": "fast/normal/slow",\n'
+            '        "metaphors": ["常用隐喻意象"],\n'
+            '        "catchphrases": ["口头禅"]\n'
+            '      },\n'
+            '      "active_wounds": [\n'
+            '        {"description": "未愈合创伤", "trigger": "触发条件", "effect": "触发后的反应"}\n'
+            '      ],\n'
+            '      "relationships": [\n'
+            '        {"target": "其他角色名", "relation": "敌对/师徒/利用/保护等", "description": "张力说明"}\n'
+            '      ]\n'
             "    }}\n  ]\n}}"
-            + _BIBLE_CHARACTERS_NAMING_USER_SUFFIX
         )
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
@@ -1297,28 +1332,52 @@ JSON 格式：
             {"type": "done", "count": int}   — 全部完成
         """
         wb_summary = self._summarize_worldbuilding(worldbuilding)
+        surname_seed = build_character_surname_seed(
+            8,
+            rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
+        )
         from infrastructure.ai.prompt_utils import get_prompt_system
         system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
         user_prompt = (
             f"【故事创意】\n{premise}\n\n"
             f"【已有世界观】\n{wb_summary}\n\n"
-            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。\n\n"
+            f"{surname_seed.to_prompt_block()}\n\n"
+            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。"
+            "人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。\n\n"
             "直接输出 JSON（不要包在代码块里），格式：\n"
             '{{\n  "characters": [\n    {{\n'
             '      "name": "角色全名",\n'
             '      "gender": "性别",\n'
             '      "age": "年龄",\n'
             '      "role": "主角/对立角色/盟友/次要角色",\n'
-            '      "appearance": "外貌特征，单行",\n'
-            '      "background": "出身背景与阶层，单行",\n'
-            '      "personality": "性格特点，单行",\n'
+            '      "description": "一句话功能定位与人物矛盾，单行",\n'
+            '      "public_profile": "其他角色可见的身份、阶层、外显行为，单行",\n'
+            '      "hidden_profile": "暂不可见的秘密/真实动机/身份雷区，单行；没有则空字符串",\n'
+            '      "reveal_chapter": null,\n'
+            '      "mental_state": "开局心理状态，2-8字",\n'
+            '      "mental_state_reason": "该心理状态的成因，单行",\n'
+            '      "core_belief": "一句可驱动选择的核心信念",\n'
+            '      "moral_taboos": ["绝不做的事1", "绝不做的事2"],\n'
             '      "ghost": "内心创伤或恐惧",\n'
             '      "want": "表层目标",\n'
             '      "need": "深层需要（角色自己可能不自知）",\n'
             '      "flaw": "致命弱点",\n'
-            '      "relationship": "与其他角色的核心羁绊"\n'
+            '      "verbal_tic": "口头禅或高频话语；没有则空字符串",\n'
+            '      "idle_behavior": "压力下的小动作/待机动作",\n'
+            '      "voice_profile": {\n'
+            '        "style": "话多/克制/讥诮/温和等",\n'
+            '        "sentence_pattern": "短句/长句/反问/命令式/混合",\n'
+            '        "speech_tempo": "fast/normal/slow",\n'
+            '        "metaphors": ["常用隐喻意象"],\n'
+            '        "catchphrases": ["口头禅"]\n'
+            '      },\n'
+            '      "active_wounds": [\n'
+            '        {"description": "未愈合创伤", "trigger": "触发条件", "effect": "触发后的反应"}\n'
+            '      ],\n'
+            '      "relationships": [\n'
+            '        {"target": "其他角色名", "relation": "敌对/师徒/利用/保护等", "description": "张力说明"}\n'
+            '      ]\n'
             "    }}\n  ]\n}}"
-            + _BIBLE_CHARACTERS_NAMING_USER_SUFFIX
         )
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=4096, temperature=0.7)

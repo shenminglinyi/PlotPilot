@@ -106,7 +106,19 @@ class BibleService:
         character_id: str,
         name: str,
         description: str,
-        relationships: list = None
+        relationships: list = None,
+        *,
+        public_profile: str = "",
+        hidden_profile: str = "",
+        reveal_chapter: int = None,
+        mental_state: str = "NORMAL",
+        mental_state_reason: str = "",
+        verbal_tic: str = "",
+        idle_behavior: str = "",
+        core_belief: str = "",
+        moral_taboos: list = None,
+        voice_profile: dict = None,
+        active_wounds: list = None,
     ) -> BibleDTO:
         """添加人物
 
@@ -132,6 +144,17 @@ class BibleService:
             name=name,
             description=description,
             relationships=relationships or [],
+            public_profile=public_profile or "",
+            hidden_profile=hidden_profile or "",
+            reveal_chapter=reveal_chapter,
+            mental_state=mental_state or "NORMAL",
+            mental_state_reason=mental_state_reason or "",
+            verbal_tic=verbal_tic or "",
+            idle_behavior=idle_behavior or "",
+            core_belief=core_belief or "",
+            moral_taboos=list(moral_taboos or []),
+            voice_profile=dict(voice_profile or {}),
+            active_wounds=list(active_wounds or []),
         )
         bible.add_character(character)
         self.bible_repository.save(bible)

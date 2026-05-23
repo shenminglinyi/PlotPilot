@@ -66,6 +66,49 @@ WORLDBUILDING_DIMENSION_DEFS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+WORLDBUILDING_FIELD_SCOPE_HINTS: Dict[str, Dict[str, str]] = {
+    "core_rules": {
+        "power_system": "只写境界/能力分类和升级路径；不要写具体代价、资源、禁术案例",
+        "physics_rules": "只写天道/因果/空间/寿元等底层自然法则；不要写宗门政治和地名",
+        "magic_tech": "只写法术、炼丹、炼器、阵法等技术怎么运作；不要写资源价格和社会制度",
+        "cost_and_limitation": "只写使用力量会付出的身体、寿元、神魂或心理代价；不要重复境界列表",
+        "resource_scarcity": "只写灵石、灵药、法宝材料等稀缺物及垄断方式；不要写地形大段介绍",
+    },
+    "geography": {
+        "terrain": "只写世界版图、地貌和空间边界；不要写宗门名单、矿工制度或禁区细节",
+        "climate": "只写气候、天象、季节和环境对修炼的影响；不要写政治和经济",
+        "resources": "只写资源分布在哪里、为何难取；不要写货币制度和市场交易",
+        "ecology": "只写妖兽、灵植、生物链和环境危险；不要写人族阶级制度",
+        "forbidden_zones": "只写禁区名称、危险机制和进入代价；不要写普通地形总览",
+        "urban_core": "只写核心城市/聚居地的功能、控制者和叙事用途；不要写整洲地图",
+        "hidden_realms": "只写秘境、洞天、隐藏空间的开启规则和风险；不要写社会制度",
+    },
+    "society": {
+        "politics": "只写统治结构和明面规则；不要写经济价格、宗教神话或日常生活",
+        "economy": "只写货币、贸易、黑市和资源流通；不要写阶级身份大段定义",
+        "class_system": "只写阶级层级和身份差异；不要写具体压迫手段细节",
+        "power_structure": "只写明暗权力如何分工、谁能拍板；不要写货币和日常细节",
+        "oppression_mechanism": "只写强者控制弱者的具体机制；不要重复阶级名单",
+        "class_division": "只写阶层流动壁垒和跨层代价；不要写政治组织沿革",
+    },
+    "culture": {
+        "history": "只写关键历史事件及遗留后果；不要写娱乐、教育和通信",
+        "religion": "只写信仰叙事和神话如何服务秩序；不要写禁忌清单",
+        "taboos": "只写禁忌、触犯后果和维稳用途；不要写完整历史",
+        "worship": "只写祭祀、仪式、崇拜对象和参与者；不要写宗门政治",
+        "oaths_and_curses": "只写誓言、诅咒、血契等约束机制；不要写普通宗教教义",
+    },
+    "daily_life": {
+        "food_clothing": "只写衣食住行和生活成本；不要写完整社会阶级",
+        "language_slang": "只写方言、称呼、口头禅和说话习惯；必须给2-4个可入正文的短语",
+        "entertainment": "只写娱乐、节庆、赌博、斗法观看等消遣；不要写教育通信",
+        "survival_tactics": "只写底层、散修、凡人的保命办法；不要写市场价格表",
+        "market_reality": "只写坊市、黑市、交易规则、骗术和保护费；不要写普通衣食住行",
+        "food_and_drink": "只写饮食、酒水、药膳和阶层差异；不要写居住与交通",
+        "slang_and_profanity": "只写粗话、黑话、暗号、忌讳称呼；必须给3-5个短句或词",
+    },
+}
+
 # LLM 常见自创键 → 规范字段（按维度）
 DIMENSION_FIELD_ALIASES: Dict[str, Dict[str, str]] = {
     "core_rules": {
@@ -251,8 +294,10 @@ def build_fields_desc_for_prompt(dimension_keys: Any = None) -> str:
         fields = list(dim_def["fields"].items())
         for idx, (fk, desc) in enumerate(fields):
             comma = "," if idx < len(fields) - 1 else ""
+            scope = WORLDBUILDING_FIELD_SCOPE_HINTS.get(dim_key, {}).get(fk, "")
+            scope_text = f"{scope}；" if scope else ""
             lines.append(
-                f'      "{fk}": "（{desc}。写一段60-120字中文正文；只写一段；勿嵌套JSON或英文键）"{comma}'
+                f'      "{fk}": "（{desc}。{scope_text}只写1-2句、60-120字、单段；不得换行；勿嵌套JSON或英文键）"{comma}'
             )
         dim_comma = "," if dim_key != keys[-1] else ""
         lines.append(f"    }}{dim_comma}")

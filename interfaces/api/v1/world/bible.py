@@ -454,6 +454,25 @@ async def _sse_bible_generator(
             except Exception as e:
                 logger.error("Failed to stream full worldbuilding: %s", e)
 
+            # Field-level streaming can succeed even when the final dimension object
+            # cannot be parsed as strict JSON (common when models emit raw newlines in
+            # long strings). Persist every accumulated dimension here so the UI does not
+            # show freshly generated fields that vanish after reload.
+            for dim_key, dim_data in accumulated_wb.items():
+                if dim_key in saved_dims or not dim_data:
+                    continue
+                try:
+                    await bible_generator._save_worldbuilding(
+                        novel_id, {dim_key: dim_data},
+                    )
+                    saved_dims.add(dim_key)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to save accumulated dimension %s via SSE finalizer: %s",
+                        dim_key,
+                        e,
+                    )
+
             yield _sse_fmt("phase", {"phase": "worldbuilding_done", "message": "世界观生成完成！"})
 
         if stage in ("all", "characters"):
@@ -491,6 +510,17 @@ async def _sse_bible_generator(
                             name=char_data["name"],
                             description=f"{char_data.get('role', '')} - {char_data.get('description', '')}",
                             relationships=char_data.get("relationships", []),
+                            public_profile=char_data.get("public_profile") or "",
+                            hidden_profile=char_data.get("hidden_profile") or "",
+                            reveal_chapter=char_data.get("reveal_chapter"),
+                            mental_state=char_data.get("mental_state") or "NORMAL",
+                            mental_state_reason=char_data.get("mental_state_reason") or "",
+                            verbal_tic=char_data.get("verbal_tic") or "",
+                            idle_behavior=char_data.get("idle_behavior") or "",
+                            core_belief=char_data.get("core_belief") or "",
+                            moral_taboos=char_data.get("moral_taboos") or [],
+                            voice_profile=char_data.get("voice_profile") or {},
+                            active_wounds=char_data.get("active_wounds") or [],
                         )
                         character_ids.append((character_id, char_data))
                     except Exception:
