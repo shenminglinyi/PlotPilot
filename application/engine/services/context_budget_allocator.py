@@ -16,9 +16,7 @@
 import asyncio
 import concurrent.futures
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from application.engine.dtos.scene_director_dto import SceneDirectorInput, coerce_scene_director
@@ -34,6 +32,11 @@ from infrastructure.persistence.database.worldbuilding_repository import Worldbu
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.ai.vector_retrieval_facade import VectorRetrievalFacade
+from application.engine.services.context_budget_models import (
+    BudgetAllocation,
+    ContextSlot,
+    PriorityTier,
+)
 from application.engine.services.context_slot_providers import (
     build_narrative_promise_slot_content,
 )
@@ -51,79 +54,6 @@ def _sync_run_async(coro):
     # 已在事件循环中：在新线程中运行
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(lambda: asyncio.run(coro)).result()
-
-
-class PriorityTier(str, Enum):
-    """优先级层级（洋葱模型）"""
-    T0_CRITICAL = "t0_critical"      # 绝对不删减
-    T1_COMPRESSIBLE = "t1_compressible"  # 按比例压缩
-    T2_DYNAMIC = "t2_dynamic"        # 动态水位线
-    T3_SACRIFICIAL = "t3_sacrificial"  # 可牺牲泡沫
-
-
-@dataclass
-class ContextSlot:
-    """上下文槽位"""
-    name: str
-    tier: PriorityTier
-    content: str = ""
-    tokens: int = 0
-    max_tokens: Optional[int] = None  # None 表示无上限
-    min_tokens: int = 0  # 最小保留量
-    priority: int = 0  # 同层级内的优先级（越大越优先）
-    
-    @property
-    def is_mandatory(self) -> bool:
-        """是否强制保留"""
-        return self.tier == PriorityTier.T0_CRITICAL
-
-
-@dataclass
-class BudgetAllocation:
-    """预算分配结果"""
-    slots: Dict[str, ContextSlot] = field(default_factory=dict)
-    total_budget: int = 35000
-    used_tokens: int = 0
-    remaining_tokens: int = 0
-    
-    # 分配详情
-    t0_reserved: int = 0
-    t1_allocated: int = 0
-    t2_allocated: int = 0
-    t3_allocated: int = 0
-    
-    # 压缩标记
-    compression_applied: bool = False
-    compression_log: List[str] = field(default_factory=list)
-    expired_foreshadows: List[str] = field(default_factory=list)
-    
-    # V7 全局收敛沙漏
-    progress: float = 0.0           # 全局进度 0.0 ~ 1.0
-    phase: StoryPhase = StoryPhase.OPENING  # 当前生命周期阶段
-    total_chapters: int = 0         # 目标总章节数
-    
-    def get_final_context(self) -> str:
-        """组装最终上下文"""
-        parts = []
-        
-        # 按层级顺序组装（T0 → T1 → T2 → T3）
-        for tier in [PriorityTier.T0_CRITICAL, PriorityTier.T1_COMPRESSIBLE, 
-                     PriorityTier.T2_DYNAMIC, PriorityTier.T3_SACRIFICIAL]:
-            tier_slots = [(name, slot) for name, slot in self.slots.items() if slot.tier == tier]
-            tier_slots.sort(key=lambda x: x[1].priority, reverse=True)
-            
-            for name, slot in tier_slots:
-                if slot.content.strip():
-                    parts.append(f"\n=== {slot.name.upper()} ===\n{slot.content}")
-        
-        # 追加强制收束指令
-        if self.expired_foreshadows:
-            parts.append("\n=== 🚨强制剧情收束令🚨 ===\n" + 
-                         "以下伏笔已超出预期揭晓章节，必须在本章或本节拍的行文中，通过回忆、对话、意外发展或直接揭露等方式去解答或明显推进悬念：\n" + 
-                         "\n".join(f"- {f}" for f in self.expired_foreshadows) + 
-                         "\n【如果你无视此指令，长篇小说的情节网将陷入崩溃】")
-        
-        return "\n".join(parts)
 
 
 class ContextBudgetAllocator:
