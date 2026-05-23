@@ -2,10 +2,13 @@
   <div class="worldline-dag">
     <!-- Header -->
     <div class="wl-header">
-      <n-text strong style="font-size: 14px">世界线</n-text>
+      <div class="wl-title-block">
+        <n-text strong style="font-size: 14px">世界线版本图</n-text>
+        <span>{{ nodes.length }} 个存档 · {{ graphData.branches.length }} 条分支</span>
+      </div>
       <n-space :size="8">
         <n-button size="small" :loading="saving" @click="handleManualCheckpoint">
-          ＋ 存档
+          创建存档
         </n-button>
         <n-button size="small" :loading="loading" @click="load">刷新</n-button>
       </n-space>
@@ -115,7 +118,7 @@
               :loading="actionLoading === 'checkout'"
               @click="handleCheckout"
             >
-              ⎇ Checkout（保留当前）
+              切换到此存档
             </n-button>
 
             <!-- Create Branch from here -->
@@ -125,7 +128,7 @@
               block
               @click="showBranchDialog = true"
             >
-              ⑂ 从此分叉新支线
+              从此分叉
             </n-button>
 
             <!-- Hard Reset -->
@@ -137,7 +140,7 @@
               :loading="actionLoading === 'hard-reset'"
               @click="handleHardReset"
             >
-              ⚠ Hard Reset（破坏性）
+              重置到此处
             </n-button>
 
             <!-- Delete -->
@@ -517,6 +520,19 @@ async function handleCreateBranch() {
   padding: 12px 16px;
   border-bottom: 1px solid var(--plotpilot-split-border);
   flex-shrink: 0;
+  background: var(--app-surface-elevated, var(--app-surface));
+}
+
+.wl-title-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wl-title-block span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
 }
 
 .wl-body {
@@ -531,7 +547,11 @@ async function handleCreateBranch() {
   flex: 1;
   min-width: 0;
   overflow: auto;
-  padding: 8px 4px;
+  padding: 14px 12px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-primary, #2563eb) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--color-primary, #2563eb) 5%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
 .wl-svg {
@@ -541,9 +561,9 @@ async function handleCreateBranch() {
 }
 
 .wl-edge {
-  stroke: var(--n-border-color, #e0e0e0);
-  stroke-width: 2;
-  opacity: 0.7;
+  stroke: color-mix(in srgb, var(--app-text-muted, #64748b) 42%, transparent);
+  stroke-width: 1.7;
+  opacity: 0.75;
 }
 
 .wl-node-g {
@@ -551,13 +571,13 @@ async function handleCreateBranch() {
 }
 
 .wl-node-g:hover .wl-node-circle {
-  filter: brightness(1.2);
-  stroke: rgba(255,255,255,0.5);
+  filter: brightness(1.08);
+  stroke: var(--app-surface);
   stroke-width: 2;
 }
 
 .wl-node-g--selected .wl-node-circle {
-  stroke: white;
+  stroke: var(--app-text-primary, #111827);
   stroke-width: 2.5;
 }
 
@@ -569,11 +589,13 @@ async function handleCreateBranch() {
 
 .wl-node-circle {
   transition: filter 0.15s;
+  stroke: var(--app-surface);
+  stroke-width: 1.5;
 }
 
 .wl-node-label {
   font-size: 11px;
-  fill: var(--n-text-color, #333);
+  fill: var(--app-text-primary, #333);
   pointer-events: none;
 }
 
@@ -588,14 +610,15 @@ async function handleCreateBranch() {
 }
 
 .wl-detail {
-  width: 190px;
+  width: 230px;
   flex-shrink: 0;
-  padding: 14px 12px;
+  padding: 14px;
   border-left: 1px solid var(--plotpilot-split-border);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0;
+  background: var(--app-surface);
 }
 
 .wl-detail--empty {

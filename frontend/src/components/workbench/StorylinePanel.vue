@@ -13,7 +13,7 @@
       <n-space class="header-actions" :size="8" align="center" :wrap="false">
         <n-radio-group v-model:value="viewMode" size="small" class="view-switcher">
           <n-radio-button value="list">列表</n-radio-button>
-          <n-radio-button value="graph">Git Graph</n-radio-button>
+          <n-radio-button value="graph">分支图</n-radio-button>
         </n-radio-group>
         <n-button
           class="panel-header-btn"
@@ -37,7 +37,7 @@
       </n-space>
     </header>
 
-    <!-- Git Graph 视图 -->
+    <!-- 分支图视图 -->
     <div v-if="viewMode === 'graph'" class="panel-graph">
       <StorylineGitGraph :slug="slug" :current-chapter="currentChapterNumber" />
     </div>

@@ -21,6 +21,14 @@
       </section>
 
       <section
+        v-show="workspace.activeTab === 'governance'"
+        class="ap-workspace__pane ap-workspace__pane--governance"
+        aria-label="总编辑驾驶舱"
+      >
+        <NarrativeGovernanceCockpit :novel-id="novelId" />
+      </section>
+
+      <section
         v-show="workspace.activeTab === 'dashboard'"
         class="ap-workspace__pane"
         aria-label="仪表盘"
@@ -53,6 +61,7 @@ import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 import { useDAGSSE } from '@/composables/useDAGSSE'
 import AutopilotShellNav from './AutopilotShellNav.vue'
 import AutopilotPanel from './AutopilotPanel.vue'
+import NarrativeGovernanceCockpit from './NarrativeGovernanceCockpit.vue'
 import AutopilotMetricsDashboard from './AutopilotMetricsDashboard.vue'
 import AutopilotOperationsView from './AutopilotOperationsView.vue'
 
@@ -148,6 +157,11 @@ function onBeatsPlanned(payload: { chapterNumber: number; beats: Array<Record<st
 
 .ap-workspace__pane--cockpit {
   overflow-y: auto;
+  background: var(--app-page-bg);
+}
+
+.ap-workspace__pane--governance {
+  overflow: hidden;
   background: var(--app-page-bg);
 }
 

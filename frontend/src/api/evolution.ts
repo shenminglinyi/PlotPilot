@@ -35,6 +35,16 @@ export interface EvolutionGateReport {
   }>
   required_continuations: string[]
   repair_plan: string[]
+  governance_budget?: {
+    chapter_number: number
+    max_new_storylines: number
+    max_debt_closures: number
+    allowed_reveal_level: string
+    must_serve_promise_tags: string[]
+    carry_over_debt_ids: string[]
+    notes: string[]
+  } | null
+  governance_context_request?: Record<string, unknown>
 }
 
 export const evolutionApi = {

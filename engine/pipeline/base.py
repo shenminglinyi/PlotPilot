@@ -114,6 +114,9 @@ class BaseStoryPipeline(ABC):
                     chapter_target_words=ctx.target_word_count,
                 )
 
+            # 1b. 叙事治理准备：生成章节预算与上下文请求，作为后续上下文组装的硬约束输入。
+            await self._step_prepare_governance(ctx)
+
             # 2. 组装上下文（四层洋葱挤压）
             r = await self._step_build_context(ctx)
             step_status["build_context"] = "ok" if r.passed else "failed"
@@ -241,6 +244,67 @@ class BaseStoryPipeline(ABC):
         except Exception as e:
             return StepResult.fail(f"章节定位失败: {e}")
 
+    async def _step_prepare_governance(self, ctx: PipelineContext) -> StepResult:
+        """步骤1b：从叙事治理层领取本章预算。
+
+        失败不阻断生成；治理报告会在章后提交闸门再次落库。
+        """
+        try:
+            from application.governance.service import NarrativeGovernanceService
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_governance_repository import (
+                SqliteGovernanceRepository,
+            )
+            from infrastructure.persistence.database.sqlite_storyline_repository import (
+                SqliteStorylineRepository,
+            )
+
+            db = get_database()
+            governance = NarrativeGovernanceService(
+                SqliteGovernanceRepository(db),
+                ctx.novel_repository,
+                SqliteStorylineRepository(db),
+                db,
+            )
+            prepared = governance.prepare_chapter(ctx.novel_id, ctx.chapter_number)
+            ctx.governance_budget = prepared.get("budget") or {}
+            ctx.governance_context_request = prepared.get("context_request") or {}
+            ctx.metadata["governance_budget"] = ctx.governance_budget
+            ctx.metadata["governance_context_request"] = ctx.governance_context_request
+            try:
+                from application.evolution.services.gate_service import EvolutionGateService
+                from infrastructure.persistence.database.sqlite_evolution_repository import (
+                    SqliteEvolutionRepository,
+                )
+
+                continuity = EvolutionGateService(SqliteEvolutionRepository(db)).check(
+                    novel_id=ctx.novel_id,
+                    chapter_number=ctx.chapter_number,
+                    branch_id="main",
+                    outline_content=ctx.outline or "",
+                )
+                ctx.evolution_continuity_report = continuity.to_dict()
+                ctx.metadata["evolution_continuity_report"] = ctx.evolution_continuity_report
+                if not continuity.is_pass:
+                    return StepResult.fail(
+                        "写前连续性检查未通过：" + "；".join(continuity.repair_plan[:3])
+                    )
+            except Exception as gate_error:
+                logger.warning("[%s] 写前连续性检查失败: %s", ctx.novel_id, gate_error)
+            _writing_progress(
+                ctx,
+                "governance_prepare",
+                "叙事预算与连续性",
+                pipeline_wave_index=1,
+                current_chapter_number=ctx.chapter_number,
+                governance_budget=ctx.governance_budget,
+                evolution_continuity_report=ctx.evolution_continuity_report,
+            )
+            return StepResult.ok("叙事治理预算已准备")
+        except Exception as e:
+            logger.warning("[%s] 叙事治理预算准备失败: %s", ctx.novel_id, e)
+            return StepResult.skip_step(f"叙事治理预算准备失败: {e}")
+
     async def _step_build_context(self, ctx: PipelineContext) -> StepResult:
         """步骤2：组装上下文（四层洋葱挤压）
 
@@ -293,6 +357,23 @@ class BaseStoryPipeline(ABC):
                 ctx.voice_anchors = ctx.context_builder.build_voice_anchor_system_section(ctx.novel_id)
             except Exception:
                 ctx.voice_anchors = ""
+
+        # ─── 叙事治理预算（T0 强制层）：总编辑模型给本章的结构边界 ────
+        if ctx.governance_budget:
+            budget = ctx.governance_budget
+            tags = "、".join(budget.get("must_serve_promise_tags") or [])
+            notes = "\n".join(f"- {note}" for note in (budget.get("notes") or []))
+            lines = [
+                "\n\n=== 本章叙事治理预算 ===",
+                f"- 最多新增故事线：{budget.get('max_new_storylines', 0)}",
+                f"- 最多回收叙事债务：{budget.get('max_debt_closures', 0)}",
+                f"- 允许揭秘等级：{budget.get('allowed_reveal_level', 'hint')}",
+            ]
+            if tags:
+                lines.append(f"- 必须服务承诺标签：{tags}")
+            if notes:
+                lines.append(notes)
+            ctx.context_text = (ctx.context_text or "") + "\n".join(lines)
 
         # ─── 伏笔主动注入（T0 强制层）：本章应推进/兑现的待回收伏笔 ────
         if ctx.foreshadowing_repository is not None:

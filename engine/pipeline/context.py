@@ -52,6 +52,9 @@ class PipelineContext:
     context_tokens: int = 0                      # 上下文 token 数
     voice_anchors: str = ""                      # 声线锚点
     bundle: Optional[Dict[str, Any]] = None      # chapter_workflow.prepare_chapter_generation() 的完整 bundle
+    governance_budget: Optional[Dict[str, Any]] = None
+    governance_context_request: Optional[Dict[str, Any]] = None
+    evolution_continuity_report: Optional[Dict[str, Any]] = None
 
     # ═══ 步骤3产出：节拍 ═══
     beats: List[Any] = field(default_factory=list)  # Beat 列表

@@ -3,10 +3,10 @@
     <!-- ======== 顶部工具栏 ======== -->
     <header class="gg-header">
       <div class="gg-header-left">
-        <span class="gg-logo">⌥</span>
-        <h3 class="gg-title">Git Graph · 叙事版本控制</h3>
+        <span class="gg-logo" aria-hidden="true" />
+        <h3 class="gg-title">故事线分支图</h3>
         <n-tag size="tiny" round :bordered="false" type="info">
-          {{ tracks.length }} tracks · {{ commits.length }} commits
+          {{ tracks.length }} 线 · {{ commits.length }} 节点
         </n-tag>
       </div>
       <div class="gg-header-right">
@@ -17,7 +17,7 @@
         <n-tooltip trigger="hover">
           <template #trigger>
             <n-button size="tiny" quaternary @click="toggleZoom">
-              {{ zoomed ? '⊖ 收起' : '⊕ 放大' }}
+              {{ zoomed ? '收起' : '放大' }}
             </n-button>
           </template>
           切换视图密度

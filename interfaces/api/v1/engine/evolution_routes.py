@@ -76,7 +76,7 @@ async def gate(
     req: GateRequest,
     service: EvolutionGateService = Depends(get_evolution_gate_service),
 ) -> Dict[str, Any]:
-    return service.check(
+    report = service.check(
         novel_id=novel_id,
         chapter_number=req.chapter_number,
         branch_id=req.branch_id,
@@ -84,6 +84,47 @@ async def gate(
         pov_character_id=req.pov_character_id,
         tags=req.tags,
     ).to_dict()
+    try:
+        from application.governance.service import NarrativeGovernanceService
+        from infrastructure.persistence.database.connection import get_database
+        from infrastructure.persistence.database.sqlite_governance_repository import (
+            SqliteGovernanceRepository,
+        )
+        from infrastructure.persistence.database.sqlite_storyline_repository import (
+            SqliteStorylineRepository,
+        )
+        from interfaces.api.dependencies import get_novel_repository
+
+        db = get_database()
+        governance = NarrativeGovernanceService(
+            SqliteGovernanceRepository(db),
+            get_novel_repository(),
+            SqliteStorylineRepository(db),
+            db,
+        )
+        prepared = governance.prepare_chapter(novel_id, req.chapter_number)
+        budget = prepared.get("budget") or {}
+        tags_to_serve = list(budget.get("must_serve_promise_tags") or [])
+        outline = req.outline_content or ""
+        missing_tags = [tag for tag in tags_to_serve if tag and tag not in outline]
+        report["governance_budget"] = budget
+        report["governance_context_request"] = prepared.get("context_request") or {}
+        if missing_tags:
+            report.setdefault("violations", []).append(
+                {
+                    "level": "warning",
+                    "type": "GOVERNANCE_PROMISE_TAG_MISSING",
+                    "message": "下一章大纲尚未服务治理预算要求的承诺标签：" + "、".join(missing_tags[:4]),
+                    "suggestion": "至少让一个承诺标签进入行动、代价或发现，而不是只停留在设定说明。",
+                }
+            )
+            report.setdefault("repair_plan", []).append(
+                "补入承诺标签：" + "、".join(missing_tags[:4])
+            )
+    except Exception:
+        report["governance_budget"] = None
+        report["governance_context_request"] = {}
+    return report
 
 
 @router.post("/snapshots/{chapter_number}/overrides")

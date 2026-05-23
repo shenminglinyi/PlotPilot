@@ -75,6 +75,7 @@ from interfaces.api.v1.engine import (
     character_scheduler_routes,  # 角色调度API（正式功能）
     checkpoint_routes,  # Checkpoint + QualityGuardrail + StoryPhase
     narrative_engine_routes,  # 小说家向叙事引擎只读聚合
+    governance_routes,  # 总编辑叙事治理层
     worldline_routes,  # 世界线管理（故事 Git 模型）
     evolution_routes,  # 故事演进状态机
 )
@@ -986,6 +987,7 @@ app.include_router(character_scheduler_routes.router,     prefix=_V1)  # /charac
 app.include_router(checkpoint_routes.router,              prefix=_V1)  # Checkpoint + QualityGuardrail + StoryPhase + CharacterPsyche
 app.include_router(narrative_engine_routes.router,          prefix=_V1)
 app.include_router(narrative_engine_routes.surface_router, prefix=_V1)  # 叙事引擎 read model（故事演进 / 角色声线）
+app.include_router(governance_routes.router,               prefix=_V1)  # 总编辑叙事治理层
 app.include_router(worldline_routes.router,                prefix=_V1)  # 世界线管理（故事 Git 模型）
 app.include_router(evolution_routes.router,                prefix=_V1)  # 故事演进状态机
 app.include_router(prop_routes.router,                     prefix=_V1)  # 道具全周期管理
