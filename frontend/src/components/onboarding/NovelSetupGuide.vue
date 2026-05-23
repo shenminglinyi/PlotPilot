@@ -513,6 +513,10 @@
 
           <div v-if="plotSuggesting && !plotOptions.length" style="width: 100%">
             <WizardSkeleton type="storyline" />
+            <div v-if="plotSuggestRawPreview" class="plot-stream-preview">
+              {{ plotSuggestRawPreview }}
+              <span class="streaming-cursor">▎</span>
+            </div>
           </div>
 
           <div v-if="!customMode" class="plot-options-block">
@@ -634,7 +638,7 @@ import { useMessage, useDialog } from 'naive-ui'
 import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, type WorldSettingDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
-import { workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
+import { consumeMainPlotOptionsStream, workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
@@ -1114,6 +1118,7 @@ const customLogline = ref('')
 const adoptingPlotId = ref<string | null>(null)
 const adoptingCustom = ref(false)
 const step4RestoredFromCache = ref(false)
+const plotSuggestRawPreview = ref('')
 
 const chapterEndForStoryline = computed(() => Math.max(1, props.targetChapters ?? 100))
 
@@ -1133,20 +1138,57 @@ async function loadPlotSuggestions() {
   step4RestoredFromCache.value = false
   plotSuggesting.value = true
   plotSuggestError.value = ''
+  plotOptions.value = []
+  plotSuggestRawPreview.value = ''
   try {
-    const res = await workflowApi.suggestMainPlotOptions(props.novelId)
-    plotOptions.value = res.plot_options || []
+    let streamError = ''
+    await consumeMainPlotOptionsStream(props.novelId, {
+      onPhase: (message) => {
+        if (message) phaseMessage.value = message
+      },
+      onChunk: (text) => {
+        if (!text) return
+        plotSuggestRawPreview.value = `${plotSuggestRawPreview.value}${text}`.slice(-1600)
+      },
+      onOption: (option) => {
+        if (!option?.id) return
+        const idx = plotOptions.value.findIndex(o => o.id === option.id)
+        if (idx >= 0) {
+          plotOptions.value.splice(idx, 1, option)
+        } else {
+          plotOptions.value = [...plotOptions.value, option]
+        }
+      },
+      onDone: (options) => {
+        if (options.length) plotOptions.value = options
+      },
+      onError: (message) => {
+        streamError = message || '流式推演失败'
+      },
+    })
+    if (streamError && !plotOptions.value.length) {
+      throw new Error(streamError)
+    }
     if (plotOptions.value.length) {
       writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
     }
   } catch (e: unknown) {
-    let msg = formatApiError(e) || '推演失败，请重试'
-    if (isLikelyTimeoutError(e)) {
-      msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
+    try {
+      const res = await workflowApi.suggestMainPlotOptions(props.novelId)
+      plotOptions.value = res.plot_options || []
+      if (plotOptions.value.length) {
+        writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
+      }
+    } catch (fallbackError: unknown) {
+      let msg = formatApiError(fallbackError) || formatApiError(e) || '推演失败，请重试'
+      if (isLikelyTimeoutError(fallbackError) || isLikelyTimeoutError(e)) {
+        msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
+      }
+      plotSuggestError.value = msg
     }
-    plotSuggestError.value = msg
   } finally {
     plotSuggesting.value = false
+    phaseMessage.value = ''
   }
 }
 
@@ -2292,6 +2334,21 @@ const handleComplete = () => {
   color: var(--color-brand, var(--n-primary-color));
   font-size: 11px;
   font-weight: 700;
+}
+
+.plot-stream-preview {
+  margin-top: 12px;
+  padding: 12px 14px;
+  max-height: 160px;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--app-border, var(--n-border-color));
+  background: var(--app-surface-subtle, var(--n-color-modal));
+  color: var(--app-text-secondary, var(--n-text-color-2));
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @keyframes field-appear {

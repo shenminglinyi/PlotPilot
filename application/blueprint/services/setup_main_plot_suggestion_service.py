@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
@@ -15,6 +15,56 @@ from application.ai.knowledge_llm_contract import parse_json_from_response
 logger = logging.getLogger(__name__)
 
 SETUP_TASK_MARKER = "setup_main_plot_options_v1"
+
+
+def _try_extract_next_plot_option(buf: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    """从流式 JSON buffer 中提取 plot_options 数组里的下一个完整对象。"""
+    m = re.search(r'"plot_options"\s*:\s*\[', buf)
+    if m is None:
+        return None
+    arr_start = m.end()
+    depth = 0
+    in_string = False
+    escape_next = False
+    obj_start: Optional[int] = None
+
+    i = arr_start
+    while i < len(buf):
+        ch = buf[i]
+        if escape_next:
+            escape_next = False
+            i += 1
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            i += 1
+            continue
+        if ch == '"' and not escape_next:
+            in_string = not in_string
+            i += 1
+            continue
+        if in_string:
+            i += 1
+            continue
+        if ch == "{":
+            if depth == 0:
+                obj_start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and obj_start is not None:
+                obj_str = buf[obj_start:i + 1]
+                try:
+                    parsed = json.loads(obj_str)
+                except json.JSONDecodeError:
+                    return None
+                rest_start = i + 1
+                while rest_start < len(buf) and buf[rest_start] in " ,\n\r\t":
+                    rest_start += 1
+                remaining = '{"plot_options": [' + buf[rest_start:]
+                return parsed, remaining
+        i += 1
+    return None
 
 
 class SetupMainPlotSuggestionService:
@@ -167,7 +217,7 @@ class SetupMainPlotSuggestionService:
             },
         ]
 
-    async def suggest_options(self, novel_id: str) -> List[Dict[str, str]]:
+    def _build_prompt_and_config(self, novel_id: str) -> Tuple[Dict[str, Any], Prompt, GenerationConfig]:
         ctx = self._build_context(novel_id)
         user_blob = json.dumps(ctx, ensure_ascii=False, indent=2)
 
@@ -189,7 +239,10 @@ class SetupMainPlotSuggestionService:
             prompt = Prompt(system=system, user=user)
 
         config = GenerationConfig(max_tokens=2048, temperature=0.85)
+        return ctx, prompt, config
 
+    async def suggest_options(self, novel_id: str) -> List[Dict[str, str]]:
+        ctx, prompt, config = self._build_prompt_and_config(novel_id)
         try:
             result = await self._llm.generate(prompt, config)
             raw_list = self._parse_plot_json(result.content)
@@ -205,3 +258,61 @@ class SetupMainPlotSuggestionService:
             logger.warning("Main plot suggestion LLM parse failed: %s", e)
 
         return self._fallback_options(ctx)
+
+    async def stream_suggest_options(self, novel_id: str) -> AsyncIterator[Dict[str, Any]]:
+        """流式推演主线候选：chunk 透传 + option 增量解析 + done 兜底。"""
+        ctx, prompt, config = self._build_prompt_and_config(novel_id)
+        buf = ""
+        full_buf = ""
+        parsed_options: List[Dict[str, str]] = []
+        emitted_ids: set[str] = set()
+        try:
+            async for chunk in self._llm.stream_generate(prompt, config):
+                if not chunk:
+                    continue
+                buf += chunk
+                full_buf += chunk
+                yield {"type": "chunk", "text": chunk}
+                while True:
+                    extracted = _try_extract_next_plot_option(buf)
+                    if extracted is None:
+                        break
+                    raw_item, buf = extracted
+                    norm = self._normalize_options([raw_item])
+                    if not norm:
+                        continue
+                    item = norm[0]
+                    if item["id"] in emitted_ids:
+                        continue
+                    emitted_ids.add(item["id"])
+                    parsed_options.append(item)
+                    yield {"type": "option", "option": item, "index": len(parsed_options) - 1}
+
+            if len(parsed_options) < 3:
+                try:
+                    raw_list = self._parse_plot_json(full_buf)
+                    for item in self._normalize_options(raw_list):
+                        if item["id"] in emitted_ids:
+                            continue
+                        emitted_ids.add(item["id"])
+                        parsed_options.append(item)
+                        yield {"type": "option", "option": item, "index": len(parsed_options) - 1}
+                except Exception:
+                    pass
+
+            if len(parsed_options) < 3:
+                for item in self._fallback_options(ctx):
+                    if item["id"] in emitted_ids:
+                        continue
+                    parsed_options.append(item)
+                    yield {"type": "option", "option": item, "index": len(parsed_options) - 1}
+                    if len(parsed_options) >= 3:
+                        break
+
+            yield {"type": "done", "plot_options": parsed_options[:3]}
+        except Exception as e:
+            logger.warning("Main plot suggestion stream failed: %s", e)
+            fallback = self._fallback_options(ctx)
+            for idx, item in enumerate(fallback):
+                yield {"type": "option", "option": item, "index": idx}
+            yield {"type": "done", "plot_options": fallback}

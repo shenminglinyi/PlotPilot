@@ -88,6 +88,13 @@ export interface MainPlotOptionDTO {
   starting_hook: string
 }
 
+export type MainPlotOptionsStreamEvent =
+  | { type: 'phase'; phase: string; message: string }
+  | { type: 'chunk'; text: string }
+  | { type: 'option'; option: MainPlotOptionDTO; index: number }
+  | { type: 'done'; plot_options: MainPlotOptionDTO[] }
+  | { type: 'error'; message: string }
+
 export interface PlotPointDTO {
   chapter_number: number
   point_type: string
@@ -454,6 +461,94 @@ export async function consumeHostedWriteStream(
       }
       return false
     }
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      if (drainFrames()) return
+      if (done) {
+        buf += dec.decode()
+        drainFrames()
+        break
+      }
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') return
+    handlers.onError?.(e instanceof Error ? e.message : '流式连接失败')
+  }
+}
+
+export async function consumeMainPlotOptionsStream(
+  novelId: string,
+  handlers: {
+    onEvent?: (ev: MainPlotOptionsStreamEvent) => void
+    onPhase?: (message: string) => void
+    onChunk?: (text: string) => void
+    onOption?: (option: MainPlotOptionDTO, index: number) => void
+    onDone?: (options: MainPlotOptionDTO[]) => void
+    onError?: (message: string) => void
+    signal?: AbortSignal
+  }
+): Promise<void> {
+  const res = await fetch(resolveHttpUrl(`/api/v1/novels/${novelId}/setup/suggest-main-plot-options-stream`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: handlers.signal,
+  })
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => '')
+    handlers.onError?.(t || `HTTP ${res.status}`)
+    return
+  }
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  const drainFrames = (): boolean => {
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      for (const line of block.split('\n')) {
+        const raw = parseSseDataLine(line)
+        if (!raw || typeof raw !== 'object' || raw === null) continue
+        const o = raw as Record<string, unknown>
+        const typ = String(o.type ?? '')
+        if (typ === 'phase') {
+          const ev: MainPlotOptionsStreamEvent = {
+            type: 'phase',
+            phase: String(o.phase ?? ''),
+            message: String(o.message ?? ''),
+          }
+          handlers.onEvent?.(ev)
+          handlers.onPhase?.(ev.message)
+        } else if (typ === 'chunk') {
+          const ev: MainPlotOptionsStreamEvent = { type: 'chunk', text: String(o.text ?? '') }
+          handlers.onEvent?.(ev)
+          handlers.onChunk?.(ev.text)
+        } else if (typ === 'option') {
+          const option = (o.option ?? {}) as MainPlotOptionDTO
+          const index = Number(o.index ?? 0)
+          const ev: MainPlotOptionsStreamEvent = { type: 'option', option, index }
+          handlers.onEvent?.(ev)
+          handlers.onOption?.(option, index)
+        } else if (typ === 'done') {
+          const options = Array.isArray(o.plot_options) ? (o.plot_options as MainPlotOptionDTO[]) : []
+          const ev: MainPlotOptionsStreamEvent = { type: 'done', plot_options: options }
+          handlers.onEvent?.(ev)
+          handlers.onDone?.(options)
+          return true
+        } else if (typ === 'error') {
+          const msg = String(o.message ?? '推演失败')
+          const ev: MainPlotOptionsStreamEvent = { type: 'error', message: msg }
+          handlers.onEvent?.(ev)
+          handlers.onError?.(msg)
+          return true
+        }
+      }
+    }
+    return false
+  }
+  try {
     while (true) {
       const { done, value } = await reader.read()
       if (value) buf += dec.decode(value, { stream: true })

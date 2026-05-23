@@ -354,6 +354,35 @@ async def suggest_main_plot_options(
         )
 
 
+@router.post(
+    "/{novel_id}/setup/suggest-main-plot-options-stream",
+    status_code=status.HTTP_200_OK,
+)
+async def suggest_main_plot_options_stream(
+    novel_id: str,
+    novel_service=Depends(get_novel_service),
+    setup_svc=Depends(get_setup_main_plot_suggestion_service),
+):
+    """向导 Step 4：流式推演主线候选，解析到一条推送一条。"""
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+
+    async def event_gen():
+        yield f"data: {json.dumps({'type': 'phase', 'phase': 'plot_options', 'message': '正在生成叙事结构'}, ensure_ascii=False)}\n\n"
+        async for event in setup_svc.stream_suggest_options(novel_id):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.get(
     "/{novel_id}/storylines",
     response_model=List[StorylineResponse],
