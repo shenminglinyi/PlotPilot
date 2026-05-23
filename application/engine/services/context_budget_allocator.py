@@ -37,6 +37,10 @@ from application.engine.services.context_budget_models import (
     ContextSlot,
     PriorityTier,
 )
+from application.engine.services.context_budget_policy import (
+    allocate_tier,
+    truncate_t0_slots,
+)
 from application.engine.services.context_slot_providers import (
     build_immersion_details_slot_content,
     build_key_props_slot_content,
@@ -775,20 +779,11 @@ class ContextBudgetAllocator:
 
     def _truncate_t0_slots(self, t0_slots: Dict[str, ContextSlot], budget: int) -> int:
         """极端情况：截断 T0 内容"""
-        total = 0
-        for name, slot in t0_slots.items():
-            if total + slot.tokens <= budget:
-                total += slot.tokens
-            else:
-                # 截断到最后一个
-                remaining = budget - total
-                if remaining > 0:
-                    target_chars = int(remaining * self.CHARS_PER_TOKEN_ZH)
-                    slot.content = slot.content[:target_chars] + "..."
-                    slot.tokens = remaining
-                    total += remaining
-                break
-        return total
+        return truncate_t0_slots(
+            t0_slots,
+            budget,
+            chars_per_token_zh=self.CHARS_PER_TOKEN_ZH,
+        )
     
     def _allocate_tier(
         self,
@@ -803,43 +798,12 @@ class ContextBudgetAllocator:
         2. 高优先级的尽量保留
         3. 超出预算的低优先级内容按比例压缩
         """
-        # 按优先级排序
-        sorted_slots = sorted(tier_slots.items(), key=lambda x: x[1].priority, reverse=True)
-        
-        total_used = 0
-        for name, slot in sorted_slots:
-            if total_used + slot.tokens <= budget:
-                # 可以完整保留
-                total_used += slot.tokens
-            elif slot.max_tokens and slot.max_tokens > 0:
-                # 可以部分保留
-                remaining = budget - total_used
-                if remaining > slot.min_tokens:
-                    # 压缩内容
-                    target_chars = int(remaining * self.CHARS_PER_TOKEN_ZH)
-                    slot.content = slot.content[:target_chars] + "..."
-                    slot.tokens = remaining
-                    total_used += remaining
-                    compression_log.append(f"压缩 {name}: {slot.tokens} → {remaining} tokens")
-                else:
-                    # 完全舍弃
-                    slot.content = ""
-                    slot.tokens = 0
-                    compression_log.append(f"舍弃 {name}（预算不足）")
-            else:
-                # 没有设置上限，按预算截断
-                remaining = budget - total_used
-                if remaining > 0:
-                    target_chars = int(remaining * self.CHARS_PER_TOKEN_ZH)
-                    slot.content = slot.content[:target_chars] + "..."
-                    slot.tokens = remaining
-                    total_used += remaining
-                    compression_log.append(f"截断 {name}: {remaining} tokens")
-                else:
-                    slot.content = ""
-                    slot.tokens = 0
-        
-        return total_used
+        return allocate_tier(
+            tier_slots,
+            budget,
+            compression_log,
+            chars_per_token_zh=self.CHARS_PER_TOKEN_ZH,
+        )
     
     # ==================== 内容收集方法 ====================
     
