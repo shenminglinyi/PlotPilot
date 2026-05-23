@@ -94,14 +94,16 @@
         </div>
       </div>
 
-      <n-collapse v-if="generatedContext || schedulingLog.length > 0" class="ccm-debug">
-        <n-collapse-item title="上下文锁预览" name="context">
-          <pre v-if="generatedContext" class="ccm-context">{{ generatedContext }}</pre>
-          <div v-if="schedulingLog.length > 0" class="ccm-log">
-            <span v-for="line in schedulingLog" :key="line">{{ line }}</span>
-          </div>
-        </n-collapse-item>
-      </n-collapse>
+      <div v-if="generatedContext || schedulingLog.length > 0" class="ccm-section ccm-section--context">
+        <div class="ccm-section-head">
+          <span class="ccm-section-label">上下文锁预览</span>
+          <span class="ccm-section-note">随本章角色合同同步生成</span>
+        </div>
+        <pre v-if="generatedContext" class="ccm-context">{{ generatedContext }}</pre>
+        <div v-if="schedulingLog.length > 0" class="ccm-log">
+          <span v-for="line in schedulingLog" :key="line">{{ line }}</span>
+        </div>
+      </div>
 
       <n-empty
         v-if="!scheduling && suggestions.length === 0 && newCharacterCandidates.length === 0"
@@ -519,17 +521,14 @@ watch(
   color: var(--app-text-muted);
 }
 
-.ccm-debug {
-  margin: 0 12px 12px;
+.ccm-section--context {
+  padding-bottom: 12px;
+}
+
+.ccm-section--context .ccm-context {
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: var(--app-surface);
-}
-
-.ccm-debug :deep(.n-collapse-item__header) {
-  padding: 7px 10px;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .ccm-context {
@@ -548,7 +547,7 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  padding: 0 10px 10px;
+  padding-top: 8px;
 }
 
 .ccm-log span {
