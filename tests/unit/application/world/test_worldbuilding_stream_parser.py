@@ -72,3 +72,18 @@ def test_parser_emits_field_partial_while_streaming():
     assert "劫力" in partials[-1]["value"]
     events.extend(parser.feed(part2))
     assert any(e["type"] == "dimension" for e in events)
+
+
+def test_parser_maps_invalid_dimension_string_to_primary_field():
+    parser = WorldbuildingStreamIncrementalParser()
+    part1 = '{"worldbuilding": {"society": "剑修贵族垄断灵石矿'
+    part2 = '，非剑修宗门需上缴七成收益才能获得庇护"}}'
+    events = []
+    events.extend(parser.feed(part1))
+    partials = [e for e in events if e["type"] == "field_partial"]
+    assert partials
+    assert partials[-1]["key"] == "society"
+    assert partials[-1]["field"] == "politics"
+    events.extend(parser.feed(part2))
+    fields = [e for e in events if e["type"] == "field"]
+    assert any(e["key"] == "society" and e["field"] == "politics" for e in fields)

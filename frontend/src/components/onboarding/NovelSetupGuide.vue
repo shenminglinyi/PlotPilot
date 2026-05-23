@@ -56,6 +56,9 @@
                   <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'core_rules' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
+              <div v-else-if="activeDimension === 'core_rules'" class="raw-stream-preview">
+                正在等待核心法则子项解析<span class="streaming-cursor">▎</span>
+              </div>
             </template>
             <template #geography>
               <div class="dimension-fields" v-if="worldbuildingData.geography && Object.keys(worldbuildingData.geography).length">
@@ -64,6 +67,9 @@
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
                   <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'geography' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'geography'" class="raw-stream-preview">
+                正在等待地理生态子项解析<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #society>
@@ -74,6 +80,9 @@
                   <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'society' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
+              <div v-else-if="activeDimension === 'society'" class="raw-stream-preview">
+                正在等待社会结构子项解析<span class="streaming-cursor">▎</span>
+              </div>
             </template>
             <template #culture>
               <div class="dimension-fields" v-if="worldbuildingData.culture && Object.keys(worldbuildingData.culture).length">
@@ -83,6 +92,9 @@
                   <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'culture' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
+              <div v-else-if="activeDimension === 'culture'" class="raw-stream-preview">
+                正在等待历史文化子项解析<span class="streaming-cursor">▎</span>
+              </div>
             </template>
             <template #daily_life>
               <div class="dimension-fields" v-if="worldbuildingData.daily_life && Object.keys(worldbuildingData.daily_life).length">
@@ -91,6 +103,9 @@
                   <div class="field-card__title">{{ dimKeyLabels[key] || key }}</div>
                   <div class="field-card__content">{{ val }}<span v-if="activeDimension === 'daily_life' && activeField === key" class="streaming-cursor">▎</span></div>
                 </div>
+              </div>
+              <div v-else-if="activeDimension === 'daily_life'" class="raw-stream-preview">
+                正在等待沉浸感细节子项解析<span class="streaming-cursor">▎</span>
               </div>
             </template>
           </WizardSkeleton>
@@ -677,10 +692,21 @@ function normalizeWorldbuildingFromApi(raw: Record<string, unknown> | null | und
   for (const d of WB_DIMS) {
     const block = raw[d]
     if (block && typeof block === 'object') {
-      out[d] = { ...(block as Record<string, string>) }
+      const normalized: Record<string, string> = {}
+      for (const [key, value] of Object.entries(block as Record<string, unknown>)) {
+        const text = String(value ?? '').trim()
+        if (text) normalized[key] = text
+      }
+      out[d] = normalized
     }
   }
   return out
+}
+
+function hasWorldbuildingContent(slices: ReturnType<typeof emptyWorldbuildingShape>) {
+  return Object.values(slices).some(dim =>
+    Object.values(dim).some(value => String(value ?? '').trim().length > 0)
+  )
 }
 
 function mergeWorldbuildingDisplay(
@@ -813,6 +839,7 @@ const activeField = ref('')
 const arrivedFields = ref<Set<string>>(new Set())
 /** 维度级流式文本：LLM 逐 token 输出时暂存，字段解析完成后清空 */
 const streamingDimText = ref('')
+const worldbuildingRawBuffer = ref('')
 const sseAbortController = ref<AbortController | null>(null)
 
 const styleConventionDisplay = computed(() => {
@@ -831,6 +858,10 @@ const wbDimensionCards = computed(() => {
   }
   return WB_DIMS.map(key => ({ key, label: labels[key], data: worldbuildingData.value[key] }))
 })
+
+function nextPendingWorldbuildingDimension(): string {
+  return WB_DIMS.find(dim => !completedDimensions.value.has(dim)) || WB_DIMS[0]
+}
 
 // ── 第2步：SSE 流式生成人物 ──
 const generatingCharacters = ref(false)
@@ -1061,6 +1092,20 @@ const biblePollEpoch = ref(0)
 const step2PollEpoch = ref(0)
 const step3PollEpoch = ref(0)
 
+function finishWorldbuildingGeneration() {
+  completedDimensions.value = new Set(WB_DIMS)
+  activeDimension.value = ''
+  activeField.value = ''
+  streamingDimText.value = ''
+  worldbuildingRawBuffer.value = ''
+  generatingBible.value = false
+  bibleGenerated.value = true
+  phaseMessage.value = ''
+  currentStep.value = 1
+  setWizardLastStep(props.novelId, 1)
+  void loadBibleData()
+}
+
 function clearGenerationTimers() {
   if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
 }
@@ -1130,11 +1175,7 @@ async function startBibleGenerationPoll() {
         if (biblePollEpoch.value !== epoch || !generatingBible.value) return
         if (status.ready) {
           clearGenerationTimers()
-          generatingBible.value = false
-          phaseMessage.value = ''
-          completedDimensions.value = new Set(WB_DIMS)
-          bibleGenerated.value = true
-          await loadBibleData()
+          finishWorldbuildingGeneration()
           return
         }
       } catch (error: unknown) {
@@ -1246,6 +1287,7 @@ bibleError.value = ''
   activeField.value = ''
   arrivedFields.value = new Set()
   streamingDimText.value = ''
+  worldbuildingRawBuffer.value = ''
   worldbuildingData.value = emptyWorldbuildingShape()
   styleText.value = ''
 
@@ -1289,6 +1331,16 @@ bibleError.value = ''
     onStyle: (content) => {
       styleText.value = content
     },
+    onStyleChunk: (chunk) => {
+      styleText.value += chunk
+    },
+    onWorldbuildingChunk: (chunk) => {
+      if (!chunk) return
+      worldbuildingRawBuffer.value = `${worldbuildingRawBuffer.value}${chunk}`.slice(-3000)
+      if (!activeDimension.value) {
+        activeDimension.value = nextPendingWorldbuildingDimension()
+      }
+    },
     onWorldbuildingFieldPartial: (dimension, field, value) => {
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
@@ -1297,6 +1349,7 @@ bibleError.value = ''
         activeDimension.value = dimension
       }
       activeField.value = field
+      streamingDimText.value = ''
       // Direct property mutation avoids replacing the entire ref on every token,
       // which would trigger full-tree re-renders during high-frequency streaming.
       const dim = dimension as keyof typeof worldbuildingData.value
@@ -1313,6 +1366,7 @@ bibleError.value = ''
       }
       arrivedFields.value = new Set([...arrivedFields.value, field])
       activeField.value = ''
+      streamingDimText.value = ''
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value
@@ -1321,16 +1375,10 @@ bibleError.value = ''
         completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
       }
       activeDimension.value = data.dimension
+      streamingDimText.value = ''
     },
     onDone: () => {
-      completedDimensions.value = new Set(WB_DIMS)
-      activeDimension.value = ''
-      activeField.value = ''
-      streamingDimText.value = ''
-      generatingBible.value = false
-      bibleGenerated.value = true
-      phaseMessage.value = ''
-      loadBibleData()
+      finishWorldbuildingGeneration()
     },
     onError: (msg) => {
       // SSE 失败时降级到轮询（后台可能已经启动了生成任务）
@@ -1558,7 +1606,7 @@ async function detectWizardProgress(): Promise<number> {
     styleText.value = styleConventionFromBible(bible)
 
     // ── 判断后端是否已有数据（用于决定步骤内部显示"生成中"还是"可编辑预览"） ──
-    const hasWorldbuilding = bible.world_settings?.length > 0 || Object.values(worldbuildingData.value).some(dim => Object.keys(dim).length > 0)
+    const hasWorldbuilding = hasWorldbuildingContent(fromWs) || hasWorldbuildingContent(worldbuildingData.value)
     const hasStyle = styleConventionFromBible(bible).length > 0
     const hasCharacters = (bible.characters?.length ?? 0) > 0
     const hasLocations = (bible.locations?.length ?? 0) > 0
@@ -1602,22 +1650,23 @@ async function detectWizardProgress(): Promise<number> {
       return cachedLastStep
     }
 
-    // 没有缓存（新创建的书），按后端数据推断，但不跳过 —— 回到第一个"还没确认"的步骤
+    // 没有缓存时，回到最近一个已生成但尚未确认的步骤。
+    // 生成完成只展示可编辑预览，只有用户点"下一步"才进入下一阶段。
     if (!hasWorldbuilding && !hasStyle) {
       resumedFromStep.value = 0
       return 1
     }
     if (!hasCharacters) {
+      resumedFromStep.value = 1
+      return 1
+    }
+    if (!hasLocations) {
       resumedFromStep.value = 2
       return 2
     }
-    if (!hasLocations) {
+    if (!hasMainPlot) {
       resumedFromStep.value = 3
       return 3
-    }
-    if (!hasMainPlot) {
-      resumedFromStep.value = 4
-      return 4
     }
 
     resumedFromStep.value = 5
@@ -1987,16 +2036,16 @@ const handleComplete = () => {
 }
 
 .field-card {
-  background: var(--n-color-modal);
-  border: 1px solid var(--n-border-color);
+  background: var(--app-surface, var(--n-color-modal));
+  border: 1px solid var(--app-border, var(--n-border-color));
   border-radius: 8px;
   padding: 10px 14px;
   animation: field-appear 0.35s ease;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
 
 .field-card:hover {
-  border-color: #2080f060;
+  border-color: var(--color-brand-border, var(--n-primary-color-hover));
 }
 
 .field-card--editable {
@@ -2010,18 +2059,49 @@ const handleComplete = () => {
 .field-card__title {
   font-size: 12px;
   font-weight: 600;
-  color: #666;
+  color: var(--app-text-muted, var(--n-text-color-3));
   margin-bottom: 6px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .field-card__content {
   font-size: 13px;
   line-height: 1.65;
-  color: #333;
+  color: var(--app-text-primary, var(--n-text-color-1));
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.raw-stream-preview {
+  min-height: 42px;
+  padding: 12px 14px 12px 16px;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 9%, transparent), transparent 42%),
+    var(--app-surface-subtle, var(--n-color-modal));
+  border: 1px solid color-mix(in srgb, var(--color-brand, #2563eb) 34%, var(--app-border, rgba(15, 23, 42, 0.12)));
+  border-left: 3px solid var(--color-brand, var(--n-primary-color));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--color-brand, #2563eb) 10%, transparent);
+  color: var(--app-text-primary, var(--n-text-color-1));
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.raw-stream-preview::before {
+  content: '实时输出';
+  display: block;
+  width: fit-content;
+  margin-bottom: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.08));
+  color: var(--color-brand, var(--n-primary-color));
+  font-size: 11px;
+  font-weight: 700;
 }
 
 @keyframes field-appear {
@@ -2030,15 +2110,18 @@ const handleComplete = () => {
 }
 
 .field-card--streaming {
-  border-color: #2080f060;
-  background: #2080f008;
+  border-color: color-mix(in srgb, var(--color-brand, #2563eb) 46%, var(--app-border, transparent));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 8%, transparent), transparent 48%),
+    var(--app-surface, var(--n-color-modal));
+  box-shadow: inset 3px 0 0 var(--color-brand, var(--n-primary-color));
 }
 
 .streaming-cursor {
   display: inline;
-  color: #2080f0;
+  color: var(--color-brand, var(--n-primary-color));
   animation: blink-cursor 0.8s ease-in-out infinite;
-  font-weight: 300;
+  font-weight: 700;
 }
 
 @keyframes blink-cursor {
@@ -2051,8 +2134,11 @@ const handleComplete = () => {
   margin-top: 12px;
   padding: 12px 16px;
   border-radius: 8px;
-  background: #18a05808;
-  border: 1px solid #18a05840;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-success, #22c55e) 9%, transparent), transparent 45%),
+    var(--app-surface-subtle, var(--n-color-modal));
+  border: 1px solid color-mix(in srgb, var(--color-success, #22c55e) 34%, var(--app-border, rgba(15, 23, 42, 0.12)));
+  border-left: 3px solid var(--color-success, var(--n-success-color));
   animation: fade-in 0.4s ease;
 }
 
@@ -2066,13 +2152,14 @@ const handleComplete = () => {
 .style-preview-title {
   font-weight: 500;
   font-size: 14px;
+  color: var(--app-text-primary, var(--n-text-color-1));
   flex: 1;
 }
 
 .style-preview-content {
   font-size: 13px;
   line-height: 1.6;
-  color: #444;
+  color: var(--app-text-primary, var(--n-text-color-1));
   padding-left: 24px;
 }
 

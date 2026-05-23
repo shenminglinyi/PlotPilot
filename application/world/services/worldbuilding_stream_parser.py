@@ -23,6 +23,27 @@ from infrastructure.json_stream.incremental_extractor import (
 _DIM_KEYS_ORDER: Tuple[str, ...] = WORLD_BUILDING_DIMENSION_KEYS
 
 
+def _decode_json_string_fragment(value: str) -> str:
+    return value.replace("\\\\", "\\").replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"')
+
+
+def _extract_dimension_string(buf: str, dim_key: str) -> Optional[Tuple[str, bool]]:
+    """兼容模型违规输出 ``"dimension": "..."`` 的场景。
+
+    正常协议要求维度值是对象；若模型退化为维度级字符串，将其映射到该维度主字段，
+    避免前端只能看到 raw JSON。
+    """
+    complete = re.search(rf'"{re.escape(dim_key)}"\s*:\s*"((?:[^"\\]|\\.)*)"', buf)
+    if complete:
+        return _decode_json_string_fragment(complete.group(1)), True
+
+    tail = re.search(rf'"{re.escape(dim_key)}"\s*:\s*"((?:[^"\\]|\\.)*)$', buf)
+    if tail:
+        return _decode_json_string_fragment(tail.group(1)), False
+
+    return None
+
+
 def _worldbuilding_inner_start(buf: str) -> Optional[int]:
     """定位 worldbuilding 对象内层起始 ``{``。"""
     m = re.search(r'"worldbuilding"\s*:\s*\{', buf)
@@ -87,6 +108,31 @@ class WorldbuildingStreamIncrementalParser:
             if self._dim_brace_start[dim_key] is None:
                 brace = find_key_object_brace_start(buf, dim_key)
                 if brace is None:
+                    dim_string = _extract_dimension_string(buf, dim_key)
+                    if dim_string:
+                        text, closed = dim_string
+                        content = canonicalize_dimension_fields(dim_key, {dim_key: text})
+                        if not content:
+                            continue
+                        fk = next(iter(content))
+                        fv = content[fk]
+                        if closed:
+                            if fk not in self._emitted_fields[dim_key]:
+                                self._emitted_fields[dim_key].add(fk)
+                                events.append({"type": "field", "key": dim_key, "field": fk, "value": fv})
+                            self._emitted_dims.add(dim_key)
+                            events.append({"type": "dimension", "key": dim_key, "content": content})
+                            self._last_partial[dim_key].clear()
+                        else:
+                            prev = self._last_partial[dim_key].get(fk)
+                            if prev != fv:
+                                self._last_partial[dim_key][fk] = fv
+                                events.append({
+                                    "type": "field_partial",
+                                    "key": dim_key,
+                                    "field": fk,
+                                    "value": fv,
+                                })
                     continue
                 self._dim_brace_start[dim_key] = brace
 

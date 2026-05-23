@@ -1054,6 +1054,24 @@ JSON 格式：
             )
             prompt = Prompt(system=system_prompt, user=user_prompt)
 
+        format_guard = (
+            "\n\n【运行时强制格式护栏】\n"
+            "必须输出 `worldbuilding` 下的五个维度对象，维度值绝对不能是字符串。"
+            "错误示例：\"society\": \"一段文字\"。"
+            "正确示例：\"society\": {\"politics\": \"...\", \"economy\": \"...\", \"class_system\": \"...\"}。"
+            "每个维度都必须按模板字段顺序逐子项输出；写完一个字段并关闭字符串后，立刻写下一个字段。"
+            "禁止把一个维度的所有内容塞进单个字符串。"
+        )
+        prompt = Prompt(
+            system=f"{prompt.system}{format_guard}",
+            user=(
+                f"{prompt.user}\n\n"
+                "再次确认：不要输出 `\"core_rules\": \"...\"`、`\"geography\": \"...\"`、"
+                "`\"society\": \"...\"` 这种维度字符串。每个维度必须是对象，"
+                "对象内必须逐字段输出，便于后端解析一个子项就推送一个子项。"
+            ),
+        )
+
         config = GenerationConfig(max_tokens=16384, temperature=0.7)
         parser = WorldbuildingStreamIncrementalParser()
         accumulated: Dict[str, Dict[str, str]] = {}
@@ -1103,6 +1121,20 @@ JSON 格式：
 
     async def _generate_style(self, premise: str, target_chapters: int) -> str:
         """Generate style convention via CPMS."""
+        chunks: list[str] = []
+        async for item in self._stream_style(premise, target_chapters):
+            if item.get("type") == "chunk":
+                chunks.append(str(item.get("text") or ""))
+            elif item.get("type") == "done":
+                return str(item.get("style") or "").strip()
+        return "".join(chunks).strip()
+
+    async def _stream_style(
+        self,
+        premise: str,
+        target_chapters: int,
+    ) -> AsyncIterator[Dict[str, str]]:
+        """Stream style convention tokens and return the final text."""
         from infrastructure.ai.prompt_keys import BIBLE_STYLE_CONVENTION
         from infrastructure.ai.prompt_registry import get_prompt_registry
 
@@ -1122,8 +1154,13 @@ JSON 格式：
             prompt = Prompt(system=system, user=user)
 
         config = GenerationConfig(max_tokens=1024, temperature=0.7)
-        result = await self.llm_service.generate(prompt, config)
-        return (result.content or "").strip()
+        chunks: list[str] = []
+        async for chunk in self.llm_service.stream_generate(prompt, config):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            yield {"type": "chunk", "text": chunk}
+        yield {"type": "done", "style": "".join(chunks).strip()}
 
     # 维度定义：key → (label, field_definitions)
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
@@ -1624,4 +1661,3 @@ JSON 格式：
                         logger.info(f"Created triple: {loc_data['name']} -{predicate}-> {target_name}")
                     except Exception as e:
                         logger.error(f"Failed to save triple: {e}")
-

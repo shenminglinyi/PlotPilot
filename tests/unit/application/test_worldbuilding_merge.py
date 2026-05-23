@@ -36,6 +36,17 @@ def test_projection_appends_extra_to_tail_field():
     assert legacy["core_rules"]["power_system"] == "X"
 
 
+def test_projection_omits_empty_legacy_fields():
+    legacy = project_slices_to_legacy_api_shape({})
+    assert legacy == {
+        "core_rules": {},
+        "geography": {},
+        "society": {},
+        "culture": {},
+        "daily_life": {},
+    }
+
+
 def test_slices_nonempty_detects_nested():
     assert not worldbuilding_slices_nonempty(None)
     assert not worldbuilding_slices_nonempty({"core_rules": {}})

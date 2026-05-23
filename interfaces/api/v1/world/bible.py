@@ -22,6 +22,7 @@ from application.world.bible_generation_state import (
     get_bible_generation_state,
     record_bible_generation_failure,
 )
+from application.world.worldbuilding_schema import WORLDBUILDING_DIMENSION_DEFS
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +297,23 @@ async def _sse_bible_generator(
             yield _sse_fmt("phase", {"phase": "worldbuilding_style", "message": "正在生成文风公约..."})
             await asyncio.sleep(0)
             try:
-                style_text = await bible_generator._generate_style(premise, novel.target_chapters)
+                style_chunks: list[str] = []
+                async for item in bible_generator._stream_style(premise, novel.target_chapters):
+                    if item.get("type") == "chunk":
+                        chunk_text = item.get("text") or ""
+                        if chunk_text:
+                            style_chunks.append(chunk_text)
+                            yield _sse_fmt("data", {
+                                "type": "style_chunk",
+                                "chunk": chunk_text,
+                            })
+                            await asyncio.sleep(0)
+                    elif item.get("type") == "done":
+                        done_style = item.get("style") or ""
+                        if done_style:
+                            style_chunks = [done_style]
+
+                style_text = "".join(style_chunks).strip()
                 if style_text:
                     yield _sse_fmt("data", {"type": "style", "content": style_text})
                     # 保存文风
@@ -322,6 +339,7 @@ async def _sse_bible_generator(
             }
             accumulated_wb: dict = {}
             saved_dims: set[str] = set()
+            announced_fields: set[tuple[str, str]] = set()
 
             yield _sse_fmt("phase", {
                 "phase": "worldbuilding_streaming",
@@ -334,9 +352,12 @@ async def _sse_bible_generator(
                     premise, novel.target_chapters,
                 ):
                     if item["type"] == "chunk":
-                        # Raw token chunks are not forwarded to the frontend;
-                        # the UI relies on field/dimension events. Yield to the
-                        # event loop so other connections are not starved.
+                        chunk_text = item.get("text") or item.get("chunk") or ""
+                        if chunk_text:
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_chunk",
+                                "chunk": chunk_text,
+                            })
                         await asyncio.sleep(0)
 
                     elif item["type"] == "field_partial":
@@ -344,6 +365,20 @@ async def _sse_bible_generator(
                         field_key = item.get("field")
                         field_value = item.get("value")
                         if dim_key and field_key and field_value:
+                            marker = (dim_key, field_key)
+                            if marker not in announced_fields:
+                                announced_fields.add(marker)
+                                dim_label = dim_labels.get(dim_key, dim_key)
+                                field_label = (
+                                    WORLDBUILDING_DIMENSION_DEFS
+                                    .get(dim_key, {})
+                                    .get("fields", {})
+                                    .get(field_key, field_key)
+                                )
+                                yield _sse_fmt("phase", {
+                                    "phase": f"worldbuilding_{dim_key}",
+                                    "message": f"{dim_label} · {field_label} 生成中...",
+                                })
                             yield _sse_fmt("data", {
                                 "type": "worldbuilding_field_partial",
                                 "dimension": dim_key,
@@ -357,6 +392,20 @@ async def _sse_bible_generator(
                         field_key = item.get("field")
                         field_value = item.get("value")
                         if dim_key and field_key and field_value:
+                            marker = (dim_key, field_key)
+                            if marker not in announced_fields:
+                                announced_fields.add(marker)
+                                dim_label = dim_labels.get(dim_key, dim_key)
+                                field_label = (
+                                    WORLDBUILDING_DIMENSION_DEFS
+                                    .get(dim_key, {})
+                                    .get("fields", {})
+                                    .get(field_key, field_key)
+                                )
+                                yield _sse_fmt("phase", {
+                                    "phase": f"worldbuilding_{dim_key}",
+                                    "message": f"{dim_label} · {field_label} 已解析",
+                                })
                             accumulated_wb.setdefault(dim_key, {})[field_key] = field_value
                             yield _sse_fmt("data", {
                                 "type": "worldbuilding_field",

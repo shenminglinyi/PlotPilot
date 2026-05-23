@@ -229,6 +229,7 @@ export async function consumeBibleGenerateStream(
   handlers: {
     onPhase?: (phase: string, message: string) => void
     onStyle?: (content: string) => void
+    onStyleChunk?: (chunk: string) => void
     onWorldbuildingDimension?: (data: WorldbuildingDimensionData) => void
     /** 字段到达时更新 UI（服务端 schema 归一化后的规范键） */
     onWorldbuildingField?: (dimension: string, field: string, value: string) => void
@@ -303,6 +304,8 @@ export async function consumeBibleGenerateStream(
           const dataType = String(payload?.type ?? '')
           if (dataType === 'style') {
             handlers.onStyle?.(String(payload?.content ?? ''))
+          } else if (dataType === 'style_chunk') {
+            handlers.onStyleChunk?.(String(payload?.chunk ?? ''))
           } else if (dataType === 'worldbuilding_chunk') {
             handlers.onWorldbuildingChunk?.(String(payload?.chunk ?? ''))
           } else if (dataType === 'worldbuilding_field') {

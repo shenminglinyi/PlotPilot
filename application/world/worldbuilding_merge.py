@@ -105,13 +105,17 @@ def project_slices_to_legacy_api_shape(full_slices: Dict[str, Dict[str, str]]) -
     out: Dict[str, Dict[str, str]] = {}
     for dim, keys in _LEGACY_KEYS_BY_DIMENSION.items():
         blk = full_slices.get(dim) or {}
-        row = {k: (str(blk.get(k) or "").strip()) for k in keys}
+        row = {
+            k: text
+            for k in keys
+            if (text := str(blk.get(k) or "").strip())
+        }
         extra_keys = frozenset(keys)
         extras = [(k, str(v).strip()) for k, v in sorted(blk.items()) if k not in extra_keys and str(v).strip()]
         if extras:
             appendix = "\n\n".join(f"【{k}】{v}" for k, v in extras)
             tail = keys[-1]
-            base = row[tail]
+            base = row.get(tail, "")
             row[tail] = (base.rstrip() + "\n\n" + appendix) if base else appendix
         out[dim] = row
     return out

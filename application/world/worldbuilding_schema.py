@@ -247,9 +247,12 @@ def build_fields_desc_for_prompt() -> str:
     for dim_key in WORLD_BUILDING_DIMENSION_KEYS:
         dim_def = WORLDBUILDING_DIMENSION_DEFS[dim_key]
         lines.append(f'    "{dim_key}": {{')
-        for fk in dim_def["fields"]:
+        fields = list(dim_def["fields"].items())
+        for idx, (fk, desc) in enumerate(fields):
+            comma = "," if idx < len(fields) - 1 else ""
             lines.append(
-                f'      "{fk}": "（在此写一段中文正文，不少于80字；勿嵌套JSON或英文键）"'
+                f'      "{fk}": "（{desc}。在此写一段中文正文，不少于80字；勿嵌套JSON或英文键）"{comma}'
             )
-        lines.append("    },")
+        dim_comma = "," if dim_key != WORLD_BUILDING_DIMENSION_KEYS[-1] else ""
+        lines.append(f"    }}{dim_comma}")
     return "\n".join(lines)
