@@ -7,6 +7,7 @@ import pytest
 from domain.novel.entities.novel import NovelStage
 from engine.runtime.writing_delegate import (
     is_story_pipeline_writing_enabled,
+    run_writing,
     run_story_pipeline_writing,
 )
 from engine.pipeline.context import PipelineResult
@@ -124,3 +125,15 @@ async def test_run_story_pipeline_writing_all_chapters_done_transitions_act():
     assert novel.current_chapter_in_act == 0
     assert novel.current_stage == NovelStage.ACT_PLANNING
     daemon._flush_novel.assert_called_once_with(novel)
+
+
+@pytest.mark.asyncio
+async def test_run_writing_dispatches_legacy_when_pipeline_disabled():
+    host = MagicMock()
+    host.use_story_pipeline_for_writing = False
+    novel = MagicMock()
+
+    with patch("engine.runtime.legacy_writing_delegate.run_legacy_writing", new=AsyncMock()) as legacy:
+        await run_writing(host, novel)
+
+    legacy.assert_awaited_once_with(host, novel)

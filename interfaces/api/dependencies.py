@@ -1122,8 +1122,19 @@ def get_quality_guardrail():
 def get_narrative_engine_read_facade():
     """叙事引擎只读门面（小说家工作流聚合）。"""
     from application.narrative_engine.read_facade import NarrativeEngineReadFacade
+    from application.narrative_engine.story_phase_resolution import resolve_story_phase_payload
 
-    return NarrativeEngineReadFacade()
+    return NarrativeEngineReadFacade(
+        story_phase_resolver=lambda novel_id: resolve_story_phase_payload(
+            novel_id,
+            novel_service=get_novel_service(),
+            chapter_repository=get_chapter_repository(),
+        ),
+        evolution_repository_factory=get_evolution_repository,
+        context_presenter_factory=get_context_presenter,
+        bible_service=get_bible_service(),
+        sandbox_dialogue_service=get_sandbox_dialogue_service(),
+    )
 
 
 def get_evolution_repository():

@@ -8,17 +8,19 @@
 from application.engine.dtos.emotion_beat_card import EmotionBeatCard
 
 _CARD_TEMPLATE = """\
-【本拍写作锚点】
-主角这一拍必须完成的事：{active_action}
-这一拍之后，局面变了什么：{delta}
-结尾要留下的悬钩：{hook_delta}
-感官细节必须落地（至少选一个写进去）：{sensory_anchor}
-读者此刻的期待缺口：{emotion_gap}
-绝对禁止：{forbidden_drift}"""
+━━━ 节点卡
+目标：{goal}
+阻碍：{obstacle}
+✅ 必须写出的行为：{active_action}
+局面变化：{delta}
+情绪缺口：{emotion_gap}
+悬钩推进：{hook_delta}
+感官锚点：{sensory_anchor}
+🚫 本拍禁止写成：{forbidden_drift}"""
 
 _CARD_FIELDS = (
-    "active_action", "delta", "hook_delta",
-    "sensory_anchor", "emotion_gap", "forbidden_drift",
+    "goal", "obstacle", "active_action", "delta",
+    "emotion_gap", "hook_delta", "sensory_anchor", "forbidden_drift",
 )
 
 

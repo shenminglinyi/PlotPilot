@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from application.narrative_engine.story_phase_resolution import resolve_story_phase_payload
 from application.engine.services.query_service import get_query_service
@@ -11,10 +11,30 @@ from application.engine.services.query_service import get_query_service
 class NarrativeEngineReadFacade:
     """面向「故事演进 / 角色声线」工作台的引擎读模型组装器。"""
 
+    def __init__(
+        self,
+        *,
+        query_service: Any = None,
+        story_phase_resolver: Callable[[str], Dict[str, Any]] = resolve_story_phase_payload,
+        evolution_repository_factory: Optional[Callable[[], Any]] = None,
+        context_presenter_factory: Optional[Callable[[], Any]] = None,
+        bible_service: Any = None,
+        sandbox_dialogue_service: Any = None,
+    ) -> None:
+        self._query_service = query_service
+        self._story_phase_resolver = story_phase_resolver
+        self._evolution_repository_factory = evolution_repository_factory
+        self._context_presenter_factory = context_presenter_factory
+        self._bible_service = bible_service
+        self._sandbox_dialogue_service = sandbox_dialogue_service
+
+    def _query(self) -> Any:
+        return self._query_service or get_query_service()
+
     def get_story_evolution_read_model(self, novel_id: str) -> Dict[str, Any]:
         """一书一页：生命周期 × 骨架 × 时空轴 × 章节 digest（+ 伏笔规模提示）。"""
-        ctx = get_query_service().get_workbench_context(novel_id).to_dict()
-        life = resolve_story_phase_payload(novel_id)
+        ctx = self._query().get_workbench_context(novel_id).to_dict()
+        life = self._story_phase_resolver(novel_id)
         foreshadow = ctx.get("foreshadow_ledger") or []
         evolution_surface: Dict[str, Any] = {
             "active_snapshot": None,
@@ -23,20 +43,21 @@ class NarrativeEngineReadFacade:
             "required_continuations": [],
         }
         try:
-            from interfaces.api.dependencies import get_context_presenter, get_evolution_repository
-
-            repo = get_evolution_repository()
+            if not self._evolution_repository_factory or not self._context_presenter_factory:
+                raise RuntimeError("evolution dependencies not injected")
+            repo = self._evolution_repository_factory()
             latest = repo.get_latest_active(novel_id, "main")
             counts = repo.count_by_status(novel_id, "main")
             if latest:
                 required = latest.ending_state.scene.get("unresolved_actions") or []
+                presenter = self._context_presenter_factory()
                 evolution_surface = {
                     "active_snapshot": {
                         "snapshot_id": latest.snapshot_id,
                         "chapter_number": latest.chapter_number,
                         "status": latest.status,
                         "schema_version": latest.schema_version,
-                        "summary": get_context_presenter().present(latest.ending_state, max_lines=12),
+                        "summary": presenter.present(latest.ending_state, max_lines=12),
                     },
                     "counts": {
                         "active": int(counts.get("active", 0)),
@@ -77,12 +98,10 @@ class NarrativeEngineReadFacade:
 
     def get_persona_voice_read_model(self, novel_id: str, character_id: str) -> Dict[str, Any]:
         """单角一线：声线锚点 + 全书对白语料统计（正文抽取，与沙盒生成解耦）。"""
-        from interfaces.api.dependencies import get_bible_service, get_sandbox_dialogue_service
+        if not self._bible_service or not self._sandbox_dialogue_service:
+            raise RuntimeError("persona voice dependencies not injected")
 
-        bible_service = get_bible_service()
-        sandbox_service = get_sandbox_dialogue_service()
-
-        bible = bible_service.get_bible_by_novel(novel_id)
+        bible = self._bible_service.get_bible_by_novel(novel_id)
         if not bible:
             raise ValueError("bible_not_found")
 
@@ -90,7 +109,7 @@ class NarrativeEngineReadFacade:
         if not character:
             raise ValueError("character_not_found")
 
-        wl = sandbox_service.get_dialogue_whitelist(novel_id=novel_id)
+        wl = self._sandbox_dialogue_service.get_dialogue_whitelist(novel_id=novel_id)
         lines: List[Any] = list(wl.dialogues) if wl and wl.dialogues else []
         name = character.name
         in_voice = [d for d in lines if getattr(d, "speaker", "") == name]

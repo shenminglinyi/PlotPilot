@@ -23,6 +23,10 @@ from typing import Any, Dict, List, Optional
 
 from engine.pipeline.context import PipelineContext, PipelineResult
 from engine.pipeline.steps import StepResult
+from engine.pipeline.beat_contracts import (
+    merge_beats_by_target,
+    serialize_beats_for_shared_state,
+)
 from engine.pipeline.telemetry import story_pipeline_wave_meta
 
 logger = logging.getLogger(__name__)
@@ -37,23 +41,6 @@ _DEFAULT_PIPELINE_SYSTEM_PROMPT = (
     "4. 用白描手法写——情绪通过动作与感官细节体现，不写'他感到愤怒'，写'他端起杯子又放下'。\n"
     "5. 下笔即是正文第一个字，收笔即是正文最后一个字，中间没有标题、序号、换行空白。"
 )
-
-
-def _serialize_beats_for_shared_state(beats: Any) -> list:
-    """将 Beat 列表序列化为共享内存快照（含 EmotionBeatCard 三字段）。"""
-    out = []
-    for b in beats or []:
-        card = getattr(b, "emotion_beat_card", None)
-        out.append({
-            "description": getattr(b, "description", "") or "",
-            "target_words": int(getattr(b, "target_words", 0) or 0),
-            "focus": getattr(b, "focus", "") or "pacing",
-            "location_id": getattr(b, "location_id", "") or "",
-            "active_action": (getattr(card, "active_action", "") or "") if card else "",
-            "emotion_gap": (getattr(card, "emotion_gap", "") or "") if card else "",
-            "forbidden_drift": (getattr(card, "forbidden_drift", "") or "") if card else "",
-        })
-    return out
 
 
 def _writing_progress(
@@ -167,7 +154,7 @@ class BaseStoryPipeline(ABC):
                 total_beats=len(ctx.beats),
                 current_beat_index=0,
                 chapter_target_words=ctx.target_word_count,
-                planned_micro_beats=_serialize_beats_for_shared_state(ctx.beats),
+                planned_micro_beats=serialize_beats_for_shared_state(ctx.beats),
             )
 
             # 4. LLM 生成（节拍级+断点续写）
@@ -444,87 +431,7 @@ class BaseStoryPipeline(ABC):
         目的：减少 LLM 调用次数，使每次调用的 max_tokens 更贴近实际目标，
         避免多次小调用的字数偏差叠加。
         """
-        if not beats or len(beats) <= 1:
-            return beats
-
-        def _merge_two(a, b):
-            desc_a = getattr(a, 'description', '') or ''
-            desc_b = getattr(b, 'description', '') or ''
-            # 保留分节线，让 LLM 知道是两段相连叙事而非一个混合大纲
-            if desc_a and desc_b:
-                desc = f"{desc_a}\n【随后，紧接着写】{desc_b}"
-            else:
-                desc = desc_a or desc_b
-
-            cpb_a = getattr(a, 'card_prompt_block', '') or ''
-            cpb_b = getattr(b, 'card_prompt_block', '') or ''
-            # 用明确分节线隔开两段锚点，防止 LLM 把两组约束混淆
-            if cpb_a and cpb_b:
-                tw_a = getattr(a, 'target_words', 0) or 0
-                tw_b = getattr(b, 'target_words', 0) or 0
-                cpb = (
-                    f"▶ 第一段（约{tw_a}字）\n{cpb_a}\n\n"
-                    f"▶ 第二段（约{tw_b}字，紧接上文继续写）\n{cpb_b}"
-                )
-            else:
-                cpb = cpb_a or cpb_b
-
-            focus_a = getattr(a, 'focus', 'mixed') or 'mixed'
-            focus_b = getattr(b, 'focus', 'mixed') or 'mixed'
-            focus = focus_a if focus_a == focus_b else 'mixed'
-
-            sg_a = getattr(a, 'scene_goal', '') or ''
-            sg_b = getattr(b, 'scene_goal', '') or ''
-
-            return type('Beat', (), {
-                'description': desc,
-                'target_words': (getattr(a, 'target_words', 0) or 0) + (getattr(b, 'target_words', 0) or 0),
-                'focus': focus,
-                'expansion_hints': [],
-                'scene_goal': f"{sg_a} {sg_b}".strip(),
-                'transition_from_prev': getattr(a, 'transition_from_prev', '') or '',
-                'location_id': getattr(a, 'location_id', '') or '',
-                'emotion_beat_card': getattr(a, 'emotion_beat_card', None),
-                'card_prompt_block': cpb,
-            })()
-
-        if total_target <= 2200:
-            # 整章合并为 1 拍（覆盖 2000 字/章的常见配置）
-            merged = beats[0]
-            for b in beats[1:]:
-                merged = _merge_two(merged, b)
-            return [merged]
-
-        if total_target <= 3200:
-            # 二分合并为 2 拍
-            mid = max(1, len(beats) // 2)
-            first = beats[0]
-            for b in beats[1:mid]:
-                first = _merge_two(first, b)
-            second = beats[mid]
-            for b in beats[mid + 1:]:
-                second = _merge_two(second, b)
-            return [first, second]
-
-        # 大章节：合并过小的 beat（< 350 字）到相邻拍
-        MIN_BEAT = 350
-        result = list(beats)
-        changed = True
-        while changed:
-            changed = False
-            new_result = []
-            i = 0
-            while i < len(result):
-                tw = getattr(result[i], 'target_words', 0) or 0
-                if tw < MIN_BEAT and i + 1 < len(result):
-                    new_result.append(_merge_two(result[i], result[i + 1]))
-                    i += 2
-                    changed = True
-                else:
-                    new_result.append(result[i])
-                    i += 1
-            result = new_result
-        return result
+        return merge_beats_by_target(beats, total_target)
 
     async def _step_generate(self, ctx: PipelineContext) -> StepResult:
         """步骤4：LLM 生成（节拍级+断点续写）
