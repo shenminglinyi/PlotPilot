@@ -108,11 +108,7 @@ def _try_extract_next_item(buf: str, array_key: str):
 # ============================================================================
 # JSON 输出稳定性增强 - Prompt 常量
 # ============================================================================
-USER_PROMPT_SUFFIX = """
-
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-"""
+USER_PROMPT_SUFFIX = "\n\n直接输出 JSON（不要包在代码块里），格式：\n"
 
 # ============================================================================
 # CPMS 回退常量 — 当 PromptRegistry 不可用时使用
@@ -133,47 +129,34 @@ _FALLBACK_BIBLE_ALL_SYSTEM = """你是资深网文策划编辑。根据用户提
 8. **所有 description 字段必须是单行文本**
 """
 
-_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = """你是资深网文策划编辑。根据故事创意生成完整五维世界观（单次输出、五维联动）。
+_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = (
+    "你是好莱坞科幻/奇幻概念设计师。根据故事创意生成完整五维世界观（单次输出、五维联动）。\n\n"
+    "输出格式：直接输出裸 JSON，禁止用 markdown 代码块包裹。"
+    "顶层键为 worldbuilding，其下五个维度键名固定（core_rules/geography/society/culture/daily_life）。"
+    "每个字段的值必须是中文段落字符串（不少于80字），禁止嵌套 JSON，禁止自创字段名，禁止值中出现英文键名。"
+)
 
-输出约束：每个字段的值必须是中文段落字符串，禁止嵌套 JSON；禁止自创字段名；禁止值中出现英文键名。
-"""
 
-
-_FALLBACK_BIBLE_CHARACTERS_SYSTEM = """你是资深网文策划编辑。基于已有世界观生成主要人物。
-
-**重要：description 字段必须是单行文本。**
-
-要求：
-1. 至少 3-5 个主要人物（主角、配角、对手、导师等）
-2. 人物要符合世界观设定
-3. 确保人物之间有冲突和互动
-4. 每个人物：姓名、定位、性格特点、目标动机
-5. 明确定义人物之间的关系（敌对、合作、师徒、亲属、暧昧等）
-
-中文姓名（硬性）：
-- 禁用俗套大姓：李、王、张、刘、陈、杨、林、赵、周、吴（不得作为任何主要角色姓氏）。
-- 主要角色姓氏彼此不同；勿全员同一姓。
-- 像抽卡一样从下列姓氏池均匀随机选用（勿总选前几项）；可混用单姓与复姓。
-
-复姓卡池：欧阳、司马、上官、诸葛、慕容、司徒、司空、尉迟、公孙、东方、西门、南宫、皇甫、令狐、宇文、长孙、独孤、端木、濮阳、轩辕、即墨、闻人、申屠、太叔、呼延、钟离、澹台、公冶、宗政、完颜、耶律、拓跋、羊舌、梁丘、左丘、谷梁、乐正
-
-单姓卡池：顾、苏、沈、萧、裴、荀、喻、柏、水、窦、云、狄、贝、明、臧、计、伏、茅、庞、纪、舒、屈、祝、阮、蓝、闵、季、路、娄、危、童、颜、尹、邵、邹、郝、崔、龚、黎、易、武、戴、莫、孔、白、常、康、傅、严、魏、陶、姜、范、叶、余、潘、段、贺、毛、江、史、侯、倪、覃、温、芦、俞、安、梅、辛、管、左、薄、宁、柯、桂、柴、车、房、边、吉、饶、刁、瞿、戚、丘、米、池、滕、佟、言、蔺、栾、冷、訾、阚、茹、逄、夔、郗、隗、鄂、蓟、蒲、邰、咸、籍、楼、仇、迟、宦、艾、鱼、容、向、古、慎、戈、荆、燕、尚、农、郦、雍、却、璩、濮、扈、郏、浦、逢、步、都、耿、满、弘、匡、国、文、寇、广、禄、阙、殳、沃、利、蔚、越、隆、师、巩、厍、聂、晁、勾、敖、融、那、简、沙、乜、鞠、须、丰、巢、蒯、相、查、后、红、游、竺、权、逯、盖、益、桓、公、东、欧
-"""
+_FALLBACK_BIBLE_CHARACTERS_SYSTEM = (
+    "你是顶级卡司导演。基于已有世界观生成主要角色阵容（主要角色3-5名，次要角色2-3名）。\n\n"
+    "中文姓名约束：禁用李、王、张、刘、陈、杨、林、赵、周、吴作为姓氏；"
+    "从以下池随机抽选（须有洗牌感）：欧阳、司马、上官、诸葛、慕容、顾、苏、沈、萧、裴、荀等。\n\n"
+    "输出格式：直接输出裸 JSON，禁止 markdown 代码块。"
+    "每个角色对象含 name/gender/age/role/appearance/background/personality/ghost/want/need/flaw/relationship 字段，"
+    "字段值均为单行纯文本，禁止嵌套 JSON。"
+)
 
 _BIBLE_CHARACTERS_NAMING_USER_SUFFIX = (
     "\n\n【命名】若使用中文人名：禁止使用姓氏李、王、张、刘、陈、杨、林、赵、周、吴；"
     "每位主要角色姓氏彼此不同；须从系统提示的姓氏卡池中像「抽卡」一样均匀随机选用，勿总用列表前几项。"
 )
 
-_FALLBACK_BIBLE_LOCATIONS_SYSTEM = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
-
-要求：
-1. 至少 5-10 个重要地点，构成完整地图
-2. 地点要符合世界观设定
-3. 考虑人物的活动范围和故事需要
-4. 包含不同类型：城市、建筑、区域、特殊场所等
-5. 空间层级用 parent_id 表达
-"""
+_FALLBACK_BIBLE_LOCATIONS_SYSTEM = (
+    "你是关卡设计师。地点是参与叙事的工具，不是背景板。"
+    "生成 5-10 个重要地点，涵盖城市/建筑/区域/特殊场所，空间层级用 parent_id 表达，通路关系用 connections 记录（关系类型：包含/相邻/通往/封锁/隐藏通道，禁用「位于」）。\n\n"
+    "输出格式：直接输出裸 JSON，禁止 markdown 代码块。"
+    "每个地点含 id/name/type/description/parent_id/connections 字段，description 为单行文本。"
+)
 
 
 def parse_json_from_response(rsp: str):
@@ -764,15 +747,13 @@ JSON 格式（不要有其他文字）：
 6. 世界观5个维度都要填写，符合故事类型和背景
 7. 适合网文读者，有代入感
 
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
+直接输出 JSON（不要包在代码块里），格式：
 {{
   "characters": [],
   "locations": [],
   "style": "",
   "worldbuilding": {{}}
-}}
-```"""
+}}"""
 
         bible_data = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
         if bible_data:
@@ -1015,13 +996,11 @@ JSON 格式：
 
 请生成世界观和文风公约。
 
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
+直接输出 JSON（不要包在代码块里），格式：
 {{
   "style": "",
   "worldbuilding": {{}}
-}}
-```"""
+}}"""
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
@@ -1068,9 +1047,10 @@ JSON 格式：
                 BIBLE_WORLDBUILDING, fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM
             )
             user_prompt = (
-                f"故事创意：{premise}\n\n目标章节数：{target_chapters}章\n\n"
-                "请生成完整世界观，每个字段值只能是中文段落字符串，禁止嵌套 JSON。\n\n"
-                f"```json\n{{\"worldbuilding\": {{{fields_desc}}}}}\n```"
+                f"【故事创意】\n{premise}\n\n【目标章节数】\n{target_chapters}章\n\n"
+                "按以下格式直接输出 JSON（不要包在代码块里）。"
+                "每个字段值只能是中文段落字符串，禁止嵌套对象/数组，禁止英文键名。\n\n"
+                f'{{"worldbuilding": {{{fields_desc}}}}}'
             )
             prompt = Prompt(system=system_prompt, user=user_prompt)
 
@@ -1182,19 +1162,27 @@ JSON 格式：
   ]
 }"""
 
-        user_prompt = f"""故事创意：{premise}
-
-已有世界观：
-{wb_summary}
-
-请基于这个世界观生成主要人物。
-
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{{
-  "characters": []
-}}
-```""" + _BIBLE_CHARACTERS_NAMING_USER_SUFFIX
+        user_prompt = (
+            f"【故事创意】\n{premise}\n\n"
+            f"【已有世界观】\n{wb_summary}\n\n"
+            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。\n\n"
+            "直接输出 JSON（不要包在代码块里），格式：\n"
+            '{{\n  "characters": [\n    {{\n'
+            '      "name": "角色全名",\n'
+            '      "gender": "性别",\n'
+            '      "age": "年龄",\n'
+            '      "role": "主角/对立角色/盟友/次要角色",\n'
+            '      "appearance": "外貌特征，单行",\n'
+            '      "background": "出身背景与阶层，单行",\n'
+            '      "personality": "性格特点，单行",\n'
+            '      "ghost": "内心创伤或恐惧",\n'
+            '      "want": "表层目标",\n'
+            '      "need": "深层需要（角色自己可能不自知）",\n'
+            '      "flaw": "致命弱点",\n'
+            '      "relationship": "与其他角色的核心羁绊"\n'
+            "    }}\n  ]\n}}"
+            + _BIBLE_CHARACTERS_NAMING_USER_SUFFIX
+        )
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
@@ -1217,19 +1205,27 @@ JSON 格式：
         wb_summary = self._summarize_worldbuilding(worldbuilding)
         from infrastructure.ai.prompt_utils import get_prompt_system
         system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
-        user_prompt = f"""故事创意：{premise}
-
-已有世界观：
-{wb_summary}
-
-请基于这个世界观生成主要人物。
-
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{{
-  "characters": []
-}}
-```""" + _BIBLE_CHARACTERS_NAMING_USER_SUFFIX
+        user_prompt = (
+            f"【故事创意】\n{premise}\n\n"
+            f"【已有世界观】\n{wb_summary}\n\n"
+            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。\n\n"
+            "直接输出 JSON（不要包在代码块里），格式：\n"
+            '{{\n  "characters": [\n    {{\n'
+            '      "name": "角色全名",\n'
+            '      "gender": "性别",\n'
+            '      "age": "年龄",\n'
+            '      "role": "主角/对立角色/盟友/次要角色",\n'
+            '      "appearance": "外貌特征，单行",\n'
+            '      "background": "出身背景与阶层，单行",\n'
+            '      "personality": "性格特点，单行",\n'
+            '      "ghost": "内心创伤或恐惧",\n'
+            '      "want": "表层目标",\n'
+            '      "need": "深层需要（角色自己可能不自知）",\n'
+            '      "flaw": "致命弱点",\n'
+            '      "relationship": "与其他角色的核心羁绊"\n'
+            "    }}\n  ]\n}}"
+            + _BIBLE_CHARACTERS_NAMING_USER_SUFFIX
+        )
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
 
@@ -1301,22 +1297,22 @@ JSON 格式：
   ]
 }"""
 
-        user_prompt = f"""故事创意：{premise}
-
-已有世界观：
-{wb_summary}
-
-已有人物：
-{char_summary}
-
-请基于世界观和人物生成完整地图。
-
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{{
-  "locations": []
-}}
-```"""
+        user_prompt = (
+            f"【故事创意】\n{premise}\n\n"
+            f"【已有世界观】\n{wb_summary}\n\n"
+            f"【已有人物】\n{char_summary}\n\n"
+            "请基于以上世界观和人物生成 5-10 个重要地点，构成完整地图。\n\n"
+            "直接输出 JSON（不要包在代码块里），格式：\n"
+            '{{\n  "locations": [\n    {{\n'
+            '      "id": "唯一ID，小写英文+下划线+数字",\n'
+            '      "name": "地点名",\n'
+            '      "type": "城市/建筑/区域/特殊场所/秘境",\n'
+            '      "description": "地点功能与叙事价值，单行",\n'
+            '      "parent_id": null,\n'
+            '      "connections": [\n'
+            '        {{"target": "目标地点name", "relation": "包含/相邻/通往/封锁/隐藏通道", "description": "叙事意义"}}\n'
+            "      ]\n    }}\n  ]\n}}"
+        )
 
         return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
 
@@ -1338,22 +1334,22 @@ JSON 格式：
         char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
         from infrastructure.ai.prompt_utils import get_prompt_system
         system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
-        user_prompt = f"""故事创意：{premise}
-
-已有世界观：
-{wb_summary}
-
-已有人物：
-{char_summary}
-
-请基于世界观和人物生成完整地图。
-
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{{
-  "locations": []
-}}
-```"""
+        user_prompt = (
+            f"【故事创意】\n{premise}\n\n"
+            f"【已有世界观】\n{wb_summary}\n\n"
+            f"【已有人物】\n{char_summary}\n\n"
+            "请基于以上世界观和人物生成 5-10 个重要地点，构成完整地图。\n\n"
+            "直接输出 JSON（不要包在代码块里），格式：\n"
+            '{{\n  "locations": [\n    {{\n'
+            '      "id": "唯一ID，小写英文+下划线+数字",\n'
+            '      "name": "地点名",\n'
+            '      "type": "城市/建筑/区域/特殊场所/秘境",\n'
+            '      "description": "地点功能与叙事价值，单行",\n'
+            '      "parent_id": null,\n'
+            '      "connections": [\n'
+            '        {{"target": "目标地点name", "relation": "包含/相邻/通往/封锁/隐藏通道", "description": "叙事意义"}}\n'
+            "      ]\n    }}\n  ]\n}}"
+        )
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
 
