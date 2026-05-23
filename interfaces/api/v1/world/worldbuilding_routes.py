@@ -88,12 +88,8 @@ def get_worldbuilding(
     wb_entity = service.get_worldbuilding(slug)
 
     if wb_entity is None:
-        if not worldbuilding_slices_nonempty(bible_slices):
-            raise HTTPException(status_code=404, detail="Worldbuilding not found")
-
-        display = project_slices_to_legacy_api_shape(bible_slices)
         now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
+        display = project_slices_to_legacy_api_shape(bible_slices)
         return {
             "id": f"bible-{slug}",
             "novel_id": slug,

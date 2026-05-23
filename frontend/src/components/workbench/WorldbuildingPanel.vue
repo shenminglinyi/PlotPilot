@@ -387,19 +387,21 @@ const loadWorldbuilding = async () => {
   isDirty.value = false
   try {
     const data = await worldbuildingApi.getWorldbuilding(props.slug)
-    formData.value = {
-      core_rules:  data.core_rules  || formData.value.core_rules,
-      geography:   data.geography   || formData.value.geography,
-      society:     data.society     || formData.value.society,
-      culture:     data.culture     || formData.value.culture,
-      daily_life:  data.daily_life  || formData.value.daily_life,
-    }
-  } catch (error: any) {
-    if (error.response?.status === 404) {
+    const isEmpty = !data.core_rules?.power_system && !data.geography?.terrain &&
+                    !data.society?.politics && !data.culture?.history && !data.daily_life?.food_clothing
+    if (isEmpty) {
       message.warning('世界观尚未创建，首次保存时将自动创建')
     } else {
-      message.error(error.response?.data?.detail || '加载世界观失败')
+      formData.value = {
+        core_rules:  data.core_rules  || formData.value.core_rules,
+        geography:   data.geography   || formData.value.geography,
+        society:     data.society     || formData.value.society,
+        culture:     data.culture     || formData.value.culture,
+        daily_life:  data.daily_life  || formData.value.daily_life,
+      }
     }
+  } catch (error: any) {
+    message.error((error as any).response?.data?.detail || '加载世界观失败')
   } finally {
     loading.value = false
     dataLoaded.value = true

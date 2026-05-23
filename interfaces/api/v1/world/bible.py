@@ -334,13 +334,10 @@ async def _sse_bible_generator(
                     premise, novel.target_chapters,
                 ):
                     if item["type"] == "chunk":
-                        text = item.get("text") or ""
-                        if text:
-                            yield _sse_fmt("data", {
-                                "type": "worldbuilding_chunk",
-                                "chunk": text,
-                            })
-                            await asyncio.sleep(0)
+                        # Raw token chunks are not forwarded to the frontend;
+                        # the UI relies on field/dimension events. Yield to the
+                        # event loop so other connections are not starved.
+                        await asyncio.sleep(0)
 
                     elif item["type"] == "field_partial":
                         dim_key = item.get("key")

@@ -29,12 +29,22 @@
 
       <!-- 右栏：角色档案（4 tab，含对白和记忆） -->
       <template #2>
-        <CharacterProfile
-          :slug="slug"
-          :selected-character-id="selectedCharacterId"
-          :current-chapter-number="currentChapterNumber"
-          :desk-chapter-number="currentChapterNumber"
-        />
+        <n-split direction="vertical" :default-size="0.36" :min="0.22" :max="0.52">
+          <template #1>
+            <ChapterCastManager
+              :slug="slug"
+              :chapter-number="currentChapterNumber"
+            />
+          </template>
+          <template #2>
+            <CharacterProfile
+              :slug="slug"
+              :selected-character-id="selectedCharacterId"
+              :current-chapter-number="currentChapterNumber"
+              :desk-chapter-number="currentChapterNumber"
+            />
+          </template>
+        </n-split>
       </template>
     </n-split>
   </div>
@@ -45,6 +55,7 @@ import { ref } from 'vue'
 import { PeopleOutline } from '@vicons/ionicons5'
 import CharacterNavigator from './CharacterNavigator.vue'
 import CharacterProfile from './CharacterProfile.vue'
+import ChapterCastManager from './ChapterCastManager.vue'
 import { WORKBENCH_OPEN_SETTINGS_PANEL_EVENT } from '@/workbench/deskEvents'
 
 interface Props {
@@ -124,5 +135,9 @@ function onSelectCharacter(characterId: string | null) {
 .character-dialogue-panel :deep(.n-split-pane-2) {
   min-height: 0;
   overflow: hidden;
+}
+
+.character-dialogue-panel :deep(.n-split-pane-2 > .n-split) {
+  height: 100%;
 }
 </style>

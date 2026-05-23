@@ -1290,7 +1290,6 @@ bibleError.value = ''
       styleText.value = content
     },
     onWorldbuildingFieldPartial: (dimension, field, value) => {
-      const dim = dimension as keyof typeof worldbuildingData.value
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
           completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
@@ -1298,17 +1297,14 @@ bibleError.value = ''
         activeDimension.value = dimension
       }
       activeField.value = field
-      worldbuildingData.value = {
-        ...worldbuildingData.value,
-        [dimension]: { ...worldbuildingData.value[dim], [field]: value },
-      }
+      // Direct property mutation avoids replacing the entire ref on every token,
+      // which would trigger full-tree re-renders during high-frequency streaming.
+      const dim = dimension as keyof typeof worldbuildingData.value
+      worldbuildingData.value[dim][field] = value
     },
     onWorldbuildingField: (dimension, field, value) => {
       const dim = dimension as keyof typeof worldbuildingData.value
-      worldbuildingData.value = {
-        ...worldbuildingData.value,
-        [dimension]: { ...worldbuildingData.value[dim], [field]: value },
-      }
+      worldbuildingData.value[dim][field] = value
       if (activeDimension.value !== dimension) {
         if (activeDimension.value) {
           completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
@@ -1320,10 +1316,7 @@ bibleError.value = ''
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value
-      worldbuildingData.value = {
-        ...worldbuildingData.value,
-        [data.dimension]: { ...worldbuildingData.value[dim], ...data.content },
-      }
+      Object.assign(worldbuildingData.value[dim], data.content)
       if (activeDimension.value && activeDimension.value !== data.dimension) {
         completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
       }
