@@ -184,7 +184,34 @@
 
         </n-tab-pane>
 
-        <!-- ③ 档案 ────────────────────────────────────────────────── -->
+        <!-- ③ 待校准 ─────────────────────────────────────────────── -->
+        <n-tab-pane name="calibration" tab="待校准" class="cp-pane">
+          <div class="cp-card">
+            <div class="cp-card-hd">
+              <span class="cp-card-lbl">候选记忆</span>
+              <span v-if="candidateMemories.length" class="cp-chip cp-chip--purple">{{ candidateMemories.length }}</span>
+            </div>
+            <div class="cp-card-bd">
+              <div v-if="candidateMemories.length" class="cp-candidates">
+                <div v-for="m in candidateMemories" :key="m.id" class="cp-candidate">
+                  <div class="cp-candidate-meta">
+                    <span class="cp-chip cp-chip--muted">{{ memoryTypeLabel(m.memory_type) }}</span>
+                    <span v-if="m.chapter_number" class="cp-tl-ch">第{{ m.chapter_number }}章</span>
+                    <span class="cp-confidence">{{ Math.round((m.confidence ?? 0) * 100) }}%</span>
+                  </div>
+                  <p class="cp-candidate-text">{{ memoryAtomText(m) }}</p>
+                  <div class="cp-candidate-actions">
+                    <n-button size="tiny" type="primary" text :loading="calibratingId === m.id" @click="confirmMemory(m.id)">确认</n-button>
+                    <n-button size="tiny" text :loading="calibratingId === m.id" @click="rejectMemory(m.id)">拒绝</n-button>
+                  </div>
+                </div>
+              </div>
+              <p v-else class="cp-empty-note">暂无待校准记忆 · 章后抽取会在这里积累候选项</p>
+            </div>
+          </div>
+        </n-tab-pane>
+
+        <!-- ④ 档案 ────────────────────────────────────────────────── -->
         <n-tab-pane name="file" tab="档案" class="cp-pane">
 
           <!-- 人设两面 -->
@@ -253,7 +280,7 @@
 
         </n-tab-pane>
 
-        <!-- ④ 对白 ────────────────────────────────────────────────── -->
+        <!-- ⑤ 对白 ────────────────────────────────────────────────── -->
         <n-tab-pane name="dialogue" tab="对白" class="cp-pane cp-pane--fill" display-directive="show">
           <DialogueCorpus
             :slug="slug"
@@ -276,6 +303,7 @@ import {
   type CharacterPsycheDetailDTO,
 } from '@/api/engineCore'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
+import { memoryApi, type CharacterProjection, type MemoryAtom } from '@/api/memory'
 import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
 import DialogueCorpus from './DialogueCorpus.vue'
 
@@ -300,9 +328,11 @@ const extracting = ref(false)
 const characterName  = ref('')
 const bibleChar      = ref<CharacterDTO | null>(null)
 const psycheDetail   = ref<CharacterPsycheDetailDTO | null>(null)
+const projection     = ref<CharacterProjection | null>(null)
 
-const activeTab  = ref<'write' | 'memory' | 'file' | 'dialogue'>('write')
+const activeTab  = ref<'write' | 'memory' | 'calibration' | 'file' | 'dialogue'>('write')
 const debugOpen  = ref(false)
+const calibratingId = ref<string | null>(null)
 
 // ── Avatar & Role ─────────────────────────────────────────────────
 const ROLE_COLORS: Record<string, string> = {
@@ -327,6 +357,8 @@ const roleCssKey    = computed(() => roleKey.value.toLowerCase())
 // ── Mental State ──────────────────────────────────────────────────
 const mentalStateLabel = computed(() => {
   const raw = (bibleChar.value?.mental_state ?? '').trim()
+  const projected = String(projection.value?.current_state?.summary ?? '').trim()
+  if ((!raw || raw.toUpperCase() === 'NORMAL') && projected) return projected
   return raw && raw.toUpperCase() !== 'NORMAL' ? raw : ''
 })
 
@@ -386,7 +418,7 @@ interface VoiceShape {
   catchphrases?: unknown[]
 }
 const voiceObj = computed((): VoiceShape | null => {
-  const vp = bibleChar.value?.voice_profile
+  const vp = bibleChar.value?.voice_profile ?? projection.value?.voice_fingerprint
   return (vp && typeof vp === 'object') ? (vp as VoiceShape) : null
 })
 const TEMPO_MAP: Record<string, string> = { fast: '急促', normal: '平稳', slow: '舒缓' }
@@ -417,6 +449,14 @@ const hasVoice = computed(() =>
 // ── Wounds ────────────────────────────────────────────────────────
 interface WoundShape { description?: string; trigger?: string; effect?: string }
 const activeWounds = computed((): WoundShape[] => {
+  const projected = projection.value?.active_scars
+  if (Array.isArray(projected) && projected.length > 0) {
+    return projected.map(w => ({
+      description: String(w.impact ?? w.description ?? ''),
+      trigger: String(w.source_event ?? w.trigger ?? ''),
+      effect: String(w.impact ?? w.effect ?? ''),
+    })).filter(w => w.trigger || w.effect || w.description)
+  }
   const arr = bibleChar.value?.active_wounds
   if (Array.isArray(arr) && arr.length > 0)
     return (arr as WoundShape[]).filter(w => w.trigger || w.effect || w.description)
@@ -437,12 +477,42 @@ const FIELD_NARRATIVE: Record<string, string> = {
 }
 interface TLEntry { trigger_chapter: number; trigger_event: string; narrativeDesc: string }
 const narrativeTimeline = computed((): TLEntry[] =>
-  (psycheDetail.value?.evolution_timeline ?? []).map(e => ({
+  projection.value?.emotional_arc?.length
+    ? projection.value.emotional_arc.map(e => ({
+      trigger_chapter: Number(e.chapter ?? 0),
+      trigger_event: String(e.trigger ?? e.emotion ?? ''),
+      narrativeDesc: String(e.emotion ?? '情绪弧点'),
+    })).filter(e => e.trigger_chapter > 0)
+    : (psycheDetail.value?.evolution_timeline ?? []).map(e => ({
     trigger_chapter: e.trigger_chapter,
     trigger_event:   e.trigger_event ?? '',
     narrativeDesc:   (e.changed_fields ?? []).map((f: string) => FIELD_NARRATIVE[f] ?? f).join('，'),
   })),
 )
+
+const candidateMemories = computed(() => projection.value?.candidate_memories ?? [])
+
+function memoryTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    state: '状态',
+    scar: '创伤',
+    motivation: '执念',
+    emotion: '情绪',
+    voice: '对白',
+    relationship: '关系',
+    debt: '债务',
+    fact: '事实',
+  }
+  return map[type] ?? type
+}
+
+function memoryAtomText(atom: MemoryAtom): string {
+  const p = atom.payload ?? {}
+  return String(
+    p.summary ?? p.mental_state ?? p.impact_or_description ?? p.impact ??
+    p.description ?? p.content ?? p.source_event ?? atom.text_span ?? '（空候选）',
+  )
+}
 
 // ── Inject Preview ─────────────────────────────────────────────────
 const injectPreviewBody = computed(() => {
@@ -475,7 +545,7 @@ const injectPreviewBody = computed(() => {
 // ── Actions ───────────────────────────────────────────────────────
 async function loadCharacterData() {
   if (!props.selectedCharacterId) {
-    bibleChar.value = null; psycheDetail.value = null; characterName.value = ''
+    bibleChar.value = null; psycheDetail.value = null; projection.value = null; characterName.value = ''
     return
   }
   loading.value = true
@@ -484,13 +554,44 @@ async function loadCharacterData() {
     const char  = bible.characters?.find(x => x.id === props.selectedCharacterId) ?? null
     bibleChar.value     = char
     characterName.value = char?.name ?? ''
-    psycheDetail.value  = characterName.value
-      ? await characterPsycheApi.get(props.slug, characterName.value).catch(() => null)
-      : null
+    const [psyche, proj] = await Promise.all([
+      characterName.value
+        ? characterPsycheApi.get(props.slug, characterName.value).catch(() => null)
+        : Promise.resolve(null),
+      memoryApi.getCharacterProjection(props.slug, props.selectedCharacterId).catch(() => null),
+    ])
+    psycheDetail.value = psyche
+    projection.value = proj
   } catch (err: unknown) {
     message.error(err instanceof Error ? err.message : '加载角色数据失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function confirmMemory(atomId: string) {
+  calibratingId.value = atomId
+  try {
+    await memoryApi.confirm(props.slug, atomId)
+    message.success('已确认候选记忆')
+    void loadCharacterData()
+  } catch {
+    message.error('确认失败')
+  } finally {
+    calibratingId.value = null
+  }
+}
+
+async function rejectMemory(atomId: string) {
+  calibratingId.value = atomId
+  try {
+    await memoryApi.reject(props.slug, atomId)
+    message.success('已拒绝候选记忆')
+    void loadCharacterData()
+  } catch {
+    message.error('拒绝失败')
+  } finally {
+    calibratingId.value = null
   }
 }
 
@@ -973,6 +1074,41 @@ useWorkbenchDeskTickReload(() => {
 .cp-tl-ch { font-size: 10px; font-weight: 700; color: var(--color-brand, #2563eb); }
 .cp-tl-dims { font-size: 10px; color: var(--app-text-muted); }
 .cp-tl-event { margin: 0; font-size: 12px; line-height: 1.6; color: var(--app-text-secondary); word-break: break-word; }
+
+/* ── 待校准 ─────────────────────────────────────────────────────── */
+
+.cp-candidates { display: flex; flex-direction: column; gap: 8px; }
+.cp-candidate {
+  border: 1px solid var(--app-border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: var(--app-page-bg, #fafafa);
+}
+.cp-candidate-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.cp-confidence {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--app-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cp-candidate-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--app-text-secondary);
+  word-break: break-word;
+}
+.cp-candidate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
 
 /* ── 档案 ─────────────────────────────────────────────────────────── */
 

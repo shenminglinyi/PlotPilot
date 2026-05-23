@@ -42,6 +42,8 @@ export interface GenerationPrefsDTO {
   audit_pause_on_hard_fail?: boolean
   /** Anti-AI 综合判定「严重」→ 待在审阅 */
   audit_pause_on_anti_ai_severe?: boolean
+  /** 当前章节目标字数；兼容后端 generation_prefs_json 旧字段 */
+  target_chapter_words?: number
 }
 
 /**

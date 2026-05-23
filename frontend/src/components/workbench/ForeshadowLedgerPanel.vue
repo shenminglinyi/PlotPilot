@@ -52,7 +52,7 @@
         placeholder="按角色"
         clearable
         style="width:90px;flex-shrink:0"
-        @update:value="val => { if (val) activeFilter = 'char'; else if (activeFilter === 'char') activeFilter = 'all' }"
+        @update:value="(val: string | null) => { if (val) activeFilter = 'char'; else if (activeFilter === 'char') activeFilter = 'all' }"
       />
     </div>
 

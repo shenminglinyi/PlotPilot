@@ -9,6 +9,7 @@ export interface ChapterDTO {
   content: string
   status: string
   word_count: number
+  generation_hint?: string
   created_at: string
   updated_at: string
 }
