@@ -30,6 +30,28 @@ async def test_process_novel_routes_macro_planning():
 
 
 @pytest.mark.asyncio
+async def test_process_novel_treats_legacy_planning_as_macro_planning():
+    from domain.novel.entities.novel import AutopilotStatus, NovelStage
+
+    host = MagicMock()
+    host._is_still_running.return_value = True
+    host.circuit_breaker = None
+    novel = MagicMock()
+    novel.novel_id.value = "n-1"
+    novel.current_stage = NovelStage.PLANNING
+    novel.autopilot_status = AutopilotStatus.RUNNING
+
+    with patch(
+        "engine.runtime.novel_lifecycle.run_macro_planning",
+        new_callable=AsyncMock,
+    ) as mock_macro:
+        await process_novel(host, novel)
+        assert novel.current_stage == NovelStage.MACRO_PLANNING
+        host._save_novel_state.assert_called()
+        mock_macro.assert_awaited_once_with(host, novel)
+
+
+@pytest.mark.asyncio
 async def test_run_macro_planning_stops_when_not_running():
     host = MagicMock()
     host._is_still_running.return_value = False

@@ -34,7 +34,14 @@ async def process_novel(host: Any, novel: Novel) -> None:
         stage_name = novel.current_stage.value
         logger.debug("[%s] 当前阶段: %s", novel.novel_id, stage_name)
 
-        if novel.current_stage == NovelStage.MACRO_PLANNING:
+        if novel.current_stage in (NovelStage.PLANNING, NovelStage.MACRO_PLANNING):
+            if novel.current_stage == NovelStage.PLANNING:
+                logger.info("[%s] 旧版 planning 阶段归一为 macro_planning", novel.novel_id)
+                novel.current_stage = NovelStage.MACRO_PLANNING
+                try:
+                    host._save_novel_state(novel)
+                except Exception:
+                    logger.debug("[%s] planning 阶段归一落库失败，将继续执行宏观规划", novel.novel_id, exc_info=True)
             logger.info("[%s] 开始宏观规划", novel.novel_id)
             await run_macro_planning(host, novel)
         elif novel.current_stage == NovelStage.ACT_PLANNING:

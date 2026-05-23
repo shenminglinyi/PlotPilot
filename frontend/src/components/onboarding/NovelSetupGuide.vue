@@ -513,10 +513,6 @@
 
           <div v-if="plotSuggesting && !plotOptions.length" style="width: 100%">
             <WizardSkeleton type="storyline" />
-            <div v-if="plotSuggestRawPreview" class="plot-stream-preview">
-              {{ plotSuggestRawPreview }}
-              <span class="streaming-cursor">▎</span>
-            </div>
           </div>
 
           <div v-if="!customMode" class="plot-options-block">
@@ -817,16 +813,27 @@ function styleConventionFromBible(bible: BibleDTO): string {
 }
 
 function formatApiError(error: unknown): string {
+  const readable = (value: unknown): string => {
+    if (typeof value === 'string') return value
+    if (Array.isArray(value)) return value.map(readable).filter(Boolean).join('；')
+    if (value && typeof value === 'object') {
+      const record = value as Record<string, unknown>
+      for (const key of ['message', 'detail', 'msg', 'error', 'reason']) {
+        const text = readable(record[key])
+        if (text) return text
+      }
+      return ''
+    }
+    return ''
+  }
   const e = error as {
     response?: { data?: { detail?: unknown } }
     message?: string
     code?: string
   }
   const d = e?.response?.data?.detail
-  if (typeof d === 'string') return d
-  if (Array.isArray(d))
-    return d.map((x: { msg?: string }) => x?.msg || JSON.stringify(x)).join('；')
-  if (d != null && typeof d === 'object') return JSON.stringify(d)
+  const detail = readable(d)
+  if (detail) return detail
   if (e?.message) return e.message
   return ''
 }
@@ -1057,7 +1064,6 @@ const customLogline = ref('')
 const adoptingPlotId = ref<string | null>(null)
 const adoptingCustom = ref(false)
 const step4RestoredFromCache = ref(false)
-const plotSuggestRawPreview = ref('')
 
 const chapterEndForStoryline = computed(() => Math.max(1, props.targetChapters ?? 100))
 
@@ -1078,16 +1084,11 @@ async function loadPlotSuggestions() {
   plotSuggesting.value = true
   plotSuggestError.value = ''
   plotOptions.value = []
-  plotSuggestRawPreview.value = ''
   try {
     let streamError = ''
     await consumeMainPlotOptionsStream(props.novelId, {
       onPhase: (message) => {
         if (message) phaseMessage.value = message
-      },
-      onChunk: (text) => {
-        if (!text) return
-        plotSuggestRawPreview.value = `${plotSuggestRawPreview.value}${text}`.slice(-1600)
       },
       onOption: (option) => {
         if (!option?.id) return
@@ -2234,21 +2235,6 @@ const handleComplete = () => {
   color: var(--color-brand, var(--n-primary-color));
   font-size: 11px;
   font-weight: 700;
-}
-
-.plot-stream-preview {
-  margin-top: 12px;
-  padding: 12px 14px;
-  max-height: 160px;
-  overflow: hidden;
-  border-radius: 8px;
-  border: 1px solid var(--app-border, var(--n-border-color));
-  background: var(--app-surface-subtle, var(--n-color-modal));
-  color: var(--app-text-secondary, var(--n-text-color-2));
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 @keyframes field-appear {
