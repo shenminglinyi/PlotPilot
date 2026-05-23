@@ -40,13 +40,13 @@ def test_incremental_parser_emits_dimensions_in_order():
     assert "geography" in keys
 
 
-def test_parser_canonicalizes_llm_alias_keys_and_emits_field_events():
+def test_parser_ignores_non_contract_keys():
     parser = WorldbuildingStreamIncrementalParser()
     chunk = (
         '{"worldbuilding": {"core_rules": {'
-        '"name": "劫力体系", '
-        '"essence": "吸收劫气修炼", '
-        '"core_cost": "渡劫代价"'
+        '"power_system": "劫力体系", '
+        '"cost_and_limitation": "渡劫代价", '
+        '"name": "自创字段"'
         "}}}"
     )
     events = parser.feed(chunk)
@@ -60,30 +60,42 @@ def test_parser_canonicalizes_llm_alias_keys_and_emits_field_events():
     assert "劫力" in dim["content"]["power_system"]
 
 
-def test_parser_emits_field_partial_while_streaming():
+def test_parser_waits_for_closed_dimension_before_emitting_fields():
     parser = WorldbuildingStreamIncrementalParser()
-    part1 = '{"worldbuilding": {"core_rules": {"name": "劫力'
+    part1 = '{"worldbuilding": {"core_rules": {"power_system": "劫力'
     part2 = '体系"}}}'
     events = []
     events.extend(parser.feed(part1))
-    partials = [e for e in events if e["type"] == "field_partial"]
-    assert partials
-    assert partials[-1]["field"] == "power_system"
-    assert "劫力" in partials[-1]["value"]
+    assert events == []
     events.extend(parser.feed(part2))
     assert any(e["type"] == "dimension" for e in events)
 
 
-def test_parser_maps_invalid_dimension_string_to_primary_field():
+def test_parser_ignores_invalid_dimension_string():
     parser = WorldbuildingStreamIncrementalParser()
     part1 = '{"worldbuilding": {"society": "剑修贵族垄断灵石矿'
     part2 = '，非剑修宗门需上缴七成收益才能获得庇护"}}'
     events = []
     events.extend(parser.feed(part1))
-    partials = [e for e in events if e["type"] == "field_partial"]
-    assert partials
-    assert partials[-1]["key"] == "society"
-    assert partials[-1]["field"] == "politics"
+    assert events == []
     events.extend(parser.feed(part2))
-    fields = [e for e in events if e["type"] == "field"]
-    assert any(e["key"] == "society" and e["field"] == "politics" for e in fields)
+    assert events == []
+
+
+def test_parser_uses_closed_dimension_value_when_duplicate_keys_exist():
+    parser = WorldbuildingStreamIncrementalParser()
+    part1 = '{"worldbuilding": {"culture": {"history": "选手", '
+    part2 = '"history": "职业电竞联盟在十年前建立神经健康标准，但俱乐部用外包青训规避监管"}}}'
+
+    events = []
+    events.extend(parser.feed(part1))
+    assert events == []
+
+    events.extend(parser.feed(part2))
+    history_fields = [
+        e for e in events
+        if e["type"] == "field" and e["key"] == "culture" and e["field"] == "history"
+    ]
+    assert history_fields[-1]["value"].startswith("职业电竞联盟")
+    dim = next(e for e in events if e["type"] == "dimension" and e["key"] == "culture")
+    assert dim["content"]["history"].startswith("职业电竞联盟")

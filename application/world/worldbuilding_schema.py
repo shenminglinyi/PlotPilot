@@ -109,134 +109,6 @@ WORLDBUILDING_FIELD_SCOPE_HINTS: Dict[str, Dict[str, str]] = {
     },
 }
 
-# LLM 常见自创键 → 规范字段（按维度）
-DIMENSION_FIELD_ALIASES: Dict[str, Dict[str, str]] = {
-    "core_rules": {
-        "name": "power_system",
-        "essence": "power_system",
-        "power_system": "power_system",
-        "physics": "physics_rules",
-        "physics_rules": "physics_rules",
-        "magic": "magic_tech",
-        "magic_tech": "magic_tech",
-        "technology": "magic_tech",
-        "core_cost": "cost_and_limitation",
-        "cost": "cost_and_limitation",
-        "cost_and_limitation": "cost_and_limitation",
-        "limitation": "cost_and_limitation",
-        "limit": "cost_and_limitation",
-        "resource": "resource_scarcity",
-        "resource_scarcity": "resource_scarcity",
-        "scarcity": "resource_scarcity",
-        "fatal_flaw": "cost_and_limitation",
-        "realm_structure": "power_system",
-    },
-    "geography": {
-        "continent_name": "terrain",
-        "key_regions": "terrain",
-        "terrain": "terrain",
-        "climate_impact": "climate",
-        "climate": "climate",
-        "resources": "resources",
-        "ecology": "ecology",
-        "forbidden_zones": "forbidden_zones",
-        "urban_core": "urban_core",
-        "hidden_realms": "hidden_realms",
-        "realm_structure": "hidden_realms",
-        "survival_rule": "ecology",
-    },
-    "society": {
-        "ruling_class": "power_structure",
-        "middle_class": "class_division",
-        "lower_class": "class_division",
-        "power_structure": "power_structure",
-        "oppression": "oppression_mechanism",
-        "oppression_mechanism": "oppression_mechanism",
-        "class_division": "class_division",
-        "politics": "politics",
-        "economy": "economy",
-        "class_system": "class_system",
-        "currency": "economy",
-        "black_market": "economy",
-        "slave_trade": "economy",
-    },
-    "culture": {
-        "dominant_faith": "religion",
-        "doctrine": "religion",
-        "truth": "religion",
-        "rituals": "worship",
-        "religion": "religion",
-        "history": "history",
-        "taboos": "taboos",
-        "worship": "worship",
-        "values": "taboos",
-        "art_and_literature": "history",
-        "punishment": "taboos",
-        "禁忌": "taboos",
-    },
-    "daily_life": {
-        "food_clothing": "food_clothing",
-        "food_and_drink": "food_and_drink",
-        "language_slang": "language_slang",
-        "slang_and_profanity": "slang_and_profanity",
-        "entertainment": "entertainment",
-        "survival_tactics": "survival_tactics",
-        "market_reality": "market_reality",
-    },
-}
-
-# 无法识别时落入该维度的「主字段」
-_DIMENSION_OVERFLOW_FIELD: Dict[str, str] = {
-    "core_rules": "power_system",
-    "geography": "terrain",
-    "society": "politics",
-    "culture": "history",
-    "daily_life": "food_clothing",
-}
-
-# 子串启发（小写匹配 raw_key）
-_KEYWORD_HINTS: Dict[str, tuple[tuple[str, str], ...]] = {
-    "core_rules": (
-        ("cost", "cost_and_limitation"),
-        ("limit", "cost_and_limitation"),
-        ("代价", "cost_and_limitation"),
-        ("resource", "resource_scarcity"),
-        ("稀缺", "resource_scarcity"),
-        ("physics", "physics_rules"),
-        ("物理", "physics_rules"),
-        ("magic", "magic_tech"),
-        ("tech", "magic_tech"),
-    ),
-    "geography": (
-        ("climate", "climate"),
-        ("气候", "climate"),
-        ("region", "terrain"),
-        ("terrain", "terrain"),
-        ("ecology", "ecology"),
-        ("生态", "ecology"),
-    ),
-    "society": (
-        ("econom", "economy"),
-        ("class", "class_system"),
-        ("politic", "politics"),
-        ("oppress", "oppression_mechanism"),
-    ),
-    "culture": (
-        ("relig", "religion"),
-        ("taboo", "taboos"),
-        ("禁忌", "taboos"),
-        ("worship", "worship"),
-        ("history", "history"),
-    ),
-    "daily_life": (
-        ("food", "food_clothing"),
-        ("slang", "language_slang"),
-        ("market", "market_reality"),
-        ("survival", "survival_tactics"),
-    ),
-}
-
-
 def schema_field_keys(dim_key: str) -> frozenset[str]:
     dim = WORLDBUILDING_DIMENSION_DEFS.get(dim_key, {})
     fields = dim.get("fields") or {}
@@ -244,32 +116,16 @@ def schema_field_keys(dim_key: str) -> frozenset[str]:
 
 
 def resolve_canonical_field(dim_key: str, raw_key: str) -> str:
-    """将 LLM 输出的字段名映射到 schema 规范键。"""
+    """仅接受 schema 约定字段；未知字段不做猜测。"""
     key = str(raw_key).strip()
-    if not key:
-        return _DIMENSION_OVERFLOW_FIELD.get(dim_key, key)
-
-    aliases = DIMENSION_FIELD_ALIASES.get(dim_key, {})
-    if key in aliases:
-        return aliases[key]
-
-    canonical = schema_field_keys(dim_key)
-    if key in canonical:
-        return key
-
-    low = key.lower()
-    for hint, target in _KEYWORD_HINTS.get(dim_key, ()):
-        if hint in low:
-            return target
-
-    return _DIMENSION_OVERFLOW_FIELD.get(dim_key, key)
+    return key if key in schema_field_keys(dim_key) else ""
 
 
 def canonicalize_dimension_fields(
     dim_key: str,
     raw: Mapping[str, Any],
 ) -> Dict[str, str]:
-    """维度 dict → 仅含规范字段键的中文段落；自创键合并进对应规范槽位。"""
+    """维度 dict → 仅含 schema 规范字段键的中文段落。"""
     buckets: Dict[str, list[str]] = defaultdict(list)
 
     for raw_k, raw_v in raw.items():
@@ -277,6 +133,8 @@ def canonicalize_dimension_fields(
         if not prose:
             continue
         target = resolve_canonical_field(dim_key, str(raw_k))
+        if not target:
+            continue
         if target in buckets and prose in buckets[target]:
             continue
         buckets[target].append(prose)

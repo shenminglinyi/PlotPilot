@@ -17,13 +17,13 @@ def serialize_beats_for_shared_state(beats: Any) -> list:
         cards = _collect_cards(b)
         card = cards[0] if cards else None
         out.append({
-            "description": getattr(b, "description", "") or "",
-            "target_words": int(getattr(b, "target_words", 0) or 0),
-            "focus": getattr(b, "focus", "") or "pacing",
-            "location_id": getattr(b, "location_id", "") or "",
-            "active_action": (getattr(card, "active_action", "") or "") if card else "",
-            "emotion_gap": (getattr(card, "emotion_gap", "") or "") if card else "",
-            "forbidden_drift": (getattr(card, "forbidden_drift", "") or "") if card else "",
+            "description": _field(b, "description", "") or "",
+            "target_words": int(_field(b, "target_words", 0) or 0),
+            "focus": _field(b, "focus", "") or "pacing",
+            "location_id": _field(b, "location_id", "") or "",
+            "active_action": (_field(card, "active_action", "") or "") if card else "",
+            "emotion_gap": (_field(card, "emotion_gap", "") or "") if card else "",
+            "forbidden_drift": (_field(card, "forbidden_drift", "") or "") if card else "",
             "beat_cards": [_card_to_dict(c) for c in cards],
         })
     return out
@@ -101,11 +101,11 @@ def merge_two_beats(a: Any, b: Any) -> Any:
 def _collect_cards(beat: Any) -> List[Any]:
     cards: List[Any] = []
     seen: set[int] = set()
-    for card in getattr(beat, "emotion_beat_cards", None) or []:
+    for card in _field(beat, "emotion_beat_cards", None) or _field(beat, "beat_cards", None) or []:
         if card is not None and id(card) not in seen:
             cards.append(card)
             seen.add(id(card))
-    card = getattr(beat, "emotion_beat_card", None)
+    card = _field(beat, "emotion_beat_card", None)
     if card is not None and id(card) not in seen:
         cards.append(card)
     return cards
@@ -113,15 +113,21 @@ def _collect_cards(beat: Any) -> List[Any]:
 
 def _card_to_dict(card: Any) -> dict:
     return {
-        "goal": getattr(card, "goal", "") or "",
-        "obstacle": getattr(card, "obstacle", "") or "",
-        "active_action": getattr(card, "active_action", "") or "",
-        "delta": getattr(card, "delta", "") or "",
-        "emotion_gap": getattr(card, "emotion_gap", "") or "",
-        "hook_delta": getattr(card, "hook_delta", "") or "",
-        "sensory_anchor": getattr(card, "sensory_anchor", "") or "",
-        "forbidden_drift": getattr(card, "forbidden_drift", "") or "",
+        "goal": _field(card, "goal", "") or "",
+        "obstacle": _field(card, "obstacle", "") or "",
+        "active_action": _field(card, "active_action", "") or "",
+        "delta": _field(card, "delta", "") or "",
+        "emotion_gap": _field(card, "emotion_gap", "") or "",
+        "hook_delta": _field(card, "hook_delta", "") or "",
+        "sensory_anchor": _field(card, "sensory_anchor", "") or "",
+        "forbidden_drift": _field(card, "forbidden_drift", "") or "",
     }
+
+
+def _field(obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
 
 
 def _join_descriptions(a: Any, b: Any) -> str:

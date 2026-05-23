@@ -421,12 +421,40 @@ class BaseStoryPipeline(ABC):
         """
         self._log_step("magnify_beats", "节拍放大")
 
+        def _sync_project_beats(label: str) -> list:
+            from application.engine.dag.plan.outline_beat_planner import build_chapter_execution_plan_sync
+            from application.engine.services.beat_planner import (
+                generate_expansion_hints,
+                infer_focus_from_outline,
+            )
+            from application.engine.services.beat_projection import (
+                beat_sheet_to_plan_json,
+                beats_from_execution_plan,
+            )
+
+            plan = build_chapter_execution_plan_sync(
+                ctx.outline or "",
+                target_chapter_words=ctx.target_word_count,
+                novel_id=ctx.novel_id,
+                chapter_number=ctx.chapter_number,
+                beat_sheet_json=beat_sheet_to_plan_json(ctx.beat_sheet),
+                decomposition_label=label,
+            )
+            return beats_from_execution_plan(
+                plan,
+                outline=ctx.outline or "",
+                target_chapter_words=ctx.target_word_count,
+                infer_focus=infer_focus_from_outline,
+                build_expansion_hints=lambda focus, words: generate_expansion_hints(focus, words, {}),
+            )
+
         if ctx.context_builder is not None:
             try:
                 from application.engine.services.beat_projection import beat_sheet_to_plan_json
                 beat_sheet_json = beat_sheet_to_plan_json(ctx.beat_sheet)
                 from application.engine.dag.plan.outline_beat_planner import (
                     build_chapter_execution_plan_async,
+                    build_chapter_execution_plan_sync,
                 )
 
                 chapter_plan = None
@@ -441,39 +469,38 @@ class BaseStoryPipeline(ABC):
                         llm_service=ctx.llm_service,
                     )
                 except Exception as e:
-                    logger.warning("章前执行计划（拆节拍）失败，降级：%s", e)
+                    logger.warning("章前执行计划（拆节拍）异步构建失败，转同步 ChapterExecutionPlan：%s", e)
+                    chapter_plan = build_chapter_execution_plan_sync(
+                        ctx.outline or "",
+                        target_chapter_words=ctx.target_word_count,
+                        novel_id=ctx.novel_id,
+                        chapter_number=ctx.chapter_number,
+                        beat_sheet_json=beat_sheet_json,
+                        decomposition_label="pipeline_sync_fallback",
+                    )
 
-                use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
                 ctx.beats = ctx.context_builder.magnify_outline_to_beats(
                     ctx.chapter_number,
                     ctx.outline,
                     target_chapter_words=ctx.target_word_count,
-                    chapter_execution_plan=chapter_plan if use_plan else None,
-                    beat_sheet=None if use_plan else ctx.beat_sheet,
+                    chapter_execution_plan=chapter_plan,
+                    beat_sheet=None,
                     scene_director=getattr(ctx, "scene_director", None),
                 )
                 logger.info(f"[{ctx.novel_id}] 节拍拆分: {len(ctx.beats)} 个节拍")
             except Exception as e:
-                logger.warning(f"节拍放大失败: {e}")
-                # 降级：创建单节拍
-                ctx.beats = [type('Beat', (), {
-                    'description': ctx.outline,
-                    'target_words': ctx.target_word_count,
-                    'focus': 'mixed',
-                    'expansion_hints': [],
-                    'scene_goal': '',
-                    'transition_from_prev': '',
-                })()]
+                logger.warning(f"节拍放大失败，转同步 ChapterExecutionPlan 投影: {e}")
+                try:
+                    ctx.beats = _sync_project_beats("pipeline_projection_sync_fallback")
+                except Exception as sync_err:
+                    logger.error("同步 ChapterExecutionPlan 投影失败: %s", sync_err)
+                    ctx.beats = []
         else:
-            # 无 context_builder，创建单节拍
-            ctx.beats = [type('Beat', (), {
-                'description': ctx.outline,
-                'target_words': ctx.target_word_count,
-                'focus': 'mixed',
-                'expansion_hints': [],
-                'scene_goal': '',
-                'transition_from_prev': '',
-            })()]
+            try:
+                ctx.beats = _sync_project_beats("pipeline_no_context_builder_sync_projection")
+            except Exception as sync_err:
+                logger.error("ContextBuilder 不可用，且同步 ChapterExecutionPlan 投影失败: %s", sync_err)
+                ctx.beats = []
 
         return StepResult.ok()
 

@@ -107,39 +107,6 @@ def beats_from_execution_plan(
     return beats
 
 
-def beats_from_beat_sheet(
-    beat_sheet: Any,
-    *,
-    outline: str,
-    infer_focus_from_scene: Callable[[Any, str], str],
-    build_expansion_hints: ExpansionHintBuilder,
-) -> List[Beat]:
-    """Project legacy BeatSheet scenes into runtime Beats.
-
-    This is a fallback projection for callers that do not yet provide a
-    ChapterExecutionPlan. The preferred source remains ChapterExecutionPlan.
-    """
-    beats: List[Beat] = []
-    scenes = list(getattr(beat_sheet, "scenes", None) or [])
-    for scene in scenes:
-        estimated_words = int(getattr(scene, "estimated_words", 600) or 600)
-        goal = getattr(scene, "goal", "") or ""
-        title = getattr(scene, "title", "") or ""
-        focus = infer_focus_from_scene(scene, outline)
-
-        beats.append(
-            Beat(
-                description=f"{title}：{goal}" if goal else title,
-                target_words=estimated_words,
-                focus=focus,
-                expansion_hints=build_expansion_hints(focus, estimated_words),
-                scene_goal=goal,
-                transition_from_prev=getattr(scene, "transition_from_prev", "") or "",
-            )
-        )
-    return beats
-
-
 def planned_micro_beats_from_beats(beats: List[Any]) -> List[Dict[str, Any]]:
     """Serialize runtime Beats for /status, SSE, and chapter summary snapshots."""
     return serialize_beats_for_shared_state(beats)
@@ -148,7 +115,6 @@ def planned_micro_beats_from_beats(beats: List[Any]) -> List[Dict[str, Any]]:
 __all__ = [
     "OUTLINE_OBLIGATION_PREFIX",
     "beat_sheet_to_plan_json",
-    "beats_from_beat_sheet",
     "beats_from_execution_plan",
     "planned_micro_beats_from_beats",
 ]

@@ -907,6 +907,7 @@ class AutoNovelGenerationWorkflow:
         """章纲拆节拍：经 ``build_chapter_execution_plan_async``（与 DAG planning_outline_partition 同源）再投影为 Beat。"""
         from application.engine.dag.plan.outline_beat_planner import (
             build_chapter_execution_plan_async,
+            build_chapter_execution_plan_sync,
         )
         from application.engine.services.beat_projection import beat_sheet_to_plan_json
 
@@ -925,15 +926,22 @@ class AutoNovelGenerationWorkflow:
                 llm_service=self.llm_service,
             )
         except Exception as e:
-            logger.warning("章前执行计划（拆节拍）失败，降级：%s", e)
+            logger.warning("章前执行计划（拆节拍）异步构建失败，转同步 ChapterExecutionPlan：%s", e)
+            chapter_plan = build_chapter_execution_plan_sync(
+                outline,
+                target_chapter_words=target_words,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                beat_sheet_json=beat_sheet_json,
+                decomposition_label="workflow_sync_fallback",
+            )
 
-        use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
         return self.context_builder.magnify_outline_to_beats(
             chapter_number,
             outline,
             target_chapter_words=target_words,
-            chapter_execution_plan=chapter_plan if use_plan else None,
-            beat_sheet=None if use_plan else beat_sheet,
+            chapter_execution_plan=chapter_plan,
+            beat_sheet=None,
             scene_director=scene_director,
         )
 

@@ -761,11 +761,7 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
 function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
   const block = worldbuildingData.value[dim] || {}
   const ordered = WB_FIELD_ORDER[dim] || []
-  const known = new Set(ordered)
-  const extras = Object.keys(block)
-    .filter(key => !known.has(key))
-    .sort((a, b) => a.localeCompare(b, 'zh-CN'))
-  return [...ordered, ...extras]
+  return ordered
     .map(key => ({ key, value: String(block[key] ?? '') }))
     .filter(field => field.value.trim().length > 0)
 }

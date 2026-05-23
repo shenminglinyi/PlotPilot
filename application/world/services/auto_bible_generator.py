@@ -1118,7 +1118,7 @@ JSON 格式：
                 repair=_repair_json_string,
             )
             for dim_key, dim_data in full_wb.items():
-                if dim_key not in accumulated and dim_data:
+                if dim_data and accumulated.get(dim_key) != dim_data:
                     accumulated[dim_key] = dim_data
                     yield {"type": "dimension", "key": dim_key, "content": dim_data}
 

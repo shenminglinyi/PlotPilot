@@ -269,18 +269,32 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             )
         except Exception as e:
             logger.warning(
-                "[%s] 章前执行计划（拆节拍）失败，降级为直接用 BeatSheet / 章纲启发式：%s",
+                "[%s] 章前执行计划（拆节拍）失败，降级为同步 ChapterExecutionPlan：%s",
                 novel.novel_id.value,
                 e,
             )
+            try:
+                from application.engine.dag.plan.outline_beat_planner import (
+                    build_chapter_execution_plan_sync,
+                )
+                chapter_plan = build_chapter_execution_plan_sync(
+                    outline,
+                    target_chapter_words=target_word_count,
+                    novel_id=novel.novel_id.value,
+                    chapter_number=chapter_num,
+                    beat_sheet_json=beat_sheet_json,
+                    decomposition_label="legacy_writing_sync_fallback",
+                )
+            except Exception as sync_err:
+                logger.error("[%s] 同步 ChapterExecutionPlan 构建失败: %s", novel.novel_id.value, sync_err)
+                chapter_plan = None
 
-        use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
         beats = host.context_builder.magnify_outline_to_beats(
             chapter_num,
             outline,
             target_chapter_words=target_word_count,
-            chapter_execution_plan=chapter_plan if use_plan else None,
-            beat_sheet=None if use_plan else beat_sheet,
+            chapter_execution_plan=chapter_plan,
+            beat_sheet=None,
         )
 
         plan_mode = ""

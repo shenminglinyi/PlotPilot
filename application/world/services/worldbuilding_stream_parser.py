@@ -13,8 +13,6 @@ from application.world.worldbuilding_merge import WORLD_BUILDING_DIMENSION_KEYS
 from application.world.worldbuilding_schema import canonicalize_dimension_fields
 from infrastructure.json_stream.incremental_extractor import (
     JsonStreamBuffer,
-    extract_complete_string_fields,
-    extract_streaming_tail_string_field,
     find_key_object_brace_start,
     scan_balanced_brace_end,
     try_parse_json_object,
@@ -86,8 +84,7 @@ class WorldbuildingStreamIncrementalParser:
     def __init__(self) -> None:
         self._buf = JsonStreamBuffer()
         self._emitted_dims: Set[str] = set()
-        self._emitted_fields: Dict[str, Set[str]] = {d: set() for d in _DIM_KEYS_ORDER}
-        self._last_partial: Dict[str, Dict[str, str]] = {d: {} for d in _DIM_KEYS_ORDER}
+        self._emitted_fields: Dict[str, Dict[str, str]] = {d: {} for d in _DIM_KEYS_ORDER}
         # Cache opening-brace position per dimension to avoid O(n²) re-scanning
         self._dim_brace_start: Dict[str, Optional[int]] = {d: None for d in _DIM_KEYS_ORDER}
 
@@ -111,28 +108,18 @@ class WorldbuildingStreamIncrementalParser:
                     dim_string = _extract_dimension_string(buf, dim_key)
                     if dim_string:
                         text, closed = dim_string
+                        if not closed:
+                            continue
                         content = canonicalize_dimension_fields(dim_key, {dim_key: text})
                         if not content:
                             continue
                         fk = next(iter(content))
                         fv = content[fk]
-                        if closed:
-                            if fk not in self._emitted_fields[dim_key]:
-                                self._emitted_fields[dim_key].add(fk)
-                                events.append({"type": "field", "key": dim_key, "field": fk, "value": fv})
-                            self._emitted_dims.add(dim_key)
-                            events.append({"type": "dimension", "key": dim_key, "content": content})
-                            self._last_partial[dim_key].clear()
-                        else:
-                            prev = self._last_partial[dim_key].get(fk)
-                            if prev != fv:
-                                self._last_partial[dim_key][fk] = fv
-                                events.append({
-                                    "type": "field_partial",
-                                    "key": dim_key,
-                                    "field": fk,
-                                    "value": fv,
-                                })
+                        if self._emitted_fields[dim_key].get(fk) != fv:
+                            self._emitted_fields[dim_key][fk] = fv
+                            events.append({"type": "field", "key": dim_key, "field": fk, "value": fv})
+                        self._emitted_dims.add(dim_key)
+                        events.append({"type": "dimension", "key": dim_key, "content": content})
                     continue
                 self._dim_brace_start[dim_key] = brace
 
@@ -152,41 +139,16 @@ class WorldbuildingStreamIncrementalParser:
                     continue
                 self._emitted_dims.add(dim_key)
                 for fk, fv in content.items():
-                    if fk not in self._emitted_fields[dim_key]:
-                        self._emitted_fields[dim_key].add(fk)
+                    if self._emitted_fields[dim_key].get(fk) != fv:
+                        self._emitted_fields[dim_key][fk] = fv
                         events.append({"type": "field", "key": dim_key, "field": fk, "value": fv})
                 events.append({"type": "dimension", "key": dim_key, "content": content})
-                self._last_partial[dim_key].clear()
                 continue
 
-            # Dimension still open: incremental string-field extraction on the partial body
-            body = buf[brace + 1:]
-
-            raw_complete = extract_complete_string_fields(body)
-            if raw_complete:
-                canon = canonicalize_dimension_fields(dim_key, raw_complete)
-                for fk, fv in canon.items():
-                    if fk in self._emitted_fields[dim_key]:
-                        continue
-                    self._emitted_fields[dim_key].add(fk)
-                    events.append({"type": "field", "key": dim_key, "field": fk, "value": fv})
-
-            tail = extract_streaming_tail_string_field(body)
-            if tail:
-                raw_k, partial_v = tail
-                canon_k = canonicalize_dimension_fields(dim_key, {raw_k: partial_v})
-                if canon_k:
-                    fk = next(iter(canon_k))
-                    fv = canon_k[fk]
-                    prev = self._last_partial[dim_key].get(fk)
-                    if prev != fv:
-                        self._last_partial[dim_key][fk] = fv
-                        events.append({
-                            "type": "field_partial",
-                            "key": dim_key,
-                            "field": fk,
-                            "value": fv,
-                        })
+            # Do not parse unclosed dimension objects. Earlier versions tried to
+            # extract string fields while the model was still writing JSON, which
+            # could surface fragments like "玩家通过" or invented raw keys as UI
+            # cards. We only emit after the whole dimension object is balanced.
 
         return events
 

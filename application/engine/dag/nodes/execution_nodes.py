@@ -32,6 +32,7 @@ from infrastructure.ai.prompt_keys import (
 )
 
 from application.workflows.prose_discipline import build_prose_discipline_block
+from application.engine.services.beat_projection import planned_micro_beats_from_beats
 
 logger = logging.getLogger(__name__)
 
@@ -45,27 +46,6 @@ def _dag_context_builder():
     except Exception as e:
         logger.warning("DAG exec_beat: ContextBuilder 不可用: %s", e)
         return None
-
-
-def _serialize_beats_for_state(beats: List[Any]) -> List[Dict[str, Any]]:
-    """Beat 数据类 / dict → 可写入 DAG state / JSON 的 dict 列表。"""
-    out: List[Dict[str, Any]] = []
-    for b in beats or []:
-        if isinstance(b, dict):
-            out.append(dict(b))
-            continue
-        out.append(
-            {
-                "description": getattr(b, "description", "") or "",
-                "target_words": int(getattr(b, "target_words", 0) or 0),
-                "focus": getattr(b, "focus", "") or "",
-                "expansion_hints": list(getattr(b, "expansion_hints", None) or []),
-                "scene_goal": getattr(b, "scene_goal", "") or "",
-                "transition_from_prev": getattr(b, "transition_from_prev", "") or "",
-                "location_id": getattr(b, "location_id", "") or "",
-            }
-        )
-    return out
 
 
 # ─── exec_planning: 规划引擎 ───
@@ -273,7 +253,7 @@ class WriterNode(BaseNode):
 
 @NodeRegistry.register("exec_beat")
 class BeatNode(BaseNode):
-    """节拍放大器 — 优先消费上游 ``plan_outline`` 的 ``chapter_plan_json``，否则现场构建章前执行计划再投影为 beats。"""
+    """节拍放大器 — 始终先获得 ``ChapterExecutionPlan``，再由 ContextBuilder 投影为 runtime beats。"""
 
     meta = NodeMeta(
         node_type="exec_beat",
@@ -301,7 +281,7 @@ class BeatNode(BaseNode):
                 data_type=PortDataType.JSON,
                 required=False,
                 default=None,
-                description="可选 BeatSheet JSON；无上游 plan 时传入 build_chapter_execution_plan_async",
+                description="可选 BeatSheet JSON；仅作为 ChapterExecutionPlan 构建输入，不直接投影为 runtime beats",
             ),
         ],
         output_ports=[
@@ -312,7 +292,7 @@ class BeatNode(BaseNode):
         can_disable=True,
         default_timeout_seconds=60,
         cpms_node_key=_WORKFLOW_BEAT_NODE_KEY,
-        description="承接 plan_outline 的 chapter_plan_json → ContextBuilder 投影为 beats；缺失时再调用 build_chapter_execution_plan_async",
+        description="承接 plan_outline 的 chapter_plan_json；缺失时构建 ChapterExecutionPlan，再统一投影为 beats",
         default_edges=["exec_writer"],
     )
 
@@ -363,12 +343,12 @@ class BeatNode(BaseNode):
             try:
                 from application.engine.dag.plan.outline_beat_planner import (
                     build_chapter_execution_plan_async,
+                    build_chapter_execution_plan_sync,
                 )
 
                 builder = _dag_context_builder()
                 if builder:
-                    use_upstream = chapter_plan is not None and bool(chapter_plan.atoms)
-                    if not use_upstream:
+                    if not (chapter_plan is not None and bool(chapter_plan.atoms)):
                         try:
                             chapter_plan = await build_chapter_execution_plan_async(
                                 outline,
@@ -379,24 +359,28 @@ class BeatNode(BaseNode):
                                 use_llm=True,
                             )
                         except Exception as plan_err:
-                            logger.warning("章前执行计划（exec_beat）失败：%s", plan_err)
-                            chapter_plan = None
+                            logger.warning("章前执行计划（exec_beat）异步构建失败，转同步 ChapterExecutionPlan：%s", plan_err)
+                            chapter_plan = build_chapter_execution_plan_sync(
+                                outline,
+                                target_chapter_words=tw,
+                                novel_id=str(nid) if nid else None,
+                                chapter_number=chap,
+                                beat_sheet_json=beat_sheet_json,
+                                decomposition_label="dag_exec_beat_sync_fallback",
+                            )
 
-                    use_plan = chapter_plan is not None and bool(chapter_plan.atoms)
                     beats_raw = builder.magnify_outline_to_beats(
                         chap,
                         outline,
                         target_chapter_words=tw,
-                        chapter_execution_plan=chapter_plan if use_plan else None,
+                        chapter_execution_plan=chapter_plan,
                         beat_sheet=None,
                     )
-                    beats_out = _serialize_beats_for_state(beats_raw)
+                    beats_out = planned_micro_beats_from_beats(beats_raw)
                 elif outline:
-                    beats_out = [{"description": outline, "target_words": tw, "focus": "pacing"}]
+                    logger.warning("exec_beat: ContextBuilder 不可用，无法从 ChapterExecutionPlan 投影 beats")
             except Exception as e:
                 logger.warning(f"ContextBuilder.magnify_outline_to_beats 调用失败: {e}")
-                if outline:
-                    beats_out = [{"description": outline, "target_words": 800, "focus": "pacing"}]
 
             return NodeResult(
                 outputs={"beats": beats_out},

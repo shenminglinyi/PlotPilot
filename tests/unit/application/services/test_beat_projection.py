@@ -106,6 +106,30 @@ def test_planned_micro_beats_from_beats_uses_runtime_serializer():
     assert payload[0]["beat_cards"][0]["forbidden_drift"] == "禁止只写心理活动"
 
 
+def test_planned_micro_beats_from_beats_preserves_dict_runtime_shape():
+    payload = planned_micro_beats_from_beats(
+        [
+            {
+                "description": "转入追逐",
+                "target_words": 450,
+                "focus": "action",
+                "location_id": "alley",
+                "beat_cards": [
+                    {
+                        "active_action": "主角撞开后门",
+                        "emotion_gap": "读者担心追兵逼近",
+                        "forbidden_drift": "禁止停下来解释设定",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert payload[0]["description"] == "转入追逐"
+    assert payload[0]["focus"] == "action"
+    assert payload[0]["beat_cards"][0]["active_action"] == "主角撞开后门"
+
+
 def test_sync_plan_builder_makes_beat_sheet_and_outline_canonical_sources():
     beat_sheet_json = {
         "scenes": [
