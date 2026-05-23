@@ -571,7 +571,25 @@ async def get_node_detail(node_key: str) -> Dict[str, Any]:
             status_code=404,
             detail=f"Prompt node '{node_key}' not found",
         )
-    return node.to_detail_dict()
+    detail = node.to_detail_dict()
+    try:
+        from application.engine.narrative_projection.linkage_kernel import linkage_bundle
+
+        linkage = linkage_bundle()
+        detail["dag_bindings"] = [
+            row for row in linkage.get("nodes", [])
+            if row.get("cpms_node_key") == node.node_key
+        ]
+        detail["dag_registry_bindings"] = [
+            {"node_type": node_type, **meta}
+            for node_type, meta in linkage.get("registry_cpms_by_type", {}).items()
+            if meta.get("cpms_node_key") == node.node_key
+        ]
+    except Exception as exc:
+        logger.debug("DAG linkage lookup failed for prompt %s: %s", node.node_key, exc)
+        detail["dag_bindings"] = []
+        detail["dag_registry_bindings"] = []
+    return detail
 
 
 @router.post('/prompts/nodes')

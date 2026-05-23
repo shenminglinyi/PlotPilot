@@ -49,7 +49,6 @@ class CircuitNode(BaseNode):
         output_ports=[
             NodePort(name="breaker_status", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=False,
@@ -103,7 +102,6 @@ class ReviewNode(BaseNode):
         output_ports=[
             NodePort(name="approved", data_type=PortDataType.BOOLEAN),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=True,
@@ -161,7 +159,6 @@ class ConditionNode(BaseNode):
             NodePort(name="output_true", data_type=PortDataType.JSON),
             NodePort(name="output_false", data_type=PortDataType.JSON),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=True,
         can_disable=False,

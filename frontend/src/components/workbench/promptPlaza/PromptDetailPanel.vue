@@ -18,6 +18,18 @@
         <span class="source-icon">S</span>
         <code>{{ nodeDetail.source }}</code>
       </div>
+      <div class="dag-linkage" v-if="dagBindingLabels.length">
+        <span class="dag-linkage-label">DAG</span>
+        <n-tag
+          v-for="item in dagBindingLabels"
+          :key="item"
+          size="tiny"
+          type="success"
+          :bordered="false"
+        >
+          {{ item }}
+        </n-tag>
+      </div>
     </div>
 
     <!-- Tabs: 编辑内容（默认） / 版本历史 -->
@@ -233,6 +245,13 @@ const selectedVersionFull = ref<PromptVersionDetail | null>(null)
 // ---- 计算属性 ----
 
 const variables = computed<PromptVariable[]>(() => nodeDetail.value?.variables || [])
+const dagBindingLabels = computed(() => {
+  const canvas = nodeDetail.value?.dag_bindings || []
+  if (canvas.length) {
+    return canvas.map(b => `${b.node_id} · ${b.prompt_mode || 'cpms'}`)
+  }
+  return (nodeDetail.value?.dag_registry_bindings || []).map(b => `${b.node_type} · ${b.prompt_mode || 'cpms'}`)
+})
 
 // ---- 方法 ----
 
@@ -476,6 +495,18 @@ onMounted(() => { loadDetail() })
   font-size: 10.5px;
   font-family: var(--font-mono);
   border: 1px solid var(--app-border);
+}
+.dag-linkage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.dag-linkage-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--app-text-muted);
 }
 
 /* ---- 区块 ---- */

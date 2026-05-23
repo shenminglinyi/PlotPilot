@@ -24,6 +24,12 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    BIBLE_ALL,
+    BIBLE_CHARACTERS,
+    BIBLE_LOCATIONS,
+    BIBLE_WORLDBUILDING,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +58,7 @@ class BibleAllNode(BaseNode):
         is_configurable=True,
         can_disable=False,
         default_timeout_seconds=120,
-        cpms_node_key="bible-all",
+        cpms_node_key=BIBLE_ALL,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="一键构建具备内生矛盾与自驱力的五维度世界体系与人物群像",
         default_edges=["world_worldbuilding", "world_characters"],
@@ -136,7 +142,7 @@ class WorldbuildingNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="bible-worldbuilding",
+        cpms_node_key=BIBLE_WORLDBUILDING,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="生成避免悬浮感、具有厚重社会生态的5维度世界观体系",
         default_edges=["world_characters", "world_locations"],
@@ -217,7 +223,7 @@ class CharactersNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="bible-characters",
+        cpms_node_key=BIBLE_CHARACTERS,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="根据社会生态孵化具有内源性冲突和错综羁绊的立体人物",
         default_edges=["world_locations"],
@@ -299,7 +305,7 @@ class LocationsNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="bible-locations",
+        cpms_node_key=BIBLE_LOCATIONS,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="构建具有叙事功能的地缘拓扑网络",
         default_edges=["exec_planning"],

@@ -105,6 +105,14 @@ class CPMSInjectionPoint(BaseModel):
     description: str = ""           # 注入说明
     required: bool = False          # 是否必须
 
+    @field_validator("cpms_node_key")
+    @classmethod
+    def validate_cpms_node_key(cls, v: str) -> str:
+        from infrastructure.ai.prompt_keys import validate_key
+
+        validate_key(v)
+        return v
+
 
 class DefaultDagSlot(BaseModel):
     """并入 ``get_default_dag()`` 时自动追加的画布实例与拓扑边。
@@ -167,6 +175,16 @@ class NodeMeta(BaseModel):
     description: str = ""             # 节点功能描述（展示用）
     default_edges: List[str] = Field(default_factory=list)  # 默认下游节点类型
     default_dag_slot: Optional[DefaultDagSlot] = None  # 并入 get_default_dag() 画布
+
+    @field_validator("cpms_node_key")
+    @classmethod
+    def validate_cpms_node_key(cls, v: str) -> str:
+        if not v:
+            return v
+        from infrastructure.ai.prompt_keys import validate_key
+
+        validate_key(v)
+        return v
 
 
 # ─── 节点配置 ───

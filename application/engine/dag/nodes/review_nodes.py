@@ -24,6 +24,13 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    REVIEW_CHARACTER_CONSISTENCY,
+    REVIEW_FORESHADOWING_USAGE,
+    REVIEW_IMPROVEMENT_SUGGESTIONS,
+    REVIEW_STORYLINE_CONSISTENCY,
+    REVIEW_TIMELINE_CONSISTENCY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +61,7 @@ class CharacterReviewNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-character-consistency",
+        cpms_node_key=REVIEW_CHARACTER_CONSISTENCY,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="OOC检测 + AI味检测双刀审稿",
         default_edges=["review_storyline"],
@@ -150,7 +157,7 @@ class TimelineReviewNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-timeline-consistency",
+        cpms_node_key=REVIEW_TIMELINE_CONSISTENCY,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="时间穿帮纠错，审查物理空间与时间的硬伤",
         default_edges=["review_foreshadowing"],
@@ -239,7 +246,7 @@ class StorylineReviewNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-storyline-consistency",
+        cpms_node_key=REVIEW_STORYLINE_CONSISTENCY,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="避免挖坑不填和主线偏移，维持多线叙事的紧凑感",
         default_edges=["review_character"],
@@ -326,7 +333,7 @@ class ForeshadowingReviewNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-foreshadowing-usage",
+        cpms_node_key=REVIEW_FORESHADOWING_USAGE,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="检查并促成'契诃夫的枪'在最佳时机开火",
         default_edges=["review_improvement"],
@@ -408,7 +415,7 @@ class ImprovementReviewNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="review-improvement-suggestions",
+        cpms_node_key=REVIEW_IMPROVEMENT_SUGGESTIONS,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="基于审稿报告给出可操作的改进建议",
         default_edges=["gw_review"],

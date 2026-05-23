@@ -194,7 +194,6 @@ class AntiAINode(BaseNode):
             NodePort(name="hits", data_type=PortDataType.LIST),
             NodePort(name="recommendations", data_type=PortDataType.LIST),
         ],
-        prompt_template="",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
@@ -260,7 +259,6 @@ class ForeshadowCheckNode(BaseNode):
             NodePort(name="pending", data_type=PortDataType.SCORE),
             NodePort(name="recovery_rate", data_type=PortDataType.SCORE),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=True,
@@ -393,7 +391,6 @@ class KGInferNode(BaseNode):
         output_ports=[
             NodePort(name="inferred_triples", data_type=PortDataType.LIST),
         ],
-        prompt_template="",
         prompt_variables=[],
         is_configurable=False,
         can_disable=True,

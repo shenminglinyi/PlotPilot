@@ -27,6 +27,14 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    ANTI_AI_ALLOWLIST_EXPLAIN,
+    ANTI_AI_BEHAVIOR_PROTOCOL,
+    ANTI_AI_CHAPTER_AUDIT,
+    ANTI_AI_CHARACTER_STATE_LOCK,
+    ANTI_AI_FINALE_ENHANCEMENT,
+    ANTI_AI_MID_GENERATION_REFRESH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +59,11 @@ class BehaviorProtocolNode(BaseNode):
         output_ports=[
             NodePort(name="behavior_protocol", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=["nervous_habits", "allowlist_block"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=10,
-        cpms_node_key="anti-ai-behavior-protocol",
+        cpms_node_key=ANTI_AI_BEHAVIOR_PROTOCOL,
         prompt_mode=PromptMode.INJECT,
         description="L1+L2 核心协议：协议化指令(P1-P5)替代禁令清单，替换策略(R1-R8)",
         default_edges=["exec_writer"],
@@ -113,12 +120,11 @@ class AllowlistNode(BaseNode):
         output_ports=[
             NodePort(name="allowlist_block", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=["scene_type", "allowed_patterns", "forbidden_patterns"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=10,
-        cpms_node_key="anti-ai-allowlist-explain",
+        cpms_node_key=ANTI_AI_ALLOWLIST_EXPLAIN,
         prompt_mode=PromptMode.INJECT,
         description="L3 场景化豁免：战斗/悬疑/恐怖/告白场景部分AI味模式允许",
         default_edges=["anti_ai_behavior"],
@@ -176,12 +182,11 @@ class CharacterStateLockNode(BaseNode):
         output_ports=[
             NodePort(name="character_state_lock", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=["character_name", "physical_state", "emotional_baseline", "nervous_habit", "voice_print"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=10,
-        cpms_node_key="anti-ai-character-state-lock",
+        cpms_node_key=ANTI_AI_CHARACTER_STATE_LOCK,
         prompt_mode=PromptMode.INJECT,
         description="L4 角色状态向量：声线指纹+紧张习惯+反应模式三维度锁定",
         default_edges=["anti_ai_behavior"],
@@ -235,12 +240,11 @@ class MidGenerationRefreshNode(BaseNode):
         output_ports=[
             NodePort(name="refresh_block", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=["content_so_far", "refresh_instructions"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=10,
-        cpms_node_key="anti-ai-mid-generation-refresh",
+        cpms_node_key=ANTI_AI_MID_GENERATION_REFRESH,
         prompt_mode=PromptMode.INJECT,
         description="L5+L6 上下文配额+Token级拦截刷新指令",
         default_edges=["exec_writer"],
@@ -292,12 +296,11 @@ class ChapterAuditNode(BaseNode):
             NodePort(name="hits", data_type=PortDataType.LIST),
             NodePort(name="overall_assessment", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=["content"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="anti-ai-chapter-audit",
+        cpms_node_key=ANTI_AI_CHAPTER_AUDIT,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="L7 章后审计：35+增强模式扫描，涵盖8大类AI味检测",
         default_edges=["review_improvement"],
@@ -384,12 +387,11 @@ class FinaleEnhancementNode(BaseNode):
         output_ports=[
             NodePort(name="finale_block", data_type=PortDataType.TEXT),
         ],
-        prompt_template="",
         prompt_variables=["content", "is_final_chapter"],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=10,
-        cpms_node_key="anti-ai-finale-enhancement",
+        cpms_node_key=ANTI_AI_FINALE_ENHANCEMENT,
         prompt_mode=PromptMode.INJECT,
         description="终章/尾声段落的 Anti-AI 增强注入",
         default_edges=["exec_writer"],

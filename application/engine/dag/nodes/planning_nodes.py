@@ -22,6 +22,11 @@ from application.engine.dag.models import (
     PromptMode,
 )
 from application.engine.dag.registry import BaseNode, NodeRegistry
+from infrastructure.ai.prompt_keys import (
+    BEAT_SHEET_DECOMPOSITION,
+    PLANNING_ACT,
+    PLANNING_QUICK_MACRO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +60,7 @@ class BeatSheetNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=60,
-        cpms_node_key="beat-sheet-decomposition",
+        cpms_node_key=BEAT_SHEET_DECOMPOSITION,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="将章纲拆解为实战可写的场景/续场(Scene & Sequel)结构",
         default_edges=["exec_beat"],
@@ -142,7 +147,7 @@ class QuickMacroNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="planning-quick-macro",
+        cpms_node_key=PLANNING_QUICK_MACRO,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="极速模式：基于英雄之旅与救猫咪理论强推商业网文骨架",
         default_edges=["planning_act"],
@@ -224,7 +229,7 @@ class ActPlanningNode(BaseNode):
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
-        cpms_node_key="planning-act",
+        cpms_node_key=PLANNING_ACT,
         prompt_mode=PromptMode.CPMS_FIRST,
         description="将抽象的幕大纲落地为充满递进张力的章纲序列",
         default_edges=["exec_beat"],
