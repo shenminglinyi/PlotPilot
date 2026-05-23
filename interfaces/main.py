@@ -31,9 +31,13 @@ except Exception:
     pass
 
 # 配置日志（必须在导入其他模块前）
-from interfaces.api.middleware.logging_config import setup_logging
+from interfaces.api.middleware.logging_config import (
+    log_startup_banner,
+    parse_log_level,
+    setup_logging,
+)
 
-log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+log_level = parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
 log_file = os.getenv("LOG_FILE", "logs/plotpilot.log")
 setup_logging(level=log_level, log_file=log_file)
 
@@ -100,18 +104,18 @@ APP_RELEASE_VERSION = "1.0.2"
 BACKEND_BUILD_ID = "build-20260209-1200-c4d2"
 STARTUP_TIME = time.time()
 
-logger.info("=" * 80)
-logger.info(
-    "🚀 BACKEND STARTING - Release %s (build %s)",
-    APP_RELEASE_VERSION,
-    BACKEND_BUILD_ID,
+log_startup_banner(
+    logger,
+    title=f"PlotPilot backend starting - release {APP_RELEASE_VERSION}",
+    fields={
+        "Build": BACKEND_BUILD_ID,
+        "Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Log level": logging.getLevelName(log_level),
+        "Log file": log_file,
+        "Python": sys.version.split()[0],
+        "Workdir": Path.cwd(),
+    },
 )
-logger.info(f"   Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-logger.info(f"   Log Level: {logging.getLevelName(log_level)}")
-logger.info(f"   Log File: {log_file}")
-logger.info(f"   Python: {sys.version.split()[0]}")
-logger.info(f"   Working Dir: {Path.cwd()}")
-logger.info("=" * 80)
 
 # 创建 FastAPI 应用
 app = FastAPI(

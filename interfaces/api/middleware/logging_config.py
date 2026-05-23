@@ -1,39 +1,69 @@
-"""Unified logging configuration module."""
+"""Unified, readable logging configuration for PlotPilot."""
+
+from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
+import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Any, Dict, Mapping, Optional
 
-# Valid logging levels for validation
-VALID_LOGGING_LEVELS = [
+
+VALID_LOGGING_LEVELS = {
     logging.DEBUG,
     logging.INFO,
     logging.WARNING,
     logging.ERROR,
-    logging.CRITICAL
-]
+    logging.CRITICAL,
+}
+
+LEVEL_ALIASES = {
+    "WARN": "WARNING",
+    "FATAL": "CRITICAL",
+}
+
+LEVEL_STYLES: Mapping[int, Dict[str, str]] = {
+    logging.DEBUG: {"label": "DEBUG", "color": "\033[36m"},
+    logging.INFO: {"label": "INFO ", "color": "\033[32m"},
+    logging.WARNING: {"label": "WARN ", "color": "\033[33m"},
+    logging.ERROR: {"label": "ERROR", "color": "\033[31m"},
+    logging.CRITICAL: {"label": "FATAL", "color": "\033[35;1m"},
+}
+
+RESET = "\033[0m"
+DIM = "\033[2m"
+BOLD = "\033[1m"
+
+NOISY_LOGGERS = (
+    "httpcore",
+    "httpcore.http11",
+    "httpcore.connection",
+    "hpack",
+    "hpack.hpack",
+    "httpx",
+    "anthropic",
+    "anthropic._base_client",
+)
+
+FRAMEWORK_LOGGERS = (
+    "fastapi",
+    "uvicorn",
+    "uvicorn.error",
+)
 
 
 class SafeConsoleHandler(logging.StreamHandler):
-    """Console handler that degrades gracefully on encoding errors.
-
-    Windows terminals commonly default to legacy encodings such as GBK.
-    When log messages contain emoji or other non-representable characters,
-    the standard StreamHandler can trigger UnicodeEncodeError while writing
-    to stderr/stdout. This handler falls back to an ASCII-safe escaped
-    representation instead of crashing the log emission path.
-    """
+    """Console handler that degrades gracefully on encoding errors."""
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Emit a record, escaping unsupported characters when needed."""
         try:
             msg = self.format(record)
             stream = self.stream
             try:
                 stream.write(msg + self.terminator)
             except UnicodeEncodeError:
-                safe_msg = self._escape_for_stream(msg + self.terminator, stream)
-                stream.write(safe_msg)
+                stream.write(self._escape_for_stream(msg + self.terminator, stream))
             self.flush()
         except RecursionError:
             raise
@@ -41,135 +71,275 @@ class SafeConsoleHandler(logging.StreamHandler):
             self.handleError(record)
 
     @staticmethod
-    def _escape_for_stream(text: str, stream) -> str:
-        """Convert text to a stream-safe escaped representation."""
+    def _escape_for_stream(text: str, stream: Any) -> str:
         encoding = getattr(stream, "encoding", None) or "utf-8"
         return text.encode(encoding, errors="backslashreplace").decode(encoding)
 
 
-def _validate_logging_level(level: int) -> None:
-    """Validate that the logging level is a valid Python logging level.
+class PrettyFormatter(logging.Formatter):
+    """Compact aligned formatter for human-facing console output."""
 
-    Args:
-        level: The logging level to validate
+    def __init__(self, *, use_color: bool = True) -> None:
+        super().__init__(datefmt="%H:%M:%S")
+        self.use_color = use_color
 
-    Raises:
-        ValueError: If the logging level is not valid
-    """
-    if level not in VALID_LOGGING_LEVELS:
-        raise ValueError(
-            f"Invalid logging level: {level}. "
-            f"Valid levels are: {VALID_LOGGING_LEVELS}"
+    def format(self, record: logging.LogRecord) -> str:
+        timestamp = self.formatTime(record, self.datefmt)
+        style = LEVEL_STYLES.get(record.levelno, LEVEL_STYLES[logging.INFO])
+        level = style["label"]
+        logger_name = _short_logger_name(record.name)
+        message = record.getMessage()
+
+        if self.use_color:
+            color = style["color"]
+            line = (
+                f"{DIM}{timestamp}{RESET} "
+                f"{color}{level}{RESET} "
+                f"{DIM}{logger_name:<22}{RESET} "
+                f"{message}"
+            )
+        else:
+            line = f"{timestamp} {level} {logger_name:<22} {message}"
+
+        if record.exc_info:
+            line = f"{line}\n{self.formatException(record.exc_info)}"
+        if record.stack_info:
+            line = f"{line}\n{self.formatStack(record.stack_info)}"
+        return line
+
+
+class PlainFileFormatter(logging.Formatter):
+    """Stable searchable file formatter with location and process details."""
+
+    def __init__(self) -> None:
+        super().__init__(datefmt="%Y-%m-%d %H:%M:%S")
+
+    def format(self, record: logging.LogRecord) -> str:
+        timestamp = self.formatTime(record, self.datefmt)
+        level = LEVEL_STYLES.get(record.levelno, LEVEL_STYLES[logging.INFO])["label"].strip()
+        logger_name = _short_logger_name(record.name, max_parts=4)
+        location = f"{Path(record.pathname).name}:{record.lineno}"
+        line = (
+            f"{timestamp}.{int(record.msecs):03d} "
+            f"{level:<5} "
+            f"pid={record.process:<6} "
+            f"{logger_name:<30} "
+            f"{location:<24} "
+            f"{record.getMessage()}"
         )
+        if record.exc_info:
+            line = f"{line}\n{self.formatException(record.exc_info)}"
+        if record.stack_info:
+            line = f"{line}\n{self.formatStack(record.stack_info)}"
+        return line
 
 
-def _validate_log_file(log_file: str) -> None:
-    """Validate that the log file path is writable.
+class AccessLogFormatter(logging.Formatter):
+    """Readable uvicorn access log formatter."""
 
-    Args:
-        log_file: Path to the log file to validate
+    STATUS_COLORS = {
+        "2": "\033[32m",
+        "3": "\033[36m",
+        "4": "\033[33m",
+        "5": "\033[31m",
+    }
 
-    Raises:
-        ValueError: If the log file path is invalid or not writable
-        TypeError: If the log_file parameter is not a string
-    """
-    if not isinstance(log_file, str):
-        raise TypeError(f"log_file must be a string, got {type(log_file).__name__}")
+    def __init__(self, *, use_color: bool = True) -> None:
+        super().__init__(datefmt="%H:%M:%S")
+        self.use_color = use_color
 
-    if not log_file or not log_file.strip():
-        raise ValueError("log_file cannot be empty or whitespace")
+    def format(self, record: logging.LogRecord) -> str:
+        timestamp = self.formatTime(record, self.datefmt)
+        message = record.getMessage()
+        if self.use_color:
+            message = self._color_status(message)
+            return f"{DIM}{timestamp}{RESET} HTTP  {DIM}{'uvicorn.access':<22}{RESET} {message}"
+        return f"{timestamp} HTTP  {'uvicorn.access':<22} {message}"
 
-    try:
-        log_dir = os.path.dirname(log_file)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
-    except (OSError, IOError) as e:
-        raise ValueError(f"Cannot create log directory: {e}")
+    def _color_status(self, message: str) -> str:
+        parts = message.rsplit(" ", 1)
+        if len(parts) != 2 or not parts[1][:1].isdigit():
+            return message
+        color = self.STATUS_COLORS.get(parts[1][0], "")
+        if not color:
+            return message
+        return f"{parts[0]} {color}{parts[1]}{RESET}"
 
-    try:
-        test_handle = open(log_file, 'a')
-        test_handle.close()
-    except (OSError, IOError, PermissionError) as e:
-        raise ValueError(f"Cannot write to log file '{log_file}': {e}")
+
+def parse_log_level(value: int | str | None, default: int = logging.INFO) -> int:
+    """Parse LOG_LEVEL-like values into a logging level."""
+
+    if value is None:
+        return default
+    if isinstance(value, int):
+        _validate_logging_level(value)
+        return value
+    raw = str(value).strip().upper()
+    raw = LEVEL_ALIASES.get(raw, raw)
+    if raw.isdigit():
+        return parse_log_level(int(raw), default=default)
+    if raw not in logging._nameToLevel:
+        raise ValueError(f"Invalid logging level: {value!r}")
+    level = int(logging._nameToLevel[raw])
+    _validate_logging_level(level)
+    return level
 
 
 def setup_logging(
-    level: int = logging.INFO,
+    level: int | str = logging.INFO,
     log_file: Optional[str] = None,
-    format_string: str = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
+    format_string: str | None = None,
 ) -> None:
-    """Configure logging with console and optional file output.
+    """Configure root logging with polished console output and rotating files.
 
-    Args:
-        level: Logging level (default: INFO)
-        log_file: Optional file path for file logging output
-        format_string: Log message format string
-
-    Raises:
-        ValueError: If logging level or log file path is invalid
-        TypeError: If log_file parameter is not a string when provided
+    ``format_string`` is accepted for backwards compatibility but ignored by the
+    pretty formatter. Use ``LOG_COLOR`` and ``LOG_STYLE`` to tune presentation.
     """
-    _validate_logging_level(level)
+
+    parsed_level = parse_log_level(level)
+    use_color = _should_use_color()
 
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    root_logger.setLevel(level)
-
-    console_formatter = logging.Formatter(
-        format_string,
-        datefmt="%H:%M:%S"
-    )
+    root_logger.setLevel(parsed_level)
 
     console_handler = SafeConsoleHandler()
-    console_handler.setLevel(level)
-    console_handler.setFormatter(console_formatter)
+    console_handler.setLevel(parsed_level)
+    console_handler.setFormatter(PrettyFormatter(use_color=use_color))
     root_logger.addHandler(console_handler)
 
-    if log_file is not None:
-        _validate_log_file(log_file)
+    if log_file:
+        _add_file_handler(root_logger, log_file, parsed_level)
 
-        try:
-            file_formatter = logging.Formatter(
-                format_string,
-                datefmt="%Y-%m-%d %H:%M:%S"
-            )
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
-            file_handler.setLevel(level)
-            file_handler.setFormatter(file_formatter)
-            root_logger.addHandler(file_handler)
+    _configure_framework_loggers(parsed_level, use_color)
+    _quiet_noisy_loggers()
 
-        except (OSError, IOError, PermissionError) as e:
-            print(f"WARNING: Failed to setup file logging: {e}")
-            print("Logging will continue with console output only.")
 
-    logging.getLogger("uvicorn").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
-    logging.getLogger("fastapi").setLevel(logging.WARNING)
+def log_startup_banner(
+    logger: logging.Logger,
+    *,
+    title: str,
+    fields: Mapping[str, Any],
+    level: int = logging.INFO,
+) -> None:
+    """Log a small aligned banner for lifecycle events."""
 
-    # 仅在需要抓包时用 DEBUG_HTTP=1；否则控制台会被 httpx/httpcore 逐帧日志淹没
-    if os.environ.get("DEBUG_HTTP", "").strip().lower() not in {"1", "true", "yes"}:
-        for name in (
-            "httpcore",
-            "httpcore.http11",
-            "httpcore.connection",
-            "hpack",
-            "hpack.hpack",
-            "httpx",
-            "anthropic",
-            "anthropic._base_client",
-        ):
-            logging.getLogger(name).setLevel(logging.WARNING)
+    width = max([len(title), *(len(str(k)) + len(str(v)) + 3 for k, v in fields.items())], default=20)
+    border = "-" * min(max(width + 4, 44), 88)
+    logger.log(level, border)
+    logger.log(level, "%s", title)
+    for key, value in fields.items():
+        logger.log(level, "  %-12s %s", f"{key}:", value)
+    logger.log(level, border)
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Get a logger instance with the specified name.
+    """Get a logger instance with the specified name."""
 
-    Args:
-        name: Logger name, typically __name__ of the calling module
-
-    Returns:
-        Logger instance configured with the global settings
-    """
     return logging.getLogger(name)
+
+
+def _validate_logging_level(level: int) -> None:
+    if level not in VALID_LOGGING_LEVELS:
+        raise ValueError(
+            f"Invalid logging level: {level}. "
+            f"Valid levels are: {sorted(VALID_LOGGING_LEVELS)}"
+        )
+
+
+def _validate_log_file(log_file: str) -> None:
+    if not isinstance(log_file, str):
+        raise TypeError(f"log_file must be a string, got {type(log_file).__name__}")
+    if not log_file.strip():
+        raise ValueError("log_file cannot be empty")
+    log_dir = os.path.dirname(log_file)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+    with open(log_file, "a", encoding="utf-8"):
+        pass
+
+
+def _add_file_handler(root_logger: logging.Logger, log_file: str, level: int) -> None:
+    _validate_log_file(log_file)
+    max_bytes = _env_int("LOG_MAX_BYTES", 10 * 1024 * 1024)
+    backups = _env_int("LOG_BACKUP_COUNT", 5)
+    try:
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=max_bytes,
+            backupCount=backups,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(level)
+        file_handler.setFormatter(PlainFileFormatter())
+        root_logger.addHandler(file_handler)
+    except (OSError, IOError, PermissionError) as exc:
+        print(f"WARNING: failed to setup file logging: {exc}", file=sys.stderr)
+
+
+def _configure_framework_loggers(level: int, use_color: bool) -> None:
+    for name in FRAMEWORK_LOGGERS:
+        logger = logging.getLogger(name)
+        logger.handlers.clear()
+        logger.propagate = True
+        logger.setLevel(level)
+
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.handlers.clear()
+    access_logger.propagate = False
+    access_logger.setLevel(level)
+    access_handler = SafeConsoleHandler()
+    access_handler.setLevel(level)
+    access_handler.setFormatter(AccessLogFormatter(use_color=use_color))
+    access_logger.addHandler(access_handler)
+    for handler in logging.getLogger().handlers:
+        if isinstance(handler, RotatingFileHandler):
+            access_logger.addHandler(handler)
+
+
+def _quiet_noisy_loggers() -> None:
+    if os.environ.get("DEBUG_HTTP", "").strip().lower() in {"1", "true", "yes"}:
+        return
+    for name in NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+def _short_logger_name(name: str, *, max_parts: int = 3) -> str:
+    if name == "root":
+        return "root"
+    aliases = {
+        "interfaces.main": "api.main",
+        "uvicorn.error": "uvicorn",
+        "uvicorn.access": "access",
+    }
+    if name in aliases:
+        return aliases[name]
+    parts = name.split(".")
+    if len(parts) <= max_parts:
+        short = name
+    else:
+        short = ".".join([parts[0][0], *parts[-(max_parts - 1):]])
+    return short[:30]
+
+
+def _should_use_color() -> bool:
+    raw = os.environ.get("LOG_COLOR", "auto").strip().lower()
+    if raw in {"1", "true", "yes", "always"}:
+        return True
+    if raw in {"0", "false", "no", "never"}:
+        return False
+    if os.environ.get("NO_COLOR"):
+        return False
+    return hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return default

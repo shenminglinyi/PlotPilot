@@ -49,10 +49,10 @@ from interfaces.api.dependencies import (
     get_knowledge_service,
     get_chapter_indexing_service,
 )
-from interfaces.api.middleware.logging_config import setup_logging
+from interfaces.api.middleware.logging_config import parse_log_level, setup_logging
 
 (DATA_DIR / "logs").mkdir(parents=True, exist_ok=True)
-_log_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+_log_level = parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
 _default_log = str(PLOTPILOT_ROOT / "logs" / "plotpilot.log")
 _log_file = os.getenv("LOG_FILE", _default_log)
 setup_logging(level=_log_level, log_file=_log_file)
