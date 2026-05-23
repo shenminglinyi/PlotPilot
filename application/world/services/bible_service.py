@@ -29,17 +29,20 @@ class BibleService:
         novel_repository: Optional[NovelRepository] = None,
         chapter_repository: Optional[ChapterRepository] = None,
         location_triple_sync: Optional["BibleLocationTripleSyncService"] = None,
+        unified_character_repository=None,
     ):
         """初始化服务
 
         Args:
             bible_repository: Bible 仓储
             location_triple_sync: 可选；保存 Bible 后将 locations 同步到 triples
+            unified_character_repository: 可选；保存 Bible 后同步写入 unified_characters 表
         """
         self.bible_repository = bible_repository
         self._novel_repository = novel_repository
         self._chapter_repository = chapter_repository
         self._location_triple_sync = location_triple_sync
+        self._unified_char_repo = unified_character_repository
 
     def _validate_locations_forest(self, locations: list) -> None:
         from domain.bible.bible_location_tree import validate_location_forest
@@ -550,11 +553,53 @@ class BibleService:
 
         self.bible_repository.save(bible)
         self._sync_location_triples(novel_id, bible)
+        self._sync_to_unified_characters(novel_id, bible)
 
         # 批量刷新结构节点里的旧人名（改名后大纲仍用旧名会导致生成时出现旧名）
         self._propagate_character_renames(novel_id, prev_name_by_id, characters)
 
         return BibleDTO.from_domain(bible)
+
+    def _sync_to_unified_characters(self, novel_id: str, bible: Bible) -> None:
+        """将 Bible 角色写入 unified_characters（INSERT OR REPLACE）。
+
+        当 unified_character_repository 未注入时静默跳过，向后兼容。
+        """
+        if self._unified_char_repo is None:
+            return
+        import json
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            from domain.character.entities.character import Character as UnifiedCharacter
+            from domain.character.value_objects.character_id import CharacterId as UCId
+            from domain.shared.time_utils import utcnow_iso
+
+            for char in bible.characters:
+                char_id = char.character_id.value
+                try:
+                    unified = UnifiedCharacter(
+                        id=UCId(char_id),
+                        novel_id=novel_id,
+                        name=char.name,
+                        description=getattr(char, "description", "") or "",
+                        public_profile=getattr(char, "public_profile", "") or "",
+                        hidden_profile=getattr(char, "hidden_profile", "") or "",
+                        reveal_chapter=getattr(char, "reveal_chapter", None),
+                        role="",  # Bible entity has no role field; stays empty until StateUpdater fills it
+                        verbal_tic=getattr(char, "verbal_tic", "") or "",
+                        idle_behavior=getattr(char, "idle_behavior", "") or "",
+                        core_belief=getattr(char, "core_belief", "") or "",
+                        moral_taboos=list(getattr(char, "moral_taboos", None) or []),
+                        active_wounds=list(getattr(char, "active_wounds", None) or []),
+                        mental_state=getattr(char, "mental_state", "NORMAL") or "NORMAL",
+                        mental_state_reason=getattr(char, "mental_state_reason", "") or "",
+                    )
+                    self._unified_char_repo.save(unified)
+                except Exception as char_err:
+                    logger.warning(f"sync unified_characters failed for {char.name}: {char_err}")
+        except Exception as e:
+            logger.warning(f"_sync_to_unified_characters failed: {e}")
 
     def _propagate_character_renames(
         self,

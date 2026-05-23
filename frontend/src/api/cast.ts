@@ -68,6 +68,28 @@ export interface CastCoverage {
   quoted_not_in_cast: QuotedText[]
 }
 
+// ── cast/schedule types ──────────────────────────────────────────────────
+
+export interface ScheduledCharacterItem {
+  character_id: string
+  name: string
+  importance: 'major' | 'normal' | 'minor'
+  is_new_suggestion: boolean
+}
+
+export interface CastScheduleRequest {
+  chapter_number: number
+  outline?: string
+  /** 'suggest' = dry-run, 'apply' = write to chapter_elements */
+  mode?: 'suggest' | 'apply'
+}
+
+export interface CastScheduleResponse {
+  chapter_number: number
+  cast: ScheduledCharacterItem[]
+  new_character_hints: string[]
+}
+
 export const castApi = {
   /**
    * Get cast graph for a novel
@@ -94,4 +116,22 @@ export const castApi = {
    */
   getCastCoverage: (novelId: string) =>
     request.get(`/novels/${novelId}/cast/coverage`) as Promise<CastCoverage>,
+
+  /**
+   * Schedule cast for a chapter.
+   * mode='suggest': returns AI suggestions without writing to DB
+   * mode='apply':   same + writes to chapter_elements (INSERT OR IGNORE)
+   */
+  scheduleAndPersist: (novelId: string, payload: CastScheduleRequest) =>
+    request.post(`/novels/${novelId}/cast/schedule`, payload) as Promise<CastScheduleResponse>,
+
+  /**
+   * Dry-run: analyse outline and return suggested cast without any DB writes.
+   */
+  analyzeOutline: (novelId: string, chapterNumber: number, outline: string) =>
+    castApi.scheduleAndPersist(novelId, {
+      chapter_number: chapterNumber,
+      outline,
+      mode: 'suggest',
+    }),
 }

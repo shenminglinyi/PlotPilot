@@ -1460,77 +1460,113 @@ class ContextBudgetAllocator:
         scene_director: Optional[Dict[str, Any]] = None,
     ) -> List[tuple]:
         """智能角色调度（核心算法）
-        
+
+        优先级：
+          1. chapter_elements 中预规划的选角（作者手动排班，或前次 StateUpdater 写入）
+          2. 大纲 / 场记中提及的角色（AppearanceScheduler fallback）
+          3. Bible 重要性 + 近期活跃度补位
+
         Returns:
             List[Tuple[Character, bool]]: [(角色, 是否刚登场), ...]
         """
-        # 最大角色数限制
         MAX_CHARACTERS = 7
-        
-        # Step 1: 从大纲中提取提及的角色名
-        mentioned_names = set()
+
+        # Step 0: 读取当前章节预规划选角 {element_id → importance_priority}
+        #         priority: 0=major, 1=normal, 2=minor
+        planned_cast = self._get_planned_cast(novel_id, chapter_number)
+
+        # Step 1: 大纲 + 场记提及名
+        mentioned_names: set = set()
         if outline:
-            # 简单匹配：检查角色名是否在大纲中
             for char in all_characters:
                 if char.name in outline:
                     mentioned_names.add(char.name)
-        
-        # 如果有场记分析，合并场记中的角色
         if scene_director and scene_director.get("characters"):
             mentioned_names.update(scene_director["characters"])
-        
-        # Step 2: 从 chapter_elements 表查询最近出场的角色
+
+        # Step 2: 最近 5 章活跃度
         recent_characters = self._get_recent_characters(novel_id, chapter_number)
-        
-        # Step 3: 分类：提及的 vs 未提及的
-        mentioned_chars = []
-        unmentioned_chars = []
-        
+
+        # Step 3: 分桶 — 预规划 vs 非预规划
+        planned_list: List[tuple] = []    # (char, is_recent, planned_pri)
+        unplanned_list: List[tuple] = []  # (char, is_recent, bible_pri, in_outline)
+
         for char in all_characters:
-            # 检查是否刚登场（最近1章出场次数<=1）
+            char_id = char.character_id.value if hasattr(char, 'character_id') else None
             is_recent = self._is_recently_appeared(char, recent_characters, chapter_number)
-            
-            if char.name in mentioned_names:
-                mentioned_chars.append((char, is_recent, self._get_char_importance(char)))
+
+            if char_id and char_id in planned_cast:
+                planned_list.append((char, is_recent, planned_cast[char_id]))
             else:
-                unmentioned_chars.append((char, is_recent, self._get_char_importance(char)))
-        
-        # Step 4: 排序未提及角色（重要性 > 活动度）
-        unmentioned_chars.sort(key=lambda x: (
-            x[2],  # 重要性优先级（越小越优先）
-            -self._get_activity_score(x[0], recent_characters)  # 活动度降序
+                bible_pri = self._get_char_importance(char)
+                in_outline = char.name in mentioned_names
+                unplanned_list.append((char, is_recent, bible_pri, in_outline))
+
+        # Step 4: 预规划按 importance 排序（major → normal → minor）
+        planned_list.sort(key=lambda x: x[2])
+
+        # Step 5: 非预规划按（大纲提及 → Bible 重要性 → 活跃度）排序
+        unplanned_list.sort(key=lambda x: (
+            not x[3],                                           # 大纲提及优先
+            x[2],                                               # Bible 重要性
+            -self._get_activity_score(x[0], recent_characters), # 活跃度降序
         ))
-        
-        # Step 5: 合并队列
-        queue = mentioned_chars + unmentioned_chars
-        
-        # Step 6: 截断到最大数量
-        selected = queue[:MAX_CHARACTERS]
-        
-        # 返回 (角色, 是否刚登场) 的列表
-        return [(char, is_recent) for char, is_recent, _ in selected]
+
+        # Step 6: 预规划优先填位，剩余槽位由 fallback 补充
+        selected: List[tuple] = [(c, r) for c, r, _ in planned_list]
+        remaining = MAX_CHARACTERS - len(selected)
+        for char, is_recent, _, _ in unplanned_list[:remaining]:
+            selected.append((char, is_recent))
+
+        return selected[:MAX_CHARACTERS]
+
+    def _get_planned_cast(self, novel_id: str, chapter_number: int) -> Dict[str, int]:
+        """返回 {element_id: importance_priority} — priority: 0=major, 1=normal, 2=minor。
+
+        如果没有预规划记录（作者还未排班），返回空字典 → fallback 到 AppearanceScheduler。
+        """
+        if not self.chapter_element_repo:
+            return {}
+        try:
+            chapter_id = self._get_chapter_node_id(novel_id, chapter_number)
+            if not chapter_id:
+                return {}
+            rows = self.chapter_element_repo.get_planned_cast_sync(chapter_id)
+            importance_priority = {'major': 0, 'normal': 1, 'minor': 2}
+            return {r['element_id']: importance_priority.get(r['importance'], 1) for r in rows}
+        except Exception as e:
+            logger.warning(f"读取预规划选角失败: {e}")
+            return {}
+
+    def _get_chapter_node_id(self, novel_id: str, chapter_number: int) -> Optional[str]:
+        """通过 story_node_repo 获取指定章节的 story_nodes.id。"""
+        if not self.story_node_repo:
+            return None
+        try:
+            nodes = self.story_node_repo.get_by_novel_sync(novel_id)
+            for node in nodes:
+                nt = node.node_type
+                nt_val = nt.value if hasattr(nt, 'value') else str(nt)
+                if nt_val == 'chapter' and node.number == chapter_number:
+                    return node.id
+            return None
+        except Exception as e:
+            logger.warning(f"获取章节节点ID失败: {e}")
+            return None
     
     def _get_recent_characters(self, novel_id: str, chapter_number: int) -> Dict[str, Dict]:
-        """从 chapter_elements 表查询最近5章的角色活动
-        
+        """从 chapter_elements 表查询最近 5 章的角色活动统计。
+
         Returns:
-            Dict[char_id, {"count": int, "last_chapter": int}]
+            Dict[element_id, {"count": int, "last_chapter": int}]
         """
-        if not self.story_node_repo:
+        if not self.chapter_element_repo:
             return {}
-        
         try:
-            # 查询最近5章的 chapter_elements
-            # 这里简化实现，实际应该查询 chapter_elements 表
-            # SELECT element_id, COUNT(*) as count, MAX(chapter_number) as last_chapter
-            # FROM chapter_elements
-            # WHERE novel_id = ? AND element_type = 'character'
-            # AND chapter_number >= ?
-            # GROUP BY element_id
-            
-            # 暂时返回空字典，等待实际数据库查询
-            return {}
-            
+            rows = self.chapter_element_repo.get_recent_char_activity_sync(
+                novel_id, chapter_number, window=5
+            )
+            return {r['element_id']: {'count': r['count'], 'last_chapter': r['last_chapter']} for r in rows}
         except Exception as e:
             logger.warning(f"查询最近角色活动失败: {e}")
             return {}

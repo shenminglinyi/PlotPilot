@@ -151,6 +151,50 @@ class ChapterElementRepository:
         )
         return bool(row and int(row.get("c", 0) or 0) > 0)
 
+    def get_planned_cast_sync(self, chapter_id: str) -> List[Dict]:
+        """同步查询某章节的预规划角色列表（character 类型，按 importance 排序）"""
+        rows = self._db().fetch_all(
+            """
+            SELECT element_id, importance
+            FROM chapter_elements
+            WHERE chapter_id = ? AND element_type = 'character'
+            ORDER BY
+                CASE importance WHEN 'major' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+                appearance_order
+            """,
+            (chapter_id,),
+        )
+        return [{"element_id": r["element_id"], "importance": r["importance"]} for r in rows]
+
+    def get_recent_char_activity_sync(
+        self, novel_id: str, chapter_number: int, window: int = 5
+    ) -> List[Dict]:
+        """同步查询最近 window 章的角色出场统计，用于活跃度排序。"""
+        rows = self._db().fetch_all(
+            """
+            SELECT ce.element_id,
+                   COUNT(*)      AS count,
+                   MAX(sn.number) AS last_chapter
+            FROM chapter_elements ce
+            JOIN story_nodes sn ON sn.id = ce.chapter_id
+            WHERE sn.novel_id      = ?
+              AND sn.node_type     = 'chapter'
+              AND sn.number        >= ?
+              AND sn.number        < ?
+              AND ce.element_type  = 'character'
+            GROUP BY ce.element_id
+            """,
+            (novel_id, chapter_number - window, chapter_number),
+        )
+        return [
+            {
+                "element_id": r["element_id"],
+                "count": int(r["count"]),
+                "last_chapter": int(r["last_chapter"]),
+            }
+            for r in rows
+        ]
+
     def _row_to_entity(self, row: Union[Row, object]) -> ChapterElement:
         """将数据库行转换为实体"""
         return ChapterElement(

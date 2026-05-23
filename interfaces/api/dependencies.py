@@ -179,6 +179,12 @@ def get_chapter_element_repository():
     return ChapterElementRepository(get_db_path())
 
 
+def get_unified_character_repository():
+    """获取统一角色仓储（unified_characters 表）。"""
+    from infrastructure.persistence.database.unified_character_repository import SqliteUnifiedCharacterRepository
+    return SqliteUnifiedCharacterRepository(get_database())
+
+
 def get_bible_repository() -> SqliteBibleRepository:
     """获取 Bible 仓储（SQLite 唯一数据源）。"""
     return SqliteBibleRepository(get_database())
@@ -427,7 +433,6 @@ def get_bible_service() -> BibleService:
     Returns:
         BibleService 实例
     """
-    from application.paths import get_db_path
     from application.world.services.bible_location_triple_sync import BibleLocationTripleSyncService
     from infrastructure.persistence.database.triple_repository import TripleRepository
 
@@ -437,6 +442,7 @@ def get_bible_service() -> BibleService:
         novel_repository=get_novel_repository(),
         chapter_repository=get_chapter_repository(),
         location_triple_sync=sync,
+        unified_character_repository=get_unified_character_repository(),
     )
 
 
