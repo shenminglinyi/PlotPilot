@@ -1,4 +1,4 @@
-"""世界观合并逻辑：Bible 扩展字段与世界映射表对齐。"""
+"""世界观合并逻辑：按 Plotpilot_writer 基础字段对齐。"""
 from domain.worldbuilding.worldbuilding import Worldbuilding
 
 from application.world.dtos.bible_dto import BibleDTO, WorldSettingDTO
@@ -12,7 +12,7 @@ from application.world.worldbuilding_merge import (
 from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
 
 
-def test_merge_keeps_llm_extra_and_table_overwrites():
+def test_merge_filters_extra_and_table_overwrites():
     bible_sl = {"core_rules": {"power_system": "B", "cost_and_limitation": "EXTRA"}}
     table_sl = worldbuilding_entity_to_slices(
         Worldbuilding(
@@ -26,14 +26,14 @@ def test_merge_keeps_llm_extra_and_table_overwrites():
     merged = merge_worldbuilding_table_and_bible_slices(table_sl, bible_sl)
     cr = merged["core_rules"]
     assert cr["power_system"] == "A"
-    assert cr["cost_and_limitation"] == "EXTRA"
+    assert "cost_and_limitation" not in cr
     assert cr["physics_rules"] == "P"
 
 
-def test_projection_appends_extra_to_tail_field():
+def test_projection_drops_extra_fields():
     full = {"core_rules": {"power_system": "X", "cost_and_limitation": "尾段"}}
     legacy = project_slices_to_legacy_api_shape(full)
-    assert "尾段" in legacy["core_rules"]["magic_tech"]
+    assert "cost_and_limitation" not in legacy["core_rules"]
     assert legacy["core_rules"]["power_system"] == "X"
 
 
@@ -75,6 +75,27 @@ def test_bible_dto_slices_parses_dot_names():
     assert sl["society"]["politics"] == "王权"
 
 
+def test_bible_dto_slices_filters_extra_dot_names():
+    dto = BibleDTO(
+        id="b",
+        novel_id="n",
+        characters=[],
+        world_settings=[
+            WorldSettingDTO(
+                id="1",
+                name="core_rules.cost_and_limitation",
+                description="旧扩展字段",
+                setting_type="rule",
+            ),
+        ],
+        locations=[],
+        timeline_notes=[],
+        style_notes=[],
+    )
+    sl = bible_dto_world_settings_to_slices(dto)
+    assert "cost_and_limitation" not in sl["core_rules"]
+
+
 def test_v2_worldbuilding_dimensions_are_single_source_of_truth():
     dto = BibleDTO(
         id="b",
@@ -107,5 +128,5 @@ def test_v2_worldbuilding_dimensions_are_single_source_of_truth():
     merged = load_merged_worldbuilding_slices(bible=dto, worldbuilding=wb)
 
     assert merged["core_rules"]["power_system"] == "V2 世界观"
-    assert merged["core_rules"]["cost_and_limitation"] == "V2 代价"
+    assert "cost_and_limitation" not in merged["core_rules"]
     assert "旧 Bible" not in merged["core_rules"]["power_system"]

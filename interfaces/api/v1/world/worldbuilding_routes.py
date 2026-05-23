@@ -28,14 +28,8 @@ def get_worldbuilding_service() -> WorldbuildingService:
 
 class CoreRulesDTO(BaseModel):
     power_system: Optional[str] = ""
-    progression_path: Optional[str] = ""
-    combat_resolution: Optional[str] = ""
     physics_rules: Optional[str] = ""
     magic_tech: Optional[str] = ""
-    version_rules: Optional[str] = ""
-    forbidden_methods: Optional[str] = ""
-    cost_and_limitation: Optional[str] = ""
-    resource_scarcity: Optional[str] = ""
 
 
 class GeographyDTO(BaseModel):

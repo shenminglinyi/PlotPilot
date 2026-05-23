@@ -10,7 +10,10 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from application.world.worldbuilding_merge import WORLD_BUILDING_DIMENSION_KEYS
-from application.world.worldbuilding_schema import canonicalize_dimension_fields
+from application.world.worldbuilding_schema import (
+    schema_field_keys,
+    validate_complete_dimension_fields,
+)
 from infrastructure.json_stream.incremental_extractor import (
     JsonStreamBuffer,
     find_key_object_brace_start,
@@ -19,8 +22,6 @@ from infrastructure.json_stream.incremental_extractor import (
 )
 
 _DIM_KEYS_ORDER: Tuple[str, ...] = WORLD_BUILDING_DIMENSION_KEYS
-
-
 def _decode_json_string_fragment(value: str) -> str:
     return value.replace("\\\\", "\\").replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"')
 
@@ -51,19 +52,6 @@ def _worldbuilding_inner_start(buf: str) -> Optional[int]:
     return m.end() - 1
 
 
-def _dimension_object_body(buf: str, dim_key: str) -> Optional[Tuple[str, bool]]:
-    """返回 (维度对象内部片段, 是否已闭合)。未找到维度键则 None。"""
-    brace = find_key_object_brace_start(buf, dim_key)
-    if brace is None:
-        return None
-    end = scan_balanced_brace_end(buf, brace)
-    if end is not None:
-        inner = buf[brace + 1 : end - 1]
-        return inner, True
-    inner = buf[brace + 1 :]
-    return inner, False
-
-
 def _try_extract_dimension_object(buf: str, dim_key: str) -> Optional[Tuple[Dict[str, str], int, int]]:
     """从 buffer 中提取某个维度的完整 JSON 对象（已 schema 归一化）。"""
     brace = find_key_object_brace_start(buf, dim_key)
@@ -73,10 +61,23 @@ def _try_extract_dimension_object(buf: str, dim_key: str) -> Optional[Tuple[Dict
     if parsed is None:
         return None
     obj, end = parsed
-    normalized = canonicalize_dimension_fields(dim_key, obj)
+    normalized = validate_complete_dimension_fields(dim_key, obj)
     if not normalized:
         return None
     return normalized, brace, end
+
+
+def _is_complete_dimension(dim_key: str, content: Dict[str, str]) -> bool:
+    """A dimension is ready only after every contract field is publishable."""
+    required = schema_field_keys(dim_key)
+    return bool(required) and required.issubset(content.keys())
+
+
+def _dimension_key_start(buf: str, dim_key: str) -> Optional[int]:
+    m = re.search(rf'"{re.escape(dim_key)}"\s*:\s*\{{', buf)
+    if not m:
+        return None
+    return m.start()
 
 
 class WorldbuildingStreamIncrementalParser:
@@ -85,6 +86,7 @@ class WorldbuildingStreamIncrementalParser:
     def __init__(self) -> None:
         self._buf = JsonStreamBuffer()
         self._emitted_dims: Set[str] = set()
+        self._started_dims: Set[str] = set()
         self._emitted_fields: Dict[str, Dict[str, str]] = {d: {} for d in _DIM_KEYS_ORDER}
         # Cache opening-brace position per dimension to avoid O(n²) re-scanning
         self._dim_brace_start: Dict[str, Optional[int]] = {d: None for d in _DIM_KEYS_ORDER}
@@ -111,7 +113,7 @@ class WorldbuildingStreamIncrementalParser:
                         text, closed = dim_string
                         if not closed:
                             continue
-                        content = canonicalize_dimension_fields(dim_key, {dim_key: text})
+                        content = validate_complete_dimension_fields(dim_key, {dim_key: text})
                         if not content:
                             continue
                         fk = next(iter(content))
@@ -122,7 +124,13 @@ class WorldbuildingStreamIncrementalParser:
                         self._emitted_dims.add(dim_key)
                         events.append({"type": "dimension", "key": dim_key, "content": content})
                     continue
+                key_start = _dimension_key_start(buf, dim_key)
+                if key_start is not None:
+                    self._flush_started_dimensions_before(events, buf, key_start)
                 self._dim_brace_start[dim_key] = brace
+                if dim_key not in self._started_dims:
+                    self._started_dims.add(dim_key)
+                    events.append({"type": "dimension_start", "key": dim_key})
 
             brace = self._dim_brace_start[dim_key]
             end = scan_balanced_brace_end(buf, brace)
@@ -135,23 +143,41 @@ class WorldbuildingStreamIncrementalParser:
                     continue
                 if not isinstance(obj, dict):
                     continue
-                content = canonicalize_dimension_fields(dim_key, obj)
+                content = validate_complete_dimension_fields(dim_key, obj)
                 if not content:
                     continue
-                self._emitted_dims.add(dim_key)
+                if not _is_complete_dimension(dim_key, content):
+                    continue
                 for fk, fv in content.items():
                     if self._emitted_fields[dim_key].get(fk) != fv:
                         self._emitted_fields[dim_key][fk] = fv
                         events.append({"type": "field", "key": dim_key, "field": fk, "value": fv})
+                self._emitted_dims.add(dim_key)
                 events.append({"type": "dimension", "key": dim_key, "content": content})
                 continue
 
-            # Do not parse unclosed dimension objects. Earlier versions tried to
-            # extract string fields while the model was still writing JSON, which
-            # could surface fragments like "玩家通过" or invented raw keys as UI
-            # cards. We only emit after the whole dimension object is balanced.
+            # The object is still open. Do not publish field values here:
+            # syntactically closed strings can still be model-truncated
+            # content. We only commit at a valid, schema-complete dimension
+            # boundary so JSON structure, not prose heuristics, decides what
+            # reaches the UI.
 
         return events
+
+    def _flush_started_dimensions_before(
+        self,
+        events: List[Dict[str, Any]],
+        buf: str,
+        before_index: int,
+    ) -> None:
+        """Reserved for boundary hooks.
+
+        We intentionally avoid regex-based recovery here. If a previous
+        dimension did not close as valid JSON before the next dimension starts,
+        the final parser/repair pass or the patch generation step will handle
+        it instead of publishing speculative content to the UI.
+        """
+        return None
 
     def emitted_dimensions(self) -> Set[str]:
         return set(self._emitted_dims)
@@ -199,7 +225,7 @@ class WorldbuildingStreamIncrementalParser:
         for dim_key in _DIM_KEYS_ORDER:
             block = parsed.get(dim_key)
             if isinstance(block, dict):
-                norm = canonicalize_dimension_fields(dim_key, block)
+                norm = validate_complete_dimension_fields(dim_key, block)
                 if norm:
                     out[dim_key] = norm
         return out

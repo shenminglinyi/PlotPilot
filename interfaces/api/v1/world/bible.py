@@ -338,7 +338,7 @@ async def _sse_bible_generator(
                 "daily_life": "沉浸感细节",
             }
             accumulated_wb: dict = {}
-            saved_dims: set[str] = set()
+            saved_dim_snapshots: dict[str, dict] = {}
             announced_fields: set[tuple[str, str]] = set()
 
             yield _sse_fmt("phase", {
@@ -352,38 +352,15 @@ async def _sse_bible_generator(
                     premise, novel.target_chapters,
                 ):
                     if item["type"] == "chunk":
-                        chunk_text = item.get("text") or item.get("chunk") or ""
-                        if chunk_text:
-                            yield _sse_fmt("data", {
-                                "type": "worldbuilding_chunk",
-                                "chunk": chunk_text,
-                            })
                         await asyncio.sleep(0)
 
-                    elif item["type"] == "field_partial":
+                    elif item["type"] == "dimension_start":
                         dim_key = item.get("key")
-                        field_key = item.get("field")
-                        field_value = item.get("value")
-                        if dim_key and field_key and field_value:
-                            marker = (dim_key, field_key)
-                            if marker not in announced_fields:
-                                announced_fields.add(marker)
-                                dim_label = dim_labels.get(dim_key, dim_key)
-                                field_label = (
-                                    WORLDBUILDING_DIMENSION_DEFS
-                                    .get(dim_key, {})
-                                    .get("fields", {})
-                                    .get(field_key, field_key)
-                                )
-                                yield _sse_fmt("phase", {
-                                    "phase": f"worldbuilding_{dim_key}",
-                                    "message": f"{dim_label} · {field_label} 生成中...",
-                                })
-                            yield _sse_fmt("data", {
-                                "type": "worldbuilding_field_partial",
-                                "dimension": dim_key,
-                                "field": field_key,
-                                "value": field_value,
+                        if dim_key:
+                            dim_label = dim_labels.get(dim_key, dim_key)
+                            yield _sse_fmt("phase", {
+                                "phase": f"worldbuilding_{dim_key}",
+                                "message": f"{dim_label} 生成中...",
                             })
                             await asyncio.sleep(0)
 
@@ -407,6 +384,13 @@ async def _sse_bible_generator(
                                     "message": f"{dim_label} · {field_label} 已解析",
                                 })
                             accumulated_wb.setdefault(dim_key, {})[field_key] = field_value
+                            logger.info(
+                                "SSE worldbuilding field send: novel=%s dim=%s field=%s len=%s",
+                                novel_id,
+                                dim_key,
+                                field_key,
+                                len(str(field_value)),
+                            )
                             yield _sse_fmt("data", {
                                 "type": "worldbuilding_field",
                                 "dimension": dim_key,
@@ -420,7 +404,8 @@ async def _sse_bible_generator(
                         dim_data = item.get("content") or {}
                         if not dim_data:
                             continue
-                        accumulated_wb[dim_key] = dim_data
+                        accumulated_wb.setdefault(dim_key, {}).update(dim_data)
+                        dim_data = accumulated_wb[dim_key]
                         dim_label = dim_labels.get(dim_key, dim_key)
 
                         yield _sse_fmt("phase", {
@@ -433,12 +418,18 @@ async def _sse_bible_generator(
                             "label": dim_label,
                             "content": dim_data,
                         })
-                        if dim_key not in saved_dims:
+                        logger.info(
+                            "SSE worldbuilding dimension send: novel=%s dim=%s fields=%s",
+                            novel_id,
+                            dim_key,
+                            sorted(dim_data.keys()),
+                        )
+                        if saved_dim_snapshots.get(dim_key) != dim_data:
                             try:
                                 await bible_generator._save_worldbuilding(
                                     novel_id, {dim_key: dim_data},
                                 )
-                                saved_dims.add(dim_key)
+                                saved_dim_snapshots[dim_key] = dict(dim_data)
                             except Exception as e:
                                 logger.warning(
                                     "Failed to save dimension %s via SSE: %s", dim_key, e,
@@ -448,8 +439,8 @@ async def _sse_bible_generator(
                     elif item["type"] == "done":
                         full = item.get("worldbuilding") or {}
                         for dk, dv in full.items():
-                            if dk not in accumulated_wb and dv:
-                                accumulated_wb[dk] = dv
+                            if dv:
+                                accumulated_wb.setdefault(dk, {}).update(dv)
 
             except Exception as e:
                 logger.error("Failed to stream full worldbuilding: %s", e)
@@ -459,13 +450,13 @@ async def _sse_bible_generator(
             # long strings). Persist every accumulated dimension here so the UI does not
             # show freshly generated fields that vanish after reload.
             for dim_key, dim_data in accumulated_wb.items():
-                if dim_key in saved_dims or not dim_data:
+                if not dim_data or saved_dim_snapshots.get(dim_key) == dim_data:
                     continue
                 try:
                     await bible_generator._save_worldbuilding(
                         novel_id, {dim_key: dim_data},
                     )
-                    saved_dims.add(dim_key)
+                    saved_dim_snapshots[dim_key] = dict(dim_data)
                 except Exception as e:
                     logger.warning(
                         "Failed to save accumulated dimension %s via SSE finalizer: %s",
@@ -628,12 +619,12 @@ async def generate_bible_stream(
 ):
     """SSE 流式 Bible 生成接口。
 
-    世界观：单次 LLM 流式输出五维 JSON（worldbuilding_chunk），增量解析后推送
+    世界观：单次 LLM 流式输出五维 JSON，后端增量解析后只推送
     worldbuilding_dimension / worldbuilding_field。人物/地点仍为流式 JSON 数组解析。
 
     事件类型：
     - phase: init / worldbuilding_streaming / worldbuilding_{dim} / characters / locations / *_done
-    - data: style / worldbuilding_chunk / worldbuilding_dimension / worldbuilding_field / character / location
+    - data: style / worldbuilding_dimension / worldbuilding_field / character / location
     - done / error
     """
     return StreamingResponse(

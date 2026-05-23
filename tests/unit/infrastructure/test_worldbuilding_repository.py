@@ -19,7 +19,7 @@ def test_worldbuilding_repository_persists_v2_dimensions(tmp_path):
         dimensions={
             "core_rules": {
                 "power_system": "同步率体系",
-                "cost_and_limitation": "神经损耗",
+                "physics_rules": "神经反馈会放大反应延迟",
             },
             "daily_life": {
                 "language_slang": "掉帧等于掉命",
@@ -33,5 +33,5 @@ def test_worldbuilding_repository_persists_v2_dimensions(tmp_path):
     assert loaded is not None
     assert loaded.schema_version == 2
     assert loaded.core_rules["power_system"] == "同步率体系"
-    assert loaded.core_rules["cost_and_limitation"] == "神经损耗"
+    assert loaded.core_rules["physics_rules"] == "神经反馈会放大反应延迟"
     assert loaded.daily_life["language_slang"] == "掉帧等于掉命"

@@ -131,10 +131,12 @@ _FALLBACK_BIBLE_ALL_SYSTEM = """你是资深网文策划编辑。根据用户提
 """
 
 _FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = (
-    "你是好莱坞科幻/奇幻概念设计师。根据故事创意生成完整五维世界观（单次输出、五维联动）。\n\n"
-    "输出格式：直接输出裸 JSON，禁止用 markdown 代码块包裹。"
-    "顶层键为 worldbuilding，其下五个维度键名固定（core_rules/geography/society/culture/daily_life）。"
-    "每个字段的值必须是中文段落字符串（不少于80字），禁止嵌套 JSON，禁止自创字段名，禁止值中出现英文键名。"
+    "你是资深网文策划编辑。根据用户给出的故事创意/梗概，生成完整的世界观。\n\n"
+    "重要：仅返回纯净 JSON；所有字符串值为单行文本，不要有换行符。\n\n"
+    "要求：\n"
+    "1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节。\n"
+    "2. 符合故事类型；设定要有落地感，力量或特殊规则需交代代价或约束。\n"
+    "3. JSON 键名固定，子键可据题材留空字符串但不可省略键。"
 )
 
 
@@ -997,11 +999,13 @@ JSON 格式：
         premise: str,
         target_chapters: int,
     ) -> AsyncIterator[Dict[str, Any]]:
-        """单次 LLM 流式生成完整五维世界观（维度间由模型一次联动，避免分五次调用脱节）。
+        """逐维度流式生成完整五维世界观。
+
+        每个维度单独调用 LLM，降低大 JSON 流式输出时漏字段/截断的概率。
+        后续维度会收到已完成维度作为上下文，以保持设定之间的联动。
 
         Yields:
             {"type": "chunk", "text": str}
-            {"type": "field_partial", "key", "field", "value"}
             {"type": "field", "key", "field", "value"}
             {"type": "dimension", "key": str, "content": dict}
             {"type": "done", "worldbuilding": dict}
@@ -1009,148 +1013,85 @@ JSON 格式：
         from application.world.services.worldbuilding_stream_parser import (
             WorldbuildingStreamIncrementalParser,
         )
-        from infrastructure.ai.prompt_keys import BIBLE_WORLDBUILDING
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        from infrastructure.ai.prompt_utils import get_prompt_system
+        from application.world.worldbuilding_schema import schema_field_keys
 
-        fields_desc = self._build_worldbuilding_json_schema_desc()
-
-        registry = get_prompt_registry()
-        variables = {
-            "premise": premise,
-            "target_chapters": str(target_chapters),
-            "fields_desc": fields_desc,
-            "existing_settings": "",
-        }
-        prompt = registry.render_to_prompt(BIBLE_WORLDBUILDING, variables)
-        if not prompt:
-            # CPMS 不可用时的最小 fallback
-            system_prompt = get_prompt_system(
-                BIBLE_WORLDBUILDING, fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM
-            )
-            user_prompt = (
-                f"【故事创意】\n{premise}\n\n【目标章节数】\n{target_chapters}章\n\n"
-                "按以下格式直接输出 JSON（不要包在代码块里）。"
-                "每个字段值只能是中文段落字符串，禁止嵌套对象/数组，禁止英文键名。\n\n"
-                f'{{"worldbuilding": {{{fields_desc}}}}}'
-            )
-            prompt = Prompt(system=system_prompt, user=user_prompt)
-
-        format_guard = (
-            "\n\n【运行时强制格式护栏】\n"
-            "必须输出 `worldbuilding` 下的五个维度对象，维度值绝对不能是字符串。"
-            "错误示例：\"society\": \"一段文字\"。"
-            "正确示例：\"society\": {\"politics\": \"...\", \"economy\": \"...\", \"class_system\": \"...\"}。"
-            "每个维度都必须按模板字段顺序逐子项输出；写完一个字段并关闭字符串后，立刻写下一个字段。"
-            "禁止把一个维度的所有内容塞进单个字符串。"
-            "每个字段严格控制在60-120个中文字符，只写单段，优先保证 daily_life 也完整输出。"
-        )
-        prompt = Prompt(
-            system=f"{prompt.system}{format_guard}",
-            user=(
-                f"{prompt.user}\n\n"
-                "再次确认：不要输出 `\"core_rules\": \"...\"`、`\"geography\": \"...\"`、"
-                "`\"society\": \"...\"` 这种维度字符串。每个维度必须是对象，"
-                "对象内必须逐字段输出，便于后端解析一个子项就推送一个子项。"
-            ),
-        )
-
-        config = GenerationConfig(max_tokens=32768, temperature=0.65)
-        parser = WorldbuildingStreamIncrementalParser()
+        dimension_keys = ("core_rules", "geography", "society", "culture", "daily_life")
+        config = GenerationConfig(max_tokens=4096, temperature=0.55)
         accumulated: Dict[str, Dict[str, str]] = {}
 
-        try:
-            async for chunk in self.llm_service.stream_generate(prompt, config):
-                yield {"type": "chunk", "text": chunk}
-                for ev in parser.feed(chunk):
-                    ev_type = ev.get("type")
-                    dim_key = ev.get("key")
-                    if ev_type == "field_partial":
-                        yield ev
-                    elif ev_type == "field":
-                        fk, fv = ev.get("field"), ev.get("value")
-                        if dim_key and fk and fv:
-                            accumulated.setdefault(dim_key, {})[fk] = fv
-                        yield ev
-                    elif ev_type == "dimension":
-                        dim_data = ev.get("content") or {}
-                        if dim_key and dim_data:
-                            accumulated[dim_key] = dim_data
-                        yield ev
-
-            full_wb = parser.parse_full_worldbuilding(
-                sanitize=_sanitize_llm_json_output,
-                repair=_repair_json_string,
+        for dim_key in dimension_keys:
+            dim_emitted = False
+            fields_desc = self._build_worldbuilding_json_schema_desc_for([dim_key])
+            prompt = Prompt(
+                system=(
+                    "你是资深网文世界观设定师。只输出裸 JSON，不要 markdown。"
+                    "本次只生成用户指定的一个维度；维度值必须是对象，不得写成字符串。"
+                    "字段值必须是80-160字中文单段文本，不得换行，不得嵌套对象或数组。"
+                    "必须承接已完成维度，保持术语、代价、空间、阶层、历史与日常细节互相呼应，不得自相矛盾。"
+                ),
+                user=(
+                    f"【故事创意】\n{premise}\n\n【目标章节数】\n{target_chapters}章\n\n"
+                    f"【已完成维度，必须联动承接】\n"
+                    f"{json.dumps(accumulated, ensure_ascii=False, indent=2)[:8000] or '暂无，先奠定后续维度的硬规则。'}\n\n"
+                    f"请只输出 `{dim_key}` 这一个维度，并把模板字段全部写完整。"
+                    "不要输出其他维度，不要解释。\n\n"
+                    f'{{"worldbuilding": {{\n{fields_desc}\n}}}}'
+                ),
             )
-            for dim_key, dim_data in full_wb.items():
-                if dim_data and accumulated.get(dim_key) != dim_data:
-                    accumulated[dim_key] = dim_data
-                    yield {"type": "dimension", "key": dim_key, "content": dim_data}
+            parser = WorldbuildingStreamIncrementalParser()
 
-            missing_dims = [
-                dim for dim in ("core_rules", "geography", "society", "culture", "daily_life")
-                if not accumulated.get(dim)
-            ]
-            if missing_dims:
-                logger.warning("Worldbuilding stream missing dimensions, patching: %s", missing_dims)
-                patch_fields = self._build_worldbuilding_json_schema_desc_for(missing_dims)
-                patch_prompt = Prompt(
-                    system=(
-                        "你是世界观设定补全器。只输出裸 JSON，不要 markdown。"
-                        "必须只补齐用户指定的缺失维度；维度值必须是对象，字段值必须是60-120字中文单段字符串。"
-                    ),
-                    user=(
-                        f"【故事创意】\n{premise}\n\n【目标章节数】\n{target_chapters}章\n\n"
-                        f"【已完成维度】\n{json.dumps(accumulated, ensure_ascii=False)[:6000]}\n\n"
-                        "请只输出以下缺失维度，格式如下：\n"
-                        f'{{"worldbuilding": {{\n{patch_fields}\n}}}}'
-                    ),
-                )
-                patch_parser = WorldbuildingStreamIncrementalParser()
-                patch_config = GenerationConfig(max_tokens=8192, temperature=0.55)
-                async for patch_chunk in self.llm_service.stream_generate(patch_prompt, patch_config):
-                    yield {"type": "chunk", "text": patch_chunk}
-                    for ev in patch_parser.feed(patch_chunk):
+            try:
+                async for chunk in self.llm_service.stream_generate(prompt, config):
+                    yield {"type": "chunk", "text": chunk}
+                    for ev in parser.feed(chunk):
                         ev_type = ev.get("type")
-                        dim_key = ev.get("key")
-                        if dim_key not in missing_dims:
+                        event_dim = ev.get("key")
+                        if ev_type:
+                            logger.info(
+                                "Worldbuilding parser event: type=%s dim=%s field=%s value_len=%s",
+                                ev_type,
+                                event_dim,
+                                ev.get("field"),
+                                len(str(ev.get("value") or "")),
+                            )
+                        if event_dim != dim_key:
                             continue
-                        if ev_type == "field_partial":
+                        if ev_type == "dimension_start":
                             yield ev
                         elif ev_type == "field":
                             fk, fv = ev.get("field"), ev.get("value")
-                            if dim_key and fk and fv:
+                            if fk and fv:
                                 accumulated.setdefault(dim_key, {})[fk] = fv
                             yield ev
                         elif ev_type == "dimension":
                             dim_data = ev.get("content") or {}
-                            if dim_key and dim_data:
-                                accumulated[dim_key] = dim_data
+                            if dim_data:
+                                accumulated.setdefault(dim_key, {}).update(dim_data)
+                                dim_emitted = True
                             yield ev
 
-                patch_full = patch_parser.parse_full_worldbuilding(
+                full_wb = parser.parse_full_worldbuilding(
                     sanitize=_sanitize_llm_json_output,
                     repair=_repair_json_string,
                 )
-                for dim_key, dim_data in patch_full.items():
-                    if dim_key in missing_dims and dim_data:
-                        accumulated[dim_key] = dim_data
-                        yield {"type": "dimension", "key": dim_key, "content": dim_data}
-
-        except Exception as e:
-            logger.error("Stream worldbuilding (full) failed: %s", e)
-            full_wb = parser.parse_full_worldbuilding(
-                sanitize=_sanitize_llm_json_output,
-                repair=_repair_json_string,
-            )
-            for dim_key, dim_data in full_wb.items():
-                if dim_data and dim_key not in accumulated:
-                    accumulated[dim_key] = dim_data
+                dim_data = full_wb.get(dim_key) or {}
+                if dim_data and not dim_emitted:
+                    accumulated.setdefault(dim_key, {}).update(dim_data)
                     yield {"type": "dimension", "key": dim_key, "content": dim_data}
+
+                missing = schema_field_keys(dim_key) - set(accumulated.get(dim_key, {}))
+                if missing:
+                    logger.warning(
+                        "Worldbuilding dimension incomplete after split generation: dim=%s missing=%s",
+                        dim_key,
+                        sorted(missing),
+                    )
+            except Exception as e:
+                logger.error("Stream worldbuilding dimension failed: dim=%s error=%s", dim_key, e)
 
         yield {"type": "done", "worldbuilding": accumulated}
 
-    # ── 文风公约（世界观由 _stream_worldbuilding_full 单次流式生成）────────
+    # ── 文风公约（世界观由 _stream_worldbuilding_full 分维度流式生成）────────
 
     async def _generate_style(self, premise: str, target_chapters: int) -> str:
         """Generate style convention via CPMS."""

@@ -57,7 +57,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'core_rules'" class="raw-stream-preview">
-                正在等待核心法则子项解析<span class="streaming-cursor">▎</span>
+                正在生成核心法则，完成后将整段展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #geography>
@@ -69,7 +69,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'geography'" class="raw-stream-preview">
-                正在等待地理生态子项解析<span class="streaming-cursor">▎</span>
+                正在生成地理生态，完成后将整段展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #society>
@@ -81,7 +81,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'society'" class="raw-stream-preview">
-                正在等待社会结构子项解析<span class="streaming-cursor">▎</span>
+                正在生成社会结构，完成后将整段展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #culture>
@@ -93,7 +93,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'culture'" class="raw-stream-preview">
-                正在等待历史文化子项解析<span class="streaming-cursor">▎</span>
+                正在生成历史文化，完成后将整段展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #daily_life>
@@ -105,7 +105,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'daily_life'" class="raw-stream-preview">
-                正在等待沉浸感细节子项解析<span class="streaming-cursor">▎</span>
+                正在生成沉浸感细节，完成后将整段展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
           </WizardSkeleton>
@@ -659,86 +659,50 @@ type WorldbuildingDimKey = (typeof WB_DIMS)[number]
 const WB_FIELD_ORDER: Record<WorldbuildingDimKey, string[]> = {
   core_rules: [
     'power_system',
-    'progression_path',
-    'combat_resolution',
     'physics_rules',
     'magic_tech',
-    'version_rules',
-    'forbidden_methods',
-    'cost_and_limitation',
-    'resource_scarcity',
   ],
   geography: [
     'terrain',
     'climate',
     'resources',
     'ecology',
-    'forbidden_zones',
-    'urban_core',
-    'hidden_realms',
   ],
   society: [
     'politics',
     'economy',
     'class_system',
-    'power_structure',
-    'oppression_mechanism',
-    'class_division',
   ],
   culture: [
     'history',
     'religion',
     'taboos',
-    'worship',
-    'oaths_and_curses',
   ],
   daily_life: [
     'food_clothing',
     'language_slang',
     'entertainment',
-    'survival_tactics',
-    'market_reality',
-    'food_and_drink',
-    'slang_and_profanity',
   ],
 }
 
 /** 世界观维度 key → 中文标签 */
 const dimKeyLabels: Record<string, string> = {
   power_system: '力量体系',
-  progression_path: '成长路径',
-  combat_resolution: '攻防判定',
   physics_rules: '物理规律',
   magic_tech: '魔法/科技',
-  version_rules: '赛季版本',
-  forbidden_methods: '禁用手段',
-  cost_and_limitation: '代价与限制',
-  resource_scarcity: '稀缺资源',
   terrain: '地形',
   climate: '气候',
   resources: '资源',
   ecology: '生态',
-  forbidden_zones: '禁区',
-  urban_core: '核心城市',
-  hidden_realms: '秘境',
   politics: '政治',
   economy: '经济',
   class_system: '阶级',
-  power_structure: '权力结构',
-  oppression_mechanism: '压迫机制',
-  class_division: '阶层划分',
   history: '历史',
   religion: '宗教',
   taboos: '禁忌',
-  worship: '崇拜与祭祀',
-  oaths_and_curses: '誓言与诅咒',
   food_clothing: '衣食住行',
   language_slang: '俚语口音',
   entertainment: '娱乐方式',
-  survival_tactics: '生存策略',
-  market_reality: '市场真相',
-  food_and_drink: '饮食文化',
-  slang_and_profanity: '黑话粗话',
   continent_name: '大陆名称',
   key_regions: '关键区域',
   climate_impact: '气候影响',
@@ -953,9 +917,6 @@ const activeDimension = ref('')
 const completedDimensions = ref<Set<string>>(new Set())
 const activeField = ref('')
 const arrivedFields = ref<Set<string>>(new Set())
-/** 维度级流式文本：LLM 逐 token 输出时暂存，字段解析完成后清空 */
-const streamingDimText = ref('')
-const worldbuildingRawBuffer = ref('')
 const sseAbortController = ref<AbortController | null>(null)
 
 const styleConventionDisplay = computed(() => {
@@ -974,10 +935,6 @@ const wbDimensionCards = computed(() => {
   }
   return WB_DIMS.map(key => ({ key, label: labels[key], data: worldbuildingData.value[key] }))
 })
-
-function nextPendingWorldbuildingDimension(): string {
-  return WB_DIMS.find(dim => !completedDimensions.value.has(dim)) || WB_DIMS[0]
-}
 
 // ── 第2步：SSE 流式生成人物 ──
 const generatingCharacters = ref(false)
@@ -1277,8 +1234,6 @@ function finishWorldbuildingGeneration() {
   completedDimensions.value = new Set(WB_DIMS)
   activeDimension.value = ''
   activeField.value = ''
-  streamingDimText.value = ''
-  worldbuildingRawBuffer.value = ''
   generatingBible.value = false
   bibleGenerated.value = true
   phaseMessage.value = ''
@@ -1467,8 +1422,6 @@ bibleError.value = ''
   completedDimensions.value = new Set()
   activeField.value = ''
   arrivedFields.value = new Set()
-  streamingDimText.value = ''
-  worldbuildingRawBuffer.value = ''
   worldbuildingData.value = emptyWorldbuildingShape()
   styleText.value = ''
 
@@ -1483,9 +1436,6 @@ bibleError.value = ''
       if (phase.startsWith('worldbuilding_') && phase !== 'worldbuilding_done') {
         const dimKey = phase.replace('worldbuilding_', '')
         if (WB_DIMS.includes(dimKey as typeof WB_DIMS[number])) {
-          if (activeDimension.value && activeDimension.value !== dimKey) {
-            completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-          }
           activeDimension.value = dimKey
           activeField.value = ''
           arrivedFields.value = new Set()
@@ -1506,7 +1456,6 @@ bibleError.value = ''
         completedDimensions.value = new Set(WB_DIMS)
         activeDimension.value = ''
         activeField.value = ''
-        streamingDimText.value = ''
       }
     },
     onStyle: (content) => {
@@ -1515,48 +1464,18 @@ bibleError.value = ''
     onStyleChunk: (chunk) => {
       styleText.value += chunk
     },
-    onWorldbuildingChunk: (chunk) => {
-      if (!chunk) return
-      worldbuildingRawBuffer.value = `${worldbuildingRawBuffer.value}${chunk}`.slice(-3000)
-      if (!activeDimension.value) {
-        activeDimension.value = nextPendingWorldbuildingDimension()
-      }
-    },
-    onWorldbuildingFieldPartial: (dimension, field, value) => {
-      if (activeDimension.value !== dimension) {
-        if (activeDimension.value) {
-          completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-        }
-        activeDimension.value = dimension
-      }
-      activeField.value = field
-      streamingDimText.value = ''
-      // Direct property mutation avoids replacing the entire ref on every token,
-      // which would trigger full-tree re-renders during high-frequency streaming.
-      const dim = dimension as keyof typeof worldbuildingData.value
-      worldbuildingData.value[dim][field] = value
-    },
     onWorldbuildingField: (dimension, field, value) => {
       const dim = dimension as keyof typeof worldbuildingData.value
       worldbuildingData.value[dim][field] = value
-      if (activeDimension.value !== dimension) {
-        if (activeDimension.value) {
-          completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-        }
-        activeDimension.value = dimension
-      }
+      activeDimension.value = dimension
       arrivedFields.value = new Set([...arrivedFields.value, field])
       activeField.value = ''
-      streamingDimText.value = ''
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value
       Object.assign(worldbuildingData.value[dim], data.content)
-      if (activeDimension.value && activeDimension.value !== data.dimension) {
-        completedDimensions.value = new Set([...completedDimensions.value, activeDimension.value])
-      }
       activeDimension.value = data.dimension
-      streamingDimText.value = ''
+      completedDimensions.value = new Set([...completedDimensions.value, data.dimension])
     },
     onDone: () => {
       finishWorldbuildingGeneration()

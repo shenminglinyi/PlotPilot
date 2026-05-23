@@ -79,19 +79,26 @@ for _dim in WORLDBUILDING_DIMENSION_DEFS.values():
 def format_worldbuilding_slices_for_prompt(
     slices: Optional[Dict[str, Dict[str, str]]],
 ) -> str:
-    """合并后的五维 dict → 紧凑正文（含 SSE 扩展字段）。"""
+    """合并后的五维 dict → writer 基础字段顺序的紧凑正文。"""
     if not slices or not worldbuilding_slices_nonempty(slices):
         return ""
 
     lines: List[str] = ["【世界观五维（作者确认）】"]
+    fields_by_dim = {
+        dim: [(field_key, label) for label, field_key in fields]
+        for dim, (_title, fields) in zip(WORLD_BUILDING_DIMENSION_KEYS, _WB_SECTIONS)
+    }
     for dim in WORLD_BUILDING_DIMENSION_KEYS:
         blk = slices.get(dim) or {}
-        items = [(k, str(v).strip()) for k, v in sorted(blk.items()) if str(v).strip()]
+        items = [
+            (k, _FIELD_LABELS.get(k, label), str(blk.get(k) or "").strip())
+            for k, label in fields_by_dim.get(dim, [])
+            if str(blk.get(k) or "").strip()
+        ]
         if not items:
             continue
         lines.append(f"▸ {_DIM_DISPLAY.get(dim, dim)}")
-        for key, val in items:
-            label = _FIELD_LABELS.get(key, key.replace("_", " "))
+        for _key, label, val in items:
             lines.append(f"- {label}：{val}")
 
     if len(lines) <= 1:

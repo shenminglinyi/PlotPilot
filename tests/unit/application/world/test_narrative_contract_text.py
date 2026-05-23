@@ -29,7 +29,7 @@ def test_build_narrative_contract_block_orders_style_then_wb():
     assert idx_style < idx_wb
 
 
-def test_format_worldbuilding_slices_includes_extension_fields():
+def test_format_worldbuilding_slices_filters_extension_fields():
     slices = {
         "core_rules": {
             "power_system": "体系",
@@ -41,8 +41,9 @@ def test_format_worldbuilding_slices_includes_extension_fields():
     )
 
     text = format_worldbuilding_slices_for_prompt(slices)
-    assert "越级反噬" in text
-    assert "cost_and_limitation" not in text  # 应显示中文标签或友好名
+    assert "越级反噬" not in text
+    assert "cost_and_limitation" not in text
+    assert "体系" in text
 
 
 def test_build_ctx_blueprint_splits_taboos_and_atmosphere():

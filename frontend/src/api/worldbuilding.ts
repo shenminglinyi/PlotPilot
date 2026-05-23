@@ -2,14 +2,8 @@ import { apiClient } from './config'
 
 export interface CoreRules {
   power_system: string
-  progression_path?: string
-  combat_resolution?: string
   physics_rules: string
   magic_tech: string
-  version_rules?: string
-  forbidden_methods?: string
-  cost_and_limitation?: string
-  resource_scarcity?: string
 }
 
 export interface Geography {

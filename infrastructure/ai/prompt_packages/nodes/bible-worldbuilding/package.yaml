@@ -1,7 +1,7 @@
 name: 世界观与文风生成
 category: world
 source: infrastructure/ai/prompts/prompts_defaults.json
-description: 生成避免悬浮感、具有厚重社会生态的 5 维度世界观体系
+description: 沿用 Plotpilot_writer 五维基础字段契约生成世界观
 builtin: true
 tags:
 - 世界观
