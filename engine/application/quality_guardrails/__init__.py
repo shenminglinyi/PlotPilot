@@ -6,6 +6,7 @@ from engine.runtime.quality_guardrails import (
     NamingGuardrail,
     ViewpointGuardrail,
     RhythmGuardrail,
+    MacroPacingGuardrail,
     QualityGuardrail,
     QualityViolationError,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "NamingGuardrail",
     "ViewpointGuardrail",
     "RhythmGuardrail",
+    "MacroPacingGuardrail",
     "QualityGuardrail",
     "QualityViolationError",
 ]

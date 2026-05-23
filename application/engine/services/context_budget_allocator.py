@@ -34,6 +34,9 @@ from infrastructure.persistence.database.worldbuilding_repository import Worldbu
 from domain.ai.services.vector_store import VectorStore
 from domain.ai.services.embedding_service import EmbeddingService
 from application.ai.vector_retrieval_facade import VectorRetrievalFacade
+from application.engine.services.context_slot_providers import (
+    build_narrative_promise_slot_content,
+)
 from infrastructure.ai.prompt_registry import get_prompt_registry
 
 logger = logging.getLogger(__name__)
@@ -199,6 +202,7 @@ class ContextBudgetAllocator:
         evolution_presenter: Optional[Any] = None,
         evolution_repository: Optional[Any] = None,
         character_narrative_kernel: Optional[Any] = None,
+        novel_repository: Optional[Any] = None,
     ):
         self.foreshadowing_repo = foreshadowing_repository
         self.chapter_repo = chapter_repository
@@ -218,6 +222,7 @@ class ContextBudgetAllocator:
         self.evolution_presenter = evolution_presenter
         self.evolution_repository = evolution_repository
         self.character_narrative_kernel = character_narrative_kernel
+        self.novel_repository = novel_repository
 
         # ★ Phase 3: 沙漏阶段阈值（可由 CPMS 节点 lifecycle-phase-directives 的变量覆盖）
         self._phase_thresholds = phase_thresholds or self._load_phase_thresholds()
@@ -264,6 +269,14 @@ class ContextBudgetAllocator:
             novel_id,
             bible_repository=self.bible_repo,
             worldbuilding_repository=self.worldbuilding_repo,
+        )
+
+    def _build_narrative_promise_slot(self, novel_id: str, chapter_number: int) -> str:
+        """Build the compact story promise lock from the existing Novel aggregate."""
+        return build_narrative_promise_slot_content(
+            self.novel_repository,
+            novel_id,
+            chapter_number,
         )
 
     def _format_storyline_block(self, sl, confluences, chapter_number: int) -> str:
@@ -520,6 +533,17 @@ class ContextBudgetAllocator:
             tokens=self.estimate_tokens(anchor_content),
             max_tokens=300,  # V9: 从 500 砍到 300——一句话主线，不需要更多
             priority=125,
+        )
+
+        # ── T0-2a: 叙事承诺锁 —— 从 title/premise 派生，不新增存储模型 ──
+        narrative_promise = self._build_narrative_promise_slot(novel_id, chapter_number)
+        slots["narrative_promise"] = ContextSlot(
+            name="🧭叙事承诺锁(NARRATIVE_PROMISE)",
+            tier=PriorityTier.T0_CRITICAL,
+            content=narrative_promise,
+            tokens=self.estimate_tokens(narrative_promise),
+            max_tokens=420,
+            priority=123,
         )
 
         # ── T0-2b: 创作契约（向导五维 + 文风公约 + Bible 规则）—— priority=122 ──

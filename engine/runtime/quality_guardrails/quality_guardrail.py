@@ -37,6 +37,9 @@ from engine.runtime.quality_guardrails.viewpoint_guardrail import (
 from engine.runtime.quality_guardrails.rhythm_guardrail import (
     RhythmGuardrail, RhythmViolation,
 )
+from engine.runtime.quality_guardrails.macro_pacing_guardrail import (
+    MacroPacingGuardrail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,7 @@ class QualityReport:
     naming_score: float = 0.0
     viewpoint_score: float = 0.0
     rhythm_score: float = 0.0
+    macro_pacing_score: float = 0.0
     all_violations: List[Dict[str, Any]] = field(default_factory=list)
     passed: bool = False
 
@@ -86,6 +90,7 @@ class QualityReport:
                 "naming": round(self.naming_score, 3),
                 "viewpoint": round(self.viewpoint_score, 3),
                 "rhythm": round(self.rhythm_score, 3),
+                "macro_pacing": round(self.macro_pacing_score, 3),
             },
             "violation_count": len(self.all_violations),
             "violations": self.all_violations,
@@ -122,6 +127,7 @@ class QualityGuardrail:
         self._naming = NamingGuardrail()
         self._viewpoint = ViewpointGuardrail()
         self._rhythm = RhythmGuardrail()
+        self._macro_pacing = MacroPacingGuardrail()
 
     def check(
         self,
@@ -226,14 +232,26 @@ class QualityGuardrail:
                 "suggestion": v.suggestion,
             })
 
+        # 7. 宏观节奏：补足“信息过载/过早结清”的反向检查
+        mp_score, mp_violations = self._macro_pacing.check(text, chapter_goal, scene_info)
+        for v in mp_violations:
+            violations.append({
+                "dimension": "macro_pacing",
+                "type": v.violation_type,
+                "severity": v.severity,
+                "description": v.description,
+                "suggestion": v.suggestion,
+            })
+
         # 加权计算总分
         overall = (
-            ls_score * 0.25 +
-            cc_score * 0.25 +
-            pd_score * 0.20 +
+            ls_score * 0.23 +
+            cc_score * 0.23 +
+            pd_score * 0.18 +
             n_score * 0.05 +
             vp_score * 0.10 +
-            r_score * 0.15
+            r_score * 0.13 +
+            mp_score * 0.08
         )
 
         return QualityReport(
@@ -244,6 +262,7 @@ class QualityGuardrail:
             naming_score=n_score,
             viewpoint_score=vp_score,
             rhythm_score=r_score,
+            macro_pacing_score=mp_score,
             all_violations=violations,
             passed=overall >= self.MIN_PASS_SCORE,
         )

@@ -11,6 +11,7 @@ import logging
 import re
 import uuid
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
@@ -104,6 +105,103 @@ def _storyline_arc_label(progress_item: dict) -> str:
     return ""
 
 
+_STORYLINE_ALIAS_WORDS = (
+    "危机",
+    "禁器",
+    "师尊",
+    "飞剑",
+    "昆仑",
+    "谷梁",
+    "西门",
+    "黑市",
+    "坊市",
+    "符术",
+    "公审",
+    "私制",
+    "案件",
+    "案",
+    "构陷",
+    "诬陷",
+    "指控",
+    "冤案",
+    "真相",
+    "昭雪",
+    "平反",
+    "寻踪",
+    "遗物",
+    "遗产",
+    "改革",
+    "秩序",
+    "对抗",
+    "身份",
+    "揭秘",
+    "之谜",
+)
+
+_DISTINCTIVE_STORYLINE_TOKENS = {
+    "禁器",
+    "师尊",
+    "飞剑",
+    "昆仑",
+    "谷梁",
+    "西门",
+    "黑市",
+    "坊市",
+    "符术",
+    "冤案",
+}
+
+
+def _normalize_storyline_text(text: str) -> str:
+    """Normalize labels so LLM wording variants can map to one storyline."""
+    s = re.sub(r"\s+", "", text or "")
+    s = re.sub(r"[《》「」『』【】（）()，,。；;：:、!！?？\"']", "", s)
+    replacements = {
+        "禁器指控": "禁器案",
+        "禁器构陷": "禁器案",
+        "禁器诬陷": "禁器案",
+        "当前陷害": "禁器案",
+        "师尊遗物": "师尊遗产",
+        "师尊遗物寻踪": "师尊遗产寻踪",
+        "十年冤案真相": "十年冤案",
+        "十年冤案昭雪": "十年冤案",
+        "旧日同门": "同门旧情",
+        "符术展示余波": "符术展示",
+    }
+    for src, dst in replacements.items():
+        s = s.replace(src, dst)
+    return s[:120]
+
+
+def _storyline_tokens(*texts: str) -> set[str]:
+    body = _normalize_storyline_text("".join(t for t in texts if t))
+    tokens = {w for w in _STORYLINE_ALIAS_WORDS if w and w in body}
+    tokens.update(re.findall(r"[\u4e00-\u9fff]{2,6}", body))
+    return {t for t in tokens if len(t) >= 2}
+
+
+def _storyline_similarity(
+    candidate_name: str,
+    candidate_desc: str,
+    arc_label: str,
+    description: str,
+) -> float:
+    left = _normalize_storyline_text(candidate_name or candidate_desc)
+    right = _normalize_storyline_text(arc_label or description)
+    if not left or not right:
+        return 0.0
+    if left == right or left in right or right in left:
+        return 1.0
+
+    l_tokens = _storyline_tokens(candidate_name, candidate_desc)
+    r_tokens = _storyline_tokens(arc_label, description)
+    overlap = 0.0
+    if l_tokens and r_tokens:
+        overlap = len(l_tokens & r_tokens) / max(1, min(len(l_tokens), len(r_tokens)))
+    ratio = SequenceMatcher(None, left, right).ratio()
+    return max(ratio, overlap)
+
+
 def _storyline_role_type_from_cn(line_type: str) -> Tuple[Any, Any]:
     """中文类型标签 → StorylineRole + StorylineType。"""
     from domain.novel.value_objects.storyline_role import StorylineRole
@@ -167,6 +265,32 @@ def _match_storyline_for_progress_item(
             nm = (sl.name or "").strip()
             if inner == nm or inner in nm or nm in inner:
                 return sl
+
+    scored: List[Tuple[float, Any]] = []
+    for sl in storylines:
+        score = _storyline_similarity(
+            getattr(sl, "name", "") or "",
+            getattr(sl, "description", "") or "",
+            arc,
+            desc,
+        )
+        shared = (
+            _storyline_tokens(getattr(sl, "name", ""), getattr(sl, "description", ""))
+            & _storyline_tokens(arc, desc)
+            & _DISTINCTIVE_STORYLINE_TOKENS
+        )
+        if score >= 0.66 or (score >= 0.50 and shared):
+            scored.append((score, sl))
+    if scored:
+        scored.sort(
+            key=lambda item: (
+                item[0],
+                getattr(item[1], "last_active_chapter", 0) or 0,
+                -(getattr(item[1], "estimated_chapter_start", 0) or 0),
+            ),
+            reverse=True,
+        )
+        return scored[0][1]
 
     return None
 
