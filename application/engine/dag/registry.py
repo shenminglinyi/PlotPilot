@@ -247,6 +247,11 @@ class NodeRegistry:
         return node_type in cls._registry
 
     @classmethod
+    def ensure_builtins_loaded(cls) -> None:
+        """Load built-in node modules so decorator registration has run."""
+        import application.engine.dag.nodes  # noqa: F401
+
+    @classmethod
     def all_types(cls) -> Set[str]:
         """获取所有已注册的节点类型"""
         return set(cls._registry.keys())

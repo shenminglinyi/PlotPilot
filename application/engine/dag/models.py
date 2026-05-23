@@ -220,6 +220,8 @@ class NodeDefinition(BaseModel):
         # ★ 动态校验：从注册表获取合法类型，消除硬编码白名单
         try:
             from application.engine.dag.registry import NodeRegistry
+            if not NodeRegistry.has(v):
+                NodeRegistry.ensure_builtins_loaded()
             registered = NodeRegistry.all_types()
             if registered and v not in registered:
                 raise ValueError(f"未知节点类型: {v}，已注册: {sorted(registered)}")
