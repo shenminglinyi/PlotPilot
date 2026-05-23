@@ -21,6 +21,11 @@ from application.engine.services.beat_planner import (
     make_minimal_card,
     segment_user_outline,
 )
+from application.engine.services.beat_projection import (
+    OUTLINE_OBLIGATION_PREFIX,
+    beats_from_beat_sheet,
+    beats_from_execution_plan,
+)
 
 from application.world.services.bible_service import BibleService
 from domain.bible.services.relationship_engine import RelationshipEngine
@@ -310,52 +315,13 @@ class ContextBuilder:
         target_chapter_words: int,
     ) -> List[Beat]:
         """将 ``ChapterExecutionPlan.atoms`` 投影为微观节拍（须落实章纲意图）。"""
-        atoms = plan.atoms
-        if not atoms:
-            return []
-        total_w = sum(max(0.01, float(a.weight)) for a in atoms)
-        mode = (plan.provenance or {}).get("mode", "")
-        logger.info(
-            "节拍放大器（章前执行计划）：%d 拍，provenance_mode=%s outline≈%d 字，整章目标 %d 字",
-            len(atoms),
-            mode,
-            len((outline or "").strip()),
-            target_chapter_words,
+        return beats_from_execution_plan(
+            plan,
+            outline=outline,
+            target_chapter_words=target_chapter_words,
+            infer_focus=self._infer_focus_from_outline,
+            build_expansion_hints=self._generate_expansion_hints,
         )
-        beats: List[Beat] = []
-        for atom in atoms:
-            intent = (atom.intent or "").strip()
-            if not intent:
-                continue
-            share = max(0.01, float(atom.weight)) / total_w
-            w = max(1, int(target_chapter_words * share))
-            ext = atom.extensions if isinstance(atom.extensions, dict) else {}
-            raw_focus = ext.get("focus") or ext.get("type")
-            if isinstance(raw_focus, str) and raw_focus.strip():
-                focus_s = raw_focus.strip()
-            else:
-                focus_s = self._infer_focus_from_outline(intent)
-            trans = ext.get("transition_from_prev")
-            transition = str(trans).strip() if trans else ""
-            loc_id = ext.get("location_id")
-            location_id = str(loc_id).strip() if isinstance(loc_id, str) and loc_id.strip() else ""
-
-            beats.append(
-                Beat(
-                    description=(
-                        "【章纲节选·须落实】以下要点必须写入正文（可合理扩写，不得跳过核心因果；"
-                        "人物姓名须与 Bible 一致）：\n"
-                        + intent
-                    ),
-                    target_words=w,
-                    focus=focus_s,
-                    expansion_hints=self._generate_expansion_hints(focus_s, w),
-                    scene_goal=intent,
-                    transition_from_prev=transition,
-                    location_id=location_id,
-                )
-            )
-        return beats
 
     def _bind_atg_locations_if_present(self, beats: List[Beat], scene_director: Optional[Any]) -> None:
         """若场记携带 ATG，将 visit_sequence 映射到各节拍。"""
@@ -463,31 +429,12 @@ class ContextBuilder:
         target_chapter_words: int,
     ) -> List[Beat]:
         """从 BeatSheet 构建 Beat 列表（使用规划阶段的预估字数）"""
-        beats = []
-        scenes = beat_sheet.scenes
-
-        for i, scene in enumerate(scenes):
-            # 从 Scene 提取信息
-            estimated_words = getattr(scene, 'estimated_words', 600)
-            goal = getattr(scene, 'goal', '')
-            title = getattr(scene, 'title', '')
-            tone = getattr(scene, 'tone', '')
-
-            # 根据 goal/标题 推断 focus 类型
-            focus = self._infer_focus_from_scene(scene, outline)
-
-            # 生成扩写维度提示
-            expansion_hints = self._generate_expansion_hints(focus, estimated_words)
-
-            beat = Beat(
-                description=f"{title}：{goal}" if goal else title,
-                target_words=estimated_words,
-                focus=focus,
-                expansion_hints=expansion_hints,
-                scene_goal=goal,
-                transition_from_prev=getattr(scene, 'transition_from_prev', '') or '',
-            )
-            beats.append(beat)
+        beats = beats_from_beat_sheet(
+            beat_sheet,
+            outline=outline,
+            infer_focus_from_scene=self._infer_focus_from_scene,
+            build_expansion_hints=self._generate_expansion_hints,
+        )
 
         # 验证总字数
         total_estimated = sum(b.target_words for b in beats)
@@ -526,9 +473,7 @@ class ContextBuilder:
             beats.append(
                 Beat(
                     description=(
-                        "【章纲节选·须落实】以下要点必须写入正文（可合理扩写，不得跳过核心因果；"
-                        "人物姓名须与 Bible 一致）：\n"
-                        + seg
+                        OUTLINE_OBLIGATION_PREFIX + seg
                     ),
                     target_words=w,
                     focus=focus,

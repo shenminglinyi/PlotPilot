@@ -423,23 +423,8 @@ class BaseStoryPipeline(ABC):
 
         if ctx.context_builder is not None:
             try:
-                beat_sheet_json = None
-                bs = ctx.beat_sheet
-                if bs is not None and getattr(bs, "scenes", None):
-                    beat_sheet_json = {
-                        "scenes": [
-                            {
-                                "title": getattr(s, "title", "") or "",
-                                "goal": getattr(s, "goal", "") or "",
-                                "estimated_words": getattr(s, "estimated_words", None) or 600,
-                                "pov_character": getattr(s, "pov_character", "") or "",
-                                "location": getattr(s, "location", None),
-                                "tone": getattr(s, "tone", None),
-                                "transition_from_prev": getattr(s, "transition_from_prev", None),
-                            }
-                            for s in bs.scenes
-                        ]
-                    }
+                from application.engine.services.beat_projection import beat_sheet_to_plan_json
+                beat_sheet_json = beat_sheet_to_plan_json(ctx.beat_sheet)
                 from application.engine.dag.plan.outline_beat_planner import (
                     build_chapter_execution_plan_async,
                 )

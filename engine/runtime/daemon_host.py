@@ -1019,45 +1019,16 @@ class DaemonHostMixin:
     @staticmethod
     def _beats_to_planned_micro_beats(beats: List[Any]) -> List[Dict[str, Any]]:
         """供共享内存 /status 与前端侧栏展示的指挥器节拍快照。"""
-        out: List[Dict[str, Any]] = []
-        for b in beats or []:
-            card = getattr(b, "emotion_beat_card", None)
-            out.append(
-                {
-                    "description": getattr(b, "description", "") or "",
-                    "target_words": int(getattr(b, "target_words", 0) or 0),
-                    "focus": getattr(b, "focus", "") or "pacing",
-                    "location_id": getattr(b, "location_id", "") or "",
-                    "active_action": (getattr(card, "active_action", "") or "") if card else "",
-                    "emotion_gap": (getattr(card, "emotion_gap", "") or "") if card else "",
-                    "forbidden_drift": (getattr(card, "forbidden_drift", "") or "") if card else "",
-                }
-            )
-        return out
+        from application.engine.services.beat_projection import planned_micro_beats_from_beats
+
+        return planned_micro_beats_from_beats(beats)
 
     @staticmethod
     def _beat_sheet_to_plan_json(beat_sheet: Optional[Any]) -> Optional[Dict[str, Any]]:
         """将仓储 BeatSheet 转为 ``build_chapter_execution_plan_async`` 的 beat_sheet_json。"""
-        if not beat_sheet:
-            return None
-        scenes_raw = getattr(beat_sheet, "scenes", None)
-        if not scenes_raw:
-            return None
+        from application.engine.services.beat_projection import beat_sheet_to_plan_json
 
-        scenes: List[Dict[str, Any]] = []
-        for s in scenes_raw:
-            scenes.append(
-                {
-                    "title": getattr(s, "title", "") or "",
-                    "goal": getattr(s, "goal", "") or "",
-                    "estimated_words": getattr(s, "estimated_words", None) or 600,
-                    "pov_character": getattr(s, "pov_character", "") or "",
-                    "location": getattr(s, "location", None),
-                    "tone": getattr(s, "tone", None),
-                    "transition_from_prev": getattr(s, "transition_from_prev", None),
-                }
-            )
-        return {"scenes": scenes}
+        return beat_sheet_to_plan_json(beat_sheet)
 
     async def _get_beat_sheet_for_chapter(self, novel_id: str, chapter_number: int) -> Optional[Any]:
         """获取章节的 BeatSheet（规划阶段的预估字数）
