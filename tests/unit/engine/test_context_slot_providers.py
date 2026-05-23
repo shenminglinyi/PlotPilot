@@ -1,8 +1,12 @@
+import sqlite3
 from types import SimpleNamespace
 
 from application.engine.services.context_slot_providers import (
+    build_immersion_details_slot_content,
+    build_key_props_slot_content,
     build_narrative_promise_slot_content,
     build_storyline_slot_content,
+    build_worldbuilding_core_slot_content,
 )
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.storyline_role import StorylineRole
@@ -117,3 +121,56 @@ def test_storyline_provider_keeps_dark_line_hidden_before_reveal():
     assert "只留下违和感" in block
     assert "不要点名幕后身份" in block
     assert "幕后身份曝光" not in block
+
+
+class FakeWorldbuildingRepository:
+    def __init__(self, worldbuilding):
+        self.worldbuilding = worldbuilding
+
+    def get_by_novel_id(self, novel_id):
+        return self.worldbuilding
+
+
+def test_worldbuilding_providers_render_core_and_immersion_slots():
+    worldbuilding = SimpleNamespace(
+        power_system="灵根决定修行上限",
+        physics_rules="飞行需要灵压支撑",
+        magic_tech="符术可以存储一次性术式",
+        food_clothing="矿工穿耐火麻衣",
+        language_slang="称执法堂为铁门",
+        entertainment="斗符夜市",
+    )
+    repo = FakeWorldbuildingRepository(worldbuilding)
+
+    core = build_worldbuilding_core_slot_content(repo, "novel-1")
+    immersion = build_immersion_details_slot_content(repo, "novel-1")
+
+    assert "世界规则" in core
+    assert "灵根决定修行上限" in core
+    assert "世界沉浸感细节" in immersion
+    assert "斗符夜市" in immersion
+
+
+def test_key_props_provider_reads_sqlite_rows(tmp_path):
+    db_path = tmp_path / "plotpilot.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE bible_props (novel_id TEXT, name TEXT, description TEXT, is_key INTEGER)"
+    )
+    conn.execute(
+        "INSERT INTO bible_props VALUES (?, ?, ?, ?)",
+        ("novel-1", "断剑", "剑身有旧血纹", 1),
+    )
+    conn.execute(
+        "INSERT INTO bible_props VALUES (?, ?, ?, ?)",
+        ("novel-1", "普通杯子", "无关", 0),
+    )
+    conn.commit()
+    conn.close()
+
+    block = build_key_props_slot_content("novel-1", db_path_provider=lambda: db_path)
+
+    assert "本章关键道具" in block
+    assert "断剑" in block
+    assert "剑身有旧血纹" in block
+    assert "普通杯子" not in block

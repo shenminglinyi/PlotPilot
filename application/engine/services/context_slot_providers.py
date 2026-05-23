@@ -6,6 +6,7 @@ budget core can stay focused on slot ordering, compression, and assembly.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any
 
 from domain.novel.value_objects.novel_id import NovelId
@@ -142,3 +143,89 @@ def format_storyline_context_block(
             lines.append(f"  距汇流 {min_dist} 章，预期：{near.context_summary[:60]}…")
 
     return "\n".join(lines)
+
+
+def build_worldbuilding_core_slot_content(worldbuilding_repository: Any, novel_id: str) -> str:
+    """Render the hard world rules slot from the worldbuilding model."""
+    if not worldbuilding_repository:
+        return ""
+    try:
+        worldbuilding = worldbuilding_repository.get_by_novel_id(novel_id)
+        if worldbuilding is None:
+            return ""
+
+        parts = []
+        if worldbuilding.power_system and worldbuilding.power_system.strip():
+            parts.append(f"【力量体系】{worldbuilding.power_system.strip()}")
+        if worldbuilding.physics_rules and worldbuilding.physics_rules.strip():
+            parts.append(f"【物理规律】{worldbuilding.physics_rules.strip()}")
+        if worldbuilding.magic_tech and worldbuilding.magic_tech.strip():
+            parts.append(f"【魔法/科技机制】{worldbuilding.magic_tech.strip()}")
+        if not parts:
+            return ""
+        return "=== 世界规则 ===\n" + "\n".join(parts)
+    except Exception as exc:
+        logger.warning("世界核心规则构建失败: %s", exc)
+        return ""
+
+
+def build_immersion_details_slot_content(
+    worldbuilding_repository: Any,
+    novel_id: str,
+) -> str:
+    """Render daily-life texture fields from the worldbuilding model."""
+    if not worldbuilding_repository:
+        return ""
+    try:
+        worldbuilding = worldbuilding_repository.get_by_novel_id(novel_id)
+        if worldbuilding is None:
+            return ""
+
+        parts = []
+        if getattr(worldbuilding, "food_clothing", None) and worldbuilding.food_clothing.strip():
+            parts.append(f"【衣食住行】{worldbuilding.food_clothing.strip()}")
+        if getattr(worldbuilding, "language_slang", None) and worldbuilding.language_slang.strip():
+            parts.append(f"【俚语/口癖】{worldbuilding.language_slang.strip()}")
+        if getattr(worldbuilding, "entertainment", None) and worldbuilding.entertainment.strip():
+            parts.append(f"【娱乐/文化】{worldbuilding.entertainment.strip()}")
+        if not parts:
+            return ""
+        return "=== 世界沉浸感细节 ===\n" + "\n".join(parts)
+    except Exception as exc:
+        logger.warning("世界沉浸感细节构建失败: %s", exc)
+        return ""
+
+
+def build_key_props_slot_content(novel_id: str, db_path_provider: Any = None) -> str:
+    """Render user-marked key props from the local Bible props table."""
+    try:
+        if db_path_provider is None:
+            from application.paths import get_db_path
+
+            db_path_provider = get_db_path
+
+        conn = sqlite3.connect(str(db_path_provider()), timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            cursor = conn.execute(
+                "SELECT name, description FROM bible_props "
+                "WHERE novel_id = ? AND COALESCE(is_key, 0) = 1 LIMIT 8",
+                (novel_id,),
+            )
+            rows = cursor.fetchall()
+        except sqlite3.OperationalError:
+            return ""
+        finally:
+            conn.close()
+
+        if not rows:
+            return ""
+
+        lines = []
+        for row in rows:
+            description = (row["description"] or "").strip()
+            lines.append(f"- {row['name']}" + (f"（{description}）" if description else ""))
+        return "=== 本章关键道具 ===\n" + "\n".join(lines)
+    except Exception as exc:
+        logger.warning("关键道具构建失败: %s", exc)
+        return ""

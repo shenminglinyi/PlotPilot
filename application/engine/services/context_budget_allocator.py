@@ -38,8 +38,11 @@ from application.engine.services.context_budget_models import (
     PriorityTier,
 )
 from application.engine.services.context_slot_providers import (
+    build_immersion_details_slot_content,
+    build_key_props_slot_content,
     build_narrative_promise_slot_content,
     build_storyline_slot_content,
+    build_worldbuilding_core_slot_content,
     format_storyline_context_block,
 )
 from infrastructure.ai.prompt_registry import get_prompt_registry
@@ -755,79 +758,18 @@ class ContextBudgetAllocator:
         narrative_contract 含全部五维，但混合了文风公约和文化细节。
         此方法单独格式化最高约束优先级的三个字段，供 T1 专用槽位注入。
         """
-        if not self.worldbuilding_repo:
-            return ""
-        try:
-            wb = self.worldbuilding_repo.get_by_novel_id(novel_id)
-            if wb is None:
-                return ""
-            parts = []
-            if wb.power_system and wb.power_system.strip():
-                parts.append(f"【力量体系】{wb.power_system.strip()}")
-            if wb.physics_rules and wb.physics_rules.strip():
-                parts.append(f"【物理规律】{wb.physics_rules.strip()}")
-            if wb.magic_tech and wb.magic_tech.strip():
-                parts.append(f"【魔法/科技机制】{wb.magic_tech.strip()}")
-            if not parts:
-                return ""
-            return "=== 世界规则 ===\n" + "\n".join(parts)
-        except Exception as e:
-            logger.warning(f"世界核心规则构建失败: {e}")
-            return ""
+        return build_worldbuilding_core_slot_content(self.worldbuilding_repo, novel_id)
 
     def _build_immersion_details_slot(self, novel_id: str) -> str:
         """提取世界观沉浸感细节三字段：衣食住行 / 俚语口癖 / 娱乐文化。
 
         这三个字段过去 100% 未注入 AI，此槽位修复该数据孤岛。
         """
-        if not self.worldbuilding_repo:
-            return ""
-        try:
-            wb = self.worldbuilding_repo.get_by_novel_id(novel_id)
-            if wb is None:
-                return ""
-            parts = []
-            if getattr(wb, "food_clothing", None) and wb.food_clothing.strip():
-                parts.append(f"【衣食住行】{wb.food_clothing.strip()}")
-            if getattr(wb, "language_slang", None) and wb.language_slang.strip():
-                parts.append(f"【俚语/口癖】{wb.language_slang.strip()}")
-            if getattr(wb, "entertainment", None) and wb.entertainment.strip():
-                parts.append(f"【娱乐/文化】{wb.entertainment.strip()}")
-            if not parts:
-                return ""
-            return "=== 世界沉浸感细节 ===\n" + "\n".join(parts)
-        except Exception as e:
-            logger.warning(f"世界沉浸感细节构建失败: {e}")
-            return ""
+        return build_immersion_details_slot_content(self.worldbuilding_repo, novel_id)
 
     def _build_key_props_slot(self, novel_id: str) -> str:
         """提取用户标记 is_key=1 的关键道具，注入 T1 上下文。"""
-        try:
-            from application.paths import get_db_path
-            import sqlite3 as _sqlite3
-            db_path = get_db_path()
-            conn = _sqlite3.connect(str(db_path), timeout=5)
-            conn.row_factory = _sqlite3.Row
-            try:
-                cur = conn.execute(
-                    "SELECT name, description FROM bible_props WHERE novel_id = ? AND COALESCE(is_key, 0) = 1 LIMIT 8",
-                    (novel_id,),
-                )
-                rows = cur.fetchall()
-            except _sqlite3.OperationalError:
-                return ""
-            finally:
-                conn.close()
-            if not rows:
-                return ""
-            lines = []
-            for r in rows:
-                desc = r["description"].strip() if r.get("description") else ""
-                lines.append(f"- {r['name']}" + (f"（{desc}）" if desc else ""))
-            return "=== 本章关键道具 ===\n" + "\n".join(lines)
-        except Exception as e:
-            logger.warning(f"关键道具构建失败: {e}")
-            return ""
+        return build_key_props_slot_content(novel_id)
 
     def _truncate_t0_slots(self, t0_slots: Dict[str, ContextSlot], budget: int) -> int:
         """极端情况：截断 T0 内容"""
