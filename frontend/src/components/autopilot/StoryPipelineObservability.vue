@@ -1,6 +1,6 @@
 <template>
-  <section class="spo" aria-label="StoryPipeline 管线可观测">
-    <header class="spo__head">
+  <section class="spo" :class="{ 'spo--aftermath-only': aftermathOnly }" aria-label="StoryPipeline 管线可观测">
+    <header v-if="!aftermathOnly" class="spo__head">
       <div class="spo__titles">
         <span class="spo__title">StoryPipeline · 一章十步</span>
         <span class="spo__badge">实时</span>
@@ -8,7 +8,7 @@
       <div v-if="dwellLine" class="spo__dwell">{{ dwellLine }}</div>
     </header>
 
-    <div class="spo__track-wrap">
+    <div v-if="!aftermathOnly" class="spo__track-wrap">
       <div class="spo__track">
         <div
           v-for="w in STORY_PIPELINE_WAVES"
@@ -24,7 +24,7 @@
     </div>
 
     <!-- 节点卡（仅在 wave 4 生成步骤时显示） -->
-    <div v-if="currentIx === 4 && beatCard.active_action" class="spo-beatcard">
+    <div v-if="!aftermathOnly && currentIx === 4 && beatCard.active_action" class="spo-beatcard">
       <div class="spo-beatcard__head">
         <span class="spo-beatcard__beat-pill">
           节拍 {{ beatCard.beatNum }}/{{ beatCard.totalBeats || '?' }}
@@ -68,7 +68,7 @@
       </div>
     </div>
 
-    <details v-if="events.length > 1" class="spo-events">
+    <details v-if="!aftermathOnly && events.length > 1" class="spo-events">
       <summary>事件轨迹（{{ events.length }}）</summary>
       <ol class="spo-events__list">
         <li v-for="(ev, idx) in displayEvents" :key="idx" class="spo-events__item">
@@ -79,7 +79,7 @@
         </li>
       </ol>
     </details>
-    <p v-else-if="events.length === 1" class="spo-events-lite mono">
+    <p v-else-if="!aftermathOnly && events.length === 1" class="spo-events-lite mono">
       {{ events[0].label }}
     </p>
   </section>
@@ -136,7 +136,10 @@ interface StatusLike {
 
 const props = defineProps<{
   status: StatusLike | null | undefined
+  aftermathOnly?: boolean
 }>()
+
+const aftermathOnly = computed(() => props.aftermathOnly === true)
 
 const tick = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
@@ -353,6 +356,17 @@ function fmtRel(t?: number): string {
     background 0.3s ease,
     border-color 0.3s ease,
     color 0.3s ease;
+}
+
+.spo--aftermath-only {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.spo--aftermath-only .spo-aftermath {
+  margin-top: 0;
 }
 
 .spo__head {

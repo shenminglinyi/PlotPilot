@@ -126,7 +126,7 @@
     </section>
 
     <section
-      v-if="isRunning && writingSubstepDetail"
+      v-if="telemetryVisible"
       class="ap-telemetry"
       aria-label="实时子步骤"
     >
@@ -174,6 +174,7 @@
     <StoryPipelineObservability
       v-if="storyPipelineObsVisible"
       :status="status"
+      :aftermath-only="storyPipelineAftermathOnly"
     />
 
     <AuditPipelineObservability
@@ -406,11 +407,27 @@ const isWriting = computed(() =>
   status.value?.autopilot_status === 'running' && status.value?.current_stage === 'writing'
 )
 
+const storyPipelineWaveIndex = computed(() => {
+  const ix = Number(status.value?.story_pipeline_wave_index)
+  return Number.isFinite(ix) ? ix : 0
+})
+
+const storyPipelineAftermathOnly = computed(() =>
+  isWriting.value && storyPipelineWaveIndex.value === 8
+)
+
+const telemetryVisible = computed(() =>
+  isRunning.value &&
+  Boolean(writingSubstepDetail.value) &&
+  !storyPipelineAftermathOnly.value &&
+  !auditPipelineObsVisible.value
+)
+
 /** StoryPipeline（新内核写作）有可观测字段时展示十步管线图 */
 const storyPipelineObsVisible = computed(() => {
   if (auditPipelineObsVisible.value) return false
   if (!isWriting.value || !status.value) return false
-  const ix = Number(status.value.story_pipeline_wave_index)
+  const ix = storyPipelineWaveIndex.value
   return Number.isFinite(ix) && ix >= 1 && ix <= 10
 })
 
