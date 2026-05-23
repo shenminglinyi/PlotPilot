@@ -9,6 +9,7 @@ from application.world.worldbuilding_merge import (
     worldbuilding_entity_to_slices,
     worldbuilding_slices_nonempty,
 )
+from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
 
 
 def test_merge_keeps_llm_extra_and_table_overwrites():
@@ -72,3 +73,39 @@ def test_bible_dto_slices_parses_dot_names():
     )
     sl = bible_dto_world_settings_to_slices(dto)
     assert sl["society"]["politics"] == "王权"
+
+
+def test_v2_worldbuilding_dimensions_are_single_source_of_truth():
+    dto = BibleDTO(
+        id="b",
+        novel_id="n",
+        characters=[],
+        world_settings=[
+            WorldSettingDTO(
+                id="1",
+                name="core_rules.power_system",
+                description="旧 Bible 世界观不应覆盖 V2",
+                setting_type="rule",
+            ),
+        ],
+        locations=[],
+        timeline_notes=[],
+        style_notes=[],
+    )
+    wb = Worldbuilding(
+        id="wb-1",
+        novel_id="n",
+        schema_version=2,
+        dimensions={
+            "core_rules": {
+                "power_system": "V2 世界观",
+                "cost_and_limitation": "V2 代价",
+            }
+        },
+    )
+
+    merged = load_merged_worldbuilding_slices(bible=dto, worldbuilding=wb)
+
+    assert merged["core_rules"]["power_system"] == "V2 世界观"
+    assert merged["core_rules"]["cost_and_limitation"] == "V2 代价"
+    assert "旧 Bible" not in merged["core_rules"]["power_system"]

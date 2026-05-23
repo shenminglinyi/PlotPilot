@@ -722,8 +722,8 @@ class ContextBudgetAllocator:
             except Exception as _sl_err:
                 logger.warning(f"故事线上下文构建失败: {_sl_err}")
 
-        # ── T1: 世界核心规则（力量体系/物理规律/魔法机制）── priority=71 ──
-        # 单独抽出三个最高约束字段，确保预算压缩时仍清晰可见；
+        # ── T1: 世界核心规则（核心法则维度）── priority=71 ──
+        # 单独抽出最高约束维度，确保预算压缩时仍清晰可见；
         # narrative_contract 含全部五维但混合文风/文化，此槽位专注硬规则。
         worldbuilding_core = self._build_worldbuilding_core_slot(novel_id)
         if worldbuilding_core:
@@ -736,8 +736,8 @@ class ContextBudgetAllocator:
                 priority=71,
             )
 
-        # ── T1: 世界沉浸感细节（衣食/俚语/娱乐）── priority=66 ──
-        # 三个字段过去 100% 未注入；单独槽位避免被 narrative_contract 压缩
+        # ── T1: 世界沉浸感细节── priority=66 ──
+        # 单独槽位避免沉浸感维度被 narrative_contract 压缩
         immersion_details = self._build_immersion_details_slot(novel_id)
         if immersion_details:
             slots["immersion_details"] = ContextSlot(
@@ -778,17 +778,17 @@ class ContextBudgetAllocator:
             return ""
     
     def _build_worldbuilding_core_slot(self, novel_id: str) -> str:
-        """提取世界观三个核心硬规则字段：力量体系 / 物理规律 / 魔法机制。
+        """提取世界观核心硬规则字段。
 
         narrative_contract 含全部五维，但混合了文风公约和文化细节。
-        此方法单独格式化最高约束优先级的三个字段，供 T1 专用槽位注入。
+        此方法单独格式化最高约束优先级的核心法则维度，供 T1 专用槽位注入。
         """
         return build_worldbuilding_core_slot_content(self.worldbuilding_repo, novel_id)
 
     def _build_immersion_details_slot(self, novel_id: str) -> str:
-        """提取世界观沉浸感细节三字段：衣食住行 / 俚语口癖 / 娱乐文化。
+        """提取世界观沉浸感细节维度。
 
-        这三个字段过去 100% 未注入 AI，此槽位修复该数据孤岛。
+        该槽位避免沉浸感信息被 narrative_contract 压缩掉。
         """
         return build_immersion_details_slot_content(self.worldbuilding_repo, novel_id)
 

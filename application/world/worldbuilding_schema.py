@@ -1,4 +1,4 @@
-"""世界观五维 schema（单一数据源）与 LLM 自创字段 → 规范字段映射。"""
+"""世界观五维 schema（单一数据源）。"""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -12,11 +12,15 @@ WORLDBUILDING_DIMENSION_DEFS: Dict[str, Dict[str, Any]] = {
     "core_rules": {
         "label": "核心法则",
         "fields": {
-            "power_system": "力量体系/科技树的描述",
-            "physics_rules": "物理规律的特殊之处",
-            "magic_tech": "魔法或科技的运作机制",
-            "cost_and_limitation": "力量使用的代价与限制（修炼消耗、越级代价、禁忌代价）",
-            "resource_scarcity": "稀缺资源及其分配（硬通货、垄断情况）",
+            "power_system": "能力/竞技体系总览",
+            "progression_path": "成长路径与训练门槛",
+            "combat_resolution": "攻防判定与胜负规则",
+            "physics_rules": "底层物理/时间/生理规律",
+            "magic_tech": "技术接口与运作机制",
+            "version_rules": "赛季版本与规则重置机制",
+            "forbidden_methods": "禁用外挂/禁药/非法手段",
+            "cost_and_limitation": "力量使用的代价与限制",
+            "resource_scarcity": "稀缺资源及其分配",
         },
     },
     "geography": {
@@ -68,11 +72,15 @@ WORLDBUILDING_DIMENSION_DEFS: Dict[str, Dict[str, Any]] = {
 
 WORLDBUILDING_FIELD_SCOPE_HINTS: Dict[str, Dict[str, str]] = {
     "core_rules": {
-        "power_system": "只写境界/能力分类和升级路径；不要写具体代价、资源、禁术案例",
-        "physics_rules": "只写天道/因果/空间/寿元等底层自然法则；不要写宗门政治和地名",
-        "magic_tech": "只写法术、炼丹、炼器、阵法等技术怎么运作；不要写资源价格和社会制度",
-        "cost_and_limitation": "只写使用力量会付出的身体、寿元、神魂或心理代价；不要重复境界列表",
-        "resource_scarcity": "只写灵石、灵药、法宝材料等稀缺物及垄断方式；不要写地形大段介绍",
+        "power_system": "只写能力体系/竞技体系的核心分类和基本目标；不要写训练门槛、代价、资源价格",
+        "progression_path": "只写玩家/选手如何成长、晋级、训练和被淘汰；不要写判定公式和医疗代价",
+        "combat_resolution": "只写攻防判定、胜负结算、操作输入如何转化为结果；不要写社会制度",
+        "physics_rules": "只写时间流速、神经反馈、生理极限等底层规律；不要写训练资源和黑市",
+        "magic_tech": "只写游戏舱、同步接口、引擎、服务器等技术如何运作；不要写禁药和职业寿命",
+        "version_rules": "只写赛季更新、版本重置、判定模型变化如何影响选手；不要写日常训练大段",
+        "forbidden_methods": "只写外挂、禁药、非法同步率等明令禁止手段和检测/处罚机制；不要写普通代价",
+        "cost_and_limitation": "只写身体、心理、职业寿命、戒断或后遗症等代价；不要重复成长路径",
+        "resource_scarcity": "只写游戏舱、药剂、医疗、服务器权限、训练席位等稀缺资源；不要写地形",
     },
     "geography": {
         "terrain": "只写世界版图、地貌和空间边界；不要写宗门名单、矿工制度或禁区细节",

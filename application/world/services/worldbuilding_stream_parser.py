@@ -26,10 +26,11 @@ def _decode_json_string_fragment(value: str) -> str:
 
 
 def _extract_dimension_string(buf: str, dim_key: str) -> Optional[Tuple[str, bool]]:
-    """兼容模型违规输出 ``"dimension": "..."`` 的场景。
+    """Detect model-invalid ``"dimension": "..."`` output.
 
-    正常协议要求维度值是对象；若模型退化为维度级字符串，将其映射到该维度主字段，
-    避免前端只能看到 raw JSON。
+    Strict schema parsing will ignore it; this helper exists so the parser can
+    wait until the invalid string is closed instead of treating the following
+    bytes as an object.
     """
     complete = re.search(rf'"{re.escape(dim_key)}"\s*:\s*"((?:[^"\\]|\\.)*)"', buf)
     if complete:

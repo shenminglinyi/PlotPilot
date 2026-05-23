@@ -3,7 +3,7 @@ Domain entity for Worldbuilding (世界观构建)
 """
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Dict
 
 
 @dataclass
@@ -39,48 +39,68 @@ class Worldbuilding:
     language_slang: str = ""         # 俚语口音
     entertainment: str = ""          # 娱乐方式
 
+    # V2 canonical worldbuilding document. Legacy scalar columns above remain as
+    # a compatibility projection for old callers and existing databases.
+    schema_version: int = 2
+    dimensions: Dict[str, Dict[str, str]] = field(default_factory=dict)
+
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
 
     @property
     def core_rules(self) -> dict:
-        return {
+        return self._dimension_or_legacy("core_rules", {
             "power_system": self.power_system,
             "physics_rules": self.physics_rules,
             "magic_tech": self.magic_tech,
-        }
+        })
 
     @property
     def geography(self) -> dict:
-        return {
+        return self._dimension_or_legacy("geography", {
             "terrain": self.terrain,
             "climate": self.climate,
             "resources": self.resources,
             "ecology": self.ecology,
-        }
+        })
 
     @property
     def society(self) -> dict:
-        return {
+        return self._dimension_or_legacy("society", {
             "politics": self.politics,
             "economy": self.economy,
             "class_system": self.class_system,
-        }
+        })
 
     @property
     def culture(self) -> dict:
-        return {
+        return self._dimension_or_legacy("culture", {
             "history": self.history,
             "religion": self.religion,
             "taboos": self.taboos,
-        }
+        })
 
     @property
     def daily_life(self) -> dict:
-        return {
+        return self._dimension_or_legacy("daily_life", {
             "food_clothing": self.food_clothing,
             "language_slang": self.language_slang,
             "entertainment": self.entertainment,
+        })
+
+    def _dimension_or_legacy(self, key: str, legacy: Dict[str, str]) -> Dict[str, str]:
+        block = self.dimensions.get(key) if isinstance(self.dimensions, dict) else None
+        if isinstance(block, dict) and any(str(v).strip() for v in block.values()):
+            return {str(k): str(v or "") for k, v in block.items()}
+        return legacy
+
+    def normalized_dimensions(self) -> Dict[str, Dict[str, str]]:
+        return {
+            "core_rules": dict(self.core_rules),
+            "geography": dict(self.geography),
+            "society": dict(self.society),
+            "culture": dict(self.culture),
+            "daily_life": dict(self.daily_life),
         }
 
     def to_dict(self) -> dict:
@@ -88,42 +108,23 @@ class Worldbuilding:
         return {
             "id": self.id,
             "novel_id": self.novel_id,
+            "schema_version": self.schema_version,
+            "dimensions": self.normalized_dimensions(),
 
             # Core Rules
-            "core_rules": {
-                "power_system": self.power_system,
-                "physics_rules": self.physics_rules,
-                "magic_tech": self.magic_tech,
-            },
+            "core_rules": dict(self.core_rules),
 
             # Geography
-            "geography": {
-                "terrain": self.terrain,
-                "climate": self.climate,
-                "resources": self.resources,
-                "ecology": self.ecology,
-            },
+            "geography": dict(self.geography),
 
             # Society
-            "society": {
-                "politics": self.politics,
-                "economy": self.economy,
-                "class_system": self.class_system,
-            },
+            "society": dict(self.society),
 
             # Culture
-            "culture": {
-                "history": self.history,
-                "religion": self.religion,
-                "taboos": self.taboos,
-            },
+            "culture": dict(self.culture),
 
             # Daily Life
-            "daily_life": {
-                "food_clothing": self.food_clothing,
-                "language_slang": self.language_slang,
-                "entertainment": self.entertainment,
-            },
+            "daily_life": dict(self.daily_life),
 
             "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
             "updated_at": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else self.updated_at,

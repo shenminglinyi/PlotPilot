@@ -11,6 +11,7 @@ from application.world.worldbuilding_merge import (
     WORLD_BUILDING_DIMENSION_KEYS,
     worldbuilding_slices_nonempty,
 )
+from application.world.worldbuilding_schema import WORLDBUILDING_DIMENSION_DEFS
 
 
 # 与前端向导 WB_DIMS / domain Worldbuilding 字段一致
@@ -70,6 +71,9 @@ _FIELD_LABELS: Dict[str, str] = {}
 for _title, _fields in _WB_SECTIONS:
     for _label, _attr in _fields:
         _FIELD_LABELS[_attr] = _label
+for _dim in WORLDBUILDING_DIMENSION_DEFS.values():
+    for _key, _label in (_dim.get("fields") or {}).items():
+        _FIELD_LABELS.setdefault(_key, str(_label).split("（", 1)[0])
 
 
 def format_worldbuilding_slices_for_prompt(

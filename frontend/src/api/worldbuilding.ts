@@ -2,8 +2,14 @@ import { apiClient } from './config'
 
 export interface CoreRules {
   power_system: string
+  progression_path?: string
+  combat_resolution?: string
   physics_rules: string
   magic_tech: string
+  version_rules?: string
+  forbidden_methods?: string
+  cost_and_limitation?: string
+  resource_scarcity?: string
 }
 
 export interface Geography {
@@ -34,6 +40,8 @@ export interface DailyLife {
 export interface Worldbuilding {
   id: string
   novel_id: string
+  schema_version?: number
+  dimensions?: Record<string, Record<string, string>>
   core_rules: CoreRules
   geography: Geography
   society: Society

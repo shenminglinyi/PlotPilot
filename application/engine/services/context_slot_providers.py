@@ -146,21 +146,29 @@ def format_storyline_context_block(
 
 
 def build_worldbuilding_core_slot_content(worldbuilding_repository: Any, novel_id: str) -> str:
-    """Render the hard world rules slot from the worldbuilding model."""
+    """Render the hard world rules slot from the canonical worldbuilding model."""
     if not worldbuilding_repository:
         return ""
     try:
+        from application.world.worldbuilding_schema import WORLDBUILDING_DIMENSION_DEFS
+
         worldbuilding = worldbuilding_repository.get_by_novel_id(novel_id)
         if worldbuilding is None:
             return ""
 
         parts = []
-        if worldbuilding.power_system and worldbuilding.power_system.strip():
-            parts.append(f"【力量体系】{worldbuilding.power_system.strip()}")
-        if worldbuilding.physics_rules and worldbuilding.physics_rules.strip():
-            parts.append(f"【物理规律】{worldbuilding.physics_rules.strip()}")
-        if worldbuilding.magic_tech and worldbuilding.magic_tech.strip():
-            parts.append(f"【魔法/科技机制】{worldbuilding.magic_tech.strip()}")
+        labels = WORLDBUILDING_DIMENSION_DEFS["core_rules"]["fields"]
+        block = getattr(worldbuilding, "core_rules", None)
+        if not isinstance(block, dict):
+            block = {
+                "power_system": getattr(worldbuilding, "power_system", ""),
+                "physics_rules": getattr(worldbuilding, "physics_rules", ""),
+                "magic_tech": getattr(worldbuilding, "magic_tech", ""),
+            }
+        for key, label in labels.items():
+            value = str(block.get(key) or "").strip()
+            if value:
+                parts.append(f"【{label}】{value}")
         if not parts:
             return ""
         return "=== 世界规则 ===\n" + "\n".join(parts)
@@ -177,17 +185,25 @@ def build_immersion_details_slot_content(
     if not worldbuilding_repository:
         return ""
     try:
+        from application.world.worldbuilding_schema import WORLDBUILDING_DIMENSION_DEFS
+
         worldbuilding = worldbuilding_repository.get_by_novel_id(novel_id)
         if worldbuilding is None:
             return ""
 
         parts = []
-        if getattr(worldbuilding, "food_clothing", None) and worldbuilding.food_clothing.strip():
-            parts.append(f"【衣食住行】{worldbuilding.food_clothing.strip()}")
-        if getattr(worldbuilding, "language_slang", None) and worldbuilding.language_slang.strip():
-            parts.append(f"【俚语/口癖】{worldbuilding.language_slang.strip()}")
-        if getattr(worldbuilding, "entertainment", None) and worldbuilding.entertainment.strip():
-            parts.append(f"【娱乐/文化】{worldbuilding.entertainment.strip()}")
+        labels = WORLDBUILDING_DIMENSION_DEFS["daily_life"]["fields"]
+        block = getattr(worldbuilding, "daily_life", None)
+        if not isinstance(block, dict):
+            block = {
+                "food_clothing": getattr(worldbuilding, "food_clothing", ""),
+                "language_slang": getattr(worldbuilding, "language_slang", ""),
+                "entertainment": getattr(worldbuilding, "entertainment", ""),
+            }
+        for key, label in labels.items():
+            value = str(block.get(key) or "").strip()
+            if value:
+                parts.append(f"【{label}】{value}")
         if not parts:
             return ""
         return "=== 世界沉浸感细节 ===\n" + "\n".join(parts)

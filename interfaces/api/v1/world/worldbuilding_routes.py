@@ -13,13 +13,7 @@ from infrastructure.persistence.database.worldbuilding_repository import Worldbu
 from application.paths import get_db_path
 
 from interfaces.api.dependencies import get_bible_service
-from application.world.worldbuilding_merge import (
-    bible_dto_world_settings_to_slices,
-    merge_worldbuilding_table_and_bible_slices,
-    project_slices_to_legacy_api_shape,
-    worldbuilding_entity_to_slices,
-    worldbuilding_slices_nonempty,
-)
+from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
 
 
 router = APIRouter(prefix="/novels", tags=["worldbuilding"])
@@ -34,8 +28,14 @@ def get_worldbuilding_service() -> WorldbuildingService:
 
 class CoreRulesDTO(BaseModel):
     power_system: Optional[str] = ""
+    progression_path: Optional[str] = ""
+    combat_resolution: Optional[str] = ""
     physics_rules: Optional[str] = ""
     magic_tech: Optional[str] = ""
+    version_rules: Optional[str] = ""
+    forbidden_methods: Optional[str] = ""
+    cost_and_limitation: Optional[str] = ""
+    resource_scarcity: Optional[str] = ""
 
 
 class GeographyDTO(BaseModel):
@@ -77,39 +77,34 @@ def get_worldbuilding(
     service: WorldbuildingService = Depends(get_worldbuilding_service),
     bible_service: BibleService = Depends(get_bible_service),
 ):
-    """获取小说的世界观（合并 worldbuilding 表与 Bible.world_settings）
+    """获取小说的世界观。
 
-    SSE 向导会把超出 ORM 槽位的扩展字段写入 Bible；若仅用表读出，会与流式观感不一致，
-    故 GET 在此处做合并后再投影成前端使用的 15 个经典字段。
+    V2 数据以 worldbuilding.dimensions 为唯一主源；旧库缺少 V2 文档时，
+    仅在仓储/loader 边界兼容读取旧列与 Bible.world_settings。
     """
     bible = bible_service.get_bible_by_novel(slug)
-    bible_slices = bible_dto_world_settings_to_slices(bible)
-
     wb_entity = service.get_worldbuilding(slug)
+    slices = load_merged_worldbuilding_slices(bible=bible, worldbuilding=wb_entity)
 
     if wb_entity is None:
         now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        display = project_slices_to_legacy_api_shape(bible_slices)
         return {
             "id": f"bible-{slug}",
             "novel_id": slug,
-            **display,
+            "schema_version": 2 if slices else 1,
+            "dimensions": slices,
+            **slices,
             "created_at": now,
             "updated_at": now,
         }
 
-    merged_slices = merge_worldbuilding_table_and_bible_slices(
-        worldbuilding_entity_to_slices(wb_entity),
-        bible_slices,
-    )
-    display = project_slices_to_legacy_api_shape(merged_slices)
-
     dto = wb_entity.to_dict()
-    dto["core_rules"] = display["core_rules"]
-    dto["geography"] = display["geography"]
-    dto["society"] = display["society"]
-    dto["culture"] = display["culture"]
-    dto["daily_life"] = display["daily_life"]
+    dto["dimensions"] = slices
+    dto["core_rules"] = slices["core_rules"]
+    dto["geography"] = slices["geography"]
+    dto["society"] = slices["society"]
+    dto["culture"] = slices["culture"]
+    dto["daily_life"] = slices["daily_life"]
 
     return dto
 

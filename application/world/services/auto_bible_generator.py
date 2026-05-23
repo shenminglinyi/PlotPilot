@@ -858,7 +858,7 @@ JSON 格式（不要有其他文字）：
                     raise
 
     async def _save_worldbuilding(self, novel_id: str, worldbuilding_data: Dict[str, Any]) -> None:
-        """保存世界观到数据库（同时保存到Worldbuilding表和Bible的world_settings）"""
+        """保存世界观到 Worldbuilding V2 主文档。"""
         from application.world.services.worldbuilding_field_text import normalize_dimension_fields
 
         logger.debug("_save_worldbuilding called")
@@ -887,48 +887,13 @@ JSON 格式（不要有其他文字）：
             except Exception as e:
                 logger.error("Failed to save worldbuilding: %s", e)
 
-        # 2. 同时保存到Bible的world_settings（用于前端显示）
-        try:
-            logger.debug("Saving worldbuilding to Bible.world_settings")
-            from domain.bible.entities.world_setting import WorldSetting
-            from domain.novel.value_objects.novel_id import NovelId
-
-            repo = self.bible_service.bible_repository
-            bible = repo.get_by_novel_id(NovelId(novel_id))
-            if bible is None:
-                self.bible_service.create_bible(f"{novel_id}-bible", novel_id)
-                bible = repo.get_by_novel_id(NovelId(novel_id))
-            if bible is None:
-                raise ValueError(f"Bible not found after create for novel {novel_id}")
-
-            # 将5维度数据转换为 world_setting 条目。同名 dimension.field 必须覆盖旧值，
-            # 否则读取时随机 id 排序可能让旧世界观盖过刚生成的新世界观。
-            incoming_names = {
-                f"{dimension_name}.{key}"
-                for dimension_name, dimension_data in normalized_wb.items()
-                for key in dimension_data
-            }
-            for setting in list(bible.world_settings):
-                if setting.name in incoming_names:
-                    bible.remove_world_setting(setting.id)
-
-            for dimension_name, dimension_data in normalized_wb.items():
-                for key, value in dimension_data.items():
-                    safe_key = f"{dimension_name}-{key}".replace("_", "-")
-                    setting = WorldSetting(
-                        id=f"{novel_id}-ws-{safe_key}",
-                        name=f"{dimension_name}.{key}",
-                        description=value,
-                        setting_type="rule",
-                    )
-                    bible.add_world_setting(setting)
-            repo.save(bible)
-            logger.info("Worldbuilding saved to Bible.world_settings successfully")
-        except Exception as e:
-            logger.error(f"Failed to save to Bible.world_settings: {e}")
+        # Worldbuilding V2 is the single source of truth for the five-dimension
+        # world model. Bible.world_settings remains available for loose,
+        # encyclopedia-like rules, but new wizard worldbuilding no longer writes
+        # there.
 
     def _load_worldbuilding(self, novel_id: str) -> Dict[str, Any]:
-        """加载已有世界观：合并 Bible.world_settings 与 worldbuilding 映射表字段。"""
+        """加载已有世界观：V2 优先，旧数据在 loader 边界兼容。"""
         from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
 
         bible = None

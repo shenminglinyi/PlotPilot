@@ -659,8 +659,12 @@ type WorldbuildingDimKey = (typeof WB_DIMS)[number]
 const WB_FIELD_ORDER: Record<WorldbuildingDimKey, string[]> = {
   core_rules: [
     'power_system',
+    'progression_path',
+    'combat_resolution',
     'physics_rules',
     'magic_tech',
+    'version_rules',
+    'forbidden_methods',
     'cost_and_limitation',
     'resource_scarcity',
   ],
@@ -702,8 +706,12 @@ const WB_FIELD_ORDER: Record<WorldbuildingDimKey, string[]> = {
 /** 世界观维度 key → 中文标签 */
 const dimKeyLabels: Record<string, string> = {
   power_system: '力量体系',
+  progression_path: '成长路径',
+  combat_resolution: '攻防判定',
   physics_rules: '物理规律',
   magic_tech: '魔法/科技',
+  version_rules: '赛季版本',
+  forbidden_methods: '禁用手段',
   cost_and_limitation: '代价与限制',
   resource_scarcity: '稀缺资源',
   terrain: '地形',
@@ -827,28 +835,6 @@ function mergeWorldbuildingDisplay(
     out[d] = merged
   }
   return out
-}
-
-function buildWorldSettingsForSave(existing: WorldSettingDTO[]): WorldSettingDTO[] {
-  const dimSet = new Set<string>(WB_DIMS)
-  const preserved = (existing || []).filter(setting => {
-    const [dim] = String(setting.name || '').split('.', 1)
-    return !dimSet.has(dim)
-  })
-  const generated: WorldSettingDTO[] = []
-  for (const dim of WB_DIMS) {
-    for (const [key, raw] of Object.entries(worldbuildingData.value[dim])) {
-      const description = String(raw ?? '').trim()
-      if (!description) continue
-      generated.push({
-        id: `${props.novelId}-ws-${dim}-${key}`.replace(/_/g, '-'),
-        name: `${dim}.${key}`,
-        description,
-        setting_type: 'rule',
-      })
-    }
-  }
-  return [...preserved, ...generated]
 }
 
 function styleConventionFromBible(bible: BibleDTO): string {
@@ -1968,14 +1954,13 @@ async function saveWorldbuildingEdits(): Promise<boolean> {
     }
     await worldbuildingApi.updateWorldbuilding(props.novelId, wbData as any)
 
-    // 保存文风公约。bulk update 是全量替换，必须带回已有 Bible 数据；
-    // 否则会把 SSE 自动落库的 world_settings 清空。
+    // 保存文风公约。世界观主数据已写入 Worldbuilding V2；Bible.world_settings
+    // 只保留用户/系统补充的零散规则，不再承载五维世界观。
     const existing = await bibleApi.getBible(props.novelId)
-    const worldSettings = buildWorldSettingsForSave(existing.world_settings || [])
     if (styleText.value) {
       await bibleApi.updateBible(props.novelId, {
         characters: existing.characters || [],
-        world_settings: worldSettings,
+        world_settings: existing.world_settings || [],
         locations: existing.locations || [],
         timeline_notes: existing.timeline_notes || [],
         style_notes: [{
@@ -1987,7 +1972,7 @@ async function saveWorldbuildingEdits(): Promise<boolean> {
     } else {
       await bibleApi.updateBible(props.novelId, {
         characters: existing.characters || [],
-        world_settings: worldSettings,
+        world_settings: existing.world_settings || [],
         locations: existing.locations || [],
         timeline_notes: existing.timeline_notes || [],
         style_notes: existing.style_notes || [],

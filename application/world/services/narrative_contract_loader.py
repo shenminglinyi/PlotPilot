@@ -19,6 +19,12 @@ def load_merged_worldbuilding_slices(
 ) -> dict:
     """与 AutoBibleGenerator._load_worldbuilding 相同合并策略。"""
     table_slices = worldbuilding_entity_to_slices(worldbuilding)
+    if (
+        worldbuilding is not None
+        and getattr(worldbuilding, "schema_version", 1) >= 2
+        and getattr(worldbuilding, "dimensions", None)
+    ):
+        return table_slices
     bible_slices = bible_dto_world_settings_to_slices(bible)
     return merge_worldbuilding_table_and_bible_slices(table_slices, bible_slices)
 
