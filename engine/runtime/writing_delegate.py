@@ -182,6 +182,7 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
             current_chapter_number=chapter_num,
             last_chapter_tension=result.tension,
             audit_aftermath_reused=False,
+            audit_aftermath_rebuilt=False,
         )
         daemon._flush_novel(novel)
         logger.info(

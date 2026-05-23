@@ -268,7 +268,11 @@ def _audit_event_message(event_type: str, data: Dict[str, Any]) -> str:
             if d.get('similarity_score') is not None
             else "文风相似度: 指纹样本不足（需 ≥10 个采血样本）"
         ),
-        "audit_aftermath": lambda d: "章后管线处理中...",
+        "audit_aftermath": lambda d: (
+            "复用写作管线章后结果"
+            if d.get("reused")
+            else ("正文改写后重建章后结果" if d.get("rebuilt") else "章后结果校准中...")
+        ),
         "audit_tension": lambda d: "张力打分中...",
         "audit_tension_result": lambda d: f"张力值: {d.get('tension', 'N/A')}/10",
         "audit_complete": lambda d: f"第 {d.get('chapter_number', '?')} 章审计完成" + ("，全书完成" if d.get('is_completed') else ""),
@@ -622,6 +626,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
         "audit_aftermath_reused": bool(shared.get("audit_aftermath_reused", False)),
+        "audit_aftermath_rebuilt": bool(shared.get("audit_aftermath_rebuilt", False)),
         "_from_shared_memory": True,
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
@@ -805,6 +810,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": shared.get("audit_progress"),
         "audit_aftermath_reused": bool(shared.get("audit_aftermath_reused", False)),
+        "audit_aftermath_rebuilt": bool(shared.get("audit_aftermath_rebuilt", False)),
         "_from_shared_memory": True,  # 前端可据此显示「实时同步中」提示
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
@@ -946,6 +952,7 @@ def _autopilot_events_tick_sync(novel_repo, chapter_repo, novel_id: str) -> Tupl
                 "current_chapter_number": shared.get("_cached_current_chapter_number"),
                 "audit_progress": shared.get("audit_progress"),
                 "audit_aftermath_reused": bool(shared.get("audit_aftermath_reused", False)),
+                "audit_aftermath_rebuilt": bool(shared.get("audit_aftermath_rebuilt", False)),
                 "last_chapter_tension": shared.get("last_chapter_tension", 0) or 0,
             }
             terminal_states = {"stopped", "error", "completed"}

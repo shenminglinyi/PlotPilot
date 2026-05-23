@@ -109,10 +109,11 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         and not content_changed_by_audit
         and pending_aftermath.get("content_sha256") == original_content_sha256
     )
+    should_rebuild_aftermath = not can_reuse_aftermath and content_changed_by_audit
     aftermath_label = (
-        "章后管线结果复用"
+        "结果复用"
         if can_reuse_aftermath
-        else "章后管线（叙事/向量/KG）"
+        else ("章后重建" if should_rebuild_aftermath else "章后校准")
     )
 
     host._update_shared_state(
@@ -121,12 +122,17 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         writing_substep="audit_aftermath",
         writing_substep_label=aftermath_label,
         audit_aftermath_reused=can_reuse_aftermath,
+        audit_aftermath_rebuilt=should_rebuild_aftermath,
     )
     # 🔥 发布章后管线事件
     host._publish_audit_event(
         novel.novel_id.value,
         "audit_aftermath",
-        {"chapter_number": chapter_num, "reused": can_reuse_aftermath}
+        {
+            "chapter_number": chapter_num,
+            "reused": can_reuse_aftermath,
+            "rebuilt": should_rebuild_aftermath,
+        }
     )
     if can_reuse_aftermath:
         audit_similarity = drift_result.get("similarity_score")

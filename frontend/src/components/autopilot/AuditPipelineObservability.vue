@@ -40,6 +40,7 @@ interface StatusLike {
   writing_substep_label?: string | null
   audit_progress?: string | null
   audit_aftermath_reused?: boolean
+  audit_aftermath_rebuilt?: boolean
   last_chapter_audit?: {
     similarity_score?: number | null
     drift_alert?: boolean
@@ -57,7 +58,7 @@ const props = defineProps<{
 const auditSteps = [
   { index: 1, id: 'prepare', label: '审计准备', desc: '锁定章节与正文' },
   { index: 2, id: 'voice', label: '文风预检', desc: '指纹相似度 / 漂移' },
-  { index: 3, id: 'aftermath', label: '章后管线', desc: '叙事 / 向量 / KG' },
+  { index: 3, id: 'aftermath', label: '结果校准', desc: '核对章后产物' },
   { index: 4, id: 'tension', label: '张力打分', desc: '章节压力曲线' },
   { index: 5, id: 'snapshot', label: '审计快照', desc: '结果写入状态面板' },
   { index: 6, id: 'finalize', label: '收尾推进', desc: '进入下一章或停机' },
@@ -65,8 +66,10 @@ const auditSteps = [
 
 const displayedAuditSteps = computed(() =>
   auditSteps.map(step => {
-    if (step.id !== 'aftermath' || !props.status?.audit_aftermath_reused) return step
-    return { ...step, label: '结果复用', desc: '沿用十步产物' }
+    if (step.id !== 'aftermath') return step
+    if (props.status?.audit_aftermath_reused) return { ...step, label: '结果复用', desc: '沿用十步产物' }
+    if (props.status?.audit_aftermath_rebuilt) return { ...step, label: '章后重建', desc: '改写后同步' }
+    return step
   })
 )
 
@@ -141,6 +144,9 @@ const activeDetail = computed(() => {
     if (props.status?.audit_aftermath_reused) {
       return { label, text: '已复用写作管线第 8 步结果，未重复执行叙事 / 向量 / KG' }
     }
+    if (props.status?.audit_aftermath_rebuilt) {
+      return { label, text: '文风审计改写了正文，正在重建叙事 / 向量 / KG 结果' }
+    }
     const flags = [
       audit.narrative_sync_ok ? '叙事已同步' : '',
       audit.vector_stored ? '向量已落库' : '',
@@ -150,6 +156,9 @@ const activeDetail = computed(() => {
   }
   if (ix === 3 && props.status?.audit_aftermath_reused) {
     return { label, text: '已复用写作管线第 8 步结果，未重复执行叙事 / 向量 / KG' }
+  }
+  if (ix === 3 && props.status?.audit_aftermath_rebuilt) {
+    return { label, text: '文风审计改写了正文，正在重建叙事 / 向量 / KG 结果' }
   }
   if (ix === 4 && audit?.tension != null) {
     return { label, text: `张力 ${audit.tension}/100` }
