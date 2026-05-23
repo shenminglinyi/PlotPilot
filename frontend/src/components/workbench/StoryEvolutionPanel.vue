@@ -27,17 +27,10 @@
               状态机
             </n-button>
             <n-button
-              :type="activeTab === 'timeline' ? 'primary' : 'default'"
-              @click="activeTab = 'timeline'"
-            >
-              <template #icon><n-icon><ReorderFourOutline /></n-icon></template>
-              时间轴
-            </n-button>
-            <n-button
               :type="activeTab === 'worldline' ? 'primary' : 'default'"
               @click="activeTab = 'worldline'"
             >
-              <template #icon><n-icon><GitNetworkOutline /></n-icon></template>
+              <template #icon><n-icon><ReorderFourOutline /></n-icon></template>
               世界线
             </n-button>
           </n-button-group>
@@ -46,12 +39,25 @@
       </div>
     </header>
 
-    <!-- 世界线 DAG 模式 -->
-    <WorldlineDAG
-      v-if="activeTab === 'worldline'"
-      :slug="slug"
-      @checkpoint-restored="onCheckpointRestored"
-    />
+    <div v-if="activeTab === 'worldline'" class="worldline-board">
+      <section class="worldline-board__timeline">
+        <StoryTimeline
+          :slug="slug"
+          :highlight-range="highlightRange"
+          :chronicles-from-bundled-parent="true"
+          :bundled-chronicle-rows="bundledChronicleRows"
+          @select-event="onSelectEvent"
+          @select-snapshot="onSelectSnapshot"
+          @request-bundle-refresh="loadBundle"
+        />
+      </section>
+      <section class="worldline-board__graph">
+        <WorldlineDAG
+          :slug="slug"
+          @checkpoint-restored="onCheckpointRestored"
+        />
+      </section>
+    </div>
 
     <div v-else-if="activeTab === 'command'" class="evolution-command">
       <section class="command-hero">
@@ -234,7 +240,7 @@
       </section>
     </div>
 
-    <!-- 传统时间轴模式（外：导航略收窄，为「时间轴 + 详情」留出宽度；内：提高右栏默认占比，避免详情过窄） -->
+    <!-- 传统时间轴详情模式 -->
     <n-split
       v-else
       direction="horizontal"
@@ -312,7 +318,7 @@ const bundle = ref<StoryEvolutionReadModel | null>(null)
 const bundleLoading = ref(false)
 
 // 活跃 tab
-const activeTab = ref<'command' | 'state' | 'timeline' | 'worldline'>('command')
+const activeTab = ref<'command' | 'state' | 'worldline'>('command')
 
 // 高亮范围（选中故事线时高亮对应章节）
 const highlightRange = ref<{ start: number; end: number } | null>(null)
@@ -567,14 +573,16 @@ function openCharacterAnchor() {
   overflow: auto;
   padding: 14px;
   background: var(--app-page-bg, var(--app-surface));
+  overflow-x: hidden;
 }
 
 .command-hero {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) repeat(3, minmax(130px, 180px));
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(120px, 170px));
   gap: 10px;
   align-items: stretch;
   margin-bottom: 12px;
+  min-width: 0;
 }
 
 .command-hero__main,
@@ -621,9 +629,10 @@ function openCharacterAnchor() {
 
 .command-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1.1fr) repeat(3, minmax(220px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 12px;
+  min-width: 0;
 }
 
 .command-panel {
@@ -672,7 +681,7 @@ function openCharacterAnchor() {
 
 .risk-lane {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 8px;
 }
 
@@ -689,6 +698,23 @@ function openCharacterAnchor() {
 .risk-card span:last-child {
   color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
   line-height: 1.5;
+}
+
+.worldline-board {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.25fr);
+  overflow: hidden;
+  background: var(--app-page-bg, var(--app-surface));
+}
+
+.worldline-board__timeline,
+.worldline-board__graph {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .evolution-console {
@@ -784,7 +810,8 @@ function openCharacterAnchor() {
 
 @media (max-width: 900px) {
   .command-hero,
-  .command-grid {
+  .command-grid,
+  .worldline-board {
     grid-template-columns: 1fr;
   }
 

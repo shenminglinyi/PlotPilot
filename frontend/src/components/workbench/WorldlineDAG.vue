@@ -4,7 +4,7 @@
     <div class="wl-header">
       <div class="wl-title-block">
         <n-text strong style="font-size: 14px">世界线版本图</n-text>
-        <span>{{ nodes.length }} 个存档 · {{ graphData.branches.length }} 条分支</span>
+        <span>{{ nodes.length }} 个存档 · {{ graphData.branches.length }} 条分支 · {{ confluencePoints.length }} 个汇流点</span>
       </div>
       <n-space :size="8">
         <n-button size="small" :loading="saving" @click="handleManualCheckpoint">
@@ -52,6 +52,28 @@
               :x2="edge.x2" :y2="edge.y2"
               class="wl-edge"
             />
+
+            <g
+              v-for="cp in layout.confluencePositions"
+              :key="'cp-' + cp.id"
+              class="wl-confluence"
+            >
+              <path
+                :d="cp.d"
+                class="wl-confluence-line"
+                :class="{ 'wl-confluence-line--resolved': cp.resolved }"
+              />
+              <rect
+                :x="cp.cx - 9"
+                :y="cp.cy - 9"
+                width="18"
+                height="18"
+                rx="5"
+                class="wl-confluence-node"
+                :class="{ 'wl-confluence-node--resolved': cp.resolved }"
+              />
+              <text :x="cp.cx + 14" :y="cp.cy + 4" class="wl-confluence-label">{{ cp.label }}</text>
+            </g>
 
             <!-- Nodes -->
             <g
@@ -156,7 +178,16 @@
           </n-space>
         </div>
         <div v-else class="wl-detail wl-detail--empty">
-          <n-text depth="3" style="font-size: 12px">点击节点查看操作</n-text>
+          <n-text depth="3" style="font-size: 12px">点击存档查看操作</n-text>
+          <div v-if="confluencePoints.length" class="wl-confluence-list">
+            <n-text strong style="font-size: 12px">计划汇流</n-text>
+            <div v-for="cp in confluencePoints.slice(0, 5)" :key="cp.id" class="wl-confluence-item">
+              <n-tag size="tiny" :type="cp.resolved ? 'success' : 'warning'" :bordered="false">
+                {{ confluenceLabel(cp.merge_type) }}
+              </n-tag>
+              <span>第 {{ cp.target_chapter }} 章 · {{ storylineName(cp.source_storyline_id) }} → {{ storylineName(cp.target_storyline_id) }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </n-spin>
@@ -184,6 +215,7 @@
 import { ref, computed, watch } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
 import { worldlineApi, type CheckpointNode, type WorldlineGraph, type BranchInfo } from '@/api/worldline'
+import { confluenceApi, type ConfluencePointDTO } from '@/api/confluence'
 import { workflowApi, type StorylineDTO } from '@/api/workflow'
 
 interface Props {
@@ -203,6 +235,7 @@ const showBranchDialog = ref(false)
 const newBranchName = ref('')
 const newBranchStorylineId = ref<string | null>(null)
 const storylines = ref<StorylineDTO[]>([])
+const confluencePoints = ref<ConfluencePointDTO[]>([])
 
 const storylineOptions = computed(() =>
   storylines.value.map(s => ({
@@ -217,6 +250,14 @@ async function loadStorylines() {
     storylines.value = data || []
   } catch {
     storylines.value = []
+  }
+}
+
+async function loadConfluencePoints() {
+  try {
+    confluencePoints.value = await confluenceApi.list(props.slug)
+  } catch {
+    confluencePoints.value = []
   }
 }
 const graphWrap = ref<HTMLElement | null>(null)
@@ -243,6 +284,7 @@ interface NodePos {
   created_at: string; anchor_chapter: number | null; branch_name: string
 }
 interface EdgePos { x1: number; y1: number; x2: number; y2: number }
+interface ConfluencePos { id: string; cx: number; cy: number; d: string; label: string; resolved: boolean }
 
 const BRANCH_COLORS: Record<number, string> = {
   0: '#1890ff',
@@ -276,7 +318,13 @@ const layout = computed(() => {
   const branches = graphData.value.branches
   const head = graphData.value.head_id
 
-  if (ns.length === 0) return { viewBox: { w: 0, h: 0 }, branchCols: [] as ColInfo[], edges: [] as EdgePos[], nodePositions: [] as NodePos[] }
+  if (ns.length === 0) return {
+    viewBox: { w: 0, h: 0 },
+    branchCols: [] as ColInfo[],
+    edges: [] as EdgePos[],
+    nodePositions: [] as NodePos[],
+    confluencePositions: [] as ConfluencePos[],
+  }
 
   // Assign column index per branch name
   const branchOrder: string[] = []
@@ -341,7 +389,33 @@ const layout = computed(() => {
     })
     .filter((e): e is EdgePos => e !== null)
 
-  return { viewBox: { w: viewW, h: viewH }, branchCols, edges: edgePositions, nodePositions }
+  const maxChapter = Math.max(
+    1,
+    ...ns.map(n => Number(n.anchor_chapter || 0)),
+    ...confluencePoints.value.map(cp => Number(cp.target_chapter || 0)),
+  )
+  const chapterToY = (chapter: number) => {
+    const ratio = maxChapter <= 1 ? 0 : Math.max(0, Math.min(1, (chapter - 1) / Math.max(1, maxChapter - 1)))
+    return TOP_PAD + ratio * Math.max(ROW_H, sorted.length * ROW_H - ROW_H)
+  }
+  const confluencePositions: ConfluencePos[] = confluencePoints.value.map((cp, index) => {
+    const sourceIdx = Math.max(0, Math.min(branchOrder.length - 1, branchIdx(storylineBranchName(cp.source_storyline_id))))
+    const targetIdx = Math.max(0, Math.min(branchOrder.length - 1, branchIdx(storylineBranchName(cp.target_storyline_id))))
+    const sx = LEFT_PAD + sourceIdx * COL_W + NODE_R + 4
+    const tx = LEFT_PAD + targetIdx * COL_W + NODE_R + 4
+    const cy = chapterToY(cp.target_chapter) + (index % 3) * 10
+    const midX = sx + (tx - sx) * 0.55
+    return {
+      id: cp.id,
+      cx: tx,
+      cy,
+      d: `M ${sx} ${cy - 18} C ${midX} ${cy - 18}, ${midX} ${cy}, ${tx} ${cy}`,
+      label: `Ch.${cp.target_chapter} ${confluenceLabel(cp.merge_type)}`,
+      resolved: !!cp.resolved,
+    }
+  })
+
+  return { viewBox: { w: viewW, h: viewH }, branchCols, edges: edgePositions, nodePositions, confluencePositions }
 })
 
 // ──────────────────────────── Data ────────────────────────────
@@ -362,6 +436,7 @@ watch(() => props.slug, () => {
   selectedId.value = null
   void load()
   void loadStorylines()
+  void loadConfluencePoints()
 }, { immediate: true })
 
 // ──────────────────────────── Helpers ────────────────────────────
@@ -388,6 +463,25 @@ function triggerLabel(t: string) {
     ACT: '幕', MILESTONE: '里程碑', AUTO: '自动',
   }
   return map[t] ?? t
+}
+
+function confluenceLabel(t: string) {
+  const map: Record<string, string> = {
+    intersect: '交叉',
+    absorb: '并入',
+    reveal: '显影',
+  }
+  return map[t] ?? t
+}
+
+function storylineName(id: string) {
+  const s = storylines.value.find(item => item.id === id)
+  return s?.name || id.slice(0, 6)
+}
+
+function storylineBranchName(storylineId: string) {
+  const branch = graphData.value.branches.find(b => b.storyline_id === storylineId)
+  return branch?.name || 'main'
 }
 
 function triggerTagType(t: string): 'info' | 'warning' | 'default' | 'error' | 'success' {
@@ -546,7 +640,8 @@ async function handleCreateBranch() {
 .wl-graph-wrap {
   flex: 1;
   min-width: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 14px 12px;
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--color-primary, #2563eb) 5%, transparent) 1px, transparent 1px),
@@ -564,6 +659,36 @@ async function handleCreateBranch() {
   stroke: color-mix(in srgb, var(--app-text-muted, #64748b) 42%, transparent);
   stroke-width: 1.7;
   opacity: 0.75;
+}
+
+.wl-confluence-line {
+  fill: none;
+  stroke: var(--color-warning, #d97706);
+  stroke-width: 1.8;
+  stroke-dasharray: 5 4;
+  opacity: 0.82;
+}
+
+.wl-confluence-line--resolved {
+  stroke: var(--color-success, #16a34a);
+  stroke-dasharray: none;
+}
+
+.wl-confluence-node {
+  fill: color-mix(in srgb, var(--color-warning, #d97706) 18%, var(--app-surface));
+  stroke: var(--color-warning, #d97706);
+  stroke-width: 1.5;
+}
+
+.wl-confluence-node--resolved {
+  fill: color-mix(in srgb, var(--color-success, #16a34a) 18%, var(--app-surface));
+  stroke: var(--color-success, #16a34a);
+}
+
+.wl-confluence-label {
+  font-size: 10px;
+  fill: var(--app-text-muted, #64748b);
+  pointer-events: none;
 }
 
 .wl-node-g {
@@ -624,6 +749,7 @@ async function handleCreateBranch() {
 .wl-detail--empty {
   align-items: center;
   justify-content: center;
+  gap: 14px;
 }
 
 .wl-detail-title {
@@ -632,5 +758,25 @@ async function handleCreateBranch() {
   gap: 6px;
   margin-bottom: 6px;
   flex-wrap: wrap;
+}
+
+.wl-confluence-list {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.wl-confluence-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--app-surface-subtle, rgba(0, 0, 0, 0.03));
+}
+
+.wl-confluence-item span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  line-height: 1.45;
 }
 </style>
