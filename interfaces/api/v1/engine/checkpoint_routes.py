@@ -503,41 +503,44 @@ async def update_story_phase(novel_id: str, body: StoryPhaseDTO):
 # ─── Character Psyche Endpoints ──────────────────────────────────
 
 def _get_bible_characters(novel_id: str) -> List[Dict[str, Any]]:
-    """从 bible_characters 表直接读取角色数据（始终可靠的主数据源）"""
+    """读取统一角色真源，并投影为心理画像面板需要的基础字段。"""
     try:
-        from interfaces.api.dependencies import get_database
-        db = get_database()
-        with db.get_connection() as conn:
-            rows = conn.execute(
-                """
-                SELECT id, name, description, mental_state, verbal_tic, idle_behavior,
-                       mental_state_reason, public_profile, hidden_profile, reveal_chapter,
-                       core_belief, moral_taboos_json, voice_profile_json, active_wounds_json
-                FROM bible_characters WHERE novel_id = ? ORDER BY name
-                """,
-                (novel_id,),
-            ).fetchall()
-            import json as _json
-            out: List[Dict[str, Any]] = []
-            for r in rows:
-                d = dict(r)
-                for jk, dk, empty in (
-                    ("moral_taboos_json", "moral_taboos", []),
-                    ("voice_profile_json", "voice_profile", {}),
-                    ("active_wounds_json", "active_wounds", []),
-                ):
-                    raw_j = d.pop(jk, None)
-                    try:
-                        parsed = json.loads(raw_j) if raw_j else empty
-                        if not isinstance(parsed, type(empty)):
-                            parsed = empty
-                        d[dk] = parsed
-                    except Exception:
-                        d[dk] = empty
-                out.append(d)
-            return out
+        from interfaces.api.dependencies import get_unified_character_repository
+
+        out: List[Dict[str, Any]] = []
+        for char in get_unified_character_repository().list_by_novel(novel_id):
+            voice_profile: Dict[str, Any] = {}
+            voice_style = getattr(char, "voice_style", "") or ""
+            if voice_style:
+                voice_profile["style"] = voice_style
+            sentence_pattern = getattr(char, "sentence_pattern", "") or ""
+            if sentence_pattern:
+                voice_profile["sentence_pattern"] = sentence_pattern
+            speech_tempo = getattr(char, "speech_tempo", "") or ""
+            if speech_tempo:
+                voice_profile["speech_tempo"] = speech_tempo
+            out.append(
+                {
+                    "id": getattr(getattr(char, "id", None), "value", None) or str(getattr(char, "id", "")),
+                    "name": getattr(char, "name", ""),
+                    "description": getattr(char, "description", "") or getattr(char, "public_profile", ""),
+                    "mental_state": getattr(char, "mental_state", "") or "",
+                    "verbal_tic": getattr(char, "verbal_tic", "") or "",
+                    "idle_behavior": getattr(char, "idle_behavior", "") or "",
+                    "mental_state_reason": getattr(char, "mental_state_reason", "") or "",
+                    "public_profile": getattr(char, "public_profile", "") or "",
+                    "hidden_profile": getattr(char, "hidden_profile", "") or "",
+                    "reveal_chapter": getattr(char, "reveal_chapter", None),
+                    "role": getattr(char, "role", "") or "",
+                    "core_belief": getattr(char, "core_belief", "") or "",
+                    "moral_taboos": list(getattr(char, "moral_taboos", []) or []),
+                    "voice_profile": voice_profile,
+                    "active_wounds": list(getattr(char, "active_wounds", []) or []),
+                }
+            )
+        return out
     except Exception as e:
-        logger.debug("读取 bible_characters 失败: %s", e)
+        logger.debug("读取 unified_characters 失败: %s", e)
         return []
 
 

@@ -208,7 +208,7 @@ def get_narrative_memory_service():
 
 
 def get_character_projection_service():
-    """获取角色记忆投影服务（渐进兼容旧 CharacterState/Bible）。"""
+    """获取角色记忆投影服务。"""
     from application.memory.services.character_projection_service import CharacterProjectionService
     from infrastructure.persistence.database.sqlite_character_state_repository import SqliteCharacterStateRepository
     from infrastructure.persistence.database.sqlite_narrative_debt_repository import SqliteNarrativeDebtRepository
@@ -217,7 +217,7 @@ def get_character_projection_service():
     db = get_database()
     return CharacterProjectionService(
         memory_service=get_narrative_memory_service(),
-        bible_repository=get_bible_repository(),
+        unified_character_repository=get_unified_character_repository(),
         character_state_repository=SqliteCharacterStateRepository(db),
         triple_repository=TripleRepository(db),
         debt_repository=SqliteNarrativeDebtRepository(db),

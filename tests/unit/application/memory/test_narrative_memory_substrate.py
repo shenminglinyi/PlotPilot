@@ -20,6 +20,7 @@ class _CID:
 class _Char:
     id: str
     name: str
+    novel_id: str = "n1"
     description: str = ""
     core_belief: str = ""
     moral_taboos: list[str] = field(default_factory=list)
@@ -37,17 +38,12 @@ class _Char:
         return _CID(self.id)
 
 
-@dataclass
-class _Bible:
-    characters: list[_Char]
-
-
-class _BibleRepo:
+class _UnifiedCharacterRepo:
     def __init__(self, chars):
-        self.bible = _Bible(chars)
+        self.chars = {c.id: c for c in chars}
 
-    def get_by_novel_id(self, _novel_id):
-        return self.bible
+    def get(self, character_id):
+        return self.chars.get(character_id.value)
 
 
 def _memory_service(tmp_path):
@@ -105,7 +101,7 @@ def test_character_projection_reduces_legacy_state_and_compiles_locks(tmp_path):
 
     projection = CharacterProjectionService(
         memory_service=svc,
-        bible_repository=_BibleRepo([
+        unified_character_repository=_UnifiedCharacterRepo([
             _Char(
                 "c1",
                 "谷梁卿羽",
