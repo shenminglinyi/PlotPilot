@@ -11,11 +11,16 @@
 Layer3 段名为 VECTOR RECALL（T3）；见 assemble_chapter_bundle_context_text。
 """
 import logging
-import re
 from typing import Any, Dict, List, Optional
 
 from application.engine.dtos.scene_director_dto import SceneDirectorInput
 from application.engine.services.beat_models import Beat
+from application.engine.services.beat_planner import (
+    generate_expansion_hints,
+    infer_focus_from_outline,
+    make_minimal_card,
+    segment_user_outline,
+)
 
 from application.world.services.bible_service import BibleService
 from domain.bible.services.relationship_engine import RelationshipEngine
@@ -509,53 +514,7 @@ class ContextBuilder:
 
     def _segment_user_outline(self, outline: str) -> List[str]:
         """将用户章纲拆成多条，供「章纲优先」节拍；支持编号列表、项目符号、空行段、单段按句切分。"""
-        text = (outline or "").strip()
-        if not text:
-            return []
-        if re.search(r"(?m)^\s*\d+[\.、．\)]", text):
-            parts = re.split(r"\n(?=\s*\d+[\.、．\)]\s)", text)
-            segs = [p.strip() for p in parts if p.strip()]
-            if len(segs) >= 2:
-                return segs
-        if re.search(r"(?m)^\s*[-*•]\s+\S", text):
-            parts = re.split(r"\n(?=\s*[-*•]\s)", text)
-            segs = [p.strip() for p in parts if p.strip()]
-            if len(segs) >= 2:
-                return segs
-        paras = [p.strip() for p in re.split(r"\n\s*\n+", text) if p.strip()]
-        if len(paras) >= 2:
-            return paras
-        if len(text) >= 20:
-            # 中文句间无空格，不依赖 \s+ ——直接按句末标点切分
-            sents = [
-                s.strip()
-                for s in re.split(r"(?<=[。！？；])", text)
-                if len(s.strip()) > 8
-            ]
-            if len(sents) >= 2:
-                return sents
-        if len(text) >= 400:
-            n = min(self.MAX_BEATS, max(2, (len(text) + 499) // 500))
-            approx = max(1, len(text) // n)
-            segs: List[str] = []
-            idx = 0
-            for k in range(n):
-                if k == n - 1:
-                    chunk = text[idx:].strip()
-                else:
-                    end = min(len(text), idx + approx)
-                    brk = end
-                    for j in range(end, min(len(text), end + 80)):
-                        if text[j] in "。！？；":
-                            brk = j + 1
-                            break
-                    chunk = text[idx:brk].strip()
-                    idx = brk
-                if chunk:
-                    segs.append(chunk)
-            if len(segs) >= 2:
-                return segs
-        return [text]
+        return segment_user_outline(outline, max_beats=self.MAX_BEATS)
 
     def _build_beats_from_outline_segments(
         self,
@@ -637,39 +596,19 @@ class ContextBuilder:
 
     def _infer_focus_from_outline(self, outline: str) -> str:
         """从大纲推断 focus 类型"""
-        combined = outline.lower()
-        if any(kw in combined for kw in ["战斗", "打斗", "对决"]):
-            return "action"
-        if any(kw in combined for kw in ["争吵", "对话", "谈判"]):
-            return "dialogue"
-        if any(kw in combined for kw in ["发现", "真相", "悬念"]):
-            return "suspense"
-        if any(kw in combined for kw in ["情绪", "内心", "回忆"]):
-            return "emotion"
-        return "sensory"
+        return infer_focus_from_outline(outline)
 
     def _generate_expansion_hints(self, focus: str, target_words: int) -> List[str]:
         """根据 focus 类型和目标字数生成扩写维度提示"""
-        base_hints = self.EXPANSION_HINTS.get(focus, [])
-
-        # 根据目标字数调整提示数量
-        if target_words >= 1000:
-            # 高字数节拍：给出更多扩写方向
-            return base_hints[:4]
-        elif target_words >= 600:
-            # 中等字数：给出 2-3 个方向
-            return base_hints[:3]
-        else:
-            # 低字数节拍：只需 1-2 个方向
-            return base_hints[:2]
+        return generate_expansion_hints(focus, target_words, self.EXPANSION_HINTS)
 
     def _make_minimal_card(self, segment: str, focus: str, target_words: int) -> "EmotionBeatCard":
         """用规则模板为大纲片段生成最小 EmotionBeatCard（无 LLM）。
 
         quality 取决于 segment 的信息密度；ExpandedOutlineService 上线后会替换此函数。
         """
-        from application.engine.dtos.emotion_beat_card import EmotionBeatCard
         from infrastructure.ai.prompt_registry import get_prompt_registry
+
         forbidden = ""
         try:
             reg = get_prompt_registry()
@@ -677,20 +616,7 @@ class ContextBuilder:
             forbidden = drifts.get(focus, drifts.get("default", ""))
         except Exception:
             pass
-        # goal: 取段落前 30 字作为目标
-        goal = segment[:30].rstrip("，。！？；") if segment else "推进本拍剧情"
-        return EmotionBeatCard(
-            goal=goal,
-            obstacle="待写作过程中具体化",
-            active_action=f"主角通过可见行为推进「{goal}」",
-            delta="本拍结束时，情节/关系/信息差至少一项发生改变",
-            emotion_gap="读者此刻期待看到局势出现转变",
-            hook_delta="本拍末尾留一个让读者想翻页的疑问或画面",
-            sensory_anchor="写一处与当前处境绑定的具体感官细节",
-            forbidden_drift=forbidden or "禁止连续两段没有动作、对话、决定之一",
-            function=focus,
-            target_words=target_words,
-        )
+        return make_minimal_card(segment, focus, target_words, forbidden_drift=forbidden)
 
     def _build_typed_beats(self, outline: str, target_chapter_words: int) -> List[Beat]:
         """通用回退构建器——替换原有的 conflict/battle/revelation/default 四个模板。
