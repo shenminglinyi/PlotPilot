@@ -197,8 +197,10 @@ def build_immersion_details_slot_content(
 
 
 def build_key_props_slot_content(novel_id: str, db_path_provider: Any = None) -> str:
-    """Render user-marked key props from the local Bible props table."""
+    """Render user-marked key props from unified props."""
     try:
+        import json
+
         if db_path_provider is None:
             from application.paths import get_db_path
 
@@ -208,8 +210,8 @@ def build_key_props_slot_content(novel_id: str, db_path_provider: Any = None) ->
         conn.row_factory = sqlite3.Row
         try:
             cursor = conn.execute(
-                "SELECT name, description FROM bible_props "
-                "WHERE novel_id = ? AND COALESCE(is_key, 0) = 1 LIMIT 8",
+                "SELECT name, description, attributes_json FROM unified_props "
+                "WHERE novel_id = ? LIMIT 64",
                 (novel_id,),
             )
             rows = cursor.fetchall()
@@ -218,11 +220,22 @@ def build_key_props_slot_content(novel_id: str, db_path_provider: Any = None) ->
         finally:
             conn.close()
 
-        if not rows:
+        key_rows = []
+        for row in rows:
+            try:
+                attrs = json.loads(row["attributes_json"] or "{}")
+            except json.JSONDecodeError:
+                attrs = {}
+            if isinstance(attrs, dict) and attrs.get("key_context"):
+                key_rows.append(row)
+            if len(key_rows) >= 8:
+                break
+
+        if not key_rows:
             return ""
 
         lines = []
-        for row in rows:
+        for row in key_rows:
             description = (row["description"] or "").strip()
             lines.append(f"- {row['name']}" + (f"（{description}）" if description else ""))
         return "=== 本章关键道具 ===\n" + "\n".join(lines)

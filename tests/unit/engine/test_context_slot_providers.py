@@ -155,15 +155,15 @@ def test_key_props_provider_reads_sqlite_rows(tmp_path):
     db_path = tmp_path / "plotpilot.db"
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "CREATE TABLE bible_props (novel_id TEXT, name TEXT, description TEXT, is_key INTEGER)"
+        "CREATE TABLE unified_props (novel_id TEXT, name TEXT, description TEXT, attributes_json TEXT)"
     )
     conn.execute(
-        "INSERT INTO bible_props VALUES (?, ?, ?, ?)",
-        ("novel-1", "断剑", "剑身有旧血纹", 1),
+        "INSERT INTO unified_props VALUES (?, ?, ?, ?)",
+        ("novel-1", "断剑", "剑身有旧血纹", '{"key_context": true}'),
     )
     conn.execute(
-        "INSERT INTO bible_props VALUES (?, ?, ?, ?)",
-        ("novel-1", "普通杯子", "无关", 0),
+        "INSERT INTO unified_props VALUES (?, ?, ?, ?)",
+        ("novel-1", "普通杯子", "无关", "{}"),
     )
     conn.commit()
     conn.close()

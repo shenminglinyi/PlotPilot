@@ -1,5 +1,6 @@
-"""PropEventHandler 实现 — 将道具事件自动写入知识图谱三元组。"""
+"""Prop event handler that mirrors prop lifecycle events into triples."""
 from __future__ import annotations
+
 import logging
 import uuid
 
@@ -9,20 +10,19 @@ from domain.shared.time_utils import utcnow_iso
 
 logger = logging.getLogger(__name__)
 
-# 事件类型 → 三元组谓词映射
 _PREDICATE_MAP = {
-    PropEventType.INTRODUCED:  "获得",
-    PropEventType.USED:        "使用",
+    PropEventType.INTRODUCED: "获得",
+    PropEventType.USED: "使用",
     PropEventType.TRANSFERRED: "转让",
-    PropEventType.DAMAGED:     "损毁",
-    PropEventType.REPAIRED:    "修复",
-    PropEventType.UPGRADED:    "强化",
-    PropEventType.RESOLVED:    "消亡",
+    PropEventType.DAMAGED: "损毁",
+    PropEventType.REPAIRED: "修复",
+    PropEventType.UPGRADED: "强化",
+    PropEventType.RESOLVED: "消亡",
 }
 
 
 class TriplePropEventHandler:
-    """将道具事件写入 triples 表（与知识图谱联动）。"""
+    """Write prop events into the triples table with canonical entity ids."""
 
     def __init__(self, db):
         self._db = db
@@ -36,40 +36,97 @@ class TriplePropEventHandler:
             if event.event_type == PropEventType.TRANSFERRED:
                 if event.from_holder_id:
                     self._write_triple(
-                        event.novel_id, event.from_holder_id, "转让",
-                        prop.name, event.chapter_number, now,
+                        event.novel_id,
+                        event.from_holder_id,
+                        "转让",
+                        prop.id.value,
+                        event.chapter_number,
+                        now,
+                        subject_type="character",
+                        subject_entity_id=event.from_holder_id,
+                        object_entity_id=prop.id.value,
+                        description=f"{event.from_holder_id} 转让 {prop.name}",
                     )
                 if event.to_holder_id:
                     self._write_triple(
-                        event.novel_id, event.to_holder_id, "获得",
-                        prop.name, event.chapter_number, now,
+                        event.novel_id,
+                        event.to_holder_id,
+                        "获得",
+                        prop.id.value,
+                        event.chapter_number,
+                        now,
+                        subject_type="character",
+                        subject_entity_id=event.to_holder_id,
+                        object_entity_id=prop.id.value,
+                        description=f"{event.to_holder_id} 获得 {prop.name}",
                     )
             elif event.actor_character_id:
                 self._write_triple(
-                    event.novel_id, event.actor_character_id, predicate,
-                    prop.name, event.chapter_number, now,
+                    event.novel_id,
+                    event.actor_character_id,
+                    predicate,
+                    prop.id.value,
+                    event.chapter_number,
+                    now,
+                    subject_type="character",
+                    subject_entity_id=event.actor_character_id,
+                    object_entity_id=prop.id.value,
+                    description=event.description or f"{event.actor_character_id} {predicate} {prop.name}",
                 )
             else:
                 self._write_triple(
-                    event.novel_id, prop.name, predicate,
-                    f"第{event.chapter_number}章", event.chapter_number, now,
+                    event.novel_id,
+                    prop.id.value,
+                    predicate,
+                    f"第{event.chapter_number}章",
+                    event.chapter_number,
+                    now,
                     subject_type="prop",
+                    object_type="chapter",
+                    subject_entity_id=prop.id.value,
+                    object_entity_id=None,
+                    description=event.description or f"{prop.name} {predicate}",
                 )
         except Exception as e:
-            logger.warning("[TripleHandler] 三元组写入失败 prop=%s: %s", prop.name, e)
+            logger.warning("[TripleHandler] triple write failed prop=%s: %s", prop.name, e)
 
     def _write_triple(
-        self, novel_id, subject, predicate, obj,
-        chapter, now, subject_type="character",
-    ):
+        self,
+        novel_id: str,
+        subject: str,
+        predicate: str,
+        obj: str,
+        chapter: int,
+        now: str,
+        *,
+        subject_type: str = "character",
+        object_type: str = "prop",
+        subject_entity_id: str | None = None,
+        object_entity_id: str | None = None,
+        description: str = "",
+    ) -> None:
         self._db.execute(
-            """INSERT OR IGNORE INTO triples
-               (id, novel_id, subject, predicate, object, subject_type,
-                chapter_index, source, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+            """
+            INSERT OR IGNORE INTO triples (
+                id, novel_id, subject, predicate, object, chapter_number,
+                entity_type, description, source_type, subject_entity_id,
+                object_entity_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
             (
-                str(uuid.uuid4()), novel_id, subject, predicate, obj,
-                subject_type, chapter, "prop_event", now,
+                str(uuid.uuid4()),
+                novel_id,
+                subject,
+                predicate,
+                obj,
+                chapter,
+                subject_type,
+                description,
+                "prop_event",
+                subject_entity_id or subject,
+                object_entity_id if object_type != "chapter" else None,
+                now,
             ),
         )
         self._db.get_connection().commit()

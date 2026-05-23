@@ -125,6 +125,9 @@
         <n-form-item label="别名（逗号分隔，用于正文自动命中）">
           <n-input v-model:value="form.aliasesText" placeholder="罗盘,司南" />
         </n-form-item>
+        <n-form-item label="分类">
+          <n-select v-model:value="form.prop_category" :options="categoryOptions" />
+        </n-form-item>
         <n-form-item label="持有者（可选）">
           <n-select
             v-model:value="form.holder_character_id"
@@ -134,9 +137,9 @@
             filterable
           />
         </n-form-item>
-        <n-form-item label="首次出现章（可选）">
+        <n-form-item label="登场章（可选）">
           <n-input-number
-            v-model:value="form.first_chapter"
+            v-model:value="form.introduced_chapter"
             :min="1"
             clearable
             style="width:100%"
@@ -158,7 +161,14 @@ import { computed, h, onMounted, ref, watch } from 'vue'
 import type { DataTableColumns } from 'naive-ui'
 import { NButton, NTooltip, useMessage } from 'naive-ui'
 import { InformationCircleOutline, BookmarkOutline, BriefcaseOutline } from '@vicons/ionicons5'
-import { manuscriptApi, type BiblePropRow, type ChapterEntityMention } from '@/api/manuscript'
+import { manuscriptApi, type ChapterEntityMention } from '@/api/manuscript'
+import {
+  CATEGORY_LABELS,
+  LIFECYCLE_LABELS,
+  LIFECYCLE_TAG_TYPES,
+  propApi,
+  type PropDTO,
+} from '@/api/propApi'
 import { bibleApi } from '@/api/bible'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
 import { storeToRefs } from 'pinia'
@@ -171,7 +181,7 @@ const props = defineProps<{
 const message = useMessage()
 const { deskTick } = storeToRefs(useWorkbenchRefreshStore())
 
-const propsRows = ref<BiblePropRow[]>([])
+const propsRows = ref<PropDTO[]>([])
 const propsLoading = ref(false)
 const propsDataLoaded = ref(false)
 const mentions = ref<ChapterEntityMention[]>([])
@@ -183,6 +193,7 @@ let mentionsLoadSeq = 0
 
 interface CharOption { label: string; value: string }
 const charOptions = ref<CharOption[]>([])
+const categoryOptions = Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label }))
 
 const currentChapterNumber = computed(() => props.currentChapter?.number ?? null)
 
@@ -222,9 +233,9 @@ async function loadProps() {
   const slug = props.slug
   propsLoading.value = true
   try {
-    const r = await manuscriptApi.listProps(slug)
+    const r = await propApi.list(slug)
     if (seq !== propsLoadSeq || props.slug !== slug) return
-    propsRows.value = r.props || []
+    propsRows.value = r || []
   } catch {
     if (seq !== propsLoadSeq || props.slug !== slug) return
     message.error('加载道具失败')
@@ -277,8 +288,9 @@ const form = ref({
   name: '',
   description: '',
   aliasesText: '',
+  prop_category: 'OTHER' as PropDTO['prop_category'],
   holder_character_id: '' as string | null,
-  first_chapter: null as number | null,
+  introduced_chapter: null as number | null,
 })
 
 function openCreate() {
@@ -287,25 +299,22 @@ function openCreate() {
     name: '',
     description: '',
     aliasesText: '',
+    prop_category: 'OTHER',
     holder_character_id: '',
-    first_chapter: currentChapterNumber.value,
+    introduced_chapter: currentChapterNumber.value,
   }
   showModal.value = true
 }
 
-function openEdit(row: BiblePropRow) {
+function openEdit(row: PropDTO) {
   editingId.value = row.id
-  let aliases = ''
-  try {
-    const a = JSON.parse(row.aliases_json || '[]')
-    aliases = Array.isArray(a) ? a.join(',') : ''
-  } catch { aliases = '' }
   form.value = {
     name: row.name,
     description: row.description || '',
-    aliasesText: aliases,
+    aliasesText: (row.aliases || []).join(','),
+    prop_category: row.prop_category,
     holder_character_id: row.holder_character_id || '',
-    first_chapter: row.first_chapter,
+    introduced_chapter: row.introduced_chapter,
   }
   showModal.value = true
 }
@@ -316,21 +325,23 @@ async function submitForm() {
   saving.value = true
   try {
     if (editingId.value) {
-      await manuscriptApi.patchProp(props.slug, editingId.value, {
+      await propApi.patch(props.slug, editingId.value, {
         name: form.value.name.trim(),
         description: form.value.description,
         aliases,
+        prop_category: form.value.prop_category,
         holder_character_id: form.value.holder_character_id || null,
-        first_chapter: form.value.first_chapter,
+        introduced_chapter: form.value.introduced_chapter,
       })
       message.success('已更新')
     } else {
-      await manuscriptApi.createProp(props.slug, {
+      await propApi.create(props.slug, {
         name: form.value.name.trim(),
         description: form.value.description,
         aliases,
+        prop_category: form.value.prop_category,
         holder_character_id: form.value.holder_character_id || null,
-        first_chapter: form.value.first_chapter,
+        introduced_chapter: form.value.introduced_chapter,
       })
       message.success('已创建')
     }
@@ -343,10 +354,10 @@ async function submitForm() {
   }
 }
 
-async function removeRow(row: BiblePropRow) {
+async function removeRow(row: PropDTO) {
   if (!props.slug) return
   try {
-    await manuscriptApi.deleteProp(props.slug, row.id)
+    await propApi.remove(props.slug, row.id)
     message.success('已删除')
     await loadProps()
   } catch {
@@ -356,14 +367,25 @@ async function removeRow(row: BiblePropRow) {
 
 const starringPropId = ref<string | null>(null)
 
-async function togglePropKey(row: BiblePropRow) {
+function isKeyProp(row: PropDTO): boolean {
+  return Boolean(row.attributes?.key_context)
+}
+
+async function togglePropKey(row: PropDTO) {
   if (!props.slug) return
   starringPropId.value = row.id
   try {
-    const newKey = !row.is_key
-    await manuscriptApi.patchProp(props.slug, row.id, { is_key: newKey })
+    const newKey = !isKeyProp(row)
+    await propApi.patch(props.slug, row.id, {
+      attributes: { ...(row.attributes || {}), key_context: newKey },
+    })
     const idx = propsRows.value.findIndex(r => r.id === row.id)
-    if (idx !== -1) propsRows.value[idx] = { ...propsRows.value[idx], is_key: newKey ? 1 : 0 }
+    if (idx !== -1) {
+      propsRows.value[idx] = {
+        ...propsRows.value[idx],
+        attributes: { ...(propsRows.value[idx].attributes || {}), key_context: newKey },
+      }
+    }
   } catch {
     message.error('操作失败')
   } finally {
@@ -372,7 +394,7 @@ async function togglePropKey(row: BiblePropRow) {
 }
 
 // ── Table columns ─────────────────────────────────────────────────
-const columns: DataTableColumns<BiblePropRow> = [
+const columns: DataTableColumns<PropDTO> = [
   {
     title: '名称',
     key: 'name',
@@ -403,7 +425,7 @@ const columns: DataTableColumns<BiblePropRow> = [
     key: 'is_key',
     width: 58,
     render(row) {
-      const isKey = Boolean(row.is_key)
+      const isKey = isKeyProp(row)
       return h(
         NTooltip,
         {},

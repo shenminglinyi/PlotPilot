@@ -9,19 +9,19 @@ from domain.memory.entities import MemoryProjection
 
 
 class CharacterProjectionService:
-    """Builds the v1 character memory projection from new and legacy sources."""
+    """Build the character memory projection from unified characters and memory atoms."""
 
     def __init__(
         self,
         *,
         memory_service: NarrativeMemoryService,
-        bible_repository: Any = None,
+        unified_character_repository: Any = None,
         character_state_repository: Any = None,
         triple_repository: Any = None,
         debt_repository: Any = None,
     ) -> None:
         self.memory = memory_service
-        self.bible_repo = bible_repository
+        self.character_repo = unified_character_repository
         self.character_state_repo = character_state_repository
         self.triple_repo = triple_repository
         self.debt_repo = debt_repository
@@ -37,7 +37,7 @@ class CharacterProjectionService:
         return self.rebuild_projection(novel_id, character_id).data
 
     def rebuild_projection(self, novel_id: str, character_id: str) -> MemoryProjection:
-        char = self._get_bible_character(novel_id, character_id)
+        char = self._get_character(novel_id, character_id)
         name = getattr(char, "name", "") or character_id
         self.memory.ensure_entity(novel_id, character_id, canonical_name=name)
 
@@ -49,9 +49,6 @@ class CharacterProjectionService:
         confirmed = [a for a in atoms if a.status == "confirmed"]
         candidates = [a for a in atoms if a.status == "candidate"]
 
-        scars = [a.payload for a in confirmed if a.memory_type == "scar"]
-        motivations = [a.payload for a in confirmed if a.memory_type == "motivation"]
-        emotions = [a.payload for a in confirmed if a.memory_type == "emotion"]
         states = [a for a in confirmed if a.memory_type == "state"]
         current_summary = ""
         if states:
@@ -72,9 +69,12 @@ class CharacterProjectionService:
                 "reason": getattr(char, "mental_state_reason", "") if char else "",
                 "last_updated_chapter": getattr(state, "last_updated_chapter", 0) if state else 0,
             },
-            "active_scars": scars[:8],
-            "active_motivations": motivations[:8],
-            "emotional_arc": sorted(emotions, key=lambda x: int(x.get("chapter", 0) or 0))[-12:],
+            "active_scars": [a.payload for a in confirmed if a.memory_type == "scar"][:8],
+            "active_motivations": [a.payload for a in confirmed if a.memory_type == "motivation"][:8],
+            "emotional_arc": sorted(
+                [a.payload for a in confirmed if a.memory_type == "emotion"],
+                key=lambda x: int(x.get("chapter", 0) or 0),
+            )[-12:],
             "relationships": self._relationships(novel_id, character_id, name),
             "knowledge_boundary": {"known": [], "unknown": []},
             "voice_fingerprint": self._voice(char),
@@ -84,22 +84,19 @@ class CharacterProjectionService:
             "context_locks": {},
         }
         projection["context_locks"] = self.compiler.compile(projection)
+        return self.memory.save_projection(
+            MemoryProjection(novel_id=novel_id, entity_id=character_id, data=projection)
+        )
 
-        out = MemoryProjection(novel_id=novel_id, entity_id=character_id, data=projection)
-        return self.memory.save_projection(out)
-
-    def _get_bible_character(self, novel_id: str, character_id: str) -> Optional[Any]:
-        if not self.bible_repo:
+    def _get_character(self, novel_id: str, character_id: str) -> Optional[Any]:
+        if not self.character_repo:
             return None
         try:
-            from domain.novel.value_objects.novel_id import NovelId
+            from domain.character.value_objects.character_id import CharacterId
 
-            bible = self.bible_repo.get_by_novel_id(NovelId(novel_id))
-            for c in getattr(bible, "characters", []) or []:
-                cid = getattr(c, "character_id", None)
-                raw = cid.value if hasattr(cid, "value") else getattr(c, "id", "")
-                if str(raw) == str(character_id):
-                    return c
+            char = self.character_repo.get(CharacterId(character_id))
+            if char and str(getattr(char, "novel_id", "")) == str(novel_id):
+                return char
         except Exception:
             return None
         return None
@@ -122,6 +119,12 @@ class CharacterProjectionService:
         if not char:
             return {}
         voice = dict(getattr(char, "voice_profile", None) or {})
+        if getattr(char, "voice_style", ""):
+            voice["style"] = getattr(char, "voice_style")
+        if getattr(char, "sentence_pattern", ""):
+            voice["sentence_pattern"] = getattr(char, "sentence_pattern")
+        if getattr(char, "speech_tempo", ""):
+            voice["speech_tempo"] = getattr(char, "speech_tempo")
         if getattr(char, "verbal_tic", ""):
             phrases = list(voice.get("catchphrases") or [])
             if getattr(char, "verbal_tic") not in phrases:
@@ -136,16 +139,16 @@ class CharacterProjectionService:
             return []
         try:
             triples = self.triple_repo.get_by_entity_ids_sync(novel_id, [character_id, name])
-            out = []
-            for t in triples[:20]:
-                out.append({
+            return [
+                {
                     "subject": getattr(t, "subject_id", ""),
                     "predicate": getattr(t, "predicate", ""),
                     "object": getattr(t, "object_id", ""),
                     "description": getattr(t, "description", ""),
                     "confidence": getattr(t, "confidence", 0.5),
-                })
-            return out
+                }
+                for t in triples[:20]
+            ]
         except Exception:
             return []
 
