@@ -41,6 +41,13 @@ from application.engine.services.context_budget_policy import (
     allocate_tier,
     truncate_t0_slots,
 )
+from application.engine.services.context_brief import (
+    build_bridge_hint,
+    build_character_state_hint,
+    build_context_brief,
+    build_debt_hint,
+    get_chapter_generation_hint,
+)
 from application.engine.services.context_lifecycle import (
     DEFAULT_PHASE_THRESHOLDS,
     build_lifecycle_directive,
@@ -817,19 +824,7 @@ class ContextBudgetAllocator:
     
     def _get_chapter_generation_hint(self, novel_id: str, chapter_number: int) -> str:
         """读取用户手写的本章生成约束（generation_hint）"""
-        try:
-            from infrastructure.persistence.database.connection import DatabaseConnection
-            from application.paths import get_db_path
-            db = DatabaseConnection(str(get_db_path()))
-            row = db.fetch_one(
-                "SELECT generation_hint FROM chapters WHERE novel_id=? AND number=?",
-                (novel_id, chapter_number),
-            )
-            if row:
-                return (row['generation_hint'] or '').strip()
-        except Exception:
-            pass
-        return ''
+        return get_chapter_generation_hint(novel_id, chapter_number)
 
     def _build_context_brief(
         self,
@@ -845,117 +840,31 @@ class ContextBudgetAllocator:
 
         用户手写的 generation_hint 作为最高优先级约束前置插入，直接覆盖自动推断。
         """
-        parts = []
-
-        # ── 0. 用户手写生成约束（最高优先级，前置插入）──
-        user_hint = self._get_chapter_generation_hint(novel_id, chapter_number)
-        if user_hint:
-            parts.append(f"【作者指令】{user_hint}")
-
-        # ── 1. 衔接信息（替代 BRIDGE_DIRECTIVE + PREVIOUSLY_ON）──
-        if chapter_number > 1:
-            bridge_hint = self._get_bridge_hint(novel_id, chapter_number)
-            if bridge_hint:
-                parts.append(bridge_hint)
-
-        # ── 2. 角色状态概要（替代 SCARS + CHARACTER_STATE_LOCK）──
-        character_state_hint = self._get_character_state_hint(novel_id)
-        if character_state_hint:
-            parts.append(character_state_hint)
-
-        # ── 3. 叙事备忘（替代 DEBT_DUE）──
-        debt_hint = self._get_debt_hint(novel_id, chapter_number, outline)
-        if debt_hint:
-            parts.append(debt_hint)
-
-        if not parts:
-            return ""
-
-        return "【编辑手记】\n" + "\n".join(parts)
+        return build_context_brief(
+            context_assembler=self.context_assembler,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            generation_hint_loader=self._get_chapter_generation_hint,
+            bridge_hint_builder=self._get_bridge_hint,
+        )
 
     def _get_bridge_hint(self, novel_id: str, chapter_number: int) -> str:
         """获取前章衔接提示（柔性建议，非铁律）"""
-        try:
-            from application.engine.services.chapter_bridge_service import ChapterBridgeService
-            from application.paths import get_db_path
-
-            svc = ChapterBridgeService(db_path=str(get_db_path()))
-            prev_bridge = svc.get_prev_chapter_bridge(novel_id, chapter_number)
-            if not prev_bridge:
-                return ""
-
-            hints = []
-            if prev_bridge.suspense_hook:
-                hints.append(f"上一章留了悬念：{prev_bridge.suspense_hook}")
-            if prev_bridge.emotional_residue:
-                hints.append(f"主角情绪：{prev_bridge.emotional_residue}")
-            if prev_bridge.scene_state:
-                hints.append(f"场景：{prev_bridge.scene_state}")
-            if prev_bridge.unfinished_actions:
-                hints.append(f"未完成：{prev_bridge.unfinished_actions}")
-
-            if not hints:
-                return ""
-
-            return "衔接：" + "；".join(hints) + "。你可以自然接续，也可以时间跳跃或视角切换。"
-
-        except Exception as e:
-            logger.debug("衔接提示获取失败: %s", e)
-            return ""
+        return build_bridge_hint(novel_id, chapter_number)
 
     def _get_character_state_hint(self, novel_id: str) -> str:
         """获取角色状态概要（精简版，替代详细的结构化 SCARS 锁）"""
-        if not self.context_assembler:
-            return ""
-
-        try:
-            # 尝试获取伤疤/执念，但压缩为自然语言
-            scars_content = self.context_assembler.build_scars_and_motivations(novel_id)
-            if not scars_content or not scars_content.strip():
-                return ""
-
-            # 从结构化文本中提取关键信息，压缩为 2-3 句话
-            lines = [l.strip() for l in scars_content.split('\n') if l.strip()]
-            # 过滤掉标题行和分隔符
-            content_lines = [l for l in lines if not l.startswith('【') and not l.startswith('═') and not l.startswith('━━')]
-
-            if not content_lines:
-                return ""
-
-            # 只保留前 3 行关键信息（防止膨胀）
-            brief_lines = content_lines[:3]
-            return "角色状态：" + "；".join(l.rstrip('。') for l in brief_lines if l) + "。"
-
-        except Exception as e:
-            logger.debug("角色状态概要获取失败: %s", e)
-            return ""
+        return build_character_state_hint(self.context_assembler, novel_id)
 
     def _get_debt_hint(self, novel_id: str, chapter_number: int, outline: str) -> str:
         """获取叙事债务温和提醒（替代强制收束令）"""
-        if not self.context_assembler:
-            return ""
-
-        try:
-            debt_content = self.context_assembler.build_debt_due_block(
-                novel_id, chapter_number, outline
-            )
-            if not debt_content or not debt_content.strip():
-                return ""
-
-            # 从结构化文本中提取债务描述
-            lines = [l.strip() for l in debt_content.split('\n') if l.strip()]
-            debt_lines = [l for l in lines if l.startswith('-') or l.startswith('•')]
-
-            if not debt_lines:
-                return ""
-
-            # 只保留前 2 条债务（防止膨胀）
-            brief_debts = [l.lstrip('-• ').rstrip() for l in debt_lines[:2]]
-            return "叙事备忘：" + "；".join(brief_debts) + "。如果合适可以推进，不必强求回收。"
-
-        except Exception as e:
-            logger.debug("叙事备忘获取失败: %s", e)
-            return ""
+        return build_debt_hint(
+            self.context_assembler,
+            novel_id,
+            chapter_number,
+            outline,
+        )
 
     def _get_chapter_bridge_directive(self, novel_id: str, chapter_number: int) -> str:
         """🔥 衔接引擎：从 DB 读取前章桥段，生成首段衔接指令（V9: 降级为 T1 参考）"""
