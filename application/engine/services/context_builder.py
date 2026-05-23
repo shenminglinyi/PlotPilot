@@ -12,13 +12,10 @@ Layer3 段名为 VECTOR RECALL（T3）；见 assemble_chapter_bundle_context_tex
 """
 import logging
 import re
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
-
-if TYPE_CHECKING:
-    from application.engine.dtos.emotion_beat_card import EmotionBeatCard
+from typing import Any, Dict, List, Optional
 
 from application.engine.dtos.scene_director_dto import SceneDirectorInput
+from application.engine.services.beat_models import Beat
 
 from application.world.services.bible_service import BibleService
 from domain.bible.services.relationship_engine import RelationshipEngine
@@ -33,26 +30,6 @@ from application.engine.services.context_budget_allocator import ContextBudgetAl
 from application.engine.dag.plan.schema import ChapterExecutionPlan
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Beat:
-    """微观节拍（Beat）
-
-    将章节大纲拆分为多个微观节拍，强制 AI 放慢节奏，增加感官细节。
-    """
-    description: str  # 节拍描述（fallback 文本；有 emotion_beat_card 时仅作备注）
-    target_words: int  # 目标字数
-    focus: str  # sensory / dialogue / action / emotion / suspense / hook / …
-    expansion_hints: List[str] = field(default_factory=list)
-    scene_goal: str = ""
-    transition_from_prev: str = ""
-    location_id: str = ""
-    emotion_beat_card: Optional["EmotionBeatCard"] = None  # 结构化真源
-    card_prompt_block: str = ""  # 由 BeatCardPromptRenderer 填充，供 prompt builder 消费
-
-    def __post_init__(self):
-        pass  # field(default_factory=list) 已处理 expansion_hints
 
 
 class ContextBuilder:
