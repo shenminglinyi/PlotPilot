@@ -56,6 +56,10 @@ from application.engine.services.context_lifecycle import (
     get_phase_directives,
     load_phase_thresholds,
 )
+from application.engine.services.recent_chapter_context import (
+    build_recent_chapters_context,
+    excerpt_immediate_previous_chapter,
+)
 from application.engine.services.context_slot_providers import (
     build_immersion_details_slot_content,
     build_key_props_slot_content,
@@ -1774,20 +1778,10 @@ class ContextBudgetAllocator:
 
     def _excerpt_immediate_previous_chapter(self, content: str) -> str:
         """紧邻上一章正文：头短 + 章末长段，标明供本章开头承接。"""
-        raw = (content or "").strip()
-        if not raw:
-            return ""
-        head_n = self.PREV_CHAPTER_BRIDGE_HEAD_CHARS
-        tail_n = self.PREV_CHAPTER_BRIDGE_TAIL_CHARS
-        if len(raw) <= tail_n:
-            return f"【章末节选，供本章开头承接】\n{raw}"
-        if len(raw) <= head_n + tail_n:
-            return f"【章末节选，供本章开头承接】\n{raw}"
-        head = raw[:head_n]
-        tail = raw[-tail_n:]
-        return (
-            f"【章首略览】\n{head}……\n"
-            f"【章末节选，供本章开头承接】\n{tail}"
+        return excerpt_immediate_previous_chapter(
+            content,
+            head_chars=self.PREV_CHAPTER_BRIDGE_HEAD_CHARS,
+            tail_chars=self.PREV_CHAPTER_BRIDGE_TAIL_CHARS,
         )
 
     def _get_recent_chapters(
@@ -1812,58 +1806,15 @@ class ContextBudgetAllocator:
             nid = NovelId(novel_id)
             all_chapters = self.chapter_repo.list_by_novel(nid)
 
-            # 获取最近的已完成章节
-            recent = sorted(
-                [c for c in all_chapters if c.number < chapter_number],
-                key=lambda c: c.number,
-                reverse=True
-            )[:limit]
-
-            prev_num = chapter_number - 1
-            prev2_num = chapter_number - 2
-            older_cap = self.OLDER_CHAPTER_HEAD_PREVIEW_CHARS
-            lines = ["【最近章节】"]
-
-            # 历史章节（按时间顺序旧 → 新）
-            for chapter in reversed(recent):
-                lines.append(f"\n第 {chapter.number} 章：{chapter.title}")
-                body = (chapter.content or "").strip()
-                if not body:
-                    continue
-                if chapter.number == prev_num:
-                    # N-1：章首略览 + 章末完整
-                    excerpt = self._excerpt_immediate_previous_chapter(chapter.content or "")
-                    if excerpt:
-                        lines.append(excerpt)
-                    continue
-                if chapter.number == prev2_num:
-                    # N-2：章末中等片段（半量），帮助跨章一致性
-                    tail_n = self.PREV_CHAPTER_BRIDGE_TAIL_CHARS // 2
-                    tail = body[-tail_n:] if len(body) > tail_n else body
-                    lines.append(f"【章末节选，供跨章一致性参考】\n{tail}")
-                    continue
-                preview = body[:older_cap]
-                if len(body) > older_cap:
-                    preview = f"{preview}..."
-                lines.append(f"【章首预览】\n{preview}")
-
-            # ★ 断点续写：包含当前章节已生成部分
-            if current_beat_index > 0:
-                current_chapter = next(
-                    (c for c in all_chapters if c.number == chapter_number), None
-                )
-                if current_chapter and current_chapter.content:
-                    current_content = current_chapter.content.strip()
-                    if current_content:
-                        # 取已生成内容的最后部分（最多2000字）
-                        continuation_preview = current_content[-2000:] if len(current_content) > 2000 else current_content
-                        lines.append(f"\n【本章已生成（断点续写上下文）】")
-                        lines.append(f"当前节拍索引: {current_beat_index}")
-                        lines.append(f"已生成 {len(current_content)} 字")
-                        lines.append(f"---")
-                        lines.append(continuation_preview)
-
-            return "\n".join(lines)
+            return build_recent_chapters_context(
+                all_chapters,
+                chapter_number=chapter_number,
+                limit=limit,
+                current_beat_index=current_beat_index,
+                prev_head_chars=self.PREV_CHAPTER_BRIDGE_HEAD_CHARS,
+                prev_tail_chars=self.PREV_CHAPTER_BRIDGE_TAIL_CHARS,
+                older_head_chars=self.OLDER_CHAPTER_HEAD_PREVIEW_CHARS,
+            )
 
         except Exception as e:
             logger.warning(f"获取最近章节失败: {e}")
