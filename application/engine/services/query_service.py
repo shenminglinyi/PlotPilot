@@ -175,7 +175,7 @@ class WorkbenchContextResponse:
 class QueryService:
     """查询服务 - API 层的唯一查询入口
 
-    🔥 核心原则：所有查询都从共享内存读取，永不阻塞事件循环
+    核心原则：所有查询都从共享内存读取，永不阻塞事件循环
     """
 
     def __init__(self, shared_state: Optional[SharedStateRepository] = None):
@@ -195,7 +195,7 @@ class QueryService:
             # 尝试获取原始数据（兼容旧格式）
             raw_data = self._shared.get_raw_state(novel_id)
             if raw_data is None:
-                # 🔥 降级：从数据库加载
+                # 降级：从数据库加载
                 logger.debug(f"共享内存中没有小说 {novel_id} 的数据，尝试从数据库加载")
                 return self._fallback_from_db(novel_id)
             # 直接从原始数据构建响应
@@ -293,7 +293,7 @@ class QueryService:
         )
 
     def _fallback_from_db(self, novel_id: str) -> Optional[NovelStatusResponse]:
-        """🔥 降级：从数据库加载小说状态
+        """降级：从数据库加载小说状态
 
         当共享内存没有数据时（如新创建的小说未同步到共享内存），
         从数据库直接读取并返回状态。
@@ -427,7 +427,7 @@ class QueryService:
         foreshadows = self._shared.get_foreshadows(novel_id)
         chapters = self._shared.get_chapters(novel_id)
 
-        # 🔥 如果共享内存中没有数据，降级到数据库查询
+        # 如果共享内存中没有数据，降级到数据库查询
         if not storylines and not chapters:
             logger.debug(f"共享内存中没有小说 {novel_id} 的工作台数据，从数据库加载")
             return self._fallback_workbench_from_db(novel_id)
@@ -455,7 +455,7 @@ class QueryService:
         )
 
     def _fallback_workbench_from_db(self, novel_id: str) -> WorkbenchContextResponse:
-        """🔥 降级：从数据库加载工作台上下文"""
+        """降级：从数据库加载工作台上下文"""
         from datetime import datetime, timezone
         from application.engine.services.state_bootstrap import StateBootstrap
 

@@ -45,9 +45,9 @@ class StateExtractionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_state",
-        display_name="🔬 状态提取",
+        display_name="状态提取",
         category=NodeCategory.VALIDATION,
-        icon="🔬",
+        icon="",
         color="#0891b2",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -122,9 +122,9 @@ class StyleAnalysisNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_style",
-        display_name="🎨 文风指纹",
+        display_name="文风指纹",
         category=NodeCategory.VALIDATION,
-        icon="🎨",
+        icon="",
         color="#0e7490",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -199,9 +199,9 @@ class NarrativeSyncExtractionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_narrative_sync",
-        display_name="🔄 叙事同步提取",
+        display_name="叙事同步提取",
         category=NodeCategory.VALIDATION,
-        icon="🔄",
+        icon="",
         color="#155e75",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -280,9 +280,9 @@ class SummaryNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ext_summary",
-        display_name="📋 摘要生成",
+        display_name="摘要生成",
         category=NodeCategory.VALIDATION,
-        icon="📋",
+        icon="",
         color="#164e63",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),

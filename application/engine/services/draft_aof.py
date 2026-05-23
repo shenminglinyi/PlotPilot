@@ -138,7 +138,7 @@ def recover_all_drafts() -> int:
             path.unlink()
             recovered += 1
             logger.info(
-                "[AOF] ✅ 已恢复 .draft 到 DB: novel=%s, ch=%d, %d 字",
+                "[AOF] 已恢复 .draft 到 DB: novel=%s, ch=%d, %d 字",
                 novel_id, chapter_number, len(content)
             )
 

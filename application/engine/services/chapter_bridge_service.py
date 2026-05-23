@@ -378,28 +378,28 @@ class ChapterBridgeService:
         ]):
             return ""
 
-        parts = ["【🔗 前章桥段（参考信息，非强制约束）】"]
+        parts = ["【前章桥段（参考信息，非强制约束）】"]
         parts.append(f"上一章（第 {prev_bridge.chapter_number} 章）结束时：\n")
 
         if prev_bridge.suspense_hook:
-            parts.append(f"💡 悬念：{prev_bridge.suspense_hook}")
+            parts.append(f"悬念：{prev_bridge.suspense_hook}")
             parts.append("  如果合适，可以呼应此悬念；也可以加深谜团、或从其他视角侧面映射。\n")
 
         if prev_bridge.emotional_residue:
             intensity_label = "强烈" if prev_bridge.emotional_intensity >= 7 else "中等" if prev_bridge.emotional_intensity >= 4 else "微弱"
-            parts.append(f"💭 情感余韵：{prev_bridge.emotional_residue}（{intensity_label}，{prev_bridge.emotional_intensity}/10）")
+            parts.append(f"情感余韵：{prev_bridge.emotional_residue}（{intensity_label}，{prev_bridge.emotional_intensity}/10）")
             parts.append("  情绪有惯性，但也会冷却——你可以延续，也可以让时间冲淡它。\n")
 
         if prev_bridge.scene_state:
-            parts.append(f"🏔 场景：{prev_bridge.scene_state}")
+            parts.append(f"场景：{prev_bridge.scene_state}")
             parts.append("  如果你在同一场景继续，这些信息有帮助。但场景切换（如'第二天清晨'）完全合法。\n")
 
         if prev_bridge.character_positions:
-            parts.append(f"👤 角色位置：{prev_bridge.character_positions}")
+            parts.append(f"角色位置：{prev_bridge.character_positions}")
             parts.append("  如果继续同一视角，保持位置一致。视角切换时，这些仅供参考。\n")
 
         if prev_bridge.unfinished_actions:
-            parts.append(f"🎬 未完成：{prev_bridge.unfinished_actions}")
+            parts.append(f"未完成：{prev_bridge.unfinished_actions}")
             parts.append("  你可以选择延续此动作，也可以暂且搁置、从另一条线开篇。\n")
 
         # V9: 删除了原来的"首段衔接铁律"4条禁令

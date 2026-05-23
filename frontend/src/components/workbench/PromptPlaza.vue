@@ -48,14 +48,14 @@
         :class="{ 'is-active': mainTab === 'plaza' }"
         @click="mainTab = 'plaza'"
       >
-        📝 提示词广场
+        提示词广场
       </div>
       <div
         class="main-tab"
         :class="{ 'is-active': mainTab === 'anti-ai' }"
         @click="mainTab = 'anti-ai'"
       >
-        🛡️ Anti-AI 防御
+        Anti-AI 防御
       </div>
     </div>
 
@@ -369,7 +369,7 @@ const categoryOptions = computed(() =>
 async function loadData() {
   loading.value = true
   try {
-    // ★ 优化：单次聚合请求替代原来 3 次并发请求
+    // 优化：单次聚合请求替代原来 3 次并发请求
     const res = await promptPlazaApi.plazaInit() as unknown as PlazaInitResult
 
     if (res.stats) stats.value = res.stats
@@ -520,7 +520,7 @@ onMounted(() => {
   loadData()
 })
 
-// ★ 供外部联动调用：按 CPMS node_key 选中并打开提示词详情
+// 供外部联动调用：按 CPMS node_key 选中并打开提示词详情
 function selectNodeByKey(nodeKey: string) {
   const node = allNodes.value.find(n => n.node_key === nodeKey)
   if (node) {

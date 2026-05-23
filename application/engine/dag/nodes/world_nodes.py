@@ -43,9 +43,9 @@ class BibleAllNode(BaseNode):
 
     meta = NodeMeta(
         node_type="world_bible_all",
-        display_name="🏰 完整Bible生成",
+        display_name="完整Bible生成",
         category=NodeCategory.WORLD,
-        icon="🏰",
+        icon="",
         color="#15803d",
         input_ports=[
             NodePort(name="premise", data_type=PortDataType.TEXT, required=True),
@@ -127,9 +127,9 @@ class WorldbuildingNode(BaseNode):
 
     meta = NodeMeta(
         node_type="world_worldbuilding",
-        display_name="🌍 世界观生成",
+        display_name="世界观生成",
         category=NodeCategory.WORLD,
-        icon="🌍",
+        icon="",
         color="#059669",
         input_ports=[
             NodePort(name="premise", data_type=PortDataType.TEXT, required=True),
@@ -207,9 +207,9 @@ class CharactersNode(BaseNode):
 
     meta = NodeMeta(
         node_type="world_characters",
-        display_name="👥 人物群像生成",
+        display_name="人物群像生成",
         category=NodeCategory.WORLD,
-        icon="👥",
+        icon="",
         color="#0d9488",
         input_ports=[
             NodePort(name="worldbuilding", data_type=PortDataType.TEXT, required=True),
@@ -289,9 +289,9 @@ class LocationsNode(BaseNode):
 
     meta = NodeMeta(
         node_type="world_locations",
-        display_name="🗺️ 地点地图生成",
+        display_name="地点地图生成",
         category=NodeCategory.WORLD,
-        icon="🗺️",
+        icon="",
         color="#65a30d",
         input_ports=[
             NodePort(name="worldbuilding", data_type=PortDataType.TEXT, required=True),

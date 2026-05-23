@@ -44,9 +44,9 @@ class CharacterReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_character",
-        display_name="👤 人物OOC检测",
+        display_name="人物OOC检测",
         category=NodeCategory.REVIEW,
-        icon="👤",
+        icon="",
         color="#b45309",
         input_ports=[
             NodePort(name="character_name", data_type=PortDataType.TEXT, required=True),
@@ -230,9 +230,9 @@ class StorylineReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_storyline",
-        display_name="📖 故事线检查",
+        display_name="故事线检查",
         category=NodeCategory.REVIEW,
-        icon="📖",
+        icon="",
         color="#78350f",
         input_ports=[
             NodePort(name="active_storylines", data_type=PortDataType.TEXT, required=True),
@@ -318,9 +318,9 @@ class ForeshadowingReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_foreshadowing",
-        display_name="🎯 伏笔使用检查",
+        display_name="伏笔使用检查",
         category=NodeCategory.REVIEW,
-        icon="🎯",
+        icon="",
         color="#a16207",
         input_ports=[
             NodePort(name="foreshadowings", data_type=PortDataType.TEXT, required=True),
@@ -399,9 +399,9 @@ class ImprovementReviewNode(BaseNode):
 
     meta = NodeMeta(
         node_type="review_improvement",
-        display_name="💡 改进建议",
+        display_name="改进建议",
         category=NodeCategory.REVIEW,
-        icon="💡",
+        icon="",
         color="#ca8a04",
         input_ports=[
             NodePort(name="chapter_content", data_type=PortDataType.TEXT, required=True),

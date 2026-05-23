@@ -104,7 +104,7 @@ class HostedWriteService:
                 try:
                     logger.info(f"  → 使用 LLM 生成章节 {n} 的大纲")
                     outline = await self._workflow.suggest_outline(novel_id, n)
-                    logger.info(f"  ✓ 大纲生成成功: {len(outline)} 字符")
+                    logger.info(f"  大纲生成成功: {len(outline)} 字符")
                 except Exception as e:
                     logger.warning(f"  × 大纲生成失败: {e}, 使用默认模板")
                     outline = self._fallback_outline(novel_id, n)
@@ -127,7 +127,7 @@ class HostedWriteService:
                         self._chapter.update_chapter_by_novel_and_number(
                             novel_id, n, content
                         )
-                        logger.info(f"  ✓ 章节 {n} 更新成功")
+                        logger.info(f"  章节 {n} 更新成功")
                         self._schedule_chapter_aftermath(novel_id, n, content)
                         yield {"type": "saved", "chapter": n, "ok": True}
                     except EntityNotFoundError as e:
@@ -143,7 +143,7 @@ class HostedWriteService:
                                 title=title,
                                 content=content
                             )
-                            logger.info(f"  ✓ 章节 {n} 创建成功")
+                            logger.info(f"  章节 {n} 创建成功")
                             self._schedule_chapter_aftermath(novel_id, n, content)
                             yield {"type": "saved", "chapter": n, "ok": True, "created": True}
                         except (ValueError, Exception) as create_ex:

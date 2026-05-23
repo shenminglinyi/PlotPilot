@@ -29,9 +29,9 @@ class PropStateNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ctx_prop_state",
-        display_name="🎒 道具状态",
+        display_name="道具状态",
         category=NodeCategory.PROP,
-        icon="🎒",
+        icon="",
         color="#f59e0b",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),

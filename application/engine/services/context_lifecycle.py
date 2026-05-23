@@ -116,8 +116,8 @@ def build_lifecycle_directive(
     directives = get_phase_directives(registry, prompt_id)
     directive = f"{directives.get(phase, '')}\n\n"
     directive += "——\n"
-    directive += f"📊 全局进度：第 {chapter_number} 章 / 约 {total} 章 ({progress:.0%})\n"
-    directive += f"🎯 当前阶段：{phase.value}\n"
+    directive += f"全局进度：第 {chapter_number} 章 / 约 {total} 章 ({progress:.0%})\n"
+    directive += f"当前阶段：{phase.value}\n"
 
     if phase == StoryPhase.CONVERGENCE:
         remaining = total - chapter_number
@@ -125,7 +125,7 @@ def build_lifecycle_directive(
         directive += (
             extra_tpl.format(remaining=remaining)
             if extra_tpl
-            else f"⚠️ 剩余约 {remaining} 章完成收束，时间紧迫。\n"
+            else f"剩余约 {remaining} 章完成收束，时间紧迫。\n"
         )
     elif phase == StoryPhase.FINALE:
         remaining = total - chapter_number
@@ -133,7 +133,7 @@ def build_lifecycle_directive(
         directive += (
             extra_tpl.format(remaining=remaining)
             if extra_tpl
-            else f"🔥 剩余约 {remaining} 章，这是最后的冲刺。\n"
+            else f"剩余约 {remaining} 章，这是最后的冲刺。\n"
         )
 
     return directive

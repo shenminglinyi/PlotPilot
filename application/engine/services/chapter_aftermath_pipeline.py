@@ -69,7 +69,7 @@ class ChapterAftermathPipeline:
         chapter_repository: Any = None,
         plot_arc_repository: Any = None,
         narrative_event_repository: Any = None,
-        # ★ V8 Feed-forward: 新增仓储
+        # V8 Feed-forward: 新增仓储
         causal_edge_repository: Any = None,
         character_state_repository: Any = None,
         debt_repository: Any = None,
@@ -89,7 +89,7 @@ class ChapterAftermathPipeline:
         self._chapter_repository = chapter_repository
         self._plot_arc_repository = plot_arc_repository
         self._narrative_event_repository = narrative_event_repository
-        # ★ V8 Feed-forward: 因果图谱 / 人物状态机 / 叙事债务
+        # V8 Feed-forward: 因果图谱 / 人物状态机 / 叙事债务
         self._causal_edge_repository = causal_edge_repository
         self._character_state_repository = character_state_repository
         self._debt_repository = debt_repository
@@ -165,7 +165,7 @@ class ChapterAftermathPipeline:
             out["causal_edges_stored"] = bool(sync_flags.get("causal_edges_stored"))
             out["character_mutations_stored"] = bool(sync_flags.get("character_mutations_stored"))
             out["debt_updated"] = bool(sync_flags.get("debt_updated"))
-            # 🔥 传递多维张力评分（0-100），供审计流程替代旧式 _score_tension
+            # 传递多维张力评分（0-100），供审计流程替代旧式 _score_tension
             out["tension_composite"] = sync_flags.get("tension_composite")
         except Exception as e:
             logger.warning(

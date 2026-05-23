@@ -41,9 +41,9 @@ class ChapterBasicNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gen_chapter_basic",
-        display_name="📝 基础章节生成",
+        display_name="基础章节生成",
         category=NodeCategory.EXECUTION,
-        icon="📝",
+        icon="",
         color="#4338ca",
         input_ports=[
             NodePort(name="novel_title", data_type=PortDataType.TEXT, required=True),
@@ -125,9 +125,9 @@ class DialogueNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gen_dialogue",
-        display_name="💬 对白生成",
+        display_name="对白生成",
         category=NodeCategory.EXECUTION,
-        icon="💬",
+        icon="",
         color="#6d28d9",
         input_ports=[
             NodePort(name="context", data_type=PortDataType.TEXT, required=False),
@@ -207,9 +207,9 @@ class SceneGenNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gen_scene",
-        display_name="🎬 场景正文生成",
+        display_name="场景正文生成",
         category=NodeCategory.EXECUTION,
-        icon="🎬",
+        icon="",
         color="#7c3aed",
         input_ports=[
             NodePort(name="title", data_type=PortDataType.TEXT, required=False),

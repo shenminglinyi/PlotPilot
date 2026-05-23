@@ -205,28 +205,28 @@ class FactLockBuilder:
 
     def _build_from_bible(self, bible, current_chapter: int) -> str:
         """从 Bible 实体构建 FACT_LOCK"""
-        lines = ["【🔒 绝对事实边界（一旦违背即为废稿）】\n"]
+        lines = ["【绝对事实边界（一旦违背即为废稿）】\n"]
 
         # ── 1. 角色白名单 ──
         characters = bible.characters
         if characters:
             names = [c.name for c in characters]
-            lines.append("★ 角色白名单（只可使用以下有名字的角色）：")
+            lines.append("角色白名单（只可使用以下有名字的角色）：")
             lines.append(f"   允许: {', '.join(names)}")
             lines.append("   禁止: 创造任何其他有名字的角色！路人可以无名但不许命名！\n")
 
         # ── 2. 已死亡角色（从描述/关系中推断，或标记为 dead 的）──
         dead_chars = self._extract_dead_characters(characters)
         if dead_chars:
-            lines.append("★ 已死亡角色（绝对不可复活、不可在当下时间线中出现）：")
+            lines.append("已死亡角色（绝对不可复活、不可在当下时间线中出现）：")
             for dc in dead_chars:
-                lines.append(f"   ❌ {dc['name']}({dc.get('role', '未知')}) - {dc.get('cause', '原因不详')}（死于{dc.get('when', '未知时间')}）")
+                lines.append(f"   禁止: {dc['name']}({dc.get('role', '未知')}) - {dc.get('cause', '原因不详')}（死于{dc.get('when', '未知时间')}）")
             lines.append("")
 
         # ── 3. 核心关系图谱 ──
         relations = self._build_relation_lines(characters)
         if relations:
-            lines.append("★ 核心关系（不可更改）：")
+            lines.append("核心关系（不可更改）：")
             for rel in relations:
                 lines.append(f"   {rel}")
             lines.append("")
@@ -234,7 +234,7 @@ class FactLockBuilder:
         # ── 4. 身份锁死 ──
         identity_lines = self._build_identity_lines(characters, current_chapter)
         if identity_lines:
-            lines.append("★ 身份锁死：")
+            lines.append("身份锁死：")
             for il in identity_lines:
                 lines.append(f"   {il}")
             lines.append("")
@@ -242,7 +242,7 @@ class FactLockBuilder:
         # ── 5. 时间线锁定 ──
         timeline_lines = self._build_timeline_lines(bible)
         if timeline_lines:
-            lines.append("★ 核心事件时间线（不可矛盾）：")
+            lines.append("核心事件时间线（不可矛盾）：")
             for tl in timeline_lines:
                 lines.append(f"   {tl}")
 
@@ -444,14 +444,14 @@ class MemoryEngine:
         if not state.completed_beats:
             return ""
 
-        lines = ["【✅ 已完成节拍（以下事件已经发生过了，禁止在本章重复写一遍）】\n"]
+        lines = ["【已完成节拍（以下事件已经发生过了，禁止在本章重复写一遍）】\n"]
         for beat in state.completed_beats:
             ch = beat.get("chapter", "?")
             summary = beat.get("summary", "")
             beat_id = beat.get("beat_id", "")
-            lines.append(f"   ✓ [第{ch}章] {summary}")
+            lines.append(f"   [第{ch}章] {summary}")
         lines.append(
-            "\n⚠️ 如果你需要'回顾'这些事件，用角色的回忆/一句话带过，不要重新展开写。"
+            "\n如果你需要'回顾'这些事件，用角色的回忆/一句话带过，不要重新展开写。"
         )
         return "\n".join(lines)
 
@@ -466,18 +466,18 @@ class MemoryEngine:
         if not valid_clues:
             return ""
 
-        lines = ["【🔍 截至目前已知的线索（读者和主角已经知道的信息）】\n"]
+        lines = ["【截至目前已知的线索（读者和主角已经知道的信息）】\n"]
         for clue in valid_clues:
             ch = clue.get("revealed_at_chapter", "?")
             content = clue.get("content", "")
             category = clue.get("category", "")
-            cat_emoji = {
-                "truth": "🔓真相", "relationship": "🔗关系",
-                "identity": "🎭身份", "ability": "⚡能力", "other": "📋信息"
-            }.get(category, "📋信息")
-            lines.append(f"   [{cat_emoji}] [第{ch}章] {content}")
+            category_label = {
+                "truth": "真相", "relationship": "关系",
+                "identity": "身份", "ability": "能力", "other": "信息"
+            }.get(category, "信息")
+            lines.append(f"   [{category_label}] [第{ch}章] {content}")
         lines.append(
-            "\n⚠️ 以上信息已经是'已知'的，不要再把它们当作'新发现'来写。你可以在此基础上推进，但不能推翻。"
+            "\n以上信息已经是'已知'的，不要再把它们当作'新发现'来写。你可以在此基础上推进，但不能推翻。"
         )
         return "\n".join(lines)
 

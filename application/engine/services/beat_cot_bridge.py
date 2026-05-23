@@ -58,7 +58,7 @@ class BeatBridge:
 
     def to_prompt_block(self) -> str:
         """生成注入 beat_prompt 的桥接块文本"""
-        lines = ["【🧠 叙事衔接指令（承接上一节拍）】"]
+        lines = ["【叙事衔接指令（承接上一节拍）】"]
 
         scene = self.active_scene
         if scene.location or scene.atmosphere:
@@ -76,13 +76,13 @@ class BeatBridge:
             lines.append(f"读者此刻关注：{self.narrative_momentum}")
 
         if self.transition.carry_forward:
-            lines.append(f"⚡ 必须延续：{self.transition.carry_forward}")
+            lines.append(f"必须延续：{self.transition.carry_forward}")
 
         if self.transition.opening_line:
-            lines.append(f"📌 你的第一句话（直接写入正文）：\n「{self.transition.opening_line}」")
+            lines.append(f"你的第一句话（直接写入正文）：\n「{self.transition.opening_line}」")
 
         if self.risk:
-            lines.append(f"⚠️ 刻意规避：{self.risk}")
+            lines.append(f"刻意规避：{self.risk}")
 
         return "\n".join(lines)
 

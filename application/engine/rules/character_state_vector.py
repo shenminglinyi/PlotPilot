@@ -96,7 +96,7 @@ class CharacterStateVector:
                 lines.append(f"- 未知信息：{'; '.join(ib.unknown_facts[:3])}")
 
         lines.append("")
-        lines.append("🔒 锁定规则：")
+        lines.append("锁定规则：")
         lines.append(f"1. 声线指纹不可偏离")
         lines.append(f"2. 紧张习惯必须一致——遇到压力时{self.character_name}会{self.nervous_habit.primary if self.nervous_habit else '有特定反应'}")
         lines.append(f"3. 信息边界不可突破——{self.character_name}不知道的事不能写他知道")

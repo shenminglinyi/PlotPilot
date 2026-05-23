@@ -48,9 +48,9 @@ class BehaviorProtocolNode(BaseNode):
 
     meta = NodeMeta(
         node_type="anti_ai_behavior",
-        display_name="📋 行为协议",
+        display_name="行为协议",
         category=NodeCategory.ANTI_AI,
-        icon="📋",
+        icon="",
         color="#dc2626",
         input_ports=[
             NodePort(name="nervous_habits", data_type=PortDataType.TEXT, required=False),
@@ -108,9 +108,9 @@ class AllowlistNode(BaseNode):
 
     meta = NodeMeta(
         node_type="anti_ai_allowlist",
-        display_name="🧾 白名单解释器",
+        display_name="白名单解释器",
         category=NodeCategory.ANTI_AI,
-        icon="🧾",
+        icon="",
         color="#e11d48",
         input_ports=[
             NodePort(name="scene_type", data_type=PortDataType.TEXT, required=True),
@@ -168,9 +168,9 @@ class CharacterStateLockNode(BaseNode):
 
     meta = NodeMeta(
         node_type="anti_ai_char_lock",
-        display_name="🔒 角色状态锁",
+        display_name="角色状态锁",
         category=NodeCategory.ANTI_AI,
-        icon="🔒",
+        icon="",
         color="#be123c",
         input_ports=[
             NodePort(name="character_name", data_type=PortDataType.TEXT, required=True),
@@ -229,9 +229,9 @@ class MidGenerationRefreshNode(BaseNode):
 
     meta = NodeMeta(
         node_type="anti_ai_mid_refresh",
-        display_name="🔄 生成中刷新",
+        display_name="生成中刷新",
         category=NodeCategory.ANTI_AI,
-        icon="🔄",
+        icon="",
         color="#9f1239",
         input_ports=[
             NodePort(name="content_so_far", data_type=PortDataType.TEXT, required=True),
@@ -283,9 +283,9 @@ class ChapterAuditNode(BaseNode):
 
     meta = NodeMeta(
         node_type="anti_ai_audit",
-        display_name="🔍 章后审计",
+        display_name="章后审计",
         category=NodeCategory.ANTI_AI,
-        icon="🔍",
+        icon="",
         color="#881337",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -376,9 +376,9 @@ class FinaleEnhancementNode(BaseNode):
 
     meta = NodeMeta(
         node_type="anti_ai_finale",
-        display_name="🎬 终章增强",
+        display_name="终章增强",
         category=NodeCategory.ANTI_AI,
-        icon="🎬",
+        icon="",
         color="#4c0519",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),

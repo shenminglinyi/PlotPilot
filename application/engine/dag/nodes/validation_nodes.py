@@ -42,9 +42,9 @@ class StyleNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_style",
-        display_name="🎭 文风警报器",
+        display_name="文风警报器",
         category=NodeCategory.VALIDATION,
-        icon="🎭",
+        icon="",
         color="#ec4899",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -109,9 +109,9 @@ class TensionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_tension",
-        display_name="📈 张力评估器",
+        display_name="张力评估器",
         category=NodeCategory.VALIDATION,
-        icon="📈",
+        icon="",
         color="#f59e0b",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -182,9 +182,9 @@ class AntiAINode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_anti_ai",
-        display_name="🛡️ Anti-AI 审计",
+        display_name="Anti-AI 审计",
         category=NodeCategory.VALIDATION,
-        icon="🛡️",
+        icon="",
         color="#ef4444",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -246,9 +246,9 @@ class ForeshadowCheckNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_foreshadow",
-        display_name="📖 伏笔雷达",
+        display_name="伏笔雷达",
         category=NodeCategory.VALIDATION,
-        icon="📖",
+        icon="",
         color="#22c55e",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -313,9 +313,9 @@ class NarrativeNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_narrative",
-        display_name="🧬 叙事同步",
+        display_name="叙事同步",
         category=NodeCategory.VALIDATION,
-        icon="🧬",
+        icon="",
         color="#06b6d4",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=True),
@@ -380,9 +380,9 @@ class KGInferNode(BaseNode):
 
     meta = NodeMeta(
         node_type="val_kg_infer",
-        display_name="🕸️ KG推断",
+        display_name="KG推断",
         category=NodeCategory.VALIDATION,
-        icon="🕸️",
+        icon="",
         color="#8b5cf6",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),

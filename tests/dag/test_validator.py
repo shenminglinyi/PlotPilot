@@ -170,12 +170,12 @@ class TestValidationResult:
 
     def test_valid_no_warnings(self):
         result = ValidationResult(errors=[], warnings=[], is_valid=True)
-        assert "✅" in result.summary
+        assert result.summary == "DAG 验证通过"
 
     def test_valid_with_warnings(self):
         result = ValidationResult(errors=[], warnings=["警告1"], is_valid=True)
-        assert "⚠️" in result.summary
+        assert result.summary == "DAG 可执行，但有 1 个警告"
 
     def test_invalid(self):
         result = ValidationResult(errors=["错误1"], warnings=[], is_valid=False)
-        assert "❌" in result.summary
+        assert result.summary == "DAG 不可执行：1 个错误"

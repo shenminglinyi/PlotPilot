@@ -735,7 +735,7 @@ class ContextBuilder:
                 1,
             )
 
-        # 🧠 V3：CoT 节拍桥接块（优先级最高，首先注入）
+        # V3：CoT 节拍桥接块（优先级最高，首先注入）
         # beat_bridge 由 beat_cot_bridge.compute_beat_bridge() 在上一节拍完成后计算
         if beat_index > 0 and beat_bridge is not None:
             try:
@@ -745,21 +745,21 @@ class ContextBuilder:
             except Exception:
                 pass  # 桥接块生成失败不影响主流程
 
-        # 🔗 V2：注入节拍间过渡方式（仅在无 CoT 桥接时使用，作为降级）
+        # V2：注入节拍间过渡方式（仅在无 CoT 桥接时使用，作为降级）
         elif beat_index > 0 and hasattr(beat, 'transition_from_prev') and beat.transition_from_prev:
             transition_block = (
-                f"\n\n🔗【本节拍过渡方式】{beat.transition_from_prev}\n"
+                f"\n\n【本节拍过渡方式】{beat.transition_from_prev}\n"
                 f"→ 你的第一句话必须遵循此过渡方式与前节拍衔接"
             )
             prompt = transition_block + prompt
 
-        # 🔗 V2：第一个节拍特殊处理——如果有前章桥段，强调章首衔接
+        # V2：第一个节拍特殊处理——如果有前章桥段，强调章首衔接
         if beat_index == 0:
-            prompt = "\n📌 这是本章第一个节拍——你的开头就是读者翻页后看到的第一段。必须与前章结尾自然衔接，不能像新故事一样重新开始。\n" + prompt
+            prompt = "\n这是本章第一个节拍——你的开头就是读者翻页后看到的第一段。必须与前章结尾自然衔接，不能像新故事一样重新开始。\n" + prompt
 
         # 最后一个节拍特殊处理：强调收尾（双重保障——conductor 也会注入更详细的收尾指令）
         if beat_index == total_beats - 1:
-            prompt += "\n\n📌 这是本章最后一个节拍！必须：\n" \
+            prompt += "\n\n这是本章最后一个节拍！必须：\n" \
                       "1. 给出完整的章节收尾——故事告一段落，读者能感知到「这一章讲完了」\n" \
                       "2. 可以抛出下一章的悬念钩子，但不要强行总结全章\n" \
                       "3. 用有画面感的方式结束——最后一个画面留在读者脑海中\n" \

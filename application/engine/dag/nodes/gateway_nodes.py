@@ -38,9 +38,9 @@ class CircuitNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gw_circuit",
-        display_name="🔌 熔断保护",
+        display_name="熔断保护",
         category=NodeCategory.GATEWAY,
-        icon="🔌",
+        icon="",
         color="#ef4444",
         input_ports=[
             NodePort(name="error_count", data_type=PortDataType.SCORE, required=False, default=0),
@@ -148,9 +148,9 @@ class ConditionNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gw_condition",
-        display_name="🔀 条件路由",
+        display_name="条件路由",
         category=NodeCategory.GATEWAY,
-        icon="🔀",
+        icon="",
         color="#3b82f6",
         input_ports=[
             NodePort(name="input", data_type=PortDataType.JSON, required=True),
@@ -208,9 +208,9 @@ class RetryNode(BaseNode):
 
     meta = NodeMeta(
         node_type="gw_retry",
-        display_name="🔄 重写网关",
+        display_name="重写网关",
         category=NodeCategory.GATEWAY,
-        icon="🔄",
+        icon="",
         color="#8b5cf6",
         input_ports=[
             NodePort(name="input", data_type=PortDataType.JSON, required=True),

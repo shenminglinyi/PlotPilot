@@ -77,9 +77,9 @@ class PlanningNode(BaseNode):
 
     meta = NodeMeta(
         node_type="exec_planning",
-        display_name="📐 规划引擎",
+        display_name="规划引擎",
         category=NodeCategory.EXECUTION,
-        icon="📐",
+        icon="",
         color="#3b82f6",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -144,9 +144,9 @@ class WriterNode(BaseNode):
 
     meta = NodeMeta(
         node_type="exec_writer",
-        display_name="✍️ 剧情引擎",
+        display_name="剧情引擎",
         category=NodeCategory.EXECUTION,
-        icon="✍️",
+        icon="",
         color="#ef4444",
         input_ports=[
             NodePort(name="context", data_type=PortDataType.TEXT, required=False),
@@ -156,7 +156,7 @@ class WriterNode(BaseNode):
             NodePort(name="foreshadowing_block", data_type=PortDataType.TEXT, required=False),
             NodePort(name="debt_due_block", data_type=PortDataType.TEXT, required=False),
             NodePort(name="fact_lock", data_type=PortDataType.TEXT, required=False),
-            # ★ Anti-AI 子注入点变量槽
+            # Anti-AI 子注入点变量槽
             NodePort(name="behavior_protocol", data_type=PortDataType.TEXT, required=False),
             NodePort(name="character_state_lock", data_type=PortDataType.TEXT, required=False),
             NodePort(name="allowlist_block", data_type=PortDataType.TEXT, required=False),
@@ -171,7 +171,7 @@ class WriterNode(BaseNode):
         can_disable=False,
         default_timeout_seconds=300,
         cpms_node_key=_WORKFLOW_CHAPTER_GEN_NODE_KEY,
-        # ★ CPMS 子提示词自动注入（Anti-AI 层）
+        # CPMS 子提示词自动注入（Anti-AI 层）
         cpms_sub_keys=[
             CPMSInjectionPoint(cpms_node_key=ANTI_AI_BEHAVIOR_PROTOCOL, target_variable="behavior_protocol", description="Anti-AI 行为协议 P1-P5+R1-R8"),
             CPMSInjectionPoint(cpms_node_key=ANTI_AI_CHARACTER_STATE_LOCK, target_variable="character_state_lock", description="角色状态锁 L4"),
@@ -201,7 +201,7 @@ class WriterNode(BaseNode):
                 "foreshadowing_block": inputs.get("foreshadowing_block", ""),
                 "debt_due_block": inputs.get("debt_due_block", ""),
                 "planning_section": "",
-                # ★ Anti-AI 子注入变量（优先使用上游传来的，缺失时由 cpms_sub_keys 自动拉取）
+                # Anti-AI 子注入变量（优先使用上游传来的，缺失时由 cpms_sub_keys 自动拉取）
                 "behavior_protocol": inputs.get("behavior_protocol", ""),
                 "character_state_lock": inputs.get("character_state_lock", ""),
                 "allowlist_block": inputs.get("allowlist_block", ""),
@@ -214,7 +214,7 @@ class WriterNode(BaseNode):
                 ),
             }
 
-            # ★ 使用 resolve_prompt 统一获取提示词（自动走 CPMS → Config → Meta + 子注入）
+            # 使用 resolve_prompt 统一获取提示词（自动走 CPMS → Config → Meta + 子注入）
             resolved = self.resolve_prompt(variables)
 
             # 调用 LLM 生成
@@ -277,9 +277,9 @@ class BeatNode(BaseNode):
 
     meta = NodeMeta(
         node_type="exec_beat",
-        display_name="🥁 节拍放大器",
+        display_name="节拍放大器",
         category=NodeCategory.EXECUTION,
-        icon="🥁",
+        icon="",
         color="#14b8a6",
         input_ports=[
             NodePort(name="outline", data_type=PortDataType.TEXT, required=True),
@@ -419,9 +419,9 @@ class SceneNode(BaseNode):
 
     meta = NodeMeta(
         node_type="exec_scene",
-        display_name="🎬 场景导演",
+        display_name="场景导演",
         category=NodeCategory.EXECUTION,
-        icon="🎬",
+        icon="",
         color="#a855f7",
         input_ports=[
             NodePort(name="content", data_type=PortDataType.TEXT, required=False),

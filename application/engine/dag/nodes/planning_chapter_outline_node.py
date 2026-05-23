@@ -33,9 +33,9 @@ class PlanningOutlinePartitionNode(AbstractPlanningNode):
 
     meta = NodeMeta(
         node_type="planning_outline_partition",
-        display_name="📑 章纲节拍划分",
+        display_name="章纲节拍划分",
         category=NodeCategory.PLANNING,
-        icon="📑",
+        icon="",
         color="#059669",
         input_ports=[
             NodePort(name="outline", data_type=PortDataType.TEXT, required=True),

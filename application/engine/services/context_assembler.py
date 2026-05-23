@@ -91,12 +91,12 @@ class ContextAssembler:
         """构建 T0: 全书主线锚点（≤300 字）
 
         格式：
-        【📖 全书主线锚点（绝不可忘）】
+        【全书主线锚点（绝不可忘）】
         世界观：修仙世界，强者为尊
         主角目标：找到灭门仇人，为宗门复仇
         当前最大阻碍：仇人已是大陆第一强者
         """
-        lines = ["【📖 全书主线锚点（绝不可忘）】"]
+        lines = ["【全书主线锚点（绝不可忘）】"]
 
         if self.story_node_repo:
             try:
@@ -232,7 +232,7 @@ class ContextAssembler:
             if not entity_names:
                 return ""
 
-            lines = ["【🧠 活跃实体记忆（写到此角色/势力时必须参考）】"]
+            lines = ["【活跃实体记忆（写到此角色/势力时必须参考）】"]
 
             for entity_name in entity_names[:5]:  # 最多 5 个实体
                 # 查因果链
@@ -291,26 +291,26 @@ class ContextAssembler:
             if not unique_debts:
                 return ""
 
-            lines = ["【🚨 叙事债务到期提醒（MUST_RESOLVE）】"]
+            lines = ["【叙事债务到期提醒（MUST_RESOLVE）】"]
 
             for debt in unique_debts[:6]:  # 最多 6 条
                 if debt.is_overdue:
-                    marker = "🔴逾期"
+                    marker = "逾期"
                 else:
                     due_info = f"Ch{debt.due_chapter}" if debt.due_chapter else "?"
-                    marker = f"🟡Ch{due_info}到期"
+                    marker = f"Ch{due_info}到期"
 
                 lines.append(
                     f"  {marker} [{debt.debt_type_label}] {debt.description} "
                     f"(埋于Ch{debt.planted_chapter})"
                 )
                 if debt.context:
-                    lines.append(f"       ⚠️ {debt.context}")
+                    lines.append(f"       {debt.context}")
 
             # 大纲冲突检测
             outline_conflicts = self._check_outline_debt_conflicts(outline, unique_debts)
             for conflict in outline_conflicts[:2]:
-                lines.append(f"  ⚠️ 大纲冲突: {conflict}")
+                lines.append(f"  大纲冲突: {conflict}")
 
             lines.append("\n【如果你无视此指令，长篇小说的情节网将陷入崩溃】")
 
@@ -324,7 +324,7 @@ class ContextAssembler:
         """构建 T0: Previously On（卷级动态摘要）
 
         格式：
-        【📺 Previously On】
+        【Previously On】
         当前卷（第二卷·风云际会）: 林羽在青云门修行的第三年，
         比武大会筹备中，他已突破筑基期，但赵宇的死让他的心境出现裂痕...
 
@@ -344,7 +344,7 @@ class ContextAssembler:
             if not act_nodes:
                 return ""
 
-            lines = ["【📺 Previously On】"]
+            lines = ["【Previously On】"]
 
             # 找当前卷
             current_act = None
@@ -403,7 +403,7 @@ class ContextAssembler:
             if not unresolved:
                 return ""
 
-            lines = ["【🔗 未闭环因果链（参考）】"]
+            lines = ["【未闭环因果链（参考）】"]
             for edge in unresolved[:6]:
                 lines.append(
                     f"  [Ch{edge.source_chapter}] {edge.source_event_summary} "

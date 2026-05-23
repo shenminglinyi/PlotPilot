@@ -138,7 +138,7 @@ def format_storyline_context_block(
 
     if near:
         if min_dist <= 2:
-            lines.append(f"  ⚠️ 距汇流仅 {min_dist} 章！汇流内容：{near.context_summary}")
+            lines.append(f"  距汇流仅 {min_dist} 章！汇流内容：{near.context_summary}")
         elif min_dist <= 8:
             lines.append(f"  距汇流 {min_dist} 章，预期：{near.context_summary[:60]}…")
 

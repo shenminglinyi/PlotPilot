@@ -92,7 +92,7 @@ class StateBootstrap:
             logger.error(f"加载状态失败: {e}")
 
         stats["elapsed_ms"] = round((time.time() - start_time) * 1000, 2)
-        logger.info(f"✅ 状态加载完成: {stats}")
+        logger.info(f"状态加载完成: {stats}")
         return stats
 
     def load_novel(self, novel_id: str) -> bool:
@@ -137,7 +137,7 @@ class StateBootstrap:
             from infrastructure.persistence.database.connection import get_database
 
             db = get_database()
-            # 🔥 needs_review 是计算字段：paused_for_review 或兼容值 reviewing
+            # needs_review 是计算字段：paused_for_review 或兼容值 reviewing
             rows = db.fetch_all(
                 """SELECT id, title, autopilot_status, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
@@ -165,7 +165,7 @@ class StateBootstrap:
             from infrastructure.persistence.database.connection import get_database
 
             db = get_database()
-            # 🔥 needs_review 是计算字段，不存储在数据库中
+            # needs_review 是计算字段，不存储在数据库中
             row = db.fetch_one(
                 """SELECT id, title, autopilot_status, current_stage,
                           current_act, current_chapter_in_act, current_beat_index,
@@ -454,7 +454,7 @@ class StateBootstrap:
                     "chapter_number": s.get("chapter_number"),
                     "title": s.get("title", ""),
                     "story_events": s.get("story_events", []),
-                    # 🔥 补全编年史聚合所需的字段
+                    # 补全编年史聚合所需的字段
                     "name": s.get("name", ""),
                     "trigger_type": s.get("trigger_type", "AUTO"),
                     "branch_name": s.get("branch_name", "main"),

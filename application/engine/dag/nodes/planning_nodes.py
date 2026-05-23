@@ -40,9 +40,9 @@ class BeatSheetNode(BaseNode):
 
     meta = NodeMeta(
         node_type="planning_beat_sheet",
-        display_name="🎵 节拍表拆解",
+        display_name="节拍表拆解",
         category=NodeCategory.PLANNING,
-        icon="🎵",
+        icon="",
         color="#6d28d9",
         input_ports=[
             NodePort(name="outline", data_type=PortDataType.TEXT, required=True),
@@ -130,9 +130,9 @@ class QuickMacroNode(BaseNode):
 
     meta = NodeMeta(
         node_type="planning_quick_macro",
-        display_name="⚡ 极速宏观规划",
+        display_name="极速宏观规划",
         category=NodeCategory.PLANNING,
-        icon="⚡",
+        icon="",
         color="#7c3aed",
         input_ports=[
             NodePort(name="premise", data_type=PortDataType.TEXT, required=True),
@@ -214,9 +214,9 @@ class ActPlanningNode(BaseNode):
 
     meta = NodeMeta(
         node_type="planning_act",
-        display_name="🎭 幕级规划",
+        display_name="幕级规划",
         category=NodeCategory.PLANNING,
-        icon="🎭",
+        icon="",
         color="#8b5cf6",
         input_ports=[
             NodePort(name="context", data_type=PortDataType.TEXT, required=True),

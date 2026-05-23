@@ -363,7 +363,7 @@ def update_shared_novel_state(novel_id: str, **fields) -> None:
     key = f"novel:{novel_id}"
     # Manager.dict 中的值需要是可序列化的，用普通 dict
     current = dict(state.get(key, {}))
-    # 🔥 确保 novel_id 始终在数据中
+    # 确保 novel_id 始终在数据中
     fields["novel_id"] = novel_id
     current.update(fields)
     current["_updated_at"] = time.time()
@@ -535,7 +535,7 @@ def _run_daemon_in_process(
     if stream_queue is not None:
         from application.engine.services.streaming_bus import inject_stream_queue
         inject_stream_queue(stream_queue)
-        logger.info("✅ 守护进程：流式队列已注入")
+        logger.info("守护进程：流式队列已注入")
 
     # 注入共享状态字典（供守护进程写入实时状态）
     if shared_state is not None:
@@ -544,28 +544,28 @@ def _run_daemon_in_process(
             import sys
             sys.modules["__shared_state"] = shared_state
 
-            # 🔥 初始化共享状态仓库（守护进程端）
+            # 初始化共享状态仓库（守护进程端）
             from application.engine.services.shared_state_repository import (
                 inject_shared_dict,
                 get_shared_state_repository,
             )
             inject_shared_dict(shared_state)
-            logger.info("✅ 守护进程：共享状态字典已注入")
+            logger.info("守护进程：共享状态字典已注入")
 
-            # 🔥 初始化状态发布器（守护进程的唯一写入入口）
+            # 初始化状态发布器（守护进程的唯一写入入口）
             from application.engine.services.state_publisher import get_state_publisher
             get_state_publisher()  # 会自动获取共享状态仓库和持久化队列
-            logger.info("✅ 守护进程：状态发布器已初始化")
+            logger.info("守护进程：状态发布器已初始化")
 
         except Exception as e:
             logger.warning("共享状态注入失败（可忽略）: %s", e)
 
-    # 🔥 注入持久化队列（守护进程通过此队列发送 DB 写命令）
+    # 注入持久化队列（守护进程通过此队列发送 DB 写命令）
     if persistence_queue is not None:
         try:
             from application.engine.services.persistence_queue import inject_persistence_queue
             inject_persistence_queue(persistence_queue)
-            logger.info("✅ 守护进程：持久化队列已注入")
+            logger.info("守护进程：持久化队列已注入")
         except Exception as e:
             logger.warning("持久化队列注入失败（可忽略）: %s", e)
 
@@ -579,13 +579,13 @@ def _run_daemon_in_process(
     try:
         from scripts.start_daemon import build_daemon
         daemon = build_daemon()
-        logger.info("🚀 守护进程已启动（独立进程），开始轮询...")
+        logger.info("守护进程已启动（独立进程），开始轮询...")
 
         # 创建持久化事件循环（避免每个小说都 asyncio.run() 创建/销毁循环）
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        logger.info("✅ 守护进程：持久化事件循环已创建")
+        logger.info("守护进程：持久化事件循环已创建")
 
         while not stop_event.is_set():
             try:
@@ -613,16 +613,16 @@ def _run_daemon_in_process(
                 if stop_event.is_set() or _is_expected_daemon_shutdown_exception(e):
                     logger.info("ℹ️ 守护进程在停止/热重载期间中断，正常退出")
                     break
-                logger.error(f"❌ 守护进程异常: {e}", exc_info=True)
+                logger.error(f"守护进程异常: {e}", exc_info=True)
                 stop_event.wait(timeout=10)  # 异常后等待10秒
 
     except BaseException as e:
         if stop_event.is_set() or _is_expected_daemon_shutdown_exception(e):
             logger.info("ℹ️ 守护进程收到停止信号，正常退出")
         else:
-            logger.error(f"❌ 守护进程初始化失败: {e}", exc_info=True)
+            logger.error(f"守护进程初始化失败: {e}", exc_info=True)
     finally:
-        logger.info("🛑 守护进程已停止")
+        logger.info("守护进程已停止")
 
 
 def _init_dag_node_registry():
@@ -642,9 +642,9 @@ def _init_dag_node_registry():
             ext_supplement_nodes,
         )
         from application.engine.dag.registry import NodeRegistry
-        logger.info(f"✅ DAG 节点注册表已初始化: {sorted(NodeRegistry.all_types())}")
+        logger.info(f"DAG 节点注册表已初始化: {sorted(NodeRegistry.all_types())}")
     except Exception as e:
-        logger.warning(f"⚠️ DAG 节点注册表初始化失败（DAG 引擎将不可用）: {e}")
+        logger.warning(f"DAG 节点注册表初始化失败（DAG 引擎将不可用）: {e}")
 
 
 def _start_autopilot_daemon_thread():
@@ -652,12 +652,12 @@ def _start_autopilot_daemon_thread():
     global _daemon_process, _daemon_stop_event
 
     if _daemon_process is not None and _daemon_process.is_alive():
-        logger.warning("⚠️  守护进程已在运行，跳过重复启动")
+        logger.warning("守护进程已在运行，跳过重复启动")
         return
 
     # 检查环境变量是否禁用自动启动守护进程
     if os.getenv("DISABLE_AUTO_DAEMON", "").lower() in ("1", "true", "yes"):
-        logger.info("🔒 守护进程自动启动已禁用（DISABLE_AUTO_DAEMON=1）")
+        logger.info("守护进程自动启动已禁用（DISABLE_AUTO_DAEMON=1）")
         return
 
     # 重要：在启动守护进程前初始化 StreamingBus 的队列
@@ -668,24 +668,24 @@ def _start_autopilot_daemon_thread():
     # 初始化跨进程共享状态字典（必须在启动子进程前完成）
     shared_state = _get_shared_state()
 
-    # 🔥 初始化共享状态仓库（内存优先读取的核心组件）
+    # 初始化共享状态仓库（内存优先读取的核心组件）
     from application.engine.services.shared_state_repository import (
         init_shared_state_repository,
     )
     shared_state_repo = init_shared_state_repository(shared_state)
-    logger.info("✅ 共享状态仓库已初始化")
+    logger.info("共享状态仓库已初始化")
 
-    # 🔥 启动时从 DB 加载所有数据到共享内存
+    # 启动时从 DB 加载所有数据到共享内存
     from application.engine.services.state_bootstrap import bootstrap_state
     bootstrap_stats = bootstrap_state()
-    logger.info(f"✅ 状态已从 DB 加载到共享内存: {bootstrap_stats}")
+    logger.info(f"状态已从 DB 加载到共享内存: {bootstrap_stats}")
 
-    # 🔥 初始化查询服务（API 层的唯一查询入口）
+    # 初始化查询服务（API 层的唯一查询入口）
     from application.engine.services.query_service import init_query_service
     init_query_service(shared_state_repo)
-    logger.info("✅ 查询服务已初始化")
+    logger.info("查询服务已初始化")
 
-    # 🔥 初始化持久化队列（CQRS 单一写入者模式）
+    # 初始化持久化队列（CQRS 单一写入者模式）
     from application.engine.services.persistence_queue import (
         initialize_persistence_queue, get_persistence_queue,
         register_persistence_handlers
@@ -698,7 +698,7 @@ def _start_autopilot_daemon_thread():
     pq = get_persistence_queue()
     if not pq.is_consumer_running():
         pq.start_consumer()
-        logger.info("✅ 持久化消费者线程已启动（单一写入者模式）")
+        logger.info("持久化消费者线程已启动（单一写入者模式）")
     else:
         logger.debug("持久化消费者已在启动早期就绪（守护进程阶段不重复启动）")
 
@@ -712,7 +712,7 @@ def _start_autopilot_daemon_thread():
         daemon=True,
     )
     _daemon_process.start()
-    logger.info("✅ 守护进程已创建并启动（独立进程模式，流式队列 + 共享状态 + 持久化队列已传递）")
+    logger.info("守护进程已创建并启动（独立进程模式，流式队列 + 共享状态 + 持久化队列已传递）")
 
 
 def _cleanup_orphan_python_processes():
@@ -724,7 +724,7 @@ def _cleanup_orphan_python_processes():
     import subprocess
 
     current_pid = os.getpid()
-    logger.info("🔍 检查残留进程（当前 PID=%s）...", current_pid)
+    logger.info("检查残留进程（当前 PID=%s）...", current_pid)
 
     ps_script = r"""$ErrorActionPreference = 'SilentlyContinue'
 Get-CimInstance Win32_Process | ForEach-Object {
@@ -805,14 +805,14 @@ Get-CimInstance Win32_Process | ForEach-Object {
         except OSError as e:
             logger.debug("PowerShell 枚举进程不可用: %s", e)
         except subprocess.TimeoutExpired:
-            logger.warning("⚠️ PowerShell 枚举进程超时，尝试 wmic")
+            logger.warning("PowerShell 枚举进程超时，尝试 wmic")
         if not candidates:
             try:
                 candidates = _list_via_wmic()
             except OSError as e:
                 logger.debug("wmic 枚举进程不可用: %s", e)
             except subprocess.TimeoutExpired:
-                logger.warning("⚠️ wmic 枚举进程超时")
+                logger.warning("wmic 枚举进程超时")
 
         for pid, cmdline in candidates:
             low = cmdline.lower()
@@ -821,7 +821,7 @@ Get-CimInstance Win32_Process | ForEach-Object {
             if pid == current_pid:
                 continue
             try:
-                logger.info("🧹 清理残留进程 PID=%s: %s...", pid, cmdline[:80])
+                logger.info("清理残留进程 PID=%s: %s...", pid, cmdline[:80])
                 subprocess.run(
                     ["taskkill", "/F", "/PID", str(pid)],
                     capture_output=True,
@@ -832,16 +832,16 @@ Get-CimInstance Win32_Process | ForEach-Object {
                 logger.warning("清理进程 %s 失败: %s", pid, e)
 
         if killed_count > 0:
-            logger.info("✅ 已清理 %s 个残留进程", killed_count)
+            logger.info("已清理 %s 个残留进程", killed_count)
         else:
-            logger.info("✅ 未发现残留进程")
+            logger.info("未发现残留进程")
 
     except subprocess.TimeoutExpired:
-        logger.warning("⚠️ 进程清理超时")
+        logger.warning("进程清理超时")
     except FileNotFoundError as e:
-        logger.warning("⚠️ 进程清理失败（未找到 PowerShell/wmic）: %s", e)
+        logger.warning("进程清理失败（未找到 PowerShell/wmic）: %s", e)
     except Exception as e:
-        logger.warning("⚠️ 进程清理失败: %s", e)
+        logger.warning("进程清理失败: %s", e)
 
 
 def _stop_autopilot_daemon_thread():
@@ -855,7 +855,7 @@ def _stop_autopilot_daemon_thread():
 
     daemon_pid = _daemon_process.pid if _daemon_process else None
 
-    # 🔥 停止持久化消费者线程（先停止消费，再停止守护进程）
+    # 停止持久化消费者线程（先停止消费，再停止守护进程）
     try:
         from application.engine.services.persistence_queue import get_persistence_queue
         get_persistence_queue().stop_consumer()
@@ -870,25 +870,25 @@ def _stop_autopilot_daemon_thread():
         logger.debug("发布全局停止信号失败（可忽略）: %s", e)
 
     if _daemon_stop_event:
-        logger.info("🛑 正在停止守护进程...")
+        logger.info("正在停止守护进程...")
         _daemon_stop_event.set()
 
     if _daemon_process and _daemon_process.is_alive():
         _daemon_process.join(timeout=2)  # 给守护进程 2 秒完成当前轮询
         if _daemon_process.is_alive():
-            logger.warning("⚠️  守护进程未在超时时间内停止，强制终止")
+            logger.warning("守护进程未在超时时间内停止，强制终止")
             _daemon_process.terminate()
             _daemon_process.join(timeout=1)
             # 如果还是活着，强制kill
             if _daemon_process.is_alive():
-                logger.warning("⚠️  守护进程仍未停止，使用 SIGKILL")
+                logger.warning("守护进程仍未停止，使用 SIGKILL")
                 try:
                     os.kill(_daemon_process.pid, signal.SIGKILL)
                     _daemon_process.join(timeout=1)
                 except Exception as e:
                     logger.error(f"强制终止守护进程失败: {e}")
         else:
-            logger.info("✅ 守护进程已成功停止")
+            logger.info("守护进程已成功停止")
 
     # Windows: 使用 taskkill 强制杀死已知 PID 的子进程（双保险）
     # multiprocessing 在 Windows 上使用 spawn 方式，子进程可能不在同一进程树
@@ -899,7 +899,7 @@ def _stop_autopilot_daemon_thread():
                 ['taskkill', '/F', '/T', '/PID', str(daemon_pid)],
                 capture_output=True, timeout=3
             )
-            logger.info(f"🛑 Windows: 已通过 taskkill 终止守护进程 PID={daemon_pid}")
+            logger.info(f"Windows: 已通过 taskkill 终止守护进程 PID={daemon_pid}")
         except Exception as e:
             logger.debug(f"taskkill 终止守护进程失败（可能已退出）: {e}")
 
@@ -915,7 +915,7 @@ def restart_autopilot_daemon():
     """重启守护进程以拾取新的 LLM / 嵌入配置（跨进程 env 不可共享，必须重启）。"""
     _stop_autopilot_daemon_thread()
     _start_autopilot_daemon_thread()
-    logger.info("🔄 守护进程已因配置变更重启")
+    logger.info("守护进程已因配置变更重启")
 
 
 # 配置 CORS

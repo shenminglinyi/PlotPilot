@@ -40,9 +40,9 @@ class BlueprintNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ctx_blueprint",
-        display_name="📋 剧本基建",
+        display_name="剧本基建",
         category=NodeCategory.CONTEXT,
-        icon="📋",
+        icon="",
         color="#6366f1",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -127,9 +127,9 @@ class ForeshadowNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ctx_foreshadow",
-        display_name="🪝 伏笔注入器",
+        display_name="伏笔注入器",
         category=NodeCategory.CONTEXT,
-        icon="🪝",
+        icon="",
         color="#f59e0b",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -195,9 +195,9 @@ class VoiceNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ctx_voice",
-        display_name="🎭 角色声线注入",
+        display_name="角色声线注入",
         category=NodeCategory.CONTEXT,
-        icon="🎭",
+        icon="",
         color="#ec4899",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -257,9 +257,9 @@ class MemoryNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ctx_memory",
-        display_name="🧠 记忆引擎",
+        display_name="记忆引擎",
         category=NodeCategory.CONTEXT,
-        icon="🧠",
+        icon="",
         color="#8b5cf6",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),
@@ -320,9 +320,9 @@ class DebtNode(BaseNode):
 
     meta = NodeMeta(
         node_type="ctx_debt",
-        display_name="💰 叙事债务",
+        display_name="叙事债务",
         category=NodeCategory.CONTEXT,
-        icon="💰",
+        icon="",
         color="#f97316",
         input_ports=[
             NodePort(name="novel_id", data_type=PortDataType.TEXT, required=True),

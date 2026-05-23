@@ -11,12 +11,12 @@ _CARD_TEMPLATE = """\
 ━━━ 节点卡
 目标：{goal}
 阻碍：{obstacle}
-✅ 必须写出的行为：{active_action}
+必须写出的行为：{active_action}
 局面变化：{delta}
 情绪缺口：{emotion_gap}
 悬钩推进：{hook_delta}
 感官锚点：{sensory_anchor}
-🚫 本拍禁止写成：{forbidden_drift}"""
+本拍禁止写成：{forbidden_drift}"""
 
 _CARD_FIELDS = (
     "goal", "obstacle", "active_action", "delta",

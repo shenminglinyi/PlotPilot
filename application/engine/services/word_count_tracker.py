@@ -77,8 +77,8 @@ class BeatRecord:
     actual: int = 0       # 实际字数
     deviation: int = 0    # 偏差（actual - adjusted_target）
     phase: ConductorPhase = ConductorPhase.UNFURL  # 该节拍所处的阶段
-    focus: str = ""       # ★ Phase 2: 节拍 focus 类型
-    is_immune: bool = False  # ★ Phase 2: 是否免疫了压缩
+    focus: str = ""       # Phase 2: 节拍 focus 类型
+    is_immune: bool = False  # Phase 2: 是否免疫了压缩
 
 
 class ChapterConductor:
@@ -90,9 +90,9 @@ class ChapterConductor:
     3. 通过 Prompt 指令引导 LLM 自然收束
     4. 物理硬截断作为最后安全网，但必须截到完整句子
     5. 收束是渐进的——不是突然刹车，而是逐步减速
-    6. ★ Phase 2: 高能节拍免疫压缩——爽点不容妥协
-    7. ★ 爽文引擎: 高能节拍锁定 UNFURL，绝对不在打脸高潮处触发 CONVERGE
-    8. ★ 爽文引擎: 高能节拍超支的字数缺口，转嫁到后续 sensory/dialogue 节拍中压缩
+    6. Phase 2: 高能节拍免疫压缩——爽点不容妥协
+    7. 爽文引擎: 高能节拍锁定 UNFURL，绝对不在打脸高潮处触发 CONVERGE
+    8. 爽文引擎: 高能节拍超支的字数缺口，转嫁到后续 sensory/dialogue 节拍中压缩
     """
 
     # ── 阶段切换阈值 ──
@@ -102,38 +102,38 @@ class ChapterConductor:
     # ── 字数保护 ──
     MIN_BEAT_WORDS = 200        # 单节拍最小字数（不能无限压缩）
 
-    # ★ Phase 2: 高能 focus 集合 — 在 CONVERGE/LAND 阶段免疫压缩
+    # Phase 2: 高能 focus 集合 — 在 CONVERGE/LAND 阶段免疫压缩
     HIGH_ENERGY_FOCUSES = {"action", "power_reveal", "identity_reveal", "hook", "cultivation"}
 
     # ── 收束指令模板 ──
     _UNFURL_INSTRUCTION = (
-        "📖【铺陈阶段】本章还有充足的篇幅空间。"
+        "【铺陈阶段】本章还有充足的篇幅空间。"
         "尽情展开：冲突要充分碰撞，对话要你来我往，感官细节要细腻。"
         "不要急于推进下一个情节点——让当前场景充分发酵。"
     )
 
     _CONVERGE_INSTRUCTION = (
-        "⚡【收束阶段】本章字数池已消耗过半。开始收紧节奏：\n"
+        "【收束阶段】本章字数池已消耗过半。开始收紧节奏：\n"
         "• 场景转换加速——一个眼神、一句话就能交代清楚的，不要铺陈整段\n"
         "• 对话变精炼——删掉寒暄和同义反复，只留有信息增量的对白\n"
         "• 叙述变紧凑——环境描写点到即止，用一两个精准细节代替全景扫描\n"
         "• 情节主线优先——支线细节如果不在本章闭合，一笔带过\n"
         "• 保持连贯性——即使节奏收紧，也要确保与上一节拍的情节衔接自然\n"
-        "• ⚠️ 收紧节奏≠碎片化——同一动作链和视觉焦点的句子仍须合并为有机段落，只是每段信息密度更高、句数更少（2-3句），不要退化为一句一行的分镜脚本"
+        "• 收紧节奏≠碎片化——同一动作链和视觉焦点的句子仍须合并为有机段落，只是每段信息密度更高、句数更少（2-3句），不要退化为一句一行的分镜脚本"
     )
 
     _LAND_INSTRUCTION = (
-        "🎯【着陆阶段】本章即将结束，必须立即收住！\n"
+        "【着陆阶段】本章即将结束，必须立即收住！\n"
         "• 用最后一个完整的场景画面收束——一个动作、一个表情、一句有分量的话\n"
         "• 绝不开启新的场景或新的对话回合\n"
         "• 如果有下一章的钩子，用一句暗示性的短句点一下即可，不要展开\n"
         "• 结尾必须是完整的句子（以句号等结束），绝不留下半句话\n"
         "• 确保与上一节拍形成完整的叙事弧线，给读者满足感\n"
-        "• ⚠️ 着陆收束仍须保持段落完整性——同一个画面的动作、感官、心理合并在同一段，不要因收尾急促而退化为一句一行的碎片"
+        "• 着陆收束仍须保持段落完整性——同一个画面的动作、感官、心理合并在同一段，不要因收尾急促而退化为一句一行的碎片"
     )
 
     _FINAL_BEAT_HINT = (
-        "📌 这是本章最后一个节拍！章节必须在此结束：\n"
+        "这是本章最后一个节拍！章节必须在此结束：\n"
         "1. 给出完整的段落收尾——故事告一段落，读者能感知到「这一章讲完了」\n"
         "2. 留一个悬念钩子——让读者想翻下一页，但不要强行总结\n"
         "3. 用有画面感的方式结束——最后一个画面留在读者脑海中\n"
@@ -176,14 +176,14 @@ class ChapterConductor:
         self.beats: List[BeatRecord] = []
         self.current_index = 0
 
-    # ★ 爽文引擎: 可压缩的 focus 集合 — 用于收束转嫁
+    # 爽文引擎: 可压缩的 focus 集合 — 用于收束转嫁
     COMPRESSIBLE_FOCUSES = {"sensory", "dialogue", "emotion", "inner_monologue"}
 
     @property
     def phase(self) -> ConductorPhase:
         """当前所处的指挥阶段
 
-        ★ 爽文引擎增强：
+        爽文引擎增强：
         如果当前最近一个节拍是高能 focus，强制锁定 UNFURL，
         无视 60% 或 85% 的预算消耗比——绝不在打脸高潮处触发收束。
         """
@@ -191,7 +191,7 @@ class ChapterConductor:
             return ConductorPhase.LAND
         ratio = self.used / self.total_budget
 
-        # ★ 爽文引擎: 高能节拍锁定 UNFURL
+        # 爽文引擎: 高能节拍锁定 UNFURL
         if self._is_in_high_energy():
             return ConductorPhase.UNFURL
 
@@ -258,13 +258,13 @@ class ChapterConductor:
         根据当前阶段和剩余预算动态调整，优先保证连贯性：
         - UNFURL 阶段：保持原始目标甚至略微放宽
         - CONVERGE 阶段：适度压缩（85%），确保情节连贯
-          ★ Phase 2: 高能节拍免疫压缩
+          Phase 2: 高能节拍免疫压缩
         - LAND 阶段：谨慎压缩（70%），保证结尾完整性
-          ★ Phase 2: 高能节拍免疫压缩
+          Phase 2: 高能节拍免疫压缩
 
         Args:
             original_target: 原始目标字数
-            focus: 节拍 focus 类型（★ Phase 2: 用于判断是否免疫压缩）
+            focus: 节拍 focus 类型（Phase 2: 用于判断是否免疫压缩）
 
         Returns:
             调整后的目标字数
@@ -273,9 +273,9 @@ class ChapterConductor:
         remaining_beats = self._estimate_remaining_beats()
         current_phase = self.phase
         is_high_energy = focus in self.HIGH_ENERGY_FOCUSES
-        is_immune = False  # ★ Phase 2: 标记是否触发了免疫
+        is_immune = False  # Phase 2: 标记是否触发了免疫
 
-        # ★ 爽文引擎: 收束转嫁 — 可压缩节拍分摊高能节拍超支的缺口
+        # 爽文引擎: 收束转嫁 — 可压缩节拍分摊高能节拍超支的缺口
         high_energy_debt = self._calc_debt_from_high_energy()
         if focus in self.COMPRESSIBLE_FOCUSES and high_energy_debt > 0:
             # 将超支缺口平摊到后续所有可压缩节拍
@@ -284,7 +284,7 @@ class ChapterConductor:
                 debt_share = high_energy_debt // remaining_compressible
                 original_target = max(self.MIN_BEAT_WORDS, original_target - debt_share)
                 logger.info(
-                    f"[章节指挥] 📉 收束转嫁：可压缩节拍({focus})承担 {debt_share} 字缺口 "
+                    f"[章节指挥] 收束转嫁：可压缩节拍({focus})承担 {debt_share} 字缺口 "
                     f"(总债务={high_energy_debt}, 剩余可压缩节拍={remaining_compressible})"
                 )
 
@@ -301,12 +301,12 @@ class ChapterConductor:
             else:
                 adjusted = max(self.MIN_BEAT_WORDS, int(original_target * 0.85))
         elif current_phase == ConductorPhase.CONVERGE:
-            # ★ Phase 2: 高能节拍免疫压缩
+            # Phase 2: 高能节拍免疫压缩
             if is_high_energy:
                 adjusted = original_target  # 免疫：不压缩
                 is_immune = True
                 logger.info(
-                    f"[章节指挥] 🛡️ 高能节拍({focus})免疫压缩：保持 {original_target} 字 "
+                    f"[章节指挥] 高能节拍({focus})免疫压缩：保持 {original_target} 字 "
                     f"(CONVERGE 阶段)"
                 )
             else:
@@ -315,12 +315,12 @@ class ChapterConductor:
                 beat_minimum = max(self.MIN_BEAT_WORDS, original_target // 2)
                 adjusted = max(beat_minimum, int(min(original_target * 0.85, avg_per_beat * 1.1)))
         else:
-            # ★ Phase 2: 高能节拍免疫压缩（即使是 LAND 阶段）
+            # Phase 2: 高能节拍免疫压缩（即使是 LAND 阶段）
             if is_high_energy:
                 adjusted = max(original_target, int(original_target * 0.9))  # LAND 阶段最多压 10%
                 is_immune = True
                 logger.info(
-                    f"[章节指挥] 🛡️ 高能节拍({focus})免疫压缩：保持 {adjusted} 字 "
+                    f"[章节指挥] 高能节拍({focus})免疫压缩：保持 {adjusted} 字 "
                     f"(LAND 阶段，最多压缩10%)"
                 )
             else:
@@ -336,11 +336,11 @@ class ChapterConductor:
             adjusted_target=adjusted,
             phase=current_phase,
             focus=focus,
-            is_immune=is_immune,  # ★ Phase 2
+            is_immune=is_immune,  # Phase 2
         )
         self.beats.append(record)
 
-        immune_mark = "🛡️免疫" if is_immune else ""
+        immune_mark = "免疫" if is_immune else ""
         logger.debug(
             f"[章节指挥] 节拍 {self.current_index + 1}: "
             f"阶段={current_phase.value}, 目标 {original_target} → {adjusted} 字 "
@@ -368,10 +368,9 @@ class ChapterConductor:
         self.used += actual_words
         self.current_index += 1
 
-        phase_emoji = {"unfurl": "📖", "converge": "⚡", "land": "🎯"}.get(record.phase.value, "")
         if record.deviation > 0:
             logger.info(
-                f"[章节指挥] {phase_emoji} 节拍 {record.index + 1} 超额 {record.deviation} 字 "
+                f"[章节指挥] 节拍 {record.index + 1} 超额 {record.deviation} 字 "
                 f"(目标 {record.adjusted_target}，实际 {actual_words})"
             )
 
@@ -394,12 +393,12 @@ class ChapterConductor:
         if current_phase == ConductorPhase.LAND:
             remaining_budget = self.total_budget - self.used
             return (
-                f"🎯【着陆指令】：本章即将结束！剩余预算仅 {remaining_budget} 字。"
+                f"【着陆指令】：本章即将结束！剩余预算仅 {remaining_budget} 字。"
                 f"必须立即收束场景，用一个完整的句子结束本节拍，绝不开启新场景！"
             )
         elif current_phase == ConductorPhase.CONVERGE:
             return (
-                f"⚡【收束提示】：本章字数池已消耗较多，当前节拍请适度控制篇幅，"
+                f"【收束提示】：本章字数池已消耗较多，当前节拍请适度控制篇幅，"
                 f"场景转换加快，对话简洁有力。"
             )
 
@@ -420,7 +419,7 @@ class ChapterConductor:
         }
 
     def _is_in_high_energy(self) -> bool:
-        """★ 爽文引擎: 判断是否正处于高能节拍中
+        """爽文引擎: 判断是否正处于高能节拍中
 
         检查最近一个已完成的节拍是否为高能 focus，
         如果是，则整个当前阶段锁定为 UNFURL。
@@ -432,7 +431,7 @@ class ChapterConductor:
         return last_beat.focus in self.HIGH_ENERGY_FOCUSES and last_beat.is_immune
 
     def _calc_debt_from_high_energy(self) -> int:
-        """★ 爽文引擎: 计算因高能节拍免疫而超支的字数缺口
+        """爽文引擎: 计算因高能节拍免疫而超支的字数缺口
 
         遍历所有已完成的节拍，累计因免疫而超支的字数。
         这些缺口需要从后续可压缩节拍中回收。
@@ -459,7 +458,7 @@ class ChapterConductor:
         return 2
 
     def _estimate_remaining_compressible_beats(self) -> int:
-        """★ 爽文引擎: 估算剩余可压缩节拍数
+        """爽文引擎: 估算剩余可压缩节拍数
 
         可压缩节拍是 focus 属于 COMPRESSIBLE_FOCUSES 的节拍。
         用于收束转嫁时计算每个可压缩节拍应承担的债务份额。
@@ -492,7 +491,7 @@ def smart_truncate(text: str, max_chars: int, focus: str = "") -> str:
     - 次选在逗号/分号等停顿处截断
     - 最后才在空格处截断
 
-    ★ 爽文引擎增强：
+    爽文引擎增强：
     - 情绪感知截断：如果截断点前 200 字处于张力上升期，不补句号，改用省略号
     - 制造悬念残影，而非"杀死"叙事势能
 
@@ -507,7 +506,7 @@ def smart_truncate(text: str, max_chars: int, focus: str = "") -> str:
     if not text or len(text) <= max_chars:
         return text
 
-    # ★ 爽文引擎: 检测张力上升期
+    # 爽文引擎: 检测张力上升期
     is_rising_tension = _detect_rising_tension(text, max_chars, focus)
 
     # 先截到 max_chars
@@ -530,7 +529,7 @@ def smart_truncate(text: str, max_chars: int, focus: str = "") -> str:
     for i in range(len(truncated) - 1, max(len(truncated) - 200, -1), -1):
         if re.match(pause_marks, truncated[i]):
             result = truncated[:i + 1]
-            # ★ 爽文引擎: 在停顿符后补省略号（而非句号），保留叙事余韵
+            # 爽文引擎: 在停顿符后补省略号（而非句号），保留叙事余韵
             # 句号会"杀死"叙事势能，省略号暗示故事还在继续
             result = _balance_quotes(result)
             if not re.search(r'[。！？…）】》"\'』」]$', result):
@@ -545,7 +544,7 @@ def smart_truncate(text: str, max_chars: int, focus: str = "") -> str:
             result += '……'
         return result
 
-    # ★ 爽文引擎: 最终降级策略
+    # 爽文引擎: 最终降级策略
     # 如果处于张力上升期，用省略号制造悬念残影
     # 如果不是上升期，也用省略号替代句号保留叙事余韵
     result = truncated.rstrip()
@@ -554,7 +553,7 @@ def smart_truncate(text: str, max_chars: int, focus: str = "") -> str:
     return result
 
 
-# ★ 爽文引擎: 张力上升期检测关键词
+# 爽文引擎: 张力上升期检测关键词
 _RISING_TENSION_KEYWORDS = {
     "爆发", "冲", "怒", "震", "怒吼", "反击", "逆转", "底牌",
     "暴露", "揭露", "震惊", "不可置信", "瞳孔", "倒吸", "骇然",
@@ -566,7 +565,7 @@ _HIGH_ENERGY_FOCUSES_FOR_TRUNCATE = {"action", "power_reveal", "identity_reveal"
 
 
 def _detect_rising_tension(text: str, max_chars: int, focus: str = "") -> bool:
-    """★ 爽文引擎: 检测截断点前 200 字是否处于张力上升期
+    """爽文引擎: 检测截断点前 200 字是否处于张力上升期
 
     判断逻辑：
     1. 如果 focus 属于高能池，直接判定为上升期
@@ -593,7 +592,7 @@ def _detect_rising_tension(text: str, max_chars: int, focus: str = "") -> bool:
 
 
 def build_soft_landing_prompt(focus: str = "", emotion_trend: str = "stable") -> str:
-    """★ 爽文引擎: 构建 soft_landing 续写指令
+    """爽文引擎: 构建 soft_landing 续写指令
 
     当触发 _soft_landing 时，续写指令必须携带前置情绪状态，
     确保高潮画面的最后定格不会丢失情绪张力。

@@ -10,9 +10,9 @@
     @update:show="$emit('update:show', $event)"
   >
     <div v-if="meta" class="node-detail">
-      <!-- ★ Dify 风格：顶部状态条 -->
+      <!-- Dify 风格：顶部状态条 -->
       <div class="detail-status-bar" :style="{ background: statusBarBg }">
-        <span class="status-icon">{{ meta.icon || '📦' }}</span>
+        <span v-if="meta.icon" class="status-icon">{{ meta.icon }}</span>
         <span class="status-label">{{ statusLabel }}</span>
         <n-tag v-if="!nodeEnabled" size="small" type="default" round>已禁用</n-tag>
         <n-tag v-else-if="isRunning" size="small" type="info" round>
@@ -134,7 +134,7 @@
 
     <template #footer>
       <div class="detail-footer">
-        <!-- ★ 启用/禁用 Switch — 统一放在弹窗底部 -->
+        <!-- 启用/禁用 Switch — 统一放在弹窗底部 -->
         <div class="footer-left" v-if="nodeId && meta?.can_disable">
           <n-text depth="3" style="font-size: 12px; margin-right: 8px">启用节点</n-text>
           <n-switch
@@ -289,7 +289,7 @@ const isRunning = computed(() => status.value === 'running')
 
 const panelTitle = computed(() => {
   if (!meta.value) return '节点详情'
-  return `${meta.value.icon || '📦'} ${meta.value.display_name || props.nodeId}`
+  return meta.value.display_name || props.nodeId
 })
 
 // ─── 状态条 ───
@@ -312,12 +312,12 @@ const STATUS_LABEL_MAP: Record<string, string> = {
   idle: '⏹ 空闲',
   pending: '⏳ 等待中',
   running: '▶️ 运行中',
-  success: '✅ 成功',
-  warning: '⚠️ 警告',
-  error: '❌ 错误',
+  success: '成功',
+  warning: '警告',
+  error: '错误',
   bypassed: '⏭ 已旁路',
-  disabled: '⛔ 已禁用',
-  completed: '✅ 已完成',
+  disabled: '已禁用',
+  completed: '已完成',
 }
 
 const statusLabel = computed(() => STATUS_LABEL_MAP[status.value] || status.value)
