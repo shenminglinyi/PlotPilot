@@ -220,7 +220,7 @@
 
     <!-- 仅写作阶段拉章节流；审计/规划时服务端会关流，避免无意义重连 -->
     <AutopilotWritingStream
-      v-if="isWriting"
+      v-if="isWriting && props.renderLivePreview !== false"
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
       :writing-beat-index="writingBeatIndex"
@@ -327,7 +327,10 @@ import AuditPipelineObservability from './AuditPipelineObservability.vue'
 import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 
-const props = defineProps({ novelId: String })
+const props = defineProps({
+  novelId: String,
+  renderLivePreview: { type: Boolean, default: true },
+})
 const emit = defineEmits([
   'status-change',
   'chapter-content-update',
@@ -365,6 +368,29 @@ const MIN_CHAPTER_STREAM_RESTART_MS = 3000
 const writingContent = ref('')
 const writingChapterNumber = ref(0)
 const writingBeatIndex = ref(0)
+let chapterChunkEmitTimer = null
+let pendingChapterChunk = null
+const CHAPTER_CHUNK_EMIT_INTERVAL_MS = 120
+
+function flushChapterChunkEmit() {
+  if (chapterChunkEmitTimer) {
+    clearTimeout(chapterChunkEmitTimer)
+    chapterChunkEmitTimer = null
+  }
+  if (!pendingChapterChunk) return
+  emit('chapter-chunk', pendingChapterChunk)
+  pendingChapterChunk = null
+}
+
+function emitChapterChunkThrottled(payload, immediate = false) {
+  pendingChapterChunk = payload
+  if (immediate) {
+    flushChapterChunkEmit()
+    return
+  }
+  if (chapterChunkEmitTimer) return
+  chapterChunkEmitTimer = setTimeout(flushChapterChunkEmit, CHAPTER_CHUNK_EMIT_INTERVAL_MS)
+}
 
 // 🔥 新增：操作节流保护——防止用户快速连续点击导致请求堆积
 // toggling 为 true 时按钮已禁用，但需要额外保护异步操作的竞态
@@ -862,13 +888,13 @@ function startChapterStream() {
         writingContent.value += payload.chunk
       }
       writingBeatIndex.value = payload.beatIndex
-      emit('chapter-chunk', {
+      emitChapterChunkThrottled({
         chunk: payload.chunk ?? '',
         beatIndex: payload.beatIndex,
         content: writingContent.value,
         chapterNumber: writingChapterNumber.value,
         isSnapshot: payload.isSnapshot,
-      })
+      }, Boolean(payload.isSnapshot))
     },
     onChapterContent: (data) => {
       writingContent.value = data.content
@@ -1263,6 +1289,7 @@ async function forceStopFromError() {
 }
 
 onUnmounted(() => {
+  flushChapterChunkEmit()
   statusFetchSeq += 1
   statusFetchInFlight = false  // 🔥 重置请求去重标志
   if (statusLastAbort) {

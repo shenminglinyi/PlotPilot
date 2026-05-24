@@ -12,6 +12,7 @@
         <AutopilotPanel
           class="ap-workspace__cockpit-panel"
           :novel-id="novelId"
+          :render-live-preview="(cockpitVisible ?? true) && workspace.activeTab === 'cockpit'"
           @status-change="onStatusChange"
           @chapter-content-update="onChapterContentUpdate"
           @chapter-chunk="onChapterChunk"
@@ -67,6 +68,7 @@ import AutopilotOperationsView from './AutopilotOperationsView.vue'
 
 const props = defineProps<{
   novelId: string
+  cockpitVisible?: boolean
 }>()
 
 const emit = defineEmits<{
