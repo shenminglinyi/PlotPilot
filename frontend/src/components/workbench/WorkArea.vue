@@ -319,6 +319,7 @@
         v-show="workMode === 'managed'"
         class="managed-stack"
         :novel-id="slug"
+        :cockpit-visible="workMode === 'managed'"
         @status-change="handleAutopilotStatusChange"
         @chapter-content-update="handleChapterContentUpdate"
         @chapter-chunk="handleChapterChunkStream"
@@ -723,7 +724,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onMounted, onUnmounted, type Component } from 'vue'
+import { ref, watch, computed, nextTick, onMounted, onUnmounted, defineAsyncComponent, type Component } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDialog, useMessage } from 'naive-ui'
 import { resolveHttpUrl } from '../../api/config'
@@ -740,14 +741,15 @@ import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi, type ChapterMicroBeatPayload } from '../../api/chapter'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
-import ChapterElementPanel from './ChapterElementPanel.vue'
 import ChapterContentPanel from './ChapterContentPanel.vue'
 import ChapterStatusPanel from './ChapterStatusPanel.vue'
 import ChapterWorkbenchShell from './ChapterWorkbenchShell.vue'
-import QualityGuardrailPanel from './QualityGuardrailPanel.vue'
-import TraceRecordPanel from './TraceRecordPanel.vue'
-import AutopilotWorkspace from '../autopilot/AutopilotWorkspace.vue'
 import AutopilotWritingStream from '../autopilot/AutopilotWritingStream.vue'
+
+const ChapterElementPanel = defineAsyncComponent(() => import('./ChapterElementPanel.vue'))
+const QualityGuardrailPanel = defineAsyncComponent(() => import('./QualityGuardrailPanel.vue'))
+const TraceRecordPanel = defineAsyncComponent(() => import('./TraceRecordPanel.vue'))
+const AutopilotWorkspace = defineAsyncComponent(() => import('../autopilot/AutopilotWorkspace.vue'))
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import {

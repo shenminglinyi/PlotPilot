@@ -3,7 +3,7 @@
     <AutopilotShellNav />
 
     <div class="ap-workspace__body">
-      <!-- 三页均 v-show 保持挂载：章节 SSE、DAG SSE、轮询不因切页断开 -->
+      <!-- 驾驶舱保留挂载以维持写作 SSE；其它重页面按需挂载，避免隐藏图表/DAG 常驻吃内存。 -->
       <section
         v-show="workspace.activeTab === 'cockpit'"
         class="ap-workspace__pane ap-workspace__pane--cockpit"
@@ -22,7 +22,7 @@
       </section>
 
       <section
-        v-show="workspace.activeTab === 'governance'"
+        v-if="workspace.activeTab === 'governance'"
         class="ap-workspace__pane ap-workspace__pane--governance"
         aria-label="总编辑驾驶舱"
       >
@@ -30,7 +30,7 @@
       </section>
 
       <section
-        v-show="workspace.activeTab === 'dashboard'"
+        v-if="workspace.activeTab === 'dashboard'"
         class="ap-workspace__pane"
         aria-label="仪表盘"
       >
@@ -42,7 +42,7 @@
       </section>
 
       <section
-        v-show="workspace.activeTab === 'operations'"
+        v-if="workspace.activeTab === 'operations'"
         class="ap-workspace__pane ap-workspace__pane--ops"
         aria-label="监控与 DAG"
       >
@@ -57,14 +57,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, toRef, watch, nextTick } from 'vue'
+import { computed, defineAsyncComponent, ref, toRef, watch, nextTick } from 'vue'
 import { useAutopilotWorkspaceStore } from '@/stores/autopilotWorkspaceStore'
 import { useDAGSSE } from '@/composables/useDAGSSE'
 import AutopilotShellNav from './AutopilotShellNav.vue'
 import AutopilotPanel from './AutopilotPanel.vue'
-import NarrativeGovernanceCockpit from './NarrativeGovernanceCockpit.vue'
-import AutopilotMetricsDashboard from './AutopilotMetricsDashboard.vue'
-import AutopilotOperationsView from './AutopilotOperationsView.vue'
+
+const NarrativeGovernanceCockpit = defineAsyncComponent(() => import('./NarrativeGovernanceCockpit.vue'))
+const AutopilotMetricsDashboard = defineAsyncComponent(() => import('./AutopilotMetricsDashboard.vue'))
+const AutopilotOperationsView = defineAsyncComponent(() => import('./AutopilotOperationsView.vue'))
 
 const props = defineProps<{
   novelId: string
@@ -81,10 +82,11 @@ const emit = defineEmits<{
 }>()
 
 const workspace = useAutopilotWorkspaceStore()
-const metricsRef = ref<InstanceType<typeof AutopilotMetricsDashboard> | null>(null)
+const metricsRef = ref<{ relayoutTension?: () => void; bumpRefresh?: () => void } | null>(null)
+const operationsActive = computed(() => workspace.activeTab === 'operations')
 
-/** 工作区级 DAG SSE，切页不断连 */
-useDAGSSE(toRef(props, 'novelId'))
+/** DAG/日志 SSE 只在监控页打开时连接；写作正文 SSE 仍由驾驶舱常驻维护。 */
+useDAGSSE(toRef(props, 'novelId'), operationsActive)
 
 watch(
   () => workspace.activeTab,

@@ -183,10 +183,27 @@ export const useDAGRunStore = defineStore('dagRun', () => {
   const _edgeFlowCallbacks: SSECallback[] = []
   const _runCompleteCallbacks: RunCompleteCallback[] = []
 
-  function onNodeStatusChange(cb: SSECallback) { _nodeStatusCallbacks.push(cb) }
-  function onNodeOutput(cb: SSECallback) { _nodeOutputCallbacks.push(cb) }
-  function onEdgeFlow(cb: SSECallback) { _edgeFlowCallbacks.push(cb) }
-  function onRunComplete(cb: RunCompleteCallback) { _runCompleteCallbacks.push(cb) }
+  function removeCallback<T>(callbacks: T[], cb: T) {
+    const ix = callbacks.indexOf(cb)
+    if (ix >= 0) callbacks.splice(ix, 1)
+  }
+
+  function onNodeStatusChange(cb: SSECallback) {
+    _nodeStatusCallbacks.push(cb)
+    return () => removeCallback(_nodeStatusCallbacks, cb)
+  }
+  function onNodeOutput(cb: SSECallback) {
+    _nodeOutputCallbacks.push(cb)
+    return () => removeCallback(_nodeOutputCallbacks, cb)
+  }
+  function onEdgeFlow(cb: SSECallback) {
+    _edgeFlowCallbacks.push(cb)
+    return () => removeCallback(_edgeFlowCallbacks, cb)
+  }
+  function onRunComplete(cb: RunCompleteCallback) {
+    _runCompleteCallbacks.push(cb)
+    return () => removeCallback(_runCompleteCallbacks, cb)
+  }
 
   function handleSSEMessage(event: NodeEvent) {
     // 通用消息分发

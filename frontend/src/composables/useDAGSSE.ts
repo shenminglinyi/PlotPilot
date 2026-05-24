@@ -7,7 +7,7 @@
  * 3. 智能重连：指数退避，避免连接风暴
  * 4. 性能监控：记录指标，自动告警
  */
-import { onMounted, onUnmounted, watch, type Ref } from 'vue'
+import { computed, onMounted, onUnmounted, watch, type Ref } from 'vue'
 import { useDAGStore } from '@/stores/dagStore'
 import { useDAGRunStore } from '@/stores/dagRunStore'
 import type { NodeEvent, NodeStatus } from '@/types/dag'
@@ -34,10 +34,11 @@ const PERF_THRESHOLDS = {
   renderTime: 100,
 }
 
-export function useDAGSSE(novelId: Ref<string>) {
+export function useDAGSSE(novelId: Ref<string>, enabled?: Ref<boolean>) {
   const dagStore = useDAGStore()
   const runStore = useDAGRunStore()
   const isDev = import.meta.env.DEV
+  const shouldConnect = computed(() => enabled?.value ?? true)
 
   /** DAG 版本变化时重建 type→id，避免每条日志 O(n) 扫描 nodes */
   let typeToIdCacheVersion = -1
@@ -178,19 +179,19 @@ export function useDAGSSE(novelId: Ref<string>) {
 
   // ─── 注册回调（使用优化的批量处理）───
 
-  runStore.onNodeStatusChange((event) => {
+  const stopNodeStatus = runStore.onNodeStatusChange((event) => {
     enqueueEvent(event)
   })
 
-  runStore.onNodeOutput((event) => {
+  const stopNodeOutput = runStore.onNodeOutput((event) => {
     enqueueEvent(event)
   })
 
-  runStore.onEdgeFlow((event) => {
+  const stopEdgeFlow = runStore.onEdgeFlow((event) => {
     enqueueEvent(event)
   })
 
-  runStore.onRunComplete(() => {
+  const stopRunComplete = runStore.onRunComplete(() => {
     // 立即刷新队列
     flushQueue()
     dagStore.resetNodeStates()
@@ -209,7 +210,7 @@ export function useDAGSSE(novelId: Ref<string>) {
       if (isDev) {
         console.warn('[SSE] 连接断开')
       }
-      if (runStore.runStatus === 'running') {
+      if (shouldConnect.value && runStore.runStatus === 'running') {
         smartReconnect()
       }
     }
@@ -217,12 +218,20 @@ export function useDAGSSE(novelId: Ref<string>) {
 
   // ─── 生命周期 ───
 
+  function connectCurrentNovel() {
+    if (!shouldConnect.value || !novelId.value) return
+    runStore.connectSSE(novelId.value)
+    runStore.connectAutopilotLog(novelId.value, handleAutopilotLogEvent)
+    syncFromAutopilotStatus(novelId.value)
+  }
+
+  function disconnectCurrentNovel() {
+    runStore.disconnectSSE()
+    runStore.disconnectAutopilotLog()
+  }
+
   onMounted(() => {
-    if (novelId.value) {
-      runStore.connectSSE(novelId.value)
-      runStore.connectAutopilotLog(novelId.value, handleAutopilotLogEvent)
-      syncFromAutopilotStatus(novelId.value)
-    }
+    connectCurrentNovel()
   })
 
   onUnmounted(() => {
@@ -235,8 +244,11 @@ export function useDAGSSE(novelId: Ref<string>) {
     // 刷新剩余消息
     flushQueue()
 
-    runStore.disconnectSSE()
-    runStore.disconnectAutopilotLog()
+    disconnectCurrentNovel()
+    stopNodeStatus()
+    stopNodeOutput()
+    stopEdgeFlow()
+    stopRunComplete()
 
     // 输出性能指标（仅开发环境，避免生产控制台噪音）
     if (isDev && perfMetrics.eventsReceived > 0) {
@@ -254,15 +266,24 @@ export function useDAGSSE(novelId: Ref<string>) {
       // 刷新队列
       flushQueue()
 
-      runStore.disconnectSSE()
-      runStore.disconnectAutopilotLog()
+      disconnectCurrentNovel()
 
-      if (newId) {
+      if (newId && shouldConnect.value) {
         reconnectAttempts = 0
         runStore.connectSSE(newId)
         runStore.connectAutopilotLog(newId, handleAutopilotLogEvent)
         syncFromAutopilotStatus(newId)
       }
+    }
+  })
+
+  watch(shouldConnect, (active) => {
+    flushQueue()
+    if (active) {
+      reconnectAttempts = 0
+      connectCurrentNovel()
+    } else {
+      disconnectCurrentNovel()
     }
   })
 

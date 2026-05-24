@@ -103,7 +103,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import * as echarts from 'echarts'
+import '../../plugins/echarts'
+import { graphic, init, type ECharts, type EChartsCoreOption } from 'echarts/core'
 import { monitorApi } from '../../api/monitor'
 import type { TensionCurveStats } from '../../api/monitor'
 import { isRequestCanceled } from '../../utils/requestCancel'
@@ -159,7 +160,7 @@ function stopAutoRefresh() {
   if (countdownTimer !== null)   { clearInterval(countdownTimer);   countdownTimer = null }
 }
 
-let chartInstance: echarts.ECharts | null = null
+let chartInstance: ECharts | null = null
 /** 监听卡片/分栏拖拽导致的容器宽高变化（不会触发 window resize） */
 let chartResizeObserver: ResizeObserver | null = null
 /** 仪表盘 v-show 隐藏时容器为 0；切回可见时需重新 render */
@@ -340,7 +341,7 @@ function renderChart() {
   renderDimensionAttempts = 0
 
   if (!chartInstance) {
-    chartInstance = echarts.init(chartRef.value)
+    chartInstance = init(chartRef.value)
   }
 
   const chapterNumbers = tensionData.value.map((d) => d.chapter_number)
@@ -349,7 +350,7 @@ function renderChart() {
   // 未评估章节用虚线连接，已评估用实线
   const evaluatedFlags = tensionData.value.map((d) => d.evaluated)
 
-  const option: echarts.EChartsOption = {
+  const option: EChartsCoreOption = {
     grid: {
       left: 36,
       right: 16,
@@ -411,7 +412,7 @@ function renderChart() {
           type: 'solid',
         },
         areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          color: new graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: 'rgba(24, 160, 88, 0.25)' },
             { offset: 1, color: 'rgba(24, 160, 88, 0.02)' },
           ]),
