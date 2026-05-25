@@ -27,6 +27,19 @@ class Beat:
     scene_goal: str = ""
     transition_from_prev: str = ""
     location_id: str = ""
+    function: str = ""
+    pov: str = ""
+    cast_refs: List[str] = field(default_factory=list)
+    location_refs: List[str] = field(default_factory=list)
+    prop_refs: List[str] = field(default_factory=list)
+    knowledge_refs: List[str] = field(default_factory=list)
+    entity_manifest: dict = field(default_factory=dict)
+    visible_action: str = ""
+    conflict: str = ""
+    delta: str = ""
+    handoff_to_next: str = ""
+    must_include: List[str] = field(default_factory=list)
+    must_not_include: List[str] = field(default_factory=list)
     emotion_beat_card: Optional["EmotionBeatCard"] = None
     card_prompt_block: str = ""
 

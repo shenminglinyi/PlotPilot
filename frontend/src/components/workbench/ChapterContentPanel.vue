@@ -8,16 +8,13 @@
           托管运行中：仅可查看
         </n-alert>
 
-        <!-- 本章规划 -->
+        <!-- 章前导演计划 -->
         <n-card v-if="chapterPlan" size="small" :bordered="true" class="cc-card-plan">
           <template #header>
-            <span class="card-title">📋 本章规划</span>
+            <span class="card-title">📋 章前导演计划</span>
           </template>
           <n-descriptions :column="1" label-placement="left" size="small" label-style="white-space: nowrap">
             <n-descriptions-item label="标题">{{ chapterPlan.title || '—' }}</n-descriptions-item>
-            <n-descriptions-item v-if="chapterPlan.outline" label="大纲">
-              <n-text style="font-size: 12px; white-space: pre-wrap">{{ chapterPlan.outline }}</n-text>
-            </n-descriptions-item>
             <n-descriptions-item v-if="chapterPlan.pov_character_id" label="视角">
               {{ getCharacterName(chapterPlan.pov_character_id) }}
             </n-descriptions-item>
@@ -30,89 +27,86 @@
           </n-descriptions>
         </n-card>
 
-        <!-- 节拍规划 -->
+        <!-- 导演节拍 -->
         <n-card v-if="showBeatsCard" size="small" :bordered="true">
           <template #header>
-            <span class="card-title">🎬 节拍规划</span>
+            <span class="card-title">🎬 导演节拍</span>
           </template>
-          <n-tabs v-model:value="activeBeatsTab" type="segment" size="small" animated>
-            <n-tab-pane name="macro" tab="宏观">
-              <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-                章节大纲 — 作者意图总览
-              </n-text>
-              <div v-if="chapterPlan?.outline?.trim()" class="macro-outline-text">
-                {{ chapterPlan.outline }}
-              </div>
-              <n-empty v-else description="暂无大纲数据" size="small" />
-              <template v-if="narrativeBeatSections.length">
-                <n-divider style="margin: 12px 0" />
-                <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-                  知识库<strong>叙事节拍条</strong>（章后同步 · beat_sections）— 按句切分的大纲要点，<strong>不是</strong>写作指挥器微观节拍。
+          <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
+            <template v-if="microHintIsOutlineFallback">
+              章前规划<strong>失败或降级</strong>时的章纲拆条预览（按段落/句读），仅供参考，非指挥器节拍。
+            </template>
+            <template v-else-if="microHintFromKnowledgeDb">
+              以下为已落库的<strong>写作指挥器 Beat</strong>。
+            </template>
+            <template v-else>
+              仅展示写作指挥器真实 Beat（流式/全托管拆拍）。
+            </template>
+          </n-text>
+          <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
+            <div v-for="(beat, i) in microBeats" :key="i" class="micro-beat-item">
+              <div class="micro-beat-header">
+                <span
+                  class="beat-focus-pill"
+                  :class="`beat-focus-pill--${beatFocusTone(beat.focus)}`"
+                >
+                  {{ beatFocusLabel(beat.focus) }}
+                </span>
+                <n-text strong style="margin-left: 8px">节拍 {{ i + 1 }}</n-text>
+                <n-text
+                  v-if="beat.target_words > 0"
+                  depth="3"
+                  style="margin-left: 8px; font-size: 12px"
+                >
+                  （约 {{ beat.target_words }} 字）
                 </n-text>
-                <n-space vertical :size="6">
-                  <div
-                    v-for="(line, i) in narrativeBeatSections"
-                    :key="`narr-${i}`"
-                    class="narrative-beat-line"
-                  >
-                    <n-text depth="3" style="font-size: 11px; flex-shrink: 0">{{ i + 1 }}.</n-text>
-                    <n-text style="font-size: 12px">{{ line }}</n-text>
-                  </div>
-                </n-space>
-              </template>
-            </n-tab-pane>
-            
-            <n-tab-pane name="micro" tab="微观">
-              <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-                <template v-if="microHintIsOutlineFallback">
-                  章前规划<strong>失败或降级</strong>时的章纲拆条预览（按段落/句读），仅供参考，非指挥器节拍。
-                </template>
-                <template v-else-if="microHintFromKnowledgeDb">
-                  以下为知识库已落库的<strong>指挥器微观节拍</strong>（chapter_summaries.micro_beats）。
-                </template>
-                <template v-else>
-                  仅展示写作指挥器真实 Beat（流式/全托管拆拍）。叙事节拍条见「宏观」页。
-                </template>
-              </n-text>
-              <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
-                <div v-for="(beat, i) in microBeats" :key="i" class="micro-beat-item">
-                  <div class="micro-beat-header">
-                    <span
-                      class="beat-focus-pill"
-                      :class="`beat-focus-pill--${beatFocusTone(beat.focus)}`"
-                    >
-                      {{ beatFocusLabel(beat.focus) }}
-                    </span>
-                    <n-text strong style="margin-left: 8px">节拍 {{ i + 1 }}</n-text>
-                    <n-text
-                      v-if="beat.target_words > 0"
-                      depth="3"
-                      style="margin-left: 8px; font-size: 12px"
-                    >
-                      （约 {{ beat.target_words }} 字）
-                    </n-text>
-                  </div>
-                  <div class="micro-beat-desc">{{ formatBeatDescription(beat.description) }}</div>
-                  <div v-if="beat.active_action || beat.emotion_gap || beat.forbidden_drift" class="mbc">
-                    <div v-if="beat.active_action" class="mbc-row">
-                      <span class="mbc-tag">行为</span><span class="mbc-val">{{ beat.active_action }}</span>
-                    </div>
-                    <div v-if="beat.emotion_gap" class="mbc-row">
-                      <span class="mbc-tag mbc-tag--gap">缺口</span><span class="mbc-val">{{ beat.emotion_gap }}</span>
-                    </div>
-                    <div v-if="beat.forbidden_drift" class="mbc-row">
-                      <span class="mbc-tag mbc-tag--warn">禁止</span><span class="mbc-val mbc-val--muted">{{ beat.forbidden_drift }}</span>
-                    </div>
-                  </div>
+              </div>
+              <div class="micro-beat-desc">{{ formatBeatDescription(beat.description) }}</div>
+              <div v-if="hasBeatContractDetails(beat)" class="mbc">
+                <div v-if="beat.function" class="mbc-row">
+                  <span class="mbc-tag">功能</span><span class="mbc-val">{{ beatFunctionLabel(beat.function) }}</span>
                 </div>
-              </n-space>
-              <n-empty
-                v-else
-                :description="microEmptyDescription"
-                size="small"
-              />
-            </n-tab-pane>
-          </n-tabs>
+                <div v-if="beat.pov" class="mbc-row">
+                  <span class="mbc-tag">POV</span><span class="mbc-val">{{ beat.pov }}</span>
+                </div>
+                <div v-if="beat.cast_refs?.length" class="mbc-row">
+                  <span class="mbc-tag">角色</span><span class="mbc-val">{{ beat.cast_refs.join('、') }}</span>
+                </div>
+                <div v-if="beat.location_refs?.length" class="mbc-row">
+                  <span class="mbc-tag">地点</span><span class="mbc-val">{{ beat.location_refs.join('、') }}</span>
+                </div>
+                <div v-if="beat.prop_refs?.length" class="mbc-row">
+                  <span class="mbc-tag">道具</span><span class="mbc-val">{{ beat.prop_refs.join('、') }}</span>
+                </div>
+                <div v-if="beat.visible_action" class="mbc-row">
+                  <span class="mbc-tag">可见行为</span><span class="mbc-val">{{ beat.visible_action }}</span>
+                </div>
+                <div v-if="beat.conflict" class="mbc-row">
+                  <span class="mbc-tag">冲突</span><span class="mbc-val">{{ beat.conflict }}</span>
+                </div>
+                <div v-if="beat.delta" class="mbc-row">
+                  <span class="mbc-tag mbc-tag--gap">变化</span><span class="mbc-val">{{ beat.delta }}</span>
+                </div>
+                <div v-if="beat.handoff_to_next" class="mbc-row">
+                  <span class="mbc-tag">承接</span><span class="mbc-val">{{ beat.handoff_to_next }}</span>
+                </div>
+                <div v-if="!beat.visible_action && beat.active_action" class="mbc-row">
+                  <span class="mbc-tag">行为</span><span class="mbc-val">{{ beat.active_action }}</span>
+                </div>
+                <div v-if="beat.emotion_gap" class="mbc-row">
+                  <span class="mbc-tag mbc-tag--gap">缺口</span><span class="mbc-val">{{ beat.emotion_gap }}</span>
+                </div>
+                <div v-if="beat.forbidden_drift" class="mbc-row">
+                  <span class="mbc-tag mbc-tag--warn">禁止</span><span class="mbc-val mbc-val--muted">{{ beat.forbidden_drift }}</span>
+                </div>
+              </div>
+            </div>
+          </n-space>
+          <n-empty
+            v-else
+            :description="microEmptyDescription"
+            size="small"
+          />
         </n-card>
 
         <n-alert v-if="storyNodeNotFound" type="warning" :show-icon="true">
@@ -125,8 +119,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { storeToRefs } from 'pinia'
+import { useMessage } from 'naive-ui'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { planningApi } from '../../api/planning'
 import type { StoryNode } from '../../api/planning'
@@ -135,6 +130,9 @@ import type { ChapterSummary } from '../../api/knowledge'
 import { bibleApi, type CharacterDTO } from '../../api/bible'
 import type { StreamGeneratedBeat } from '../../api/workflow'
 import type { AutopilotChapterAudit } from './ChapterStatusPanel.vue'
+import { loadAssistBeatSession } from '@/utils/assistBeatSession'
+
+const message = useMessage()
 
 const props = withDefaults(
   defineProps<{
@@ -144,15 +142,15 @@ const props = withDefaults(
     autopilotChapterReview?: AutopilotChapterAudit | null
     /** 辅助撰稿 · 最近一次流式生成下发的指挥器节拍（与 SSE beats_generated 一致） */
     assistStreamBeatSession?: { chapterNumber: number; beats: StreamGeneratedBeat[] } | null
-    /** 对应章节流式生成失败时，微观区才用章纲拆条兜底 */
+    /** 对应章节流式生成失败时，规划卡片才用章纲拆条兜底 */
     assistStreamFailedChapter?: number | null
     /** 流式完成但章前拆拍失败/降级（≤1 拍） */
     assistStreamPlanFailedChapter?: number | null
-    /** 外部 +1 时自动切到节拍规划「微观」tab */
-    beatTabBump?: number
     /** 全托管正在写的本章且 total_beats≤1（规划已结束并降级） */
     autopilotOutlinePlanFailed?: boolean
-    /** 最近一次流式生成完成的章号（无微观节拍时用于提示） */
+    /** 全托管是否仍在运行（用于空态文案，避免停止后仍显示「规划进行中」） */
+    autopilotRunning?: boolean
+    /** 最近一次流式生成完成的章号（无导演节拍时用于提示） */
     assistStreamCompletedChapter?: number | null
   }>(),
   {
@@ -163,6 +161,7 @@ const props = withDefaults(
     assistStreamFailedChapter: null,
     assistStreamPlanFailedChapter: null,
     autopilotOutlinePlanFailed: false,
+    autopilotRunning: false,
     assistStreamCompletedChapter: null,
   }
 )
@@ -170,9 +169,6 @@ const props = withDefaults(
 const storyNodeNotFound = ref(false)
 const chapterPlan = ref<StoryNode | null>(null)
 const knowledgeChapter = ref<ChapterSummary | null>(null)
-
-const activeBeatsTab = ref<'macro' | 'micro'>('macro')
-watch(() => props.beatTabBump, (v) => { if (v && v > 0) activeBeatsTab.value = 'micro' })
 
 // Bible 数据用于 ID -> name 映射
 const bibleCharacters = ref<CharacterDTO[]>([])
@@ -227,14 +223,6 @@ function expandRawBeatLines(raw: string[]): string[] {
   return out.slice(0, BEAT_LINE_CAP)
 }
 
-/** 知识库叙事节拍条（仅用于宏观页展示，不进微观指挥器区） */
-const narrativeBeatSections = computed(() => {
-  const k = knowledgeChapter.value
-  if (!k?.beat_sections?.length) return []
-  const raw = k.beat_sections.map(s => String(s || '').trim()).filter(Boolean)
-  return expandRawBeatLines(raw)
-})
-
 /** 流式失败时从章纲拆条的兜底素材 */
 const beatLines = computed(() => {
   const ol = chapterPlan.value?.outline?.trim()
@@ -261,6 +249,18 @@ interface MicroBeat {
   description: string
   target_words: number
   focus: string
+  function?: string
+  pov?: string
+  cast_refs?: string[]
+  location_refs?: string[]
+  prop_refs?: string[]
+  knowledge_refs?: string[]
+  visible_action?: string
+  conflict?: string
+  delta?: string
+  handoff_to_next?: string
+  must_include?: string[]
+  must_not_include?: string[]
   active_action?: string
   emotion_gap?: string
   forbidden_drift?: string
@@ -272,18 +272,26 @@ const BEAT_FOCUS_LABELS: Record<string, string> = {
   action: '动作',
   emotion: '情绪',
   pacing: '节奏',
+  mixed: '混合',
   outline_ref: '大纲参考',
   narrative_ref: '叙事节拍',
   transition: '过渡',
 }
 
 function formatBeatDescription(raw: string): string {
-  const s = String(raw || '').trim()
+  let s = String(raw || '').trim()
   const prefix = '【章纲节选·须落实】'
-  if (!s.startsWith(prefix)) return s
-  const nl = s.indexOf('\n')
-  if (nl === -1) return s
-  return s.slice(nl + 1).trim() || s
+  s = s.replace(/\s*【随后，紧接着写】[\s\S]*$/u, '').trim()
+  while (s.includes(prefix)) {
+    const start = s.indexOf(prefix)
+    const nl = s.indexOf('\n', start)
+    if (nl === -1) {
+      s = s.slice(0, start).trim()
+      break
+    }
+    s = `${s.slice(0, start)}${s.slice(nl + 1)}`.trim()
+  }
+  return s
 }
 
 function beatFocusLabel(focus: string): string {
@@ -302,6 +310,7 @@ function beatFocusTone(focus: string): BeatFocusTone {
     action: 'warning',
     emotion: 'danger',
     pacing: 'neutral',
+    mixed: 'neutral',
     outline_ref: 'neutral',
     narrative_ref: 'info',
     transition: 'info',
@@ -311,6 +320,14 @@ function beatFocusTone(focus: string): BeatFocusTone {
 
 function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
   const out: MicroBeat[] = []
+  const asStringList = (value: unknown): string[] | undefined => {
+    if (Array.isArray(value)) {
+      const items = value.map(v => String(v).trim()).filter(Boolean)
+      return items.length ? items : undefined
+    }
+    if (typeof value === 'string' && value.trim()) return [value.trim()]
+    return undefined
+  }
   for (const item of raw) {
     if (item == null) continue
     if (typeof item === 'string') {
@@ -334,6 +351,18 @@ function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
         description: desc,
         target_words: targetWords,
         focus,
+        function:        typeof o.function        === 'string' ? o.function        : undefined,
+        pov:             typeof o.pov             === 'string' ? o.pov             : undefined,
+        cast_refs:       asStringList(o.cast_refs),
+        location_refs:   asStringList(o.location_refs),
+        prop_refs:       asStringList(o.prop_refs),
+        knowledge_refs:  asStringList(o.knowledge_refs),
+        visible_action:  typeof o.visible_action  === 'string' ? o.visible_action  : undefined,
+        conflict:        typeof o.conflict        === 'string' ? o.conflict        : undefined,
+        delta:           typeof o.delta           === 'string' ? o.delta           : undefined,
+        handoff_to_next: typeof o.handoff_to_next === 'string' ? o.handoff_to_next : undefined,
+        must_include:    asStringList(o.must_include),
+        must_not_include: asStringList(o.must_not_include),
         active_action:   typeof o.active_action   === 'string' ? o.active_action   : undefined,
         emotion_gap:     typeof o.emotion_gap      === 'string' ? o.emotion_gap     : undefined,
         forbidden_drift: typeof o.forbidden_drift  === 'string' ? o.forbidden_drift : undefined,
@@ -341,6 +370,36 @@ function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
     }
   }
   return out
+}
+
+function hasBeatContractDetails(beat: MicroBeat): boolean {
+  return Boolean(
+    beat.function ||
+    beat.pov ||
+    beat.cast_refs?.length ||
+    beat.location_refs?.length ||
+    beat.prop_refs?.length ||
+    beat.visible_action ||
+    beat.conflict ||
+    beat.delta ||
+    beat.handoff_to_next ||
+    beat.active_action ||
+    beat.emotion_gap ||
+    beat.forbidden_drift,
+  )
+}
+
+function beatFunctionLabel(value: string): string {
+  const map: Record<string, string> = {
+    setup: '铺设',
+    pressure: '加压',
+    payoff: '兑现',
+    reveal: '揭示',
+    transition: '转场',
+    aftermath: '余波',
+    hook: '钩子',
+  }
+  return map[value] ?? value
 }
 
 function outlineFallbackMicroBeats(): MicroBeat[] {
@@ -352,7 +411,7 @@ function outlineFallbackMicroBeats(): MicroBeat[] {
   }))
 }
 
-/** 落库 micro_beats → 流式 SSE；不足时章纲拆条预览（与宏观叙事条分离） */
+/** 落库 micro_beats → 流式 SSE；规划失败时才使用章纲拆条预览 */
 function conductorMicroBeatsForChapter(ch: number): MicroBeat[] {
   const k = knowledgeChapter.value
   if (k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0) {
@@ -362,6 +421,11 @@ function conductorMicroBeatsForChapter(ch: number): MicroBeat[] {
   const sess = props.assistStreamBeatSession
   if (sess && sess.chapterNumber === ch && sess.beats.length > 0) {
     const parsed = normalizeMicroBeatItems(sess.beats as unknown[])
+    if (parsed.length > 0) return parsed
+  }
+  const stored = loadAssistBeatSession(props.slug, ch)
+  if (stored?.length) {
+    const parsed = normalizeMicroBeatItems(stored as unknown[])
     if (parsed.length > 0) return parsed
   }
   return []
@@ -416,32 +480,20 @@ const microEmptyDescription = computed(() => {
     return '章前规划失败，但章纲无法拆出有效预览句段'
   }
   if (props.assistStreamCompletedChapter === ch) {
-    return '本轮流式未产出指挥器节拍；可重试生成或查看宏观大纲'
-  }
-  if (narrativeBeatSections.value.length > 0) {
-    return '章前规划拆拍将在写作时产出；知识库叙事条见「宏观」页'
+    return '本轮流式未产出指挥器节拍；可重试生成'
   }
   if (
+    props.autopilotRunning &&
     props.autopilotOutlinePlanFailed === false &&
     beatLines.value.length > 0
   ) {
     return '章前规划进行中或尚未开始；规划完成后将显示指挥器节拍'
   }
-  return '暂无指挥器微观节拍：流式生成或全托管写作时将进行章前规划（outline_planning）'
-})
-
-function formatTime(t: string) {
-  try {
-    return new Date(t).toLocaleString('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  } catch {
-    return t
+  if (beatLines.value.length > 0) {
+    return '暂无指挥器节拍（托管已停止或未执行章前拆拍）；可重新启动托管或使用流式生成'
   }
-}
+  return '暂无导演节拍：流式生成或全托管写作时将进行章前规划（outline_planning）'
+})
 
 function findChapterNode(nodes: StoryNode[], num: number): StoryNode | null {
   for (const node of nodes) {
@@ -580,25 +632,7 @@ onUnmounted(() => {
   line-height: 1.8;
 }
 
-/* 宏观大纲 */
-.macro-outline-text {
-  font-size: 15px;
-  line-height: 1.9;
-  color: var(--n-text-color-1);
-  white-space: pre-wrap;
-}
-
-.narrative-beat-line {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: var(--n-color-modal);
-  border: 1px dashed var(--n-border-color);
-}
-
-/* 微观节拍 */
+/* 导演节拍 */
 .micro-beat-item {
   padding: 12px 14px;
   border-radius: var(--app-radius-md, 10px);

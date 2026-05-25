@@ -23,6 +23,39 @@ FocusInferer = Callable[[str], str]
 ExpansionHintBuilder = Callable[[str, int], List[str]]
 
 
+def _string_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _string(value: Any) -> str:
+    return str(value).strip() if value not in (None, [], {}) else ""
+
+
+def _default_function(intent: str, focus: str) -> str:
+    text = intent or ""
+    if any(k in text for k in ("突袭", "逼", "压制", "杀机", "遭遇")):
+        return "pressure"
+    if any(k in text for k in ("爆发", "震碎", "击败", "破局", "反制")):
+        return "payoff"
+    if any(k in text for k in ("发现", "徽记", "真相", "计划", "芯片")):
+        return "reveal"
+    if any(k in text for k in ("逃离", "离开", "转移", "赶往")):
+        return "transition"
+    return focus or "setup"
+
+
+def _default_visible_action(intent: str) -> str:
+    return f"用可见动作、对白或选择落实：{intent}" if intent else ""
+
+
+def _default_delta(intent: str) -> str:
+    return f"本拍结束时，读者必须看到局势因「{intent}」发生明确变化" if intent else ""
+
+
 def beat_sheet_to_plan_json(beat_sheet: Optional[Any]) -> Optional[Dict[str, Any]]:
     """Project a repository BeatSheet into the canonical plan input JSON."""
     if not beat_sheet:
@@ -82,6 +115,7 @@ def beats_from_execution_plan(
 
         raw_focus = ext.get("focus") or ext.get("type")
         focus = raw_focus.strip() if isinstance(raw_focus, str) and raw_focus.strip() else infer_focus(intent)
+        function = _string(ext.get("function")) or _default_function(intent, focus)
 
         transition_raw = ext.get("transition_from_prev")
         transition = str(transition_raw).strip() if transition_raw else ""
@@ -92,16 +126,31 @@ def beats_from_execution_plan(
             if isinstance(location_raw, str) and location_raw.strip()
             else ""
         )
+        location_refs = _string_list(ext.get("location_refs"))
+        if not location_id and location_refs:
+            location_id = location_refs[0]
 
         beats.append(
             Beat(
-                description=OUTLINE_OBLIGATION_PREFIX + intent,
+                description=intent,
                 target_words=target_words,
                 focus=focus,
                 expansion_hints=build_expansion_hints(focus, target_words),
                 scene_goal=intent,
                 transition_from_prev=transition,
                 location_id=location_id,
+                function=function,
+                pov=_string(ext.get("pov")),
+                cast_refs=_string_list(ext.get("cast_refs")),
+                location_refs=location_refs,
+                prop_refs=_string_list(ext.get("prop_refs")),
+                knowledge_refs=_string_list(ext.get("knowledge_refs")),
+                visible_action=_string(ext.get("visible_action") or ext.get("active_action")) or _default_visible_action(intent),
+                conflict=_string(ext.get("conflict")),
+                delta=_string(ext.get("delta") or ext.get("required_delta")) or _default_delta(intent),
+                handoff_to_next=_string(ext.get("handoff_to_next")),
+                must_include=_string_list(ext.get("must_include")),
+                must_not_include=_string_list(ext.get("must_not_include")),
             )
         )
     return beats

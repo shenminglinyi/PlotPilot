@@ -8,7 +8,6 @@ from application.engine.dag.plan.schema import (
 )
 from application.engine.dag.plan.outline_beat_planner import build_chapter_execution_plan_sync
 from application.engine.services.beat_projection import (
-    OUTLINE_OBLIGATION_PREFIX,
     beat_sheet_to_plan_json,
     beats_from_execution_plan,
     planned_micro_beats_from_beats,
@@ -47,7 +46,7 @@ def test_beat_sheet_to_plan_json_projects_scene_fields():
     }
 
 
-def test_execution_plan_projects_to_runtime_beats_with_outline_obligation():
+def test_execution_plan_projects_to_runtime_beats_without_prompt_obligation_prefix():
     plan = ChapterExecutionPlan(
         envelope=PlanningEnvelope(target_chapter_words=1000),
         atoms=[
@@ -76,7 +75,7 @@ def test_execution_plan_projects_to_runtime_beats_with_outline_obligation():
     )
 
     assert len(beats) == 2
-    assert beats[0].description == OUTLINE_OBLIGATION_PREFIX + "主角发现账本缺页"
+    assert beats[0].description == "主角发现账本缺页"
     assert beats[0].target_words == 250
     assert beats[0].focus == "suspense"
     assert beats[0].location_id == "warehouse"

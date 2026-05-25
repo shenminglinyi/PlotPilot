@@ -19,6 +19,18 @@ export interface ChapterMicroBeatPayload {
   target_words?: number
   focus?: string
   location_id?: string
+  function?: string
+  pov?: string
+  cast_refs?: string[]
+  location_refs?: string[]
+  prop_refs?: string[]
+  knowledge_refs?: string[]
+  visible_action?: string
+  conflict?: string
+  delta?: string
+  handoff_to_next?: string
+  must_include?: string[]
+  must_not_include?: string[]
   active_action?: string
   emotion_gap?: string
   forbidden_drift?: string

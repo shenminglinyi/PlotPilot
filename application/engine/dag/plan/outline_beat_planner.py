@@ -65,7 +65,19 @@ def render_cpms_outline_partition_prompts(
             OUTLINE_BEAT_PARTITION,
         )
         return "", ""
-    return (res.system or "").strip(), (res.user or "").strip()
+    runtime_schema_guard = """
+
+### 运行时导演合同字段（必须输出）
+每个 atom 除 id/intent/weight/focus/transition_hint 外，必须补齐：
+- function: setup|pressure|payoff|reveal|transition|aftermath|hook
+- visible_action: 本拍必须写出的可见动作/对白/选择，禁止空泛
+- conflict: 本拍的阻碍、误判、压迫或信息差
+- delta: 本拍结束后改变的事实、关系或认知
+- handoff_to_next: 交给下一拍的承接点
+- pov, cast_refs, location_refs, prop_refs, knowledge_refs, must_include, must_not_include 可为空数组/空串
+如果没有稳定实体 id，refs 留空，不要编造 token id。
+""".rstrip()
+    return (res.system or "").strip(), ((res.user or "").strip() + runtime_schema_guard)
 
 
 class _LLMDecomposeModel(BaseModel):
@@ -204,6 +216,23 @@ def _normalize_llm_atom_entries(entries: List[Dict[str, Any]]) -> List[PlanAtomS
         transition_hint = row.get("transition_hint") or row.get("transition_from_prev") or ""
         if transition_hint and isinstance(transition_hint, str):
             ext["transition_from_prev"] = transition_hint.strip()
+        for key in (
+            "function",
+            "pov",
+            "cast_refs",
+            "location_refs",
+            "prop_refs",
+            "knowledge_refs",
+            "visible_action",
+            "conflict",
+            "delta",
+            "handoff_to_next",
+            "must_include",
+            "must_not_include",
+        ):
+            value = row.get(key)
+            if value not in (None, "", [], {}):
+                ext[key] = value
         out.append(
             PlanAtomSpec(
                 id=atom_id[:64],
