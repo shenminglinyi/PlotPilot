@@ -1,7 +1,7 @@
 name: 极速宏观规划·破城槌
 category: planning
 source: infrastructure/ai/prompts/prompts_defaults.json
-description: 极速模式：狂热主编风格，基于英雄之旅与救猫咪理论强推商业网文骨架
+description: 极速模式：源设定优先的爽文宏观规划，按题材赛道放大爽点与长线钩子
 builtin: true
 tags:
 - 宏观规划

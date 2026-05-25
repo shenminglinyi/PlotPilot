@@ -2004,7 +2004,7 @@ class ContinuousPlanningService:
 """
         
         system_msg = f"""# 角色设定
-你是一位狂热且极具市场敏锐度的顶级网文主编，精通各类网文商业节奏与类型承诺。你的任务是帮作者打破"白纸恐惧"，严格沿着用户已选择的题材、世界观基调和设定边界，瞬间推演填补出一个完整、宏大、且充满极端冲突的长篇叙事骨架。
+你是一位专业的爽文长篇结构顾问，精通商业连载节奏，也尊重作者原始创意的独特性。你的任务是帮作者打破"白纸恐惧"，严格沿着用户已选择的题材、世界观基调和设定边界，推演填补出一个完整、宏大、爽点持续且具备强张力的长篇叙事骨架。
 不要主动引入用户未选择的题材外壳、时代质感或标志性元素。
 
 {depth_instruction}
@@ -2016,9 +2016,9 @@ class ContinuousPlanningService:
    本篇小说目标 {target_chapters} 章，建议分为约 {total_recommended_acts} 幕
    （{rec_parts} 部 × 每部约 {rec_volumes_per_part} 卷 × 每卷约 {rec_acts_per_volume} 幕），
    每幕约 {rec_chapters_per_act} 章。请严格按此数量框架规划。
-2. 英雄之旅：平凡世界→冒险召唤→试炼→深渊→蜕变→归来
-3. 情绪曲线：开篇抓人→中段起伏（小高潮间隔2-3幕）→终局爆发
-4. 钩子密度：每部结尾必须有大悬念，每卷结尾有中等悬念，每幕结尾有小悬念
+2. 爽文动力链：压制/欲望/目标→阻力→选择→代价→反击/突破/新局面，具体形态服从题材和世界观
+3. 情绪曲线：开篇抓人→中段起伏→终局兑现，不机械套用固定旅程
+4. 钩子密度：每个阶段都要留下推动读者继续阅读的未完成问题或爽点预期，钩子形态服从原设
 </STORY_THEORY>
 
 # 核心推演铁律（The Icebreaker Rules V4）
@@ -2033,10 +2033,12 @@ class ContinuousPlanningService:
    - 赌注（失败会失去什么）
    - 转折（预期违背）
 
-3. 【世界观融合】必须深度融合提供的设定：
+3. 【源设定最高优先级】必须深度融合提供的设定：
    - 主要角色必须出现在关键幕中
    - 关键地点必须承担叙事功能
    - 时间线事件必须影响情节走向
+   - 作者原始梗概、所选赛道、世界观基调的权重高于任何通用商业套路
+   - 不得用未选择的热门题材元素替代原有卖点
 
 4. 【商业节奏】
    - 第一部：快速抛出核心悬念，建立主角目标
@@ -2116,7 +2118,7 @@ class ContinuousPlanningService:
             context_parts.append("\n".join(time_lines) + "\n")
 
         if not context_parts:
-            context_parts.append("【世界观与人物】\n暂无详细设定，请基于通用的商业小说套路生成结构，但仍需保持结构灵活和冲突极致。\n")
+            context_parts.append("【世界观与人物】\n暂无详细设定，请优先依据作者梗概与题材赛道生成结构；只补全必要因果，不套入无关热门题材。\n")
 
         worldview_context = "\n".join(context_parts)
 
@@ -2198,19 +2200,19 @@ class ContinuousPlanningService:
         pacing_guide += "</ACT_PACING>"
 
         system_msg = f"""# 角色设定
-你是一位极其理性的长篇小说结构架构师，精通经典叙事理论和现代网文节奏。作者正在进行一项严密的叙事工程，设定了精确的篇幅限制和结构分布。你的任务是像外科手术一样，在严格遵守"结构网格"和"字数节奏"的前提下，深度融合世界观设定，分配情节张力，确保中段不塌陷，高潮不疲软。
+你是一位极其理性的长篇小说结构架构师，精通经典叙事理论和现代网文节奏。作者正在进行一项严密的叙事工程，设定了精确的篇幅限制和结构分布。你的任务是在严格遵守"结构网格"和"字数节奏"的前提下，优先保护作者原始输入、题材赛道和世界观基调，再分配情节张力，确保中段不塌陷，结尾能兑现承诺。
 
-# 叙事理论框架
+# 叙事理论框架（工具，不是模板）
 <STORY_THEORY>
-1. 三幕剧结构映射：
-   - 第1部 ≈ 第一幕（设定）：主角现状→触发事件→拒绝改变→跨越门槛
-   - 中间部 ≈ 第二幕（对抗）：试炼与盟友→深入深渊→核心考验
-   - 最后部 ≈ 第三幕（解决）：回归→终极对决→新世界
+1. 阶段功能映射：
+   - 前段：让读者看清主角处境、目标、阻力和世界规则
+   - 中段：通过选择、代价、关系变化和信息差扩大冲突
+   - 后段：回收关键承诺，完成主角与世界规则的正面碰撞
 
 2. 情绪曲线设计：
    - 每部内部：起→承→转→合
    - 幕间关系：悬念→揭示→更大悬念
-   - 高潮分布：每部1个大高潮，每卷1个中高潮，每2-3幕1个小高潮
+   - 高潮分布：按题材需要安排阶段性回报，不机械要求固定类型的高潮
 
 3. 角色弧光整合：
    - 主角必须在结构节点处经历关键转变
@@ -2234,6 +2236,7 @@ class ContinuousPlanningService:
    - 关键地点必须承担具体叙事功能（不仅是背景，而是冲突发生地/转折点）
    - 时间线事件必须与幕结构对齐（某幕必须解决某事件，或某事件触发某幕）
    - 角色关系必须在幕中体现（某幕聚焦某对关系的转变）
+   - 题材赛道和作者原始梗概的权重高于通用网文结构偏好；不要将故事推向未选择的风格外壳
 
 4. 【逻辑严密性】
    - 严禁机械降神：所有解决必须基于已铺垫的能力/资源
@@ -2328,7 +2331,7 @@ class ContinuousPlanningService:
             context_parts.append("\n".join(time_lines) + "\n")
 
         if not context_parts:
-            context_parts.append("【世界观与人物】\n暂无详细设定，请生成通用的结构框架，但仍需严格遵守结构网格。\n")
+            context_parts.append("【世界观与人物】\n暂无详细设定，请依据作者梗概与题材赛道生成结构框架；只补必要因果，不引入无关题材外壳。\n")
 
         worldview_context = "\n".join(context_parts)
 
@@ -2572,18 +2575,18 @@ class ContinuousPlanningService:
     def _build_act_planning_prompt(self, act_node: StoryNode, bible_context: Dict, previous_summary: Optional[str], chapter_count: int) -> Prompt:
         """构建幕级规划提示词
 
-        ★ Phase 3: 增强版——强制标注爽点 + 伏笔收种计划
+        ★ Phase 3: 增强版——标注题材内爽点 + 伏笔收种计划
         核心改进：
         1. 每章必须标注 thrill_type（爽点类型）：power_reveal / identity_reveal / action / suspense 等
         2. 每章必须标注 foreshadow_action（伏笔操作）：plant(种) / resolve(收) / none
-        3. 前三章强制 power_reveal 或 identity_reveal（商业网文铁律）
+        3. 前三章快速兑现题材承诺，但不硬塞与原设冲突的爽点类型
         """
-        system_msg = """你是一位手握无数畅销书的狂热白金级网文主编，擅长设计让读者欲罢不能的章节大纲。
+        system_msg = """你是一位专业的爽文章节策划，擅长把作者原设中的矛盾、人物选择和世界规则拆成有爽点回报的章节大纲。
 
 你的铁律：
-1. 每章必须有至少一个"爽点"——让读者肾上腺素飙升的时刻
+1. 每章必须有至少一个明确的爽点回报：反击、打脸、突破、信息揭示、关系变化、能力验证、情绪转折或新问题
 2. 伏笔必须有计划地"种"和"收"——不能只种不收，也不能无铺垫地收
-3. 前三章必须是 power_reveal（实力展露）或 identity_reveal（身份揭露）——绝不接受 character_intro
+3. 前三章要快速建立主角处境、核心阻力和题材承诺；是否展露实力或身份，必须服从作者原设与本幕因果
 
 请直接输出 JSON 格式，不要添加任何解释性文字。"""
 
@@ -2606,18 +2609,20 @@ class ContinuousPlanningService:
 
         context = "\n".join(context_parts)
 
-        # ★ Phase 3: 增强型用户提示——强制标注爽点+伏笔收种
+        # ★ Phase 3: 增强型用户提示——标注爽点回报+伏笔收种
         user_msg = f"""{context}
 
-请为这一幕规划 {chapter_count} 个章节。每章必须包含爽点标注和伏笔操作。
+请为这一幕规划 {chapter_count} 个章节。每章必须包含爽点回报标注和伏笔操作。
 
-★★★ 爽点类型说明（thrill_type 必选其一）★★★
-- power_reveal: 实力/能力展露（主角亮出底牌，旁观者震惊）
-- identity_reveal: 身份/地位揭露（隐藏身份曝光，全场震动）
+★★★ 爽点回报类型说明（thrill_type 必选其一）★★★
+- power_reveal: 实力/能力验证（只在大纲和设定需要时使用）
+- identity_reveal: 身份/地位揭露（只在已有铺垫和因果允许时使用）
 - action: 战斗/对峙高潮（激烈冲突，胜负翻转）
 - suspense: 悬念爆发（重大真相揭露，认知颠覆）
 - emotion: 情感爆发（极致情感冲击，催泪/燃点）
 - hook: 钩子开场（以强冲突开场，立刻抓住读者）
+- relation_shift: 关系变化（信任、背叛、试探、结盟或决裂）
+- world_rule: 世界规则落地（让读者看见本题材的独特规则如何改变行动）
 
 ★★★ 伏笔操作说明（foreshadow_action 必选其一）★★★
 - plant: 种下新伏笔（埋下未来线索，暗示更大秘密）
@@ -2625,10 +2630,10 @@ class ContinuousPlanningService:
 - plant_and_resolve: 同时种新收旧（最佳节奏——满足读者同时吊住胃口）
 - none: 无伏笔操作（仅限纯动作/过渡章节，每幕不超过2章）
 
-★★★ 前三章铁律 ★★★
-第1章：必须是 hook + power_reveal 或 identity_reveal
-第2章：必须有 power_reveal 或 identity_reveal
-第3章：必须有 action 或 power_reveal
+★★★ 前三章原则 ★★★
+第1章：必须有 hook，并清楚落地主角处境、阻力和题材承诺
+第2章：必须承接第1章后果，推进一个实质选择或关系变化
+第3章：必须有一次实质高潮，可为 action / power_reveal / suspense / relation_shift，按题材和原设选择
 
 ★★★ 伏笔节奏铁律 ★★★
 - 本幕内种下的伏笔，必须有至少1条在本幕或下一幕回收
@@ -2645,7 +2650,7 @@ class ContinuousPlanningService:
       "characters": ["人物ID"],
       "locations": ["地点ID"],
       "thrill_type": "power_reveal",
-      "thrill_description": "爽点描述：主角在什么场景下展露了什么实力/身份，旁观者如何反应",
+      "thrill_description": "爽点描述：本章通过什么冲突、反击、突破、揭示或关系变化给读者正反馈",
       "foreshadow_action": "plant",
       "foreshadow_detail": "伏笔细节：种下/回收了什么伏笔"
     }}

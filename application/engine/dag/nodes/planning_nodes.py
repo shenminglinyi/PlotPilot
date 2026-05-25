@@ -126,7 +126,7 @@ class BeatSheetNode(BaseNode):
 
 @NodeRegistry.register("planning_quick_macro")
 class QuickMacroNode(BaseNode):
-    """极速宏观规划·破城槌 — 狂热主编风格"""
+    """极速宏观规划 — 源设定优先的爽文结构"""
 
     meta = NodeMeta(
         node_type="planning_quick_macro",
@@ -149,7 +149,7 @@ class QuickMacroNode(BaseNode):
         default_timeout_seconds=120,
         cpms_node_key=PLANNING_QUICK_MACRO,
         prompt_mode=PromptMode.CPMS_FIRST,
-        description="极速模式：基于英雄之旅与救猫咪理论强推商业网文骨架",
+        description="极速模式：源设定优先，按题材赛道放大爽点与长线钩子",
         default_edges=["planning_act"],
     )
 
