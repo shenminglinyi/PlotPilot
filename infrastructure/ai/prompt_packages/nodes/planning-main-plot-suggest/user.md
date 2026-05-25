@@ -1,6 +1,9 @@
 【世界沙盘】
 {worldview}
 
+【融合题材/主轴约束】
+{fusion_contract}
+
 【主角原石】
 {protagonist}
 

@@ -10,7 +10,7 @@ tags:
 output_format: json
 variables:
 - name: context_blob
-  desc: JSON context blob (world, characters, locations)
+  desc: JSON context blob (world, characters, locations, theme/fusion storyline contract)
   type: string
   required: true
 id: planning-main-plot-option

@@ -86,6 +86,18 @@ export interface MainPlotOptionDTO {
   logline: string
   core_conflict: string
   starting_hook: string
+  main_axis?: string
+  opening_pressure?: string
+  forbidden_drift?: string
+  sublines?: Array<{
+    id?: string
+    name: string
+    role?: 'sub' | 'dark'
+    purpose?: string
+    description?: string
+    merge_chapter?: number
+    guard?: string
+  }>
 }
 
 export type MainPlotOptionsStreamEvent =
@@ -225,6 +237,18 @@ export interface StreamGeneratedBeat {
   target_words: number
   focus: string
   location_id?: string
+  function?: string
+  pov?: string
+  cast_refs?: string[]
+  location_refs?: string[]
+  prop_refs?: string[]
+  knowledge_refs?: string[]
+  visible_action?: string
+  conflict?: string
+  delta?: string
+  handoff_to_next?: string
+  must_include?: string[]
+  must_not_include?: string[]
   active_action?: string
   emotion_gap?: string
   forbidden_drift?: string
@@ -234,6 +258,14 @@ export interface StreamGeneratedBeat {
 export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
   const beats: StreamGeneratedBeat[] = []
   if (!Array.isArray(raw)) return beats
+  const asStringList = (value: unknown): string[] | undefined => {
+    if (Array.isArray(value)) {
+      const out = value.map(v => String(v).trim()).filter(Boolean)
+      return out.length ? out : undefined
+    }
+    if (typeof value === 'string' && value.trim()) return [value.trim()]
+    return undefined
+  }
   for (const row of raw) {
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
@@ -252,10 +284,22 @@ export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
       description,
       target_words,
       focus: String(r.focus ?? r.type ?? 'pacing').trim() || 'pacing',
-      location_id:      typeof r.location_id      === 'string' ? r.location_id      : undefined,
-      active_action:    typeof r.active_action    === 'string' ? r.active_action    : undefined,
-      emotion_gap:      typeof r.emotion_gap      === 'string' ? r.emotion_gap      : undefined,
-      forbidden_drift:  typeof r.forbidden_drift  === 'string' ? r.forbidden_drift  : undefined,
+      location_id: typeof r.location_id === 'string' ? r.location_id : undefined,
+      function: typeof r.function === 'string' ? r.function : undefined,
+      pov: typeof r.pov === 'string' ? r.pov : undefined,
+      cast_refs: asStringList(r.cast_refs),
+      location_refs: asStringList(r.location_refs),
+      prop_refs: asStringList(r.prop_refs),
+      knowledge_refs: asStringList(r.knowledge_refs),
+      visible_action: typeof r.visible_action === 'string' ? r.visible_action : undefined,
+      conflict: typeof r.conflict === 'string' ? r.conflict : undefined,
+      delta: typeof r.delta === 'string' ? r.delta : undefined,
+      handoff_to_next: typeof r.handoff_to_next === 'string' ? r.handoff_to_next : undefined,
+      must_include: asStringList(r.must_include),
+      must_not_include: asStringList(r.must_not_include),
+      active_action: typeof r.active_action === 'string' ? r.active_action : undefined,
+      emotion_gap: typeof r.emotion_gap === 'string' ? r.emotion_gap : undefined,
+      forbidden_drift: typeof r.forbidden_drift === 'string' ? r.forbidden_drift : undefined,
     })
   }
   return beats

@@ -13,6 +13,13 @@ export interface CharacterDTO {
   name: string
   description: string
   relationships: BibleRelationshipEntry[]
+  gender?: string
+  age?: string
+  appearance?: string
+  personality?: string
+  background?: string
+  core_motivation?: string
+  inner_lack?: string
   /** AI 生成时的角色定位（主角/配角等）— 后端不持久化此字段，仅从 description 解析 */
   role?: string
   mental_state?: string

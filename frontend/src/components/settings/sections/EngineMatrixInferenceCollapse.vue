@@ -1,46 +1,45 @@
 <template>
-  <n-collapse class="adv-collapse mt-3" :default-expanded-names="[]">
-    <n-collapse-item title="推理超参（高级）" name="inference">
-      <n-grid :cols="2" :x-gap="16" :y-gap="12">
-        <n-gi>
-          <n-form-item label="温度 temperature" label-width="auto">
-            <n-input-number
-              class="w-full"
-              :value="temperature"
-              :min="0"
-              :max="2"
-              :step="0.05"
-              @update:value="onTemperature"
-            />
-          </n-form-item>
-        </n-gi>
-        <n-gi>
-          <n-form-item label="最大输出 token (max_tokens)" label-width="auto">
-            <n-input-number
-              class="w-full"
-              :value="maxTokens"
-              :min="1"
-              :max="200000"
-              :step="256"
-              @update:value="onMaxTokens"
-            />
-          </n-form-item>
-        </n-gi>
-        <n-gi>
-          <n-form-item label="请求超时 (秒)" label-width="auto">
-            <n-input-number
-              class="w-full"
-              :value="timeoutSeconds"
-              :min="30"
-              :max="3600"
-              :step="10"
-              @update:value="onTimeout"
-            />
-          </n-form-item>
-        </n-gi>
-      </n-grid>
-    </n-collapse-item>
-  </n-collapse>
+  <details class="em-infer">
+    <summary class="em-infer-summary">推理超参（高级）</summary>
+    <div class="em-infer-body">
+      <label class="em-infer-field">
+        <span>温度</span>
+        <n-input-number
+          class="em-infer-input"
+          :value="temperature"
+          :min="0"
+          :max="2"
+          :step="0.05"
+          size="small"
+          @update:value="onTemperature"
+        />
+      </label>
+      <label class="em-infer-field">
+        <span>最大 token</span>
+        <n-input-number
+          class="em-infer-input"
+          :value="maxTokens"
+          :min="1"
+          :max="200000"
+          :step="256"
+          size="small"
+          @update:value="onMaxTokens"
+        />
+      </label>
+      <label class="em-infer-field">
+        <span>超时（秒）</span>
+        <n-input-number
+          class="em-infer-input"
+          :value="timeoutSeconds"
+          :min="30"
+          :max="3600"
+          :step="10"
+          size="small"
+          @update:value="onTimeout"
+        />
+      </label>
+    </div>
+  </details>
 </template>
 
 <script setup lang="ts">
@@ -70,15 +69,57 @@ function onTimeout(v: number | null) {
 </script>
 
 <style scoped>
-.adv-collapse :deep(.n-collapse-item__content-inner) {
-  padding-top: 4px;
+.em-infer {
+  margin-top: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+  overflow: hidden;
 }
 
-.w-full {
+.em-infer-summary {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--app-text-muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.em-infer-summary::-webkit-details-marker {
+  display: none;
+}
+
+.em-infer[open] .em-infer-summary {
+  border-bottom: 1px solid var(--app-border);
+}
+
+.em-infer-body {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.em-infer-field {
+  display: grid;
+  gap: 4px;
+}
+
+.em-infer-field span {
+  font-size: 10px;
+  color: var(--app-text-muted);
+}
+
+.em-infer-input {
   width: 100%;
 }
 
-.mt-3 {
-  margin-top: 12px;
+@media (max-width: 640px) {
+  .em-infer-body {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

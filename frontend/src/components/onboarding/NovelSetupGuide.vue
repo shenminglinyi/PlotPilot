@@ -275,9 +275,21 @@
                     <n-grid-item>
                       <div class="role-lock-panel">
                         <div class="role-lock-panel__title">基础</div>
+                        <div class="character-meta-grid">
+                          <n-input v-model:value="char.gender" size="small" placeholder="性别/呈现" />
+                          <n-input v-model:value="char.age" size="small" placeholder="年龄/年龄段" />
+                        </div>
                         <div class="editable-field">
                           <div class="editable-field__label">功能定位</div>
                           <n-input v-model:value="char.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">外貌锚点</div>
+                          <n-input v-model:value="char.appearance" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">性格底色</div>
+                          <n-input v-model:value="char.personality" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
                         </div>
                         <div class="editable-field">
                           <div class="editable-field__label">公开人设</div>
@@ -292,6 +304,14 @@
                         <div class="editable-field">
                           <div class="editable-field__label">核心信念</div>
                           <n-input v-model:value="char.core_belief" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">核心驱动力</div>
+                          <n-input v-model:value="char.core_motivation" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
+                          <div class="editable-field__label">内在缺口</div>
+                          <n-input v-model:value="char.inner_lack" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
                         </div>
                         <div class="editable-field">
                           <div class="editable-field__label">道德禁忌</div>
@@ -335,16 +355,36 @@
                           <n-input v-model:value="char.hidden_profile" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
                         </div>
                         <div class="editable-field">
+                          <div class="editable-field__label">背景经历</div>
+                          <n-input v-model:value="char.background" type="textarea" :autosize="{ minRows: 1, maxRows: 3 }" size="small" />
+                        </div>
+                        <div class="editable-field">
                           <div class="editable-field__label">揭示章节</div>
                           <n-input-number v-model:value="char.reveal_chapter" size="small" :min="1" clearable style="width: 100%" />
                         </div>
-                        <div v-if="char.relationships && char.relationships.length" class="editable-field">
+                        <div class="editable-field">
                           <div class="editable-field__label">人物关系</div>
-                          <n-space :size="4" wrap>
-                            <n-tag v-for="(rel, ri) in char.relationships" :key="ri" size="small" :bordered="false">
-                              {{ formatRelationship(rel) }}
-                            </n-tag>
-                          </n-space>
+                          <div class="relationship-editor">
+                            <div v-for="(rel, ri) in char.relationships" :key="ri" class="relationship-row">
+                              <n-input
+                                v-model:value="rel.target"
+                                size="small"
+                                placeholder="目标人物"
+                              />
+                              <n-input
+                                v-model:value="rel.relation"
+                                size="small"
+                                placeholder="关系类型"
+                              />
+                              <n-input
+                                v-model:value="rel.description"
+                                size="small"
+                                placeholder="张力说明"
+                              />
+                              <n-button quaternary size="small" type="error" @click="char.relationships.splice(ri, 1)">删除</n-button>
+                            </div>
+                            <n-button size="small" secondary @click="addRelationship(char)">添加关系</n-button>
+                          </div>
                         </div>
                       </div>
                     </n-grid-item>
@@ -536,6 +576,30 @@
                     <div class="plot-line"><strong>梗概：</strong>{{ opt.logline }}</div>
                     <div v-if="opt.core_conflict" class="plot-line"><strong>核心冲突：</strong>{{ opt.core_conflict }}</div>
                     <div v-if="opt.starting_hook" class="plot-line"><strong>开篇钩子：</strong>{{ opt.starting_hook }}</div>
+                    <div v-if="opt.main_axis || opt.opening_pressure || opt.forbidden_drift" class="plot-guard-grid">
+                      <div v-if="opt.main_axis" class="plot-guard-cell">
+                        <span class="plot-guard-k">主轴</span>
+                        <span class="plot-guard-v">{{ opt.main_axis }}</span>
+                      </div>
+                      <div v-if="opt.opening_pressure" class="plot-guard-cell">
+                        <span class="plot-guard-k">开局压力</span>
+                        <span class="plot-guard-v">{{ opt.opening_pressure }}</span>
+                      </div>
+                      <div v-if="opt.forbidden_drift" class="plot-guard-cell">
+                        <span class="plot-guard-k">防跑偏</span>
+                        <span class="plot-guard-v">{{ opt.forbidden_drift }}</span>
+                      </div>
+                    </div>
+                    <div v-if="opt.sublines?.length" class="plot-subline-list">
+                      <div class="plot-subline-title">支线结构</div>
+                      <div v-for="sub in opt.sublines" :key="sub.id || sub.name" class="plot-subline-item">
+                        <n-tag size="tiny" :type="sub.role === 'dark' ? 'warning' : 'default'" round>
+                          {{ sub.role === 'dark' ? '暗线' : '支线' }}
+                        </n-tag>
+                        <span class="plot-subline-name">{{ sub.name }}</span>
+                        <span v-if="sub.purpose" class="plot-subline-purpose">{{ sub.purpose }}</span>
+                      </div>
+                    </div>
                     <n-button
                       type="primary"
                       size="small"
@@ -966,16 +1030,29 @@ interface EditableWound {
   [key: string]: string
 }
 
+interface EditableRelationship {
+  target: string
+  relation: string
+  description: string
+}
+
 interface EditableCharacter {
   id: string
   name: string
   role: string
   description: string
+  gender: string
+  age: string
+  appearance: string
+  personality: string
+  background: string
+  core_motivation: string
+  inner_lack: string
   mental_state: string
   mental_state_reason: string
   verbal_tic: string
   idle_behavior: string
-  relationships: BibleRelationshipEntry[]
+  relationships: EditableRelationship[]
   public_profile: string
   hidden_profile: string
   reveal_chapter: number | null
@@ -1003,6 +1080,33 @@ function normalizeWounds(raw: Array<Record<string, string>> | undefined): Editab
   }))
 }
 
+function normalizeRelationships(raw: BibleRelationshipEntry[] | undefined): EditableRelationship[] {
+  return (raw || []).map((rel) => {
+    if (typeof rel === 'string') {
+      return { target: rel, relation: '', description: '' }
+    }
+    return {
+      target: String(rel.target ?? ''),
+      relation: String(rel.relation ?? ''),
+      description: String(rel.description ?? ''),
+    }
+  })
+}
+
+function serializeRelationships(raw: EditableRelationship[]): BibleRelationshipEntry[] {
+  return raw
+    .map((rel) => ({
+      target: rel.target.trim(),
+      relation: rel.relation.trim(),
+      description: rel.description.trim(),
+    }))
+    .filter(rel => rel.target || rel.relation || rel.description)
+}
+
+function addRelationship(char: EditableCharacter): void {
+  char.relationships.push({ target: '', relation: '', description: '' })
+}
+
 function formatRelationship(rel: BibleRelationshipEntry | string): string {
   if (typeof rel === 'string') return rel
   return rel.relation || rel.description || rel.target || ''
@@ -1028,11 +1132,18 @@ function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
     name: c.name || '',
     role,
     description: desc,
+    gender: c.gender || '',
+    age: c.age || '',
+    appearance: c.appearance || '',
+    personality: c.personality || '',
+    background: c.background || '',
+    core_motivation: c.core_motivation || '',
+    inner_lack: c.inner_lack || '',
     mental_state: c.mental_state || '',
     mental_state_reason: c.mental_state_reason || '',
     verbal_tic: c.verbal_tic || '',
     idle_behavior: c.idle_behavior || '',
-    relationships: c.relationships || [],
+    relationships: normalizeRelationships(c.relationships || []),
     public_profile: c.public_profile || '',
     hidden_profile: c.hidden_profile || '',
     reveal_chapter: c.reveal_chapter ?? null,
@@ -1077,6 +1188,12 @@ function persistStepFourUiToCache(opts?: { includePlotOptions?: boolean }) {
     patch.plotOptions = plotOptions.value.length ? plotOptions.value : undefined
   }
   writeWizardUiCache(props.novelId, patch)
+}
+
+function hasStorylineArchitecture(options: MainPlotOptionDTO[]) {
+  return options.some(
+    (opt) => Boolean(opt.main_axis || opt.opening_pressure || opt.forbidden_drift || opt.sublines?.length),
+  )
 }
 
 async function loadPlotSuggestions() {
@@ -1143,14 +1260,41 @@ async function adoptPlotOption(opt: MainPlotOptionDTO) {
       opt.logline,
       opt.core_conflict ? `核心冲突：${opt.core_conflict}` : '',
       opt.starting_hook ? `开篇钩子：${opt.starting_hook}` : '',
+      opt.main_axis ? `主轴锁：${opt.main_axis}` : '',
+      opt.opening_pressure ? `开篇压力：${opt.opening_pressure}` : '',
+      opt.forbidden_drift ? `禁止漂移：${opt.forbidden_drift}` : '',
+      opt.sublines?.length
+        ? `支线结构：\n${opt.sublines.map((sub, idx) => `${idx + 1}. ${sub.name}${sub.purpose ? `：${sub.purpose}` : ''}${sub.guard ? `；护栏：${sub.guard}` : ''}`).join('\n')}`
+        : '',
     ].filter(Boolean)
-    await workflowApi.createStoryline(props.novelId, {
+    const main = await workflowApi.createStoryline(props.novelId, {
       storyline_type: 'main_plot',
+      role: 'main',
       estimated_chapter_start: 1,
       estimated_chapter_end: chapterEndForStoryline.value,
       name: opt.title.slice(0, 200),
       description: parts.join('\n\n').slice(0, 8000),
     })
+    for (const sub of opt.sublines || []) {
+      const end = Math.max(
+        1,
+        Math.min(chapterEndForStoryline.value, Number(sub.merge_chapter || chapterEndForStoryline.value)),
+      )
+      await workflowApi.createStoryline(props.novelId, {
+        storyline_type: sub.role === 'dark' ? 'mystery' : 'growth',
+        role: sub.role === 'dark' ? 'dark' : 'sub',
+        parent_id: main.id,
+        estimated_chapter_start: 1,
+        estimated_chapter_end: end,
+        name: String(sub.name || '未命名支线').slice(0, 200),
+        description: [
+          sub.description || sub.purpose || '',
+          sub.purpose ? `功能：${sub.purpose}` : '',
+          sub.guard ? `护栏：${sub.guard}` : '',
+          sub.merge_chapter ? `汇流章节：第 ${sub.merge_chapter} 章附近` : '',
+        ].filter(Boolean).join('\n\n').slice(0, 8000),
+      })
+    }
     mainPlotCommitted.value = true
     clearWizardUiCache(props.novelId)
     message.success('主线已保存')
@@ -1199,9 +1343,12 @@ function hydrateStepFourFromCache() {
   if (cached.customMode != null) customMode.value = cached.customMode
   if (cached.customLogline != null) customLogline.value = cached.customLogline
   if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
-    plotOptions.value = cached.plotOptions
-    step4RestoredFromCache.value = true
-    return
+    if (hasStorylineArchitecture(cached.plotOptions)) {
+      plotOptions.value = cached.plotOptions
+      step4RestoredFromCache.value = true
+      return
+    }
+    writeWizardUiCache(props.novelId, { plotOptions: undefined })
   }
   if (cached.plotOptions?.length && !isPlotOptionsCacheFresh(cached)) {
     writeWizardUiCache(props.novelId, { plotOptions: undefined })
@@ -1530,6 +1677,11 @@ charactersError.value = ''
         role?: string
         gender?: string
         age?: string
+        appearance?: string
+        personality?: string
+        background?: string
+        core_motivation?: string
+        inner_lack?: string
         ghost?: string
         want?: string
         need?: string
@@ -1551,7 +1703,14 @@ charactersError.value = ''
           name: c.name,
           role,
           description: desc,
-          relationships: c.relationships || [],
+          gender: c.gender || '',
+          age: c.age || '',
+          appearance: c.appearance || '',
+          personality: c.personality || '',
+          background: c.background || '',
+          core_motivation: c.core_motivation || c.want || '',
+          inner_lack: c.inner_lack || c.need || '',
+          relationships: normalizeRelationships(c.relationships || []),
           public_profile: c.public_profile || '',
           hidden_profile: c.hidden_profile || '',
           reveal_chapter: c.reveal_chapter ?? null,
@@ -1915,11 +2074,18 @@ async function saveCharactersEdits(): Promise<boolean> {
         name: c.name,
         description: c.description,
         role: c.role,
+        gender: c.gender,
+        age: c.age,
+        appearance: c.appearance,
+        personality: c.personality,
+        background: c.background,
+        core_motivation: c.core_motivation,
+        inner_lack: c.inner_lack,
         mental_state: c.mental_state,
         mental_state_reason: c.mental_state_reason,
         verbal_tic: c.verbal_tic,
         idle_behavior: c.idle_behavior,
-        relationships: c.relationships || [],
+        relationships: serializeRelationships(c.relationships || []),
         public_profile: c.public_profile,
         hidden_profile: c.hidden_profile,
         reveal_chapter: c.reveal_chapter,
@@ -2578,6 +2744,66 @@ const handleComplete = () => {
   text-align: left;
 }
 
+.plot-guard-grid,
+.plot-subline-list {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.03);
+  text-align: left;
+}
+
+.plot-guard-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.plot-guard-cell {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.plot-guard-k {
+  color: #777;
+  font-weight: 700;
+}
+
+.plot-guard-v {
+  color: #555;
+}
+
+.plot-subline-title {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #666;
+}
+
+.plot-subline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #555;
+}
+
+.plot-subline-item + .plot-subline-item {
+  margin-top: 5px;
+}
+
+.plot-subline-name {
+  font-weight: 600;
+}
+
+.plot-subline-purpose {
+  color: #777;
+}
+
 .plot-option-card--disabled {
   opacity: 0.72;
   pointer-events: none;
@@ -2646,11 +2872,30 @@ const handleComplete = () => {
   line-height: 1.4;
 }
 
+.character-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .voice-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   margin-top: 8px;
+}
+
+.relationship-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.relationship-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 6px;
+  align-items: center;
 }
 
 .wound-grid {
@@ -2671,6 +2916,8 @@ const handleComplete = () => {
   }
 
   .voice-grid,
+  .character-meta-grid,
+  .relationship-row,
   .wound-row {
     grid-template-columns: 1fr;
   }
