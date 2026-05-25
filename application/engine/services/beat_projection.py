@@ -48,12 +48,34 @@ def _default_function(intent: str, focus: str) -> str:
     return focus or "setup"
 
 
+def _summarize_intent(intent: str, max_len: int = 48) -> str:
+    """Short intent snippet for default contract fields (avoid repeating full paragraph)."""
+    text = (intent or "").strip()
+    if not text:
+        return ""
+    for sep in ("。", "！", "？", "；", ";", "\n"):
+        idx = text.find(sep)
+        if idx >= 8:
+            text = text[: idx + 1]
+            break
+    text = text.strip()
+    if len(text) > max_len:
+        text = text[:max_len].rstrip("，。；; ") + "…"
+    return text
+
+
 def _default_visible_action(intent: str) -> str:
-    return f"用可见动作、对白或选择落实：{intent}" if intent else ""
+    summary = _summarize_intent(intent)
+    if not summary:
+        return "用可见动作、对白或选择落实本拍意图"
+    return f"用可见动作、对白或选择落实：{summary}"
 
 
 def _default_delta(intent: str) -> str:
-    return f"本拍结束时，读者必须看到局势因「{intent}」发生明确变化" if intent else ""
+    summary = _summarize_intent(intent)
+    if not summary:
+        return "本拍结束时，读者必须看到局势发生明确变化"
+    return f"本拍结束时，局势须因「{summary}」出现可感变化"
 
 
 def beat_sheet_to_plan_json(beat_sheet: Optional[Any]) -> Optional[Dict[str, Any]]:

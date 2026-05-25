@@ -147,6 +147,7 @@ class BaseStoryPipeline(ABC):
                 current_beat_index=0,
                 chapter_target_words=ctx.target_word_count,
                 planned_micro_beats=serialize_beats_for_shared_state(ctx.beats),
+                outline_plan_mode=ctx.metadata.get("outline_plan_mode") or "",
             )
 
             # 4. LLM 生成（节拍级+断点续写）
@@ -487,6 +488,8 @@ class BaseStoryPipeline(ABC):
                     beat_sheet=None,
                     scene_director=getattr(ctx, "scene_director", None),
                 )
+                if chapter_plan is not None and isinstance(getattr(chapter_plan, "provenance", None), dict):
+                    ctx.metadata["outline_plan_mode"] = str(chapter_plan.provenance.get("mode") or "")
                 logger.info(f"[{ctx.novel_id}] 节拍拆分: {len(ctx.beats)} 个节拍")
             except Exception as e:
                 logger.warning(f"节拍放大失败，转同步 ChapterExecutionPlan 投影: {e}")

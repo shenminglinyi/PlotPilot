@@ -246,26 +246,40 @@ def _normalize_llm_atom_entries(entries: List[Dict[str, Any]]) -> List[PlanAtomS
 
 
 def _extract_json_payload(text: str) -> Dict[str, Any]:
-    stripped = text.strip()
+    """Parse LLM outline-partition JSON; fall back to json_repair on malformed output."""
+    from application.ai.structured_json_pipeline import parse_and_repair_json
+
+    stripped = (text or "").strip()
+    if not stripped:
+        raise json.JSONDecodeError("empty payload", stripped, 0)
+
     try:
         out = json.loads(stripped)
         if isinstance(out, list):
             return {"atoms": out}
         if isinstance(out, dict):
             return out
-        return {"atoms": []}
     except json.JSONDecodeError:
         pass
+
+    data, errors = parse_and_repair_json(stripped)
+    if isinstance(data, dict):
+        if errors:
+            logger.info("outline partition JSON repaired: %s", errors[0] if errors else "ok")
+        return data
+
     lo = stripped.find("{")
     hi = stripped.rfind("}")
     if lo >= 0 and hi > lo:
-        out = json.loads(stripped[lo : hi + 1])
-        if isinstance(out, list):
-            return {"atoms": out}
-        if isinstance(out, dict):
-            return out
-        return {"atoms": []}
-    raise json.JSONDecodeError("no json object", stripped, 0)
+        fragment = stripped[lo : hi + 1]
+        data, errors = parse_and_repair_json(fragment)
+        if isinstance(data, dict):
+            if errors:
+                logger.info("outline partition JSON fragment repaired: %s", errors[0] if errors else "ok")
+            return data
+
+    detail = errors[0] if errors else "no json object"
+    raise json.JSONDecodeError(detail, stripped, 0)
 
 
 OutlinePartitionEmitDelta = Optional[Callable[[str], Awaitable[None]]]
@@ -309,17 +323,9 @@ async def llm_decompose_outline(
                 if emit_delta:
                     await emit_delta(piece)
         raw_text = "".join(pieces).strip()
-        cleaned = raw_text
-        if "```" in cleaned:
-            fence = cleaned.split("```")
-            for chunk in fence:
-                ch = chunk.strip()
-                if ch.startswith("json"):
-                    ch = ch[4:].strip()
-                if ch.startswith("{"):
-                    cleaned = ch
-                    break
+        from application.ai.structured_json_pipeline import sanitize_llm_output
 
+        cleaned = sanitize_llm_output(raw_text)
         parsed = _extract_json_payload(cleaned)
         model = _LLMDecomposeModel.model_validate(parsed)
         atoms_raw = []

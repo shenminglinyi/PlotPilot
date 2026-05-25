@@ -43,6 +43,16 @@
               仅展示写作指挥器真实 Beat（流式/全托管拆拍）。
             </template>
           </n-text>
+          <n-alert
+            v-if="showFallbackSingleHint"
+            type="warning"
+            :show-icon="true"
+            size="small"
+            style="margin-bottom: 8px"
+          >
+            章前 LLM 拆拍失败或返回无效 JSON，已降级为<strong>整章单拍</strong>（约 {{ microBeats[0]?.target_words || '—' }} 字）。
+            建议检查模型/提示词后重试生成。
+          </n-alert>
           <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
             <div v-for="(beat, i) in microBeats" :key="i" class="micro-beat-item">
               <div class="micro-beat-header">
@@ -152,6 +162,8 @@ const props = withDefaults(
     autopilotRunning?: boolean
     /** 最近一次流式生成完成的章号（无导演节拍时用于提示） */
     assistStreamCompletedChapter?: number | null
+    /** 全托管 /status 的 outline_plan_mode（如 fallback_single） */
+    outlinePlanMode?: string
   }>(),
   {
     currentChapterNumber: null,
@@ -163,6 +175,7 @@ const props = withDefaults(
     autopilotOutlinePlanFailed: false,
     autopilotRunning: false,
     assistStreamCompletedChapter: null,
+    outlinePlanMode: '',
   }
 )
 
@@ -472,6 +485,17 @@ const microHintIsOutlineFallback = computed(() => {
 const microHintFromKnowledgeDb = computed(() => {
   const k = knowledgeChapter.value
   return !!(k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0)
+})
+
+const showFallbackSingleHint = computed(() => {
+  if (microHintIsOutlineFallback.value) return false
+  if (microBeats.value.length !== 1) return false
+  const mode = (props.outlinePlanMode || '').trim()
+  if (mode === 'fallback_single') return true
+  if (props.autopilotOutlinePlanFailed) return true
+  const ch = props.currentChapterNumber
+  if (ch && props.assistStreamPlanFailedChapter === ch) return true
+  return false
 })
 
 const microEmptyDescription = computed(() => {

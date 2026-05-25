@@ -129,6 +129,29 @@ def test_planned_micro_beats_from_beats_preserves_dict_runtime_shape():
     assert payload[0]["beat_cards"][0]["active_action"] == "主角撞开后门"
 
 
+def test_default_contract_fields_use_short_summary_not_full_intent():
+    long_intent = (
+        "司徒寒在南州城贫民窟暗巷中遭遇前世仇敌——黑鲨帮余孽三人组。"
+        "利用重生记忆，他精准预判对方刀路，反手夺刀割喉。"
+    )
+    plan = ChapterExecutionPlan(
+        envelope=PlanningEnvelope(target_chapter_words=2000),
+        atoms=[PlanAtomSpec(id="b1", intent=long_intent, weight=1.0)],
+        provenance={"mode": "fallback_single"},
+    )
+    beats = beats_from_execution_plan(
+        plan,
+        outline="",
+        target_chapter_words=2000,
+        infer_focus=lambda text: "sensory",
+        build_expansion_hints=lambda focus, words: [],
+    )
+    assert len(beats) == 1
+    assert beats[0].visible_action == "用可见动作、对白或选择落实：司徒寒在南州城贫民窟暗巷中遭遇前世仇敌——黑鲨帮余孽三人组。"
+    assert long_intent not in beats[0].delta
+    assert "司徒寒" in beats[0].delta
+
+
 def test_sync_plan_builder_makes_beat_sheet_and_outline_canonical_sources():
     beat_sheet_json = {
         "scenes": [

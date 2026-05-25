@@ -273,6 +273,7 @@
                         :assist-stream-failed-chapter="assistStreamFailedChapter"
                         :assist-stream-plan-failed-chapter="assistStreamPlanFailedChapter"
                         :autopilot-outline-plan-failed="autopilotOutlinePlanFailedForRail"
+                        :outline-plan-mode="autopilotOutlinePlanModeForRail"
                         :assist-stream-completed-chapter="lastQcChapterNumber"
                         :beat-tab-bump="beatTabBump"
                       />
@@ -879,6 +880,14 @@ const autopilotOutlinePlanFailedForRail = computed(() => {
   const planned = Array.isArray(st.planned_micro_beats) ? st.planned_micro_beats.length : 0
   if (planned > 1) return false
   return Number(st.total_beats ?? 0) <= 1
+})
+
+const autopilotOutlinePlanModeForRail = computed(() => {
+  const ch = currentChapter.value?.number
+  const st = autopilotStatus.value
+  if (!ch || !st) return ''
+  if (Number(st.current_chapter_number) !== ch && !isAutopilotRunning.value) return ''
+  return String(st.outline_plan_mode ?? '').trim()
 })
 
 /** 全托管章前规划节拍：session 缓存优先，再读 /status planned_micro_beats */
