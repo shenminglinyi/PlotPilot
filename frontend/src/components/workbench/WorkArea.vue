@@ -858,10 +858,8 @@ const assistStreamPlanFailedChapter = ref<number | null>(null)
 const AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS = new Set([
   'beat_magnification',
   'llm_calling',
-  'soft_landing',
   'persisting',
   'continuity_check',
-  'density_supplement',
   'chapter_persist',
   'audit_voice_check',
   'audit_aftermath',
@@ -1134,8 +1132,6 @@ function autopilotReactiveFingerprint(j: Record<string, unknown>): string {
         audit.drift_alert === true ? '1' : '0',
       ].join(':')
     : ''
-  const lst = j.last_smart_truncate
-  const lstS = lst && typeof lst === 'object' ? JSON.stringify(lst) : String(lst ?? '')
   return [
     j.autopilot_status,
     j.current_stage,
@@ -1151,13 +1147,11 @@ function autopilotReactiveFingerprint(j: Record<string, unknown>): string {
     j.accumulated_words,
     j.beat_phase,
     j.beat_focus,
-    j.beat_hard_cap,
     j.beat_target_words,
     j.chapter_target_words,
     j.beat_remaining_budget,
     j.beat_max_words_hint,
     auditMini,
-    lstS,
   ].join('|')
 }
 

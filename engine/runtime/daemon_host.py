@@ -713,6 +713,11 @@ class DaemonHostMixin:
                 llm_service=self.llm_service,
                 db_path=str(get_db_path()),
             )
+            if svc.get_bridge(novel_id, chapter_number):
+                logger.debug(
+                    f"[{novel_id}] 桥段已存在，跳过重复提取 ch={chapter_number}"
+                )
+                return
             bridge = await svc.extract_bridge(novel_id, chapter_number, content)
             logger.info(
                 f"[{novel_id}] 🔗 桥段提取完成 ch={chapter_number} "
@@ -887,13 +892,22 @@ class DaemonHostMixin:
                 + (f" issues={result.issues}" if result.issues else "")
             )
 
-            # 衔接度低于 0.6，自动修整
-            if result.score < 0.6 and result.issues:
+            # 衔接度低时告警；只有低于策略的自动修整阈值才改写正文。
+            if svc.policy.needs_attention(result.score) and result.issues:
                 logger.warning(
-                    f"[{novel_id}] 🔗 衔接度低 ({result.score:.2f})，自动修整首段 ch={chapter_number}"
+                    f"[{novel_id}] 🔗 衔接度低 ({result.score:.2f}) ch={chapter_number}"
+                )
+            if svc.should_auto_fix_opening(result) and result.issues:
+                logger.warning(
+                    f"[{novel_id}] 🔗 低于自动修整阈值，修整首段 ch={chapter_number}"
                 )
                 fixed_content = await svc.auto_fix_opening(
-                    novel_id, chapter_number, content, prev_bridge, result, max_rounds=2
+                    novel_id,
+                    chapter_number,
+                    content,
+                    prev_bridge,
+                    result,
+                    max_rounds=svc.policy.max_fix_rounds,
                 )
                 if fixed_content != content:
                     logger.info(
@@ -907,102 +921,6 @@ class DaemonHostMixin:
             logger.warning(f"[{novel_id}] 衔接自检失败（不影响主流程）ch={chapter_number}: {e}")
 
         return content
-
-    # ── 信息密度检测阈值（每 500 字应有 1 条新事实）──
-    INFO_DENSITY_MIN_FACTS_PER_500 = 0.6   # 低于此值时补写
-    INFO_DENSITY_MAX_SUPPLEMENT = 1        # 最多补写 1 次，控制时间成本
-
-
-    def _estimate_info_density(self, content: str) -> float:
-        """轻量估算章节信息密度（无 LLM，纯规则）。
-
-        策略：将"可复述新事实"近似为以下句式的命中数：
-        - 包含「发现」「得知」「意识到」「决定」「表示」「承认」「透露」「说」「答」「道」等动词的句子
-        - 包含人名 + 动作的句子（而非景物/体感）
-        这是一种快速启发式，不精确但足以识别"全章无事发生"。
-
-        Returns:
-            facts_per_500: 每 500 字的事实句估计数量
-        """
-        import re
-        if not content or len(content) < 100:
-            return 1.0  # 太短的章节不做处罚
-
-        # 句子分割（以句号、感叹号、问号为边界）
-        sentences = re.split(r'[。！？…]+', content)
-        sentences = [s.strip() for s in sentences if len(s.strip()) > 5]
-
-        fact_keywords = frozenset([
-            "发现", "得知", "意识到", "决定", "表示", "承认", "透露", "说", "答", "道",
-            "问", "笑", "皱眉", "叹", "沉默", "转身", "离开", "拿起", "放下", "走",
-            "站", "坐", "看", "盯", "抬头", "低头", "挥手", "点头", "摇头",
-            "掏出", "交给", "递", "接", "打开", "关上", "进入", "离开",
-        ])
-        fact_count = sum(
-            1 for s in sentences
-            if any(kw in s for kw in fact_keywords)
-        )
-        chars = max(1, len(content.replace("\n", "").replace(" ", "")))
-        return fact_count / (chars / 500)
-
-    async def _density_supplement_beat(
-        self,
-        novel_id: str,
-        chapter_num: int,
-        outline: str,
-        existing_content: str,
-        target_word_count: int,
-        novel: Any,
-    ) -> str:
-        """信息密度补写：追加一个「情节推进节拍」使内容更充实。
-
-        只在密度低于阈值时触发，最多补写 INFO_DENSITY_MAX_SUPPLEMENT 次。
-        补写内容追加到原正文末尾。
-        """
-        supplement_words = max(400, target_word_count // 5)
-        try:
-            from domain.ai.value_objects.prompt import Prompt
-            from domain.ai.services.llm_service import GenerationConfig
-            from infrastructure.ai.prompt_keys import AUTOPILOT_INFO_DENSITY_SUPPLEMENT
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-
-            variables = {
-                "existing_content": existing_content[-400:],
-                "supplement_words": str(supplement_words),
-                "chapter_num": str(chapter_num),
-                "novel_id": novel_id,
-            }
-            registry = get_prompt_registry()
-            p = registry.render_to_prompt(AUTOPILOT_INFO_DENSITY_SUPPLEMENT, variables)
-            if not p:
-                from infrastructure.ai.prompt_utils import get_prompt_system
-                system = get_prompt_system(AUTOPILOT_INFO_DENSITY_SUPPLEMENT)
-                user_msg = (
-                    f"【信息密度补写指令】\n"
-                    f"本章大纲：{outline}\n\n"
-                    f"本章已生成正文（末尾约400字供参考）：\n"
-                    f"…{existing_content[-400:]}\n\n"
-                    f"请接续已有正文，补写一段约 {supplement_words} 字的情节推进段落。\n"
-                    f"要求：\n"
-                    f"1. 至少包含一个角色做出具体决定或行动并产生后果\n"
-                    f"2. 或引入一条新信息/线索/冲突\n"
-                    f"3. 与前文情绪和场景无缝衔接，不重复已有内容\n"
-                    f"4. 不要写章节标题，直接输出正文\n"
-                )
-                p = Prompt(system=system, user=user_msg)
-            cfg = GenerationConfig(max_tokens=int(supplement_words * 1.5), temperature=0.82)
-            result = await self.llm_service.generate(p, cfg)
-            supplement = (result.content if hasattr(result, "content") else str(result)).strip()
-            if supplement:
-                logger.info(
-                    "[%s] 📈 信息密度补写：ch=%d 追加 %d 字",
-                    novel_id, chapter_num, len(supplement),
-                )
-                return existing_content.rstrip() + "\n\n" + supplement
-        except Exception as exc:
-            logger.warning("[%s] 信息密度补写失败（不影响主流程）ch=%d: %s", novel_id, chapter_num, exc)
-        return existing_content
-
 
     def _sync_chronicles_to_shared_memory(self, novel_id: str) -> None:
         """🔥 审计完成后重新构建编年史缓存（Bible timeline_notes + snapshots + chapters），确保全息编年史实时可见。
@@ -1823,219 +1741,6 @@ class DaemonHostMixin:
         """更新流式元数据（供外部调用）"""
         from application.engine.services.streaming_bus import streaming_bus
         streaming_bus.update_beat(novel_id, beat_index, word_count)
-
-    async def _soft_landing(
-        self,
-        content: str,
-        beat: "Beat",
-        outline: str,
-        chapter_draft_so_far: str,
-        novel=None,
-        signal=None,
-        emotion_trend: str = "stable",  # ★ Phase 2: rising/peak/falling/stable
-    ) -> str:
-        """V9: 软着陆——专业小说家的截断修复
-
-        不是粗暴地"补句号"，而是像一个真正的作家那样处理：
-        1. 先检测截断位置——是在对话中间？叙述中间？还是场景中间？
-        2. 根据截断类型选择不同的续写策略
-        3. 续写时参考大纲和前后文，确保结尾与章节弧线衔接
-        4. 控制续写长度，避免续写过度
-        ★ Phase 2: 情绪方向感知——根据前一节拍的情绪趋势决定收尾方式：
-          - rising/peak: 用省略号或动作残影收尾（保留势能）
-          - falling/stable: 用句号或完整结论收尾（闭合叙事）
-
-        Args:
-            content: 已生成的内容
-            beat: 当前节拍对象
-            outline: 章节大纲
-            chapter_draft_so_far: 本章已生成的正文
-            novel: 小说对象
-            signal: ConductorSignal（指挥信号）
-            emotion_trend: 情绪方向（★ Phase 2）
-
-        Returns:
-            完整的内容（可能包含续写部分）
-        """
-        import re
-
-        if not content or not content.strip():
-            return content
-
-        # 🔥 停止信号检查：用户已停止时不发起续写 LLM 调用，直接返回已有内容
-        if novel is not None and not self._is_still_running(novel):
-            logger.info(f"[{novel.novel_id}] 软着陆跳过：用户已停止自动驾驶")
-            return content
-
-        stripped = content.rstrip()
-
-        # 检测是否以句子结束符结尾
-        ending_pattern = r'[。！？…）】》"\'』」]$'
-        if re.search(ending_pattern, stripped):
-            return content  # 结尾完整，无需续写
-
-        # ── 诊断截断类型 ──
-        truncation_type = self._diagnose_truncation(stripped)
-
-        # ★ Phase 2: 情绪方向决定续写策略
-        is_rising = emotion_trend in ("rising", "peak")
-
-        # ── 确定续写预算 ──
-        is_final_beat = signal.is_final_beat if signal else False
-        if is_final_beat:
-            # 最后节拍：允许稍长续写，确保章节有完整收尾
-            max_continuation = 200
-            continuation_role = "你是小说收尾助手。为被截断的章节最后一段提供自然、有画面感的收束。"
-        elif truncation_type == "dialogue":
-            # 对话中间截断：续写要简短，补完对话即可
-            max_continuation = 100
-            continuation_role = "你是小说续写助手。为被截断的对话提供简短自然的收尾，补完当前对话回合即可。"
-        else:
-            # 叙述/场景中间截断：中等续写
-            max_continuation = 150
-            continuation_role = "你是小说续写助手。为被截断的段落提供简短自然的收尾，让段落有完整的结尾。"
-
-        logger.warning(
-            f"[软着陆] 检测到截断（类型={truncation_type}，"
-            f"最后节拍={is_final_beat}），发起续写（预算{max_continuation}字）"
-        )
-
-        # ── 构建续写 Prompt ──
-        # 关键：给 LLM 足够的上下文，让它知道"该怎么收"
-        context_snippet = stripped[-600:]  # 截断位置前文
-        
-        # 增加章节上下文，帮助续写保持连贯
-        chapter_context_hint = ""
-        if chapter_draft_so_far and len(chapter_draft_so_far) > 600:
-            # 提供本章开头部分，帮助维持整体连贯性
-            beginning_snippet = chapter_draft_so_far[:300]
-            chapter_context_hint = f"\n本章开头参考：\n{beginning_snippet}...\n"
-        
-        outline_hint = ""
-        if outline:
-            # 取大纲最后部分作为方向指引
-            outline_hint = f"\n章节大纲参考：\n{outline[-200:]}\n"
-
-        final_beat_hint = ""
-        if is_final_beat:
-            final_beat_hint = (
-                "\n这是本章最后一段。续写时：\n"
-                "- 给出完整的段落结尾\n"
-                "- 可以用一句有悬念感的话作为章节钩子\n"
-                "- 不要强行总结全章\n"
-                "- 确保与本章其他节拍形成完整的叙事弧线\n"
-            )
-
-        # 连贯性增强指南
-        coherence_guide = ""
-        if chapter_draft_so_far:
-            coherence_guide = (
-                "\n---连贯性要求---\n"
-                "1. 续写内容必须与本章已生成的其他节拍保持情节连贯\n"
-                "2. 保持相同的场景设定和人物状态\n"
-                "3. 如果前文有未完成的情节线索，优先处理这些线索\n"
-            )
-
-        # ★ Phase 2: 情绪方向决定收尾风格
-        emotion_guide = ""
-        if is_rising:
-            emotion_guide = (
-                "\n---情绪方向指示---\n"
-                "当前叙事情绪正在上升或达到高潮。续写时：\n"
-                "- 用动作残影、未完的话语、或省略号收尾，保留叙事势能\n"
-                "- 不要用句号「杀死」正在上升的张力——用破折号或省略号更好\n"
-                "- 如果是战斗/对峙场景，留下一个未落下的动作\n"
-            )
-        else:
-            emotion_guide = (
-                "\n---情绪方向指示---\n"
-                "当前叙事情绪在下降或平稳。续写时：\n"
-                "- 给出完整的结论性收尾，用句号闭合\n"
-                "- 可以用一个画面感强的小细节作为结束\n"
-            )
-
-        continuation_prompt = Prompt(
-            system=continuation_role,
-            user=f"""以下段落被截断了，请续写一个简短的结尾（{max_continuation}字以内）让它完整结束：
-
----截断的内容---
-{context_snippet}
-{chapter_context_hint}{outline_hint}{final_beat_hint}{coherence_guide}{emotion_guide}
----续写要求---
-1. 承接上文语气和节奏，给出自然的收尾
-2. 不要重复已有内容
-3. 必须以完整句子结束
-4. 字数控制在 {max_continuation} 字以内
-5. 保持与上文一致的人物语气和叙事视角
-6. 确保与本章整体情节发展相符
-
-请直接续写，不要解释："""
-        )
-
-        try:
-            config = GenerationConfig(max_tokens=int(max_continuation * 0.8), temperature=0.6)
-            continuation = await self._stream_llm_with_stop_watch(
-                continuation_prompt, config, novel=novel
-            )
-
-            if continuation and continuation.strip():
-                # 拼接续写内容
-                result = stripped + continuation.strip()
-                # ★ Phase 2: 二次安全检查——根据情绪方向决定补全符
-                if not re.search(ending_pattern, result.rstrip()):
-                    if is_rising:
-                        result = result.rstrip() + "……"  # 保留势能
-                    else:
-                        result = result.rstrip() + "。"  # 闭合叙事
-                logger.info(f"[软着陆] 成功续写 {len(continuation.strip())} 字（截断类型={truncation_type}，情绪={emotion_trend}）")
-                return result
-
-        except Exception as e:
-            logger.warning(f"[软着陆] 续写失败: {e}")
-
-        # 续写失败——智能补结尾（不是粗暴加句号，而是截到上一个完整句子）
-        result = self._fallback_close_sentence(stripped)
-        return result
-
-
-    def _diagnose_truncation(self, text: str) -> str:
-        """诊断截断类型
-
-        Returns:
-            "dialogue" - 对话中间截断（有未闭合的引号）
-            "narration" - 叙述中间截断（正常段落中间）
-            "scene" - 场景中间截断（环境描写中间）
-        """
-        import re
-        # 检查是否有未闭合的中文引号
-        open_quotes = text.count('「') + text.count('"') + text.count('"')
-        close_quotes = text.count('」') + text.count('"') + text.count('"')
-        if open_quotes > close_quotes:
-            return "dialogue"
-
-        # 检查是否在环境描写中间（最后若干字没有对话标点）
-        last_50 = text[-50:] if len(text) > 50 else text
-        if not re.search(r'[「」""''：]', last_50) and re.search(r'[的着了过]', last_50[-5:]):
-            return "scene"
-
-        return "narration"
-
-
-    def _fallback_close_sentence(self, text: str) -> str:
-        """降级收尾：找到最后一个完整句子边界
-
-        如果找不到好的边界，至少保证不留下半句话。
-        """
-        import re
-        ending_pattern = r'[。！？…）】》"\'』」]'
-
-        # 从后往前找最后一个句子结束符
-        for i in range(len(text) - 1, max(len(text) - 200, -1), -1):
-            if re.match(ending_pattern, text[i]):
-                return text[:i + 1]
-
-        # 实在找不到，补句号
-        return text.rstrip() + "。"
 
     async def _stream_one_beat(
         self,

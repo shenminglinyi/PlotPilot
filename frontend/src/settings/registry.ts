@@ -31,7 +31,7 @@ const registry: AppSettingsSectionMeta[] = [
   {
     id: 'autopilot-writing',
     label: '全托管控制',
-    description: '节拍硬帽、审阅闸门与指挥器相位阈值（按书目保存）',
+    description: '审阅闸门与指挥器相位阈值（按书目保存）',
     order: 30,
     component: () => import('@/components/settings/sections/AutopilotWritingPrefsSection.vue'),
   },

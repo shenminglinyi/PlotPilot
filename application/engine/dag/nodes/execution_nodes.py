@@ -158,7 +158,7 @@ class WriterNode(BaseNode):
             CPMSInjectionPoint(cpms_node_key=ANTI_AI_ALLOWLIST_EXPLAIN, target_variable="allowlist_block", description="场景化白名单 L3"),
         ],
         prompt_mode=PromptMode.CPMS_FIRST,
-        description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成；全托管时由 ChapterConductor（铺陈/收束/着陆）控节拍，超硬上限时按书目偏好 smart_truncate 或字符硬截断",
+        description="AutoNovelGenerationWorkflow — Anti-AI 协议化章节生成；全托管时由 ChapterConductor（铺陈/收束/着陆）控节拍，不做事后硬截断",
         default_edges=["val_style", "val_tension", "val_anti_ai"],
     )
 

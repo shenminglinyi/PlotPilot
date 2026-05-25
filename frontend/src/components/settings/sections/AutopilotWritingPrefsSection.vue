@@ -15,7 +15,7 @@
         <div class="prefs-header-text">
           <h2 class="prefs-title">全托管控制</h2>
           <p class="prefs-sub">
-            节拍硬帽、智能截断、章末审阅闸门与指挥器相位阈值；开关即时保存，相位阈值需点击保存。
+            章末审阅闸门与指挥器相位阈值；开关即时保存，相位阈值需点击保存。
           </p>
         </div>
         <n-tag v-if="novelTitle" size="small" :bordered="false" class="book-tag">{{ novelTitle }}</n-tag>
@@ -23,61 +23,6 @@
 
       <n-spin :show="loading">
         <div class="prefs-stack">
-          <!-- 字数与安全网 -->
-          <n-card size="small" :bordered="true" class="prefs-card">
-            <div class="card-head">
-              <span class="card-title">字数与安全网</span>
-              <n-text depth="3" class="card-caption">节拍级硬上限与超长时的落盘策略</n-text>
-            </div>
-            <n-divider class="card-divider" />
-
-            <div class="row">
-              <div class="row-label">
-                <span class="row-title">节拍字数硬帽</span>
-                <n-text depth="3" class="row-hint">
-                  开启时由指挥器计算每节拍 <span class="mono">hard_cap</span>；超出时可截断。关闭后不再施加硬帽与截断安全网。
-                </n-text>
-              </div>
-              <n-switch
-                :value="beatHardCap"
-                :loading="patching === 'beat_hard_cap_enabled'"
-                size="large"
-                @update:value="(v: boolean) => onBoolPref('beat_hard_cap_enabled', v)"
-              >
-                <template #checked>已启用</template>
-                <template #unchecked>已关闭</template>
-              </n-switch>
-            </div>
-
-            <n-divider class="inner-divider" />
-
-            <div class="row" :class="{ 'row-muted': !beatHardCap }">
-              <div class="row-label">
-                <span class="row-title">智能截断</span>
-                <n-text depth="3" class="row-hint">
-                  阶段模式下默认关闭；打开「阶段」开关时会一并关闭。若需句界友好截断，可再手动打开（需先启用硬帽）。
-                </n-text>
-              </div>
-              <n-tooltip :disabled="beatHardCap" placement="left">
-                <template #trigger>
-                  <span class="switch-wrap">
-                    <n-switch
-                      :value="smartTruncate"
-                      :disabled="!beatHardCap"
-                      :loading="patching === 'smart_truncate_enabled'"
-                      size="large"
-                      @update:value="(v: boolean) => onBoolPref('smart_truncate_enabled', v)"
-                    >
-                      <template #checked>智能</template>
-                      <template #unchecked>硬截断</template>
-                    </n-switch>
-                  </span>
-                </template>
-                请先启用节拍硬帽，智能截断才有意义。
-              </n-tooltip>
-            </div>
-          </n-card>
-
           <!-- 章末审阅闸门（paused_for_review） -->
           <n-card size="small" :bordered="true" class="prefs-card">
             <div class="card-head">
@@ -232,9 +177,6 @@ const novelTitle = ref('')
 const patching = ref<string | null>(null)
 const savingConductor = ref(false)
 
-const smartTruncate = ref(false)
-const beatHardCap = ref(false)
-
 const pauseAfterEachAudit = ref(false)
 const auditPauseOnHardFail = ref(false)
 const auditPauseOnAntiAiSevere = ref(false)
@@ -246,13 +188,6 @@ const conductorError = ref('')
 
 function applyPrefs(p?: GenerationPrefsDTO | null) {
   const p2 = p ?? {}
-  smartTruncate.value = Object.prototype.hasOwnProperty.call(p2, 'smart_truncate_enabled')
-    ? Boolean(p2.smart_truncate_enabled)
-    : false
-  beatHardCap.value = Object.prototype.hasOwnProperty.call(p2, 'beat_hard_cap_enabled')
-    ? Boolean(p2.beat_hard_cap_enabled)
-    : false
-
   pauseAfterEachAudit.value = Boolean(p2.pause_after_each_chapter_audit)
   auditPauseOnHardFail.value = Boolean(p2.audit_pause_on_hard_fail)
   auditPauseOnAntiAiSevere.value = Boolean(p2.audit_pause_on_anti_ai_severe)
@@ -329,24 +264,6 @@ async function onAuditGatePref(
     | 'pause_after_each_chapter_audit'
     | 'audit_pause_on_hard_fail'
     | 'audit_pause_on_anti_ai_severe',
-  value: boolean
-) {
-  const slug = novelSlug.value
-  if (!slug) return
-  patching.value = key
-  try {
-    await mergePrefs({ [key]: value })
-    message.success('已保存')
-  } catch (e) {
-    message.error(e instanceof Error ? e.message : '保存失败')
-    await loadNovel()
-  } finally {
-    patching.value = null
-  }
-}
-
-async function onBoolPref(
-  key: 'smart_truncate_enabled' | 'beat_hard_cap_enabled',
   value: boolean
 ) {
   const slug = novelSlug.value
@@ -526,10 +443,6 @@ watch(
   line-height: 1.55;
   display: block;
   max-width: 460px;
-}
-
-.row-muted {
-  opacity: 0.55;
 }
 
 .row-title.solo-title {

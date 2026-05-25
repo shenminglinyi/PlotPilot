@@ -66,7 +66,7 @@ SUBSTEP_PRIMARY_ROWS: Tuple[SubstepPrimaryRow, ...] = (
         "exec_beat",
     ),
     SubstepPrimaryRow(
-        frozenset({"soft_landing", "persisting", "continuity_check", "chapter_persist"}),
+        frozenset({"persisting", "continuity_check", "chapter_persist"}),
         "exec_writer",
     ),
     SubstepPrimaryRow(frozenset({"audit_voice_check"}), "val_style"),

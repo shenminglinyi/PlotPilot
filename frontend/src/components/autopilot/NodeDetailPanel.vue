@@ -97,16 +97,14 @@
           </span>
           <span class="detail-label">指挥相位</span>
           <span>{{ beatPhaseLabel }}</span>
-          <span class="detail-label">硬上限 / 建议</span>
-          <span>{{ writingStatus.beat_hard_cap ?? 0 }} / {{ writingStatus.beat_max_words_hint ?? 0 }} 字</span>
+          <span class="detail-label">建议字数</span>
+          <span>{{ writingStatus.beat_max_words_hint ?? 0 }} 字</span>
           <span class="detail-label">剩余预算</span>
           <span>{{ writingStatus.beat_remaining_budget ?? 0 }} 字</span>
           <span class="detail-label">上下文 token</span>
           <span>{{ writingStatus.context_tokens ?? 0 }}</span>
           <span class="detail-label">节拍焦点</span>
           <span>{{ writingStatus.beat_focus || '—' }}</span>
-          <span class="detail-label">最近智能截断</span>
-          <span>{{ lastTruncateLine || '无' }}</span>
         </div>
         <n-text v-else depth="3" style="font-size: 12px">加载中…</n-text>
       </div>
@@ -174,7 +172,7 @@ const message = useMessage()
 const promptLive = ref<NodePromptLive | null>(null)
 const promptLoading = ref(false)
 
-/** GET /autopilot/{id}/status 拉取的实时块（写作/指挥/截断） */
+/** GET /autopilot/{id}/status 拉取的实时块（写作/指挥） */
 const writingStatus = ref<Record<string, unknown> | null>(null)
 const writingPollError = ref('')
 let writingPollTimer: ReturnType<typeof setInterval> | null = null
@@ -210,24 +208,6 @@ const beatPhaseLabel = computed(() => {
     land: '着陆 (land)',
   }
   return map[raw] || raw || '—'
-})
-
-const lastTruncateLine = computed(() => {
-  const t = writingStatus.value?.last_smart_truncate
-  if (!t || typeof t !== 'object') return ''
-  const o = t as Record<string, unknown>
-  const from = o.from_chars
-  const to = o.to_chars
-  const cap = o.hard_cap
-  const bi = o.beat_index_1based
-  const tb = o.total_beats
-  const ph = o.phase
-  if (from == null && to == null) return ''
-  const modeRaw = o.truncate_mode
-  const modeLabel =
-    modeRaw === 'hard' ? '硬截断' : modeRaw === 'smart' ? '智能截断' : ''
-  const modeSeg = modeLabel ? ` · ${modeLabel}` : ''
-  return `节拍 ${bi}/${tb} · ${from}→${to} 字 · 硬上限 ${cap} · 相位 ${ph}${modeSeg}`
 })
 
 async function fetchWritingTelemetry() {

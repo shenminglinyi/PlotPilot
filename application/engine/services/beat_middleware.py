@@ -366,7 +366,7 @@ class EnergyImmunityMiddleware:
         beat_content: str,
         ctx: BeatMiddlewareContext,
     ) -> BeatMiddlewareContext:
-        """推断情绪方向，供 soft_landing 和下一节拍使用"""
+        """推断情绪方向，供下一节拍衔接使用"""
         if not beat_content.strip():
             return ctx
 

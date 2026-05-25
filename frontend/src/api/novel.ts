@@ -30,7 +30,9 @@ function pickString(raw: Record<string, unknown>, keys: string[], fallback = '')
 /** 与后端 novels.generation_prefs_json 一致（按需扩展） */
 export interface GenerationPrefsDTO {
   phase_display_mode?: boolean
+  /** 兼容旧配置字段；当前版本不再驱动正文截断 */
   smart_truncate_enabled?: boolean
+  /** 兼容旧配置字段；当前版本不再启用节拍硬帽 */
   beat_hard_cap_enabled?: boolean
   /** 落盘前段内碎片换行连片；默认关闭 */
   inline_prose_aggregation_enabled?: boolean

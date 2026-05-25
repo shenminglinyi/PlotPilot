@@ -2094,10 +2094,8 @@ async def autopilot_chapter_stream(novel_id: str):
         _PROSE_SUBSTEPS = frozenset(
             {
                 "llm_calling",
-                "soft_landing",
                 "persisting",
                 "continuity_check",
-                "density_supplement",
                 "chapter_persist",
             }
         )

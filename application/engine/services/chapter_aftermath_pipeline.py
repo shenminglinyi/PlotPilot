@@ -121,6 +121,7 @@ class ChapterAftermathPipeline:
             "causal_edges_stored": False,
             "character_mutations_stored": False,
             "debt_updated": False,
+            "bridge_extracted": False,
             "guardrail_passed": None,
             "guardrail_score": None,
             "evolution_snapshot_ok": False,
@@ -132,6 +133,14 @@ class ChapterAftermathPipeline:
         if not content or not str(content).strip():
             logger.debug("aftermath 跳过：正文为空 novel=%s ch=%s", novel_id, chapter_number)
             return out
+
+        # 0) 章间衔接锚点。放在统一章后管线里，确保 HTTP 保存、托管连写、
+        # 自动驾驶最终都会产出同一种前章桥段资产。
+        try:
+            await self._extract_chapter_bridge(novel_id, chapter_number, content)
+            out["bridge_extracted"] = True
+        except Exception as e:
+            logger.warning("章节桥段提取失败 novel=%s ch=%s: %s", novel_id, chapter_number, e)
 
         # 1) 叙事 + 向量 + 故事线 + 张力 + 对话 + 因果边 + 人物状态 + 债务
         try:
@@ -388,3 +397,23 @@ class ChapterAftermathPipeline:
             logger.warning("汇流点检查失败（非致命）: %s", _cp_err)
 
         return out
+
+    async def _extract_chapter_bridge(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        content: str,
+    ) -> None:
+        """统一章后桥段提取。
+
+        这是保存后管线的衔接端口，而不是某条写作路径的私有后处理。
+        ChapterBridgeService 的写入是 upsert，重复调用保持幂等。
+        """
+        from application.engine.services.chapter_bridge_service import ChapterBridgeService
+        from application.paths import get_db_path
+
+        svc = ChapterBridgeService(
+            llm_service=self._llm,
+            db_path=str(get_db_path()),
+        )
+        await svc.extract_bridge(novel_id, chapter_number, content)

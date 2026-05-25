@@ -8,7 +8,7 @@
     1. 还剩很多 → 放开写，细节铺陈、对话展开
     2. 用掉大半 → 开始加速，场景变紧凑，对话变短促
     3. 快到上限 → 用一个有画面感的短句收住，干净利落
-    4. 超了 → 智能截断到上一个完整句子，绝不留下半句话
+    4. 超了 → 不截断正文；交给完成判定拦截，下一轮重新生成或继续
 
 三个阶段：
     UNFURL  (铺陈): 0% ~ 75% 预算 — 尽情展开，冲突、对话、感官细节
@@ -38,7 +38,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
 import logging
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +64,7 @@ class ConductorSignal:
 
     # ── 字数约束 ──
     max_words_hint: int = 0       # 建议字数上限（Prompt 中提示 LLM）
-    hard_cap: int = 0             # 物理硬上限（超出则智能截断）
+    hard_cap: int = 0             # 已废弃：不再对正文做硬截断
 
 
 @dataclass
@@ -88,7 +87,7 @@ class ChapterConductor:
     1. 不做事后精简（毁灭文本质量）
     2. 不做粗暴截断（读者感到割裂）
     3. 通过 Prompt 指令引导 LLM 自然收束
-    4. 物理硬截断作为最后安全网，但必须截到完整句子
+    4. 不做截断后补写；宁可不放行，也不制造胶水段
     5. 收束是渐进的——不是突然刹车，而是逐步减速
     6. Phase 2: 高能节拍免疫压缩——爽点不容妥协
     7. 爽文引擎: 高能节拍锁定 UNFURL，绝对不在打脸高潮处触发 CONVERGE
@@ -237,8 +236,8 @@ class ChapterConductor:
         else:
             suggested_max = max(self.MIN_BEAT_WORDS, remaining_budget)
 
-        # 物理硬上限（超出则智能截断）—— 给 15% 的弹性空间
-        hard_cap = int(suggested_max * 1.15) if suggested_max > 0 else 0
+        # 不再提供物理硬上限。字数控制只作为提示，正文不做事后切割。
+        hard_cap = 0
 
         return ConductorSignal(
             phase=current_phase,
@@ -468,175 +467,6 @@ class ChapterConductor:
         # 从当前索引往后，假设一半节拍是可压缩的
         remaining = max(0, self.total_beats - self.current_index)
         return max(1, remaining // 2)
-
-
-# ═══════════════════════════════════════════════════════════════
-# 智能截断工具——硬截断安全网
-# ═══════════════════════════════════════════════════════════════
-
-def hard_truncate_at_chars(text: str, max_chars: int) -> str:
-    """按字符数硬截断（不保证句界）。用于关闭 smart_truncate 时仍遵守 hard_cap。"""
-    if not text or max_chars <= 0 or len(text) <= max_chars:
-        return text
-    return text[:max_chars]
-
-
-def smart_truncate(text: str, max_chars: int, focus: str = "") -> str:
-    """智能截断：找到最后一个完整句子边界
-
-    核心原则：
-    - 绝不留下半句话
-    - 绝不在对话中间截断（不完整的引号对）
-    - 优先在句号/叹号/问号处截断
-    - 次选在逗号/分号等停顿处截断
-    - 最后才在空格处截断
-
-    爽文引擎增强：
-    - 情绪感知截断：如果截断点前 200 字处于张力上升期，不补句号，改用省略号
-    - 制造悬念残影，而非"杀死"叙事势能
-
-    Args:
-        text: 待截断文本
-        max_chars: 最大字符数
-        focus: 当前节拍的 focus 类型（用于情绪感知截断判断）
-
-    Returns:
-        截断后的完整文本
-    """
-    if not text or len(text) <= max_chars:
-        return text
-
-    # 爽文引擎: 检测张力上升期
-    is_rising_tension = _detect_rising_tension(text, max_chars, focus)
-
-    # 先截到 max_chars
-    truncated = text[:max_chars]
-
-    # 完整句子结束符（优先级最高）
-    sentence_enders = r'[。！？…]'
-    # 停顿符（次选）
-    pause_marks = r'[，；、：—]'
-
-    # 从后往前搜索最近的句子结束符
-    for i in range(len(truncated) - 1, max(len(truncated) - 200, -1), -1):
-        if re.match(sentence_enders, truncated[i]):
-            result = truncated[:i + 1]
-            # 检查引号是否闭合
-            result = _balance_quotes(result)
-            return result
-
-    # 没找到句子结束符，搜索停顿符
-    for i in range(len(truncated) - 1, max(len(truncated) - 200, -1), -1):
-        if re.match(pause_marks, truncated[i]):
-            result = truncated[:i + 1]
-            # 爽文引擎: 在停顿符后补省略号（而非句号），保留叙事余韵
-            # 句号会"杀死"叙事势能，省略号暗示故事还在继续
-            result = _balance_quotes(result)
-            if not re.search(r'[。！？…）】》"\'』」]$', result):
-                result += '……'
-            return result
-
-    # 实在找不到好的截断点，在最后一个段落换行处截断
-    last_para = truncated.rfind('\n')
-    if last_para > max_chars * 0.5:
-        result = truncated[:last_para].rstrip()
-        if not re.search(r'[。！？…）】》"\'』」]$', result):
-            result += '……'
-        return result
-
-    # 爽文引擎: 最终降级策略
-    # 如果处于张力上升期，用省略号制造悬念残影
-    # 如果不是上升期，也用省略号替代句号保留叙事余韵
-    result = truncated.rstrip()
-    if not re.search(r'[。！？…）】》"\'』」]$', result):
-        result += '……'
-    return result
-
-
-# 爽文引擎: 张力上升期检测关键词
-_RISING_TENSION_KEYWORDS = {
-    "爆发", "冲", "怒", "震", "怒吼", "反击", "逆转", "底牌",
-    "暴露", "揭露", "震惊", "不可置信", "瞳孔", "倒吸", "骇然",
-    "惊恐", "脸色大变", "冷汗", "颤抖", "崩溃", "绝望", "嘶吼",
-    "轰", "砰", "撕", "碎", "裂", "燃", "爆",
-}
-
-_HIGH_ENERGY_FOCUSES_FOR_TRUNCATE = {"action", "power_reveal", "identity_reveal", "hook", "cultivation"}
-
-
-def _detect_rising_tension(text: str, max_chars: int, focus: str = "") -> bool:
-    """爽文引擎: 检测截断点前 200 字是否处于张力上升期
-
-    判断逻辑：
-    1. 如果 focus 属于高能池，直接判定为上升期
-    2. 否则检查最后 200 字中是否包含张力上升关键词
-
-    Args:
-        text: 完整文本
-        max_chars: 截断位置
-        focus: 节拍 focus 类型
-
-    Returns:
-        True 如果处于张力上升期
-    """
-    # 高能 focus 直接判定
-    if focus in _HIGH_ENERGY_FOCUSES_FOR_TRUNCATE:
-        return True
-
-    # 检查截断点前 200 字
-    check_start = max(0, max_chars - 200)
-    tail_text = text[check_start:max_chars]
-
-    rising_count = sum(1 for kw in _RISING_TENSION_KEYWORDS if kw in tail_text)
-    return rising_count >= 2
-
-
-def build_soft_landing_prompt(focus: str = "", emotion_trend: str = "stable") -> str:
-    """爽文引擎: 构建 soft_landing 续写指令
-
-    当触发 _soft_landing 时，续写指令必须携带前置情绪状态，
-    确保高潮画面的最后定格不会丢失情绪张力。
-
-    Args:
-        focus: 当前节拍 focus 类型
-        emotion_trend: 情绪趋势 (rising/peak/falling/stable)
-
-    Returns:
-        soft_landing 续写指令文本
-    """
-    base = "请用 150 字完成这个高潮画面的最后定格。"
-
-    if focus in _HIGH_ENERGY_FOCUSES_FOR_TRUNCATE or emotion_trend in ("rising", "peak"):
-        return (
-            "当前处于极度震惊的情绪高点！"
-            + base
-            + "用最短促有力的句子完成最后的冲击画面——"
-            "一个表情、一声倒吸、一个动作，定格在最高潮的瞬间。"
-            "不要用总结性的句子收尾，让画面停在最具冲击力的一帧！"
-        )
-    elif emotion_trend == "falling":
-        return base + "情绪开始回落，用一个有画面感的细节完成过渡。"
-    else:
-        return base + "自然收束当前场景，留下完整的叙事弧线。"
-
-
-def _balance_quotes(text: str) -> str:
-    """平衡引号对——如果截断导致引号不闭合，去掉最后一个不匹配的引号
-
-    例如："他说：「你走吧。" → 保留（中文双引号闭合，「 未闭合但问题不大）
-          "他说：「你走吧」" → 保留（完整）
-          "他说：「你走吧 → 去掉到 "他说：" 或补上 」
-    """
-    # 中文引号对
-    pairs = [('「', '」'), ('『', '』'), ('"', '"'), ('（', '）'), ('【', '】')]
-    for open_q, close_q in pairs:
-        open_count = text.count(open_q)
-        close_count = text.count(close_q)
-        if open_count > close_count:
-            # 有未闭合的引号，尝试补上
-            text += close_q
-
-    return text
 
 
 # ═══════════════════════════════════════════════════════════════

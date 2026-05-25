@@ -493,9 +493,6 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
 
             # 获取指挥信号（铺陈/收束/着陆）——须在共享状态写入前取得，供遥测字段使用
             signal = conductor.get_signal(i)
-            if not novel.generation_prefs.beat_hard_cap_enabled:
-                signal = replace(signal, hard_cap=0)
-
             # 🔥 节拍开始前，立即更新共享状态（前端实时看到当前节拍）
             beat_focus = getattr(beat, 'focus', '') or ''
             beat_target_words = getattr(beat, 'target_words', 0) or 0
@@ -510,7 +507,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 accumulated_words=len(accumulated_content),
                 chapter_target_words=target_word_count,
                 context_tokens=bundle.get('context_tokens', 0) if bundle else 0,
-                beat_hard_cap=int(signal.hard_cap or 0),
+                beat_hard_cap=0,
                 beat_phase=signal.phase.value,
                 beat_max_words_hint=int(signal.max_words_hint or 0),
                 beat_remaining_budget=int(signal.remaining_budget),
@@ -610,57 +607,7 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                 )
 
             if beat_content.strip():
-                # 截断安全网：超出硬上限时，按书目偏好选择智能截断或字符硬截断
-                if signal.hard_cap > 0 and len(beat_content.strip()) > signal.hard_cap:
-                    from application.engine.services.word_count_tracker import (
-                        hard_truncate_at_chars,
-                        smart_truncate,
-                    )
-
-                    stripped = beat_content.strip()
-                    original_len = len(stripped)
-                    use_smart = novel.generation_prefs.smart_truncate_enabled
-                    if use_smart:
-                        beat_content = smart_truncate(
-                            stripped, signal.hard_cap, focus=str(beat_focus or "")
-                        )
-                        trunc_mode = "smart"
-                        label = "智能截断"
-                    else:
-                        beat_content = hard_truncate_at_chars(stripped, signal.hard_cap)
-                        trunc_mode = "hard"
-                        label = "硬截断"
-                    logger.warning(
-                        f"[{novel.novel_id}] {label}：节拍 {i + 1} "
-                        f"{original_len} → {len(beat_content)} 字 "
-                        f"(硬上限 {signal.hard_cap} 字)"
-                    )
-                    host._update_shared_state(
-                        novel.novel_id.value,
-                        last_smart_truncate={
-                            "beat_index_1based": i + 1,
-                            "total_beats": len(beats),
-                            "from_chars": original_len,
-                            "to_chars": len(beat_content),
-                            "hard_cap": int(signal.hard_cap),
-                            "phase": signal.phase.value,
-                            "truncate_mode": trunc_mode,
-                        },
-                    )
-
-                # ★ 子步骤状态：软着陆
-                host._update_shared_state(
-                    novel.novel_id.value,
-                    writing_substep="soft_landing",
-                    writing_substep_label=f"节拍 {i+1}/{len(beats)} 收尾修整",
-                )
-
-                # 软着陆：截断检测与自然续写
-                beat_content = await host._soft_landing(
-                    beat_content, beat, outline, accumulated_content, novel,
-                    signal=signal,
-                    emotion_trend=mw_ctx.emotion_trend,  # ★ Phase 2: 传入情绪方向
-                )
+                # 不再做硬截断或截断后补写。超额由后续章节完成判定和节拍预算调度处理。
 
                 # 报告实际字数给指挥
                 actual_words = len(beat_content.strip())
@@ -1023,23 +970,6 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
         )
         chapter_content = await host._continuity_self_check(
             novel.novel_id.value, chapter_num, chapter_content
-        )
-
-    # ── 信息密度检测：事实密度低时补写一拍推进情节 ──
-    density = host._estimate_info_density(chapter_content)
-    if density < host.INFO_DENSITY_MIN_FACTS_PER_500 and len(chapter_content) > 500:
-        logger.info(
-            "[%s] 信息密度低（%.2f facts/500字 < %.2f），触发补写 ch=%d",
-            novel.novel_id.value, density, host.INFO_DENSITY_MIN_FACTS_PER_500, chapter_num,
-        )
-        host._update_shared_state(
-            novel.novel_id.value,
-            writing_substep="density_supplement",
-            writing_substep_label="信息密度补写",
-        )
-        chapter_content = await host._density_supplement_beat(
-            novel.novel_id.value, chapter_num, outline, chapter_content,
-            target_word_count, novel,
         )
 
     # 🔥 先更新阶段到共享内存（不写章节聚合，避免占位 0 覆盖真实数据）

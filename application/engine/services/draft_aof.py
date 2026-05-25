@@ -133,6 +133,7 @@ def recover_all_drafts() -> int:
 
             # 写入 DB（使用 chapter repository 的 upsert）
             _recover_draft_to_db(novel_id, chapter_number, content)
+            _mark_recovered_chapter_state(novel_id)
 
             # 恢复成功，删除 .draft 文件
             path.unlink()
@@ -217,3 +218,34 @@ def _recover_draft_to_db(novel_id: str, chapter_number: int, content: str) -> No
             status=ChapterStatus.DRAFT,
         )
         chapter_repo.save(chapter)
+
+
+def _mark_recovered_chapter_state(novel_id: str) -> None:
+    """AOF 恢复后修正小说级断点状态。
+
+    AOF 只能恢复正文，不知道精确节拍索引。这里采用保守口径：
+    - 清掉 beats_completed，避免恢复草稿被误判为已跑完全章；
+    - 如果索引仍是 0，则推进到 1，避免已有正文从第 1 拍整段叠写。
+    """
+    try:
+        from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
+
+        db = get_database(get_db_path())
+        db.execute(
+            """
+            UPDATE novels
+            SET
+                current_beat_index = CASE
+                    WHEN COALESCE(current_beat_index, 0) <= 0 THEN 1
+                    ELSE current_beat_index
+                END,
+                beats_completed = 0,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (novel_id,),
+        )
+        db.commit()
+    except Exception as e:
+        logger.debug("[AOF] 恢复断点状态修正失败 novel=%s: %s", novel_id, e)

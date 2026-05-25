@@ -653,7 +653,7 @@ const substepBadgeClass = computed(() => {
   if (sub === 'llm_calling') return 'substep-active'
   if (sub === 'outline_planning') return 'substep-plan'
   if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
-  if (sub === 'soft_landing' || sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
+  if (sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
   // 审计阶段
   if (sub === 'audit_voice_check') return 'substep-audit'
   if (sub === 'audit_aftermath') return 'substep-audit'

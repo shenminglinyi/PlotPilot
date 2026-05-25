@@ -66,7 +66,7 @@ class UpdateNovelRequest(BaseModel):
     )
     generation_prefs: Optional[Dict[str, Any]] = Field(
         None,
-        description="生成偏好（与库内合并）；键示例：phase_display_mode, smart_truncate_enabled, beat_hard_cap_enabled, inline_prose_aggregation_enabled, conductor_converge_threshold, conductor_land_threshold",
+        description="生成偏好（与库内合并）；键示例：phase_display_mode, inline_prose_aggregation_enabled, conductor_converge_threshold, conductor_land_threshold",
     )
 
 

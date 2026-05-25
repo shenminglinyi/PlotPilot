@@ -12,9 +12,9 @@ class GenerationPreferences:
 
     # 工作台/全托管 UI：True 时叙事单元展示为「第 N 阶段」，否则为「章」（默认阶段）
     phase_display_mode: bool = True
-    # 超出节拍硬上限时是否做 smart_truncate（关则按字符硬截断；关硬帽时本项无意义）
+    # 兼容旧配置字段：截断逻辑已移除，保留字段避免旧 JSON 反序列化失败
     smart_truncate_enabled: bool = False
-    # 是否启用节拍字数硬帽（False 时 hard_cap=0，且不截断）
+    # 兼容旧配置字段：不再启用正文硬帽
     beat_hard_cap_enabled: bool = False
     # 覆盖 ChapterConductor 阈值；None 表示用类默认
     conductor_converge_threshold: Optional[float] = None
