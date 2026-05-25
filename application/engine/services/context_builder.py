@@ -522,6 +522,12 @@ class ContextBuilder:
         )
         prompt = (rendered.user if rendered else "") or ""
 
+        from engine.pipeline.generation_prompt_builder import build_director_contract
+
+        director_contract = build_director_contract(beat)
+        if director_contract:
+            prompt = prompt.replace("━━━ 写前三问", director_contract + "\n\n━━━ 写前三问", 1)
+
         # 若模板未消费 card_block（旧版 user.md），回退到直接注入
         if beat.card_prompt_block and "{card_block}" not in (rendered.user or "") and beat.card_prompt_block not in prompt:
             prompt = prompt.replace(

@@ -233,7 +233,7 @@ const patching = ref<string | null>(null)
 const savingConductor = ref(false)
 
 const smartTruncate = ref(false)
-const beatHardCap = ref(true)
+const beatHardCap = ref(false)
 
 const pauseAfterEachAudit = ref(false)
 const auditPauseOnHardFail = ref(false)
@@ -248,10 +248,10 @@ function applyPrefs(p?: GenerationPrefsDTO | null) {
   const p2 = p ?? {}
   smartTruncate.value = Object.prototype.hasOwnProperty.call(p2, 'smart_truncate_enabled')
     ? Boolean(p2.smart_truncate_enabled)
-    : true
+    : false
   beatHardCap.value = Object.prototype.hasOwnProperty.call(p2, 'beat_hard_cap_enabled')
     ? Boolean(p2.beat_hard_cap_enabled)
-    : true
+    : false
 
   pauseAfterEachAudit.value = Boolean(p2.pause_after_each_chapter_audit)
   auditPauseOnHardFail.value = Boolean(p2.audit_pause_on_hard_fail)

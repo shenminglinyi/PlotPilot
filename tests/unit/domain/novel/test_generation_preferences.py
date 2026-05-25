@@ -28,6 +28,16 @@ def test_audit_gate_prefs_default_false_when_missing():
     assert gp.audit_pause_on_anti_ai_severe is False
 
 
+def test_beat_safety_net_defaults_off():
+    gp = GenerationPreferences()
+    assert gp.beat_hard_cap_enabled is False
+    assert gp.smart_truncate_enabled is False
+
+    partial = GenerationPreferences.from_dict({"phase_display_mode": True})
+    assert partial.beat_hard_cap_enabled is False
+    assert partial.smart_truncate_enabled is False
+
+
 def test_audit_gate_prefs_from_dict_merge_patch():
     gp = GenerationPreferences.from_dict(
         {

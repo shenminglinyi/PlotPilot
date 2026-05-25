@@ -2,13 +2,19 @@
 from types import SimpleNamespace
 
 from engine.pipeline.context import PipelineContext
-from engine.pipeline.generation_prompt_builder import build_generation_prompt, make_prompt
+from engine.pipeline.generation_prompt_builder import (
+    build_director_contract,
+    build_generation_prompt,
+    make_prompt,
+)
 
 
-def test_build_generation_prompt_contains_context_outline_beat_and_card():
+def test_build_generation_prompt_puts_beat_task_before_context():
     beat = SimpleNamespace(
         description="主角夺回证据",
         focus="action",
+        visible_action="推门闯入档案室",
+        delta="拿到芯片，守卫开始追击",
         card_prompt_block="━━━ 节点卡\n✅ 必须写出的行为：推开门",
     )
     ctx = PipelineContext(
@@ -20,11 +26,17 @@ def test_build_generation_prompt_contains_context_outline_beat_and_card():
 
     prompt = build_generation_prompt(ctx, beat, 0)
 
+    beat_pos = prompt.index("【当前节拍 1/1】")
+    ctx_pos = prompt.index("【参考背景")
+    assert beat_pos < ctx_pos
+    assert "本拍唯一任务" in prompt
+    assert "拿到芯片" in prompt
     assert "核心上下文" in prompt
-    assert "声线锚点" in prompt
-    assert "【章节大纲】\n本章大纲" in prompt
-    assert "【当前节拍 1/1】主角夺回证据（焦点：action）" in prompt
-    assert "✅ 必须写出的行为：推开门" in prompt
+
+
+def test_build_director_contract_empty_when_no_delivery_fields():
+    beat = SimpleNamespace(description="铺垫", focus="sensory")
+    assert build_director_contract(beat) == ""
 
 
 def test_make_prompt_returns_domain_prompt_when_available():

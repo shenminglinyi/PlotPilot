@@ -1553,10 +1553,15 @@ class AutoNovelGenerationWorkflow:
             planning_parts.append(f"【风格约束】\n{ss}")
         planning_section = ""
         if planning_parts:
-            planning_section = (
-                "\n".join(planning_parts)
-                + "\n\n以上约束须与本章大纲及后文 Bible/摘要一致；不得与之矛盾。\n"
-            )
+            if beat_mode:
+                # 分节拍写作：故事线/张力已在 beat_prompt 中兑现，system 侧只保留文风约束，避免设定抢戏
+                style_only = [p for p in planning_parts if p.startswith("【风格约束】")]
+                planning_parts = style_only
+            if planning_parts:
+                planning_section = (
+                    "\n".join(planning_parts)
+                    + "\n\n以上约束须与本章大纲及后文 Bible/摘要一致；不得与之矛盾。\n"
+                )
 
         voice_block = ""
         if va:

@@ -15,7 +15,7 @@ class GenerationPreferences:
     # 超出节拍硬上限时是否做 smart_truncate（关则按字符硬截断；关硬帽时本项无意义）
     smart_truncate_enabled: bool = False
     # 是否启用节拍字数硬帽（False 时 hard_cap=0，且不截断）
-    beat_hard_cap_enabled: bool = True
+    beat_hard_cap_enabled: bool = False
     # 覆盖 ChapterConductor 阈值；None 表示用类默认
     conductor_converge_threshold: Optional[float] = None
     conductor_land_threshold: Optional[float] = None
@@ -38,7 +38,7 @@ class GenerationPreferences:
             return cls()
         if not isinstance(raw, dict):
             return cls()
-        # 全空对象：视为采用当前类默认（含阶段模式 + 默认关闭智能截断）
+        # 全空对象：视为采用当前类默认
         if len(raw) == 0:
             return cls()
         # 兼容旧库：键缺失时默认「阶段」；显式 false 仍为章
@@ -46,14 +46,13 @@ class GenerationPreferences:
             phase_display_mode = True
         else:
             phase_display_mode = bool(raw["phase_display_mode"])
-        # 兼容旧库：键缺失时保持「开启智能截断」（旧默认）
+        # 键缺失时默认关闭（与类默认一致）
         if "smart_truncate_enabled" not in raw:
-            smart_truncate_enabled = True
+            smart_truncate_enabled = False
         else:
             smart_truncate_enabled = bool(raw["smart_truncate_enabled"])
-        # 兼容旧库：键缺失时保持「启用硬帽」
         if "beat_hard_cap_enabled" not in raw:
-            beat_hard_cap_enabled = True
+            beat_hard_cap_enabled = False
         else:
             beat_hard_cap_enabled = bool(raw["beat_hard_cap_enabled"])
         conv = raw.get("conductor_converge_threshold")
