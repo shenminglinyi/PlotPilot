@@ -1,37 +1,34 @@
 """通用结构化 JSON 输出管线。
 
-完整流程：LLM 原始输出 → 清洗 → json_repair 修复 → Pydantic schema 校验 → 重试。
-
-设计要点：
-- 所有需要 LLM 返回结构化 JSON 的服务均可复用此管线
-- 调用方只需提供 LLMService、Prompt、GenerationConfig、Pydantic 模型
-- 管线自动处理清洗/修复/校验/重试，返回 Pydantic 模型实例或 None
+完整流程：LLM 原始输出 -> 清洗 -> json_repair 修复 -> Pydantic schema 校验 -> 可选重试。
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Any, Generic, List, Optional, Tuple, Type, TypeVar
+from typing import List, Optional, Tuple, Type, TypeVar
 
-from pydantic import BaseModel, ValidationError
 from json_repair import repair_json
+from pydantic import BaseModel, ValidationError
 
-from domain.ai.services.llm_service import GenerationConfig, LLMService
-from domain.ai.value_objects.prompt import Prompt
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.ai.llm_retry_policy import LLM_MAX_TOTAL_ATTEMPTS
+from application.ai.trace_context import content_hash, preview_value
+from domain.ai.services.llm_service import GenerationConfig, LLMService
+from domain.ai.value_objects.prompt import Prompt
+from infrastructure.ai.trace_recorder import get_trace_recorder
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# 校验/解析失败后的额外重试轮数（总次数 = 1 + 该值，且不超过 LLM_MAX_TOTAL_ATTEMPTS）
+# 校验或解析失败后的额外重试轮数；总次数 = 1 + 该值，且不超过全局上限。
 DEFAULT_MAX_RETRIES = LLM_MAX_TOTAL_ATTEMPTS - 1
 
 
 def _is_retryable_llm_error(exc: Exception) -> bool:
-    """识别上游临时性故障，避免 529/429/5xx 直接短路。"""
+    """识别上游临时故障，避免 429/5xx/超时直接短路。"""
     message = str(exc).lower()
     retryable_markers = (
         "overloaded_error",
@@ -52,51 +49,25 @@ def _retry_delay_seconds(attempt: int) -> float:
     return min(1.5 * (2 ** attempt), 8.0)
 
 
-# ---------------------------------------------------------------------------
-# 第一步：正则清洗
-# ---------------------------------------------------------------------------
-
-
 def sanitize_llm_output(raw: str) -> str:
-    """对 LLM 原始输出进行清洗，去除干扰字符。
-
-    处理内容：
-    1. BOM 头 (\\ufeff)
-    2. 思维链 / reasoning 块（见 strip_reasoning_artifacts）
-    3. Markdown 代码块围栏 (```json ... ```)
-    4. 前后空白 / 零宽字符
-
-    🔥 此函数与 llm_json_extract.strip_json_fences 功能完全一致，
-    委托给统一实现，避免两处维护不同步。
-    """
+    """对 LLM 原始输出进行清洗，去除干扰字符。"""
     from application.ai.llm_json_extract import strip_json_fences
-    return strip_json_fences(raw)
 
-
-# ---------------------------------------------------------------------------
-# 第二步：JSON 解析 + json_repair 修复
-# ---------------------------------------------------------------------------
+    return strip_json_fences(strip_reasoning_artifacts(raw))
 
 
 def parse_and_repair_json(cleaned: str) -> Tuple[Optional[dict], List[str]]:
-    """尝试解析 JSON；失败则用 json_repair 修复后重试。
-
-    Returns:
-        (dict, [])  成功
-        (None, [错误信息])  完全无法解析
-    """
+    """尝试解析 JSON；失败则使用 json_repair 和外层花括号提取兜底。"""
     errors: List[str] = []
 
-    # 第一次尝试：标准 json.loads
     try:
         data = json.loads(cleaned)
         if isinstance(data, dict):
             return data, []
         errors.append(f"根节点不是 JSON 对象，而是 {type(data).__name__}")
-    except json.JSONDecodeError as e:
-        errors.append(f"标准 JSON 解析失败: {e}")
+    except json.JSONDecodeError as exc:
+        errors.append(f"标准 JSON 解析失败: {exc}")
 
-    # 第二次尝试：json_repair
     try:
         repaired = repair_json(cleaned)
         data = json.loads(repaired)
@@ -104,10 +75,9 @@ def parse_and_repair_json(cleaned: str) -> Tuple[Optional[dict], List[str]]:
             logger.debug("json_repair 修复成功")
             return data, []
         errors.append(f"json_repair 后根节点不是 JSON 对象，而是 {type(data).__name__}")
-    except Exception as e:
-        errors.append(f"json_repair 修复失败: {e}")
+    except Exception as exc:
+        errors.append(f"json_repair 修复失败: {exc}")
 
-    # 第三次尝试：提取最外层 { }
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start != -1 and end > start:
@@ -115,16 +85,15 @@ def parse_and_repair_json(cleaned: str) -> Tuple[Optional[dict], List[str]]:
         try:
             data = json.loads(fragment)
             if isinstance(data, dict):
-                logger.debug("最外层花括号提取解析成功")
+                logger.debug("外层花括号提取解析成功")
                 return data, []
         except json.JSONDecodeError:
             pass
-        # 对提取片段再走一次 json_repair
         try:
             repaired = repair_json(fragment)
             data = json.loads(repaired)
             if isinstance(data, dict):
-                logger.debug("最外层花括号提取 + json_repair 修复成功")
+                logger.debug("外层花括号提取 + json_repair 修复成功")
                 return data, []
         except Exception:
             pass
@@ -132,36 +101,21 @@ def parse_and_repair_json(cleaned: str) -> Tuple[Optional[dict], List[str]]:
     return None, errors
 
 
-# ---------------------------------------------------------------------------
-# 第三步：Pydantic schema 校验
-# ---------------------------------------------------------------------------
-
-
 def validate_json_schema(
     data: dict,
     model_cls: Type[T],
 ) -> Tuple[Optional[T], List[str]]:
-    """用 Pydantic 模型校验 dict，extra='forbid' 拒绝多余字段。
-
-    Returns:
-        (model_instance, [])  校验通过
-        (None, [错误信息])  校验失败
-    """
+    """使用 Pydantic 模型校验 dict。"""
     try:
         instance = model_cls.model_validate(data)
         return instance, []
-    except ValidationError as e:
-        err_list = e.errors()
+    except ValidationError as exc:
+        err_list = exc.errors()
         msgs = [
             f"{'/'.join(str(x) for x in err.get('loc', ()))}: {err.get('msg', '')}"
             for err in err_list[:12]
         ]
-        return None, msgs or [str(e)]
-
-
-# ---------------------------------------------------------------------------
-# 完整管线：清洗 → 修复 → 校验 → 可选重试
-# ---------------------------------------------------------------------------
+        return None, msgs or [str(exc)]
 
 
 async def structured_json_generate(
@@ -172,47 +126,30 @@ async def structured_json_generate(
     *,
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> Optional[T]:
-    """调用 LLM 获取结构化 JSON 输出，经过完整清洗/修复/校验管线。
-
-    如果校验失败，会将错误信息追加到 prompt 中让 LLM 重新生成。
-    总调用次数（含首次）不超过 LLM_MAX_TOTAL_ATTEMPTS（默认 3），全部失败返回 None。
-
-    Args:
-        llm: LLM 服务实例
-        prompt: 原始 prompt
-        config: 生成配置（可含 response_format 强制 JSON）
-        schema_model: Pydantic 模型类，用于 schema 校验
-        max_retries: 期望的「额外重试轮数」，会被压缩到总次数上限内
-
-    Returns:
-        校验通过的 Pydantic 模型实例，或 None（全部失败）
-
-    Usage::
-
-        payload = await structured_json_generate(
-            llm=self._llm,
-            prompt=prompt,
-            config=GenerationConfig(max_tokens=512, temperature=0.3,
-                                    response_format=tension_scoring_response_format()),
-            schema_model=TensionScoringLlmPayload,
-        )
-        if payload is None:
-            return TensionDimensions.neutral()
-        return tension_scoring_payload_to_domain(payload)
-    """
+    """调用 LLM 获取结构化 JSON 输出，并经过清洗、修复、校验管线。"""
     current_prompt = prompt
     last_errors: List[str] = []
     total_attempts = min(1 + max(0, max_retries), LLM_MAX_TOTAL_ATTEMPTS)
+    recorder = get_trace_recorder()
 
     for attempt in range(total_attempts):
-        # --- 调用 LLM ---
         try:
             result = await llm.generate(current_prompt, config)
             raw = result.content if hasattr(result, "content") else str(result)
-        except Exception as e:
-            logger.warning("结构化 JSON 管线 LLM 调用失败 (attempt=%d): %s", attempt, e)
-            last_errors = [str(e)]
-            if attempt < total_attempts - 1 and _is_retryable_llm_error(e):
+        except Exception as exc:
+            logger.warning("结构化 JSON 管线 LLM 调用失败 (attempt=%d): %s", attempt, exc)
+            last_errors = [str(exc)]
+            recorder.record_span(
+                phase="error",
+                node_type="parser",
+                error=str(exc),
+                metadata={
+                    "schema_model": schema_model.__name__,
+                    "attempt": attempt + 1,
+                    "stage": "llm_generate",
+                },
+            )
+            if attempt < total_attempts - 1 and _is_retryable_llm_error(exc):
                 delay = _retry_delay_seconds(attempt)
                 logger.info(
                     "结构化 JSON 管线遇到可重试错误，%.1f 秒后重试 (attempt=%d/%d)",
@@ -224,17 +161,52 @@ async def structured_json_generate(
                 continue
             return None
 
-        # --- 清洗 → 修复 → 校验 ---
         cleaned = sanitize_llm_output(raw)
         data, parse_errors = parse_and_repair_json(cleaned)
+        recorder.record_span(
+            phase="output_parsed",
+            node_type="parser",
+            response_hash=content_hash(raw),
+            response_preview=preview_value(raw),
+            error="; ".join(parse_errors[:8]) if parse_errors else None,
+            metadata={
+                "schema_model": schema_model.__name__,
+                "attempt": attempt + 1,
+                "parse_success": data is not None,
+                "cleaned_hash": content_hash(cleaned),
+            },
+        )
 
         if data is not None:
             instance, schema_errors = validate_json_schema(data, schema_model)
             if instance is not None:
+                recorder.record_span(
+                    phase="schema_validated",
+                    node_type="parser",
+                    response_hash=content_hash(data),
+                    response_preview=preview_value(data),
+                    metadata={
+                        "schema_model": schema_model.__name__,
+                        "attempt": attempt + 1,
+                        "valid": True,
+                    },
+                )
                 if attempt > 0:
                     logger.info("结构化 JSON 管线重试成功 (attempt=%d)", attempt)
                 return instance
             last_errors = parse_errors + schema_errors
+            recorder.record_span(
+                phase="schema_validated",
+                node_type="parser",
+                response_hash=content_hash(data),
+                response_preview=preview_value(data),
+                error="; ".join(schema_errors[:8]),
+                metadata={
+                    "schema_model": schema_model.__name__,
+                    "attempt": attempt + 1,
+                    "valid": False,
+                },
+            )
         else:
             last_errors = parse_errors
 
@@ -245,15 +217,23 @@ async def structured_json_generate(
             last_errors,
         )
 
-        # --- 构建重试 prompt：把错误反馈给 LLM ---
         if attempt < total_attempts - 1:
-            error_feedback = "\n".join(f"- {e}" for e in last_errors[:8])
-            retry_note = (
-                f"\n\n【系统反馈】你上一次的输出格式有误，请修正后重新输出：\n"
-                f"{error_feedback}\n"
-                f"请只输出符合要求的 JSON 对象，不要包含其他文字。"
+            recorder.record_span(
+                phase="fallback_used",
+                node_type="parser",
+                error="; ".join(last_errors[:8]),
+                metadata={
+                    "schema_model": schema_model.__name__,
+                    "reason": "parse_or_schema_failed",
+                    "next_attempt": attempt + 2,
+                },
             )
-            # 在 user message 末尾追加错误反馈
+            error_feedback = "\n".join(f"- {err}" for err in last_errors[:8])
+            retry_note = (
+                "\n\n【系统反馈】你上一次的输出格式有误，请修正后重新输出：\n"
+                f"{error_feedback}\n"
+                "请只输出符合要求的 JSON 对象，不要包含其他文字。"
+            )
             current_prompt = Prompt(
                 system=prompt.system,
                 user=prompt.user + retry_note,
@@ -261,6 +241,17 @@ async def structured_json_generate(
 
     logger.error(
         "结构化 JSON 管线全部重试耗尽 (total_attempts=%d): %s",
-        total_attempts, last_errors,
+        total_attempts,
+        last_errors,
+    )
+    recorder.record_span(
+        phase="error",
+        node_type="parser",
+        error="; ".join(last_errors[:8]),
+        metadata={
+            "schema_model": schema_model.__name__,
+            "stage": "exhausted",
+            "total_attempts": total_attempts,
+        },
     )
     return None

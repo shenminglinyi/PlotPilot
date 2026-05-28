@@ -1,7 +1,7 @@
 """时间工具 — 统一时区感知的 UTC 时间戳。
 
 所有模块使用 `utcnow_iso()` 代替已弃用的 `datetime.utcnow()`，
-确保 Python 3.12+ 不触发 DeprecationWarning。
+确保 Python 3.14.5 运行环境不触发 DeprecationWarning。
 """
 from datetime import datetime, timezone
 

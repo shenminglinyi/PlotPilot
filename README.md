@@ -164,7 +164,7 @@ PlotPilot 内核（本仓库）
 
 ### 方式一：一键启动（Windows，无需安装 Python）
 
-1. 将 `python-3.11.9-embed-amd64.zip` 放入 `tools/` 目录（仅首次）
+1. 将 `python-3.14.5-embed-amd64.zip` 放入 `tools/` 目录（仅首次）
 2. 双击 `tools/plotpilot.bat`
 
 启动器自动完成：环境自检 → 创建虚拟环境 → 安装依赖（自动切换国内镜像源）→ 启动服务 → 打开浏览器。后续启动直接双击。

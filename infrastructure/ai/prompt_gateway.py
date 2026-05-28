@@ -9,7 +9,16 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ValidationError
 
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.trace_context import (
+    content_hash,
+    ensure_trace,
+    extract_novel_id,
+    preview_value,
+    prompt_preview,
+    prompt_to_hash_payload,
+)
 from infrastructure.ai.prompt_contract import PromptContract
+from infrastructure.ai.trace_recorder import get_trace_recorder
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +45,7 @@ class PromptGatewayRenderResult:
     source: str
     fallback_used: bool = False
     variables: Mapping[str, Any] = field(default_factory=dict)
+    package_version: str | None = None
 
     def as_text(self) -> str:
         """给只接受字符串的旧 LLM 客户端使用。"""
@@ -63,14 +73,39 @@ class PromptGateway:
         variables: Mapping[str, Any] | None = None,
     ) -> PromptGatewayRenderResult:
         """渲染契约对应的 Prompt。"""
-        checked_vars = self._validate_variables(contract, variables or {})
+        raw_vars = dict(variables or {})
+        trace = ensure_trace(
+            novel_id=extract_novel_id(raw_vars),
+            operation="prompt_render",
+            metadata={"entry": "PromptGateway.render"},
+        )
+        try:
+            checked_vars = self._validate_variables(contract, raw_vars)
+            self._record_variables_validated(contract, checked_vars)
+        except Exception as exc:
+            self._record_trace_error(
+                contract,
+                phase="error",
+                error=exc,
+                variables=raw_vars,
+                metadata={"stage": "variables_validation"},
+            )
+            raise
 
         registry_error: Exception | None = None
         try:
             rendered = self._render_from_registry(contract, checked_vars)
             if rendered is not None:
+                self._record_prompt_rendered(rendered, registry_error=None)
                 return rendered
-        except PromptGatewayValidationError:
+        except PromptGatewayValidationError as exc:
+            self._record_trace_error(
+                contract,
+                phase="error",
+                error=exc,
+                variables=checked_vars,
+                metadata={"stage": "registry_render_validation"},
+            )
             raise
         except Exception as exc:  # Registry/DB 不可用时允许 package 文件回退
             registry_error = exc
@@ -83,12 +118,37 @@ class PromptGateway:
                 contract.node_key,
                 registry_error,
             )
+            get_trace_recorder().record_span(
+                phase="fallback_used",
+                trace_context=trace,
+                node_id=contract.node_key,
+                node_type="prompt",
+                contract_key=contract.node_key,
+                contract_version=contract.version,
+                source="fallback",
+                variables_hash=content_hash(checked_vars),
+                variables_preview=preview_value(checked_vars),
+                metadata={
+                    "reason": "registry_missing_or_failed",
+                    "registry_error": str(registry_error) if registry_error else "",
+                    "fallback_source": package_result.source,
+                },
+            )
+            self._record_prompt_rendered(package_result, registry_error=registry_error)
             return package_result
 
-        raise PromptGatewayPackageMissingError(
+        error = PromptGatewayPackageMissingError(
             f"提示词节点 {contract.node_key!r} 不存在：PromptRegistry 未命中，"
             f"且本地 prompt_packages 未找到。"
         )
+        self._record_trace_error(
+            contract,
+            phase="error",
+            error=error,
+            variables=checked_vars,
+            metadata={"stage": "prompt_lookup", "registry_error": str(registry_error) if registry_error else ""},
+        )
+        raise error
 
     def validate_output(self, contract: PromptContract, payload: Any) -> Any:
         """按契约校验结构化输出；无 output_schema 时原样返回。"""
@@ -181,7 +241,104 @@ class PromptGateway:
             source="package_file",
             fallback_used=True,
             variables=variables,
+            package_version=self._read_package_version(node_dir),
         )
+
+    def _record_variables_validated(
+        self,
+        contract: PromptContract,
+        variables: Mapping[str, Any],
+    ) -> None:
+        get_trace_recorder().record_span(
+            phase="variables_validated",
+            node_id=contract.node_key,
+            node_type="prompt",
+            contract_key=contract.node_key,
+            contract_version=contract.version,
+            source="config",
+            variables_hash=content_hash(variables),
+            variables_preview=preview_value(variables),
+            metadata={"variables_schema": getattr(contract.variables_schema, "__name__", None)},
+        )
+
+    def _record_prompt_rendered(
+        self,
+        result: PromptGatewayRenderResult,
+        *,
+        registry_error: Exception | None,
+    ) -> None:
+        source = "cpms" if result.source == "registry" else "fallback"
+        get_trace_recorder().record_span(
+            phase="prompt_rendered",
+            node_id=result.node_key,
+            node_type="prompt",
+            contract_key=result.node_key,
+            contract_version=result.contract_version,
+            source=source,
+            variables_hash=content_hash(result.variables),
+            variables_preview=preview_value(result.variables),
+            prompt_hash=content_hash(prompt_to_hash_payload(result.prompt)),
+            prompt_preview=prompt_preview(result.prompt),
+            metadata={
+                "prompt_source": result.source,
+                "fallback_used": result.fallback_used,
+                "package_version": result.package_version,
+                "registry_error": str(registry_error) if registry_error else "",
+                "context_injection": self._infer_context_injection(result.variables),
+            },
+        )
+
+    def _record_trace_error(
+        self,
+        contract: PromptContract,
+        *,
+        phase: str,
+        error: Exception,
+        variables: Mapping[str, Any],
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        get_trace_recorder().record_span(
+            phase=phase,
+            node_id=contract.node_key,
+            node_type="prompt",
+            contract_key=contract.node_key,
+            contract_version=contract.version,
+            source="config",
+            variables_hash=content_hash(variables),
+            variables_preview=preview_value(variables),
+            error=str(error),
+            metadata=dict(metadata or {}),
+        )
+
+    @staticmethod
+    def _infer_context_injection(variables: Mapping[str, Any]) -> list[dict[str, str]]:
+        injected: list[dict[str, str]] = []
+        for key in variables.keys():
+            key_lower = str(key).lower()
+            if "genre" in key_lower:
+                source = "GenrePack"
+            elif "policy" in key_lower or "rule" in key_lower:
+                source = "PolicyPack"
+            elif "context" in key_lower or "memory" in key_lower or "outline" in key_lower:
+                source = "Context"
+            else:
+                continue
+            injected.append({"name": str(key), "source": source})
+        return injected
+
+    @staticmethod
+    def _read_package_version(node_dir: Path) -> str | None:
+        package_yaml = node_dir / "package.yaml"
+        if not package_yaml.is_file():
+            return None
+        try:
+            import yaml  # type: ignore
+
+            data = yaml.safe_load(package_yaml.read_text(encoding="utf-8")) or {}
+            version = data.get("version") or data.get("package_version")
+            return str(version) if version is not None else None
+        except Exception:
+            return None
 
     @staticmethod
     def _read_optional(path: Path) -> str:
