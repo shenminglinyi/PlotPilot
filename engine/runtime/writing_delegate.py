@@ -207,6 +207,18 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
                 writing_substep="act_planning",
                 writing_substep_label="幕级规划",
             )
+        else:
+            # Pipeline 没找到下一章，但当前幕又没有达到“已全部完成”的条件。
+            # 这通常表示章节规划节点缺失或刚被并发清理，不应跳到下一幕；
+            # 回到本幕规划，让引擎补齐当前幕章节。
+            novel.current_chapter_in_act = 0
+            novel.current_stage = NovelStage.ACT_PLANNING
+            daemon._update_shared_state(
+                novel_id,
+                current_stage="act_planning",
+                writing_substep="act_planning",
+                writing_substep_label="幕级规划",
+            )
         daemon._flush_novel(novel)
         return
 

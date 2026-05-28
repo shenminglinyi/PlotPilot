@@ -332,7 +332,7 @@ _daemon_stop_event = None
 
 # ── 跨进程共享状态字典（核心架构：状态走内存，数据走磁盘）──
 # 在启动守护进程前初始化，供 API 进程零 DB IO 读取实时状态
-_mp_manager: multiprocessing.Manager | None = None
+_mp_manager: Any | None = None
 _shared_state: dict | None = None
 
 
@@ -594,6 +594,16 @@ def _run_daemon_in_process(
                 try:
                     from application.engine.services.streaming_bus import streaming_bus
                     streaming_bus.consume_stop_signals()
+                except Exception:
+                    pass
+
+                # 即使当前没有运行中的小说，也定期写入守护进程心跳；
+                # 前端 /status 依赖该心跳判断后台是否真实存活。
+                try:
+                    from application.engine.services.shared_state_repository import (
+                        get_shared_state_repository,
+                    )
+                    get_shared_state_repository().update_daemon_heartbeat()
                 except Exception:
                     pass
 

@@ -519,6 +519,9 @@ class ContinuousPlanningService:
                     structure_preference=structure_preference,
                 )
 
+            if isinstance(structure, list):
+                structure = {"parts": structure}
+
             parts_n = len(structure.get("parts", [])) if isinstance(structure, dict) else 0
             logger.debug(
                 "[MacroPlan] novel=%s generate_done parts=%d target_chapters=%s pref=%s",
@@ -941,20 +944,61 @@ class ContinuousPlanningService:
         config: GenerationConfig,
     ) -> str:
         """流式调用 LLM，边收 token 边写入宏观进度（供 SSE / 轮询展示）。"""
+        import inspect
+
         parts: List[str] = []
         chunk_count = 0
-        async for chunk in self.llm_service.stream_generate(prompt, config):
-            parts.append(chunk)
-            chunk_count += 1
-            self._append_macro_llm_stream(novel_id, chunk)
-            if chunk_count == 1 or chunk_count % 50 == 0:
-                total_so_far = sum(len(p) for p in parts)
-                logger.debug(
-                    "[MacroLLMStream] novel=%s upstream_chunks=%d accumulated_chars=%d",
-                    novel_id,
-                    chunk_count,
-                    total_so_far,
-                )
+        try:
+            stream = self.llm_service.stream_generate(prompt, config)
+            if not hasattr(stream, "__aiter__"):
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
+                generated = self.llm_service.generate(prompt, config)
+                if inspect.isawaitable(generated):
+                    generated = await generated
+                content = generated.content if hasattr(generated, "content") else str(generated or "")
+                if content:
+                    parts.append(content)
+                    self._append_macro_llm_stream(novel_id, content)
+                return "".join(parts)
+
+            async for chunk in stream:
+                parts.append(chunk)
+                chunk_count += 1
+                self._append_macro_llm_stream(novel_id, chunk)
+                if chunk_count == 1 or chunk_count % 50 == 0:
+                    total_so_far = sum(len(p) for p in parts)
+                    logger.debug(
+                        "[MacroLLMStream] novel=%s upstream_chunks=%d accumulated_chars=%d",
+                        novel_id,
+                        chunk_count,
+                        total_so_far,
+                    )
+        except Exception as exc:
+            joined = "".join(parts)
+            if joined:
+                try:
+                    parsed = self._parse_llm_response(joined)
+                    preview_parts = parsed.get("parts") if isinstance(parsed, dict) else None
+                    if isinstance(preview_parts, list) and _macro_incremental_tree_score(preview_parts) > 0:
+                        logger.warning(
+                            "[MacroLLMStream] novel=%s upstream failed after %d chunks/%d chars; "
+                            "using repaired partial macro plan: %s",
+                            novel_id,
+                            chunk_count,
+                            len(joined),
+                            exc,
+                        )
+                        self._set_macro_preview_parts(novel_id, preview_parts)
+                        return json.dumps({"parts": preview_parts}, ensure_ascii=False)
+                except Exception:
+                    logger.debug(
+                        "[MacroLLMStream] novel=%s partial repair failed after upstream error",
+                        novel_id,
+                        exc_info=True,
+                    )
+            raise
         joined = "".join(parts)
         logger.debug(
             "[MacroLLMStream] novel=%s finished upstream_chunks=%d raw_chars=%d",

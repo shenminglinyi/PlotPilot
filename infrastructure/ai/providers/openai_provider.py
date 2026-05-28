@@ -291,10 +291,17 @@ class OpenAIProvider(BaseProvider):
         """原生 Responses stream 解析封装"""
         try:
             event_type = getattr(chunk, "type", "")
-            if event_type == "response.content_part.added":
+            if event_type == "response.output_text.delta":
+                delta = getattr(chunk, "delta", None)
+                if isinstance(delta, str):
+                    return delta
+            elif event_type in ("response.content_part.added", "response.content_part.delta"):
                 part = getattr(chunk, "part", None)
                 if part and getattr(part, "type", "") == "text":
                     return getattr(part, "text", "")
+                delta = getattr(chunk, "delta", None)
+                if isinstance(delta, str):
+                    return delta
             elif event_type == "message.delta":
                 delta = getattr(chunk, "delta", None)
                 if delta:

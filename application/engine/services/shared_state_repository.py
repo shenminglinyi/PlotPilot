@@ -14,7 +14,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-import multiprocessing as mp
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +118,7 @@ class SharedStateRepository:
     KEY_DAEMON_HEARTBEAT = "_daemon_heartbeat"
     KEY_ALL_NOVELS = "_all_novels"
 
-    def __init__(self, shared_dict: Optional[mp.Manager().dict] = None):
+    def __init__(self, shared_dict: Optional[Any] = None):
         """初始化共享状态仓库
 
         Args:
@@ -138,7 +137,7 @@ class SharedStateRepository:
                 logger.warning(f"无法获取共享字典: {e}")
         return self._state is not None
 
-    def set_shared_dict(self, shared_dict: mp.Manager().dict):
+    def set_shared_dict(self, shared_dict: Any):
         """设置共享字典（用于子进程注入）"""
         self._state = shared_dict
 
@@ -493,7 +492,7 @@ class SharedStateRepository:
 _shared_state_repository: Optional[SharedStateRepository] = None
 
 
-def init_shared_state_repository(shared_dict: mp.Manager().dict) -> SharedStateRepository:
+def init_shared_state_repository(shared_dict: Any) -> SharedStateRepository:
     """初始化共享状态仓库（主进程调用）"""
     global _shared_state_repository
     _shared_state_repository = SharedStateRepository(shared_dict)
@@ -509,7 +508,7 @@ def get_shared_state_repository() -> SharedStateRepository:
     return _shared_state_repository
 
 
-def inject_shared_dict(shared_dict: mp.Manager().dict):
+def inject_shared_dict(shared_dict: Any):
     """注入共享字典（子进程调用）"""
     global _shared_state_repository
     if _shared_state_repository is None:

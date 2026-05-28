@@ -128,6 +128,41 @@ async def test_run_story_pipeline_writing_all_chapters_done_transitions_act():
 
 
 @pytest.mark.asyncio
+async def test_run_story_pipeline_writing_all_chapters_done_without_full_act_replans_same_act():
+    novel = MagicMock()
+    novel.novel_id.value = "novel-1"
+    novel.genre = ""
+    novel.current_act = 0
+    novel.current_chapter_in_act = 3
+
+    daemon = MagicMock()
+    daemon._update_shared_state = MagicMock()
+    daemon._flush_novel = MagicMock()
+    daemon._current_act_fully_written = AsyncMock(return_value=False)
+
+    mock_runner = MagicMock()
+    mock_runner.DEFAULT_TARGET_WORDS = 2500
+    mock_runner._make_context.return_value = MagicMock(chapter_number=0)
+    mock_runner._get_novel_phase.return_value = "opening"
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.run_chapter = AsyncMock(
+        return_value=PipelineResult(success=False, error="所有章节已写完，无需继续")
+    )
+
+    with patch("engine.runtime.writing_delegate._build_runner", return_value=mock_runner), patch(
+        "engine.pipelines.registry.get_pipeline_registry"
+    ) as mock_registry:
+        mock_registry.return_value.create_pipeline.return_value = mock_pipeline
+        await run_story_pipeline_writing(daemon, novel)
+
+    assert novel.current_act == 0
+    assert novel.current_chapter_in_act == 0
+    assert novel.current_stage == NovelStage.ACT_PLANNING
+    daemon._flush_novel.assert_called_once_with(novel)
+
+
+@pytest.mark.asyncio
 async def test_run_writing_dispatches_legacy_when_pipeline_disabled():
     host = MagicMock()
     host.use_story_pipeline_for_writing = False

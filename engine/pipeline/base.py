@@ -674,6 +674,9 @@ class BaseStoryPipeline(ABC):
                 self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
             return StepResult.fail("生成被停止信号中断，不保存（下次重新生成）")
 
+        if not accumulated_content.strip():
+            return StepResult.fail("章节正文生成失败：所有节拍均未产出有效正文")
+
         ctx.chapter_content = accumulated_content or ""
         raw = accumulated_content or ""
         ctx.word_count = len(raw)
