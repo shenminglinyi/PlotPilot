@@ -143,6 +143,39 @@ def test_try_parse_parts_from_llm_buffer_accepts_complete_valid_minimal_json():
 
 
 @pytest.mark.asyncio
+async def test_stream_macro_llm_text_repairs_partial_text_when_stream_breaks():
+    async def broken_stream(_prompt, _config):
+        yield """{
+          "parts": [
+            {
+              "title": "第一部",
+              "volumes": [
+                {
+                  "title": "第一卷",
+                  "acts": [
+                    {
+                      "title": "第一幕：灰鸦街醒来",
+                      "description": "主角重生后先在灰鸦街求生",
+                      "core_conflict": "隐藏异常并取得训练资格"
+                    },
+                    {
+                      "title": "第二幕：廉价训练舱",
+                      "description": "主角争夺第一批训练资源"
+        """
+        raise RuntimeError("peer closed connection")
+
+    svc = _make_service()
+    svc.llm_service.stream_generate = broken_stream
+
+    raw = await svc._stream_macro_llm_text("novel-1", Mock(), Mock())
+    parsed = svc._parse_llm_response(raw)
+
+    acts = parsed["parts"][0]["volumes"][0]["acts"]
+    assert acts[0]["title"] == "第一幕：灰鸦街醒来"
+    assert acts[1]["title"] == "第二幕：廉价训练舱"
+
+
+@pytest.mark.asyncio
 async def test_generate_macro_plan_precise_mode_repairs_missing_act_fields_and_rebalances_chapters():
     llm_service = AsyncMock()
     llm_service.generate = AsyncMock(side_effect=[

@@ -5,7 +5,6 @@
  */
 
 :root {
-  --plotpilot-space-1: 4px;
   --plotpilot-space-2: 6px;
   --plotpilot-space-3: 8px;
   --plotpilot-space-4: 10px;
@@ -37,7 +36,6 @@
   /** 窄屏抽屉内 rail 纵向预留（标题栏 + 安全区近似）*/
   --plotpilot-rail-drawer-body-offset: 108px;
 
-  --plotpilot-split-pane-min-height: 0px;
 }
 
 @media (max-width: 900px) {

@@ -1,8 +1,10 @@
 """Claude 章节摘要生成器实现"""
 import os
 from domain.ai.services.chapter_summarizer import ChapterSummarizer
-from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
+from domain.ai.services.llm_service import LLMService
+from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.prompt_contracts.chapter_summarizer import CHAPTER_SUMMARIZER_CONTRACT
+from infrastructure.ai.prompt_gateway import PromptGatewayError, get_prompt_gateway
 
 
 class ClaudeChapterSummarizer(ChapterSummarizer):
@@ -22,7 +24,7 @@ class ClaudeChapterSummarizer(ChapterSummarizer):
         """
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable is required")
+            raise ValueError("缺少 ANTHROPIC_API_KEY 环境变量")
 
         self.llm_service = llm_service
 
@@ -42,31 +44,19 @@ class ClaudeChapterSummarizer(ChapterSummarizer):
         """
         # 验证输入
         if not content or not content.strip():
-            raise ValueError("Content cannot be empty")
-
-        # 构建提示词
-        system_prompt = f"""You are a professional chapter summarizer. Your task is to create concise, informative summaries of chapter content.
-
-Requirements:
-- Maximum length: {max_length} characters
-- Focus on key plot points, character developments, and important events
-- Write in a clear, engaging style
-- Maintain the narrative flow
-- Do not include meta-commentary or analysis"""
-
-        user_prompt = f"""Please summarize the following chapter content:
-
-{content}"""
+            raise ValueError("章节内容不能为空")
 
         try:
-            # 创建提示词对象
-            prompt = Prompt(system=system_prompt, user=user_prompt)
+            # 通过 CPMS 契约渲染提示词，避免摘要链路继续使用英文硬编码。
+            prompt = get_prompt_gateway().render(
+                CHAPTER_SUMMARIZER_CONTRACT,
+                {"content": content, "max_length": max_length},
+            ).prompt
 
             # 配置生成参数
-            config = GenerationConfig(
+            config = generation_config_from_profile(
+                "chapter_summarizer",
                 model=os.getenv("WRITING_MODEL", ""),
-                max_tokens=1024,
-                temperature=0.7
             )
 
             # 调用 LLM 服务生成摘要
@@ -77,6 +67,8 @@ Requirements:
         except ValueError:
             # 重新抛出验证错误
             raise
+        except PromptGatewayError as e:
+            raise RuntimeError(f"章节摘要提示词渲染失败: {e}") from e
         except Exception as e:
             # 转换为通用运行时错误
-            raise RuntimeError(f"Failed to summarize chapter: {str(e)}") from e
+            raise RuntimeError(f"章节摘要生成失败: {str(e)}") from e

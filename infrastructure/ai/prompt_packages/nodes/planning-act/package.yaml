@@ -1,7 +1,7 @@
 name: 幕级章节规划
 category: planning
-source: application/blueprint/services/continuous_planning_service.py::_build_act_planning_prompt()
-description: 将抽象的幕（Act）大纲落地为充满递进张力的章纲序列
+source: application/blueprint/services/continuous_planning_service.py::_build_act_planning_prompt
+description: 将抽象幕大纲落地为带爽点回报、伏笔收种和递进因果的章节序列。
 builtin: true
 tags:
 - 规划
@@ -10,7 +10,7 @@ tags:
 output_format: json
 variables:
 - name: context
-  desc: 幕信息+上下文
+  desc: 幕信息和可用上下文
   type: string
   required: true
 - name: chapter_count
@@ -18,4 +18,4 @@ variables:
   type: integer
   required: true
 id: planning-act
-sort_order: 20
+sort_order: 24

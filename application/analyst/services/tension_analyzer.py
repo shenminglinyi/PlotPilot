@@ -6,14 +6,16 @@ from typing import Dict, List, Optional
 from application.ai.structured_json_pipeline import (
     parse_and_repair_json,
     sanitize_llm_output,
-    validate_json_schema,
 )
-from application.analyst.tension.schema import TensionDiagnosisLlmPayload
 from application.workbench.dtos.writer_block_dto import TensionDiagnosis, TensionSlingshotRequest
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.novel.repositories.narrative_event_repository import NarrativeEventRepository
 from domain.novel.repositories.plot_arc_repository import PlotArcRepository
 from domain.novel.value_objects.novel_id import NovelId
+from infrastructure.ai.prompt_contracts.tension_analysis_diagnosis import (
+    TENSION_ANALYSIS_DIAGNOSIS_CONTRACT,
+)
+from infrastructure.ai.prompt_gateway import PromptGatewayValidationError, get_prompt_gateway
 
 _CHAPTER_EXCERPT_MAX_CHARS = 3500
 
@@ -147,13 +149,7 @@ class TensionAnalyzer:
 
         events_text = "\n".join(event_summaries) if event_summaries else "暂无事件数据"
 
-        repo_block = ""
-        if repository_context.strip():
-            repo_block = f"\n补充上下文（仓储）:\n{repository_context.strip()}\n"
-
-        stuck_reason_text = ""
-        if request.stuck_reason:
-            stuck_reason_text = f"\n作者自述的卡文原因: {request.stuck_reason}\n"
+        stuck_reason_text = request.stuck_reason.strip() if request.stuck_reason else "未提供"
 
         density_note = (
             "事件密度 = 已加载叙事事件总数 / 其中出现过的不同章节数；"
@@ -173,35 +169,18 @@ class TensionAnalyzer:
 - 情绪类型: {', '.join(stats['emotion_tags']) if stats['emotion_tags'] else '无'}
 """
 
-        prompt = f"""你是小说创作顾问，专门帮助作者突破卡文。
-
-当前小说ID: {request.novel_id}
-卡文章节: 第{request.chapter_number}章
-{stuck_reason_text}
-事件列表:
-{events_text}
-{repo_block}
-{stats_text}
-
-请分析当前章节的张力水平，诊断卡文原因，并提供具体可操作的建议。
-
-要求:
-1. 诊断要结合统计数据、事件内容与补充上下文（若有）
-2. 张力水平分为: low（低）、medium（中）、high（高）
-3. 缺失元素可能包括: conflict（冲突）、stakes（利害关系）、action（行动）、consequence（后果）、rising_tension（递增张力）、external_conflict（外部冲突）、internal_conflict（内心冲突）等
-4. 建议必须是动作导向的，使用"引入"、"增加"、"设置"、"让"等动词开头
-5. 建议要具体，不要泛泛而谈
-
-请以 JSON 格式返回结果:
-{{
-    "diagnosis": "诊断结果（2-3句话）",
-    "tension_level": "low/medium/high",
-    "missing_elements": ["缺失元素1", "缺失元素2"],
-    "suggestions": ["具体建议1", "具体建议2", "具体建议3"]
-}}
-"""
-
-        return prompt
+        rendered = get_prompt_gateway().render(
+            TENSION_ANALYSIS_DIAGNOSIS_CONTRACT,
+            {
+                "novel_id": request.novel_id,
+                "chapter_number": request.chapter_number,
+                "stuck_reason_text": stuck_reason_text,
+                "events_text": events_text,
+                "repository_context": repository_context.strip(),
+                "stats_text": stats_text.strip(),
+            },
+        )
+        return rendered.as_text()
 
     def _parse_response(self, response: str) -> TensionDiagnosis:
         cleaned = sanitize_llm_output(response)
@@ -214,10 +193,14 @@ class TensionAnalyzer:
                 suggestions=["请稍后重试，或检查模型输出是否被截断"],
             )
 
-        payload, schema_errors = validate_json_schema(data, TensionDiagnosisLlmPayload)
-        if payload is None:
+        try:
+            payload = get_prompt_gateway().validate_output(
+                TENSION_ANALYSIS_DIAGNOSIS_CONTRACT,
+                data,
+            )
+        except PromptGatewayValidationError as exc:
             return TensionDiagnosis(
-                diagnosis="JSON 结构校验失败: " + "; ".join(schema_errors[:6]),
+                diagnosis=f"JSON 结构校验失败: {exc}",
                 tension_level="low",
                 missing_elements=["schema_error"],
                 suggestions=["请稍后重试"],

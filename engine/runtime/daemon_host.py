@@ -2022,6 +2022,13 @@ class DaemonHostMixin:
 
         act_children = self.story_node_repo.get_children_sync(current_act_node.id)
         chapter_nodes = [n for n in act_children if n.node_type.value == "chapter"]
+        if not chapter_nodes:
+            logger.warning(
+                "[%s] 当前第 %s 幕没有章节节点，不能视为已写完；应回到幕级规划",
+                novel_id,
+                novel.current_act + 1,
+            )
+            return False
 
         for node in chapter_nodes:
             chapter = self.chapter_repository.get_by_novel_and_number(

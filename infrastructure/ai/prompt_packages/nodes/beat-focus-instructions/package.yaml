@@ -1,4 +1,4 @@
-name: 微观节拍 · 聚焦指令集
+﻿name: 微观节拍 · 聚焦指令集
 category: generation
 source: application/engine/services/context_builder.py::build_beat_prompt()
 description: Beat Magnifier 节拍放大器：7+种节拍类型的聚焦指令 + 感官锚点轮转 + 叙事义务
@@ -29,6 +29,10 @@ variables:
 - name: description
   desc: 节拍内容描述
   type: string
+- name: card_block
+  desc: 节拍卡片的结构化上下文块
+  type: string
+  default: ''
 - name: anchor_line
   desc: 环境锚点轮转行
   type: string

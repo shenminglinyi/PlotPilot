@@ -258,6 +258,24 @@ class TestOpenAIProviderResponses:
             assert mock_create.await_args.kwargs["stream"] is True
 
     @pytest.mark.anyio
+    async def test_stream_generate_extracts_output_text_delta(self, provider):
+        prompt = Prompt(system="You are helpful", user="Hello")
+        config = GenerationConfig(model="gpt-4o", temperature=0.7, max_tokens=32)
+        stream = _FakeStream([
+            SimpleNamespace(type="response.output_text.delta", delta="Hel"),
+            SimpleNamespace(type="response.output_text.delta", delta="lo"),
+            SimpleNamespace(type="response.completed"),
+        ])
+
+        with patch.object(provider.async_client.responses, "create", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = stream
+
+            chunks = [chunk async for chunk in provider.stream_generate(prompt, config)]
+
+            assert chunks == ["Hel", "lo"]
+            assert mock_create.await_args.kwargs["stream"] is True
+
+    @pytest.mark.anyio
     async def test_generate_empty_responses_raises(self, provider):
         prompt = Prompt(system="You are helpful", user="Hello")
         config = GenerationConfig(model="test-model")

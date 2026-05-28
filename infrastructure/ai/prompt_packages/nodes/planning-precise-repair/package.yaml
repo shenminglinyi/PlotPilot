@@ -1,0 +1,41 @@
+name: 精密宏观规划 · 缺字段修补
+category: planning
+source: application/blueprint/services/continuous_planning_service.py::_build_precise_repair_prompt
+description: 只为精密宏观规划中缺字段的幕节点生成补丁，不改写已有完整字段。
+builtin: true
+tags:
+- 宏观规划
+- 精密模式
+- 修补
+output_format: json
+variables:
+- name: story_context
+  desc: 世界观、角色、地点上下文
+  type: string
+  default: ''
+- name: target_chapters
+  desc: 目标总章节数
+  type: integer
+  required: true
+- name: parts
+  desc: 部数
+  type: integer
+  required: true
+- name: volumes_per_part
+  desc: 每部卷数
+  type: integer
+  required: true
+- name: acts_per_volume
+  desc: 每卷幕数
+  type: integer
+  required: true
+- name: avg_chapters_per_act
+  desc: 平均每幕章数
+  type: integer
+  required: true
+- name: incomplete_acts_block
+  desc: 待补全幕清单
+  type: string
+  required: true
+id: planning-precise-repair
+sort_order: 22

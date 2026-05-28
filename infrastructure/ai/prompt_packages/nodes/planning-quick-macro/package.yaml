@@ -1,28 +1,53 @@
-name: 极速宏观规划·破城槌
+name: 极速宏观规划 · 源设定优先
 category: planning
-source: infrastructure/ai/prompts/prompts_defaults.json
-description: 极速模式：源设定优先的爽文宏观规划，按题材赛道放大爽点与长线钩子
+source: application/blueprint/services/continuous_planning_service.py::_build_quick_macro_prompt
+description: 极速模式下的长篇宏观结构规划，按目标篇幅动态选择部、卷、幕粒度，并优先服从作者原始设定。
 builtin: true
 tags:
 - 宏观规划
-- 破城槌
-- 商业节奏
+- 极速模式
+- 源设定优先
+output_format: json
 variables:
 - name: premise
-  desc: 故事创意/梗概
-  type: string
-- name: target_chapters
-  desc: 目标章节数
-  type: number
-- name: worldview
-  desc: 世界观设定
-  type: string
-- name: characters
-  desc: 已有角色
-  type: string
-- name: depth_instruction
-  desc: 深度指令
+  desc: 作者原始梗概或核心创意
   type: string
   default: ''
+- name: target_chapters
+  desc: 目标总章节数
+  type: integer
+  required: true
+- name: worldview
+  desc: 世界观、地点、时间线等设定块
+  type: string
+  default: ''
+- name: characters
+  desc: 主要角色与关系设定块
+  type: string
+  default: ''
+- name: planning_depth
+  desc: 规划深度：framework、partial 或 full
+  type: string
+  default: full
+- name: rec_parts
+  desc: 推荐部数
+  type: integer
+  required: true
+- name: rec_volumes_per_part
+  desc: 推荐每部卷数
+  type: integer
+  required: true
+- name: rec_acts_per_volume
+  desc: 推荐每卷幕数
+  type: integer
+  required: true
+- name: rec_chapters_per_act
+  desc: 推荐每幕章数
+  type: integer
+  required: true
+- name: total_recommended_acts
+  desc: 推荐总幕数
+  type: integer
+  required: true
 id: planning-quick-macro
 sort_order: 19

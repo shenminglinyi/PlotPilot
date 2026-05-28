@@ -1,11 +1,12 @@
-name: Claude 章节摘要
+﻿name: 章节摘要
 category: extraction
 source: infrastructure/ai/claude_chapter_summarizer.py::summarize()
-description: 高效提炼干货情节，去水留金的摘要生成
+description: 高效提炼章节核心情节，去水留金并保留叙事因果
 builtin: true
 tags:
 - 摘要
-- Claude
+- 章节
+output_format: text
 variables:
 - name: content
   desc: 章节内容
@@ -13,7 +14,7 @@ variables:
   required: true
 - name: max_length
   desc: 最大长度（字符）
-  type: number
+  type: integer
   default: 300
 id: chapter-summarizer
 sort_order: 11

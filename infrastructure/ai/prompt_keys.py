@@ -62,8 +62,11 @@ MEMORY_EXTRACTION = "memory-extraction"
 # ── Planning ─────────────────────────────────────────────────────────────
 MACRO_PLANNING = "macro-planning"
 PLANNING_QUICK_MACRO = "planning-quick-macro"
+PLANNING_PRECISE_MACRO = "planning-precise-macro"
+PLANNING_PRECISE_VOLUME = "planning-precise-volume"
+PLANNING_PRECISE_REPAIR = "planning-precise-repair"
 PLANNING_ACT = "planning-act"
-PLANNING_MAIN_PLOT_SUGGEST = "planning-main-plot-suggest"
+CONTINUOUS_PLANNING_NEXT_ACT = "continuous-planning-next-act"
 OUTLINE_BEAT_PARTITION = "outline-beat-partition"
 BEAT_COT_BRIDGE = "beat-cot-bridge"
 
@@ -111,10 +114,8 @@ ANTI_AI_MID_GENERATION_REFRESH = "anti-ai-mid-generation-refresh"
 # ── Autopilot / Workflow ─────────────────────────────────────────────────
 WORKFLOW_CHAPTER_GENERATION = "workflow-chapter-generation"
 AUTOPILOT_STREAM_BEAT = "autopilot-stream-beat"
-AUTOPILOT_INFO_DENSITY_SUPPLEMENT = "autopilot-info-density-supplement"
 BEAT_FOCUS_INSTRUCTIONS = "beat-focus-instructions"
 LIFECYCLE_PHASE_DIRECTIVES = "lifecycle-phase-directives"
-REFACTOR_PROPOSAL = "refactor-proposal"
 REFACTOR_PROPOSAL_MACRO = "refactor-proposal-macro"
 PLANNING_MAIN_PLOT_OPTION = "planning-main-plot-option"
 
@@ -150,8 +151,9 @@ ALL_KEYS: frozenset[str] = frozenset({
     # Memory
     MEMORY_EXTRACTION,
     # Planning
-    MACRO_PLANNING, PLANNING_QUICK_MACRO, PLANNING_ACT,
-    PLANNING_MAIN_PLOT_SUGGEST, OUTLINE_BEAT_PARTITION, BEAT_COT_BRIDGE,
+    MACRO_PLANNING, PLANNING_QUICK_MACRO, PLANNING_PRECISE_MACRO,
+    PLANNING_PRECISE_VOLUME, PLANNING_PRECISE_REPAIR, PLANNING_ACT,
+    CONTINUOUS_PLANNING_NEXT_ACT, OUTLINE_BEAT_PARTITION, BEAT_COT_BRIDGE,
     # Style
     STYLE_ANALYSIS, VOICE_STYLE_ANALYSIS, VOICE_BASELINE_ANALYSIS,
     VOICE_REWRITE, VOICE_DRIFT,
@@ -171,8 +173,7 @@ ALL_KEYS: frozenset[str] = frozenset({
     ANTI_AI_FINALE_ENHANCEMENT, ANTI_AI_MID_GENERATION_REFRESH,
     # Autopilot / Workflow
     WORKFLOW_CHAPTER_GENERATION, AUTOPILOT_STREAM_BEAT,
-    AUTOPILOT_INFO_DENSITY_SUPPLEMENT, BEAT_FOCUS_INSTRUCTIONS,
-    LIFECYCLE_PHASE_DIRECTIVES, REFACTOR_PROPOSAL,
+    BEAT_FOCUS_INSTRUCTIONS, LIFECYCLE_PHASE_DIRECTIVES,
     REFACTOR_PROPOSAL_MACRO, PLANNING_MAIN_PLOT_OPTION,
 })
 

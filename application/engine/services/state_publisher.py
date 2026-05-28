@@ -406,7 +406,7 @@ def get_state_publisher() -> StatePublisher:
 
 def init_state_publisher(
     shared_state: SharedStateRepository,
-    persistence_queue: PersistenceQueue,
+    persistence_queue: Any,
 ) -> StatePublisher:
     """初始化状态发布器"""
     global _state_publisher

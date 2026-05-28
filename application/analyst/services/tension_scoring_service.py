@@ -6,10 +6,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
-from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
+from domain.ai.services.llm_service import LLMService
 from domain.novel.value_objects.tension_dimensions import TensionDimensions
 from application.ai.tension_scoring_contract import (
     TensionScoringLlmPayload,
@@ -17,56 +15,22 @@ from application.ai.tension_scoring_contract import (
     tension_scoring_response_format,
 )
 from application.ai.structured_json_pipeline import structured_json_generate
-from infrastructure.ai.prompt_utils import get_prompt_system, render_prompt
+from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.prompt_contract import PromptContract
+from infrastructure.ai.prompt_gateway import PromptGatewayError, get_prompt_gateway
+from infrastructure.ai.prompt_keys import TENSION_SCORING
 
 logger = logging.getLogger(__name__)
 
 # 章节正文最大长度（与 llm_chapter_extract_bundle 保持一致）
 _MAX_CONTENT_LENGTH = 24000
 
-# CPMS: 提示词节点 key
-_TENSION_SCORING_NODE_KEY = "tension-scoring"
-
-# PromptRegistry 不可用时使用的回退 system
-_FALLBACK_TEMPLATE = """你是资深网文叙事诊断师。精准量化本章的戏剧张力——决定读者翻页还是弃书的核心指标。
-
-⚠ 评分铁律：严禁中庸！敢于给低分（日常铺垫章）和高分（冲突爆发章）。全书张力曲线应像心电图有起伏，不能一条直线。
-
-## 评分维度（每项 0-100 整数）
-
-### 1. 情节张力 (plot_tension)
-- 0-15：纯日常，零阻碍零悬念
-- 16-30：有事件无威胁
-- 31-45：小麻烦/小误会，不影响主线
-- 46-55：真正阻碍出现，读者开始紧张
-- 56-65：核心危机浮现，信息差制造悬念
-- 66-75：多方博弈/重大选择逼近
-- 76-85：不可逆转的底牌揭晓/生死危机
-- 86-100：绝境修罗场
-
-### 2. 情绪张力 (emotional_tension)
-- 0-15：情绪平稳，读者无感
-- 16-30：轻微反应，转瞬即逝
-- 31-45：有喜怒，读者旁观
-- 46-55：情绪牵动读者，共情锚点出现
-- 56-65：价值观冲突/信任危机，读者揪心
-- 66-75：两难抉择/挚爱离去，读者呼吸加速
-- 76-85：灵魂黑夜/极致燃
-- 86-100：催泪/窒息级情绪峰值
-
-### 3. 节奏张力 (pacing_tension)
-- 0-15：大段描写/设定灌输，读者想跳读
-- 16-30：流水账，无紧张感
-- 31-45：节奏均匀如散步
-- 46-55：信息增量出现，节奏有快慢
-- 56-65：对话短促有力，环境描写被压缩
-- 66-75：信息密集轰炸，读者无法停下
-- 76-85：电影级快速剪辑，短句连击
-- 86-100：窒息级节奏，连环爆
-
-前章综合张力为 {prev_tension}/100。若前章≥70则本章可回落，若前章≤30则本章必须拉升。
-
-输出 JSON：{{"plot_tension": 0, "emotional_tension": 0, "pacing_tension": 0, "plot_justification": "", "emotional_justification": "", "pacing_justification": ""}}"""
+_TENSION_SCORING_CONTRACT = PromptContract(
+    node_key=TENSION_SCORING,
+    version="1.0.0",
+    output_schema=TensionScoringLlmPayload,
+    generation_profile="tension_scoring",
+)
 
 
 class TensionScoringService:
@@ -101,13 +65,19 @@ class TensionScoringService:
         if len(body) > _MAX_CONTENT_LENGTH:
             body = body[:_MAX_CONTENT_LENGTH] + "\n\n…（正文过长已截断）"
 
-        prompt = Prompt(
-            system=self._build_system_prompt(prev_chapter_tension),
-            user=f"第 {chapter_number} 章正文如下：\n\n{body}",
-        )
-        config = GenerationConfig(
-            max_tokens=512,
-            temperature=0.3,
+        try:
+            prompt = get_prompt_gateway().render(
+                _TENSION_SCORING_CONTRACT,
+                {
+                    "content": body,
+                    "prev_tension": f"{prev_chapter_tension:.0f}",
+                },
+            ).prompt
+        except PromptGatewayError as exc:
+            logger.warning("张力评分提示词渲染失败: %s", exc)
+            return TensionDimensions.unevaluated()
+        config = generation_config_from_profile(
+            "tension_scoring",
             response_format=tension_scoring_response_format(),
         )
 
@@ -134,19 +104,3 @@ class TensionScoringService:
             dims.composite_score,
         )
         return dims
-
-    # ------------------------------------------------------------------
-    # Prompt 构建
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_system_prompt(prev_tension: float) -> str:
-        prev = f"{prev_tension:.0f}"
-        rendered = render_prompt(
-            _TENSION_SCORING_NODE_KEY,
-            variables={"prev_tension": prev},
-            fallback_system=_FALLBACK_TEMPLATE,
-        )
-        if rendered and (rendered.get("system") or "").strip():
-            return rendered["system"]
-        return _FALLBACK_TEMPLATE.format(prev_tension=prev)

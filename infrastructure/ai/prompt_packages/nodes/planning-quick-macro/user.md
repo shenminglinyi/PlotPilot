@@ -1,11 +1,44 @@
-【最高优先级：作者原始梗概/核心创意】
+<STORY_CONTEXT>
+【作者原始梗概】
 {premise}
 
-【体量预期】
-{target_chapters} 章
-
-【最高优先级：题材赛道与世界法则】
+【世界观、地点与时间线】
 {worldview}
 
-【人物底牌】
+【角色与关系】
 {characters}
+</STORY_CONTEXT>
+
+<TARGET_SCOPE>
+目标总篇幅：精确 {target_chapters} 章
+强制约束：所有卷或幕的 estimated_chapters 之和必须等于 {target_chapters}
+</TARGET_SCOPE>
+
+请生成叙事骨架，严格按以下 JSON 结构输出：
+{
+  "parts": [
+    {
+      "title": "部标题",
+      "theme": "部主题",
+      "estimated_chapters": 0,
+      "volumes": [
+        {
+          "title": "卷标题",
+          "theme": "卷主题",
+          "estimated_chapters": 0,
+          "acts": [
+            {
+              "title": "幕标题",
+              "estimated_chapters": 0,
+              "core_conflict": "谁与谁对抗，赌注是什么",
+              "emotional_turn": "情绪从什么变化到什么",
+              "description": "情节摘要",
+              "key_characters": ["角色ID或角色名"],
+              "key_locations": ["地点ID或地点名"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

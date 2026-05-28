@@ -35,12 +35,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
+from domain.ai.services.llm_service import LLMService
 from domain.bible.repositories.bible_repository import BibleRepository
 from domain.novel.value_objects.novel_id import NovelId
 
 from application.ai.llm_json_extract import parse_llm_json_to_dict
+from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.prompt_contracts.memory_extraction import MEMORY_EXTRACTION_CONTRACT
+from infrastructure.ai.prompt_gateway import PromptGatewayError, get_prompt_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -102,69 +104,6 @@ class MemoryDeltaPayload(BaseModel):
         default_factory=list, max_length=20,
         description="检测到的事实锁违反（如果有）"
     )
-
-
-# ============================================================
-# System Prompt for Memory Extraction
-# ============================================================
-
-# CPMS: 提示词节点 key
-_MEMORY_EXTRACTION_NODE_KEY = "memory-extraction"
-
-# 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_MEMORY_EXTRACTION_SYSTEM = """你是一个精密的小说叙事状态追踪引擎。你的唯一任务是从刚生成的章节正文里，精确提取「记忆增量」——即这一章**新发生**的事情，用于维护跨章节的一致性。
-
-你不是一个文学评论家。你不是在分析文笔好坏。你是在做一本精确的「发生了什么账本」。
-
-━━━ 提取铁律 ━━━
-
-① 只提取**本章新发生**的事。如果某个事件在前面的章节已经记录在 COMPLETED_BEATS 中，不要重复提取。
-
-② COMPLETED_BEATS（已完成节拍）的判断标准：
-   - 必须是不可逆的剧情推进（不是"他们聊了天"这种流水账）
-   - 必须有明确的情节意义（改变了角色关系/揭露了信息/触发了事件/做出了决定）
-   - 一句话能概括：谁+做了什么+导致什么
-   - 例：{"beat_id": "ch5-confrontation-gaming-hall", "summary": "顾言之与乔知诺在游戏厅十年后首次见面，赵宇突然出现并质问车祸真相", "chapter": 2, "characters_involved": ["顾言之", "乔知诺", "赵宇"]}
-
-③ REVEALED_CLUES（已揭露线索）的判断标准：
-   - 必须是读者/主角在本章**第一次知道**的信息
-   - 区分"伏笔埋设"（foreshadowing）和"真相揭露"（clue revelation）：前者是悬念，后者是答案
-   - 例：{"clue_id": "clue-ch4-fake-driver", "content": "顾建国（顾父）在车祸时可能并非驾驶员", "revealed_at_chapter": 4, "category": "truth"}
-
-④ FACT_VIOLATIONS（事实违反）：对照上方 FACT_LOCK 逐条检查：
-   - 是否出现了白名单之外的有名字角色？
-   - 已死亡角色是否被错误地"复活"或在当下时间线出现？
-   - 角色身份是否漂移？
-   - 时间线是否有矛盾？
-   - 如果没有违反，返回空数组。宁可漏报不可误报。
-
-只返回一个 JSON 对象，不要 markdown 代码块，不要解释文字。"""
-
-
-def _build_memory_extraction_user_prompt(
-    chapter_content: str,
-    chapter_number: int,
-    outline: str,
-    fact_lock_text: str = "",
-    existing_beats_summary: str = "",
-    existing_clues_summary: str = "",
-) -> str:
-    """构建记忆提取的 user prompt"""
-    parts = [f"【待分析的章节】第 {chapter_number} 章"]
-    parts.append(f"\n大纲：{outline}")
-    parts.append(f"\n正文如下：\n{chapter_content}")
-
-    if fact_lock_text:
-        parts.append(f"\n\n━━━ 当前事实锁（FACT_LOCK）━━━\n{fact_lock_text}")
-        parts.append("\n请逐条检查正文是否违反上述事实。")
-
-    if existing_beats_summary:
-        parts.append(f"\n\n━━━ 已完成的节拍（COMPLETED_BEATS，不要重复提取）━━━\n{existing_beats_summary}")
-
-    if existing_clues_summary:
-        parts.append(f"\n\n━━━ 已揭露的线索（REVEALED_CLUES，不要重复提取）━━━\n{existing_clues_summary}")
-
-    return "\n".join(parts)
 
 
 # ============================================================
@@ -410,27 +349,6 @@ class MemoryEngine:
             self._ensure_table_exists()
 
     # ============================================================
-    # CPMS 提示词获取
-    # ============================================================
-
-    def _get_memory_extraction_system(self) -> str:
-        """获取记忆提取的 system prompt。
-
-        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-        如果 Registry 不可用则回退到硬编码默认值。
-        """
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            system = registry.get_system(_MEMORY_EXTRACTION_NODE_KEY)
-            if system:
-                return system
-        except Exception as exc:
-            logger.debug("PromptRegistry 不可用，使用回退提示词: %s", exc)
-
-        return _FALLBACK_MEMORY_EXTRACTION_SYSTEM
-
-    # ============================================================
     # T0 注入接口（生成前调用）
     # ============================================================
 
@@ -517,22 +435,27 @@ class MemoryEngine:
             existing_beats = self._summarize_beats_for_prompt(state.completed_beats)
             existing_clues = self._summarize_clues_for_prompt(state.revealed_clues)
 
-            # 2. 构建 prompt
-            system_prompt = self._get_memory_extraction_system()
-            user_prompt = _build_memory_extraction_user_prompt(
-                chapter_content=content,
-                chapter_number=chapter_number,
-                outline=outline,
-                fact_lock_text=fact_lock,
-                existing_beats_summary=existing_beats,
-                existing_clues_summary=existing_clues,
-            )
+            # 2. 通过 PromptGateway 渲染契约提示词，变量缺失时在请求 LLM 前失败
+            try:
+                rendered_prompt = get_prompt_gateway().render(
+                    MEMORY_EXTRACTION_CONTRACT,
+                    {
+                        "chapter_content": content,
+                        "chapter_number": chapter_number,
+                        "outline": outline,
+                        "fact_lock_text": fact_lock,
+                        "existing_beats_summary": existing_beats,
+                        "existing_clues_summary": existing_clues,
+                    },
+                )
+            except PromptGatewayError as exc:
+                msg = f"MemoryEngine 提示词渲染失败: {exc}"
+                result["errors"].append(msg)
+                logger.warning(msg)
+                return result
 
-            prompt = Prompt(system=system_prompt, user=user_prompt)
-            config = GenerationConfig(
-                max_tokens=4096,
-                temperature=0.3,  # 低温度保证稳定性
-            )
+            prompt = rendered_prompt.prompt
+            config = generation_config_from_profile("memory_extraction")
 
             # 3. 调用 LLM
             llm_result = await self.llm_service.generate(prompt, config)

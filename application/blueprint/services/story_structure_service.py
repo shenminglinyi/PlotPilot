@@ -28,7 +28,7 @@ class StoryStructureService:
     核心特性：
     1. AI 动态规划：利用 LLM 生成"部-卷-幕"结构，非固定模板
     2. 安全合并机制：带有血缘继承的智能合并
-    3. 结构与正文表对齐：树上无章节节点的正文占位在载入整树或删节点后对齐删除
+    3. 结构与正文表对齐：显式删节点时同步清理正文占位；读整树不做破坏性清理
     4. 持续优化：支持通过提示词迭代和测试不断提升规划质量
     """
 
@@ -93,10 +93,11 @@ class StoryStructureService:
 
     async def get_tree(self, novel_id: str) -> Dict[str, Any]:
         """获取小说的完整结构树。"""
-        # 结构树是唯一真源：正文表里凡无对应章节节点的行先清掉（与删树语义一致）。
-        purge_chapter_book_rows_not_matching_structure(
-            self.repository, self._chapter_repository, novel_id
-        )
+        # 注意：读接口必须无副作用。
+        # 守护进程写入章节规划和前端刷新结构树可能并发发生；如果在读路径里做
+        # “结构↔正文”清理，API 进程可能基于尚未刷新到当前连接快照的结构树，
+        # 误删刚生成的正文章节，并触发章节仓储的重排级联删除 story_nodes。
+        # 因此这里只展示结构；真正的级联清理只放在显式删除/重规划等写路径。
 
         tree = await self.repository.get_tree(novel_id)
         data = tree.to_tree_dict()
