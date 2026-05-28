@@ -168,6 +168,7 @@ async def structured_json_generate(
             node_type="parser",
             response_hash=content_hash(raw),
             response_preview=preview_value(raw),
+            response_full=raw,
             error="; ".join(parse_errors[:8]) if parse_errors else None,
             metadata={
                 "schema_model": schema_model.__name__,
@@ -185,6 +186,7 @@ async def structured_json_generate(
                     node_type="parser",
                     response_hash=content_hash(data),
                     response_preview=preview_value(data),
+                    response_full=data,
                     metadata={
                         "schema_model": schema_model.__name__,
                         "attempt": attempt + 1,
@@ -200,6 +202,7 @@ async def structured_json_generate(
                 node_type="parser",
                 response_hash=content_hash(data),
                 response_preview=preview_value(data),
+                response_full=data,
                 error="; ".join(schema_errors[:8]),
                 metadata={
                     "schema_model": schema_model.__name__,

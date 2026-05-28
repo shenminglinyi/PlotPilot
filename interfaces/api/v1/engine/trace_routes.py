@@ -71,10 +71,14 @@ class AiTraceSpanDTO(BaseModel):
     generation_profile: Optional[str] = None
     variables_hash: Optional[str] = None
     variables_preview: Any = None
+    variables_full: Any = None
+    variable_sources: Any = None
     prompt_hash: Optional[str] = None
     prompt_preview: Any = None
+    prompt_full: Any = None
     response_hash: Optional[str] = None
     response_preview: Any = None
+    response_full: Any = None
     token_input: Optional[int] = None
     token_output: Optional[int] = None
     latency_ms: Optional[int] = None

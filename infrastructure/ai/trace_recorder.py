@@ -37,10 +37,14 @@ class AiTraceSpan:
     generation_profile: str | None = None
     variables_hash: str | None = None
     variables_preview: Any = None
+    variables_full: Any = None
+    variable_sources: Any = None
     prompt_hash: str | None = None
     prompt_preview: Any = None
+    prompt_full: Any = None
     response_hash: str | None = None
     response_preview: Any = None
+    response_full: Any = None
     token_input: int | None = None
     token_output: int | None = None
     latency_ms: int | None = None
@@ -65,10 +69,14 @@ class AiTraceSpan:
             "generation_profile": self.generation_profile,
             "variables_hash": self.variables_hash,
             "variables_preview": self.variables_preview,
+            "variables_full": self.variables_full,
+            "variable_sources": self.variable_sources,
             "prompt_hash": self.prompt_hash,
             "prompt_preview": self.prompt_preview,
+            "prompt_full": self.prompt_full,
             "response_hash": self.response_hash,
             "response_preview": self.response_preview,
+            "response_full": self.response_full,
             "token_input": self.token_input,
             "token_output": self.token_output,
             "latency_ms": self.latency_ms,

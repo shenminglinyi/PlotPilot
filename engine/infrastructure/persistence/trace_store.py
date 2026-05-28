@@ -91,10 +91,14 @@ class SqliteTraceStore(TracePort):
                         generation_profile TEXT,
                         variables_hash TEXT,
                         variables_preview TEXT,
+                        variables_full TEXT,
+                        variable_sources TEXT,
                         prompt_hash TEXT,
                         prompt_preview TEXT,
+                        prompt_full TEXT,
                         response_hash TEXT,
                         response_preview TEXT,
+                        response_full TEXT,
                         token_input INTEGER,
                         token_output INTEGER,
                         latency_ms INTEGER,
@@ -133,9 +137,26 @@ class SqliteTraceStore(TracePort):
                     CREATE INDEX IF NOT EXISTS idx_ai_trace_artifacts_trace
                     ON ai_trace_artifacts(trace_id, span_id)
                 """)
+                self._ensure_ai_trace_span_columns(conn)
                 conn.commit()
         except Exception as exc:
             logger.error("Trace 表创建失败: %s", exc)
+
+    @staticmethod
+    def _ensure_ai_trace_span_columns(conn) -> None:
+        existing = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(ai_trace_spans)").fetchall()
+        }
+        required_columns = {
+            "variables_full": "ALTER TABLE ai_trace_spans ADD COLUMN variables_full TEXT",
+            "variable_sources": "ALTER TABLE ai_trace_spans ADD COLUMN variable_sources TEXT",
+            "prompt_full": "ALTER TABLE ai_trace_spans ADD COLUMN prompt_full TEXT",
+            "response_full": "ALTER TABLE ai_trace_spans ADD COLUMN response_full TEXT",
+        }
+        for name, ddl in required_columns.items():
+            if name not in existing:
+                conn.execute(ddl)
 
     async def record(self, trace: TraceRecord) -> None:
         try:
@@ -225,9 +246,10 @@ class SqliteTraceStore(TracePort):
                         trace_id, span_id, parent_span_id, novel_id, operation, phase,
                         node_id, node_type, contract_key, contract_version, source,
                         model, generation_profile, variables_hash, variables_preview,
-                        prompt_hash, prompt_preview, response_hash, response_preview,
+                        variables_full, variable_sources, prompt_hash, prompt_preview,
+                        prompt_full, response_hash, response_preview, response_full,
                         token_input, token_output, latency_ms, error, metadata, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         span.get("trace_id") or str(uuid.uuid4()),
@@ -245,10 +267,14 @@ class SqliteTraceStore(TracePort):
                         span.get("generation_profile"),
                         span.get("variables_hash"),
                         _json_dump(span.get("variables_preview"), None),
+                        _json_dump(span.get("variables_full"), None),
+                        _json_dump(span.get("variable_sources"), None),
                         span.get("prompt_hash"),
                         _json_dump(span.get("prompt_preview"), None),
+                        _json_dump(span.get("prompt_full"), None),
                         span.get("response_hash"),
                         _json_dump(span.get("response_preview"), None),
+                        _json_dump(span.get("response_full"), None),
                         span.get("token_input"),
                         span.get("token_output"),
                         span.get("latency_ms"),
@@ -340,7 +366,11 @@ class SqliteTraceStore(TracePort):
     @staticmethod
     def _row_to_ai_span(data: dict[str, Any]) -> dict[str, Any]:
         data["variables_preview"] = _json_load(data.get("variables_preview"), None)
+        data["variables_full"] = _json_load(data.get("variables_full"), None)
+        data["variable_sources"] = _json_load(data.get("variable_sources"), None)
         data["prompt_preview"] = _json_load(data.get("prompt_preview"), None)
+        data["prompt_full"] = _json_load(data.get("prompt_full"), None)
         data["response_preview"] = _json_load(data.get("response_preview"), None)
+        data["response_full"] = _json_load(data.get("response_full"), None)
         data["metadata"] = _json_load(data.get("metadata"), {})
         return data

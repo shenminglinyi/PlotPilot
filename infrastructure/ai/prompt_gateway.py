@@ -19,6 +19,7 @@ from application.ai.trace_context import (
 )
 from infrastructure.ai.prompt_contract import PromptContract
 from infrastructure.ai.trace_recorder import get_trace_recorder
+from infrastructure.ai.variable_registry import get_variable_registry
 
 logger = logging.getLogger(__name__)
 
@@ -249,6 +250,7 @@ class PromptGateway:
         contract: PromptContract,
         variables: Mapping[str, Any],
     ) -> None:
+        variable_sources = self._build_variable_sources(contract.node_key, variables)
         get_trace_recorder().record_span(
             phase="variables_validated",
             node_id=contract.node_key,
@@ -258,6 +260,8 @@ class PromptGateway:
             source="config",
             variables_hash=content_hash(variables),
             variables_preview=preview_value(variables),
+            variables_full=dict(variables),
+            variable_sources=variable_sources,
             metadata={"variables_schema": getattr(contract.variables_schema, "__name__", None)},
         )
 
@@ -277,8 +281,11 @@ class PromptGateway:
             source=source,
             variables_hash=content_hash(result.variables),
             variables_preview=preview_value(result.variables),
+            variables_full=dict(result.variables),
+            variable_sources=self._build_variable_sources(result.node_key, result.variables),
             prompt_hash=content_hash(prompt_to_hash_payload(result.prompt)),
             prompt_preview=prompt_preview(result.prompt),
+            prompt_full=prompt_to_hash_payload(result.prompt),
             metadata={
                 "prompt_source": result.source,
                 "fallback_used": result.fallback_used,
@@ -306,9 +313,32 @@ class PromptGateway:
             source="config",
             variables_hash=content_hash(variables),
             variables_preview=preview_value(variables),
+            variables_full=dict(variables),
+            variable_sources=self._build_variable_sources(contract.node_key, variables),
             error=str(error),
             metadata=dict(metadata or {}),
         )
+
+    @staticmethod
+    def _build_variable_sources(
+        node_key: str,
+        variables: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        registry = get_variable_registry()
+        schemas = registry.get_schemas_for_node(node_key)
+        sources: list[dict[str, Any]] = []
+        for key, value in variables.items():
+            schema = schemas.get(str(key))
+            sources.append(
+                {
+                    "name": str(key),
+                    "source": getattr(schema, "source", "") or "runtime",
+                    "scope": getattr(getattr(schema, "scope", None), "value", "") or "",
+                    "required": bool(getattr(schema, "required", False)) if schema is not None else False,
+                    "type": getattr(getattr(schema, "type", None), "value", "") or type(value).__name__,
+                }
+            )
+        return sources
 
     @staticmethod
     def _infer_context_injection(variables: Mapping[str, Any]) -> list[dict[str, str]]:
