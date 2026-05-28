@@ -1,0 +1,9 @@
+﻿name: 情感题材包
+extends: base
+motifs:
+  - 关系误差
+  - 信任修复
+  - 欲望与边界
+anti_guidelines:
+  - 不要用误会拖长剧情。
+  - 情绪必须通过行动、对话和选择体现。

@@ -1,0 +1,76 @@
+base_generation_profile:
+  provider_role: writing
+  max_tokens: 1024
+  temperature: 0.3
+  timeout_seconds: 60
+  retries: 1
+
+memory_extraction:
+  extends: base_generation_profile
+  max_tokens: 4096
+  temperature: 0.3
+
+voice_style_analysis:
+  extends: base_generation_profile
+  max_tokens: 200
+  temperature: 0.1
+
+voice_baseline_analysis:
+  extends: voice_style_analysis
+  max_tokens: 300
+  temperature: 0.1
+
+chapter_summarizer:
+  extends: base_generation_profile
+  max_tokens: 1024
+  temperature: 0.7
+
+tension_scoring:
+  extends: base_generation_profile
+  max_tokens: 512
+  temperature: 0.3
+
+tension_diagnosis:
+  extends: base_generation_profile
+  max_tokens: 1200
+  temperature: 0.2
+
+review_json:
+  extends: base_generation_profile
+  max_tokens: 2048
+  temperature: 0.3
+
+summary_act:
+  extends: base_generation_profile
+  max_tokens: 600
+  temperature: 0.4
+
+summary_volume:
+  extends: base_generation_profile
+  max_tokens: 800
+  temperature: 0.5
+
+summary_part:
+  extends: base_generation_profile
+  max_tokens: 700
+  temperature: 0.45
+
+summary_checkpoint:
+  extends: base_generation_profile
+  max_tokens: 400
+  temperature: 0.5
+
+planning_macro:
+  extends: base_generation_profile
+  max_tokens: 4096
+  temperature: 0.7
+
+planning_repair:
+  extends: base_generation_profile
+  max_tokens: 2048
+  temperature: 0.5
+
+planning_act:
+  extends: base_generation_profile
+  max_tokens: 4096
+  temperature: 0.7

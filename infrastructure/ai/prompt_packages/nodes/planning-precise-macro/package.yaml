@@ -1,0 +1,49 @@
+name: 精密宏观规划 · 固定网格填充
+category: planning
+source: application/blueprint/services/continuous_planning_service.py::_build_precise_macro_prompt
+description: 精密模式下按用户指定的部/卷/幕网格填充标题、描述与幕级叙事字段。
+builtin: true
+tags:
+- 宏观规划
+- 精密模式
+- 固定网格
+output_format: json
+variables:
+- name: story_context
+  desc: 世界观、角色、地点、时间线等上下文
+  type: string
+  default: ''
+- name: target_chapters
+  desc: 目标总章节数
+  type: integer
+  required: true
+- name: parts
+  desc: 部数
+  type: integer
+  required: true
+- name: volumes_per_part
+  desc: 每部卷数
+  type: integer
+  required: true
+- name: acts_per_volume
+  desc: 每卷幕数
+  type: integer
+  required: true
+- name: total_acts
+  desc: 总幕数
+  type: integer
+  required: true
+- name: avg_chapters_per_act
+  desc: 平均每幕章数
+  type: integer
+  required: true
+- name: pacing_guide
+  desc: 动态章数配额提示
+  type: string
+  default: ''
+- name: skeleton_block
+  desc: 固定结构骨架
+  type: string
+  required: true
+id: planning-precise-macro
+sort_order: 20

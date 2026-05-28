@@ -23,6 +23,17 @@ from infrastructure.persistence.database.story_node_repository import StoryNodeR
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from infrastructure.ai.prompt_contract import PromptContract
+from infrastructure.ai.prompt_contracts.continuous_planning import (
+    CONTINUOUS_PLANNING_NEXT_ACT_CONTRACT,
+    PLANNING_ACT_CONTRACT,
+    PLANNING_PRECISE_MACRO_CONTRACT,
+    PLANNING_PRECISE_REPAIR_CONTRACT,
+    PLANNING_PRECISE_VOLUME_CONTRACT,
+    PLANNING_QUICK_MACRO_CONTRACT,
+)
+from infrastructure.ai.prompt_gateway import get_prompt_gateway
+from infrastructure.ai.generation_profiles import generation_config_from_profile
 from application.audit.services.macro_merge_engine import MacroMergeEngine, MergePlan, MergeConflictException
 from application.blueprint.services.chapter_book_structure_sync import (
     collect_structure_chapter_numbers,
@@ -457,27 +468,12 @@ class ContinuousPlanningService:
         self.bible_service = bible_service
         self.chapter_repository = chapter_repository
 
-    # ─── CPMS 提示词获取 ───
+    # CPMS 提示词渲染
 
     @staticmethod
-    def _get_cpms_system(node_key: str, fallback: str = "") -> str:
-        """获取 system prompt。
-
-        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-        如果 Registry 不可用则回退到硬编码默认值。
-        """
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            system = registry.get_system(node_key)
-            if system:
-                return system
-        except Exception as exc:
-            logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
-
-        return fallback
-
-    # ==================== 宏观规划 ====================
+    def _render_contract_prompt(contract: PromptContract, variables: Dict) -> Prompt:
+        """通过 PromptGateway 渲染 CPMS 契约，避免业务代码保留大段提示词。"""
+        return get_prompt_gateway().render(contract, variables).prompt
 
     async def generate_macro_plan(
         self,
@@ -507,7 +503,7 @@ class ContinuousPlanningService:
                 )
 
                 # 调用 LLM 流式生成规划（SSE 通过 llm_stream_text 推送增量）
-                config = GenerationConfig(max_tokens=4096, temperature=0.7)
+                config = generation_config_from_profile("planning_macro")
                 self._update_macro_progress(
                     novel_id,
                     status="running",
@@ -589,9 +585,9 @@ class ContinuousPlanningService:
             structure_preference=structure_preference,
             skeleton=skeleton,
         )
-        config = GenerationConfig(
+        config = generation_config_from_profile(
+            "planning_macro",
             max_tokens=self._calculate_precise_max_tokens(structure_preference),
-            temperature=0.7,
         )
         raw = await self._stream_macro_llm_text(novel_id, prompt, config)
         updates = self._parse_llm_response(raw)
@@ -617,9 +613,9 @@ class ContinuousPlanningService:
                 structure_preference=structure_preference,
                 incomplete_acts=incomplete_acts,
             )
-            repair_config = GenerationConfig(
+            repair_config = generation_config_from_profile(
+                "planning_repair",
                 max_tokens=self._calculate_precise_repair_max_tokens(incomplete_acts),
-                temperature=0.5,
             )
             self._clear_macro_llm_stream(novel_id)
             self._update_macro_progress(
@@ -1453,7 +1449,7 @@ class ContinuousPlanningService:
         )
 
         _reset_act_chapters_llm_stream(act_id)
-        config = GenerationConfig(max_tokens=4096, temperature=0.7)
+        config = generation_config_from_profile("planning_act")
         try:
             raw = await self._stream_act_plan_llm_text(act_id, prompt, config)
         except Exception as e:
@@ -1947,16 +1943,96 @@ class ContinuousPlanningService:
         part_ratios = [c / total_chapters for c in part_chapters]
         return {"part_chapters": part_chapters, "part_ratios": part_ratios}
 
+    def _format_bible_context(
+        self,
+        bible_context: Dict,
+        *,
+        character_limit: int = 5,
+        location_limit: int = 5,
+        include_ids: bool = False,
+        empty_hint: str = "暂无详细设定，请优先依据作者梗概与题材赛道生成结构；只补全必要因果，不套入无关热门题材。",
+    ) -> str:
+        """把 Bible 结构化数据转为可注入 CPMS 的上下文块。"""
+        blocks: List[str] = []
+
+        worldview = bible_context.get("worldview") or ""
+        if worldview:
+            blocks.append(f"【世界观】\n{worldview}")
+
+        world_settings = bible_context.get("world_settings") or []
+        if world_settings:
+            lines = ["【世界设定】"]
+            for item in world_settings[:location_limit]:
+                name = item.get("name", "未命名设定")
+                desc = item.get("description", "")
+                item_id = f" (ID: {item.get('id', 'N/A')})" if include_ids else ""
+                lines.append(f"- {name}{item_id}: {desc}")
+            blocks.append("\n".join(lines))
+
+        characters = bible_context.get("characters") or []
+        if characters:
+            lines = ["【角色设定】"]
+            for char in characters[:character_limit]:
+                name = char.get("name", "Unknown")
+                desc = char.get("description", "")
+                role = char.get("role", "")
+                arc = char.get("character_arc", "")
+                char_id = f" (ID: {char.get('id', 'N/A')})" if include_ids else ""
+                role_text = f" [{role}]" if role else ""
+                lines.append(f"- {name}{char_id}{role_text}: {desc}")
+                if arc:
+                    lines.append(f"  人物弧光：{arc}")
+            blocks.append("\n".join(lines))
+
+        relationships = bible_context.get("relationships") or []
+        if relationships:
+            lines = ["【角色关系】"]
+            for rel in relationships[:character_limit]:
+                char1 = rel.get("character1", "")
+                char2 = rel.get("character2", "")
+                rel_type = rel.get("relationship_type", "")
+                rel_desc = rel.get("description", "")
+                lines.append(f"- {char1} ↔ {char2} ({rel_type}): {rel_desc}")
+            blocks.append("\n".join(lines))
+
+        locations = bible_context.get("locations") or []
+        if locations:
+            lines = ["【关键地点】"]
+            for loc in locations[:location_limit]:
+                name = loc.get("name", "Unknown")
+                desc = loc.get("description", "")
+                significance = loc.get("significance", "")
+                loc_id = f" (ID: {loc.get('id', 'N/A')})" if include_ids else ""
+                lines.append(f"- {name}{loc_id}: {desc}")
+                if significance:
+                    lines.append(f"  叙事意义：{significance}")
+            blocks.append("\n".join(lines))
+
+        timeline_notes = bible_context.get("timeline_notes") or []
+        if timeline_notes:
+            lines = ["【时间线事件】"]
+            for note in timeline_notes[:location_limit]:
+                event = note.get("event", "")
+                desc = note.get("description", "")
+                impact = note.get("impact", "")
+                lines.append(f"- {event}: {desc}")
+                if impact:
+                    lines.append(f"  情节影响：{impact}")
+            blocks.append("\n".join(lines))
+
+        return "\n\n".join(blocks) if blocks else f"【世界观与人物】\n{empty_hint}"
+
+    @staticmethod
+    def _pick_premise_from_context(bible_context: Dict) -> str:
+        """从 Bible 上下文中提取宏观规划可用的核心梗概。"""
+        for key in ("premise", "summary", "logline", "title"):
+            value = bible_context.get(key)
+            if value:
+                return str(value)
+        return "暂无独立梗概，请严格依据已提供的世界观、角色、地点与时间线推演。"
+
     def _build_quick_macro_prompt(self, bible_context: Dict, target_chapters: int) -> Prompt:
-        """极速模式：破城槌提示词 V4（智能结构感知版）
-
-        V4 变更：
-        - 使用 calculate_structure_params 注入结构参数到 prompt 中
-        - 不再使用硬编码的"三幕剧"暗示，改为根据目标篇幅推荐合理幕数
-        - 让 LLM 在一个明确的数量框架内发挥创意
-        """
-
-        # 从结构计算引擎获取推荐参数
+        """极速模式：通过 planning-quick-macro 契约渲染提示词。"""
         params = calculate_structure_params(target_chapters)
         rec_acts_per_volume = params["acts_per_volume"]
         rec_chapters_per_act = params["chapters_per_act"]
@@ -1970,191 +2046,34 @@ class ContinuousPlanningService:
             f"≈{total_recommended_acts}幕, 每幕~{rec_chapters_per_act}章"
         )
 
-        # 根据章节数决定规划深度
         if target_chapters > 500:
-            planning_depth = "framework"  # 只规划部/卷框架
-            depth_instruction = f"""
-【规划深度】目标章节数>500，采用渐进式规划：
-- 只输出「部」和「卷」的标题与主题（不输出具体幕）
-- 【强制要求】每卷必须输出 estimated_chapters（预估章数）
-- 【章数约束】所有卷的 estimated_chapters 之和必须等于 {target_chapters} 章
-- 每卷建议 {rec_chapters_per_act * rec_acts_per_volume}-{rec_chapters_per_act * rec_acts_per_volume * 2} 章，根据剧情需要灵活分配
-- 写作时每卷将动态生成约 {rec_acts_per_volume} 幕（每幕约 {rec_chapters_per_act} 章）
-- 幕节点将在写作过程中动态生成
-"""
+            planning_depth = "framework"
         elif target_chapters > 100:
-            planning_depth = "partial"  # 规划前几部的幕
-            depth_instruction = f"""
-【规划深度】目标章节数>100，采用部分详细规划：
-- 规划「部」和「卷」的完整结构
-- 【强制要求】每卷必须输出 estimated_chapters（预估章数）
-- 【章数约束】所有卷的 estimated_chapters 之和必须等于 {target_chapters} 章
-- 【关键参数】建议每卷规划 {rec_acts_per_volume} 幕（每幕约 {rec_chapters_per_act} 章）
-- 只为第1-2部的卷规划幕节点
-- 后续部的幕节点将在写作中动态生成
-"""
+            planning_depth = "partial"
         else:
-            planning_depth = "full"  # 完整规划
-            depth_instruction = f"""
-【规划深度】目标章节数<100，完整规划所有部/卷/幕
-- 【强制要求】每幕必须输出 estimated_chapters（预估章数）
-- 【关键参数】建议共 {rec_parts} 部，每部 {rec_volumes_per_part} 卷，每卷 {rec_acts_per_volume} 幕
-- 【章数约束】所有幕的 estimated_chapters 之和必须等于 {target_chapters} 章
-- 每幕建议约 {rec_chapters_per_act} 章
-"""
-        
-        system_msg = f"""# 角色设定
-你是一位专业的爽文长篇结构顾问，精通商业连载节奏，也尊重作者原始创意的独特性。你的任务是帮作者打破"白纸恐惧"，严格沿着用户已选择的题材、世界观基调和设定边界，推演填补出一个完整、宏大、爽点持续且具备强张力的长篇叙事骨架。
-不要主动引入用户未选择的题材外壳、时代质感或标志性元素。
+            planning_depth = "full"
 
-{depth_instruction}
-
-# 叙事结构理论指导
-<STORY_THEORY>
-你设计的结构应符合以下经典叙事原理：
-1. 多幕级联结构：每一幕是一个完整的「激励事件→发展→高潮→降级」叙事弧线。
-   本篇小说目标 {target_chapters} 章，建议分为约 {total_recommended_acts} 幕
-   （{rec_parts} 部 × 每部约 {rec_volumes_per_part} 卷 × 每卷约 {rec_acts_per_volume} 幕），
-   每幕约 {rec_chapters_per_act} 章。请严格按此数量框架规划。
-2. 爽文动力链：压制/欲望/目标→阻力→选择→代价→反击/突破/新局面，具体形态服从题材和世界观
-3. 情绪曲线：开篇抓人→中段起伏→终局兑现，不机械套用固定旅程
-4. 钩子密度：每个阶段都要留下推动读者继续阅读的未完成问题或爽点预期，钩子形态服从原设
-</STORY_THEORY>
-
-# 核心推演铁律（The Icebreaker Rules V4）
-<CONSTRAINTS>
-1. 【结构量化】本次规划的硬性数量约束（必须遵守）：
-   - 总幕数应在 {total_recommended_acts} 幕左右（±20%可接受）
-   - 每卷应包含 {rec_acts_per_volume} 幕左右，不要出现某卷只有1-2幕的情况
-   - 每幕约 {rec_chapters_per_act} 章（重要情节的幕可以多几章，过渡幕可以少几章）
-
-2. 【极致冲突】每一幕必须包含：
-   - 核心对抗（谁 vs 谁）
-   - 赌注（失败会失去什么）
-   - 转折（预期违背）
-
-3. 【源设定最高优先级】必须深度融合提供的设定：
-   - 主要角色必须出现在关键幕中
-   - 关键地点必须承担叙事功能
-   - 时间线事件必须影响情节走向
-   - 作者原始梗概、所选赛道、世界观基调的权重高于任何通用商业套路
-   - 不得用未选择的热门题材元素替代原有卖点
-
-4. 【商业节奏】
-   - 第一部：快速抛出核心悬念，建立主角目标
-   - 中间部：主角经历重大失败/觉醒
-   - 最后一部：所有伏笔收束，终极对决
-</CONSTRAINTS>
-
-# 输出格式
-请直接输出JSON：
-{{"parts": [{{"title": "部标题", "theme": "部主题", "volumes": [...]}}]}}
-
-每卷格式（estimated_chapters 为必填字段）：
-{{"title": "卷标题", "theme": "卷主题", "estimated_chapters": 预估章数（必填整数）}}
-
-{"如果规划深度为 full 或 partial，每卷还应包含 acts 数组，每幕也必须有 estimated_chapters：" if planning_depth != "framework" else "超长篇不输出 acts，但必须确保每卷的 estimated_chapters 之和等于目标章数。"}
-{"每幕格式：" if planning_depth == "full" else ""}
-{{"acts": [{{"title": "幕标题", "estimated_chapters": 预估章数（必填整数）, "description": "情节摘要"}}]}}
-
-【章数校验】请确保：所有卷/幕的 estimated_chapters 之和 = {target_chapters}
-
-不要添加任何解释性文字。"""
-
-        # 构建丰富的世界观上下文
-        context_parts = []
-
-        # 世界观
-        if bible_context.get("worldview"):
-            context_parts.append(f"【世界观】\n{bible_context['worldview']}\n")
-
-        # 角色（带关系和弧光）
-        if bible_context.get("characters"):
-            chars = bible_context['characters']
-            char_lines = ["【角色设定】"]
-            for c in chars[:5]:  # 限制主要角色数量
-                name = c.get('name', 'Unknown')
-                desc = c.get('description', '')
-                role = c.get('role', '')
-                arc = c.get('character_arc', '')
-                char_lines.append(f"- {name} ({role}): {desc}")
-                if arc:
-                    char_lines.append(f"  人物弧光: {arc}")
-            context_parts.append("\n".join(char_lines) + "\n")
-
-        # 角色关系
-        if bible_context.get("relationships"):
-            rel_lines = ["【角色关系】"]
-            for r in bible_context['relationships'][:5]:
-                char1 = r.get('character1', '')
-                char2 = r.get('character2', '')
-                rel_type = r.get('relationship_type', '')
-                rel_desc = r.get('description', '')
-                rel_lines.append(f"- {char1} ↔ {char2} ({rel_type}): {rel_desc}")
-            context_parts.append("\n".join(rel_lines) + "\n")
-
-        # 地点（带叙事功能）
-        if bible_context.get("locations"):
-            loc_lines = ["【关键地点】"]
-            for l in bible_context['locations'][:5]:
-                name = l.get('name', 'Unknown')
-                desc = l.get('description', '')
-                significance = l.get('significance', '')
-                loc_lines.append(f"- {name}: {desc}")
-                if significance:
-                    loc_lines.append(f"  叙事意义: {significance}")
-            context_parts.append("\n".join(loc_lines) + "\n")
-
-        # 时间线事件
-        if bible_context.get("timeline_notes"):
-            time_lines = ["【时间线事件】"]
-            for t in bible_context['timeline_notes'][:5]:
-                event = t.get('event', '')
-                desc = t.get('description', '')
-                impact = t.get('impact', '')
-                time_lines.append(f"- {event}: {desc}")
-                if impact:
-                    time_lines.append(f"  情节影响: {impact}")
-            context_parts.append("\n".join(time_lines) + "\n")
-
-        if not context_parts:
-            context_parts.append("【世界观与人物】\n暂无详细设定，请优先依据作者梗概与题材赛道生成结构；只补全必要因果，不套入无关热门题材。\n")
-
-        worldview_context = "\n".join(context_parts)
-
-        user_msg = f"""<STORY_CONTEXT>
-{worldview_context}
-</STORY_CONTEXT>
-
-<TARGET_SCOPE>
-目标总篇幅：精确 {target_chapters} 章
-【强制约束】所有卷/幕的 estimated_chapters 之和必须等于 {target_chapters}
-</TARGET_SCOPE>
-
-请立即生成叙事骨架，严格按以下JSON格式输出：
-{{
-  "parts": [
-    {{
-      "title": "部标题（如：深渊觉醒）",
-      "volumes": [
-        {{
-          "title": "卷标题（如：血色的黎明）",
-          "acts": [
-            {{
-              "title": "幕标题（如：青铜门下的背叛）",
-              "core_conflict": "主角 vs 反派，赌注是...",
-              "emotional_turn": "从...到...",
-              "description": "情节摘要...",
-              "key_characters": ["角色1", "角色2"],
-              "key_locations": ["地点1"]
-            }}
-          ]
-        }}
-      ]
-    }}
-  ]
-}}"""
-        return Prompt(system=system_msg, user=user_msg)
+        story_context = self._format_bible_context(bible_context, character_limit=5, location_limit=5)
+        character_context = self._format_bible_context(
+            {"characters": bible_context.get("characters", []), "relationships": bible_context.get("relationships", [])},
+            character_limit=5,
+            empty_hint="暂无角色设定，请不要编造与题材无关的固定示例名词。",
+        )
+        return self._render_contract_prompt(
+            PLANNING_QUICK_MACRO_CONTRACT,
+            {
+                "premise": self._pick_premise_from_context(bible_context),
+                "target_chapters": target_chapters,
+                "worldview": story_context,
+                "characters": character_context,
+                "planning_depth": planning_depth,
+                "rec_parts": rec_parts,
+                "rec_volumes_per_part": rec_volumes_per_part,
+                "rec_acts_per_volume": rec_acts_per_volume,
+                "rec_chapters_per_act": rec_chapters_per_act,
+                "total_recommended_acts": total_recommended_acts,
+            },
+        )
 
     def _build_precise_macro_prompt(
         self,
@@ -2163,177 +2082,36 @@ class ContinuousPlanningService:
         structure_preference: Dict,
         skeleton: Dict,
     ) -> Prompt:
-        """精密模式：手术刀提示词 V2
+        """精密模式：固定网格由代码计算，文案由 CPMS 契约渲染。"""
+        parts = structure_preference.get("parts", 3)
+        volumes_per_part = structure_preference.get("volumes_per_part", 3)
+        acts_per_volume = structure_preference.get("acts_per_volume", 3)
+        total_acts = max(parts * volumes_per_part * acts_per_volume, 1)
 
-        设计哲学：
-        - 捍卫创作者的绝对主权与节奏感
-        - 严格遵守用户指定的结构网格和字数节奏
-        - 强调逻辑严密、中段支撑、情节容量匹配
-        - 深度融合 Bible 设定进行精密推演
-        - 引入叙事理论确保结构合理性
-        """
-        parts = structure_preference.get('parts', 3)
-        volumes_per_part = structure_preference.get('volumes_per_part', 3)
-        acts_per_volume = structure_preference.get('acts_per_volume', 3)
-        total_acts = parts * volumes_per_part * acts_per_volume
-
-        # 计算章数分配
         distribution = self._calculate_chapter_distribution(target_chapters, parts)
         part_chapters = distribution["part_chapters"]
+        avg_chapters_per_act = max(target_chapters // total_acts, 1)
 
-        # 计算每幕平均章数
-        avg_chapters_per_act = target_chapters // total_acts if total_acts > 0 else 5
-
-        # 构建动态章节配额指示
-        pacing_guide = "<PACING_GUIDE>\n"
-        for i, chapters in enumerate(part_chapters, 1):
-            if i == 1:
-                pacing_guide += f"- 第{i}部（起源）：分配 {chapters} 章。情节要求：紧凑、抛出核心悬念、建立主角目标。\n"
-            elif i == parts:
-                pacing_guide += f"- 第{i}部（决战）：分配 {chapters} 章。情节要求：收束所有主线、终极对决、情绪爆发。\n"
+        pacing_lines = ["<PACING_GUIDE>"]
+        for index, chapters in enumerate(part_chapters, 1):
+            if index == 1:
+                role = "起源"
+                demand = "紧凑、抛出核心悬念、建立主角目标"
+            elif index == parts:
+                role = "决战"
+                demand = "收束主线、终极对决、完成情绪兑现"
             else:
-                pacing_guide += f"- 第{i}部（发展/深渊）：分配 {chapters} 章。情节要求：容量极大、多线叙事、主角重大转变。\n"
-        pacing_guide += f"</PACING_GUIDE>\n\n<ACT_PACING>\n"
-        pacing_guide += f"- 总幕数：{total_acts} 幕\n"
-        pacing_guide += f"- 平均每幕：约 {avg_chapters_per_act} 章\n"
-        pacing_guide += f"- 节奏建议：前1/3幕数铺垫，中1/3幕数发展+小高潮，后1/3幕数爆发+收束\n"
-        pacing_guide += "</ACT_PACING>"
-
-        system_msg = f"""# 角色设定
-你是一位极其理性的长篇小说结构架构师，精通经典叙事理论和现代网文节奏。作者正在进行一项严密的叙事工程，设定了精确的篇幅限制和结构分布。你的任务是在严格遵守"结构网格"和"字数节奏"的前提下，优先保护作者原始输入、题材赛道和世界观基调，再分配情节张力，确保中段不塌陷，结尾能兑现承诺。
-
-# 叙事理论框架（工具，不是模板）
-<STORY_THEORY>
-1. 阶段功能映射：
-   - 前段：让读者看清主角处境、目标、阻力和世界规则
-   - 中段：通过选择、代价、关系变化和信息差扩大冲突
-   - 后段：回收关键承诺，完成主角与世界规则的正面碰撞
-
-2. 情绪曲线设计：
-   - 每部内部：起→承→转→合
-   - 幕间关系：悬念→揭示→更大悬念
-   - 高潮分布：按题材需要安排阶段性回报，不机械要求固定类型的高潮
-
-3. 角色弧光整合：
-   - 主角必须在结构节点处经历关键转变
-   - 反派势力应随幕推进逐步显露/强化
-   - 配角应在特定幕完成其叙事功能
-</STORY_THEORY>
-
-# 精密推演铁律（The Scalpel Rules V2）
-<CONSTRAINTS>
-1. 【结构网格绝对服从】
-   必须严格输出 {parts} 部 × {volumes_per_part} 卷/部 × {acts_per_volume} 幕/卷 = {total_acts} 幕，不得多一个或少一个节点。
-
-2. 【节奏匹配】
-   系统已为你计算好每部的【预估章数配额】。你设计的情节容量必须能撑起这个章数：
-   - 高章数配额（>100章/部）：必须设计【多线叙事】+【复杂长线副本】+【势力博弈】
-   - 中章数配额（50-100章/部）：设计【主线+1-2条副线】+【阶段性目标】
-   - 低章数配额（<50章/部）：情节必须是【单线程快速推进】+【紧凑冲突】
-
-3. 【世界观深度融合】
-   - 主要角色必须出现在具体幕中，标注其在该幕的角色功能（主角/反派/盟友/阻碍者）
-   - 关键地点必须承担具体叙事功能（不仅是背景，而是冲突发生地/转折点）
-   - 时间线事件必须与幕结构对齐（某幕必须解决某事件，或某事件触发某幕）
-   - 角色关系必须在幕中体现（某幕聚焦某对关系的转变）
-   - 题材赛道和作者原始梗概的权重高于通用网文结构偏好；不要将故事推向未选择的风格外壳
-
-4. 【逻辑严密性】
-   - 严禁机械降神：所有解决必须基于已铺垫的能力/资源
-   - 因果清晰：每一幕的结果必须是下一幕的前提
-   - 伏笔呼应：早期幕埋下的线索必须在后期幕回收
-
-5. 【中段支撑】
-   - 中间部分必须设计"次要反派的崛起"或"主角信念的暂时崩溃"
-   - 每3-4幕必须有一个情绪转折点（希望→绝望，或反之）
-   - 避免"中段塌陷"：确保中间幕的冲突强度不低于首尾
-
-6. 【章数分配】
-   - 每幕必须标注 estimated_chapters（参考平均每幕{avg_chapters_per_act}章）
-   - 重要幕（转折点、高潮）可分配更多章数
-   - 过渡幕可分配较少章数，但必须有冲突推进
-</CONSTRAINTS>
-
-{pacing_guide}
-
-# 输出要求
-请直接输出JSON格式，层级必须严格吻合结构网格。
-每幕（Act）的输出字段必须包含：
-- "title": "精准的情节标题（动词+名词，暗示冲突）"
-- "estimated_chapters": 本幕预计占用的章数（整数）
-- "narrative_goal": "本幕在整个故事结构中承担的叙事功能"
-- "plot_points": ["情节点1", "情节点2", "情节点3"]（本幕包含的关键事件）
-- "description": "严谨的剧情走向摘要（含因果逻辑）"
-- "key_characters": ["角色ID"]（本幕涉及的角色，标注功能如：主角-李明）
-- "key_locations": ["地点ID"]（本幕发生的关键地点，标注功能）
-- "emotional_arc": "情绪曲线（如：平静→紧张→爆发）"
-- "setup_for": ["后续幕ID或标题"]（本幕为哪些后续幕做铺垫）
-- "payoff_from": ["前置幕ID或标题"]（本幕回收了哪些前置幕的伏笔）
-
-不要添加任何解释性文字。"""
-
-        # 构建丰富的世界观上下文（与极速模式一致）
-        context_parts = []
-
-        # 世界观
-        if bible_context.get("worldview"):
-            context_parts.append(f"【世界观】\n{bible_context['worldview']}\n")
-
-        # 角色（带关系和弧光）
-        if bible_context.get("characters"):
-            chars = bible_context['characters']
-            char_lines = ["【角色设定】"]
-            for c in chars[:5]:
-                name = c.get('name', 'Unknown')
-                desc = c.get('description', '')
-                role = c.get('role', '')
-                arc = c.get('character_arc', '')
-                char_id = c.get('id', 'N/A')
-                char_lines.append(f"- {name} (ID: {char_id}) [{role}]: {desc}")
-                if arc:
-                    char_lines.append(f"  人物弧光: {arc}")
-            context_parts.append("\n".join(char_lines) + "\n")
-
-        # 角色关系
-        if bible_context.get("relationships"):
-            rel_lines = ["【角色关系】"]
-            for r in bible_context['relationships'][:5]:
-                char1 = r.get('character1', '')
-                char2 = r.get('character2', '')
-                rel_type = r.get('relationship_type', '')
-                rel_desc = r.get('description', '')
-                rel_lines.append(f"- {char1} ↔ {char2} ({rel_type}): {rel_desc}")
-            context_parts.append("\n".join(rel_lines) + "\n")
-
-        # 地点（带叙事功能）
-        if bible_context.get("locations"):
-            loc_lines = ["【关键地点】"]
-            for l in bible_context['locations'][:5]:
-                name = l.get('name', 'Unknown')
-                desc = l.get('description', '')
-                significance = l.get('significance', '')
-                loc_id = l.get('id', 'N/A')
-                loc_lines.append(f"- {name} (ID: {loc_id}): {desc}")
-                if significance:
-                    loc_lines.append(f"  叙事意义: {significance}")
-            context_parts.append("\n".join(loc_lines) + "\n")
-
-        # 时间线事件
-        if bible_context.get("timeline_notes"):
-            time_lines = ["【时间线事件】"]
-            for t in bible_context['timeline_notes'][:5]:
-                event = t.get('event', '')
-                desc = t.get('description', '')
-                impact = t.get('impact', '')
-                time_lines.append(f"- {event}: {desc}")
-                if impact:
-                    time_lines.append(f"  情节影响: {impact}")
-            context_parts.append("\n".join(time_lines) + "\n")
-
-        if not context_parts:
-            context_parts.append("【世界观与人物】\n暂无详细设定，请依据作者梗概与题材赛道生成结构框架；只补必要因果，不引入无关题材外壳。\n")
-
-        worldview_context = "\n".join(context_parts)
+                role = "发展/深渊"
+                demand = "扩大容量、多线叙事、推动主角重大转变"
+            pacing_lines.append(f"- 第{index}部（{role}）：分配 {chapters} 章；情节要求：{demand}。")
+        pacing_lines.extend([
+            "</PACING_GUIDE>",
+            "<ACT_PACING>",
+            f"- 总幕数：{total_acts} 幕",
+            f"- 平均每幕：约 {avg_chapters_per_act} 章",
+            "- 节奏建议：前 1/3 铺垫，中 1/3 发展并设置小高潮，后 1/3 爆发并收束。",
+            "</ACT_PACING>",
+        ])
 
         skeleton_lines = ["【固定结构骨架】"]
         for part_index, part in enumerate(skeleton.get("parts", []), 1):
@@ -2345,50 +2123,26 @@ class ContinuousPlanningService:
                         f'    - {act["node_id"]}: 第{part_index}部第{volume_index}卷第{act_index}幕，参考 {avg_chapters_per_act} 章'
                     )
 
-        skeleton_block = "\n".join(skeleton_lines)
-
-        user_msg = f"""<STORY_CONTEXT>
-{worldview_context}
-</STORY_CONTEXT>
-
-<STRUCTURAL_GRID>
-【你必须绝对服从的物理网格】
-- 目标总章数：{target_chapters} 章
-- 结构分布：{parts} 部 × {volumes_per_part} 卷/部 × {acts_per_volume} 幕/卷 = {total_acts} 幕
-- 平均每幕：约 {avg_chapters_per_act} 章
-</STRUCTURAL_GRID>
-
-{skeleton_block}
-
-系统已经固定好了部/卷/幕的数量与层级，你不能新增、删除、合并、拆分任何节点。
-你的任务只是为这些固定节点填写标题、描述和幕级字段。
-
-请只输出 JSON，格式如下：
-{{
-  "node_updates": [
-    {{
-      "node_id": "P1 或 V1_1 或 A1_1_1",
-      "title": "节点标题",
-      "description": "节点描述",
-      "estimated_chapters": 5,
-      "narrative_goal": "仅 Act 必填",
-      "plot_points": ["仅 Act 使用"],
-      "key_characters": ["仅 Act 使用"],
-      "key_locations": ["仅 Act 使用"],
-      "emotional_arc": "仅 Act 使用",
-      "setup_for": ["仅 Act 使用"],
-      "payoff_from": ["仅 Act 使用"]
-    }}
-  ]
-}}
-
-要求：
-1. 每个固定节点都必须返回一条 node_updates。
-2. Part/Volume 只需填写 node_id、title、description。
-3. Act 必须填写全部幕级字段。
-4. 不要返回 parts/volumes/acts 树，不要添加解释文字。
-5. 幕的 estimated_chapters 可以按剧情轻重分配，但总量应尽量接近 {target_chapters} 章。"""
-        return Prompt(system=system_msg, user=user_msg)
+        return self._render_contract_prompt(
+            PLANNING_PRECISE_MACRO_CONTRACT,
+            {
+                "story_context": self._format_bible_context(
+                    bible_context,
+                    character_limit=5,
+                    location_limit=5,
+                    include_ids=True,
+                    empty_hint="暂无详细设定，请依据作者梗概与题材赛道生成结构框架；只补必要因果，不引入无关题材外壳。",
+                ),
+                "target_chapters": target_chapters,
+                "parts": parts,
+                "volumes_per_part": volumes_per_part,
+                "acts_per_volume": acts_per_volume,
+                "total_acts": total_acts,
+                "avg_chapters_per_act": avg_chapters_per_act,
+                "pacing_guide": "\n".join(pacing_lines),
+                "skeleton_block": "\n".join(skeleton_lines),
+            },
+        )
 
     def _build_precise_volume_prompt(
         self,
@@ -2400,35 +2154,15 @@ class ContinuousPlanningService:
         volume_index: int,
     ) -> Prompt:
         """按卷生成内容，缩小上下文范围以提高字段完整度。"""
-        parts = structure_preference.get('parts', 3)
-        volumes_per_part = structure_preference.get('volumes_per_part', 3)
-        acts_per_volume = structure_preference.get('acts_per_volume', 3)
-        total_acts = parts * volumes_per_part * acts_per_volume
-        avg_chapters_per_act = target_chapters // total_acts if total_acts > 0 else 5
+        parts = structure_preference.get("parts", 3)
+        volumes_per_part = structure_preference.get("volumes_per_part", 3)
+        acts_per_volume = structure_preference.get("acts_per_volume", 3)
+        total_acts = max(parts * volumes_per_part * acts_per_volume, 1)
+        avg_chapters_per_act = max(target_chapters // total_acts, 1)
 
         current_part = skeleton["parts"][part_index - 1]
         current_volume = current_part["volumes"][volume_index - 1]
         act_scope = current_volume.get("acts", [])
-
-        context_parts = []
-        if bible_context.get("worldview"):
-            context_parts.append(f"【世界观】\n{bible_context['worldview']}\n")
-        if bible_context.get("characters"):
-            char_lines = ["【角色设定】"]
-            for c in bible_context["characters"][:8]:
-                char_lines.append(
-                    f"- {c.get('name', 'Unknown')} (ID: {c.get('id', 'N/A')}): {c.get('description', '')}"
-                )
-            context_parts.append("\n".join(char_lines) + "\n")
-        if bible_context.get("locations"):
-            loc_lines = ["【关键地点】"]
-            for l in bible_context["locations"][:8]:
-                loc_lines.append(
-                    f"- {l.get('name', 'Unknown')} (ID: {l.get('id', 'N/A')}): {l.get('description', '')}"
-                )
-            context_parts.append("\n".join(loc_lines) + "\n")
-        if not context_parts:
-            context_parts.append("【世界观与人物】\n暂无详细设定，请给出通用但完整的单卷叙事设计。\n")
 
         scope_lines = [
             f"【当前生成范围】第{part_index}部 / 第{volume_index}卷",
@@ -2440,46 +2174,26 @@ class ContinuousPlanningService:
                 f'- {act["node_id"]}: {act["title"]}，需完整填写 narrative_goal / plot_points / key_characters / key_locations / emotional_arc / setup_for / payoff_from'
             )
 
-        system_msg = """你是长篇小说结构设计师。当前任务不是规划整本书，而是只完成一个卷的详细结构设计。
-你必须为当前卷内的每一幕填写完整字段，尤其不能遗漏 narrative_goal、plot_points、key_characters、key_locations、emotional_arc。
-请直接输出 JSON，不要解释。"""
-
-        user_msg = f"""<STORY_CONTEXT>
-{"".join(context_parts)}
-</STORY_CONTEXT>
-
-【全书网格】
-- 总章数：{target_chapters} 章
-- 结构：{parts} 部 × {volumes_per_part} 卷/部 × {acts_per_volume} 幕/卷
-- 平均每幕：约 {avg_chapters_per_act} 章
-
-{chr(10).join(scope_lines)}
-
-请仅返回当前卷相关节点的 JSON：
-{{
-  "node_updates": [
-    {{
-      "node_id": "{current_part["node_id"]} 或 {current_volume["node_id"]} 或 {act_scope[0]["node_id"] if act_scope else 'A1_1_1'}",
-      "title": "节点标题",
-      "description": "节点描述",
-      "estimated_chapters": 5,
-      "narrative_goal": "仅 Act 必填，不能为空",
-      "plot_points": ["仅 Act 使用，至少 2 条"],
-      "key_characters": ["仅 Act 使用，至少 1 条"],
-      "key_locations": ["仅 Act 使用，至少 1 条"],
-      "emotional_arc": "仅 Act 使用，不能为空",
-      "setup_for": ["仅 Act 使用"],
-      "payoff_from": ["仅 Act 使用"]
-    }}
-  ]
-}}
-
-要求：
-1. 只返回当前卷涉及的 node_updates。
-2. 当前卷内每个 Act 都必须返回一条更新。
-3. 每个 Act 的 narrative_goal、plot_points、key_characters、key_locations、emotional_arc 都不能为空。
-4. 不要新增或删除节点。"""
-        return Prompt(system=system_msg, user=user_msg)
+        example_node_id = act_scope[0]["node_id"] if act_scope else "A1_1_1"
+        return self._render_contract_prompt(
+            PLANNING_PRECISE_VOLUME_CONTRACT,
+            {
+                "story_context": self._format_bible_context(
+                    bible_context,
+                    character_limit=8,
+                    location_limit=8,
+                    include_ids=True,
+                    empty_hint="暂无详细设定，请给出通用但完整的单卷叙事设计。",
+                ),
+                "target_chapters": target_chapters,
+                "parts": parts,
+                "volumes_per_part": volumes_per_part,
+                "acts_per_volume": acts_per_volume,
+                "avg_chapters_per_act": avg_chapters_per_act,
+                "scope_block": "\n".join(scope_lines),
+                "example_node_id": example_node_id,
+            },
+        )
 
     def _build_precise_repair_prompt(
         self,
@@ -2489,68 +2203,37 @@ class ContinuousPlanningService:
         incomplete_acts: List[Dict],
     ) -> Prompt:
         """只为缺字段的幕生成补丁。"""
-        parts = structure_preference.get('parts', 3)
-        volumes_per_part = structure_preference.get('volumes_per_part', 3)
-        acts_per_volume = structure_preference.get('acts_per_volume', 3)
+        parts = structure_preference.get("parts", 3)
+        volumes_per_part = structure_preference.get("volumes_per_part", 3)
+        acts_per_volume = structure_preference.get("acts_per_volume", 3)
         total_acts = max(parts * volumes_per_part * acts_per_volume, 1)
         avg_chapters_per_act = max(target_chapters // total_acts, 1)
 
-        context_parts = []
-        if bible_context.get("worldview"):
-            context_parts.append(f"【世界观】\n{bible_context['worldview']}\n")
-        if bible_context.get("characters"):
-            char_lines = ["【角色设定】"]
-            for c in bible_context["characters"][:8]:
-                char_lines.append(f"- {c.get('name', 'Unknown')} (ID: {c.get('id', 'N/A')}): {c.get('description', '')}")
-            context_parts.append("\n".join(char_lines) + "\n")
-        if bible_context.get("locations"):
-            loc_lines = ["【关键地点】"]
-            for l in bible_context["locations"][:8]:
-                loc_lines.append(f"- {l.get('name', 'Unknown')} (ID: {l.get('id', 'N/A')}): {l.get('description', '')}")
-            context_parts.append("\n".join(loc_lines) + "\n")
-        if not context_parts:
-            context_parts.append("【世界观与人物】\n暂无详细设定，请补齐通用但完整的叙事字段。\n")
-
         act_lines = []
         for act in incomplete_acts:
+            missing = ", ".join(act.get("missing_fields", []))
             act_lines.append(
-                f'- {act["node_id"]}: 标题《{act["title"]}》；简介《{act["description"]}》；缺失字段：{", ".join(act["missing_fields"])}'
+                f'- {act.get("node_id", "")}: 标题《{act.get("title", "")}》；简介《{act.get("description", "")}》；缺失字段：{missing}'
             )
 
-        system_msg = """你是小说结构补全助手。你收到的是已经生成好的幕结构，但有些关键字段为空。
-你的任务是只为这些幕补齐缺失字段，不要改写已有完整字段，不要返回解释文字。"""
-
-        user_msg = f"""<STORY_CONTEXT>
-{"".join(context_parts)}
-</STORY_CONTEXT>
-
-【全书约束】
-- 总章数：{target_chapters} 章
-- 结构：{parts} 部 × {volumes_per_part} 卷/部 × {acts_per_volume} 幕/卷
-- 平均每幕：约 {avg_chapters_per_act} 章
-
-【待补全幕】
-{chr(10).join(act_lines)}
-
-请只输出 JSON：
-{{
-  "node_updates": [
-    {{
-      "node_id": "A1_1_1",
-      "narrative_goal": "不能为空",
-      "plot_points": ["至少 2 条"],
-      "key_characters": ["至少 1 条"],
-      "key_locations": ["至少 1 条"],
-      "emotional_arc": "不能为空"
-    }}
-  ]
-}}
-
-要求：
-1. 每个待补全幕都必须返回一条 node_updates。
-2. 只返回缺失字段，不要输出 title、description、estimated_chapters，除非该幕这些字段也为空。
-3. `plot_points` 至少 2 条，`key_characters` 和 `key_locations` 至少各 1 条。"""
-        return Prompt(system=system_msg, user=user_msg)
+        return self._render_contract_prompt(
+            PLANNING_PRECISE_REPAIR_CONTRACT,
+            {
+                "story_context": self._format_bible_context(
+                    bible_context,
+                    character_limit=8,
+                    location_limit=8,
+                    include_ids=True,
+                    empty_hint="暂无详细设定，请补齐通用但完整的叙事字段。",
+                ),
+                "target_chapters": target_chapters,
+                "parts": parts,
+                "volumes_per_part": volumes_per_part,
+                "acts_per_volume": acts_per_volume,
+                "avg_chapters_per_act": avg_chapters_per_act,
+                "incomplete_acts_block": "\n".join(act_lines),
+            },
+        )
 
     def _build_macro_planning_prompt(self, bible_context: Dict, target_chapters: int, structure_preference: Dict) -> Prompt:
         """构建宏观规划提示词（向后兼容的包装器）
@@ -2572,91 +2255,41 @@ class ContinuousPlanningService:
                 skeleton,
             )
 
-    def _build_act_planning_prompt(self, act_node: StoryNode, bible_context: Dict, previous_summary: Optional[str], chapter_count: int) -> Prompt:
-        """构建幕级规划提示词
-
-        ★ Phase 3: 增强版——标注题材内爽点 + 伏笔收种计划
-        核心改进：
-        1. 每章必须标注 thrill_type（爽点类型）：power_reveal / identity_reveal / action / suspense 等
-        2. 每章必须标注 foreshadow_action（伏笔操作）：plant(种) / resolve(收) / none
-        3. 前三章快速兑现题材承诺，但不硬塞与原设冲突的爽点类型
-        """
-        system_msg = """你是一位专业的爽文章节策划，擅长把作者原设中的矛盾、人物选择和世界规则拆成有爽点回报的章节大纲。
-
-你的铁律：
-1. 每章必须有至少一个明确的爽点回报：反击、打脸、突破、信息揭示、关系变化、能力验证、情绪转折或新问题
-2. 伏笔必须有计划地"种"和"收"——不能只种不收，也不能无铺垫地收
-3. 前三章要快速建立主角处境、核心阻力和题材承诺；是否展露实力或身份，必须服从作者原设与本幕因果
-
-请直接输出 JSON 格式，不要添加任何解释性文字。"""
-
-        # 构建上下文信息
+    def _build_act_planning_prompt(
+        self,
+        act_node: StoryNode,
+        bible_context: Dict,
+        previous_summary: Optional[str],
+        chapter_count: int,
+    ) -> Prompt:
+        """构建幕级章节规划提示词。"""
         context_parts = [f"幕信息：《{act_node.title}》"]
         if act_node.description:
             context_parts.append(f"幕简介：{act_node.description}")
-
         if previous_summary:
-            context_parts.append(f"\n前情提要：{previous_summary}")
+            context_parts.append(f"前情提要：{previous_summary}")
 
-        # 添加 Bible 信息
         if bible_context.get("characters"):
-            char_list = [f"- {c.get('name', 'Unknown')} (ID: {c.get('id', 'N/A')})" for c in bible_context["characters"][:5]]
-            context_parts.append(f"\n可用人物：\n" + "\n".join(char_list))
+            char_list = [
+                f"- {c.get('name', 'Unknown')} (ID: {c.get('id', 'N/A')})"
+                for c in bible_context["characters"][:5]
+            ]
+            context_parts.append("可用人物：\n" + "\n".join(char_list))
 
         if bible_context.get("locations"):
-            loc_list = [f"- {l.get('name', 'Unknown')} (ID: {l.get('id', 'N/A')})" for l in bible_context["locations"][:5]]
-            context_parts.append(f"\n可用地点：\n" + "\n".join(loc_list))
+            loc_list = [
+                f"- {l.get('name', 'Unknown')} (ID: {l.get('id', 'N/A')})"
+                for l in bible_context["locations"][:5]
+            ]
+            context_parts.append("可用地点：\n" + "\n".join(loc_list))
 
-        context = "\n".join(context_parts)
-
-        # ★ Phase 3: 增强型用户提示——标注爽点回报+伏笔收种
-        user_msg = f"""{context}
-
-请为这一幕规划 {chapter_count} 个章节。每章必须包含爽点回报标注和伏笔操作。
-
-★★★ 爽点回报类型说明（thrill_type 必选其一）★★★
-- power_reveal: 实力/能力验证（只在大纲和设定需要时使用）
-- identity_reveal: 身份/地位揭露（只在已有铺垫和因果允许时使用）
-- action: 战斗/对峙高潮（激烈冲突，胜负翻转）
-- suspense: 悬念爆发（重大真相揭露，认知颠覆）
-- emotion: 情感爆发（极致情感冲击，催泪/燃点）
-- hook: 钩子开场（以强冲突开场，立刻抓住读者）
-- relation_shift: 关系变化（信任、背叛、试探、结盟或决裂）
-- world_rule: 世界规则落地（让读者看见本题材的独特规则如何改变行动）
-
-★★★ 伏笔操作说明（foreshadow_action 必选其一）★★★
-- plant: 种下新伏笔（埋下未来线索，暗示更大秘密）
-- resolve: 回收旧伏笔（揭晓之前的悬念，给读者满足感）
-- plant_and_resolve: 同时种新收旧（最佳节奏——满足读者同时吊住胃口）
-- none: 无伏笔操作（仅限纯动作/过渡章节，每幕不超过2章）
-
-★★★ 前三章原则 ★★★
-第1章：必须有 hook，并清楚落地主角处境、阻力和题材承诺
-第2章：必须承接第1章后果，推进一个实质选择或关系变化
-第3章：必须有一次实质高潮，可为 action / power_reveal / suspense / relation_shift，按题材和原设选择
-
-★★★ 伏笔节奏铁律 ★★★
-- 本幕内种下的伏笔，必须有至少1条在本幕或下一幕回收
-- 不能连续2章都是 foreshadow_action=none
-- 最后一章必须 resolve 或 plant_and_resolve
-
-请直接输出 JSON 格式，不要添加任何说明文字：
-{{
-  "chapters": [
-    {{
-      "number": 1,
-      "title": "章节标题",
-      "outline": "章节大纲（100-200字，必须描述爽点的具体内容）",
-      "characters": ["人物ID"],
-      "locations": ["地点ID"],
-      "thrill_type": "power_reveal",
-      "thrill_description": "爽点描述：本章通过什么冲突、反击、突破、揭示或关系变化给读者正反馈",
-      "foreshadow_action": "plant",
-      "foreshadow_detail": "伏笔细节：种下/回收了什么伏笔"
-    }}
-  ]
-}}"""
-        return Prompt(system=system_msg, user=user_msg)
+        return self._render_contract_prompt(
+            PLANNING_ACT_CONTRACT,
+            {
+                "context": "\n\n".join(context_parts),
+                "chapter_count": chapter_count,
+            },
+        )
 
     async def _get_previous_acts_summary(self, act_node: StoryNode) -> Optional[str]:
         """获取前面幕的摘要"""
@@ -2708,7 +2341,7 @@ class ContinuousPlanningService:
         try:
             raw = await self._collect_llm_stream_text(
                 prompt,
-                GenerationConfig(max_tokens=4096, temperature=0.7),
+                generation_config_from_profile("planning_act"),
             )
             result = self._parse_llm_response(raw)
             
@@ -2832,51 +2465,27 @@ class ContinuousPlanningService:
         current_act: StoryNode,
         dual_track_context: Dict[str, str],
     ) -> Prompt:
-        """构建双轨融合的下一幕生成 Prompt"""
-        
-        system = self._get_cpms_system(
-            "continuous-planning-next-act",
-            "你是一位资深的小说结构设计师，擅长在长篇叙事中推进剧情。\n你的任务是为下一幕设计详细的内容规划，确保：\n1. 与前文保持连贯，不出现时间线或人物状态矛盾\n2. 有意识地回收或推进已有伏笔\n3. 设置新的冲突和悬念\n\n请直接输出 JSON 格式，不要添加解释性文字。",
-        )
-        
-        # 组装双轨上下文
-        context_parts = []
-        
-        if dual_track_context.get("volume_summary"):
-            context_parts.append(dual_track_context["volume_summary"])
-        
-        if dual_track_context.get("current_volume_summary"):
-            context_parts.append(dual_track_context["current_volume_summary"])
-        
-        if dual_track_context.get("pending_foreshadowings"):
-            context_parts.append(dual_track_context["pending_foreshadowings"])
-        
-        if dual_track_context.get("character_states"):
-            context_parts.append(dual_track_context["character_states"])
-        
+        """构建双轨融合的下一幕生成 Prompt。"""
+        context_parts = [
+            dual_track_context[key]
+            for key in (
+                "volume_summary",
+                "current_volume_summary",
+                "pending_foreshadowings",
+                "character_states",
+            )
+            if dual_track_context.get(key)
+        ]
         context_block = "\n\n".join(context_parts) if context_parts else "暂无前文上下文"
-        
-        user = f"""【双轨上下文】
-{context_block}
+        current_number = current_act.number or 0
 
-【当前幕信息】
-幕标题：{current_act.title}
-幕描述：{current_act.description or '无'}
-幕号：第 {current_act.number} 幕
-
-【任务】
-请生成第 {current_act.number + 1} 幕的详细规划。
-
-【输出要求】
-请输出 JSON 格式：
-{{
-  "title": "幕标题（动词+名词，暗示冲突）",
-  "description": "幕简介（100-200字，包含核心事件、冲突、转折）",
-  "suggested_chapter_count": 预估章数（整数）,
-  "key_events": ["事件1", "事件2"],
-  "narrative_arc": "叙事弧线（如：紧张→爆发→暂缓）",
-  "foreshadow_to_resolve": ["需要回收的伏笔"],
-  "foreshadow_to_plant": ["需要埋下的新伏笔"]
-}}"""
-        
-        return Prompt(system=system, user=user)
+        return self._render_contract_prompt(
+            CONTINUOUS_PLANNING_NEXT_ACT_CONTRACT,
+            {
+                "context_block": context_block,
+                "current_act_title": current_act.title or "未命名幕",
+                "current_act_description": current_act.description or "无",
+                "current_act_number": current_number,
+                "next_act_number": current_number + 1,
+            },
+        )

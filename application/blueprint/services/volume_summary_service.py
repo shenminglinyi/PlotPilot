@@ -19,53 +19,41 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
+from domain.ai.services.llm_service import LLMService
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from domain.structure.story_node import NodeType
+from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.prompt_contract import PromptContract
+from infrastructure.ai.prompt_gateway import get_prompt_gateway
+from infrastructure.ai.prompt_keys import (
+    SUMMARY_ACT,
+    SUMMARY_CHECKPOINT,
+    SUMMARY_PART,
+    SUMMARY_VOLUME,
+)
 
 logger = logging.getLogger(__name__)
 
 # CPMS: 提示词节点 key
 _VOLUME_SUMMARY_NODE_KEYS = {
-    "act": "volume-summary-act",
-    "volume": "volume-summary-volume",
-    "part": "volume-summary-part",
-    "checkpoint": "volume-summary-checkpoint",
+    "act": SUMMARY_ACT,
+    "volume": SUMMARY_VOLUME,
+    "part": SUMMARY_PART,
+    "checkpoint": SUMMARY_CHECKPOINT,
 }
 
-# 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_VOLUME_SUMMARY_SYSTEMS = {
-    "act": "你是一位专业的小说编辑，擅长提炼故事精华。你的任务是为一幕（Act）生成简洁的摘要。\n摘要应包含：\n1. 核心事件（2-3句话）\n2. 情绪曲线（从什么状态到什么状态）\n3. 关键转折点\n\n输出格式：直接输出摘要文本，约 150-200 字。",
-    "volume": "你是一位专业的小说编辑，擅长提炼长篇故事的精华。你的任务是将多个幕摘要压缩为一卷的摘要。\n摘要应包含：\n1. 卷主线进展（3-4句话）\n2. 主角状态变化\n3. 关键冲突与转折\n4. 未解决的悬念\n\n输出格式：直接输出摘要文本，约 300-500 字。",
-    "part": '你是一位资深小说主编，擅长把握长篇小说的宏观脉络。你的任务是将多卷摘要压缩为"部"级别的摘要。\n摘要应包含：\n1. 整体结构定位（这一部在整个故事中的作用）\n2. 主角弧光演变\n3. 核心冲突升级脉络\n\n输出格式：直接输出摘要文本，约 200-300 字。',
-    "checkpoint": "你是一位专业的小说编辑。你的任务是为最近的章节生成一个检查点摘要。\n摘要应聚焦于：\n1. 当前的故事进度\n2. 主角的状态和目标\n3. 未解决的悬念\n\n输出格式：直接输出摘要文本，约 150-200 字。",
-}
-
-
-def _get_volume_summary_system(summary_type: str) -> str:
-    """获取卷摘要的 system prompt。
-
-    CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-    如果 Registry 不可用则回退到硬编码默认值。
-    """
+def _render_volume_summary_prompt(summary_type: str, variables: Dict[str, Any]):
+    """通过 PromptGateway 渲染摘要提示词。"""
     node_key = _VOLUME_SUMMARY_NODE_KEYS.get(summary_type, "")
-    fallback = _FALLBACK_VOLUME_SUMMARY_SYSTEMS.get(summary_type, "")
-
-    if node_key:
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            system = registry.get_system(node_key)
-            if system:
-                return system
-        except Exception as exc:
-            logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
-
-    return fallback
+    if not node_key:
+        raise ValueError(f"未知摘要类型: {summary_type}")
+    return get_prompt_gateway().render(
+        PromptContract(node_key=node_key, generation_profile=f"summary_{summary_type}"),
+        variables,
+    ).prompt
 
 
 @dataclass
@@ -174,7 +162,7 @@ class VolumeSummaryService:
             # 调用 LLM
             response = await self.llm_service.generate(
                 prompt,
-                GenerationConfig(max_tokens=400, temperature=0.5)
+                generation_config_from_profile("summary_checkpoint")
             )
             
             summary = response.content.strip() if hasattr(response, 'content') else str(response).strip()
@@ -252,7 +240,7 @@ class VolumeSummaryService:
             
             response = await self.llm_service.generate(
                 prompt,
-                GenerationConfig(max_tokens=800, temperature=0.5)
+                generation_config_from_profile("summary_volume")
             )
             
             summary = response.content.strip() if hasattr(response, 'content') else str(response).strip()
@@ -317,7 +305,7 @@ class VolumeSummaryService:
             
             response = await self.llm_service.generate(
                 prompt,
-                GenerationConfig(max_tokens=500, temperature=0.5)
+                generation_config_from_profile("summary_part")
             )
             
             summary = response.content.strip() if hasattr(response, 'content') else str(response).strip()
@@ -387,7 +375,7 @@ class VolumeSummaryService:
             
             response = await self.llm_service.generate(
                 prompt,
-                GenerationConfig(max_tokens=400, temperature=0.5)
+                generation_config_from_profile("summary_act")
             )
             
             summary = response.content.strip() if hasattr(response, 'content') else str(response).strip()
@@ -446,7 +434,7 @@ class VolumeSummaryService:
         act_node,
         chapter_info: List[Dict],
         foreshadowing_info: Dict,
-    ) -> Prompt:
+    ):
         """构建幕摘要 Prompt"""
         chapters_text = "\n".join([
             f"第{ch['number']}章《{ch['title']}》: {ch['outline'][:100]}"
@@ -459,86 +447,74 @@ class VolumeSummaryService:
         if foreshadowing_info.get("resolved"):
             foreshadowing_text += f"\n回收伏笔: {', '.join(foreshadowing_info['resolved'][:5])}"
         
-        system = _get_volume_summary_system("act")
-        
-        user = f"""幕标题：{act_node.title}
-幕描述：{act_node.description or '无'}
-
-章节概览：
-{chapters_text}
-{foreshadowing_text}
-
-请生成这一幕的摘要。"""
-        
-        return Prompt(system=system, user=user)
+        return _render_volume_summary_prompt(
+            "act",
+            {
+                "act_title": act_node.title,
+                "act_description": act_node.description or "无",
+                "chapters_text": chapters_text,
+                "foreshadowing_text": foreshadowing_text,
+            },
+        )
     
     def _build_volume_summary_prompt(
         self,
         volume_node,
         act_summaries: List[Dict],
-    ) -> Prompt:
+    ):
         """构建卷摘要 Prompt（Reduce 阶段）"""
         acts_text = "\n\n".join([
             f"【第{act['number']}幕 {act['title']}】\n{act['summary']}"
             for act in act_summaries
         ])
         
-        system = _get_volume_summary_system("volume")
-        
-        user = f"""卷标题：{volume_node.title}
-卷描述：{volume_node.description or '无'}
-
-幕摘要汇总：
-{acts_text}
-
-请生成这一卷的摘要。"""
-        
-        return Prompt(system=system, user=user)
+        return _render_volume_summary_prompt(
+            "volume",
+            {
+                "volume_title": volume_node.title,
+                "volume_description": volume_node.description or "无",
+                "acts_text": acts_text,
+            },
+        )
     
     def _build_part_summary_prompt(
         self,
         part_node,
         volume_summaries: List[Dict],
-    ) -> Prompt:
+    ):
         """构建部摘要 Prompt"""
         volumes_text = "\n\n".join([
             f"【第{vol['number']}卷 {vol['title']}】\n{vol['summary']}"
             for vol in volume_summaries
         ])
         
-        system = _get_volume_summary_system("part")
-        
-        user = f"""部标题：{part_node.title}
-部描述：{part_node.description or '无'}
-
-卷摘要汇总：
-{volumes_text}
-
-请生成这一部的摘要。"""
-        
-        return Prompt(system=system, user=user)
+        return _render_volume_summary_prompt(
+            "part",
+            {
+                "part_title": part_node.title,
+                "part_description": part_node.description or "无",
+                "volumes_text": volumes_text,
+            },
+        )
     
     def _build_checkpoint_summary_prompt(
         self,
         current_chapter: int,
         chapter_info: List[Dict],
-    ) -> Prompt:
+    ):
         """构建检查点摘要 Prompt"""
         chapters_text = "\n".join([
             f"第{ch['number']}章《{ch['title']}》: {ch['content_preview'][:200]}"
             for ch in chapter_info
         ])
         
-        system = _get_volume_summary_system("checkpoint")
-        
-        user = f"""当前进度：第 {current_chapter} 章
-
-最近章节：
-{chapters_text}
-
-请生成检查点摘要。"""
-        
-        return Prompt(system=system, user=user)
+        return _render_volume_summary_prompt(
+            "checkpoint",
+            {
+                "current_chapter": current_chapter,
+                "chapters_text": chapters_text,
+            },
+        )
     
     # ==================== 辅助方法 ====================
     
@@ -605,21 +581,25 @@ class VolumeSummaryService:
                 for ch in sorted(volume_chapters, key=lambda x: x.number)
             ]
             
-            prompt = Prompt(
-                system="你是一位专业的小说编辑，擅长提炼长篇故事的精华。请生成卷级摘要，约 300-500 字。",
-                user=f"""卷标题：{volume_node.title}
-卷描述：{volume_node.description or '无'}
-章节范围：第 {volume_node.chapter_start} - {volume_node.chapter_end} 章
-
-章节预览：
-{chr(10).join([f"第{ch['number']}章: {ch['content_preview'][:100]}" for ch in chapter_info[:20]])}
-
-请生成这一卷的摘要。"""
+            acts_text = "\n".join(
+                f"第{ch['number']}章: {ch['content_preview'][:100]}"
+                for ch in chapter_info[:20]
+            )
+            prompt = _render_volume_summary_prompt(
+                "volume",
+                {
+                    "volume_title": volume_node.title,
+                    "volume_description": (
+                        f"{volume_node.description or '无'}\n"
+                        f"章节范围：第 {volume_node.chapter_start} - {volume_node.chapter_end} 章"
+                    ),
+                    "acts_text": acts_text,
+                },
             )
             
             response = await self.llm_service.generate(
                 prompt,
-                GenerationConfig(max_tokens=800, temperature=0.5)
+                generation_config_from_profile("summary_volume")
             )
             
             summary = response.content.strip() if hasattr(response, 'content') else str(response).strip()

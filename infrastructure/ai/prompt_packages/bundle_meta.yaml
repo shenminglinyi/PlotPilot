@@ -1,6 +1,6 @@
-version: 5.3.1-source-contract
+version: 5.3.3-continuous-planning-contract
 name: PlotPilot 内置
 description: CPMS v5 统一提示词库 — 全节点中文提示词、统一注册表、消除硬编码
 author: PlotPilot Team
 engine: jinja2
-changelog: 'v5.3.1: 强化作者原始输入、题材赛道与世界观基调的最高优先级，弱化固定爆款套路；v5.3: 补齐DAG联动节点提示词，提示词广场成为DAG提示词唯一编辑源；v5.2: Bible提示词全面优化；v5.1: 新增outline-beat-partition；v5: CPMS统一架构'
+changelog: 'v5.3.3: 连续规划主链路迁移到 PromptGateway，新增精密宏观规划、单卷补全、缺字段修补和下一幕规划节点；v5.3.2: 补齐 memory-extraction 与 voice-baseline-analysis 包，修复变量契约，接入 PromptGateway 最小契约渲染；v5.3.1: 强化作者原始输入、题材赛道与世界观基调的最高优先级，弱化固定爆款套路；v5.3: 补齐DAG联动节点提示词，提示词广场成为DAG提示词唯一编辑源；v5.2: Bible提示词全面优化；v5.1: 新增outline-beat-partition；v5: CPMS统一架构'

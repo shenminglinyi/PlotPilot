@@ -1,3 +1,3 @@
-Distill the following chapter:
+﻿请提炼以下章节：
 
 {content}

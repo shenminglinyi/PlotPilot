@@ -1,7 +1,7 @@
-name: 卡文诊断与张力分析
+﻿name: 卡文诊断与张力分析
 category: creative
-source: infrastructure/ai/prompts/prompts_defaults.json
-description: 结合统计数据诊断卡文病因，提供打碎僵局的'鲶鱼效应'重构方案
+source: application/analyst/services/tension_analyzer.py::analyze_tension
+description: 结合事件统计、章节正文和剧情弧诊断卡文病因，提供动作导向的破局方案
 builtin: true
 tags:
 - 卡文诊断
@@ -12,15 +12,23 @@ variables:
 - name: novel_id
   desc: 小说ID
   type: string
+  required: true
 - name: chapter_number
   desc: 卡文章节号
   type: integer
+  required: true
 - name: stuck_reason_text
-  desc: 卡文原因
+  desc: 作者自述的卡文原因
   type: string
+  default: 未提供
 - name: events_text
   desc: 事件列表
   type: string
+  default: 暂无事件数据
+- name: repository_context
+  desc: 仓储补充上下文，如章节正文摘录、张力字段和剧情弧
+  type: string
+  default: ''
 - name: stats_text
   desc: 统计数据
   type: string

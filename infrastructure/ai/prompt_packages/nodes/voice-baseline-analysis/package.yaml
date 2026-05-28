@@ -1,0 +1,17 @@
+﻿name: 文风基准提取
+category: extraction
+source: application/analyst/services/llm_voice_analysis_service.py::compute_baseline
+description: 根据多个章节的 8 维文风向量，提取小说稳定文风基准与可接受漂移范围
+builtin: true
+tags:
+- 文风
+- 基准
+- 漂移检测
+output_format: json
+variables:
+- name: style_data
+  desc: 多个章节的文风向量数据
+  type: string
+  required: true
+id: voice-baseline-analysis
+sort_order: 10

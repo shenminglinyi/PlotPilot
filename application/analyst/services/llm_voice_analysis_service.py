@@ -12,10 +12,15 @@
 """
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
+from domain.ai.services.llm_service import LLMService
+from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.prompt_contracts.style_analysis import STYLE_ANALYSIS_CONTRACT
+from infrastructure.ai.prompt_contracts.voice_baseline_analysis import (
+    VOICE_BASELINE_ANALYSIS_CONTRACT,
+)
+from infrastructure.ai.prompt_gateway import get_prompt_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -31,45 +36,6 @@ STYLE_DIMENSIONS = [
     "sentence_variety",     # 句式变化：0-1
 ]
 
-# CPMS: 提示词节点 key
-_STYLE_ANALYSIS_NODE_KEY = "voice-style-analysis"
-_BASELINE_ANALYSIS_NODE_KEY = "voice-baseline-analysis"
-
-# 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_STYLE_ANALYSIS_PROMPT = """你是专业的小说风格分析师。请分析以下章节的写作风格特征。
-
-## 分析要求
-输出 JSON 格式，包含以下维度（每项 0-1 分）：
-1. narrative_voice: 叙事声音（0=第一人称，0.5=第三人称限制，1=全知视角）
-2. dialogue_ratio: 对话占比（估算对话内容占正文的比重）
-3. description_depth: 描写深度（0=轻描淡写，1=细腻入微）
-4. emotional_intensity: 情感强度（0=冷静客观，1=情绪饱满）
-5. pacing: 节奏（0=舒缓悠长，1=紧凑急促）
-6. sensory_richness: 感官丰富度（视觉/听觉/触觉/嗅觉/味觉描写）
-7. metaphor_usage: 修辞使用频率（比喻/拟人/排比等）
-8. sentence_variety: 句式变化程度（长短句交替、句型多样性）
-
-## 章节内容
-{content}
-
-## 输出格式
-只输出 JSON，不要其他文字：
-{{"narrative_voice": 0.5, "dialogue_ratio": 0.3, "description_depth": 0.7, "emotional_intensity": 0.6, "pacing": 0.4, "sensory_richness": 0.5, "metaphor_usage": 0.3, "sentence_variety": 0.6}}"""
-
-_FALLBACK_BASELINE_PROMPT = """你是专业的小说风格分析师。请根据以下章节风格数据，提取这本小说的基准写作风格。
-
-## 已分析章节的风格数据
-{style_data}
-
-## 输出要求
-1. 计算各维度的平均值和标准差
-2. 输出 JSON 格式，包含：
-   - baseline: 各维度的平均值
-   - tolerance: 各维度的可接受偏差范围（通常设为 1.5 倍标准差）
-
-只输出 JSON，不要其他文字：
-{{"baseline": {{...}}, "tolerance": {{...}}}}"""
-
 
 class LLMVoiceAnalysisService:
     """LLM 文风分析服务"""
@@ -78,61 +44,6 @@ class LLMVoiceAnalysisService:
         self._llm = llm_service
         # 缓存已分析的章节风格
         self._cache: Dict[str, Dict[str, float]] = {}
-
-    # ─── CPMS 提示词获取 ───
-
-    @staticmethod
-    def _get_system_prompt(node_key: str, fallback: str = "") -> str:
-        """通过 PromptRegistry 获取 system prompt，不可用时回退。"""
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            system = registry.get_system(node_key)
-            if system:
-                return system
-        except Exception as exc:
-            logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
-        return fallback
-
-    @staticmethod
-    def _get_style_analysis_user(content: str) -> str:
-        """构建风格分析 user prompt。CPMS 优先。"""
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            node = registry.get_node(_STYLE_ANALYSIS_NODE_KEY)
-            if node and node.get_active_user_template():
-                from infrastructure.ai.prompt_template_engine import get_template_engine
-                engine = get_template_engine()
-                result = engine.render(
-                    user_template=node.get_active_user_template(),
-                    variables={"content": content},
-                )
-                if result and result.user:
-                    return result.user
-        except Exception as exc:
-            logger.debug("PromptRegistry 渲染风格分析 user 失败: %s", exc)
-        return _FALLBACK_STYLE_ANALYSIS_PROMPT.format(content=content)
-
-    @staticmethod
-    def _get_baseline_user(style_data: str) -> str:
-        """构建基准风格提取 user prompt。CPMS 优先。"""
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            node = registry.get_node(_BASELINE_ANALYSIS_NODE_KEY)
-            if node and node.get_active_user_template():
-                from infrastructure.ai.prompt_template_engine import get_template_engine
-                engine = get_template_engine()
-                result = engine.render(
-                    user_template=node.get_active_user_template(),
-                    variables={"style_data": style_data},
-                )
-                if result and result.user:
-                    return result.user
-        except Exception as exc:
-            logger.debug("PromptRegistry 渲染基准分析 user 失败: %s", exc)
-        return _FALLBACK_BASELINE_PROMPT.format(style_data=style_data)
 
     async def analyze_chapter_style(
         self,
@@ -158,11 +69,11 @@ class LLMVoiceAnalysisService:
         snippet = content[:2000] if len(content) > 2000 else content
 
         try:
-            prompt = Prompt(
-                system=self._get_system_prompt(_STYLE_ANALYSIS_NODE_KEY, "你是专业的小说风格分析师，输出纯 JSON 格式。"),
-                user=self._get_style_analysis_user(content=snippet)
-            )
-            config = GenerationConfig(max_tokens=200, temperature=0.1)
+            prompt = get_prompt_gateway().render(
+                STYLE_ANALYSIS_CONTRACT,
+                {"content": snippet},
+            ).prompt
+            config = generation_config_from_profile("voice_style_analysis")
 
             result = await self._llm.generate(prompt, config)
             raw = result.content.strip()
@@ -224,11 +135,11 @@ class LLMVoiceAnalysisService:
                 clean_vec = {k: v for k, v in vec.items() if not k.startswith("_")}
                 style_data.append(f"章节{i+1}: {json.dumps(clean_vec, ensure_ascii=False)}")
 
-            prompt = Prompt(
-                system=self._get_system_prompt(_BASELINE_ANALYSIS_NODE_KEY, "你是专业的小说风格分析师，输出纯 JSON 格式。"),
-                user=self._get_baseline_user(style_data="\n".join(style_data))
-            )
-            config = GenerationConfig(max_tokens=300, temperature=0.1)
+            prompt = get_prompt_gateway().render(
+                VOICE_BASELINE_ANALYSIS_CONTRACT,
+                {"style_data": "\n".join(style_data)},
+            ).prompt
+            config = generation_config_from_profile("voice_baseline_analysis")
 
             result = await self._llm.generate(prompt, config)
             raw = result.content.strip()

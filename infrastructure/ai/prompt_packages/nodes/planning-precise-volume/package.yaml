@@ -1,0 +1,45 @@
+name: 精密宏观规划 · 单卷补全
+category: planning
+source: application/blueprint/services/continuous_planning_service.py::_build_precise_volume_prompt
+description: 在固定全书网格中，只为一个卷及其幕节点生成完整字段。
+builtin: true
+tags:
+- 宏观规划
+- 精密模式
+- 单卷
+output_format: json
+variables:
+- name: story_context
+  desc: 世界观、角色、地点上下文
+  type: string
+  default: ''
+- name: target_chapters
+  desc: 目标总章节数
+  type: integer
+  required: true
+- name: parts
+  desc: 部数
+  type: integer
+  required: true
+- name: volumes_per_part
+  desc: 每部卷数
+  type: integer
+  required: true
+- name: acts_per_volume
+  desc: 每卷幕数
+  type: integer
+  required: true
+- name: avg_chapters_per_act
+  desc: 平均每幕章数
+  type: integer
+  required: true
+- name: scope_block
+  desc: 当前卷范围与节点清单
+  type: string
+  required: true
+- name: example_node_id
+  desc: JSON 示例使用的节点 ID
+  type: string
+  default: A1_1_1
+id: planning-precise-volume
+sort_order: 21
