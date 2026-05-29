@@ -20,6 +20,7 @@ from infrastructure.ai.prompt_gateway import (
 from infrastructure.ai.prompt_keys import ALL_KEYS
 from infrastructure.ai.prompt_seed.loader import NODES_DIR, load_node_dir, load_seed_bundle
 from infrastructure.ai.prompt_template_engine import get_template_engine
+from infrastructure.ai.variable_registry import VariableRegistry
 
 
 def test_all_registered_prompt_keys_have_builtin_package():
@@ -162,3 +163,49 @@ def test_planning_act_contract_renders_from_package(monkeypatch):
     assert "章节策划" in rendered.prompt.system
     assert "试炼开场" in rendered.prompt.user
     assert "chapter_count" not in rendered.prompt.user
+
+
+def test_prompt_gateway_records_variable_sources(monkeypatch):
+    gateway = PromptGateway(packages_root=NODES_DIR)
+
+    captured: list[dict] = []
+
+    class _Recorder:
+        def record_span(self, **kwargs):
+            captured.append(kwargs)
+            return None
+
+    registry = VariableRegistry()
+    registry._loaded = True
+    registry._schemas = {}
+
+    class _Schema:
+        source = "prompt:memory-extraction"
+        required = True
+        scope = type("_Scope", (), {"value": "chapter"})()
+        type = type("_Type", (), {"value": "string"})()
+
+    monkeypatch.setattr("infrastructure.ai.prompt_gateway.get_trace_recorder", lambda: _Recorder())
+    monkeypatch.setattr("infrastructure.ai.prompt_gateway.get_variable_registry", lambda: registry)
+    monkeypatch.setattr(
+        registry,
+        "get_schemas_for_node",
+        lambda node_key: {"outline": _Schema(), "chapter_number": _Schema()},
+    )
+    monkeypatch.setattr(gateway, "_render_from_registry", lambda contract, variables: None)
+
+    gateway.render(
+        MEMORY_EXTRACTION_CONTRACT,
+        {
+            "chapter_content": "正文全文",
+            "chapter_number": 1,
+            "outline": "主角发现密室",
+        },
+    )
+
+    variable_spans = [item for item in captured if item.get("phase") == "variables_validated"]
+    assert variable_spans
+    sources = variable_spans[0]["variable_sources"]
+    assert any(item["name"] == "outline" and item["source"] == "prompt:memory-extraction" for item in sources)
+    assert any(item["name"] == "chapter_content" and item["source"] == "runtime" for item in sources)
+    assert variable_spans[0]["variables_full"]["chapter_content"] == "正文全文"

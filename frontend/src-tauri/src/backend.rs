@@ -99,7 +99,10 @@ impl BackendManager {
             let data_str = data.to_string_lossy();
             if data_str.contains("AppData\\Roaming") || data_str.contains("AppData\\Local") {
                 log::info!("📁 Windows 数据目录: {}", data_str);
-                log::info!("💡 提示：如果写作时前端卡顿，请将 '{}' 加入 Windows Defender / 杀毒软件排除项", data_str);
+                log::info!(
+                    "💡 提示：如果写作时前端卡顿，请将 '{}' 加入 Windows Defender / 杀毒软件排除项",
+                    data_str
+                );
             }
         }
 
@@ -167,7 +170,10 @@ impl BackendManager {
         }
 
         // 方案 2：从 exe 父目录逐级向上找 out/tauri/...（裸 cargo build / 未拷贝 resources 时）
-        if let Some(exe_path) = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok()) {
+        if let Some(exe_path) = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.canonicalize().ok())
+        {
             let mut dir = exe_path.parent().map(PathBuf::from);
             for _ in 0..32 {
                 let Some(ref d) = dir else { break };
@@ -225,69 +231,140 @@ impl BackendManager {
 
     /// 从指定端口开始，找到一个可用端口
     fn pick_free_port(start: u16) -> Option<u16> {
-        (start..start + 100).find(|&port| {
-            std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
-        })
+        (start..start + 100).find(|&port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
     }
 
-    /// 查找 Python 解释器，优先使用内嵌 Python
+    fn python_version(path: &PathBuf) -> Option<String> {
+        if !path.exists() {
+            return None;
+        }
+        let output = Command::new(path).arg("--version").output().ok()?;
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .trim()
+        .to_string();
+        if text.is_empty() {
+            None
+        } else {
+            Some(text)
+        }
+    }
+
+    fn is_python_314(path: &PathBuf) -> bool {
+        Self::python_version(path)
+            .map(|version| version.contains("Python 3.14."))
+            .unwrap_or(false)
+    }
+
+    fn accept_python_candidate(&self, label: &str, path: PathBuf) -> Option<PathBuf> {
+        if !path.exists() {
+            return None;
+        }
+        if Self::is_python_314(&path) {
+            log::info!("🐍 使用{}: {}", label, path.display());
+            Some(path)
+        } else {
+            let version = Self::python_version(&path).unwrap_or_else(|| "无法识别版本".to_string());
+            log::warn!(
+                "忽略{}，版本不是 Python 3.14: {} ({})",
+                label,
+                path.display(),
+                version
+            );
+            None
+        }
+    }
+
+    /// 查找 Python 解释器，只接受 Python 3.14 系列
     pub(crate) fn find_python(&self) -> Option<PathBuf> {
-        // 优先级：已解压的内嵌 Python > 资源目录中的内嵌 Python > 虚拟环境 > 系统 PATH
+        // 优先级：显式配置 > 当前用户 Python314 > 已解压内嵌 Python > 资源目录内嵌 Python > 虚拟环境 > 系统 PATH。
+        // 每个候选都必须通过版本检查，避免 WindowsApps 或旧内嵌包把后端带回旧 Python。
+
+        // 0) 显式配置或当前用户标准安装的 Python 3.14，优先于 WindowsApps 和旧内嵌包。
+        if let Ok(configured) = std::env::var("PLOTPILOT_PYTHON_EXE") {
+            let path = PathBuf::from(configured.trim_matches('"'));
+            if let Some(path) = self.accept_python_candidate("显式配置的 Python 3.14", path) {
+                return Some(path);
+            }
+        }
+        if cfg!(target_os = "windows") {
+            if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+                let python314 = PathBuf::from(local_app_data)
+                    .join("Programs")
+                    .join("Python")
+                    .join("Python314")
+                    .join("python.exe");
+                if let Some(path) = self.accept_python_candidate("当前用户 Python 3.14", python314)
+                {
+                    return Some(path);
+                }
+            }
+        }
 
         // 1) 检查项目目录下的内嵌 Python
         let embedded = self.project_root.join("tools/python_embed/python.exe");
-        if embedded.exists() {
-            log::info!("🐍 使用项目目录下内嵌 Python: {}", embedded.display());
-            return Some(embedded);
+        if let Some(path) = self.accept_python_candidate("项目目录内嵌 Python", embedded.clone())
+        {
+            return Some(path);
         }
 
         // 2) 尝试从资源目录获取内嵌 Python
         if let Ok(resource_dir) = self._app_handle.path().resource_dir() {
             let resource_python = resource_dir.join("python_embed/python.exe");
-            if resource_python.exists() {
+            if Self::is_python_314(&resource_python) {
                 // 复制到项目目录
                 if let Err(e) = self.extract_embedded_python(&resource_dir) {
                     log::warn!("从资源目录提取内嵌 Python 失败: {}", e);
-                } else {
-                    if embedded.exists() {
-                        log::info!("🐍 使用资源目录内嵌 Python: {}", embedded.display());
-                        return Some(embedded);
-                    }
+                } else if let Some(path) =
+                    self.accept_python_candidate("资源目录内嵌 Python", embedded.clone())
+                {
+                    return Some(path);
                 }
+            } else if resource_python.exists() {
+                let version = Self::python_version(&resource_python)
+                    .unwrap_or_else(|| "无法识别版本".to_string());
+                log::warn!(
+                    "忽略资源目录内嵌 Python，版本不是 Python 3.14: {} ({})",
+                    resource_python.display(),
+                    version
+                );
             }
         }
 
         // 3) 尝试从资源目录的 zip 解压
         if let Ok(resource_dir) = self._app_handle.path().resource_dir() {
-            let zip_path = resource_dir.join("python-3.11.9-embed-amd64.zip");
+            let zip_path = resource_dir.join("python-3.14.5-embed-amd64.zip");
             if zip_path.exists() {
                 log::info!("📦 发现内嵌 Python zip，正在解压...");
                 if let Err(e) = self.extract_python_from_zip(&zip_path, &embedded) {
                     log::warn!("解压内嵌 Python 失败: {}", e);
-                } else {
-                    if embedded.exists() {
-                        log::info!("🐍 使用内嵌 Python (从zip解压): {}", embedded.display());
-                        return Some(embedded);
-                    }
+                } else if let Some(path) =
+                    self.accept_python_candidate("内嵌 Python (从zip解压)", embedded.clone())
+                {
+                    return Some(path);
                 }
             }
         }
 
         // 4) 虚拟环境
         let venv = self.project_root.join(".venv/Scripts/python.exe");
-        if venv.exists() {
-            log::info!("🐍 使用虚拟环境 Python: {}", venv.display());
-            return Some(venv);
+        if let Some(path) = self.accept_python_candidate("虚拟环境 Python", venv) {
+            return Some(path);
         }
 
         // 5) 系统 PATH
         if let Ok(path) = which::which("python") {
-            log::info!("🐍 使用系统 Python: {}", path.display());
-            return Some(path);
+            if let Some(path) = self.accept_python_candidate("系统 Python", path) {
+                return Some(path);
+            }
         }
         if let Ok(path) = which::which("python3") {
-            log::info!("🐍 使用系统 python3: {}", path.display());
-            return Some(path);
+            if let Some(path) = self.accept_python_candidate("系统 python3", path) {
+                return Some(path);
+            }
         }
 
         None
@@ -309,9 +386,7 @@ impl BackendManager {
         let frozen = Self::find_frozen_backend_exe(&self._app_handle);
 
         let mut cmd = if let Some(ref exe) = frozen {
-            let work_dir = exe
-                .parent()
-                .ok_or_else(|| "冻结后端路径无效".to_string())?;
+            let work_dir = exe.parent().ok_or_else(|| "冻结后端路径无效".to_string())?;
             log::info!("📦 启动冻结后端: {}", exe.display());
             let mut c = Command::new(exe);
             c.arg(port.to_string())
@@ -328,7 +403,7 @@ impl BackendManager {
             c
         } else {
             let python = self.find_python().ok_or_else(|| {
-                "未找到 plotpilot-backend.exe，也未找到 Python。发布构建请运行 scripts/build_backend_pyinstaller.py；开发请安装 Python 3.10+".to_string()
+                "未找到 plotpilot-backend.exe，也未找到 Python。发布构建请运行 scripts/build_backend_pyinstaller.py；开发请安装 Python 3.14.5".to_string()
             })?;
             log::info!("🐍 启动 uvicorn（解释器）: {}", python.display());
             let mut c = Command::new(&python);
@@ -358,9 +433,7 @@ impl BackendManager {
 
         Self::inject_prod_data_env(&mut cmd, &self._app_handle)?;
 
-        let child = cmd
-            .spawn()
-            .map_err(|e| format!("启动后端失败: {}", e))?;
+        let child = cmd.spawn().map_err(|e| format!("启动后端失败: {}", e))?;
 
         #[cfg(target_os = "windows")]
         {
@@ -452,7 +525,7 @@ impl BackendManager {
         match guard.as_mut() {
             None => false,
             Some(child) => match child.try_wait() {
-                Ok(None) => true,      // 还在运行
+                Ok(None) => true,     // 还在运行
                 Ok(Some(_)) => false, // 已退出
                 Err(_) => true,       // 无法判断，假设还在运行
             },
@@ -463,17 +536,21 @@ impl BackendManager {
     fn extract_embedded_python(&self, resource_dir: &PathBuf) -> Result<(), String> {
         let source_dir = resource_dir.join("python_embed");
         let target_dir = self.project_root.join("tools/python_embed");
-        
-        log::info!("📂 从资源目录复制内嵌 Python: {} -> {}", source_dir.display(), target_dir.display());
-        
+
+        log::info!(
+            "📂 从资源目录复制内嵌 Python: {} -> {}",
+            source_dir.display(),
+            target_dir.display()
+        );
+
         // 确保目标目录存在
         if let Some(parent) = target_dir.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
         }
-        
+
         // 复制整个目录
         self.copy_directory(&source_dir, &target_dir)?;
-        
+
         Ok(())
     }
 
@@ -484,41 +561,41 @@ impl BackendManager {
         target_python: &PathBuf,
     ) -> Result<(), String> {
         log::info!("📦 从 zip 解压内嵌 Python: {}", zip_path.display());
-        
+
         // 确保目标目录存在
         let target_dir = target_python.parent().unwrap();
         if let Some(parent) = target_dir.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
         }
-        
+
         // 解压 zip 文件
-        let zip_content = std::fs::read(zip_path)
-            .map_err(|e| format!("读取 zip 文件失败: {}", e))?;
-        
+        let zip_content =
+            std::fs::read(zip_path).map_err(|e| format!("读取 zip 文件失败: {}", e))?;
+
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip_content))
             .map_err(|e| format!("打开 zip 文件失败: {}", e))?;
-        
+
         for i in 0..archive.len() {
-            let mut file = archive.by_index(i)
+            let mut file = archive
+                .by_index(i)
                 .map_err(|e| format!("读取 zip 条目失败: {}", e))?;
-            
+
             if file.is_dir() {
                 continue;
             }
-            
+
             let outpath = target_dir.join(file.name());
             if let Some(parent) = outpath.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("创建目录失败: {}", e))?;
+                std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
             }
-            
-            let mut outfile = std::fs::File::create(&outpath)
-                .map_err(|e| format!("创建文件失败: {}", e))?;
-            
+
+            let mut outfile =
+                std::fs::File::create(&outpath).map_err(|e| format!("创建文件失败: {}", e))?;
+
             std::io::copy(&mut file, &mut outfile)
                 .map_err(|e| format!("复制文件内容失败: {}", e))?;
         }
-        
+
         log::info!("✅ 内嵌 Python 解压完成");
         Ok(())
     }
@@ -528,23 +605,31 @@ impl BackendManager {
         if !src.exists() {
             return Err(format!("源目录不存在: {}", src.display()));
         }
-        
+
         std::fs::create_dir_all(dst).map_err(|e| format!("创建目标目录失败: {}", e))?;
-        
+
         for entry in std::fs::read_dir(src).map_err(|e| format!("读取源目录失败: {}", e))? {
             let entry = entry.map_err(|e| format!("读取目录条目失败: {}", e))?;
-            let ty = entry.file_type().map_err(|e| format!("获取文件类型失败: {}", e))?;
+            let ty = entry
+                .file_type()
+                .map_err(|e| format!("获取文件类型失败: {}", e))?;
             let src_path = entry.path();
             let dst_path = dst.join(entry.file_name());
-            
+
             if ty.is_dir() {
                 self.copy_directory(&src_path, &dst_path)?;
             } else {
-                std::fs::copy(&src_path, &dst_path)
-                    .map_err(|e| format!("复制文件失败 {} -> {}: {}", src_path.display(), dst_path.display(), e))?;
+                std::fs::copy(&src_path, &dst_path).map_err(|e| {
+                    format!(
+                        "复制文件失败 {} -> {}: {}",
+                        src_path.display(),
+                        dst_path.display(),
+                        e
+                    )
+                })?;
             }
         }
-        
+
         Ok(())
     }
 
@@ -559,10 +644,7 @@ impl BackendManager {
                 .into();
             match agent.post(&url).send_empty() {
                 Ok(resp) => {
-                    log::info!(
-                        "📤 已请求后端优雅关闭 (HTTP {})",
-                        resp.status().as_u16()
-                    );
+                    log::info!("📤 已请求后端优雅关闭 (HTTP {})", resp.status().as_u16());
                 }
                 Err(e) => {
                     log::warn!("优雅关闭 POST 失败（将等待超时后强杀）: {}", e);

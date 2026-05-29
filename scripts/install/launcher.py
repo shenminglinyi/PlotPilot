@@ -145,33 +145,45 @@ class BackendLauncher:
         return True
 
     def _find_python(self):
-        """查找有 uvicorn 的 Python（优先用传入的 venv_py）"""
+        """查找带 uvicorn 的 Python，强制优先 Python 3.14 系列。"""
 
-        # 1) 优先：调用方传入的已安装依赖的 Python
+        def _usable(python_exe):
+            if not python_exe:
+                return False
+            try:
+                r = subprocess.run(
+                    [python_exe, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    creationflags=NO_WIN,
+                )
+                ver = (r.stdout + r.stderr).strip()
+            except Exception:
+                return False
+            return is_preferred_python_version(ver) and check_uvicorn(python_exe)
+
+        # 1) 调用方传入的 Python 只有在 3.14 且已安装 uvicorn 时才接受。
         if self.venv_py and os.path.exists(self.venv_py):
-            if check_uvicorn(self.venv_py):
+            if _usable(self.venv_py):
                 return self.venv_py
-            self._log(f"venv_python ({self.venv_py}) 无 uvicorn，继续查找...", "warn")
+            self._log(f"传入的 Python 不是项目要求的 Python 3.14 或缺少 uvicorn: {self.venv_py}", "warn")
 
-        # 2) 当前 Python（sys.executable）
-        if check_uvicorn(sys.executable):
+        # 2) 统一发现逻辑会优先 PLOTPILOT_PYTHON_EXE / Python314 标准安装路径。
+        found_py, found_ver = find_python()
+        if found_py:
+            if check_uvicorn(found_py):
+                self._log(f"使用 Python 运行后端: {found_py} ({found_ver})", "ok")
+                return found_py
+            self._log(f"Python 3.14 已找到但缺少 uvicorn: {found_py}", "warn")
+
+        # 3) 当前解释器兜底：也必须是 Python 3.14，避免 hub 由旧版本启动时继续误用旧版本。
+        if _usable(sys.executable):
             return sys.executable
 
-        # 3) 系统 PATH
-        import shutil
-        for cmd in ("python", "python3"):
-            sys_py = shutil.which(cmd)
-            if sys_py and check_uvicorn(sys_py):
-                self._log(f"切换到系统 Python: {sys_py}", "warn")
-                return sys_py
-
-        # 4) 兜底：即使没有 uvicorn 也返回 venv_py（让报错更明确）
-        if self.venv_py and os.path.exists(self.venv_py):
-            return self.venv_py
-
         self.on_failed(
-            "找不到已安装 uvicorn 的 Python",
-            "请先运行 PlotPilot 安装程序完成依赖安装",
+            "找不到已安装 uvicorn 的 Python 3.14",
+            "请使用 Python 3.14.5 安装 requirements.txt，或设置 PLOTPILOT_PYTHON_EXE 指向 Python314\\python.exe",
         )
         return None
 

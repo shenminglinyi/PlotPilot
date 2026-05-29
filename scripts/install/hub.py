@@ -393,7 +393,7 @@ class HubWindow(BaseWindow):
         if not python_sys:
             self._show_fatal_simple(
                 "未找到 Python",
-                "请先安装 Python 3.10 或更高版本\n"
+                "请先安装 Python 3.14.5\n"
                 "安装时务必勾选 [Add to PATH]\n\n"
                 "下载地址:\nhttps://www.python.org/downloads/",
             )
@@ -713,7 +713,7 @@ def main():
             print(f"  - {err}")
         print()
         print("请确保:")
-        print("  1. Python 3.10+ 已正确安装")
+        print("  1. Python 3.14.5 已正确安装")
         print("  2. tkinter 可用（通常随 Python 一起安装）")
         print("  3. 如使用精简版 Python，请安装完整版")
         print("=" * 56)
