@@ -1,6 +1,6 @@
 # domain/novel/entities/chapter.py
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timezone
 from domain.shared.base_entity import BaseEntity
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_content import ChapterContent
@@ -59,19 +59,19 @@ class Chapter(BaseEntity):
     def update_content(self, content: str) -> None:
         """更新内容（允许空内容用于草稿）"""
         self._content_text = content
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def update_generation_hint(self, hint: str) -> None:
         """更新本章生成约束文本（直接注入 AI 上下文的用户手写约束）"""
         self.generation_hint = hint.strip()
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def update_tension_score(self, score: float) -> None:
         """更新张力分数（0-100）"""
         if not 0 <= score <= 100:
             raise ValueError(f"Tension score must be between 0 and 100, got {score}")
         self.tension_score = score
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)
 
     def update_tension_dimensions(self, dimensions: "TensionDimensions") -> None:
         """从 TensionDimensions 值对象更新全部张力字段。"""
@@ -79,4 +79,4 @@ class Chapter(BaseEntity):
         self.emotional_tension = dimensions.emotional_tension
         self.pacing_tension = dimensions.pacing_tension
         self.tension_score = dimensions.composite_score
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(timezone.utc)

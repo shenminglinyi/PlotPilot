@@ -147,7 +147,7 @@ class StateUpdater:
             logger.debug(f"Updating Bible with {len(chapter_state.new_characters)} new characters")
             bible = self.bible_repository.get_by_novel_id(novel_id_obj)
             if bible is None:
-                logger.warning(f"Bible not found for novel {novel_id}, skipping character update")
+                raise ValueError(f"Bible not found for novel {novel_id}")
             else:
                 for char_data in chapter_state.new_characters:
                     char_id = CharacterId(str(uuid.uuid4()))

@@ -293,6 +293,24 @@ class TestBuildPrompt:
         assert "HIGH" in prompt.system
         assert "CTX" in prompt.system
 
+    def test_build_prompt_beat_mode_filters_planning_without_unbound_error(self, workflow):
+        """节拍模式应先判定 beat_mode，再裁剪规划块，避免局部变量未定义。"""
+        prompt = workflow._build_prompt(
+            context="CTX",
+            outline="OL",
+            storyline_context="主线：本章推进调查",
+            plot_tension="Expected tension: HIGH",
+            style_summary="保持冷峻克制",
+            beat_prompt="本节拍：角色进入现场并发现异常。",
+            beat_index=0,
+            total_beats=3,
+        )
+
+        assert "保持冷峻克制" in prompt.system
+        assert "主线：本章推进调查" not in prompt.system
+        assert "Expected tension: HIGH" not in prompt.system
+        assert "本节拍：角色进入现场并发现异常。" in prompt.user
+
 class TestConflictDetectionIntegration:
     """测试冲突检测集成"""
 

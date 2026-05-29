@@ -71,6 +71,10 @@ class SafeConsoleHandler(logging.StreamHandler):
                 stream.write(msg + self.terminator)
             except UnicodeEncodeError:
                 stream.write(self._escape_for_stream(msg + self.terminator, stream))
+            except ValueError:
+                if getattr(stream, "closed", False):
+                    return
+                raise
             self.flush()
         except RecursionError:
             raise

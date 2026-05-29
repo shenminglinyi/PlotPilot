@@ -74,7 +74,7 @@ class OpenAIProvider(BaseProvider):
             if use_responses:
                 try:
                     return await self._generate_via_responses(prompt, config)
-                except (openai.NotFoundError, openai.BadRequestError, RuntimeError) as e:
+                except (openai.NotFoundError, openai.BadRequestError) as e:
                     logger.info(f"Responses API unsupported for {base_url}, falling back to chat completions: {str(e)}")
                     self.__class__._fallback_to_chat_cache.add(base_url)
                 except Exception as e:
@@ -88,6 +88,8 @@ class OpenAIProvider(BaseProvider):
             # 使用降级的 Chat Completions API
             return await self._generate_via_chat(prompt, config)
         except RuntimeError:
+            raise
+        except ValueError:
             raise
         except Exception as e:
             raise RuntimeError(f"Failed to generate text: {str(e)}") from e

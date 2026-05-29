@@ -13,12 +13,91 @@
 from typing import List
 import json
 import os
-import uuid
 import logging
 from pathlib import Path
 
 from domain.ai.services.vector_store import VectorStore
 from domain.novel.value_objects.chapter_renumber_spec import ChapterRenumberSpec
+
+
+
+class _SimpleFlatL2Index:
+    """Small local L2 index used when optional faiss/numpy packages are absent."""
+
+    def __init__(self, dimension: int):
+        self.d = int(dimension)
+        self._vectors: list[list[float]] = []
+
+    @property
+    def ntotal(self) -> int:
+        return len(self._vectors)
+
+    def add(self, vectors) -> None:
+        for raw in vectors:
+            row = [float(x) for x in raw]
+            if len(row) != self.d:
+                raise ValueError(f"vector dimension mismatch: expected {self.d}, got {len(row)}")
+            self._vectors.append(row)
+
+    def search(self, query_vectors, limit: int):
+        distance_rows = []
+        index_rows = []
+        for raw_query in query_vectors:
+            query = [float(x) for x in raw_query]
+            scored = []
+            for idx, vector in enumerate(self._vectors):
+                distance = sum((a - b) ** 2 for a, b in zip(query, vector))
+                scored.append((distance, idx))
+            scored.sort(key=lambda item: item[0])
+            top = scored[: max(0, int(limit))]
+            distance_rows.append([item[0] for item in top])
+            index_rows.append([item[1] for item in top])
+        return distance_rows, index_rows
+
+    def reconstruct(self, idx: int) -> list[float]:
+        return list(self._vectors[int(idx)])
+
+
+class _SimpleVectorIndexBackend:
+    IndexFlatL2 = _SimpleFlatL2Index
+
+    @staticmethod
+    def write_index(index: _SimpleFlatL2Index, path: str) -> None:
+        data = {"dimension": index.d, "vectors": index._vectors}
+        Path(path).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    @staticmethod
+    def read_index(path: str) -> _SimpleFlatL2Index:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        index = _SimpleFlatL2Index(int(data.get("dimension") or 0))
+        index.add(data.get("vectors") or [])
+        return index
+
+
+def _get_vector_index_backend():
+    """Return the fastest available vector index backend."""
+    try:
+        import faiss  # type: ignore
+        return faiss
+    except ImportError:
+        return _SimpleVectorIndexBackend
+
+
+def _as_vector_matrix(vector: List[float]):
+    """Convert one vector to a backend-compatible 2D matrix."""
+    try:
+        import numpy as np  # type: ignore
+        return np.array([vector], dtype=np.float32)
+    except ImportError:
+        return [[float(x) for x in vector]]
+
+
+def _as_vector_batch(vectors: list) -> list:
+    try:
+        import numpy as np  # type: ignore
+        return np.array(vectors, dtype=np.float32)
+    except ImportError:
+        return [[float(x) for x in row] for row in vectors]
 
 _vector_renumber_log = logging.getLogger(__name__)
 
@@ -42,15 +121,9 @@ def _vector_id_after_chapter_shift(
         return old_vector_id
     kind = payload.get("kind")
     if kind == "chapter_summary":
-        return str(
-            uuid.uuid5(
-                uuid.NAMESPACE_DNS,
-                f"{novel_id}_ch{new_chapter_number}_summary",
-            )
-        )
+        return f"{novel_id}_ch{new_chapter_number}_summary"
     if kind == "bible_snippet":
-        raw = f"{novel_id}_ch{new_chapter_number}_bible"
-        return str(uuid.uuid5(uuid.NAMESPACE_DNS, raw))
+        return f"{novel_id}_ch{new_chapter_number}_bible"
     if collection == "chapters" or old_vector_id.startswith(f"{novel_id}_"):
         return f"{novel_id}_{new_chapter_number}"
     return old_vector_id
@@ -72,22 +145,7 @@ class ChromaDBVectorStore(VectorStore):
         Args:
             persist_directory: 本地持久化目录
         """
-        # 懒加载 faiss 和 numpy
-        try:
-            import faiss
-            import numpy as np
-        except ImportError as e:
-            raise ImportError(
-                "检测到您正在尝试使用本地向量存储（ChromaDB/FAISS），"
-                "但缺少必要的依赖包！\n\n"
-                "请选择以下任一方式解决：\n"
-                "  方式 A — 安装扩展依赖（~2GB）：\n"
-                "    pip install -r requirements-local.txt\n\n"
-                "  方式 B — 切换到 Qdrant 远程模式（推荐）：\n"
-                "    设置环境变量 VECTOR_STORE_TYPE=qdrant\n\n"
-                f"原始错误: {e}"
-            ) from e
-
+        self._index_backend = _get_vector_index_backend()
         self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(parents=True, exist_ok=True)
         self.collections = {}  # {collection_name: {"index": faiss.Index, "metadata": dict}}
@@ -95,7 +153,7 @@ class ChromaDBVectorStore(VectorStore):
 
     def _load_collections(self):
         """加载所有已存在的集合"""
-        import faiss
+        index_backend = _get_vector_index_backend()
 
         if not self.persist_directory.exists():
             return
@@ -107,7 +165,7 @@ class ChromaDBVectorStore(VectorStore):
                 metadata_path = collection_dir / "metadata.json"
 
                 if index_path.exists() and metadata_path.exists():
-                    index = faiss.read_index(str(index_path))
+                    index = index_backend.read_index(str(index_path))
                     with open(metadata_path, 'r', encoding='utf-8') as f:
                         metadata = json.load(f)
                     self.collections[collection_name] = {
@@ -117,7 +175,7 @@ class ChromaDBVectorStore(VectorStore):
 
     def _save_collection(self, collection: str):
         """保存集合到磁盘"""
-        import faiss
+        index_backend = _get_vector_index_backend()
 
         collection_dir = self.persist_directory / collection
         collection_dir.mkdir(parents=True, exist_ok=True)
@@ -126,7 +184,7 @@ class ChromaDBVectorStore(VectorStore):
         index_path = collection_dir / "index.faiss"
         metadata_path = collection_dir / "metadata.json"
 
-        faiss.write_index(coll["index"], str(index_path))
+        index_backend.write_index(coll["index"], str(index_path))
         with open(metadata_path, 'w', encoding='utf-8') as f:
             json.dump(coll["metadata"], f, ensure_ascii=False, indent=2)
 
@@ -138,16 +196,13 @@ class ChromaDBVectorStore(VectorStore):
         payload: dict
     ) -> None:
         """插入向量到集合中"""
-        import numpy as np
-        import faiss
-
         try:
             if collection not in self.collections:
                 raise Exception(f"Collection {collection} does not exist")
 
             coll = self.collections[collection]
-            vec_array = np.array([vector], dtype=np.float32)
-            actual_dim = int(vec_array.shape[1])
+            vec_array = _as_vector_matrix(vector)
+            actual_dim = len(vector)
 
             # 用实际向量维度检测 FAISS 索引维度，不匹配则重建
             if coll["index"].d != actual_dim:
@@ -185,8 +240,6 @@ class ChromaDBVectorStore(VectorStore):
         limit: int
     ) -> List[dict]:
         """搜索相似向量"""
-        import numpy as np
-
         try:
             if collection not in self.collections:
                 raise Exception(f"Collection {collection} does not exist")
@@ -195,7 +248,7 @@ class ChromaDBVectorStore(VectorStore):
             if coll["index"].ntotal == 0:
                 return []
 
-            query_array = np.array([query_vector], dtype=np.float32)
+            query_array = _as_vector_matrix(query_vector)
             distances, indices = coll["index"].search(query_array, min(limit, coll["index"].ntotal))
 
             # 构建 ID 到索引的反向映射
@@ -251,7 +304,7 @@ class ChromaDBVectorStore(VectorStore):
         dimension: int
     ) -> None:
         """创建集合（若已存在且维度匹配则跳过；维度不匹配时删除后重建）"""
-        import faiss
+        index_backend = _get_vector_index_backend()
 
         try:
             if collection in self.collections:
@@ -267,7 +320,7 @@ class ChromaDBVectorStore(VectorStore):
                 await self.delete_collection(collection)
 
             # 创建 FAISS 索引（使用 L2 距离）
-            index = faiss.IndexFlatL2(dimension)
+            index = index_backend.IndexFlatL2(dimension)
             self.collections[collection] = {
                 "index": index,
                 "metadata": {}
@@ -301,8 +354,7 @@ class ChromaDBVectorStore(VectorStore):
         当碎片率超过 50%（索引中有一半以上的"僵尸"向量）时触发重建，
         回收内存并提高检索精度。
         """
-        import faiss
-        import numpy as np
+        index_backend = _get_vector_index_backend()
 
         if collection not in self.collections:
             return
@@ -337,10 +389,9 @@ class ChromaDBVectorStore(VectorStore):
                 new_metadata[vid] = {"idx": new_idx, "payload": entry["payload"]}
 
             # 重建索引
-            new_index = faiss.IndexFlatL2(dimension)
+            new_index = index_backend.IndexFlatL2(dimension)
             if vectors:
-                vec_array = np.array(vectors, dtype=np.float32)
-                new_index.add(vec_array)
+                new_index.add(_as_vector_batch(vectors))
 
             coll["index"] = new_index
             coll["metadata"] = new_metadata

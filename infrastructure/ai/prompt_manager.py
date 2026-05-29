@@ -369,6 +369,10 @@ class PromptManager:
         existing_version = existing_meta.get("version", "")
 
         if existing_version == seed_version:
+            repaired = self._repair_corrupt_builtin_versions(conn, prompts)
+            if repaired:
+                conn.commit()
+                logger.warning("PromptManager: 修复 %d 个疑似乱码内置提示词节点", repaired)
             self._seeded = True
             logger.info("PromptManager: 种子版本相同 (%s)，跳过更新", seed_version)
             return True
@@ -379,6 +383,46 @@ class PromptManager:
             existing_version, seed_version
         )
         return self._do_incremental_update(conn, seed_data, meta, template_id)
+
+    def _repair_corrupt_builtin_versions(self, conn, prompts: List[Dict]) -> int:
+        """同版本种子下修复历史编码错误写入的内置系统版本。"""
+        repaired = 0
+        now = datetime.now().isoformat()
+        by_key = {str(p.get("id") or ""): p for p in prompts if p.get("id")}
+        rows = conn.execute("""
+            SELECT n.id AS node_id, n.node_key, v.id AS version_id,
+                   v.system_prompt, v.user_template, v.created_by
+            FROM prompt_nodes n
+            INNER JOIN prompt_versions v ON n.active_version_id = v.id
+            WHERE n.is_builtin = 1
+        """).fetchall()
+        for row in rows:
+            if row["created_by"] == "user":
+                continue
+            node_key = row["node_key"]
+            seed = by_key.get(node_key)
+            if not seed:
+                continue
+            old_system = row["system_prompt"] or ""
+            old_user = row["user_template"] or ""
+            if not (
+                self._looks_like_mojibake(old_system)
+                or self._looks_like_mojibake(old_user)
+            ):
+                continue
+            self._overwrite_system_version(conn, row["node_id"], row["version_id"], seed, now)
+            repaired += 1
+        return repaired
+
+    @staticmethod
+    def _looks_like_mojibake(text: str) -> bool:
+        if not text:
+            return False
+        replacement_char = chr(0xFFFD)
+        mojibake_bom = bytes([0xEF, 0xBB, 0xBF]).decode("latin-1")
+        if replacement_char in text or mojibake_bom in text:
+            return True
+        return text.count("??") >= 2
 
     def _do_full_seed(self, conn, seed_data: Dict, meta: Dict) -> bool:
         """完整导入种子（首次启动）。"""
