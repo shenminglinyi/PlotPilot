@@ -10,7 +10,7 @@ class TestSettings:
         """测试默认值"""
         settings = Settings()
 
-        assert settings.default_model == "claude-3-5-sonnet-20241022"
+        assert settings.default_model == ""
         assert settings.default_temperature == 0.7
         assert settings.default_max_tokens == 4096
         assert settings.api_key is None

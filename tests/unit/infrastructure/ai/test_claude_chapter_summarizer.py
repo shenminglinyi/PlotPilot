@@ -41,11 +41,11 @@ class TestClaudeChapterSummarizer:
         assert result == expected_summary
         mock_llm_service.generate.assert_called_once()
 
-        # Verify the prompt was constructed correctly
+        # Verify the CPMS prompt was rendered correctly
         call_args = mock_llm_service.generate.call_args
         prompt = call_args[0][0]
-        assert "summarize" in prompt.system.lower()
-        assert content in prompt.user
+        assert "摘要" in prompt.system
+        assert content.strip() in prompt.user
 
     @pytest.mark.asyncio
     async def test_summarize_with_max_length(self, summarizer, mock_llm_service):
@@ -72,13 +72,13 @@ class TestClaudeChapterSummarizer:
     @pytest.mark.asyncio
     async def test_summarize_empty_content(self, summarizer, mock_llm_service):
         """测试空内容处理"""
-        with pytest.raises(ValueError, match="Content cannot be empty"):
+        with pytest.raises(ValueError, match="章节内容不能为空"):
             await summarizer.summarize("")
 
     @pytest.mark.asyncio
     async def test_summarize_whitespace_only(self, summarizer, mock_llm_service):
         """测试仅空白字符的内容"""
-        with pytest.raises(ValueError, match="Content cannot be empty"):
+        with pytest.raises(ValueError, match="章节内容不能为空"):
             await summarizer.summarize("   \n\t  ")
 
     @pytest.mark.asyncio
@@ -87,13 +87,13 @@ class TestClaudeChapterSummarizer:
         content = "Some content"
         mock_llm_service.generate.side_effect = RuntimeError("API Error")
 
-        with pytest.raises(RuntimeError, match="Failed to summarize chapter"):
+        with pytest.raises(RuntimeError, match="章节摘要生成失败"):
             await summarizer.summarize(content)
 
     def test_missing_api_key(self, mock_llm_service):
         """测试缺少 API key"""
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="ANTHROPIC_API_KEY environment variable is required"):
+            with pytest.raises(ValueError, match="缺少 ANTHROPIC_API_KEY"):
                 ClaudeChapterSummarizer(mock_llm_service)
 
 

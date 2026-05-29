@@ -249,6 +249,17 @@ class ContextBuilder:
             elif slot.tier.value == "t3_sacrificial":
                 layer3_parts.append(f"=== {slot.name.upper()} ===\n{slot.content}")
                 layer3_tokens += slot.tokens
+
+        bible_layer2 = self._build_layer2_smart_retrieval(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            outline=outline,
+            budget=max_tokens,
+            scene_director=scene_director,
+        )
+        if bible_layer2:
+            layer2_parts.append(bible_layer2)
+            layer2_tokens += self.estimate_tokens(bible_layer2)
         
         return {
             "layer1_text": "\n\n".join(layer1_parts),
@@ -261,6 +272,115 @@ class ContextBuilder:
                 "total": allocation.used_tokens,
             },
         }
+
+    def _build_layer2_smart_retrieval(
+        self,
+        novel_id: str,
+        chapter_number: int,
+        outline: str,
+        budget: int = 35000,
+        scene_director: Optional[Any] = None,
+    ) -> str:
+        """构建轻量 Bible 切片，补足预算分配器之外的兼容入口。
+
+        该方法不写死具体题材词条：角色由 Bible 当前数据筛选，世界设定由
+        scene_director.trigger_keywords 与设定名称、类型、描述做通用匹配。
+        """
+        bible = self._get_bible_dto(novel_id)
+        if not bible:
+            return ""
+
+        sections: list[str] = []
+        character_text = self._format_pov_safe_characters(bible, chapter_number)
+        if character_text:
+            sections.append(character_text)
+
+        triggered_settings = self._match_triggered_world_settings(
+            bible=bible,
+            outline=outline,
+            scene_director=scene_director,
+        )
+        if triggered_settings:
+            lines = ["=== Triggered World Settings ==="]
+            for item in triggered_settings[:8]:
+                name = getattr(item, "name", "") or ""
+                setting_type = getattr(item, "setting_type", "") or ""
+                description = getattr(item, "description", "") or ""
+                head = f"- {name}"
+                if setting_type:
+                    head += f"（{setting_type}）"
+                if description:
+                    head += f": {description}"
+                lines.append(head)
+            sections.append("\n".join(lines))
+
+        return "\n\n".join(part for part in sections if part.strip())
+
+    def _get_bible_dto(self, novel_id: str) -> Optional[Any]:
+        getter = getattr(self.bible_service, "get_bible_by_novel", None)
+        if not getter:
+            return None
+        try:
+            return getter(novel_id)
+        except Exception as exc:
+            logger.debug("读取 Bible DTO 失败 novel=%s: %s", novel_id, exc)
+            return None
+
+    def _format_pov_safe_characters(self, bible: Any, chapter_number: int) -> str:
+        characters = list(getattr(bible, "characters", None) or [])
+        if not characters:
+            return ""
+
+        lines = ["=== Bible Characters ==="]
+        for char in characters[:10]:
+            name = getattr(char, "name", "") or ""
+            if not name:
+                continue
+            parts: list[str] = []
+            public_profile = getattr(char, "public_profile", "") or ""
+            description = getattr(char, "description", "") or ""
+            if public_profile:
+                parts.append(public_profile)
+            elif description:
+                parts.append(description)
+
+            hidden_profile = getattr(char, "hidden_profile", "") or ""
+            reveal_chapter = getattr(char, "reveal_chapter", None)
+            if hidden_profile and (reveal_chapter is None or chapter_number >= int(reveal_chapter)):
+                parts.append(f"[隐藏面] {hidden_profile}")
+
+            lines.append(f"- {name}: " + " | ".join(parts))
+        return "\n".join(lines) if len(lines) > 1 else ""
+
+    def _match_triggered_world_settings(
+        self,
+        bible: Any,
+        outline: str,
+        scene_director: Optional[Any],
+    ) -> list[Any]:
+        triggers = self._extract_scene_triggers(scene_director)
+        if not triggers:
+            return []
+        settings = list(getattr(bible, "world_settings", None) or [])
+        matched = []
+        for item in settings:
+            text = " ".join(
+                str(getattr(item, attr, "") or "")
+                for attr in ("name", "setting_type", "description")
+            )
+            if any(trigger and trigger in text for trigger in triggers):
+                matched.append(item)
+        return matched
+
+    @staticmethod
+    def _extract_scene_triggers(scene_director: Optional[Any]) -> list[str]:
+        if scene_director is None:
+            return []
+        if isinstance(scene_director, dict):
+            raw = scene_director.get("trigger_keywords") or []
+        else:
+            raw = getattr(scene_director, "trigger_keywords", None) or []
+        return [str(item).strip() for item in raw if str(item).strip()]
 
     EXPANSION_HINTS: dict = {}
 

@@ -632,10 +632,11 @@ _vector_store_init_failed: bool = False
 def get_vector_store() -> Optional[VectorStore]:
     """获取向量存储（单例，整个进程共享同一实例）
 
-    使用本地 FAISS 向量存储（ChromaDBVectorStore），无需外部服务。
+    默认使用本地 FAISS/轻量后端向量存储；显式配置 qdrant 时使用远程 Qdrant。
 
     环境变量配置：
     - VECTOR_STORE_ENABLED: 是否启用（"true" 启用，默认 "true"）
+    - VECTOR_STORE_TYPE: chromadb 或 qdrant（默认 chromadb）
     - VECTOR_STORE_PATH: 本地存储路径（默认 "./data/chromadb"）
 
     Returns:
@@ -651,14 +652,30 @@ def get_vector_store() -> Optional[VectorStore]:
 
     enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
     if not enabled:
-        _vector_store_init_failed = True
         return None
 
     try:
+        store_type = (os.getenv("VECTOR_STORE_TYPE") or "").strip().lower()
+        legacy_qdrant_enabled = os.getenv("QDRANT_ENABLED", "").strip().lower() == "true"
+        if store_type == "qdrant" or legacy_qdrant_enabled:
+            from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
+
+            host = os.getenv("QDRANT_HOST", "localhost").strip() or "localhost"
+            port = int(os.getenv("QDRANT_PORT", "6333"))
+            api_key = (os.getenv("QDRANT_API_KEY") or "").strip() or None
+            _vector_store_singleton = QdrantVectorStore(
+                host=host,
+                port=port,
+                api_key=api_key,
+            )
+            logger.info("Qdrant 向量存储初始化成功: %s:%s", host, port)
+            return _vector_store_singleton
+
         from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
+
         persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
         _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
-        logger.info("向量存储初始化成功: %s", persist_dir)
+        logger.info("本地向量存储初始化成功: %s", persist_dir)
         return _vector_store_singleton
     except Exception as e:
         _vector_store_init_failed = True

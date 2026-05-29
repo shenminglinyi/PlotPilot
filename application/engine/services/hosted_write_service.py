@@ -22,7 +22,7 @@ class HostedWriteService:
         self,
         workflow: AutoNovelGenerationWorkflow,
         chapter_service: ChapterService,
-        novel_service: NovelService,
+        novel_service: Optional[NovelService] = None,
         chapter_aftermath_pipeline: Optional["ChapterAftermathPipeline"] = None,
     ):
         self._workflow = workflow
@@ -136,6 +136,8 @@ class HostedWriteService:
                         try:
                             chapter_id = f"chapter-{novel_id}-{n}"
                             title = f"第{n}章"
+                            if self._novel is None:
+                                raise RuntimeError("novel_service is required to create missing chapters")
                             self._novel.add_chapter(
                                 novel_id=novel_id,
                                 chapter_id=chapter_id,

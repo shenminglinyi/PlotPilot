@@ -729,6 +729,7 @@ class DatabaseConnection:
 
 # 全局数据库实例
 _db_instance: Optional[DatabaseConnection] = None
+_db_instances_by_path: dict[str, DatabaseConnection] = {}
 
 # 全局连接池实例
 _connection_pool_instance: Optional["SQLiteConnectionPool"] = None
@@ -737,13 +738,21 @@ _connection_pool_instance: Optional["SQLiteConnectionPool"] = None
 def get_database(db_path: Optional[str] = None) -> DatabaseConnection:
     """获取全局数据库实例（默认使用仓库内 data/plotpilot.db 绝对路径）。"""
     global _db_instance
-    if _db_instance is None:
-        if db_path is None:
+    if db_path is None:
+        if _db_instance is None:
             from application.paths import get_db_path
 
             db_path = get_db_path()
-        _db_instance = DatabaseConnection(db_path)
-    return _db_instance
+            key = str(Path(db_path).resolve())
+            if key not in _db_instances_by_path:
+                _db_instances_by_path[key] = DatabaseConnection(db_path)
+            _db_instance = _db_instances_by_path[key]
+        return _db_instance
+
+    key = str(Path(db_path).resolve())
+    if key not in _db_instances_by_path:
+        _db_instances_by_path[key] = DatabaseConnection(db_path)
+    return _db_instances_by_path[key]
 
 
 def get_connection_pool(db_path: Optional[str] = None):

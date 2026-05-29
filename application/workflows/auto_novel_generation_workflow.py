@@ -1544,6 +1544,7 @@ class AutoNovelGenerationWorkflow:
         pt = (plot_tension or "").strip()
         ss = (style_summary or "").strip()
         va = (voice_anchors or "").strip()
+        beat_mode = bool((beat_prompt or "").strip())
         planning_parts: list[str] = []
         if sc and sc not in ("Storyline context unavailable",):
             planning_parts.append(f"【故事线 / 里程碑】\n{sc}")
@@ -1570,7 +1571,6 @@ class AutoNovelGenerationWorkflow:
                 f"{va}\n\n"
             )
 
-        beat_mode = bool((beat_prompt or "").strip())
         prior_in_chapter = format_prior_draft_for_prompt(chapter_draft_so_far)
         # 字数控制：像小说家一样自然收束，而非粗暴截断
         if beat_target_words:

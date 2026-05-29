@@ -233,7 +233,7 @@ class TestStateUpdater:
             )
 
     def test_update_from_chapter_foreshadowing_registry_not_found(self):
-        """测试 ForeshadowingRegistry 不存在时的处理"""
+        """ForeshadowingRegistry 不存在时创建新注册表并保存"""
         chapter_state = ChapterState(
             new_characters=[],
             character_actions=[],
@@ -252,9 +252,13 @@ class TestStateUpdater:
         self.bible_repository.get_by_novel_id.return_value = self.bible
         self.foreshadowing_repository.get_by_novel_id.return_value = None
 
-        with pytest.raises(ValueError, match="ForeshadowingRegistry not found"):
-            self.updater.update_from_chapter(
-                novel_id="novel-1",
-                chapter_number=5,
-                chapter_state=chapter_state
-            )
+        self.updater.update_from_chapter(
+            novel_id="novel-1",
+            chapter_number=5,
+            chapter_state=chapter_state
+        )
+
+        self.foreshadowing_repository.save.assert_called_once()
+        saved_registry = self.foreshadowing_repository.save.call_args[0][0]
+        assert len(saved_registry.foreshadowings) == 1
+        assert saved_registry.foreshadowings[0].description == "神秘的预言"

@@ -1452,7 +1452,13 @@ JSON 格式：
                 parts.append(f"{key}: {items}")
         return "\n".join(parts)
 
-    async def _call_llm_and_parse(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+    async def _call_llm_and_parse(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        raise_on_unrecoverable: bool = False,
+    ) -> Dict[str, Any]:
         """调用 LLM 并解析 JSON（含自动修复）"""
         prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
@@ -1477,7 +1483,9 @@ JSON 格式：
                 logger.error(f"Failed to parse JSON (even after repair): {e2}")
                 logger.error(f"Raw content (first 1000 chars): {content[:1000]}")
                 logger.error(f"Raw content (last 500 chars): {content[-500:]}")
-                raise  # 向上抛出，让重试逻辑处理
+                if raise_on_unrecoverable:
+                    raise  # 向上抛出，让重试逻辑处理
+                return {}
 
     async def _call_llm_and_parse_with_retry(
         self,
@@ -1499,14 +1507,19 @@ JSON 格式：
             try:
                 if attempt == 0:
                     # 第一次尝试，使用标准prompt
-                    return await self._call_llm_and_parse(system_prompt, user_prompt)
+                    return await self._call_llm_and_parse(
+                        system_prompt,
+                        user_prompt,
+                        raise_on_unrecoverable=True,
+                    )
                 else:
                     # 重试时加强调prompt
                     retry_reminder = "\n\n【重要提醒】上次JSON解析失败，请严格遵守JSON输出规则！只输出纯JSON，不要任何其他文字！"
                     logger.warning("JSON解析重试 %d/%d，添加强调提示", attempt, attempts)
                     return await self._call_llm_and_parse(
                         system_prompt + retry_reminder,
-                        user_prompt
+                        user_prompt,
+                        raise_on_unrecoverable=True,
                     )
             except json.JSONDecodeError as e:
                 last_error = e
