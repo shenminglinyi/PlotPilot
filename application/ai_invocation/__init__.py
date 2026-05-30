@@ -1,5 +1,9 @@
 ﻿"""AI Invocation 子域导出。"""
 from application.ai_invocation.dtos import (
+    AdoptionCommit,
+    AdoptionCommitStatus,
+    AdoptionCommitStep,
+    AdoptionDecision,
     ContinuationRef,
     InvocationAttempt,
     InvocationAttemptStatus,
@@ -17,6 +21,10 @@ from application.ai_invocation.gateway import AIInvocationGateway
 
 __all__ = [
     "AIInvocationGateway",
+    "AdoptionCommit",
+    "AdoptionCommitStatus",
+    "AdoptionCommitStep",
+    "AdoptionDecision",
     "ContinuationRef",
     "InvocationAttempt",
     "InvocationAttemptStatus",

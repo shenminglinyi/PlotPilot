@@ -174,9 +174,39 @@ async def test_gateway_direct_runs_common_prefix_and_attempt():
 
     assert result.session.status == InvocationSessionStatus.COMPLETED
     assert result.attempt is not None
+    assert result.decision is not None
+    assert result.commit is not None
     assert result.attempt.content == "生成正文"
+    assert result.decision.accepted_content == "生成正文"
+    assert result.commit.steps[0].name == "commit_content_patch"
     assert len(llm.calls) == 1
     assert llm.calls[0][0] == result.prompt_snapshot.prompt
+
+
+@pytest.mark.asyncio
+async def test_gateway_review_after_call_waits_for_acceptance():
+    llm = FakeLLM()
+    repo = InMemoryInvocationSpecRepository([_spec(InvocationPolicy.REVIEW_AFTER_CALL)])
+    gateway = AIInvocationGateway(
+        spec_service=InvocationSpecService(repo),
+        variable_resolver=_resolver(),
+        prompt_assembler=CPMSPromptAssembler(registry=FakeRegistry()),
+        llm_service=llm,
+    )
+
+    result = await gateway.invoke(
+        InvocationRequest(
+            operation="chapter.generate",
+            node_key="chapter-test",
+            variables={"outline": "第一幕冲突"},
+            context={"novel_id": "novel-1"},
+        )
+    )
+
+    assert result.session.status == InvocationSessionStatus.AWAITING_ACCEPTANCE
+    assert result.attempt is not None
+    assert result.decision is None
+    assert result.commit is None
 
 
 @pytest.mark.asyncio

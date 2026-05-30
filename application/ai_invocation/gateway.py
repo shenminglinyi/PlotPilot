@@ -9,7 +9,7 @@ from application.ai_invocation.dtos import (
     InvocationSessionStatus,
 )
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
-from application.ai_invocation.services import AttemptService, InvocationSessionService
+from application.ai_invocation.services import AdoptionCommitService, AdoptionService, AttemptService, InvocationSessionService
 from application.ai_invocation.spec_service import InvocationSpecService
 from application.ai_invocation.variable_hub import VariableResolver
 
@@ -30,12 +30,16 @@ class AIInvocationGateway:
         llm_service: LLMService,
         session_service: InvocationSessionService | None = None,
         attempt_service: AttemptService | None = None,
+        adoption_service: AdoptionService | None = None,
+        commit_service: AdoptionCommitService | None = None,
     ):
         self._spec_service = spec_service
         self._variable_resolver = variable_resolver
         self._prompt_assembler = prompt_assembler
         self._session_service = session_service or InvocationSessionService()
         self._attempt_service = attempt_service or AttemptService(llm_service)
+        self._adoption_service = adoption_service or AdoptionService()
+        self._commit_service = commit_service or AdoptionCommitService()
 
     async def invoke(self, request: InvocationRequest) -> InvocationResult:
         spec = self._spec_service.load(request)
@@ -83,11 +87,25 @@ class AIInvocationGateway:
         )
         if policy == InvocationPolicy.REVIEW_AFTER_CALL:
             session.status = InvocationSessionStatus.AWAITING_ACCEPTANCE
+            return InvocationResult(
+                session=session,
+                attempt=attempt,
+                prompt_snapshot=prompt_snapshot,
+                variable_plan=variable_plan,
+            )
         else:
-            session.status = InvocationSessionStatus.COMPLETED
-        return InvocationResult(
-            session=session,
-            attempt=attempt,
-            prompt_snapshot=prompt_snapshot,
-            variable_plan=variable_plan,
-        )
+            decision = self._adoption_service.accept(
+                session=session,
+                attempt=attempt,
+                accepted_by="system",
+                metadata={"auto_accept_policy": policy.value},
+            )
+            commit = self._commit_service.commit(session=session, decision=decision)
+            return InvocationResult(
+                session=session,
+                attempt=attempt,
+                decision=decision,
+                commit=commit,
+                prompt_snapshot=prompt_snapshot,
+                variable_plan=variable_plan,
+            )

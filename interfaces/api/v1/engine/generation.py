@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.hosted_write_service import HostedWriteService
@@ -23,8 +24,15 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
 from domain.novel.value_objects.storyline_type import StorylineType
 from domain.novel.value_objects.tension_level import TensionLevel
+from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN
+from infrastructure.ai.prompt_registry import get_prompt_registry
+from infrastructure.ai.prompt_template_engine import get_template_engine
+from infrastructure.persistence.database.connection import get_database
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
+from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
+from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteInvocationSpecRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+from interfaces.api.v1.engine.ai_invocation_routes import InvocationCreateRequest, create_invocation
 from interfaces.api.dependencies import (
     get_auto_bible_generator,
     get_auto_knowledge_generator,
@@ -39,6 +47,12 @@ from interfaces.api.dependencies import (
 )
 
 logger = logging.getLogger(__name__)
+
+_PRE_CALL_INVOCATION_POLICIES = {
+    InvocationPolicy.REVIEW_BEFORE_CALL,
+    InvocationPolicy.FULL_INTERACTIVE,
+    InvocationPolicy.AUTOPILOT_PAUSE,
+}
 
 
 def _refresh_narrative_contract_shared(novel_id: str) -> None:
@@ -80,6 +94,10 @@ class GenerateChapterRequest(BaseModel):
     chapter_number: int = Field(..., gt=0, description="章节号（必须 > 0）")
     outline: str = Field(..., min_length=1, description="章节大纲")
     scene_director_result: Optional[dict] = Field(None, description="可选的场记分析结果")
+    invocation_policy: Optional[InvocationPolicy] = Field(
+        None,
+        description="可选 AI Invocation 策略；FULL_INTERACTIVE/REVIEW_BEFORE_CALL 会先返回 approval_required",
+    )
     regeneration_guidance: Optional[str] = Field(
         None,
         max_length=2000,
@@ -88,6 +106,181 @@ class GenerateChapterRequest(BaseModel):
     allow_evolution_gate_bypass: bool = Field(
         False,
         description="手动确认绕过故事演进 Gate 的 blocking 风险",
+    )
+
+
+def _ensure_chapter_generation_invocation_contract() -> None:
+    """确保手动章节生成具备 AI Invocation 最小契约。
+
+    这里只登记已发布 CPMS 节点的 active version、模板变量名与调用能力，
+    不写入任何提示词正文；CPMS 节点缺失时阻塞流程。
+    """
+    registry = get_prompt_registry()
+    node = registry.get_node(CHAPTER_GENERATION_MAIN)
+    if node is None:
+        raise RuntimeError(f"CPMS 节点未发布: {CHAPTER_GENERATION_MAIN}")
+    node_version_id = getattr(node, "active_version_id", None) or ""
+    if not node_version_id:
+        raise RuntimeError(f"CPMS 节点缺少 active version: {CHAPTER_GENERATION_MAIN}")
+
+    engine = get_template_engine()
+    aliases = sorted(
+        engine.extract_variables(node.get_active_system())
+        | engine.extract_variables(node.get_active_user_template())
+    )
+    binding_set_id = f"{CHAPTER_GENERATION_MAIN}:input:v1"
+    required_aliases = {"outline", "context"}
+
+    db = get_database()
+    with sqlite_writes_bypass_queue():
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO cpms_variable_binding_sets (
+                    id, node_key, direction, version_number, status, is_active, created_by
+                ) VALUES (?, ?, 'input', 1, 'published', 1, 'system')
+                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
+                    status='published',
+                    is_active=1
+                """,
+                (binding_set_id, CHAPTER_GENERATION_MAIN),
+            )
+            for alias in aliases:
+                conn.execute(
+                    """
+                    INSERT INTO cpms_variable_bindings (
+                        id, binding_set_id, node_key, direction, alias, required,
+                        default_value_json, source, enabled
+                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, 'cpms_template', 1)
+                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
+                        required=excluded.required,
+                        default_value_json=excluded.default_value_json,
+                        source=excluded.source,
+                        enabled=1
+                    """,
+                    (
+                        f"{binding_set_id}:{alias}",
+                        binding_set_id,
+                        CHAPTER_GENERATION_MAIN,
+                        alias,
+                        1 if alias in required_aliases else 0,
+                        None if alias in required_aliases else '""',
+                    ),
+                )
+
+        SqliteInvocationSpecRepository(db).upsert(
+            InvocationSpec(
+                operation="chapter.generate",
+                node_key=CHAPTER_GENERATION_MAIN,
+                prompt_node_version_id=node_version_id,
+                input_binding_set_id=binding_set_id,
+                default_policy=InvocationPolicy.FULL_INTERACTIVE,
+                risk_level="medium",
+                supports_stream=False,
+                continuation_handler_key="manual_chapter_generation_stream",
+                metadata={
+                    "source": "manual_chapter_generation",
+                    "cpms_node_key": CHAPTER_GENERATION_MAIN,
+                },
+            ),
+            spec_id=f"spec:{CHAPTER_GENERATION_MAIN}:v1",
+            spec_version=1,
+            status="published",
+        )
+
+
+def _chapter_invocation_variables(
+    *,
+    workflow: AutoNovelGenerationWorkflow,
+    bundle: dict,
+    outline: str,
+) -> dict:
+    """生成章节审阅用变量快照，变量来源沿用当前章节准备链路。"""
+    novel_id = str(bundle.get("novel_id") or "")
+    target_words = 0
+    if novel_id and hasattr(workflow, "_resolve_target_chapter_words"):
+        target_words = int(workflow._resolve_target_chapter_words(novel_id) or 0)
+    context = str(bundle.get("context") or "")
+    style_summary = str(bundle.get("style_summary") or "").strip()
+    storyline_context = str(bundle.get("storyline_context") or "").strip()
+    plot_tension = str(bundle.get("plot_tension") or "").strip()
+
+    planning_parts: list[str] = []
+    if storyline_context and storyline_context not in ("Storyline context unavailable",):
+        planning_parts.append(f"【故事线 / 里程碑】\n{storyline_context}")
+    if plot_tension and plot_tension not in ("Plot tension unavailable", "No plot arc defined"):
+        planning_parts.append(f"【情节节奏 / 张力控制（必须遵守）】\n{plot_tension}")
+    if style_summary:
+        planning_parts.append(f"【风格约束】\n{style_summary}")
+    planning_section = ""
+    if planning_parts:
+        planning_section = "\n".join(planning_parts) + "\n\n以上约束须与本章大纲及后文 Bible/摘要一致；不得与之矛盾。\n"
+
+    voice_anchors = str(bundle.get("voice_anchors") or "").strip()
+    voice_block = (
+        f"\n【角色声线与肢体语言（Bible 锚点，必须遵守）】\n{voice_anchors}\n\n"
+        if voice_anchors
+        else ""
+    )
+    length_rule = (
+        f"7. 【章节字数指引】本章目标约 {target_words} 字。完整覆盖下方大纲的所有要点，"
+        "字数不足时优先补充对话与场景细节，禁止重复情节水字；用完整句收束，不要戛然而止。"
+        if target_words
+        else "7. 章节长度：3000-4000字"
+    )
+
+    return {
+        "outline": outline,
+        "context": context,
+        "planning_section": planning_section,
+        "voice_block": voice_block,
+        "length_rule": length_rule,
+        "beat_extra": "",
+        "beat_section": "",
+        "fact_lock": "",
+        "behavior_protocol": "",
+        "character_state_lock": "",
+        "allowlist_block": "",
+        "nervous_habits": "",
+    }
+
+
+async def _create_pre_call_review_invocation(
+    *,
+    novel_id: str,
+    request: GenerateChapterRequest,
+    workflow: AutoNovelGenerationWorkflow,
+    scene_director: Optional[SceneDirectorAnalysis],
+) -> dict:
+    _ensure_chapter_generation_invocation_contract()
+    bundle = workflow.prepare_chapter_generation(
+        novel_id,
+        request.chapter_number,
+        request.outline,
+        scene_director=scene_director,
+        allow_evolution_gate_bypass=request.allow_evolution_gate_bypass,
+    )
+    bundle["novel_id"] = novel_id
+    policy = request.invocation_policy or InvocationPolicy.FULL_INTERACTIVE
+    return await create_invocation(
+        InvocationCreateRequest(
+            operation="chapter.generate",
+            node_key=CHAPTER_GENERATION_MAIN,
+            variables=_chapter_invocation_variables(
+                workflow=workflow,
+                bundle=bundle,
+                outline=request.outline,
+            ),
+            context={
+                "novel_id": novel_id,
+                "chapter_number": request.chapter_number,
+            },
+            policy=policy,
+            metadata={
+                "source": "generate_chapter_stream",
+                "regeneration": bool(request.regeneration_guidance and request.regeneration_guidance.strip()),
+            },
+        )
     )
 
 
@@ -261,6 +454,21 @@ async def generate_chapter_stream(
         scene_director = None
         if request.scene_director_result:
             scene_director = SceneDirectorAnalysis(**request.scene_director_result)
+
+        if request.invocation_policy in _PRE_CALL_INVOCATION_POLICIES:
+            try:
+                payload = await _create_pre_call_review_invocation(
+                    novel_id=novel_id,
+                    request=request,
+                    workflow=workflow,
+                    scene_director=scene_director,
+                )
+                session = payload.get("session") or {}
+                yield f"data: {json.dumps({'type': 'approval_required', 'session_id': session.get('id', ''), 'status': session.get('status', ''), 'next_action': payload.get('next_action', '')}, ensure_ascii=False)}\n\n"
+            except Exception as exc:
+                logger.exception("AI Invocation 生成前审阅创建失败: %s", exc)
+                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+            return
 
         async for event in workflow.generate_chapter_stream(
             novel_id=novel_id,

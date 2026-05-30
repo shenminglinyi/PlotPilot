@@ -47,6 +47,16 @@ class InvocationAttemptStatus(str, Enum):
     FAILED = "failed"
 
 
+class AdoptionCommitStatus(str, Enum):
+    """采纳提交编排状态。"""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True)
 class ContinuationRef:
     """采纳后恢复业务流程的引用。"""
@@ -164,12 +174,54 @@ class InvocationAttempt:
     error: str = ""
 
 
+@dataclass
+class AdoptionDecision:
+    """一次生成结果的采纳决策。"""
+
+    id: str
+    session_id: str
+    attempt_id: str
+    decision: str = "accepted"
+    accept_content: bool = True
+    commit_prompt_version: bool = False
+    commit_variable_outputs: bool = False
+    commit_variable_bindings: bool = False
+    accepted_content: str = ""
+    accepted_by: str = "system"
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class AdoptionCommitStep:
+    """采纳提交中的一个幂等步骤。"""
+
+    name: str
+    status: AdoptionCommitStatus = AdoptionCommitStatus.PENDING
+    result: Mapping[str, Any] = field(default_factory=dict)
+    error: str = ""
+
+
+@dataclass
+class AdoptionCommit:
+    """采纳后的提交编排结果。"""
+
+    id: str
+    session_id: str
+    decision_id: str
+    status: AdoptionCommitStatus = AdoptionCommitStatus.PENDING
+    steps: list[AdoptionCommitStep] = field(default_factory=list)
+    result: Mapping[str, Any] = field(default_factory=dict)
+    error: str = ""
+
+
 @dataclass(frozen=True)
 class InvocationResult:
     """AIInvocationGateway.invoke 的返回结果。"""
 
     session: InvocationSession
     attempt: Optional[InvocationAttempt] = None
+    decision: Optional[AdoptionDecision] = None
+    commit: Optional[AdoptionCommit] = None
     prompt_snapshot: Optional[PromptSnapshot] = None
     variable_plan: Optional[VariablePlan] = None
 

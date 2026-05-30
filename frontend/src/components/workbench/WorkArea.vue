@@ -394,6 +394,15 @@
                 </n-space>
               </n-form-item>
 
+              <n-form-item label="生成审阅" label-placement="left" label-width="80" :show-feedback="false">
+                <n-space align="center" :size="8">
+                  <n-switch v-model:value="preCallReviewEnabled" :disabled="generateInProgress" size="small" />
+                  <n-text depth="3" style="font-size: 12px">
+                    开启后先冻结 CPMS 提示词与变量快照，弹出 AI 生成审阅面板，不直接进入正文生成。
+                  </n-text>
+                </n-space>
+              </n-form-item>
+
               <n-alert v-if="sceneDirectorError" type="warning" :show-icon="true" style="font-size: 12px">
                 场记分析失败（不影响生成）：{{ sceneDirectorError }}
               </n-alert>
@@ -433,7 +442,9 @@
                         : '生成中...'
                       : isRegenerationMode
                         ? '🔄 开始重新生成'
-                        : '开始生成'
+                        : preCallReviewEnabled
+                          ? '生成前审阅'
+                          : '开始生成'
                 }}
               </n-button>
             </n-space>
@@ -752,6 +763,7 @@ const QualityGuardrailPanel = defineAsyncComponent(() => import('./QualityGuardr
 const TraceRecordPanel = defineAsyncComponent(() => import('./TraceRecordPanel.vue'))
 const AutopilotWorkspace = defineAsyncComponent(() => import('../autopilot/AutopilotWorkspace.vue'))
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
+import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import {
   CHAPTER_DESK_AUX_ORDER,
@@ -802,6 +814,7 @@ const dialog = useDialog()
 
 const desk = useChapterDeskLayout()
 
+const aiInvocationStore = useAIInvocationStore()
 const workbenchRefresh = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(workbenchRefresh)
 
@@ -1009,6 +1022,7 @@ function sseTagType(
     SSE: 'info',
     规划: 'warning',
     节拍: 'success',
+    审阅: 'info',
     正文: 'primary',
   }
   return map[tag] ?? 'default'
@@ -1041,6 +1055,8 @@ function briefPhaseLogLabel(phase: string): string {
 const isRegenerationMode = ref(false)
 /** 重新生成改进方向（可选，传给后端 regeneration_guidance） */
 const regenerationGuidance = ref('')
+/** 手动章节生成：是否先进入 AI Invocation 生成前审阅 */
+const preCallReviewEnabled = ref(false)
 /** 是否正在保存草稿（重新生成前的快照） */
 const savingDraftBeforeRegen = ref(false)
 
@@ -1647,6 +1663,7 @@ const handleGenerateChapter = async () => {
 
   isRegenerationMode.value = false
   regenerationGuidance.value = ''
+  preCallReviewEnabled.value = false
   generateTargetChapterId.value = currentChapter.value.id
   generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
 
@@ -1666,6 +1683,7 @@ const handleRegenerateChapter = async () => {
 
   isRegenerationMode.value = true
   regenerationGuidance.value = ''
+  preCallReviewEnabled.value = false
   generateTargetChapterId.value = currentChapter.value.id
   // 列表项不带 outline，统一用默认模板做种子；用户可在弹窗里编辑
   generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
@@ -1824,6 +1842,7 @@ const handleStartGenerate = async () => {
         regeneration_guidance: isRegenerationMode.value && regenerationGuidance.value.trim()
           ? regenerationGuidance.value.trim()
           : undefined,
+        invocation_policy: preCallReviewEnabled.value ? 'FULL_INTERACTIVE' : undefined,
       },
       {
         signal: ctrl.signal,
@@ -1865,6 +1884,16 @@ const handleStartGenerate = async () => {
               pushGenerateSseLog('规划', `outline_partition Δ ×${n}（+${text.length}）`)
             }
           }
+        },
+        onApprovalRequired: (sessionId) => {
+          generateStreamPhase.value = 'approval_required'
+          streamPhaseLabel.value = '等待 AI 生成审阅…'
+          streamProgressPct.value = Math.max(streamProgressPct.value, 52)
+          pushGenerateSseLog('审阅', `approval_required · ${sessionId}`)
+          message.info('已进入 AI 生成前审阅')
+          void aiInvocationStore.open(sessionId).catch(() => {
+            message.error('打开 AI 生成审阅失败')
+          })
         },
         onChunk: (text, stats) => {
           generatedContent.value += text
@@ -1928,7 +1957,7 @@ const handleStartGenerate = async () => {
     generateInProgress.value = false
     generatingChapterId.value = null
     generateAbortCtrl.value = null
-    if (!ctrl.signal.aborted && streamProgressPct.value < 100) {
+    if (!ctrl.signal.aborted && streamProgressPct.value < 100 && generateStreamPhase.value !== 'approval_required') {
       streamPhaseLabel.value = ''
       streamProgressPct.value = 0
     }

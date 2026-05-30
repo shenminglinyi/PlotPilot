@@ -5,12 +5,17 @@ import uuid
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from application.ai_invocation.dtos import (
+    AdoptionCommit,
+    AdoptionCommitStatus,
+    AdoptionCommitStep,
+    AdoptionDecision,
     InvocationAttempt,
     InvocationAttemptStatus,
     InvocationPolicy,
     InvocationSession,
     InvocationSessionStatus,
     PromptSnapshot,
+    stable_hash,
 )
 
 
@@ -91,3 +96,126 @@ class AttemptService:
 
     def get(self, attempt_id: str) -> InvocationAttempt:
         return self._attempts[attempt_id]
+
+
+class AdoptionService:
+    """形成采纳或拒绝决策，不执行提交副作用。"""
+
+    def __init__(self):
+        self._decisions: dict[str, AdoptionDecision] = {}
+
+    def accept(
+        self,
+        *,
+        session: InvocationSession,
+        attempt: InvocationAttempt,
+        accepted_by: str = "system",
+        commit_prompt_version: bool = False,
+        commit_variable_outputs: bool = False,
+        commit_variable_bindings: bool = False,
+        metadata: dict | None = None,
+    ) -> AdoptionDecision:
+        if attempt.session_id != session.id:
+            raise ValueError("attempt 不属于当前 invocation session")
+        if attempt.status != InvocationAttemptStatus.SUCCEEDED:
+            raise ValueError("只有成功的 attempt 可以被采纳")
+        decision = AdoptionDecision(
+            id=str(uuid.uuid4()),
+            session_id=session.id,
+            attempt_id=attempt.id,
+            accept_content=True,
+            commit_prompt_version=commit_prompt_version,
+            commit_variable_outputs=commit_variable_outputs,
+            commit_variable_bindings=commit_variable_bindings,
+            accepted_content=attempt.content,
+            accepted_by=accepted_by,
+            metadata=dict(metadata or {}),
+        )
+        self._decisions[decision.id] = decision
+        session.status = InvocationSessionStatus.AWAITING_COMMIT
+        return decision
+
+    def reject(self, *, session: InvocationSession, attempt: InvocationAttempt, accepted_by: str = "system") -> AdoptionDecision:
+        if attempt.session_id != session.id:
+            raise ValueError("attempt 不属于当前 invocation session")
+        decision = AdoptionDecision(
+            id=str(uuid.uuid4()),
+            session_id=session.id,
+            attempt_id=attempt.id,
+            decision="rejected",
+            accept_content=False,
+            accepted_content="",
+            accepted_by=accepted_by,
+        )
+        self._decisions[decision.id] = decision
+        session.status = InvocationSessionStatus.CANCELLED
+        return decision
+
+    def get(self, decision_id: str) -> AdoptionDecision:
+        return self._decisions[decision_id]
+
+
+class AdoptionCommitService:
+    """幂等提交采纳结果。
+
+    当前只实现最小内容提交步骤；CPMS 版本、变量绑定、变量输出和 continuation
+    后续通过独立 step 扩展，不能再绕回 Gateway 或业务层硬编码。
+    """
+
+    def __init__(self):
+        self._commits_by_key: dict[str, AdoptionCommit] = {}
+
+    def commit(self, *, session: InvocationSession, decision: AdoptionDecision) -> AdoptionCommit:
+        if decision.session_id != session.id:
+            raise ValueError("decision 不属于当前 invocation session")
+        key = f"{session.id}:{decision.id}"
+        existing = self._commits_by_key.get(key)
+        if existing is not None:
+            return existing
+        if decision.decision != "accepted" or not decision.accept_content:
+            session.status = InvocationSessionStatus.CANCELLED
+            commit = AdoptionCommit(
+                id=str(uuid.uuid4()),
+                session_id=session.id,
+                decision_id=decision.id,
+                status=AdoptionCommitStatus.SUCCEEDED,
+                steps=[
+                    AdoptionCommitStep(
+                        name="commit_content_patch",
+                        status=AdoptionCommitStatus.SUCCEEDED,
+                        result={"skipped": True, "reason": "decision_not_accepted"},
+                    )
+                ],
+            )
+            self._commits_by_key[key] = commit
+            return commit
+
+        session.status = InvocationSessionStatus.COMMITTING
+        commit = AdoptionCommit(
+            id=str(uuid.uuid4()),
+            session_id=session.id,
+            decision_id=decision.id,
+            status=AdoptionCommitStatus.RUNNING,
+        )
+        try:
+            commit.steps.append(
+                AdoptionCommitStep(
+                    name="commit_content_patch",
+                    status=AdoptionCommitStatus.SUCCEEDED,
+                    result={
+                        "content_hash": stable_hash({"content": decision.accepted_content}),
+                        "content_length": len(decision.accepted_content),
+                    },
+                )
+            )
+            commit.status = AdoptionCommitStatus.SUCCEEDED
+            commit.result = {"accepted_content": decision.accepted_content}
+            session.status = InvocationSessionStatus.COMPLETED
+        except Exception as exc:
+            commit.status = AdoptionCommitStatus.FAILED
+            commit.error = str(exc)
+            session.status = InvocationSessionStatus.FAILED
+            raise
+        finally:
+            self._commits_by_key[key] = commit
+        return commit

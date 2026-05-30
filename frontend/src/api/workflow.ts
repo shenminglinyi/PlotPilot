@@ -124,6 +124,7 @@ export interface GenerateChapterWithContextPayload {
   chapter_number: number
   outline: string
   scene_director_result?: Record<string, unknown>
+  invocation_policy?: 'DIRECT' | 'REVIEW_BEFORE_CALL' | 'REVIEW_AFTER_CALL' | 'FULL_INTERACTIVE' | 'INTERACTIVE_WHEN_AVAILABLE' | 'AUTOPILOT_PAUSE'
   /** 重新生成时的改进方向（可选）；填写后 AI 会在 prompt 中看到改进要求 */
   regeneration_guidance?: string
 }
@@ -309,6 +310,7 @@ export type GenerateChapterStreamEvent =
   | { type: 'phase'; phase: 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post' }
   | { type: 'llm_chunk'; stage: string; text: string }
   | { type: 'beats_generated'; beats: StreamGeneratedBeat[] }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
   | { type: 'chunk'; text: string; stats: ChunkStats }
   | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number; output_tokens: number; total_tokens: number; chars: number; style_warnings?: StyleWarning[]; ghost_annotations?: unknown[] }
   | { type: 'error'; message: string }
@@ -336,6 +338,7 @@ export async function consumeGenerateChapterStream(
     onBeatsGenerated?: (beats: StreamGeneratedBeat[]) => void
     /** 非正文 LLM 的流式增量（如 outline_partition 节拍划分 JSON） */
     onLLMChunk?: (stage: string, text: string) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
     onChunk?: (text: string, stats?: ChunkStats) => void
     onDone?: (result: GenerateChapterWorkflowResponse) => void
     onError?: (message: string) => void
@@ -387,6 +390,16 @@ export async function consumeGenerateChapterStream(
             const ev: GenerateChapterStreamEvent = { type: 'llm_chunk', stage, text }
             handlers.onEvent?.(ev)
             handlers.onLLMChunk?.(stage, text)
+          } else if (typ === 'approval_required') {
+            const sessionId = String(o.session_id ?? '')
+            const status = typeof o.status === 'string' ? o.status : undefined
+            const nextAction = typeof o.next_action === 'string' ? o.next_action : undefined
+            const ev: GenerateChapterStreamEvent = { type: 'approval_required', session_id: sessionId, status, next_action: nextAction }
+            handlers.onEvent?.(ev)
+            if (sessionId) {
+              handlers.onApprovalRequired?.(sessionId, status, nextAction)
+            }
+            return true
           } else if (typ === 'chunk') {
             const text = String(o.text ?? '')
             const stats = o.stats as ChunkStats | undefined

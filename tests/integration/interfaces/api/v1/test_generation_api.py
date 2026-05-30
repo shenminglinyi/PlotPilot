@@ -164,6 +164,39 @@ class TestGenerateChapterEndpoint:
         assert "data:" in body
         assert '"type": "done"' in body or '"done"' in body
 
+    def test_generate_chapter_stream_approval_required(self, client, monkeypatch):
+        """FULL_INTERACTIVE 策略先返回 AI Invocation 审阅会话"""
+        from interfaces.api.v1.engine import generation
+
+        async def fake_create_pre_call_review_invocation(**kwargs):
+            return {
+                "session": {
+                    "id": "session-1",
+                    "status": "awaiting_pre_call_review",
+                },
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(
+            generation,
+            "_create_pre_call_review_invocation",
+            fake_create_pre_call_review_invocation,
+        )
+
+        response = client.post(
+            "/api/v1/novels/novel-1/generate-chapter-stream",
+            json={
+                "chapter_number": 1,
+                "outline": "Chapter outline",
+                "invocation_policy": "FULL_INTERACTIVE",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "event-stream" in response.headers.get("content-type", "")
+        assert '"type": "approval_required"' in response.text
+        assert '"session_id": "session-1"' in response.text
+
     def test_hosted_write_stream_sse(self, client):
         """托管连写 SSE"""
         response = client.post(
