@@ -484,7 +484,12 @@ class PromptTemplateEngine:
                 return "{" + key + "}"
 
         try:
-            return template.format_map(SafeDict(variables))
+            format_template = re.sub(
+                r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}",
+                r"{\1}",
+                template,
+            )
+            return format_template.format_map(SafeDict(variables))
         except (KeyError, ValueError, IndexError):
             return template
 
