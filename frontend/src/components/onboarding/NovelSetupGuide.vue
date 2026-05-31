@@ -1250,8 +1250,44 @@ function hasStorylineArchitecture(options: MainPlotOptionDTO[]) {
   )
 }
 
+function extractMainPlotOptionsFromResult(result: Record<string, unknown>): MainPlotOptionDTO[] {
+  const direct = result.plot_options
+  if (Array.isArray(direct)) return direct as MainPlotOptionDTO[]
+
+  const continuation = result.continuation
+  if (continuation && typeof continuation === 'object') {
+    const fromContinuation = (continuation as Record<string, unknown>).plot_options
+    if (Array.isArray(fromContinuation)) return fromContinuation as MainPlotOptionDTO[]
+    const fromJson = (continuation as Record<string, unknown>).plot_options_json
+    if (typeof fromJson === 'string' && fromJson.trim()) {
+      try {
+        const parsed = JSON.parse(fromJson) as unknown
+        if (Array.isArray(parsed)) return parsed as MainPlotOptionDTO[]
+        if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
+          return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
+        }
+      } catch {
+        // Ignore malformed fallback payload; accepted_content is checked below.
+      }
+    }
+  }
+
+  const acceptedContent = result.accepted_content
+  if (typeof acceptedContent === 'string' && acceptedContent.trim()) {
+    try {
+      const parsed = JSON.parse(acceptedContent) as unknown
+      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
+        return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
+      }
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
 function applyMainPlotOptionsFromResult(result: Record<string, unknown>) {
-  const options = Array.isArray(result.plot_options) ? (result.plot_options as MainPlotOptionDTO[]) : []
+  const options = extractMainPlotOptionsFromResult(result)
   if (!options.length) return
   plotOptions.value = options
   writeWizardUiCache(props.novelId, { plotOptions: options })
@@ -1277,12 +1313,15 @@ async function openMainPlotReviewPanel(sessionId: string) {
   }
 }
 
-async function loadPlotSuggestions() {
+async function loadPlotSuggestions(opts?: { forceNew?: boolean }) {
   step4RestoredFromCache.value = false
   plotSuggesting.value = true
   plotSuggestError.value = ''
   plotOptions.value = []
-  const cached = readWizardUiCache(props.novelId)
+  if (opts?.forceNew) {
+    writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOptions: undefined })
+  }
+  const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
   try {
     if (cached?.invocationSessionId) {
       await openMainPlotReviewPanel(cached.invocationSessionId)
@@ -1350,7 +1389,7 @@ async function loadPlotSuggestions() {
 }
 
 async function refreshPlotSuggestions() {
-  await loadPlotSuggestions()
+  await loadPlotSuggestions({ forceNew: true })
 }
 
 async function adoptPlotOption(opt: MainPlotOptionDTO) {
