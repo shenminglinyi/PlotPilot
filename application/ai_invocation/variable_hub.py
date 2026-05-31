@@ -80,7 +80,9 @@ class VariableResolver:
         lineage: dict[str, str] = {}
         diagnostics: list[str] = []
         required_missing: list[str] = []
+        snapshot_items: list[dict[str, Any]] = []
         bindings = self._repository.get_bindings(spec.input_binding_set_id, spec.node_key)
+        binding_by_alias = {binding.alias: binding for binding in bindings}
 
         for binding in bindings:
             if not binding.enabled:
@@ -117,13 +119,20 @@ class VariableResolver:
                 aliases[alias] = value
                 lineage[alias] = "explicit"
 
-        snapshot_hash = stable_hash({"aliases": aliases, "lineage": lineage})
+        for alias, value in aliases.items():
+            binding = binding_by_alias.get(alias)
+            snapshot_items.append(self._snapshot_item(alias, value, binding, lineage.get(alias, "")))
+
+        snapshot_groups = self._snapshot_groups(snapshot_items)
+        snapshot_hash = stable_hash({"aliases": aliases, "lineage": lineage, "snapshot_items": snapshot_items})
         return VariablePlan(
             aliases=aliases,
             bindings=tuple(bindings),
             required_missing=tuple(required_missing),
             diagnostics=tuple(diagnostics),
             lineage=lineage,
+            snapshot_items=tuple(snapshot_items),
+            snapshot_groups=tuple(snapshot_groups),
             snapshot_hash=snapshot_hash,
         )
 
@@ -135,3 +144,100 @@ class VariableResolver:
             if value not in (None, ""):
                 parts.append(f"{key}:{value}")
         return "|".join(parts) if parts else "global"
+
+    @staticmethod
+    def _snapshot_item(alias: str, value: Any, binding: VariableBinding | None, lineage: str) -> dict[str, Any]:
+        variable_key = binding.variable_key if binding else alias
+        return {
+            "key": alias,
+            "display_name": binding.display_name if binding and binding.display_name else alias,
+            "value": value,
+            "type": binding.value_type if binding and binding.value_type else VariableResolver._infer_type(value),
+            "scope": binding.scope if binding and binding.scope else VariableResolver._infer_scope(variable_key),
+            "stage": binding.stage if binding and binding.stage else VariableResolver._infer_stage(variable_key),
+            "source": binding.source if binding and binding.source else lineage,
+            "variable_key": variable_key,
+            "required": bool(binding.required) if binding else False,
+        }
+
+    @staticmethod
+    def _snapshot_groups(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for item in items:
+            grouped.setdefault((str(item.get("scope") or "runtime"), str(item.get("stage") or "runtime")), []).append(item)
+        ordered_keys = sorted(grouped, key=lambda key: (VariableResolver._scope_order(key[0]), VariableResolver._stage_order(key[1]), key))
+        return [
+            {
+                "id": f"{scope}:{stage}",
+                "scope": scope,
+                "stage": stage,
+                "title": VariableResolver._group_title(scope, stage),
+                "items": grouped[(scope, stage)],
+            }
+            for scope, stage in ordered_keys
+        ]
+
+    @staticmethod
+    def _infer_type(value: Any) -> str:
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int) and not isinstance(value, bool):
+            return "integer"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, list):
+            return "list"
+        if isinstance(value, dict):
+            return "object"
+        return "string"
+
+    @staticmethod
+    def _infer_scope(variable_key: str) -> str:
+        if variable_key.startswith(("novel.", "global.")):
+            return "global"
+        if variable_key.startswith("chapter."):
+            return "chapter"
+        if variable_key.startswith("scene."):
+            return "scene"
+        if variable_key.startswith("beat."):
+            return "beat"
+        return "runtime"
+
+    @staticmethod
+    def _infer_stage(variable_key: str) -> str:
+        if ".setup." in variable_key or variable_key.startswith("novel."):
+            return "setup"
+        if ".planning." in variable_key:
+            return "planning"
+        if ".writing." in variable_key:
+            return "writing"
+        if ".review." in variable_key:
+            return "review"
+        return "runtime"
+
+    @staticmethod
+    def _scope_order(scope: str) -> int:
+        return {"global": 0, "novel": 1, "chapter": 2, "scene": 3, "beat": 4, "runtime": 9}.get(scope, 8)
+
+    @staticmethod
+    def _stage_order(stage: str) -> int:
+        return {"setup": 0, "planning": 1, "writing": 2, "review": 3, "runtime": 9}.get(stage, 8)
+
+    @staticmethod
+    def _group_title(scope: str, stage: str) -> str:
+        scope_label = {
+            "global": "全局变量",
+            "novel": "小说变量",
+            "chapter": "章节变量",
+            "scene": "场景变量",
+            "beat": "节拍变量",
+            "runtime": "运行时变量",
+        }.get(scope, scope)
+        stage_label = {
+            "setup": "设定",
+            "planning": "规划阶段",
+            "writing": "写作阶段",
+            "review": "审阅阶段",
+            "runtime": "运行时",
+        }.get(stage, stage)
+        return f"{scope_label} · {stage_label}"

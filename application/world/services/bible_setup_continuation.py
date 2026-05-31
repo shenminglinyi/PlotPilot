@@ -5,10 +5,11 @@ from typing import Any, Mapping
 
 from application.paths import get_db_path
 from application.ai_invocation.continuation import ContinuationContext, register_continuation_handler
-from application.ai.llm_json_extract import parse_llm_json_to_dict
+from application.ai.llm_json_extract import parse_llm_json_to_any
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_field_text import normalize_dimension_fields
 from application.world.services.worldbuilding_service import WorldbuildingService
+from application.world.services.bible_setup_invocation import _build_worldbuilding_prompt_fields
 from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
 
 
@@ -18,8 +19,42 @@ def _context_value(context: Mapping[str, Any], key: str, default: Any = None) ->
 
 
 def _parse_content(raw: str) -> dict[str, Any]:
-    data, _ = parse_llm_json_to_dict(raw)
-    return data or {}
+    data, _ = parse_llm_json_to_any(raw)
+    return data if isinstance(data, dict) else {}
+
+
+def _parse_jsonish_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or text[0] not in "[{":
+        return value
+    parsed, _ = parse_llm_json_to_any(text)
+    return parsed if parsed is not None else value
+
+
+def _as_list(value: Any) -> list[Any]:
+    value = _parse_jsonish_value(value)
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    value = _parse_jsonish_value(value)
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _extract_records(data: Any, key: str) -> list[Any]:
+    if isinstance(data, Mapping):
+        records = data.get(key)
+    else:
+        records = data
+    return _as_list(records)
 
 
 def _get_services(_context: ContinuationContext) -> tuple[BibleService, WorldbuildingService | None]:
@@ -41,6 +76,12 @@ def bible_worldbuilding_handler(context: ContinuationContext) -> Mapping[str, An
     data = _parse_content(context.decision.accepted_content)
     style = str(data.get("style") or "").strip()
     worldbuilding = data.get("worldbuilding") if isinstance(data.get("worldbuilding"), Mapping) else {}
+    if not worldbuilding:
+        worldbuilding = {
+            dim_key: data.get(dim_key)
+            for dim_key in ("core_rules", "geography", "society", "culture", "daily_life")
+            if isinstance(data.get(dim_key), Mapping)
+        }
     result: dict[str, Any] = {"novel_id": novel_id}
 
     if style:
@@ -68,6 +109,7 @@ def bible_worldbuilding_handler(context: ContinuationContext) -> Mapping[str, An
                 daily_life=normalized.get("daily_life"),
             )
             result["worldbuilding"] = normalized
+            result.update(_build_worldbuilding_prompt_fields(worldbuilding=normalized))
     return result
 
 
@@ -76,8 +118,8 @@ def bible_characters_handler(context: ContinuationContext) -> Mapping[str, Any]:
     novel_id = str(_context_value(context.session.context, "novel_id", ""))
     if not novel_id:
         return {}
-    data = _parse_content(context.decision.accepted_content)
-    characters = data.get("characters") if isinstance(data.get("characters"), list) else []
+    data, _ = parse_llm_json_to_any(context.decision.accepted_content)
+    characters = _extract_records(data, "characters")
     saved: list[dict[str, Any]] = []
     used_ids: set[str] = set()
 
@@ -96,7 +138,7 @@ def bible_characters_handler(context: ContinuationContext) -> Mapping[str, Any]:
             character_id=character_id,
             name=name,
             description=f"{str(char_data.get('role') or '').strip()} - {str(char_data.get('description') or '').strip()}".strip(" -"),
-            relationships=list(char_data.get("relationships") or []),
+            relationships=_as_list(char_data.get("relationships")),
             public_profile=str(char_data.get("public_profile") or ""),
             hidden_profile=str(char_data.get("hidden_profile") or ""),
             reveal_chapter=char_data.get("reveal_chapter"),
@@ -105,9 +147,9 @@ def bible_characters_handler(context: ContinuationContext) -> Mapping[str, Any]:
             verbal_tic=str(char_data.get("verbal_tic") or ""),
             idle_behavior=str(char_data.get("idle_behavior") or ""),
             core_belief=str(char_data.get("core_belief") or ""),
-            moral_taboos=list(char_data.get("moral_taboos") or []),
-            voice_profile=dict(char_data.get("voice_profile") or {}),
-            active_wounds=list(char_data.get("active_wounds") or []),
+            moral_taboos=_as_list(char_data.get("moral_taboos")),
+            voice_profile=_as_dict(char_data.get("voice_profile")),
+            active_wounds=_as_list(char_data.get("active_wounds")),
         )
         row = dict(char_data)
         row["id"] = character_id
@@ -121,8 +163,8 @@ def bible_locations_handler(context: ContinuationContext) -> Mapping[str, Any]:
     novel_id = str(_context_value(context.session.context, "novel_id", ""))
     if not novel_id:
         return {}
-    data = _parse_content(context.decision.accepted_content)
-    locations = data.get("locations") if isinstance(data.get("locations"), list) else []
+    data, _ = parse_llm_json_to_any(context.decision.accepted_content)
+    locations = _extract_records(data, "locations")
     saved: list[dict[str, Any]] = []
     used_ids: set[str] = set()
 
@@ -142,7 +184,7 @@ def bible_locations_handler(context: ContinuationContext) -> Mapping[str, Any]:
             "description": str(loc_data.get("description") or ""),
             "location_type": str(loc_data.get("type") or loc_data.get("location_type") or "场景"),
             "parent_id": loc_data.get("parent_id"),
-            "connections": list(loc_data.get("connections") or []),
+            "connections": _as_list(loc_data.get("connections")),
         }
         bible_service.add_location(
             novel_id=novel_id,

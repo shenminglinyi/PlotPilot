@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -82,6 +82,72 @@ def _ensure_main_plot_invocation_contract() -> None:
     )
     binding_set_id = f"{PLANNING_MAIN_PLOT_OPTION}:input:v1"
     required_aliases = {"context_blob"}
+    planning_global_bindings = {
+        "novel_title": {
+            "variable_key": "novel.setup.title",
+            "display_name": "名称",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+        "premise": {
+            "variable_key": "novel.setup.premise",
+            "display_name": "设定",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+        "genre_major": {
+            "variable_key": "novel.setup.genre_major",
+            "display_name": "大类",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+        "genre_theme": {
+            "variable_key": "novel.setup.genre_theme",
+            "display_name": "主题",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+        "genre_label": {
+            "variable_key": "novel.setup.genre_label",
+            "display_name": "类型",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+        "world_preset": {
+            "variable_key": "novel.setup.world_preset",
+            "display_name": "基调",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+        "target_chapters": {
+            "variable_key": "novel.setup.target_chapters",
+            "display_name": "章节数量",
+            "value_type": "integer",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+        "target_words_per_chapter": {
+            "variable_key": "novel.setup.target_words_per_chapter",
+            "display_name": "每章字数",
+            "value_type": "integer",
+            "scope": "global",
+            "stage": "setup",
+            "required": False,
+        },
+    }
 
     db = get_database()
     with sqlite_writes_bypass_queue():
@@ -97,17 +163,23 @@ def _ensure_main_plot_invocation_contract() -> None:
                 """,
                 (binding_set_id, PLANNING_MAIN_PLOT_OPTION),
             )
-            for alias in aliases:
+            binding_aliases = sorted(set(aliases) | set(planning_global_bindings))
+            for alias in binding_aliases:
+                binding_meta = planning_global_bindings.get(alias, {})
+                is_required = alias in required_aliases or bool(binding_meta.get("required"))
+                default_value = None if is_required else '""'
                 conn.execute(
                     """
                     INSERT INTO cpms_variable_bindings (
-                        id, binding_set_id, node_key, direction, alias, required,
-                        default_value_json, source, enabled
-                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, 'cpms_template', 1)
+                        id, binding_set_id, node_key, direction, alias, variable_key, required,
+                        default_value_json, source, enabled, metadata_json
+                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, ?, ?, 1, ?)
                     ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
+                        variable_key=excluded.variable_key,
                         required=excluded.required,
                         default_value_json=excluded.default_value_json,
                         source=excluded.source,
+                        metadata_json=excluded.metadata_json,
                         enabled=1
                     """,
                     (
@@ -115,8 +187,11 @@ def _ensure_main_plot_invocation_contract() -> None:
                         binding_set_id,
                         PLANNING_MAIN_PLOT_OPTION,
                         alias,
-                        1 if alias in required_aliases else 0,
-                        None if alias in required_aliases else '""',
+                        str(binding_meta.get("variable_key") or ""),
+                        1 if is_required else 0,
+                        default_value,
+                        "novel_setup_global" if binding_meta else "cpms_template",
+                        json.dumps(binding_meta, ensure_ascii=False) if binding_meta else "{}",
                     ),
                 )
 
@@ -141,6 +216,35 @@ def _ensure_main_plot_invocation_contract() -> None:
             status="published",
         )
         register_setup_main_plot_continuation()
+
+
+def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    theme_metadata = ctx.get("theme_metadata") if isinstance(ctx.get("theme_metadata"), dict) else {}
+    genre_label = str(theme_metadata.get("genre_label") or "").strip()
+    genre_major, genre_theme = _split_genre_label(genre_label)
+    return {
+        "context_blob": (
+            f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n"
+            f"{json.dumps(ctx, ensure_ascii=False, indent=2)}\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
+        ),
+        "novel_title": str(ctx.get("novel_title") or "").strip(),
+        "premise": str(ctx.get("premise") or "").strip(),
+        "genre_major": genre_major,
+        "genre_theme": genre_theme,
+        "genre_label": genre_label,
+        "world_preset": str(theme_metadata.get("world_preset") or "").strip(),
+        "target_chapters": int(ctx.get("target_chapters") or 0),
+        "target_words_per_chapter": int(ctx.get("target_words_per_chapter") or 0),
+    }
+
+
+def _split_genre_label(genre_label: str) -> tuple[str, str]:
+    parts = [part.strip() for part in genre_label.split("/") if part.strip()]
+    if len(parts) >= 2:
+        return parts[0], parts[1]
+    if len(parts) == 1:
+        return parts[0], ""
+    return "", ""
 
 
 router = APIRouter(prefix="/novels", tags=["generation"])
@@ -639,16 +743,12 @@ async def suggest_main_plot_options(
     try:
         _ensure_main_plot_invocation_contract()
         ctx = setup_svc.build_context(novel_id)
+        invocation_variables = _main_plot_invocation_variables(ctx)
         payload = await create_invocation(
             InvocationCreateRequest(
                 operation="setup.main_plot_options",
                 node_key=PLANNING_MAIN_PLOT_OPTION,
-                variables={
-                    "context_blob": (
-                        f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n"
-                        f"{json.dumps(ctx, ensure_ascii=False, indent=2)}\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
-                    )
-                },
+                variables=invocation_variables,
                 context={"novel_id": novel_id, "setup_context": ctx},
                 policy=InvocationPolicy.FULL_INTERACTIVE,
                 metadata={
@@ -689,16 +789,12 @@ async def suggest_main_plot_options_stream(
         try:
             _ensure_main_plot_invocation_contract()
             ctx = setup_svc.build_context(novel_id)
+            invocation_variables = _main_plot_invocation_variables(ctx)
             payload = await create_invocation(
                 InvocationCreateRequest(
                     operation="setup.main_plot_options",
                     node_key=PLANNING_MAIN_PLOT_OPTION,
-                    variables={
-                        "context_blob": (
-                            f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n"
-                            f"{json.dumps(ctx, ensure_ascii=False, indent=2)}\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
-                        )
-                    },
+                    variables=invocation_variables,
                     context={"novel_id": novel_id, "setup_context": ctx},
                     policy=InvocationPolicy.FULL_INTERACTIVE,
                     metadata={

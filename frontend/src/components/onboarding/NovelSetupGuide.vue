@@ -10,7 +10,7 @@
     :segmented="{ content: true, footer: true }"
   >
     <n-steps :current="currentStep" :status="stepStatus" size="small" class="wizard-steps">
-      <n-step title="世界观" description="5维度框架" class="wizard-step-clickable" @click="goToStep(1)" />
+      <n-step title="文风 / 世界观" description="先定调，再搭 5 维框架" class="wizard-step-clickable" @click="goToStep(1)" />
       <n-step title="人物" description="主要角色" class="wizard-step-clickable" @click="goToStep(2)" />
       <n-step title="地图" description="地图系统" class="wizard-step-clickable" @click="goToStep(3)" />
       <n-step title="故事线" description="主线支线" class="wizard-step-clickable" @click="goToStep(4)" />
@@ -38,8 +38,8 @@
               </n-icon>
             </div>
             <div class="generating-text">
-              <h3>{{ phaseMessage || '正在生成世界观...' }}</h3>
-              <p class="generating-sub">AI 正在逐维度构建您的世界，出一个渲染一个</p>
+              <h3>{{ phaseMessage || '正在生成文风公约与世界观...' }}</h3>
+              <p class="generating-sub">AI 会先定文风，再逐维度构建您的世界，出一个渲染一个</p>
             </div>
           </div>
 
@@ -123,11 +123,22 @@
 
         <!-- 生成完成后显示可编辑预览 -->
         <div v-else-if="bibleGenerated" class="bible-preview">
-          <n-alert type="success" title="世界观生成完成" style="margin-bottom: 16px">
-            请查看并修改世界观设定和文风公约，确认后下一步将基于此生成人物和地点。
+          <n-alert type="success" title="文风公约与世界观生成完成" style="margin-bottom: 16px">
+            请查看并修改文风公约和世界观设定，确认后下一步将基于此生成人物和地点。
           </n-alert>
 
-          <n-collapse :default-expanded-names="['worldbuilding', 'style']">
+          <n-collapse :default-expanded-names="['style', 'worldbuilding']">
+            <n-collapse-item title="文风公约" name="style">
+              <n-card size="small">
+                <n-input
+                  v-model:value="styleText"
+                  type="textarea"
+                  :autosize="{ minRows: 3, maxRows: 10 }"
+                  placeholder="文风公约"
+                />
+              </n-card>
+            </n-collapse-item>
+
             <n-collapse-item title="世界观（5维度框架）" name="worldbuilding">
               <n-space vertical size="small">
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
@@ -145,17 +156,6 @@
                 </n-card>
               </n-space>
             </n-collapse-item>
-
-            <n-collapse-item title="文风公约" name="style">
-              <n-card size="small">
-                <n-input
-                  v-model:value="styleText"
-                  type="textarea"
-                  :autosize="{ minRows: 3, maxRows: 10 }"
-                  placeholder="文风公约"
-                />
-              </n-card>
-            </n-collapse-item>
           </n-collapse>
           <n-button secondary style="margin-top: 12px" @click="startBibleGeneration()">
             重新生成
@@ -167,8 +167,8 @@
           <n-icon size="48" color="#18a058">
             <IconBook />
           </n-icon>
-          <h3>准备生成世界观</h3>
-          <p>AI 将分析您的故事创意，逐维度构建世界观和文风公约。</p>
+          <h3>准备生成文风公约与世界观</h3>
+          <p>AI 将先生成文风公约，再逐维度构建世界观。</p>
           <n-button type="primary" style="margin-top: 16px" @click="startBibleGeneration()">
             开始生成
           </n-button>
@@ -1171,13 +1171,13 @@ const editableLocations = ref<Array<{ name: string; id?: string; location_type?:
 
 function setBibleStageReviewWaiting(stage: string, waiting: boolean) {
   if (stage === 'worldbuilding') {
-    generatingBible.value = waiting
+    generatingBible.value = false
     bibleGenerated.value = false
   } else if (stage === 'characters') {
-    generatingCharacters.value = waiting
+    generatingCharacters.value = false
     charactersGenerated.value = false
   } else if (stage === 'locations') {
-    generatingLocations.value = waiting
+    generatingLocations.value = false
     locationsGenerated.value = false
   }
   phaseMessage.value = waiting ? '等待 AI 审阅批准...' : ''
@@ -1481,14 +1481,11 @@ function startBibleGeneration() {
   startBibleGenerationSSE()
 }
 
-/** 启动第1步 SSE 流式生成世界观 */
+/** 启动第1步：生成文风公约与世界观 */
 function startBibleGenerationSSE() {
-generatingBible.value = true
-bibleGenerated.value = false
-bibleError.value = ''
-  phaseMessage.value = '正在准备生成环境...'
+  bibleError.value = ''
+  phaseMessage.value = '正在准备生成文风公约...'
   activeDimension.value = ''
-  completedDimensions.value = new Set()
   activeField.value = ''
   arrivedFields.value = new Set()
   worldbuildingData.value = emptyWorldbuildingShape()
@@ -1553,7 +1550,6 @@ bibleError.value = ''
       finishWorldbuildingGeneration()
     },
     onError: (msg) => {
-      generatingBible.value = false
       bibleError.value = msg
       phaseMessage.value = ''
     },
@@ -1565,13 +1561,12 @@ function startCharactersGeneration() {
   startCharactersGenerationSSE()
 }
 
-/** 启动第2步 SSE 流式生成人物 */
+/** 启动第2步：生成人物 */
 function startCharactersGenerationSSE() {
-generatingCharacters.value = true
-charactersGenerated.value = false
-charactersError.value = ''
+  charactersGenerated.value = false
+  charactersError.value = ''
   streamingCharacters.value = []
-  phaseMessage.value = '正在生成人物...'
+  phaseMessage.value = '正在打开审阅面板...'
 
   const ctrl = new AbortController()
   charactersSseAbort.value = ctrl
@@ -1662,13 +1657,12 @@ function startLocationsGeneration() {
   startLocationsGenerationSSE()
 }
 
-/** 启动第3步 SSE 流式生成地点 */
+/** 启动第3步：生成地点 */
 function startLocationsGenerationSSE() {
-generatingLocations.value = true
-locationsGenerated.value = false
-locationsError.value = ''
+  locationsGenerated.value = false
+  locationsError.value = ''
   streamingLocations.value = []
-  phaseMessage.value = '正在生成地图...'
+  phaseMessage.value = '正在打开审阅面板...'
 
   const ctrl = new AbortController()
   locationsSseAbort.value = ctrl

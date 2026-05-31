@@ -74,6 +74,10 @@ def _binding_to_dict(binding: VariableBinding) -> dict[str, Any]:
         "default": binding.default,
         "source": binding.source,
         "enabled": binding.enabled,
+        "value_type": binding.value_type,
+        "scope": binding.scope,
+        "stage": binding.stage,
+        "display_name": binding.display_name,
     }
 
 
@@ -85,6 +89,10 @@ def _binding_from_dict(data: Mapping[str, Any]) -> VariableBinding:
         default=data.get("default"),
         source=str(data.get("source") or ""),
         enabled=bool(data.get("enabled", True)),
+        value_type=str(data.get("value_type") or "string"),
+        scope=str(data.get("scope") or "runtime"),
+        stage=str(data.get("stage") or "runtime"),
+        display_name=str(data.get("display_name") or ""),
     )
 
 
@@ -93,6 +101,14 @@ def prompt_snapshot_to_dict(snapshot: PromptSnapshot | None) -> dict[str, Any]:
         return {}
     return {
         "prompt": {"system": snapshot.prompt.system, "user": snapshot.prompt.user},
+        "template_prompt": {
+            "system": snapshot.template_prompt.system,
+            "user": snapshot.template_prompt.user,
+        } if snapshot.template_prompt is not None else {},
+        "draft_prompt": {
+            "system": snapshot.draft_prompt.system,
+            "user": snapshot.draft_prompt.user,
+        } if snapshot.draft_prompt is not None else {},
         "node_key": snapshot.node_key,
         "node_version_id": snapshot.node_version_id,
         "asset_link_set_id": snapshot.asset_link_set_id,
@@ -116,6 +132,20 @@ def prompt_snapshot_from_dict(data: Mapping[str, Any]) -> PromptSnapshot | None:
     user = str(prompt_data.get("user") or "")
     if not system or not user:
         return None
+    template_prompt_data = data.get("template_prompt")
+    template_prompt = None
+    if isinstance(template_prompt_data, Mapping):
+        template_system = str(template_prompt_data.get("system") or "")
+        template_user = str(template_prompt_data.get("user") or "")
+        if template_system and template_user:
+            template_prompt = Prompt(system=template_system, user=template_user)
+    draft_prompt_data = data.get("draft_prompt")
+    draft_prompt = None
+    if isinstance(draft_prompt_data, Mapping):
+        draft_system = str(draft_prompt_data.get("system") or "")
+        draft_user = str(draft_prompt_data.get("user") or "")
+        if draft_system or draft_user:
+            draft_prompt = Prompt(system=draft_system, user=draft_user)
     return PromptSnapshot(
         prompt=Prompt(system=system, user=user),
         node_key=str(data.get("node_key") or ""),
@@ -130,6 +160,8 @@ def prompt_snapshot_from_dict(data: Mapping[str, Any]) -> PromptSnapshot | None:
         missing_variables=tuple(data.get("missing_variables") or ()),
         diagnostics=tuple(data.get("diagnostics") or ()),
         asset_version_ids=tuple(data.get("asset_version_ids") or ()),
+        template_prompt=template_prompt,
+        draft_prompt=draft_prompt,
     )
 
 
@@ -142,6 +174,8 @@ def variable_plan_to_dict(plan: VariablePlan | None) -> dict[str, Any]:
         "required_missing": list(plan.required_missing),
         "diagnostics": list(plan.diagnostics),
         "lineage": dict(plan.lineage),
+        "snapshot_items": [dict(item) for item in plan.snapshot_items],
+        "snapshot_groups": [dict(group) for group in plan.snapshot_groups],
         "snapshot_hash": plan.snapshot_hash,
     }
 
@@ -156,6 +190,12 @@ def variable_plan_from_dict(data: Mapping[str, Any]) -> VariablePlan | None:
         required_missing=tuple(data.get("required_missing") or ()),
         diagnostics=tuple(data.get("diagnostics") or ()),
         lineage=data.get("lineage") if isinstance(data.get("lineage"), Mapping) else {},
+        snapshot_items=tuple(
+            item for item in data.get("snapshot_items") or () if isinstance(item, Mapping)
+        ),
+        snapshot_groups=tuple(
+            item for item in data.get("snapshot_groups") or () if isinstance(item, Mapping)
+        ),
         snapshot_hash=str(data.get("snapshot_hash") or ""),
     )
 
@@ -518,6 +558,33 @@ class SqliteAdoptionRepository:
             metadata=_json_loads(row["metadata_json"], {}),
         )
 
+    def get_latest_decision_for_attempt(self, session_id: str, attempt_id: str) -> AdoptionDecision | None:
+        row = self._db.fetch_one(
+            """
+            SELECT *
+            FROM ai_adoption_decisions
+            WHERE session_id = ? AND attempt_id = ?
+            ORDER BY accepted_at DESC
+            LIMIT 1
+            """,
+            (session_id, attempt_id),
+        )
+        if row is None:
+            return None
+        return AdoptionDecision(
+            id=row["id"],
+            session_id=row["session_id"],
+            attempt_id=row["attempt_id"],
+            decision=row["decision"],
+            accept_content=bool(row["accept_content"]),
+            commit_prompt_version=bool(row["commit_prompt_version"]),
+            commit_variable_outputs=bool(row["commit_variable_outputs"]),
+            commit_variable_bindings=bool(row["commit_variable_bindings"]),
+            accepted_content=row["accepted_content"] or "",
+            accepted_by=row["accepted_by"] or "system",
+            metadata=_json_loads(row["metadata_json"], {}),
+        )
+
     def create_commit(self, *, session_id: str, decision_id: str) -> AdoptionCommitRecord:
         idempotency_key = f"{session_id}:{decision_id}"
         existing = self._db.fetch_one(
@@ -680,6 +747,10 @@ class SqliteVariableHubRepository:
                 default=_json_loads(row["default_value_json"], None),
                 source=row["source"] or "",
                 enabled=bool(row["enabled"]),
+                value_type=str(_json_loads(row["metadata_json"], {}).get("value_type") or "string") if row["metadata_json"] else "string",
+                scope=str(_json_loads(row["metadata_json"], {}).get("scope") or "runtime") if row["metadata_json"] else "runtime",
+                stage=str(_json_loads(row["metadata_json"], {}).get("stage") or "runtime") if row["metadata_json"] else "runtime",
+                display_name=str(_json_loads(row["metadata_json"], {}).get("display_name") or "") if row["metadata_json"] else "",
             )
             for row in rows
         ]

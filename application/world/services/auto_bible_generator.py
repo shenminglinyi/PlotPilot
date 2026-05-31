@@ -977,10 +977,19 @@ JSON 格式：
 直接输出 JSON（不要包在代码块里），格式：
 {{
   "style": "",
+  "worldbuilding_full": "",
   "worldbuilding": {{}}
 }}"""
 
-        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+        data = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+        worldbuilding = data.get("worldbuilding") if isinstance(data.get("worldbuilding"), dict) else {}
+        if "worldbuilding_full" not in data:
+            from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
+
+            data["worldbuilding_full"] = build_worldbuilding_prompt_fields(
+                worldbuilding_slices=worldbuilding,
+            ).get("worldbuilding_full", "")
+        return data
 
     def _build_worldbuilding_json_schema_desc(self) -> str:
         """五维完整字段模板（单次流式输出用）。"""
@@ -1139,7 +1148,10 @@ JSON 格式：
     # 维度定义：key → (label, field_definitions)
     async def _generate_characters(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any]) -> Dict[str, Any]:
         """基于世界观生成人物"""
-        wb_summary = self._summarize_worldbuilding(worldbuilding)
+        from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
+
+        wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
+        wb_summary = wb_fields.get("worldbuilding_full", "")
         surname_seed = build_character_surname_seed(
             8,
             rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
@@ -1179,7 +1191,12 @@ JSON 格式：
 
         user_prompt = (
             f"【故事创意】\n{premise}\n\n"
-            f"【已有世界观】\n{wb_summary}\n\n"
+            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
+            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
+            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
+            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
+            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
+            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
             f"{surname_seed.to_prompt_block()}\n\n"
             "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。"
             "人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。\n\n"
@@ -1237,7 +1254,10 @@ JSON 格式：
             {"type": "chunk", "text": str}   — 原始 token（可选，用于调试/进度）
             {"type": "done", "count": int}   — 全部完成
         """
-        wb_summary = self._summarize_worldbuilding(worldbuilding)
+        from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
+
+        wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
+        wb_summary = wb_fields.get("worldbuilding_full", "")
         surname_seed = build_character_surname_seed(
             8,
             rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
@@ -1246,7 +1266,12 @@ JSON 格式：
         system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
         user_prompt = (
             f"【故事创意】\n{premise}\n\n"
-            f"【已有世界观】\n{wb_summary}\n\n"
+            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
+            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
+            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
+            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
+            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
+            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
             f"{surname_seed.to_prompt_block()}\n\n"
             "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。"
             "人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。\n\n"
@@ -1321,7 +1346,10 @@ JSON 格式：
 
     async def _generate_locations(self, premise: str, target_chapters: int, worldbuilding: Dict[str, Any], characters: list) -> Dict[str, Any]:
         """基于世界观和人物生成地点"""
-        wb_summary = self._summarize_worldbuilding(worldbuilding)
+        from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
+
+        wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
+        wb_summary = wb_fields.get("worldbuilding_full", "")
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
         from infrastructure.ai.prompt_utils import get_prompt_system
@@ -1358,7 +1386,12 @@ JSON 格式：
 
         user_prompt = (
             f"【故事创意】\n{premise}\n\n"
-            f"【已有世界观】\n{wb_summary}\n\n"
+            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
+            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
+            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
+            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
+            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
+            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
             f"【已有人物】\n{char_summary}\n\n"
             "请基于以上世界观和人物生成 5-10 个重要地点，构成完整地图。\n\n"
             "直接输出 JSON（不要包在代码块里），格式：\n"
@@ -1389,13 +1422,21 @@ JSON 格式：
 
         Yields: 同 _stream_generate_characters，type 为 location
         """
-        wb_summary = self._summarize_worldbuilding(worldbuilding)
+        from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
+
+        wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
+        wb_summary = wb_fields.get("worldbuilding_full", "")
         char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
         from infrastructure.ai.prompt_utils import get_prompt_system
         system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
         user_prompt = (
             f"【故事创意】\n{premise}\n\n"
-            f"【已有世界观】\n{wb_summary}\n\n"
+            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
+            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
+            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
+            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
+            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
+            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
             f"【已有人物】\n{char_summary}\n\n"
             "请基于以上世界观和人物生成 5-10 个重要地点，构成完整地图。\n\n"
             "直接输出 JSON（不要包在代码块里），格式：\n"

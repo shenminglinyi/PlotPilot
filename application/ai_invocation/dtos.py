@@ -107,6 +107,10 @@ class VariableBinding:
     default: Any = None
     source: str = ""
     enabled: bool = True
+    value_type: str = "string"
+    scope: str = "runtime"
+    stage: str = "runtime"
+    display_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,8 @@ class VariablePlan:
     required_missing: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
     lineage: Mapping[str, str] = field(default_factory=dict)
+    snapshot_items: tuple[Mapping[str, Any], ...] = ()
+    snapshot_groups: tuple[Mapping[str, Any], ...] = ()
     snapshot_hash: str = ""
 
     @property
@@ -142,6 +148,8 @@ class PromptSnapshot:
     missing_variables: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
     asset_version_ids: tuple[str, ...] = ()
+    template_prompt: Optional[Prompt] = None
+    draft_prompt: Optional[Prompt] = None
 
 
 @dataclass

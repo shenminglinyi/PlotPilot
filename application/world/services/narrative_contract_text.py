@@ -106,6 +106,30 @@ def format_worldbuilding_slices_for_prompt(
     return "\n".join(lines)
 
 
+def build_worldbuilding_prompt_fields(
+    *,
+    bible: Optional[Bible] = None,
+    worldbuilding: Optional[Worldbuilding] = None,
+    worldbuilding_slices: Optional[Dict[str, Dict[str, str]]] = None,
+) -> Dict[str, str]:
+    """将世界观切片展开为全量块与独立维度字段。"""
+    if worldbuilding_slices is None:
+        from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
+
+        worldbuilding_slices = load_merged_worldbuilding_slices(
+            bible=bible,
+            worldbuilding=worldbuilding,
+        )
+
+    full_text = format_worldbuilding_slices_for_prompt(worldbuilding_slices)
+    fields: Dict[str, str] = {
+        "worldbuilding_full": full_text,
+    }
+    for dim in WORLD_BUILDING_DIMENSION_KEYS:
+        fields[dim] = format_worldbuilding_slices_for_prompt({dim: (worldbuilding_slices or {}).get(dim) or {}})
+    return fields
+
+
 def format_worldbuilding_for_prompt(wb: Optional[Worldbuilding]) -> str:
     """将 worldbuilding 表实体转为紧凑正文（仅非空字段）。"""
     if wb is None:

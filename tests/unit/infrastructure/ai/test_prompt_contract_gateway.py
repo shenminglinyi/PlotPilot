@@ -25,6 +25,27 @@ from infrastructure.ai.prompt_template_engine import get_template_engine
 from infrastructure.ai.variable_registry import VariableRegistry
 
 
+def test_prompt_template_engine_renders_variables_inside_output_json_shape():
+    """输出 JSON 结构里的 escaped braces 不能阻断内部变量渲染。"""
+    engine = get_template_engine()
+
+    rendered = engine.render(
+        system_template="系统：{premise}",
+        user_template='''请输出 JSON：\n{{\n  "worldbuilding": {{\n{fields_desc}\n  }}\n}}''',
+        variables={
+            "premise": "重生高武世界",
+            "fields_desc": '    "core_rules": {\n      "power_system": "武道体系"\n    }',
+        },
+    )
+
+    assert rendered.system == "系统：重生高武世界"
+    assert '"worldbuilding": {' in rendered.user
+    assert '"core_rules": {' in rendered.user
+    assert "{{" not in rendered.user
+    assert "{fields_desc}" not in rendered.user
+    assert rendered.missing_variables == []
+
+
 def test_all_registered_prompt_keys_have_builtin_package():
     """prompt_keys 注册的静态 key 必须存在对应内置包。"""
     _, prompts = load_seed_bundle()
@@ -54,6 +75,16 @@ def test_prompt_package_variables_cover_template_usage():
             problems.append((record.get("id", node_dir.name), missing))
 
     assert problems == []
+
+
+def test_bible_worldbuilding_package_exposes_split_fields():
+    engine = get_template_engine()
+    record = load_node_dir(NODES_DIR / "bible-worldbuilding")
+    declared = {var.get("name") for var in record.get("variables") or [] if isinstance(var, dict)}
+    used = engine.extract_variables(f"{record.get('system') or ''}\n{record.get('user_template') or ''}")
+
+    assert {"worldbuilding_full", "core_rules", "geography", "society", "culture", "daily_life"} <= declared
+    assert {"worldbuilding_full", "core_rules", "geography", "society", "culture", "daily_life"} <= used
 
 
 def test_prompt_gateway_fast_fails_when_registry_misses(monkeypatch):

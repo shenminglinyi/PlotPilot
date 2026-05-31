@@ -1,4 +1,6 @@
-﻿import { apiClient } from './config'
+﻿import type { AxiosRequestConfig } from 'axios'
+
+import { apiClient } from './config'
 
 export type InvocationPolicy =
   | 'DIRECT'
@@ -29,6 +31,14 @@ export interface InvocationPromptSnapshot {
     system?: string
     user?: string
   }
+  template_prompt?: {
+    system?: string
+    user?: string
+  }
+  draft_prompt?: {
+    system?: string
+    user?: string
+  }
   node_key?: string
   node_version_id?: string
   asset_link_set_id?: string
@@ -49,6 +59,42 @@ export interface InvocationVariablePlan {
   diagnostics?: string[]
   lineage?: Record<string, string>
   snapshot_hash?: string
+  snapshot_items?: InvocationVariableSnapshotItem[]
+  snapshot_groups?: InvocationVariableSnapshotGroup[]
+  bindings?: InvocationVariableBinding[]
+}
+
+export interface InvocationVariableBinding {
+  alias: string
+  variable_key?: string
+  required?: boolean
+  default?: unknown
+  source?: string
+  enabled?: boolean
+  value_type?: string
+  scope?: string
+  stage?: string
+  display_name?: string
+}
+
+export interface InvocationVariableSnapshotItem {
+  key?: string
+  display_name?: string
+  value?: unknown
+  type?: string
+  scope?: string
+  stage?: string
+  source?: string
+  variable_key?: string
+  required?: boolean
+}
+
+export interface InvocationVariableSnapshotGroup {
+  id?: string
+  scope?: string
+  stage?: string
+  title?: string
+  items?: InvocationVariableSnapshotItem[]
 }
 
 export interface InvocationSessionDTO {
@@ -133,12 +179,22 @@ export interface InvocationResumePayload {
   metadata?: Record<string, unknown>
 }
 
+export interface InvocationPromptDraftPayload {
+  system_template: string
+  user_template?: string | null
+}
+
+export interface InvocationPromptDraftPreviewDTO {
+  prompt_snapshot: InvocationPromptSnapshot
+  variable_plan?: InvocationVariablePlan
+}
+
 export const aiInvocationApi = {
   create(payload: InvocationCreatePayload) {
     return apiClient.post<InvocationResponseDTO>('/ai-invocations', payload)
   },
-  get(sessionId: string) {
-    return apiClient.get<InvocationResponseDTO>(`/ai-invocations/${sessionId}`)
+  get(sessionId: string, config?: AxiosRequestConfig) {
+    return apiClient.get<InvocationResponseDTO>(`/ai-invocations/${sessionId}`, config)
   },
   accept(sessionId: string, payload: InvocationAcceptPayload) {
     return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/accept`, payload)
@@ -148,6 +204,18 @@ export const aiInvocationApi = {
   },
   resume(sessionId: string, payload: InvocationResumePayload) {
     return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/resume`, payload)
+  },
+  retry(sessionId: string, payload: InvocationResumePayload = {}) {
+    return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/retry`, payload)
+  },
+  previewPromptDraft(sessionId: string, payload: InvocationPromptDraftPayload) {
+    return apiClient.post<InvocationPromptDraftPreviewDTO>(
+      `/ai-invocations/${sessionId}/prompt-draft/preview`,
+      payload,
+    )
+  },
+  savePromptDraft(sessionId: string, payload: InvocationPromptDraftPayload) {
+    return apiClient.put<InvocationResponseDTO>(`/ai-invocations/${sessionId}/prompt-draft`, payload)
   },
   commit(sessionId: string, decisionId: string) {
     return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/commits`, {

@@ -91,4 +91,5 @@ class CPMSPromptAssembler:
             missing_variables=tuple(getattr(render_result, "missing_variables", []) or ()),
             diagnostics=tuple(diagnostics),
             asset_version_ids=asset_version_ids,
+            template_prompt=Prompt(system=system_template or "", user=user_template or ""),
         )

@@ -87,6 +87,21 @@ def extract_outer_json_object(text: str) -> str:
     return text[start : end + 1]
 
 
+def extract_outer_json_value(text: str) -> str:
+    """取第一个 JSON 对象或数组片段，容忍前后废话。"""
+    obj_start = text.find("{")
+    arr_start = text.find("[")
+    starts = [idx for idx in (obj_start, arr_start) if idx != -1]
+    if not starts:
+        return text
+    start = min(starts)
+    close = "}" if text[start] == "{" else "]"
+    end = text.rfind(close)
+    if end == -1 or end <= start:
+        return text
+    return text[start : end + 1]
+
+
 # ---------------------------------------------------------------------------
 # 第二步：修复（委托 json_repair 库）
 # ---------------------------------------------------------------------------
@@ -156,6 +171,35 @@ def repair_json(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def parse_llm_json_to_any(raw: str) -> Tuple[Optional[Any], List[str]]:
+    """从 LLM 原始输出中解析任意 JSON 根节点。
+
+    完整管线：清洗 → 修复 → 解析。成功返回 (data, [])；失败返回 (None, [错误信息…])。
+    """
+    errors: List[str] = []
+
+    try:
+        # 第一步：清洗
+        cleaned = strip_json_fences(raw)
+
+        # 第二步：提取最外层 JSON 值
+        cleaned = extract_outer_json_value(cleaned)
+
+        # 第三步：修复（委托 json_repair）
+        cleaned = repair_json(cleaned)
+
+        # 第四步：解析
+        data = json.loads(cleaned)
+
+        return data, []
+    except json.JSONDecodeError as e:
+        errors.append(f"JSON 解析失败: {e}")
+    except Exception as e:
+        errors.append(f"预处理失败: {e}")
+
+    return None, errors
+
+
 def parse_llm_json_to_dict(raw: str) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     """从 LLM 原始输出中解析 JSON 对象。
 
@@ -167,21 +211,11 @@ def parse_llm_json_to_dict(raw: str) -> Tuple[Optional[Dict[str, Any]], List[str
     不要各自造 parse_json_from_response（auto_bible_generator、knowledge_llm_contract
     中的自造版本已废弃）。
     """
-    errors: List[str] = []
+    data, errors = parse_llm_json_to_any(raw)
+    if data is None:
+        return None, errors
 
     try:
-        # 第一步：清洗
-        cleaned = strip_json_fences(raw)
-
-        # 第二步：提取最外层 JSON 对象
-        cleaned = extract_outer_json_object(cleaned)
-
-        # 第三步：修复（委托 json_repair）
-        cleaned = repair_json(cleaned)
-
-        # 第四步：解析
-        data = json.loads(cleaned)
-
         if isinstance(data, dict):
             return data, []
 
@@ -190,10 +224,7 @@ def parse_llm_json_to_dict(raw: str) -> Tuple[Optional[Dict[str, Any]], List[str
             return data[0], []
 
         errors.append(f"根节点必须是 JSON 对象，实际是 {type(data).__name__}")
-
-    except json.JSONDecodeError as e:
-        errors.append(f"JSON 解析失败: {e}")
     except Exception as e:
-        errors.append(f"预处理失败: {e}")
+        errors.append(f"解析结果校验失败: {e}")
 
     return None, errors

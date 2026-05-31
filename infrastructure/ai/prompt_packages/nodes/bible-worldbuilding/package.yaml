@@ -11,16 +11,59 @@ variables:
 - name: premise
   desc: 故事创意
   type: string
-- name: target_chapters
-  desc: 目标章节数
+- name: novel_title
+  desc: 小说名称
   type: string
-  default: '100'
+- name: genre_major
+  desc: 小说大类
+  type: string
+- name: genre_theme
+  desc: 小说主题
+  type: string
+- name: genre_label
+  desc: 小说类型字符串
+  type: string
+- name: world_preset
+  desc: 世界观基调
+  type: string
+- name: target_chapters
+  desc: 章节数量
+  type: integer
+  default: 100
+- name: target_words_per_chapter
+  desc: 每章字数
+  type: integer
+  default: 0
+- name: worldbuilding_full
+  desc: 世界观全量摘要
+  type: string
+  default: ''
+- name: core_rules
+  desc: 核心法则
+  type: string
+  default: ''
+- name: geography
+  desc: 地理生态
+  type: string
+  default: ''
+- name: society
+  desc: 社会结构
+  type: string
+  default: ''
+- name: culture
+  desc: 历史文化
+  type: string
+  default: ''
+- name: daily_life
+  desc: 沉浸感细节
+  type: string
+  default: ''
 - name: fields_desc
   desc: 五维字段模板（由代码注入）
   type: string
   default: ''
-- name: existing_settings
-  desc: 已有设定
+- name: novel_setup
+  desc: 小说设定摘要
   type: string
   default: ''
 id: bible-worldbuilding

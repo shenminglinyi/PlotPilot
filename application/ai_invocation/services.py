@@ -1,7 +1,9 @@
 ﻿"""AI Invocation 会话与 attempt 服务。"""
 from __future__ import annotations
 
+import logging
 import uuid
+from dataclasses import replace
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from application.ai_invocation.continuation import ContinuationContext, execute_continuation
@@ -16,8 +18,12 @@ from application.ai_invocation.dtos import (
     InvocationSession,
     InvocationSessionStatus,
     PromptSnapshot,
+    prompt_hash,
     stable_hash,
 )
+from domain.ai.value_objects.prompt import Prompt
+
+logger = logging.getLogger(__name__)
 
 
 class InvocationSessionService:
@@ -149,7 +155,7 @@ class AdoptionService:
             accepted_by=accepted_by,
         )
         self._decisions[decision.id] = decision
-        session.status = InvocationSessionStatus.CANCELLED
+        session.status = InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW
         return decision
 
     def get(self, decision_id: str) -> AdoptionDecision:
@@ -163,8 +169,99 @@ class AdoptionCommitService:
     后续通过独立 step 扩展，不能再绕回 Gateway 或业务层硬编码。
     """
 
-    def __init__(self):
+    def __init__(self, prompt_manager=None):
         self._commits_by_key: dict[str, AdoptionCommit] = {}
+        self._prompt_manager = prompt_manager
+
+    def _get_prompt_manager(self):
+        if self._prompt_manager is None:
+            from infrastructure.ai.prompt_manager import get_prompt_manager
+
+            self._prompt_manager = get_prompt_manager()
+        return self._prompt_manager
+
+    def _commit_prompt_version(self, *, session: InvocationSession, decision: AdoptionDecision) -> dict:
+        snapshot = session.prompt_snapshot
+        if snapshot is None:
+            return {"skipped": True, "reason": "missing_prompt_snapshot"}
+        if snapshot.draft_prompt is None:
+            return {"skipped": True, "reason": "missing_draft_prompt"}
+        if snapshot.template_prompt is not None and snapshot.draft_prompt == snapshot.template_prompt:
+            return {"skipped": True, "reason": "draft_unchanged"}
+
+        mgr = self._get_prompt_manager()
+        mgr.ensure_seeded()
+        node = mgr.get_node(snapshot.node_key or session.node_key, by_key=True)
+        if node is None:
+            raise ValueError(f"CPMS 节点不存在，无法写回提示词版本: {snapshot.node_key or session.node_key}")
+
+        previous_version_id = node.active_version_id or ""
+        updated = mgr.update_node(
+            node.id,
+            system_prompt=snapshot.draft_prompt.system,
+            user_template=snapshot.draft_prompt.user,
+            change_summary=f"AI Invocation 采纳写回: {session.operation}",
+        )
+        if updated is None:
+            raise ValueError(f"CPMS 节点更新失败: {snapshot.node_key or session.node_key}")
+
+        updated_system = (
+            getattr(updated, "get_active_system", lambda: "")()
+            or snapshot.draft_prompt.system
+        )
+        updated_user = (
+            getattr(updated, "get_active_user_template", lambda: "")()
+            or snapshot.draft_prompt.user
+        )
+        refreshed_template = Prompt(system=updated_system, user=updated_user)
+        rendered_prompt = refreshed_template
+        if session.variable_plan is not None:
+            from infrastructure.ai.prompt_template_engine import get_template_engine
+
+            render_result = get_template_engine().render(
+                system_template=updated_system,
+                user_template=updated_user,
+                variables=dict(session.variable_plan.aliases or {}),
+            )
+            rendered_prompt = Prompt(
+                system=render_result.system or "",
+                user=render_result.user or "",
+            )
+
+        session.prompt_snapshot = replace(
+            snapshot,
+            prompt=rendered_prompt,
+            template_prompt=refreshed_template,
+            draft_prompt=refreshed_template,
+            template_hash=stable_hash(
+                {
+                    "system_template": refreshed_template.system,
+                    "user_template": refreshed_template.user,
+                }
+            ),
+            rendered_prompt_hash=prompt_hash(rendered_prompt),
+        )
+        logger.info(
+            "refreshed invocation prompt snapshot after cpms commit: session=%s node=%s version=%s",
+            session.id,
+            updated.node_key,
+            updated.active_version_id,
+        )
+
+        return {
+            "skipped": False,
+            "node_key": updated.node_key,
+            "node_id": updated.id,
+            "previous_version_id": previous_version_id,
+            "active_version_id": updated.active_version_id,
+            "template_hash": stable_hash(
+                {
+                    "system_template": snapshot.draft_prompt.system,
+                    "user_template": snapshot.draft_prompt.user,
+                }
+            ),
+            "accepted_by": decision.accepted_by,
+        }
 
     def commit(self, *, session: InvocationSession, decision: AdoptionDecision) -> AdoptionCommit:
         if decision.session_id != session.id:
@@ -209,6 +306,16 @@ class AdoptionCommitService:
                     },
                 )
             )
+            prompt_version_result = self._commit_prompt_version(session=session, decision=decision)
+            commit.steps.append(
+                AdoptionCommitStep(
+                    name="commit_prompt_version",
+                    status=AdoptionCommitStatus.SUCCEEDED,
+                    result=prompt_version_result,
+                )
+            )
+            if not prompt_version_result.get("skipped"):
+                commit.result = {**commit.result, "prompt_version": prompt_version_result}
             continuation_result = execute_continuation(ContinuationContext(session=session, decision=decision))
             if continuation_result:
                 commit.steps.append(
