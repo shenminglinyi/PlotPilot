@@ -245,6 +245,9 @@ function parseAttemptContent(): Record<string, unknown> | null {
     try {
       return JSON.parse(candidate) as Record<string, unknown>
     } catch {
+      const recovered = recoverTruncatedArrayObject(candidate, 'characters')
+        || recoverTruncatedArrayObject(candidate, 'locations')
+      if (recovered) return recovered
       // Try the next candidate. LLM output often includes prose or code fences.
     }
   }
@@ -261,6 +264,61 @@ function extractOuterJson(raw: string): string {
   const end = raw.lastIndexOf('}')
   if (start < 0 || end <= start) return ''
   return raw.slice(start, end + 1).trim()
+}
+
+function recoverTruncatedArrayObject(raw: string, arrayKey: string): Record<string, unknown> | null {
+  const keyIndex = raw.indexOf(`"${arrayKey}"`)
+  if (keyIndex < 0) return null
+  const openIndex = raw.indexOf('[', keyIndex)
+  if (openIndex < 0) return null
+
+  const items: unknown[] = []
+  let i = openIndex + 1
+  while (i < raw.length) {
+    while (i < raw.length && /[\s,]/.test(raw[i])) i += 1
+    if (i >= raw.length) break
+    if (raw[i] === ']') return items.length ? { [arrayKey]: items } : null
+    if (raw[i] !== '{' && raw[i] !== '[') break
+
+    const itemStart = i
+    let depth = 0
+    let inString = false
+    let escapeNext = false
+    let consumed = false
+
+    while (i < raw.length) {
+      const ch = raw[i]
+      if (escapeNext) {
+        escapeNext = false
+      } else if (ch === '\\' && inString) {
+        escapeNext = true
+      } else if (ch === '"') {
+        inString = !inString
+      } else if (!inString) {
+        if (ch === '{' || ch === '[') {
+          depth += 1
+        } else if (ch === '}' || ch === ']') {
+          depth -= 1
+          if (depth === 0) {
+            const itemText = raw.slice(itemStart, i + 1)
+            try {
+              items.push(JSON.parse(itemText))
+            } catch {
+              return items.length ? { [arrayKey]: items } : null
+            }
+            i += 1
+            consumed = true
+            break
+          }
+        }
+      }
+      i += 1
+    }
+
+    if (!consumed) break
+  }
+
+  return items.length ? { [arrayKey]: items } : null
 }
 
 function pathSegments(path: string): Array<{ key: string; array: boolean }> {

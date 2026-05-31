@@ -162,6 +162,71 @@ class BibleService:
 
         return BibleDTO.from_domain(bible)
 
+    def upsert_character(
+        self,
+        novel_id: str,
+        character_id: str,
+        name: str,
+        description: str,
+        relationships: list = None,
+        *,
+        public_profile: str = "",
+        hidden_profile: str = "",
+        reveal_chapter: int = None,
+        mental_state: str = "NORMAL",
+        mental_state_reason: str = "",
+        verbal_tic: str = "",
+        idle_behavior: str = "",
+        core_belief: str = "",
+        moral_taboos: list = None,
+        voice_profile: dict = None,
+        active_wounds: list = None,
+    ) -> BibleDTO:
+        """添加或更新人物，供可重放的 AI Invocation 提交使用。"""
+        bible = self.bible_repository.get_by_novel_id(NovelId(novel_id))
+        if bible is None:
+            raise EntityNotFoundError("Bible", f"for novel {novel_id}")
+
+        character = bible.get_character(CharacterId(character_id))
+        if character is None:
+            return self.add_character(
+                novel_id=novel_id,
+                character_id=character_id,
+                name=name,
+                description=description,
+                relationships=relationships,
+                public_profile=public_profile,
+                hidden_profile=hidden_profile,
+                reveal_chapter=reveal_chapter,
+                mental_state=mental_state,
+                mental_state_reason=mental_state_reason,
+                verbal_tic=verbal_tic,
+                idle_behavior=idle_behavior,
+                core_belief=core_belief,
+                moral_taboos=moral_taboos,
+                voice_profile=voice_profile,
+                active_wounds=active_wounds,
+            )
+
+        character.name = name
+        character.description = description
+        character.relationships = list(relationships or [])
+        character.public_profile = public_profile or ""
+        character.hidden_profile = hidden_profile or ""
+        character.reveal_chapter = reveal_chapter
+        character.mental_state = mental_state or "NORMAL"
+        character.mental_state_reason = mental_state_reason or ""
+        character.verbal_tic = verbal_tic or ""
+        character.idle_behavior = idle_behavior or ""
+        character.core_belief = core_belief or ""
+        character.moral_taboos = list(moral_taboos or [])
+        character.voice_profile = dict(voice_profile or {})
+        character.active_wounds = list(active_wounds or [])
+
+        self.bible_repository.save(bible)
+        self._sync_to_unified_characters(novel_id, bible)
+        return BibleDTO.from_domain(bible)
+
     def update_character_voice_anchors(
         self,
         novel_id: str,

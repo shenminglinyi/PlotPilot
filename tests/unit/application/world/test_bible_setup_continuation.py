@@ -19,6 +19,13 @@ class _FakeBibleService:
     def add_character(self, **kwargs):
         self.characters.append(kwargs)
 
+    def upsert_character(self, **kwargs):
+        for idx, character in enumerate(self.characters):
+            if character["character_id"] == kwargs["character_id"]:
+                self.characters[idx] = kwargs
+                return
+        self.characters.append(kwargs)
+
     def add_location(self, **kwargs):
         self.locations.append(kwargs)
 
@@ -90,6 +97,52 @@ def test_characters_handler_repairs_stringified_arrays(monkeypatch):
     assert bible_service.characters[0]["moral_taboos"] == ["杀无辜"]
     assert bible_service.characters[0]["voice_profile"]["style"] == "克制"
     assert bible_service.characters[0]["active_wounds"][0]["description"] == "旧伤"
+
+
+def test_characters_handler_drops_truncated_tail_item(monkeypatch):
+    bible_service = _FakeBibleService()
+    monkeypatch.setattr(
+        "application.world.services.bible_setup_continuation._get_services",
+        lambda _ctx: (bible_service, None),
+    )
+
+    ctx = _make_context(
+        '{"characters":[{"name":"阿澄","description":"主角","relationships":[]},'
+        '{"name":"林墨","description":"盟友","relationships":[]},'
+        '{"name":"半截角色","description":"会被丢弃","relationships":[{"target":"未完","relation":"师徒"}'
+    )
+
+    result = bible_characters_handler(ctx)
+
+    assert [item["name"] for item in result["characters"]] == ["阿澄", "林墨"]
+    assert [item["name"] for item in bible_service.characters] == ["阿澄", "林墨"]
+
+
+def test_characters_handler_is_idempotent_for_existing_ids(monkeypatch):
+    bible_service = _FakeBibleService()
+    bible_service.characters.append(
+        {
+            "novel_id": "novel-1",
+            "character_id": "novel-1-char-1",
+            "name": "旧名",
+            "description": "旧描述",
+        }
+    )
+    monkeypatch.setattr(
+        "application.world.services.bible_setup_continuation._get_services",
+        lambda _ctx: (bible_service, None),
+    )
+
+    ctx = _make_context(
+        '{"characters":[{"name":"新名","role":"主角","description":"新描述","relationships":[]}]}'
+    )
+
+    result = bible_characters_handler(ctx)
+
+    assert result["characters"][0]["id"] == "novel-1-char-1"
+    assert len(bible_service.characters) == 1
+    assert bible_service.characters[0]["name"] == "新名"
+    assert bible_service.characters[0]["description"] == "主角 - 新描述"
 
 
 def test_locations_handler_repairs_stringified_arrays(monkeypatch):

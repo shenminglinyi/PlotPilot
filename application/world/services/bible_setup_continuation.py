@@ -133,7 +133,8 @@ def bible_characters_handler(context: ContinuationContext) -> Mapping[str, Any]:
         if character_id in used_ids:
             character_id = f"{novel_id}-char-{idx + 1}-{len(used_ids)}"
         used_ids.add(character_id)
-        bible_service.add_character(
+        save_character = getattr(bible_service, "upsert_character", bible_service.add_character)
+        save_character(
             novel_id=novel_id,
             character_id=character_id,
             name=name,

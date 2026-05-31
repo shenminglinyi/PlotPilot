@@ -166,6 +166,80 @@ def repair_json(text: str) -> str:
     return text
 
 
+def _extract_complete_array_items(text: str, array_key: str) -> Optional[List[Any]]:
+    """提取数组中已闭合的完整对象项，遇到截断尾项时直接停止。
+
+    这是专门给 LLM 流式截断用的兜底逻辑：
+    - 前面的完整对象照常保留
+    - 最后一个未闭合对象直接丢弃
+    """
+    pattern = re.compile(rf'"{re.escape(array_key)}"\s*:\s*\[')
+    match = pattern.search(text)
+    if match is None:
+        return None
+
+    i = match.end()
+    items: List[Any] = []
+
+    while i < len(text):
+        while i < len(text) and text[i] in " \t\r\n,":
+            i += 1
+        if i >= len(text):
+            break
+        if text[i] == "]":
+            return items if items else None
+        if text[i] not in "{[":
+            break
+
+        item_start = i
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        while i < len(text):
+            ch = text[i]
+            if escape_next:
+                escape_next = False
+            elif ch == "\\" and in_string:
+                escape_next = True
+            elif ch == '"':
+                in_string = not in_string
+            elif not in_string:
+                if ch in "{[":
+                    depth += 1
+                elif ch in "}]":
+                    depth -= 1
+                    if depth == 0:
+                        item_text = text[item_start : i + 1]
+                        try:
+                            items.append(json.loads(item_text))
+                        except Exception:
+                            try:
+                                repaired_item = repair_json(item_text)
+                                items.append(json.loads(repaired_item))
+                            except Exception:
+                                return items if items else None
+                        i += 1
+                        break
+            i += 1
+        else:
+            break
+
+    return items if items else None
+
+
+def recover_truncated_array_object(raw: str, array_key: str) -> Optional[Dict[str, Any]]:
+    """从被截断的 JSON 文本中恢复一个仅包含完整数组项的对象。
+
+    例：`{"characters":[{...},{...},{` 会被修复成 `{"characters":[{...},{...}]}`。
+    """
+    cleaned = extract_outer_json_value(strip_json_fences(raw))
+    items = _extract_complete_array_items(cleaned, array_key)
+    if items is None:
+        return None
+    return {array_key: items}
+
+
 # ---------------------------------------------------------------------------
 # 第三步：解析入口
 # ---------------------------------------------------------------------------
@@ -185,10 +259,20 @@ def parse_llm_json_to_any(raw: str) -> Tuple[Optional[Any], List[str]]:
         # 第二步：提取最外层 JSON 值
         cleaned = extract_outer_json_value(cleaned)
 
-        # 第三步：修复（委托 json_repair）
+        # 第三步：直接解析。若失败且是 known array，则先按原文保留完整项，
+        # 避免 json_repair 把最后一个半截对象也补成“有效数据”。
+        try:
+            return json.loads(cleaned), []
+        except json.JSONDecodeError:
+            for array_key in ("characters", "locations"):
+                recovered = recover_truncated_array_object(cleaned, array_key)
+                if recovered is not None:
+                    return recovered, []
+
+        # 第四步：修复（委托 json_repair）
         cleaned = repair_json(cleaned)
 
-        # 第四步：解析
+        # 第五步：解析
         data = json.loads(cleaned)
 
         return data, []
@@ -196,6 +280,12 @@ def parse_llm_json_to_any(raw: str) -> Tuple[Optional[Any], List[str]]:
         errors.append(f"JSON 解析失败: {e}")
     except Exception as e:
         errors.append(f"预处理失败: {e}")
+
+    # 最终兜底：保留完整前缀，丢弃最后一个截断对象
+    for array_key in ("characters", "locations"):
+        recovered = recover_truncated_array_object(raw, array_key)
+        if recovered is not None:
+            return recovered, []
 
     return None, errors
 

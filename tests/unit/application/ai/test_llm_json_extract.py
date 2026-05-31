@@ -18,3 +18,15 @@ def test_parse_llm_json_to_any_accepts_array_root():
     data, errs = parse_llm_json_to_any(raw)
     assert errs == []
     assert data == [{"name": "A"}]
+
+
+def test_parse_llm_json_to_any_recovers_truncated_characters_array():
+    raw = (
+        '{"characters":[{"name":"A","relationships":[]},'
+        '{"name":"B","relationships":[]},'
+        '{"name":"C","relationships":[{"target":"X","relation":"师徒"}'
+    )
+    data, errs = parse_llm_json_to_any(raw)
+    assert errs == []
+    assert isinstance(data, dict)
+    assert [item["name"] for item in data["characters"]] == ["A", "B"]
