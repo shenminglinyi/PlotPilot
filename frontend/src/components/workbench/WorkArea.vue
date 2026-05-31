@@ -243,13 +243,10 @@
                 class="wa-inline-stream rail-stream-bar"
                 :writing-content="streamingContent"
                 :writing-chapter-number="streamingChapterNumber ?? undefined"
-                :writing-beat-index="streamingBeatIndex"
                 :writing-substep="String(autopilotStatus?.writing_substep || '')"
                 :writing-substep-label="String(autopilotStatus?.writing_substep_label || '')"
-                :total-beats="Number(autopilotStatus?.total_beats || 0)"
                 :accumulated-words="Number(autopilotStatus?.accumulated_words || 0)"
                 :chapter-target-words="Number(autopilotStatus?.chapter_target_words || 0)"
-                :beat-focus="String(autopilotStatus?.beat_focus || '')"
                 :is-writing-phase="isAutopilotWriting"
                 :status-chapter-number="streamingChapterNumber"
               />
@@ -1029,6 +1026,7 @@ function briefPhaseLogLabel(phase: string): string {
   const map: Record<string, string> = {
     planning: '宏观 planning',
     context: '上下文 context',
+    script: '剧本生成 script',
     outline_planning: '章前规划 outline_planning',
     prose: '正文撰写 prose',
     llm: '正文撰写 llm（兼容）',
@@ -1681,8 +1679,9 @@ function streamPhaseToProgress(phase: string): number {
   const map: Record<string, number> = {
     planning: 14,
     context: 28,
-    outline_planning: 48,
+    script: 52,
     prose: 78,
+    outline_planning: 48,
     llm: 72,
     post: 92,
   }
@@ -1693,6 +1692,7 @@ function streamPhaseToLabel(phase: string): string {
   const map: Record<string, string> = {
     planning: '宏观 planning…',
     context: '组装上下文…',
+    script: '生成六模块剧本…',
     outline_planning: '章前规划 · LLM 流式划分节拍…',
     prose: '正文撰写…',
     llm: '撰写正文…',

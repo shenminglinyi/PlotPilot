@@ -262,11 +262,20 @@ class AnthropicProvider(BaseProvider):
                 )
 
             buffer = ""
+            events_received = 0
             async for chunk in response.aiter_text():
                 buffer += chunk.replace("\r\n", "\n")
                 while "\n\n" in buffer:
                     event_text, buffer = buffer.split("\n\n", 1)
+                    events_received += 1
                     text_content = self._parse_sse_event(event_text)
+                    if events_received <= 3:
+                        logger.info(
+                            "[Stream] SSE event #%d raw=%s parsed=%s",
+                            events_received,
+                            event_text[:500],
+                            text_content[:200] if text_content else "(empty)",
+                        )
                     if text_content:
                         yield text_content
 
@@ -310,8 +319,10 @@ class AnthropicProvider(BaseProvider):
         if yielded_any:
             return
 
+        sdk_yielded = False
         try:
             async for chunk in self._stream_via_sdk(prompt, config):
+                sdk_yielded = True
                 yield chunk
         except Exception as sdk_error:
             sdk_detail = self._format_stream_error(sdk_error)
@@ -328,16 +339,30 @@ class AnthropicProvider(BaseProvider):
             logger.error("[Stream] Failed: %s", sdk_detail)
             raise RuntimeError(f"Failed to stream text: {sdk_detail}") from sdk_error
 
+        if not sdk_yielded:
+            model_id = config.model or self.settings.default_model
+            detail = (
+                f"httpx={self._format_stream_error(httpx_error)}"
+                if httpx_error
+                else "httpx returned no events"
+            )
+            raise RuntimeError(
+                f"Both streaming paths produced zero output for model={model_id}: {detail}"
+            )
+
     def _parse_sse_event(self, event_text: str) -> str:
-        """解析单个 SSE 事件，返回文本内容（如果有）。"""
+        """解析单个 SSE 事件，返回文本内容（如果有）。
+
+        兼容多种 SSE 格式：
+        - Anthropic 原生: {"type":"content_block_delta","delta":{"type":"text_delta","text":"..."}}
+        - OpenAI 兼容:  {"choices":[{"delta":{"content":"..."}}]}
+        - 通用 delta:    {"delta":{"text":"..."}} 或 {"text":"..."}
+        """
         lines = event_text.strip().split("\n")
-        event_type = None
         data = None
 
         for line in lines:
-            if line.startswith("event:"):
-                event_type = line[6:].strip()
-            elif line.startswith("data:"):
+            if line.startswith("data:"):
                 data = line[5:].strip()
 
         if not data:
@@ -348,10 +373,40 @@ class AnthropicProvider(BaseProvider):
         except json.JSONDecodeError:
             return ""
 
-        # 只处理 content_block_delta 事件
+        # Anthropic 原生
         if parsed.get("type") == "content_block_delta":
             delta = parsed.get("delta", {})
             if delta.get("type") == "text_delta":
                 return delta.get("text", "")
+
+        # Anthropic content_block_start (某些模型把 text 放在这里)
+        if parsed.get("type") == "content_block_start":
+            block = parsed.get("content_block", {})
+            if block.get("type") == "text" and block.get("text"):
+                return block["text"]
+
+        # OpenAI / DeepSeek 兼容格式
+        choices = parsed.get("choices", [])
+        if choices:
+            delta = choices[0].get("delta", {})
+            content = delta.get("content", "")
+            if content:
+                return content
+            # 某些变体
+            text = delta.get("text", "")
+            if text:
+                return text
+
+        # 通用 fallback: 一层 delta.text 或 delta.content
+        delta = parsed.get("delta", {})
+        if isinstance(delta, dict):
+            text = delta.get("text") or delta.get("content")
+            if text:
+                return text
+
+        # 最通用: 顶层 text/content 字段
+        text = parsed.get("text") or parsed.get("content")
+        if isinstance(text, str) and text.strip():
+            return text
 
         return ""

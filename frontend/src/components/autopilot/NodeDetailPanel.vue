@@ -90,21 +90,8 @@
           <span>{{ writingStatus.writing_substep_label || writingStatus.writing_substep || '—' }}</span>
           <span class="detail-label">章节字数</span>
           <span>{{ writingStatus.accumulated_words ?? 0 }} / {{ writingStatus.chapter_target_words ?? 0 }}</span>
-          <span class="detail-label">节拍</span>
-          <span>
-            第 {{ (Number(writingStatus.current_beat_index) || 0) + 1 }} / {{ writingStatus.total_beats || 0 }} 节
-            <template v-if="writingStatus.beat_target_words"> · 本拍目标 {{ writingStatus.beat_target_words }} 字</template>
-          </span>
-          <span class="detail-label">指挥相位</span>
-          <span>{{ beatPhaseLabel }}</span>
-          <span class="detail-label">建议字数</span>
-          <span>{{ writingStatus.beat_max_words_hint ?? 0 }} 字</span>
-          <span class="detail-label">剩余预算</span>
-          <span>{{ writingStatus.beat_remaining_budget ?? 0 }} 字</span>
           <span class="detail-label">上下文 token</span>
           <span>{{ writingStatus.context_tokens ?? 0 }}</span>
-          <span class="detail-label">节拍焦点</span>
-          <span>{{ writingStatus.beat_focus || '—' }}</span>
         </div>
         <n-text v-else depth="3" style="font-size: 12px">加载中…</n-text>
       </div>
@@ -198,16 +185,6 @@ const meta = computed((): NodeMeta | null => {
 const showWritingTelemetry = computed(() => {
   const t = meta.value?.node_type
   return Boolean(t && WRITING_TELEMETRY_TYPES.has(t))
-})
-
-const beatPhaseLabel = computed(() => {
-  const raw = String(writingStatus.value?.beat_phase || '')
-  const map: Record<string, string> = {
-    unfurl: '铺陈 (unfurl)',
-    converge: '收束 (converge)',
-    land: '着陆 (land)',
-  }
-  return map[raw] || raw || '—'
 })
 
 async function fetchWritingTelemetry() {

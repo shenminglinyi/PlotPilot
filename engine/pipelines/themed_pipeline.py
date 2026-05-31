@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from engine.pipeline.base import BaseStoryPipeline
 from engine.pipeline.context import PipelineContext
@@ -114,8 +114,8 @@ class ThemedStoryPipeline(BaseStoryPipeline):
 
         return result
 
-    def _apply_theme_beat_templates(self, ctx: PipelineContext) -> None:
-        """若大纲命中题材节拍模板，覆盖 ctx.beats（在 magnify 之后调用）"""
+    def _enrich_script_context(self, ctx: PipelineContext) -> None:
+        """若大纲命中题材节拍模板，将模板指令注入剧本生成上下文。"""
         agent = self._get_theme_agent()
         if agent is None or not ctx.outline:
             return
@@ -125,31 +125,16 @@ class ThemedStoryPipeline(BaseStoryPipeline):
             return
 
         outline = ctx.outline
-        matched = sorted(
-            templates,
-            key=lambda t: t.priority,
-            reverse=True,
-        )
+        matched = sorted(templates, key=lambda t: t.priority, reverse=True)
         for template in matched:
             if any(kw in outline for kw in template.keywords):
-                ctx.beats = [
-                    self._make_beat(description, target_words, focus)
-                    for description, target_words, focus in template.beats
-                ]
+                beat_instructions = "\n".join(
+                    f"- {desc}（约{words}字，聚焦{focus}）"
+                    for desc, words, focus in template.beats
+                )
+                ctx.context_text += (
+                    f"\n\n【题材节拍指令（融入导演剧本）】\n"
+                    f"在撰写导演剧本时，请确保以下节拍在场景中体现：\n"
+                    f"{beat_instructions}"
+                )
                 break
-
-    @staticmethod
-    def _make_beat(description: str, target_words: int, focus: str):
-        """构造节拍对象（兼容 Beat dataclass 与简易 namespace）"""
-        try:
-            from application.engine.services.context_builder import Beat
-
-            return Beat(description=description, target_words=target_words, focus=focus)
-        except Exception:
-            from types import SimpleNamespace
-
-            return SimpleNamespace(
-                description=description,
-                target_words=target_words,
-                focus=focus,
-            )

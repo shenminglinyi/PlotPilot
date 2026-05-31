@@ -23,25 +23,17 @@
       </div>
     </div>
 
-    <!-- 节点卡（仅在 wave 4 生成步骤时显示） -->
-    <div v-if="!aftermathOnly && currentIx === 4 && beatCard.active_action" class="spo-beatcard">
+    <!-- 节点卡（wave 3 剧本 / wave 4 正文时显示） -->
+    <div v-if="!aftermathOnly && (currentIx === 3 || currentIx === 4) && genCard.label" class="spo-beatcard">
       <div class="spo-beatcard__head">
         <span class="spo-beatcard__beat-pill">
-          节拍 {{ beatCard.beatNum }}/{{ beatCard.totalBeats || '?' }}
+          {{ genCard.label }}
         </span>
-        <span v-if="beatCard.approxWords" class="spo-beatcard__words-hint">
-          ≈{{ beatCard.approxWords }} 字/次
-        </span>
-      </div>
-      <div class="spo-beatcard__action">{{ beatCard.active_action }}</div>
-      <div class="spo-beatcard__chips">
-        <span v-if="beatCard.emotion_gap" class="spo-beatcard__chip">
-          <em class="spo-beatcard__chip-tag">缺</em>{{ beatCard.emotion_gap }}
-        </span>
-        <span v-if="beatCard.forbidden_drift" class="spo-beatcard__chip spo-beatcard__chip--warn">
-          <em class="spo-beatcard__chip-tag">禁</em>{{ beatCard.forbidden_drift }}
+        <span v-if="genCard.wordHint" class="spo-beatcard__words-hint">
+          {{ genCard.wordHint }}
         </span>
       </div>
+      <div class="spo-beatcard__action">{{ genCard.detail }}</div>
     </div>
 
     <div v-if="showAftermathCard" class="spo-aftermath" aria-label="章后管线细分">
@@ -100,12 +92,7 @@ interface StatusLike {
     substep?: string
     label?: string
   }>
-  // 节点卡字段（wave 4 时非空）
-  beat_active_action?: string
-  beat_emotion_gap?: string
-  beat_forbidden_drift?: string
-  current_beat_index?: number | null
-  total_beats?: number | null
+  // 节点卡字段（wave 3/4 时非空）
   chapter_target_words?: number | null
   writing_substep?: string
   writing_substep_label?: string
@@ -198,20 +185,19 @@ const displayEvents = computed(() => {
   return e.slice(-12).reverse()
 })
 
-const beatCard = computed(() => {
-  const totalBeats = Number(props.status?.total_beats || 0)
-  const beatNum = Number(props.status?.current_beat_index ?? 0) + 1
+const genCard = computed(() => {
+  const ix = currentIx.value
   const chapterTarget = Number(props.status?.chapter_target_words || 0)
-  const approxWords = totalBeats > 0 && chapterTarget > 0
-    ? Math.round(chapterTarget / totalBeats)
-    : 0
+  const label = ix === 3 ? '剧本生成' : ix === 4 ? '正文撰写' : ''
+  const detail = ix === 3
+    ? (props.status?.writing_substep_label || '生成导演剧本')
+    : ix === 4
+    ? `实时撰写正文中（目标 ${chapterTarget || '?'} 字）`
+    : ''
   return {
-    active_action: props.status?.beat_active_action || '',
-    emotion_gap: props.status?.beat_emotion_gap || '',
-    forbidden_drift: props.status?.beat_forbidden_drift || '',
-    beatNum,
-    totalBeats,
-    approxWords,
+    label,
+    detail,
+    wordHint: chapterTarget > 0 ? `目标 ${chapterTarget} 字` : '',
   }
 })
 

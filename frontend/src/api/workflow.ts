@@ -306,7 +306,7 @@ export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
 }
 
 export type GenerateChapterStreamEvent =
-  | { type: 'phase'; phase: 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post' }
+  | { type: 'phase'; phase: 'planning' | 'context' | 'script' | 'prose' | 'outline_planning' | 'llm' | 'post' }
   | { type: 'llm_chunk'; stage: string; text: string }
   | { type: 'beats_generated'; beats: StreamGeneratedBeat[] }
   | { type: 'chunk'; text: string; stats: ChunkStats }
@@ -372,7 +372,7 @@ export async function consumeGenerateChapterStream(
             const ph = String(o.phase ?? '')
             const ev: GenerateChapterStreamEvent = {
               type: 'phase',
-              phase: ph as 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post',
+              phase: ph as 'planning' | 'context' | 'script' | 'prose' | 'outline_planning' | 'llm' | 'post',
             }
             handlers.onEvent?.(ev)
             handlers.onPhase?.(ph)

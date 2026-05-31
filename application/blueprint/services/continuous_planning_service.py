@@ -1006,6 +1006,12 @@ class ContinuousPlanningService:
             chunk_count,
             len(joined),
         )
+        if not joined:
+            raise RuntimeError(
+                f"LLM stream produced zero output for novel={novel_id} "
+                f"(chunk_count={chunk_count}). "
+                "The upstream provider may have dropped the stream before any tokens were received."
+            )
         return joined
 
     async def _stream_act_plan_llm_text(
@@ -1571,6 +1577,20 @@ class ContinuousPlanningService:
 
         chapter_nums_on_tree = collect_structure_chapter_numbers(self.story_node_repo, novel_id_str)
         next_global_number = (max(chapter_nums_on_tree) + 1) if chapter_nums_on_tree else 1
+
+        # 兜底清理：直接按章号范围删除残留正文行（list_by_novel 可能因缓存/事务隔离漏删）
+        if self.chapter_repository:
+            for n in range(next_global_number, next_global_number + len(chapters)):
+                existing = self.chapter_repository.get_by_novel_and_number(novel_id_vo, n)
+                if existing is not None:
+                    cid = getattr(existing.id, "value", existing.id)
+                    self.chapter_repository.delete(ChapterId(cid))
+                    logger.warning(
+                        "[ActPlanning] novel=%s 兜底清理残留正文行 #%s",
+                        novel_id_str,
+                        n,
+                    )
+
         self._assert_chapter_number_range_free(
             novel_id_vo, next_global_number, len(chapters)
         )
@@ -1906,8 +1926,23 @@ class ContinuousPlanningService:
         else:
             content = response
 
+        if not content or not str(content).strip():
+            raise ValueError(
+                "LLM returned empty response during planning. "
+                "This may indicate a streaming failure or model-side issue. "
+                "Check upstream provider logs for SSE/SDK stream errors."
+            )
+
         cleaned = _sanitize_llm_json_output(content)
         cleaned = _extract_outer_json_value(cleaned)
+
+        if not cleaned or not cleaned.strip():
+            raise ValueError(
+                "LLM response was stripped to empty after sanitization. "
+                f"Raw content length: {len(str(content))}, "
+                f"first 500 chars: {str(content)[:500]}"
+            )
+
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:

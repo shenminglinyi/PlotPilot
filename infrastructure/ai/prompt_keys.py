@@ -42,6 +42,10 @@ SCENE_GENERATION = "scene-generation"
 SCENE_DIRECTOR = "scene-director"
 BEAT_SHEET_DECOMPOSITION = "beat-sheet-decomposition"
 
+# ── Script / Prose (两阶段生成) ──────────────────────────────────────────
+SCRIPT_GENERATION = "script-generation"
+PROSE_FROM_SCRIPT = "prose-from-script"
+
 # ── Dialogue ─────────────────────────────────────────────────────────────
 DIALOGUE_GENERATION = "dialogue-generation"
 
@@ -140,6 +144,8 @@ ALL_KEYS: frozenset[str] = frozenset({
     CHAPTER_BRIDGE_EXTRACT, CHAPTER_BRIDGE_CHECK, CHAPTER_BRIDGE_FIX,
     # Scene
     SCENE_GENERATION, SCENE_DIRECTOR, BEAT_SHEET_DECOMPOSITION,
+    # Script / Prose
+    SCRIPT_GENERATION, PROSE_FROM_SCRIPT,
     # Dialogue
     DIALOGUE_GENERATION,
     # Prop

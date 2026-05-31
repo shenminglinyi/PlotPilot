@@ -56,14 +56,13 @@ class PipelineContext:
     governance_context_request: Optional[Dict[str, Any]] = None
     evolution_continuity_report: Optional[Dict[str, Any]] = None
 
-    # ═══ 步骤3产出：节拍 ═══
-    beats: List[Any] = field(default_factory=list)  # Beat 列表
-    beat_sheet: Optional[Any] = None             # 规划阶段的 BeatSheet
+    # ═══ 步骤3产出：导演剧本 ═══
+    script: str = ""                               # 六模块导演剧本文本
+    beat_sheet: Optional[Any] = None             # 规划阶段的 BeatSheet（输入，保留兼容）
 
     # ═══ 步骤4产出：生成内容 ═══
     chapter_content: str = ""                    # 章节正文（最终版）
     word_count: int = 0                          # 实际字数
-    raw_beat_contents: List[str] = field(default_factory=list)  # 各节拍原始输出
 
     # ═══ 步骤5产出：策略验证 ═══
     validation_passed: bool = True
@@ -105,7 +104,6 @@ class PipelineContext:
 
     # ═══ 断点续写 ═══
     existing_content: str = ""                   # 已有内容（断点续写）
-    start_beat_index: int = 0                    # 从哪个节拍开始
 
     # ═══ 依赖注入（通过 inject() 设置） ═══
     novel_repository: Any = None

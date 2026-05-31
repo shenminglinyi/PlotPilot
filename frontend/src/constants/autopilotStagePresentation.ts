@@ -82,11 +82,11 @@ export function buildAutopilotStagePresentation(input: {
     if (writingSubstep === 'context_assembly') {
       return writingSubstepLabel || '组装上下文'
     }
-    if (writingSubstep === 'beat_magnification') {
-      return writingSubstepLabel || '节拍拆分'
+    if (writingSubstep === 'script_generation') {
+      return writingSubstepLabel || '剧本生成'
     }
-    if (writingSubstep === 'llm_calling') {
-      return writingSubstepLabel || '正文生成中'
+    if (writingSubstep === 'prose_generation') {
+      return writingSubstepLabel || '正文撰写中'
     }
     if (writingSubstep === 'chapter_persist' || writingSubstep === 'persisting') {
       return writingSubstepLabel || '章节落盘'

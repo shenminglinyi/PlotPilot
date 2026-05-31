@@ -5,7 +5,7 @@
     <div class="stream-header-line">
       <span class="stream-info">
         正在生成第 {{ writingChapterNumber }} 章
-        <span v-if="writingChapterNumber > 0" class="beat-badge">节拍 {{ (writingBeatIndex || 0) + 1 }}</span>
+        <span v-if="writingChapterNumber > 0 && stageLabel" class="beat-badge">{{ stageLabel }}</span>
         <span v-if="substepLabel" class="substep-indicator" :class="substepClass">{{ substepLabel }}</span>
       </span>
       <span class="stream-stats">
@@ -13,7 +13,7 @@
           <span class="stats-plan">目标 {{ chapterTarget }} 字/章</span>
           <span class="stats-detail">
             · 已定稿 {{ lockedWords }} 字
-            <span v-if="streamOverflow > 0" class="stats-extra"> · 流式 +{{ streamOverflow }}（节拍末收束）</span>
+            <span v-if="streamOverflow > 0" class="stats-extra"> · 流式 +{{ streamOverflow }}</span>
           </span>
         </template>
         <template v-else>
@@ -36,7 +36,7 @@
       <div class="idle-headline">
         <span class="idle-glow-dot" aria-hidden="true" />
         <span class="idle-title">{{ idleTitle }}</span>
-        <span v-if="idleBeatTag" class="beat-badge beat-badge-muted">{{ idleBeatTag }}</span>
+        <span v-if="idleStageTag" class="beat-badge beat-badge-muted">{{ idleStageTag }}</span>
         <span v-if="substepLabel" class="substep-indicator substep-indicator-soft" :class="substepClass">{{
           substepLabel
         }}</span>
@@ -50,7 +50,6 @@
           >
         </template>
       </div>
-      <p v-if="idleBeatFocusLine" class="idle-beat-focus">{{ idleBeatFocusLine }}</p>
     </div>
     <div v-if="chapterTarget > 0 && displayChapter > 0" class="stream-progress-bar idle-track">
       <div
@@ -80,14 +79,10 @@ const props = withDefaults(
   defineProps<{
     writingContent?: string
     writingChapterNumber?: number
-    writingBeatIndex?: number
-    /** ★ V9 细化字段 */
     writingSubstep?: string
     writingSubstepLabel?: string
-    totalBeats?: number
     accumulatedWords?: number
     chapterTargetWords?: number
-    beatFocus?: string
     contextTokens?: number
     /** 顶栏阶段文案（与全托管头一致）；空闲区默认不再重复同一行，避免与顶栏双显 */
     runnerStageLabel?: string
@@ -124,13 +119,11 @@ const isStreaming = computed(
 )
 const writingWordCount = computed(() => props.writingContent?.length || 0)
 const writingChapterNumber = computed(() => props.writingChapterNumber || 0)
-const writingBeatIndex = computed(() => props.writingBeatIndex || 0)
-
 /** 本章目标字数（与后端 chapter_target_words 一致） */
 const chapterTarget = computed(() => Math.max(0, Number(props.chapterTargetWords || 0)))
-/** 已完成节拍落稿字数（流式中可能小于当前缓冲总长） */
+/** 已落稿字数 */
 const lockedWords = computed(() => Math.max(0, Number(props.accumulatedWords || 0)))
-/** 当前节拍流式超出已定稿的部分（模型常写超，再在节拍末收束） */
+/** 流式超出已定稿的部分 */
 const streamOverflow = computed(() => Math.max(0, writingWordCount.value - lockedWords.value))
 
 const displayChapter = computed(() => {
@@ -152,13 +145,11 @@ const idleTitle = computed(() => {
   return '全托管运行中'
 })
 
-const idleBeatTag = computed(() => {
+const idleStageTag = computed(() => {
   if (!props.isWritingPhase) return ''
-  const tb = props.totalBeats || 0
-  const bi = (props.writingBeatIndex || 0) + 1
-  if (tb > 0) return `节拍 ${bi} / ${tb}`
-  if (displayChapter.value > 0 && bi > 0) return `节拍 ${bi}`
-  return ''
+  const label = (props.writingSubstepLabel || '').trim()
+  if (label) return label
+  return displayChapter.value > 0 ? '撰写中' : ''
 })
 
 const idleBodyPrimary = computed(() => {
@@ -168,36 +159,19 @@ const idleBodyPrimary = computed(() => {
   return ''
 })
 
-const beatFocusTrim = computed(() => (props.beatFocus || '').trim())
-
 const PLANNING_SUBSTEPS = new Set(['macro_planning', 'act_planning', 'outline_planning'])
-
-/** 顶栏已显示阶段名时：仅在宏观/幕级规划子步骤下补充节拍焦点，避免写作等阶段误显旧 focus */
-const idleBeatFocusLine = computed(() => {
-  const sub = props.writingSubstep || ''
-  if (!PLANNING_SUBSTEPS.has(sub)) return ''
-  const focus = beatFocusTrim.value
-  if (!focus) return ''
-  const subLabel = (props.writingSubstepLabel || '').trim()
-  if (subLabel && focus === subLabel) return ''
-  const lead = idleBodyPrimary.value
-  if (lead && focus === lead) return ''
-  const stage = (props.runnerStageLabel || '').trim()
-  if (stage && focus === stage) return ''
-  return focus
-})
 
 const idleHint = computed(() => {
   const subPrimary = idleBodyPrimary.value
   if (!props.isWritingPhase) {
     if (subPrimary) return `${subPrimary}；撰写阶段会在此处显示流式正文。`
-    return '当前非撰写阶段，此处不推送流式正文；进入撰写后将显示生成内容与节拍进度。'
+    return '当前非撰写阶段，此处不推送流式正文；进入撰写后将显示生成内容。'
   }
-  const fallback = '等待流式正文或节拍收束…'
+  const fallback = '等待流式正文…'
   if (props.writingSubstep === 'outline_planning') {
     return subPrimary
-      ? `${subPrimary}；完成后将按节拍流式撰写正文。`
-      : '章前规划进行中；完成后将按节拍流式撰写正文。'
+      ? `${subPrimary}；完成后将生成导演剧本并撰写正文。`
+      : '章前规划进行中；完成后将生成导演剧本并撰写正文。'
   }
   if (!props.showRunnerStageInIdle) {
     if (subPrimary) return '流式正文将出现在下方；当前阶段见顶栏。'
@@ -229,12 +203,19 @@ const idleProgressLabel = computed(() => {
 /** ★ V9 子步骤标签 */
 const substepLabel = computed(() => props.writingSubstepLabel || '')
 
+const stageLabel = computed(() => {
+  const sub = props.writingSubstep || ''
+  if (sub === 'script_generation') return '剧本生成中'
+  if (sub === 'prose_generation') return '正文撰写中'
+  return ''
+})
+
 /** ★ V9 子步骤配色 */
 const substepClass = computed(() => {
   const sub = props.writingSubstep || ''
-  if (sub === 'llm_calling') return 'substep-active'
+  if (sub === 'prose_generation') return 'substep-active'
   if (sub === 'outline_planning') return 'substep-plan'
-  if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
+  if (sub === 'context_assembly' || sub === 'script_generation' || sub === 'chapter_found') return 'substep-prepare'
   if (sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
   if (sub.startsWith('audit_')) return 'substep-audit'
   if (sub.endsWith('_planning')) return 'substep-plan'
