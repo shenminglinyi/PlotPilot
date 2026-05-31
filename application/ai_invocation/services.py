@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
+from application.ai_invocation.continuation import ContinuationContext, execute_continuation
 from application.ai_invocation.dtos import (
     AdoptionCommit,
     AdoptionCommitStatus,
@@ -208,8 +209,18 @@ class AdoptionCommitService:
                     },
                 )
             )
+            continuation_result = execute_continuation(ContinuationContext(session=session, decision=decision))
+            if continuation_result:
+                commit.steps.append(
+                    AdoptionCommitStep(
+                        name="continuation_handler",
+                        status=AdoptionCommitStatus.SUCCEEDED,
+                        result=continuation_result,
+                    )
+                )
+                commit.result = {**commit.result, "continuation": continuation_result}
             commit.status = AdoptionCommitStatus.SUCCEEDED
-            commit.result = {"accepted_content": decision.accepted_content}
+            commit.result = {**commit.result, "accepted_content": decision.accepted_content}
             session.status = InvocationSessionStatus.COMPLETED
         except Exception as exc:
             commit.status = AdoptionCommitStatus.FAILED

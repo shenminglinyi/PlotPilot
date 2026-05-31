@@ -33,7 +33,7 @@ function formatValue(value: unknown): string {
 </script>
 
 <template>
-  <n-drawer v-model:show="store.visible" :width="760" placement="right">
+  <n-drawer v-model:show="store.visible" :width="760" :z-index="3600" placement="right">
     <n-drawer-content :title="store.title" closable>
       <n-spin :show="store.loading">
         <n-space vertical :size="16">
@@ -57,6 +57,13 @@ function formatValue(value: unknown): string {
             :show-icon="true"
           >
             当前会话等待生成前审阅。请先核对变量和提示词快照，后续生成动作会继续沿用同一个 AI Invocation 会话。
+          </n-alert>
+          <n-alert
+            v-if="store.session?.status === 'awaiting_acceptance'"
+            type="info"
+            :show-icon="true"
+          >
+            当前会话已完成生成，等待你确认是否采纳本次结果。若接受，将进入提交流程。
           </n-alert>
 
           <n-alert
@@ -135,6 +142,14 @@ function formatValue(value: unknown): string {
       <template #footer>
         <n-space justify="end">
           <n-button @click="store.close">关闭</n-button>
+          <n-button
+            v-if="store.session?.status === 'awaiting_pre_call_review'"
+            type="primary"
+            :loading="store.actionLoading"
+            @click="store.resume"
+          >
+            批准生成
+          </n-button>
           <n-button
             v-if="store.canAccept"
             tertiary

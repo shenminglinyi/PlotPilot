@@ -17,6 +17,7 @@ export interface WizardUiCachePayload {
   /** 仅在有 plotOptions 时更新，用于候选 TTL */
   plotOptionsSavedAt?: number
   plotOptions?: MainPlotOptionDTO[]
+  invocationSessionId?: string
   /** 候选过期后仍可用的 UI */
   customMode?: boolean
   customLogline?: string
@@ -65,6 +66,11 @@ export function writeWizardUiCache(novelId: string, patch: Partial<Omit<WizardUi
       } else {
         next.plotOptionsSavedAt = undefined
         next.plotOptions = undefined
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'invocationSessionId')) {
+      if (!patch.invocationSessionId) {
+        next.invocationSessionId = undefined
       }
     }
     localStorage.setItem(key(novelId), JSON.stringify(next))

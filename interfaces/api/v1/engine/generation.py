@@ -10,6 +10,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec
+from application.blueprint.services.setup_main_plot_suggestion_service import SETUP_TASK_MARKER
+from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.hosted_write_service import HostedWriteService
@@ -24,7 +26,7 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
 from domain.novel.value_objects.storyline_type import StorylineType
 from domain.novel.value_objects.tension_level import TensionLevel
-from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN
+from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN, PLANNING_MAIN_PLOT_OPTION
 from infrastructure.ai.prompt_registry import get_prompt_registry
 from infrastructure.ai.prompt_template_engine import get_template_engine
 from infrastructure.persistence.database.connection import get_database
@@ -61,6 +63,84 @@ def _refresh_narrative_contract_shared(novel_id: str) -> None:
         refresh_narrative_contract_in_shared_state(novel_id)
     except Exception as e:
         logger.debug("共享叙事契约刷新跳过 novel=%s: %s", novel_id, e)
+
+
+def _ensure_main_plot_invocation_contract() -> None:
+    """确保向导主线候选推演具备最小 AI Invocation 契约。"""
+    registry = get_prompt_registry()
+    node = registry.get_node(PLANNING_MAIN_PLOT_OPTION)
+    if node is None:
+        raise RuntimeError(f"CPMS 节点未发布: {PLANNING_MAIN_PLOT_OPTION}")
+    node_version_id = getattr(node, "active_version_id", None) or ""
+    if not node_version_id:
+        raise RuntimeError(f"CPMS 节点缺少 active version: {PLANNING_MAIN_PLOT_OPTION}")
+
+    engine = get_template_engine()
+    aliases = sorted(
+        engine.extract_variables(node.get_active_system())
+        | engine.extract_variables(node.get_active_user_template())
+    )
+    binding_set_id = f"{PLANNING_MAIN_PLOT_OPTION}:input:v1"
+    required_aliases = {"context_blob"}
+
+    db = get_database()
+    with sqlite_writes_bypass_queue():
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO cpms_variable_binding_sets (
+                    id, node_key, direction, version_number, status, is_active, created_by
+                ) VALUES (?, ?, 'input', 1, 'published', 1, 'system')
+                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
+                    status='published',
+                    is_active=1
+                """,
+                (binding_set_id, PLANNING_MAIN_PLOT_OPTION),
+            )
+            for alias in aliases:
+                conn.execute(
+                    """
+                    INSERT INTO cpms_variable_bindings (
+                        id, binding_set_id, node_key, direction, alias, required,
+                        default_value_json, source, enabled
+                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, 'cpms_template', 1)
+                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
+                        required=excluded.required,
+                        default_value_json=excluded.default_value_json,
+                        source=excluded.source,
+                        enabled=1
+                    """,
+                    (
+                        f"{binding_set_id}:{alias}",
+                        binding_set_id,
+                        PLANNING_MAIN_PLOT_OPTION,
+                        alias,
+                        1 if alias in required_aliases else 0,
+                        None if alias in required_aliases else '""',
+                    ),
+                )
+
+        SqliteInvocationSpecRepository(db).upsert(
+            InvocationSpec(
+                operation="setup.main_plot_options",
+                node_key=PLANNING_MAIN_PLOT_OPTION,
+                prompt_node_version_id=node_version_id,
+                input_binding_set_id=binding_set_id,
+                default_policy=InvocationPolicy.FULL_INTERACTIVE,
+                risk_level="low",
+                supports_stream=True,
+                continuation_handler_key="setup_main_plot_options",
+                metadata={
+                    "source": "setup_main_plot_suggestion",
+                    "cpms_node_key": PLANNING_MAIN_PLOT_OPTION,
+                    "setup_task_marker": SETUP_TASK_MARKER,
+                },
+            ),
+            spec_id=f"spec:{PLANNING_MAIN_PLOT_OPTION}:v1",
+            spec_version=1,
+            status="published",
+        )
+        register_setup_main_plot_continuation()
 
 
 router = APIRouter(prefix="/novels", tags=["generation"])
@@ -348,10 +428,16 @@ class MainPlotOptionItem(BaseModel):
     logline: str = ""
     core_conflict: str = ""
     starting_hook: str = ""
+    main_axis: str = ""
+    opening_pressure: str = ""
+    forbidden_drift: str = ""
+    sublines: List[dict] = Field(default_factory=list)
 
 
 class SuggestMainPlotOptionsResponse(BaseModel):
     plot_options: List[MainPlotOptionItem]
+    invocation_session_id: str = ""
+    invocation_next_action: str = ""
 
 
 def _storyline_to_response(storyline) -> StorylineResponse:
@@ -551,9 +637,32 @@ async def suggest_main_plot_options(
     if novel_service.get_novel(novel_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
     try:
-        raw = await setup_svc.suggest_options(novel_id)
-        items = [MainPlotOptionItem(**opt) for opt in raw]
-        return SuggestMainPlotOptionsResponse(plot_options=items)
+        _ensure_main_plot_invocation_contract()
+        ctx = setup_svc.build_context(novel_id)
+        payload = await create_invocation(
+            InvocationCreateRequest(
+                operation="setup.main_plot_options",
+                node_key=PLANNING_MAIN_PLOT_OPTION,
+                variables={
+                    "context_blob": (
+                        f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n"
+                        f"{json.dumps(ctx, ensure_ascii=False, indent=2)}\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
+                    )
+                },
+                context={"novel_id": novel_id, "setup_context": ctx},
+                policy=InvocationPolicy.FULL_INTERACTIVE,
+                metadata={
+                    "source": "setup_main_plot_suggestion",
+                    "novel_id": novel_id,
+                },
+            )
+        )
+        session = payload.get("session") or {}
+        return SuggestMainPlotOptionsResponse(
+            plot_options=[],
+            invocation_session_id=str(session.get("id") or ""),
+            invocation_next_action=str(payload.get("next_action") or ""),
+        )
     except Exception as e:
         logger.exception("suggest_main_plot_options failed")
         raise HTTPException(
@@ -577,8 +686,34 @@ async def suggest_main_plot_options_stream(
 
     async def event_gen():
         yield f"data: {json.dumps({'type': 'phase', 'phase': 'plot_options', 'message': '正在生成叙事结构'}, ensure_ascii=False)}\n\n"
-        async for event in setup_svc.stream_suggest_options(novel_id):
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        try:
+            _ensure_main_plot_invocation_contract()
+            ctx = setup_svc.build_context(novel_id)
+            payload = await create_invocation(
+                InvocationCreateRequest(
+                    operation="setup.main_plot_options",
+                    node_key=PLANNING_MAIN_PLOT_OPTION,
+                    variables={
+                        "context_blob": (
+                            f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n"
+                            f"{json.dumps(ctx, ensure_ascii=False, indent=2)}\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
+                        )
+                    },
+                    context={"novel_id": novel_id, "setup_context": ctx},
+                    policy=InvocationPolicy.FULL_INTERACTIVE,
+                    metadata={
+                        "source": "setup_main_plot_suggestion_stream",
+                        "novel_id": novel_id,
+                    },
+                )
+            )
+            session = payload.get("session") or {}
+            if session.get("id"):
+                yield f"data: {json.dumps({'type': 'approval_required', 'session_id': session.get('id', ''), 'status': session.get('status', ''), 'next_action': payload.get('next_action', '')}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'plot_options': [], 'invocation_session_id': session.get('id', '')}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.exception("suggest_main_plot_options_stream failed")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_gen(),

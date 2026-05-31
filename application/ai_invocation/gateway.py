@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from domain.ai.services.llm_service import LLMService
 from application.ai_invocation.dtos import (
+    ContinuationRef,
     InvocationPolicy,
     InvocationRequest,
     InvocationResult,
@@ -49,7 +50,12 @@ class AIInvocationGateway:
             node_key=request.node_key,
             policy=policy,
             context=request.context,
-            continuation=request.continuation,
+            continuation=request.continuation
+            or (
+                ContinuationRef(handler_key=spec.continuation_handler_key)
+                if spec.continuation_handler_key
+                else None
+            ),
             metadata=request.metadata,
         )
         self._session_service.update_status(session, InvocationSessionStatus.SPEC_RESOLVED)

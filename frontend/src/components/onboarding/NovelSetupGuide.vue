@@ -701,6 +701,7 @@ import { worldbuildingApi } from '@/api/worldbuilding'
 import { consumeMainPlotOptionsStream, workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
+import { useAIInvocationStore } from '@/stores/aiInvocationStore'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
 import {
@@ -952,6 +953,9 @@ const props = withDefaults(
 )
 
 const message = useMessage()
+const aiInvocationStore = useAIInvocationStore()
+let mainPlotSessionUnsub: (() => void) | null = null
+const bibleInvocationUnsubs = new Map<string, () => void>()
 
 const emit = defineEmits<{
   (e: 'update:show', value: boolean): void
@@ -1165,6 +1169,56 @@ const locationsSseAbort = ref<AbortController | null>(null)
 /** 可编辑的地点列表（从 bibleData 拷贝，用户可修改后确认落库） */
 const editableLocations = ref<Array<{ name: string; id?: string; location_type?: string; description: string }>>([])
 
+function setBibleStageReviewWaiting(stage: string, waiting: boolean) {
+  if (stage === 'worldbuilding') {
+    generatingBible.value = waiting
+    bibleGenerated.value = false
+  } else if (stage === 'characters') {
+    generatingCharacters.value = waiting
+    charactersGenerated.value = false
+  } else if (stage === 'locations') {
+    generatingLocations.value = waiting
+    locationsGenerated.value = false
+  }
+  phaseMessage.value = waiting ? '等待 AI 审阅批准...' : ''
+}
+
+function markBibleStageCommitted(stage: string) {
+  if (stage === 'worldbuilding') {
+    completedDimensions.value = new Set(WB_DIMS)
+    generatingBible.value = false
+    bibleGenerated.value = true
+  } else if (stage === 'characters') {
+    generatingCharacters.value = false
+    charactersGenerated.value = true
+  } else if (stage === 'locations') {
+    generatingLocations.value = false
+    locationsGenerated.value = true
+  }
+  phaseMessage.value = ''
+  void loadBibleData()
+}
+
+async function openBibleReviewPanel(stage: 'worldbuilding' | 'characters' | 'locations', sessionId: string) {
+  if (!sessionId) return
+  setBibleStageReviewWaiting(stage, true)
+  try {
+    bibleInvocationUnsubs.get(sessionId)?.()
+    const unsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
+      if (payload.session?.status === 'completed' || payload.commit?.status === 'succeeded') {
+        markBibleStageCommitted(stage)
+        bibleInvocationUnsubs.get(sessionId)?.()
+        bibleInvocationUnsubs.delete(sessionId)
+      }
+    })
+    bibleInvocationUnsubs.set(sessionId, unsub)
+    await aiInvocationStore.open(sessionId)
+  } catch (e: unknown) {
+    setBibleStageReviewWaiting(stage, false)
+    message.error(formatApiError(e) || '打开 AI 审阅失败')
+  }
+}
+
 // ── Step 4：主线推演 ──
 const plotOptions = ref<MainPlotOptionDTO[]>([])
 const plotSuggesting = ref(false)
@@ -1196,14 +1250,54 @@ function hasStorylineArchitecture(options: MainPlotOptionDTO[]) {
   )
 }
 
+function applyMainPlotOptionsFromResult(result: Record<string, unknown>) {
+  const options = Array.isArray(result.plot_options) ? (result.plot_options as MainPlotOptionDTO[]) : []
+  if (!options.length) return
+  plotOptions.value = options
+  writeWizardUiCache(props.novelId, { plotOptions: options })
+  message.success('AI 审阅已完成，主线候选已回填')
+}
+
+async function openMainPlotReviewPanel(sessionId: string) {
+  if (!sessionId) return
+  message.info('已进入 AI 审阅')
+  try {
+    writeWizardUiCache(props.novelId, { invocationSessionId: sessionId })
+    mainPlotSessionUnsub?.()
+    mainPlotSessionUnsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
+      const result = payload.commit?.result
+      if (!result) return
+      applyMainPlotOptionsFromResult(result)
+      mainPlotSessionUnsub?.()
+      mainPlotSessionUnsub = null
+    })
+    await aiInvocationStore.open(sessionId)
+  } catch (e: unknown) {
+    message.error(formatApiError(e) || '打开 AI 审阅失败')
+  }
+}
+
 async function loadPlotSuggestions() {
   step4RestoredFromCache.value = false
   plotSuggesting.value = true
   plotSuggestError.value = ''
   plotOptions.value = []
+  const cached = readWizardUiCache(props.novelId)
   try {
+    if (cached?.invocationSessionId) {
+      await openMainPlotReviewPanel(cached.invocationSessionId)
+      if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
+        plotOptions.value = cached.plotOptions
+        step4RestoredFromCache.value = true
+      }
+      return
+    }
+
     let streamError = ''
     await consumeMainPlotOptionsStream(props.novelId, {
+      onApprovalRequired: (sessionId) => {
+        void openMainPlotReviewPanel(sessionId)
+      },
       onPhase: (message) => {
         if (message) phaseMessage.value = message
       },
@@ -1233,6 +1327,12 @@ async function loadPlotSuggestions() {
     try {
       const res = await workflowApi.suggestMainPlotOptions(props.novelId)
       plotOptions.value = res.plot_options || []
+      if (res.invocation_session_id) {
+        void openMainPlotReviewPanel(res.invocation_session_id)
+      }
+      if (!res.invocation_session_id && cached?.invocationSessionId) {
+        void openMainPlotReviewPanel(cached.invocationSessionId)
+      }
       if (plotOptions.value.length) {
         writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
       }
@@ -1346,6 +1446,9 @@ function hydrateStepFourFromCache() {
     if (hasStorylineArchitecture(cached.plotOptions)) {
       plotOptions.value = cached.plotOptions
       step4RestoredFromCache.value = true
+      if (cached.invocationSessionId && !mainPlotCommitted.value) {
+        void openMainPlotReviewPanel(cached.invocationSessionId)
+      }
       return
     }
     writeWizardUiCache(props.novelId, { plotOptions: undefined })
@@ -1359,25 +1462,6 @@ function hydrateStepFourFromCache() {
 // SSE 流式生成函数（含降级到轮询的逻辑）
 // ════════════════════════════════════════════════════════════════════════════
 
-/** SSE 是否可用的缓存标记（同会话内只检测一次） */
-const sseAvailable = ref<boolean | null>(null)
-
-/** 检测 SSE 流式接口是否可用（同会话内缓存，默认走 SSE） */
-async function checkSseAvailable(_novelId: string): Promise<boolean> {
-  if (sseAvailable.value !== null) return sseAvailable.value
-  // generate-stream 为 POST-only，不做 HEAD/OPTIONS 预检（会 405 污染服务端日志）。
-  // 运行时 consumeBibleGenerateStream 失败会自动降级到轮询。
-  sseAvailable.value = true
-  return true
-}
-
-// ── 轮询降级逻辑（保留原轮询代码作为 fallback） ──
-
-const pollTimerRef = ref<ReturnType<typeof setTimeout> | null>(null)
-const biblePollEpoch = ref(0)
-const step2PollEpoch = ref(0)
-const step3PollEpoch = ref(0)
-
 function finishWorldbuildingGeneration() {
   completedDimensions.value = new Set(WB_DIMS)
   activeDimension.value = ''
@@ -1390,174 +1474,11 @@ function finishWorldbuildingGeneration() {
   void loadBibleData()
 }
 
-function clearGenerationTimers() {
-  if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
-}
+// ── AI Invocation 模式入口 ──
 
-function clearPollTimer() {
-  if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
-}
-
-function pollBibleUntil(
-  predicate: (bible: BibleDTO) => boolean,
-  options: {
-    isStale: () => boolean
-    onSuccess: () => void
-    onTimeout: () => void
-    onFatal: (message: string) => void
-    watchBackendFailure?: boolean
-  },
-): void {
-  const tick = async () => {
-    if (options.isStale()) return
-    try {
-      const bible = await bibleApi.getBible(props.novelId)
-      if (options.isStale()) return
-      bibleData.value = bible
-      if (predicate(bible)) { options.onSuccess(); return }
-      if (options.watchBackendFailure) {
-        try {
-          const fb = await bibleApi.getBibleGenerationFeedback(props.novelId)
-          if (options.isStale()) return
-          if (fb.error) { options.onFatal(`${fb.error}（阶段：${fb.stage || '未知'}）`); return }
-        } catch { /* */ }
-      }
-    } catch (err: unknown) {
-      if (options.isStale()) return
-      options.onFatal(formatApiError(err) || '查询 Bible 失败')
-      return
-    }
-    window.setTimeout(() => { void tick() }, 2000)
-  }
-  void tick()
-}
-
-/** 轮询模式：第1步生成世界观 */
-async function startBibleGenerationPoll() {
-  clearGenerationTimers()
-  biblePollEpoch.value += 1
-  const epoch = biblePollEpoch.value
-  generatingBible.value = true
-  bibleGenerated.value = false
-  bibleError.value = ''
-  phaseMessage.value = '正在生成世界观...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'worldbuilding')
-    if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-    phaseMessage.value = '正在生成世界观和文风...'
-
-    const schedulePoll = (delayMs: number) => {
-      clearPollTimer()
-      pollTimerRef.value = window.setTimeout(() => { void runPoll() }, delayMs)
-    }
-
-    const runPoll = async () => {
-      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-      try {
-        const status = await bibleApi.getBibleStatus(props.novelId)
-        if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-        if (status.ready) {
-          clearGenerationTimers()
-          finishWorldbuildingGeneration()
-          return
-        }
-      } catch (error: unknown) {
-        if (biblePollEpoch.value !== epoch) return
-        clearGenerationTimers()
-        generatingBible.value = false
-        bibleError.value = formatApiError(error) || '检查状态失败'
-        phaseMessage.value = ''
-        return
-      }
-      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-      schedulePoll(2000)
-    }
-
-    schedulePoll(0)
-  } catch (error: unknown) {
-    if (biblePollEpoch.value !== epoch) return
-    generatingBible.value = false
-    let detail = formatApiError(error) || '生成失败，请重试'
-    if (isLikelyTimeoutError(error)) {
-      detail = '提交「世界观生成」时连接超时。请确认 API 已启动后再试。'
-    }
-    bibleError.value = detail
-    phaseMessage.value = ''
-  }
-}
-
-/** 轮询模式：第2步生成人物 */
-async function startCharactersGenerationPoll() {
-  step2PollEpoch.value += 1
-  const epoch2 = step2PollEpoch.value
-  generatingCharacters.value = true
-  charactersGenerated.value = false
-  charactersError.value = ''
-  phaseMessage.value = '正在生成人物...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'characters')
-    pollBibleUntil(
-      (b) => (b.characters?.length ?? 0) > 0,
-      {
-        isStale: () => step2PollEpoch.value !== epoch2 || currentStep.value !== 2 || !generatingCharacters.value,
-        watchBackendFailure: true,
-        onSuccess: () => { generatingCharacters.value = false; charactersGenerated.value = true; phaseMessage.value = '' },
-        onTimeout: () => { generatingCharacters.value = false; charactersError.value = `等待人物生成超时。`; phaseMessage.value = '' },
-        onFatal: (msg) => { generatingCharacters.value = false; charactersError.value = msg; phaseMessage.value = '' },
-      },
-    )
-  } catch (error: unknown) {
-    generatingCharacters.value = false
-    charactersError.value = isLikelyTimeoutError(error) ? '提交人物生成超时' : formatApiError(error) || '人物生成启动失败'
-    phaseMessage.value = ''
-  }
-}
-
-/** 轮询模式：第3步生成地点 */
-async function startLocationsGenerationPoll() {
-  step3PollEpoch.value += 1
-  const epoch3 = step3PollEpoch.value
-  generatingLocations.value = true
-  locationsGenerated.value = false
-  locationsError.value = ''
-  phaseMessage.value = '正在生成地图...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'locations')
-    pollBibleUntil(
-      (b) => (b.locations?.length ?? 0) > 0,
-      {
-        isStale: () => step3PollEpoch.value !== epoch3 || currentStep.value !== 3 || !generatingLocations.value,
-        watchBackendFailure: true,
-        onSuccess: () => { generatingLocations.value = false; locationsGenerated.value = true; phaseMessage.value = '' },
-        onTimeout: () => { generatingLocations.value = false; locationsError.value = `等待地图生成超时。`; phaseMessage.value = '' },
-        onFatal: (msg) => { generatingLocations.value = false; locationsError.value = msg; phaseMessage.value = '' },
-      },
-    )
-  } catch (error: unknown) {
-    generatingLocations.value = false
-    locationsError.value = isLikelyTimeoutError(error) ? '提交地图生成超时' : formatApiError(error) || '地图生成启动失败'
-    phaseMessage.value = ''
-  }
-}
-
-// ── SSE 模式入口（自动降级） ──
-
-/** 启动第1步生成（SSE 流式，失败降级到轮询） */
-async function startBibleGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startBibleGenerationSSE()
-    } else {
-      startBibleGenerationPoll()
-    }
-  } catch {
-    // SSE 检测异常时直接尝试 SSE
-    startBibleGenerationSSE()
-  }
+/** 启动第1步：创建 AI Invocation 并打开审阅面板。 */
+function startBibleGeneration() {
+  startBibleGenerationSSE()
 }
 
 /** 启动第1步 SSE 流式生成世界观 */
@@ -1625,35 +1546,23 @@ bibleError.value = ''
       activeDimension.value = data.dimension
       completedDimensions.value = new Set([...completedDimensions.value, data.dimension])
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('worldbuilding', sessionId)
+    },
     onDone: () => {
       finishWorldbuildingGeneration()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询（后台可能已经启动了生成任务）
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] SSE 流式生成失败，降级到轮询模式:', msg)
-        startBibleGenerationPoll()
-      } else {
-        generatingBible.value = false
-        bibleError.value = msg
-        phaseMessage.value = ''
-      }
+      generatingBible.value = false
+      bibleError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
 
-/** 启动第2步生成（SSE 流式，失败降级到轮询） */
-async function startCharactersGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startCharactersGenerationSSE()
-    } else {
-      startCharactersGenerationPoll()
-    }
-  } catch {
-    startCharactersGenerationSSE()
-  }
+/** 启动第2步：创建 AI Invocation 并打开审阅面板。 */
+function startCharactersGeneration() {
+  startCharactersGenerationSSE()
 }
 
 /** 启动第2步 SSE 流式生成人物 */
@@ -1731,6 +1640,9 @@ charactersError.value = ''
         phaseMessage.value = 'AI 正在构思角色...'
       }
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('characters', sessionId)
+    },
     onDone: () => {
       generatingCharacters.value = false
       charactersGenerated.value = true
@@ -1738,31 +1650,16 @@ charactersError.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] 人物 SSE 失败，降级到轮询:', msg)
-        startCharactersGenerationPoll()
-      } else {
-        generatingCharacters.value = false
-        charactersError.value = msg
-        phaseMessage.value = ''
-      }
+      generatingCharacters.value = false
+      charactersError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
 
-/** 启动第3步生成（SSE 流式，失败降级到轮询） */
-async function startLocationsGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startLocationsGenerationSSE()
-    } else {
-      startLocationsGenerationPoll()
-    }
-  } catch {
-    startLocationsGenerationSSE()
-  }
+/** 启动第3步：创建 AI Invocation 并打开审阅面板。 */
+function startLocationsGeneration() {
+  startLocationsGenerationSSE()
 }
 
 /** 启动第3步 SSE 流式生成地点 */
@@ -1799,6 +1696,9 @@ locationsError.value = ''
         phaseMessage.value = 'AI 正在构思地点...'
       }
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('locations', sessionId)
+    },
     onDone: () => {
       generatingLocations.value = false
       locationsGenerated.value = true
@@ -1806,15 +1706,9 @@ locationsError.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] 地图 SSE 失败，降级到轮询:', msg)
-        startLocationsGenerationPoll()
-      } else {
-        generatingLocations.value = false
-        locationsError.value = msg
-        phaseMessage.value = ''
-      }
+      generatingLocations.value = false
+      locationsError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
@@ -1964,9 +1858,6 @@ async function runWizardOpenSequence() {
   if (step === 4 && !mainPlotCommitted.value) {
     hydrateStepFourFromCache()
   }
-  if (step === 1 && !bibleGenerated.value) {
-    startBibleGeneration()
-  }
 }
 
 function stopGenerationOnClose() {
@@ -1976,6 +1867,12 @@ function stopGenerationOnClose() {
   generatingBible.value = false
   generatingCharacters.value = false
   generatingLocations.value = false
+  mainPlotSessionUnsub?.()
+  mainPlotSessionUnsub = null
+  for (const unsub of bibleInvocationUnsubs.values()) {
+    unsub()
+  }
+  bibleInvocationUnsubs.clear()
 }
 
 watch(

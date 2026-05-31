@@ -4,15 +4,13 @@
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Mapping
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from application.ai_invocation.dtos import (
-    AdoptionCommit,
-    AdoptionCommitStatus,
-    AdoptionCommitStep,
     InvocationPolicy,
     InvocationRequest,
     InvocationSessionStatus,
@@ -35,6 +33,15 @@ from infrastructure.persistence.database.sqlite_ai_invocation_repository import 
     variable_plan_to_dict,
 )
 from interfaces.api.dependencies import get_llm_service
+
+try:
+    from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
+    from application.world.services.bible_setup_continuation import register_bible_setup_continuations
+
+    register_setup_main_plot_continuation()
+    register_bible_setup_continuations()
+except Exception:
+    pass
 
 
 router = APIRouter(prefix="/ai-invocations", tags=["ai-invocation"])
@@ -61,6 +68,12 @@ class AdoptionAcceptRequest(BaseModel):
 
 class CommitCreateRequest(BaseModel):
     decision_id: str
+
+
+class ResumeInvocationRequest(BaseModel):
+    resumed_by: str = "user"
+    config: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def _config_from_dict(raw: Mapping[str, Any] | None) -> GenerationConfig | None:
@@ -160,8 +173,41 @@ def _commit_payload(commit) -> dict[str, Any] | None:
             }
             for step in commit.steps
         ],
+        "result": dict(commit.result or {}),
         "error": commit.error,
     }
+
+
+def _safe_json_loads(text: str | None, default: Any) -> Any:
+    if not text:
+        return default
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return default
+
+
+def _load_related_payloads(repos, session_id: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
+    session = repos["session"].get(session_id)
+    if session is None:
+        return None, None, None
+
+    attempt_payload = None
+    if session.attempts:
+        attempt = repos["attempt"].get(session.attempts[-1])
+        attempt_payload = _attempt_payload(attempt)
+
+    decision_payload = None
+    commit_payload = None
+    if attempt_payload is not None:
+        decision = repos["adoption"].get_latest_decision_for_session(session_id)
+        if decision is not None:
+            decision_payload = _decision_payload(decision)
+            commit = repos["adoption"].get_commit_for_decision(decision.id)
+            if commit is not None:
+                commit_payload = _commit_payload(commit)
+
+    return attempt_payload, decision_payload, commit_payload
 
 
 @router.post("")
@@ -212,7 +258,14 @@ async def get_invocation(session_id: str) -> dict[str, Any]:
     session = repos["session"].get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="invocation_session_not_found")
-    return {"session": _session_payload(session), "next_action": _next_action(session.status)}
+    attempt_payload, decision_payload, commit_payload = _load_related_payloads(repos, session_id)
+    return {
+        "session": _session_payload(session),
+        "attempt": attempt_payload,
+        "decision": decision_payload,
+        "commit": commit_payload,
+        "next_action": _next_action(session.status),
+    }
 
 
 @router.post("/{session_id}/accept")
@@ -241,6 +294,35 @@ async def accept_invocation(session_id: str, request: AdoptionAcceptRequest) -> 
         "session": _session_payload(session),
         "decision": _decision_payload(decision),
         "next_action": "commit_required",
+    }
+
+
+@router.post("/{session_id}/resume")
+async def resume_invocation(session_id: str, request: ResumeInvocationRequest) -> dict[str, Any]:
+    repos = _repositories()
+    session = repos["session"].get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="invocation_session_not_found")
+    if session.status != InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW:
+        raise HTTPException(status_code=400, detail="invocation_session_not_waiting_for_pre_call_review")
+    if session.prompt_snapshot is None:
+        raise HTTPException(status_code=400, detail="invocation_session_missing_prompt_snapshot")
+
+    llm_service = get_llm_service()
+    prompt_snapshot = session.prompt_snapshot
+    attempt = await AttemptService(llm_service).generate(
+        session=session,
+        prompt_snapshot=prompt_snapshot,
+        config=_config_from_dict(request.config),
+    )
+    session.status = InvocationSessionStatus.AWAITING_ACCEPTANCE
+    with sqlite_writes_bypass_queue():
+        repos["attempt"].save(attempt)
+        repos["session"].save(session)
+    return {
+        "session": _session_payload(session),
+        "attempt": _attempt_payload(attempt),
+        "next_action": "acceptance_required",
     }
 
 
@@ -273,23 +355,9 @@ async def create_commit(session_id: str, request: CommitCreateRequest) -> dict[s
     decision = repos["adoption"].get_decision(request.decision_id)
     if decision is None or decision.session_id != session_id:
         raise HTTPException(status_code=404, detail="adoption_decision_not_found")
-    commit = AdoptionCommit(
-        id=repos["adoption"].create_commit(session_id=session_id, decision_id=decision.id).id,
-        session_id=session_id,
-        decision_id=decision.id,
-        status=AdoptionCommitStatus.SUCCEEDED,
-        steps=[
-            AdoptionCommitStep(
-                name="commit_content_patch",
-                status=AdoptionCommitStatus.SUCCEEDED,
-                result={"content_length": len(decision.accepted_content)},
-            )
-        ],
-        result={"accepted_content": decision.accepted_content},
-    )
+    commit = AdoptionCommitService().commit(session=session, decision=decision)
     with sqlite_writes_bypass_queue():
         repos["adoption"].save_commit(commit)
-        session.status = InvocationSessionStatus.COMPLETED
         repos["session"].save(session)
     return {
         "session": _session_payload(session),

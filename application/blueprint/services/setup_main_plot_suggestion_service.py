@@ -18,6 +18,27 @@ logger = logging.getLogger(__name__)
 SETUP_TASK_MARKER = "setup_main_plot_options_v1"
 
 
+def normalize_main_plot_options(raw: str, ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """将模型输出规范化为可落库的主线候选。"""
+    try:
+        raw_list = SetupMainPlotSuggestionService._parse_plot_json(raw)
+        normalized = SetupMainPlotSuggestionService._normalize_options(raw_list)
+        normalized = SetupMainPlotSuggestionService._complete_option_architecture(ctx, normalized)
+        if len(normalized) >= 3:
+            return normalized[:3]
+        if len(normalized) > 0:
+            fb = SetupMainPlotSuggestionService._fallback_options(ctx)
+            merged = normalized + [x for x in fb if x["id"] not in {n["id"] for n in normalized}]
+            return SetupMainPlotSuggestionService._complete_option_architecture(ctx, merged)[:3]
+    except Exception as e:
+        logger.warning("Main plot suggestion parse failed: %s", e)
+
+    return SetupMainPlotSuggestionService._complete_option_architecture(
+        ctx,
+        SetupMainPlotSuggestionService._fallback_options(ctx),
+    )
+
+
 def _try_extract_next_plot_option(buf: str) -> Optional[Tuple[Dict[str, Any], str]]:
     """从流式 JSON buffer 中提取 plot_options 数组里的下一个完整对象。"""
     m = re.search(r'"plot_options"\s*:\s*\[', buf)
@@ -78,6 +99,10 @@ class SetupMainPlotSuggestionService:
         self._llm = llm_service
         self._bible_service = bible_service
         self._novel_service = novel_service
+
+    def build_context(self, novel_id: str) -> Dict[str, Any]:
+        """公开的向导上下文构建入口，供 AI Invocation 路由复用。"""
+        return self._build_context(novel_id)
 
     def _build_context(self, novel_id: str) -> Dict[str, Any]:
         novel = self._novel_service.get_novel(novel_id)
@@ -479,20 +504,24 @@ class SetupMainPlotSuggestionService:
         config = GenerationConfig(max_tokens=2048, temperature=0.85)
         return ctx, prompt, config
 
+    def parse_suggested_options(
+        self,
+        raw: str,
+        *,
+        ctx: Optional[Dict[str, Any]] = None,
+        novel_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """把模型输出解析为三条主线候选；解析失败时回退到本地模板。"""
+        context = ctx or (self._build_context(novel_id) if novel_id else {})
+        return normalize_main_plot_options(raw, context)
+
     async def suggest_options(self, novel_id: str) -> List[Dict[str, Any]]:
         ctx, prompt, config = self._build_prompt_and_config(novel_id)
         try:
             result = await self._llm.generate(prompt, config)
-            raw_list = self._parse_plot_json(result.content)
-            normalized = self._normalize_options(raw_list)
-            normalized = self._complete_option_architecture(ctx, normalized)
-            if len(normalized) >= 3:
-                return normalized[:3]
-            if len(normalized) > 0:
-                # 不足 3 条时用本地模板补足
-                fb = self._fallback_options(ctx)
-                merged = normalized + [x for x in fb if x["id"] not in {n["id"] for n in normalized}]
-                return self._complete_option_architecture(ctx, merged)[:3]
+            parsed = self.parse_suggested_options(result.content, ctx=ctx)
+            if parsed:
+                return parsed
         except Exception as e:
             logger.warning("Main plot suggestion LLM parse failed: %s", e)
 

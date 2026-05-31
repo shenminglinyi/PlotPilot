@@ -9,6 +9,7 @@ from application.ai_invocation.dtos import (
     InvocationSpec,
     VariableBinding,
 )
+from application.ai_invocation.continuation import register_continuation_handler
 from application.ai_invocation.gateway import AIInvocationGateway
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler, PromptAssemblyError
 from application.ai_invocation.services import InvocationSessionService
@@ -232,3 +233,67 @@ async def test_gateway_interactive_stops_before_llm():
     assert result.session.status == InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW
     assert result.attempt is None
     assert len(llm.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_gateway_full_interactive_attaches_continuation_key():
+    llm = FakeLLM()
+    repo = InMemoryInvocationSpecRepository(
+        [
+            InvocationSpec(
+                operation="setup.main_plot_options",
+                node_key="chapter-test",
+                prompt_node_version_id="node-version-1",
+                asset_link_set_id="asset-set-1",
+                input_binding_set_id="binding-set-1",
+                output_binding_set_id="output-set-1",
+                default_policy=InvocationPolicy.FULL_INTERACTIVE,
+                continuation_handler_key="setup_main_plot_options",
+            )
+        ]
+    )
+    gateway = AIInvocationGateway(
+        spec_service=InvocationSpecService(repo),
+        variable_resolver=_resolver(),
+        prompt_assembler=CPMSPromptAssembler(registry=FakeRegistry()),
+        llm_service=llm,
+    )
+
+    result = await gateway.invoke(
+        InvocationRequest(
+            operation="setup.main_plot_options",
+            node_key="chapter-test",
+            variables={"outline": "第一幕冲突"},
+            context={"novel_id": "novel-1", "setup_context": {"novel_title": "T"}},
+        )
+    )
+
+    assert result.session.status == InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW
+    assert result.session.continuation is not None
+    assert result.session.continuation.handler_key == "setup_main_plot_options"
+
+
+@pytest.mark.asyncio
+async def test_gateway_review_after_call_produces_attempt_for_acceptance():
+    llm = FakeLLM()
+    repo = InMemoryInvocationSpecRepository([_spec(InvocationPolicy.REVIEW_AFTER_CALL)])
+    gateway = AIInvocationGateway(
+        spec_service=InvocationSpecService(repo),
+        variable_resolver=_resolver(),
+        prompt_assembler=CPMSPromptAssembler(registry=FakeRegistry()),
+        llm_service=llm,
+    )
+
+    result = await gateway.invoke(
+        InvocationRequest(
+            operation="chapter.generate",
+            node_key="chapter-test",
+            variables={"outline": "第一幕冲突"},
+            context={"novel_id": "novel-1"},
+        )
+    )
+
+    assert result.session.status == InvocationSessionStatus.AWAITING_ACCEPTANCE
+    assert result.attempt is not None
+    assert result.decision is None
+    assert result.commit is None

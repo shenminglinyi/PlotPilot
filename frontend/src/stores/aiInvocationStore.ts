@@ -17,6 +17,7 @@ function errorText(err: unknown): string {
 }
 
 export const useAIInvocationStore = defineStore('aiInvocation', () => {
+  const sessionListeners = new Map<string, Array<(payload: InvocationResponseDTO) => void>>()
   const visible = ref(false)
   const loading = ref(false)
   const actionLoading = ref(false)
@@ -41,6 +42,12 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     decision.value = payload.decision ?? decision.value ?? null
     commit.value = payload.commit ?? commit.value ?? null
     nextAction.value = payload.next_action ?? ''
+    const listeners = payload.session?.id ? sessionListeners.get(payload.session.id) : undefined
+    if (listeners?.length) {
+      for (const listener of [...listeners]) {
+        listener(payload)
+      }
+    }
   }
 
   function openFromResponse(payload: InvocationResponseDTO) {
@@ -49,8 +56,14 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
   }
 
   async function open(sessionId: string) {
+    visible.value = true
     loading.value = true
     error.value = ''
+    session.value = null
+    attempt.value = null
+    decision.value = null
+    commit.value = null
+    nextAction.value = ''
     try {
       const payload = await aiInvocationApi.get(sessionId)
       openFromResponse(payload)
@@ -98,6 +111,24 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     }
   }
 
+  async function resume() {
+    if (!session.value?.id) return
+    actionLoading.value = true
+    error.value = ''
+    try {
+      const payload = await aiInvocationApi.resume(session.value.id, {
+        resumed_by: 'user',
+      })
+      applyResponse(payload)
+      visible.value = true
+    } catch (err) {
+      error.value = errorText(err)
+      throw err
+    } finally {
+      actionLoading.value = false
+    }
+  }
+
   async function runCommit() {
     if (!session.value?.id || !decision.value?.id) return
     actionLoading.value = true
@@ -115,6 +146,20 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
 
   function close() {
     visible.value = false
+  }
+
+  function onSessionUpdate(sessionId: string, listener: (payload: InvocationResponseDTO) => void) {
+    const listeners = sessionListeners.get(sessionId) ?? []
+    listeners.push(listener)
+    sessionListeners.set(sessionId, listeners)
+    return () => {
+      const current = sessionListeners.get(sessionId)
+      if (!current) return
+      sessionListeners.set(
+        sessionId,
+        current.filter((item) => item !== listener),
+      )
+    }
   }
 
   return {
@@ -135,7 +180,9 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     openFromResponse,
     accept,
     reject,
+    resume,
     runCommit,
     close,
+    onSessionUpdate,
   }
 })

@@ -96,6 +96,7 @@ export interface AdoptionCommitDTO {
   decision_id: string
   status: string
   steps: AdoptionCommitStepDTO[]
+  result?: Record<string, unknown>
   error?: string
 }
 
@@ -126,6 +127,12 @@ export interface InvocationAcceptPayload {
   metadata?: Record<string, unknown>
 }
 
+export interface InvocationResumePayload {
+  resumed_by?: string
+  config?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+}
+
 export const aiInvocationApi = {
   create(payload: InvocationCreatePayload) {
     return apiClient.post<InvocationResponseDTO>('/ai-invocations', payload)
@@ -138,6 +145,9 @@ export const aiInvocationApi = {
   },
   reject(sessionId: string, payload: InvocationAcceptPayload) {
     return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/reject`, payload)
+  },
+  resume(sessionId: string, payload: InvocationResumePayload) {
+    return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/resume`, payload)
   },
   commit(sessionId: string, decisionId: string) {
     return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/commits`, {

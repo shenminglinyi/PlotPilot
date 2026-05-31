@@ -100,10 +100,17 @@ export interface MainPlotOptionDTO {
   }>
 }
 
+export interface SuggestMainPlotOptionsResponse {
+  plot_options: MainPlotOptionDTO[]
+  invocation_session_id?: string
+  invocation_next_action?: string
+}
+
 export type MainPlotOptionsStreamEvent =
   | { type: 'phase'; phase: string; message: string }
   | { type: 'chunk'; text: string }
   | { type: 'option'; option: MainPlotOptionDTO; index: number }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
   | { type: 'done'; plot_options: MainPlotOptionDTO[] }
   | { type: 'error'; message: string }
 
@@ -541,6 +548,7 @@ export async function consumeMainPlotOptionsStream(
     onPhase?: (message: string) => void
     onChunk?: (text: string) => void
     onOption?: (option: MainPlotOptionDTO, index: number) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
     onDone?: (options: MainPlotOptionDTO[]) => void
     onError?: (message: string) => void
     signal?: AbortSignal
@@ -588,6 +596,18 @@ export async function consumeMainPlotOptionsStream(
           const ev: MainPlotOptionsStreamEvent = { type: 'option', option, index }
           handlers.onEvent?.(ev)
           handlers.onOption?.(option, index)
+        } else if (typ === 'approval_required') {
+          const sessionId = String(o.session_id ?? '')
+          const status = String(o.status ?? '')
+          const nextAction = String(o.next_action ?? '')
+          const ev: MainPlotOptionsStreamEvent = {
+            type: 'approval_required',
+            session_id: sessionId,
+            status,
+            next_action: nextAction,
+          }
+          handlers.onEvent?.(ev)
+          handlers.onApprovalRequired?.(sessionId, status, nextAction)
         } else if (typ === 'done') {
           const options = Array.isArray(o.plot_options) ? (o.plot_options as MainPlotOptionDTO[]) : []
           const ev: MainPlotOptionsStreamEvent = { type: 'done', plot_options: options }
@@ -633,11 +653,11 @@ export const workflowApi = {
 
   /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options（单次 LLM；引导页默认 400s） */
   suggestMainPlotOptions: (novelId: string) =>
-    apiClient.post<{ plot_options: MainPlotOptionDTO[] }>(
+    apiClient.post<SuggestMainPlotOptionsResponse>(
       `/novels/${novelId}/setup/suggest-main-plot-options`,
       {},
       { timeout: WIZARD_STEP_TIMEOUT_MS }
-    ) as unknown as Promise<{ plot_options: MainPlotOptionDTO[] }>,
+    ) as unknown as Promise<SuggestMainPlotOptionsResponse>,
 
   /** POST /api/v1/novels/{novel_id}/storylines */
   createStoryline: (

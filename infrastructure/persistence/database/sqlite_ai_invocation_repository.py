@@ -8,6 +8,8 @@ from typing import Any, Mapping
 
 from application.ai_invocation.dtos import (
     AdoptionCommit,
+    AdoptionCommitStatus,
+    AdoptionCommitStep,
     ContinuationRef,
     AdoptionDecision,
     InvocationAttempt,
@@ -489,6 +491,33 @@ class SqliteAdoptionRepository:
             metadata=_json_loads(row["metadata_json"], {}),
         )
 
+    def get_latest_decision_for_session(self, session_id: str) -> AdoptionDecision | None:
+        row = self._db.fetch_one(
+            """
+            SELECT *
+            FROM ai_adoption_decisions
+            WHERE session_id = ?
+            ORDER BY accepted_at DESC
+            LIMIT 1
+            """,
+            (session_id,),
+        )
+        if row is None:
+            return None
+        return AdoptionDecision(
+            id=row["id"],
+            session_id=row["session_id"],
+            attempt_id=row["attempt_id"],
+            decision=row["decision"],
+            accept_content=bool(row["accept_content"]),
+            commit_prompt_version=bool(row["commit_prompt_version"]),
+            commit_variable_outputs=bool(row["commit_variable_outputs"]),
+            commit_variable_bindings=bool(row["commit_variable_bindings"]),
+            accepted_content=row["accepted_content"] or "",
+            accepted_by=row["accepted_by"] or "system",
+            metadata=_json_loads(row["metadata_json"], {}),
+        )
+
     def create_commit(self, *, session_id: str, decision_id: str) -> AdoptionCommitRecord:
         idempotency_key = f"{session_id}:{decision_id}"
         existing = self._db.fetch_one(
@@ -589,6 +618,40 @@ class SqliteAdoptionRepository:
                 result=step.result,
                 error=step.error,
             )
+
+    def get_commit_for_decision(self, decision_id: str) -> AdoptionCommit | None:
+        row = self._db.fetch_one(
+            "SELECT * FROM ai_adoption_commits WHERE decision_id = ? ORDER BY created_at DESC LIMIT 1",
+            (decision_id,),
+        )
+        if row is None:
+            return None
+        step_rows = self._db.fetch_all(
+            """
+            SELECT *
+            FROM ai_adoption_commit_steps
+            WHERE commit_id = ?
+            ORDER BY started_at ASC
+            """,
+            (row["id"],),
+        )
+        return AdoptionCommit(
+            id=row["id"],
+            session_id=row["session_id"],
+            decision_id=row["decision_id"],
+            status=AdoptionCommitStatus(row["status"]),
+            steps=[
+                AdoptionCommitStep(
+                    name=step["step_name"],
+                    status=AdoptionCommitStatus(step["status"]),
+                    result=_json_loads(step["result_json"], {}),
+                    error=step["error"] or "",
+                )
+                for step in step_rows
+            ],
+            result=_json_loads(row["result_json"], {}),
+            error=row["error"] or "",
+        )
 
 
 class SqliteVariableHubRepository:

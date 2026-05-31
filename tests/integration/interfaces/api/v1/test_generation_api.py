@@ -1,4 +1,6 @@
 """API 端点测试 - 生成工作流"""
+import json
+
 import pytest
 from unittest.mock import Mock, AsyncMock
 from fastapi import FastAPI
@@ -197,6 +199,37 @@ class TestGenerateChapterEndpoint:
         assert '"type": "approval_required"' in response.text
         assert '"session_id": "session-1"' in response.text
 
+    def test_setup_main_plot_stream_emits_approval_required(self, client, monkeypatch):
+        """新书引导 Step 4 也应先进入 AI 审阅，再输出候选。"""
+        from interfaces.api.v1.engine import generation
+
+        async def fake_create_invocation(request):
+            return {
+                "session": {
+                    "id": "session-plot-1",
+                    "status": "awaiting_pre_call_review",
+                },
+                "attempt": {
+                    "id": "attempt-1",
+                    "session_id": "session-plot-1",
+                    "status": "succeeded",
+                    "content": '{"plot_options":[{"id":"a","title":"A","logline":"L","core_conflict":"C","starting_hook":"H"}]}',
+                },
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+
+        response = client.post(
+            "/api/v1/novels/novel-1/setup/suggest-main-plot-options-stream",
+            json={},
+        )
+
+        assert response.status_code == 200
+        assert "event-stream" in response.headers.get("content-type", "")
+        assert '"type": "approval_required"' in response.text
+        assert '"session_id": "session-plot-1"' in response.text
+
     def test_hosted_write_stream_sse(self, client):
         """托管连写 SSE"""
         response = client.post(
@@ -281,3 +314,60 @@ class TestPlotArcEndpoints:
         data = response.json()
         assert "key_points" in data
 
+
+class TestSetupMainPlotOptionsEndpoints:
+    """测试新书向导主线候选推演。"""
+
+    def test_suggest_main_plot_options_triggers_ai_invocation(self, client, test_novel_id, monkeypatch):
+        from interfaces.api.v1.engine import generation
+
+        fake_novel_service = Mock()
+        fake_novel_service.get_novel.return_value = Mock()
+
+        async def fake_create_invocation(request):
+            assert request.operation == "setup.main_plot_options"
+            assert request.node_key == "planning-main-plot-option"
+            assert "context_blob" in request.variables
+            assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert "setup_context" in request.context
+            return {
+                "session": {"id": "session-1", "status": "awaiting_pre_call_review"},
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+        monkeypatch.setattr(generation, "_ensure_main_plot_invocation_contract", lambda: None)
+        client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+
+        response = client.post(f"/api/v1/novels/{test_novel_id}/setup/suggest-main-plot-options")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["plot_options"] == []
+        assert data["invocation_session_id"] == "session-1"
+        assert data["invocation_next_action"] == "pre_call_review_required"
+
+    def test_suggest_main_plot_options_stream_emits_approval_required(self, client, test_novel_id, monkeypatch):
+        from interfaces.api.v1.engine import generation
+
+        fake_novel_service = Mock()
+        fake_novel_service.get_novel.return_value = Mock()
+
+        async def fake_create_invocation(request):
+            assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert "setup_context" in request.context
+            return {
+                "session": {"id": "session-1", "status": "awaiting_pre_call_review"},
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+        monkeypatch.setattr(generation, "_ensure_main_plot_invocation_contract", lambda: None)
+        client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+
+        response = client.post(f"/api/v1/novels/{test_novel_id}/setup/suggest-main-plot-options-stream")
+
+        assert response.status_code == 200
+        body = response.text
+        assert '"type": "approval_required"' in body
+        assert '"session_id": "session-1"' in body
