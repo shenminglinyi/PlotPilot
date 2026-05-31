@@ -1,5 +1,11 @@
 from application.ai_invocation.continuation import ContinuationContext
-from application.ai_invocation.dtos import AdoptionDecision, InvocationPolicy, InvocationSession, ContinuationRef
+from application.ai_invocation.dtos import (
+    AdoptionDecision,
+    InvocationPolicy,
+    InvocationSession,
+    ContinuationRef,
+    VariablePlan,
+)
 from application.blueprint.services.setup_main_plot_continuation import setup_main_plot_options_handler
 
 
@@ -24,6 +30,17 @@ def test_setup_main_plot_continuation_returns_normalized_options():
             },
         },
         continuation=ContinuationRef(handler_key="setup_main_plot_options"),
+        variable_plan=VariablePlan(
+            aliases={
+                "novel_title": "变量中心之书",
+                "premise": "变量中心先行",
+                "target_chapters": 80,
+                "fusion_contract": "融合合同",
+                "protagonist": {"name": "阿澄"},
+                "locations": [{"name": "天枢城"}],
+                "worldbuilding_full": "全文",
+            },
+        ),
     )
     decision = AdoptionDecision(
         id="decision-1",
@@ -36,5 +53,9 @@ def test_setup_main_plot_continuation_returns_normalized_options():
 
     assert result["session_id"] == "session-1"
     assert result["novel_id"] == "novel-1"
+    assert result["worldbuilding_full"] == "全文"
+    assert result["protagonist"]["name"] == "阿澄"
+    assert result["locations"][0]["name"] == "天枢城"
+    assert result["fusion_contract"] == "融合合同"
     assert result["plot_options"]
     assert result["plot_options"][0]["main_axis"]

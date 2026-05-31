@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec
+from application.ai_invocation.variable_hub import materialize_setup_main_plot_context
 from application.blueprint.services.setup_main_plot_suggestion_service import SETUP_TASK_MARKER
 from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
@@ -81,6 +82,7 @@ def _ensure_main_plot_invocation_contract() -> None:
         | engine.extract_variables(node.get_active_user_template())
     )
     binding_set_id = f"{PLANNING_MAIN_PLOT_OPTION}:input:v1"
+    output_binding_set_id = f"{PLANNING_MAIN_PLOT_OPTION}:output:v1"
     required_aliases = {"context_blob"}
     planning_global_bindings = {
         "novel_title": {
@@ -147,6 +149,78 @@ def _ensure_main_plot_invocation_contract() -> None:
             "stage": "setup",
             "required": False,
         },
+        "fusion_contract": {
+            "variable_key": "novel.plot.fusion_contract",
+            "display_name": "融合故事合同",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "planning",
+            "required": False,
+        },
+        "protagonist": {
+            "variable_key": "novel.characters.protagonist",
+            "display_name": "主角",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "characters",
+            "required": False,
+        },
+        "locations": {
+            "variable_key": "novel.locations.list",
+            "display_name": "地点列表",
+            "value_type": "list",
+            "scope": "global",
+            "stage": "locations",
+            "required": False,
+        },
+        "worldbuilding_full": {
+            "variable_key": "novel.worldbuilding.full",
+            "display_name": "世界观全文",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "worldbuilding",
+            "required": False,
+        },
+        "core_rules": {
+            "variable_key": "novel.worldbuilding.core_rules",
+            "display_name": "核心法则",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "worldbuilding",
+            "required": False,
+        },
+        "geography": {
+            "variable_key": "novel.worldbuilding.geography",
+            "display_name": "地理生态",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "worldbuilding",
+            "required": False,
+        },
+        "society": {
+            "variable_key": "novel.worldbuilding.society",
+            "display_name": "社会结构",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "worldbuilding",
+            "required": False,
+        },
+        "culture": {
+            "variable_key": "novel.worldbuilding.culture",
+            "display_name": "历史文化",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "worldbuilding",
+            "required": False,
+        },
+        "daily_life": {
+            "variable_key": "novel.worldbuilding.daily_life",
+            "display_name": "沉浸感细节",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "worldbuilding",
+            "required": False,
+        },
     }
 
     db = get_database()
@@ -194,6 +268,52 @@ def _ensure_main_plot_invocation_contract() -> None:
                         json.dumps(binding_meta, ensure_ascii=False) if binding_meta else "{}",
                     ),
                 )
+            conn.execute(
+                """
+                INSERT INTO cpms_variable_binding_sets (
+                    id, node_key, direction, version_number, status, is_active, created_by
+                ) VALUES (?, ?, 'output', 1, 'published', 1, 'system')
+                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
+                    status='published',
+                    is_active=1
+                """,
+                (output_binding_set_id, PLANNING_MAIN_PLOT_OPTION),
+            )
+            for alias, variable_key, display_name, value_type in (
+                ("plot_options", "novel.plot.main_options", "主线候选", "list"),
+                ("plot_options_json", "novel.plot.main_options_json", "主线候选 JSON", "string"),
+            ):
+                conn.execute(
+                    """
+                    INSERT INTO cpms_variable_bindings (
+                        id, binding_set_id, node_key, direction, alias, variable_key, required,
+                        default_value_json, source, enabled, metadata_json
+                    ) VALUES (?, ?, ?, 'output', ?, ?, 0, NULL, 'ai_invocation_output', 1, ?)
+                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
+                        variable_key=excluded.variable_key,
+                        required=excluded.required,
+                        default_value_json=excluded.default_value_json,
+                        source=excluded.source,
+                        metadata_json=excluded.metadata_json,
+                        enabled=1
+                    """,
+                    (
+                        f"{output_binding_set_id}:{alias}",
+                        output_binding_set_id,
+                        PLANNING_MAIN_PLOT_OPTION,
+                        alias,
+                        variable_key,
+                        json.dumps(
+                            {
+                                "display_name": display_name,
+                                "value_type": value_type,
+                                "scope": "global",
+                                "stage": "planning",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ),
+                )
 
         SqliteInvocationSpecRepository(db).upsert(
             InvocationSpec(
@@ -201,6 +321,7 @@ def _ensure_main_plot_invocation_contract() -> None:
                 node_key=PLANNING_MAIN_PLOT_OPTION,
                 prompt_node_version_id=node_version_id,
                 input_binding_set_id=binding_set_id,
+                output_binding_set_id=output_binding_set_id,
                 default_policy=InvocationPolicy.FULL_INTERACTIVE,
                 risk_level="low",
                 supports_stream=True,
@@ -222,11 +343,7 @@ def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
     theme_metadata = ctx.get("theme_metadata") if isinstance(ctx.get("theme_metadata"), dict) else {}
     genre_label = str(theme_metadata.get("genre_label") or "").strip()
     genre_major, genre_theme = _split_genre_label(genre_label)
-    return {
-        "context_blob": (
-            f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n"
-            f"{json.dumps(ctx, ensure_ascii=False, indent=2)}\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
-        ),
+    aliases = {
         "novel_title": str(ctx.get("novel_title") or "").strip(),
         "premise": str(ctx.get("premise") or "").strip(),
         "genre_major": genre_major,
@@ -235,6 +352,23 @@ def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
         "world_preset": str(theme_metadata.get("world_preset") or "").strip(),
         "target_chapters": int(ctx.get("target_chapters") or 0),
         "target_words_per_chapter": int(ctx.get("target_words_per_chapter") or 0),
+        "fusion_axis": ctx.get("fusion_axis") or {},
+        "fusion_contract": str(ctx.get("fusion_contract") or ""),
+        "protagonist": ctx.get("protagonist") or {},
+        "other_characters": ctx.get("other_characters") or [],
+        "locations": ctx.get("locations") or [],
+        "worldview_summary": ctx.get("worldview_summary") or [],
+        "style_hint": str(ctx.get("style_hint") or ""),
+        "worldbuilding_full": str(ctx.get("worldbuilding_full") or ""),
+        "core_rules": ctx.get("core_rules") or {},
+        "geography": ctx.get("geography") or {},
+        "society": ctx.get("society") or {},
+        "culture": ctx.get("culture") or {},
+        "daily_life": ctx.get("daily_life") or {},
+    }
+    return {
+        **aliases,
+        "context_blob": materialize_setup_main_plot_context(aliases),
     }
 
 

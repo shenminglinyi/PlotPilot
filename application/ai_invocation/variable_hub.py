@@ -1,6 +1,7 @@
 ﻿"""Variable Hub 最小解析底座。"""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
@@ -22,17 +23,41 @@ class VariableValue:
     value: Any
     context_key: str = "global"
     source_ref: str = ""
+    version_number: int = 1
+
+
+@dataclass(frozen=True)
+class VariableWrite:
+    key: str
+    value: Any
+    context_key: str = "global"
+    source_session_id: str = ""
+    source_attempt_id: str = ""
+    source_trace_id: str = ""
+    source_node_key: str = ""
+    source_commit_id: str = ""
+    lineage: Mapping[str, Any] = field(default_factory=dict)
+    value_type: str = "string"
+    display_name: str = ""
+    scope: str = "global"
+    stage: str = "runtime"
 
 
 class VariableHubRepository(Protocol):
     def get_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
         """读取节点输入变量绑定。"""
 
+    def get_output_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
+        """读取节点输出变量绑定。"""
+
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
         """读取变量值。"""
 
     def get_definition(self, variable_key: str) -> VariableDefinition | None:
         """读取变量定义。"""
+
+    def set_value(self, value: VariableValue | VariableWrite) -> VariableValue | None:
+        """写入变量值。"""
 
 
 @dataclass
@@ -49,17 +74,84 @@ class InMemoryVariableHubRepository:
     def set_value(self, value: VariableValue) -> None:
         self.values[(value.key, value.context_key)] = value
 
+    def write_value(self, write: VariableWrite) -> VariableValue:
+        existing = self.values.get((write.key, write.context_key))
+        version = (existing.version_number + 1) if existing else 1
+        source_ref = write.source_session_id or write.source_trace_id or write.source_node_key
+        value = VariableValue(
+            key=write.key,
+            value=write.value,
+            context_key=write.context_key,
+            source_ref=source_ref,
+            version_number=version,
+        )
+        self.values[(value.key, value.context_key)] = value
+        return value
+
     def set_bindings(self, binding_set_id: str, node_key: str, bindings: list[VariableBinding]) -> None:
         self.bindings[(binding_set_id, node_key)] = list(bindings)
 
     def get_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
         return list(self.bindings.get((binding_set_id, node_key), []))
 
+    def get_output_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
+        return self.get_bindings(binding_set_id, node_key)
+
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
         return self.values.get((variable_key, context_key)) or self.values.get((variable_key, "global"))
 
     def get_definition(self, variable_key: str) -> VariableDefinition | None:
         return self.definitions.get(variable_key)
+
+    def set_value(self, value: VariableValue | VariableWrite) -> VariableValue | None:  # type: ignore[override]
+        if isinstance(value, VariableWrite):
+            return self.write_value(value)
+        self.values[(value.key, value.context_key)] = value
+        return None
+
+
+def extract_path_value(source: Any, path: str) -> Any:
+    """Extract a value from dict/list data using dotted paths and [] markers."""
+    if not path:
+        return None
+    current = source
+    for raw_segment in path.split("."):
+        if current is None:
+            return None
+        is_array = raw_segment.endswith("[]")
+        key = raw_segment[:-2] if is_array else raw_segment
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(key)
+        if is_array and not isinstance(current, list):
+            return None
+    return current
+
+
+def materialize_setup_main_plot_context(aliases: Mapping[str, Any]) -> str:
+    """Build the legacy context_blob from structured Variable Hub aliases."""
+    payload = {
+        "novel_title": aliases.get("novel_title") or "",
+        "premise": aliases.get("premise") or "",
+        "target_chapters": aliases.get("target_chapters") or 100,
+        "target_words_per_chapter": aliases.get("target_words_per_chapter") or 0,
+        "theme_metadata": {
+            "genre_label": aliases.get("genre_label") or "",
+            "world_preset": aliases.get("world_preset") or "",
+        },
+        "fusion_axis": aliases.get("fusion_axis") or {},
+        "fusion_contract": aliases.get("fusion_contract") or "",
+        "protagonist": aliases.get("protagonist") or {},
+        "other_characters": aliases.get("other_characters") or [],
+        "locations": aliases.get("locations") or [],
+        "worldview_summary": aliases.get("worldview_summary") or [],
+        "style_hint": aliases.get("style_hint") or "",
+    }
+    return (
+        "setup_main_plot_options_v1\n\n以下为小说设定简报（JSON）：\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
+        "\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
+    )
 
 
 class VariableResolver:
@@ -118,6 +210,10 @@ class VariableResolver:
             if alias not in aliases:
                 aliases[alias] = value
                 lineage[alias] = "explicit"
+
+        if spec.operation == "setup.main_plot_options" and "context_blob" not in aliases:
+            aliases["context_blob"] = materialize_setup_main_plot_context(aliases)
+            lineage["context_blob"] = "materialized:materialized.setup.main_plot_context"
 
         for alias, value in aliases.items():
             binding = binding_by_alias.get(alias)

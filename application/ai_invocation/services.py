@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import json
 import uuid
 from dataclasses import replace
+from typing import Any, Mapping
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from application.ai_invocation.continuation import ContinuationContext, execute_continuation
@@ -22,6 +24,7 @@ from application.ai_invocation.dtos import (
     stable_hash,
 )
 from domain.ai.value_objects.prompt import Prompt
+from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
 
 logger = logging.getLogger(__name__)
 
@@ -169,9 +172,10 @@ class AdoptionCommitService:
     后续通过独立 step 扩展，不能再绕回 Gateway 或业务层硬编码。
     """
 
-    def __init__(self, prompt_manager=None):
+    def __init__(self, prompt_manager=None, variable_hub_repository: VariableHubRepository | None = None):
         self._commits_by_key: dict[str, AdoptionCommit] = {}
         self._prompt_manager = prompt_manager
+        self._variable_hub_repository = variable_hub_repository
 
     def _get_prompt_manager(self):
         if self._prompt_manager is None:
@@ -179,6 +183,17 @@ class AdoptionCommitService:
 
             self._prompt_manager = get_prompt_manager()
         return self._prompt_manager
+
+    def _get_variable_hub_repository(self):
+        if self._variable_hub_repository is None:
+            try:
+                from infrastructure.persistence.database.connection import get_database
+                from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+                self._variable_hub_repository = SqliteVariableHubRepository(get_database())
+            except Exception:
+                self._variable_hub_repository = None
+        return self._variable_hub_repository
 
     def _commit_prompt_version(self, *, session: InvocationSession, decision: AdoptionDecision) -> dict:
         snapshot = session.prompt_snapshot
@@ -263,6 +278,128 @@ class AdoptionCommitService:
             "accepted_by": decision.accepted_by,
         }
 
+    def _materialize_output_value(self, alias: str, value: Any) -> Any:
+        if isinstance(value, Mapping) and alias in value and len(value) == 1:
+            return value[alias]
+        return value
+
+    def _commit_variable_outputs(
+        self,
+        *,
+        session: InvocationSession,
+        decision: AdoptionDecision,
+        commit_id: str,
+        output_payload: Mapping[str, Any] | None = None,
+    ) -> dict:
+        snapshot = session.prompt_snapshot
+        if snapshot is None:
+            return {"skipped": True, "reason": "missing_prompt_snapshot"}
+        repo = self._get_variable_hub_repository()
+        if repo is None:
+            return {"skipped": True, "reason": "missing_variable_hub_repository"}
+
+        bindings = []
+        if snapshot.output_binding_set_id:
+            try:
+                bindings = repo.get_output_bindings(snapshot.output_binding_set_id, snapshot.node_key)
+            except Exception as exc:
+                return {"skipped": True, "reason": "output_bindings_unavailable", "error": str(exc)}
+
+        if not bindings:
+            bindings = self._fallback_output_bindings(session.node_key)
+        if not bindings:
+            return {"skipped": True, "reason": "no_output_bindings"}
+
+        payload = dict(output_payload or {})
+        if not payload:
+            try:
+                parsed = json.loads(decision.accepted_content)
+            except Exception:
+                parsed = {}
+            payload = dict(parsed) if isinstance(parsed, Mapping) else {}
+
+        written: list[dict[str, Any]] = []
+        for binding in bindings:
+            if not binding.enabled or not binding.variable_key:
+                continue
+            raw_value = payload.get(binding.alias)
+            if raw_value is None:
+                continue
+            write = VariableWrite(
+                key=binding.variable_key,
+                value=self._materialize_output_value(binding.alias, raw_value),
+                context_key=self._context_key(session.context),
+                source_session_id=session.id,
+                source_attempt_id=decision.attempt_id,
+                source_trace_id=str(session.metadata.get("trace_id") or session.id),
+                source_node_key=session.node_key,
+                source_commit_id=commit_id,
+                lineage={
+                    "alias": binding.alias,
+                    "binding_set_id": snapshot.output_binding_set_id,
+                    "operation": session.operation,
+                },
+                value_type=binding.value_type,
+                display_name=binding.display_name,
+                scope=binding.scope,
+                stage=binding.stage,
+            )
+            stored = repo.set_value(write)
+            written.append(
+                {
+                    "alias": binding.alias,
+                    "variable_key": binding.variable_key,
+                    "context_key": write.context_key,
+                    "version_number": getattr(stored, "version_number", 1),
+                }
+            )
+        if not written:
+            return {"skipped": True, "reason": "no_matching_output_values"}
+        return {
+            "skipped": False,
+            "written": written,
+            "binding_set_id": snapshot.output_binding_set_id,
+        }
+
+    @staticmethod
+    def _context_key(context: Mapping[str, Any]) -> str:
+        novel_id = str(context.get("novel_id") or "").strip()
+        if novel_id:
+            return f"novel_id:{novel_id}"
+        return "global"
+
+    @staticmethod
+    def _fallback_output_bindings(node_key: str):
+        from application.ai_invocation.dtos import VariableBinding
+
+        common = {"scope": "global"}
+        if node_key == "bible-worldbuilding":
+            return [
+                VariableBinding(alias="style", variable_key="novel.style.guide", display_name="文风公约", stage="setup", **common),
+                VariableBinding(alias="worldbuilding", variable_key="novel.worldbuilding.full", display_name="世界观", value_type="object", stage="worldbuilding", **common),
+                VariableBinding(alias="worldbuilding_full", variable_key="novel.worldbuilding.full", display_name="世界观全量摘要", stage="worldbuilding", **common),
+                VariableBinding(alias="core_rules", variable_key="novel.worldbuilding.core_rules", display_name="核心法则", value_type="object", stage="worldbuilding", **common),
+                VariableBinding(alias="geography", variable_key="novel.worldbuilding.geography", display_name="地理生态", value_type="object", stage="worldbuilding", **common),
+                VariableBinding(alias="society", variable_key="novel.worldbuilding.society", display_name="社会结构", value_type="object", stage="worldbuilding", **common),
+                VariableBinding(alias="culture", variable_key="novel.worldbuilding.culture", display_name="历史文化", value_type="object", stage="worldbuilding", **common),
+                VariableBinding(alias="daily_life", variable_key="novel.worldbuilding.daily_life", display_name="沉浸感细节", value_type="object", stage="worldbuilding", **common),
+            ]
+        if node_key == "bible-characters":
+            return [
+                VariableBinding(alias="characters", variable_key="novel.characters.list", display_name="角色列表", value_type="list", stage="characters", **common),
+                VariableBinding(alias="protagonist", variable_key="novel.characters.protagonist", display_name="主角", value_type="object", stage="characters", **common),
+            ]
+        if node_key == "bible-locations":
+            return [
+                VariableBinding(alias="locations", variable_key="novel.locations.list", display_name="地点列表", value_type="list", stage="locations", **common),
+            ]
+        if node_key == "planning-main-plot-option":
+            return [
+                VariableBinding(alias="plot_options", variable_key="novel.plot.main_options", display_name="主线候选", value_type="list", stage="planning", **common),
+                VariableBinding(alias="plot_options_json", variable_key="novel.plot.main_options_json", display_name="主线候选 JSON", stage="planning", **common),
+            ]
+        return []
+
     def commit(self, *, session: InvocationSession, decision: AdoptionDecision) -> AdoptionCommit:
         if decision.session_id != session.id:
             raise ValueError("decision 不属于当前 invocation session")
@@ -326,6 +463,21 @@ class AdoptionCommitService:
                     )
                 )
                 commit.result = {**commit.result, "continuation": continuation_result}
+            variable_output_result = self._commit_variable_outputs(
+                session=session,
+                decision=decision,
+                commit_id=commit.id,
+                output_payload=continuation_result,
+            )
+            commit.steps.append(
+                AdoptionCommitStep(
+                    name="commit_variable_outputs",
+                    status=AdoptionCommitStatus.SUCCEEDED,
+                    result=variable_output_result,
+                )
+            )
+            if not variable_output_result.get("skipped"):
+                commit.result = {**commit.result, "variable_outputs": variable_output_result}
             commit.status = AdoptionCommitStatus.SUCCEEDED
             commit.result = {**commit.result, "accepted_content": decision.accepted_content}
             session.status = InvocationSessionStatus.COMPLETED

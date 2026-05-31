@@ -74,6 +74,11 @@ def test_worldbuilding_handler_accepts_top_level_split_fields(monkeypatch):
 
     assert result["style"] == "克制冷峻"
     assert result["worldbuilding"]["core_rules"]["power_system"] == "体系A"
+    assert result["core_rules"]["power_system"] == "体系A"
+    assert result["geography"]["terrain"] == "地形A"
+    assert result["worldbuilding_full"]
+    assert "体系A" in result["core_rules_text"]
+    assert "地形A" in result["geography_text"]
     assert bible_service.styles[0]["content"] == "克制冷峻"
     assert worldbuilding_service.updated
 
@@ -93,6 +98,7 @@ def test_characters_handler_repairs_stringified_arrays(monkeypatch):
     result = bible_characters_handler(ctx)
 
     assert result["characters"][0]["id"] == "novel-1-char-1"
+    assert result["protagonist"]["name"] == "阿澄"
     assert bible_service.characters[0]["relationships"][0]["target"] == "林墨"
     assert bible_service.characters[0]["moral_taboos"] == ["杀无辜"]
     assert bible_service.characters[0]["voice_profile"]["style"] == "克制"
@@ -159,4 +165,5 @@ def test_locations_handler_repairs_stringified_arrays(monkeypatch):
     result = bible_locations_handler(ctx)
 
     assert result["locations"][0]["id"] == "novel-1-loc-1"
+    assert result["existing_locations"][0]["name"] == "天枢城"
     assert bible_service.locations[0]["connections"][0]["target"] == "外城"

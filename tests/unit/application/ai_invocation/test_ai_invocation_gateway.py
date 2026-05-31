@@ -18,6 +18,7 @@ from application.ai_invocation.variable_hub import (
     InMemoryVariableHubRepository,
     VariableDefinition,
     VariableResolver,
+    VariableWrite,
     VariableValue,
 )
 from domain.ai.services.llm_service import GenerationResult
@@ -119,6 +120,37 @@ def test_variable_resolver_reports_required_missing():
     assert not plan.ok
     assert plan.required_missing == ("outline",)
     assert "必填变量缺失: outline" in plan.diagnostics
+
+
+def test_variable_resolver_materializes_main_plot_context_blob():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "plot-input",
+        "planning-main-plot-option",
+        [
+            VariableBinding(alias="premise", variable_key="novel.setup.premise", required=True),
+            VariableBinding(alias="worldbuilding_full", variable_key="novel.worldbuilding.full", required=False),
+            VariableBinding(alias="protagonist", variable_key="novel.characters.protagonist", required=False),
+        ],
+    )
+    repo.set_value(VariableWrite(key="novel.setup.premise", value="旧城少年破局", context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="novel.worldbuilding.full", value="旧城由债务法则统治", context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="novel.characters.protagonist", value={"name": "阿澄"}, context_key="novel_id:novel-1"))
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(
+            operation="setup.main_plot_options",
+            node_key="planning-main-plot-option",
+            input_binding_set_id="plot-input",
+        ),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.ok
+    assert "setup_main_plot_options_v1" in plan.aliases["context_blob"]
+    assert "旧城少年破局" in plan.aliases["context_blob"]
+    assert plan.lineage["context_blob"] == "materialized:materialized.setup.main_plot_context"
 
 
 def test_prompt_assembler_freezes_snapshot_without_package_fallback():
@@ -264,7 +296,7 @@ async def test_gateway_full_interactive_attaches_continuation_key():
             operation="setup.main_plot_options",
             node_key="chapter-test",
             variables={"outline": "第一幕冲突"},
-            context={"novel_id": "novel-1", "setup_context": {"novel_title": "T"}},
+            context={"novel_id": "novel-1"},
         )
     )
 

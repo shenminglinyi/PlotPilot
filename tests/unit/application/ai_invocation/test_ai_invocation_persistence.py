@@ -13,6 +13,7 @@ from application.ai_invocation.dtos import (
     VariableBinding,
     VariablePlan,
 )
+from application.ai_invocation.variable_hub import VariableWrite
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
@@ -194,3 +195,59 @@ def test_sqlite_variable_hub_repository_resolves_bindings_and_current_value():
     assert value.value == "变量中心设定"
     assert definition is not None
     assert definition.default == "默认设定"
+
+
+def test_sqlite_variable_hub_repository_writes_current_value_and_lineage():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    first = repo.set_value(
+        VariableWrite(
+            key="novel.characters.list",
+            value=[{"name": "阿澄"}],
+            context_key="novel_id:novel-1",
+            source_session_id="session-1",
+            source_attempt_id="attempt-1",
+            source_trace_id="trace-1",
+            source_node_key="bible-characters",
+            source_commit_id="commit-1",
+            lineage={"alias": "characters"},
+            value_type="list",
+            display_name="角色列表",
+            stage="characters",
+        )
+    )
+    second = repo.set_value(
+        VariableWrite(
+            key="novel.characters.list",
+            value=[{"name": "阿澄"}, {"name": "林墨"}],
+            context_key="novel_id:novel-1",
+            source_session_id="session-2",
+            source_attempt_id="attempt-2",
+            source_trace_id="trace-2",
+            source_node_key="bible-characters",
+            source_commit_id="commit-2",
+            lineage={"alias": "characters"},
+            value_type="list",
+            display_name="角色列表",
+            stage="characters",
+        )
+    )
+
+    current = repo.get_value("novel.characters.list", "novel_id:novel-1")
+    rows = db.fetch_all("SELECT version_number, is_current FROM variable_values WHERE variable_key = ? ORDER BY version_number", ("novel.characters.list",))
+    lineage = db.fetch_one(
+        "SELECT source_session_id, source_attempt_id, source_node_key FROM variable_lineage WHERE source_commit_id = ?",
+        ("commit-2",),
+    )
+
+    assert first is not None and first.version_number == 1
+    assert second is not None and second.version_number == 2
+    assert current is not None
+    assert current.value == [{"name": "阿澄"}, {"name": "林墨"}]
+    assert rows == [{"version_number": 1, "is_current": 0}, {"version_number": 2, "is_current": 1}]
+    assert lineage == {
+        "source_session_id": "session-2",
+        "source_attempt_id": "attempt-2",
+        "source_node_key": "bible-characters",
+    }

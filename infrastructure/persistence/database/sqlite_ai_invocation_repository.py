@@ -22,7 +22,7 @@ from application.ai_invocation.dtos import (
     VariableBinding,
     VariablePlan,
 )
-from application.ai_invocation.variable_hub import VariableDefinition, VariableValue
+from application.ai_invocation.variable_hub import VariableDefinition, VariableValue, VariableWrite
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 
@@ -728,16 +728,22 @@ class SqliteVariableHubRepository:
         self._db = db
 
     def get_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
+        return self._get_bindings(binding_set_id, node_key, direction="input")
+
+    def get_output_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
+        return self._get_bindings(binding_set_id, node_key, direction="output")
+
+    def _get_bindings(self, binding_set_id: str, node_key: str, *, direction: str) -> list[VariableBinding]:
         if not binding_set_id:
             return []
         rows = self._db.fetch_all(
             """
             SELECT *
             FROM cpms_variable_bindings
-            WHERE binding_set_id = ? AND node_key = ? AND direction = 'input'
+            WHERE binding_set_id = ? AND node_key = ? AND direction = ?
             ORDER BY alias
             """,
-            (binding_set_id, node_key),
+            (binding_set_id, node_key, direction),
         )
         return [
             VariableBinding(
@@ -774,6 +780,7 @@ class SqliteVariableHubRepository:
                     value=_json_loads(row["value_json"], None),
                     context_key=row["scope_key"] or "global",
                     source_ref=row["source_session_id"] or row["source_node_key"] or "",
+                    version_number=int(row["version_number"] or 1),
                 )
         return None
 
@@ -790,4 +797,112 @@ class SqliteVariableHubRepository:
             required=bool(row["required"]),
             default=_json_loads(row["default_value_json"], None),
             description=row["description"] or "",
+        )
+
+    def set_value(self, value: VariableValue | VariableWrite) -> VariableValue | None:
+        if isinstance(value, VariableValue):
+            write = VariableWrite(
+                key=value.key,
+                value=value.value,
+                context_key=value.context_key,
+                source_trace_id=value.source_ref,
+            )
+        else:
+            write = value
+        scope_key = write.context_key or "global"
+        scope_level = "novel" if scope_key != "global" else "global"
+        value_json = _json_dumps(write.value)
+        value_hash = _json_dumps({"value": write.value})
+        existing = self._db.fetch_one(
+            """
+            SELECT version_number
+            FROM variable_values
+            WHERE variable_key = ? AND scope_level = ? AND scope_key = ?
+            ORDER BY version_number DESC
+            LIMIT 1
+            """,
+            (write.key, scope_level, scope_key),
+        )
+        version = int(existing["version_number"] or 0) + 1 if existing else 1
+        value_id = _new_id("var_value")
+        with self._db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO variable_definitions (
+                    id, variable_key, display_name, value_type, scope_level,
+                    required, default_value_json, description, status, metadata_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 0, NULL, '', 'active', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(variable_key) DO UPDATE SET
+                    display_name=CASE
+                        WHEN excluded.display_name != '' THEN excluded.display_name
+                        ELSE variable_definitions.display_name
+                    END,
+                    value_type=excluded.value_type,
+                    scope_level=excluded.scope_level,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (
+                    _new_id("var_def"),
+                    write.key,
+                    write.display_name,
+                    write.value_type or "string",
+                    scope_level,
+                    _json_dumps({"stage": write.stage, "source": "ai_invocation"}),
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE variable_values
+                SET is_current = 0
+                WHERE variable_key = ? AND scope_level = ? AND scope_key = ? AND is_current = 1
+                """,
+                (write.key, scope_level, scope_key),
+            )
+            conn.execute(
+                """
+                INSERT INTO variable_values (
+                    id, variable_key, scope_level, scope_key, value_json, value_hash,
+                    version_number, is_current, source_session_id, source_attempt_id,
+                    source_trace_id, source_node_key, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                """,
+                (
+                    value_id,
+                    write.key,
+                    scope_level,
+                    scope_key,
+                    value_json,
+                    value_hash,
+                    version,
+                    write.source_session_id,
+                    write.source_attempt_id,
+                    write.source_trace_id,
+                    write.source_node_key,
+                    _json_dumps({"source_commit_id": write.source_commit_id, "stage": write.stage}),
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO variable_lineage (
+                    id, variable_value_id, source_session_id, source_attempt_id,
+                    source_trace_id, source_node_key, source_commit_id, lineage_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    _new_id("var_lineage"),
+                    value_id,
+                    write.source_session_id,
+                    write.source_attempt_id,
+                    write.source_trace_id,
+                    write.source_node_key,
+                    write.source_commit_id,
+                    _json_dumps(write.lineage),
+                ),
+            )
+        return VariableValue(
+            key=write.key,
+            value=write.value,
+            context_key=scope_key,
+            source_ref=write.source_session_id or write.source_node_key or write.source_trace_id,
+            version_number=version,
         )

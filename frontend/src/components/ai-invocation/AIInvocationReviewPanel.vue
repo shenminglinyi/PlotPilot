@@ -132,6 +132,11 @@ const outputBindings = computed<OutputBindingRow[]>(() => {
   }
   return []
 })
+const hasStructuredContext = computed(() => Boolean(
+  store.session?.variable_plan?.aliases?.context_blob
+  || store.session?.variable_plan?.aliases?.worldbuilding_full
+  || store.session?.variable_plan?.aliases?.protagonist
+))
 const currentStepOutputs = computed(() =>
   outputBindings.value.map(item => `${item.label}：${item.jsonPath} → ${item.target}`),
 )
@@ -220,6 +225,14 @@ function snapshotGroupTitle(group: { title?: string; scope?: string; stage?: str
 
 function formatType(type?: string): string {
   return type || '文本'
+}
+
+function formatSource(source?: string): string {
+  if (!source) return '-'
+  if (source.startsWith('materialized:')) return `派生上下文 · ${source.replace('materialized:', '')}`
+  if (source === 'explicit') return '显式输入'
+  if (source === 'default') return '默认值'
+  return source
 }
 
 async function handleResume() {
@@ -554,14 +567,31 @@ const outputPreviewRows = computed(() =>
                         <n-tag v-if="item.required" size="small" type="warning">必填</n-tag>
                       </n-space>
                     </div>
-                    <n-text depth="3" class="snapshot-item-source">
-                      来源：{{ item.source || item.variable_key || '-' }}
-                    </n-text>
+                    <n-space :size="8" wrap>
+                      <n-tag size="small" type="info">来源：{{ formatSource(item.source || item.variable_key) }}</n-tag>
+                      <n-tag v-if="String(item.source || '').startsWith('materialized:')" size="small" type="warning">
+                        派生上下文
+                      </n-tag>
+                    </n-space>
                     <pre class="ai-invocation-value">{{ formatValue(item.value) }}</pre>
                   </n-card>
                 </n-space>
               </n-collapse-item>
             </n-collapse>
+          </n-card>
+
+          <n-card v-if="hasStructuredContext" size="small" title="结构化上下文">
+            <n-descriptions :column="1" size="small" bordered label-placement="left">
+              <n-descriptions-item label="context_blob">
+                <pre class="ai-invocation-value">{{ store.session?.variable_plan?.aliases?.context_blob || '-' }}</pre>
+              </n-descriptions-item>
+              <n-descriptions-item label="worldbuilding_full">
+                <pre class="ai-invocation-value">{{ store.session?.variable_plan?.aliases?.worldbuilding_full || '-' }}</pre>
+              </n-descriptions-item>
+              <n-descriptions-item label="protagonist">
+                <pre class="ai-invocation-value">{{ safeJsonPreview(store.session?.variable_plan?.aliases?.protagonist) || '-' }}</pre>
+              </n-descriptions-item>
+            </n-descriptions>
           </n-card>
 
           <n-card v-if="showLiveAttempt" size="small" title="AI 实时输出">

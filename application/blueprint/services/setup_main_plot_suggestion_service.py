@@ -4,13 +4,14 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Tuple
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.core.services.novel_service import NovelService
 from application.ai.knowledge_llm_contract import parse_json_from_response
+from application.ai_invocation.variable_hub import materialize_setup_main_plot_context
 from application.engine.theme.fusion_profile import FusionProfile, get_fusion_profile
 
 logger = logging.getLogger(__name__)
@@ -107,77 +108,153 @@ class SetupMainPlotSuggestionService:
     def _build_context(self, novel_id: str) -> Dict[str, Any]:
         novel = self._novel_service.get_novel(novel_id)
         bible_dto = self._bible_service.get_bible_by_novel(novel_id)
+        variable_context = self._load_variable_context(novel_id)
 
-        premise = ""
-        title = ""
-        target_chapters = 100
-        if novel:
+        premise = str(variable_context.get("premise") or "").strip()
+        title = str(variable_context.get("novel_title") or "").strip()
+        target_chapters = int(variable_context.get("target_chapters") or 0)
+        target_words_per_chapter = int(variable_context.get("target_words_per_chapter") or 0)
+        if not premise and novel:
             premise = (novel.premise or "").strip()
+        if not title and novel:
             title = (novel.title or "").strip()
+        if target_chapters <= 0 and novel:
             target_chapters = int(novel.target_chapters or 100)
+        if target_chapters <= 0:
+            target_chapters = 100
         theme_metadata = self._theme_metadata_from_novel(novel)
+        theme_metadata.update(variable_context.get("theme_metadata") or {})
         fusion_profile = self._resolve_fusion_profile(theme_metadata, title, premise)
-        fusion_contract = self._fusion_storyline_contract(fusion_profile)
+        fusion_contract = str(variable_context.get("fusion_contract") or "").strip()
+        if not fusion_contract:
+            fusion_contract = self._fusion_storyline_contract(fusion_profile)
 
-        protagonist: Optional[Dict[str, str]] = None
-        other_chars: List[Dict[str, str]] = []
-        locations: List[Dict[str, str]] = []
-        world_lines: List[str] = []
-        style_hint = ""
+        protagonist = self._coerce_dict(variable_context.get("protagonist")) or None
+        other_chars = self._coerce_list(variable_context.get("other_characters"))
+        locations = self._coerce_list(variable_context.get("locations"))
+        worldview_summary = self._coerce_list(variable_context.get("worldview_summary"))
+        world_lines: List[str] = [str(item).strip() for item in worldview_summary if str(item).strip()]
+        worldbuilding_full = str(variable_context.get("worldbuilding_full") or "").strip()
+        core_rules = self._coerce_dict(variable_context.get("core_rules"))
+        geography = self._coerce_dict(variable_context.get("geography"))
+        society = self._coerce_dict(variable_context.get("society"))
+        culture = self._coerce_dict(variable_context.get("culture"))
+        daily_life = self._coerce_dict(variable_context.get("daily_life"))
+        style_hint = str(variable_context.get("style_hint") or "").strip()
 
         if bible_dto:
             chars = bible_dto.characters or []
-            prot_idx: Optional[int] = None
-            for i, c in enumerate(chars):
-                role = (getattr(c, "role", None) or "").strip()
-                if "主角" in role or role.lower() in (
-                    "protagonist",
-                    "main",
-                    "mc",
-                    "主人公",
-                ):
-                    prot_idx = i
-                    break
-            if prot_idx is None and chars:
-                prot_idx = 0
-            if prot_idx is not None and chars:
-                c = chars[prot_idx]
-                protagonist = {
-                    "name": (c.name or "").strip(),
-                    "role": (getattr(c, "role", None) or "").strip(),
-                    "description": (c.description or "")[:800],
-                }
-                for j, ch in enumerate(chars):
-                    if j == prot_idx:
-                        continue
-                    other_chars.append(
+            if protagonist is None:
+                prot_idx: Optional[int] = None
+                for i, c in enumerate(chars):
+                    role = (getattr(c, "role", None) or "").strip()
+                    if "主角" in role or role.lower() in (
+                        "protagonist",
+                        "main",
+                        "mc",
+                        "主人公",
+                    ):
+                        prot_idx = i
+                        break
+                if prot_idx is None and chars:
+                    prot_idx = 0
+                if prot_idx is not None and chars:
+                    c = chars[prot_idx]
+                    protagonist = {
+                        "name": (c.name or "").strip(),
+                        "role": (getattr(c, "role", None) or "").strip(),
+                        "description": (c.description or "")[:800],
+                    }
+                    for j, ch in enumerate(chars):
+                        if j == prot_idx:
+                            continue
+                        other_chars.append(
+                            {
+                                "name": (ch.name or "").strip(),
+                                "role": (getattr(ch, "role", None) or "").strip(),
+                                "description": (ch.description or "")[:800],
+                            }
+                        )
+
+            if not locations:
+                for loc in (bible_dto.locations or [])[:8]:
+                    locations.append(
                         {
-                            "name": (ch.name or "").strip(),
-                            "role": (getattr(ch, "role", None) or "").strip(),
-                            "description": (ch.description or "")[:800],
+                            "name": (loc.name or "").strip(),
+                            "type": (getattr(loc, "location_type", None) or getattr(loc, "type", None) or "").strip(),
+                            "description": (loc.description or "")[:400],
                         }
                     )
 
-            for loc in (bible_dto.locations or [])[:8]:
-                locations.append(
-                    {
-                        "name": (loc.name or "").strip(),
-                        "type": (getattr(loc, "location_type", None) or getattr(loc, "type", None) or "").strip(),
-                        "description": (loc.description or "")[:400],
-                    }
-                )
+            if not world_lines:
+                for ws in bible_dto.world_settings or []:
+                    n = (ws.name or "").strip()
+                    d = (ws.description or "").strip()
+                    if n or d:
+                        world_lines.append(f"{n}: {d}"[:500])
 
-            for ws in bible_dto.world_settings or []:
-                n = (ws.name or "").strip()
-                d = (ws.description or "").strip()
-                if n or d:
-                    world_lines.append(f"{n}: {d}"[:500])
+            if not style_hint:
+                notes = bible_dto.style_notes or []
+                if notes:
+                    style_hint = "；".join(
+                        (f"{n.category}: {n.content}"[:200] for n in notes[:5] if n.content)
+                    )
 
+        try:
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+            variable_repo = SqliteVariableHubRepository(get_database())
+            novel_context_key = f"novel_id:{novel_id}"
+            for key, target in (
+                ("novel.characters.protagonist", "protagonist"),
+                ("novel.characters.list", "other_characters"),
+                ("novel.locations.list", "locations"),
+                ("novel.plot.fusion_contract", "fusion_contract"),
+                ("novel.worldbuilding.full", "worldbuilding_full"),
+                ("novel.worldbuilding.core_rules", "core_rules"),
+                ("novel.worldbuilding.geography", "geography"),
+                ("novel.worldbuilding.society", "society"),
+                ("novel.worldbuilding.culture", "culture"),
+                ("novel.worldbuilding.daily_life", "daily_life"),
+                ("novel.style.guide", "style_hint"),
+            ):
+                value = variable_repo.get_value(key, novel_context_key)
+                if value is None:
+                    continue
+                if target == "protagonist" and isinstance(value.value, dict) and protagonist is None:
+                    protagonist = dict(value.value)
+                elif target == "other_characters" and isinstance(value.value, list) and not other_chars:
+                    other_chars = [dict(item) for item in value.value if isinstance(item, dict)]
+                elif target == "locations" and isinstance(value.value, list) and not locations:
+                    locations = [dict(item) for item in value.value if isinstance(item, dict)]
+                elif target == "fusion_contract" and not fusion_contract:
+                    fusion_contract = str(value.value or "").strip()
+                elif target == "worldbuilding_full" and not worldbuilding_full:
+                    worldbuilding_full = str(value.value or "")
+                elif target == "core_rules" and isinstance(value.value, dict) and not core_rules:
+                    core_rules = dict(value.value)
+                elif target == "geography" and isinstance(value.value, dict) and not geography:
+                    geography = dict(value.value)
+                elif target == "society" and isinstance(value.value, dict) and not society:
+                    society = dict(value.value)
+                elif target == "culture" and isinstance(value.value, dict) and not culture:
+                    culture = dict(value.value)
+                elif target == "daily_life" and isinstance(value.value, dict) and not daily_life:
+                    daily_life = dict(value.value)
+                elif target == "style_hint" and not style_hint:
+                    style_hint = str(value.value or "").strip()
+        except Exception:
+            pass
+
+        if not worldbuilding_full:
+            worldbuilding_full = "\n".join(world_lines)
+        if not world_lines and worldbuilding_full:
+            world_lines = [worldbuilding_full]
+        if not style_hint and bible_dto:
             notes = bible_dto.style_notes or []
             if notes:
-                style_hint = "；".join(
-                    (f"{n.category}: {n.content}"[:200] for n in notes[:5] if n.content)
-                )
+                style_hint = "；".join((f"{n.category}: {n.content}"[:200] for n in notes[:5] if n.content))
 
         return {
             "novel_title": title,
@@ -191,7 +268,67 @@ class SetupMainPlotSuggestionService:
             "locations": locations,
             "worldview_summary": world_lines[:24],
             "style_hint": style_hint[:1200],
+            "worldbuilding_full": worldbuilding_full,
+            "core_rules": core_rules,
+            "geography": geography,
+            "society": society,
+            "culture": culture,
+            "daily_life": daily_life,
         }
+
+    @staticmethod
+    def _load_variable_context(novel_id: str) -> Dict[str, Any]:
+        try:
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+            variable_repo = SqliteVariableHubRepository(get_database())
+        except Exception:
+            return {}
+
+        novel_context_key = f"novel_id:{novel_id}"
+        context: Dict[str, Any] = {}
+        for key, target in (
+            ("novel.setup.title", "novel_title"),
+            ("novel.setup.premise", "premise"),
+            ("novel.setup.target_chapters", "target_chapters"),
+            ("novel.setup.target_words_per_chapter", "target_words_per_chapter"),
+            ("novel.setup.genre_label", "theme_metadata.genre_label"),
+            ("novel.setup.world_preset", "theme_metadata.world_preset"),
+            ("novel.characters.protagonist", "protagonist"),
+            ("novel.characters.list", "other_characters"),
+            ("novel.locations.list", "locations"),
+            ("novel.plot.fusion_contract", "fusion_contract"),
+            ("novel.worldbuilding.full", "worldbuilding_full"),
+            ("novel.worldbuilding.core_rules", "core_rules"),
+            ("novel.worldbuilding.geography", "geography"),
+            ("novel.worldbuilding.society", "society"),
+            ("novel.worldbuilding.culture", "culture"),
+            ("novel.worldbuilding.daily_life", "daily_life"),
+            ("novel.style.guide", "style_hint"),
+        ):
+            value = variable_repo.get_value(key, novel_context_key)
+            if value is None:
+                continue
+            if target == "theme_metadata.genre_label":
+                context.setdefault("theme_metadata", {})["genre_label"] = str(value.value or "")
+            elif target == "theme_metadata.world_preset":
+                context.setdefault("theme_metadata", {})["world_preset"] = str(value.value or "")
+            else:
+                context[target] = value.value
+        return context
+
+    @staticmethod
+    def _coerce_dict(value: Any) -> Dict[str, Any]:
+        return dict(value) if isinstance(value, Mapping) else {}
+
+    @staticmethod
+    def _coerce_list(value: Any) -> List[Any]:
+        if isinstance(value, list):
+            return list(value)
+        if isinstance(value, tuple):
+            return list(value)
+        return []
 
     @staticmethod
     def _theme_metadata_from_novel(novel: Any) -> Dict[str, Any]:
@@ -411,7 +548,8 @@ class SetupMainPlotSuggestionService:
             completed.append(item)
         return completed
 
-    def _fallback_options(self, ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _fallback_options(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
         name = (ctx.get("protagonist") or {}).get("name") or "主角"
         axis = ctx.get("fusion_axis") or {}
         core_promise = str(axis.get("core_promise") or "").strip()
@@ -420,7 +558,7 @@ class SetupMainPlotSuggestionService:
         true_mystery = str(axis.get("true_mystery") or "").strip()
         axis_hint = core_promise or central_conflict
         mystery_hint = true_mystery or false_mystery or "规则背后的操纵者"
-        return self._complete_option_architecture(ctx, [
+        return SetupMainPlotSuggestionService._complete_option_architecture(ctx, [
             {
                 "id": "option_a_survival",
                 "type": "底层逆袭 / 生存狂飙",
@@ -479,7 +617,9 @@ class SetupMainPlotSuggestionService:
         worldview_parts = []
         if ctx.get("fusion_contract"):
             worldview_parts.append("【融合题材主轴锁】\n" + str(ctx["fusion_contract"]))
-        if ctx.get("worldview_summary"):
+        if ctx.get("worldbuilding_full"):
+            worldview_parts.append("【世界观全文】\n" + str(ctx["worldbuilding_full"]))
+        elif ctx.get("worldview_summary"):
             worldview_parts.append("【世界观摘要】\n" + "\n".join(ctx["worldview_summary"]))
         if ctx.get("style_hint"):
             worldview_parts.append("【文风公约】\n" + str(ctx["style_hint"]))
@@ -487,12 +627,35 @@ class SetupMainPlotSuggestionService:
         from infrastructure.ai.prompt_keys import PLANNING_MAIN_PLOT_OPTION
         from infrastructure.ai.prompt_registry import get_prompt_registry
 
+        context_blob = materialize_setup_main_plot_context(
+            {
+                "novel_title": ctx.get("novel_title"),
+                "premise": ctx.get("premise"),
+                "target_chapters": ctx.get("target_chapters"),
+                "target_words_per_chapter": ctx.get("target_words_per_chapter"),
+                "genre_label": (ctx.get("theme_metadata") or {}).get("genre_label", ""),
+                "world_preset": (ctx.get("theme_metadata") or {}).get("world_preset", ""),
+                "fusion_axis": ctx.get("fusion_axis"),
+                "fusion_contract": ctx.get("fusion_contract"),
+                "protagonist": protagonist,
+                "other_characters": ctx.get("other_characters") or [],
+                "locations": locations,
+                "worldview_summary": ctx.get("worldview_summary") or [],
+                "style_hint": ctx.get("style_hint") or "",
+            }
+        )
         variables = {
-            "context_blob": f"{SETUP_TASK_MARKER}\n\n以下为小说设定简报（JSON）：\n{user_blob}\n\n请输出仅包含 plot_options 数组的 JSON 对象。",
+            "context_blob": context_blob,
             "worldview": "\n\n".join(worldview_parts) or user_blob,
             "protagonist": json.dumps(protagonist, ensure_ascii=False, indent=2),
             "locations": json.dumps(locations, ensure_ascii=False, indent=2),
             "fusion_contract": str(ctx.get("fusion_contract") or ""),
+            "worldbuilding_full": str(ctx.get("worldbuilding_full") or ""),
+            "core_rules": json.dumps(ctx.get("core_rules") or {}, ensure_ascii=False, indent=2),
+            "geography": json.dumps(ctx.get("geography") or {}, ensure_ascii=False, indent=2),
+            "society": json.dumps(ctx.get("society") or {}, ensure_ascii=False, indent=2),
+            "culture": json.dumps(ctx.get("culture") or {}, ensure_ascii=False, indent=2),
+            "daily_life": json.dumps(ctx.get("daily_life") or {}, ensure_ascii=False, indent=2),
         }
 
         registry = get_prompt_registry()

@@ -109,7 +109,15 @@ def bible_worldbuilding_handler(context: ContinuationContext) -> Mapping[str, An
                 daily_life=normalized.get("daily_life"),
             )
             result["worldbuilding"] = normalized
-            result.update(_build_worldbuilding_prompt_fields(worldbuilding=normalized))
+            for dim_key, dim_value in normalized.items():
+                result[dim_key] = dim_value
+            prompt_fields = _build_worldbuilding_prompt_fields(worldbuilding=normalized)
+            result["worldbuilding_full"] = prompt_fields.get("worldbuilding_full", "")
+            result["core_rules_text"] = prompt_fields.get("core_rules", "")
+            result["geography_text"] = prompt_fields.get("geography", "")
+            result["society_text"] = prompt_fields.get("society", "")
+            result["culture_text"] = prompt_fields.get("culture", "")
+            result["daily_life_text"] = prompt_fields.get("daily_life", "")
     return result
 
 
@@ -156,7 +164,8 @@ def bible_characters_handler(context: ContinuationContext) -> Mapping[str, Any]:
         row["id"] = character_id
         saved.append(row)
 
-    return {"novel_id": novel_id, "characters": saved}
+    protagonist = saved[0] if saved else {}
+    return {"novel_id": novel_id, "characters": saved, "protagonist": protagonist, "existing_characters": saved}
 
 
 def bible_locations_handler(context: ContinuationContext) -> Mapping[str, Any]:
@@ -198,7 +207,7 @@ def bible_locations_handler(context: ContinuationContext) -> Mapping[str, Any]:
         )
         saved.append({**prepared, "id": location_id, "type": prepared["location_type"]})
 
-    return {"novel_id": novel_id, "locations": saved}
+    return {"novel_id": novel_id, "locations": saved, "existing_locations": saved}
 
 
 def register_bible_setup_continuations() -> None:
