@@ -1,8 +1,10 @@
 """世界观 schema 归一化：只接受约定字段。"""
 from application.world.worldbuilding_schema import (
+    WORLDBUILDING_FIELD_SCOPE_HINTS,
     canonicalize_dimension_fields,
     validate_complete_dimension_fields,
 )
+from application.world.worldbuilding_contract import get_worldbuilding_contract
 
 
 def test_only_contract_keys_are_kept():
@@ -49,3 +51,11 @@ def test_validate_complete_dimension_accepts_contract_shape_in_order():
 
     assert list(out) == ["terrain", "climate", "resources", "ecology"]
     assert out["terrain"].startswith("主城")
+
+
+def test_worldbuilding_contract_is_loaded_from_shared_config():
+    contract = get_worldbuilding_contract()
+
+    assert "core_rules" in contract.dimensions
+    assert "physics_rules" in WORLDBUILDING_FIELD_SCOPE_HINTS["core_rules"]
+    assert contract.json_key_labels["realm_structure"] == "境界结构"

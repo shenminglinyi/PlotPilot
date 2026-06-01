@@ -22,6 +22,7 @@ from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from domain.ai.services.llm_service import LLMService
+from application.ai.trace_context import ensure_trace
 from infrastructure.ai.generation_profiles import generation_config_from_profile
 from infrastructure.ai.prompt_contract import PromptContract
 from infrastructure.ai.prompt_gateway import get_prompt_gateway
@@ -139,6 +140,7 @@ class ChapterReviewService:
 
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
         """审稿章节"""
+        ensure_trace(novel_id=novel_id, stage="audit.chapter.review", stage_label="章节审稿")
         chapter = self.chapter_repo.get_by_number(novel_id, chapter_number)
         if not chapter:
             raise ValueError(f"Chapter {chapter_number} not found")
@@ -191,8 +193,11 @@ class ChapterReviewService:
         if not cast:
             return issues
 
-        # 提取章节中出现的人物
-        characters_in_chapter = self._extract_characters_from_content(chapter.content)
+        # 从 CastGraph 的姓名/别名集合中识别本章涉及人物，避免空实现导致整个人物一致性检查失效。
+        characters_in_chapter = self._extract_characters_from_content(
+            chapter.content,
+            cast.characters,
+        )
 
         # 使用 LLM 检查人物一致性
         for char_name in characters_in_chapter:
@@ -456,8 +461,27 @@ class ChapterReviewService:
 
         return max(0.0, base_score)
 
-    def _extract_characters_from_content(self, content: str) -> List[str]:
-        """从内容中提取人物名称（简化实现）"""
-        # TODO: 使用 NER 或 LLM 提取人物名称
-        # 这里先返回空列表，实际应该使用场记分析服务
-        return []
+    def _extract_characters_from_content(self, content: str, characters: List[Any]) -> List[str]:
+        """从已知角色表中识别本章出现的人物名。
+
+        这里只做确定性抽取：根据 CastGraph 中的 name / aliases 命中正文后返回规范名。
+        需要更复杂的 NER 或 LLM 抽取时，应作为独立 CharacterMentionExtractor 注入，
+        而不是在审稿服务里隐藏本地提示词。
+        """
+        if not content or not characters:
+            return []
+        found: List[str] = []
+        seen: set[str] = set()
+        for character in characters:
+            name = str(getattr(character, "name", "") or "").strip()
+            aliases = [
+                str(alias).strip()
+                for alias in (getattr(character, "aliases", None) or [])
+                if str(alias).strip()
+            ]
+            probes = [name, *aliases]
+            if name and any(probe and probe in content for probe in probes):
+                if name not in seen:
+                    found.append(name)
+                    seen.add(name)
+        return found

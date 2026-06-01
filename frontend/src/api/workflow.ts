@@ -100,10 +100,17 @@ export interface MainPlotOptionDTO {
   }>
 }
 
+export interface SuggestMainPlotOptionsResponse {
+  plot_options: MainPlotOptionDTO[]
+  invocation_session_id?: string
+  invocation_next_action?: string
+}
+
 export type MainPlotOptionsStreamEvent =
   | { type: 'phase'; phase: string; message: string }
   | { type: 'chunk'; text: string }
   | { type: 'option'; option: MainPlotOptionDTO; index: number }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
   | { type: 'done'; plot_options: MainPlotOptionDTO[] }
   | { type: 'error'; message: string }
 
@@ -124,8 +131,17 @@ export interface GenerateChapterWithContextPayload {
   chapter_number: number
   outline: string
   scene_director_result?: Record<string, unknown>
+  invocation_policy?: 'DIRECT' | 'REVIEW_BEFORE_CALL' | 'REVIEW_AFTER_CALL' | 'FULL_INTERACTIVE' | 'INTERACTIVE_WHEN_AVAILABLE' | 'AUTOPILOT_PAUSE'
   /** 重新生成时的改进方向（可选）；填写后 AI 会在 prompt 中看到改进要求 */
   regeneration_guidance?: string
+  /** 覆盖 LLM 控制台档案 ID；不传则使用系统激活档案 */
+  profile_id?: string
+  /** 自定义剧本生成提示词模板（支持 {{variable}} 占位符） */
+  script_prompt_template?: string
+  /** 自定义正文生成提示词模板（支持 {{variable}} 占位符） */
+  prose_prompt_template?: string
+  /** 提示词变量键值对 */
+  prompt_variables?: Record<string, string>
 }
 
 export interface ChapterDraftDTO {
@@ -306,9 +322,10 @@ export function parseStreamGeneratedBeats(raw: unknown): StreamGeneratedBeat[] {
 }
 
 export type GenerateChapterStreamEvent =
-  | { type: 'phase'; phase: 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post' }
+  | { type: 'phase'; phase: 'planning' | 'context' | 'script' | 'prose' | 'outline_planning' | 'llm' | 'post' }
   | { type: 'llm_chunk'; stage: string; text: string }
   | { type: 'beats_generated'; beats: StreamGeneratedBeat[] }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
   | { type: 'chunk'; text: string; stats: ChunkStats }
   | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number; output_tokens: number; total_tokens: number; chars: number; style_warnings?: StyleWarning[]; ghost_annotations?: unknown[] }
   | { type: 'error'; message: string }
@@ -336,6 +353,7 @@ export async function consumeGenerateChapterStream(
     onBeatsGenerated?: (beats: StreamGeneratedBeat[]) => void
     /** 非正文 LLM 的流式增量（如 outline_partition 节拍划分 JSON） */
     onLLMChunk?: (stage: string, text: string) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
     onChunk?: (text: string, stats?: ChunkStats) => void
     onDone?: (result: GenerateChapterWorkflowResponse) => void
     onError?: (message: string) => void
@@ -372,7 +390,7 @@ export async function consumeGenerateChapterStream(
             const ph = String(o.phase ?? '')
             const ev: GenerateChapterStreamEvent = {
               type: 'phase',
-              phase: ph as 'planning' | 'context' | 'outline_planning' | 'prose' | 'llm' | 'post',
+              phase: ph as 'planning' | 'context' | 'script' | 'prose' | 'outline_planning' | 'llm' | 'post',
             }
             handlers.onEvent?.(ev)
             handlers.onPhase?.(ph)
@@ -387,6 +405,16 @@ export async function consumeGenerateChapterStream(
             const ev: GenerateChapterStreamEvent = { type: 'llm_chunk', stage, text }
             handlers.onEvent?.(ev)
             handlers.onLLMChunk?.(stage, text)
+          } else if (typ === 'approval_required') {
+            const sessionId = String(o.session_id ?? '')
+            const status = typeof o.status === 'string' ? o.status : undefined
+            const nextAction = typeof o.next_action === 'string' ? o.next_action : undefined
+            const ev: GenerateChapterStreamEvent = { type: 'approval_required', session_id: sessionId, status, next_action: nextAction }
+            handlers.onEvent?.(ev)
+            if (sessionId) {
+              handlers.onApprovalRequired?.(sessionId, status, nextAction)
+            }
+            return true
           } else if (typ === 'chunk') {
             const text = String(o.text ?? '')
             const stats = o.stats as ChunkStats | undefined
@@ -528,6 +556,7 @@ export async function consumeMainPlotOptionsStream(
     onPhase?: (message: string) => void
     onChunk?: (text: string) => void
     onOption?: (option: MainPlotOptionDTO, index: number) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
     onDone?: (options: MainPlotOptionDTO[]) => void
     onError?: (message: string) => void
     signal?: AbortSignal
@@ -575,6 +604,18 @@ export async function consumeMainPlotOptionsStream(
           const ev: MainPlotOptionsStreamEvent = { type: 'option', option, index }
           handlers.onEvent?.(ev)
           handlers.onOption?.(option, index)
+        } else if (typ === 'approval_required') {
+          const sessionId = String(o.session_id ?? '')
+          const status = String(o.status ?? '')
+          const nextAction = String(o.next_action ?? '')
+          const ev: MainPlotOptionsStreamEvent = {
+            type: 'approval_required',
+            session_id: sessionId,
+            status,
+            next_action: nextAction,
+          }
+          handlers.onEvent?.(ev)
+          handlers.onApprovalRequired?.(sessionId, status, nextAction)
         } else if (typ === 'done') {
           const options = Array.isArray(o.plot_options) ? (o.plot_options as MainPlotOptionDTO[]) : []
           const ev: MainPlotOptionsStreamEvent = { type: 'done', plot_options: options }
@@ -620,11 +661,11 @@ export const workflowApi = {
 
   /** POST /api/v1/novels/{novel_id}/setup/suggest-main-plot-options（单次 LLM；引导页默认 400s） */
   suggestMainPlotOptions: (novelId: string) =>
-    apiClient.post<{ plot_options: MainPlotOptionDTO[] }>(
+    apiClient.post<SuggestMainPlotOptionsResponse>(
       `/novels/${novelId}/setup/suggest-main-plot-options`,
       {},
       { timeout: WIZARD_STEP_TIMEOUT_MS }
-    ) as unknown as Promise<{ plot_options: MainPlotOptionDTO[] }>,
+    ) as unknown as Promise<SuggestMainPlotOptionsResponse>,
 
   /** POST /api/v1/novels/{novel_id}/storylines */
   createStoryline: (

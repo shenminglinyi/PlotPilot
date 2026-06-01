@@ -15,12 +15,35 @@ from infrastructure.ai.prompt_contracts.tension_analysis_diagnosis import (
 from infrastructure.ai.prompt_gateway import (
     PromptGateway,
     PromptGatewayPackageMissingError,
+    PromptGatewayRenderResult,
     PromptGatewayValidationError,
 )
+from domain.ai.value_objects.prompt import Prompt
 from infrastructure.ai.prompt_keys import ALL_KEYS
 from infrastructure.ai.prompt_seed.loader import NODES_DIR, load_node_dir, load_seed_bundle
 from infrastructure.ai.prompt_template_engine import get_template_engine
 from infrastructure.ai.variable_registry import VariableRegistry
+
+
+def test_prompt_template_engine_renders_variables_inside_output_json_shape():
+    """输出 JSON 结构里的 escaped braces 不能阻断内部变量渲染。"""
+    engine = get_template_engine()
+
+    rendered = engine.render(
+        system_template="系统：{premise}",
+        user_template='''请输出 JSON：\n{{\n  "worldbuilding": {{\n{fields_desc}\n  }}\n}}''',
+        variables={
+            "premise": "重生高武世界",
+            "fields_desc": '    "core_rules": {\n      "power_system": "武道体系"\n    }',
+        },
+    )
+
+    assert rendered.system == "系统：重生高武世界"
+    assert '"worldbuilding": {' in rendered.user
+    assert '"core_rules": {' in rendered.user
+    assert "{{" not in rendered.user
+    assert "{fields_desc}" not in rendered.user
+    assert rendered.missing_variables == []
 
 
 def test_all_registered_prompt_keys_have_builtin_package():
@@ -54,24 +77,30 @@ def test_prompt_package_variables_cover_template_usage():
     assert problems == []
 
 
-def test_prompt_gateway_uses_package_file_fallback(monkeypatch):
-    """Registry 未命中时，Gateway 应回退读取本地 package，而不是硬编码字符串。"""
+def test_bible_worldbuilding_package_exposes_split_fields():
+    engine = get_template_engine()
+    record = load_node_dir(NODES_DIR / "bible-worldbuilding")
+    declared = {var.get("name") for var in record.get("variables") or [] if isinstance(var, dict)}
+    used = engine.extract_variables(f"{record.get('system') or ''}\n{record.get('user_template') or ''}")
+
+    assert {"worldbuilding_full", "core_rules", "geography", "society", "culture", "daily_life"} <= declared
+    assert {"worldbuilding_full", "core_rules", "geography", "society", "culture", "daily_life"} <= used
+
+
+def test_prompt_gateway_fast_fails_when_registry_misses(monkeypatch):
+    """Registry 未命中时，Gateway 必须阻断，不能读取本地 package 降级。"""
     gateway = PromptGateway(packages_root=NODES_DIR)
     monkeypatch.setattr(gateway, "_render_from_registry", lambda contract, variables: None)
 
-    rendered = gateway.render(
-        MEMORY_EXTRACTION_CONTRACT,
-        {
-            "chapter_content": "主角推开门，第一次看见密室里的旧照片。",
-            "chapter_number": 1,
-            "outline": "主角发现密室",
-        },
-    )
-
-    assert rendered.source == "package_file"
-    assert rendered.fallback_used is True
-    assert "记忆增量" in rendered.prompt.system
-    assert "主角发现密室" in rendered.prompt.user
+    with pytest.raises(PromptGatewayPackageMissingError):
+        gateway.render(
+            MEMORY_EXTRACTION_CONTRACT,
+            {
+                "chapter_content": "主角推开门，第一次看见密室里的旧照片。",
+                "chapter_number": 1,
+                "outline": "主角发现密室",
+            },
+        )
 
 
 def test_prompt_gateway_fast_fails_when_required_variable_missing(monkeypatch):
@@ -83,7 +112,7 @@ def test_prompt_gateway_fast_fails_when_required_variable_missing(monkeypatch):
 
 
 def test_prompt_gateway_missing_package_fails_explicitly(monkeypatch, tmp_path):
-    """CPMS_ONLY 类节点缺包时必须明确失败，不能静默硬编码回退。"""
+    """CPMS 节点缺失时必须明确失败，不能静默硬编码回退。"""
     gateway = PromptGateway(packages_root=tmp_path)
     monkeypatch.setattr(gateway, "_render_from_registry", lambda contract, variables: None)
 
@@ -146,23 +175,19 @@ def test_chapter_summarizer_package_is_chinese():
     assert "章节摘要" in (package_dir / "package.yaml").read_text(encoding="utf-8")
 
 
-def test_planning_act_contract_renders_from_package(monkeypatch):
-    """连续规划的幕级规划链路应从 CPMS package 渲染，而不是业务代码拼接。"""
+def test_planning_act_contract_requires_published_cpms_node(monkeypatch):
+    """连续规划的幕级规划链路必须先发布 CPMS 节点，不能从 package 运行时降级。"""
     gateway = PromptGateway(packages_root=NODES_DIR)
     monkeypatch.setattr(gateway, "_render_from_registry", lambda contract, variables: None)
 
-    rendered = gateway.render(
-        PLANNING_ACT_CONTRACT,
-        {
-            "context": "幕信息：《试炼开场》",
-            "chapter_count": 3,
-        },
-    )
-
-    assert rendered.fallback_used is True
-    assert "章节策划" in rendered.prompt.system
-    assert "试炼开场" in rendered.prompt.user
-    assert "chapter_count" not in rendered.prompt.user
+    with pytest.raises(PromptGatewayPackageMissingError):
+        gateway.render(
+            PLANNING_ACT_CONTRACT,
+            {
+                "context": "幕信息：《试炼开场》",
+                "chapter_count": 3,
+            },
+        )
 
 
 def test_prompt_gateway_records_variable_sources(monkeypatch):
@@ -192,7 +217,17 @@ def test_prompt_gateway_records_variable_sources(monkeypatch):
         "get_schemas_for_node",
         lambda node_key: {"outline": _Schema(), "chapter_number": _Schema()},
     )
-    monkeypatch.setattr(gateway, "_render_from_registry", lambda contract, variables: None)
+    monkeypatch.setattr(
+        gateway,
+        "_render_from_registry",
+        lambda contract, variables: PromptGatewayRenderResult(
+            prompt=Prompt(system="系统提示词", user="用户提示词"),
+            node_key=contract.node_key,
+            contract_version=contract.version,
+            source="registry",
+            variables=variables,
+        ),
+    )
 
     gateway.render(
         MEMORY_EXTRACTION_CONTRACT,

@@ -1,7 +1,10 @@
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from application.world.services.auto_bible_generator import AutoBibleGenerator
+from application.world.services.auto_bible_generator import (
+    AutoBibleGenerator,
+    BiblePromptTemplateUnavailable,
+)
 from domain.ai.services.llm_service import GenerationResult
 from domain.ai.value_objects.token_usage import TokenUsage
 
@@ -75,6 +78,26 @@ async def test_generate_bible_data_uses_hardened_parser_path():
     assert result["style"] == "s"
     _, config = llm.generate.await_args.args
     assert config.max_tokens == 4096
+
+
+@pytest.mark.asyncio
+async def test_generate_bible_data_blocks_when_cpms_node_missing(monkeypatch):
+    class MissingRegistry:
+        def render_to_prompt(self, *_args, **_kwargs):
+            return None
+
+    monkeypatch.setattr(
+        "infrastructure.ai.prompt_registry.get_prompt_registry",
+        lambda: MissingRegistry(),
+    )
+    llm = Mock()
+    llm.generate = AsyncMock()
+    svc = AutoBibleGenerator(llm_service=llm, bible_service=Mock())
+
+    with pytest.raises(BiblePromptTemplateUnavailable):
+        await svc._generate_bible_data("premise", 10)
+
+    llm.generate.assert_not_called()
 
 
 def test_prepare_locations_for_save_orders_parents_first_and_downgrades_missing_parent():

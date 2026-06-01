@@ -43,6 +43,46 @@ def _legacy_to_jinja2(template: str) -> str:
     return _LEGACY_VAR_PATTERN.sub(r'{{ \1 }}', template)
 
 
+_JINJA_EXPR_PATTERN = re.compile(r'\{\{\s*([a-zA-Z_][^{}]*?)\s*\}\}')
+
+
+def _prepare_template_for_jinja2(template: str) -> str:
+    """Normalize CPMS template syntax before Jinja2 renders it.
+
+    CPMS templates support two layers:
+    - input variables: ``{name}`` or ``{{ name }}``
+    - output structure literals: escaped braces ``{{`` and ``}}`` for JSON examples
+
+    The second form comes from Python ``format`` escaping. Jinja2 also uses
+    ``{{ ... }}`` for expressions, so JSON examples such as ``{{ "a": {x} }}``
+    must be converted to literal braces while preserving real variables inside.
+    """
+    if not template:
+        return template
+
+    tokens: dict[str, str] = {}
+
+    def protect(expr: str) -> str:
+        token = f"__CPMS_VAR_{len(tokens)}__"
+        tokens[token] = expr.strip()
+        return token
+
+    def protect_jinja(match: re.Match[str]) -> str:
+        return protect(match.group(1))
+
+    prepared = _JINJA_EXPR_PATTERN.sub(protect_jinja, template)
+
+    def protect_legacy(match: re.Match[str]) -> str:
+        return protect(match.group(1))
+
+    prepared = _LEGACY_VAR_PATTERN.sub(protect_legacy, prepared)
+    prepared = prepared.replace("{{", "{").replace("}}", "}")
+
+    for token, expr in tokens.items():
+        prepared = prepared.replace(token, "{{ " + expr + " }}")
+    return prepared
+
+
 # ─── JSON 示例块转义 ───
 
 # 匹配模板中作为 JSON 输出示例的 {{ }} 块（包含冒号或方括号的非变量引用）
@@ -440,14 +480,7 @@ class PromptTemplateEngine:
         rendered = []
 
         if self._use_jinja2 and self._jinja2_env is not None:
-            # 转换旧版格式
-            jinja2_template = _legacy_to_jinja2(template)
-
-            # 🔥 预处理：用 {% raw %}...{% endraw %} 包裹 JSON 示例块
-            # 模板中大量使用 {{ "key": "value" }} 作为 JSON 输出示例，
-            # 这些不是 Jinja2 变量而是字面文本。用 {% raw %} 块包裹后
-            # Jinja2 会原样输出，不做任何解析。
-            safe_template = _escape_json_blocks(jinja2_template)
+            safe_template = _prepare_template_for_jinja2(template)
 
             try:
                 tmpl = self._jinja2_env.from_string(safe_template)
@@ -484,7 +517,12 @@ class PromptTemplateEngine:
                 return "{" + key + "}"
 
         try:
-            return template.format_map(SafeDict(variables))
+            format_template = re.sub(
+                r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}",
+                r"{\1}",
+                template,
+            )
+            return format_template.format_map(SafeDict(variables))
         except (KeyError, ValueError, IndexError):
             return template
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
+from application.ai.llm_json_extract import parse_llm_json_to_any
 from application.engine.dag.models import (
     CPMSInjectionPoint,
     NodeCategory,
@@ -32,6 +33,23 @@ from infrastructure.ai.prompt_keys import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _worldbuilding_prompt_fields_from_payload(payload: Dict[str, Any]) -> Dict[str, str]:
+    from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
+
+    worldbuilding = payload.get("worldbuilding") if isinstance(payload.get("worldbuilding"), dict) else {}
+    if not worldbuilding and any(
+        isinstance(payload.get(dim), (str, dict))
+        for dim in ("core_rules", "geography", "society", "culture", "daily_life")
+    ):
+        worldbuilding = {
+            dim: payload.get(dim) if isinstance(payload.get(dim), dict) else {}
+            for dim in ("core_rules", "geography", "society", "culture", "daily_life")
+        }
+    if worldbuilding:
+        return build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
+    return build_worldbuilding_prompt_fields(worldbuilding_slices={})
 
 
 # ─── world_bible_all: 完整 Bible 生成 ───
@@ -97,11 +115,8 @@ class BibleAllNode(BaseNode):
                 raw_text = result.text if hasattr(result, 'text') else str(result)
 
                 # 尝试解析 JSON
-                import json
-                try:
-                    bible_json = json.loads(raw_text)
-                except (json.JSONDecodeError, TypeError):
-                    bible_json = {"raw_text": raw_text}
+                parsed, _ = parse_llm_json_to_any(raw_text)
+                bible_json = parsed if isinstance(parsed, dict) else {"raw_text": raw_text}
 
             except Exception as e:
                 logger.warning(f"LLM 调用失败: {e}")
@@ -133,12 +148,35 @@ class WorldbuildingNode(BaseNode):
         color="#059669",
         input_ports=[
             NodePort(name="premise", data_type=PortDataType.TEXT, required=True),
-            NodePort(name="existing_settings", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="novel_title", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="genre_major", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="genre_theme", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="genre_label", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="world_preset", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="target_chapters", data_type=PortDataType.SCORE, required=False),
+            NodePort(name="target_words_per_chapter", data_type=PortDataType.SCORE, required=False),
+            NodePort(name="novel_setup", data_type=PortDataType.TEXT, required=False),
         ],
         output_ports=[
             NodePort(name="worldbuilding_json", data_type=PortDataType.JSON),
+            NodePort(name="worldbuilding_full", data_type=PortDataType.TEXT),
+            NodePort(name="core_rules", data_type=PortDataType.TEXT),
+            NodePort(name="geography", data_type=PortDataType.TEXT),
+            NodePort(name="society", data_type=PortDataType.TEXT),
+            NodePort(name="culture", data_type=PortDataType.TEXT),
+            NodePort(name="daily_life", data_type=PortDataType.TEXT),
         ],
-        prompt_variables=["premise", "existing_settings"],
+        prompt_variables=[
+            "premise",
+            "novel_title",
+            "genre_major",
+            "genre_theme",
+            "genre_label",
+            "world_preset",
+            "target_chapters",
+            "target_words_per_chapter",
+            "novel_setup",
+        ],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
@@ -157,7 +195,14 @@ class WorldbuildingNode(BaseNode):
 
             resolved = self.resolve_prompt({
                 "premise": inputs.get("premise", ""),
-                "existing_settings": inputs.get("existing_settings", ""),
+                "novel_title": inputs.get("novel_title", ""),
+                "genre_major": inputs.get("genre_major", ""),
+                "genre_theme": inputs.get("genre_theme", ""),
+                "genre_label": inputs.get("genre_label", ""),
+                "world_preset": inputs.get("world_preset", ""),
+                "target_chapters": inputs.get("target_chapters", ""),
+                "target_words_per_chapter": inputs.get("target_words_per_chapter", ""),
+                "novel_setup": inputs.get("novel_setup", ""),
             })
 
             try:
@@ -177,17 +222,17 @@ class WorldbuildingNode(BaseNode):
                 result = await llm.generate(prompt, config)
                 raw_text = result.text if hasattr(result, 'text') else str(result)
 
-                import json
-                try:
-                    worldbuilding_json = json.loads(raw_text)
-                except (json.JSONDecodeError, TypeError):
-                    worldbuilding_json = {"raw_text": raw_text}
+                parsed, _ = parse_llm_json_to_any(raw_text)
+                worldbuilding_json = parsed if isinstance(parsed, dict) else {"raw_text": raw_text}
 
             except Exception as e:
                 logger.warning(f"LLM 调用失败: {e}")
 
             return NodeResult(
-                outputs={"worldbuilding_json": worldbuilding_json},
+                outputs={
+                    "worldbuilding_json": worldbuilding_json,
+                    **_worldbuilding_prompt_fields_from_payload(worldbuilding_json),
+                },
                 status=NodeStatus.SUCCESS,
                 duration_ms=int((time.time() - start) * 1000),
             )
@@ -212,14 +257,28 @@ class CharactersNode(BaseNode):
         icon="",
         color="#0d9488",
         input_ports=[
-            NodePort(name="worldbuilding", data_type=PortDataType.TEXT, required=True),
+            NodePort(name="worldbuilding_full", data_type=PortDataType.TEXT, required=True),
+            NodePort(name="core_rules", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="geography", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="society", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="culture", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="daily_life", data_type=PortDataType.TEXT, required=False),
             NodePort(name="style_guide", data_type=PortDataType.TEXT, required=False),
             NodePort(name="existing_characters", data_type=PortDataType.TEXT, required=False),
         ],
         output_ports=[
             NodePort(name="characters_json", data_type=PortDataType.JSON),
         ],
-        prompt_variables=["worldbuilding", "style_guide", "existing_characters"],
+        prompt_variables=[
+            "worldbuilding_full",
+            "core_rules",
+            "geography",
+            "society",
+            "culture",
+            "daily_life",
+            "style_guide",
+            "existing_characters",
+        ],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
@@ -237,7 +296,12 @@ class CharactersNode(BaseNode):
             characters_json = {}
 
             resolved = self.resolve_prompt({
-                "worldbuilding": inputs.get("worldbuilding", ""),
+                "worldbuilding_full": inputs.get("worldbuilding_full") or inputs.get("worldbuilding", ""),
+                "core_rules": inputs.get("core_rules", ""),
+                "geography": inputs.get("geography", ""),
+                "society": inputs.get("society", ""),
+                "culture": inputs.get("culture", ""),
+                "daily_life": inputs.get("daily_life", ""),
                 "style_guide": inputs.get("style_guide", ""),
                 "existing_characters": inputs.get("existing_characters", ""),
             })
@@ -259,11 +323,8 @@ class CharactersNode(BaseNode):
                 result = await llm.generate(prompt, config)
                 raw_text = result.text if hasattr(result, 'text') else str(result)
 
-                import json
-                try:
-                    characters_json = json.loads(raw_text)
-                except (json.JSONDecodeError, TypeError):
-                    characters_json = {"raw_text": raw_text}
+                parsed, _ = parse_llm_json_to_any(raw_text)
+                characters_json = parsed if isinstance(parsed, dict) else {"raw_text": raw_text}
 
             except Exception as e:
                 logger.warning(f"LLM 调用失败: {e}")
@@ -277,7 +338,7 @@ class CharactersNode(BaseNode):
             return NodeResult(outputs={"characters_json": {}}, status=NodeStatus.ERROR, duration_ms=int((time.time() - start) * 1000), error=str(e))
 
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
-        return "worldbuilding" in inputs
+        return bool(inputs.get("worldbuilding_full") or inputs.get("worldbuilding"))
 
 
 # ─── world_locations: 地点地图生成 ───
@@ -294,14 +355,28 @@ class LocationsNode(BaseNode):
         icon="",
         color="#65a30d",
         input_ports=[
-            NodePort(name="worldbuilding", data_type=PortDataType.TEXT, required=True),
+            NodePort(name="worldbuilding_full", data_type=PortDataType.TEXT, required=True),
+            NodePort(name="core_rules", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="geography", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="society", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="culture", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="daily_life", data_type=PortDataType.TEXT, required=False),
             NodePort(name="existing_locations", data_type=PortDataType.TEXT, required=False),
             NodePort(name="character_context", data_type=PortDataType.TEXT, required=False),
         ],
         output_ports=[
             NodePort(name="locations_json", data_type=PortDataType.JSON),
         ],
-        prompt_variables=["worldbuilding", "existing_locations", "character_context"],
+        prompt_variables=[
+            "worldbuilding_full",
+            "core_rules",
+            "geography",
+            "society",
+            "culture",
+            "daily_life",
+            "existing_locations",
+            "character_context",
+        ],
         is_configurable=True,
         can_disable=True,
         default_timeout_seconds=120,
@@ -319,7 +394,12 @@ class LocationsNode(BaseNode):
             locations_json = {}
 
             resolved = self.resolve_prompt({
-                "worldbuilding": inputs.get("worldbuilding", ""),
+                "worldbuilding_full": inputs.get("worldbuilding_full") or inputs.get("worldbuilding", ""),
+                "core_rules": inputs.get("core_rules", ""),
+                "geography": inputs.get("geography", ""),
+                "society": inputs.get("society", ""),
+                "culture": inputs.get("culture", ""),
+                "daily_life": inputs.get("daily_life", ""),
                 "existing_locations": inputs.get("existing_locations", ""),
                 "character_context": inputs.get("character_context", ""),
             })
@@ -341,11 +421,8 @@ class LocationsNode(BaseNode):
                 result = await llm.generate(prompt, config)
                 raw_text = result.text if hasattr(result, 'text') else str(result)
 
-                import json
-                try:
-                    locations_json = json.loads(raw_text)
-                except (json.JSONDecodeError, TypeError):
-                    locations_json = {"raw_text": raw_text}
+                parsed, _ = parse_llm_json_to_any(raw_text)
+                locations_json = parsed if isinstance(parsed, dict) else {"raw_text": raw_text}
 
             except Exception as e:
                 logger.warning(f"LLM 调用失败: {e}")
@@ -359,4 +436,4 @@ class LocationsNode(BaseNode):
             return NodeResult(outputs={"locations_json": {}}, status=NodeStatus.ERROR, duration_ms=int((time.time() - start) * 1000), error=str(e))
 
     def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
-        return "worldbuilding" in inputs
+        return bool(inputs.get("worldbuilding_full") or inputs.get("worldbuilding"))

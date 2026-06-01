@@ -77,7 +77,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         timeout=180.0,  # 文风预检最多 3 分钟
         novel_id=novel.novel_id.value,
         label="voice_check",
-        fallback={"drift_alert": False, "similarity_score": None},
+        timeout_default={"drift_alert": False, "similarity_score": None},
     )
     content, drift_result = await host._apply_voice_rewrite_loop(
         novel,
@@ -166,7 +166,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
                 timeout=300.0,  # 章后管线最多 5 分钟（含多次 LLM）
                 novel_id=novel.novel_id.value,
                 label="aftermath_pipeline",
-                fallback={"drift_alert": False, "similarity_score": None, "narrative_sync_ok": False, "vector_stored": False, "foreshadow_stored": False, "triples_extracted": False},
+                timeout_default={"drift_alert": False, "similarity_score": None, "narrative_sync_ok": False, "vector_stored": False, "foreshadow_stored": False, "triples_extracted": False},
             )
             logger.info(
                 f"[{novel.novel_id}] 章后管线完成: 相似度={drift_result.get('similarity_score')}, "
@@ -215,7 +215,7 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             timeout=60.0,
             novel_id=novel.novel_id.value,
             label="tension_scoring",
-            fallback=5,
+            timeout_default=5,
         )
         tension = old_scale_tension * 10  # 1-10 → 0-100
         logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 旧式张力值：{old_scale_tension}/10 → {tension}/100")

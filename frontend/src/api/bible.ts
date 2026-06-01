@@ -213,6 +213,15 @@ export type BibleStreamDoneEvent = {
   type: 'done'
   message: string
   novel_id: string
+  invocation_session_id?: string
+}
+
+export type BibleStreamApprovalRequiredEvent = {
+  type: 'approval_required'
+  session_id: string
+  status?: string
+  next_action?: string
+  stage?: string
 }
 
 export type BibleStreamErrorEvent = {
@@ -223,6 +232,7 @@ export type BibleStreamErrorEvent = {
 export type BibleStreamEvent =
   | BibleStreamPhaseEvent
   | BibleStreamDataEvent
+  | BibleStreamApprovalRequiredEvent
   | BibleStreamDoneEvent
   | BibleStreamErrorEvent
 
@@ -248,6 +258,7 @@ export async function consumeBibleGenerateStream(
     onLocation?: (loc: Record<string, unknown>, index: number) => void
     /** 地点生成时 LLM 逐 token chunk（打字效果/进度） */
     onLocationChunk?: (chunk: string) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string, stage?: string) => void
     onDone?: (novelId: string) => void
     onError?: (message: string) => void
     signal?: AbortSignal
@@ -333,6 +344,17 @@ export async function consumeBibleGenerateStream(
             handlers.onLocation?.((payload?.content ?? {}) as Record<string, unknown>, Number(payload?.index ?? 0))
           } else if (dataType === 'location_chunk') {
             handlers.onLocationChunk?.(String(payload?.chunk ?? ''))
+          } else if (dataType === 'approval_required') {
+            const sessionId = String(payload?.session_id ?? '')
+            if (sessionId) {
+              handlers.onApprovalRequired?.(
+                sessionId,
+                typeof payload?.status === 'string' ? payload.status : undefined,
+                typeof payload?.next_action === 'string' ? payload.next_action : undefined,
+                typeof payload?.stage === 'string' ? payload.stage : undefined,
+              )
+            }
+            return true
           }
         } else if (event === 'done') {
           handlers.onDone?.(String(payload?.novel_id ?? novelId))

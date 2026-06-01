@@ -8,8 +8,8 @@ export const STORY_PIPELINE_WAVES: ReadonlyArray<{
 }> = [
   { index: 1, id: 'find_chapter', label: '章节定位' },
   { index: 2, id: 'build_context', label: '组装上下文' },
-  { index: 3, id: 'magnify_beats', label: '节拍拆分' },
-  { index: 4, id: 'generate', label: '正文生成' },
+  { index: 3, id: 'generate_script', label: '剧本生成' },
+  { index: 4, id: 'generate_prose', label: '正文撰写' },
   { index: 5, id: 'validate_policy', label: '策略校验' },
   { index: 6, id: 'persist_chapter', label: '章节落盘' },
   { index: 7, id: 'voice_audit', label: '文风审计' },

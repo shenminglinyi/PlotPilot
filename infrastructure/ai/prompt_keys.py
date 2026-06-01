@@ -42,6 +42,10 @@ SCENE_GENERATION = "scene-generation"
 SCENE_DIRECTOR = "scene-director"
 BEAT_SHEET_DECOMPOSITION = "beat-sheet-decomposition"
 
+# ── Script / Prose (两阶段生成) ──────────────────────────────────────────
+SCRIPT_GENERATION = "script-generation"
+PROSE_FROM_SCRIPT = "prose-from-script"
+
 # ── Dialogue ─────────────────────────────────────────────────────────────
 DIALOGUE_GENERATION = "dialogue-generation"
 
@@ -54,10 +58,12 @@ REVIEW_TIMELINE_CONSISTENCY = "review-timeline-consistency"
 REVIEW_STORYLINE_CONSISTENCY = "review-storyline-consistency"
 REVIEW_FORESHADOWING_USAGE = "review-foreshadowing-usage"
 REVIEW_IMPROVEMENT_SUGGESTIONS = "review-improvement-suggestions"
+CHAPTER_AI_REVIEW = "chapter-ai-review"
 CLICHE_SCAN = "cliche-scan"
 
 # ── Memory ───────────────────────────────────────────────────────────────
 MEMORY_EXTRACTION = "memory-extraction"
+EMOTION_LEDGER_EXTRACTION = "emotion-ledger-extraction"
 
 # ── Planning ─────────────────────────────────────────────────────────────
 MACRO_PLANNING = "macro-planning"
@@ -140,6 +146,8 @@ ALL_KEYS: frozenset[str] = frozenset({
     CHAPTER_BRIDGE_EXTRACT, CHAPTER_BRIDGE_CHECK, CHAPTER_BRIDGE_FIX,
     # Scene
     SCENE_GENERATION, SCENE_DIRECTOR, BEAT_SHEET_DECOMPOSITION,
+    # Script / Prose
+    SCRIPT_GENERATION, PROSE_FROM_SCRIPT,
     # Dialogue
     DIALOGUE_GENERATION,
     # Prop
@@ -147,9 +155,9 @@ ALL_KEYS: frozenset[str] = frozenset({
     # Review
     REVIEW_CHARACTER_CONSISTENCY, REVIEW_TIMELINE_CONSISTENCY,
     REVIEW_STORYLINE_CONSISTENCY, REVIEW_FORESHADOWING_USAGE,
-    REVIEW_IMPROVEMENT_SUGGESTIONS, CLICHE_SCAN,
+    REVIEW_IMPROVEMENT_SUGGESTIONS, CHAPTER_AI_REVIEW, CLICHE_SCAN,
     # Memory
-    MEMORY_EXTRACTION,
+    MEMORY_EXTRACTION, EMOTION_LEDGER_EXTRACTION,
     # Planning
     MACRO_PLANNING, PLANNING_QUICK_MACRO, PLANNING_PRECISE_MACRO,
     PLANNING_PRECISE_VOLUME, PLANNING_PRECISE_REPAIR, PLANNING_ACT,

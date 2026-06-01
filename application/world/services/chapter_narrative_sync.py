@@ -15,7 +15,6 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
 from domain.novel.value_objects.foreshadowing import (
     Foreshadowing,
     ForeshadowingStatus,
@@ -26,6 +25,9 @@ from domain.structure.story_node import NodeType
 from application.ai.structured_json_pipeline import (
     parse_and_repair_json,
     sanitize_llm_output,
+)
+from application.world.services.storyline_normalization import (
+    get_storyline_normalization_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,90 +107,20 @@ def _storyline_arc_label(progress_item: dict) -> str:
     return ""
 
 
-_STORYLINE_ALIAS_WORDS = (
-    "危机",
-    "禁器",
-    "师尊",
-    "飞剑",
-    "昆仑",
-    "谷梁",
-    "西门",
-    "黑市",
-    "坊市",
-    "符术",
-    "公审",
-    "私制",
-    "案件",
-    "案",
-    "构陷",
-    "诬陷",
-    "指控",
-    "冤案",
-    "真相",
-    "昭雪",
-    "平反",
-    "寻踪",
-    "遗物",
-    "遗产",
-    "改革",
-    "秩序",
-    "对抗",
-    "身份",
-    "揭秘",
-    "之谜",
-)
-
-_DISTINCTIVE_STORYLINE_TOKENS = {
-    "禁器",
-    "师尊",
-    "飞剑",
-    "昆仑",
-    "谷梁",
-    "西门",
-    "黑市",
-    "坊市",
-    "符术",
-    "冤案",
-}
-
-
 def _normalize_storyline_text(text: str) -> str:
     """Normalize labels so LLM wording variants can map to one storyline."""
     s = re.sub(r"\s+", "", text or "")
     s = re.sub(r"[《》「」『』【】（）()，,。；;：:、!！?？\"']", "", s)
-    replacements = {
-        "禁器指控": "禁器案",
-        "禁器构陷": "禁器案",
-        "禁器诬陷": "禁器案",
-        "当前陷害": "禁器案",
-        "地下黑市交易": "黑市线",
-        "黑市势力接触": "黑市线",
-        "黑市人脉": "黑市线",
-        "黑市真相探寻": "黑市线",
-        "黑市拍卖危机": "黑市线",
-        "黑市生态揭示": "黑市线",
-        "实力隐藏与暴露": "实力之谜",
-        "真实实力揭露": "实力之谜",
-        "身份谜团深化": "身份之谜",
-        "身份危机": "身份之谜",
-        "灭门真相": "灭门案",
-        "复仇计划": "灭门案",
-        "追捕与逃亡": "追捕线",
-        "师尊遗物": "师尊遗产",
-        "师尊遗物寻踪": "师尊遗产寻踪",
-        "十年冤案真相": "十年冤案",
-        "十年冤案昭雪": "十年冤案",
-        "旧日同门": "同门旧情",
-        "符术展示余波": "符术展示",
-    }
-    for src, dst in replacements.items():
+    profile = get_storyline_normalization_profile()
+    for src, dst in profile.replacements.items():
         s = s.replace(src, dst)
     return s[:120]
 
 
 def _storyline_tokens(*texts: str) -> set[str]:
     body = _normalize_storyline_text("".join(t for t in texts if t))
-    tokens = {w for w in _STORYLINE_ALIAS_WORDS if w and w in body}
+    profile = get_storyline_normalization_profile()
+    tokens = {w for w in profile.alias_words if w and w in body}
     tokens.update(re.findall(r"[\u4e00-\u9fff]{2,6}", body))
     return {t for t in tokens if len(t) >= 2}
 
@@ -280,6 +212,7 @@ def _match_storyline_for_progress_item(
                 return sl
 
     scored: List[Tuple[float, Any]] = []
+    distinctive_tokens = get_storyline_normalization_profile().distinctive_tokens
     for sl in storylines:
         score = _storyline_similarity(
             getattr(sl, "name", "") or "",
@@ -290,7 +223,7 @@ def _match_storyline_for_progress_item(
         shared = (
             _storyline_tokens(getattr(sl, "name", ""), getattr(sl, "description", ""))
             & _storyline_tokens(arc, desc)
-            & _DISTINCTIVE_STORYLINE_TOKENS
+            & distinctive_tokens
         )
         if score >= 0.66 or (score >= 0.50 and shared):
             scored.append((score, sl))
@@ -367,25 +300,14 @@ async def llm_chapter_extract_bundle(
 
 请判断本章是否呼应/回收了上述伏笔。如果章节内容明确揭示或回应了某个伏笔的悬念，则在 consumed_foreshadows 中列出该伏笔的原描述（需与清单中的描述高度匹配）。"""
 
-    # CPMS render
     from infrastructure.ai.prompt_keys import CHAPTER_NARRATIVE_SYNC
-    from infrastructure.ai.prompt_registry import get_prompt_registry
+    from infrastructure.ai.prompt_utils import render_required_prompt
 
     variables = {
         "content": body,
         "foreshadow_context": foreshadow_context,
     }
-    registry = get_prompt_registry()
-    prompt = registry.render_to_prompt(CHAPTER_NARRATIVE_SYNC, variables)
-
-    if not prompt:
-        # 降级：直接拼接
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system = get_prompt_system(CHAPTER_NARRATIVE_SYNC)
-        if not system:
-            system = f"你是网文叙事编辑与信息抽取。根据章节正文输出一个JSON对象。{foreshadow_context}"
-        user = f"第 {chapter_number} 章正文如下：\n\n{body}"
-        prompt = Prompt(system=system, user=user)
+    prompt = render_required_prompt(CHAPTER_NARRATIVE_SYNC, variables)
     config = GenerationConfig(max_tokens=4096, temperature=0.45)
 
     result = await llm.generate(prompt, config)

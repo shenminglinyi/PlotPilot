@@ -331,10 +331,10 @@ function parseHttpAccess(text: string) {
   }
 }
 
-function parseRawLogMessage(message: string, fallbackLevel: string, fallbackLogger: string) {
+function parseRawLogMessage(message: string, defaultLevel: string, defaultLogger: string) {
   let text = stripLogIcons(message)
-  let level = normalizeLevel(fallbackLevel)
-  let logger = fallbackLogger || ''
+  let level = normalizeLevel(defaultLevel)
+  let logger = defaultLogger || ''
   let parsedTime = ''
 
   const full = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.\d+)?\s+(INFO|DEBUG|WARN|WARNING|ERROR|CRITICAL|HTTP)\s+(?:pid=\d+\s+)?([^\s]+)\s+([\s\S]*)$/)
@@ -371,9 +371,9 @@ function buildDisplayRow(data: Record<string, unknown>): Row {
   const message = stripLogIcons(String(data.message || ''))
   const timestamp = String(data.timestamp || new Date().toISOString())
   const meta = data.metadata as Record<string, unknown> | undefined
-  const fallbackLevel = String(meta?.level || '')
-  const fallbackLogger = String(meta?.logger || '')
-  const parsed = parseRawLogMessage(message, fallbackLevel, fallbackLogger)
+  const defaultLevel = String(meta?.level || '')
+  const defaultLogger = String(meta?.logger || '')
+  const parsed = parseRawLogMessage(message, defaultLevel, defaultLogger)
   const kind = kindForType(t, { ...meta, level: parsed.level, logger: parsed.logger }, parsed.http)
   const source = compactLogger(parsed.logger)
   const detail = parsed.text || message
@@ -396,16 +396,13 @@ function buildDisplayRow(data: Record<string, unknown>): Row {
   }
 }
 
-/** 构建细化的进度提示：子步骤 + 节拍进度 + 字数进度 */
+/** 构建细化的进度提示：子步骤 + 字数进度 */
 function buildDetailedProgressHint(message: string, meta?: Record<string, unknown>): string {
   if (!meta) return clipForUi(message)
 
   const substepLabel = String(meta.writing_substep_label || '')
-  const totalBeats = Number(meta.total_beats || 0)
-  const beatIdx = Number(meta.current_beat_index_1based || 0)
   const accumulatedWords = Number(meta.accumulated_words || 0)
   const chapterTargetWords = Number(meta.chapter_target_words || 0)
-  const beatFocus = String(meta.beat_focus || '')
   const contextTokens = Number(meta.context_tokens || 0)
   const stage = String(meta.stage || '')
 
@@ -418,21 +415,10 @@ function buildDetailedProgressHint(message: string, meta?: Record<string, unknow
 
   // writing 阶段特有信息
   if (stage === 'writing') {
-    // 节拍进度
-    if (totalBeats > 0 && beatIdx > 0) {
-      parts.push(`节拍 ${beatIdx}/${totalBeats}`)
-    }
-
     // 字数进度
     if (accumulatedWords > 0 && chapterTargetWords > 0) {
       const pct = Math.min(100, Math.round(accumulatedWords / chapterTargetWords * 100))
       parts.push(`${accumulatedWords}/${chapterTargetWords}字(${pct}%)`)
-    }
-
-    // 节拍焦点
-    if (beatFocus) {
-      const focusClip = beatFocus.length > 16 ? beatFocus.slice(0, 15) + '…' : beatFocus
-      parts.push(`[${focusClip}]`)
     }
 
     // 上下文 tokens

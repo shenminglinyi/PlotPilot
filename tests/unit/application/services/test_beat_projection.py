@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from application.engine.dag.plan.schema import (
     ChapterExecutionPlan,
     PlanAtomSpec,
+    PlanDecompositionMode,
     PlanningEnvelope,
 )
 from application.engine.dag.plan.outline_beat_planner import build_chapter_execution_plan_sync
@@ -137,7 +138,7 @@ def test_default_contract_fields_use_short_summary_not_full_intent():
     plan = ChapterExecutionPlan(
         envelope=PlanningEnvelope(target_chapter_words=2000),
         atoms=[PlanAtomSpec(id="b1", intent=long_intent, weight=1.0)],
-        provenance={"mode": "fallback_single"},
+        provenance={"mode": PlanDecompositionMode.RAW_OUTLINE_SINGLE.value},
     )
     beats = beats_from_execution_plan(
         plan,
@@ -168,8 +169,14 @@ def test_sync_plan_builder_makes_beat_sheet_and_outline_canonical_sources():
         "1. 主角潜入库房\n2. 同伴突然背叛",
         target_chapter_words=2000,
     )
+    from_single_outline = build_chapter_execution_plan_sync(
+        "主角在一整段章纲里完成调查并被迫做出选择",
+        target_chapter_words=2000,
+    )
 
-    assert from_sheet.provenance["mode"] == "beat_sheet"
+    assert from_sheet.provenance["mode"] == PlanDecompositionMode.BEAT_SHEET.value
     assert from_sheet.atoms[0].intent == "夜探：主角找到账本"
-    assert from_outline.provenance["mode"] == "structured_outline"
+    assert from_outline.provenance["mode"] == PlanDecompositionMode.STRUCTURED_OUTLINE.value
     assert [a.intent for a in from_outline.atoms] == ["1. 主角潜入库房", "2. 同伴突然背叛"]
+    assert from_single_outline.provenance["mode"] == PlanDecompositionMode.RAW_OUTLINE_SINGLE.value
+    assert from_single_outline.atoms[0].extensions["decomposition_mode"] == PlanDecompositionMode.RAW_OUTLINE_SINGLE.value

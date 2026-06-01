@@ -1,0 +1,854 @@
+{
+  "schema_kind": "plotpilot.genre_taxonomy_sources",
+  "schema_version": 1,
+  "collected_at": "2026-05-31T06:10:35.793749+00:00",
+  "copyright_policy": "metadata_only_no_chapter_text",
+  "sources": [
+    {
+      "source": "qidian_mobile",
+      "url": "https://m.qidian.com/category",
+      "scope": "男频大类和二级分类",
+      "note": "移动端分类页直接服务大类与二级分类按钮。",
+      "error": null,
+      "primary_categories": [
+        {
+          "name": "仙侠",
+          "source_url": "https://m.qidian.com/category/catid22/",
+          "secondary_categories": [
+            {
+              "name": "修真文明",
+              "source_url": "https://m.qidian.com/category/catid22/subcatid18-male/",
+              "source_path": "仙侠/修真文明"
+            },
+            {
+              "name": "古典仙侠",
+              "source_url": "https://m.qidian.com/category/catid22/subcatid20101-male/",
+              "source_path": "仙侠/古典仙侠"
+            },
+            {
+              "name": "幻想修仙",
+              "source_url": "https://m.qidian.com/category/catid22/subcatid44-male/",
+              "source_path": "仙侠/幻想修仙"
+            },
+            {
+              "name": "现代修真",
+              "source_url": "https://m.qidian.com/category/catid22/subcatid64-male/",
+              "source_path": "仙侠/现代修真"
+            },
+            {
+              "name": "神话修真",
+              "source_url": "https://m.qidian.com/category/catid22/subcatid207-male/",
+              "source_path": "仙侠/神话修真"
+            }
+          ]
+        },
+        {
+          "name": "体育",
+          "source_url": "https://m.qidian.com/category/catid8/",
+          "secondary_categories": [
+            {
+              "name": "体育赛事",
+              "source_url": "https://m.qidian.com/category/catid8/subcatid55-male/",
+              "source_path": "体育/体育赛事"
+            },
+            {
+              "name": "篮球运动",
+              "source_url": "https://m.qidian.com/category/catid8/subcatid28-male/",
+              "source_path": "体育/篮球运动"
+            },
+            {
+              "name": "足球运动",
+              "source_url": "https://m.qidian.com/category/catid8/subcatid82-male/",
+              "source_path": "体育/足球运动"
+            }
+          ]
+        },
+        {
+          "name": "军事",
+          "source_url": "https://m.qidian.com/category/catid6/",
+          "secondary_categories": [
+            {
+              "name": "军事战争",
+              "source_url": "https://m.qidian.com/category/catid6/subcatid65-male/",
+              "source_path": "军事/军事战争"
+            },
+            {
+              "name": "军旅生涯",
+              "source_url": "https://m.qidian.com/category/catid6/subcatid54-male/",
+              "source_path": "军事/军旅生涯"
+            },
+            {
+              "name": "战争幻想",
+              "source_url": "https://m.qidian.com/category/catid6/subcatid80-male/",
+              "source_path": "军事/战争幻想"
+            },
+            {
+              "name": "抗战烽火",
+              "source_url": "https://m.qidian.com/category/catid6/subcatid230-male/",
+              "source_path": "军事/抗战烽火"
+            },
+            {
+              "name": "谍战特工",
+              "source_url": "https://m.qidian.com/category/catid6/subcatid231-male/",
+              "source_path": "军事/谍战特工"
+            }
+          ]
+        },
+        {
+          "name": "历史",
+          "source_url": "https://m.qidian.com/category/catid5/",
+          "secondary_categories": [
+            {
+              "name": "上古先秦",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid220-male/",
+              "source_path": "历史/上古先秦"
+            },
+            {
+              "name": "两宋元明",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid224-male/",
+              "source_path": "历史/两宋元明"
+            },
+            {
+              "name": "两晋隋唐",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid222-male/",
+              "source_path": "历史/两晋隋唐"
+            },
+            {
+              "name": "五代十国",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid223-male/",
+              "source_path": "历史/五代十国"
+            },
+            {
+              "name": "历史传记",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid32-male/",
+              "source_path": "历史/历史传记"
+            },
+            {
+              "name": "外国历史",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid226-male/",
+              "source_path": "历史/外国历史"
+            },
+            {
+              "name": "架空历史",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid22-male/",
+              "source_path": "历史/架空历史"
+            },
+            {
+              "name": "民间传说",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid20094-male/",
+              "source_path": "历史/民间传说"
+            },
+            {
+              "name": "清史民国",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid225-male/",
+              "source_path": "历史/清史民国"
+            },
+            {
+              "name": "秦汉三国",
+              "source_url": "https://m.qidian.com/category/catid5/subcatid48-male/",
+              "source_path": "历史/秦汉三国"
+            }
+          ]
+        },
+        {
+          "name": "奇幻",
+          "source_url": "https://m.qidian.com/category/catid1/",
+          "secondary_categories": [
+            {
+              "name": "剑与魔法",
+              "source_url": "https://m.qidian.com/category/catid1/subcatid62-male/",
+              "source_path": "奇幻/剑与魔法"
+            },
+            {
+              "name": "历史神话",
+              "source_url": "https://m.qidian.com/category/catid1/subcatid20092-male/",
+              "source_path": "奇幻/历史神话"
+            },
+            {
+              "name": "另类幻想",
+              "source_url": "https://m.qidian.com/category/catid1/subcatid20093-male/",
+              "source_path": "奇幻/另类幻想"
+            },
+            {
+              "name": "史诗奇幻",
+              "source_url": "https://m.qidian.com/category/catid1/subcatid201-male/",
+              "source_path": "奇幻/史诗奇幻"
+            },
+            {
+              "name": "现代魔法",
+              "source_url": "https://m.qidian.com/category/catid1/subcatid38-male/",
+              "source_path": "奇幻/现代魔法"
+            },
+            {
+              "name": "神秘幻想",
+              "source_url": "https://m.qidian.com/category/catid1/subcatid202-male/",
+              "source_path": "奇幻/神秘幻想"
+            }
+          ]
+        },
+        {
+          "name": "悬疑灵异",
+          "source_url": "https://m.qidian.com/category/catid10/",
+          "secondary_categories": [
+            {
+              "name": "侦探推理",
+              "source_url": "https://m.qidian.com/category/catid10/subcatid57-male/",
+              "source_path": "悬疑灵异/侦探推理"
+            },
+            {
+              "name": "惊悚微恐",
+              "source_url": "https://m.qidian.com/category/catid10/subcatid20095-male/",
+              "source_path": "悬疑灵异/惊悚微恐"
+            },
+            {
+              "name": "灵异民俗",
+              "source_url": "https://m.qidian.com/category/catid10/subcatid260-male/",
+              "source_path": "悬疑灵异/灵异民俗"
+            },
+            {
+              "name": "规则怪谈",
+              "source_url": "https://m.qidian.com/category/catid10/subcatid35-male/",
+              "source_path": "悬疑灵异/规则怪谈"
+            },
+            {
+              "name": "诡异神秘",
+              "source_url": "https://m.qidian.com/category/catid10/subcatid26-male/",
+              "source_path": "悬疑灵异/诡异神秘"
+            }
+          ]
+        },
+        {
+          "name": "武侠",
+          "source_url": "https://m.qidian.com/category/catid2/",
+          "secondary_categories": [
+            {
+              "name": "传统武侠",
+              "source_url": "https://m.qidian.com/category/catid2/subcatid5-male/",
+              "source_path": "武侠/传统武侠"
+            },
+            {
+              "name": "古武未来",
+              "source_url": "https://m.qidian.com/category/catid2/subcatid20099-male/",
+              "source_path": "武侠/古武未来"
+            },
+            {
+              "name": "国术无双",
+              "source_url": "https://m.qidian.com/category/catid2/subcatid206-male/",
+              "source_path": "武侠/国术无双"
+            },
+            {
+              "name": "武侠同人",
+              "source_url": "https://m.qidian.com/category/catid2/subcatid20100-male/",
+              "source_path": "武侠/武侠同人"
+            },
+            {
+              "name": "武侠幻想",
+              "source_url": "https://m.qidian.com/category/catid2/subcatid30-male/",
+              "source_path": "武侠/武侠幻想"
+            }
+          ]
+        },
+        {
+          "name": "游戏",
+          "source_url": "https://m.qidian.com/category/catid7/",
+          "secondary_categories": [
+            {
+              "name": "游戏主播",
+              "source_url": "https://m.qidian.com/category/catid7/subcatid20103-male/",
+              "source_path": "游戏/游戏主播"
+            },
+            {
+              "name": "游戏异界",
+              "source_url": "https://m.qidian.com/category/catid7/subcatid240-male/",
+              "source_path": "游戏/游戏异界"
+            },
+            {
+              "name": "游戏系统",
+              "source_url": "https://m.qidian.com/category/catid7/subcatid20102-male/",
+              "source_path": "游戏/游戏系统"
+            },
+            {
+              "name": "电子竞技",
+              "source_url": "https://m.qidian.com/category/catid7/subcatid7-male/",
+              "source_path": "游戏/电子竞技"
+            },
+            {
+              "name": "虚拟网游",
+              "source_url": "https://m.qidian.com/category/catid7/subcatid70-male/",
+              "source_path": "游戏/虚拟网游"
+            }
+          ]
+        },
+        {
+          "name": "玄幻",
+          "source_url": "https://m.qidian.com/category/catid21/",
+          "secondary_categories": [
+            {
+              "name": "东方玄幻",
+              "source_url": "https://m.qidian.com/category/catid21/subcatid8-male/",
+              "source_path": "玄幻/东方玄幻"
+            },
+            {
+              "name": "异世大陆",
+              "source_url": "https://m.qidian.com/category/catid21/subcatid73-male/",
+              "source_path": "玄幻/异世大陆"
+            },
+            {
+              "name": "王朝争霸",
+              "source_url": "https://m.qidian.com/category/catid21/subcatid58-male/",
+              "source_path": "玄幻/王朝争霸"
+            },
+            {
+              "name": "高武世界",
+              "source_url": "https://m.qidian.com/category/catid21/subcatid78-male/",
+              "source_path": "玄幻/高武世界"
+            }
+          ]
+        },
+        {
+          "name": "现实",
+          "source_url": "https://m.qidian.com/category/catid15/",
+          "secondary_categories": [
+            {
+              "name": "人间百态",
+              "source_url": "https://m.qidian.com/category/catid15/subcatid209-male/",
+              "source_path": "现实/人间百态"
+            },
+            {
+              "name": "女性题材",
+              "source_url": "https://m.qidian.com/category/catid15/subcatid20104-male/",
+              "source_path": "现实/女性题材"
+            },
+            {
+              "name": "家庭伦理",
+              "source_url": "https://m.qidian.com/category/catid15/subcatid6-male/",
+              "source_path": "现实/家庭伦理"
+            },
+            {
+              "name": "成功励志",
+              "source_url": "https://m.qidian.com/category/catid15/subcatid20107-male/",
+              "source_path": "现实/成功励志"
+            },
+            {
+              "name": "时代叙事",
+              "source_url": "https://m.qidian.com/category/catid15/subcatid20106-male/",
+              "source_path": "现实/时代叙事"
+            },
+            {
+              "name": "社会悬疑",
+              "source_url": "https://m.qidian.com/category/catid15/subcatid20105-male/",
+              "source_path": "现实/社会悬疑"
+            },
+            {
+              "name": "青年故事",
+              "source_url": "https://m.qidian.com/category/catid15/subcatid20108-male/",
+              "source_path": "现实/青年故事"
+            }
+          ]
+        },
+        {
+          "name": "短篇",
+          "source_url": "https://m.qidian.com/category/catid20076/",
+          "secondary_categories": [
+            {
+              "name": "人物传记",
+              "source_url": "https://m.qidian.com/category/catid20076/subcatid20098-male/",
+              "source_path": "短篇/人物传记"
+            },
+            {
+              "name": "影视剧本",
+              "source_url": "https://m.qidian.com/category/catid20076/subcatid20075-male/",
+              "source_path": "短篇/影视剧本"
+            },
+            {
+              "name": "生活随笔",
+              "source_url": "https://m.qidian.com/category/catid20076/subcatid20078-male/",
+              "source_path": "短篇/生活随笔"
+            },
+            {
+              "name": "短篇小说",
+              "source_url": "https://m.qidian.com/category/catid20076/subcatid20096-male/",
+              "source_path": "短篇/短篇小说"
+            },
+            {
+              "name": "美文游记",
+              "source_url": "https://m.qidian.com/category/catid20076/subcatid20079-male/",
+              "source_path": "短篇/美文游记"
+            },
+            {
+              "name": "评论文集",
+              "source_url": "https://m.qidian.com/category/catid20076/subcatid20077-male/",
+              "source_path": "短篇/评论文集"
+            },
+            {
+              "name": "诗歌散文",
+              "source_url": "https://m.qidian.com/category/catid20076/subcatid20097-male/",
+              "source_path": "短篇/诗歌散文"
+            }
+          ]
+        },
+        {
+          "name": "科幻",
+          "source_url": "https://m.qidian.com/category/catid9/",
+          "secondary_categories": [
+            {
+              "name": "古武机甲",
+              "source_url": "https://m.qidian.com/category/catid9/subcatid21-male/",
+              "source_path": "科幻/古武机甲"
+            },
+            {
+              "name": "时空穿梭",
+              "source_url": "https://m.qidian.com/category/catid9/subcatid251-male/",
+              "source_path": "科幻/时空穿梭"
+            },
+            {
+              "name": "星际文明",
+              "source_url": "https://m.qidian.com/category/catid9/subcatid68-male/",
+              "source_path": "科幻/星际文明"
+            },
+            {
+              "name": "未来世界",
+              "source_url": "https://m.qidian.com/category/catid9/subcatid25-male/",
+              "source_path": "科幻/未来世界"
+            },
+            {
+              "name": "末世危机",
+              "source_url": "https://m.qidian.com/category/catid9/subcatid253-male/",
+              "source_path": "科幻/末世危机"
+            },
+            {
+              "name": "超级科技",
+              "source_url": "https://m.qidian.com/category/catid9/subcatid250-male/",
+              "source_path": "科幻/超级科技"
+            },
+            {
+              "name": "进化变异",
+              "source_url": "https://m.qidian.com/category/catid9/subcatid252-male/",
+              "source_path": "科幻/进化变异"
+            }
+          ]
+        },
+        {
+          "name": "诸天无限",
+          "source_url": "https://m.qidian.com/category/catid20109/",
+          "secondary_categories": [
+            {
+              "name": "无限",
+              "source_url": "https://m.qidian.com/category/catid20109/subcatid20110-male/",
+              "source_path": "诸天无限/无限"
+            },
+            {
+              "name": "综漫",
+              "source_url": "https://m.qidian.com/category/catid20109/subcatid20112-male/",
+              "source_path": "诸天无限/综漫"
+            },
+            {
+              "name": "诸天",
+              "source_url": "https://m.qidian.com/category/catid20109/subcatid20111-male/",
+              "source_path": "诸天无限/诸天"
+            }
+          ]
+        },
+        {
+          "name": "轻小说",
+          "source_url": "https://m.qidian.com/category/catid12/",
+          "secondary_categories": [
+            {
+              "name": "原生幻想",
+              "source_url": "https://m.qidian.com/category/catid12/subcatid60-male/",
+              "source_path": "轻小说/原生幻想"
+            },
+            {
+              "name": "恋爱日常",
+              "source_url": "https://m.qidian.com/category/catid12/subcatid66-male/",
+              "source_path": "轻小说/恋爱日常"
+            },
+            {
+              "name": "搞笑吐槽",
+              "source_url": "https://m.qidian.com/category/catid12/subcatid282-male/",
+              "source_path": "轻小说/搞笑吐槽"
+            },
+            {
+              "name": "现代幻想",
+              "source_url": "https://m.qidian.com/category/catid12/subcatid10-male/",
+              "source_path": "轻小说/现代幻想"
+            },
+            {
+              "name": "衍生同人",
+              "source_url": "https://m.qidian.com/category/catid12/subcatid281-male/",
+              "source_path": "轻小说/衍生同人"
+            }
+          ]
+        },
+        {
+          "name": "都市",
+          "source_url": "https://m.qidian.com/category/catid4/",
+          "secondary_categories": [
+            {
+              "name": "商战职场",
+              "source_url": "https://m.qidian.com/category/catid4/subcatid153-male/",
+              "source_path": "都市/商战职场"
+            },
+            {
+              "name": "娱乐明星",
+              "source_url": "https://m.qidian.com/category/catid4/subcatid151-male/",
+              "source_path": "都市/娱乐明星"
+            },
+            {
+              "name": "异术超能",
+              "source_url": "https://m.qidian.com/category/catid4/subcatid74-male/",
+              "source_path": "都市/异术超能"
+            },
+            {
+              "name": "爱情婚姻",
+              "source_url": "https://m.qidian.com/category/catid4/subcatid65535-male/",
+              "source_path": "都市/爱情婚姻"
+            },
+            {
+              "name": "都市异能",
+              "source_url": "https://m.qidian.com/category/catid4/subcatid16-male/",
+              "source_path": "都市/都市异能"
+            },
+            {
+              "name": "都市生活",
+              "source_url": "https://m.qidian.com/category/catid4/subcatid12-male/",
+              "source_path": "都市/都市生活"
+            },
+            {
+              "name": "青春校园",
+              "source_url": "https://m.qidian.com/category/catid4/subcatid130-male/",
+              "source_path": "都市/青春校园"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source": "zongheng_mobile",
+      "url": "https://m.zongheng.com/category",
+      "scope": "男频大类",
+      "note": "移动端分类页服务大类与作品数量；该页未展开二级分类。",
+      "error": null,
+      "primary_categories": [
+        {
+          "name": "N次元",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8108&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "体育",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8110&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "军事",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8111&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "历史",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8104&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "奇闻异事",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8106&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "武侠仙侠",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8102&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "游戏",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8107&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "玄幻奇幻",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8101&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "现实题材",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8109&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "科幻",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8105&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        },
+        {
+          "name": "都市",
+          "source_url": "https://m.zongheng.com/category/rank?bookType=0&cateFineId=8103&order=_score&serialStatus=9&totalWord=0",
+          "secondary_categories": []
+        }
+      ]
+    },
+    {
+      "source": "zongheng_store",
+      "url": "https://book.zongheng.com/store.html",
+      "scope": "书库大类与列表可见分类",
+      "note": "PC 书库页服务大类导航和当前列表分类。",
+      "error": null,
+      "primary_categories": [
+        {
+          "name": "军事",
+          "source_url": "https://www.zongheng.com/category/8111.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "历史",
+          "source_url": "https://www.zongheng.com/category/8104.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "历史军事",
+          "source_url": "https://www.zongheng.com/category/6.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "奇幻玄幻",
+          "source_url": "https://www.zongheng.com/category/1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "奇闻异事",
+          "source_url": "https://www.zongheng.com/category/8106.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "悬疑灵异",
+          "source_url": "https://www.zongheng.com/category/18.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "武侠仙侠",
+          "source_url": "https://www.zongheng.com/category/3.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "游戏",
+          "source_url": "https://www.zongheng.com/category/8107.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "玄幻奇幻",
+          "source_url": "https://www.zongheng.com/category/8101.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "玄幻小说",
+          "source_url": "https://www.zongheng.com/category/1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "现实题材",
+          "source_url": "https://www.zongheng.com/category/8109.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "科幻",
+          "source_url": "https://www.zongheng.com/category/8105.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "科幻游戏",
+          "source_url": "https://www.zongheng.com/category/15.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "竞技同人",
+          "source_url": "https://www.zongheng.com/category/21.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "都市",
+          "source_url": "https://www.zongheng.com/category/8103.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "都市娱乐",
+          "source_url": "https://www.zongheng.com/category/9.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "都市小说",
+          "source_url": "https://www.zongheng.com/category/9.html",
+          "secondary_categories": []
+        }
+      ]
+    },
+    {
+      "source": "17k_all",
+      "url": "https://www.17k.com/all",
+      "scope": "男女频大类与列表可见二级分类",
+      "note": "全站书库页服务大类；列表行可观察到部分二级分类。",
+      "error": null,
+      "primary_categories": [
+        {
+          "name": "仙侠武侠",
+          "source_url": "https://www.17k.com/all/book/2_24_0_0_0_0_0_0_1.html",
+          "secondary_categories": [
+            {
+              "name": "传统武侠",
+              "source_url": "https://www.17k.com/all/book/2_24_2_0_0_0_0_0_1.html",
+              "source_path": "仙侠武侠/传统武侠"
+            },
+            {
+              "name": "历史武侠",
+              "source_url": "https://www.17k.com/all/book/2_24_124_0_0_0_0_0_1.html",
+              "source_path": "仙侠武侠/历史武侠"
+            },
+            {
+              "name": "古典仙侠",
+              "source_url": "https://www.17k.com/all/book/2_24_9_0_0_0_0_0_1.html",
+              "source_path": "仙侠武侠/古典仙侠"
+            },
+            {
+              "name": "奇幻修真",
+              "source_url": "https://www.17k.com/all/book/2_24_82_0_0_0_0_0_1.html",
+              "source_path": "仙侠武侠/奇幻修真"
+            }
+          ]
+        },
+        {
+          "name": "历史军事",
+          "source_url": "https://www.17k.com/all/book/2_22_0_0_0_0_0_0_1.html",
+          "secondary_categories": [
+            {
+              "name": "军旅生涯",
+              "source_url": "https://www.17k.com/all/book/2_22_94_0_0_0_0_0_1.html",
+              "source_path": "历史军事/军旅生涯"
+            },
+            {
+              "name": "历史传奇",
+              "source_url": "https://www.17k.com/all/book/2_22_120_0_0_0_0_0_1.html",
+              "source_path": "历史军事/历史传奇"
+            },
+            {
+              "name": "历史穿越",
+              "source_url": "https://www.17k.com/all/book/2_22_4_0_0_0_0_0_1.html",
+              "source_path": "历史军事/历史穿越"
+            },
+            {
+              "name": "架空历史",
+              "source_url": "https://www.17k.com/all/book/2_22_93_0_0_0_0_0_1.html",
+              "source_path": "历史军事/架空历史"
+            }
+          ]
+        },
+        {
+          "name": "古代言情",
+          "source_url": "https://www.17k.com/all/book/3_5_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "幻想言情",
+          "source_url": "https://www.17k.com/all/book/3_18_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "悬疑推理",
+          "source_url": "https://www.17k.com/all/book/2_29_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "浪漫青春",
+          "source_url": "https://www.17k.com/all/book/3_20_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "游戏竞技",
+          "source_url": "https://www.17k.com/all/book/2_23_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "玄幻奇幻",
+          "source_url": "https://www.17k.com/all/book/2_21_0_0_0_0_0_0_1.html",
+          "secondary_categories": [
+            {
+              "name": "东方玄幻",
+              "source_url": "https://www.17k.com/all/book/2_21_8_0_0_0_0_0_1.html",
+              "source_path": "玄幻奇幻/东方玄幻"
+            },
+            {
+              "name": "异世争霸",
+              "source_url": "https://www.17k.com/all/book/2_21_115_0_0_0_0_0_1.html",
+              "source_path": "玄幻奇幻/异世争霸"
+            },
+            {
+              "name": "异界大陆",
+              "source_url": "https://www.17k.com/all/book/2_21_83_0_0_0_0_0_1.html",
+              "source_path": "玄幻奇幻/异界大陆"
+            }
+          ]
+        },
+        {
+          "name": "现代言情",
+          "source_url": "https://www.17k.com/all/book/3_17_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "科幻末世",
+          "source_url": "https://www.17k.com/all/book/2_14_0_0_0_0_0_0_1.html",
+          "secondary_categories": [
+            {
+              "name": "未来幻想",
+              "source_url": "https://www.17k.com/all/book/2_14_6_0_0_0_0_0_1.html",
+              "source_path": "科幻末世/未来幻想"
+            },
+            {
+              "name": "末世危机",
+              "source_url": "https://www.17k.com/all/book/2_14_128_0_0_0_0_0_1.html",
+              "source_path": "科幻末世/末世危机"
+            },
+            {
+              "name": "进化变异",
+              "source_url": "https://www.17k.com/all/book/2_14_129_0_0_0_0_0_1.html",
+              "source_path": "科幻末世/进化变异"
+            }
+          ]
+        },
+        {
+          "name": "轻小说",
+          "source_url": "https://www.17k.com/all/book/2_30_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        },
+        {
+          "name": "都市小说",
+          "source_url": "https://www.17k.com/all/book/2_3_0_0_0_0_0_0_1.html",
+          "secondary_categories": [
+            {
+              "name": "现实题材",
+              "source_url": "https://www.17k.com/all/book/2_3_91_0_0_0_0_0_1.html",
+              "source_path": "都市小说/现实题材"
+            },
+            {
+              "name": "都市异能",
+              "source_url": "https://www.17k.com/all/book/2_3_87_0_0_0_0_0_1.html",
+              "source_path": "都市小说/都市异能"
+            },
+            {
+              "name": "都市激战",
+              "source_url": "https://www.17k.com/all/book/2_3_92_0_0_0_0_0_1.html",
+              "source_path": "都市小说/都市激战"
+            },
+            {
+              "name": "都市生活",
+              "source_url": "https://www.17k.com/all/book/2_3_3_0_0_0_0_0_1.html",
+              "source_path": "都市小说/都市生活"
+            }
+          ]
+        },
+        {
+          "name": "默认",
+          "source_url": "https://www.17k.com/all/book/2_0_0_0_0_0_0_0_1.html",
+          "secondary_categories": []
+        }
+      ]
+    }
+  ]
+}

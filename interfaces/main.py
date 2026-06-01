@@ -78,6 +78,7 @@ from interfaces.api.v1.engine import (
     governance_routes,  # 总编辑叙事治理层
     worldline_routes,  # 世界线管理（故事 Git 模型）
     evolution_routes,  # 故事演进状态机
+    ai_invocation_routes,
 )
 from interfaces.api.v1.prop import prop_routes
 
@@ -1000,6 +1001,7 @@ app.include_router(narrative_engine_routes.surface_router, prefix=_V1)  # 叙事
 app.include_router(governance_routes.router,               prefix=_V1)  # 总编辑叙事治理层
 app.include_router(worldline_routes.router,                prefix=_V1)  # 世界线管理（故事 Git 模型）
 app.include_router(evolution_routes.router,                prefix=_V1)  # 故事演进状态机
+app.include_router(ai_invocation_routes.router,            prefix=_V1)  # AI Invocation 统一调用入口
 app.include_router(prop_routes.router,                     prefix=_V1)  # 道具全周期管理
 
 # ── Engine：溯源 / DAG 工作流 ──

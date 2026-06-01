@@ -1,10 +1,12 @@
 """AutoNovelGenerationWorkflow 单元测试"""
 import pytest
+from types import SimpleNamespace
 from unittest.mock import Mock, AsyncMock
 from application.workflows.auto_novel_generation_workflow import (
     AutoNovelGenerationWorkflow,
     CHAPTER_CONTEXT_LAYER2_HEADER,
     CHAPTER_CONTEXT_LAYER3_HEADER,
+    ChapterPromptTemplateUnavailable,
     assemble_chapter_bundle_context_text,
 )
 from application.engine.dtos.generation_result import GenerationResult
@@ -36,6 +38,14 @@ def mock_context_builder():
     }
     # 默认空节拍列表 → 走整段生成分支（与历史单测期望一致）
     builder.magnify_outline_to_beats = Mock(return_value=[])
+    builder.novel_repository = Mock()
+    builder.novel_repository.get_by_id.return_value = SimpleNamespace(
+        locked_genre="都市-都市异能",
+        genre_label="都市-都市异能",
+        premise="都市异能成长故事",
+        target_words_per_chapter=2500,
+        generation_prefs=SimpleNamespace(inline_prose_aggregation_enabled=False),
+    )
     # 不再需要 estimate_tokens 方法
     return builder
 
@@ -73,6 +83,21 @@ async def _mock_stream_generate(*args, **kwargs):
     yield "Generated chapter content"
 
 
+def _attach_empty_state_extractor(workflow: AutoNovelGenerationWorkflow) -> AutoNovelGenerationWorkflow:
+    workflow.state_extractor = Mock()
+    workflow.state_extractor.extract_chapter_state = AsyncMock(
+        return_value=ChapterState(
+            new_characters=[],
+            character_actions=[],
+            relationship_changes=[],
+            foreshadowing_planted=[],
+            foreshadowing_resolved=[],
+            events=[],
+        )
+    )
+    return workflow
+
+
 @pytest.fixture
 def mock_llm_service():
     """Mock LLMService"""
@@ -94,13 +119,14 @@ def workflow(
     mock_llm_service
 ):
     """创建 AutoNovelGenerationWorkflow 实例"""
-    return AutoNovelGenerationWorkflow(
+    workflow = AutoNovelGenerationWorkflow(
         context_builder=mock_context_builder,
         consistency_checker=mock_consistency_checker,
         storyline_manager=mock_storyline_manager,
         plot_arc_repository=mock_plot_arc_repository,
         llm_service=mock_llm_service
     )
+    return _attach_empty_state_extractor(workflow)
 
 
 def test_assemble_chapter_bundle_context_text_uses_t2_t3_headers():
@@ -293,6 +319,38 @@ class TestBuildPrompt:
         assert "HIGH" in prompt.system
         assert "CTX" in prompt.system
 
+    def test_build_prompt_includes_genre_profile_contract(self, workflow):
+        """类型画像应进入正文生成 system，避免分类只停留在前置向导。"""
+        prompt = workflow._build_prompt(
+            context="CTX",
+            outline="OL",
+            genre_opening_profile={"genre_major": "都市", "source_level": "secondary"},
+            genre_reader_contract={"reader_promise": ["现实压迫快速建立"]},
+            genre_rhythm_constraints={"payoff_interval": "短"},
+        )
+
+        assert "类型开篇画像" in prompt.system
+        assert "现实压迫快速建立" in prompt.system
+        assert "payoff_interval" in prompt.system
+
+    def test_build_prompt_blocks_when_cpms_template_missing(self, workflow, monkeypatch):
+        """章节生成 CPMS 缺失时必须阻塞，不能降级到硬编码提示词。"""
+
+        class EmptyRegistry:
+            def get_system(self, node_key):
+                return ""
+
+            def get_user_template(self, node_key):
+                return ""
+
+        monkeypatch.setattr(
+            "infrastructure.ai.prompt_registry.get_prompt_registry",
+            lambda: EmptyRegistry(),
+        )
+
+        with pytest.raises(ChapterPromptTemplateUnavailable, match="system 模板缺失"):
+            workflow._build_prompt(context="CTX", outline="OL")
+
     def test_build_prompt_beat_mode_filters_planning_without_unbound_error(self, workflow):
         """节拍模式应先判定 beat_mode，再裁剪规划块，避免局部变量未定义。"""
         prompt = workflow._build_prompt(
@@ -364,6 +422,7 @@ class TestConflictDetectionIntegration:
             conflict_detection_service=mock_conflict_service,
             bible_repository=mock_bible_repo
         )
+        _attach_empty_state_extractor(workflow)
 
         result = await workflow.generate_chapter(
             novel_id="novel-1",
@@ -407,6 +466,7 @@ class TestConflictDetectionIntegration:
             llm_service=mock_llm_service,
             conflict_detection_service=mock_conflict_service
         )
+        _attach_empty_state_extractor(workflow)
 
         result = await workflow.generate_chapter(
             novel_id="novel-1",
@@ -468,6 +528,7 @@ class TestConflictDetectionIntegration:
             llm_service=mock_llm_service,
             conflict_detection_service=mock_conflict_service
         )
+        _attach_empty_state_extractor(workflow)
 
         events = []
         async for event in workflow.generate_chapter_stream(
@@ -529,6 +590,7 @@ class TestStyleIntegration:
             llm_service=mock_llm_service,
             cliche_scanner=mock_scanner
         )
+        _attach_empty_state_extractor(workflow)
 
         result = await workflow.generate_chapter(
             novel_id="novel-1",
@@ -582,6 +644,7 @@ class TestStyleIntegration:
             llm_service=mock_llm_service,
             voice_fingerprint_service=mock_fingerprint_service
         )
+        _attach_empty_state_extractor(workflow)
 
         result = await workflow.generate_chapter(
             novel_id="novel-1",
@@ -659,6 +722,7 @@ class TestStyleIntegration:
             llm_service=mock_llm_service,
             cliche_scanner=mock_scanner
         )
+        _attach_empty_state_extractor(workflow)
 
         events = []
         async for event in workflow.generate_chapter_stream(

@@ -13,6 +13,15 @@ from engine.runtime.macro_planning_delegate import run_macro_planning
 logger = logging.getLogger(__name__)
 
 
+def _is_novel_deleted(host: Any, novel: Novel) -> bool:
+    """检查小说是否已被删除（用于区分 FK 失败 vs 真正的运行时错误）。"""
+    try:
+        status = host._read_autopilot_status_ephemeral(novel.novel_id)
+        return status is None
+    except Exception:
+        return False
+
+
 async def process_novel(host: Any, novel: Novel) -> None:
     """处理单个小说（全流程状态机路由）"""
     try:
@@ -76,6 +85,10 @@ async def process_novel(host: Any, novel: Novel) -> None:
 
     except Exception as e:
         logger.error("[%s] 处理失败: %s", novel.novel_id, e, exc_info=True)
+
+        if _is_novel_deleted(host, novel):
+            logger.warning("[%s] 小说已被删除，放弃本轮处理（不累计错误）", novel.novel_id)
+            return
 
         host._merge_autopilot_status_from_db(novel)
         if novel.autopilot_status != AutopilotStatus.RUNNING:

@@ -1,0 +1,26 @@
+name: 情绪账本增量提取
+category: extraction
+source: engine/infrastructure/memory/emotion_ledger_extractor.py
+description: 从章节正文中提取情绪账本增量，记录创伤、收获、权力转移和未闭合悬念
+builtin: true
+tags:
+- 情绪账本
+- 记忆
+- JSON
+output_format: json
+variables:
+- name: chapter_number
+  desc: 章节编号
+  type: integer
+  required: true
+- name: chapter_content
+  desc: 章节正文
+  type: string
+  required: true
+- name: open_loops
+  desc: 当前未闭合悬念列表
+  type: string
+  required: false
+  default: 无
+id: emotion-ledger-extraction
+sort_order: 17

@@ -21,6 +21,7 @@ from infrastructure.ai.prompt_contracts.voice_baseline_analysis import (
     VOICE_BASELINE_ANALYSIS_CONTRACT,
 )
 from infrastructure.ai.prompt_gateway import get_prompt_gateway
+from application.ai.trace_context import ensure_trace
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class LLMVoiceAnalysisService:
             ).prompt
             config = generation_config_from_profile("voice_style_analysis")
 
+            ensure_trace(novel_id=novel_id, stage="analyst.voice.analyze", stage_label="声线分析")
             result = await self._llm.generate(prompt, config)
             raw = result.content.strip()
 

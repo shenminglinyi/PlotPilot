@@ -1,9 +1,38 @@
-"""
-Domain entity for Worldbuilding (世界观构建)
-"""
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, Tuple
+
+import yaml
+
+
+_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "shared"
+    / "taxonomy"
+    / "worldbuilding_contract_cn_v1.yaml"
+)
+
+
+@lru_cache(maxsize=1)
+def _dimension_field_keys() -> Dict[str, Tuple[str, ...]]:
+    """读取世界观维度字段契约，避免领域实体内嵌五维字段分组。"""
+    if not _CONTRACT_PATH.is_file():
+        return {}
+    data = yaml.safe_load(_CONTRACT_PATH.read_text(encoding="utf-8")) or {}
+    dimensions = data.get("dimensions") if isinstance(data, dict) else None
+    if not isinstance(dimensions, dict):
+        return {}
+    out: Dict[str, Tuple[str, ...]] = {}
+    for dim_key, dim_cfg in dimensions.items():
+        fields = dim_cfg.get("fields") if isinstance(dim_cfg, dict) else None
+        if not isinstance(fields, dict):
+            continue
+        keys = tuple(str(k).strip() for k in fields.keys() if str(k).strip())
+        if keys:
+            out[str(dim_key).strip()] = keys
+    return out
 
 
 @dataclass
@@ -39,8 +68,8 @@ class Worldbuilding:
     language_slang: str = ""         # 俚语口音
     entertainment: str = ""          # 娱乐方式
 
-    # V2 canonical worldbuilding document. Legacy scalar columns above remain as
-    # a compatibility projection for old callers and existing databases.
+    # V2 canonical worldbuilding document. Scalar columns above remain as a
+    # compatibility projection for old callers and existing databases.
     schema_version: int = 2
     dimensions: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
@@ -49,50 +78,32 @@ class Worldbuilding:
 
     @property
     def core_rules(self) -> dict:
-        return self._dimension_or_legacy("core_rules", {
-            "power_system": self.power_system,
-            "physics_rules": self.physics_rules,
-            "magic_tech": self.magic_tech,
-        })
+        return self._dimension_from_document_or_scalar_projection("core_rules")
 
     @property
     def geography(self) -> dict:
-        return self._dimension_or_legacy("geography", {
-            "terrain": self.terrain,
-            "climate": self.climate,
-            "resources": self.resources,
-            "ecology": self.ecology,
-        })
+        return self._dimension_from_document_or_scalar_projection("geography")
 
     @property
     def society(self) -> dict:
-        return self._dimension_or_legacy("society", {
-            "politics": self.politics,
-            "economy": self.economy,
-            "class_system": self.class_system,
-        })
+        return self._dimension_from_document_or_scalar_projection("society")
 
     @property
     def culture(self) -> dict:
-        return self._dimension_or_legacy("culture", {
-            "history": self.history,
-            "religion": self.religion,
-            "taboos": self.taboos,
-        })
+        return self._dimension_from_document_or_scalar_projection("culture")
 
     @property
     def daily_life(self) -> dict:
-        return self._dimension_or_legacy("daily_life", {
-            "food_clothing": self.food_clothing,
-            "language_slang": self.language_slang,
-            "entertainment": self.entertainment,
-        })
+        return self._dimension_from_document_or_scalar_projection("daily_life")
 
-    def _dimension_or_legacy(self, key: str, legacy: Dict[str, str]) -> Dict[str, str]:
+    def _dimension_from_document_or_scalar_projection(self, key: str) -> Dict[str, str]:
         block = self.dimensions.get(key) if isinstance(self.dimensions, dict) else None
         if isinstance(block, dict) and any(str(v).strip() for v in block.values()):
             return {str(k): str(v or "") for k, v in block.items()}
-        return legacy
+        return {
+            field_key: str(getattr(self, field_key, "") or "")
+            for field_key in _dimension_field_keys().get(key, ())
+        }
 
     def normalized_dimensions(self) -> Dict[str, Dict[str, str]]:
         return {

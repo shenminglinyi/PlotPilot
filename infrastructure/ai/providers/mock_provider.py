@@ -1,552 +1,384 @@
-"""Mock LLM Provider for testing without API keys"""
+"""Neutral mock LLM provider used when no runtime API key is configured.
+
+The provider is intentionally schema-oriented: it returns valid, minimal JSON for
+known generation intents, but it must not invent a reusable plot, genre, or fixed
+story trope. This keeps no-key/local-dev paths from polluting production data with
+hidden fallback narratives.
+"""
+
+from __future__ import annotations
+
 import json
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, Callable, Dict
+
+from domain.ai.services.llm_service import GenerationConfig, GenerationResult, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
-from domain.ai.services.llm_service import GenerationConfig, GenerationResult, LLMService
 
 
-class MockProvider(LLMService):
-    """Mock LLM Provider for testing
+JsonObject = Dict[str, Any]
 
-    Returns predefined responses without calling any external API.
+
+class MockResponseFactory:
+    """Build contract-shaped, genre-neutral mock responses.
+
+    The factory deliberately describes structure rather than story content. If a
+    caller needs real creative material, it must use a configured LLM provider.
     """
 
-    def __init__(self):
-        """Initialize Mock Provider
+    def build(self, prompt: Prompt) -> str:
+        intent = self._detect_intent(prompt)
+        builders: Dict[str, Callable[[], str]] = {
+            "macro_plan": self._macro_plan,
+            "worldbuilding": self._worldbuilding,
+            "characters": self._characters,
+            "locations": self._locations,
+            "main_plot_options": self._main_plot_options,
+            "chapter_review": self._chapter_review,
+            "style": self._style,
+        }
+        return builders.get(intent, self._default)()
 
-        No settings or API key needed.
-        """
-        pass
+    def _detect_intent(self, prompt: Prompt) -> str:
+        text = f"{prompt.system}\n{prompt.user}".lower()
 
-    async def generate(
-        self,
-        prompt: Prompt,
-        config: GenerationConfig
-    ) -> GenerationResult:
-        """Generate mock response
+        if "setup_main_plot_options_v1" in text or "plot_options" in text or "主线候选" in text:
+            return "main_plot_options"
+        if "宏观结构" in text or "结构框架" in text or "部-卷-幕" in text or '"parts"' in text:
+            return "macro_plan"
+        if "worldbuilding" in text or "世界观" in text or "核心法则" in text:
+            return "worldbuilding"
+        if "characters" in text or "人物" in text or "角色" in text:
+            return "characters"
+        if "locations" in text or "地点" in text or "地图" in text:
+            return "locations"
+        if "章节 ai 审阅" in text or "严格但务实的小说责任编辑" in text or '"score"' in text and '"issues"' in text:
+            return "chapter_review"
+        if "文风公约" in text or "style convention" in text or "style" in text:
+            return "style"
+        return "default"
 
-        Args:
-            prompt: The prompt
-            config: Generation config
+    def _json(self, payload: JsonObject) -> str:
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
-        Returns:
-            Mock generation result
-        """
-        # Detect what kind of generation is requested based on prompt
-        user_prompt = prompt.user.lower()
-
-        if "宏观结构" in user_prompt or "结构框架" in user_prompt or "部-卷-幕" in user_prompt:
-            # Macro planning generation
-            content = json.dumps({
+    def _macro_plan(self) -> str:
+        return self._json(
+            {
                 "parts": [
                     {
                         "number": 1,
-                        "title": "第一部：科学之眼",
-                        "description": "主角以科学视角观察修仙世界，发现其中的规律",
-                        "suggested_chapter_count": 10,
-                        "themes": ["科学观察", "数据分析"],
+                        "title": "第一部：目标建立",
+                        "description": "围绕用户设定建立核心目标、主要阻力与阶段性代价。",
+                        "suggested_chapter_count": 3,
+                        "themes": ["目标", "阻力", "选择"],
                         "volumes": [
                             {
                                 "number": 1,
-                                "title": "第一卷：观测者",
-                                "description": "主角初入修仙界，开始观察和记录",
+                                "title": "第一卷：起始压力",
+                                "description": "让关键人物在明确压力下做出第一轮选择。",
                                 "suggested_chapter_count": 3,
                                 "acts": [
                                     {
                                         "number": 1,
-                                        "title": "第一幕：凡人的困境",
-                                        "description": "主角作为凡人，在修仙世界中艰难求生",
+                                        "title": "第一幕：问题出现",
+                                        "description": "呈现用户设定中的核心问题与即时后果。",
                                         "suggested_chapter_count": 1,
-                                        "key_events": ["穿越到修仙世界", "发现无法修炼"],
-                                        "narrative_arc": "开局困境，引发主角思考",
-                                        "conflicts": ["生存危机"]
+                                        "key_events": ["核心问题显性化", "人物目标被迫明确"],
+                                        "narrative_arc": "从稳定状态进入需要行动的局面。",
+                                        "conflicts": ["个人目标与外部压力"],
+                                        "plot_points": ["建立起点", "触发选择"],
+                                        "key_characters": [],
+                                        "key_locations": [],
                                     },
                                     {
                                         "number": 2,
-                                        "title": "第二幕：数据的力量",
-                                        "description": "主角用科学方法分析灵气",
+                                        "title": "第二幕：代价确认",
+                                        "description": "通过一次受阻确认目标并非轻易可得。",
                                         "suggested_chapter_count": 1,
-                                        "key_events": ["建立观测系统", "发现灵气规律"],
-                                        "narrative_arc": "发现新方法，获得希望",
-                                        "conflicts": ["知识壁垒"]
+                                        "key_events": ["第一次尝试受阻", "代价被具体化"],
+                                        "narrative_arc": "行动带来代价，人物开始调整策略。",
+                                        "conflicts": ["短期收益与长期风险"],
+                                        "plot_points": ["尝试", "受阻"],
+                                        "key_characters": [],
+                                        "key_locations": [],
                                     },
                                     {
                                         "number": 3,
-                                        "title": "第三幕：第一次冲突",
-                                        "description": "主角的方法引起修仙者注意",
+                                        "title": "第三幕：方向锁定",
+                                        "description": "用一个不可逆选择锁定后续推进方向。",
                                         "suggested_chapter_count": 1,
-                                        "key_events": ["被修仙者发现", "展示科学成果"],
-                                        "narrative_arc": "初次对抗，建立地位",
-                                        "conflicts": ["传统vs科学"]
-                                    }
-                                ]
-                            },
-                            {
-                                "number": 2,
-                                "title": "第二卷：数据师",
-                                "description": "主角建立数据分析体系",
-                                "suggested_chapter_count": 3,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第四幕：建立体系",
-                                        "description": "主角完善科学修仙理论",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["建立理论框架", "招收学生"],
-                                        "narrative_arc": "体系建立，影响扩大",
-                                        "conflicts": ["理论争议"]
+                                        "key_events": ["关键选择发生", "阶段目标升级"],
+                                        "narrative_arc": "从被动应对转为主动推进。",
+                                        "conflicts": ["安全退路与主动承担"],
+                                        "plot_points": ["选择", "升级"],
+                                        "key_characters": [],
+                                        "key_locations": [],
                                     },
-                                    {
-                                        "number": 2,
-                                        "title": "第五幕：传播知识",
-                                        "description": "科学修仙法开始传播",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["开设学院", "培养弟子"],
-                                        "narrative_arc": "影响力增长，引发变革",
-                                        "conflicts": ["保守派反对"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第六幕：第一次危机",
-                                        "description": "传统势力的反扑",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["遭遇围攻", "化解危机"],
-                                        "narrative_arc": "危机考验，证明实力",
-                                        "conflicts": ["势力冲突"]
-                                    }
-                                ]
-                            },
-                            {
-                                "number": 3,
-                                "title": "第三卷：变革者",
-                                "description": "主角推动修仙界变革",
-                                "suggested_chapter_count": 4,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第七幕：理论突破",
-                                        "description": "科学修仙理论重大突破",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["发现核心原理", "创造新功法"],
-                                        "narrative_arc": "理论飞跃，开创新时代",
-                                        "conflicts": ["认知突破"]
-                                    },
-                                    {
-                                        "number": 2,
-                                        "title": "第八幕：全面推广",
-                                        "description": "科学修仙法全面推广",
-                                        "suggested_chapter_count": 2,
-                                        "key_events": ["建立联盟", "改革制度"],
-                                        "narrative_arc": "变革深化，影响深远",
-                                        "conflicts": ["利益冲突"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第九幕：新秩序",
-                                        "description": "建立新的修仙秩序",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["制定新规则", "和平共处"],
-                                        "narrative_arc": "秩序重建，和谐发展",
-                                        "conflicts": ["秩序建立"]
-                                    }
-                                ]
+                                ],
                             }
-                        ]
-                    },
-                    {
-                        "number": 2,
-                        "title": "第二部：理论突破",
-                        "description": "深入研究修仙本质，建立完整理论体系",
-                        "suggested_chapter_count": 10,
-                        "themes": ["理论创新", "技术突破"],
-                        "volumes": [
-                            {
-                                "number": 1,
-                                "title": "第一卷：实验室",
-                                "description": "建立修仙研究实验室",
-                                "suggested_chapter_count": 3,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第十幕：同道者",
-                                        "description": "寻找志同道合的研究者",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["组建团队", "建立实验室"],
-                                        "narrative_arc": "团队组建，研究起步",
-                                        "conflicts": ["资源争夺"]
-                                    },
-                                    {
-                                        "number": 2,
-                                        "title": "第十一幕：灵气引擎",
-                                        "description": "研发灵气转换装置",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["设计原型", "测试成功"],
-                                        "narrative_arc": "技术突破，应用落地",
-                                        "conflicts": ["技术难题"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第十二幕：初步成果",
-                                        "description": "实验室取得初步成果",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["发表论文", "获得认可"],
-                                        "narrative_arc": "成果展示，影响扩大",
-                                        "conflicts": ["学术争议"]
-                                    }
-                                ]
-                            },
-                            {
-                                "number": 2,
-                                "title": "第二卷：技术革新",
-                                "description": "开发革命性修仙技术",
-                                "suggested_chapter_count": 3,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第十三幕：灵气网络",
-                                        "description": "构建灵气传输网络",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["设计网络", "建设基站"],
-                                        "narrative_arc": "基础设施建设，改变格局",
-                                        "conflicts": ["技术垄断"]
-                                    },
-                                    {
-                                        "number": 2,
-                                        "title": "第十四幕：商业化",
-                                        "description": "技术商业化推广",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["成立公司", "市场推广"],
-                                        "narrative_arc": "商业成功，财富积累",
-                                        "conflicts": ["商业竞争"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第十五幕：垄断危机",
-                                        "description": "面临反垄断调查",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["遭遇调查", "化解危机"],
-                                        "narrative_arc": "危机应对，巩固地位",
-                                        "conflicts": ["政治压力"]
-                                    }
-                                ]
-                            },
-                            {
-                                "number": 3,
-                                "title": "第三卷：理论大成",
-                                "description": "完善科学修仙理论体系",
-                                "suggested_chapter_count": 4,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第十六幕：统一理论",
-                                        "description": "提出统一修仙理论",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["发表理论", "震惊世界"],
-                                        "narrative_arc": "理论突破，奠定基础",
-                                        "conflicts": ["理论质疑"]
-                                    },
-                                    {
-                                        "number": 2,
-                                        "title": "第十七幕：实验验证",
-                                        "description": "大规模实验验证理论",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["设计实验", "验证成功"],
-                                        "narrative_arc": "实验成功，理论确立",
-                                        "conflicts": ["实验风险"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第十八幕：清算",
-                                        "description": "与传统势力的最终对决",
-                                        "suggested_chapter_count": 2,
-                                        "key_events": ["大战爆发", "科学胜利"],
-                                        "narrative_arc": "决战时刻，奠定地位",
-                                        "conflicts": ["终极对决"]
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        "number": 3,
-                        "title": "第三部：新纪元",
-                        "description": "科学修仙时代全面到来",
-                        "suggested_chapter_count": 10,
-                        "themes": ["新时代", "文明进步"],
-                        "volumes": [
-                            {
-                                "number": 1,
-                                "title": "第一卷：革命前夜",
-                                "description": "科学修仙革命的准备阶段",
-                                "suggested_chapter_count": 3,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第十九幕：联盟组建",
-                                        "description": "组建科学修仙联盟",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["召集盟友", "制定计划"],
-                                        "narrative_arc": "力量集结，准备变革",
-                                        "conflicts": ["内部分歧"]
-                                    },
-                                    {
-                                        "number": 2,
-                                        "title": "第二十幕：舆论战",
-                                        "description": "争夺话语权和民心",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["宣传造势", "赢得支持"],
-                                        "narrative_arc": "舆论胜利，民心所向",
-                                        "conflicts": ["信息战"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第二十一幕：第一枪",
-                                        "description": "革命正式开始",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["起义爆发", "初战告捷"],
-                                        "narrative_arc": "革命开启，势不可挡",
-                                        "conflicts": ["武装冲突"]
-                                    }
-                                ]
-                            },
-                            {
-                                "number": 2,
-                                "title": "第二卷：革命进行时",
-                                "description": "科学修仙革命全面展开",
-                                "suggested_chapter_count": 3,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第二十二幕：星火燎原",
-                                        "description": "科学修仙法遍地开花",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["全面普及", "文明跃迁"],
-                                        "narrative_arc": "革命成功，新时代开启",
-                                        "conflicts": ["旧势力残余"]
-                                    },
-                                    {
-                                        "number": 2,
-                                        "title": "第二十三幕：最后堡垒",
-                                        "description": "攻克传统势力最后据点",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["围攻堡垒", "攻克成功"],
-                                        "narrative_arc": "最后战役，胜利在望",
-                                        "conflicts": ["殊死抵抗"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第二十四幕：终极对决",
-                                        "description": "与最强传统势力的对决",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["终极之战", "彻底胜利"],
-                                        "narrative_arc": "最终对决，确立霸权",
-                                        "conflicts": ["最终之战"]
-                                    }
-                                ]
-                            },
-                            {
-                                "number": 3,
-                                "title": "第三卷：新世界",
-                                "description": "建立科学修仙新秩序",
-                                "suggested_chapter_count": 4,
-                                "acts": [
-                                    {
-                                        "number": 1,
-                                        "title": "第二十五幕：秩序重建",
-                                        "description": "建立新的修仙秩序",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["制定宪法", "建立政府"],
-                                        "narrative_arc": "秩序建立，和平降临",
-                                        "conflicts": ["权力分配"]
-                                    },
-                                    {
-                                        "number": 2,
-                                        "title": "第二十六幕：文明跃迁",
-                                        "description": "修仙文明进入新阶段",
-                                        "suggested_chapter_count": 1,
-                                        "key_events": ["科技爆发", "文明升级"],
-                                        "narrative_arc": "文明进步，前所未有",
-                                        "conflicts": ["发展问题"]
-                                    },
-                                    {
-                                        "number": 3,
-                                        "title": "第二十七幕：新篇章",
-                                        "description": "开启修仙新纪元",
-                                        "suggested_chapter_count": 2,
-                                        "key_events": ["建立新秩序", "展望未来"],
-                                        "narrative_arc": "圆满结局，开启新篇",
-                                        "conflicts": ["未来挑战"]
-                                    }
-                                ]
-                            }
-                        ]
+                        ],
                     }
                 ]
-            }, ensure_ascii=False)
-        elif "世界观" in user_prompt or "worldbuilding" in user_prompt:
-            # Worldbuilding generation
-            content = json.dumps({
-                "style": "第三人称有限视角，以主角视角为主。基调轻松幽默，节奏明快。避免过度描写。营造轻松愉快的阅读氛围。",
-                "worldbuilding": {
-                    "core_rules": {
-                        "power_system": "现代都市背景，无特殊力量体系",
-                        "physics_rules": "遵循现实世界物理规律",
-                        "magic_tech": "现代科技水平"
-                    },
-                    "geography": {
-                        "terrain": "现代都市，高楼林立",
-                        "climate": "温带季风气候，四季分明",
-                        "resources": "现代城市资源丰富",
-                        "ecology": "城市生态系统"
-                    },
-                    "society": {
-                        "politics": "现代民主政体",
-                        "economy": "市场经济",
-                        "class_system": "现代社会阶层"
-                    },
-                    "culture": {
-                        "history": "当代都市文化",
-                        "religion": "多元信仰并存",
-                        "taboos": "遵守现代社会规范"
-                    },
-                    "daily_life": {
-                        "food_clothing": "现代都市生活方式",
-                        "language_slang": "现代汉语，偶有网络用语",
-                        "entertainment": "现代娱乐方式：电影、音乐、游戏等"
-                    }
-                }
-            }, ensure_ascii=False)
-        elif "人物" in user_prompt or "character" in user_prompt:
-            # Character generation
-            content = json.dumps({
-                "characters": [
-                    {
-                        "name": "张三",
-                        "role": "主角",
-                        "description": "30岁，自由作家，性格开朗乐观，目标是写出畅销小说",
-                        "relationships": [
-                            {
-                                "target": "李四",
-                                "relation": "好友",
-                                "description": "多年好友，互相支持"
-                            }
-                        ]
-                    },
-                    {
-                        "name": "李四",
-                        "role": "配角",
-                        "description": "32岁，出版社编辑，性格严谨认真，帮助主角修改稿件",
-                        "relationships": [
-                            {
-                                "target": "张三",
-                                "relation": "好友",
-                                "description": "多年好友，提供专业建议"
-                            }
-                        ]
-                    },
-                    {
-                        "name": "王五",
-                        "role": "对手",
-                        "description": "28岁，畅销书作家，性格傲慢自负，与主角竞争",
-                        "relationships": [
-                            {
-                                "target": "张三",
-                                "relation": "竞争",
-                                "description": "文学奖竞争对手"
-                            }
-                        ]
-                    }
-                ]
-            }, ensure_ascii=False)
-        elif "setup_main_plot_options_v1" in prompt.user:
-            content = json.dumps(
-                {
-                    "plot_options": [
-                        {
-                            "id": "mock_option_a",
-                            "type": "底层逆袭 / 生存狂飙",
-                            "title": "暗巷里的第一票",
-                            "logline": "主角为救至亲卷入黑市交易，却摸到上层不想让人看见的命脉。",
-                            "core_conflict": "无名小卒 vs 掌控信息与暴力的结构之手",
-                            "starting_hook": "货不对板：箱子里不是药，而是一枚会招来杀身之祸的证物。",
-                        },
-                        {
-                            "id": "mock_option_b",
-                            "type": "自上而下的阴谋",
-                            "title": "干净的报表，脏掉的人",
-                            "logline": "主角被指派“善后”一桩意外，却发现所有线索都指向自己信任的制度。",
-                            "core_conflict": "个体的良知 vs 系统性的封口与甩锅",
-                            "starting_hook": "上级的口头表扬与同时到达的匿名警告，只相隔十分钟。",
-                        },
-                        {
-                            "id": "mock_option_c",
-                            "type": "异类 / 变数觉醒",
-                            "title": "规则写错了你的名字",
-                            "logline": "主角的能力/体质无法被既有体系解释，于是成为被争夺的变量。",
-                            "core_conflict": "不可归类之人 vs 必须维持分类的权力",
-                            "starting_hook": "检测仪在主角面前死机，而围观者的眼神先一步变了。",
-                        },
-                    ]
-                },
-                ensure_ascii=False,
-            )
-        elif "地点" in user_prompt or "location" in user_prompt:
-            # Location generation
-            content = json.dumps({
-                "locations": [
-                    {
-                        "name": "咖啡馆",
-                        "type": "建筑",
-                        "description": "主角常去的咖啡馆，安静舒适，适合写作",
-                        "connections": ["图书馆"]
-                    },
-                    {
-                        "name": "图书馆",
-                        "type": "建筑",
-                        "description": "市中心图书馆，藏书丰富，主角查资料的地方",
-                        "connections": ["咖啡馆", "出版社"]
-                    },
-                    {
-                        "name": "出版社",
-                        "type": "建筑",
-                        "description": "李四工作的出版社，现代化办公楼",
-                        "connections": ["图书馆"]
-                    }
-                ]
-            }, ensure_ascii=False)
-        else:
-            # Default response
-            content = json.dumps({
-                "characters": [],
-                "locations": [],
-                "style": "第三人称视角，轻松基调"
-            }, ensure_ascii=False)
-
-        # Create mock token usage
-        token_usage = TokenUsage(
-            input_tokens=len(prompt.user),
-            output_tokens=len(content)
+            }
         )
 
+    def _worldbuilding(self) -> str:
+        return self._json(
+            {
+                "style": self._style_text(),
+                "worldbuilding": {
+                    "core_rules": {
+                        "power_system": "依据用户设定建立核心能力、资源或规则体系，明确获得门槛、使用边界与失败代价。",
+                        "physics_rules": "世界运行遵循用户设定的基础逻辑，特殊规则必须前后一致并能影响人物选择。",
+                        "magic_tech": "关键工具、能力或技术只服务冲突推进，不替人物自动解决核心问题。",
+                    },
+                    "geography": {
+                        "terrain": "地点层级围绕行动路线、信息差与冲突压力组织，避免只做背景陈列。",
+                        "climate": "环境条件应能影响行动难度、节奏变化或人物判断。",
+                        "resources": "关键资源按照稀缺性、获取成本和使用风险分布。",
+                        "ecology": "人与环境的互动形成可复用约束，并在重要场景中产生后果。",
+                    },
+                    "society": {
+                        "politics": "组织规则与权力关系应解释谁能决策、谁承担代价、谁会阻止改变。",
+                        "economy": "交换关系围绕资源、机会与风险展开，推动人物做取舍。",
+                        "class_system": "身份差异必须转化为行动权限、信息可得性或冲突压力。",
+                    },
+                    "culture": {
+                        "history": "过去事件为当下冲突提供成因，但不替代当前行动。",
+                        "religion": "信念、传统或公共叙事应影响人物判断与群体反应。",
+                        "taboos": "禁忌用于制造边界和代价，触碰后必须产生可见后果。",
+                    },
+                    "daily_life": {
+                        "food_clothing": "日常细节体现身份、资源状况和压力，不做无效铺陈。",
+                        "language_slang": "语言风格服务角色区分、阵营差异和场景真实感。",
+                        "entertainment": "休闲与传播方式可承载舆论、关系变化或信息流动。",
+                    },
+                },
+            }
+        )
+
+    def _characters(self) -> str:
+        return self._json(
+            {
+                "characters": [
+                    {
+                        "name": "核心人物甲",
+                        "gender": "未指定",
+                        "age": "未指定",
+                        "role": "主角",
+                        "description": "围绕用户设定承担主要目标的人物，必须通过选择推动剧情。",
+                        "public_profile": "外界可见身份由用户设定决定，当前仅保留结构占位。",
+                        "hidden_profile": "",
+                        "reveal_chapter": None,
+                        "mental_state": "承压",
+                        "mental_state_reason": "核心问题出现后需要在有限信息下行动。",
+                        "core_belief": "行动必须承担后果。",
+                        "moral_taboos": ["不把无关者当作代价", "不伪造关键事实"],
+                        "ghost": "曾因判断不足付出代价。",
+                        "want": "解决当前核心问题。",
+                        "need": "学会在代价明确时仍然做出有效选择。",
+                        "flaw": "容易把问题独自扛下。",
+                        "verbal_tic": "",
+                        "idle_behavior": "压力升高时会反复确认关键细节。",
+                        "voice_profile": {
+                            "style": "克制",
+                            "sentence_pattern": "短句",
+                            "speech_tempo": "normal",
+                            "metaphors": [],
+                            "catchphrases": [],
+                        },
+                        "active_wounds": [
+                            {"description": "旧选择留下的压力", "trigger": "类似代价再次出现", "effect": "先控制信息再行动"}
+                        ],
+                        "relationships": [],
+                    },
+                    {
+                        "name": "关键关系乙",
+                        "gender": "未指定",
+                        "age": "未指定",
+                        "role": "盟友",
+                        "description": "提供不同判断标准，与核心人物形成互补或分歧。",
+                        "public_profile": "与核心问题存在明确关联。",
+                        "hidden_profile": "",
+                        "reveal_chapter": None,
+                        "mental_state": "观望",
+                        "mental_state_reason": "尚未确认核心人物是否值得合作。",
+                        "core_belief": "合作必须建立在可验证事实上。",
+                        "moral_taboos": ["不无条件服从", "不隐瞒致命风险"],
+                        "ghost": "曾因轻信付出代价。",
+                        "want": "确认局势真相。",
+                        "need": "建立可持续的信任关系。",
+                        "flaw": "过度防御。",
+                        "verbal_tic": "",
+                        "idle_behavior": "先观察出口和风险点。",
+                        "voice_profile": {
+                            "style": "谨慎",
+                            "sentence_pattern": "反问",
+                            "speech_tempo": "normal",
+                            "metaphors": [],
+                            "catchphrases": [],
+                        },
+                        "active_wounds": [],
+                        "relationships": [
+                            {"target": "核心人物甲", "relation": "合作", "description": "信任需要通过行动逐步建立。"}
+                        ],
+                    },
+                    {
+                        "name": "阻力人物丙",
+                        "gender": "未指定",
+                        "age": "未指定",
+                        "role": "对立角色",
+                        "description": "代表阻止目标达成的现实力量或价值立场。",
+                        "public_profile": "拥有制造障碍的资源、权限或信息优势。",
+                        "hidden_profile": "真实动机需由后续剧情确认。",
+                        "reveal_chapter": None,
+                        "mental_state": "施压",
+                        "mental_state_reason": "核心人物的行动影响其既有利益或秩序。",
+                        "core_belief": "秩序比个体选择更重要。",
+                        "moral_taboos": ["不公开承认失控", "不轻易交出主动权"],
+                        "ghost": "失去控制感。",
+                        "want": "维持现有优势。",
+                        "need": "面对变化并重新定义秩序。",
+                        "flaw": "低估个体行动的连锁反应。",
+                        "verbal_tic": "",
+                        "idle_behavior": "用沉默迫使对方先暴露需求。",
+                        "voice_profile": {
+                            "style": "压迫",
+                            "sentence_pattern": "命令式",
+                            "speech_tempo": "slow",
+                            "metaphors": [],
+                            "catchphrases": [],
+                        },
+                        "active_wounds": [],
+                        "relationships": [
+                            {"target": "核心人物甲", "relation": "阻力", "description": "围绕目标、代价和规则解释权形成对抗。"}
+                        ],
+                    },
+                ]
+            }
+        )
+
+    def _locations(self) -> str:
+        return self._json(
+            {
+                "locations": [
+                    {
+                        "id": "location_starting_point",
+                        "name": "起始地点",
+                        "type": "区域",
+                        "description": "核心问题第一次显性化的地点，承担开局压力与信息投放功能。",
+                        "parent_id": None,
+                        "connections": [
+                            {"target": "关键转折地点", "relation": "通往", "description": "行动从发现问题转向验证问题。"}
+                        ],
+                    },
+                    {
+                        "id": "location_turning_point",
+                        "name": "关键转折地点",
+                        "type": "场所",
+                        "description": "人物必须付出代价或做出选择的地点，推动目标升级。",
+                        "parent_id": None,
+                        "connections": [
+                            {"target": "结果承压地点", "relation": "通往", "description": "选择产生后果并扩散到更大范围。"}
+                        ],
+                    },
+                    {
+                        "id": "location_consequence_point",
+                        "name": "结果承压地点",
+                        "type": "区域",
+                        "description": "集中呈现阶段后果、关系变化和下一轮冲突入口。",
+                        "parent_id": None,
+                        "connections": [],
+                    },
+                ]
+            }
+        )
+
+    def _main_plot_options(self) -> str:
+        return self._json(
+            {
+                "plot_options": [
+                    {
+                        "id": "mock_option_goal_pressure",
+                        "type": "目标压力型",
+                        "title": "目标被迫提前",
+                        "logline": "核心人物为了处理用户设定中的关键问题，必须在准备不足时提前行动。",
+                        "core_conflict": "个人目标与外部压力之间的冲突。",
+                        "starting_hook": "一个无法延后的后果迫使核心人物立刻做选择。",
+                    },
+                    {
+                        "id": "mock_option_relationship_tension",
+                        "type": "关系张力型",
+                        "title": "信任需要代价",
+                        "logline": "核心人物需要争取关键关系的协助，却必须先证明自己愿意承担代价。",
+                        "core_conflict": "合作需求与信任缺口之间的冲突。",
+                        "starting_hook": "最需要合作的时刻，对方提出了一个必须当场回应的条件。",
+                    },
+                    {
+                        "id": "mock_option_rule_boundary",
+                        "type": "规则边界型",
+                        "title": "规则露出裂缝",
+                        "logline": "既有规则无法解释新出现的问题，核心人物因此进入更大的冲突结构。",
+                        "core_conflict": "旧规则的稳定性与新问题的破坏性之间的冲突。",
+                        "starting_hook": "一次按规则执行的行动产生了反常结果。",
+                    },
+                ]
+            }
+        )
+
+    def _chapter_review(self) -> str:
+        return self._json(
+            {
+                "status": "reviewed",
+                "score": 75,
+                "summary": "本地模拟审阅只验证结构契约，真实质量判断需要配置 LLM。",
+                "issues": [
+                    {
+                        "severity": "suggestion",
+                        "location": "全文",
+                        "description": "当前为无密钥环境的结构化模拟结果。",
+                        "suggestion": "配置真实模型后重新执行 AI 审阅。",
+                    }
+                ],
+                "suggestions": ["配置真实模型后重新执行 AI 审阅。"],
+            }
+        )
+
+    def _style(self) -> str:
+        return self._style_text()
+
+    def _style_text(self) -> str:
+        return "第三人称有限视角，叙事聚焦人物选择、信息差和代价反馈；节奏清晰，避免无效铺陈。"
+
+    def _default(self) -> str:
+        return self._json(
+            {
+                "characters": [],
+                "locations": [],
+                "style": self._style_text(),
+                "worldbuilding": {},
+                "parts": [],
+                "plot_options": [],
+            }
+        )
+
+
+class MockProvider(LLMService):
+    """Mock LLM provider for tests and local no-key runs."""
+
+    def __init__(self, response_factory: MockResponseFactory | None = None):
+        self._response_factory = response_factory or MockResponseFactory()
+
+    async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
+        content = self._response_factory.build(prompt)
+        token_usage = TokenUsage(
+            input_tokens=len(prompt.system) + len(prompt.user),
+            output_tokens=len(content),
+        )
         return GenerationResult(content=content, token_usage=token_usage)
 
-    async def stream_generate(
-        self,
-        prompt: Prompt,
-        config: GenerationConfig
-    ) -> AsyncIterator[str]:
-        """Stream mock response
-
-        Args:
-            prompt: The prompt
-            config: Generation config
-
-        Yields:
-            Mock response chunks
-        """
+    async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
         result = await self.generate(prompt, config)
-        # Simulate streaming by yielding the content in chunks
         chunk_size = 50
-        for i in range(0, len(result.content), chunk_size):
-            yield result.content[i:i+chunk_size]
+        for index in range(0, len(result.content), chunk_size):
+            yield result.content[index : index + chunk_size]

@@ -250,6 +250,11 @@ class CreateTemplateRequest(BaseModel):
     category: str = "user"
 
 
+class VariableHubBackfillRequest(BaseModel):
+    """请求体：把历史业务数据回填到 Variable Hub。"""
+    novel_id: Optional[str] = None
+
+
 # ------------------------------------------------------------------
 # 统计 & 分类
 # ------------------------------------------------------------------
@@ -995,6 +1000,32 @@ async def list_variables(
         }
         for s in all_schemas.values()
     ]
+
+
+@router.post('/prompts/variables/backfill')
+async def backfill_variable_hub(payload: VariableHubBackfillRequest) -> Dict[str, Any]:
+    """维护入口：把历史 Novel/Bible/Worldbuilding 数据补写到 Variable Hub。
+
+    回填只写缺失变量，不覆盖已有 current value。
+    """
+    from application.ai_invocation.variable_backfill import VariableHubBackfillService
+    from application.paths import get_db_path
+    from infrastructure.persistence.database.connection import get_database
+    from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+    from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
+    from interfaces.api.dependencies import get_bible_repository, get_novel_repository
+
+    service = VariableHubBackfillService(
+        variable_hub_repository=SqliteVariableHubRepository(get_database()),
+        novel_repository=get_novel_repository(),
+        bible_repository=get_bible_repository(),
+        worldbuilding_repository=WorldbuildingRepository(get_db_path()),
+    )
+    if payload.novel_id:
+        result = service.backfill_novel(payload.novel_id)
+    else:
+        result = service.backfill_all()
+    return result.to_dict()
 
 
 @router.get('/prompts/{node_key}/bindings')

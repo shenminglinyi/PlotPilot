@@ -1,0 +1,30 @@
+name: 章节 AI 审阅
+category: review
+source: application/audit/services/chapter_ai_review_service.py
+description: 对单章正文进行可落库的 AI 审阅，输出审阅状态、评分和可执行修改意见
+builtin: true
+tags:
+- 审稿
+- 章节
+- 质量
+output_format: json
+variables:
+- name: chapter_number
+  desc: 章节号
+  type: number
+- name: chapter_title
+  desc: 章节标题
+  type: string
+- name: chapter_content
+  desc: 章节正文
+  type: string
+- name: chapter_outline
+  desc: 章节大纲
+  type: string
+  default: ''
+- name: generation_hint
+  desc: 本章生成约束
+  type: string
+  default: ''
+id: chapter-ai-review
+sort_order: 17

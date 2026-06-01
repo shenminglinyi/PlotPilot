@@ -36,13 +36,11 @@ def is_sqlite_writer_thread() -> bool:
 
 
 @contextlib.contextmanager
-def startup_sqlite_writes_bypass_queue():
-    """在持久化消费者线程启动前，临时允许调用方线程直连 SQLite（启动钩子专用）。
+def sqlite_writes_bypass_queue():
+    """临时允许调用方线程直连 SQLite。
 
-    典型用法：`interfaces.main` 中先于 `_bootstrap_persistence_consumer_early()` 复位运行中标志，
-    避免「writer + 主线程第二连接」在异常锁竞争下卡住整个 busy_timeout（默认可达 30s）。
-
-    注意：上下文内不要使用 ``await``，也不要在已进入消费者循环后套用。
+    仅用于启动早期迁移、测试初始化，或必须写后立刻读的轻量交互态。
+    注意：上下文内不要使用 ``await``。
     """
     global _startup_sqlite_bootstrap_depth
     _startup_sqlite_bootstrap_depth += 1
@@ -50,6 +48,13 @@ def startup_sqlite_writes_bypass_queue():
         yield
     finally:
         _startup_sqlite_bootstrap_depth -= 1
+
+
+@contextlib.contextmanager
+def startup_sqlite_writes_bypass_queue():
+    """在持久化消费者线程启动前直连 SQLite 的兼容入口。"""
+    with sqlite_writes_bypass_queue():
+        yield
 
 
 def allow_direct_sqlite_writes() -> bool:

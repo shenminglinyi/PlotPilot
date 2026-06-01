@@ -98,11 +98,11 @@ class TestClaudeChapterSummarizer:
 
 
 @pytest.mark.skipif(
-    os.getenv("ANTHROPIC_API_KEY") is None,
-    reason="ANTHROPIC_API_KEY not set"
+    not os.getenv("ANTHROPIC_API_KEY") or not os.getenv("ANTHROPIC_MODEL"),
+    reason="ANTHROPIC_API_KEY and ANTHROPIC_MODEL must both be set for live integration tests"
 )
 class TestClaudeChapterSummarizerIntegration:
-    """ClaudeChapterSummarizer 集成测试（需要真实 API key）"""
+    """ClaudeChapterSummarizer 集成测试（需要真实 API key 与模型 ID）"""
 
     @pytest.fixture
     def summarizer(self):
@@ -110,7 +110,10 @@ class TestClaudeChapterSummarizerIntegration:
         from infrastructure.ai.config.settings import Settings
         from infrastructure.ai.providers.anthropic_provider import AnthropicProvider
 
-        settings = Settings(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        settings = Settings(
+            api_key=os.getenv("ANTHROPIC_API_KEY"),
+            default_model=os.getenv("ANTHROPIC_MODEL", ""),
+        )
         llm_service = AnthropicProvider(settings)
         return ClaudeChapterSummarizer(llm_service)
 

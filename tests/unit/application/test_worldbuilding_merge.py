@@ -5,7 +5,7 @@ from application.world.dtos.bible_dto import BibleDTO, WorldSettingDTO
 from application.world.worldbuilding_merge import (
     bible_dto_world_settings_to_slices,
     merge_worldbuilding_table_and_bible_slices,
-    project_slices_to_legacy_api_shape,
+    project_slices_to_contract_api_shape,
     worldbuilding_entity_to_slices,
     worldbuilding_slices_nonempty,
 )
@@ -32,14 +32,14 @@ def test_merge_filters_extra_and_table_overwrites():
 
 def test_projection_drops_extra_fields():
     full = {"core_rules": {"power_system": "X", "cost_and_limitation": "尾段"}}
-    legacy = project_slices_to_legacy_api_shape(full)
-    assert "cost_and_limitation" not in legacy["core_rules"]
-    assert legacy["core_rules"]["power_system"] == "X"
+    projected = project_slices_to_contract_api_shape(full)
+    assert "cost_and_limitation" not in projected["core_rules"]
+    assert projected["core_rules"]["power_system"] == "X"
 
 
-def test_projection_omits_empty_legacy_fields():
-    legacy = project_slices_to_legacy_api_shape({})
-    assert legacy == {
+def test_projection_omits_empty_contract_fields():
+    projected = project_slices_to_contract_api_shape({})
+    assert projected == {
         "core_rules": {},
         "geography": {},
         "society": {},

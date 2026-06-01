@@ -56,8 +56,8 @@
         </n-button>
       </p>
       <p v-if="status && planExpanded" class="ap-plan-detail">
-        写满目标章即停；节拍按每章字数拆分。流式字数可能暂时高于章目标，节拍末会收束再落稿。
-        进度条、幕/章/节拍与阶段标签可能短暂不同步，以守护进程状态为准。
+        写满目标章即停；导演剧本按章节大纲生成，正文按剧本一次撰写。流式字数可能暂时高于章目标。
+        进度条、幕/章与阶段标签可能短暂不同步，以守护进程状态为准。
       </p>
     </section>
 
@@ -98,11 +98,11 @@
             <span v-else-if="!isWriting && status.current_stage === 'macro_planning'" class="ap-location__chip">
               宏观规划
             </span>
-            <!-- 撰写阶段：只有 writing_substep 激活后才显示章/节拍，避免展示上一章的残留状态 -->
+            <!-- 撰写阶段：只有 writing_substep 激活后才显示章/阶段，避免展示上一章的残留状态 -->
             <span v-if="isWriting && status.current_chapter_number != null && status.writing_substep" class="ap-location__chip ap-location__chip--strong">
               第 {{ status.current_chapter_number }} 章
             </span>
-            <span v-if="isWriting && beatLabelActive" class="ap-location__chip">{{ beatLabel }}</span>
+            <span v-if="isWriting && stageIndicator" class="ap-location__chip">{{ stageIndicator }}</span>
           </span>
         </span>
       </article>
@@ -135,18 +135,6 @@
         <span class="substep-badge" :class="substepBadgeClass">{{ writingSubstepDetail.substepLabel }}</span>
       </header>
       <div class="ap-telemetry__grid">
-        <div v-if="writingSubstepDetail.totalBeats > 0" class="ap-telemetry__item">
-          <span class="ap-telemetry__key">节拍</span>
-          <span class="ap-telemetry__val">
-            {{ writingSubstepDetail.beatIndex }}/{{ writingSubstepDetail.totalBeats }}
-          </span>
-          <div class="ap-meter">
-            <div
-              class="ap-meter__fill ap-meter__fill--beat"
-              :style="{ width: writingSubstepDetail.beatPct + '%' }"
-            />
-          </div>
-        </div>
         <div v-if="writingSubstepDetail.accumulatedWords > 0" class="ap-telemetry__item">
           <span class="ap-telemetry__key">本章字数</span>
           <span class="ap-telemetry__val">
@@ -159,10 +147,6 @@
               :style="{ width: Math.min(100, writingSubstepDetail.wordPct) + '%' }"
             />
           </div>
-        </div>
-        <div v-if="writingSubstepDetail.beatFocus" class="ap-telemetry__item ap-telemetry__item--wide">
-          <span class="ap-telemetry__key">焦点</span>
-          <span class="ap-telemetry__val ap-telemetry__val--focus">{{ writingSubstepDetail.beatFocus }}</span>
         </div>
         <div v-if="writingSubstepDetail.contextTokens > 0" class="ap-telemetry__item">
           <span class="ap-telemetry__key">上下文</span>
@@ -223,13 +207,10 @@
       v-if="isWriting && props.renderLivePreview !== false"
       :writing-content="writingContent"
       :writing-chapter-number="writingChapterNumber"
-      :writing-beat-index="writingBeatIndex"
       :writing-substep="status?.writing_substep"
       :writing-substep-label="status?.writing_substep_label"
-      :total-beats="status?.total_beats"
       :accumulated-words="status?.accumulated_words"
       :chapter-target-words="status?.chapter_target_words"
-      :beat-focus="status?.beat_focus"
       :context-tokens="status?.context_tokens"
       :runner-stage-label="stageLabel"
       :status-chapter-number="status?.current_chapter_number ?? null"
@@ -602,16 +583,12 @@ const stageTagClass = computed(() => {
   }
 })
 
-const beatLabel = computed(() => {
+const stageIndicator = computed(() => {
   if (!isWriting.value) return ''
-  const b = status.value?.current_beat_index ?? 0
-  return `节拍 ${Number(b) + 1}`
-})
-
-/** 只在管线实际推进节拍时显示节拍号，避免初始启动时展示上一章的残留 beat_index */
-const beatLabelActive = computed(() => {
-  const substep = status.value?.writing_substep || ''
-  return substep === 'llm_calling' || substep === 'beat_magnification'
+  const sub = status.value?.writing_substep || ''
+  if (sub === 'script_generation') return '剧本生成中'
+  if (sub === 'prose_generation') return '正文撰写中'
+  return ''
 })
 
 /** ★ V9 细化状态：写作/审计/规划子步骤详情 */
@@ -622,10 +599,6 @@ const writingSubstepDetail = computed(() => {
   const substepLabel = String(s.writing_substep_label || '')
   if (!substep && !substepLabel) return null
 
-  const totalBeats = Number(s.total_beats || 0)
-  const beatIndex = Number(s.current_beat_index ?? 0) + 1
-  const beatPct = totalBeats > 0 ? Math.min(100, Math.round(beatIndex / totalBeats * 100)) : 0
-
   const accumulatedWords = Number(s.accumulated_words || 0)
   const chapterTargetWords = Number(s.chapter_target_words || 0)
   const wordPct = chapterTargetWords > 0 && accumulatedWords > 0
@@ -635,13 +608,9 @@ const writingSubstepDetail = computed(() => {
   return {
     substep,
     substepLabel: substepLabel || substep,
-    totalBeats,
-    beatIndex,
-    beatPct,
     accumulatedWords,
     chapterTargetWords,
     wordPct,
-    beatFocus: String(s.beat_focus || ''),
     contextTokens: Number(s.context_tokens || 0),
   }
 })
@@ -650,9 +619,9 @@ const writingSubstepDetail = computed(() => {
 const substepBadgeClass = computed(() => {
   const sub = status.value?.writing_substep || ''
   // 写作阶段
-  if (sub === 'llm_calling') return 'substep-active'
+  if (sub === 'prose_generation') return 'substep-active'
   if (sub === 'outline_planning') return 'substep-plan'
-  if (sub === 'context_assembly' || sub === 'beat_magnification' || sub === 'chapter_found') return 'substep-prepare'
+  if (sub === 'context_assembly' || sub === 'script_generation' || sub === 'chapter_found') return 'substep-prepare'
   if (sub === 'persisting' || sub === 'continuity_check' || sub === 'chapter_persist') return 'substep-finish'
   // 审计阶段
   if (sub === 'audit_voice_check') return 'substep-audit'

@@ -243,13 +243,10 @@
                 class="wa-inline-stream rail-stream-bar"
                 :writing-content="streamingContent"
                 :writing-chapter-number="streamingChapterNumber ?? undefined"
-                :writing-beat-index="streamingBeatIndex"
                 :writing-substep="String(autopilotStatus?.writing_substep || '')"
                 :writing-substep-label="String(autopilotStatus?.writing_substep_label || '')"
-                :total-beats="Number(autopilotStatus?.total_beats || 0)"
                 :accumulated-words="Number(autopilotStatus?.accumulated_words || 0)"
                 :chapter-target-words="Number(autopilotStatus?.chapter_target_words || 0)"
-                :beat-focus="String(autopilotStatus?.beat_focus || '')"
                 :is-writing-phase="isAutopilotWriting"
                 :status-chapter-number="streamingChapterNumber"
               />
@@ -415,6 +412,89 @@
                   />
                 </n-form-item>
               </template>
+
+              <!-- AI 设置 · 模型档案与提示词 -->
+              <n-collapse class="gen-ai-settings-collapse">
+                <n-collapse-item name="ai-settings">
+                  <template #header>
+                    <n-space align="center" :size="6">
+                      <span style="font-size:13px;font-weight:600">AI 设置</span>
+                      <n-tag size="tiny" round type="info">模型档案与提示词</n-tag>
+                    </n-space>
+                  </template>
+                  <n-space vertical :size="16">
+                    <n-form-item label="LLM 配置档案" label-placement="left" label-width="80">
+                      <n-select
+                        v-model:value="generateProfileId"
+                        :options="llmProfileOptions"
+                        placeholder="使用系统默认激活档案"
+                        :disabled="generateInProgress"
+                        clearable
+                        :loading="llmProfilesLoading"
+                      />
+                      <n-text depth="3" style="font-size: 11px">
+                        选择特定模型档案；留空则使用系统默认激活档案
+                      </n-text>
+                    </n-form-item>
+
+                    <n-collapse>
+                      <n-collapse-item name="script-prompt" title="六模块剧本提示词">
+                        <n-space vertical :size="12">
+                          <n-switch v-model:value="useCustomScriptPrompt" :disabled="generateInProgress" size="small">
+                            使用自定义模板
+                          </n-switch>
+                          <template v-if="useCustomScriptPrompt">
+                            <n-input
+                              v-model:value="customScriptTemplate"
+                              type="textarea"
+                              placeholder="自定义剧本生成提示词，使用 {变量名} 占位符..."
+                              :autosize="{ minRows: 4, maxRows: 10 }"
+                              :disabled="generateInProgress"
+                            />
+                            <n-text depth="3" style="font-size: 11px">
+                              变量（对应模板中的 <code v-pre>{<!-- -->{变量名}}</code>）
+                            </n-text>
+                            <n-dynamic-input
+                              v-model:value="scriptPromptVarPairs"
+                              preset="pair"
+                              key-placeholder="变量名"
+                              value-placeholder="值"
+                              :disabled="generateInProgress"
+                            />
+                          </template>
+                        </n-space>
+                      </n-collapse-item>
+
+                      <n-collapse-item name="prose-prompt" title="剧本转正文提示词">
+                        <n-space vertical :size="12">
+                          <n-switch v-model:value="useCustomProsePrompt" :disabled="generateInProgress" size="small">
+                            使用自定义模板
+                          </n-switch>
+                          <template v-if="useCustomProsePrompt">
+                            <n-input
+                              v-model:value="customProseTemplate"
+                              type="textarea"
+                              placeholder="自定义正文生成提示词，使用 {变量名} 占位符..."
+                              :autosize="{ minRows: 4, maxRows: 10 }"
+                              :disabled="generateInProgress"
+                            />
+                            <n-text depth="3" style="font-size: 11px">
+                              变量（对应模板中的 <code v-pre>{<!-- -->{变量名}}</code>）
+                            </n-text>
+                            <n-dynamic-input
+                              v-model:value="prosePromptVarPairs"
+                              preset="pair"
+                              key-placeholder="变量名"
+                              value-placeholder="值"
+                              :disabled="generateInProgress"
+                            />
+                          </template>
+                        </n-space>
+                      </n-collapse-item>
+                    </n-collapse>
+                  </n-space>
+                </n-collapse-item>
+              </n-collapse>
 
               <n-button
                 :type="isRegenerationMode ? 'warning' : 'primary'"
@@ -740,6 +820,7 @@ import type { ContextPreviewResult, GenerateChapterWorkflowResponse, StreamGener
 import type { GenerationPrefsDTO } from '@/api/novel'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi, type ChapterMicroBeatPayload } from '../../api/chapter'
+import { llmControlApi, type LLMProfile } from '../../api/llmControl'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
 import ChapterContentPanel from './ChapterContentPanel.vue'
@@ -853,6 +934,19 @@ const assistStreamBeatSession = ref<{ chapterNumber: number; beats: StreamGenera
 const assistStreamFailedChapter = ref<number | null>(null)
 /** 流式完成但章前拆拍失败或仅 1 拍（降级） */
 const assistStreamPlanFailedChapter = ref<number | null>(null)
+
+// ── AI Panel & Variable Center Integration ──
+const generateProfileId = ref<string | null>(null)
+const llmProfiles = ref<LLMProfile[]>([])
+const llmProfilesLoading = ref(false)
+
+const useCustomScriptPrompt = ref(false)
+const customScriptTemplate = ref('')
+const scriptPromptVarPairs = ref<Array<{ key: string; value: string }>>([])
+
+const useCustomProsePrompt = ref(false)
+const customProseTemplate = ref('')
+const prosePromptVarPairs = ref<Array<{ key: string; value: string }>>([])
 
 /** 全托管：当前章规划已结束且 total_beats≤1 → 微观区才用章纲拆条 */
 const AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS = new Set([
@@ -1029,6 +1123,7 @@ function briefPhaseLogLabel(phase: string): string {
   const map: Record<string, string> = {
     planning: '宏观 planning',
     context: '上下文 context',
+    script: '剧本生成 script',
     outline_planning: '章前规划 outline_planning',
     prose: '正文撰写 prose',
     llm: '正文撰写 llm（兼容）',
@@ -1391,6 +1486,48 @@ const chapterSelectOptions = computed(() =>
   }))
 )
 
+// ── AI Panel helpers ──
+const llmProfileOptions = computed(() =>
+  llmProfiles.value.map(p => ({
+    label: `${p.name} (${p.model || p.protocol})`,
+    value: p.id,
+  }))
+)
+
+async function loadLLMProfilesForModal() {
+  if (llmProfiles.value.length > 0) return
+  llmProfilesLoading.value = true
+  try {
+    const data = await llmControlApi.getPanel()
+    llmProfiles.value = data.config.profiles || []
+    if (!generateProfileId.value && data.config.active_profile_id) {
+      generateProfileId.value = data.config.active_profile_id
+    }
+  } catch {
+    /* silently fail; profile selector will be empty */
+  } finally {
+    llmProfilesLoading.value = false
+  }
+}
+
+function buildPromptVariables(): Record<string, string> | null {
+  const vars: Record<string, string> = {}
+  for (const pair of scriptPromptVarPairs.value) {
+    if (pair.key) vars[pair.key] = pair.value
+  }
+  for (const pair of prosePromptVarPairs.value) {
+    if (pair.key) vars[pair.key] = pair.value
+  }
+  return Object.keys(vars).length > 0 ? vars : null
+}
+
+watch(showGenerateModal, (visible) => {
+  if (!visible) {
+    useCustomScriptPrompt.value = false
+    useCustomProsePrompt.value = false
+  }
+})
+
 const modalTargetChapter = computed(() => {
   const id = generateTargetChapterId.value
   if (id == null) return null
@@ -1655,6 +1792,7 @@ const handleGenerateChapter = async () => {
   contextPreview.value = null
   blurSceneCache.value = undefined
   showGenerateModal.value = true
+  void loadLLMProfilesForModal()
 }
 
 const handleRegenerateChapter = async () => {
@@ -1675,14 +1813,16 @@ const handleRegenerateChapter = async () => {
   contextPreview.value = null
   blurSceneCache.value = undefined
   showGenerateModal.value = true
+  void loadLLMProfilesForModal()
 }
 
 function streamPhaseToProgress(phase: string): number {
   const map: Record<string, number> = {
     planning: 14,
     context: 28,
-    outline_planning: 48,
+    script: 52,
     prose: 78,
+    outline_planning: 48,
     llm: 72,
     post: 92,
   }
@@ -1693,6 +1833,7 @@ function streamPhaseToLabel(phase: string): string {
   const map: Record<string, string> = {
     planning: '宏观 planning…',
     context: '组装上下文…',
+    script: '生成六模块剧本…',
     outline_planning: '章前规划 · LLM 流式划分节拍…',
     prose: '正文撰写…',
     llm: '撰写正文…',
@@ -1824,6 +1965,14 @@ const handleStartGenerate = async () => {
         regeneration_guidance: isRegenerationMode.value && regenerationGuidance.value.trim()
           ? regenerationGuidance.value.trim()
           : undefined,
+        profile_id: generateProfileId.value || undefined,
+        script_prompt_template: useCustomScriptPrompt.value
+          ? customScriptTemplate.value || undefined
+          : undefined,
+        prose_prompt_template: useCustomProsePrompt.value
+          ? customProseTemplate.value || undefined
+          : undefined,
+        prompt_variables: buildPromptVariables() || undefined,
       },
       {
         signal: ctrl.signal,

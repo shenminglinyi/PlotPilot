@@ -2,7 +2,7 @@
   <div v-if="isVisible" class="ap-stream">
     <div class="stream-header">
       <span class="pulse-dot"></span>
-      正在生成第 {{ chapterNumber }} 章 · 节拍 {{ (beatIndex || 0) + 1 }}
+      正在生成第 {{ chapterNumber }} 章 · {{ stageLabel }}
       <span class="word-count">{{ wordCount }} 字</span>
     </div>
     <div ref="streamEl" class="stream-body">
@@ -28,6 +28,8 @@ const displayContent = ref('')
 const chapterNumber = ref(0)
 const beatIndex = computed(() => props.currentBeatIndex || 0)
 const wordCount = computed(() => displayContent.value.length)
+
+const stageLabel = computed(() => '正文撰写中')
 const streamEl = ref(null)
 
 let pollTimer = null

@@ -153,6 +153,14 @@ class StatsRepositoryAdapter:
 
     def _chapter_content_from_disk(self, slug: str, chapter_id: int) -> Optional[str]:
         """按章节号从 ``novels/{slug}/chapters/*.json`` 读取正文。"""
+        data = self._chapter_data_from_disk(slug, chapter_id)
+        if data is None:
+            return None
+        raw = data.get("content")
+        return raw if isinstance(raw, str) else None
+
+    def _chapter_data_from_disk(self, slug: str, chapter_id: int) -> Optional[Dict]:
+        """按章节号从 ``novels/{slug}/chapters/*.json`` 读取章节 JSON。"""
         ch_dir = self.novels_dir / slug / "chapters"
         if not ch_dir.is_dir():
             return None
@@ -165,8 +173,11 @@ class StatsRepositoryAdapter:
                     continue
                 if int(num) != chapter_id:
                     continue
-                raw = data.get("content")
-                return raw if isinstance(raw, str) else None
+                try:
+                    data["_file_mtime"] = p.stat().st_mtime
+                except OSError:
+                    pass
+                return data
             except (json.JSONDecodeError, TypeError, ValueError) as e:
                 logger.warning(f"Skip chapter file {p}: {e}")
         return None
@@ -219,6 +230,45 @@ class StatsRepositoryAdapter:
         except Exception as e:
             logger.error(f"Error reading chapter {chapter_id} for novel {slug}: {e}")
             return None
+
+    def get_chapter_progress_records(self, slug: str) -> List[Dict]:
+        """Return chapter content and write timestamps from novel aggregate or chapter files."""
+        try:
+            manifest = self.get_book_manifest(slug)
+            if not manifest:
+                return []
+            outline = self.get_book_outline(slug) or {"chapters": []}
+            manifest_chapters = manifest.get("chapters", []) or []
+            records: List[Dict] = []
+            for item in outline.get("chapters", []):
+                try:
+                    chapter_num = int(item.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                aggregate = next((ch for ch in manifest_chapters if self._chapter_number_equals(ch, chapter_num)), None)
+                disk_data = self._chapter_data_from_disk(slug, chapter_num) or {}
+                source = disk_data or aggregate or {}
+                content = source.get("content")
+                if not isinstance(content, str):
+                    continue
+                written_at = (
+                    source.get("updated_at")
+                    or source.get("created_at")
+                    or source.get("completed_at")
+                    or source.get("_file_mtime")
+                )
+                records.append(
+                    {
+                        "chapter_id": chapter_num,
+                        "title": item.get("title", ""),
+                        "content": content,
+                        "written_at": written_at,
+                    }
+                )
+            return records
+        except Exception as e:
+            logger.error(f"Error building progress records for novel {slug}: {e}")
+            return []
 
     def count_words(self, text: str) -> int:
         """Count words in text, supporting both Chinese and English.

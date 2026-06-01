@@ -63,10 +63,10 @@ class ChapterReaderReportDTO:
     chapter_hook_strength: str = "medium"
     pacing_verdict: str = ""
     analyzed_at: Optional[datetime] = None
-    # 降级标识：True 表示 LLM 调用失败或解析失败，所有评分为默认值
+    # 错误占位标识：True 表示 LLM 调用失败或解析失败，所有评分为默认值
     # 该字段用于 API 层判断是否持久化、返回什么 HTTP 状态码
-    is_fallback: bool = False
-    # 降级原因（仅 is_fallback=True 时填充）
+    is_error_placeholder: bool = False
+    # 错误原因（仅 is_error_placeholder=True 时填充）
     error_message: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -80,7 +80,7 @@ class ChapterReaderReportDTO:
             "analyzed_at": self.analyzed_at.isoformat() if self.analyzed_at else None,
             # 便捷聚合：三个读者的平均分
             "avg_scores": self._compute_avg_scores(),
-            "is_fallback": self.is_fallback,
+            "is_error_placeholder": self.is_error_placeholder,
             "error_message": self.error_message,
         }
 

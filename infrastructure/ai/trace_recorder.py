@@ -28,6 +28,8 @@ class AiTraceSpan:
     parent_span_id: str | None = None
     novel_id: str = ""
     operation: str = "ai_call"
+    stage: str = ""
+    stage_label: str = ""
     node_id: str | None = None
     node_type: str | None = None
     contract_key: str | None = None
@@ -60,6 +62,8 @@ class AiTraceSpan:
             "novel_id": self.novel_id,
             "operation": self.operation,
             "phase": self.phase,
+            "stage": self.stage,
+            "stage_label": self.stage_label,
             "node_id": self.node_id,
             "node_type": self.node_type,
             "contract_key": self.contract_key,
@@ -108,6 +112,8 @@ class TraceRecorder:
         parent_span_id: str | None = None,
         novel_id: str | None = None,
         operation: str | None = None,
+        stage: str = "",
+        stage_label: str = "",
         **fields: Any,
     ) -> AiTraceSpan | None:
         if not self.enabled:
@@ -121,6 +127,8 @@ class TraceRecorder:
             ctx.novel_id = novel_id
         if operation and ctx.operation == "ai_call":
             ctx.operation = operation
+        resolved_stage = stage or ctx.stage
+        resolved_stage_label = stage_label or ctx.stage_label
 
         span = AiTraceSpan(
             trace_id=ctx.trace_id,
@@ -129,6 +137,8 @@ class TraceRecorder:
             novel_id=ctx.novel_id,
             operation=ctx.operation,
             phase=phase,
+            stage=resolved_stage,
+            stage_label=resolved_stage_label,
             **fields,
         )
         try:
@@ -155,5 +165,5 @@ def get_trace_recorder() -> TraceRecorder:
     return _RECORDER
 
 
-def record_ai_span(phase: str, **fields: Any) -> AiTraceSpan | None:
-    return get_trace_recorder().record_span(phase=phase, **fields)
+def record_ai_span(phase: str, *, stage: str = "", stage_label: str = "", **fields: Any) -> AiTraceSpan | None:
+    return get_trace_recorder().record_span(phase=phase, stage=stage, stage_label=stage_label, **fields)

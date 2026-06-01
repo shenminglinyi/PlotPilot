@@ -149,6 +149,8 @@ class SqliteTraceStore(TracePort):
             for row in conn.execute("PRAGMA table_info(ai_trace_spans)").fetchall()
         }
         required_columns = {
+            "stage": "ALTER TABLE ai_trace_spans ADD COLUMN stage TEXT NOT NULL DEFAULT ''",
+            "stage_label": "ALTER TABLE ai_trace_spans ADD COLUMN stage_label TEXT NOT NULL DEFAULT ''",
             "variables_full": "ALTER TABLE ai_trace_spans ADD COLUMN variables_full TEXT",
             "variable_sources": "ALTER TABLE ai_trace_spans ADD COLUMN variable_sources TEXT",
             "prompt_full": "ALTER TABLE ai_trace_spans ADD COLUMN prompt_full TEXT",
@@ -244,12 +246,12 @@ class SqliteTraceStore(TracePort):
                     """
                     INSERT INTO ai_trace_spans (
                         trace_id, span_id, parent_span_id, novel_id, operation, phase,
-                        node_id, node_type, contract_key, contract_version, source,
+                        stage, stage_label, node_id, node_type, contract_key, contract_version, source,
                         model, generation_profile, variables_hash, variables_preview,
                         variables_full, variable_sources, prompt_hash, prompt_preview,
                         prompt_full, response_hash, response_preview, response_full,
                         token_input, token_output, latency_ms, error, metadata, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         span.get("trace_id") or str(uuid.uuid4()),
@@ -258,6 +260,8 @@ class SqliteTraceStore(TracePort):
                         span.get("novel_id") or "",
                         span.get("operation") or "ai_call",
                         span.get("phase") or "event",
+                        span.get("stage") or "",
+                        span.get("stage_label") or "",
                         span.get("node_id"),
                         span.get("node_type"),
                         span.get("contract_key"),
@@ -365,6 +369,8 @@ class SqliteTraceStore(TracePort):
 
     @staticmethod
     def _row_to_ai_span(data: dict[str, Any]) -> dict[str, Any]:
+        data["stage"] = data.get("stage") or ""
+        data["stage_label"] = data.get("stage_label") or ""
         data["variables_preview"] = _json_load(data.get("variables_preview"), None)
         data["variables_full"] = _json_load(data.get("variables_full"), None)
         data["variable_sources"] = _json_load(data.get("variable_sources"), None)
@@ -374,3 +380,49 @@ class SqliteTraceStore(TracePort):
         data["response_full"] = _json_load(data.get("response_full"), None)
         data["metadata"] = _json_load(data.get("metadata"), {})
         return data
+
+    def list_ai_spans_by_stage(
+        self,
+        novel_id: str,
+        stage: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """按 stage 前缀筛选 span（支持 "pipeline.*" 等 LIKE 查询）。"""
+        try:
+            with self._db_pool.get_connection() as conn:
+                conn.row_factory = sqlite3.Row
+                like_val = stage if stage.endswith("*") else stage
+                like_val = like_val.rstrip("*") + "%"
+                rows = conn.execute(
+                    """
+                    SELECT * FROM ai_trace_spans
+                    WHERE novel_id = ? AND stage LIKE ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (novel_id, like_val, limit),
+                ).fetchall()
+                return [self._row_to_ai_span(dict(row)) for row in rows]
+        except Exception as exc:
+            logger.error("AI Trace span 按 stage 查询失败: %s", exc)
+            return []
+
+    def list_ai_stages(self, novel_id: str) -> list[dict[str, Any]]:
+        """返回该 novel 出现过的所有 stage 及计数。"""
+        try:
+            with self._db_pool.get_connection() as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT stage, stage_label, COUNT(*) AS cnt
+                    FROM ai_trace_spans
+                    WHERE novel_id = ? AND stage != ''
+                    GROUP BY stage, stage_label
+                    ORDER BY cnt DESC
+                    """,
+                    (novel_id,),
+                ).fetchall()
+                return [dict(row) for row in rows]
+        except Exception as exc:
+            logger.error("AI Trace stage 列表查询失败: %s", exc)
+            return []

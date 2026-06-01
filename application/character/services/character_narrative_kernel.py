@@ -19,6 +19,7 @@ from domain.bible.triple import SourceType, Triple
 from domain.character.value_objects.character_id import CharacterId
 from domain.novel.value_objects.character_state import CharacterState, EmotionalArcNode
 from domain.structure.chapter_element import ElementType
+from application.world.services.narrative_lexicon import get_narrative_lexicon
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,6 @@ class CharacterNarrativeKernel:
         "minor": "minor",
         "background": "minor",
     }
-    _NON_CHARACTER_WORDS = {
-        "本章", "章节", "大纲", "黑市", "拍卖", "拍卖会", "宗门", "学院",
-        "城市", "房间", "大厅", "密室", "王城", "皇城", "森林", "山谷",
-        "魔法", "修炼", "交易", "战斗", "对决", "发现", "突然", "随后",
-        "因此", "因为", "但是", "然而", "一个", "少女", "男人", "女人",
-        "老人", "少年", "侍卫", "店主", "路人", "众人",
-    }
 
     def __init__(
         self,
@@ -77,6 +71,7 @@ class CharacterNarrativeKernel:
         self.character_state_repo = character_state_repository
         self.debt_repo = debt_repository
         self.unified_character_repo = unified_character_repository
+        self._non_character_words = get_narrative_lexicon().non_character_words
 
     # ------------------------------------------------------------------
     # Cast planning
@@ -372,7 +367,7 @@ class CharacterNarrativeKernel:
         for name in sorted(candidates):
             if name in known_names:
                 continue
-            if name in location_names or name in self._NON_CHARACTER_WORDS:
+            if name in location_names or name in self._non_character_words:
                 out.append(NewCharacterCandidate(
                     name=name,
                     evidence=name,

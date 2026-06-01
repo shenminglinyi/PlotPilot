@@ -1,0 +1,41 @@
+name: 六模块剧本生成
+category: generation
+source: application/workflows/auto_novel_generation_workflow.py::_generate_script()
+description: '基于高阶叙事法则（势能守恒、信息锥度、节奏切变、情感压强差、视域锚定）生成六模块导演剧本，为后续正文撰写提供结构化指导。'
+builtin: true
+tags:
+- 核心
+- 剧本
+- 六模块
+- 叙事法则
+variables:
+- name: outline
+  desc: 章节大纲（一句话描述本章核心事件）
+  type: string
+  required: true
+- name: context
+  desc: 完整上下文（Bible摘要+前情提要+近期章节+向量召回）
+  type: string
+  required: true
+- name: storyline_context
+  desc: 故事线上下文
+  type: string
+  required: false
+  default: ''
+- name: plot_tension
+  desc: 情节张力信息
+  type: string
+  required: false
+  default: ''
+- name: style_summary
+  desc: 风格指纹摘要
+  type: string
+  required: false
+  default: ''
+- name: target_words
+  desc: 章节目标字数
+  type: string
+  required: false
+  default: '3000-4000'
+id: script-generation
+sort_order: 30

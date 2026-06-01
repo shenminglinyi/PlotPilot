@@ -1,0 +1,29 @@
+name: 剧本转正文
+category: generation
+source: application/workflows/auto_novel_generation_workflow.py::_generate_prose_from_script()
+description: '根据六模块导演剧本撰写完整的小说正文，将结构化的导演指令转化为流畅的叙事散文。'
+builtin: true
+tags:
+- 核心
+- 正文
+- 剧本转写
+variables:
+- name: script
+  desc: 六模块导演剧本（由 script-generation 节点生成）
+  type: string
+  required: true
+- name: outline
+  desc: 章节大纲
+  type: string
+  required: true
+- name: context
+  desc: 完整上下文（Bible摘要+前情提要+近期章节+向量召回）
+  type: string
+  required: true
+- name: target_words
+  desc: 章节目标字数
+  type: string
+  required: false
+  default: '3000-4000'
+id: prose-from-script
+sort_order: 31

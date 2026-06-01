@@ -214,3 +214,70 @@ async def ai_trace_timeline(novel_id: str, trace_id: str):
     rows = store.get_ai_timeline(trace_id=trace_id, novel_id=novel_id)
     spans = [AiTraceSpanDTO(**row) for row in rows]
     return AiTraceTimelineResponse(trace_id=trace_id, spans=spans, total=len(spans))
+
+
+class AiStageDTO(BaseModel):
+    stage: str = ""
+    stage_label: str = ""
+    cnt: int = 0
+
+
+class AiStageListResponse(BaseModel):
+    stages: List[AiStageDTO] = Field(default_factory=list)
+    total: int = 0
+
+
+class StageDefDTO(BaseModel):
+    key: str
+    label: str
+    domain: str
+    semantic: str
+
+
+class StageTaxonomyResponse(BaseModel):
+    stages: List[StageDefDTO] = Field(default_factory=list)
+
+
+@router.get("/ai-traces/stages/taxonomy", response_model=StageTaxonomyResponse)
+async def ai_stage_taxonomy():
+    """返回所有 AI 调用阶段的分类常量（前后端共享单源）。"""
+    from application.ai.ai_call_stage import AI_CALL_STAGES
+
+    return StageTaxonomyResponse(
+        stages=[
+            StageDefDTO(key=s.key, label=s.label, domain=s.domain, semantic=s.semantic)
+            for s in AI_CALL_STAGES
+        ]
+    )
+
+
+@router.get("/{novel_id}/ai-traces/stages", response_model=AiStageListResponse)
+async def list_ai_stages(novel_id: str):
+    """返回该 novel 出现过的所有 stage 及计数。"""
+    if not _novel_exists(novel_id):
+        raise HTTPException(status_code=404, detail="Novel not found")
+
+    store = _get_trace_store()
+    rows = store.list_ai_stages(novel_id=novel_id)
+    stages = [AiStageDTO(**row) for row in rows]
+    return AiStageListResponse(stages=stages, total=len(stages))
+
+
+@router.get("/{novel_id}/ai-traces/by-stage/{stage:path}", response_model=AiTraceTimelineResponse)
+async def list_ai_spans_by_stage(
+    novel_id: str,
+    stage: str,
+    limit: int = Query(100, ge=1, le=500),
+):
+    """按 stage 筛选 AI 调用 span。支持通配: pipeline.*, pipeline.chapter.*"""
+    if not _novel_exists(novel_id):
+        raise HTTPException(status_code=404, detail="Novel not found")
+
+    store = _get_trace_store()
+    rows = store.list_ai_spans_by_stage(novel_id=novel_id, stage=stage, limit=limit)
+    spans = [AiTraceSpanDTO(**row) for row in rows]
+    return AiTraceTimelineResponse(
+        trace_id="",
+        spans=spans,
+        total=len(spans),
+    )

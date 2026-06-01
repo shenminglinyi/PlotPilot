@@ -385,7 +385,9 @@ class PromptManager:
         return self._do_incremental_update(conn, seed_data, meta, template_id)
 
     def _repair_corrupt_builtin_versions(self, conn, prompts: List[Dict]) -> int:
-        """同版本种子下修复历史编码错误写入的内置系统版本。"""
+        """Repair built-in system versions when the seed body is newer than DB."""
+        from infrastructure.ai.prompt_seed.normalize import normalize_prompt_record
+
         repaired = 0
         now = datetime.now().isoformat()
         by_key = {str(p.get("id") or ""): p for p in prompts if p.get("id")}
@@ -403,14 +405,19 @@ class PromptManager:
             seed = by_key.get(node_key)
             if not seed:
                 continue
+            seed_norm = normalize_prompt_record(dict(seed))
             old_system = row["system_prompt"] or ""
             old_user = row["user_template"] or ""
+            new_system = seed_norm.get("system") or ""
+            new_user = seed_norm.get("user_template") or ""
             if not (
                 self._looks_like_mojibake(old_system)
                 or self._looks_like_mojibake(old_user)
+                or old_system != new_system
+                or old_user != new_user
             ):
                 continue
-            self._overwrite_system_version(conn, row["node_id"], row["version_id"], seed, now)
+            self._overwrite_system_version(conn, row["node_id"], row["version_id"], seed_norm, now)
             repaired += 1
         return repaired
 

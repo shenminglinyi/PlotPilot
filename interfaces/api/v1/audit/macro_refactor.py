@@ -4,7 +4,10 @@ import logging
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from application.audit.services.macro_refactor_scanner import MacroRefactorScanner
-from application.audit.services.macro_refactor_proposal_service import MacroRefactorProposalService
+from application.audit.services.macro_refactor_proposal_service import (
+    MacroRefactorProposalError,
+    MacroRefactorProposalService,
+)
 from application.audit.services.mutation_applier import MutationApplier
 from application.audit.services.macro_diagnosis_service import MacroDiagnosisService
 from application.audit.dtos.macro_refactor_dto import (
@@ -105,6 +108,9 @@ async def generate_proposal(
         )
         return proposal
 
+    except MacroRefactorProposalError as e:
+        logger.error(f"Error generating proposal: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.error(f"Error generating proposal: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

@@ -1,7 +1,7 @@
 import { apiClient } from './config'
 import type { BookStats } from '../types/api'
 
-function pickNumber(raw: Record<string, unknown>, keys: string[], fallback = 0): number {
+function pickNumber(raw: Record<string, unknown>, keys: string[], defaultValue = 0): number {
   for (const key of keys) {
     const v = raw[key]
     if (typeof v === 'number' && Number.isFinite(v)) {
@@ -14,17 +14,17 @@ function pickNumber(raw: Record<string, unknown>, keys: string[], fallback = 0):
       }
     }
   }
-  return fallback
+  return defaultValue
 }
 
-function pickString(raw: Record<string, unknown>, keys: string[], fallback = ''): string {
+function pickString(raw: Record<string, unknown>, keys: string[], defaultValue = ''): string {
   for (const key of keys) {
     const v = raw[key]
     if (typeof v === 'string') {
       return v
     }
   }
-  return fallback
+  return defaultValue
 }
 
 /** 与后端 novels.generation_prefs_json 一致（按需扩展） */

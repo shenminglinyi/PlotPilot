@@ -10,8 +10,10 @@
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from application.world.services.bible_snapshot_state import collect_bible_snapshot_state
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ class UnifiedCheckpointService:
         self._tables_ensured = True
 
     def _now_iso(self) -> str:
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
 
     def _json_loads_safe(self, raw: Any, default: Any) -> Any:
         if raw is None:
@@ -198,8 +200,8 @@ class UnifiedCheckpointService:
         except Exception as e:
             logger.warning("[UnifiedCheckpoint] 章节指针采集失败: %s", e)
 
-        # 2. bible_state（简化版）
-        bible_state: Dict[str, Any] = {"exists": True, "timestamp": self._now_iso()}
+        # 2. Bible 结构化状态；只采集 Bible 元数据和结构化条目，不深拷贝章节正文。
+        bible_state: Dict[str, Any] = collect_bible_snapshot_state(self.db, novel_id)
 
         # 3. foreshadow_state
         foreshadow_state: Dict[str, Any] = {}

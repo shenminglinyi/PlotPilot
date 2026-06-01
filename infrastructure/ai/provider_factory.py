@@ -52,6 +52,15 @@ class LLMProviderFactory:
     def create_active_provider(self) -> LLMService:
         return self.create_from_profile(self.control_service.resolve_active_profile())
 
+    def create_from_profile_id(self, profile_id: str) -> LLMService:
+        """根据档案 ID 创建 Provider；未找到时退回 MockProvider。"""
+        try:
+            config = self.control_service.get_config()
+            profile = next((p for p in config.profiles if p.id == profile_id), None)
+        except Exception:
+            profile = None
+        return self.create_from_profile(profile)
+
     def _profile_to_settings(self, profile: LLMProfile) -> Settings:
         if profile.protocol == "anthropic":
             normalized_base_url = normalize_anthropic_base_url(profile.base_url)
@@ -196,6 +205,8 @@ class DynamicLLMService(LLMService):
             phase="llm_request",
             trace_context=trace,
             span_id=request_span_id,
+            stage=trace.stage,
+            stage_label=trace.stage_label,
             node_type="llm",
             model=model,
             generation_profile=generation_profile,
@@ -212,6 +223,8 @@ class DynamicLLMService(LLMService):
                 phase="error",
                 trace_context=trace,
                 parent_span_id=request_span_id,
+                stage=trace.stage,
+                stage_label=trace.stage_label,
                 node_type="llm",
                 model=model,
                 generation_profile=generation_profile,
@@ -227,6 +240,8 @@ class DynamicLLMService(LLMService):
             phase="llm_response",
             trace_context=trace,
             parent_span_id=request_span_id,
+            stage=trace.stage,
+            stage_label=trace.stage_label,
             node_type="llm",
             model=model,
             generation_profile=generation_profile,
@@ -259,6 +274,8 @@ class DynamicLLMService(LLMService):
             phase="llm_request",
             trace_context=trace,
             span_id=request_span_id,
+            stage=trace.stage,
+            stage_label=trace.stage_label,
             node_type="llm",
             model=model,
             generation_profile=generation_profile,
@@ -286,6 +303,8 @@ class DynamicLLMService(LLMService):
                 phase="error",
                 trace_context=trace,
                 parent_span_id=request_span_id,
+                stage=trace.stage,
+                stage_label=trace.stage_label,
                 node_type="llm",
                 model=model,
                 generation_profile=generation_profile,
@@ -300,6 +319,8 @@ class DynamicLLMService(LLMService):
                 phase="llm_response",
                 trace_context=trace,
                 parent_span_id=request_span_id,
+                stage=trace.stage,
+                stage_label=trace.stage_label,
                 node_type="llm",
                 model=model,
                 generation_profile=generation_profile,
