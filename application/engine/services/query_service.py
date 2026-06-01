@@ -50,6 +50,16 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "story_pipeline_wave_label",
     "story_pipeline_wave_entered_at",
     "story_pipeline_events",
+    "active_invocation_session_id",
+    "active_invocation_operation",
+    "active_invocation_node_key",
+    "active_invocation_status",
+    "active_invocation_policy",
+    "requires_ai_review",
+    "autopilot_pause_reason",
+    "autopilot_pending_chapter_number",
+    "autopilot_pending_chapter_plan",
+    "last_autopilot_invocation_payload",
 )
 
 

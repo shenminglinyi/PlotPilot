@@ -1121,6 +1121,98 @@ class BaseStoryPipeline(ABC):
             last_push = now
 
         try:
+            from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
+            from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
+            from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
+            from application.ai_invocation.contracts import ensure_invocation_contract
+            from application.ai_invocation.dtos import InvocationSessionStatus
+            from application.ai_invocation.variable_hub import VariableWrite
+            from infrastructure.ai.prompt_keys import AUTOPILOT_STREAM_BEAT
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+            db = get_database()
+            ensure_invocation_contract("autopilot.prose.from_script", AUTOPILOT_STREAM_BEAT, db)
+            context_key = f"novel_id:{novel_id}|chapter_number:{ctx.chapter_number}|beat_index:{beat_index}"
+            variable_repo = SqliteVariableHubRepository(db)
+            target_words = max(1, int((getattr(config, "max_tokens", 1000) or 1000) / 1.3))
+            variables = {
+                "outline": ctx.outline or "",
+                "last_paragraph": chapter_draft_so_far[-800:],
+                "beat_goal": getattr(prompt, "user", "") or str(prompt),
+                "target_words": target_words,
+                "context_block": getattr(prompt, "user", "") or str(prompt),
+            }
+            for key, value in (
+                ("chapter.outline", variables["outline"]),
+                ("chapter.draft_so_far", variables["last_paragraph"]),
+                ("beat.current", variables["beat_goal"]),
+                ("beat.target_words", variables["target_words"]),
+                ("materialized.beat.prompt_context", variables["context_block"]),
+            ):
+                variable_repo.set_value(
+                    VariableWrite(
+                        key=key,
+                        value=value,
+                        context_key=context_key,
+                        source_node_key=AUTOPILOT_STREAM_BEAT,
+                        source_trace_id=AUTOPILOT_STREAM_BEAT,
+                        scope="beat" if key.startswith("beat.") or key.startswith("materialized.beat.") else "chapter",
+                        stage="writing",
+                        display_name=key,
+                        value_type="integer" if key == "beat.target_words" else "string",
+                    )
+                )
+
+            novel_stub = type("PipelineNovelPolicy", (), {"auto_approve_mode": ctx.auto_approve_mode})()
+            policy = AutopilotInvocationPolicyResolver().resolve(
+                operation="autopilot.prose.from_script",
+                node_key=AUTOPILOT_STREAM_BEAT,
+                novel=novel_stub,
+                context={"novel_id": novel_id, "chapter_number": ctx.chapter_number, "beat_index": beat_index},
+            )
+            intent = AutopilotInvocationIntent(
+                novel_id=novel_id,
+                stage="writing",
+                operation="autopilot.prose.from_script",
+                node_key=AUTOPILOT_STREAM_BEAT,
+                context={"novel_id": novel_id, "chapter_number": ctx.chapter_number, "beat_index": beat_index},
+                explicit_variables=variables,
+                continuation_handler_key="autopilot_prose_generation",
+                policy_hint=policy,
+                metadata={"source": "story_pipeline", "context_key": context_key},
+            )
+            host = ctx.get_dep("autopilot_host") or ctx
+            orchestrator = get_or_create_autopilot_orchestrator(host)
+            prepared = await orchestrator.prepare(intent)
+            if prepared.session.status in {
+                InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW,
+                InvocationSessionStatus.BLOCKED,
+            }:
+                return ""
+
+            def _on_chunk(chunk: str, _full: str):
+                if self._novel_stream_should_stop(novel_id):
+                    return False
+                chunk_buffer.append(chunk)
+                _maybe_push()
+                return True
+
+            outcome = await orchestrator.generate_prepared_streaming(
+                intent=intent,
+                prepared_result=prepared,
+                config=config,
+                on_chunk=_on_chunk,
+            )
+            _maybe_push(force=True)
+            return outcome.accepted_content or content or "".join(chunk_buffer)
+        except Exception as exc:
+            logger.warning("[%s] StoryPipeline AI Invocation 生成失败，回退直连 LLM: %s", novel_id, exc)
+            chunk_buffer = []
+            content = ""
+            last_push = time.monotonic()
+
+        try:
             async for piece in ctx.llm_service.stream_generate(prompt, config):
                 if self._novel_stream_should_stop(novel_id):
                     logger.info("[%s] 流式生成收到停止信号，终止节拍 %s", novel_id, beat_index + 1)

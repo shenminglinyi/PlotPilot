@@ -13,6 +13,8 @@ from application.ai_invocation.continuation import register_continuation_handler
 from application.ai_invocation.gateway import AIInvocationGateway
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler, PromptAssemblyError
 from application.ai_invocation.services import InvocationSessionService
+from application.ai_invocation.services import AttemptService
+from application.ai_invocation.dtos import InvocationSession
 from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
 from application.ai_invocation.variable_hub import (
     InMemoryVariableHubRepository,
@@ -66,6 +68,18 @@ class FakeLLM:
         yield "生成正文"
 
 
+class FakeStreamingLLM:
+    async def generate(self, prompt, config):
+        return GenerationResult(
+            content="生成正文",
+            token_usage=TokenUsage(input_tokens=3, output_tokens=4),
+        )
+
+    async def stream_generate(self, prompt, config):
+        yield "第一段"
+        yield "第二段"
+
+
 def _spec(policy=InvocationPolicy.DIRECT):
     return InvocationSpec(
         operation="chapter.generate",
@@ -93,6 +107,24 @@ def _resolver():
         ],
     )
     return VariableResolver(repo)
+
+
+def test_variable_resolver_context_key_includes_beat_index():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(alias="outline", required=True),
+        ],
+    )
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="autopilot.prose.from_script", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={"outline": "第一拍"},
+        context={"novel_id": "novel-1", "chapter_number": 2, "beat_index": 3},
+    )
+    assert plan.ok
+    assert plan.snapshot_hash
 
 
 def test_variable_resolver_uses_explicit_then_hub_then_default():
@@ -238,6 +270,32 @@ async def test_gateway_review_after_call_waits_for_acceptance():
 
     assert result.session.status == InvocationSessionStatus.AWAITING_ACCEPTANCE
     assert result.attempt is not None
+
+
+@pytest.mark.asyncio
+async def test_attempt_service_streaming_stop_marks_attempt_cancelled_context():
+    service = AttemptService(FakeStreamingLLM())
+    session = InvocationSession(
+        id="session-1",
+        operation="autopilot.prose.from_script",
+        node_key="autopilot-stream-beat",
+        policy=InvocationPolicy.DIRECT,
+    )
+    snapshot = CPMSPromptAssembler(registry=FakeRegistry()).compile(spec=_spec(), variable_plan=_resolver().resolve(
+        spec=_spec(),
+        explicit_variables={"outline": "第一幕冲突"},
+        context={"novel_id": "novel-1"},
+    ))
+
+    attempt = await service.generate_streaming(
+        session=session,
+        prompt_snapshot=snapshot,
+        on_chunk=lambda chunk, content: False,
+    )
+
+    assert attempt.status.value == "failed"
+    assert session.status == InvocationSessionStatus.CANCELLED
+    assert attempt.content == "第一段"
     assert result.decision is None
     assert result.commit is None
 

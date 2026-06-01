@@ -190,8 +190,20 @@
       </div>
     </n-alert>
 
+    <!-- AI Invocation 审阅等待 -->
+    <n-alert v-if="requiresAIReview" type="warning" :show-icon="true" class="ap-inline-alert">
+      <div class="ap-review-alert">
+        <span>
+          <strong>等待 AI 请求处理</strong>：{{ activeInvocationLabel }} 已发送到统一 AI 面板，请完成生成、采纳和提交。
+        </span>
+        <n-button type="warning" size="small" :loading="aiPanelOpening" @click="openActiveInvocation">
+          打开 AI 面板
+        </n-button>
+      </div>
+    </n-alert>
+
     <!-- 审阅等待 -->
-    <n-alert v-if="needsReview" type="warning" :show-icon="true" class="ap-inline-alert">
+    <n-alert v-else-if="needsReview" type="warning" :show-icon="true" class="ap-inline-alert">
       <div class="ap-review-alert">
         <span>
           <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲或结构树，核对无误后点击按钮继续。
@@ -307,6 +319,7 @@ import StoryPipelineObservability from './StoryPipelineObservability.vue'
 import AuditPipelineObservability from './AuditPipelineObservability.vue'
 import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
+import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 
 const props = defineProps({
   novelId: String,
@@ -321,9 +334,11 @@ const emit = defineEmits([
   'beats-planned',
 ])
 const message = useMessage()
+const aiInvocationStore = useAIInvocationStore()
 
 const status = ref(null)
 const toggling = ref(false)
+const aiPanelOpening = ref(false)
 const planExpanded = ref(false)
 const showStartModal = ref(false)
 const startConfig = ref({
@@ -409,6 +424,14 @@ function statusNeedsManualReview(s) {
 }
 
 const needsReview = computed(() => statusNeedsManualReview(status.value))
+const requiresAIReview = computed(() => Boolean(
+  status.value?.requires_ai_review && status.value?.active_invocation_session_id
+))
+const activeInvocationLabel = computed(() => {
+  const op = status.value?.active_invocation_operation || 'AI 请求'
+  const node = status.value?.active_invocation_node_key || ''
+  return node ? `${op} / ${node}` : op
+})
 // 🔥 只有运行中且阶段为 writing 时才是真正的"撰写中"
 const isWriting = computed(() =>
   status.value?.autopilot_status === 'running' && status.value?.current_stage === 'writing'
@@ -668,6 +691,7 @@ const STATUS_FETCH_TIMEOUT_MS = 10_000
 
 // 🔥 新增：请求去重——如果上一次 fetchStatus 还没返回，不重复发起
 let statusFetchInFlight = false
+let lastOpenedInvocationSessionId = ''
 
 async function fetchStatus() {
   // 请求去重：上一次还在飞就不重复发
@@ -698,6 +722,7 @@ async function fetchStatus() {
       const body = await res.json()
       status.value = body
       emit('status-change', body)
+      maybeOpenActiveInvocation(body)
 
       // 🔍 调试：审计阶段进度日志
       if (body.current_stage === 'auditing') {
@@ -738,6 +763,29 @@ async function fetchStatus() {
   }
 }
 
+async function openActiveInvocation() {
+  const sessionId = String(status.value?.active_invocation_session_id || '')
+  if (!sessionId) return
+  aiPanelOpening.value = true
+  try {
+    await aiInvocationStore.open(sessionId)
+    lastOpenedInvocationSessionId = sessionId
+  } catch (err) {
+    console.warn('[AutopilotPanel] 打开 AI Invocation 面板失败:', err)
+    message.error('打开 AI 面板失败')
+  } finally {
+    aiPanelOpening.value = false
+  }
+}
+
+function maybeOpenActiveInvocation(s) {
+  const sessionId = String(s?.active_invocation_session_id || '')
+  if (!s?.requires_ai_review || !sessionId) return
+  if (sessionId === lastOpenedInvocationSessionId) return
+  lastOpenedInvocationSessionId = sessionId
+  void openActiveInvocation()
+}
+
 function clearStatusPoll() {
   if (statusPollTimer) {
     clearInterval(statusPollTimer)
@@ -765,6 +813,7 @@ function maybeRestartStatusPollTimer() {
 function shouldMaintainChapterStream(body = status.value) {
   if (!body || statusPollDisabled.value) return false
   if (body.autopilot_status !== 'running') return false
+  if (body.requires_ai_review && body.active_invocation_session_id) return false
   if (statusNeedsManualReview(body)) return false
   return body.current_stage === 'writing'
 }
@@ -956,7 +1005,8 @@ function stopChapterStream() {
 // - 审阅等待中：10s（用户在看大纲，不需要高频刷新）
 function getAdaptivePollInterval() {
   let base
-  if (needsReview.value) base = 10000
+  if (requiresAIReview.value) base = 5000
+  else if (needsReview.value) base = 10000
   else if (!isRunning.value) base = 3000
   else if (sseConnected.value) base = 15000
   else base = 5000
@@ -967,6 +1017,7 @@ function getAdaptivePollInterval() {
 watch(
   [
     () => isRunning.value,
+    () => requiresAIReview.value,
     () => needsReview.value,
     () => statusPollDisabled.value,
     () => status.value?.current_stage,
@@ -1008,6 +1059,7 @@ watch(
     statusPollDisabled.value = false
     statusConnectivityFailures.value = 0
     reconnectAttempts = 0
+    lastOpenedInvocationSessionId = ''
     stopChapterStream()
   }
 )
@@ -1856,4 +1908,3 @@ onUnmounted(() => {
 .recovery-hint p { margin: 0 0 6px; line-height: 1.5; }
 .recovery-sub { font-size: 11px; opacity: 0.95; margin-bottom: 8px !important; }
 </style>
-

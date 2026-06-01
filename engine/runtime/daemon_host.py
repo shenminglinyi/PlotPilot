@@ -1551,6 +1551,20 @@ class DaemonHostMixin:
             total_timeout: 总时间上限（秒），默认 10 分钟
             idle_timeout: 空闲超时（秒），默认 2 分钟无数据则终止
         """
+        if novel is not None:
+            try:
+                return await self._stream_llm_via_autopilot_invocation(
+                    prompt,
+                    config,
+                    novel=novel,
+                    chapter_draft_so_far=chapter_draft_so_far,
+                )
+            except RuntimeError as exc:
+                if str(exc) == "autopilot_invocation_unavailable":
+                    logger.warning("[%s] AI Invocation 不可用，降级为直连流式 LLM", getattr(novel, "novel_id", "unknown"))
+                else:
+                    raise
+
         content = ""
         stop_detected = asyncio.Event()
         watch_task = None
@@ -1699,6 +1713,163 @@ class DaemonHostMixin:
             self._merge_autopilot_status_from_db(novel)
 
         return strip_reasoning_artifacts(content)
+
+    async def _stream_llm_via_autopilot_invocation(
+        self,
+        prompt: Prompt,
+        config: GenerationConfig,
+        *,
+        novel,
+        chapter_draft_so_far: str = "",
+    ) -> str:
+        """Run autopilot prose generation through AI Invocation.
+
+        This preserves the existing streaming UI by pushing accumulated snapshots
+        while the attempt is running, but session/spec/variables/prompt/attempt/
+        adoption/commit all go through the unified control plane.
+        """
+        try:
+            from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
+            from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
+            from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
+            from application.ai_invocation.contracts import ensure_invocation_contract
+            from application.ai_invocation.dtos import InvocationPolicy, InvocationSessionStatus
+            from application.ai_invocation.variable_hub import VariableWrite
+            from infrastructure.ai.prompt_keys import AUTOPILOT_STREAM_BEAT
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+        except Exception as exc:
+            logger.debug("autopilot invocation imports unavailable: %s", exc)
+            raise RuntimeError("autopilot_invocation_unavailable") from exc
+
+        novel_id = getattr(novel.novel_id, "value", novel.novel_id)
+        chapter_number = int(getattr(novel, "current_chapter_number", 0) or 0)
+        if chapter_number <= 0:
+            chapter_number = int(getattr(novel, "current_auto_chapters", 0) or 0) + 1
+        beat_index = int(getattr(novel, "current_beat_index", 0) or 0)
+        context_key = f"novel_id:{novel_id}|chapter_number:{chapter_number}|beat_index:{beat_index}"
+
+        db = get_database()
+        ensure_invocation_contract("autopilot.prose.from_script", AUTOPILOT_STREAM_BEAT, db)
+        variable_repo = SqliteVariableHubRepository(db)
+        outline = ""
+        user_prompt = getattr(prompt, "user", "") or ""
+        for line in user_prompt.splitlines():
+            if line.strip():
+                outline = line.strip()
+                break
+        target_words = max(1, int((config.max_tokens or 1000) / 1.3))
+        variables = {
+            "outline": outline or user_prompt[:500],
+            "last_paragraph": format_prior_draft_for_prompt(chapter_draft_so_far)[-800:],
+            "beat_goal": user_prompt,
+            "target_words": target_words,
+            "context_block": user_prompt,
+        }
+        for key, value in (
+            ("chapter.outline", variables["outline"]),
+            ("chapter.draft_so_far", variables["last_paragraph"]),
+            ("beat.current", variables["beat_goal"]),
+            ("beat.target_words", variables["target_words"]),
+            ("materialized.beat.prompt_context", variables["context_block"]),
+        ):
+            variable_repo.set_value(
+                VariableWrite(
+                    key=key,
+                    value=value,
+                    context_key=context_key,
+                    source_node_key=AUTOPILOT_STREAM_BEAT,
+                    source_trace_id=AUTOPILOT_STREAM_BEAT,
+                    scope="beat" if key.startswith("beat.") or key.startswith("materialized.beat.") else "chapter",
+                    stage="writing",
+                    display_name=key,
+                    value_type="integer" if key == "beat.target_words" else "string",
+                )
+            )
+
+        policy = AutopilotInvocationPolicyResolver().resolve(
+            operation="autopilot.prose.from_script",
+            node_key=AUTOPILOT_STREAM_BEAT,
+            novel=novel,
+            context={"novel_id": novel_id, "chapter_number": chapter_number, "beat_index": beat_index},
+        )
+        # StoryPipeline/legacy streaming cannot wait for manual review mid-token
+        # unless the user explicitly disables auto approve. In interactive mode,
+        # prepare() pauses and the caller will surface an empty result.
+        intent = AutopilotInvocationIntent(
+            novel_id=str(novel_id),
+            stage="writing",
+            operation="autopilot.prose.from_script",
+            node_key=AUTOPILOT_STREAM_BEAT,
+            context={"novel_id": novel_id, "chapter_number": chapter_number, "beat_index": beat_index},
+            explicit_variables=variables,
+            continuation_handler_key="autopilot_prose_generation",
+            policy_hint=policy,
+            metadata={"source": "daemon_host.stream_llm", "context_key": context_key},
+        )
+        orchestrator = get_or_create_autopilot_orchestrator(self)
+        prepared = await orchestrator.prepare(intent)
+        if prepared.session.status in {
+            InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW,
+            InvocationSessionStatus.BLOCKED,
+        }:
+            self._update_shared_state(
+                str(novel_id),
+                active_invocation_session_id=prepared.session.id,
+                active_invocation_operation=prepared.session.operation,
+                active_invocation_node_key=prepared.session.node_key,
+                active_invocation_status=prepared.session.status.value,
+                active_invocation_policy=prepared.session.policy.value,
+                requires_ai_review=True,
+                autopilot_pause_reason="awaiting_ai_review",
+            )
+            novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+            novel.autopilot_status = AutopilotStatus.RUNNING
+            self._flush_novel(novel)
+            return ""
+
+        chunk_buffer: list[str] = []
+        last_push_time = time.time()
+
+        def _live_snapshot() -> str:
+            prior = (chapter_draft_so_far or "").rstrip()
+            beat_part = "".join(chunk_buffer)
+            if not prior:
+                return beat_part
+            if not beat_part:
+                return prior
+            return f"{prior}\n\n{beat_part}"
+
+        async def _push_snapshot() -> None:
+            snap = _live_snapshot()
+            if snap:
+                await self._push_streaming_chunk(str(novel_id), content=snap)
+
+        def _on_chunk(chunk: str, _content: str):
+            nonlocal last_push_time
+            if not self._is_still_running(novel):
+                return False
+            chunk_buffer.append(chunk)
+            now = time.time()
+            if now - last_push_time >= 0.15:
+                try:
+                    from application.engine.services.streaming_bus import streaming_bus
+
+                    streaming_bus.publish(str(novel_id), "", content=_live_snapshot())
+                    self._write_daemon_heartbeat()
+                except Exception:
+                    pass
+                last_push_time = now
+            return True
+
+        outcome = await orchestrator.generate_prepared_streaming(
+            intent=intent,
+            prepared_result=prepared,
+            config=config,
+            on_chunk=_on_chunk,
+        )
+        await _push_snapshot()
+        return strip_reasoning_artifacts(outcome.accepted_content or "".join(chunk_buffer))
 
     async def _push_streaming_chunk(
         self,
@@ -2118,4 +2289,3 @@ class DaemonHostMixin:
         
         except Exception as e:
             logger.warning(f"[{novel.novel_id}] 摘要生成失败: {e}")
-

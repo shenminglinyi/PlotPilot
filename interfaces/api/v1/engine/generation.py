@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from application.ai_invocation.contracts import ensure_invocation_contract
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec
 from application.ai_invocation.variable_hub import materialize_setup_main_plot_context
 from application.audit.services.chapter_ai_review_service import (
@@ -489,120 +490,7 @@ def _ensure_chapter_generation_invocation_contract() -> None:
     这里只登记已发布 CPMS 节点的 active version、模板变量名与调用能力，
     不写入任何提示词正文；CPMS 节点缺失时阻塞流程。
     """
-    registry = get_prompt_registry()
-    node = registry.get_node(CHAPTER_GENERATION_MAIN)
-    if node is None:
-        raise RuntimeError(f"CPMS 节点未发布: {CHAPTER_GENERATION_MAIN}")
-    node_version_id = getattr(node, "active_version_id", None) or ""
-    if not node_version_id:
-        raise RuntimeError(f"CPMS 节点缺少 active version: {CHAPTER_GENERATION_MAIN}")
-
-    engine = get_template_engine()
-    aliases = sorted(
-        engine.extract_variables(node.get_active_system())
-        | engine.extract_variables(node.get_active_user_template())
-    )
-    binding_set_id = f"{CHAPTER_GENERATION_MAIN}:input:v1"
-    required_aliases = {"outline", "context", "genre_profile_block"}
-    chapter_global_bindings = {
-        "genre_profile_block": {
-            "variable_key": "novel.genre.profile_block",
-            "display_name": "类型画像提示块",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "writing",
-            "required": True,
-        },
-        "genre_opening_profile": {
-            "variable_key": "novel.genre.opening_profile",
-            "display_name": "类型开篇画像",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-        "genre_reader_contract": {
-            "variable_key": "novel.genre.reader_contract",
-            "display_name": "读者留存契约",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-        "genre_rhythm_constraints": {
-            "variable_key": "novel.genre.rhythm_constraints",
-            "display_name": "类型节奏约束",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-    }
-
-    db = get_database()
-    with sqlite_writes_bypass_queue():
-        with db.transaction() as conn:
-            conn.execute(
-                """
-                INSERT INTO cpms_variable_binding_sets (
-                    id, node_key, direction, version_number, status, is_active, created_by
-                ) VALUES (?, ?, 'input', 1, 'published', 1, 'system')
-                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
-                    status='published',
-                    is_active=1
-                """,
-                (binding_set_id, CHAPTER_GENERATION_MAIN),
-            )
-            binding_aliases = sorted(set(aliases) | set(chapter_global_bindings))
-            for alias in binding_aliases:
-                binding_meta = chapter_global_bindings.get(alias, {})
-                is_required = alias in required_aliases or bool(binding_meta.get("required"))
-                conn.execute(
-                    """
-                    INSERT INTO cpms_variable_bindings (
-                        id, binding_set_id, node_key, direction, alias, variable_key, required,
-                        default_value_json, source, enabled, metadata_json
-                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, ?, ?, 1, ?)
-                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
-                        variable_key=excluded.variable_key,
-                        required=excluded.required,
-                        default_value_json=excluded.default_value_json,
-                        source=excluded.source,
-                        metadata_json=excluded.metadata_json,
-                        enabled=1
-                    """,
-                    (
-                        f"{binding_set_id}:{alias}",
-                        binding_set_id,
-                        CHAPTER_GENERATION_MAIN,
-                        alias,
-                        str(binding_meta.get("variable_key") or ""),
-                        1 if is_required else 0,
-                        None if is_required else '""',
-                        "novel_genre_profile" if binding_meta else "cpms_template",
-                        json.dumps(binding_meta, ensure_ascii=False) if binding_meta else "{}",
-                    ),
-                )
-
-        SqliteInvocationSpecRepository(db).upsert(
-            InvocationSpec(
-                operation="chapter.generate",
-                node_key=CHAPTER_GENERATION_MAIN,
-                prompt_node_version_id=node_version_id,
-                input_binding_set_id=binding_set_id,
-                default_policy=InvocationPolicy.FULL_INTERACTIVE,
-                risk_level="medium",
-                supports_stream=False,
-                continuation_handler_key="manual_chapter_generation_stream",
-                metadata={
-                    "source": "manual_chapter_generation",
-                    "cpms_node_key": CHAPTER_GENERATION_MAIN,
-                },
-            ),
-            spec_id=f"spec:{CHAPTER_GENERATION_MAIN}:v1",
-            spec_version=1,
-            status="published",
-        )
+    ensure_invocation_contract("chapter.generate", CHAPTER_GENERATION_MAIN, get_database())
 
 
 def _chapter_invocation_variables(

@@ -7,7 +7,9 @@ from application.ai_invocation.dtos import (
     InvocationSession,
     InvocationSessionStatus,
     PromptSnapshot,
+    VariableBinding,
 )
+from application.ai_invocation.autopilot.continuations import register_autopilot_continuations
 from application.ai_invocation.continuation import register_continuation_handler
 from application.ai_invocation.services import AdoptionCommitService
 from application.ai_invocation.variable_hub import InMemoryVariableHubRepository
@@ -223,3 +225,67 @@ def test_commit_blocks_when_continuation_contract_fails():
     step = next(item for item in commit.steps if item.name == "continuation_handler")
     assert step.status.value == "failed"
     assert "主线候选数量不足" in step.error
+
+
+def test_autopilot_outline_partition_writes_atoms_output_binding():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "outline-beat-partition:output:v1",
+        "outline-beat-partition",
+        [
+            VariableBinding(
+                alias="atoms",
+                variable_key="chapter.micro_beats",
+                value_type="list",
+                scope="chapter",
+                stage="planning",
+            ),
+            VariableBinding(
+                alias="chapter_plan",
+                variable_key="chapter.execution_plan",
+                value_type="object",
+                scope="chapter",
+                stage="planning",
+            ),
+        ],
+        direction="output",
+    )
+    service = AdoptionCommitService(prompt_manager=FakePromptManager(), variable_hub_repository=repo)
+    register_autopilot_continuations()
+    session = InvocationSession(
+        id="session-1",
+        operation="autopilot.outline.partition",
+        node_key="outline-beat-partition",
+        policy=InvocationPolicy.DIRECT,
+        status=InvocationSessionStatus.AWAITING_COMMIT,
+        context={"novel_id": "novel-1", "chapter_number": 1},
+        continuation=ContinuationRef(handler_key="autopilot_outline_partition"),
+        prompt_snapshot=PromptSnapshot(
+            prompt=Prompt(system="系统提示词", user="用户提示词"),
+            node_key="outline-beat-partition",
+            node_version_id="version-1",
+            asset_link_set_id="",
+            input_binding_set_id="outline-beat-partition:input:v1",
+            output_binding_set_id="outline-beat-partition:output:v1",
+            variable_snapshot_hash="",
+            template_hash="template-hash",
+            composition_hash="composition-hash",
+            rendered_prompt_hash="rendered-hash",
+            template_prompt=Prompt(system="系统提示词", user="用户提示词"),
+        ),
+    )
+    decision = AdoptionDecision(
+        id="decision-1",
+        session_id="session-1",
+        attempt_id="attempt-1",
+        accepted_content='{"atoms":[{"intent":"开场压迫"}],"mode":"llm"}',
+        accepted_by="system",
+    )
+
+    commit = service.commit(session=session, decision=decision)
+
+    step = next(item for item in commit.steps if item.name == "commit_variable_outputs")
+    assert step.result["skipped"] is False
+    context_key = "novel_id:novel-1"
+    assert repo.get_value("chapter.micro_beats", context_key).value == [{"intent": "开场压迫"}]
+    assert repo.get_value("chapter.execution_plan", context_key).value["mode"] == "llm"

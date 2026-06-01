@@ -5,7 +5,7 @@ import logging
 import json
 import uuid
 from dataclasses import replace
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from application.ai_invocation.continuation import ContinuationContext, execute_continuation
@@ -97,6 +97,51 @@ class AttemptService:
             attempt.content = result.content
             attempt.token_usage = result.token_usage
             attempt.status = InvocationAttemptStatus.SUCCEEDED
+            return attempt
+        except Exception as exc:
+            attempt.status = InvocationAttemptStatus.FAILED
+            attempt.error = str(exc)
+            session.status = InvocationSessionStatus.FAILED
+            raise
+
+    async def generate_streaming(
+        self,
+        *,
+        session: InvocationSession,
+        prompt_snapshot: PromptSnapshot,
+        config: GenerationConfig | None = None,
+        on_chunk: Callable[[str, str], None] | None = None,
+    ) -> InvocationAttempt:
+        attempt = InvocationAttempt(
+            id=str(uuid.uuid4()),
+            session_id=session.id,
+            status=InvocationAttemptStatus.RUNNING,
+            prompt_snapshot=prompt_snapshot,
+        )
+        self._attempts[attempt.id] = attempt
+        session.attempts.append(attempt.id)
+        session.status = InvocationSessionStatus.GENERATING
+        content_parts: list[str] = []
+        stopped = False
+        try:
+            async for chunk in self._llm_service.stream_generate(prompt_snapshot.prompt, config or GenerationConfig()):
+                if not chunk:
+                    continue
+                content_parts.append(chunk)
+                attempt.content = "".join(content_parts)
+                if on_chunk is not None:
+                    keep_going = on_chunk(chunk, attempt.content)
+                    if keep_going is False:
+                        stopped = True
+                        break
+            attempt.content = "".join(content_parts)
+            attempt.token_usage = None
+            if stopped:
+                attempt.status = InvocationAttemptStatus.FAILED
+                attempt.error = "streaming stopped"
+                session.status = InvocationSessionStatus.CANCELLED
+            else:
+                attempt.status = InvocationAttemptStatus.SUCCEEDED
             return attempt
         except Exception as exc:
             attempt.status = InvocationAttemptStatus.FAILED
@@ -374,6 +419,13 @@ class AdoptionCommitService:
 
     @staticmethod
     def _context_key(context: Mapping[str, Any]) -> str:
+        beat_index = context.get("beat_index")
+        chapter_number = context.get("chapter_number")
+        novel_id = str(context.get("novel_id") or "").strip()
+        if novel_id and chapter_number not in (None, "") and beat_index not in (None, ""):
+            return f"novel_id:{novel_id}|chapter_number:{chapter_number}|beat_index:{beat_index}"
+        if novel_id and chapter_number not in (None, ""):
+            return f"novel_id:{novel_id}|chapter_number:{chapter_number}"
         novel_id = str(context.get("novel_id") or "").strip()
         if novel_id:
             return f"novel_id:{novel_id}"

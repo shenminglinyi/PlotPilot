@@ -64,6 +64,13 @@ class NovelState:
     last_chapter_tension: float
     auto_approve_mode: bool
     needs_review: bool
+    active_invocation_session_id: str = ""
+    active_invocation_operation: str = ""
+    active_invocation_node_key: str = ""
+    active_invocation_status: str = ""
+    active_invocation_policy: str = ""
+    requires_ai_review: bool = False
+    autopilot_pause_reason: str = ""
     _updated_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,6 +89,13 @@ class NovelState:
             "last_chapter_tension": self.last_chapter_tension,
             "auto_approve_mode": self.auto_approve_mode,
             "needs_review": self.needs_review,
+            "active_invocation_session_id": self.active_invocation_session_id,
+            "active_invocation_operation": self.active_invocation_operation,
+            "active_invocation_node_key": self.active_invocation_node_key,
+            "active_invocation_status": self.active_invocation_status,
+            "active_invocation_policy": self.active_invocation_policy,
+            "requires_ai_review": self.requires_ai_review,
+            "autopilot_pause_reason": self.autopilot_pause_reason,
             "_updated_at": self._updated_at,
         }
 
@@ -102,6 +116,13 @@ class NovelState:
             last_chapter_tension=data.get("last_chapter_tension", 0),
             auto_approve_mode=data.get("auto_approve_mode", False),
             needs_review=data.get("needs_review", False),
+            active_invocation_session_id=data.get("active_invocation_session_id", ""),
+            active_invocation_operation=data.get("active_invocation_operation", ""),
+            active_invocation_node_key=data.get("active_invocation_node_key", ""),
+            active_invocation_status=data.get("active_invocation_status", ""),
+            active_invocation_policy=data.get("active_invocation_policy", ""),
+            requires_ai_review=data.get("requires_ai_review", False),
+            autopilot_pause_reason=data.get("autopilot_pause_reason", ""),
             _updated_at=data.get("_updated_at", time.time()),
         )
 

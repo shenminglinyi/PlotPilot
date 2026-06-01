@@ -5,8 +5,14 @@
 from __future__ import annotations
 
 import logging
+import json
 from typing import Any, Dict, List, Optional
 
+from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
+from application.ai_invocation.autopilot.materializers import ChapterContextMaterializer
+from application.ai_invocation.autopilot.orchestrator import AutopilotInvocationOrchestrator
+from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
+from application.ai_invocation.autopilot.publisher import AutopilotSessionPublisher
 from domain.ai.services.llm_service import GenerationConfig
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
 from domain.novel.entities.chapter import ChapterStatus
@@ -14,6 +20,110 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.structure.story_node import StoryNode
 
 logger = logging.getLogger(__name__)
+
+
+def _get_autopilot_orchestrator(host: Any) -> AutopilotInvocationOrchestrator:
+    from application.ai_invocation.contracts import ensure_invocation_contract
+    from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
+    from infrastructure.persistence.database.connection import get_database
+
+    db = get_database()
+    ensure_invocation_contract("autopilot.outline.partition", "outline-beat-partition", db)
+    return get_or_create_autopilot_orchestrator(host)
+
+
+def _read_shared_state(novel_id: str) -> Dict[str, Any]:
+    try:
+        from interfaces.main import get_shared_novel_state
+
+        return dict(get_shared_novel_state(novel_id) or {})
+    except Exception:
+        return {}
+
+
+def _build_adopted_chapter_plan(
+    *,
+    payload: Dict[str, Any],
+    outline: str,
+    target_word_count: int,
+    novel_id: str,
+    chapter_num: int,
+):
+    from application.engine.dag.plan.schema import ChapterExecutionPlan, PlanAtomSpec, PlanningEnvelope
+    from application.engine.dag.plan.outline_beat_planner import outline_fingerprint
+
+    if payload.get("schema_version") and payload.get("envelope") is not None:
+        try:
+            return ChapterExecutionPlan.model_validate(payload)
+        except Exception:
+            logger.debug("[%s] adopted chapter plan schema validate failed, normalizing atoms", novel_id, exc_info=True)
+
+    atoms_raw = payload.get("atoms") or payload.get("micro_beats") or []
+    atoms = []
+    if isinstance(atoms_raw, list):
+        for i, raw in enumerate(atoms_raw):
+            if isinstance(raw, str):
+                intent = raw.strip()
+                ext = {"decomposition_mode": "autopilot_invocation"}
+            elif isinstance(raw, dict):
+                intent = str(raw.get("intent") or raw.get("summary") or raw.get("description") or raw.get("purpose") or "").strip()
+                ext = dict(raw.get("extensions") or {}) if isinstance(raw.get("extensions"), dict) else {}
+                for key in (
+                    "function",
+                    "focus",
+                    "visible_action",
+                    "conflict",
+                    "delta",
+                    "handoff_to_next",
+                    "pov",
+                    "cast_refs",
+                    "location_refs",
+                    "prop_refs",
+                    "knowledge_refs",
+                    "must_include",
+                    "must_not_include",
+                ):
+                    value = raw.get(key)
+                    if value not in (None, "", [], {}):
+                        ext[key] = value
+                ext.setdefault("decomposition_mode", "autopilot_invocation")
+            else:
+                continue
+            if not intent:
+                continue
+            atoms.append(
+                PlanAtomSpec(
+                    id=f"b{i + 1}",
+                    intent=intent,
+                    weight=1.0,
+                    extensions=ext,
+                )
+            )
+
+    if not atoms:
+        atoms = [
+            PlanAtomSpec(
+                id="b1",
+                intent=(outline or "").strip() or "按本章大纲推进",
+                weight=1.0,
+                extensions={"decomposition_mode": "autopilot_invocation_empty_fallback"},
+            )
+        ]
+
+    return ChapterExecutionPlan(
+        envelope=PlanningEnvelope(
+            novel_id=novel_id,
+            chapter_number=chapter_num,
+            target_chapter_words=target_word_count,
+            source_outline_hash=outline_fingerprint(outline or ""),
+        ),
+        atoms=atoms,
+        provenance={
+            "node_hint": "autopilot_outline_partition",
+            "mode": "autopilot_invocation_adopted",
+            "atom_count": len(atoms),
+        },
+    )
 
 
 async def run_legacy_writing(host: Any, novel: Novel) -> None:
@@ -229,44 +339,169 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
         chapter_plan = None
         try:
             from application.engine.dag.plan.outline_beat_planner import (
-                build_chapter_execution_plan_async,
+                build_chapter_execution_plan_sync,
             )
 
-            logger.info(
-                "[%s] 📑 章前规划开始（outline_planning / CPMS outline-beat-partition）第 %s 章",
-                novel.novel_id.value,
-                chapter_num,
-            )
-            host._update_shared_state(
-                novel.novel_id.value,
-                writing_substep="outline_planning",
-                writing_substep_label="章前规划 · 划分节拍",
-                current_chapter_number=chapter_num,
-                context_tokens=bundle.get("context_tokens", 0) if bundle else 0,
-                planned_micro_beats=[],
-                outline_plan_mode="",
-                total_beats=0,
-            )
+            shared_state = _read_shared_state(novel.novel_id.value)
+            pending_chapter = shared_state.get("autopilot_pending_chapter_number")
+            pending_plan = shared_state.get("autopilot_pending_chapter_plan")
+            if (
+                pending_plan
+                and isinstance(pending_plan, dict)
+                and str(pending_chapter or "") == str(chapter_num)
+            ):
+                chapter_plan = _build_adopted_chapter_plan(
+                    payload=pending_plan,
+                    outline=outline,
+                    target_word_count=target_word_count,
+                    novel_id=novel.novel_id.value,
+                    chapter_num=chapter_num,
+                )
+                host._update_shared_state(
+                    novel.novel_id.value,
+                    autopilot_pending_chapter_number=None,
+                    autopilot_pending_chapter_plan=None,
+                    writing_substep="outline_planning",
+                    writing_substep_label="章前规划 · 已采纳",
+                )
 
-            async def _emit_outline_planning_delta(_piece: str) -> None:
-                if not _piece:
-                    return
+            if chapter_plan is None and shared_state.get("requires_ai_review") and shared_state.get("active_invocation_session_id"):
+                logger.info(
+                    "[%s] 章前规划已有待处理 invocation session=%s，等待面板处理",
+                    novel.novel_id.value,
+                    shared_state.get("active_invocation_session_id"),
+                )
+                novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+                novel.autopilot_status = AutopilotStatus.RUNNING
+                host._flush_novel(novel)
+                return
+
+            if chapter_plan is not None:
+                logger.info(
+                    "[%s] ✓ 章前规划使用已采纳 AI Invocation 结果（第 %s 章）",
+                    novel.novel_id.value,
+                    chapter_num,
+                )
+                if getattr(novel, "current_stage", None) != NovelStage.WRITING:
+                    novel.current_stage = NovelStage.WRITING
+                host._update_shared_state(
+                    novel.novel_id.value,
+                    current_stage="writing",
+                    requires_ai_review=False,
+                    active_invocation_session_id="",
+                    active_invocation_operation="",
+                    active_invocation_node_key="",
+                    active_invocation_status="completed",
+                    active_invocation_policy="",
+                    autopilot_pause_reason="",
+                )
+            else:
+                logger.info(
+                    "[%s] 📑 章前规划开始（autopilot invocation / outline-beat-partition）第 %s 章",
+                    novel.novel_id.value,
+                    chapter_num,
+                )
                 host._update_shared_state(
                     novel.novel_id.value,
                     writing_substep="outline_planning",
-                    writing_substep_label="章前规划 · 流式划分节拍…",
+                    writing_substep_label="章前规划 · AI 请求面板",
+                    current_chapter_number=chapter_num,
+                    context_tokens=bundle.get("context_tokens", 0) if bundle else 0,
+                    planned_micro_beats=[],
+                    outline_plan_mode="",
+                    total_beats=0,
                 )
 
-            chapter_plan = await build_chapter_execution_plan_async(
-                outline,
-                target_chapter_words=target_word_count,
-                novel_id=novel.novel_id.value,
-                chapter_number=chapter_num,
-                beat_sheet_json=beat_sheet_json,
-                use_llm=True,
-                emit_llm_delta=_emit_outline_planning_delta,
-                llm_service=host.llm_service,
-            )
+                invocation_context = {
+                    "novel_id": novel.novel_id.value,
+                    "chapter_number": chapter_num,
+                }
+                from application.paths import get_db_path
+                from infrastructure.persistence.database.connection import get_database
+                from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+                materialized_repo = SqliteVariableHubRepository(get_database(get_db_path()))
+                materialized = ChapterContextMaterializer().materialize(
+                    bundle=bundle or {},
+                    outline=outline,
+                    target_chapter_words=target_word_count,
+                    repository=materialized_repo,
+                    context_key=f"novel_id:{novel.novel_id.value}|chapter_number:{chapter_num}",
+                    source_node_key="outline-beat-partition",
+                )
+                policy = AutopilotInvocationPolicyResolver().resolve(
+                    operation="autopilot.outline.partition",
+                    node_key="outline-beat-partition",
+                    novel=novel,
+                    context=invocation_context,
+                )
+                outcome = await _get_autopilot_orchestrator(host).request(
+                    AutopilotInvocationIntent(
+                        novel_id=novel.novel_id.value,
+                        stage="planning",
+                        operation="autopilot.outline.partition",
+                        node_key="outline-beat-partition",
+                        context=invocation_context,
+                        explicit_variables={
+                            "outline": outline,
+                            "target_chapter_words": target_word_count,
+                            "materialized.chapter.generation_context": materialized["materialized.chapter.generation_context"],
+                            "chapter.outline": materialized["chapter.outline"],
+                            "chapter.target_words": materialized["chapter.target_words"],
+                            "continuity_hint": materialized["runtime.continuity_hint"],
+                            "runtime.continuity_hint": materialized["runtime.continuity_hint"],
+                        },
+                        continuation_handler_key="autopilot_outline_partition",
+                        policy_hint=policy,
+                        metadata={
+                            "source": "legacy_writing_delegate",
+                            "beat_sheet_present": bool(beat_sheet_json),
+                        },
+                    )
+                )
+                if outcome.status in (
+                    "awaiting_pre_call_review",
+                    "awaiting_acceptance",
+                    "awaiting_commit",
+                    "blocked",
+                ):
+                    host._update_shared_state(
+                        novel.novel_id.value,
+                        active_invocation_session_id=outcome.session_id,
+                        active_invocation_operation=outcome.operation,
+                        active_invocation_node_key=outcome.node_key,
+                        active_invocation_status=outcome.status,
+                        active_invocation_policy="AUTOPILOT_PAUSE",
+                        requires_ai_review=True,
+                        autopilot_pause_reason=outcome.autopilot_pause_reason or "awaiting_ai_review",
+                    )
+                    novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+                    novel.autopilot_status = AutopilotStatus.RUNNING
+                    host._flush_novel(novel)
+                    return
+
+                if outcome.status == "completed" and outcome.accepted_content.strip():
+                    try:
+                        accepted_payload = json.loads(outcome.accepted_content)
+                    except Exception:
+                        accepted_payload = {}
+                    if isinstance(accepted_payload, dict):
+                        chapter_plan = _build_adopted_chapter_plan(
+                            payload=accepted_payload,
+                            outline=outline,
+                            target_word_count=target_word_count,
+                            novel_id=novel.novel_id.value,
+                            chapter_num=chapter_num,
+                        )
+                if chapter_plan is None:
+                    chapter_plan = build_chapter_execution_plan_sync(
+                        outline,
+                        target_chapter_words=target_word_count,
+                        novel_id=novel.novel_id.value,
+                        chapter_number=chapter_num,
+                        beat_sheet_json=beat_sheet_json,
+                        decomposition_label="autopilot_outline_partition_direct_fallback",
+                    )
         except Exception as e:
             logger.warning(
                 "[%s] 章前执行计划（拆节拍）失败，降级为同步 ChapterExecutionPlan：%s",
@@ -606,6 +841,17 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                     chapter_draft_so_far=accumulated_content,
                 )
 
+            shared_state_after_call = _read_shared_state(novel.novel_id.value)
+            if shared_state_after_call.get("requires_ai_review") and shared_state_after_call.get("active_invocation_session_id"):
+                logger.info(
+                    "[%s] AI Invocation 已进入待审阅状态，暂停本章后续节拍",
+                    novel.novel_id.value,
+                )
+                novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+                novel.autopilot_status = AutopilotStatus.RUNNING
+                host._flush_novel(novel)
+                return
+
             if beat_content.strip():
                 # 不再做硬截断或截断后补写。超额由后续章节完成判定和节拍预算调度处理。
 
@@ -757,6 +1003,16 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
             beat_content = await host._stream_one_beat(
                 outline, context, None, None, novel=novel, voice_anchors=voice_anchors
             )
+        shared_state_after_call = _read_shared_state(novel.novel_id.value)
+        if shared_state_after_call.get("requires_ai_review") and shared_state_after_call.get("active_invocation_session_id"):
+            logger.info(
+                "[%s] AI Invocation 已进入待审阅状态，暂停本章后续处理",
+                novel.novel_id.value,
+            )
+            novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+            novel.autopilot_status = AutopilotStatus.RUNNING
+            host._flush_novel(novel)
+            return
         if not host._is_still_running(novel):
             logger.info(f"[{novel.novel_id}] 用户已停止，单段生成已中断")
             novel.current_beat_index = 0
@@ -1018,4 +1274,3 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
         f"[{novel.novel_id}] 🎉 第 {chapter_num} 章完成：{actual_word_count} 字 "
         f"(目标 {target_word_count} 字，共 {novel.current_auto_chapters}/{novel.target_chapters} 章)"
     )
-

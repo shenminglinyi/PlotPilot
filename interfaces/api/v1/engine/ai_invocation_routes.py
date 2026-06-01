@@ -47,9 +47,11 @@ from interfaces.api.dependencies import get_llm_service
 logger = logging.getLogger(__name__)
 
 try:
+    from application.ai_invocation.autopilot.continuations import register_autopilot_continuations
     from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
     from application.world.services.bible_setup_continuation import register_bible_setup_continuations
 
+    register_autopilot_continuations()
     register_setup_main_plot_continuation()
     register_bible_setup_continuations()
 except Exception:

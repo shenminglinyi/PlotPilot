@@ -80,6 +80,13 @@ class StatePublisher:
                 last_chapter_tension=fields.get("last_chapter_tension", 0),
                 auto_approve_mode=fields.get("auto_approve_mode", False),
                 needs_review=fields.get("needs_review", False),
+                active_invocation_session_id=fields.get("active_invocation_session_id", ""),
+                active_invocation_operation=fields.get("active_invocation_operation", ""),
+                active_invocation_node_key=fields.get("active_invocation_node_key", ""),
+                active_invocation_status=fields.get("active_invocation_status", ""),
+                active_invocation_policy=fields.get("active_invocation_policy", ""),
+                requires_ai_review=fields.get("requires_ai_review", False),
+                autopilot_pause_reason=fields.get("autopilot_pause_reason", ""),
             )
         else:
             # 更新字段
