@@ -134,6 +134,14 @@ export interface GenerateChapterWithContextPayload {
   invocation_policy?: 'DIRECT' | 'REVIEW_BEFORE_CALL' | 'REVIEW_AFTER_CALL' | 'FULL_INTERACTIVE' | 'INTERACTIVE_WHEN_AVAILABLE' | 'AUTOPILOT_PAUSE'
   /** 重新生成时的改进方向（可选）；填写后 AI 会在 prompt 中看到改进要求 */
   regeneration_guidance?: string
+  /** 覆盖 LLM 控制台档案 ID；不传则使用系统激活档案 */
+  profile_id?: string
+  /** 自定义剧本生成提示词模板（支持 {{variable}} 占位符） */
+  script_prompt_template?: string
+  /** 自定义正文生成提示词模板（支持 {{variable}} 占位符） */
+  prose_prompt_template?: string
+  /** 提示词变量键值对 */
+  prompt_variables?: Record<string, string>
 }
 
 export interface ChapterDraftDTO {

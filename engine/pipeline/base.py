@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from engine.pipeline.context import PipelineContext, PipelineResult
 from engine.pipeline.steps import StepResult
-from engine.pipeline.generation_prompt_builder import build_generation_prompt, make_prompt, make_script_prompt
+from engine.pipeline.generation_prompt_builder import build_generation_prompt, make_prompt
 from engine.pipeline.telemetry import story_pipeline_wave_meta
 from application.ai.trace_context import ensure_trace
 
@@ -423,7 +423,7 @@ class BaseStoryPipeline(ABC):
         if ctx.context_text:
             script_prompt_text += f"\n【参考背景】\n{ctx.context_text[:4000]}"
 
-        prompt = make_script_prompt(script_prompt_text)
+        prompt = make_prompt(script_prompt_text)
         try:
             from domain.ai.services.llm_service import GenerationConfig
             cfg = GenerationConfig(max_tokens=2048, temperature=0.7)

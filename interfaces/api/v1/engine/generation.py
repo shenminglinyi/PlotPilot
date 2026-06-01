@@ -457,6 +457,22 @@ class GenerateChapterRequest(BaseModel):
         False,
         description="手动确认绕过故事演进 Gate 的 blocking 风险",
     )
+    profile_id: Optional[str] = Field(
+        None,
+        description="覆盖 LLM 控制台档案 ID；不传则使用当前激活档案",
+    )
+    script_prompt_template: Optional[str] = Field(
+        None,
+        description="自定义六模块剧本生成提示词模板；支持 {{variable}} 占位符",
+    )
+    prose_prompt_template: Optional[str] = Field(
+        None,
+        description="自定义剧本转正文提示词模板；支持 {{variable}} 占位符",
+    )
+    prompt_variables: Optional[dict] = Field(
+        None,
+        description="提示词变量键值对；与模板配合使用",
+    )
 
 
 def _ensure_chapter_generation_invocation_contract() -> None:
@@ -892,6 +908,10 @@ async def generate_chapter_stream(
             scene_director=scene_director,
             regeneration_guidance=request.regeneration_guidance,
             allow_evolution_gate_bypass=request.allow_evolution_gate_bypass,
+            profile_id=request.profile_id,
+            script_prompt_template=request.script_prompt_template,
+            prose_prompt_template=request.prose_prompt_template,
+            prompt_variables=request.prompt_variables,
         ):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 

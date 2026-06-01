@@ -391,15 +391,6 @@
                 </n-space>
               </n-form-item>
 
-              <n-form-item label="生成审阅" label-placement="left" label-width="80" :show-feedback="false">
-                <n-space align="center" :size="8">
-                  <n-switch v-model:value="preCallReviewEnabled" :disabled="generateInProgress" size="small" />
-                  <n-text depth="3" style="font-size: 12px">
-                    开启后先冻结 CPMS 提示词与变量快照，弹出 AI 生成审阅面板，不直接进入正文生成。
-                  </n-text>
-                </n-space>
-              </n-form-item>
-
               <n-alert v-if="sceneDirectorError" type="warning" :show-icon="true" style="font-size: 12px">
                 场记分析失败（不影响生成）：{{ sceneDirectorError }}
               </n-alert>
@@ -422,6 +413,89 @@
                 </n-form-item>
               </template>
 
+              <!-- AI 设置 · 模型档案与提示词 -->
+              <n-collapse class="gen-ai-settings-collapse">
+                <n-collapse-item name="ai-settings">
+                  <template #header>
+                    <n-space align="center" :size="6">
+                      <span style="font-size:13px;font-weight:600">AI 设置</span>
+                      <n-tag size="tiny" round type="info">模型档案与提示词</n-tag>
+                    </n-space>
+                  </template>
+                  <n-space vertical :size="16">
+                    <n-form-item label="LLM 配置档案" label-placement="left" label-width="80">
+                      <n-select
+                        v-model:value="generateProfileId"
+                        :options="llmProfileOptions"
+                        placeholder="使用系统默认激活档案"
+                        :disabled="generateInProgress"
+                        clearable
+                        :loading="llmProfilesLoading"
+                      />
+                      <n-text depth="3" style="font-size: 11px">
+                        选择特定模型档案；留空则使用系统默认激活档案
+                      </n-text>
+                    </n-form-item>
+
+                    <n-collapse>
+                      <n-collapse-item name="script-prompt" title="六模块剧本提示词">
+                        <n-space vertical :size="12">
+                          <n-switch v-model:value="useCustomScriptPrompt" :disabled="generateInProgress" size="small">
+                            使用自定义模板
+                          </n-switch>
+                          <template v-if="useCustomScriptPrompt">
+                            <n-input
+                              v-model:value="customScriptTemplate"
+                              type="textarea"
+                              placeholder="自定义剧本生成提示词，使用 {变量名} 占位符..."
+                              :autosize="{ minRows: 4, maxRows: 10 }"
+                              :disabled="generateInProgress"
+                            />
+                            <n-text depth="3" style="font-size: 11px">
+                              变量（对应模板中的 <code v-pre>{<!-- -->{变量名}}</code>）
+                            </n-text>
+                            <n-dynamic-input
+                              v-model:value="scriptPromptVarPairs"
+                              preset="pair"
+                              key-placeholder="变量名"
+                              value-placeholder="值"
+                              :disabled="generateInProgress"
+                            />
+                          </template>
+                        </n-space>
+                      </n-collapse-item>
+
+                      <n-collapse-item name="prose-prompt" title="剧本转正文提示词">
+                        <n-space vertical :size="12">
+                          <n-switch v-model:value="useCustomProsePrompt" :disabled="generateInProgress" size="small">
+                            使用自定义模板
+                          </n-switch>
+                          <template v-if="useCustomProsePrompt">
+                            <n-input
+                              v-model:value="customProseTemplate"
+                              type="textarea"
+                              placeholder="自定义正文生成提示词，使用 {变量名} 占位符..."
+                              :autosize="{ minRows: 4, maxRows: 10 }"
+                              :disabled="generateInProgress"
+                            />
+                            <n-text depth="3" style="font-size: 11px">
+                              变量（对应模板中的 <code v-pre>{<!-- -->{变量名}}</code>）
+                            </n-text>
+                            <n-dynamic-input
+                              v-model:value="prosePromptVarPairs"
+                              preset="pair"
+                              key-placeholder="变量名"
+                              value-placeholder="值"
+                              :disabled="generateInProgress"
+                            />
+                          </template>
+                        </n-space>
+                      </n-collapse-item>
+                    </n-collapse>
+                  </n-space>
+                </n-collapse-item>
+              </n-collapse>
+
               <n-button
                 :type="isRegenerationMode ? 'warning' : 'primary'"
                 @click="handleStartGenerate"
@@ -439,9 +513,7 @@
                         : '生成中...'
                       : isRegenerationMode
                         ? '🔄 开始重新生成'
-                        : preCallReviewEnabled
-                          ? '生成前审阅'
-                          : '开始生成'
+                        : '开始生成'
                 }}
               </n-button>
             </n-space>
@@ -748,6 +820,7 @@ import type { ContextPreviewResult, GenerateChapterWorkflowResponse, StreamGener
 import type { GenerationPrefsDTO } from '@/api/novel'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi, type ChapterMicroBeatPayload } from '../../api/chapter'
+import { llmControlApi, type LLMProfile } from '../../api/llmControl'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
 import ChapterContentPanel from './ChapterContentPanel.vue'
@@ -760,7 +833,6 @@ const QualityGuardrailPanel = defineAsyncComponent(() => import('./QualityGuardr
 const TraceRecordPanel = defineAsyncComponent(() => import('./TraceRecordPanel.vue'))
 const AutopilotWorkspace = defineAsyncComponent(() => import('../autopilot/AutopilotWorkspace.vue'))
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
-import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import {
   CHAPTER_DESK_AUX_ORDER,
@@ -811,7 +883,6 @@ const dialog = useDialog()
 
 const desk = useChapterDeskLayout()
 
-const aiInvocationStore = useAIInvocationStore()
 const workbenchRefresh = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(workbenchRefresh)
 
@@ -863,6 +934,19 @@ const assistStreamBeatSession = ref<{ chapterNumber: number; beats: StreamGenera
 const assistStreamFailedChapter = ref<number | null>(null)
 /** 流式完成但章前拆拍失败或仅 1 拍（降级） */
 const assistStreamPlanFailedChapter = ref<number | null>(null)
+
+// ── AI Panel & Variable Center Integration ──
+const generateProfileId = ref<string | null>(null)
+const llmProfiles = ref<LLMProfile[]>([])
+const llmProfilesLoading = ref(false)
+
+const useCustomScriptPrompt = ref(false)
+const customScriptTemplate = ref('')
+const scriptPromptVarPairs = ref<Array<{ key: string; value: string }>>([])
+
+const useCustomProsePrompt = ref(false)
+const customProseTemplate = ref('')
+const prosePromptVarPairs = ref<Array<{ key: string; value: string }>>([])
 
 /** 全托管：当前章规划已结束且 total_beats≤1 → 微观区才用章纲拆条 */
 const AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS = new Set([
@@ -1019,7 +1103,6 @@ function sseTagType(
     SSE: 'info',
     规划: 'warning',
     节拍: 'success',
-    审阅: 'info',
     正文: 'primary',
   }
   return map[tag] ?? 'default'
@@ -1053,8 +1136,6 @@ function briefPhaseLogLabel(phase: string): string {
 const isRegenerationMode = ref(false)
 /** 重新生成改进方向（可选，传给后端 regeneration_guidance） */
 const regenerationGuidance = ref('')
-/** 手动章节生成：是否先进入 AI Invocation 生成前审阅 */
-const preCallReviewEnabled = ref(false)
 /** 是否正在保存草稿（重新生成前的快照） */
 const savingDraftBeforeRegen = ref(false)
 
@@ -1405,6 +1486,48 @@ const chapterSelectOptions = computed(() =>
   }))
 )
 
+// ── AI Panel helpers ──
+const llmProfileOptions = computed(() =>
+  llmProfiles.value.map(p => ({
+    label: `${p.name} (${p.model || p.protocol})`,
+    value: p.id,
+  }))
+)
+
+async function loadLLMProfilesForModal() {
+  if (llmProfiles.value.length > 0) return
+  llmProfilesLoading.value = true
+  try {
+    const data = await llmControlApi.getPanel()
+    llmProfiles.value = data.config.profiles || []
+    if (!generateProfileId.value && data.config.active_profile_id) {
+      generateProfileId.value = data.config.active_profile_id
+    }
+  } catch {
+    /* silently fail; profile selector will be empty */
+  } finally {
+    llmProfilesLoading.value = false
+  }
+}
+
+function buildPromptVariables(): Record<string, string> | null {
+  const vars: Record<string, string> = {}
+  for (const pair of scriptPromptVarPairs.value) {
+    if (pair.key) vars[pair.key] = pair.value
+  }
+  for (const pair of prosePromptVarPairs.value) {
+    if (pair.key) vars[pair.key] = pair.value
+  }
+  return Object.keys(vars).length > 0 ? vars : null
+}
+
+watch(showGenerateModal, (visible) => {
+  if (!visible) {
+    useCustomScriptPrompt.value = false
+    useCustomProsePrompt.value = false
+  }
+})
+
 const modalTargetChapter = computed(() => {
   const id = generateTargetChapterId.value
   if (id == null) return null
@@ -1661,7 +1784,6 @@ const handleGenerateChapter = async () => {
 
   isRegenerationMode.value = false
   regenerationGuidance.value = ''
-  preCallReviewEnabled.value = false
   generateTargetChapterId.value = currentChapter.value.id
   generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
 
@@ -1670,6 +1792,7 @@ const handleGenerateChapter = async () => {
   contextPreview.value = null
   blurSceneCache.value = undefined
   showGenerateModal.value = true
+  void loadLLMProfilesForModal()
 }
 
 const handleRegenerateChapter = async () => {
@@ -1681,7 +1804,6 @@ const handleRegenerateChapter = async () => {
 
   isRegenerationMode.value = true
   regenerationGuidance.value = ''
-  preCallReviewEnabled.value = false
   generateTargetChapterId.value = currentChapter.value.id
   // 列表项不带 outline，统一用默认模板做种子；用户可在弹窗里编辑
   generateOutline.value = `${ordinalUnit(currentChapter.value.number)}：${currentChapter.value.title || ''}
@@ -1691,6 +1813,7 @@ const handleRegenerateChapter = async () => {
   contextPreview.value = null
   blurSceneCache.value = undefined
   showGenerateModal.value = true
+  void loadLLMProfilesForModal()
 }
 
 function streamPhaseToProgress(phase: string): number {
@@ -1842,7 +1965,14 @@ const handleStartGenerate = async () => {
         regeneration_guidance: isRegenerationMode.value && regenerationGuidance.value.trim()
           ? regenerationGuidance.value.trim()
           : undefined,
-        invocation_policy: preCallReviewEnabled.value ? 'FULL_INTERACTIVE' : undefined,
+        profile_id: generateProfileId.value || undefined,
+        script_prompt_template: useCustomScriptPrompt.value
+          ? customScriptTemplate.value || undefined
+          : undefined,
+        prose_prompt_template: useCustomProsePrompt.value
+          ? customProseTemplate.value || undefined
+          : undefined,
+        prompt_variables: buildPromptVariables() || undefined,
       },
       {
         signal: ctrl.signal,
@@ -1884,16 +2014,6 @@ const handleStartGenerate = async () => {
               pushGenerateSseLog('规划', `outline_partition Δ ×${n}（+${text.length}）`)
             }
           }
-        },
-        onApprovalRequired: (sessionId) => {
-          generateStreamPhase.value = 'approval_required'
-          streamPhaseLabel.value = '等待 AI 生成审阅…'
-          streamProgressPct.value = Math.max(streamProgressPct.value, 52)
-          pushGenerateSseLog('审阅', `approval_required · ${sessionId}`)
-          message.info('已进入 AI 生成前审阅')
-          void aiInvocationStore.open(sessionId).catch(() => {
-            message.error('打开 AI 生成审阅失败')
-          })
         },
         onChunk: (text, stats) => {
           generatedContent.value += text
@@ -1957,7 +2077,7 @@ const handleStartGenerate = async () => {
     generateInProgress.value = false
     generatingChapterId.value = null
     generateAbortCtrl.value = null
-    if (!ctrl.signal.aborted && streamProgressPct.value < 100 && generateStreamPhase.value !== 'approval_required') {
+    if (!ctrl.signal.aborted && streamProgressPct.value < 100) {
       streamPhaseLabel.value = ''
       streamProgressPct.value = 0
     }
