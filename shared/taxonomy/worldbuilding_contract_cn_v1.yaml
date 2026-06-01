@@ -1,0 +1,91 @@
+version: worldbuilding-contract-cn-v1
+description: 世界观五维字段契约、字段边界提示和嵌套 JSON 中文标签。
+
+dimensions:
+  core_rules:
+    label: 核心法则
+    fields:
+      power_system: 力量体系/科技树的描述
+      physics_rules: 底层物理/时间/生理规律
+      magic_tech: 技术接口与运作机制
+    scope_hints:
+      power_system: 只写能力/科技体系的核心分类、运行目标和使用门槛；可简要带出代价但不要拆成多字段
+      physics_rules: 只写时间流速、神经反馈、生理极限等底层规律；不要写训练资源和非公开交易网络
+      magic_tech: 只写游戏舱、同步接口、引擎、服务器等技术如何运作；不要写政治经济
+  geography:
+    label: 地理生态
+    fields:
+      terrain: 主要地形特征
+      climate: 气候特点与环境
+      resources: 自然资源分布
+      ecology: 生态系统与生物链
+    scope_hints:
+      terrain: 只写世界版图、地貌和空间边界；不要写资源清单和社会制度
+      climate: 只写气候、天象、季节和环境对修炼的影响；不要写政治和经济
+      resources: 只写资源分布在哪里、为何难取；不要写货币制度和市场交易
+      ecology: 只写妖兽、灵植、生物链和环境危险；不要写人族阶级制度
+  society:
+    label: 社会结构
+    fields:
+      politics: 政治体制与权力架构
+      economy: 经济模式与贸易
+      class_system: 阶级/等级系统
+    scope_hints:
+      politics: 只写统治结构和明面规则；不要写经济价格、宗教神话或日常生活
+      economy: 只写货币、贸易、地下流通渠道和资源流通；不要写阶级身份大段定义
+      class_system: 只写阶级层级和身份差异；不要写具体压迫手段细节
+  culture:
+    label: 历史文化
+    fields:
+      history: 关键历史事件与时代背景
+      religion: 宗教信仰体系
+      taboos: 文化禁忌与违逆后果
+    scope_hints:
+      history: 只写关键历史事件及遗留后果；不要写娱乐、教育和通信
+      religion: 只写信仰叙事和神话如何服务秩序；不要写禁忌清单
+      taboos: 只写禁忌、触犯后果和维稳用途；不要写完整历史
+  daily_life:
+    label: 沉浸感细节
+    fields:
+      food_clothing: 衣食住行的日常细节
+      language_slang: 俚语、口音与方言
+      entertainment: 娱乐方式与消遣
+    scope_hints:
+      food_clothing: 只写衣食住行和生活成本；不要写完整社会阶级
+      language_slang: 只写方言、称呼、口头禅和说话习惯；必须给2-4个可入正文的短语
+      entertainment: 只写娱乐、节庆、赌博、斗法观看等消遣；不要写教育通信
+
+json_key_labels:
+  name: 名称
+  essence: 本质
+  description: 说明
+  cost: 代价
+  tier: 层级
+  realm_structure: 境界结构
+  fatal_flaw: 致命缺陷
+  continent_name: 大陆名称
+  key_regions: 关键区域
+  climate_impact: 气候影响
+  terrain: 地形
+  survival_rule: 生存法则
+  resources: 资源
+  ruling_class: 统治阶层
+  middle_class: 中间阶层
+  lower_class: 底层
+  members: 成员
+  privileges: 特权
+  succession: 传承
+  population: 人口
+  oppression: 压迫
+  resistance: 反抗
+  currency: 货币
+  underground_trade: 非公开交易
+  slave_trade: 奴役贸易
+  dominant_faith: 主流信仰
+  doctrine: 教义
+  truth: 真相
+  rituals: 仪式
+  values: 价值观
+  art_and_literature: 文艺
+  punishment: 惩罚
+  禁忌: 禁忌

@@ -55,46 +55,12 @@ class LlmInitialKnowledgePayload(BaseModel):
 
 # CPMS: 提示词节点 key
 from infrastructure.ai.prompt_keys import KNOWLEDGE_INITIAL as _KNOWLEDGE_NODE_KEY
-
-# 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_INITIAL_KNOWLEDGE_SYSTEM = """你是专业的小说知识图谱构建助手。根据小说标题和设定，生成核心知识。
-
-**字段契约（多一字段即非法，不要输出 provenance、source_type、chapter_element_id 等）：**
-- premise_lock: string，一句话核心梗概（约 50～100 字）
-- facts: array，每项仅含 id, subject, predicate, object, note（note 可省略或空字符串）
-- id 使用稳定前缀如 fact-001、fact-002
-- object 为宾语字符串（JSON 键名必须是 "object"）
-- 提取 5～10 条核心设定三元组：主要角色身份、核心地点、关键规则/能力；只写确定设定，不要推测
-
-**source_type、推断溯源由服务端写入；模型不要编造。**
-
-请按照以下json格式进行输出，可以被Python json.loads函数解析。只给出JSON，不作解释，不作答：
-```json
-{
-    "premise_lock": "",
-    "facts": []
-}
-```
-"""
+from infrastructure.ai.prompt_utils import get_required_prompt_system
 
 
 def build_initial_knowledge_system_prompt() -> str:
-    """供 AutoKnowledgeGenerator 等拼接 system prompt。
-
-    CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-    如果 Registry 不可用则回退到硬编码默认值。
-    """
-    try:
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        system = registry.get_system(_KNOWLEDGE_NODE_KEY)
-        if system:
-            return system
-    except Exception as exc:
-        import logging
-        logging.getLogger(__name__).debug("PromptRegistry 不可用，使用回退提示词: %s", exc)
-
-    return _FALLBACK_INITIAL_KNOWLEDGE_SYSTEM
+    """Build the initial-knowledge system prompt from CPMS only."""
+    return get_required_prompt_system(_KNOWLEDGE_NODE_KEY)
 
 
 def initial_knowledge_openai_function_tool() -> Dict[str, Any]:

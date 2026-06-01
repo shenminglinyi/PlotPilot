@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { NConfigProvider, NMessageProvider, NDialogProvider, zhCN, dateZhCN, darkTheme } from 'naive-ui'
 import AppSettingsModal from './components/settings/AppSettingsModal.vue'
+import AIInvocationReviewPanel from './components/ai-invocation/AIInvocationReviewPanel.vue'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useThemeStore } from './stores/themeStore'
 import { useFontSizeStore, scaledUiPx, type FontSizePreset } from './stores/fontSizeStore'
@@ -168,6 +169,7 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => {
             <component :is="Component" />
           </transition>
         </router-view>
+        <AIInvocationReviewPanel />
         <AppSettingsModal />
       </n-dialog-provider>
     </n-message-provider>

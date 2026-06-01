@@ -10,7 +10,7 @@
     :segmented="{ content: true, footer: true }"
   >
     <n-steps :current="currentStep" :status="stepStatus" size="small" class="wizard-steps">
-      <n-step title="世界观" description="5维度框架" class="wizard-step-clickable" @click="goToStep(1)" />
+      <n-step title="文风 / 世界观" description="先定调，再搭 5 维框架" class="wizard-step-clickable" @click="goToStep(1)" />
       <n-step title="人物" description="主要角色" class="wizard-step-clickable" @click="goToStep(2)" />
       <n-step title="地图" description="地图系统" class="wizard-step-clickable" @click="goToStep(3)" />
       <n-step title="故事线" description="主线支线" class="wizard-step-clickable" @click="goToStep(4)" />
@@ -38,8 +38,8 @@
               </n-icon>
             </div>
             <div class="generating-text">
-              <h3>{{ phaseMessage || '正在生成世界观...' }}</h3>
-              <p class="generating-sub">AI 正在逐维度构建您的世界，出一个渲染一个</p>
+              <h3>{{ phaseMessage || '正在生成文风公约与世界观...' }}</h3>
+              <p class="generating-sub">AI 会先定文风，再逐维度构建您的世界，出一个渲染一个</p>
             </div>
           </div>
 
@@ -123,11 +123,22 @@
 
         <!-- 生成完成后显示可编辑预览 -->
         <div v-else-if="bibleGenerated" class="bible-preview">
-          <n-alert type="success" title="世界观生成完成" style="margin-bottom: 16px">
-            请查看并修改世界观设定和文风公约，确认后下一步将基于此生成人物和地点。
+          <n-alert type="success" title="文风公约与世界观生成完成" style="margin-bottom: 16px">
+            请查看并修改文风公约和世界观设定，确认后下一步将基于此生成人物和地点。
           </n-alert>
 
-          <n-collapse :default-expanded-names="['worldbuilding', 'style']">
+          <n-collapse :default-expanded-names="['style', 'worldbuilding']">
+            <n-collapse-item title="文风公约" name="style">
+              <n-card size="small">
+                <n-input
+                  v-model:value="styleText"
+                  type="textarea"
+                  :autosize="{ minRows: 3, maxRows: 10 }"
+                  placeholder="文风公约"
+                />
+              </n-card>
+            </n-collapse-item>
+
             <n-collapse-item title="世界观（5维度框架）" name="worldbuilding">
               <n-space vertical size="small">
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
@@ -145,17 +156,6 @@
                 </n-card>
               </n-space>
             </n-collapse-item>
-
-            <n-collapse-item title="文风公约" name="style">
-              <n-card size="small">
-                <n-input
-                  v-model:value="styleText"
-                  type="textarea"
-                  :autosize="{ minRows: 3, maxRows: 10 }"
-                  placeholder="文风公约"
-                />
-              </n-card>
-            </n-collapse-item>
           </n-collapse>
           <n-button secondary style="margin-top: 12px" @click="startBibleGeneration()">
             重新生成
@@ -167,8 +167,8 @@
           <n-icon size="48" color="#18a058">
             <IconBook />
           </n-icon>
-          <h3>准备生成世界观</h3>
-          <p>AI 将分析您的故事创意，逐维度构建世界观和文风公约。</p>
+          <h3>准备生成文风公约与世界观</h3>
+          <p>AI 将先生成文风公约，再逐维度构建世界观。</p>
           <n-button type="primary" style="margin-top: 16px" @click="startBibleGeneration()">
             开始生成
           </n-button>
@@ -628,7 +628,7 @@
             <n-input
               v-model:value="customLogline"
               type="textarea"
-              placeholder="用一句话写下你想写的主线（例如：废柴少年为救妹妹卷入财阀灵根黑市……）"
+              placeholder="用一句话写下你想写的主线（例如：主角为守住重要的人，被迫卷入更大的秩序裂缝……）"
               :autosize="{ minRows: 2, maxRows: 5 }"
               :disabled="mainPlotCommitted"
             />
@@ -701,6 +701,8 @@ import { worldbuildingApi } from '@/api/worldbuilding'
 import { consumeMainPlotOptionsStream, workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
+import { getDimensionFieldOrder, getWorldbuildingLabel } from '@/domain/worldbuilding/contract'
+import { useAIInvocationStore } from '@/stores/aiInvocationStore'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
 import {
@@ -716,69 +718,10 @@ import {
 const WB_DIMS = ['core_rules', 'geography', 'society', 'culture', 'daily_life'] as const
 type WorldbuildingDimKey = (typeof WB_DIMS)[number]
 
-const WB_FIELD_ORDER: Record<WorldbuildingDimKey, string[]> = {
-  core_rules: [
-    'power_system',
-    'physics_rules',
-    'magic_tech',
-  ],
-  geography: [
-    'terrain',
-    'climate',
-    'resources',
-    'ecology',
-  ],
-  society: [
-    'politics',
-    'economy',
-    'class_system',
-  ],
-  culture: [
-    'history',
-    'religion',
-    'taboos',
-  ],
-  daily_life: [
-    'food_clothing',
-    'language_slang',
-    'entertainment',
-  ],
-}
-
-/** 世界观维度 key → 中文标签 */
-const dimKeyLabels: Record<string, string> = {
-  power_system: '力量体系',
-  physics_rules: '物理规律',
-  magic_tech: '魔法/科技',
-  terrain: '地形',
-  climate: '气候',
-  resources: '资源',
-  ecology: '生态',
-  politics: '政治',
-  economy: '经济',
-  class_system: '阶级',
-  history: '历史',
-  religion: '宗教',
-  taboos: '禁忌',
-  food_clothing: '衣食住行',
-  language_slang: '俚语口音',
-  entertainment: '娱乐方式',
-  continent_name: '大陆名称',
-  key_regions: '关键区域',
-  climate_impact: '气候影响',
-  fatal_flaw: '致命缺陷',
-  realm_structure: '境界结构',
-  dominant_faith: '主流信仰',
-  doctrine: '教义',
-  rituals: '仪式',
-  values: '价值观',
-  art_and_literature: '文艺',
-  ruling_class: '统治阶层',
-  middle_class: '中间阶层',
-  lower_class: '底层',
-  black_market: '黑市',
-  slave_trade: '奴役贸易',
-}
+/** 世界观维度与字段标签来自 shared/taxonomy/worldbuilding_contract_cn_v1.yaml。 */
+const dimKeyLabels: Record<string, string> = new Proxy({}, {
+  get: (_target, key) => getWorldbuildingLabel(String(key)),
+})
 
 function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
   return {
@@ -792,7 +735,7 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
 
 function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
   const block = worldbuildingData.value[dim] || {}
-  const ordered = WB_FIELD_ORDER[dim] || []
+  const ordered = getDimensionFieldOrder(dim)
   return ordered
     .map(key => ({ key, value: String(block[key] ?? '') }))
     .filter(field => field.value.trim().length > 0)
@@ -952,6 +895,9 @@ const props = withDefaults(
 )
 
 const message = useMessage()
+const aiInvocationStore = useAIInvocationStore()
+let mainPlotSessionUnsub: (() => void) | null = null
+const bibleInvocationUnsubs = new Map<string, () => void>()
 
 const emit = defineEmits<{
   (e: 'update:show', value: boolean): void
@@ -1165,6 +1111,56 @@ const locationsSseAbort = ref<AbortController | null>(null)
 /** 可编辑的地点列表（从 bibleData 拷贝，用户可修改后确认落库） */
 const editableLocations = ref<Array<{ name: string; id?: string; location_type?: string; description: string }>>([])
 
+function setBibleStageReviewWaiting(stage: string, waiting: boolean) {
+  if (stage === 'worldbuilding') {
+    generatingBible.value = false
+    bibleGenerated.value = false
+  } else if (stage === 'characters') {
+    generatingCharacters.value = false
+    charactersGenerated.value = false
+  } else if (stage === 'locations') {
+    generatingLocations.value = false
+    locationsGenerated.value = false
+  }
+  phaseMessage.value = waiting ? '等待 AI 审阅批准...' : ''
+}
+
+function markBibleStageCommitted(stage: string) {
+  if (stage === 'worldbuilding') {
+    completedDimensions.value = new Set(WB_DIMS)
+    generatingBible.value = false
+    bibleGenerated.value = true
+  } else if (stage === 'characters') {
+    generatingCharacters.value = false
+    charactersGenerated.value = true
+  } else if (stage === 'locations') {
+    generatingLocations.value = false
+    locationsGenerated.value = true
+  }
+  phaseMessage.value = ''
+  void loadBibleData()
+}
+
+async function openBibleReviewPanel(stage: 'worldbuilding' | 'characters' | 'locations', sessionId: string) {
+  if (!sessionId) return
+  setBibleStageReviewWaiting(stage, true)
+  try {
+    bibleInvocationUnsubs.get(sessionId)?.()
+    const unsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
+      if (payload.session?.status === 'completed' || payload.commit?.status === 'succeeded') {
+        markBibleStageCommitted(stage)
+        bibleInvocationUnsubs.get(sessionId)?.()
+        bibleInvocationUnsubs.delete(sessionId)
+      }
+    })
+    bibleInvocationUnsubs.set(sessionId, unsub)
+    await aiInvocationStore.open(sessionId)
+  } catch (e: unknown) {
+    setBibleStageReviewWaiting(stage, false)
+    message.error(formatApiError(e) || '打开 AI 审阅失败')
+  }
+}
+
 // ── Step 4：主线推演 ──
 const plotOptions = ref<MainPlotOptionDTO[]>([])
 const plotSuggesting = ref(false)
@@ -1196,14 +1192,93 @@ function hasStorylineArchitecture(options: MainPlotOptionDTO[]) {
   )
 }
 
-async function loadPlotSuggestions() {
+function extractMainPlotOptionsFromResult(result: Record<string, unknown>): MainPlotOptionDTO[] {
+  const direct = result.plot_options
+  if (Array.isArray(direct)) return direct as MainPlotOptionDTO[]
+
+  const continuation = result.continuation
+  if (continuation && typeof continuation === 'object') {
+    const fromContinuation = (continuation as Record<string, unknown>).plot_options
+    if (Array.isArray(fromContinuation)) return fromContinuation as MainPlotOptionDTO[]
+    const fromJson = (continuation as Record<string, unknown>).plot_options_json
+    if (typeof fromJson === 'string' && fromJson.trim()) {
+      try {
+        const parsed = JSON.parse(fromJson) as unknown
+        if (Array.isArray(parsed)) return parsed as MainPlotOptionDTO[]
+        if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
+          return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
+        }
+      } catch {
+        // Ignore malformed continuation payload; accepted_content is checked below.
+      }
+    }
+  }
+
+  const acceptedContent = result.accepted_content
+  if (typeof acceptedContent === 'string' && acceptedContent.trim()) {
+    try {
+      const parsed = JSON.parse(acceptedContent) as unknown
+      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
+        return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
+      }
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function applyMainPlotOptionsFromResult(result: Record<string, unknown>) {
+  const options = extractMainPlotOptionsFromResult(result)
+  if (!options.length) return
+  plotOptions.value = options
+  writeWizardUiCache(props.novelId, { plotOptions: options })
+  message.success('AI 审阅已完成，主线候选已回填')
+}
+
+async function openMainPlotReviewPanel(sessionId: string) {
+  if (!sessionId) return
+  message.info('已进入 AI 审阅')
+  try {
+    writeWizardUiCache(props.novelId, { invocationSessionId: sessionId })
+    mainPlotSessionUnsub?.()
+    mainPlotSessionUnsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
+      const result = payload.commit?.result
+      if (!result) return
+      applyMainPlotOptionsFromResult(result)
+      mainPlotSessionUnsub?.()
+      mainPlotSessionUnsub = null
+    })
+    await aiInvocationStore.open(sessionId)
+  } catch (e: unknown) {
+    message.error(formatApiError(e) || '打开 AI 审阅失败')
+  }
+}
+
+async function loadPlotSuggestions(opts?: { forceNew?: boolean }) {
   step4RestoredFromCache.value = false
   plotSuggesting.value = true
   plotSuggestError.value = ''
   plotOptions.value = []
+  if (opts?.forceNew) {
+    writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOptions: undefined })
+  }
+  const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
   try {
+    if (cached?.invocationSessionId) {
+      await openMainPlotReviewPanel(cached.invocationSessionId)
+      if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
+        plotOptions.value = cached.plotOptions
+        step4RestoredFromCache.value = true
+      }
+      return
+    }
+
     let streamError = ''
     await consumeMainPlotOptionsStream(props.novelId, {
+      onApprovalRequired: (sessionId) => {
+        void openMainPlotReviewPanel(sessionId)
+      },
       onPhase: (message) => {
         if (message) phaseMessage.value = message
       },
@@ -1233,12 +1308,18 @@ async function loadPlotSuggestions() {
     try {
       const res = await workflowApi.suggestMainPlotOptions(props.novelId)
       plotOptions.value = res.plot_options || []
+      if (res.invocation_session_id) {
+        void openMainPlotReviewPanel(res.invocation_session_id)
+      }
+      if (!res.invocation_session_id && cached?.invocationSessionId) {
+        void openMainPlotReviewPanel(cached.invocationSessionId)
+      }
       if (plotOptions.value.length) {
         writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
       }
-    } catch (fallbackError: unknown) {
-      let msg = formatApiError(fallbackError) || formatApiError(e) || '推演失败，请重试'
-      if (isLikelyTimeoutError(fallbackError) || isLikelyTimeoutError(e)) {
+    } catch (directError: unknown) {
+      let msg = formatApiError(directError) || formatApiError(e) || '推演失败，请重试'
+      if (isLikelyTimeoutError(directError) || isLikelyTimeoutError(e)) {
         msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
       }
       plotSuggestError.value = msg
@@ -1250,7 +1331,7 @@ async function loadPlotSuggestions() {
 }
 
 async function refreshPlotSuggestions() {
-  await loadPlotSuggestions()
+  await loadPlotSuggestions({ forceNew: true })
 }
 
 async function adoptPlotOption(opt: MainPlotOptionDTO) {
@@ -1346,6 +1427,9 @@ function hydrateStepFourFromCache() {
     if (hasStorylineArchitecture(cached.plotOptions)) {
       plotOptions.value = cached.plotOptions
       step4RestoredFromCache.value = true
+      if (cached.invocationSessionId && !mainPlotCommitted.value) {
+        void openMainPlotReviewPanel(cached.invocationSessionId)
+      }
       return
     }
     writeWizardUiCache(props.novelId, { plotOptions: undefined })
@@ -1359,25 +1443,6 @@ function hydrateStepFourFromCache() {
 // SSE 流式生成函数（含降级到轮询的逻辑）
 // ════════════════════════════════════════════════════════════════════════════
 
-/** SSE 是否可用的缓存标记（同会话内只检测一次） */
-const sseAvailable = ref<boolean | null>(null)
-
-/** 检测 SSE 流式接口是否可用（同会话内缓存，默认走 SSE） */
-async function checkSseAvailable(_novelId: string): Promise<boolean> {
-  if (sseAvailable.value !== null) return sseAvailable.value
-  // generate-stream 为 POST-only，不做 HEAD/OPTIONS 预检（会 405 污染服务端日志）。
-  // 运行时 consumeBibleGenerateStream 失败会自动降级到轮询。
-  sseAvailable.value = true
-  return true
-}
-
-// ── 轮询降级逻辑（保留原轮询代码作为 fallback） ──
-
-const pollTimerRef = ref<ReturnType<typeof setTimeout> | null>(null)
-const biblePollEpoch = ref(0)
-const step2PollEpoch = ref(0)
-const step3PollEpoch = ref(0)
-
 function finishWorldbuildingGeneration() {
   completedDimensions.value = new Set(WB_DIMS)
   activeDimension.value = ''
@@ -1390,184 +1455,18 @@ function finishWorldbuildingGeneration() {
   void loadBibleData()
 }
 
-function clearGenerationTimers() {
-  if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
+// ── AI Invocation 模式入口 ──
+
+/** 启动第1步：创建 AI Invocation 并打开审阅面板。 */
+function startBibleGeneration() {
+  startBibleGenerationSSE()
 }
 
-function clearPollTimer() {
-  if (pollTimerRef.value != null) { clearTimeout(pollTimerRef.value); pollTimerRef.value = null }
-}
-
-function pollBibleUntil(
-  predicate: (bible: BibleDTO) => boolean,
-  options: {
-    isStale: () => boolean
-    onSuccess: () => void
-    onTimeout: () => void
-    onFatal: (message: string) => void
-    watchBackendFailure?: boolean
-  },
-): void {
-  const tick = async () => {
-    if (options.isStale()) return
-    try {
-      const bible = await bibleApi.getBible(props.novelId)
-      if (options.isStale()) return
-      bibleData.value = bible
-      if (predicate(bible)) { options.onSuccess(); return }
-      if (options.watchBackendFailure) {
-        try {
-          const fb = await bibleApi.getBibleGenerationFeedback(props.novelId)
-          if (options.isStale()) return
-          if (fb.error) { options.onFatal(`${fb.error}（阶段：${fb.stage || '未知'}）`); return }
-        } catch { /* */ }
-      }
-    } catch (err: unknown) {
-      if (options.isStale()) return
-      options.onFatal(formatApiError(err) || '查询 Bible 失败')
-      return
-    }
-    window.setTimeout(() => { void tick() }, 2000)
-  }
-  void tick()
-}
-
-/** 轮询模式：第1步生成世界观 */
-async function startBibleGenerationPoll() {
-  clearGenerationTimers()
-  biblePollEpoch.value += 1
-  const epoch = biblePollEpoch.value
-  generatingBible.value = true
-  bibleGenerated.value = false
-  bibleError.value = ''
-  phaseMessage.value = '正在生成世界观...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'worldbuilding')
-    if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-    phaseMessage.value = '正在生成世界观和文风...'
-
-    const schedulePoll = (delayMs: number) => {
-      clearPollTimer()
-      pollTimerRef.value = window.setTimeout(() => { void runPoll() }, delayMs)
-    }
-
-    const runPoll = async () => {
-      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-      try {
-        const status = await bibleApi.getBibleStatus(props.novelId)
-        if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-        if (status.ready) {
-          clearGenerationTimers()
-          finishWorldbuildingGeneration()
-          return
-        }
-      } catch (error: unknown) {
-        if (biblePollEpoch.value !== epoch) return
-        clearGenerationTimers()
-        generatingBible.value = false
-        bibleError.value = formatApiError(error) || '检查状态失败'
-        phaseMessage.value = ''
-        return
-      }
-      if (biblePollEpoch.value !== epoch || !generatingBible.value) return
-      schedulePoll(2000)
-    }
-
-    schedulePoll(0)
-  } catch (error: unknown) {
-    if (biblePollEpoch.value !== epoch) return
-    generatingBible.value = false
-    let detail = formatApiError(error) || '生成失败，请重试'
-    if (isLikelyTimeoutError(error)) {
-      detail = '提交「世界观生成」时连接超时。请确认 API 已启动后再试。'
-    }
-    bibleError.value = detail
-    phaseMessage.value = ''
-  }
-}
-
-/** 轮询模式：第2步生成人物 */
-async function startCharactersGenerationPoll() {
-  step2PollEpoch.value += 1
-  const epoch2 = step2PollEpoch.value
-  generatingCharacters.value = true
-  charactersGenerated.value = false
-  charactersError.value = ''
-  phaseMessage.value = '正在生成人物...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'characters')
-    pollBibleUntil(
-      (b) => (b.characters?.length ?? 0) > 0,
-      {
-        isStale: () => step2PollEpoch.value !== epoch2 || currentStep.value !== 2 || !generatingCharacters.value,
-        watchBackendFailure: true,
-        onSuccess: () => { generatingCharacters.value = false; charactersGenerated.value = true; phaseMessage.value = '' },
-        onTimeout: () => { generatingCharacters.value = false; charactersError.value = `等待人物生成超时。`; phaseMessage.value = '' },
-        onFatal: (msg) => { generatingCharacters.value = false; charactersError.value = msg; phaseMessage.value = '' },
-      },
-    )
-  } catch (error: unknown) {
-    generatingCharacters.value = false
-    charactersError.value = isLikelyTimeoutError(error) ? '提交人物生成超时' : formatApiError(error) || '人物生成启动失败'
-    phaseMessage.value = ''
-  }
-}
-
-/** 轮询模式：第3步生成地点 */
-async function startLocationsGenerationPoll() {
-  step3PollEpoch.value += 1
-  const epoch3 = step3PollEpoch.value
-  generatingLocations.value = true
-  locationsGenerated.value = false
-  locationsError.value = ''
-  phaseMessage.value = '正在生成地图...'
-
-  try {
-    await bibleApi.generateBible(props.novelId, 'locations')
-    pollBibleUntil(
-      (b) => (b.locations?.length ?? 0) > 0,
-      {
-        isStale: () => step3PollEpoch.value !== epoch3 || currentStep.value !== 3 || !generatingLocations.value,
-        watchBackendFailure: true,
-        onSuccess: () => { generatingLocations.value = false; locationsGenerated.value = true; phaseMessage.value = '' },
-        onTimeout: () => { generatingLocations.value = false; locationsError.value = `等待地图生成超时。`; phaseMessage.value = '' },
-        onFatal: (msg) => { generatingLocations.value = false; locationsError.value = msg; phaseMessage.value = '' },
-      },
-    )
-  } catch (error: unknown) {
-    generatingLocations.value = false
-    locationsError.value = isLikelyTimeoutError(error) ? '提交地图生成超时' : formatApiError(error) || '地图生成启动失败'
-    phaseMessage.value = ''
-  }
-}
-
-// ── SSE 模式入口（自动降级） ──
-
-/** 启动第1步生成（SSE 流式，失败降级到轮询） */
-async function startBibleGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startBibleGenerationSSE()
-    } else {
-      startBibleGenerationPoll()
-    }
-  } catch {
-    // SSE 检测异常时直接尝试 SSE
-    startBibleGenerationSSE()
-  }
-}
-
-/** 启动第1步 SSE 流式生成世界观 */
+/** 启动第1步：生成文风公约与世界观 */
 function startBibleGenerationSSE() {
-generatingBible.value = true
-bibleGenerated.value = false
-bibleError.value = ''
-  phaseMessage.value = '正在准备生成环境...'
+  bibleError.value = ''
+  phaseMessage.value = '正在准备生成文风公约...'
   activeDimension.value = ''
-  completedDimensions.value = new Set()
   activeField.value = ''
   arrivedFields.value = new Set()
   worldbuildingData.value = emptyWorldbuildingShape()
@@ -1625,44 +1524,30 @@ bibleError.value = ''
       activeDimension.value = data.dimension
       completedDimensions.value = new Set([...completedDimensions.value, data.dimension])
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('worldbuilding', sessionId)
+    },
     onDone: () => {
       finishWorldbuildingGeneration()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询（后台可能已经启动了生成任务）
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] SSE 流式生成失败，降级到轮询模式:', msg)
-        startBibleGenerationPoll()
-      } else {
-        generatingBible.value = false
-        bibleError.value = msg
-        phaseMessage.value = ''
-      }
+      bibleError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
 
-/** 启动第2步生成（SSE 流式，失败降级到轮询） */
-async function startCharactersGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startCharactersGenerationSSE()
-    } else {
-      startCharactersGenerationPoll()
-    }
-  } catch {
-    startCharactersGenerationSSE()
-  }
+/** 启动第2步：创建 AI Invocation 并打开审阅面板。 */
+function startCharactersGeneration() {
+  startCharactersGenerationSSE()
 }
 
-/** 启动第2步 SSE 流式生成人物 */
+/** 启动第2步：生成人物 */
 function startCharactersGenerationSSE() {
-generatingCharacters.value = true
-charactersGenerated.value = false
-charactersError.value = ''
+  charactersGenerated.value = false
+  charactersError.value = ''
   streamingCharacters.value = []
-  phaseMessage.value = '正在生成人物...'
+  phaseMessage.value = '正在打开审阅面板...'
 
   const ctrl = new AbortController()
   charactersSseAbort.value = ctrl
@@ -1731,6 +1616,9 @@ charactersError.value = ''
         phaseMessage.value = 'AI 正在构思角色...'
       }
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('characters', sessionId)
+    },
     onDone: () => {
       generatingCharacters.value = false
       charactersGenerated.value = true
@@ -1738,40 +1626,24 @@ charactersError.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] 人物 SSE 失败，降级到轮询:', msg)
-        startCharactersGenerationPoll()
-      } else {
-        generatingCharacters.value = false
-        charactersError.value = msg
-        phaseMessage.value = ''
-      }
+      generatingCharacters.value = false
+      charactersError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
 
-/** 启动第3步生成（SSE 流式，失败降级到轮询） */
-async function startLocationsGeneration() {
-  try {
-    const useSse = await checkSseAvailable(props.novelId)
-    if (useSse) {
-      startLocationsGenerationSSE()
-    } else {
-      startLocationsGenerationPoll()
-    }
-  } catch {
-    startLocationsGenerationSSE()
-  }
+/** 启动第3步：创建 AI Invocation 并打开审阅面板。 */
+function startLocationsGeneration() {
+  startLocationsGenerationSSE()
 }
 
-/** 启动第3步 SSE 流式生成地点 */
+/** 启动第3步：生成地点 */
 function startLocationsGenerationSSE() {
-generatingLocations.value = true
-locationsGenerated.value = false
-locationsError.value = ''
+  locationsGenerated.value = false
+  locationsError.value = ''
   streamingLocations.value = []
-  phaseMessage.value = '正在生成地图...'
+  phaseMessage.value = '正在打开审阅面板...'
 
   const ctrl = new AbortController()
   locationsSseAbort.value = ctrl
@@ -1799,6 +1671,9 @@ locationsError.value = ''
         phaseMessage.value = 'AI 正在构思地点...'
       }
     },
+    onApprovalRequired: (sessionId) => {
+      void openBibleReviewPanel('locations', sessionId)
+    },
     onDone: () => {
       generatingLocations.value = false
       locationsGenerated.value = true
@@ -1806,15 +1681,9 @@ locationsError.value = ''
       loadBibleData()
     },
     onError: (msg) => {
-      // SSE 失败时降级到轮询
-      if (msg.includes('HTTP') || msg.includes('fetch') || msg.includes('连接') || msg.includes('Stream')) {
-        console.warn('[Wizard] 地图 SSE 失败，降级到轮询:', msg)
-        startLocationsGenerationPoll()
-      } else {
-        generatingLocations.value = false
-        locationsError.value = msg
-        phaseMessage.value = ''
-      }
+      generatingLocations.value = false
+      locationsError.value = msg
+      phaseMessage.value = ''
     },
   })
 }
@@ -1964,9 +1833,6 @@ async function runWizardOpenSequence() {
   if (step === 4 && !mainPlotCommitted.value) {
     hydrateStepFourFromCache()
   }
-  if (step === 1 && !bibleGenerated.value) {
-    startBibleGeneration()
-  }
 }
 
 function stopGenerationOnClose() {
@@ -1976,6 +1842,12 @@ function stopGenerationOnClose() {
   generatingBible.value = false
   generatingCharacters.value = false
   generatingLocations.value = false
+  mainPlotSessionUnsub?.()
+  mainPlotSessionUnsub = null
+  for (const unsub of bibleInvocationUnsubs.values()) {
+    unsub()
+  }
+  bibleInvocationUnsubs.clear()
 }
 
 watch(

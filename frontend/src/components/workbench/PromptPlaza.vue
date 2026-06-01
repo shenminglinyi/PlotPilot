@@ -182,7 +182,7 @@
                 />
               </template>
               <template #fallback>
-                <div class="detail-panel-fallback">
+                <div class="detail-panel-loading">
                   <n-spin size="medium" description="加载编辑器…" />
                 </div>
               </template>
@@ -619,7 +619,7 @@ defineExpose({ loadData, selectNodeByKey })
   font-weight: 600;
 }
 
-.detail-panel-fallback {
+.detail-panel-loading {
   display: flex;
   align-items: center;
   justify-content: center;

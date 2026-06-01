@@ -11,6 +11,19 @@ from application.world.services.bible_service import BibleService
 from application.world.services.auto_bible_generator import AutoBibleGenerator
 from application.world.services.auto_knowledge_generator import AutoKnowledgeGenerator
 from application.world.dtos.bible_dto import BibleDTO
+from application.ai_invocation.dtos import InvocationPolicy, InvocationRequest
+from application.ai_invocation.gateway import AIInvocationGateway
+from application.ai_invocation.services import AdoptionCommitService, AdoptionService, AttemptService, InvocationSessionService
+from application.world.services.bible_setup_continuation import register_bible_setup_continuations
+from application.world.services.bible_setup_invocation import (
+    BIBLE_SETUP_CHARACTERS_NODE,
+    BIBLE_SETUP_LOCATIONS_NODE,
+    BIBLE_SETUP_WORLD_NODE,
+    BibleSetupPromptAssembler,
+    build_bible_setup_spec_service,
+    build_bible_setup_variable_resolver,
+    build_bible_setup_variables,
+)
 from interfaces.api.dependencies import (
     get_bible_service,
     get_auto_bible_generator,
@@ -183,8 +196,15 @@ async def generate_bible(
         knowledge_generator: Knowledge 生成器
 
     Returns:
-        202 Accepted，表示生成任务已启动
+        202 Accepted，表示生成任务已启动；分阶段引导流会改为返回 AI Invocation 审阅会话
     """
+    if stage in _BIBLE_SETUP_NODE_BY_STAGE:
+        return await _create_bible_setup_invocation_response(
+            novel_id=novel_id,
+            stage=stage,
+            bible_generator=bible_generator,
+        )
+
     async def _generate_task():
         logger.info("Bible generation task started for %s, stage=%s", novel_id, stage)
         clear_bible_generation_state(novel_id)
@@ -248,6 +268,105 @@ def _sse_fmt(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+_BIBLE_SETUP_NODE_BY_STAGE = {
+    "worldbuilding": BIBLE_SETUP_WORLD_NODE,
+    "characters": BIBLE_SETUP_CHARACTERS_NODE,
+    "locations": BIBLE_SETUP_LOCATIONS_NODE,
+}
+
+
+async def _create_bible_setup_invocation(
+    *,
+    novel_id: str,
+    stage: str,
+    novel,
+    bible_generator: AutoBibleGenerator,
+) -> dict:
+    """Create an AI Invocation session for a setup-guide Bible stage."""
+    if stage not in _BIBLE_SETUP_NODE_BY_STAGE:
+        raise ValueError(f"unsupported bible setup invocation stage: {stage}")
+    register_bible_setup_continuations()
+    gateway = AIInvocationGateway(
+        spec_service=build_bible_setup_spec_service(),
+        variable_resolver=build_bible_setup_variable_resolver(),
+        prompt_assembler=BibleSetupPromptAssembler(),
+        llm_service=bible_generator.llm_service,
+        session_service=InvocationSessionService(),
+        attempt_service=AttemptService(bible_generator.llm_service),
+        adoption_service=AdoptionService(),
+        commit_service=AdoptionCommitService(),
+    )
+    variables = build_bible_setup_variables(
+        stage=stage,
+        novel=novel,
+        bible_service=bible_generator.bible_service,
+        worldbuilding_service=bible_generator.worldbuilding_service,
+    )
+    result = await gateway.invoke(
+        InvocationRequest(
+            operation=f"bible.setup.{stage}",
+            node_key=_BIBLE_SETUP_NODE_BY_STAGE[stage],
+            variables=variables,
+            context={"novel_id": novel_id, "stage": stage},
+            policy=InvocationPolicy.FULL_INTERACTIVE,
+            metadata={
+                "source": "novel_setup_guide",
+                "novel_id": novel_id,
+                "stage": stage,
+            },
+        )
+    )
+    from interfaces.api.v1.engine.ai_invocation_routes import (
+        _attempt_payload,
+        _commit_payload,
+        _decision_payload,
+        _next_action,
+        _repositories,
+        _save_invocation_result,
+        _session_payload,
+    )
+
+    repos = _repositories()
+    _save_invocation_result(repos, result)
+    return {
+        "session": _session_payload(result.session),
+        "attempt": _attempt_payload(result.attempt),
+        "decision": _decision_payload(result.decision),
+        "commit": _commit_payload(result.commit),
+        "next_action": _next_action(result.session.status),
+    }
+
+
+async def _create_bible_setup_invocation_response(
+    *,
+    novel_id: str,
+    stage: str,
+    bible_generator: AutoBibleGenerator,
+) -> dict:
+    from interfaces.api.dependencies import get_novel_service
+
+    novel_service = get_novel_service()
+    novel = novel_service.get_novel(novel_id)
+    if not novel:
+        raise HTTPException(status_code=404, detail="novel_not_found")
+    payload = await _create_bible_setup_invocation(
+        novel_id=novel_id,
+        stage=stage,
+        novel=novel,
+        bible_generator=bible_generator,
+    )
+    return {
+        "message": "Bible generation requires review",
+        "novel_id": novel_id,
+        "stage": stage,
+        "session": payload.get("session"),
+        "attempt": payload.get("attempt"),
+        "decision": payload.get("decision"),
+        "commit": payload.get("commit"),
+        "next_action": payload.get("next_action", ""),
+    }
+
+
 async def _sse_bible_generator(
     novel_id: str,
     stage: str,
@@ -288,6 +407,23 @@ async def _sse_bible_generator(
             return
 
     try:
+        if stage in _BIBLE_SETUP_NODE_BY_STAGE:
+            payload = await _create_bible_setup_invocation(
+                novel_id=novel_id,
+                stage=stage,
+                novel=novel,
+                bible_generator=bible_generator,
+            )
+            session = payload.get("session") or {}
+            yield _sse_fmt("data", {
+                "type": "approval_required",
+                "session_id": session.get("id", ""),
+                "status": session.get("status", ""),
+                "next_action": payload.get("next_action", ""),
+                "stage": stage,
+            })
+            return
+
         if stage in ("all", "worldbuilding"):
             # ── 世界观生成（单次 LLM 流式，五维联动） ──
             yield _sse_fmt("phase", {"phase": "worldbuilding", "message": "AI 正在构建世界观（5维度框架）..."})
@@ -327,7 +463,8 @@ async def _sse_bible_generator(
                     except Exception:
                         pass
             except Exception as e:
-                logger.warning("Style generation failed (non-fatal): %s", e)
+                logger.error("Style generation failed: %s", e)
+                raise RuntimeError(f"文风公约生成失败，已阻塞后续 Bible 流程: {e}") from e
 
             # 2. 单次 LLM 流式生成完整五维世界观（维度联动，增量解析各维）
             dim_labels = {
@@ -584,19 +721,16 @@ async def _sse_bible_generator(
         yield _sse_fmt("phase", {"phase": "knowledge", "message": "正在构建知识库..."})
         await asyncio.sleep(0)
 
-        try:
-            bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
-            if bible:
-                chars = bible.characters or []
-                locs = bible.locations or []
-                char_desc = "、".join(f"{c.name}" for c in chars[:5])
-                loc_desc = "、".join(c.name for c in locs[:3])
-                style_notes = bible.style_notes or []
-                style_text = "；".join(n.content for n in style_notes if n.content)
-                bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{style_text}。"
-                await knowledge_generator.generate_and_save(novel_id, novel.title, bible_summary)
-        except Exception as e:
-            logger.warning("Knowledge generation failed (non-fatal): %s", e)
+        bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
+        if bible:
+            chars = bible.characters or []
+            locs = bible.locations or []
+            char_desc = "、".join(f"{c.name}" for c in chars[:5])
+            loc_desc = "、".join(c.name for c in locs[:3])
+            style_notes = bible.style_notes or []
+            style_text = "；".join(n.content for n in style_notes if n.content)
+            bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{style_text}。"
+            await knowledge_generator.generate_and_save(novel_id, novel.title, bible_summary)
 
         clear_bible_generation_state(novel_id)
         yield _sse_fmt("done", {"message": "全部生成完成！", "novel_id": novel_id})

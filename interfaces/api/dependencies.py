@@ -179,6 +179,16 @@ def get_chapter_element_repository():
     return ChapterElementRepository(get_db_path())
 
 
+def get_chapter_scene_repository():
+    """获取章节场景仓储"""
+    from application.paths import get_db_path
+    from infrastructure.persistence.database.chapter_scene_repository import (
+        ChapterSceneRepository,
+    )
+
+    return ChapterSceneRepository(get_db_path())
+
+
 def get_character_narrative_kernel():
     """获取角色叙事内核（统一选角、上下文锁、章后对账与角色 read model）。"""
     from application.character.services.character_narrative_kernel import CharacterNarrativeKernel
@@ -906,6 +916,19 @@ def get_scene_generation_service():
     )
 
 
+def get_scene_generation_context_provider():
+    """获取场景生成上下文装配服务"""
+    from application.core.services.scene_generation_context import (
+        SceneGenerationContextProvider,
+    )
+
+    return SceneGenerationContextProvider(
+        chapter_scene_repository=get_chapter_scene_repository(),
+        chapter_repository=get_chapter_repository(),
+        bible_service=get_bible_service(),
+    )
+
+
 def get_scene_director_service() -> "SceneDirectorService":
     """获取场景导演服务
 
@@ -1119,6 +1142,15 @@ def get_chapter_review_service():
         vector_store=vector_store,
         llm_service=llm_service
     )
+
+
+def get_chapter_ai_review_service():
+    """获取章节 AI 审阅服务"""
+    from application.audit.services.chapter_ai_review_service import (
+        ChapterAIReviewService,
+    )
+
+    return ChapterAIReviewService(get_llm_service())
 
 
 def get_foreshadow_ledger_service():

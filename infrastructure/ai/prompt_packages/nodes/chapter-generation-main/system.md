@@ -23,7 +23,7 @@
 不得主动引入未被作者选择或世界观允许的时代质感、科技层级、力量体系、审美元素、职业生态或热门题材外壳。
 如果节拍提示与源设定冲突，以源设定为准，并用源设定内部已有的因果、资源、关系和代价完成爽点。
 
-{planning_section}{voice_block}{behavior_protocol}{character_state_lock}{context}
+{planning_section}{voice_block}{genre_profile_block}{behavior_protocol}{character_state_lock}{context}
 
 {fact_lock}
 

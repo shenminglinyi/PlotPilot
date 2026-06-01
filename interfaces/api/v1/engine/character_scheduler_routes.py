@@ -1,4 +1,4 @@
-"""角色调度服务 API
+﻿"""角色调度服务 API
 
 提供角色智能调度接口，用于章节生成时的上下文构建。
 这是正式功能，被核心生成流程调用。
@@ -265,50 +265,3 @@ async def schedule_characters(
     except Exception as e:
         logger.error(f"角色调度失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/quick-test", response_model=ScheduleResponse)
-async def quick_test():
-    """快速测试接口
-
-    使用预设数据进行快速验证，方便开发和测试。
-    """
-    preset_request = ScheduleRequest(
-        outline="艾达在黑市拍卖会上与林羽相遇，苏晴在一旁观察",
-        characters=[
-            CharacterInput(
-                id="char-001",
-                name="林羽",
-                importance="protagonist",
-                activity_count=50,
-                last_appearance_chapter=10,
-                mental_state="NORMAL",
-                idle_behavior="摸剑柄"
-            ),
-            CharacterInput(
-                id="char-002",
-                name="艾达",
-                importance="minor",
-                activity_count=1,
-                last_appearance_chapter=10,
-                mental_state="冷漠",
-                mental_state_reason="刚失去同伴",
-                idle_behavior="擦拭机械臂"
-            ),
-            CharacterInput(
-                id="char-003",
-                name="苏晴",
-                importance="major",
-                activity_count=30,
-                last_appearance_chapter=8,
-                mental_state="担忧",
-                idle_behavior="咬嘴唇"
-            ),
-        ],
-        max_characters=2,
-        current_chapter=11,
-        max_tokens=5000,
-        mentioned_names=["艾达"]
-    )
-
-    return await schedule_characters(preset_request)

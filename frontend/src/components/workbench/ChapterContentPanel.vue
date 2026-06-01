@@ -33,8 +33,8 @@
             <span class="card-title">🎬 导演节拍</span>
           </template>
           <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-            <template v-if="microHintIsOutlineFallback">
-              章前规划<strong>失败或降级</strong>时的章纲拆条预览（按段落/句读），仅供参考，非指挥器节拍。
+            <template v-if="microHintIsOutlinePreview">
+              章前规划未产出可用拆拍时的章纲拆条预览（按段落/句读），仅供参考，非指挥器节拍。
             </template>
             <template v-else-if="microHintFromKnowledgeDb">
               以下为已落库的<strong>写作指挥器 Beat</strong>。
@@ -44,13 +44,13 @@
             </template>
           </n-text>
           <n-alert
-            v-if="showFallbackSingleHint"
+            v-if="showSingleOutlineAtomWarning"
             type="warning"
             :show-icon="true"
             size="small"
             style="margin-bottom: 8px"
           >
-            章前 LLM 拆拍失败或返回无效 JSON，已降级为<strong>整章单拍</strong>（约 {{ microBeats[0]?.target_words || '—' }} 字）。
+            章前 LLM 拆拍失败或返回无效 JSON，当前仅保留<strong>整章单拍</strong>（约 {{ microBeats[0]?.target_words || '—' }} 字）。
             建议检查模型/提示词后重试生成。
           </n-alert>
           <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
@@ -152,17 +152,17 @@ const props = withDefaults(
     autopilotChapterReview?: AutopilotChapterAudit | null
     /** 辅助撰稿 · 最近一次流式生成下发的指挥器节拍（与 SSE beats_generated 一致） */
     assistStreamBeatSession?: { chapterNumber: number; beats: StreamGeneratedBeat[] } | null
-    /** 对应章节流式生成失败时，规划卡片才用章纲拆条兜底 */
+    /** 对应章节流式生成失败时，规划卡片才用章纲拆条预览 */
     assistStreamFailedChapter?: number | null
-    /** 流式完成但章前拆拍失败/降级（≤1 拍） */
+    /** 流式完成但章前拆拍失败（≤1 拍） */
     assistStreamPlanFailedChapter?: number | null
-    /** 全托管正在写的本章且 total_beats≤1（规划已结束并降级） */
+    /** 全托管正在写的本章且 total_beats≤1（规划已结束但拆拍不足） */
     autopilotOutlinePlanFailed?: boolean
     /** 全托管是否仍在运行（用于空态文案，避免停止后仍显示「规划进行中」） */
     autopilotRunning?: boolean
     /** 最近一次流式生成完成的章号（无导演节拍时用于提示） */
     assistStreamCompletedChapter?: number | null
-    /** 全托管 /status 的 outline_plan_mode（如 fallback_single） */
+    /** 全托管 /status 的 outline_plan_mode（如 raw_outline_single） */
     outlinePlanMode?: string
   }>(),
   {
@@ -236,7 +236,7 @@ function expandRawBeatLines(raw: string[]): string[] {
   return out.slice(0, BEAT_LINE_CAP)
 }
 
-/** 流式失败时从章纲拆条的兜底素材 */
+/** 流式失败时从章纲拆条的预览素材 */
 const beatLines = computed(() => {
   const ol = chapterPlan.value?.outline?.trim()
   if (!ol) return []
@@ -415,7 +415,7 @@ function beatFunctionLabel(value: string): string {
   return map[value] ?? value
 }
 
-function outlineFallbackMicroBeats(): MicroBeat[] {
+function outlinePreviewMicroBeats(): MicroBeat[] {
   if (!beatLines.value.length) return []
   return beatLines.value.map(line => ({
     description: line,
@@ -462,7 +462,7 @@ const microBeats = computed<MicroBeat[]>(() => {
   if (!ch) return []
 
   const conductor = conductorMicroBeatsForChapter(ch)
-  const outlinePreview = outlineFallbackMicroBeats()
+  const outlinePreview = outlinePreviewMicroBeats()
   const planFailed = isOutlinePlanFailedForChapter(ch)
 
   if (conductor.length > 1) return conductor
@@ -476,7 +476,7 @@ const microBeats = computed<MicroBeat[]>(() => {
   return []
 })
 
-const microHintIsOutlineFallback = computed(() => {
+const microHintIsOutlinePreview = computed(() => {
   const ch = props.currentChapterNumber
   if (!ch || !microBeats.value.length) return false
   return microBeats.value.every(b => b.focus === 'outline_ref')
@@ -487,11 +487,11 @@ const microHintFromKnowledgeDb = computed(() => {
   return !!(k?.micro_beats && Array.isArray(k.micro_beats) && k.micro_beats.length > 0)
 })
 
-const showFallbackSingleHint = computed(() => {
-  if (microHintIsOutlineFallback.value) return false
+const showSingleOutlineAtomWarning = computed(() => {
+  if (microHintIsOutlinePreview.value) return false
   if (microBeats.value.length !== 1) return false
   const mode = (props.outlinePlanMode || '').trim()
-  if (mode === 'fallback_single') return true
+  if (mode === 'raw_outline_single' || mode === 'error_single_outline') return true
   if (props.autopilotOutlinePlanFailed) return true
   const ch = props.currentChapterNumber
   if (ch && props.assistStreamPlanFailedChapter === ch) return true

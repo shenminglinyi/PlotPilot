@@ -4,7 +4,7 @@
 1. 上游 beat_sheet_json.scenes（若存在）
 2. 用户显式结构（编号列表 / 项目符号 / 空行段），**不对单段散文按句号拆**
 3. 可选 LLM 分解为有序 atoms
-4. 兜底：整章单 atom
+4. 未拆分整章单 atom：保留章纲原文作为一个规划单元
 """
 
 from __future__ import annotations
@@ -17,7 +17,12 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 
 from pydantic import BaseModel, Field
 
-from application.engine.dag.plan.schema import ChapterExecutionPlan, PlanningEnvelope, PlanAtomSpec
+from application.engine.dag.plan.schema import (
+    ChapterExecutionPlan,
+    PlanAtomSpec,
+    PlanDecompositionMode,
+    PlanningEnvelope,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +45,7 @@ def render_cpms_outline_partition_prompts(
 ) -> tuple[str, str]:
     """从 CPMS 节点 ``outline-beat-partition`` 渲染 system/user（内置种子或广场覆写）。
 
-    不写死提示词段落；仅在 CPMS 不可用时返回空串，由调用方决定是否降级。
+    不写死提示词段落；仅在 CPMS 不可用时返回空串，由调用方决定是否跳过 LLM 拆解。
     """
     from infrastructure.ai.prompt_keys import OUTLINE_BEAT_PARTITION
     from infrastructure.ai.prompt_manager import get_prompt_manager
@@ -139,7 +144,7 @@ def atoms_from_segments(segments: Sequence[str]) -> List[PlanAtomSpec]:
                 intent=seg,
                 weight=float(max(12, len(seg))),
                 source_hint=None,
-                extensions={"decomposition_mode": "structured_outline"},
+                extensions={"decomposition_mode": PlanDecompositionMode.STRUCTURED_OUTLINE.value},
             )
         )
     return _clamp_atoms(out)
@@ -175,7 +180,7 @@ def atoms_from_beat_sheet_dict(data: Dict[str, Any]) -> Optional[List[PlanAtomSp
                     id=f"b{i + 1}",
                     intent=s,
                     weight=1.0,
-                    extensions={"decomposition_mode": "beat_sheet", "scene_index": i},
+                    extensions={"decomposition_mode": PlanDecompositionMode.BEAT_SHEET.value, "scene_index": i},
                 )
             )
             continue
@@ -186,7 +191,7 @@ def atoms_from_beat_sheet_dict(data: Dict[str, Any]) -> Optional[List[PlanAtomSp
             continue
         ew = raw.get("estimated_words")
         weight = min(100.0, max(0.01, float(ew))) if isinstance(ew, (int, float)) and ew > 0 else 1.0
-        ext = {"decomposition_mode": "beat_sheet", "scene_index": i}
+        ext = {"decomposition_mode": PlanDecompositionMode.BEAT_SHEET.value, "scene_index": i}
         for k in ("pov_character", "location", "tone", "transition_from_prev"):
             if raw.get(k):
                 ext[k] = raw[k]
@@ -208,7 +213,7 @@ def _normalize_llm_atom_entries(entries: List[Dict[str, Any]]) -> List[PlanAtomS
         hint = row.get("source_hint") or row.get("anchor")
         hint_s = str(hint).strip() if hint else None
         ext = dict(row.get("extensions") or {}) if isinstance(row.get("extensions"), dict) else {}
-        ext.setdefault("decomposition_mode", "llm_outline_decompose")
+        ext.setdefault("decomposition_mode", PlanDecompositionMode.LLM_OUTLINE_DECOMPOSE.value)
         # 提取新字段：focus 类型和节拍间过渡提示
         focus = row.get("focus") or row.get("type") or ""
         if focus and isinstance(focus, str):
@@ -367,22 +372,22 @@ async def build_chapter_execution_plan_async(
     prov: Dict[str, Any] = {"node_hint": decomposition_label}
 
     atoms: Optional[List[PlanAtomSpec]] = None
-    mode = "fallback_single"
+    mode = PlanDecompositionMode.RAW_OUTLINE_SINGLE.value
 
     if not raw:
-        return ChapterExecutionPlan(envelope=env, atoms=[], provenance={**prov, "mode": "empty_outline"})
+        return ChapterExecutionPlan(envelope=env, atoms=[], provenance={**prov, "mode": PlanDecompositionMode.EMPTY_OUTLINE.value})
 
     if beat_sheet_json and isinstance(beat_sheet_json, dict):
         atoms = atoms_from_beat_sheet_dict(beat_sheet_json)
         if atoms:
-            mode = "beat_sheet"
+            mode = PlanDecompositionMode.BEAT_SHEET.value
 
     structured: Optional[List[str]] = None
     if atoms is None:
         structured = segment_structured_outline(raw)
         if structured:
             atoms = atoms_from_segments(structured)
-            mode = "structured_outline"
+            mode = PlanDecompositionMode.STRUCTURED_OUTLINE.value
 
     if atoms is None and use_llm:
         llm_atoms = await llm_decompose_outline(
@@ -395,7 +400,7 @@ async def build_chapter_execution_plan_async(
         )
         if llm_atoms:
             atoms = llm_atoms
-            mode = "llm_outline_decompose"
+            mode = PlanDecompositionMode.LLM_OUTLINE_DECOMPOSE.value
 
     if atoms is None:
         atoms = [
@@ -403,10 +408,10 @@ async def build_chapter_execution_plan_async(
                 id="b1",
                 intent=raw,
                 weight=1.0,
-                extensions={"decomposition_mode": "fallback_single"},
+                extensions={"decomposition_mode": PlanDecompositionMode.RAW_OUTLINE_SINGLE.value},
             )
         ]
-        mode = "fallback_single"
+        mode = PlanDecompositionMode.RAW_OUTLINE_SINGLE.value
 
     provenance = {**prov, "mode": mode, "atom_count": len(atoms)}
     return ChapterExecutionPlan(envelope=env, atoms=atoms, provenance=provenance)
@@ -423,9 +428,9 @@ def build_chapter_execution_plan_sync(
 ) -> ChapterExecutionPlan:
     """Build a deterministic ChapterExecutionPlan without LLM.
 
-    This is the synchronous canonical fallback for runtime callers. It keeps the
-    planning source as ChapterExecutionPlan even when no async/LLM planning step
-    is available.
+    This is the synchronous canonical planner for runtime callers that cannot
+    await the CPMS-driven LLM decomposition step. It still keeps the planning
+    source as ChapterExecutionPlan.
     """
     raw = (outline or "").strip()
     env = PlanningEnvelope(
@@ -437,18 +442,18 @@ def build_chapter_execution_plan_sync(
     prov: Dict[str, Any] = {"node_hint": decomposition_label}
 
     atoms: Optional[List[PlanAtomSpec]] = None
-    mode = "fallback_single"
+    mode = PlanDecompositionMode.RAW_OUTLINE_SINGLE.value
 
     if beat_sheet_json and isinstance(beat_sheet_json, dict):
         atoms = atoms_from_beat_sheet_dict(beat_sheet_json)
         if atoms:
-            mode = "beat_sheet"
+            mode = PlanDecompositionMode.BEAT_SHEET.value
 
     if atoms is None and raw:
         structured = segment_structured_outline(raw)
         if structured:
             atoms = atoms_from_segments(structured)
-            mode = "structured_outline"
+            mode = PlanDecompositionMode.STRUCTURED_OUTLINE.value
 
     if atoms is None and raw:
         atoms = [
@@ -456,14 +461,14 @@ def build_chapter_execution_plan_sync(
                 id="b1",
                 intent=raw,
                 weight=1.0,
-                extensions={"decomposition_mode": "fallback_single"},
+                extensions={"decomposition_mode": PlanDecompositionMode.RAW_OUTLINE_SINGLE.value},
             )
         ]
-        mode = "fallback_single"
+        mode = PlanDecompositionMode.RAW_OUTLINE_SINGLE.value
 
     if atoms is None:
         atoms = []
-        mode = "empty_outline"
+        mode = PlanDecompositionMode.EMPTY_OUTLINE.value
 
     return ChapterExecutionPlan(
         envelope=env,

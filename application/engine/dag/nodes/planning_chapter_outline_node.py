@@ -139,27 +139,32 @@ class PlanningOutlinePartitionNode(AbstractPlanningNode):
         except Exception as e:
             logger.exception("planning_outline_partition 失败: %s", e)
             duration_ms = int((time.perf_counter() - started) * 1000)
-            from application.engine.dag.plan.schema import ChapterExecutionPlan, PlanningEnvelope, PlanAtomSpec
+            from application.engine.dag.plan.schema import (
+                ChapterExecutionPlan,
+                PlanAtomSpec,
+                PlanDecompositionMode,
+                PlanningEnvelope,
+            )
 
             env = PlanningEnvelope(
                 novel_id=str(novel_id) if novel_id else None,
                 chapter_number=int(chapter_number) if chapter_number is not None else None,
                 target_chapter_words=target_chapter_words,
             )
-            fallback_atoms: list[PlanAtomSpec] = []
+            recovery_atoms: list[PlanAtomSpec] = []
             if outline.strip():
-                fallback_atoms = [
+                recovery_atoms = [
                     PlanAtomSpec(
                         id="b1",
                         intent=outline.strip(),
                         weight=1.0,
-                        extensions={"decomposition_mode": "error_fallback"},
+                        extensions={"decomposition_mode": PlanDecompositionMode.ERROR_SINGLE_OUTLINE.value},
                     )
                 ]
             fb = ChapterExecutionPlan(
                 envelope=env,
-                atoms=fallback_atoms,
-                provenance={"mode": "error_fallback", "error": str(e)},
+                atoms=recovery_atoms,
+                provenance={"mode": PlanDecompositionMode.ERROR_SINGLE_OUTLINE.value, "error": str(e)},
             )
 
             return self.pack_plan_result(

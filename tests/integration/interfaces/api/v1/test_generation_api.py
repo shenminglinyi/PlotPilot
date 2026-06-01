@@ -1,4 +1,6 @@
 """API 端点测试 - 生成工作流"""
+import json
+
 import pytest
 from unittest.mock import Mock, AsyncMock
 from fastapi import FastAPI
@@ -114,6 +116,44 @@ def app(mock_workflow, mock_storyline_manager, mock_plot_arc_repository, mock_ho
     test_app.dependency_overrides[generation.get_hosted_write_service] = lambda: mock_hosted_service
     test_app.dependency_overrides[generation.get_storyline_manager] = lambda: mock_storyline_manager
     test_app.dependency_overrides[generation.get_plot_arc_repository] = lambda: mock_plot_arc_repository
+    test_app.dependency_overrides[generation.get_novel_service] = lambda: Mock(
+        get_novel=Mock(return_value=Mock())
+    )
+
+    class _FakeQueryService:
+        def get_storylines(self, novel_id):
+            return [
+                {
+                    "id": "storyline-1",
+                    "storyline_type": "main_plot",
+                    "status": "active",
+                    "estimated_chapter_start": 1,
+                    "estimated_chapter_end": 10,
+                }
+            ]
+
+        def get_plot_arc(self, novel_id):
+            return {
+                "id": "arc-1",
+                "key_points": [
+                    {
+                        "chapter_number": 1,
+                        "tension": 1,
+                        "description": "Opening",
+                        "point_type": "opening",
+                    },
+                    {
+                        "chapter_number": 50,
+                        "tension": 4,
+                        "description": "Climax",
+                        "point_type": "climax",
+                    },
+                ],
+            }
+
+    from application.engine.services import query_service
+
+    query_service.get_query_service = lambda: _FakeQueryService()
 
     return test_app
 
@@ -164,6 +204,70 @@ class TestGenerateChapterEndpoint:
         assert "data:" in body
         assert '"type": "done"' in body or '"done"' in body
 
+    def test_generate_chapter_stream_approval_required(self, client, monkeypatch, test_novel_id):
+        """FULL_INTERACTIVE 策略先返回 AI Invocation 审阅会话"""
+        from interfaces.api.v1.engine import generation
+
+        async def fake_create_pre_call_review_invocation(**kwargs):
+            return {
+                "session": {
+                    "id": "session-1",
+                    "status": "awaiting_pre_call_review",
+                },
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(
+            generation,
+            "_create_pre_call_review_invocation",
+            fake_create_pre_call_review_invocation,
+        )
+
+        response = client.post(
+            f"/api/v1/novels/{test_novel_id}/generate-chapter-stream",
+            json={
+                "chapter_number": 1,
+                "outline": "Chapter outline",
+                "invocation_policy": "FULL_INTERACTIVE",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "event-stream" in response.headers.get("content-type", "")
+        assert '"type": "approval_required"' in response.text
+        assert '"session_id": "session-1"' in response.text
+
+    def test_setup_main_plot_stream_emits_approval_required(self, client, monkeypatch, test_novel_id):
+        """新书引导 Step 4 也应先进入 AI 审阅，再输出候选。"""
+        from interfaces.api.v1.engine import generation
+
+        async def fake_create_invocation(request):
+            return {
+                "session": {
+                    "id": "session-plot-1",
+                    "status": "awaiting_pre_call_review",
+                },
+                "attempt": {
+                    "id": "attempt-1",
+                    "session_id": "session-plot-1",
+                    "status": "succeeded",
+                    "content": '{"plot_options":[{"id":"a","title":"A","logline":"L","core_conflict":"C","starting_hook":"H"}]}',
+                },
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+
+        response = client.post(
+            f"/api/v1/novels/{test_novel_id}/setup/suggest-main-plot-options-stream",
+            json={},
+        )
+
+        assert response.status_code == 200
+        assert "event-stream" in response.headers.get("content-type", "")
+        assert '"type": "approval_required"' in response.text
+        assert '"session_id": "session-plot-1"' in response.text
+
     def test_hosted_write_stream_sse(self, client):
         """托管连写 SSE"""
         response = client.post(
@@ -183,9 +287,9 @@ class TestGenerateChapterEndpoint:
 class TestStorylineEndpoints:
     """测试故事线端点"""
 
-    def test_get_storylines(self, client, mock_storyline_manager):
+    def test_get_storylines(self, client, mock_storyline_manager, test_novel_id):
         """测试获取故事线列表"""
-        response = client.get("/api/v1/novels/novel-1/storylines")
+        response = client.get(f"/api/v1/novels/{test_novel_id}/storylines")
 
         assert response.status_code == 200
         data = response.json()
@@ -193,10 +297,10 @@ class TestStorylineEndpoints:
         assert len(data) == 1
         assert data[0]["storyline_type"] == "main_plot"
 
-    def test_create_storyline(self, client, mock_storyline_manager):
+    def test_create_storyline(self, client, mock_storyline_manager, test_novel_id):
         """测试创建故事线"""
         response = client.post(
-            "/api/v1/novels/novel-1/storylines",
+            f"/api/v1/novels/{test_novel_id}/storylines",
             json={
                 "storyline_type": "romance",
                 "estimated_chapter_start": 5,
@@ -213,19 +317,19 @@ class TestStorylineEndpoints:
 class TestPlotArcEndpoints:
     """测试情节弧端点"""
 
-    def test_get_plot_arc(self, client, mock_plot_arc_repository):
+    def test_get_plot_arc(self, client, mock_plot_arc_repository, test_novel_id):
         """测试获取情节弧"""
-        response = client.get("/api/v1/novels/novel-1/plot-arc")
+        response = client.get(f"/api/v1/novels/{test_novel_id}/plot-arc")
 
         assert response.status_code == 200
         data = response.json()
         assert "key_points" in data
         assert len(data["key_points"]) == 2
 
-    def test_create_plot_arc(self, client, mock_plot_arc_repository):
+    def test_create_plot_arc(self, client, mock_plot_arc_repository, test_novel_id):
         """测试创建/更新情节弧"""
         response = client.post(
-            "/api/v1/novels/novel-1/plot-arc",
+            f"/api/v1/novels/{test_novel_id}/plot-arc",
             json={
                 "key_points": [
                     {
@@ -248,3 +352,63 @@ class TestPlotArcEndpoints:
         data = response.json()
         assert "key_points" in data
 
+
+class TestSetupMainPlotOptionsEndpoints:
+    """测试新书向导主线候选推演。"""
+
+    def test_suggest_main_plot_options_triggers_ai_invocation(self, client, test_novel_id, monkeypatch):
+        from interfaces.api.v1.engine import generation
+
+        fake_novel_service = Mock()
+        fake_novel_service.get_novel.return_value = Mock()
+
+        async def fake_create_invocation(request):
+            assert request.operation == "setup.main_plot_options"
+            assert request.node_key == "planning-main-plot-option"
+            assert "context_blob" in request.variables
+            assert "worldbuilding_full" in request.variables
+            assert "protagonist" in request.variables
+            assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert "setup_context" in request.context
+            return {
+                "session": {"id": "session-1", "status": "awaiting_pre_call_review"},
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+        monkeypatch.setattr(generation, "_ensure_main_plot_invocation_contract", lambda: None)
+        client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+
+        response = client.post(f"/api/v1/novels/{test_novel_id}/setup/suggest-main-plot-options")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["plot_options"] == []
+        assert data["invocation_session_id"] == "session-1"
+        assert data["invocation_next_action"] == "pre_call_review_required"
+
+    def test_suggest_main_plot_options_stream_emits_approval_required(self, client, test_novel_id, monkeypatch):
+        from interfaces.api.v1.engine import generation
+
+        fake_novel_service = Mock()
+        fake_novel_service.get_novel.return_value = Mock()
+
+        async def fake_create_invocation(request):
+            assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert "setup_context" in request.context
+            assert "worldbuilding_full" in request.variables
+            return {
+                "session": {"id": "session-1", "status": "awaiting_pre_call_review"},
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+        monkeypatch.setattr(generation, "_ensure_main_plot_invocation_contract", lambda: None)
+        client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+
+        response = client.post(f"/api/v1/novels/{test_novel_id}/setup/suggest-main-plot-options-stream")
+
+        assert response.status_code == 200
+        body = response.text
+        assert '"type": "approval_required"' in body
+        assert '"session_id": "session-1"' in body

@@ -1,27 +1,22 @@
 """世界观数据合并：Bible.world_settings 与 Worldbuilding 表对齐。
 
-世界观字段契约与 Plotpilot_writer 保持一致：五维基础字段，不再向新链路注入扩展字段。
-旧数据中的扩展键在读取边界过滤，避免污染前端和写作上下文。
+世界观字段契约与共享配置保持一致；配置之外的扩展键在读取边界过滤，
+避免污染前端和写作上下文。
 """
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-WORLD_BUILDING_DIMENSION_KEYS: Tuple[str, ...] = (
-    "core_rules",
-    "geography",
-    "society",
-    "culture",
-    "daily_life",
-)
+from application.world.worldbuilding_contract import get_worldbuilding_contract
 
-# API / 编辑器 UI 展示的「经典十五字段」与各维度扩充字段分界
-_LEGACY_KEYS_BY_DIMENSION: Dict[str, Tuple[str, ...]] = {
-    "core_rules": ("power_system", "physics_rules", "magic_tech"),
-    "geography": ("terrain", "climate", "resources", "ecology"),
-    "society": ("politics", "economy", "class_system"),
-    "culture": ("history", "religion", "taboos"),
-    "daily_life": ("food_clothing", "language_slang", "entertainment"),
+
+_WORLDBUILDING_CONTRACT = get_worldbuilding_contract()
+
+WORLD_BUILDING_DIMENSION_KEYS: Tuple[str, ...] = tuple(_WORLDBUILDING_CONTRACT.dimensions.keys())
+
+WORLD_BUILDING_FIELD_KEYS_BY_DIMENSION: Dict[str, Tuple[str, ...]] = {
+    dim_key: tuple((dim_cfg.get("fields") or {}).keys())
+    for dim_key, dim_cfg in _WORLDBUILDING_CONTRACT.dimensions.items()
 }
 
 
@@ -56,7 +51,7 @@ def worldbuilding_entity_to_slices(wb: Any) -> Dict[str, Dict[str, str]]:
         dim: {
             k: v
             for k, v in (raw.get(dim) or {}).items()
-            if k in _LEGACY_KEYS_BY_DIMENSION.get(dim, ())
+            if k in WORLD_BUILDING_FIELD_KEYS_BY_DIMENSION.get(dim, ())
         }
         for dim in WORLD_BUILDING_DIMENSION_KEYS
     }
@@ -76,7 +71,7 @@ def bible_dto_world_settings_to_slices(bible: Any) -> Dict[str, Dict[str, str]]:
         dim, key = name[:dot], name[dot + 1 :].strip()
         if dim not in dim_keys or not key:
             continue
-        if key not in _LEGACY_KEYS_BY_DIMENSION.get(dim, ()):
+        if key not in WORLD_BUILDING_FIELD_KEYS_BY_DIMENSION.get(dim, ()):
             continue
         desc = (getattr(s, "description", None) or "").strip()
         if desc:
@@ -96,7 +91,7 @@ def merge_worldbuilding_table_and_bible_slices(
     for dim in WORLD_BUILDING_DIMENSION_KEYS:
         b_blk = bible_slices.get(dim) or {}
         t_blk = table_slices.get(dim) or {}
-        allowed = frozenset(_LEGACY_KEYS_BY_DIMENSION.get(dim, ()))
+        allowed = frozenset(WORLD_BUILDING_FIELD_KEYS_BY_DIMENSION.get(dim, ()))
         out = {k: v for k, v in b_blk.items() if k in allowed}
         for kk, vv in t_blk.items():
             if kk not in allowed:
@@ -108,10 +103,10 @@ def merge_worldbuilding_table_and_bible_slices(
     return merged
 
 
-def project_slices_to_legacy_api_shape(full_slices: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
-    """将五维字典压成 writer 基础字段；丢弃旧扩展键。"""
+def project_slices_to_contract_api_shape(full_slices: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+    """将五维字典压成共享契约字段；丢弃配置之外的扩展键。"""
     out: Dict[str, Dict[str, str]] = {}
-    for dim, keys in _LEGACY_KEYS_BY_DIMENSION.items():
+    for dim, keys in WORLD_BUILDING_FIELD_KEYS_BY_DIMENSION.items():
         blk = full_slices.get(dim) or {}
         row = {
             k: text

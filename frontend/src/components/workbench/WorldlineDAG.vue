@@ -438,7 +438,7 @@ const layout = computed(() => {
     return i >= 0 ? i : 0
   }
 
-  // Sort nodes by story time first. Created time remains a fallback for old data.
+  // Sort nodes by story time first. Created time keeps older records stable when story time is missing.
   const sorted = [...ns].sort((a, b) => {
     const ac = Number(a.anchor_chapter || a.world_slice?.chapter_number || 0)
     const bc = Number(b.anchor_chapter || b.world_slice?.chapter_number || 0)

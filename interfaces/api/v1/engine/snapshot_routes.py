@@ -221,17 +221,14 @@ async def delete_snapshot(
     if novel_service.get_novel(novel_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
 
-    snapshot = snapshot_service.get_snapshot(snapshot_id)
-    if not snapshot:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
-
-    if snapshot.get("novel_id") != novel_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Snapshot does not belong to this novel")
-
     try:
-        # TODO: 实现 SnapshotService.delete_snapshot 方法
-        logger.warning("delete_snapshot 功能尚未实现")
-        # snapshot_service.delete_snapshot(snapshot_id)
+        deleted = snapshot_service.delete_snapshot(snapshot_id, novel_id=novel_id)
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"删除快照失败: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

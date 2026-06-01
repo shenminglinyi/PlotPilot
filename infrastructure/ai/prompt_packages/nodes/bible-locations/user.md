@@ -1,5 +1,20 @@
-【全图底层地质与法则】
-{worldbuilding}
+【世界观全量摘要】
+{worldbuilding_full}
+
+【核心法则】
+{core_rules}
+
+【地理生态】
+{geography}
+
+【社会结构】
+{society}
+
+【历史文化】
+{culture}
+
+【沉浸感细节】
+{daily_life}
 
 【已点亮锚点】
 {existing_locations}

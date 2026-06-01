@@ -1,4 +1,4 @@
-"""测试 SnapshotService 的引擎状态支持"""
+﻿"""测试 SnapshotService 的引擎状态支持"""
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -139,6 +139,156 @@ def test_create_snapshot_without_engine_state(temp_db):
     assert snapshot_id is not None
 
 
+def test_create_snapshot_persists_structured_bible_state(temp_db):
+    """快照应保存真实 Bible 结构化状态，而不是固定存在性占位。"""
+    import json
+
+    novel_id = "test-novel"
+    temp_db.execute("INSERT INTO novels (id, title, slug) VALUES (?, ?, ?)",
+                    (novel_id, "测试小说", "test-novel"))
+    temp_db.execute("""
+        CREATE TABLE IF NOT EXISTS bibles (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL UNIQUE,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            extensions TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT,
+            updated_at TEXT
+        )
+    """)
+    temp_db.execute("""
+        CREATE TABLE IF NOT EXISTS unified_characters (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            public_profile TEXT NOT NULL DEFAULT '',
+            hidden_profile TEXT NOT NULL DEFAULT '',
+            reveal_chapter INTEGER,
+            role TEXT NOT NULL DEFAULT '',
+            verbal_tic TEXT NOT NULL DEFAULT '',
+            idle_behavior TEXT NOT NULL DEFAULT '',
+            voice_style TEXT NOT NULL DEFAULT '',
+            sentence_pattern TEXT NOT NULL DEFAULT '',
+            speech_tempo TEXT NOT NULL DEFAULT '',
+            core_belief TEXT NOT NULL DEFAULT '',
+            moral_taboos_json TEXT NOT NULL DEFAULT '[]',
+            active_wounds_json TEXT NOT NULL DEFAULT '[]',
+            mental_state TEXT NOT NULL DEFAULT 'NORMAL',
+            mental_state_reason TEXT NOT NULL DEFAULT '',
+            current_state_summary TEXT NOT NULL DEFAULT '',
+            last_updated_chapter INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT
+        )
+    """)
+    temp_db.execute("""
+        CREATE TABLE IF NOT EXISTS bible_world_settings (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            setting_type TEXT NOT NULL DEFAULT 'other',
+            updated_at TEXT
+        )
+    """)
+    temp_db.execute("""
+        CREATE TABLE IF NOT EXISTS bible_locations (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            location_type TEXT NOT NULL DEFAULT 'other',
+            parent_id TEXT,
+            updated_at TEXT
+        )
+    """)
+    temp_db.execute("""
+        CREATE TABLE IF NOT EXISTS bible_timeline_notes (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            event TEXT NOT NULL DEFAULT '',
+            time_point TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT
+        )
+    """)
+    temp_db.execute("""
+        CREATE TABLE IF NOT EXISTS bible_style_notes (
+            id TEXT PRIMARY KEY,
+            novel_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            content TEXT NOT NULL DEFAULT '',
+            updated_at TEXT
+        )
+    """)
+    temp_db.execute(
+        "INSERT INTO bibles (id, novel_id, schema_version, extensions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ("bible-1", novel_id, 2, '{"mode":"test"}', "2026-06-01T00:00:00", "2026-06-01T01:00:00"),
+    )
+    temp_db.execute(
+        """
+        INSERT INTO unified_characters (
+            id, novel_id, name, description, public_profile, hidden_profile,
+            reveal_chapter, role, verbal_tic, idle_behavior, voice_style,
+            sentence_pattern, speech_tempo, core_belief, moral_taboos_json,
+            active_wounds_json, mental_state, mental_state_reason,
+            current_state_summary, last_updated_chapter, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "char-1", novel_id, "林舟", "角色描述", "公开信息", "隐藏信息",
+            3, "主角", "且慢", "捻袖口", "冷静", "短句", "偏慢",
+            "守信", '["背叛"]', '[{"name":"旧伤"}]', "紧张", "被追问",
+            "刚完成交易", 5, "2026-06-01T01:00:00",
+        ),
+    )
+    temp_db.execute(
+        "INSERT INTO bible_world_settings (id, novel_id, name, description, setting_type, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ("world-1", novel_id, "能力规则", "能力需要代价", "rule", "2026-06-01T01:00:00"),
+    )
+    temp_db.execute(
+        "INSERT INTO bible_locations (id, novel_id, name, description, location_type, parent_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("loc-1", novel_id, "旧仓库", "城郊仓库", "site", None, "2026-06-01T01:00:00"),
+    )
+    temp_db.execute(
+        "INSERT INTO bible_timeline_notes (id, novel_id, event, time_point, description, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("time-1", novel_id, "第一次交易", "第一章", "双方试探", 1, "2026-06-01T01:00:00"),
+    )
+    temp_db.execute(
+        "INSERT INTO bible_style_notes (id, novel_id, category, content, updated_at) VALUES (?, ?, ?, ?, ?)",
+        ("style-1", novel_id, "叙述", "短句推进", "2026-06-01T01:00:00"),
+    )
+    temp_db.commit()
+
+    chapter_repo = SqliteChapterRepository(temp_db)
+    service = SnapshotService(temp_db, chapter_repo)
+
+    snapshot_id = service.create_snapshot(
+        novel_id=novel_id,
+        trigger_type="MANUAL",
+        name="带 Bible 的快照",
+    )
+
+    row = temp_db.fetch_one("SELECT bible_state FROM novel_snapshots WHERE id = ?", (snapshot_id,))
+    bible_state = json.loads(row["bible_state"])
+
+    assert bible_state["exists"] is True
+    assert bible_state["bible_id"] == "bible-1"
+    assert bible_state["schema_version"] == 2
+    assert bible_state["summary"] == {
+        "characters": 1,
+        "world_settings": 1,
+        "locations": 1,
+        "timeline_notes": 1,
+        "style_notes": 1,
+    }
+    assert bible_state["characters"][0]["name"] == "林舟"
+    assert bible_state["characters"][0]["verbal_tic"] == "且慢"
+    assert bible_state["world_settings"][0]["name"] == "能力规则"
+    assert "chapter_content" not in json.dumps(bible_state, ensure_ascii=False)
+
+
 def test_get_snapshot_parses_engine_state(temp_db):
     """测试 get_snapshot 方法正确解析引擎状态字段"""
     # 准备
@@ -225,6 +375,98 @@ def test_rollback_without_engine_state_returns_false(temp_db):
     # 验证
     assert "has_engine_state" in result
     assert result["has_engine_state"] is False
+
+
+def test_delete_snapshot_reparents_children_without_deleting_chapters(temp_db):
+    """删除中间快照时，子快照重挂到上级快照，章节表不受影响。"""
+    novel_id = "test-novel"
+    temp_db.execute(
+        "INSERT INTO novels (id, title, slug) VALUES (?, ?, ?)",
+        (novel_id, "测试小说", "test-novel"),
+    )
+    temp_db.execute(
+        "INSERT INTO chapters (id, novel_id, number, title, status, word_count) VALUES (?, ?, ?, ?, ?, ?)",
+        ("chapter-1", novel_id, 1, "第一章", "completed", 1200),
+    )
+    temp_db.commit()
+
+    chapter_repo = SqliteChapterRepository(temp_db)
+    service = SnapshotService(temp_db, chapter_repo)
+
+    root_id = "snapshot-root"
+    middle_id = "snapshot-middle"
+    child_id = "snapshot-child"
+    for snapshot_id, parent_id, name in (
+        (root_id, None, "根快照"),
+        (middle_id, root_id, "中间快照"),
+        (child_id, middle_id, "子快照"),
+    ):
+        temp_db.execute(
+            """
+            INSERT INTO novel_snapshots (
+                id, novel_id, parent_snapshot_id, branch_name, trigger_type,
+                name, description, chapter_pointers, bible_state, foreshadow_state,
+                story_state, character_masks, emotion_ledger, active_foreshadows,
+                outline, recent_chapters_summary, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot_id,
+                novel_id,
+                parent_id,
+                "main",
+                "MANUAL",
+                name,
+                None,
+                '["chapter-1"]',
+                "{}",
+                "{}",
+                "{}",
+                "{}",
+                "{}",
+                "[]",
+                "",
+                "",
+                "2026-06-01T00:00:00",
+            ),
+        )
+    temp_db.commit()
+
+    assert service.delete_snapshot(middle_id, novel_id=novel_id) is True
+    assert service.get_snapshot(middle_id) is None
+
+    child = service.get_snapshot(child_id)
+    assert child is not None
+    assert child["parent_snapshot_id"] == root_id
+
+    chapter = temp_db.fetch_one("SELECT id FROM chapters WHERE id = ?", ("chapter-1",))
+    assert chapter == {"id": "chapter-1"}
+
+
+def test_delete_snapshot_rejects_cross_novel_delete(temp_db):
+    """删除接口传入作品 ID 时，拒绝跨作品误删。"""
+    temp_db.execute(
+        "INSERT INTO novels (id, title, slug) VALUES (?, ?, ?)",
+        ("novel-a", "甲作品", "novel-a"),
+    )
+    temp_db.execute(
+        "INSERT INTO novels (id, title, slug) VALUES (?, ?, ?)",
+        ("novel-b", "乙作品", "novel-b"),
+    )
+    temp_db.commit()
+
+    chapter_repo = SqliteChapterRepository(temp_db)
+    service = SnapshotService(temp_db, chapter_repo)
+    snapshot_id = service.create_snapshot(
+        novel_id="novel-a",
+        trigger_type="MANUAL",
+        name="甲作品快照",
+    )
+
+    with pytest.raises(ValueError, match="快照不属于该作品"):
+        service.delete_snapshot(snapshot_id, novel_id="novel-b")
+
+    assert service.get_snapshot(snapshot_id) is not None
 
 
 if __name__ == "__main__":

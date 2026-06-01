@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, List
 
+from application.world.services.narrative_lexicon import get_narrative_lexicon
+
 
 _INTERNAL_HEADER_RE = re.compile(r"【系统内部[^】]*】[\s\S]*?(?=\n\n【|$)")
 _TYPE_RE = re.compile(r"【类型：([^】]+)】")
@@ -67,19 +69,7 @@ def extract_narrative_promise(title: str, premise: str) -> NarrativePromise:
     hook = _first_match(_OPENING_HOOK_RE, clean)
 
     keyword_candidates: List[str] = []
-    for kw in (
-        "无根仙体",
-        "灵根",
-        "天道",
-        "枷锁",
-        "飞升",
-        "剑仙",
-        "本命飞剑",
-        "冤案",
-        "符术",
-        "宗门",
-        "黑市",
-    ):
+    for kw in get_narrative_lexicon().promise_keywords:
         if kw in (title or "") or kw in clean:
             keyword_candidates.append(kw)
 

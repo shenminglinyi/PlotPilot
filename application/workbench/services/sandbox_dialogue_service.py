@@ -115,17 +115,9 @@ class SandboxDialogueService:
             "scene_text": scene_text,
         }
 
-        # CPMS render
-        registry = get_prompt_registry()
-        prompt = registry.render_to_prompt(DIALOGUE_GENERATION, variables)
-        if prompt:
-            return prompt
+        from infrastructure.ai.prompt_utils import render_required_prompt
 
-        # 降级：直接拼接
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system = get_prompt_system(DIALOGUE_GENERATION)
-        user = f"目标角色：{character_name}\n\n【角色基础设定】\n- 人设描述：{description or '暂无'}\n- 公开档案：{public_profile or '暂无'}\n- 当前心理状态：{mental_state or 'NORMAL'}\n- 口头禅：{verbal_tic or '无'}\n- 常见动作：{idle_behavior or '无'}\n\n【角色关系】\n{relationship_block}\n\n【场景点名的相关角色】\n{related_block}\n\n【历史对白样本（模仿语气，不要照抄）】\n{history_block}\n\n【当前场景】\n{scene_text}\n\n请直接生成这名角色在当前场景中的一小段对白，要求：\n1. 只写成品台词，可夹带极少量动作描写；\n2. 重点保持这个角色自己的语气、身份位置和情绪，不要串成别的角色；\n3. 若场景里有其他角色，可以被提及或简短回应，但不要让其他角色成为主说话人；\n4. 长度控制在 2-4 句话；\n5. 不要输出角色名标签、分析说明、引号外注释。"
-        return Prompt(system=system, user=user)
+        return render_required_prompt(DIALOGUE_GENERATION, variables)
 
     def clean_generated_dialogue(self, content: str, character_name: str) -> str:
         """Normalize generated dialogue for UI rendering."""

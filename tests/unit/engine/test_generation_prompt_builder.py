@@ -1,59 +1,65 @@
-"""StoryPipeline generation prompt helper tests — two-stage (script → prose)."""
+"""StoryPipeline generation prompt helper tests."""
+from types import SimpleNamespace
+
 from engine.pipeline.context import PipelineContext
 from engine.pipeline.generation_prompt_builder import (
-    DEFAULT_PIPELINE_SYSTEM_PROMPT,
-    SCRIPT_SYSTEM_PROMPT,
+    build_director_contract,
     build_generation_prompt,
     make_prompt,
-    make_script_prompt,
 )
 
 
-def test_build_generation_prompt_orders_script_outline_voice_context():
+def test_build_generation_prompt_puts_beat_task_before_context():
+    beat = SimpleNamespace(
+        description="主角夺回证据",
+        focus="action",
+        visible_action="推门闯入档案室",
+        delta="拿到芯片，守卫开始追击",
+        card_prompt_block="━━━ 节点卡\n✅ 必须写出的行为：推开门",
+    )
     ctx = PipelineContext(
-        script="【场景设定】档案室\n【动作设计】推门闯入",
-        outline="本章大纲：主角夺回证据",
-        voice_anchors="【声线锚点】冷峻、克制",
-        context_text="核心上下文：守卫已布防",
+        context_text="核心上下文",
+        voice_anchors="声线锚点",
+        outline="本章大纲",
+        beats=[beat],
     )
 
-    prompt = build_generation_prompt(ctx)
+    prompt = build_generation_prompt(ctx, beat, 0)
 
-    script_pos = prompt.index("【导演剧本")
-    outline_pos = prompt.index("【章节大纲")
-    voice_pos = prompt.index("【声线锚点")
+    beat_pos = prompt.index("【当前节拍 1/1】")
     ctx_pos = prompt.index("【参考背景")
-
-    assert script_pos < outline_pos < voice_pos < ctx_pos
-    assert "推门闯入" in prompt
-    assert "主角夺回证据" in prompt
+    assert beat_pos < ctx_pos
+    assert "本拍唯一任务" in prompt
+    assert "拿到芯片" in prompt
     assert "核心上下文" in prompt
 
 
-def test_build_generation_prompt_skips_missing_sections():
-    ctx = PipelineContext(script="【场景】只有剧本")
-
-    prompt = build_generation_prompt(ctx)
-
-    assert "【导演剧本" in prompt
-    assert "【章节大纲" not in prompt
-    assert "【声线锚点" not in prompt
-    assert "【参考背景" not in prompt
+def test_build_director_contract_empty_when_no_delivery_fields():
+    beat = SimpleNamespace(description="铺垫", focus="sensory")
+    assert build_director_contract(beat) == ""
 
 
-def test_build_generation_prompt_empty_context_returns_empty_string():
-    assert build_generation_prompt(PipelineContext()) == ""
+def test_build_generation_prompt_includes_bundle_genre_profile():
+    beat = SimpleNamespace(description="进入现实困境", focus="action")
+    ctx = PipelineContext(
+        outline="本章大纲",
+        beats=[beat],
+        bundle={
+            "genre_opening_profile": {"genre_major": "都市"},
+            "genre_reader_contract": {"reader_promise": ["现实压迫快速建立"]},
+            "genre_rhythm_constraints": {"payoff_interval": "短"},
+        },
+    )
+
+    prompt = build_generation_prompt(ctx, beat, 0)
+
+    assert "类型开篇画像" in prompt
+    assert "现实压迫快速建立" in prompt
+    assert "payoff_interval" in prompt
 
 
-def test_make_prompt_returns_domain_prompt_with_prose_system():
+def test_make_prompt_returns_domain_prompt_when_available():
     prompt = make_prompt("正文要求")
 
     assert getattr(prompt, "user", None) == "正文要求"
-    assert getattr(prompt, "system", "") == DEFAULT_PIPELINE_SYSTEM_PROMPT
-
-
-def test_make_script_prompt_returns_domain_prompt_with_script_system():
-    prompt = make_script_prompt("剧本要求")
-
-    assert getattr(prompt, "user", None) == "剧本要求"
-    assert getattr(prompt, "system", "") == SCRIPT_SYSTEM_PROMPT
+    assert getattr(prompt, "system", "")

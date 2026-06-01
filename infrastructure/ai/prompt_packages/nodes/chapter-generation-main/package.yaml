@@ -30,6 +30,10 @@ variables:
   type: string
   required: false
   default: ''
+- name: genre_profile_block
+  desc: 类型开篇画像、读者留存契约与节奏约束，来自 Variable Hub / 分类画像配置
+  type: string
+  required: true
 - name: behavior_protocol
   desc: Anti-AI行为协议（Layer 1+2注入）
   type: string

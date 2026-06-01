@@ -16,9 +16,14 @@ V2 增强：节拍间衔接锚点提取 + 精确过渡指令。
   然后生成精确的过渡指令，注入到下一节拍的 prompt 中。
 """
 
-import re
 import logging
-from dataclasses import dataclass
+
+from application.workflows.beat_context_extractor import (
+    BeatTailAnchor,
+    extract_beat_tail_anchor,
+    extract_core_event,
+    extract_paragraph_participants,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,24 +36,6 @@ _RECENT_BEATS_FULL_CHARS = 3_000
 
 # 🔗 V3：结构化回溯上限（远期节拍压缩后的摘要，约 500 字）
 _RECAP_MAX_CHARS = 500
-
-
-@dataclass
-class BeatTailAnchor:
-    """节拍尾部衔接锚点
-
-    不是摘要，是"导演的转场笔记"——
-    告诉下一节拍的作者（AI）上一节拍"镜头"停在哪里。
-    """
-    # 尾部状态：对话中 / 动作中 / 叙述中 / 悬念中 / 场景转换
-    tail_state: str = ""
-
-    # 情绪基调：紧张 / 舒缓 / 愤怒 / 悲伤 / 日常 / 悬疑
-    mood_tone: str = ""
-
-    # 最后的画面/动作/台词（原文截取，~100字）
-    last_moment: str = ""
-
 
 def format_prior_draft_for_prompt(chapter_draft_so_far: str) -> str:
     """V3 滑动窗口 + 结构化回溯
@@ -145,11 +132,9 @@ def _build_structured_recap(distant_text: str) -> str:
         if not para:
             continue
 
-        # 提取角色名（引号前的主语）
-        characters = _extract_characters_from_paragraph(para)
+        characters = extract_paragraph_participants(para)
 
-        # 提取核心动作/事件（简化版：取第一句和最后一句的关键信息）
-        core_event = _extract_core_event(para)
+        core_event = extract_core_event(para)
 
         if core_event:
             prefix = f"[段{i+1}]"
@@ -169,110 +154,6 @@ def _build_structured_recap(distant_text: str) -> str:
             recap_text = recap_text[-_RECAP_MAX_CHARS:]
 
     return recap_text
-
-
-def _extract_characters_from_paragraph(para: str) -> str:
-    """从段落中提取出现的角色名（启发式）"""
-    # 寻找对话引号前的主语
-    speakers = re.findall(r'([\u4e00-\u9fff]{2,4})[说道喊叫问回答吼笑叹嘀咕嘟囔]', para)
-
-    # 去重
-    seen = set()
-    unique = []
-    for s in speakers:
-        if s not in seen and len(s) >= 2:
-            seen.add(s)
-            unique.append(s)
-
-    return "、".join(unique[:3]) if unique else ""
-
-
-def _extract_core_event(para: str) -> str:
-    """从段落中提取核心事件（一句话概述）
-
-    策略：取第一个完整句子，压缩到 60 字以内。
-    """
-    if not para:
-        return ""
-
-    # 取第一个完整句子
-    sentences = re.split(r'[。！？…]', para)
-    first = ""
-    for s in sentences:
-        if s.strip() and len(s.strip()) >= 4:
-            first = s.strip()
-            break
-
-    if not first:
-        first = para[:50]
-
-    # 压缩到 60 字
-    if len(first) > 60:
-        first = first[:57] + "…"
-
-    return first
-
-
-def extract_beat_tail_anchor(prior_draft: str) -> BeatTailAnchor:
-    """从上一节拍已生成正文中提取衔接锚点（启发式，零 LLM 调用）
-
-    策略：分析最后 ~300 字，判断尾部状态和情绪基调。
-    """
-    if not prior_draft or not prior_draft.strip():
-        return BeatTailAnchor()
-
-    tail = prior_draft.strip()[-300:]
-
-    anchor = BeatTailAnchor()
-
-    # ── 1. 提取最后的画面/动作/台词 ──
-    # 取最后2-3个完整句子
-    sentences = re.split(r'[。！？…]', tail)
-    last_sentences = [s.strip() for s in sentences if s.strip()][-3:]
-    if last_sentences:
-        anchor.last_moment = "。".join(last_sentences[-2:])
-        if len(anchor.last_moment) > 150:
-            anchor.last_moment = anchor.last_moment[-150:]
-
-    # ── 2. 判断尾部状态 ──
-    # 对话中：末尾有引号或冒号开头的台词
-    if re.search(r'[""「『].*[""」』]$', tail) or re.search(r'[：:][""「『]$', tail):
-        anchor.tail_state = "对话中"
-    # 悬念中：末尾有省略号或破折号
-    elif re.search(r'(……|——|…)$', tail):
-        anchor.tail_state = "悬念中"
-    # 动作中：末尾有动作动词
-    elif re.search(r'(走|跑|冲|抓|推|拉|打|踢|跳|站|坐|起|倒|转|举|放|握|按|敲|踢|摔|跌|躲|闪|挡|拔|刺|劈|砍|射|扔|掷|砸|撞|翻|爬|滚|逃|追|赶|拦|挡)[了着过]??$', tail):
-        anchor.tail_state = "动作中"
-    # 场景转换：有明确的时间/地点变化词
-    elif re.search(r'(后来|随后|不久|片刻|这时|此时|翌日|次日|黄昏|清晨|深夜)', tail[-100:]):
-        anchor.tail_state = "场景转换"
-    else:
-        anchor.tail_state = "叙述中"
-
-    # ── 3. 判断情绪基调 ──
-    mood_keywords = {
-        '紧张': ['紧张', '屏息', '心跳', '颤抖', '冷汗', '握紧', '僵住', '不敢'],
-        '愤怒': ['怒', '愤', '吼', '咆哮', '拍桌', '攥紧', '咬牙'],
-        '悲伤': ['哭', '泪', '哽咽', '沉默', '低下头', '黯然', '苦笑'],
-        '悬疑': ['奇怪', '不对', '可疑', '蹊跷', '疑问', '谁', '为什么', '难道'],
-        '舒缓': ['笑', '轻松', '温暖', '舒适', '安心', '释然', '平静'],
-        '日常': ['日常', '吃饭', '喝茶', '散步', '闲聊', '笑着', '点头'],
-    }
-
-    tail_lower = tail.lower()
-    max_hits = 0
-    for mood, keywords in mood_keywords.items():
-        hits = sum(1 for kw in keywords if kw in tail_lower)
-        if hits > max_hits:
-            max_hits = hits
-            anchor.mood_tone = mood
-
-    if not anchor.mood_tone:
-        anchor.mood_tone = "日常"
-
-    return anchor
-
 
 def build_beat_transition_directive(
     anchor: BeatTailAnchor,

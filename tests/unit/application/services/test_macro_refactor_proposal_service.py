@@ -1,7 +1,10 @@
 """Tests for MacroRefactorProposalService"""
 import pytest
 from unittest.mock import AsyncMock, Mock
-from application.services.macro_refactor_proposal_service import MacroRefactorProposalService
+from application.services.macro_refactor_proposal_service import (
+    MacroRefactorProposalError,
+    MacroRefactorProposalService,
+)
 from application.dtos.macro_refactor_dto import RefactorProposalRequest, RefactorProposal
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.services.llm_service import GenerationResult, GenerationConfig
@@ -70,8 +73,8 @@ async def test_generate_proposal_returns_structured_data(proposal_service, mock_
 
 
 @pytest.mark.asyncio
-async def test_generate_proposal_handles_llm_error(proposal_service, mock_llm_service):
-    """测试处理 LLM 错误时优雅降级"""
+async def test_generate_proposal_blocks_on_llm_error(proposal_service, mock_llm_service):
+    """测试 LLM 错误时阻塞流程，不返回伪造提案"""
     # Arrange
     request = RefactorProposalRequest(
         event_id="evt_001",
@@ -83,15 +86,8 @@ async def test_generate_proposal_handles_llm_error(proposal_service, mock_llm_se
     # Mock LLM to raise exception
     mock_llm_service.generate.side_effect = Exception("LLM service unavailable")
 
-    # Act
-    proposal = await proposal_service.generate_proposal(request)
-
-    # Assert - should return fallback proposal
-    assert isinstance(proposal, RefactorProposal)
-    assert "无法生成具体建议" in proposal.natural_language_suggestion
-    assert proposal.suggested_mutations == []
-    assert proposal.suggested_tags == []
-    assert "LLM 服务暂时不可用" in proposal.reasoning
+    with pytest.raises(MacroRefactorProposalError, match="重构提案生成失败"):
+        await proposal_service.generate_proposal(request)
 
 
 @pytest.mark.asyncio
@@ -137,8 +133,8 @@ async def test_generate_proposal_parses_mutations(proposal_service, mock_llm_ser
 
 
 @pytest.mark.asyncio
-async def test_generate_proposal_handles_invalid_json(proposal_service, mock_llm_service):
-    """测试处理无效 JSON 响应"""
+async def test_generate_proposal_blocks_on_invalid_json(proposal_service, mock_llm_service):
+    """测试无效 JSON 响应时阻塞流程，不返回空提案"""
     # Arrange
     request = RefactorProposalRequest(
         event_id="evt_001",
@@ -153,10 +149,5 @@ async def test_generate_proposal_handles_invalid_json(proposal_service, mock_llm
         token_usage=TokenUsage(input_tokens=100, output_tokens=50)
     )
 
-    # Act
-    proposal = await proposal_service.generate_proposal(request)
-
-    # Assert - should return fallback proposal
-    assert isinstance(proposal, RefactorProposal)
-    assert "无法生成具体建议" in proposal.natural_language_suggestion
-    assert proposal.suggested_mutations == []
+    with pytest.raises(MacroRefactorProposalError, match="响应无法解析"):
+        await proposal_service.generate_proposal(request)

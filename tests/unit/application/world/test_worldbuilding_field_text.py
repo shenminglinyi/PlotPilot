@@ -32,3 +32,10 @@ def test_list_of_regions_flattened():
     assert "北荒" in prose
     assert "雷暴" in prose
     assert "name" not in prose
+
+
+def test_json_key_labels_are_loaded_from_worldbuilding_contract():
+    prose = worldbuilding_value_to_prose({"underground_trade": "只作为字段标签配置验证"})
+
+    assert "非公开交易" in prose
+    assert "underground_trade" not in prose

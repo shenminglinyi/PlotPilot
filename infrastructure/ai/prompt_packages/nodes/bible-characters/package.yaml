@@ -8,8 +8,23 @@ tags:
 - Bible
 output_format: json
 variables:
-- name: worldbuilding
-  desc: 世界观设定
+- name: worldbuilding_full
+  desc: 世界观全量摘要
+  type: string
+- name: core_rules
+  desc: 核心法则
+  type: string
+- name: geography
+  desc: 地理生态
+  type: string
+- name: society
+  desc: 社会结构
+  type: string
+- name: culture
+  desc: 历史文化
+  type: string
+- name: daily_life
+  desc: 沉浸感细节
   type: string
 - name: style_guide
   desc: 文风公约

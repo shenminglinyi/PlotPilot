@@ -161,17 +161,9 @@ async def compute_beat_bridge(
 
     try:
         from infrastructure.ai.prompt_keys import BEAT_COT_BRIDGE
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        from infrastructure.ai.prompt_manager import get_prompt_manager
+        from infrastructure.ai.prompt_utils import PromptTemplateUnavailable, render_required_prompt
 
-        # 确保种子已加载
-        try:
-            get_prompt_manager().ensure_seeded()
-        except Exception:
-            pass
-
-        reg = get_prompt_registry()
-        rendered = reg.render(
+        prompt = render_required_prompt(
             BEAT_COT_BRIDGE,
             {
                 "prev_beat_tail": tail,
@@ -179,17 +171,16 @@ async def compute_beat_bridge(
                 "chapter_outline": chapter_outline or "",
             },
         )
+        system_text = prompt.system
+        user_text = prompt.user
 
-        system_text = (rendered.system or "").strip() if rendered else ""
-        user_text = (rendered.user or "").strip() if rendered else ""
-
-        if not user_text:
-            logger.debug("[BeatCoTBridge] CPMS 渲染失败，使用内置 fallback 提示词")
-            system_text, user_text = _build_fallback_prompts(tail, next_beat_intent)
+    except PromptTemplateUnavailable as exc:
+        logger.warning("[BeatCoTBridge] CPMS node unavailable; optional beat bridge skipped: %s", exc)
+        return None
 
     except Exception as e:
-        logger.debug("[BeatCoTBridge] 加载 CPMS 节点失败（%s），使用内置 fallback", e)
-        system_text, user_text = _build_fallback_prompts(tail, next_beat_intent)
+        logger.debug("[BeatCoTBridge] CPMS render failed; optional beat bridge skipped: %s", e)
+        return None
 
     if not user_text:
         return None
@@ -200,9 +191,7 @@ async def compute_beat_bridge(
             llm_service = get_llm_service()
 
         from domain.ai.services.llm_service import GenerationConfig
-        from domain.ai.value_objects.prompt import Prompt
 
-        prompt = Prompt(system=system_text, user=user_text)
         config = GenerationConfig(max_tokens=400, temperature=0.25)
 
         pieces: List[str] = []
@@ -227,33 +216,3 @@ async def compute_beat_bridge(
     except Exception as e:
         logger.debug("[BeatCoTBridge] LLM 调用失败（不影响主流程）: %s", e)
         return None
-
-
-def _build_fallback_prompts(tail: str, next_intent: str) -> tuple[str, str]:
-    """CPMS 不可用时的内置 fallback 提示词（与测试中最优的方案C一致）"""
-    system = (
-        "你是叙事状态机分析器，专门负责中文网络小说的节拍间连贯性分析。"
-        "输出严格 JSON，不加任何 Markdown 围栏或前置说明。"
-    )
-    user = f"""[上一节拍结尾]
-{tail}
-
-[下一节拍任务]
-{next_intent}
-
-分析叙事状态，给出过渡指令，输出 JSON：
-{{
-  "active_scene": {{
-    "location": "场景地点（10字以内）",
-    "characters_present": ["人物1状态", "人物2状态"],
-    "atmosphere": "氛围关键词（8字以内）"
-  }},
-  "narrative_momentum": "读者注意力聚焦于什么（15字以内）",
-  "transition": {{
-    "type": "emotion_continue|action_continue|dialogue_continue|scene_cut|internal_shift",
-    "opening_line": "下一节拍第一句话，可直接写入正文（15-30字）",
-    "carry_forward": "必须延续的叙事要素（15字以内）"
-  }},
-  "risk": "最容易出现的叙事断层（12字以内）"
-}}"""
-    return system, user

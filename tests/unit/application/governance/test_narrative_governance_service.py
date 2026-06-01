@@ -18,7 +18,7 @@ class FakeNovelRepo:
     def get_by_id(self, _novel_id):
         return FakeNovel(
             title="我不是剑仙",
-            premise="【类型：东方玄幻】核心冲突：无根仙体被迫走上反剑仙之路\n开篇钩子：黑市冤案牵出宗门旧债",
+            premise="【类型：东方玄幻】核心冲突：无根仙体被迫走上反剑仙之路\n开篇钩子：旧案冤情牵出宗门旧债",
         )
 
 
@@ -108,14 +108,14 @@ def test_governance_report_flags_drift_and_premature_payoff_as_pause():
 
 def test_storyline_registry_merges_aliases_into_canonical_line():
     service, repo = make_service()
-    sid1 = canonical_id_for("n1", "黑市线")
-    sid2 = canonical_id_for("n1", "黑市故事线")
+    sid1 = canonical_id_for("n1", "地下交易线")
+    sid2 = canonical_id_for("n1", "地下交易故事线")
     repo.upsert_storyline(
         CanonicalStoryline(
             canonical_id=sid1,
             novel_id="n1",
-            canonical_key=normalize_storyline_key("黑市线"),
-            title="黑市线",
+            canonical_key=normalize_storyline_key("地下交易线"),
+            title="地下交易线",
             aliases=["鬼市交易"],
         )
     )
@@ -123,15 +123,15 @@ def test_storyline_registry_merges_aliases_into_canonical_line():
         CanonicalStoryline(
             canonical_id=sid2,
             novel_id="n1",
-            canonical_key=normalize_storyline_key("黑市故事线"),
-            title="黑市故事线",
-            aliases=["黑市追查"],
+            canonical_key=normalize_storyline_key("地下交易故事线"),
+            title="地下交易故事线",
+            aliases=["地下交易追查"],
         )
     )
 
     merged = service.merge_storylines("n1", {"target_id": sid1, "source_ids": [sid2]})
 
     assert merged.canonical_id == sid1
-    assert "黑市故事线" in merged.aliases
-    assert "黑市追查" in merged.aliases
+    assert "地下交易故事线" in merged.aliases
+    assert "地下交易追查" in merged.aliases
     assert repo.get_storyline(sid2) is None

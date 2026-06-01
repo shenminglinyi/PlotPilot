@@ -4,13 +4,17 @@ from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from domain.novel.value_objects.chapter_state import ChapterState
 from application.ai.chapter_state_llm_contract import (
-    build_chapter_state_extraction_system_prompt,
     chapter_state_payload_to_domain,
-    empty_chapter_state,
     parse_chapter_state_llm_response,
 )
+from infrastructure.ai.prompt_keys import CHAPTER_STATE_EXTRACTION
+from infrastructure.ai.prompt_utils import render_required_prompt
 
 logger = logging.getLogger(__name__)
+
+
+class StateExtractionError(RuntimeError):
+    """章节状态提取失败；禁止用空状态伪装成功。"""
 
 
 class StateExtractor:
@@ -33,9 +37,7 @@ class StateExtractor:
         """
         logger.info(f"StateExtractor.extract_chapter_state: content_length={len(content)}")
 
-        # 构建提取提示词
-        system_prompt, user_prompt = self._build_extraction_prompt(content)
-        prompt = Prompt(system=system_prompt, user=user_prompt)
+        prompt = self._build_extraction_prompt(content)
 
         # 配置 LLM
         config = GenerationConfig(
@@ -51,13 +53,10 @@ class StateExtractor:
 
         payload, errors = parse_chapter_state_llm_response(raw_response)
         if payload is None:
-            logger.warning(
-                "StateExtractor: LLM 输出未通过契约校验: %s",
-                "; ".join(errors) if errors else "unknown",
-            )
-            chapter_state = empty_chapter_state()
-        else:
-            chapter_state = chapter_state_payload_to_domain(payload)
+            message = "; ".join(errors) if errors else "unknown"
+            logger.error("StateExtractor: LLM 输出未通过契约校验: %s", message)
+            raise StateExtractionError(f"章节状态 LLM 输出未通过契约校验: {message}")
+        chapter_state = chapter_state_payload_to_domain(payload)
         logger.info(
             f"StateExtractor result: "
             f"new_characters={len(chapter_state.new_characters)}, "
@@ -69,19 +68,13 @@ class StateExtractor:
         )
         return chapter_state
 
-    def _build_extraction_prompt(self, content: str) -> tuple[str, str]:
+    def _build_extraction_prompt(self, content: str) -> Prompt:
         """构建提取提示词
 
         Args:
             content: 章节内容
 
         Returns:
-            (system_prompt, user_prompt) 元组
+            CPMS 渲染后的 Prompt
         """
-        system_prompt = build_chapter_state_extraction_system_prompt()
-
-        user_prompt = f"""请从以下章节内容中提取结构化信息：
-
-{content}"""
-
-        return system_prompt, user_prompt
+        return render_required_prompt(CHAPTER_STATE_EXTRACTION, {"content": content})

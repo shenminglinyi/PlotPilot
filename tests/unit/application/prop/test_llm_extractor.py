@@ -6,6 +6,7 @@ import pytest
 from application.narrative.entity_resolver import EntityResolver
 from application.prop.extractors.llm_extractor import LlmExtractor
 from domain.prop.value_objects.prop_event import PropEventType
+from infrastructure.ai.prompt_utils import PromptTemplateUnavailable
 
 
 @dataclass
@@ -33,7 +34,11 @@ class _Result:
 
 
 class _Llm:
+    def __init__(self):
+        self.calls = 0
+
     async def generate(self, prompt, config):
+        self.calls += 1
         return _Result(
             json.dumps(
                 [
@@ -84,3 +89,34 @@ async def test_llm_extractor_resolves_character_names_to_ids():
     assert event.actor_character_id == "char-lin"
     assert event.from_holder_id == "char-lin"
     assert event.to_holder_id == "char-qin"
+
+
+@pytest.mark.asyncio
+async def test_llm_extractor_blocks_when_cpms_template_missing(monkeypatch):
+    llm = _Llm()
+
+    def _missing_prompt(*args, **kwargs):
+        raise PromptTemplateUnavailable("missing prop-event-extraction")
+
+    monkeypatch.setattr(
+        "infrastructure.ai.prompt_utils.render_required_prompt",
+        _missing_prompt,
+    )
+
+    extractor = LlmExtractor(llm)
+
+    with pytest.raises(PromptTemplateUnavailable):
+        await extractor.extract(
+            "novel-1",
+            3,
+            "正文" * 200,
+            [
+                {
+                    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "name": "青铜罗盘",
+                    "holder": "char-lin",
+                }
+            ],
+        )
+
+    assert llm.calls == 0

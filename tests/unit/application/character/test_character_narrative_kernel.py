@@ -86,6 +86,25 @@ def test_new_character_candidates_classify_scene_director_as_create():
     assert target.narrative_function == "explicit_scene_cast"
 
 
+def test_new_character_candidates_filters_configured_non_character_words():
+    kernel = CharacterNarrativeKernel(
+        bible_repository=_BibleRepo([_Char("c1", "林风")]),
+        story_node_repository=_StoryNodeRepo(),
+    )
+
+    candidates = kernel.detect_new_character_candidates(
+        "n1",
+        4,
+        "林风参加拍卖会，随后遇见沈照。",
+        [_Char("c1", "林风")],
+        scene_director={"characters": ["拍卖会", "沈照"]},
+    )
+
+    by_name = {c.name: c for c in candidates}
+    assert by_name["拍卖会"].narrative_function == "non_character_entity"
+    assert by_name["沈照"].recommendation == "create_bible_character"
+
+
 def test_build_context_locks_maps_importance_to_tiers():
     kernel = CharacterNarrativeKernel(
         bible_repository=_BibleRepo([

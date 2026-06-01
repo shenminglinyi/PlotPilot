@@ -410,24 +410,24 @@ roots:
   - id: tongren.lishi_f
     labels:
       zh-CN: 历史同人
-- id: yanqing_fallback
+- id: yanqing_general
   labels:
-    zh-CN: 言情兼容
+    zh-CN: 综合言情
   facets:
     market_track: 女频言情 / 甜宠赛道（宽泛兼容）
     world_tone: 以情感线与人物关系为推进核心，可分现代言情、古风言情等；爽点常与情绪价值、亲密关系节奏绑定，需注意与原作版权及平台规范相符
     theme_agent_key: romance
     search_blob: 言情 甜宠 女频
   children:
-  - id: yanqing_fallback.xiandai
+  - id: yanqing_general.xiandai
     labels:
       zh-CN: 都市言情·甜宠
-  - id: yanqing_fallback.gufeng
+  - id: yanqing_general.gufeng
     labels:
       zh-CN: 古风言情
-  - id: yanqing_fallback.chongsheng_lv
+  - id: yanqing_general.chongsheng_lv
     labels:
       zh-CN: 重生恋爱
-  - id: yanqing_fallback.qita
+  - id: yanqing_general.qita
     labels:
       zh-CN: 其他言情

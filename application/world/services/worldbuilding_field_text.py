@@ -4,42 +4,10 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Mapping
 
-# LLM 常在值里使用的英文键 → 展示用中文标签
-_JSON_KEY_LABELS: Dict[str, str] = {
-    "name": "名称",
-    "essence": "本质",
-    "description": "说明",
-    "cost": "代价",
-    "tier": "层级",
-    "realm_structure": "境界结构",
-    "fatal_flaw": "致命缺陷",
-    "continent_name": "大陆名称",
-    "key_regions": "关键区域",
-    "climate_impact": "气候影响",
-    "terrain": "地形",
-    "survival_rule": "生存法则",
-    "resources": "资源",
-    "ruling_class": "统治阶层",
-    "middle_class": "中间阶层",
-    "lower_class": "底层",
-    "members": "成员",
-    "privileges": "特权",
-    "succession": "传承",
-    "population": "人口",
-    "oppression": "压迫",
-    "resistance": "反抗",
-    "currency": "货币",
-    "black_market": "黑市",
-    "slave_trade": "奴役贸易",
-    "dominant_faith": "主流信仰",
-    "doctrine": "教义",
-    "truth": "真相",
-    "rituals": "仪式",
-    "values": "价值观",
-    "art_and_literature": "文艺",
-    "punishment": "惩罚",
-    "禁忌": "禁忌",
-}
+from application.world.worldbuilding_contract import get_worldbuilding_contract
+
+# LLM 常在值里使用的英文键 → 展示用中文标签，由共享配置资产驱动。
+_JSON_KEY_LABELS: Dict[str, str] = get_worldbuilding_contract().json_key_labels
 
 
 def _label_for_key(key: str) -> str:

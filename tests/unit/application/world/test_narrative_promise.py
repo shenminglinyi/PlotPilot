@@ -4,6 +4,7 @@ from application.world.services.narrative_promise import (
     build_narrative_promise_block,
     extract_narrative_promise,
 )
+from application.world.services.narrative_lexicon import get_narrative_lexicon
 
 
 def test_extract_narrative_promise_strips_internal_header_and_keeps_conflict():
@@ -23,6 +24,13 @@ def test_extract_narrative_promise_strips_internal_header_and_keeps_conflict():
     assert "灵根垄断" in promise.core_conflict
     assert "无根仙体" in promise.opening_hook
     assert "无根仙体" in promise.promise_keywords
+
+
+def test_narrative_promise_keywords_are_loaded_from_lexicon_config():
+    lexicon = get_narrative_lexicon()
+
+    assert "无根仙体" in lexicon.promise_keywords
+    assert "拍卖会" in lexicon.non_character_words
 
 
 def test_build_narrative_promise_block_keeps_opening_from_full_resolution():

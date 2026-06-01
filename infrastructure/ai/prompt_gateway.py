@@ -1,4 +1,4 @@
-﻿"""PromptGateway：统一渲染、校验与回退观测入口。"""
+"""PromptGateway: CPMS-only prompt rendering entry."""
 from __future__ import annotations
 
 import logging
@@ -8,7 +8,6 @@ from typing import Any, Mapping
 
 from pydantic import BaseModel, ValidationError
 
-from domain.ai.value_objects.prompt import Prompt
 from application.ai.trace_context import (
     content_hash,
     ensure_trace,
@@ -17,6 +16,7 @@ from application.ai.trace_context import (
     prompt_preview,
     prompt_to_hash_payload,
 )
+from domain.ai.value_objects.prompt import Prompt
 from infrastructure.ai.prompt_contract import PromptContract
 from infrastructure.ai.trace_recorder import get_trace_recorder
 from infrastructure.ai.variable_registry import get_variable_registry
@@ -25,57 +25,58 @@ logger = logging.getLogger(__name__)
 
 
 class PromptGatewayError(RuntimeError):
-    """PromptGateway 基础异常。"""
+    """Base PromptGateway error."""
 
 
 class PromptGatewayValidationError(PromptGatewayError):
-    """变量或模板渲染校验失败。"""
+    """Raised when prompt variables or rendered templates are invalid."""
 
 
-class PromptGatewayPackageMissingError(PromptGatewayError):
-    """CPMS 与本地 package 均找不到指定节点。"""
+class PromptGatewayNodeMissingError(PromptGatewayError):
+    """Raised when the CPMS registry has no published node for the contract."""
+
+
+# Backward-compatible alias for older imports. Runtime behavior is CPMS-only.
+PromptGatewayPackageMissingError = PromptGatewayNodeMissingError
 
 
 @dataclass(frozen=True)
 class PromptGatewayRenderResult:
-    """提示词渲染结果，保留来源信息便于观测。"""
+    """Rendered prompt result."""
 
     prompt: Prompt
     node_key: str
     contract_version: str
     source: str
-    fallback_used: bool = False
     variables: Mapping[str, Any] = field(default_factory=dict)
-    package_version: str | None = None
 
     def as_text(self) -> str:
-        """给只接受字符串的旧 LLM 客户端使用。"""
-        return f"【系统指令】\n{self.prompt.system}\n\n【用户输入】\n{self.prompt.user}"
+        """Return a legacy text view for callers that still need plain text."""
+        return f"[System]\n{self.prompt.system}\n\n[User]\n{self.prompt.user}"
 
 
 class PromptGateway:
-    """AI 能力提示词统一入口。
+    """CPMS-only prompt rendering gateway.
 
-    渲染顺序：
-    1. Pydantic 校验 variables，失败即 fast-fail；
-    2. 优先读取 PromptRegistry（提示词广场/DB）；
-    3. Registry 不可用或节点未落库时，回退读取 prompt_packages 文件；
-    4. 所有回退都会记录来源，避免静默走硬编码。
+    Runtime order:
+    1. Validate variables with the contract schema.
+    2. Render only from PromptRegistry / CPMS.
+    3. Fast-fail when the CPMS node is missing or unavailable.
+
+    The package directory is accepted only for compatibility with old tests and
+    callers. It is not used by runtime rendering.
     """
 
     def __init__(self, packages_root: Path | None = None):
-        self._packages_root = packages_root or (
-            Path(__file__).resolve().parent / "prompt_packages" / "nodes"
-        )
+        self._packages_root = packages_root
 
     def render(
         self,
         contract: PromptContract,
         variables: Mapping[str, Any] | None = None,
     ) -> PromptGatewayRenderResult:
-        """渲染契约对应的 Prompt。"""
         raw_vars = dict(variables or {})
-        trace = ensure_trace(
+        ensure_trace(
             novel_id=extract_novel_id(raw_vars),
             operation="prompt_render",
             metadata={"entry": "PromptGateway.render"},
@@ -93,7 +94,6 @@ class PromptGateway:
             )
             raise
 
-        registry_error: Exception | None = None
         try:
             rendered = self._render_from_registry(contract, checked_vars)
             if rendered is not None:
@@ -108,51 +108,30 @@ class PromptGateway:
                 metadata={"stage": "registry_render_validation"},
             )
             raise
-        except Exception as exc:  # Registry/DB 不可用时允许 package 文件回退
-            registry_error = exc
-            logger.debug("PromptRegistry 渲染失败，准备读取本地 package: %s", exc)
-
-        package_result = self._render_from_package(contract, checked_vars)
-        if package_result is not None:
-            logger.warning(
-                "PromptGateway 使用本地 package 回退: node=%s registry_error=%s",
-                contract.node_key,
-                registry_error,
+        except Exception as exc:
+            self._record_trace_error(
+                contract,
+                phase="error",
+                error=exc,
+                variables=checked_vars,
+                metadata={"stage": "registry_render"},
             )
-            get_trace_recorder().record_span(
-                phase="fallback_used",
-                trace_context=trace,
-                node_id=contract.node_key,
-                node_type="prompt",
-                contract_key=contract.node_key,
-                contract_version=contract.version,
-                source="fallback",
-                variables_hash=content_hash(checked_vars),
-                variables_preview=preview_value(checked_vars),
-                metadata={
-                    "reason": "registry_missing_or_failed",
-                    "registry_error": str(registry_error) if registry_error else "",
-                    "fallback_source": package_result.source,
-                },
-            )
-            self._record_prompt_rendered(package_result, registry_error=registry_error)
-            return package_result
+            raise
 
-        error = PromptGatewayPackageMissingError(
-            f"提示词节点 {contract.node_key!r} 不存在：PromptRegistry 未命中，"
-            f"且本地 prompt_packages 未找到。"
+        error = PromptGatewayNodeMissingError(
+            f"Prompt node {contract.node_key!r} is not published in CPMS; invocation blocked."
         )
         self._record_trace_error(
             contract,
             phase="error",
             error=error,
             variables=checked_vars,
-            metadata={"stage": "prompt_lookup", "registry_error": str(registry_error) if registry_error else ""},
+            metadata={"stage": "prompt_lookup"},
         )
         raise error
 
     def validate_output(self, contract: PromptContract, payload: Any) -> Any:
-        """按契约校验结构化输出；无 output_schema 时原样返回。"""
+        """Validate structured output with the contract schema."""
         if contract.output_schema is None:
             return payload
         try:
@@ -163,7 +142,7 @@ class PromptGateway:
                 for err in exc.errors()[:10]
             )
             raise PromptGatewayValidationError(
-                f"节点 {contract.node_key} 输出校验失败: {messages}"
+                f"Node {contract.node_key} output validation failed: {messages}"
             ) from exc
 
     def _validate_variables(
@@ -181,7 +160,7 @@ class PromptGateway:
                 for err in exc.errors()[:10]
             )
             raise PromptGatewayValidationError(
-                f"节点 {contract.node_key} 输入变量校验失败: {messages}"
+                f"Node {contract.node_key} input validation failed: {messages}"
             ) from exc
         return model.model_dump()
 
@@ -207,42 +186,7 @@ class PromptGateway:
             node_key=contract.node_key,
             contract_version=contract.version,
             source="registry",
-            fallback_used=False,
             variables=variables,
-        )
-
-    def _render_from_package(
-        self,
-        contract: PromptContract,
-        variables: dict[str, Any],
-    ) -> PromptGatewayRenderResult | None:
-        node_dir = self._packages_root / contract.node_key
-        if not node_dir.is_dir():
-            return None
-
-        system_template = self._read_optional(node_dir / "system.md")
-        user_template = self._read_optional(node_dir / "user.md")
-        from infrastructure.ai.prompt_template_engine import get_template_engine
-
-        result = get_template_engine().render(
-            system_template=system_template,
-            user_template=user_template,
-            variables=variables,
-        )
-        prompt = self._prompt_from_rendered(
-            node_key=contract.node_key,
-            system=result.system,
-            user=result.user,
-            missing_variables=result.missing_variables,
-        )
-        return PromptGatewayRenderResult(
-            prompt=prompt,
-            node_key=contract.node_key,
-            contract_version=contract.version,
-            source="package_file",
-            fallback_used=True,
-            variables=variables,
-            package_version=self._read_package_version(node_dir),
         )
 
     def _record_variables_validated(
@@ -271,14 +215,13 @@ class PromptGateway:
         *,
         registry_error: Exception | None,
     ) -> None:
-        source = "cpms" if result.source == "registry" else "fallback"
         get_trace_recorder().record_span(
             phase="prompt_rendered",
             node_id=result.node_key,
             node_type="prompt",
             contract_key=result.node_key,
             contract_version=result.contract_version,
-            source=source,
+            source="cpms",
             variables_hash=content_hash(result.variables),
             variables_preview=preview_value(result.variables),
             variables_full=dict(result.variables),
@@ -288,8 +231,6 @@ class PromptGateway:
             prompt_full=prompt_to_hash_payload(result.prompt),
             metadata={
                 "prompt_source": result.source,
-                "fallback_used": result.fallback_used,
-                "package_version": result.package_version,
                 "registry_error": str(registry_error) if registry_error else "",
                 "context_injection": self._infer_context_injection(result.variables),
             },
@@ -310,35 +251,31 @@ class PromptGateway:
             node_type="prompt",
             contract_key=contract.node_key,
             contract_version=contract.version,
-            source="config",
+            source="cpms",
             variables_hash=content_hash(variables),
             variables_preview=preview_value(variables),
-            variables_full=dict(variables),
             variable_sources=self._build_variable_sources(contract.node_key, variables),
-            error=str(error),
-            metadata=dict(metadata or {}),
+            metadata={**dict(metadata or {}), "error": str(error), "error_type": type(error).__name__},
         )
 
-    @staticmethod
-    def _build_variable_sources(
-        node_key: str,
-        variables: Mapping[str, Any],
-    ) -> list[dict[str, Any]]:
-        registry = get_variable_registry()
-        schemas = registry.get_schemas_for_node(node_key)
-        sources: list[dict[str, Any]] = []
-        for key, value in variables.items():
-            schema = schemas.get(str(key))
-            sources.append(
+    def _build_variable_sources(self, node_key: str, variables: Mapping[str, Any]) -> list[dict[str, Any]]:
+        schemas = get_variable_registry().get_schemas_for_node(node_key)
+        items: list[dict[str, Any]] = []
+        for name in sorted(variables.keys()):
+            schema = schemas.get(str(name))
+            if schema is None:
+                items.append({"name": str(name), "source": "runtime", "required": False})
+                continue
+            items.append(
                 {
-                    "name": str(key),
-                    "source": getattr(schema, "source", "") or "runtime",
-                    "scope": getattr(getattr(schema, "scope", None), "value", "") or "",
-                    "required": bool(getattr(schema, "required", False)) if schema is not None else False,
-                    "type": getattr(getattr(schema, "type", None), "value", "") or type(value).__name__,
+                    "name": str(name),
+                    "source": schema.source,
+                    "required": schema.required,
+                    "scope": schema.scope.value,
+                    "type": schema.type.value,
                 }
             )
-        return sources
+        return items
 
     @staticmethod
     def _infer_context_injection(variables: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -357,24 +294,6 @@ class PromptGateway:
         return injected
 
     @staticmethod
-    def _read_package_version(node_dir: Path) -> str | None:
-        package_yaml = node_dir / "package.yaml"
-        if not package_yaml.is_file():
-            return None
-        try:
-            import yaml  # type: ignore
-
-            data = yaml.safe_load(package_yaml.read_text(encoding="utf-8")) or {}
-            version = data.get("version") or data.get("package_version")
-            return str(version) if version is not None else None
-        except Exception:
-            return None
-
-    @staticmethod
-    def _read_optional(path: Path) -> str:
-        return path.read_text(encoding="utf-8") if path.is_file() else ""
-
-    @staticmethod
     def _prompt_from_rendered(
         node_key: str,
         system: str,
@@ -384,21 +303,18 @@ class PromptGateway:
         missing = sorted(set(missing_variables or []))
         if missing:
             raise PromptGatewayValidationError(
-                f"节点 {node_key} 模板变量未提供: {', '.join(missing)}"
+                f"Node {node_key} rendered prompt still has missing variables: {', '.join(missing)}"
             )
-        if not system or not system.strip():
-            raise PromptGatewayValidationError(f"节点 {node_key} 的 system prompt 为空")
-        if not user or not user.strip():
-            raise PromptGatewayValidationError(f"节点 {node_key} 的 user prompt 为空")
+        if not system.strip() or not user.strip():
+            raise PromptGatewayValidationError(f"Node {node_key} rendered prompt is empty")
         return Prompt(system=system.strip(), user=user.strip())
 
 
-_GATEWAY: PromptGateway | None = None
+_prompt_gateway: PromptGateway | None = None
 
 
 def get_prompt_gateway() -> PromptGateway:
-    """获取进程内 PromptGateway 单例。"""
-    global _GATEWAY
-    if _GATEWAY is None:
-        _GATEWAY = PromptGateway()
-    return _GATEWAY
+    global _prompt_gateway
+    if _prompt_gateway is None:
+        _prompt_gateway = PromptGateway()
+    return _prompt_gateway

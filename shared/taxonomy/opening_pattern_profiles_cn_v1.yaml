@@ -1,0 +1,2542 @@
+schema_kind: plotpilot.genre_opening_profiles
+schema_version: 1
+locale: zh-CN
+source_metrics: data/genre_intelligence/opening_pattern_metrics_2026-05-31.json
+copyright_policy: 只保存分类画像、聚合指标和结构化写作约束；不保存章节正文。
+resolution_policy:
+  label_separators:
+  - /
+  - ／
+  - '-'
+  - —
+  - '>'
+  - →
+  missing_profile: block_generation
+  fallback: 只允许回退到同一一级分类的 primary_defaults；禁止回退到硬编码提示词。
+primary_aliases:
+  修仙: 仙侠
+  修真: 仙侠
+  仙侠武侠: 仙侠
+  武侠仙侠: 仙侠
+  幻想: 奇幻
+  西幻: 奇幻
+  现代: 都市
+  城市: 都市
+  都市脑洞: 都市
+  电竞: 游戏
+  无限流: 诸天无限
+primary_defaults:
+  仙侠:
+    reader_promise:
+    - 修行目标、境界压力和资源稀缺要前置
+    - 规则通过冲突暴露而不是长篇解释
+    - 章末保留修行或身份问题的追问
+    opening_mechanism:
+      conflict_entry: 修行困境
+      rule_entry: 境界或资源规则
+      payoff_entry: 修行机会或身份疑问
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 中
+      mechanic_visibility: 低
+      sensory_density: 中
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2867
+    metric_snapshot:
+      book_count: 15
+      chapter_count: 150
+      avg_chars: 2867.2533
+      dialogue_density: 0.0208
+      system_ratio: 0.16
+      ending_hook_ratio: 0.6333
+  体育:
+    reader_promise:
+    - 赛事目标、训练压力和胜负反馈要清晰
+    - 竞技动作要绑定角色处境
+    - 短线目标需要快速推进
+    - 规则反馈、面板或机制提示需要明确但不能替代剧情
+    opening_mechanism:
+      conflict_entry: 赛事或训练压力
+      rule_entry: 竞技规则
+      payoff_entry: 胜负反馈或目标推进
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 低
+      conflict_density: 低
+      mechanic_visibility: 强
+      sensory_density: 低
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2807
+    metric_snapshot:
+      book_count: 9
+      chapter_count: 90
+      avg_chars: 2807.3667
+      dialogue_density: 0.0224
+      system_ratio: 0.5111
+      ending_hook_ratio: 0.6
+  军事:
+    reader_promise:
+    - 任务压力、组织纪律和危险边界要明确
+    - 专业信息必须服务场景决策
+    - 章末保留任务升级或威胁扩大
+    - 第一章冲突强度要高于普通铺垫
+    opening_mechanism:
+      conflict_entry: 任务威胁
+      rule_entry: 组织或战场规则
+      payoff_entry: 行动结果或威胁升级
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 强
+      conflict_density: 强
+      mechanic_visibility: 低
+      sensory_density: 中
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2981
+    metric_snapshot:
+      book_count: 15
+      chapter_count: 150
+      avg_chars: 2981.0067
+      dialogue_density: 0.026
+      system_ratio: 0.0733
+      ending_hook_ratio: 0.6667
+  历史:
+    reader_promise:
+    - 身份处境和时代约束要先成立
+    - 选择代价要具体
+    - 历史信息通过冲突和人物关系释放
+    opening_mechanism:
+      conflict_entry: 身份处境
+      rule_entry: 时代规则
+      payoff_entry: 选择代价或局势升级
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 中
+      mechanic_visibility: 低
+      sensory_density: 低
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2763
+    metric_snapshot:
+      book_count: 27
+      chapter_count: 270
+      avg_chars: 2762.837
+      dialogue_density: 0.0218
+      system_ratio: 0.0185
+      ending_hook_ratio: 0.6333
+  奇幻:
+    reader_promise:
+    - 异常规则和世界危险要通过事件暴露
+    - 能力或职业机制要有明确代价
+    - 冒险目标不能停留在设定说明
+    - 第一章冲突强度要高于普通铺垫
+    opening_mechanism:
+      conflict_entry: 异常事件
+      rule_entry: 世界规则
+      payoff_entry: 能力代价或冒险目标
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 强
+      conflict_density: 强
+      mechanic_visibility: 中
+      sensory_density: 强
+      ending_hook_strength: 低
+      payoff_interval: 中长
+      target_avg_chars: 3028
+    metric_snapshot:
+      book_count: 18
+      chapter_count: 180
+      avg_chars: 3027.9556
+      dialogue_density: 0.0204
+      system_ratio: 0.4444
+      ending_hook_ratio: 0.5278
+  悬疑:
+    reader_promise:
+    - 反常细节和核心疑点要第一时间出现
+    - 追问链要不断推动读者往下看
+    - 解释不能早于悬念积累
+    opening_mechanism:
+      conflict_entry: 反常细节
+      rule_entry: 线索规则
+      payoff_entry: 新疑点或追问升级
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 强
+      conflict_density: 中
+      mechanic_visibility: 中
+      sensory_density: 中
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2536
+    metric_snapshot:
+      book_count: 15
+      chapter_count: 150
+      avg_chars: 2535.64
+      dialogue_density: 0.0257
+      system_ratio: 0.2867
+      ending_hook_ratio: 0.56
+  武侠:
+    reader_promise:
+    - 江湖关系和武力压迫要先落地
+    - 人物选择要牵出恩怨或道义代价
+    - 动作场面服务于立场与关系变化
+    - 第一章冲突强度要高于普通铺垫
+    opening_mechanism:
+      conflict_entry: 江湖压迫
+      rule_entry: 门派或恩怨规则
+      payoff_entry: 立场选择或武力反击
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 强
+      mechanic_visibility: 中
+      sensory_density: 中
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2573
+    metric_snapshot:
+      book_count: 14
+      chapter_count: 140
+      avg_chars: 2572.5643
+      dialogue_density: 0.0222
+      system_ratio: 0.2429
+      ending_hook_ratio: 0.5643
+  游戏:
+    reader_promise:
+    - 规则、任务、评分或奖励反馈要尽早可见
+    - 失败代价和成长收益要成对出现
+    - 读者需要看到可重复的爽点循环
+    - 规则反馈、面板或机制提示需要明确但不能替代剧情
+    - 第一章冲突强度要高于普通铺垫
+    opening_mechanism:
+      conflict_entry: 任务或比赛入口
+      rule_entry: 规则反馈
+      payoff_entry: 奖励、排名或能力成长
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 强
+      conflict_density: 强
+      mechanic_visibility: 强
+      sensory_density: 中
+      ending_hook_strength: 低
+      payoff_interval: 中长
+      target_avg_chars: 3354
+    metric_snapshot:
+      book_count: 15
+      chapter_count: 150
+      avg_chars: 3354.4667
+      dialogue_density: 0.0212
+      system_ratio: 0.6467
+      ending_hook_ratio: 0.4467
+  玄幻:
+    reader_promise:
+    - 天赋差距或资源压迫要尽早成形
+    - 成长路径和阶段性收益必须可感知
+    - 第一章需要给出可继续追读的升级期待
+    opening_mechanism:
+      conflict_entry: 资源争夺
+      rule_entry: 规则冲突
+      payoff_entry: 阶段性突破或地位反转
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 中
+      mechanic_visibility: 中
+      sensory_density: 强
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2781
+    metric_snapshot:
+      book_count: 12
+      chapter_count: 120
+      avg_chars: 2780.5583
+      dialogue_density: 0.027
+      system_ratio: 0.3
+      ending_hook_ratio: 0.6167
+  现实题材:
+    reader_promise:
+    - 现实困境和职业矛盾要可信
+    - 情绪落点比设定奇观更重要
+    - 章末要保留生活问题或关系问题的继续性
+    - 章末必须保留明确钩子，承接下一章行动
+    opening_mechanism:
+      conflict_entry: 生活或职业困境
+      rule_entry: 现实规则
+      payoff_entry: 情绪确认或问题升级
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 低
+      conflict_density: 低
+      mechanic_visibility: 低
+      sensory_density: 低
+      ending_hook_strength: 强
+      payoff_interval: 短
+      target_avg_chars: 2668
+    metric_snapshot:
+      book_count: 21
+      chapter_count: 210
+      avg_chars: 2668.2286
+      dialogue_density: 0.0229
+      system_ratio: 0.0333
+      ending_hook_ratio: 0.7667
+  短篇:
+    reader_promise:
+    - 短线冲突和情绪闭环要更快
+    - 信息密度高于长线铺垫
+    - 章末钩子要服务下一段即时阅读
+    - 章末必须保留明确钩子，承接下一章行动
+    opening_mechanism:
+      conflict_entry: 即时冲突
+      rule_entry: 短线规则
+      payoff_entry: 情绪落点或反转
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 低
+      mechanic_visibility: 低
+      sensory_density: 低
+      ending_hook_strength: 强
+      payoff_interval: 短
+      target_avg_chars: 2165
+    metric_snapshot:
+      book_count: 18
+      chapter_count: 171
+      avg_chars: 2165.3099
+      dialogue_density: 0.0162
+      system_ratio: 0.1345
+      ending_hook_ratio: 0.7251
+  科幻:
+    reader_promise:
+    - 技术异常、社会代价和生存压力要同步出现
+    - 设定必须绑定主角选择
+    - 不要用纯说明替代第一章事件
+    opening_mechanism:
+      conflict_entry: 技术异常
+      rule_entry: 技术或社会规则
+      payoff_entry: 生存选择或代价显现
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 中
+      mechanic_visibility: 中
+      sensory_density: 中
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2911
+    metric_snapshot:
+      book_count: 21
+      chapter_count: 210
+      avg_chars: 2911.3333
+      dialogue_density: 0.0229
+      system_ratio: 0.3429
+      ending_hook_ratio: 0.5524
+  诸天无限:
+    reader_promise:
+    - 副本规则、任务边界和失败代价要清楚
+    - 跨世界收益要能持续驱动
+    - 第一章必须建立进入机制和目标
+    opening_mechanism:
+      conflict_entry: 副本入口
+      rule_entry: 任务规则
+      payoff_entry: 奖励、失败代价或世界切换
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 中
+      mechanic_visibility: 中
+      sensory_density: 中
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2627
+    metric_snapshot:
+      book_count: 9
+      chapter_count: 90
+      avg_chars: 2627.3111
+      dialogue_density: 0.0192
+      system_ratio: 0.3444
+      ending_hook_ratio: 0.6
+  轻小说:
+    reader_promise:
+    - 人设反差和关系张力要前置
+    - 节奏要轻快但不能无冲突
+    - 第一章需要给出角色互动期待
+    opening_mechanism:
+      conflict_entry: 人设反差
+      rule_entry: 关系规则
+      payoff_entry: 互动期待或关系推进
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 中
+      conflict_density: 中
+      mechanic_visibility: 低
+      sensory_density: 中
+      ending_hook_strength: 中
+      payoff_interval: 中
+      target_avg_chars: 2957
+    metric_snapshot:
+      book_count: 15
+      chapter_count: 150
+      avg_chars: 2957.4333
+      dialogue_density: 0.0209
+      system_ratio: 0.1667
+      ending_hook_ratio: 0.6733
+  都市:
+    reader_promise:
+    - 现实身份压迫要快速建立
+    - 能力或机会触发后要有可见反转
+    - 第一章至少兑现一个现实收益或情绪收益
+    opening_mechanism:
+      conflict_entry: 现实困境
+      rule_entry: 能力或机会触发
+      payoff_entry: 即时反击或收益兑现
+      information_release: 事件中释放
+    rhythm_constraints:
+      first_screen_hook: 低
+      conflict_density: 低
+      mechanic_visibility: 中
+      sensory_density: 低
+      ending_hook_strength: 低
+      payoff_interval: 中长
+      target_avg_chars: 2728
+    metric_snapshot:
+      book_count: 21
+      chapter_count: 210
+      avg_chars: 2727.8
+      dialogue_density: 0.022
+      system_ratio: 0.3857
+      ending_hook_ratio: 0.5381
+profiles:
+  仙侠:
+    修真文明:
+      reader_promise:
+      - 修行目标、境界压力和资源稀缺要前置
+      - 规则通过冲突暴露而不是长篇解释
+      - 章末保留修行或身份问题的追问
+      opening_mechanism:
+        conflict_entry: 修行困境
+        rule_entry: 境界或资源规则
+        payoff_entry: 修行机会或身份疑问
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 3034
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3034.1667
+        dialogue_density: 0.0254
+        system_ratio: 0.1
+        ending_hook_ratio: 0.5667
+    古典仙侠:
+      reader_promise:
+      - 修行目标、境界压力和资源稀缺要前置
+      - 规则通过冲突暴露而不是长篇解释
+      - 章末保留修行或身份问题的追问
+      opening_mechanism:
+        conflict_entry: 修行困境
+        rule_entry: 境界或资源规则
+        payoff_entry: 修行机会或身份疑问
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2899
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2899.2667
+        dialogue_density: 0.0196
+        system_ratio: 0.0667
+        ending_hook_ratio: 0.6667
+    幻想修仙:
+      reader_promise:
+      - 修行目标、境界压力和资源稀缺要前置
+      - 规则通过冲突暴露而不是长篇解释
+      - 章末保留修行或身份问题的追问
+      opening_mechanism:
+        conflict_entry: 修行困境
+        rule_entry: 境界或资源规则
+        payoff_entry: 修行机会或身份疑问
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2494
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2493.7667
+        dialogue_density: 0.0217
+        system_ratio: 0.1667
+        ending_hook_ratio: 0.6667
+    现代修真:
+      reader_promise:
+      - 修行目标、境界压力和资源稀缺要前置
+      - 规则通过冲突暴露而不是长篇解释
+      - 章末保留修行或身份问题的追问
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 修行困境
+        rule_entry: 境界或资源规则
+        payoff_entry: 修行机会或身份疑问
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 中
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2849
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2849.3333
+        dialogue_density: 0.0235
+        system_ratio: 0.4667
+        ending_hook_ratio: 0.5667
+    神话修真:
+      reader_promise:
+      - 修行目标、境界压力和资源稀缺要前置
+      - 规则通过冲突暴露而不是长篇解释
+      - 章末保留修行或身份问题的追问
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 修行困境
+        rule_entry: 境界或资源规则
+        payoff_entry: 修行机会或身份疑问
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 3060
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3059.7333
+        dialogue_density: 0.0139
+        system_ratio: 0.0
+        ending_hook_ratio: 0.7
+  体育:
+    体育赛事:
+      reader_promise:
+      - 赛事目标、训练压力和胜负反馈要清晰
+      - 竞技动作要绑定角色处境
+      - 短线目标需要快速推进
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 赛事或训练压力
+        rule_entry: 竞技规则
+        payoff_entry: 胜负反馈或目标推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2531
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2531.3667
+        dialogue_density: 0.0241
+        system_ratio: 0.6
+        ending_hook_ratio: 0.6667
+    篮球运动:
+      reader_promise:
+      - 赛事目标、训练压力和胜负反馈要清晰
+      - 竞技动作要绑定角色处境
+      - 短线目标需要快速推进
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 赛事或训练压力
+        rule_entry: 竞技规则
+        payoff_entry: 胜负反馈或目标推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 3506
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3505.8
+        dialogue_density: 0.013
+        system_ratio: 0.2
+        ending_hook_ratio: 0.7
+    足球运动:
+      reader_promise:
+      - 赛事目标、训练压力和胜负反馈要清晰
+      - 竞技动作要绑定角色处境
+      - 短线目标需要快速推进
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 赛事或训练压力
+        rule_entry: 竞技规则
+        payoff_entry: 胜负反馈或目标推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2385
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2384.9333
+        dialogue_density: 0.03
+        system_ratio: 0.7333
+        ending_hook_ratio: 0.4333
+  军事:
+    军事战争:
+      reader_promise:
+      - 任务压力、组织纪律和危险边界要明确
+      - 专业信息必须服务场景决策
+      - 章末保留任务升级或威胁扩大
+      - 第一章冲突强度要高于普通铺垫
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 任务威胁
+        rule_entry: 组织或战场规则
+        payoff_entry: 行动结果或威胁升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 3376
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3375.8667
+        dialogue_density: 0.0199
+        system_ratio: 0.0
+        ending_hook_ratio: 0.7333
+    军旅生涯:
+      reader_promise:
+      - 任务压力、组织纪律和危险边界要明确
+      - 专业信息必须服务场景决策
+      - 章末保留任务升级或威胁扩大
+      opening_mechanism:
+        conflict_entry: 任务威胁
+        rule_entry: 组织或战场规则
+        payoff_entry: 行动结果或威胁升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 3620
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3620.1667
+        dialogue_density: 0.0337
+        system_ratio: 0.1667
+        ending_hook_ratio: 0.6
+    战争幻想:
+      reader_promise:
+      - 任务压力、组织纪律和危险边界要明确
+      - 专业信息必须服务场景决策
+      - 章末保留任务升级或威胁扩大
+      - 第一章冲突强度要高于普通铺垫
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 任务威胁
+        rule_entry: 组织或战场规则
+        payoff_entry: 行动结果或威胁升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 3284
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3283.9
+        dialogue_density: 0.0315
+        system_ratio: 0.1667
+        ending_hook_ratio: 0.7333
+    抗战烽火:
+      reader_promise:
+      - 任务压力、组织纪律和危险边界要明确
+      - 专业信息必须服务场景决策
+      - 章末保留任务升级或威胁扩大
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 任务威胁
+        rule_entry: 组织或战场规则
+        payoff_entry: 行动结果或威胁升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2405
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2405.2667
+        dialogue_density: 0.0168
+        system_ratio: 0.0333
+        ending_hook_ratio: 0.7667
+    谍战特工:
+      reader_promise:
+      - 任务压力、组织纪律和危险边界要明确
+      - 专业信息必须服务场景决策
+      - 章末保留任务升级或威胁扩大
+      opening_mechanism:
+        conflict_entry: 任务威胁
+        rule_entry: 组织或战场规则
+        payoff_entry: 行动结果或威胁升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2220
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2219.8333
+        dialogue_density: 0.0279
+        system_ratio: 0.0
+        ending_hook_ratio: 0.5
+  历史:
+    上古先秦:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2561
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2560.6333
+        dialogue_density: 0.0184
+        system_ratio: 0.0
+        ending_hook_ratio: 0.5667
+    两宋元明:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 3234
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3233.7
+        dialogue_density: 0.0269
+        system_ratio: 0.0
+        ending_hook_ratio: 0.6333
+    两晋隋唐:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 3847
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3847.3667
+        dialogue_density: 0.0208
+        system_ratio: 0.0
+        ending_hook_ratio: 0.6667
+    五代十国:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2444
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2443.8667
+        dialogue_density: 0.0315
+        system_ratio: 0.0
+        ending_hook_ratio: 0.3667
+    历史传记:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2999
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2999.2333
+        dialogue_density: 0.0178
+        system_ratio: 0.0
+        ending_hook_ratio: 0.6667
+    外国历史:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2230
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2229.7333
+        dialogue_density: 0.0175
+        system_ratio: 0.0
+        ending_hook_ratio: 0.5333
+    架空历史:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2384
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2383.6333
+        dialogue_density: 0.0212
+        system_ratio: 0.0333
+        ending_hook_ratio: 0.8
+    清史民国:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2477
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2477.2667
+        dialogue_density: 0.0223
+        system_ratio: 0.0
+        ending_hook_ratio: 0.6333
+    秦汉三国:
+      reader_promise:
+      - 身份处境和时代约束要先成立
+      - 选择代价要具体
+      - 历史信息通过冲突和人物关系释放
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 身份处境
+        rule_entry: 时代规则
+        payoff_entry: 选择代价或局势升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2690
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2690.1
+        dialogue_density: 0.0201
+        system_ratio: 0.1333
+        ending_hook_ratio: 0.8333
+  奇幻:
+    剑与魔法:
+      reader_promise:
+      - 异常规则和世界危险要通过事件暴露
+      - 能力或职业机制要有明确代价
+      - 冒险目标不能停留在设定说明
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 异常事件
+        rule_entry: 世界规则
+        payoff_entry: 能力代价或冒险目标
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2270
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2269.8333
+        dialogue_density: 0.0185
+        system_ratio: 0.8333
+        ending_hook_ratio: 0.4667
+    历史神话:
+      reader_promise:
+      - 异常规则和世界危险要通过事件暴露
+      - 能力或职业机制要有明确代价
+      - 冒险目标不能停留在设定说明
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 异常事件
+        rule_entry: 世界规则
+        payoff_entry: 能力代价或冒险目标
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2771
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2771.3
+        dialogue_density: 0.012
+        system_ratio: 0.1
+        ending_hook_ratio: 0.6667
+    另类幻想:
+      reader_promise:
+      - 异常规则和世界危险要通过事件暴露
+      - 能力或职业机制要有明确代价
+      - 冒险目标不能停留在设定说明
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 异常事件
+        rule_entry: 世界规则
+        payoff_entry: 能力代价或冒险目标
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 3644
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3644.3333
+        dialogue_density: 0.0258
+        system_ratio: 0.6
+        ending_hook_ratio: 0.5333
+    史诗奇幻:
+      reader_promise:
+      - 异常规则和世界危险要通过事件暴露
+      - 能力或职业机制要有明确代价
+      - 冒险目标不能停留在设定说明
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 异常事件
+        rule_entry: 世界规则
+        payoff_entry: 能力代价或冒险目标
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2419
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2419.3667
+        dialogue_density: 0.0207
+        system_ratio: 0.0667
+        ending_hook_ratio: 0.3667
+    现代魔法:
+      reader_promise:
+      - 异常规则和世界危险要通过事件暴露
+      - 能力或职业机制要有明确代价
+      - 冒险目标不能停留在设定说明
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 异常事件
+        rule_entry: 世界规则
+        payoff_entry: 能力代价或冒险目标
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 4568
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 4568.2667
+        dialogue_density: 0.0229
+        system_ratio: 0.7
+        ending_hook_ratio: 0.4667
+    神秘幻想:
+      reader_promise:
+      - 异常规则和世界危险要通过事件暴露
+      - 能力或职业机制要有明确代价
+      - 冒险目标不能停留在设定说明
+      opening_mechanism:
+        conflict_entry: 异常事件
+        rule_entry: 世界规则
+        payoff_entry: 能力代价或冒险目标
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2495
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2494.6333
+        dialogue_density: 0.0226
+        system_ratio: 0.3667
+        ending_hook_ratio: 0.6667
+  悬疑:
+    侦探推理:
+      reader_promise:
+      - 反常细节和核心疑点要第一时间出现
+      - 追问链要不断推动读者往下看
+      - 解释不能早于悬念积累
+      opening_mechanism:
+        conflict_entry: 反常细节
+        rule_entry: 线索规则
+        payoff_entry: 新疑点或追问升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 短
+        target_avg_chars: 2227
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2227.4333
+        dialogue_density: 0.022
+        system_ratio: 0.0333
+        ending_hook_ratio: 0.6333
+    惊悚微恐:
+      reader_promise:
+      - 反常细节和核心疑点要第一时间出现
+      - 追问链要不断推动读者往下看
+      - 解释不能早于悬念积累
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 反常细节
+        rule_entry: 线索规则
+        payoff_entry: 新疑点或追问升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2150
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2150.1
+        dialogue_density: 0.0251
+        system_ratio: 0.3667
+        ending_hook_ratio: 0.7
+    灵异民俗:
+      reader_promise:
+      - 反常细节和核心疑点要第一时间出现
+      - 追问链要不断推动读者往下看
+      - 解释不能早于悬念积累
+      opening_mechanism:
+        conflict_entry: 反常细节
+        rule_entry: 线索规则
+        payoff_entry: 新疑点或追问升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2861
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2860.6
+        dialogue_density: 0.025
+        system_ratio: 0.1
+        ending_hook_ratio: 0.5
+    规则怪谈:
+      reader_promise:
+      - 反常细节和核心疑点要第一时间出现
+      - 追问链要不断推动读者往下看
+      - 解释不能早于悬念积累
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 反常细节
+        rule_entry: 线索规则
+        payoff_entry: 新疑点或追问升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2636
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2636.3667
+        dialogue_density: 0.0306
+        system_ratio: 0.2667
+        ending_hook_ratio: 0.4667
+    诡异神秘:
+      reader_promise:
+      - 反常细节和核心疑点要第一时间出现
+      - 追问链要不断推动读者往下看
+      - 解释不能早于悬念积累
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 反常细节
+        rule_entry: 线索规则
+        payoff_entry: 新疑点或追问升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2804
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2803.7
+        dialogue_density: 0.0256
+        system_ratio: 0.6667
+        ending_hook_ratio: 0.5
+  武侠:
+    传统武侠:
+      reader_promise:
+      - 江湖关系和武力压迫要先落地
+      - 人物选择要牵出恩怨或道义代价
+      - 动作场面服务于立场与关系变化
+      opening_mechanism:
+        conflict_entry: 江湖压迫
+        rule_entry: 门派或恩怨规则
+        payoff_entry: 立场选择或武力反击
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 短
+        target_avg_chars: 2291
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2290.6667
+        dialogue_density: 0.0212
+        system_ratio: 0.3333
+        ending_hook_ratio: 0.5667
+    古武未来:
+      reader_promise:
+      - 江湖关系和武力压迫要先落地
+      - 人物选择要牵出恩怨或道义代价
+      - 动作场面服务于立场与关系变化
+      - 第一章冲突强度要高于普通铺垫
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 江湖压迫
+        rule_entry: 门派或恩怨规则
+        payoff_entry: 立场选择或武力反击
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2215
+      metric_snapshot:
+        book_count: 2
+        chapter_count: 20
+        avg_chars: 2215.45
+        dialogue_density: 0.0165
+        system_ratio: 0.0
+        ending_hook_ratio: 0.75
+    国术无双:
+      reader_promise:
+      - 江湖关系和武力压迫要先落地
+      - 人物选择要牵出恩怨或道义代价
+      - 动作场面服务于立场与关系变化
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 江湖压迫
+        rule_entry: 门派或恩怨规则
+        payoff_entry: 立场选择或武力反击
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 中
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 3147
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3147.1667
+        dialogue_density: 0.0232
+        system_ratio: 0.3667
+        ending_hook_ratio: 0.5333
+    武侠同人:
+      reader_promise:
+      - 江湖关系和武力压迫要先落地
+      - 人物选择要牵出恩怨或道义代价
+      - 动作场面服务于立场与关系变化
+      opening_mechanism:
+        conflict_entry: 江湖压迫
+        rule_entry: 门派或恩怨规则
+        payoff_entry: 立场选择或武力反击
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2178
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2178.3
+        dialogue_density: 0.024
+        system_ratio: 0.0667
+        ending_hook_ratio: 0.4667
+    武侠幻想:
+      reader_promise:
+      - 江湖关系和武力压迫要先落地
+      - 人物选择要牵出恩怨或道义代价
+      - 动作场面服务于立场与关系变化
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 江湖压迫
+        rule_entry: 门派或恩怨规则
+        payoff_entry: 立场选择或武力反击
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 强
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2912
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2912.2
+        dialogue_density: 0.024
+        system_ratio: 0.3667
+        ending_hook_ratio: 0.5667
+  游戏:
+    游戏主播:
+      reader_promise:
+      - 规则、任务、评分或奖励反馈要尽早可见
+      - 失败代价和成长收益要成对出现
+      - 读者需要看到可重复的爽点循环
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 任务或比赛入口
+        rule_entry: 规则反馈
+        payoff_entry: 奖励、排名或能力成长
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2403
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2402.7
+        dialogue_density: 0.0296
+        system_ratio: 0.6
+        ending_hook_ratio: 0.5
+    游戏异界:
+      reader_promise:
+      - 规则、任务、评分或奖励反馈要尽早可见
+      - 失败代价和成长收益要成对出现
+      - 读者需要看到可重复的爽点循环
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 任务或比赛入口
+        rule_entry: 规则反馈
+        payoff_entry: 奖励、排名或能力成长
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 3814
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3813.5
+        dialogue_density: 0.0158
+        system_ratio: 0.8
+        ending_hook_ratio: 0.5
+    游戏系统:
+      reader_promise:
+      - 规则、任务、评分或奖励反馈要尽早可见
+      - 失败代价和成长收益要成对出现
+      - 读者需要看到可重复的爽点循环
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 任务或比赛入口
+        rule_entry: 规则反馈
+        payoff_entry: 奖励、排名或能力成长
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2423
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2423.1333
+        dialogue_density: 0.0255
+        system_ratio: 0.6
+        ending_hook_ratio: 0.6
+    电子竞技:
+      reader_promise:
+      - 规则、任务、评分或奖励反馈要尽早可见
+      - 失败代价和成长收益要成对出现
+      - 读者需要看到可重复的爽点循环
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 任务或比赛入口
+        rule_entry: 规则反馈
+        payoff_entry: 奖励、排名或能力成长
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 3668
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3668.3333
+        dialogue_density: 0.0182
+        system_ratio: 0.6
+        ending_hook_ratio: 0.2
+    虚拟网游:
+      reader_promise:
+      - 规则、任务、评分或奖励反馈要尽早可见
+      - 失败代价和成长收益要成对出现
+      - 读者需要看到可重复的爽点循环
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 任务或比赛入口
+        rule_entry: 规则反馈
+        payoff_entry: 奖励、排名或能力成长
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 中
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 4465
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 4464.6667
+        dialogue_density: 0.0171
+        system_ratio: 0.6333
+        ending_hook_ratio: 0.4333
+  玄幻:
+    东方玄幻:
+      reader_promise:
+      - 天赋差距或资源压迫要尽早成形
+      - 成长路径和阶段性收益必须可感知
+      - 第一章需要给出可继续追读的升级期待
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 资源争夺
+        rule_entry: 规则冲突
+        payoff_entry: 阶段性突破或地位反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 3237
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3236.6333
+        dialogue_density: 0.0276
+        system_ratio: 0.1667
+        ending_hook_ratio: 0.5
+    异世大陆:
+      reader_promise:
+      - 天赋差距或资源压迫要尽早成形
+      - 成长路径和阶段性收益必须可感知
+      - 第一章需要给出可继续追读的升级期待
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 资源争夺
+        rule_entry: 规则冲突
+        payoff_entry: 阶段性突破或地位反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 3305
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3304.8
+        dialogue_density: 0.0186
+        system_ratio: 0.0
+        ending_hook_ratio: 0.8667
+    王朝争霸:
+      reader_promise:
+      - 天赋差距或资源压迫要尽早成形
+      - 成长路径和阶段性收益必须可感知
+      - 第一章需要给出可继续追读的升级期待
+      opening_mechanism:
+        conflict_entry: 资源争夺
+        rule_entry: 规则冲突
+        payoff_entry: 阶段性突破或地位反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2059
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2059.1333
+        dialogue_density: 0.0362
+        system_ratio: 0.4333
+        ending_hook_ratio: 0.3667
+    高武世界:
+      reader_promise:
+      - 天赋差距或资源压迫要尽早成形
+      - 成长路径和阶段性收益必须可感知
+      - 第一章需要给出可继续追读的升级期待
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 资源争夺
+        rule_entry: 规则冲突
+        payoff_entry: 阶段性突破或地位反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 强
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2522
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2521.6667
+        dialogue_density: 0.0257
+        system_ratio: 0.6
+        ending_hook_ratio: 0.7333
+  现实题材:
+    人间百态:
+      reader_promise:
+      - 现实困境和职业矛盾要可信
+      - 情绪落点比设定奇观更重要
+      - 章末要保留生活问题或关系问题的继续性
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 生活或职业困境
+        rule_entry: 现实规则
+        payoff_entry: 情绪确认或问题升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2332
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2332.2
+        dialogue_density: 0.0185
+        system_ratio: 0.0
+        ending_hook_ratio: 0.8333
+    女性题材:
+      reader_promise:
+      - 现实困境和职业矛盾要可信
+      - 情绪落点比设定奇观更重要
+      - 章末要保留生活问题或关系问题的继续性
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 生活或职业困境
+        rule_entry: 现实规则
+        payoff_entry: 情绪确认或问题升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2888
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2887.9
+        dialogue_density: 0.0342
+        system_ratio: 0.0
+        ending_hook_ratio: 0.7667
+    家庭伦理:
+      reader_promise:
+      - 现实困境和职业矛盾要可信
+      - 情绪落点比设定奇观更重要
+      - 章末要保留生活问题或关系问题的继续性
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 生活或职业困境
+        rule_entry: 现实规则
+        payoff_entry: 情绪确认或问题升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2797
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2796.7667
+        dialogue_density: 0.0216
+        system_ratio: 0.0
+        ending_hook_ratio: 0.7333
+    成功励志:
+      reader_promise:
+      - 现实困境和职业矛盾要可信
+      - 情绪落点比设定奇观更重要
+      - 章末要保留生活问题或关系问题的继续性
+      opening_mechanism:
+        conflict_entry: 生活或职业困境
+        rule_entry: 现实规则
+        payoff_entry: 情绪确认或问题升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2518
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2518.2667
+        dialogue_density: 0.0204
+        system_ratio: 0.0
+        ending_hook_ratio: 0.6333
+    时代叙事:
+      reader_promise:
+      - 现实困境和职业矛盾要可信
+      - 情绪落点比设定奇观更重要
+      - 章末要保留生活问题或关系问题的继续性
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 生活或职业困境
+        rule_entry: 现实规则
+        payoff_entry: 情绪确认或问题升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2844
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2843.6
+        dialogue_density: 0.02
+        system_ratio: 0.0
+        ending_hook_ratio: 0.9
+    社会悬疑:
+      reader_promise:
+      - 现实困境和职业矛盾要可信
+      - 情绪落点比设定奇观更重要
+      - 章末要保留生活问题或关系问题的继续性
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 生活或职业困境
+        rule_entry: 现实规则
+        payoff_entry: 情绪确认或问题升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2726
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2726
+        dialogue_density: 0.022
+        system_ratio: 0.0333
+        ending_hook_ratio: 0.8333
+    青年故事:
+      reader_promise:
+      - 现实困境和职业矛盾要可信
+      - 情绪落点比设定奇观更重要
+      - 章末要保留生活问题或关系问题的继续性
+      opening_mechanism:
+        conflict_entry: 生活或职业困境
+        rule_entry: 现实规则
+        payoff_entry: 情绪确认或问题升级
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2573
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2572.8667
+        dialogue_density: 0.0236
+        system_ratio: 0.2
+        ending_hook_ratio: 0.6667
+  短篇:
+    人物传记:
+      reader_promise:
+      - 短线冲突和情绪闭环要更快
+      - 信息密度高于长线铺垫
+      - 章末钩子要服务下一段即时阅读
+      opening_mechanism:
+        conflict_entry: 即时冲突
+        rule_entry: 短线规则
+        payoff_entry: 情绪落点或反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2084
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2083.9
+        dialogue_density: 0.0185
+        system_ratio: 0.2
+        ending_hook_ratio: 0.5
+    影视剧本:
+      reader_promise:
+      - 短线冲突和情绪闭环要更快
+      - 信息密度高于长线铺垫
+      - 章末钩子要服务下一段即时阅读
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 即时冲突
+        rule_entry: 短线规则
+        payoff_entry: 情绪落点或反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2231
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2231.4
+        dialogue_density: 0.0129
+        system_ratio: 0.1
+        ending_hook_ratio: 0.9
+    生活随笔:
+      reader_promise:
+      - 短线冲突和情绪闭环要更快
+      - 信息密度高于长线铺垫
+      - 章末钩子要服务下一段即时阅读
+      opening_mechanism:
+        conflict_entry: 即时冲突
+        rule_entry: 短线规则
+        payoff_entry: 情绪落点或反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2066
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2066.2667
+        dialogue_density: 0.0144
+        system_ratio: 0.1333
+        ending_hook_ratio: 0.5
+    短篇小说:
+      reader_promise:
+      - 短线冲突和情绪闭环要更快
+      - 信息密度高于长线铺垫
+      - 章末钩子要服务下一段即时阅读
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 即时冲突
+        rule_entry: 短线规则
+        payoff_entry: 情绪落点或反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 1853
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 1852.8667
+        dialogue_density: 0.0173
+        system_ratio: 0.0333
+        ending_hook_ratio: 0.8667
+    评论文集:
+      reader_promise:
+      - 短线冲突和情绪闭环要更快
+      - 信息密度高于长线铺垫
+      - 章末钩子要服务下一段即时阅读
+      opening_mechanism:
+        conflict_entry: 即时冲突
+        rule_entry: 短线规则
+        payoff_entry: 情绪落点或反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 短
+        target_avg_chars: 2183
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 21
+        avg_chars: 2183.1905
+        dialogue_density: 0.0171
+        system_ratio: 0.4286
+        ending_hook_ratio: 0.619
+    诗歌散文:
+      reader_promise:
+      - 短线冲突和情绪闭环要更快
+      - 信息密度高于长线铺垫
+      - 章末钩子要服务下一段即时阅读
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 即时冲突
+        rule_entry: 短线规则
+        payoff_entry: 情绪落点或反转
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2580
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2579.6
+        dialogue_density: 0.0173
+        system_ratio: 0.0
+        ending_hook_ratio: 0.9333
+  科幻:
+    古武机甲:
+      reader_promise:
+      - 技术异常、社会代价和生存压力要同步出现
+      - 设定必须绑定主角选择
+      - 不要用纯说明替代第一章事件
+      opening_mechanism:
+        conflict_entry: 技术异常
+        rule_entry: 技术或社会规则
+        payoff_entry: 生存选择或代价显现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2969
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2969.2333
+        dialogue_density: 0.0215
+        system_ratio: 0.2333
+        ending_hook_ratio: 0.3333
+    时空穿梭:
+      reader_promise:
+      - 技术异常、社会代价和生存压力要同步出现
+      - 设定必须绑定主角选择
+      - 不要用纯说明替代第一章事件
+      opening_mechanism:
+        conflict_entry: 技术异常
+        rule_entry: 技术或社会规则
+        payoff_entry: 生存选择或代价显现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 3307
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3307.3667
+        dialogue_density: 0.0211
+        system_ratio: 0.4333
+        ending_hook_ratio: 0.4667
+    星际文明:
+      reader_promise:
+      - 技术异常、社会代价和生存压力要同步出现
+      - 设定必须绑定主角选择
+      - 不要用纯说明替代第一章事件
+      opening_mechanism:
+        conflict_entry: 技术异常
+        rule_entry: 技术或社会规则
+        payoff_entry: 生存选择或代价显现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2709
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2709.1667
+        dialogue_density: 0.0253
+        system_ratio: 0.3333
+        ending_hook_ratio: 0.6667
+    未来世界:
+      reader_promise:
+      - 技术异常、社会代价和生存压力要同步出现
+      - 设定必须绑定主角选择
+      - 不要用纯说明替代第一章事件
+      opening_mechanism:
+        conflict_entry: 技术异常
+        rule_entry: 技术或社会规则
+        payoff_entry: 生存选择或代价显现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 3160
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3160.5
+        dialogue_density: 0.0277
+        system_ratio: 0.0
+        ending_hook_ratio: 0.5667
+    末世危机:
+      reader_promise:
+      - 技术异常、社会代价和生存压力要同步出现
+      - 设定必须绑定主角选择
+      - 不要用纯说明替代第一章事件
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 技术异常
+        rule_entry: 技术或社会规则
+        payoff_entry: 生存选择或代价显现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2905
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2905.4333
+        dialogue_density: 0.0232
+        system_ratio: 0.6
+        ending_hook_ratio: 0.3
+    超级科技:
+      reader_promise:
+      - 技术异常、社会代价和生存压力要同步出现
+      - 设定必须绑定主角选择
+      - 不要用纯说明替代第一章事件
+      opening_mechanism:
+        conflict_entry: 技术异常
+        rule_entry: 技术或社会规则
+        payoff_entry: 生存选择或代价显现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2508
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2507.5
+        dialogue_density: 0.0217
+        system_ratio: 0.1667
+        ending_hook_ratio: 0.6667
+    进化变异:
+      reader_promise:
+      - 技术异常、社会代价和生存压力要同步出现
+      - 设定必须绑定主角选择
+      - 不要用纯说明替代第一章事件
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 技术异常
+        rule_entry: 技术或社会规则
+        payoff_entry: 生存选择或代价显现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 强
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2820
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2820.1333
+        dialogue_density: 0.0199
+        system_ratio: 0.6333
+        ending_hook_ratio: 0.8667
+  诸天无限:
+    无限:
+      reader_promise:
+      - 副本规则、任务边界和失败代价要清楚
+      - 跨世界收益要能持续驱动
+      - 第一章必须建立进入机制和目标
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 副本入口
+        rule_entry: 任务规则
+        payoff_entry: 奖励、失败代价或世界切换
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2789
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2789
+        dialogue_density: 0.0143
+        system_ratio: 0.4333
+        ending_hook_ratio: 0.6
+    综漫:
+      reader_promise:
+      - 副本规则、任务边界和失败代价要清楚
+      - 跨世界收益要能持续驱动
+      - 第一章必须建立进入机制和目标
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 副本入口
+        rule_entry: 任务规则
+        payoff_entry: 奖励、失败代价或世界切换
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 强
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 2813
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2812.5333
+        dialogue_density: 0.0151
+        system_ratio: 0.5
+        ending_hook_ratio: 0.6
+    诸天:
+      reader_promise:
+      - 副本规则、任务边界和失败代价要清楚
+      - 跨世界收益要能持续驱动
+      - 第一章必须建立进入机制和目标
+      opening_mechanism:
+        conflict_entry: 副本入口
+        rule_entry: 任务规则
+        payoff_entry: 奖励、失败代价或世界切换
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 中
+        payoff_interval: 短
+        target_avg_chars: 2280
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2280.4
+        dialogue_density: 0.0282
+        system_ratio: 0.1
+        ending_hook_ratio: 0.6
+  轻小说:
+    原生幻想:
+      reader_promise:
+      - 人设反差和关系张力要前置
+      - 节奏要轻快但不能无冲突
+      - 第一章需要给出角色互动期待
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 人设反差
+        rule_entry: 关系规则
+        payoff_entry: 互动期待或关系推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2848
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2848.4333
+        dialogue_density: 0.0139
+        system_ratio: 0.3333
+        ending_hook_ratio: 0.7333
+    恋爱日常:
+      reader_promise:
+      - 人设反差和关系张力要前置
+      - 节奏要轻快但不能无冲突
+      - 第一章需要给出角色互动期待
+      opening_mechanism:
+        conflict_entry: 人设反差
+        rule_entry: 关系规则
+        payoff_entry: 互动期待或关系推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 中
+        mechanic_visibility: 低
+        sensory_density: 强
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 3421
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3421.2667
+        dialogue_density: 0.0188
+        system_ratio: 0.1
+        ending_hook_ratio: 0.5333
+    搞笑吐槽:
+      reader_promise:
+      - 人设反差和关系张力要前置
+      - 节奏要轻快但不能无冲突
+      - 第一章需要给出角色互动期待
+      opening_mechanism:
+        conflict_entry: 人设反差
+        rule_entry: 关系规则
+        payoff_entry: 互动期待或关系推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2277
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2277.4333
+        dialogue_density: 0.0276
+        system_ratio: 0.1333
+        ending_hook_ratio: 0.5333
+    现代幻想:
+      reader_promise:
+      - 人设反差和关系张力要前置
+      - 节奏要轻快但不能无冲突
+      - 第一章需要给出角色互动期待
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 人设反差
+        rule_entry: 关系规则
+        payoff_entry: 互动期待或关系推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 2547
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2547.4667
+        dialogue_density: 0.0164
+        system_ratio: 0.2333
+        ending_hook_ratio: 0.7667
+    衍生同人:
+      reader_promise:
+      - 人设反差和关系张力要前置
+      - 节奏要轻快但不能无冲突
+      - 第一章需要给出角色互动期待
+      - 第一章冲突强度要高于普通铺垫
+      - 章末必须保留明确钩子，承接下一章行动
+      opening_mechanism:
+        conflict_entry: 人设反差
+        rule_entry: 关系规则
+        payoff_entry: 互动期待或关系推进
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 强
+        mechanic_visibility: 低
+        sensory_density: 中
+        ending_hook_strength: 强
+        payoff_interval: 短
+        target_avg_chars: 3693
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 3692.5667
+        dialogue_density: 0.0279
+        system_ratio: 0.0333
+        ending_hook_ratio: 0.8
+  都市:
+    商战职场:
+      reader_promise:
+      - 现实身份压迫要快速建立
+      - 能力或机会触发后要有可见反转
+      - 第一章至少兑现一个现实收益或情绪收益
+      opening_mechanism:
+        conflict_entry: 现实困境
+        rule_entry: 能力或机会触发
+        payoff_entry: 即时反击或收益兑现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 短
+        target_avg_chars: 2331
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2330.8667
+        dialogue_density: 0.0229
+        system_ratio: 0.3333
+        ending_hook_ratio: 0.6667
+    娱乐明星:
+      reader_promise:
+      - 现实身份压迫要快速建立
+      - 能力或机会触发后要有可见反转
+      - 第一章至少兑现一个现实收益或情绪收益
+      opening_mechanism:
+        conflict_entry: 现实困境
+        rule_entry: 能力或机会触发
+        payoff_entry: 即时反击或收益兑现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2575
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2574.9333
+        dialogue_density: 0.0194
+        system_ratio: 0.2667
+        ending_hook_ratio: 0.5
+    异术超能:
+      reader_promise:
+      - 现实身份压迫要快速建立
+      - 能力或机会触发后要有可见反转
+      - 第一章至少兑现一个现实收益或情绪收益
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      - 第一章冲突强度要高于普通铺垫
+      opening_mechanism:
+        conflict_entry: 现实困境
+        rule_entry: 能力或机会触发
+        payoff_entry: 即时反击或收益兑现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 中
+        conflict_density: 强
+        mechanic_visibility: 强
+        sensory_density: 强
+        ending_hook_strength: 中
+        payoff_interval: 中
+        target_avg_chars: 4813
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 4812.7667
+        dialogue_density: 0.0242
+        system_ratio: 0.6667
+        ending_hook_ratio: 0.5667
+    爱情婚姻:
+      reader_promise:
+      - 现实身份压迫要快速建立
+      - 能力或机会触发后要有可见反转
+      - 第一章至少兑现一个现实收益或情绪收益
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 现实困境
+        rule_entry: 能力或机会触发
+        payoff_entry: 即时反击或收益兑现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 短
+        target_avg_chars: 2217
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2216.7333
+        dialogue_density: 0.0211
+        system_ratio: 0.4667
+        ending_hook_ratio: 0.6333
+    都市异能:
+      reader_promise:
+      - 现实身份压迫要快速建立
+      - 能力或机会触发后要有可见反转
+      - 第一章至少兑现一个现实收益或情绪收益
+      - 规则反馈、面板或机制提示需要明确但不能替代剧情
+      opening_mechanism:
+        conflict_entry: 现实困境
+        rule_entry: 能力或机会触发
+        payoff_entry: 即时反击或收益兑现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 强
+        conflict_density: 中
+        mechanic_visibility: 强
+        sensory_density: 低
+        ending_hook_strength: 中
+        payoff_interval: 短
+        target_avg_chars: 2337
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2336.7
+        dialogue_density: 0.023
+        system_ratio: 0.5333
+        ending_hook_ratio: 0.6667
+    都市生活:
+      reader_promise:
+      - 现实身份压迫要快速建立
+      - 能力或机会触发后要有可见反转
+      - 第一章至少兑现一个现实收益或情绪收益
+      opening_mechanism:
+        conflict_entry: 现实困境
+        rule_entry: 能力或机会触发
+        payoff_entry: 即时反击或收益兑现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 低
+        sensory_density: 低
+        ending_hook_strength: 低
+        payoff_interval: 短
+        target_avg_chars: 2367
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2366.5333
+        dialogue_density: 0.0244
+        system_ratio: 0.0
+        ending_hook_ratio: 0.3667
+    青春校园:
+      reader_promise:
+      - 现实身份压迫要快速建立
+      - 能力或机会触发后要有可见反转
+      - 第一章至少兑现一个现实收益或情绪收益
+      opening_mechanism:
+        conflict_entry: 现实困境
+        rule_entry: 能力或机会触发
+        payoff_entry: 即时反击或收益兑现
+        information_release: 事件中释放
+      rhythm_constraints:
+        first_screen_hook: 低
+        conflict_density: 低
+        mechanic_visibility: 中
+        sensory_density: 中
+        ending_hook_strength: 低
+        payoff_interval: 中长
+        target_avg_chars: 2456
+      metric_snapshot:
+        book_count: 3
+        chapter_count: 30
+        avg_chars: 2456.0667
+        dialogue_density: 0.0192
+        system_ratio: 0.4333
+        ending_hook_ratio: 0.3667
