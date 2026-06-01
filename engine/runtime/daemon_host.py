@@ -17,6 +17,7 @@ from domain.novel.entities.chapter import ChapterStatus
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
+from application.ai.trace_context import ensure_trace
 from domain.ai.value_objects.prompt import Prompt
 from application.engine.services.context_builder import ContextBuilder
 from application.engine.services.background_task_service import BackgroundTaskService, TaskType
@@ -1318,6 +1319,7 @@ class DaemonHostMixin:
             temperature=0.35,
         )
         try:
+            ensure_trace(novel_id=str(novel.novel_id), stage="pipeline.chapter.voice", stage_label="文风修文")
             result = await self.llm_service.generate(prompt, config)
         except Exception as e:
             logger.warning("[%s] 文风定向修文失败（attempt=%d）：%s", novel.novel_id, attempt, e)
@@ -1532,7 +1534,6 @@ class DaemonHostMixin:
 
         try:
             prompt = Prompt(
-                system="你是小说节奏分析师，只输出一个 1-10 的整数，不要解释。",
                 user=f"""根据以下章节开头，打分当前剧情的张力值（1=日常/轻松，10=生死对决/高潮）：
 
 {snippet}

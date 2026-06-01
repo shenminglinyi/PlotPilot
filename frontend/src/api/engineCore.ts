@@ -313,6 +313,85 @@ export interface TraceStatsDTO {
   avg_duration_ms: number
 }
 
+// ─── AI Trace (LLM 调用链路) ─────────────────────────────────────
+
+export interface AiTraceSummaryDTO {
+  trace_id: string
+  novel_id: string
+  operation: string
+  started_at: string
+  last_at: string
+  span_count: number
+  error_count: number
+}
+
+export interface AiTraceSpanDTO {
+  trace_id: string
+  span_id: string
+  parent_span_id: string | null
+  novel_id: string
+  operation: string
+  phase: string
+  stage: string
+  stage_label: string
+  node_id: string | null
+  node_type: string | null
+  contract_key: string | null
+  contract_version: string | null
+  source: string | null
+  model: string | null
+  generation_profile: string | null
+  variables_hash: string | null
+  variables_preview: unknown
+  variables_full: unknown
+  variable_sources: unknown
+  prompt_hash: string | null
+  prompt_preview: unknown
+  prompt_full: unknown
+  response_hash: string | null
+  response_preview: unknown
+  response_full: unknown
+  token_input: number | null
+  token_output: number | null
+  latency_ms: number | null
+  error: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface AiTraceListResponse {
+  traces: AiTraceSummaryDTO[]
+  total: number
+}
+
+export interface AiTraceTimelineResponse {
+  trace_id: string
+  spans: AiTraceSpanDTO[]
+  total: number
+}
+
+export interface AiStageDTO {
+  stage: string
+  stage_label: string
+  cnt: number
+}
+
+export interface AiStageListResponse {
+  stages: AiStageDTO[]
+  total: number
+}
+
+export interface StageDefDTO {
+  key: string
+  label: string
+  domain: string
+  semantic: string
+}
+
+export interface StageTaxonomyResponse {
+  stages: StageDefDTO[]
+}
+
 export const traceApi = {
   /** GET /novels/{novel_id}/traces */
   list: (novelId: string, params?: { node_type?: string; operation?: string; limit?: number }) =>
@@ -326,4 +405,38 @@ export const traceApi = {
     apiClient.get<TraceStatsDTO>(
       `/novels/${novelId}/traces/stats`,
     ) as unknown as Promise<TraceStatsDTO>,
+
+  // ─── AI Trace ───
+
+  /** GET /novels/{novel_id}/ai-traces */
+  listAi: (novelId: string, params?: { limit?: number }) =>
+    apiClient.get<AiTraceListResponse>(
+      `/novels/${novelId}/ai-traces`,
+      { params },
+    ) as unknown as Promise<AiTraceListResponse>,
+
+  /** GET /novels/{novel_id}/traces/{trace_id}/timeline */
+  timeline: (novelId: string, traceId: string) =>
+    apiClient.get<AiTraceTimelineResponse>(
+      `/novels/${novelId}/traces/${traceId}/timeline`,
+    ) as unknown as Promise<AiTraceTimelineResponse>,
+
+  /** GET /novels/{novel_id}/ai-traces/by-stage/{stage} */
+  byStage: (novelId: string, stage: string, limit?: number) =>
+    apiClient.get<AiTraceTimelineResponse>(
+      `/novels/${novelId}/ai-traces/by-stage/${encodeURIComponent(stage)}`,
+      { params: { limit } },
+    ) as unknown as Promise<AiTraceTimelineResponse>,
+
+  /** GET /novels/{novel_id}/ai-traces/stages */
+  stages: (novelId: string) =>
+    apiClient.get<AiStageListResponse>(
+      `/novels/${novelId}/ai-traces/stages`,
+    ) as unknown as Promise<AiStageListResponse>,
+
+  /** GET /ai-traces/stages/taxonomy */
+  stageTaxonomy: () =>
+    apiClient.get<StageTaxonomyResponse>(
+      '/ai-traces/stages/taxonomy',
+    ) as unknown as Promise<StageTaxonomyResponse>,
 }

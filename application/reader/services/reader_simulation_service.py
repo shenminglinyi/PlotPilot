@@ -26,6 +26,7 @@ from application.reader.schema import (
     ReaderSimulationLlmPayload,
     SingleReaderFeedbackPayload,
 )
+from application.ai.trace_context import ensure_trace
 from application.reader.dtos.reader_feedback_dto import (
     ChapterReaderReportDTO,
     ReaderDimensionScoresDTO,
@@ -120,6 +121,7 @@ class ReaderSimulationService:
         # LLM 调用隔离：网络错误/超时/认证失败等均转为降级报告，
         # 让上层 API 明确感知 LLM 失败而非被通用 500 掩盖。
         try:
+            ensure_trace(novel_id=novel_id, stage="reader.simulation.run", stage_label="读者模拟")
             response = await self._llm_client.generate(prompt)
         except Exception as e:
             logger.error(

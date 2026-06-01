@@ -6,6 +6,7 @@ import os
 from typing import Optional
 
 from application.ai.llm_json_extract import parse_llm_json_to_dict
+from application.ai.trace_context import ensure_trace
 from application.engine.dtos.scene_director_dto import ActionTransitionGraphPayload, SceneDirectorAnalysis
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
@@ -87,6 +88,7 @@ class SceneDirectorService:
             max_tokens=self._DEFAULT_MAX_TOKENS,
             temperature=self._DEFAULT_TEMPERATURE,
         )
+        ensure_trace(novel_id="", stage="engine.scene.director", stage_label="场景导演")
         raw = await self._llm.generate(prompt, config)
         data, errs = parse_llm_json_to_dict(raw.content)
         if not data:

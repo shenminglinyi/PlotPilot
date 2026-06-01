@@ -22,6 +22,7 @@ from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.novel.repositories.foreshadowing_repository import ForeshadowingRepository
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from domain.ai.services.llm_service import LLMService
+from application.ai.trace_context import ensure_trace
 from infrastructure.ai.generation_profiles import generation_config_from_profile
 from infrastructure.ai.prompt_contract import PromptContract
 from infrastructure.ai.prompt_gateway import get_prompt_gateway
@@ -139,6 +140,7 @@ class ChapterReviewService:
 
     async def review_chapter(self, novel_id: str, chapter_number: int) -> ChapterReviewResult:
         """审稿章节"""
+        ensure_trace(novel_id=novel_id, stage="audit.chapter.review", stage_label="章节审稿")
         chapter = self.chapter_repo.get_by_number(novel_id, chapter_number)
         if not chapter:
             raise ValueError(f"Chapter {chapter_number} not found")

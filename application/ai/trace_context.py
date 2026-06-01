@@ -47,6 +47,8 @@ class TraceContext:
     trace_id: str
     novel_id: str = ""
     operation: str = "ai_call"
+    stage: str = ""
+    stage_label: str = ""
     user_id: str | None = None
     parent_span_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -58,6 +60,8 @@ class TraceContext:
         *,
         novel_id: str | None = None,
         operation: str = "ai_call",
+        stage: str = "",
+        stage_label: str = "",
         user_id: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> "TraceContext":
@@ -65,6 +69,8 @@ class TraceContext:
             trace_id=str(uuid.uuid4()),
             novel_id=novel_id or "",
             operation=operation,
+            stage=stage,
+            stage_label=stage_label,
             user_id=user_id,
             metadata=dict(metadata or {}),
         )
@@ -91,6 +97,8 @@ def ensure_trace(
     *,
     novel_id: str | None = None,
     operation: str = "ai_call",
+    stage: str = "",
+    stage_label: str = "",
     user_id: str | None = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> TraceContext:
@@ -105,6 +113,9 @@ def ensure_trace(
             current.novel_id = novel_id
         if operation and current.operation == "ai_call":
             current.operation = operation
+        if stage and not current.stage:
+            current.stage = stage
+            current.stage_label = stage_label
         if metadata:
             current.metadata.update(dict(metadata))
         return current
@@ -112,6 +123,8 @@ def ensure_trace(
     trace = TraceContext.create(
         novel_id=novel_id,
         operation=operation,
+        stage=stage,
+        stage_label=stage_label,
         user_id=user_id,
         metadata=metadata,
     )

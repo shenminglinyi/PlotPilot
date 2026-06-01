@@ -4,6 +4,7 @@ import os
 from typing import Dict, Any
 from application.audit.dtos.macro_refactor_dto import RefactorProposalRequest, RefactorProposal
 from application.ai.llm_json_extract import parse_llm_json_to_dict
+from application.ai.trace_context import ensure_trace
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 
@@ -41,6 +42,7 @@ class MacroRefactorProposalService:
             )
 
             # 调用 LLM
+            ensure_trace(novel_id="", stage="audit.macro.refactor", stage_label="宏观重构")
             result = await self.llm_service.generate(prompt, config)
 
             # 解析 JSON 响应

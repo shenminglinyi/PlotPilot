@@ -9,6 +9,7 @@ from application.ai.knowledge_llm_contract import (
     to_knowledge_service_update_dict,
 )
 from application.world.services.knowledge_service import KnowledgeService
+from application.ai.trace_context import ensure_trace
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ class AutoKnowledgeGenerator:
             生成的 Knowledge 数据
         """
         logger.info(f"AutoKnowledgeGenerator: generating knowledge for novel '{title}' ({novel_id})")
+
+        ensure_trace(novel_id=novel_id, stage="world.knowledge.extract", stage_label="知识抽取")
 
         knowledge_data = await self._generate_knowledge_data(title, bible_summary)
 

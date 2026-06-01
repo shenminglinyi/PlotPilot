@@ -13,6 +13,7 @@ from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
 from application.world.services.character_naming import build_character_surname_seed
+from application.ai.trace_context import ensure_trace
 from infrastructure.ai.prompt_keys import (
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
     BIBLE_STYLE_CONVENTION,
@@ -496,6 +497,8 @@ class AutoBibleGenerator:
             生成的 Bible 数据
         """
         logger.info(f"Generating Bible for novel: {premise[:50]}... (stage: {stage})")
+
+        ensure_trace(novel_id=novel_id, stage="world.bible.generate", stage_label="圣经生成")
 
         # 1. 创建空 Bible（如果不存在）
         bible_id = f"{novel_id}-bible"

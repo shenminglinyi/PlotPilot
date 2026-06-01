@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from application.ai.trace_context import ensure_trace
 from application.ai.structured_json_pipeline import (
     parse_and_repair_json,
     sanitize_llm_output,
@@ -45,6 +46,7 @@ class TensionAnalyzer:
         self._plot_arc_repository = plot_arc_repository
 
     async def analyze_tension(self, request: TensionSlingshotRequest) -> TensionDiagnosis:
+        ensure_trace(novel_id=request.novel_id, stage="analyst.tension.score", stage_label="张力评分")
         events = self._event_repository.list_up_to_chapter(
             request.novel_id,
             request.chapter_number,

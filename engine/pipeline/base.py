@@ -25,6 +25,7 @@ from engine.pipeline.context import PipelineContext, PipelineResult
 from engine.pipeline.steps import StepResult
 from engine.pipeline.generation_prompt_builder import build_generation_prompt, make_prompt, make_script_prompt
 from engine.pipeline.telemetry import story_pipeline_wave_meta
+from application.ai.trace_context import ensure_trace
 
 logger = logging.getLogger(__name__)
 
@@ -413,6 +414,8 @@ class BaseStoryPipeline(ABC):
         if ctx.llm_service is None:
             return StepResult.fail("llm_service 未设置，无法生成剧本")
 
+        ensure_trace(novel_id=ctx.novel_id, stage="pipeline.chapter.script", stage_label="剧本生成")
+
         script_prompt_text = (
             f"【章节大纲】\n{ctx.outline or '无大纲'}\n\n"
             f"目标字数：{ctx.target_word_count} 字\n"
@@ -442,6 +445,8 @@ class BaseStoryPipeline(ABC):
 
         if ctx.llm_service is None:
             return StepResult.fail("llm_service 未设置，无法生成")
+
+        ensure_trace(novel_id=ctx.novel_id, stage="pipeline.chapter.prose", stage_label="正文撰写")
 
         _writing_progress(
             ctx,
@@ -931,6 +936,7 @@ class BaseStoryPipeline(ABC):
     async def _score_tension_via_llm(self, ctx: PipelineContext) -> int:
         """通过 LLM 评分（降级方案）"""
         try:
+            ensure_trace(novel_id=ctx.novel_id, stage="pipeline.chapter.tension", stage_label="张力打分")
             prompt = self._make_prompt(
                 f"请为以下章节内容打张力分（1-10，10为最高）：\n\n{ctx.chapter_content[:2000]}\n\n张力分："
             )

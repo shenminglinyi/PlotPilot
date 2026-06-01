@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.trace_context import ensure_trace
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,7 @@ class ChapterBridgeService:
 
         if self._llm:
             try:
+                ensure_trace(novel_id=novel_id, stage="engine.chapter.bridge", stage_label="章节桥接")
                 bridge = await self._llm_extract_bridge(chapter_number, tail, bridge)
             except Exception as e:
                 logger.warning("LLM 桥段提取失败（降级启发式）ch=%s: %s", chapter_number, e)

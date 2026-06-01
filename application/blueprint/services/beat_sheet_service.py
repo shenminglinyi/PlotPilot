@@ -16,6 +16,7 @@ from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.novel.repositories.storyline_repository import StorylineRepository
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from application.ai.trace_context import ensure_trace
 
 if TYPE_CHECKING:
     from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
@@ -70,6 +71,7 @@ class BeatSheetService:
         prompt = self._build_beat_sheet_prompt(outline, context)
 
         # 3. 调用 LLM 生成节拍表
+        ensure_trace(novel_id="", stage="blueprint.beat.generate", stage_label="节拍生成")
         config = GenerationConfig(max_tokens=2048, temperature=0.7)
         response = await self.llm_service.generate(prompt, config)
 
