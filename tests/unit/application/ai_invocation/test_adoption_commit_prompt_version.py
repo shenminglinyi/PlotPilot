@@ -8,6 +8,7 @@ from application.ai_invocation.dtos import (
     PromptSnapshot,
 )
 from application.ai_invocation.services import AdoptionCommitService
+from application.ai_invocation.variable_hub import InMemoryVariableHubRepository
 from domain.ai.value_objects.prompt import Prompt
 
 
@@ -117,3 +118,19 @@ def test_commit_does_not_create_prompt_version_when_draft_is_unchanged():
     step = next(item for item in commit.steps if item.name == "commit_prompt_version")
     assert step.result == {"skipped": True, "reason": "draft_unchanged"}
     assert "prompt_version" not in commit.result
+
+
+def test_commit_variable_outputs_requires_declared_output_bindings():
+    repo = InMemoryVariableHubRepository()
+    service = AdoptionCommitService(prompt_manager=FakePromptManager(), variable_hub_repository=repo)
+    session = _session(
+        template_prompt=Prompt(system="原系统提示词", user="原用户提示词"),
+        draft_prompt=Prompt(system="原系统提示词", user="原用户提示词"),
+    )
+    session.node_key = "bible-worldbuilding"
+
+    commit = service.commit(session=session, decision=_decision())
+
+    step = next(item for item in commit.steps if item.name == "commit_variable_outputs")
+    assert step.result == {"skipped": True, "reason": "no_output_bindings"}
+    assert repo.values == {}

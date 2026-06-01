@@ -66,5 +66,14 @@ variables:
   desc: 小说设定摘要
   type: string
   default: ''
+- name: genre_opening_profile
+  desc: 类型开篇画像，由 Variable Hub 从分类画像配置解析
+  type: object
+- name: genre_reader_contract
+  desc: 读者留存契约，由分类画像配置生成
+  type: object
+- name: genre_rhythm_constraints
+  desc: 类型节奏约束，由分类画像配置生成
+  type: object
 id: bible-worldbuilding
 sort_order: 27

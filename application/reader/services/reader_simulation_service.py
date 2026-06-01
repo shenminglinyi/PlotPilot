@@ -348,10 +348,10 @@ class ReaderSimulationService:
         chapter_number: int,
         reason: str,
     ) -> ChapterReaderReportDTO:
-        """生成空报告（用于异常/降级分支）。
+        """生成空报告（用于异常/错误占位分支）。
 
-        所有降级分支（章节不存在、LLM 失败、JSON 解析失败、Schema 校验失败）
-        均走此入口，标记 is_fallback=True 让 API 层能精准识别并拒绝持久化
+        所有错误分支（章节不存在、LLM 失败、JSON 解析失败、Schema 校验失败）
+        均走此入口，标记 is_error_placeholder=True 让 API 层能精准识别并拒绝持久化
         假数据。
         """
         feedbacks = []
@@ -368,6 +368,6 @@ class ReaderSimulationService:
             feedbacks=feedbacks,
             pacing_verdict=reason,
             analyzed_at=datetime.utcnow(),
-            is_fallback=True,
+            is_error_placeholder=True,
             error_message=reason,
         )

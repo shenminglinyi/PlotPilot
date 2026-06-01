@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec
 from application.ai_invocation.variable_hub import materialize_setup_main_plot_context
+from application.audit.services.chapter_ai_review_service import (
+    ChapterAIReviewContractError,
+    ChapterAIReviewService,
+)
+from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.blueprint.services.setup_main_plot_suggestion_service import SETUP_TASK_MARKER
 from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
@@ -42,6 +47,7 @@ from interfaces.api.dependencies import (
     get_auto_workflow,
     get_bible_service,
     get_chapter_service,
+    get_chapter_ai_review_service,
     get_hosted_write_service,
     get_novel_service,
     get_plot_arc_repository,
@@ -156,6 +162,30 @@ def _ensure_main_plot_invocation_contract() -> None:
             "scope": "global",
             "stage": "planning",
             "required": False,
+        },
+        "genre_opening_profile": {
+            "variable_key": "novel.genre.opening_profile",
+            "display_name": "类型开篇画像",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "planning",
+            "required": True,
+        },
+        "genre_reader_contract": {
+            "variable_key": "novel.genre.reader_contract",
+            "display_name": "读者留存契约",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "planning",
+            "required": True,
+        },
+        "genre_rhythm_constraints": {
+            "variable_key": "novel.genre.rhythm_constraints",
+            "display_name": "类型节奏约束",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "planning",
+            "required": True,
         },
         "protagonist": {
             "variable_key": "novel.characters.protagonist",
@@ -343,6 +373,7 @@ def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
     theme_metadata = ctx.get("theme_metadata") if isinstance(ctx.get("theme_metadata"), dict) else {}
     genre_label = str(theme_metadata.get("genre_label") or "").strip()
     genre_major, genre_theme = _split_genre_label(genre_label)
+    genre_profile = resolve_opening_profile(genre_label, strict=True).as_variables()
     aliases = {
         "novel_title": str(ctx.get("novel_title") or "").strip(),
         "premise": str(ctx.get("premise") or "").strip(),
@@ -354,6 +385,7 @@ def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
         "target_words_per_chapter": int(ctx.get("target_words_per_chapter") or 0),
         "fusion_axis": ctx.get("fusion_axis") or {},
         "fusion_contract": str(ctx.get("fusion_contract") or ""),
+        **genre_profile,
         "protagonist": ctx.get("protagonist") or {},
         "other_characters": ctx.get("other_characters") or [],
         "locations": ctx.get("locations") or [],
@@ -447,7 +479,41 @@ def _ensure_chapter_generation_invocation_contract() -> None:
         | engine.extract_variables(node.get_active_user_template())
     )
     binding_set_id = f"{CHAPTER_GENERATION_MAIN}:input:v1"
-    required_aliases = {"outline", "context"}
+    required_aliases = {"outline", "context", "genre_profile_block"}
+    chapter_global_bindings = {
+        "genre_profile_block": {
+            "variable_key": "novel.genre.profile_block",
+            "display_name": "类型画像提示块",
+            "value_type": "string",
+            "scope": "global",
+            "stage": "writing",
+            "required": True,
+        },
+        "genre_opening_profile": {
+            "variable_key": "novel.genre.opening_profile",
+            "display_name": "类型开篇画像",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "planning",
+            "required": True,
+        },
+        "genre_reader_contract": {
+            "variable_key": "novel.genre.reader_contract",
+            "display_name": "读者留存契约",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "planning",
+            "required": True,
+        },
+        "genre_rhythm_constraints": {
+            "variable_key": "novel.genre.rhythm_constraints",
+            "display_name": "类型节奏约束",
+            "value_type": "object",
+            "scope": "global",
+            "stage": "planning",
+            "required": True,
+        },
+    }
 
     db = get_database()
     with sqlite_writes_bypass_queue():
@@ -463,17 +529,22 @@ def _ensure_chapter_generation_invocation_contract() -> None:
                 """,
                 (binding_set_id, CHAPTER_GENERATION_MAIN),
             )
-            for alias in aliases:
+            binding_aliases = sorted(set(aliases) | set(chapter_global_bindings))
+            for alias in binding_aliases:
+                binding_meta = chapter_global_bindings.get(alias, {})
+                is_required = alias in required_aliases or bool(binding_meta.get("required"))
                 conn.execute(
                     """
                     INSERT INTO cpms_variable_bindings (
-                        id, binding_set_id, node_key, direction, alias, required,
-                        default_value_json, source, enabled
-                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, 'cpms_template', 1)
+                        id, binding_set_id, node_key, direction, alias, variable_key, required,
+                        default_value_json, source, enabled, metadata_json
+                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, ?, ?, 1, ?)
                     ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
+                        variable_key=excluded.variable_key,
                         required=excluded.required,
                         default_value_json=excluded.default_value_json,
                         source=excluded.source,
+                        metadata_json=excluded.metadata_json,
                         enabled=1
                     """,
                     (
@@ -481,8 +552,11 @@ def _ensure_chapter_generation_invocation_contract() -> None:
                         binding_set_id,
                         CHAPTER_GENERATION_MAIN,
                         alias,
-                        1 if alias in required_aliases else 0,
-                        None if alias in required_aliases else '""',
+                        str(binding_meta.get("variable_key") or ""),
+                        1 if is_required else 0,
+                        None if is_required else '""',
+                        "novel_genre_profile" if binding_meta else "cpms_template",
+                        json.dumps(binding_meta, ensure_ascii=False) if binding_meta else "{}",
                     ),
                 )
 
@@ -540,6 +614,19 @@ def _chapter_invocation_variables(
         if voice_anchors
         else ""
     )
+    genre_profile_block = (
+        "【类型开篇画像 / 读者契约 / 节奏约束】\n"
+        + json.dumps(
+            {
+                "genre_opening_profile": bundle.get("genre_opening_profile") or {},
+                "genre_reader_contract": bundle.get("genre_reader_contract") or {},
+                "genre_rhythm_constraints": bundle.get("genre_rhythm_constraints") or {},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n\n"
+    )
     length_rule = (
         f"7. 【章节字数指引】本章目标约 {target_words} 字。完整覆盖下方大纲的所有要点，"
         "字数不足时优先补充对话与场景细节，禁止重复情节水字；用完整句收束，不要戛然而止。"
@@ -552,6 +639,10 @@ def _chapter_invocation_variables(
         "context": context,
         "planning_section": planning_section,
         "voice_block": voice_block,
+        "genre_profile_block": genre_profile_block,
+        "genre_opening_profile": bundle.get("genre_opening_profile") or {},
+        "genre_reader_contract": bundle.get("genre_reader_contract") or {},
+        "genre_rhythm_constraints": bundle.get("genre_rhythm_constraints") or {},
         "length_rule": length_rule,
         "beat_extra": "",
         "beat_section": "",
@@ -1451,15 +1542,15 @@ async def plan_novel(
             macro_plan,
             novel_id=novel_id,
             target_chapters=novel.target_chapters,
-            minimal_fallback_on_empty=True,
+            allow_minimal_placeholder_on_empty=False,
         )
 
         logger.info(
             f"Persisted macro structure: nodes={confirm_result['created_nodes']}, "
-            f"minimal_fallback={confirm_result.get('used_minimal_fallback')}"
+            f"minimal_placeholder={confirm_result.get('used_minimal_placeholder')}"
         )
 
-        if confirm_result.get("used_minimal_fallback"):
+        if confirm_result.get("used_minimal_placeholder"):
             msg = (
                 f"LLM 未返回有效结构，已写入占位骨架；共 {confirm_result['created_nodes']} 个结构节点"
             )
@@ -1497,7 +1588,8 @@ async def review_chapter(
     novel_id: str,
     chapter_number: int,
     workflow: AutoNovelGenerationWorkflow = Depends(get_auto_workflow),
-    chapter_service = Depends(get_chapter_service)
+    chapter_service = Depends(get_chapter_service),
+    ai_review_service: ChapterAIReviewService = Depends(get_chapter_ai_review_service),
 ):
     """章节审稿：AI 审稿并返回修改建议"""
     try:
@@ -1509,26 +1601,33 @@ async def review_chapter(
                 detail=f"Chapter {chapter_number} not found"
             )
 
-        # 使用一致性检查作为审稿
-        # TODO: 这里可以调用专门的审稿 LLM prompt
-        suggestions = [
-            "建议检查人物一致性",
-            "建议优化对话节奏",
-            "建议增强场景描写"
-        ]
+        if not chapter.content or not chapter.content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Chapter {chapter_number} has no content to review",
+            )
 
-        # 简单评分逻辑（基于字数）
-        word_count = len(chapter.content)
-        score = min(100, max(60, word_count // 20))
+        result = await ai_review_service.review(
+            chapter_number=chapter_number,
+            chapter_title=chapter.title,
+            chapter_content=chapter.content,
+            chapter_outline="",
+            generation_hint=getattr(chapter, "generation_hint", "") or "",
+        )
 
         return ReviewResponse(
             chapter_number=chapter_number,
-            suggestions=suggestions,
-            score=score
+            suggestions=result.suggestions,
+            score=result.score,
         )
 
     except HTTPException:
         raise
+    except ChapterAIReviewContractError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Review failed: {str(e)}"
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

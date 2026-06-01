@@ -8,11 +8,35 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
 
+const checkOnly = process.argv.includes('--check')
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(__dirname, '..', '..')
-const src = resolve(repoRoot, 'shared/taxonomy/builtin_cn_v1.yaml')
-const out = resolve(repoRoot, 'frontend/src/domain/taxonomy/builtin_cn_v1.bundle.json')
+const targets = [
+  {
+    src: resolve(repoRoot, 'shared/taxonomy/builtin_cn_v1.yaml'),
+    out: resolve(repoRoot, 'frontend/src/domain/taxonomy/builtin_cn_v1.bundle.json'),
+    label: 'taxonomy',
+  },
+  {
+    src: resolve(repoRoot, 'shared/taxonomy/worldbuilding_contract_cn_v1.yaml'),
+    out: resolve(repoRoot, 'frontend/src/domain/worldbuilding/contract.bundle.json'),
+    label: 'worldbuilding-contract',
+  },
+]
 
-const doc = parse(readFileSync(src, 'utf8'))
-writeFileSync(out, `${JSON.stringify(doc, null, 2)}\n`, 'utf8')
-console.log('[sync:taxonomy] wrote', out)
+for (const target of targets) {
+  const doc = parse(readFileSync(target.src, 'utf8'))
+  const next = `${JSON.stringify(doc, null, 2)}\n`
+  if (checkOnly) {
+    const current = readFileSync(target.out, 'utf8')
+    if (current !== next) {
+      console.error(`[sync:${target.label}] stale bundle`, target.out)
+      process.exitCode = 1
+    } else {
+      console.log(`[sync:${target.label}] up to date`, target.out)
+    }
+  } else {
+    writeFileSync(target.out, next, 'utf8')
+    console.log(`[sync:${target.label}] wrote`, target.out)
+  }
+}

@@ -16,6 +16,23 @@
 【小说设定】
 {novel_setup}
 
+【已有世界观字段（如有）】
+全量摘要：{worldbuilding_full}
+核心法则：{core_rules}
+地理生态：{geography}
+社会结构：{society}
+历史文化：{culture}
+沉浸细节：{daily_life}
+
+【类型开篇画像】
+{{ genre_opening_profile | tojson }}
+
+【读者留存契约】
+{{ genre_reader_contract | tojson }}
+
+【类型节奏约束】
+{{ genre_rhythm_constraints | tojson }}
+
 请生成世界观。
 
 请按照以下 json 格式输出，可被 Python json.loads 解析。只给出 JSON，不要解释，不要 markdown 说明。

@@ -1,5 +1,5 @@
 """Bible 应用服务"""
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Protocol
 
 from domain.bible.entities.bible import Bible
 from domain.bible.entities.character import Character
@@ -13,11 +13,26 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.bible.repositories.bible_repository import BibleRepository
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
-from domain.shared.exceptions import EntityNotFoundError
+from domain.shared.exceptions import EntityNotFoundError, InvalidOperationError
 from application.world.dtos.bible_dto import BibleDTO, CharacterDTO
 
 if TYPE_CHECKING:
     from application.world.services.bible_location_triple_sync import BibleLocationTripleSyncService
+
+
+class CharacterAnchorUpdateRepository(Protocol):
+    """支持角色锚点行级更新的仓储能力。"""
+
+    def update_character_anchors(
+        self,
+        novel_id: str,
+        character_id: str,
+        *,
+        mental_state: str,
+        verbal_tic: str,
+        idle_behavior: str,
+    ) -> None:
+        """更新角色声线锚点。"""
 
 
 class BibleService:
@@ -236,24 +251,50 @@ class BibleService:
         verbal_tic: str,
         idle_behavior: str,
     ) -> CharacterDTO:
-        """更新角色声线锚点（SQLite 行级更新）。"""
+        """更新角色声线锚点。
+
+        优先使用仓储提供的行级更新能力；通用仓储没有该能力时，回退到
+        ``get_by_novel_id -> 修改聚合 -> save`` 的读改写路径。两条路径都显式校验
+        Bible 与 Character 存在，避免把运行时能力差异以未实现异常暴露给
+        API 层。
+        """
         repo = self.bible_repository
-        if not hasattr(repo, "update_character_anchors"):
-            raise NotImplementedError("仓储不支持角色锚点更新")
-        repo.update_character_anchors(
-            novel_id,
-            character_id,
-            mental_state=mental_state or "NORMAL",
-            verbal_tic=verbal_tic or "",
-            idle_behavior=idle_behavior or "",
-        )
+        normalized_mental_state = mental_state or "NORMAL"
+        normalized_verbal_tic = verbal_tic or ""
+        normalized_idle_behavior = idle_behavior or ""
+
+        updater = getattr(repo, "update_character_anchors", None)
+        if callable(updater):
+            updater(
+                novel_id,
+                character_id,
+                mental_state=normalized_mental_state,
+                verbal_tic=normalized_verbal_tic,
+                idle_behavior=normalized_idle_behavior,
+            )
+            bible, ch = self._get_bible_and_character(novel_id, character_id)
+            self._sync_to_unified_characters(novel_id, bible)
+            return CharacterDTO.from_domain(ch)
+
+        if not callable(getattr(repo, "get_by_novel_id", None)) or not callable(getattr(repo, "save", None)):
+            raise InvalidOperationError("Bible 仓储缺少角色锚点读改写所需的 get_by_novel_id/save 能力")
+
+        bible, ch = self._get_bible_and_character(novel_id, character_id)
+        ch.mental_state = normalized_mental_state
+        ch.verbal_tic = normalized_verbal_tic
+        ch.idle_behavior = normalized_idle_behavior
+        repo.save(bible)
+        self._sync_to_unified_characters(novel_id, bible)
+        return CharacterDTO.from_domain(ch)
+
+    def _get_bible_and_character(self, novel_id: str, character_id: str) -> tuple[Bible, Character]:
         bible = self.bible_repository.get_by_novel_id(NovelId(novel_id))
         if bible is None:
             raise EntityNotFoundError("Bible", f"for novel {novel_id}")
         ch = bible.get_character(CharacterId(character_id))
         if ch is None:
             raise EntityNotFoundError("Character", character_id)
-        return CharacterDTO.from_domain(ch)
+        return bible, ch
 
     def build_character_voice_anchor_section(self, novel_id: str) -> str:
         """供章节/节拍 System 提示：非空锚点拼成一段。"""

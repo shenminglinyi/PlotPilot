@@ -1393,7 +1393,7 @@ class ContinuousPlanningService:
         if not has_volumes:
             logger.warning(
                 f"Macro structure validation failed: structure has parts but no volumes. "
-                f"This will cause act planning to fail. Falling back to minimal structure."
+                f"This will cause act planning to fail."
             )
             return False
 
@@ -1405,9 +1405,9 @@ class ContinuousPlanningService:
         novel_id: str,
         target_chapters: int,
         *,
-        minimal_fallback_on_empty: bool = True,
+        allow_minimal_placeholder_on_empty: bool = False,
     ) -> Dict:
-        """在 `generate_macro_plan` 之后统一落库：有效结构则写入，否则可选占位骨架。
+        """在 `generate_macro_plan` 之后统一落库：有效结构则写入，否则阻塞。
 
         供 POST /novels/{id}/plan 与全托管守护进程共用，避免两处逻辑分叉。
         """
@@ -1428,17 +1428,17 @@ class ContinuousPlanningService:
             return {
                 "success": True,
                 "created_nodes": confirm["created_nodes"],
-                "used_minimal_fallback": False,
+                "used_minimal_placeholder": False,
                 "message": confirm.get("message", ""),
             }
 
-        if not minimal_fallback_on_empty:
+        if not allow_minimal_placeholder_on_empty:
             raise ValueError(
                 "宏观规划未返回有效结构（success 或 structure 无效或缺少卷节点）"
             )
 
         logger.warning(
-            "宏观规划未返回有效结构（success=%r，有卷=%r），使用最小占位结构 novel_id=%s",
+            "宏观规划未返回有效结构（success=%r，有卷=%r），写入最小占位结构 novel_id=%s",
             llm_result.get("success") if isinstance(llm_result, dict) else None,
             self._validate_macro_structure_completeness(struct, target_chapters) if struct else False,
             novel_id,
@@ -1450,7 +1450,7 @@ class ContinuousPlanningService:
         return {
             "success": True,
             "created_nodes": confirm["created_nodes"],
-            "used_minimal_fallback": True,
+            "used_minimal_placeholder": True,
             "message": confirm.get("message", ""),
         }
 

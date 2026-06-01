@@ -98,10 +98,8 @@ def create_stats_router(stats_service: StatsService) -> APIRouter:
     ) -> SuccessResponse[List[WritingProgress]]:
         """Get writing progress over time for a specific book.
 
-        TODO: Implement in Week 2
-        - Track when chapters were created/modified
-        - Calculate daily word count
-        - Show progress trends
+        Uses repository-provided chapter timestamps to calculate daily word
+        counts and completed chapters in the requested lookback window.
 
         Args:
             slug: The book's slug (directory name)
@@ -123,7 +121,6 @@ def create_stats_router(stats_service: StatsService) -> APIRouter:
                 detail=f"Book '{slug}' not found"
             )
 
-        # Get writing progress (empty list for now, Week 2 feature)
         progress = stats_service.get_writing_progress(slug, days)
         return SuccessResponse(data=progress)
 

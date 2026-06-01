@@ -37,7 +37,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from domain.ai.services.llm_service import LLMService, GenerationConfig
-from domain.ai.value_objects.prompt import Prompt
 
 logger = logging.getLogger(__name__)
 
@@ -47,54 +46,7 @@ from infrastructure.ai.prompt_keys import (
     CHAPTER_BRIDGE_CHECK as _BRIDGE_CHECK_NODE_KEY,
     CHAPTER_BRIDGE_FIX as _BRIDGE_FIX_NODE_KEY,
 )
-
-# 硬编码回退（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_BRIDGE_EXTRACT_SYSTEM = """你是小说叙事编辑，负责提取章节末尾的"转场桥段"。
-
-从章节末尾文本中提取 5 个维度的衔接锚点，输出一个 JSON 对象：
-{
-  "suspense_hook": "章末未解决的悬念/未回答的问题，一两句话概括",
-  "emotional_residue": "POV角色的核心情绪状态，格式：角色名：情绪，1-10分",
-  "emotional_intensity": 7,
-  "scene_state": "章末场景的物理状态（环境+时间+天气），一两句话",
-  "character_positions": "章末各角色的位置和行动，每个角色一句话",
-  "unfinished_actions": "章末正在进行但未完成的动作/对话"
-}
-
-约束：
-- 每个字段最多 100 字
-- 只提取文本中明确出现的信息，不要推断
-- 如果某维度无明显信息，填空字符串
-- 严格合法 JSON"""
-
-_FALLBACK_BRIDGE_CHECK_SYSTEM = """你是小说衔接度评审。评估本章开头是否有效承接了上一章结尾。
-
-评分标准（0-1）：
-- 0.9-1.0：完美衔接，首段直接呼应前章的悬念/情绪/场景
-- 0.7-0.9：良好衔接，有明确的过渡但可以更紧密
-- 0.5-0.7：弱衔接，读者能感觉到两章属于同一本书但过渡生硬
-- 0.3-0.5：割裂感明显，但时间跳跃/视角切换也是合法的文学技法
-- 0-0.3：完全断裂，且无文学意图
-
-输出 JSON：
-{
-  "score": 0.8,
-  "issues": ["问题1", "问题2"],
-  "suggested_fix": "建议的首段修改方向（一两句话），或空字符串"
-}"""
-
-_FALLBACK_BRIDGE_FIX_SYSTEM = """你是小说衔接修整专家。重写章节首段，使其与前章结尾紧密衔接。
-
-要求：
-1. 保持原文的核心信息和情节方向不变
-2. 在前三句话内建立与前章的连接（情绪/画面/动作）
-3. 不能改变后续情节的展开逻辑
-4. 修整后的首段长度与原文相当
-5. 只输出重写后的首段，不要解释"""
-
-# ---------------------------------------------------------------------------
-# 数据结构
-# ---------------------------------------------------------------------------
+from infrastructure.ai.prompt_utils import PromptTemplateUnavailable, render_required_prompt
 
 @dataclass(frozen=True)
 class ChapterContinuityPolicy:
@@ -191,26 +143,6 @@ class ChapterBridgeService:
         self.policy = policy or ChapterContinuityPolicy()
         self._ensure_table()
 
-    # ─── CPMS 提示词获取 ───
-
-    @staticmethod
-    def _get_system_prompt(node_key: str, fallback: str = "") -> str:
-        """获取 system prompt。
-
-        CPMS: 优先从 PromptRegistry 获取（广场可编辑），
-        如果 Registry 不可用则回退到硬编码默认值。
-        """
-        try:
-            from infrastructure.ai.prompt_registry import get_prompt_registry
-            registry = get_prompt_registry()
-            system = registry.get_system(node_key)
-            if system:
-                return system
-        except Exception as exc:
-            logger.debug("PromptRegistry 不可用 (%s): %s", node_key, exc)
-
-        return fallback
-
     def _ensure_table(self):
         """确保 chapter_bridges 表存在"""
         if not self._db_path:
@@ -264,6 +196,8 @@ class ChapterBridgeService:
         if self._llm:
             try:
                 bridge = await self._llm_extract_bridge(chapter_number, tail, bridge)
+            except PromptTemplateUnavailable:
+                raise
             except Exception as e:
                 logger.warning("LLM 桥段提取失败（降级启发式）ch=%s: %s", chapter_number, e)
                 bridge = self._heuristic_extract_bridge(tail, bridge)
@@ -293,16 +227,7 @@ class ChapterBridgeService:
         if len(body) > 1500:
             body = body[-1500:]
 
-        # CPMS render
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        variables = {"chapter_text": body}
-        prompt = registry.render_to_prompt(_BRIDGE_EXTRACT_NODE_KEY, variables)
-
-        if not prompt:
-            system = self._get_system_prompt(_BRIDGE_EXTRACT_NODE_KEY, _FALLBACK_BRIDGE_EXTRACT_SYSTEM)
-            user = f"第 {chapter_number} 章末尾：\n\n{body}"
-            prompt = Prompt(system=system, user=user)
+        prompt = render_required_prompt(_BRIDGE_EXTRACT_NODE_KEY, {"chapter_text": body})
         config = GenerationConfig(max_tokens=512, temperature=0.3)
 
         result = await self._llm.generate(prompt, config)
@@ -496,22 +421,10 @@ class ChapterBridgeService:
 
         bridge_summary = "\n".join(bridge_parts)
 
-        # CPMS render
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        variables = {"bridge_data": bridge_summary, "chapter_opening": head}
-        prompt = registry.render_to_prompt(_BRIDGE_CHECK_NODE_KEY, variables)
-
-        if not prompt:
-            system = self._get_system_prompt(_BRIDGE_CHECK_NODE_KEY, _FALLBACK_BRIDGE_CHECK_SYSTEM)
-            user = f"""上一章（第{prev_bridge.chapter_number}章）结尾桥段：
-{bridge_summary}
-
-本章（第{chapter_number}章）开头：
-{head}
-
-请评估衔接度。"""
-            prompt = Prompt(system=system, user=user)
+        prompt = render_required_prompt(
+            _BRIDGE_CHECK_NODE_KEY,
+            {"bridge_data": bridge_summary, "chapter_opening": head},
+        )
         config = GenerationConfig(max_tokens=256, temperature=0.3)
 
         try:
@@ -590,30 +503,14 @@ class ChapterBridgeService:
             bridge_parts.append(f"未完成动作：{prev_bridge.unfinished_actions}")
         bridge_summary = "\n".join(bridge_parts)
 
-        # CPMS render
-        from infrastructure.ai.prompt_registry import get_prompt_registry
-        registry = get_prompt_registry()
-        variables = {
-            "bridge_data": bridge_summary,
-            "issues": issues_text,
-            "original_opening": head,
-        }
-        prompt = registry.render_to_prompt(_BRIDGE_FIX_NODE_KEY, variables)
-
-        if not prompt:
-            system = self._get_system_prompt(_BRIDGE_FIX_NODE_KEY, _FALLBACK_BRIDGE_FIX_SYSTEM)
-            user = f"""前章桥段：
-{bridge_summary}
-
-当前首段：
-{head}
-
-问题：{issues_text}
-修整方向：{fix_hint}
-
-请重写首段："""
-            prompt = Prompt(system=system, user=user)
-
+        prompt = render_required_prompt(
+            _BRIDGE_FIX_NODE_KEY,
+            {
+                "bridge_data": bridge_summary,
+                "issues": issues_text,
+                "original_opening": head,
+            },
+        )
         config = GenerationConfig(max_tokens=512, temperature=0.4)
 
         try:

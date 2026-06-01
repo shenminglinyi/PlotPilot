@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from application.core.premise_genre_world import parse_genre_world_from_premise
+from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
 from application.world.services.bible_setup_invocation import _build_worldbuilding_prompt_fields
 from domain.novel.value_objects.novel_id import NovelId
@@ -115,6 +117,7 @@ class VariableHubBackfillService:
             display_name="每章字数",
             stage="setup",
         )
+        self._backfill_genre_profile(result, context_key, novel)
 
         bible = self._load_bible(novel_id)
         if bible is not None:
@@ -230,6 +233,31 @@ class VariableHubBackfillService:
                     }[key],
                     stage="worldbuilding",
                 )
+
+    def _backfill_genre_profile(self, result: VariableHubBackfillResult, context_key: str, novel: Any) -> None:
+        genre_label = str(getattr(novel, "locked_genre", "") or getattr(novel, "genre_label", "") or "").strip()
+        if not genre_label:
+            parsed_genre, _ = parse_genre_world_from_premise(str(getattr(novel, "premise", "") or ""))
+            genre_label = parsed_genre
+        if not genre_label:
+            return
+        profile = resolve_opening_profile(genre_label, strict=False)
+        if profile is None:
+            return
+        for key, value, display_name in (
+            ("novel.genre.opening_profile", profile.opening_profile, "类型开篇画像"),
+            ("novel.genre.reader_contract", profile.reader_contract, "读者留存契约"),
+            ("novel.genre.rhythm_constraints", profile.rhythm_constraints, "类型节奏约束"),
+        ):
+            self._write_missing(
+                result,
+                key=key,
+                value=value,
+                context_key=context_key,
+                value_type="object",
+                display_name=display_name,
+                stage="planning",
+            )
 
     def _write_missing(
         self,

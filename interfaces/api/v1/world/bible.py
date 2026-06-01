@@ -463,7 +463,8 @@ async def _sse_bible_generator(
                     except Exception:
                         pass
             except Exception as e:
-                logger.warning("Style generation failed (non-fatal): %s", e)
+                logger.error("Style generation failed: %s", e)
+                raise RuntimeError(f"文风公约生成失败，已阻塞后续 Bible 流程: {e}") from e
 
             # 2. 单次 LLM 流式生成完整五维世界观（维度联动，增量解析各维）
             dim_labels = {
@@ -720,19 +721,16 @@ async def _sse_bible_generator(
         yield _sse_fmt("phase", {"phase": "knowledge", "message": "正在构建知识库..."})
         await asyncio.sleep(0)
 
-        try:
-            bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
-            if bible:
-                chars = bible.characters or []
-                locs = bible.locations or []
-                char_desc = "、".join(f"{c.name}" for c in chars[:5])
-                loc_desc = "、".join(c.name for c in locs[:3])
-                style_notes = bible.style_notes or []
-                style_text = "；".join(n.content for n in style_notes if n.content)
-                bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{style_text}。"
-                await knowledge_generator.generate_and_save(novel_id, novel.title, bible_summary)
-        except Exception as e:
-            logger.warning("Knowledge generation failed (non-fatal): %s", e)
+        bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
+        if bible:
+            chars = bible.characters or []
+            locs = bible.locations or []
+            char_desc = "、".join(f"{c.name}" for c in chars[:5])
+            loc_desc = "、".join(c.name for c in locs[:3])
+            style_notes = bible.style_notes or []
+            style_text = "；".join(n.content for n in style_notes if n.content)
+            bible_summary = f"主要角色：{char_desc}。重要地点：{loc_desc}。文风：{style_text}。"
+            await knowledge_generator.generate_and_save(novel_id, novel.title, bible_summary)
 
         clear_bible_generation_state(novel_id)
         yield _sse_fmt("done", {"message": "全部生成完成！", "novel_id": novel_id})

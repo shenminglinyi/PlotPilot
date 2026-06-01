@@ -306,8 +306,6 @@ class AdoptionCommitService:
                 return {"skipped": True, "reason": "output_bindings_unavailable", "error": str(exc)}
 
         if not bindings:
-            bindings = self._fallback_output_bindings(session.node_key)
-        if not bindings:
             return {"skipped": True, "reason": "no_output_bindings"}
 
         payload = dict(output_payload or {})
@@ -367,38 +365,6 @@ class AdoptionCommitService:
         if novel_id:
             return f"novel_id:{novel_id}"
         return "global"
-
-    @staticmethod
-    def _fallback_output_bindings(node_key: str):
-        from application.ai_invocation.dtos import VariableBinding
-
-        common = {"scope": "global"}
-        if node_key == "bible-worldbuilding":
-            return [
-                VariableBinding(alias="style", variable_key="novel.style.guide", display_name="文风公约", stage="setup", **common),
-                VariableBinding(alias="worldbuilding", variable_key="novel.worldbuilding.full", display_name="世界观", value_type="object", stage="worldbuilding", **common),
-                VariableBinding(alias="worldbuilding_full", variable_key="novel.worldbuilding.full", display_name="世界观全量摘要", stage="worldbuilding", **common),
-                VariableBinding(alias="core_rules", variable_key="novel.worldbuilding.core_rules", display_name="核心法则", value_type="object", stage="worldbuilding", **common),
-                VariableBinding(alias="geography", variable_key="novel.worldbuilding.geography", display_name="地理生态", value_type="object", stage="worldbuilding", **common),
-                VariableBinding(alias="society", variable_key="novel.worldbuilding.society", display_name="社会结构", value_type="object", stage="worldbuilding", **common),
-                VariableBinding(alias="culture", variable_key="novel.worldbuilding.culture", display_name="历史文化", value_type="object", stage="worldbuilding", **common),
-                VariableBinding(alias="daily_life", variable_key="novel.worldbuilding.daily_life", display_name="沉浸感细节", value_type="object", stage="worldbuilding", **common),
-            ]
-        if node_key == "bible-characters":
-            return [
-                VariableBinding(alias="characters", variable_key="novel.characters.list", display_name="角色列表", value_type="list", stage="characters", **common),
-                VariableBinding(alias="protagonist", variable_key="novel.characters.protagonist", display_name="主角", value_type="object", stage="characters", **common),
-            ]
-        if node_key == "bible-locations":
-            return [
-                VariableBinding(alias="locations", variable_key="novel.locations.list", display_name="地点列表", value_type="list", stage="locations", **common),
-            ]
-        if node_key == "planning-main-plot-option":
-            return [
-                VariableBinding(alias="plot_options", variable_key="novel.plot.main_options", display_name="主线候选", value_type="list", stage="planning", **common),
-                VariableBinding(alias="plot_options_json", variable_key="novel.plot.main_options_json", display_name="主线候选 JSON", stage="planning", **common),
-            ]
-        return []
 
     def commit(self, *, session: InvocationSession, decision: AdoptionDecision) -> AdoptionCommit:
         if decision.session_id != session.id:

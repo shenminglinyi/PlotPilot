@@ -21,6 +21,7 @@ from application.ai_invocation.dtos import (
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
 from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
 from application.ai_invocation.variable_hub import InMemoryVariableHubRepository, VariableResolver
+from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_service import WorldbuildingService
 from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
@@ -126,6 +127,33 @@ NOVEL_SETUP_VARIABLE_BINDINGS = (
         value_type="string",
         scope="global",
         stage="setup",
+    ),
+    VariableBinding(
+        alias="genre_opening_profile",
+        variable_key="novel.genre.opening_profile",
+        required=True,
+        display_name="类型开篇画像",
+        value_type="object",
+        scope="global",
+        stage="planning",
+    ),
+    VariableBinding(
+        alias="genre_reader_contract",
+        variable_key="novel.genre.reader_contract",
+        required=True,
+        display_name="读者留存契约",
+        value_type="object",
+        scope="global",
+        stage="planning",
+    ),
+    VariableBinding(
+        alias="genre_rhythm_constraints",
+        variable_key="novel.genre.rhythm_constraints",
+        required=True,
+        display_name="类型节奏约束",
+        value_type="object",
+        scope="global",
+        stage="planning",
     ),
 )
 _BINDING_SET_BY_NODE = {
@@ -563,6 +591,7 @@ def build_bible_setup_variables(
     if target_words_per_chapter:
         setup_summary_lines.append(f"每章字数：{target_words_per_chapter}")
     novel_setup = "\n".join(setup_summary_lines)
+    genre_profile = resolve_opening_profile(genre_label, strict=True).as_variables()
     if stage == "worldbuilding":
         worldbuilding_fields = _build_worldbuilding_prompt_fields()
         return {
@@ -576,6 +605,7 @@ def build_bible_setup_variables(
             "genre_label": genre_label,
             "world_preset": world_preset,
             "novel_setup": novel_setup,
+            **genre_profile,
             **worldbuilding_fields,
         }
 
@@ -613,6 +643,7 @@ def build_bible_setup_variables(
         )
         return {
             **worldbuilding_fields,
+            **genre_profile,
             "style_guide": style_guide,
             "existing_characters": existing_characters,
             "surname_seed": seed.to_prompt_block(),
@@ -620,6 +651,7 @@ def build_bible_setup_variables(
     if stage == "locations":
         return {
             **worldbuilding_fields,
+            **genre_profile,
             "existing_locations": existing_locations,
             "character_context": character_context,
         }

@@ -39,6 +39,25 @@ def test_build_director_contract_empty_when_no_delivery_fields():
     assert build_director_contract(beat) == ""
 
 
+def test_build_generation_prompt_includes_bundle_genre_profile():
+    beat = SimpleNamespace(description="进入现实困境", focus="action")
+    ctx = PipelineContext(
+        outline="本章大纲",
+        beats=[beat],
+        bundle={
+            "genre_opening_profile": {"genre_major": "都市"},
+            "genre_reader_contract": {"reader_promise": ["现实压迫快速建立"]},
+            "genre_rhythm_constraints": {"payoff_interval": "短"},
+        },
+    )
+
+    prompt = build_generation_prompt(ctx, beat, 0)
+
+    assert "类型开篇画像" in prompt
+    assert "现实压迫快速建立" in prompt
+    assert "payoff_interval" in prompt
+
+
 def test_make_prompt_returns_domain_prompt_when_available():
     prompt = make_prompt("正文要求")
 

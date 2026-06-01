@@ -738,9 +738,9 @@
       ]
     },
     {
-      "id": "yanqing_fallback",
+      "id": "yanqing_general",
       "labels": {
-        "zh-CN": "言情兼容"
+        "zh-CN": "综合言情"
       },
       "facets": {
         "market_track": "女频言情 / 甜宠赛道（宽泛兼容）",
@@ -750,25 +750,25 @@
       },
       "children": [
         {
-          "id": "yanqing_fallback.xiandai",
+          "id": "yanqing_general.xiandai",
           "labels": {
             "zh-CN": "都市言情·甜宠"
           }
         },
         {
-          "id": "yanqing_fallback.gufeng",
+          "id": "yanqing_general.gufeng",
           "labels": {
             "zh-CN": "古风言情"
           }
         },
         {
-          "id": "yanqing_fallback.chongsheng_lv",
+          "id": "yanqing_general.chongsheng_lv",
           "labels": {
             "zh-CN": "重生恋爱"
           }
         },
         {
-          "id": "yanqing_fallback.qita",
+          "id": "yanqing_general.qita",
           "labels": {
             "zh-CN": "其他言情"
           }

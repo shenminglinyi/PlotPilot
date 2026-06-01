@@ -43,6 +43,7 @@ def test_variable_hub_backfill_writes_missing_historical_facts():
         premise="旧设定",
         target_chapters=80,
         target_words_per_chapter=3000,
+        locked_genre="都市 / 都市异能",
     )
     bible = SimpleNamespace(
         characters=[
@@ -81,6 +82,7 @@ def test_variable_hub_backfill_writes_missing_historical_facts():
     assert repo.get_value("novel.characters.protagonist", "novel_id:novel-1").value["name"] == "阿澄"
     assert repo.get_value("novel.locations.list", "novel_id:novel-1").value[0]["name"] == "天枢城"
     assert repo.get_value("novel.worldbuilding.core_rules", "novel_id:novel-1").value["power_system"] == "体系A"
+    assert repo.get_value("novel.genre.opening_profile", "novel_id:novel-1").value["genre_major"] == "都市"
 
 
 def test_variable_hub_backfill_does_not_overwrite_existing_values():

@@ -112,49 +112,30 @@ def _try_extract_next_item(buf: str, array_key: str):
 USER_PROMPT_SUFFIX = "\n\n直接输出 JSON（不要包在代码块里），格式：\n"
 
 # ============================================================================
-# CPMS 回退常量 — 当 PromptRegistry 不可用时使用
+# CPMS prompt 加载
 # ============================================================================
 
-_FALLBACK_BIBLE_ALL_SYSTEM = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
 
-**重要：description 字段必须是单行文本，不能有换行符。**
-
-要求：
-1. 深入理解故事梗概，提取核心冲突、主题、世界观
-2. 至少 3-5 个主要人物（主角、配角、对手、导师等），确保人物之间有冲突和互动
-3. 每个人物：姓名、定位（主角/配角/对手/导师）、性格特点、目标动机
-4. 至少 2-3 个重要地点，符合故事背景
-5. 明确的文风公约（叙事视角、人称、基调、节奏）
-6. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
-7. 人物和地点要符合故事类型（现代都市/古代/玄幻/科幻等）
-8. **所有 description 字段必须是单行文本**
-"""
-
-_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM = (
-    "你是资深网文策划编辑。根据用户给出的故事创意/梗概，生成完整的世界观。\n\n"
-    "重要：仅返回纯净 JSON；所有字符串值为单行文本，不要有换行符。\n\n"
-    "要求：\n"
-    "1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节。\n"
-    "2. 符合故事类型；设定要有落地感，力量或特殊规则需交代代价或约束。\n"
-    "3. JSON 键名固定，子键可据题材留空字符串但不可省略键。"
-)
+class BiblePromptTemplateUnavailable(RuntimeError):
+    """Bible 生成所需 CPMS 节点缺失或不可渲染。"""
 
 
-_FALLBACK_BIBLE_CHARACTERS_SYSTEM = (
-    "你是顶级卡司导演。基于已有世界观生成主要角色阵容（主要角色3-5名，次要角色2-3名）。\n\n"
-    "中文姓名由用户提示中的【命名种子】约束；只输出角色全名，不解释命名过程。\n\n"
-    "输出格式：直接输出裸 JSON，禁止 markdown 代码块。"
-    "每个角色对象必须包含 name/gender/age/role/description/public_profile/hidden_profile/"
-    "mental_state/mental_state_reason/core_belief/moral_taboos/ghost/want/need/flaw/"
-    "verbal_tic/idle_behavior/voice_profile/active_wounds/relationships。"
-)
+def _render_required_bible_prompt(node_key: str, variables: Dict[str, Any]) -> Prompt:
+    """只从 CPMS 渲染 Bible prompt；缺失时阻塞，禁止硬编码提示词降级。"""
+    try:
+        from infrastructure.ai.prompt_registry import get_prompt_registry
 
-_FALLBACK_BIBLE_LOCATIONS_SYSTEM = (
-    "你是关卡设计师。地点是参与叙事的工具，不是背景板。"
-    "生成 5-10 个重要地点，涵盖城市/建筑/区域/特殊场所，空间层级用 parent_id 表达，通路关系用 connections 记录（关系类型：包含/相邻/通往/封锁/隐藏通道，禁用「位于」）。\n\n"
-    "输出格式：直接输出裸 JSON，禁止 markdown 代码块。"
-    "每个地点含 id/name/type/description/parent_id/connections 字段，description 为单行文本。"
-)
+        prompt = get_prompt_registry().render_to_prompt(node_key, variables)
+    except Exception as exc:
+        raise BiblePromptTemplateUnavailable(
+            f"CPMS PromptRegistry 不可用，已阻塞 Bible 生成: {node_key}"
+        ) from exc
+
+    if not prompt or not prompt.system or not prompt.user:
+        raise BiblePromptTemplateUnavailable(
+            f"CPMS prompt node unavailable or incomplete: {node_key}"
+        )
+    return prompt
 
 
 def parse_json_from_response(rsp: str):
@@ -666,94 +647,16 @@ class AutoBibleGenerator:
     async def _generate_bible_data(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """使用 LLM 生成 Bible 数据和世界观"""
 
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system(BIBLE_ALL, fallback=_FALLBACK_BIBLE_ALL_SYSTEM)
-        # CPMS: 原硬编码已提取为回退常量 _FALLBACK_BIBLE_ALL_SYSTEM
-        _cpms_placeholder = """你是资深网文策划编辑。根据用户提供的故事创意/梗概，生成完整的人物、世界设定和世界观。
+        prompt = _render_required_bible_prompt(
+            BIBLE_ALL,
+            {
+                "premise": premise,
+                "genre": "",
+                "target_chapters": target_chapters,
+            },
+        )
 
-**重要：description 字段必须是单行文本，不能有换行符。**
-
-要求：
-1. 深入理解故事梗概，提取核心冲突、主题、世界观
-2. 至少 3-5 个主要人物（主角、配角、对手、导师等），确保人物之间有冲突和互动
-3. 每个人物：姓名、定位（主角/配角/对手/导师）、性格特点、目标动机
-4. 至少 2-3 个重要地点，符合故事背景；地点须含稳定 `id`，若有层级则填 `parent_id` 指向父地点的 `id`（根为 null）
-5. 明确的文风公约（叙事视角、人称、基调、节奏）
-6. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
-7. 人物和地点要符合故事类型（现代都市/古代/玄幻/科幻等）
-8. **所有 description 字段必须是单行文本，用逗号或分号分隔不同要点，不要使用换行符**
-
-JSON 格式（不要有其他文字）：
-{
-  "characters": [
-    {
-      "name": "人物名",
-      "role": "主角/配角/对手/导师",
-      "description": "性格、背景、目标、特点，所有内容在一行内，用逗号分隔"
-    }
-  ],
-  "locations": [
-    {
-      "id": "稳定id如 loc-continent-1",
-      "name": "地点名",
-      "type": "城市/建筑/区域",
-      "description": "地点描述，单行文本",
-      "parent_id": null
-    }
-  ],
-  "style": "第三人称有限视角，以XX视角为主。基调XX，节奏XX。避免XX。营造XX氛围。",
-  "worldbuilding": {
-    "core_rules": {
-      "power_system": "力量体系/科技树的描述",
-      "physics_rules": "物理规律的特殊之处",
-      "magic_tech": "魔法或科技的运作机制"
-    },
-    "geography": {
-      "terrain": "地形特征",
-      "climate": "气候特点",
-      "resources": "资源分布",
-      "ecology": "生态系统"
-    },
-    "society": {
-      "politics": "政治体制",
-      "economy": "经济模式",
-      "class_system": "阶级系统"
-    },
-    "culture": {
-      "history": "关键历史事件",
-      "religion": "宗教信仰",
-      "taboos": "文化禁忌"
-    },
-    "daily_life": {
-      "food_clothing": "衣食住行",
-      "language_slang": "俚语与口音",
-      "entertainment": "娱乐方式"
-    }
-  }
-}"""
-
-        user_prompt = f"""故事创意：{premise}
-
-目标章节数：{target_chapters}章
-
-请根据这个故事创意，生成完整的人物、世界设定和世界观。注意：
-1. 从故事创意中提取关键信息（主角身份、核心能力、故事背景、主要冲突）
-2. 人物要有层次，不能只有主角，要有配角、对手、导师等
-3. 要有明确的冲突和对立面
-4. 世界观要清晰，地点要符合故事类型
-5. 文风公约要具体，明确叙事视角、基调、节奏
-6. 世界观5个维度都要填写，符合故事类型和背景
-7. 适合网文读者，有代入感
-
-直接输出 JSON（不要包在代码块里），格式：
-{{
-  "characters": [],
-  "locations": [],
-  "style": "",
-  "worldbuilding": {{}}
-}}"""
-
-        bible_data = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+        bible_data = await self._call_llm_and_parse_with_retry(prompt.system, prompt.user)
         if bible_data:
             return bible_data
 
@@ -925,63 +828,32 @@ JSON 格式（不要有其他文字）：
 
     async def _generate_worldbuilding_and_style(self, premise: str, target_chapters: int) -> Dict[str, Any]:
         """只生成世界观和文风（一次性生成全部5维度，向后兼容非SSE场景）"""
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system(BIBLE_WORLDBUILDING, fallback=_FALLBACK_BIBLE_WORLDBUILDING_SYSTEM)
-        # CPMS: 原硬编码已提取为回退常量
-        _cpms_placeholder = """你是资深网文策划编辑。根据故事创意生成世界观和文风公约。
+        prompt = _render_required_bible_prompt(
+            BIBLE_WORLDBUILDING,
+            {
+                "premise": premise,
+                "novel_title": "",
+                "genre_major": "",
+                "genre_theme": "",
+                "genre_label": "",
+                "world_preset": "",
+                "target_chapters": target_chapters,
+                "target_words_per_chapter": 0,
+                "worldbuilding_full": "",
+                "core_rules": "",
+                "geography": "",
+                "society": "",
+                "culture": "",
+                "daily_life": "",
+                "fields_desc": self._build_worldbuilding_json_schema_desc(),
+                "novel_setup": f"故事创意：{premise}\n目标章节数：{target_chapters}",
+                "genre_opening_profile": {},
+                "genre_reader_contract": {},
+                "genre_rhythm_constraints": {},
+            },
+        )
 
-要求：
-1. 完整的世界观（5维度框架）：核心法则、地理生态、社会结构、历史文化、沉浸感细节
-2. 明确的文风公约（叙事视角、人称、基调、节奏）
-3. 符合故事类型（现代都市/古代/玄幻/科幻等）
-
-JSON 格式：
-{
-  "style": "第三人称有限视角，以XX视角为主。基调XX，节奏XX。避免XX。营造XX氛围。",
-  "worldbuilding": {
-    "core_rules": {
-      "power_system": "力量体系/科技树的描述",
-      "physics_rules": "物理规律的特殊之处",
-      "magic_tech": "魔法或科技的运作机制"
-    },
-    "geography": {
-      "terrain": "地形特征",
-      "climate": "气候特点",
-      "resources": "资源分布",
-      "ecology": "生态系统"
-    },
-    "society": {
-      "politics": "政治体制",
-      "economy": "经济模式",
-      "class_system": "阶级系统"
-    },
-    "culture": {
-      "history": "关键历史事件",
-      "religion": "宗教信仰",
-      "taboos": "文化禁忌"
-    },
-    "daily_life": {
-      "food_clothing": "衣食住行",
-      "language_slang": "俚语与口音",
-      "entertainment": "娱乐方式"
-    }
-  }
-}"""
-
-        user_prompt = f"""故事创意：{premise}
-
-目标章节数：{target_chapters}章
-
-请生成世界观和文风公约。
-
-直接输出 JSON（不要包在代码块里），格式：
-{{
-  "style": "",
-  "worldbuilding_full": "",
-  "worldbuilding": {{}}
-}}"""
-
-        data = await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+        data = await self._call_llm_and_parse_with_retry(prompt.system, prompt.user)
         worldbuilding = data.get("worldbuilding") if isinstance(data.get("worldbuilding"), dict) else {}
         if "worldbuilding_full" not in data:
             from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
@@ -1031,21 +903,35 @@ JSON 格式：
         for dim_key in dimension_keys:
             dim_emitted = False
             fields_desc = self._build_worldbuilding_json_schema_desc_for([dim_key])
-            prompt = Prompt(
-                system=(
-                    "你是资深网文世界观设定师。只输出裸 JSON，不要 markdown。"
-                    "本次只生成用户指定的一个维度；维度值必须是对象，不得写成字符串。"
-                    "字段值必须是80-160字中文单段文本，不得换行，不得嵌套对象或数组。"
-                    "必须承接已完成维度，保持术语、代价、空间、阶层、历史与日常细节互相呼应，不得自相矛盾。"
-                ),
-                user=(
-                    f"【故事创意】\n{premise}\n\n【目标章节数】\n{target_chapters}章\n\n"
-                    f"【已完成维度，必须联动承接】\n"
-                    f"{json.dumps(accumulated, ensure_ascii=False, indent=2)[:8000] or '暂无，先奠定后续维度的硬规则。'}\n\n"
-                    f"请只输出 `{dim_key}` 这一个维度，并把模板字段全部写完整。"
-                    "不要输出其他维度，不要解释。\n\n"
-                    f'{{"worldbuilding": {{\n{fields_desc}\n}}}}'
-                ),
+            prompt = _render_required_bible_prompt(
+                BIBLE_WORLDBUILDING,
+                {
+                    "premise": premise,
+                    "novel_title": "",
+                    "genre_major": "",
+                    "genre_theme": "",
+                    "genre_label": "",
+                    "world_preset": "",
+                    "target_chapters": target_chapters,
+                    "target_words_per_chapter": 0,
+                    "worldbuilding_full": json.dumps(accumulated, ensure_ascii=False, indent=2)[:8000],
+                    "core_rules": json.dumps(accumulated.get("core_rules") or {}, ensure_ascii=False),
+                    "geography": json.dumps(accumulated.get("geography") or {}, ensure_ascii=False),
+                    "society": json.dumps(accumulated.get("society") or {}, ensure_ascii=False),
+                    "culture": json.dumps(accumulated.get("culture") or {}, ensure_ascii=False),
+                    "daily_life": json.dumps(accumulated.get("daily_life") or {}, ensure_ascii=False),
+                    "fields_desc": fields_desc,
+                    "novel_setup": (
+                        f"故事创意：{premise}\n"
+                        f"目标章节数：{target_chapters}\n"
+                        f"已完成维度：{json.dumps(accumulated, ensure_ascii=False, indent=2)[:8000] or '无'}\n"
+                        f"本次只生成 `{dim_key}` 这一个世界观维度；"
+                        "输出必须符合 fields_desc 中给出的字段模板。"
+                    ),
+                    "genre_opening_profile": {},
+                    "genre_reader_contract": {},
+                    "genre_rhythm_constraints": {},
+                },
             )
             parser = WorldbuildingStreamIncrementalParser()
 
@@ -1130,11 +1016,9 @@ JSON 格式：
         prompt = registry.render_to_prompt(BIBLE_STYLE_CONVENTION, variables)
 
         if not prompt:
-            # Fallback
-            from infrastructure.ai.prompt_utils import get_prompt_system as _get_prompt_system
-            system = _get_prompt_system(BIBLE_STYLE_CONVENTION)
-            user = f"故事创意：{premise}\n\n目标章节数：{target_chapters}章\n\n请生成文风公约。直接输出文本即可。"
-            prompt = Prompt(system=system, user=user)
+            raise BiblePromptTemplateUnavailable(
+                f"CPMS prompt node unavailable or incomplete: {BIBLE_STYLE_CONVENTION}"
+            )
 
         config = GenerationConfig(max_tokens=1024, temperature=0.7)
         chunks: list[str] = []
@@ -1157,86 +1041,19 @@ JSON 格式：
             rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
         )
 
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
-        # CPMS: 原硬编码已提取为回退常量
-        _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观生成主要人物。
-
-**重要：description 字段必须是单行文本。**
-
-要求：
-1. 至少 3-5 个主要人物（主角、配角、对手、导师等）
-2. 人物要符合世界观设定
-3. 确保人物之间有冲突和互动
-4. 每个人物：姓名、定位、性格特点、目标动机
-5. 明确定义人物之间的关系（敌对、合作、师徒、亲属、暧昧等）
-
-JSON 格式：
-{
-  "characters": [
-    {
-      "name": "人物名",
-      "role": "主角/配角/对手/导师",
-      "description": "性格、背景、目标、特点，所有内容在一行内，用逗号分隔",
-      "relationships": [
-        {
-          "target": "目标人物名",
-          "relation": "关系类型（师徒/敌对/合作/亲属/暧昧等）",
-          "description": "关系的详细描述"
-        }
-      ]
-    }
-  ]
-}"""
-
-        user_prompt = (
-            f"【故事创意】\n{premise}\n\n"
-            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
-            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
-            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
-            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
-            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
-            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
-            f"{surname_seed.to_prompt_block()}\n\n"
-            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。"
-            "人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。\n\n"
-            "直接输出 JSON（不要包在代码块里），格式：\n"
-            '{{\n  "characters": [\n    {{\n'
-            '      "name": "角色全名",\n'
-            '      "gender": "性别",\n'
-            '      "age": "年龄",\n'
-            '      "role": "主角/对立角色/盟友/次要角色",\n'
-            '      "description": "一句话功能定位与人物矛盾，单行",\n'
-            '      "public_profile": "其他角色可见的身份、阶层、外显行为，单行",\n'
-            '      "hidden_profile": "暂不可见的秘密/真实动机/身份雷区，单行；没有则空字符串",\n'
-            '      "reveal_chapter": null,\n'
-            '      "mental_state": "开局心理状态，2-8字",\n'
-            '      "mental_state_reason": "该心理状态的成因，单行",\n'
-            '      "core_belief": "一句可驱动选择的核心信念",\n'
-            '      "moral_taboos": ["绝不做的事1", "绝不做的事2"],\n'
-            '      "ghost": "内心创伤或恐惧",\n'
-            '      "want": "表层目标",\n'
-            '      "need": "深层需要（角色自己可能不自知）",\n'
-            '      "flaw": "致命弱点",\n'
-            '      "verbal_tic": "口头禅或高频话语；没有则空字符串",\n'
-            '      "idle_behavior": "压力下的小动作/待机动作",\n'
-            '      "voice_profile": {\n'
-            '        "style": "话多/克制/讥诮/温和等",\n'
-            '        "sentence_pattern": "短句/长句/反问/命令式/混合",\n'
-            '        "speech_tempo": "fast/normal/slow",\n'
-            '        "metaphors": ["常用隐喻意象"],\n'
-            '        "catchphrases": ["口头禅"]\n'
-            '      },\n'
-            '      "active_wounds": [\n'
-            '        {"description": "未愈合创伤", "trigger": "触发条件", "effect": "触发后的反应"}\n'
-            '      ],\n'
-            '      "relationships": [\n'
-            '        {"target": "其他角色名", "relation": "敌对/师徒/利用/保护等", "description": "张力说明"}\n'
-            '      ]\n'
-            "    }}\n  ]\n}}"
+        prompt = _render_required_bible_prompt(
+            BIBLE_CHARACTERS,
+            {
+                **wb_fields,
+                "premise": premise,
+                "target_chapters": target_chapters,
+                "style_guide": "",
+                "existing_characters": "",
+                "surname_seed": surname_seed.to_prompt_block(),
+            },
         )
 
-        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+        return await self._call_llm_and_parse_with_retry(prompt.system, prompt.user)
 
     # ── 流式人物生成 ──
 
@@ -1262,55 +1079,17 @@ JSON 格式：
             8,
             rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
         )
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system(BIBLE_CHARACTERS, fallback=_FALLBACK_BIBLE_CHARACTERS_SYSTEM)
-        user_prompt = (
-            f"【故事创意】\n{premise}\n\n"
-            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
-            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
-            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
-            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
-            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
-            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
-            f"{surname_seed.to_prompt_block()}\n\n"
-            "请基于以上世界观生成 3-5 名主要角色和 2-3 名次要角色。"
-            "人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。\n\n"
-            "直接输出 JSON（不要包在代码块里），格式：\n"
-            '{{\n  "characters": [\n    {{\n'
-            '      "name": "角色全名",\n'
-            '      "gender": "性别",\n'
-            '      "age": "年龄",\n'
-            '      "role": "主角/对立角色/盟友/次要角色",\n'
-            '      "description": "一句话功能定位与人物矛盾，单行",\n'
-            '      "public_profile": "其他角色可见的身份、阶层、外显行为，单行",\n'
-            '      "hidden_profile": "暂不可见的秘密/真实动机/身份雷区，单行；没有则空字符串",\n'
-            '      "reveal_chapter": null,\n'
-            '      "mental_state": "开局心理状态，2-8字",\n'
-            '      "mental_state_reason": "该心理状态的成因，单行",\n'
-            '      "core_belief": "一句可驱动选择的核心信念",\n'
-            '      "moral_taboos": ["绝不做的事1", "绝不做的事2"],\n'
-            '      "ghost": "内心创伤或恐惧",\n'
-            '      "want": "表层目标",\n'
-            '      "need": "深层需要（角色自己可能不自知）",\n'
-            '      "flaw": "致命弱点",\n'
-            '      "verbal_tic": "口头禅或高频话语；没有则空字符串",\n'
-            '      "idle_behavior": "压力下的小动作/待机动作",\n'
-            '      "voice_profile": {\n'
-            '        "style": "话多/克制/讥诮/温和等",\n'
-            '        "sentence_pattern": "短句/长句/反问/命令式/混合",\n'
-            '        "speech_tempo": "fast/normal/slow",\n'
-            '        "metaphors": ["常用隐喻意象"],\n'
-            '        "catchphrases": ["口头禅"]\n'
-            '      },\n'
-            '      "active_wounds": [\n'
-            '        {"description": "未愈合创伤", "trigger": "触发条件", "effect": "触发后的反应"}\n'
-            '      ],\n'
-            '      "relationships": [\n'
-            '        {"target": "其他角色名", "relation": "敌对/师徒/利用/保护等", "description": "张力说明"}\n'
-            '      ]\n'
-            "    }}\n  ]\n}}"
+        prompt = _render_required_bible_prompt(
+            BIBLE_CHARACTERS,
+            {
+                **wb_fields,
+                "premise": premise,
+                "target_chapters": target_chapters,
+                "style_guide": "",
+                "existing_characters": "",
+                "surname_seed": surname_seed.to_prompt_block(),
+            },
         )
-        prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
 
         buf = ""
@@ -1352,61 +1131,18 @@ JSON 格式：
         wb_summary = wb_fields.get("worldbuilding_full", "")
         char_summary = "\n".join([f"- {c['name']}: {c['description'][:50]}..." for c in characters])
 
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
-        # CPMS: 原硬编码已提取为回退常量
-        _cpms_placeholder = """你是资深网文策划编辑。基于已有世界观和人物生成完整地图。
-
-要求：
-1. 至少 5-10 个重要地点，构成完整地图
-2. 地点要符合世界观设定
-3. 考虑人物的活动范围和故事需要
-4. 包含不同类型：城市、建筑、区域、特殊场所等
-5. 空间层级用 `parent_id` 表达（子地点 id 指向父地点 id）；非父子关系用 `connections`（不要用 relation=位于）
-
-JSON 格式：
-{
-  "locations": [
-    {
-      "id": "稳定id，全书唯一",
-      "name": "地点名",
-      "type": "城市/建筑/区域/特殊场所",
-      "description": "地点描述，单行文本",
-      "parent_id": null,
-      "connections": [
-        {
-          "target": "目标地点名",
-          "relation": "连接类型（包含/相邻/通往等，勿用位于）",
-          "description": "连接的详细描述"
-        }
-      ]
-    }
-  ]
-}"""
-
-        user_prompt = (
-            f"【故事创意】\n{premise}\n\n"
-            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
-            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
-            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
-            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
-            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
-            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
-            f"【已有人物】\n{char_summary}\n\n"
-            "请基于以上世界观和人物生成 5-10 个重要地点，构成完整地图。\n\n"
-            "直接输出 JSON（不要包在代码块里），格式：\n"
-            '{{\n  "locations": [\n    {{\n'
-            '      "id": "唯一ID，小写英文+下划线+数字",\n'
-            '      "name": "地点名",\n'
-            '      "type": "城市/建筑/区域/特殊场所/秘境",\n'
-            '      "description": "地点功能与叙事价值，单行",\n'
-            '      "parent_id": null,\n'
-            '      "connections": [\n'
-            '        {{"target": "目标地点name", "relation": "包含/相邻/通往/封锁/隐藏通道", "description": "叙事意义"}}\n'
-            "      ]\n    }}\n  ]\n}}"
+        prompt = _render_required_bible_prompt(
+            BIBLE_LOCATIONS,
+            {
+                **wb_fields,
+                "premise": premise,
+                "target_chapters": target_chapters,
+                "existing_locations": "",
+                "character_context": char_summary,
+            },
         )
 
-        return await self._call_llm_and_parse_with_retry(system_prompt, user_prompt)
+        return await self._call_llm_and_parse_with_retry(prompt.system, prompt.user)
 
     # ── 流式地点生成 ──
 
@@ -1427,30 +1163,16 @@ JSON 格式：
         wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
         wb_summary = wb_fields.get("worldbuilding_full", "")
         char_summary = "\n".join([f"- {c['name']}: {c.get('description', '')[:50]}..." for c in characters])
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system_prompt = get_prompt_system(BIBLE_LOCATIONS, fallback=_FALLBACK_BIBLE_LOCATIONS_SYSTEM)
-        user_prompt = (
-            f"【故事创意】\n{premise}\n\n"
-            f"【世界观全量摘要】\n{wb_fields.get('worldbuilding_full', '')}\n\n"
-            f"【核心法则】\n{wb_fields.get('core_rules', '')}\n\n"
-            f"【地理生态】\n{wb_fields.get('geography', '')}\n\n"
-            f"【社会结构】\n{wb_fields.get('society', '')}\n\n"
-            f"【历史文化】\n{wb_fields.get('culture', '')}\n\n"
-            f"【沉浸感细节】\n{wb_fields.get('daily_life', '')}\n\n"
-            f"【已有人物】\n{char_summary}\n\n"
-            "请基于以上世界观和人物生成 5-10 个重要地点，构成完整地图。\n\n"
-            "直接输出 JSON（不要包在代码块里），格式：\n"
-            '{{\n  "locations": [\n    {{\n'
-            '      "id": "唯一ID，小写英文+下划线+数字",\n'
-            '      "name": "地点名",\n'
-            '      "type": "城市/建筑/区域/特殊场所/秘境",\n'
-            '      "description": "地点功能与叙事价值，单行",\n'
-            '      "parent_id": null,\n'
-            '      "connections": [\n'
-            '        {{"target": "目标地点name", "relation": "包含/相邻/通往/封锁/隐藏通道", "description": "叙事意义"}}\n'
-            "      ]\n    }}\n  ]\n}}"
+        prompt = _render_required_bible_prompt(
+            BIBLE_LOCATIONS,
+            {
+                **wb_fields,
+                "premise": premise,
+                "target_chapters": target_chapters,
+                "existing_locations": "",
+                "character_context": char_summary,
+            },
         )
-        prompt = Prompt(system=system_prompt, user=user_prompt)
         config = GenerationConfig(max_tokens=4096, temperature=0.7)
 
         buf = ""

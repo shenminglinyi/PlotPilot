@@ -193,7 +193,7 @@ const idleHint = computed(() => {
     if (subPrimary) return `${subPrimary}；撰写阶段会在此处显示流式正文。`
     return '当前非撰写阶段，此处不推送流式正文；进入撰写后将显示生成内容与节拍进度。'
   }
-  const fallback = '等待流式正文或节拍收束…'
+  const idleDefault = '等待流式正文或节拍收束…'
   if (props.writingSubstep === 'outline_planning') {
     return subPrimary
       ? `${subPrimary}；完成后将按节拍流式撰写正文。`
@@ -201,10 +201,10 @@ const idleHint = computed(() => {
   }
   if (!props.showRunnerStageInIdle) {
     if (subPrimary) return '流式正文将出现在下方；当前阶段见顶栏。'
-    return fallback
+    return idleDefault
   }
   if (subPrimary) return runnerStageLabelDisplay.value
-  return runnerStageLabelDisplay.value || fallback
+  return runnerStageLabelDisplay.value || idleDefault
 })
 
 const idleProgressWidth = computed(() => {

@@ -51,7 +51,7 @@ async def run_macro_planning(host: Any, novel: Novel) -> None:
         result,
         novel_id=novel.novel_id.value,
         target_chapters=target_chapters,
-        minimal_fallback_on_empty=True,
+        allow_minimal_placeholder_on_empty=False,
     )
 
     if getattr(novel, "auto_approve_mode", False):

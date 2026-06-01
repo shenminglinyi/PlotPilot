@@ -46,7 +46,7 @@ def _coerce_word_count_to_int(wc: Any) -> int:
 
 VOICE_REWRITE_MAX_ATTEMPTS = LLM_MAX_TOTAL_ATTEMPTS
 VOICE_REWRITE_THRESHOLD = 0.68
-VOICE_WARNING_THRESHOLD_FALLBACK = 0.75
+VOICE_WARNING_DEFAULT_THRESHOLD = 0.75
 
 
 def init_daemon_dependencies(
@@ -1095,7 +1095,7 @@ class DaemonHostMixin:
         timeout: float,
         novel_id: str = "",
         label: str = "",
-        fallback=None,
+        timeout_default=None,
     ):
         """为 LLM 调用加超时保护 + 停止信号响应，避免 API 卡住或用户停止后仍在等待。
 
@@ -1108,7 +1108,7 @@ class DaemonHostMixin:
             timeout: 超时秒数
             novel_id: 小说 ID（用于写共享状态和检查停止信号）
             label: 调用标签（用于日志）
-            fallback: 超时/停止时的降级返回值
+            timeout_default: 超时/停止时的显式默认返回值
         """
         # ── 并行：LLM 调用 + 停止信号监听 ──
         stop_detected = asyncio.Event()
@@ -1142,13 +1142,13 @@ class DaemonHostMixin:
             # LLM 调用正常完成，但检查是否在等待期间收到了停止信号
             if stop_detected.is_set():
                 logger.info(f"[{novel_id}] {label} 完成但停止信号已触发，丢弃结果")
-                return fallback
+                return timeout_default
 
             return result
 
         except asyncio.TimeoutError:
             logger.warning(
-                f"[{novel_id}] ⏱️ {label} 超时（{timeout}s），使用降级值: {fallback}"
+                f"[{novel_id}] ⏱️ {label} 超时（{timeout}s），使用显式默认值: {timeout_default}"
             )
             if novel_id:
                 self._update_shared_state(
@@ -1156,10 +1156,10 @@ class DaemonHostMixin:
                     _last_timeout_label=label,
                     _last_timeout_at=time.time(),
                 )
-            return fallback
+            return timeout_default
         except Exception as e:
-            logger.warning(f"[{novel_id}] {label} 异常: {e}，使用降级值")
-            return fallback
+            logger.warning(f"[{novel_id}] {label} 异常: {e}，使用显式默认值")
+            return timeout_default
         finally:
             stop_detected.set()
             if watch_task is not None:
@@ -1185,7 +1185,7 @@ class DaemonHostMixin:
             from application.analyst.services.voice_drift_service import DRIFT_ALERT_THRESHOLD
             return float(similarity_score) < float(DRIFT_ALERT_THRESHOLD)
         except Exception:
-            return float(similarity_score) < VOICE_WARNING_THRESHOLD_FALLBACK
+            return float(similarity_score) < VOICE_WARNING_DEFAULT_THRESHOLD
 
 
     def _should_attempt_voice_rewrite(self, drift_result: Dict[str, Any]) -> bool:
@@ -1258,9 +1258,8 @@ class DaemonHostMixin:
         anchor_block = voice_anchors.strip() or "无额外角色声线锚点。"
         outline = (getattr(chapter, "outline", "") or "").strip() or "无单独大纲，必须严格保留现有剧情事实。"
 
-        # CPMS render
         from infrastructure.ai.prompt_keys import VOICE_REWRITE
-        from infrastructure.ai.prompt_registry import get_prompt_registry
+        from infrastructure.ai.prompt_utils import render_required_prompt
 
         variables = {
             "style_fingerprint": style_block,
@@ -1272,27 +1271,7 @@ class DaemonHostMixin:
             "outline": outline,
             "content": content,
         }
-        registry = get_prompt_registry()
-        p = registry.render_to_prompt(VOICE_REWRITE, variables)
-        if p:
-            return p
-
-        # Fallback
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system = get_prompt_system(VOICE_REWRITE)
-        user = f"""当前为第 {chapter.number} 章，第 {attempt} 次文风定向修正。
-
-当前相似度：{similarity_score:.4f}
-自动修文触发阈值：{VOICE_REWRITE_THRESHOLD:.2f}
-
-章节大纲：
-{outline}
-
-请在不改变剧情事实的前提下，修订以下正文的叙述语气、句式节奏与措辞，使其更贴近既有文风：
-
-{content}
-"""
-        return Prompt(system=system, user=user)
+        return render_required_prompt(VOICE_REWRITE, variables)
 
     async def _rewrite_chapter_for_voice(
         self,
@@ -1752,7 +1731,13 @@ class DaemonHostMixin:
         voice_anchors: str = "",
         chapter_draft_so_far: str = "",
     ) -> str:
-        """无 AutoNovelGenerationWorkflow 时的降级：爽文短 Prompt + 流式。"""
+        """无 AutoNovelGenerationWorkflow 时的兼容写作路径。
+
+        提示词仍必须来自 CPMS；缺失时直接阻塞，禁止回退到隐藏硬编码提示词。
+        """
+        from infrastructure.ai.prompt_keys import WORKFLOW_CHAPTER_GENERATION
+        from infrastructure.ai.prompt_utils import render_required_prompt
+
         va = (voice_anchors or "").strip()
         voice_block = ""
         if va:
@@ -1760,21 +1745,14 @@ class DaemonHostMixin:
                 "【角色声线与肢体语言（Bible 锚点，必须遵守）】\n"
                 f"{va}\n\n"
             )
-        system = f"""你是一位资深网文作家，擅长写爽文。
-{voice_block}写作要求：
-1. 严格按节拍字数和聚焦点写作
-2. 必须有对话和人物互动，保持人物性格一致
-3. 增加感官细节：视觉、听觉、触觉、情绪
-4. 节奏控制：不要一章推进太多剧情
-5. 不要写章节标题"""
 
-        user_parts = []
+        context_parts = []
         if context:
-            user_parts.append(context)
-        user_parts.append(f"\n【本章大纲】\n{outline}")
+            context_parts.append(str(context))
         prior = format_prior_draft_for_prompt(chapter_draft_so_far)
+        prior_draft = ""
         if prior:
-            user_parts.append(
+            prior_draft = (
                 "\n【本章上文（近期全文精确衔接 + 远期回溯避免重复；禁止复述或重复已写对白与情节）】\n"
                 f"{prior}"
             )
@@ -1790,18 +1768,30 @@ class DaemonHostMixin:
                     directive = build_beat_transition_directive(
                         anchor, getattr(beat, 'index', 0) or 0, 1, next_desc,
                     )
-                    user_parts.append(f"\n{directive}")
+                    prior_draft += f"\n{directive}"
             except Exception:
                 pass  # 降级：无锚点则不加
 
-        if beat_prompt:
-            user_parts.append(f"\n{beat_prompt}")
-        user_parts.append("\n\n开始撰写：")
-
         # 字数控制策略（与主流程一致）
         max_tokens = int(beat.target_words * 1.3) if beat else 3000
+        target_words = int(getattr(beat, "target_words", 0) or max_tokens)
 
-        prompt = Prompt(system=system, user="\n".join(user_parts))
+        prompt = render_required_prompt(
+            WORKFLOW_CHAPTER_GENERATION,
+            {
+                "planning_section": "",
+                "voice_block": voice_block,
+                "behavior_protocol": "",
+                "character_state_lock": "",
+                "context": "\n\n".join(context_parts),
+                "fact_lock": "",
+                "length_rule": f"7. 本节目标约 {target_words} 字，严格按当前节拍聚焦点写作。",
+                "beat_extra": "",
+                "outline": str(outline or ""),
+                "prior_draft": prior_draft,
+                "beat_section": (beat_prompt or "").strip(),
+            },
+        )
         config = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
         return await self._stream_llm_with_stop_watch(
             prompt, config, novel=novel, chapter_draft_so_far=chapter_draft_so_far

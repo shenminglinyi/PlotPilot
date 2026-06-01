@@ -628,7 +628,7 @@
             <n-input
               v-model:value="customLogline"
               type="textarea"
-              placeholder="用一句话写下你想写的主线（例如：废柴少年为救妹妹卷入财阀灵根黑市……）"
+              placeholder="用一句话写下你想写的主线（例如：主角为守住重要的人，被迫卷入更大的秩序裂缝……）"
               :autosize="{ minRows: 2, maxRows: 5 }"
               :disabled="mainPlotCommitted"
             />
@@ -701,6 +701,7 @@ import { worldbuildingApi } from '@/api/worldbuilding'
 import { consumeMainPlotOptionsStream, workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
+import { getDimensionFieldOrder, getWorldbuildingLabel } from '@/domain/worldbuilding/contract'
 import { useAIInvocationStore } from '@/stores/aiInvocationStore'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
@@ -717,69 +718,10 @@ import {
 const WB_DIMS = ['core_rules', 'geography', 'society', 'culture', 'daily_life'] as const
 type WorldbuildingDimKey = (typeof WB_DIMS)[number]
 
-const WB_FIELD_ORDER: Record<WorldbuildingDimKey, string[]> = {
-  core_rules: [
-    'power_system',
-    'physics_rules',
-    'magic_tech',
-  ],
-  geography: [
-    'terrain',
-    'climate',
-    'resources',
-    'ecology',
-  ],
-  society: [
-    'politics',
-    'economy',
-    'class_system',
-  ],
-  culture: [
-    'history',
-    'religion',
-    'taboos',
-  ],
-  daily_life: [
-    'food_clothing',
-    'language_slang',
-    'entertainment',
-  ],
-}
-
-/** 世界观维度 key → 中文标签 */
-const dimKeyLabels: Record<string, string> = {
-  power_system: '力量体系',
-  physics_rules: '物理规律',
-  magic_tech: '魔法/科技',
-  terrain: '地形',
-  climate: '气候',
-  resources: '资源',
-  ecology: '生态',
-  politics: '政治',
-  economy: '经济',
-  class_system: '阶级',
-  history: '历史',
-  religion: '宗教',
-  taboos: '禁忌',
-  food_clothing: '衣食住行',
-  language_slang: '俚语口音',
-  entertainment: '娱乐方式',
-  continent_name: '大陆名称',
-  key_regions: '关键区域',
-  climate_impact: '气候影响',
-  fatal_flaw: '致命缺陷',
-  realm_structure: '境界结构',
-  dominant_faith: '主流信仰',
-  doctrine: '教义',
-  rituals: '仪式',
-  values: '价值观',
-  art_and_literature: '文艺',
-  ruling_class: '统治阶层',
-  middle_class: '中间阶层',
-  lower_class: '底层',
-  black_market: '黑市',
-  slave_trade: '奴役贸易',
-}
+/** 世界观维度与字段标签来自 shared/taxonomy/worldbuilding_contract_cn_v1.yaml。 */
+const dimKeyLabels: Record<string, string> = new Proxy({}, {
+  get: (_target, key) => getWorldbuildingLabel(String(key)),
+})
 
 function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
   return {
@@ -793,7 +735,7 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
 
 function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
   const block = worldbuildingData.value[dim] || {}
-  const ordered = WB_FIELD_ORDER[dim] || []
+  const ordered = getDimensionFieldOrder(dim)
   return ordered
     .map(key => ({ key, value: String(block[key] ?? '') }))
     .filter(field => field.value.trim().length > 0)
@@ -1267,7 +1209,7 @@ function extractMainPlotOptionsFromResult(result: Record<string, unknown>): Main
           return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
         }
       } catch {
-        // Ignore malformed fallback payload; accepted_content is checked below.
+        // Ignore malformed continuation payload; accepted_content is checked below.
       }
     }
   }
@@ -1375,9 +1317,9 @@ async function loadPlotSuggestions(opts?: { forceNew?: boolean }) {
       if (plotOptions.value.length) {
         writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
       }
-    } catch (fallbackError: unknown) {
-      let msg = formatApiError(fallbackError) || formatApiError(e) || '推演失败，请重试'
-      if (isLikelyTimeoutError(fallbackError) || isLikelyTimeoutError(e)) {
+    } catch (directError: unknown) {
+      let msg = formatApiError(directError) || formatApiError(e) || '推演失败，请重试'
+      if (isLikelyTimeoutError(directError) || isLikelyTimeoutError(e)) {
         msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
       }
       plotSuggestError.value = msg

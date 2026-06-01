@@ -54,10 +54,12 @@ REVIEW_TIMELINE_CONSISTENCY = "review-timeline-consistency"
 REVIEW_STORYLINE_CONSISTENCY = "review-storyline-consistency"
 REVIEW_FORESHADOWING_USAGE = "review-foreshadowing-usage"
 REVIEW_IMPROVEMENT_SUGGESTIONS = "review-improvement-suggestions"
+CHAPTER_AI_REVIEW = "chapter-ai-review"
 CLICHE_SCAN = "cliche-scan"
 
 # ── Memory ───────────────────────────────────────────────────────────────
 MEMORY_EXTRACTION = "memory-extraction"
+EMOTION_LEDGER_EXTRACTION = "emotion-ledger-extraction"
 
 # ── Planning ─────────────────────────────────────────────────────────────
 MACRO_PLANNING = "macro-planning"
@@ -147,9 +149,9 @@ ALL_KEYS: frozenset[str] = frozenset({
     # Review
     REVIEW_CHARACTER_CONSISTENCY, REVIEW_TIMELINE_CONSISTENCY,
     REVIEW_STORYLINE_CONSISTENCY, REVIEW_FORESHADOWING_USAGE,
-    REVIEW_IMPROVEMENT_SUGGESTIONS, CLICHE_SCAN,
+    REVIEW_IMPROVEMENT_SUGGESTIONS, CHAPTER_AI_REVIEW, CLICHE_SCAN,
     # Memory
-    MEMORY_EXTRACTION,
+    MEMORY_EXTRACTION, EMOTION_LEDGER_EXTRACTION,
     # Planning
     MACRO_PLANNING, PLANNING_QUICK_MACRO, PLANNING_PRECISE_MACRO,
     PLANNING_PRECISE_VOLUME, PLANNING_PRECISE_REPAIR, PLANNING_ACT,

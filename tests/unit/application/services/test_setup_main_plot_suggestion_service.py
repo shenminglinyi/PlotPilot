@@ -1,7 +1,7 @@
 from application.blueprint.services.setup_main_plot_suggestion_service import SetupMainPlotSuggestionService
 
 
-def test_parse_suggested_options_normalizes_and_falls_back():
+def test_parse_suggested_options_normalizes_declared_options():
     svc = SetupMainPlotSuggestionService.__new__(SetupMainPlotSuggestionService)
     ctx = {
         "target_chapters": 60,
@@ -25,6 +25,22 @@ def test_parse_suggested_options_normalizes_and_falls_back():
           "logline": "log",
           "core_conflict": "conflict",
           "starting_hook": "hook"
+        },
+        {
+          "id": "option_b_conspiracy",
+          "type": "阴谋求真",
+          "title": "表象之下的齿轮",
+          "logline": "log2",
+          "core_conflict": "conflict2",
+          "starting_hook": "hook2"
+        },
+        {
+          "id": "option_c_anomaly",
+          "type": "异类觉醒",
+          "title": "规则的裂缝",
+          "logline": "log3",
+          "core_conflict": "conflict3",
+          "starting_hook": "hook3"
         }
       ]
     }

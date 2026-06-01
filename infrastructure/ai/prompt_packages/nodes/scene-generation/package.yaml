@@ -39,5 +39,13 @@ variables:
   desc: 相关伏笔
   type: string
   default: ''
+- name: bible_context_block
+  desc: Bible公开上下文
+  type: string
+  default: ''
+- name: retrieved_context_block
+  desc: 向量检索上下文
+  type: string
+  default: ''
 id: scene-generation
 sort_order: 2

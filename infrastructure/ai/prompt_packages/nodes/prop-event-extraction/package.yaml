@@ -1,24 +1,20 @@
-name: Prop event extraction
+name: 道具事件抽取
 category: extraction
 source: application/prop/extractors/llm_extractor.py
-description: Extract prop-related events from chapter text (transfer, damage, repair, upgrade, resolve)
+description: 从章节正文中抽取道具持有者变更、损毁、修复、升级和解决事件
 builtin: true
 tags:
-- prop
-- extraction
-- event
+- 道具
+- 抽取
+- 事件
 output_format: json
 variables:
 - name: props_summary
-  desc: Active prop list summary
+  desc: 当前活跃道具列表摘要
   type: string
   required: true
 - name: chapter_excerpt
-  desc: Chapter text excerpt (first 1500 chars)
-  type: string
-  required: true
-- name: output_schema
-  desc: JSON output schema specification
+  desc: 章节正文节选（前 1500 字）
   type: string
   required: true
 id: prop-event-extraction

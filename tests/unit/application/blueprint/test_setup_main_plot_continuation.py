@@ -46,7 +46,13 @@ def test_setup_main_plot_continuation_returns_normalized_options():
         id="decision-1",
         session_id="session-1",
         attempt_id="attempt-1",
-        accepted_content='{"plot_options":[{"id":"option_a_survival","type":"生存求证","title":"绝境中的第一枪","logline":"log","core_conflict":"conflict","starting_hook":"hook"}]}',
+        accepted_content=(
+            '{"plot_options":['
+            '{"id":"option_a_survival","type":"生存求证","title":"绝境中的第一枪","logline":"log","core_conflict":"conflict","starting_hook":"hook"},'
+            '{"id":"option_b_conspiracy","type":"阴谋求真","title":"表象之下的齿轮","logline":"log2","core_conflict":"conflict2","starting_hook":"hook2"},'
+            '{"id":"option_c_anomaly","type":"异类觉醒","title":"规则的裂缝","logline":"log3","core_conflict":"conflict3","starting_hook":"hook3"}'
+            ']}'
+        ),
     )
 
     result = setup_main_plot_options_handler(ContinuationContext(session=session, decision=decision))

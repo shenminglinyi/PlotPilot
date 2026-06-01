@@ -328,13 +328,6 @@ class BeatSheetService:
 
         return context
 
-    @staticmethod
-    def _get_system_prompt() -> str:
-        """Get beat sheet system prompt via CPMS."""
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        from infrastructure.ai.prompt_keys import BEAT_SHEET_DECOMPOSITION
-        return get_prompt_system(BEAT_SHEET_DECOMPOSITION)
-
     def _build_beat_sheet_prompt(
         self,
         outline: str,
@@ -342,7 +335,7 @@ class BeatSheetService:
     ) -> Prompt:
         """Build beat sheet generation prompt (CPMS render)."""
         from infrastructure.ai.prompt_keys import BEAT_SHEET_DECOMPOSITION
-        from infrastructure.ai.prompt_registry import get_prompt_registry
+        from infrastructure.ai.prompt_utils import render_required_prompt
 
         # Build context blocks
         characters_block = ""
@@ -385,29 +378,7 @@ class BeatSheetService:
             "timeline_block": timeline_block,
         }
 
-        # CPMS render
-        registry = get_prompt_registry()
-        prompt = registry.render_to_prompt(BEAT_SHEET_DECOMPOSITION, variables)
-        if prompt:
-            return prompt
-
-        # 降级：直接拼接
-        system = self._get_system_prompt()
-        user = f"章节大纲：\n{outline}\n"
-        if characters_block:
-            user += f"\n=== 主要人物 ===\n{characters_block}\n"
-        if storylines_block:
-            user += f"\n=== 活跃故事线 ===\n{storylines_block}\n"
-        if previous_chapter_block:
-            user += f"\n=== 前一章节 ===\n{previous_chapter_block}\n"
-        if foreshadowings_block:
-            user += f"\n=== 相关伏笔（可以在场景中呼应） ===\n{foreshadowings_block}\n"
-        if locations_block:
-            user += f"\n=== 可用地点 ===\n{locations_block}\n"
-        if timeline_block:
-            user += f"\n=== 时间线（最近事件） ===\n{timeline_block}\n"
-        user += "\n请基于以上信息生成场景列表（JSON 格式）："
-        return Prompt(system=system, user=user)
+        return render_required_prompt(BEAT_SHEET_DECOMPOSITION, variables)
 
     def _parse_llm_response(self, response) -> List[Scene]:
         """解析 LLM 响应，提取场景列表"""

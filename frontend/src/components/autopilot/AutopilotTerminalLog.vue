@@ -331,10 +331,10 @@ function parseHttpAccess(text: string) {
   }
 }
 
-function parseRawLogMessage(message: string, fallbackLevel: string, fallbackLogger: string) {
+function parseRawLogMessage(message: string, defaultLevel: string, defaultLogger: string) {
   let text = stripLogIcons(message)
-  let level = normalizeLevel(fallbackLevel)
-  let logger = fallbackLogger || ''
+  let level = normalizeLevel(defaultLevel)
+  let logger = defaultLogger || ''
   let parsedTime = ''
 
   const full = text.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.\d+)?\s+(INFO|DEBUG|WARN|WARNING|ERROR|CRITICAL|HTTP)\s+(?:pid=\d+\s+)?([^\s]+)\s+([\s\S]*)$/)
@@ -371,9 +371,9 @@ function buildDisplayRow(data: Record<string, unknown>): Row {
   const message = stripLogIcons(String(data.message || ''))
   const timestamp = String(data.timestamp || new Date().toISOString())
   const meta = data.metadata as Record<string, unknown> | undefined
-  const fallbackLevel = String(meta?.level || '')
-  const fallbackLogger = String(meta?.logger || '')
-  const parsed = parseRawLogMessage(message, fallbackLevel, fallbackLogger)
+  const defaultLevel = String(meta?.level || '')
+  const defaultLogger = String(meta?.logger || '')
+  const parsed = parseRawLogMessage(message, defaultLevel, defaultLogger)
   const kind = kindForType(t, { ...meta, level: parsed.level, logger: parsed.logger }, parsed.http)
   const source = compactLogger(parsed.logger)
   const detail = parsed.text || message

@@ -71,11 +71,11 @@ async def simulate_readers(novel_id: str, chapter_number: int):
     Returns:
         200: 成功，data 为完整读者模拟报告
         400: 章节不存在或内容为空（不是 LLM 问题）
-        502: LLM 调用或解析失败（is_fallback=True 情况）
+        502: LLM 调用或解析失败（is_error_placeholder=True 情况）
         500: 其他意外错误
 
     Notes:
-        - 降级结果（LLM 失败等）**不会持久化**，避免后续查询返回假数据
+        - 错误占位结果（LLM 失败等）**不会持久化**，避免后续查询返回假数据
         - 持久化失败会在响应中通过 meta.persisted=false 明确告知，不会静默
     """
     try:
@@ -93,8 +93,8 @@ async def simulate_readers(novel_id: str, chapter_number: int):
             detail=f"读者模拟分析失败: {type(e).__name__}: {e}",
         )
 
-    # 降级分支（章节不存在/LLM 失败等）：拒绝持久化，返回更明确的状态码
-    if report.is_fallback:
+    # 错误占位分支（章节不存在/LLM 失败等）：拒绝持久化，返回更明确的状态码
+    if report.is_error_placeholder:
         msg = report.error_message or "读者模拟失败"
         # 「章节不存在/内容为空」是客户端问题，其他是上游 LLM 问题
         is_client_error = (
@@ -102,7 +102,7 @@ async def simulate_readers(novel_id: str, chapter_number: int):
         )
         status_code = 400 if is_client_error else 502
         logger.warning(
-            "读者模拟降级 novel=%s ch=%d status=%d: %s",
+            "读者模拟错误占位 novel=%s ch=%d status=%d: %s",
             novel_id, chapter_number, status_code, msg,
         )
         raise HTTPException(status_code=status_code, detail=msg)

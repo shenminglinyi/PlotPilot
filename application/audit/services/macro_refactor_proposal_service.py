@@ -6,8 +6,13 @@ from application.audit.dtos.macro_refactor_dto import RefactorProposalRequest, R
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from infrastructure.ai.prompt_utils import PromptTemplateUnavailable
 
 logger = logging.getLogger(__name__)
+
+
+class MacroRefactorProposalError(RuntimeError):
+    """宏观重构提案生成失败。"""
 
 
 class MacroRefactorProposalService:
@@ -47,8 +52,7 @@ class MacroRefactorProposalService:
             data, errors = parse_llm_json_to_dict(result.content)
 
             if errors or not data:
-                logger.warning(f"Failed to parse LLM response: {errors}")
-                return self._create_fallback_proposal()
+                raise MacroRefactorProposalError(f"LLM 重构提案响应无法解析: {errors}")
 
             # 构建提案对象
             return RefactorProposal(
@@ -58,40 +62,22 @@ class MacroRefactorProposalService:
                 reasoning=data.get("reasoning", "")
             )
 
+        except PromptTemplateUnavailable:
+            raise
         except Exception as e:
             logger.error(f"Error generating proposal: {e}", exc_info=True)
-            return self._create_fallback_proposal()
+            if isinstance(e, MacroRefactorProposalError):
+                raise
+            raise MacroRefactorProposalError("LLM 重构提案生成失败，流程已阻塞") from e
 
     def _build_prompt(self, request: RefactorProposalRequest) -> Prompt:
         """构建 LLM prompt（CPMS 统一入口）"""
         from infrastructure.ai.prompt_keys import REFACTOR_PROPOSAL_MACRO
-        from infrastructure.ai.prompt_registry import get_prompt_registry
+        from infrastructure.ai.prompt_utils import render_required_prompt
 
         variables = {
             "event_data": request.current_event_summary,
             "intent": request.author_intent or "",
         }
 
-        registry = get_prompt_registry()
-        prompt = registry.render_to_prompt(REFACTOR_PROPOSAL_MACRO, variables)
-        if prompt:
-            return prompt
-
-        # 降级：直接拼接
-        from infrastructure.ai.prompt_utils import get_prompt_system
-        system = get_prompt_system(REFACTOR_PROPOSAL_MACRO)
-        user = f"请分析以下事件并提供修复建议：\n\n**作者意图：**\n{request.author_intent}\n\n**当前事件摘要：**\n{request.current_event_summary}\n\n**当前标签：**\n{', '.join(request.current_tags)}\n\n**事件 ID：**\n{request.event_id}\n\n请提供修复建议（JSON 格式）："
-        return Prompt(system=system, user=user)
-
-    def _create_fallback_proposal(self) -> RefactorProposal:
-        """创建降级提案（当 LLM 失败时）
-
-        Returns:
-            RefactorProposal: 降级提案
-        """
-        return RefactorProposal(
-            natural_language_suggestion="无法生成具体建议，请手动检查事件标签和内容",
-            suggested_mutations=[],
-            suggested_tags=[],
-            reasoning="LLM 服务暂时不可用或响应格式错误"
-        )
+        return render_required_prompt(REFACTOR_PROPOSAL_MACRO, variables)

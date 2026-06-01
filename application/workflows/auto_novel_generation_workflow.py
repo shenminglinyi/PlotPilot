@@ -3,6 +3,7 @@
 整合所有子项目组件，实现完整的章节生成流程。
 """
 import asyncio
+import json
 import logging
 from typing import Tuple, Dict, Any, AsyncIterator, Optional, List, Callable, Awaitable
 from application.engine.services.context_builder import ContextBuilder
@@ -26,7 +27,10 @@ from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from application.ai.llm_output_sanitize import strip_reasoning_artifacts
 from application.ai.prose_fragment_aggregator import aggregate_inline_prose_fragments
+from application.core.premise_genre_world import parse_genre_world_from_premise
+from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.workflows.beat_continuation import format_prior_draft_for_prompt
+from application.workflows.character_state_extractor import extract_bible_entity_states
 from application.workflows.prose_discipline import build_prose_discipline_block
 from application.engine.services.beat_coherence_enhancer import BeatCoherenceEnhancer, BeatContext
 from application.engine.services.spatial_coherence import (
@@ -92,38 +96,30 @@ def _safe_format(template: str, variables: Dict[str, Any]) -> str:
 # CPMS: 主工作流提示词节点 key（与 prompt_packages 中节点 id 一致）
 from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN as _WORKFLOW_CHAPTER_GEN_NODE_KEY
 
-# 硬编码回退：system 模板框架（仅在 PromptRegistry 不可用时使用）
-_FALLBACK_SYSTEM_TEMPLATE = (
-    "你是一位专业的网络小说作家。根据以下上下文撰写章节内容。\n"
-    "{theme_persona}{theme_rules}\n"
-    "{planning_section}{voice_block}{context}\n\n"
-    "{fact_lock}\n"
-    "{shuangwen_directive}"
-    "{prose_discipline}"
-    "写作要求：\n"
-    "1. 必须有多个人物互动（至少2-3个角色出场）\n"
-    "2. 必须有对话（不能只有独白和叙述）\n"
-    "3. 必须有冲突或张力（人物之间的矛盾、目标阻碍、悬念等）\n"
-    "4. 保持人物性格一致\n"
-    "5. 推进情节发展\n"
-    "6. 使用生动的场景描写和细节\n"
-    "{length_rule}\n"
-    "8. 用中文写作，使用第三人称叙事{beat_extra}\n"
-    "{format_rules}"
-)
 
-# 硬编码回退：user 模板框架
-_FALLBACK_USER_TEMPLATE = (
-    "请根据以下大纲撰写本章内容：\n\n{outline}\n\n"
-    "关键要求（必须遵守）：\n"
-    "- 至少2-3个角色出场并互动\n"
-    "- 必须包含对话场景（不少于3段对话）\n"
-    "- 必须有明确的冲突或戏剧张力\n"
-    "- 场景要具体生动，不要空泛叙述\n"
-    "- 推进主线情节，不要原地踏步\n"
-    "- 结尾要有悬念或转折\n\n"
-    "{beat_section}"
-)
+class ChapterPromptTemplateUnavailable(RuntimeError):
+    """章节生成 CPMS 模板缺失或不可用。"""
+
+
+def _format_genre_profile_block(
+    *,
+    genre_opening_profile: Any = None,
+    genre_reader_contract: Any = None,
+    genre_rhythm_constraints: Any = None,
+) -> str:
+    """把类型画像变量格式化为正文生成可读约束块。"""
+    payload = {
+        "genre_opening_profile": genre_opening_profile or {},
+        "genre_reader_contract": genre_reader_contract or {},
+        "genre_rhythm_constraints": genre_rhythm_constraints or {},
+    }
+    if not any(payload.values()):
+        return ""
+    return "【类型开篇画像 / 读者契约 / 节奏约束】\n" + json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n\n"
 
 # 与 ContextBuilder.build_structured_context 映射：Layer1≈T0+T1，Layer2=T2，Layer3=T3
 # 段名与语义对齐，避免「SMART RETRIEVAL」贴在近期正文等历史误标
@@ -478,6 +474,7 @@ class AutoNovelGenerationWorkflow:
                 context = "\n".join(gate_lines) + "\n\n" + context
         context_tokens = payload["token_usage"]["total"]
         style_summary = self._get_style_summary(novel_id)
+        genre_profile = self._resolve_genre_profile_variables(novel_id)
         voice_anchors = ""
         try:
             voice_anchors = self.context_builder.build_voice_anchor_system_section(novel_id)
@@ -489,6 +486,7 @@ class AutoNovelGenerationWorkflow:
             "context": context,
             "context_tokens": context_tokens,
             "style_summary": style_summary,
+            **genre_profile,
             "voice_anchors": voice_anchors,
             "evolution_gate": evolution_gate_report,
             "evolution_gate_blocked": bool(
@@ -507,6 +505,28 @@ class AutoNovelGenerationWorkflow:
         except Exception as e:
             logger.debug("读取 target_words_per_chapter 失败，使用默认 2500: %s", e)
         return 2500
+
+    def _resolve_genre_profile_variables(self, novel_id: str) -> Dict[str, Any]:
+        """解析章节生成使用的类型画像变量；缺失时阻塞，避免回退硬编码提示词。"""
+        novel = None
+        try:
+            novel = self.context_builder.novel_repository.get_by_id(NovelId(novel_id))
+        except Exception as exc:
+            raise RuntimeError(f"读取小说类型失败，已阻塞章节生成: {novel_id}") from exc
+        if novel is None:
+            raise RuntimeError(f"小说不存在，无法解析类型开篇画像: {novel_id}")
+
+        genre_label = str(
+            getattr(novel, "locked_genre", "")
+            or getattr(novel, "genre_label", "")
+            or ""
+        ).strip()
+        if not genre_label:
+            parsed_genre, _ = parse_genre_world_from_premise(str(getattr(novel, "premise", "") or ""))
+            genre_label = parsed_genre
+        if not genre_label:
+            raise RuntimeError(f"小说缺少类型分类，已阻塞章节生成: {novel_id}")
+        return resolve_opening_profile(genre_label, strict=True).as_variables()
 
     def _finalize_chapter_body_text(self, novel_id: str, raw: str) -> str:
         """推理块清洗 + 按书目偏好可选段内短句聚合。"""
@@ -566,6 +586,7 @@ class AutoNovelGenerationWorkflow:
             style_summary = self._get_style_summary(novel_id)
         except Exception as e:
             logger.warning("fallback style_summary skipped: %s", e)
+        genre_profile = self._resolve_genre_profile_variables(novel_id)
 
         voice_anchors = ""
         try:
@@ -579,6 +600,7 @@ class AutoNovelGenerationWorkflow:
             "context": context,
             "context_tokens": context_tokens,
             "style_summary": style_summary,
+            **genre_profile,
             "voice_anchors": voice_anchors,
         }
 
@@ -790,6 +812,9 @@ class AutoNovelGenerationWorkflow:
                         total_beats=len(beats),
                         beat_target_words=beat.target_words,
                         voice_anchors=bundle.get("voice_anchors") or "",
+                        genre_opening_profile=bundle.get("genre_opening_profile") or {},
+                        genre_reader_contract=bundle.get("genre_reader_contract") or {},
+                        genre_rhythm_constraints=bundle.get("genre_rhythm_constraints") or {},
                         chapter_draft_so_far=prior_draft,
                     )
 
@@ -847,6 +872,9 @@ class AutoNovelGenerationWorkflow:
                 plot_tension=bundle["plot_tension"],
                 style_summary=bundle["style_summary"],
                 voice_anchors=bundle.get("voice_anchors") or "",
+                genre_opening_profile=bundle.get("genre_opening_profile") or {},
+                genre_reader_contract=bundle.get("genre_reader_contract") or {},
+                genre_rhythm_constraints=bundle.get("genre_rhythm_constraints") or {},
                 chapter_target_words=target_words,
             )
             logger.info(f"  → 发送请求到 LLM (max_tokens={config.max_tokens}, temperature={config.temperature})")
@@ -1113,6 +1141,9 @@ class AutoNovelGenerationWorkflow:
                             total_beats=len(beats),
                             beat_target_words=beat.target_words,
                             voice_anchors=bundle.get("voice_anchors") or "",
+                            genre_opening_profile=bundle.get("genre_opening_profile") or {},
+                            genre_reader_contract=bundle.get("genre_reader_contract") or {},
+                            genre_rhythm_constraints=bundle.get("genre_rhythm_constraints") or {},
                             chapter_draft_so_far=prior_draft,
                             regeneration_guidance=regeneration_guidance if i == 0 else None,
                         )
@@ -1201,6 +1232,9 @@ class AutoNovelGenerationWorkflow:
                     plot_tension=bundle["plot_tension"],
                     style_summary=bundle["style_summary"],
                     voice_anchors=bundle.get("voice_anchors") or "",
+                    genre_opening_profile=bundle.get("genre_opening_profile") or {},
+                    genre_reader_contract=bundle.get("genre_reader_contract") or {},
+                    genre_rhythm_constraints=bundle.get("genre_rhythm_constraints") or {},
                     regeneration_guidance=regeneration_guidance,
                     chapter_target_words=target_words,
                 )
@@ -1488,6 +1522,9 @@ class AutoNovelGenerationWorkflow:
         total_beats: Optional[int] = None,
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
+        genre_opening_profile: Optional[Dict[str, Any]] = None,
+        genre_reader_contract: Optional[Dict[str, Any]] = None,
+        genre_rhythm_constraints: Optional[Dict[str, Any]] = None,
         chapter_draft_so_far: str = "",
     ) -> Prompt:
         """构建与 HTTP 单章 / 流式 / 托管按节拍写作一致的 Prompt（对外 API）。"""
@@ -1502,6 +1539,9 @@ class AutoNovelGenerationWorkflow:
             total_beats=total_beats,
             beat_target_words=beat_target_words,
             voice_anchors=voice_anchors,
+            genre_opening_profile=genre_opening_profile,
+            genre_reader_contract=genre_reader_contract,
+            genre_rhythm_constraints=genre_rhythm_constraints,
             chapter_draft_so_far=chapter_draft_so_far,
         )
 
@@ -1518,6 +1558,9 @@ class AutoNovelGenerationWorkflow:
         total_beats: Optional[int] = None,
         beat_target_words: Optional[int] = None,
         voice_anchors: str = "",
+        genre_opening_profile: Optional[Dict[str, Any]] = None,
+        genre_reader_contract: Optional[Dict[str, Any]] = None,
+        genre_rhythm_constraints: Optional[Dict[str, Any]] = None,
         chapter_draft_so_far: str = "",
         regeneration_guidance: Optional[str] = None,
         chapter_target_words: Optional[int] = None,
@@ -1570,6 +1613,11 @@ class AutoNovelGenerationWorkflow:
                 "\n【角色声线与肢体语言（Bible 锚点，必须遵守）】\n"
                 f"{va}\n\n"
             )
+        genre_profile_block = _format_genre_profile_block(
+            genre_opening_profile=genre_opening_profile,
+            genre_reader_contract=genre_reader_contract,
+            genre_rhythm_constraints=genre_rhythm_constraints,
+        )
 
         prior_in_chapter = format_prior_draft_for_prompt(chapter_draft_so_far)
         # 字数控制：像小说家一样自然收束，而非粗暴截断
@@ -1660,12 +1708,12 @@ class AutoNovelGenerationWorkflow:
         )
 
         # ⚡ 提示词集中管理说明：
-        # 此模板对应 prompt_packages/nodes/chapter-generation-main（CPMS chapter-generation-main）
-        # CPMS: 优先从 PromptRegistry 获取模板，不可用时使用硬编码回退
+        # 此模板对应 prompt_packages/nodes/chapter-generation-main（CPMS chapter-generation-main）。
+        # CPMS 不可用时必须阻塞，禁止降级到隐藏硬编码提示词。
         system_template = self._get_workflow_system_template()
         user_template = self._get_workflow_user_template()
 
-        # 使用模板渲染（兼容 CPMS 模板和硬编码回退）
+        # 使用 CPMS 模板渲染。
         # SafeDict: 用户在提示词广场编辑模板时可能引入未知变量，
         # 需要安全降级——未匹配的变量保留为 {name} 占位符，而非抛出 KeyError
         system_vars = {
@@ -1673,6 +1721,7 @@ class AutoNovelGenerationWorkflow:
             "theme_rules": theme_rules,
             "planning_section": planning_section,
             "voice_block": voice_block,
+            "genre_profile_block": genre_profile_block,
             "context": context,
             "fact_lock": fact_lock,
             "shuangwen_directive": shuangwen_directive,
@@ -1773,14 +1822,13 @@ class AutoNovelGenerationWorkflow:
     # ─── CPMS 模板获取辅助方法 ───
 
     def _get_workflow_system_template(self) -> str:
-        """获取主工作流 system 模板（CPMS 优先 -> 硬编码回退）。
+        """获取主工作流 system 模板。
 
         设计决策：
         - 主工作流的 system prompt 包含大量动态变量（theme_persona, fact_lock 等），
           不适合直接用 Registry.render() 一步渲染，而是获取模板后由 _build_prompt 手动 format。
-        - 如果 PromptRegistry 中注册了 workflow-chapter-generation 节点，
-          用户可在提示词广场直接编辑此模板并实时生效。
-        - 降级时使用模块级 _FALLBACK_SYSTEM_TEMPLATE 常量。
+        - 模板只能来自 CPMS / PromptRegistry。节点缺失或 Registry 不可用时阻塞流程，
+          不再使用隐藏硬编码提示词兜底。
 
         Returns:
             system prompt 模板字符串（含 {variable} 占位符）
@@ -1795,19 +1843,20 @@ class AutoNovelGenerationWorkflow:
                 )
                 return system
         except Exception as exc:
-            logger.debug(
-                "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
-            )
+            raise ChapterPromptTemplateUnavailable(
+                f"CPMS PromptRegistry 不可用，已阻塞章节生成: {_WORKFLOW_CHAPTER_GEN_NODE_KEY}"
+            ) from exc
 
-        logger.debug("CPMS: 使用硬编码回退 system 模板")
-        return _FALLBACK_SYSTEM_TEMPLATE
+        raise ChapterPromptTemplateUnavailable(
+            f"CPMS 章节生成 system 模板缺失，已阻塞章节生成: {_WORKFLOW_CHAPTER_GEN_NODE_KEY}"
+        )
 
     def _get_workflow_user_template(self) -> str:
-        """获取主工作流 user 模板（CPMS 优先 -> 硬编码回退）。
+        """获取主工作流 user 模板。
 
         同 _get_workflow_system_template 的设计决策：
         - 获取模板文本，后续由 _build_prompt 根据节拍模式追加更多段落。
-        - 降级时使用模块级 _FALLBACK_USER_TEMPLATE 常量。
+        - 模板缺失时阻塞，禁止降级到硬编码提示词。
 
         Returns:
             user prompt 模板字符串（含 {variable} 占位符）
@@ -1822,12 +1871,13 @@ class AutoNovelGenerationWorkflow:
                 )
                 return user_template
         except Exception as exc:
-            logger.debug(
-                "PromptRegistry 不可用 (node_key=%s): %s", _WORKFLOW_CHAPTER_GEN_NODE_KEY, exc
-            )
+            raise ChapterPromptTemplateUnavailable(
+                f"CPMS PromptRegistry 不可用，已阻塞章节生成: {_WORKFLOW_CHAPTER_GEN_NODE_KEY}"
+            ) from exc
 
-        logger.debug("CPMS: 使用硬编码回退 user_template")
-        return _FALLBACK_USER_TEMPLATE
+        raise ChapterPromptTemplateUnavailable(
+            f"CPMS 章节生成 user 模板缺失，已阻塞章节生成: {_WORKFLOW_CHAPTER_GEN_NODE_KEY}"
+        )
 
     async def _extract_chapter_state(self, content: str, chapter_number: int) -> ChapterState:
         """从生成的内容中提取章节状态
@@ -1839,23 +1889,11 @@ class AutoNovelGenerationWorkflow:
         Returns:
             ChapterState 对象
         """
-        # 如果有 StateExtractor，使用它提取状态
-        if self.state_extractor:
-            try:
-                logger.info(f"Extracting chapter state using StateExtractor for chapter {chapter_number}")
-                return await self.state_extractor.extract_chapter_state(content)
-            except Exception as e:
-                logger.warning(f"StateExtractor failed: {e}, returning empty state")
+        if not self.state_extractor:
+            raise RuntimeError("StateExtractor 未初始化，已阻塞章节状态提取")
 
-        # 降级：返回空状态
-        return ChapterState(
-            new_characters=[],
-            character_actions=[],
-            relationship_changes=[],
-            foreshadowing_planted=[],
-            foreshadowing_resolved=[],
-            events=[]
-        )
+        logger.info(f"Extracting chapter state using StateExtractor for chapter {chapter_number}")
+        return await self.state_extractor.extract_chapter_state(content)
 
     # ──────────────────────────────────────────────────────────
     # ★★★ 爽文引擎: 动态 Prompt 模板方案 ★★★
@@ -2216,31 +2254,7 @@ class AutoNovelGenerationWorkflow:
             if not bible:
                 return entity_states
 
-            # 从 Bible 中提取角色状态（简化版本，使用静态属性）
-            for character in bible.characters:
-                state = {}
-
-                # 提取角色属性
-                if hasattr(character, 'attributes') and character.attributes:
-                    state.update(character.attributes)
-
-                # 提取角色描述中的关键信息（简化版本）
-                if hasattr(character, 'description') and character.description:
-                    desc = character.description.lower()
-                    # 检测魔法类型
-                    if '火系' in desc or '火魔法' in desc:
-                        state['magic_type'] = '火系'
-                    elif '水系' in desc or '水魔法' in desc:
-                        state['magic_type'] = '水系'
-                    elif '冰系' in desc or '冰魔法' in desc:
-                        state['magic_type'] = '冰系'
-                    elif '雷系' in desc or '雷魔法' in desc:
-                        state['magic_type'] = '雷系'
-                    elif '风系' in desc or '风魔法' in desc:
-                        state['magic_type'] = '风系'
-
-                if state:
-                    entity_states[character.id] = state
+            entity_states.update(extract_bible_entity_states(bible))
 
         except Exception as e:
             logger.warning(f"Failed to get entity states: {e}")

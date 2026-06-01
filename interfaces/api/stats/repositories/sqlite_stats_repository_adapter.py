@@ -168,6 +168,34 @@ class SqliteStatsRepositoryAdapter:
             logger.error(f"Error reading chapter {chapter_id} for novel {slug}: {e}")
             return None
 
+    def get_chapter_progress_records(self, slug: str) -> List[Dict]:
+        """Return chapter content with database timestamps for progress aggregation."""
+        try:
+            sql = """
+                SELECT number, title, content, created_at, updated_at
+                FROM chapters
+                WHERE novel_id = ?
+                ORDER BY number ASC
+            """
+            rows = self.db.fetch_all(sql, (slug,))
+            records: List[Dict] = []
+            for row in rows:
+                content = row.get("content") or ""
+                if not isinstance(content, str):
+                    continue
+                records.append(
+                    {
+                        "chapter_id": row.get("number"),
+                        "title": row.get("title", ""),
+                        "content": content,
+                        "written_at": row.get("updated_at") or row.get("created_at"),
+                    }
+                )
+            return records
+        except Exception as e:
+            logger.error(f"Error building progress records for novel {slug}: {e}")
+            return []
+
     def count_words(self, text: str) -> int:
         """Count words in text, supporting both Chinese and English.
 

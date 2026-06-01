@@ -1,0 +1,774 @@
+schema_kind: plotpilot.genre_market_taxonomy
+schema_version: 1
+collected_at: '2026-05-31T06:10:35.793749+00:00'
+canonical_basis: shared/taxonomy/builtin_cn_v1.yaml
+copyright_policy: 只保存分类元数据；不保存章节正文。
+categories:
+- canonical_name: 仙侠
+  platform_names:
+    17k_all:
+    - 仙侠武侠
+    qidian_mobile:
+    - 仙侠
+    zongheng_mobile:
+    - 武侠仙侠
+    zongheng_store:
+    - 武侠仙侠
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 传统武侠
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_24_2_0_0_0_0_0_1.html
+  - name: 修真文明
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid22/subcatid18-male/
+  - name: 历史武侠
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_24_124_0_0_0_0_0_1.html
+  - name: 古典仙侠
+    observed_in:
+    - 17k_all
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid22/subcatid20101-male/
+    - https://www.17k.com/all/book/2_24_9_0_0_0_0_0_1.html
+  - name: 奇幻修真
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_24_82_0_0_0_0_0_1.html
+  - name: 幻想修仙
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid22/subcatid44-male/
+  - name: 现代修真
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid22/subcatid64-male/
+  - name: 神话修真
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid22/subcatid207-male/
+- canonical_name: 体育
+  platform_names:
+    qidian_mobile:
+    - 体育
+    zongheng_mobile:
+    - 体育
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 体育赛事
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid8/subcatid55-male/
+  - name: 篮球运动
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid8/subcatid28-male/
+  - name: 足球运动
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid8/subcatid82-male/
+- canonical_name: 军事
+  platform_names:
+    qidian_mobile:
+    - 军事
+    zongheng_mobile:
+    - 军事
+    zongheng_store:
+    - 军事
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 军事战争
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid6/subcatid65-male/
+  - name: 军旅生涯
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid6/subcatid54-male/
+  - name: 战争幻想
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid6/subcatid80-male/
+  - name: 抗战烽火
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid6/subcatid230-male/
+  - name: 谍战特工
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid6/subcatid231-male/
+- canonical_name: 历史
+  platform_names:
+    17k_all:
+    - 历史军事
+    qidian_mobile:
+    - 历史
+    zongheng_mobile:
+    - 历史
+    zongheng_store:
+    - 历史
+    - 历史军事
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 上古先秦
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid220-male/
+  - name: 两宋元明
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid224-male/
+  - name: 两晋隋唐
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid222-male/
+  - name: 五代十国
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid223-male/
+  - name: 军旅生涯
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_22_94_0_0_0_0_0_1.html
+  - name: 历史传奇
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_22_120_0_0_0_0_0_1.html
+  - name: 历史传记
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid32-male/
+  - name: 历史穿越
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_22_4_0_0_0_0_0_1.html
+  - name: 外国历史
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid226-male/
+  - name: 架空历史
+    observed_in:
+    - 17k_all
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid22-male/
+    - https://www.17k.com/all/book/2_22_93_0_0_0_0_0_1.html
+  - name: 民间传说
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid20094-male/
+  - name: 清史民国
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid225-male/
+  - name: 秦汉三国
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid5/subcatid48-male/
+- canonical_name: 奇幻
+  platform_names:
+    qidian_mobile:
+    - 奇幻
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 剑与魔法
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid1/subcatid62-male/
+  - name: 历史神话
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid1/subcatid20092-male/
+  - name: 另类幻想
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid1/subcatid20093-male/
+  - name: 史诗奇幻
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid1/subcatid201-male/
+  - name: 现代魔法
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid1/subcatid38-male/
+  - name: 神秘幻想
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid1/subcatid202-male/
+- canonical_name: 悬疑
+  platform_names:
+    17k_all:
+    - 悬疑推理
+    qidian_mobile:
+    - 悬疑灵异
+    zongheng_store:
+    - 悬疑灵异
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 侦探推理
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid10/subcatid57-male/
+  - name: 惊悚微恐
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid10/subcatid20095-male/
+  - name: 灵异民俗
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid10/subcatid260-male/
+  - name: 规则怪谈
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid10/subcatid35-male/
+  - name: 诡异神秘
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid10/subcatid26-male/
+- canonical_name: 武侠
+  platform_names:
+    qidian_mobile:
+    - 武侠
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 传统武侠
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid2/subcatid5-male/
+  - name: 古武未来
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid2/subcatid20099-male/
+  - name: 国术无双
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid2/subcatid206-male/
+  - name: 武侠同人
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid2/subcatid20100-male/
+  - name: 武侠幻想
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid2/subcatid30-male/
+- canonical_name: 游戏
+  platform_names:
+    17k_all:
+    - 游戏竞技
+    qidian_mobile:
+    - 游戏
+    zongheng_mobile:
+    - 游戏
+    zongheng_store:
+    - 游戏
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 游戏主播
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid7/subcatid20103-male/
+  - name: 游戏异界
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid7/subcatid240-male/
+  - name: 游戏系统
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid7/subcatid20102-male/
+  - name: 电子竞技
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid7/subcatid7-male/
+  - name: 虚拟网游
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid7/subcatid70-male/
+- canonical_name: 灵异
+  platform_names:
+    zongheng_mobile:
+    - 奇闻异事
+    zongheng_store:
+    - 奇闻异事
+  status_against_builtin: builtin_exists
+  secondary_categories: []
+- canonical_name: 玄幻
+  platform_names:
+    17k_all:
+    - 玄幻奇幻
+    qidian_mobile:
+    - 玄幻
+    zongheng_mobile:
+    - 玄幻奇幻
+    zongheng_store:
+    - 奇幻玄幻
+    - 玄幻奇幻
+    - 玄幻小说
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 东方玄幻
+    observed_in:
+    - 17k_all
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid21/subcatid8-male/
+    - https://www.17k.com/all/book/2_21_8_0_0_0_0_0_1.html
+  - name: 异世争霸
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_21_115_0_0_0_0_0_1.html
+  - name: 异世大陆
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid21/subcatid73-male/
+  - name: 异界大陆
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_21_83_0_0_0_0_0_1.html
+  - name: 王朝争霸
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid21/subcatid58-male/
+  - name: 高武世界
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid21/subcatid78-male/
+- canonical_name: 现实题材
+  platform_names:
+    qidian_mobile:
+    - 现实
+    zongheng_mobile:
+    - 现实题材
+    zongheng_store:
+    - 现实题材
+  status_against_builtin: candidate_primary
+  secondary_categories:
+  - name: 人间百态
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid15/subcatid209-male/
+  - name: 女性题材
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid15/subcatid20104-male/
+  - name: 家庭伦理
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid15/subcatid6-male/
+  - name: 成功励志
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid15/subcatid20107-male/
+  - name: 时代叙事
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid15/subcatid20106-male/
+  - name: 社会悬疑
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid15/subcatid20105-male/
+  - name: 青年故事
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid15/subcatid20108-male/
+- canonical_name: 短篇
+  platform_names:
+    qidian_mobile:
+    - 短篇
+  status_against_builtin: candidate_primary
+  secondary_categories:
+  - name: 人物传记
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20076/subcatid20098-male/
+  - name: 影视剧本
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20076/subcatid20075-male/
+  - name: 生活随笔
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20076/subcatid20078-male/
+  - name: 短篇小说
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20076/subcatid20096-male/
+  - name: 美文游记
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20076/subcatid20079-male/
+  - name: 评论文集
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20076/subcatid20077-male/
+  - name: 诗歌散文
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20076/subcatid20097-male/
+- canonical_name: 科幻
+  platform_names:
+    17k_all:
+    - 科幻末世
+    qidian_mobile:
+    - 科幻
+    zongheng_mobile:
+    - 科幻
+    zongheng_store:
+    - 科幻
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 古武机甲
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid9/subcatid21-male/
+  - name: 时空穿梭
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid9/subcatid251-male/
+  - name: 星际文明
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid9/subcatid68-male/
+  - name: 未来世界
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid9/subcatid25-male/
+  - name: 未来幻想
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_14_6_0_0_0_0_0_1.html
+  - name: 末世危机
+    observed_in:
+    - 17k_all
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid9/subcatid253-male/
+    - https://www.17k.com/all/book/2_14_128_0_0_0_0_0_1.html
+  - name: 超级科技
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid9/subcatid250-male/
+  - name: 进化变异
+    observed_in:
+    - 17k_all
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid9/subcatid252-male/
+    - https://www.17k.com/all/book/2_14_129_0_0_0_0_0_1.html
+- canonical_name: 科幻游戏
+  platform_names:
+    zongheng_store:
+    - 科幻游戏
+  status_against_builtin: candidate_primary
+  secondary_categories: []
+- canonical_name: 竞技同人
+  platform_names:
+    zongheng_store:
+    - 竞技同人
+  status_against_builtin: candidate_primary
+  secondary_categories: []
+- canonical_name: 言情兼容
+  platform_names:
+    17k_all:
+    - 古代言情
+    - 幻想言情
+    - 浪漫青春
+    - 现代言情
+  status_against_builtin: builtin_exists
+  secondary_categories: []
+- canonical_name: 诸天无限
+  platform_names:
+    qidian_mobile:
+    - 诸天无限
+  status_against_builtin: candidate_primary
+  secondary_categories:
+  - name: 无限
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20109/subcatid20110-male/
+  - name: 综漫
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20109/subcatid20112-male/
+  - name: 诸天
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid20109/subcatid20111-male/
+- canonical_name: 轻小说
+  platform_names:
+    17k_all:
+    - 轻小说
+    qidian_mobile:
+    - 轻小说
+    zongheng_mobile:
+    - N次元
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 原生幻想
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid12/subcatid60-male/
+  - name: 恋爱日常
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid12/subcatid66-male/
+  - name: 搞笑吐槽
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid12/subcatid282-male/
+  - name: 现代幻想
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid12/subcatid10-male/
+  - name: 衍生同人
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid12/subcatid281-male/
+- canonical_name: 都市
+  platform_names:
+    17k_all:
+    - 都市小说
+    qidian_mobile:
+    - 都市
+    zongheng_mobile:
+    - 都市
+    zongheng_store:
+    - 都市
+    - 都市娱乐
+    - 都市小说
+  status_against_builtin: builtin_exists
+  secondary_categories:
+  - name: 商战职场
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid4/subcatid153-male/
+  - name: 娱乐明星
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid4/subcatid151-male/
+  - name: 异术超能
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid4/subcatid74-male/
+  - name: 爱情婚姻
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid4/subcatid65535-male/
+  - name: 现实题材
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_3_91_0_0_0_0_0_1.html
+  - name: 都市异能
+    observed_in:
+    - 17k_all
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid4/subcatid16-male/
+    - https://www.17k.com/all/book/2_3_87_0_0_0_0_0_1.html
+  - name: 都市激战
+    observed_in:
+    - 17k_all
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://www.17k.com/all/book/2_3_92_0_0_0_0_0_1.html
+  - name: 都市生活
+    observed_in:
+    - 17k_all
+    - qidian_mobile
+    status_against_builtin: builtin_exists
+    source_urls:
+    - https://m.qidian.com/category/catid4/subcatid12-male/
+    - https://www.17k.com/all/book/2_3_3_0_0_0_0_0_1.html
+  - name: 青春校园
+    observed_in:
+    - qidian_mobile
+    status_against_builtin: candidate_or_alias
+    source_urls:
+    - https://m.qidian.com/category/catid4/subcatid130-male/
+- canonical_name: 默认
+  platform_names:
+    17k_all:
+    - 默认
+  status_against_builtin: candidate_primary
+  secondary_categories: []

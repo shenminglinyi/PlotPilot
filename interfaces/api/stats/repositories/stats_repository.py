@@ -118,6 +118,36 @@ class StatsRepository:
             logger.error(f"Error reading chapter {chapter_id} for book {slug}: {e}")
             return None
 
+    def get_chapter_progress_records(self, slug: str) -> List[Dict]:
+        """Return chapter content with filesystem write timestamps for progress aggregation."""
+        outline = self.get_book_outline(slug)
+        if not outline:
+            return []
+        records: List[Dict] = []
+        for chapter in outline.get("chapters", []):
+            chapter_id = chapter.get("id")
+            try:
+                chapter_num = int(chapter_id)
+            except (TypeError, ValueError):
+                continue
+            chapter_path = self.books_root / slug / "chapters" / f"ch-{chapter_num:04d}" / "body.md"
+            content = self.get_chapter_content(slug, chapter_num)
+            if content is None:
+                continue
+            try:
+                written_at = chapter_path.stat().st_mtime
+            except OSError:
+                written_at = None
+            records.append(
+                {
+                    "chapter_id": chapter_num,
+                    "title": chapter.get("title", ""),
+                    "content": content,
+                    "written_at": written_at,
+                }
+            )
+        return records
+
     def count_words(self, text: str) -> int:
         """Count words in text, supporting both Chinese and English.
 

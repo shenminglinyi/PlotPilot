@@ -2,7 +2,7 @@
 
 他来这里是为了：{goal}
 
-{previous_scenes_block}{foreshadowing_block}{analysis_block}
+{previous_scenes_block}{bible_context_block}{retrieved_context_block}{foreshadowing_block}{analysis_block}
 
 这个场景大概{estimated_words}字。标题是「{title}」。
 
