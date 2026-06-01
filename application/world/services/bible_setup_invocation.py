@@ -34,6 +34,7 @@ from infrastructure.ai.prompt_keys import (
     BIBLE_WORLDBUILDING,
 )
 from infrastructure.ai.prompt_registry import get_prompt_registry
+from application.world.services.bible_setup_output_bindings import ensure_bible_setup_output_bindings
 
 BIBLE_SETUP_WORLD_NODE = BIBLE_WORLDBUILDING
 BIBLE_SETUP_CHARACTERS_NODE = BIBLE_CHARACTERS
@@ -161,7 +162,6 @@ _BINDING_SET_BY_NODE = {
     BIBLE_SETUP_CHARACTERS_NODE: f"{BIBLE_SETUP_CHARACTERS_NODE}:input:v1",
     BIBLE_SETUP_LOCATIONS_NODE: f"{BIBLE_SETUP_LOCATIONS_NODE}:input:v1",
 }
-
 
 def _split_genre_label(genre_label: str) -> tuple[str, str]:
     parts = [part.strip() for part in str(genre_label or "").split("/") if part.strip()]
@@ -489,6 +489,7 @@ def build_bible_setup_variable_resolver() -> VariableResolver:
             ),
         ],
     )
+    ensure_bible_setup_output_bindings(repo)
     return VariableResolver(repo)
 
 

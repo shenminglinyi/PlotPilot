@@ -12,7 +12,7 @@ from application.world.services.bible_service import BibleService
 from application.core.services.novel_service import NovelService
 from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.ai.knowledge_llm_contract import parse_json_from_response
-from application.ai_invocation.variable_hub import materialize_setup_main_plot_context
+from application.ai_invocation.variable_hub import VariableWrite, materialize_setup_main_plot_context
 from application.engine.theme.fusion_profile import FusionProfile, get_fusion_profile
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,7 @@ class SetupMainPlotSuggestionService:
         novel = self._novel_service.get_novel(novel_id)
         bible_dto = self._bible_service.get_bible_by_novel(novel_id)
         variable_context = self._load_variable_context(novel_id)
+        self._backfill_worldbuilding_context_from_table(novel_id, variable_context)
 
         premise = str(variable_context.get("premise") or "").strip()
         title = str(variable_context.get("novel_title") or "").strip()
@@ -327,6 +328,72 @@ class SetupMainPlotSuggestionService:
             else:
                 context[target] = value.value
         return context
+
+    @staticmethod
+    def _backfill_worldbuilding_context_from_table(novel_id: str, context: Dict[str, Any]) -> None:
+        if context.get("worldbuilding_full") and all(
+            isinstance(context.get(key), Mapping) and context.get(key)
+            for key in ("core_rules", "geography", "society", "culture", "daily_life")
+        ):
+            return
+        try:
+            from application.paths import get_db_path
+            from application.world.services.bible_setup_invocation import _build_worldbuilding_prompt_fields
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+            from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
+
+            wb = WorldbuildingRepository(get_db_path()).get_by_novel_id(novel_id)
+            if wb is None:
+                return
+            dimensions = wb.normalized_dimensions() if hasattr(wb, "normalized_dimensions") else {}
+            if not isinstance(dimensions, Mapping):
+                return
+            prompt_fields = _build_worldbuilding_prompt_fields(worldbuilding=dimensions)
+            updates: dict[str, tuple[Any, str, str]] = {
+                "worldbuilding_full": (prompt_fields.get("worldbuilding_full", ""), "novel.worldbuilding.full", "string"),
+                "core_rules": (dict(dimensions.get("core_rules") or {}), "novel.worldbuilding.core_rules", "object"),
+                "geography": (dict(dimensions.get("geography") or {}), "novel.worldbuilding.geography", "object"),
+                "society": (dict(dimensions.get("society") or {}), "novel.worldbuilding.society", "object"),
+                "culture": (dict(dimensions.get("culture") or {}), "novel.worldbuilding.culture", "object"),
+                "daily_life": (dict(dimensions.get("daily_life") or {}), "novel.worldbuilding.daily_life", "object"),
+            }
+            display_names = {
+                "worldbuilding_full": "世界观全文",
+                "core_rules": "核心法则",
+                "geography": "地理生态",
+                "society": "社会结构",
+                "culture": "历史文化",
+                "daily_life": "沉浸感细节",
+            }
+            variable_repo = SqliteVariableHubRepository(get_database())
+            context_key = f"novel_id:{novel_id}"
+            for alias, (value, variable_key, value_type) in updates.items():
+                if value in (None, "", [], {}):
+                    continue
+                if alias == "worldbuilding_full":
+                    if not context.get(alias):
+                        context[alias] = value
+                elif not isinstance(context.get(alias), Mapping) or not context.get(alias):
+                    context[alias] = value
+                stored = variable_repo.get_value(variable_key, context_key)
+                if stored is None or stored.value in (None, "", [], {}):
+                    variable_repo.set_value(
+                        VariableWrite(
+                            key=variable_key,
+                            value=value,
+                            context_key=context_key,
+                            source_trace_id="setup_main_plot_context_backfill",
+                            source_node_key="worldbuilding-table",
+                            lineage={"source": "worldbuilding_table", "alias": alias},
+                            value_type=value_type,
+                            display_name=display_names[alias],
+                            scope="global",
+                            stage="worldbuilding",
+                        )
+                    )
+        except Exception:
+            logger.exception("Failed to backfill worldbuilding context from table: novel=%s", novel_id)
 
     @staticmethod
     def _coerce_dict(value: Any) -> Dict[str, Any]:
@@ -619,7 +686,7 @@ class SetupMainPlotSuggestionService:
         if not prompt:
             raise RuntimeError(f"CPMS prompt node unavailable: {PLANNING_MAIN_PLOT_OPTION}")
 
-        config = GenerationConfig(max_tokens=2048, temperature=0.85)
+        config = GenerationConfig(max_tokens=8192, temperature=0.85)
         return ctx, prompt, config
 
     def parse_suggested_options(

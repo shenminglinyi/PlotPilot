@@ -733,6 +733,65 @@ class SqliteVariableHubRepository:
     def get_output_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
         return self._get_bindings(binding_set_id, node_key, direction="output")
 
+    def set_bindings(
+        self,
+        binding_set_id: str,
+        node_key: str,
+        bindings: list[VariableBinding],
+        *,
+        direction: str = "input",
+    ) -> None:
+        if not binding_set_id:
+            return
+        with self._db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO cpms_variable_binding_sets (
+                    id, node_key, direction, version_number, status, is_active, created_by
+                ) VALUES (?, ?, ?, 1, 'published', 1, 'system')
+                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
+                    status='published',
+                    is_active=1
+                """,
+                (binding_set_id, node_key, direction),
+            )
+            for binding in bindings:
+                conn.execute(
+                    """
+                    INSERT INTO cpms_variable_bindings (
+                        id, binding_set_id, node_key, direction, alias, variable_key, required,
+                        default_value_json, source, enabled, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
+                        variable_key=excluded.variable_key,
+                        required=excluded.required,
+                        default_value_json=excluded.default_value_json,
+                        source=excluded.source,
+                        enabled=excluded.enabled,
+                        metadata_json=excluded.metadata_json
+                    """,
+                    (
+                        f"{binding_set_id}:{binding.alias}",
+                        binding_set_id,
+                        node_key,
+                        direction,
+                        binding.alias,
+                        binding.variable_key,
+                        1 if binding.required else 0,
+                        _json_dumps(binding.default) if binding.default is not None else None,
+                        binding.source or ("ai_invocation_output" if direction == "output" else "cpms_template"),
+                        1 if binding.enabled else 0,
+                        _json_dumps(
+                            {
+                                "display_name": binding.display_name,
+                                "value_type": binding.value_type,
+                                "scope": binding.scope,
+                                "stage": binding.stage,
+                            }
+                        ),
+                    ),
+                )
+
     def _get_bindings(self, binding_set_id: str, node_key: str, *, direction: str) -> list[VariableBinding]:
         if not binding_set_id:
             return []

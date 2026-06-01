@@ -96,9 +96,13 @@ class PromptDraftRequest(BaseModel):
 def _config_from_dict(raw: Mapping[str, Any] | None) -> GenerationConfig | None:
     if not raw:
         return None
+    max_tokens = int(raw.get("max_tokens") or 4096)
+    operation = str(raw.get("operation") or raw.get("invocation_operation") or "")
+    if operation == "setup.main_plot_options":
+        max_tokens = max(max_tokens, 8192)
     return GenerationConfig(
         model=str(raw.get("model") or ""),
-        max_tokens=int(raw.get("max_tokens") or 4096),
+        max_tokens=max_tokens,
         temperature=float(raw.get("temperature") if raw.get("temperature") is not None else 1.0),
         response_format=raw.get("response_format"),
     )
@@ -495,7 +499,7 @@ async def resume_invocation(session_id: str, request: ResumeInvocationRequest) -
         _run_streaming_invocation_attempt(
             session_id=session.id,
             attempt_id=attempt.id,
-            config=_config_from_dict(request.config),
+            config=_config_from_dict({**request.config, "operation": session.operation}),
         )
     )
     return {
@@ -536,7 +540,7 @@ async def retry_invocation(session_id: str, request: ResumeInvocationRequest) ->
         _run_streaming_invocation_attempt(
             session_id=session.id,
             attempt_id=attempt.id,
-            config=_config_from_dict(request.config),
+            config=_config_from_dict({**request.config, "operation": session.operation}),
         )
     )
     return {
@@ -582,7 +586,7 @@ async def create_commit(session_id: str, request: CommitCreateRequest) -> dict[s
     return {
         "session": _session_payload(session),
         "commit": _commit_payload(commit),
-        "next_action": "completed",
+        "next_action": _next_action(session.status),
     }
 
 

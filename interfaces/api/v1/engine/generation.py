@@ -271,7 +271,15 @@ def _ensure_main_plot_invocation_contract() -> None:
             for alias in binding_aliases:
                 binding_meta = planning_global_bindings.get(alias, {})
                 is_required = alias in required_aliases or bool(binding_meta.get("required"))
-                default_value = None if is_required else '""'
+                value_type = str(binding_meta.get("value_type") or "string")
+                if is_required:
+                    default_value = None
+                elif value_type == "object":
+                    default_value = "{}"
+                elif value_type == "list":
+                    default_value = "[]"
+                else:
+                    default_value = '""'
                 conn.execute(
                     """
                     INSERT INTO cpms_variable_bindings (

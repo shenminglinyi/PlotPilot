@@ -298,6 +298,19 @@ class AdoptionCommitService:
         if repo is None:
             return {"skipped": True, "reason": "missing_variable_hub_repository"}
 
+        if session.operation.startswith("bible.setup."):
+            try:
+                from application.world.services.bible_setup_output_bindings import ensure_bible_setup_output_bindings
+
+                ensure_bible_setup_output_bindings(repo, session.node_key)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to ensure Bible setup output bindings: session=%s node=%s error=%s",
+                    session.id,
+                    session.node_key,
+                    exc,
+                )
+
         bindings = []
         if snapshot.output_binding_set_id:
             try:
@@ -419,7 +432,29 @@ class AdoptionCommitService:
             )
             if not prompt_version_result.get("skipped"):
                 commit.result = {**commit.result, "prompt_version": prompt_version_result}
-            continuation_result = execute_continuation(ContinuationContext(session=session, decision=decision))
+            try:
+                continuation_result = execute_continuation(ContinuationContext(session=session, decision=decision))
+            except Exception as exc:
+                commit.steps.append(
+                    AdoptionCommitStep(
+                        name="continuation_handler",
+                        status=AdoptionCommitStatus.FAILED,
+                        result={
+                            "error": str(exc),
+                            "accepted_content_preview": (decision.accepted_content or "")[:1200],
+                        },
+                        error=str(exc),
+                    )
+                )
+                commit.status = AdoptionCommitStatus.FAILED
+                commit.error = str(exc)
+                commit.result = {
+                    **commit.result,
+                    "accepted_content": decision.accepted_content,
+                    "continuation_error": str(exc),
+                }
+                session.status = InvocationSessionStatus.BLOCKED
+                return commit
             if continuation_result:
                 commit.steps.append(
                     AdoptionCommitStep(

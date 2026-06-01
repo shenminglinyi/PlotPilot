@@ -59,6 +59,16 @@ class VariableHubRepository(Protocol):
     def set_value(self, value: VariableValue | VariableWrite) -> VariableValue | None:
         """写入变量值。"""
 
+    def set_bindings(
+        self,
+        binding_set_id: str,
+        node_key: str,
+        bindings: list[VariableBinding],
+        *,
+        direction: str = "input",
+    ) -> None:
+        """注册节点输入或输出变量绑定。"""
+
 
 @dataclass
 class InMemoryVariableHubRepository:
@@ -66,7 +76,7 @@ class InMemoryVariableHubRepository:
 
     definitions: dict[str, VariableDefinition] = field(default_factory=dict)
     values: dict[tuple[str, str], VariableValue] = field(default_factory=dict)
-    bindings: dict[tuple[str, str], list[VariableBinding]] = field(default_factory=dict)
+    bindings: dict[tuple[str, str, str], list[VariableBinding]] = field(default_factory=dict)
 
     def add_definition(self, definition: VariableDefinition) -> None:
         self.definitions[definition.key] = definition
@@ -88,14 +98,21 @@ class InMemoryVariableHubRepository:
         self.values[(value.key, value.context_key)] = value
         return value
 
-    def set_bindings(self, binding_set_id: str, node_key: str, bindings: list[VariableBinding]) -> None:
-        self.bindings[(binding_set_id, node_key)] = list(bindings)
+    def set_bindings(
+        self,
+        binding_set_id: str,
+        node_key: str,
+        bindings: list[VariableBinding],
+        *,
+        direction: str = "input",
+    ) -> None:
+        self.bindings[(binding_set_id, node_key, direction)] = list(bindings)
 
     def get_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
-        return list(self.bindings.get((binding_set_id, node_key), []))
+        return list(self.bindings.get((binding_set_id, node_key, "input"), []))
 
     def get_output_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
-        return self.get_bindings(binding_set_id, node_key)
+        return list(self.bindings.get((binding_set_id, node_key, "output"), []))
 
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
         return self.values.get((variable_key, context_key)) or self.values.get((variable_key, "global"))
@@ -148,6 +165,14 @@ def materialize_setup_main_plot_context(aliases: Mapping[str, Any]) -> str:
         "other_characters": aliases.get("other_characters") or [],
         "locations": aliases.get("locations") or [],
         "worldview_summary": aliases.get("worldview_summary") or [],
+        "worldbuilding_full": aliases.get("worldbuilding_full") or "",
+        "worldbuilding": {
+            "core_rules": aliases.get("core_rules") or {},
+            "geography": aliases.get("geography") or {},
+            "society": aliases.get("society") or {},
+            "culture": aliases.get("culture") or {},
+            "daily_life": aliases.get("daily_life") or {},
+        },
         "style_hint": aliases.get("style_hint") or "",
     }
     return (

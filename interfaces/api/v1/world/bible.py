@@ -24,6 +24,7 @@ from application.world.services.bible_setup_invocation import (
     build_bible_setup_variable_resolver,
     build_bible_setup_variables,
 )
+from application.world.services.bible_setup_output_bindings import ensure_bible_setup_output_bindings
 from interfaces.api.dependencies import (
     get_bible_service,
     get_auto_bible_generator,
@@ -286,6 +287,15 @@ async def _create_bible_setup_invocation(
     if stage not in _BIBLE_SETUP_NODE_BY_STAGE:
         raise ValueError(f"unsupported bible setup invocation stage: {stage}")
     register_bible_setup_continuations()
+    try:
+        from interfaces.api.v1.engine.ai_invocation_routes import _repositories
+
+        ensure_bible_setup_output_bindings(
+            _repositories()["variable_hub"],
+            _BIBLE_SETUP_NODE_BY_STAGE[stage],
+        )
+    except Exception:
+        logger.exception("Failed to ensure Bible setup output bindings: stage=%s", stage)
     gateway = AIInvocationGateway(
         spec_service=build_bible_setup_spec_service(),
         variable_resolver=build_bible_setup_variable_resolver(),
