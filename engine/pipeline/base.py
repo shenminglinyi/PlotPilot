@@ -5,8 +5,8 @@
 完整管线流程（单章生成）：
  1. _step_find_next_chapter(ctx)     定位下一个待写章节
  2. _step_build_context(ctx)         组装上下文（四层洋葱挤压）
- 3. _step_generate_script(ctx)       生成导演剧本（大纲→六模块剧本）
- 4. _step_generate_prose(ctx)        LLM 生成正文（剧本→正文）
+ 3. _step_magnify_beats(ctx)         节拍放大（大纲→微观节拍）
+ 4. _step_generate(ctx)              LLM 生成（节拍级+断点续写）
  5. _step_validate_content(ctx)      策略验证（反AI/俗套/一致性）
  6. _step_save_chapter(ctx)          保存章节（独立短连接写库）
  7. _step_validate_voice(ctx)        文风审计（声线漂移检测+改写）
@@ -23,9 +23,12 @@ from typing import Any, Dict, List, Optional
 
 from engine.pipeline.context import PipelineContext, PipelineResult
 from engine.pipeline.steps import StepResult
+from engine.pipeline.beat_contracts import (
+    merge_beats_by_target,
+    serialize_beats_for_shared_state,
+)
 from engine.pipeline.generation_prompt_builder import build_generation_prompt, make_prompt
 from engine.pipeline.telemetry import story_pipeline_wave_meta
-from application.ai.trace_context import ensure_trace
 
 logger = logging.getLogger(__name__)
 
@@ -129,23 +132,27 @@ class BaseStoryPipeline(ABC):
                 chapter_target_words=ctx.target_word_count,
             )
 
-            # 3. 生成导演剧本（大纲→六模块剧本）
-            r = await self._step_generate_script(ctx)
-            step_status["generate_script"] = "ok" if r.passed else "failed"
+            # 3. 节拍放大（大纲→微观节拍）
+            r = await self._step_magnify_beats(ctx)
+            step_status["magnify_beats"] = "ok" if r.passed else "failed"
             if not r.passed:
                 return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
             _writing_progress(
                 ctx,
-                "script_generation",
-                "生成导演剧本",
+                "beat_magnification",
+                f"节拍拆分（{len(ctx.beats)} 个）",
                 pipeline_wave_index=3,
                 current_chapter_number=ctx.chapter_number,
+                total_beats=len(ctx.beats),
+                current_beat_index=0,
                 chapter_target_words=ctx.target_word_count,
+                planned_micro_beats=serialize_beats_for_shared_state(ctx.beats),
+                outline_plan_mode=ctx.metadata.get("outline_plan_mode") or "",
             )
 
-            # 4. LLM 生成正文（剧本→正文）
-            r = await self._step_generate_prose(ctx)
-            step_status["generate_prose"] = "ok" if r.passed else "failed"
+            # 4. LLM 生成（节拍级+断点续写）
+            r = await self._step_generate(ctx)
+            step_status["generate"] = "ok" if r.passed else "failed"
             if not r.passed:
                 return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
 
@@ -403,75 +410,277 @@ class BaseStoryPipeline(ABC):
 
         return StepResult.ok()
 
-    async def _step_generate_script(self, ctx: PipelineContext) -> StepResult:
-        """步骤3：生成导演剧本（大纲→六模块剧本）
+    async def _step_magnify_beats(self, ctx: PipelineContext) -> StepResult:
+        """步骤3：节拍放大（大纲→微观节拍）
 
-        将章节大纲转化为六模块导演剧本，包含场景设定、角色出场、
-        对话要点、动作设计、情绪曲线、节奏控制。
+        默认实现：委托给 ContextBuilder.magnify_outline_to_beats()
+        将章节大纲拆分为多个微观节拍，每个节拍有独立的焦点和目标字数。
+
+        子类覆写场景：
+        - 短剧引擎：减少节拍数、降低每拍字数
+        - 史诗引擎：增加节拍数、每拍更多感官描写
         """
-        self._log_step("generate_script", "生成导演剧本")
+        self._log_step("magnify_beats", "节拍放大")
 
-        if ctx.llm_service is None:
-            return StepResult.fail("llm_service 未设置，无法生成剧本")
+        def _sync_project_beats(label: str) -> list:
+            from application.engine.dag.plan.outline_beat_planner import build_chapter_execution_plan_sync
+            from application.engine.services.beat_planner import (
+                generate_expansion_hints,
+                infer_focus_from_outline,
+            )
+            from application.engine.services.beat_projection import (
+                beat_sheet_to_plan_json,
+                beats_from_execution_plan,
+            )
 
-        ensure_trace(novel_id=ctx.novel_id, stage="pipeline.chapter.script", stage_label="剧本生成")
+            plan = build_chapter_execution_plan_sync(
+                ctx.outline or "",
+                target_chapter_words=ctx.target_word_count,
+                novel_id=ctx.novel_id,
+                chapter_number=ctx.chapter_number,
+                beat_sheet_json=beat_sheet_to_plan_json(ctx.beat_sheet),
+                decomposition_label=label,
+            )
+            return beats_from_execution_plan(
+                plan,
+                outline=ctx.outline or "",
+                target_chapter_words=ctx.target_word_count,
+                infer_focus=infer_focus_from_outline,
+                build_expansion_hints=lambda focus, words: generate_expansion_hints(focus, words, {}),
+            )
 
-        script_prompt_text = (
-            f"【章节大纲】\n{ctx.outline or '无大纲'}\n\n"
-            f"目标字数：{ctx.target_word_count} 字\n"
-        )
-        if ctx.context_text:
-            script_prompt_text += f"\n【参考背景】\n{ctx.context_text[:4000]}"
+        if ctx.context_builder is not None:
+            try:
+                from application.engine.services.beat_projection import beat_sheet_to_plan_json
+                beat_sheet_json = beat_sheet_to_plan_json(ctx.beat_sheet)
+                from application.engine.dag.plan.outline_beat_planner import (
+                    build_chapter_execution_plan_async,
+                    build_chapter_execution_plan_sync,
+                )
 
-        prompt = make_prompt(script_prompt_text)
-        try:
-            from domain.ai.services.llm_service import GenerationConfig
-            cfg = GenerationConfig(max_tokens=2048, temperature=0.7)
-            result = await ctx.llm_service.generate(prompt, cfg)
-            from application.ai.llm_output_sanitize import strip_reasoning_artifacts
-            ctx.script = strip_reasoning_artifacts((result.content or "").strip())
-            logger.info(f"[{ctx.novel_id}] 导演剧本生成完成: {len(ctx.script)} 字符")
-            return StepResult.ok()
-        except Exception as e:
-            logger.warning(f"[{ctx.novel_id}] 剧本生成失败: {e}")
-            return StepResult.fail(f"剧本生成失败: {e}")
+                chapter_plan = None
+                try:
+                    chapter_plan = await build_chapter_execution_plan_async(
+                        ctx.outline or "",
+                        target_chapter_words=ctx.target_word_count,
+                        novel_id=ctx.novel_id,
+                        chapter_number=ctx.chapter_number,
+                        beat_sheet_json=beat_sheet_json,
+                        use_llm=True,
+                        llm_service=ctx.llm_service,
+                    )
+                except Exception as e:
+                    logger.warning("章前执行计划（拆节拍）异步构建失败，转同步 ChapterExecutionPlan：%s", e)
+                    chapter_plan = build_chapter_execution_plan_sync(
+                        ctx.outline or "",
+                        target_chapter_words=ctx.target_word_count,
+                        novel_id=ctx.novel_id,
+                        chapter_number=ctx.chapter_number,
+                        beat_sheet_json=beat_sheet_json,
+                        decomposition_label="pipeline_sync_fallback",
+                    )
 
-    async def _step_generate_prose(self, ctx: PipelineContext) -> StepResult:
-        """步骤4：LLM 生成正文（剧本→正文）
+                ctx.beats = ctx.context_builder.magnify_outline_to_beats(
+                    ctx.chapter_number,
+                    ctx.outline,
+                    target_chapter_words=ctx.target_word_count,
+                    chapter_execution_plan=chapter_plan,
+                    beat_sheet=None,
+                    scene_director=getattr(ctx, "scene_director", None),
+                )
+                if chapter_plan is not None and isinstance(getattr(chapter_plan, "provenance", None), dict):
+                    ctx.metadata["outline_plan_mode"] = str(chapter_plan.provenance.get("mode") or "")
+                logger.info(f"[{ctx.novel_id}] 节拍拆分: {len(ctx.beats)} 个节拍")
+            except Exception as e:
+                logger.warning(f"节拍放大失败，转同步 ChapterExecutionPlan 投影: {e}")
+                try:
+                    ctx.beats = _sync_project_beats("pipeline_projection_sync_fallback")
+                except Exception as sync_err:
+                    logger.error("同步 ChapterExecutionPlan 投影失败: %s", sync_err)
+                    ctx.beats = []
+        else:
+            try:
+                ctx.beats = _sync_project_beats("pipeline_no_context_builder_sync_projection")
+            except Exception as sync_err:
+                logger.error("ContextBuilder 不可用，且同步 ChapterExecutionPlan 投影失败: %s", sync_err)
+                ctx.beats = []
 
-        根据导演剧本调用 LLM 生成最终正文。
+        return StepResult.ok()
+
+    @staticmethod
+    def _merge_beats_by_target(beats: list, total_target: int) -> list:
+        """根据总目标字数智能合并节拍。
+
+        合并策略：
+        - total ≤ 1800 字 → 1 次调用（整章一气呵成）
+        - total 1800-3200 字 → 最多 2 次调用（前半 / 后半）
+        - total > 3200 字 → 保留原始节拍，但将 < 350 字的微小节拍合入相邻拍
+
+        目的：减少 LLM 调用次数，使每次调用的 max_tokens 更贴近实际目标，
+        避免多次小调用的字数偏差叠加。
         """
-        self._log_step("generate_prose", "LLM 生成正文")
+        return merge_beats_by_target(beats, total_target)
+
+    async def _step_generate(self, ctx: PipelineContext) -> StepResult:
+        """步骤4：LLM 生成（节拍级+断点续写）
+
+        默认实现：逐节拍调用 LLM，支持断点续写。
+        子类可覆写 _build_generation_prompt() 修改 prompt 模板，
+        或覆写 _post_process_generation() 后处理。
+
+        子类覆写场景：
+        - 覆写 _build_generation_prompt() 修改 prompt 模板
+        - 覆写 _post_process_generation() 后处理
+        """
+        self._log_step("generate", f"LLM 生成，节拍数={len(ctx.beats)}")
 
         if ctx.llm_service is None:
             return StepResult.fail("llm_service 未设置，无法生成")
 
-        ensure_trace(novel_id=ctx.novel_id, stage="pipeline.chapter.prose", stage_label="正文撰写")
+        accumulated_content = ctx.existing_content
+        ctx.raw_beat_contents = []
 
-        _writing_progress(
-            ctx,
-            "prose_generation",
-            "正文撰写中",
-            pipeline_wave_index=4,
-            current_chapter_number=ctx.chapter_number,
-            chapter_target_words=ctx.target_word_count,
-        )
+        # ─── 智能节拍合并（按总目标字数控制 LLM 调用次数） ────────────
+        # 仅首次生成时合并（断点续写时保留原始 beat 索引）
+        if ctx.start_beat_index == 0 and len(ctx.beats) > 1:
+            _orig_beat_count = len(ctx.beats)
+            ctx.beats = self._merge_beats_by_target(ctx.beats, ctx.target_word_count)
+            if len(ctx.beats) != _orig_beat_count:
+                logger.info(
+                    "[%s] 节拍合并: %d → %d 拍（总目标 %d 字）",
+                    ctx.novel_id, _orig_beat_count, len(ctx.beats), ctx.target_word_count,
+                )
 
-        prompt_text = build_generation_prompt(ctx)
-        prompt = make_prompt(prompt_text)
+        # ─── 节拍中间件初始化（StepTension / Coherence / Transition） ────
+        _beat_middlewares = []
+        _mw_ctx = None
         try:
-            from domain.ai.services.llm_service import GenerationConfig
-            cfg = GenerationConfig(max_tokens=int(ctx.target_word_count * 1.3), temperature=0.85)
+            from application.engine.services.beat_middleware import (
+                init_beat_middlewares, BeatMiddlewareContext,
+            )
+            _beat_middlewares = init_beat_middlewares()
+            _mw_ctx = BeatMiddlewareContext(
+                novel_id=ctx.novel_id or "",
+                chapter_number=ctx.chapter_number,
+                total_beats=len(ctx.beats),
+            )
+        except Exception as _mw_init_err:
+            logger.debug("Beat middlewares unavailable, skipping: %s", _mw_init_err)
 
-            chapter_content = await self._stream_prose_llm(ctx, prompt, cfg)
-            if not chapter_content.strip():
-                return StepResult.fail("章节正文生成失败：未产出有效正文")
+        _stopped_by_signal = False
 
-            ctx.chapter_content = chapter_content.strip()
-            ctx.word_count = len(ctx.chapter_content)
-            return StepResult.ok()
-        except Exception as e:
-            return StepResult.fail(f"正文生成失败: {e}")
+        for i, beat in enumerate(ctx.beats):
+            if i < ctx.start_beat_index:
+                continue
+
+            n_beats = max(len(ctx.beats), 1)
+            acc0 = len((accumulated_content or "").strip())
+            _card = getattr(beat, "emotion_beat_card", None)
+            _writing_progress(
+                ctx,
+                "llm_calling",
+                f"节拍 {i + 1}/{n_beats} 撰写",
+                pipeline_wave_index=4,
+                current_chapter_number=ctx.chapter_number,
+                total_beats=n_beats,
+                current_beat_index=i,
+                chapter_target_words=ctx.target_word_count,
+                accumulated_words=acc0,
+                beat_focus=(str(getattr(beat, "focus", "") or "").strip() or None),
+                beat_active_action=(getattr(_card, "active_action", None) if _card else None),
+                beat_emotion_gap=(getattr(_card, "emotion_gap", None) if _card else None),
+                beat_forbidden_drift=(getattr(_card, "forbidden_drift", None) if _card else None),
+            )
+
+            # 构建 prompt
+            prompt_text = self._build_generation_prompt(ctx, beat, i)
+            target = getattr(beat, 'target_words', ctx.target_word_count // max(len(ctx.beats), 1))
+
+            # 节拍中间件 pre_beat（注入 STEP 张力 / 连贯性 / 过渡方式）
+            if _beat_middlewares and _mw_ctx is not None:
+                _mw_ctx.beat_index = i
+                _mw_ctx.beat = beat
+                _mw_ctx.accumulated_content = accumulated_content or ""
+                for _mw in _beat_middlewares:
+                    try:
+                        prompt_text, target = _mw.pre_beat(prompt_text, target, _mw_ctx)
+                    except Exception as _mw_err:
+                        logger.debug("Middleware pre_beat skipped: %s", _mw_err)
+
+            # 流式调用 LLM（推送 streaming_bus，供 Autopilot chapter-stream SSE）
+            try:
+                from domain.ai.services.llm_service import GenerationConfig
+                max_tokens = int(target * 1.3)
+                cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
+
+                chapter_draft_so_far = (accumulated_content or "").strip()
+                beat_content = await self._stream_beat_llm(
+                    ctx,
+                    self._make_prompt(prompt_text),
+                    cfg,
+                    chapter_draft_so_far=chapter_draft_so_far,
+                    beat_index=i,
+                    n_beats=n_beats,
+                )
+
+                # 停止信号检测：若本节拍被中途打断，丢弃不完整内容并退出循环
+                if self._novel_stream_should_stop(ctx.novel_id):
+                    logger.info(
+                        "[%s] 节拍 %d/%d 被停止信号中断，丢弃不完整内容，回滚到上一快照",
+                        ctx.novel_id, i + 1, n_beats,
+                    )
+                    _stopped_by_signal = True
+                    break
+
+                # 后处理
+                beat_content = self._post_process_generation(beat_content, ctx)
+
+                # 节拍中间件 post_beat（更新连贯性上下文，供下一节拍使用）
+                if _beat_middlewares and _mw_ctx is not None:
+                    for _mw in _beat_middlewares:
+                        try:
+                            _mw_ctx = _mw.post_beat(beat_content, _mw_ctx)
+                        except Exception as _mw_err:
+                            logger.debug("Middleware post_beat skipped: %s", _mw_err)
+
+                if beat_content.strip():
+                    if accumulated_content:
+                        accumulated_content += "\n\n" + beat_content.strip()
+                    else:
+                        accumulated_content = beat_content.strip()
+                    ctx.raw_beat_contents.append(beat_content.strip())
+                    # 后处理后的整章快照（与落库正文一致，避免流式区仍显示原始 LLM 输出）
+                    self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
+                    _writing_progress(
+                        ctx,
+                        "llm_calling",
+                        f"节拍 {i + 1}/{n_beats} 撰写",
+                        pipeline_wave_index=4,
+                        current_chapter_number=ctx.chapter_number,
+                        total_beats=n_beats,
+                        current_beat_index=i,
+                        chapter_target_words=ctx.target_word_count,
+                        accumulated_words=len(accumulated_content.strip()),
+                        beat_focus=(str(getattr(beat, "focus", "") or "").strip() or None),
+                    )
+
+            except Exception as e:
+                logger.warning(f"[{ctx.novel_id}] 节拍 {i+1} 生成失败: {e}")
+                # 继续下一个节拍
+
+        if _stopped_by_signal:
+            # 恢复 streaming_bus 到上一完整快照（清空显示中的不完整内容）
+            if accumulated_content:
+                self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
+            return StepResult.fail("生成被停止信号中断，不保存（下次重新生成）")
+
+        if not accumulated_content.strip():
+            return StepResult.fail("章节正文生成失败：所有节拍均未产出有效正文")
+
+        ctx.chapter_content = accumulated_content or ""
+        raw = accumulated_content or ""
+        ctx.word_count = len(raw)
+        return StepResult.ok()
 
     async def _step_validate_content(self, ctx: PipelineContext) -> StepResult:
         """步骤5：策略验证（反AI/俗套/一致性）
@@ -495,6 +704,7 @@ class BaseStoryPipeline(ABC):
             "策略校验（反AI·一致性）",
             pipeline_wave_index=5,
             current_chapter_number=ctx.chapter_number,
+            total_beats=len(ctx.beats) if ctx.beats else 0,
             chapter_target_words=ctx.target_word_count,
             accumulated_words=ctx.word_count,
         )
@@ -554,6 +764,8 @@ class BaseStoryPipeline(ABC):
             "章节落盘",
             pipeline_wave_index=6,
             current_chapter_number=ctx.chapter_number,
+            total_beats=len(ctx.beats) if ctx.beats else 0,
+            current_beat_index=getattr(ctx, "start_beat_index", 0),
             chapter_target_words=ctx.target_word_count,
             accumulated_words=ctx.word_count,
         )
@@ -800,6 +1012,10 @@ class BaseStoryPipeline(ABC):
     # 辅助方法（protected，子类可覆写）
     # ═══════════════════════════════════════════════════════════════
 
+    def _build_generation_prompt(self, ctx: PipelineContext, beat: Any, beat_index: int) -> str:
+        """构建生成 prompt — 子类可覆写以定制 prompt 模板"""
+        return build_generation_prompt(ctx, beat, beat_index)
+
     def _post_process_generation(self, content: str, ctx: PipelineContext) -> str:
         """生成后处理 — 子类可覆写以添加后处理逻辑"""
         try:
@@ -821,6 +1037,10 @@ class BaseStoryPipeline(ABC):
             return s
         except ImportError:
             return content
+
+    def _make_prompt(self, text: str) -> Any:
+        """将文本转为 Prompt 对象"""
+        return make_prompt(text)
 
     def _push_streaming_snapshot(self, novel_id: str, content: str) -> None:
         """推送整章累积快照到 StreamingBus，供 /autopilot/.../chapter-stream 消费。"""
@@ -852,13 +1072,27 @@ class BaseStoryPipeline(ABC):
         except Exception:
             return False
 
-    async def _stream_prose_llm(
+    @staticmethod
+    def _live_chapter_snapshot(chapter_draft_so_far: str, chunk_buffer: List[str]) -> str:
+        beat_part = "".join(chunk_buffer)
+        prior = (chapter_draft_so_far or "").strip()
+        if not prior:
+            return beat_part
+        if not beat_part:
+            return prior
+        return f"{prior}\n\n{beat_part}"
+
+    async def _stream_beat_llm(
         self,
         ctx: PipelineContext,
         prompt: Any,
         config: Any,
+        *,
+        chapter_draft_so_far: str,
+        beat_index: int,
+        n_beats: int,
     ) -> str:
-        """单次流式生成正文，周期性推送整章快照。"""
+        """单节拍流式生成，周期性推送整章快照。"""
         novel_id = ctx.novel_id
         chunk_buffer: List[str] = []
         last_push = time.monotonic()
@@ -869,16 +1103,18 @@ class BaseStoryPipeline(ABC):
             now = time.monotonic()
             if not force and (now - last_push) < self.STREAM_PUSH_INTERVAL:
                 return
-            snap = "".join(chunk_buffer)
+            snap = self._live_chapter_snapshot(chapter_draft_so_far, chunk_buffer)
             if not snap:
                 return
             self._push_streaming_snapshot(novel_id, snap)
             _writing_progress(
                 ctx,
-                "prose_generation",
-                "正文撰写中",
+                "llm_calling",
+                f"节拍 {beat_index + 1}/{n_beats} 撰写",
                 pipeline_wave_index=4,
                 current_chapter_number=ctx.chapter_number,
+                total_beats=n_beats,
+                current_beat_index=beat_index,
                 chapter_target_words=ctx.target_word_count,
                 accumulated_words=len(snap.strip()),
             )
@@ -887,7 +1123,7 @@ class BaseStoryPipeline(ABC):
         try:
             async for piece in ctx.llm_service.stream_generate(prompt, config):
                 if self._novel_stream_should_stop(novel_id):
-                    logger.info("[%s] 流式生成收到停止信号，终止正文生成", novel_id)
+                    logger.info("[%s] 流式生成收到停止信号，终止节拍 %s", novel_id, beat_index + 1)
                     break
                 if not piece:
                     continue
@@ -936,7 +1172,6 @@ class BaseStoryPipeline(ABC):
     async def _score_tension_via_llm(self, ctx: PipelineContext) -> int:
         """通过 LLM 评分（降级方案）"""
         try:
-            ensure_trace(novel_id=ctx.novel_id, stage="pipeline.chapter.tension", stage_label="张力打分")
             prompt = self._make_prompt(
                 f"请为以下章节内容打张力分（1-10，10为最高）：\n\n{ctx.chapter_content[:2000]}\n\n张力分："
             )

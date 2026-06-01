@@ -50,19 +50,23 @@ class WuxiaPipeline(ThemedStoryPipeline):
 
         return result
 
-    async def _step_generate_script(self, ctx: PipelineContext) -> StepResult:
-        self._enrich_script_context(ctx)
+    async def _step_magnify_beats(self, ctx: PipelineContext) -> StepResult:
+        result = await super()._step_magnify_beats(ctx)
+        self._apply_theme_beat_templates(ctx)
 
-        wuxia_directives = (
-            "\n\n【武侠导演指令】\n"
-            "1. 战斗场景需有招式名称，简洁有力，不堆砌形容词\n"
-            "2. 修炼场景需描写真气运转、境界感悟，细节层次为 full\n"
-            "3. 对白半文半白，禁止现代网络用语\n"
-            "4. 同境界看功法，跨境界需有合理铺垫，禁止无铺垫一招秒杀\n"
-        )
-        ctx.context_text += wuxia_directives
+        for beat in ctx.beats:
+            if not hasattr(beat, "focus"):
+                continue
+            description = getattr(beat, "description", "")
+            if beat.focus == "action" and "打" in description:
+                beat.target_words = min(
+                    getattr(beat, "target_words", self.COMBAT_SCENE_MAX_WORDS),
+                    self.COMBAT_SCENE_MAX_WORDS,
+                )
+            if beat.focus == "emotion" and "修炼" in description:
+                beat.target_words = int(getattr(beat, "target_words", 800) * 1.5)
 
-        return await super()._step_generate_script(ctx)
+        return result
 
     async def _step_validate_content(self, ctx: PipelineContext) -> StepResult:
         result = await super()._step_validate_content(ctx)

@@ -16,9 +16,15 @@ AIText 不搞微内核、不搞 SPI、不搞适配器。
 
 示例——短剧引擎：
     class ShortDramaPipeline(BaseStoryPipeline):
-        def _step_generate_script(self, ...):
-            ctx = super()._step_generate_script(...)
-            ctx.script += "\\n【短剧规则】每3分钟必须有一个反转。"
+        def _step_magnify_beats(self, ...):
+            beats = super()._step_magnify_beats(...)
+            for b in beats:
+                b.target_words = 500  # 短剧每拍500字
+            return beats
+
+        def _step_build_context(self, ...):
+            ctx = super()._step_build_context(...)
+            ctx += "\\n【强制规则】每3分钟必须有一个反转。"
             return ctx
 """
 from engine.pipeline.base import BaseStoryPipeline
