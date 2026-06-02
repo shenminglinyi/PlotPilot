@@ -13,11 +13,11 @@
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, MutableMapping, Optional, TypeAlias
 
 logger = logging.getLogger(__name__)
 
-SharedStateDict = Any
+SharedStateDict: TypeAlias = MutableMapping[str, Any]
 
 
 @dataclass

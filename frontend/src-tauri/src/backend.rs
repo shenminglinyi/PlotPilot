@@ -6,7 +6,7 @@
 //!   3. 健康检查轮询，等待 HTTP 就绪
 //!   4. 管理子进程生命周期（退出时自动清理）
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -28,33 +28,44 @@ use win32job::Job;
 fn spawn_stdio_drainers(mut child: Child) -> Child {
     if let Some(out) = child.stdout.take() {
         thread::spawn(move || {
-            for line in BufReader::new(out).lines() {
-                match line {
-                    Ok(line) if !line.trim().is_empty() => log::info!("[backend stdout] {}", line),
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::warn!("读取后端 stdout 失败: {}", e);
-                        break;
-                    }
-                }
-            }
+            drain_backend_stream(out, |line| {
+                log::info!("[backend stdout] {}", line);
+            });
         });
     }
     if let Some(err) = child.stderr.take() {
         thread::spawn(move || {
-            for line in BufReader::new(err).lines() {
-                match line {
-                    Ok(line) if !line.trim().is_empty() => log_backend_stderr_line(&line),
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::warn!("读取后端 stderr 失败: {}", e);
-                        break;
-                    }
-                }
-            }
+            drain_backend_stream(err, log_backend_stderr_line);
         });
     }
     child
+}
+
+fn drain_backend_stream<R, F>(stream: R, mut log_line: F)
+where
+    R: Read,
+    F: FnMut(&str),
+{
+    let mut reader = BufReader::new(stream);
+    let mut buffer = Vec::new();
+
+    loop {
+        buffer.clear();
+        match reader.read_until(b'\n', &mut buffer) {
+            Ok(0) => break,
+            Ok(_) => {
+                let line = String::from_utf8_lossy(&buffer);
+                let line = line.trim();
+                if !line.is_empty() {
+                    log_line(line);
+                }
+            }
+            Err(e) => {
+                log::warn!("读取后端日志流失败: {}", e);
+                break;
+            }
+        }
+    }
 }
 
 fn log_backend_stderr_line(line: &str) {
@@ -360,6 +371,8 @@ impl BackendManager {
             let mut c = Command::new(exe);
             c.arg(port.to_string())
                 .current_dir(work_dir)
+                .env("PYTHONIOENCODING", "utf-8")
+                .env("PYTHONUNBUFFERED", "1")
                 .env("HF_HUB_OFFLINE", "1")
                 .env("TRANSFORMERS_OFFLINE", "1")
                 .env("HF_DATASETS_OFFLINE", "1")
