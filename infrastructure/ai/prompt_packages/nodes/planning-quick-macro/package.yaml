@@ -25,6 +25,18 @@ variables:
   desc: 主要角色与关系设定块
   type: string
   default: ''
+- name: genre_opening_profile
+  desc: 新书引导解析出的类型开篇画像
+  type: object
+  default: {}
+- name: genre_reader_contract
+  desc: 新书引导解析出的读者留存契约
+  type: object
+  default: {}
+- name: genre_rhythm_constraints
+  desc: 新书引导解析出的类型节奏约束
+  type: object
+  default: {}
 - name: planning_depth
   desc: 规划深度：framework、partial 或 full
   type: string

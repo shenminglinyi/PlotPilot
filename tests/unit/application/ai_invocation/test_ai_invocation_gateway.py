@@ -185,6 +185,56 @@ def test_variable_resolver_materializes_main_plot_context_blob():
     assert plan.lineage["context_blob"] == "materialized:materialized.setup.main_plot_context"
 
 
+def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "planning-quick-macro:input:autopilot:v1",
+        "planning-quick-macro",
+        [
+            VariableBinding(alias="premise", variable_key="novel.setup.premise", required=True),
+            VariableBinding(alias="target_chapters", variable_key="novel.setup.target_chapters", required=True),
+            VariableBinding(alias="worldview", variable_key="novel.worldbuilding.full", required=True),
+            VariableBinding(alias="characters", variable_key="novel.characters.list", required=True),
+            VariableBinding(alias="genre_opening_profile", variable_key="novel.genre.opening_profile", required=True),
+            VariableBinding(alias="genre_reader_contract", variable_key="novel.genre.reader_contract", required=True),
+            VariableBinding(alias="genre_rhythm_constraints", variable_key="novel.genre.rhythm_constraints", required=True),
+            VariableBinding(alias="planning_depth", variable_key="novel.planning.macro.depth", required=True),
+            VariableBinding(alias="rec_parts", variable_key="novel.planning.macro.rec_parts", required=True),
+        ],
+    )
+    for key, value in (
+        ("novel.setup.premise", "林澈觉醒基因记忆"),
+        ("novel.setup.target_chapters", 500),
+        ("novel.worldbuilding.full", "基因塔控制觉醒者评级"),
+        ("novel.characters.list", [{"name": "林澈"}]),
+        ("novel.genre.opening_profile", {"opening_mechanism": "即时压迫"}),
+        ("novel.genre.reader_contract", {"reader_promise": "升级破局"}),
+        ("novel.genre.rhythm_constraints", {"payoff_interval": "三章一回收"}),
+        ("novel.planning.macro.depth", "framework"),
+        ("novel.planning.macro.rec_parts", 5),
+    ):
+        repo.set_value(VariableWrite(key=key, value=value, context_key="novel_id:novel-1"))
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(
+            operation="autopilot.macro.plan",
+            node_key="planning-quick-macro",
+            input_binding_set_id="planning-quick-macro:input:autopilot:v1",
+        ),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.ok
+    assert plan.aliases["premise"] == "林澈觉醒基因记忆"
+    assert plan.aliases["target_chapters"] == 500
+    assert plan.aliases["worldview"] == "基因塔控制觉醒者评级"
+    assert plan.aliases["characters"][0]["name"] == "林澈"
+    assert plan.aliases["genre_opening_profile"]["opening_mechanism"] == "即时压迫"
+    assert plan.lineage["premise"] == "variable:novel.setup.premise"
+    assert plan.lineage["planning_depth"] == "variable:novel.planning.macro.depth"
+
+
 def test_prompt_assembler_freezes_snapshot_without_package_fallback():
     plan = _resolver().resolve(
         spec=_spec(),

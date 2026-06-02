@@ -230,6 +230,7 @@ function formatType(type?: string): string {
 function formatSource(source?: string): string {
   if (!source) return '-'
   if (source.startsWith('materialized:')) return `派生上下文 · ${source.replace('materialized:', '')}`
+  if (source === 'variable_hub') return '变量中心'
   if (source === 'explicit') return '显式输入'
   if (source === 'default') return '默认值'
   return source

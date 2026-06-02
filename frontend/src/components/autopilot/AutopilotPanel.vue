@@ -196,7 +196,7 @@
         <span>
           <strong>等待 AI 请求处理</strong>：{{ activeInvocationLabel }} 已发送到统一 AI 面板，请完成生成、采纳和提交。
         </span>
-        <n-button type="warning" size="small" :loading="aiPanelOpening" @click="openActiveInvocation">
+        <n-button type="warning" size="small" :loading="aiPanelOpening" @click="() => openActiveInvocation()">
           打开 AI 面板
         </n-button>
       </div>
@@ -767,8 +767,15 @@ async function fetchStatus() {
   }
 }
 
+function resolveActiveInvocationSessionId(sessionIdArg) {
+  if (typeof sessionIdArg === 'string' && sessionIdArg.trim()) {
+    return sessionIdArg.trim()
+  }
+  return String(status.value?.active_invocation_session_id || '').trim()
+}
+
 async function openActiveInvocation(sessionIdArg) {
-  const sessionId = String(sessionIdArg || status.value?.active_invocation_session_id || '')
+  const sessionId = resolveActiveInvocationSessionId(sessionIdArg)
   if (!sessionId) return
   if (sessionId === openingInvocationSessionId) return
   openingInvocationSessionId = sessionId

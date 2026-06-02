@@ -53,10 +53,6 @@ def _write_macro_variables(*, novel_id: str, variables: Mapping[str, Any], node_
         "total_recommended_acts",
     }
     variable_keys = {
-        "premise": "novel.planning.macro.premise",
-        "target_chapters": "novel.planning.macro.target_chapters",
-        "worldview": "novel.planning.macro.worldview",
-        "characters": "novel.planning.macro.characters",
         "planning_depth": "novel.planning.macro.depth",
         "rec_parts": "novel.planning.macro.rec_parts",
         "rec_volumes_per_part": "novel.planning.macro.rec_volumes_per_part",
@@ -65,9 +61,11 @@ def _write_macro_variables(*, novel_id: str, variables: Mapping[str, Any], node_
         "total_recommended_acts": "novel.planning.macro.total_recommended_acts",
     }
     for alias, value in dict(variables or {}).items():
+        if alias not in variable_keys:
+            continue
         repo.set_value(
             VariableWrite(
-                key=variable_keys.get(alias, f"novel.planning.macro.{alias}"),
+                key=variable_keys[alias],
                 value=value,
                 context_key=context_key,
                 source_node_key=node_key,
@@ -109,10 +107,22 @@ async def _request_macro_invocation(host: Any, novel: Novel, *, target_chapters:
 
     bible_context = host.planning_service._get_bible_context(novel.novel_id.value)
     variables = host.planning_service.build_quick_macro_variables(bible_context, target_chapters)
+    runtime_variables = {
+        alias: variables[alias]
+        for alias in (
+            "planning_depth",
+            "rec_parts",
+            "rec_volumes_per_part",
+            "rec_acts_per_volume",
+            "rec_chapters_per_act",
+            "total_recommended_acts",
+        )
+        if alias in variables
+    }
     ensure_invocation_contract("autopilot.macro.plan", PLANNING_QUICK_MACRO, get_database())
     _write_macro_variables(
         novel_id=novel.novel_id.value,
-        variables=variables,
+        variables=runtime_variables,
         node_key=PLANNING_QUICK_MACRO,
     )
     policy = AutopilotInvocationPolicyResolver().resolve(
@@ -128,7 +138,7 @@ async def _request_macro_invocation(host: Any, novel: Novel, *, target_chapters:
             operation="autopilot.macro.plan",
             node_key=PLANNING_QUICK_MACRO,
             context={"novel_id": novel.novel_id.value, "target_chapters": target_chapters},
-            explicit_variables=dict(variables),
+            explicit_variables={},
             continuation_handler_key="autopilot_macro_plan",
             policy_hint=policy,
             metadata={"source": "macro_planning_delegate"},

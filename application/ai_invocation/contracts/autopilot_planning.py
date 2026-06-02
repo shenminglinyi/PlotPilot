@@ -125,10 +125,13 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
     )
 
     variable_keys = {
-        "premise": "novel.planning.macro.premise",
-        "target_chapters": "novel.planning.macro.target_chapters",
-        "worldview": "novel.planning.macro.worldview",
-        "characters": "novel.planning.macro.characters",
+        "premise": "novel.setup.premise",
+        "target_chapters": "novel.setup.target_chapters",
+        "worldview": "novel.worldbuilding.full",
+        "characters": "novel.characters.list",
+        "genre_opening_profile": "novel.genre.opening_profile",
+        "genre_reader_contract": "novel.genre.reader_contract",
+        "genre_rhythm_constraints": "novel.genre.rhythm_constraints",
         "planning_depth": "novel.planning.macro.depth",
         "rec_parts": "novel.planning.macro.rec_parts",
         "rec_volumes_per_part": "novel.planning.macro.rec_volumes_per_part",
@@ -144,6 +147,13 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
         "rec_chapters_per_act",
         "total_recommended_acts",
     }
+    object_aliases = {
+        "genre_opening_profile",
+        "genre_reader_contract",
+        "genre_rhythm_constraints",
+    }
+    list_aliases = {"characters"}
+    setup_aliases = {"premise", "target_chapters"}
     input_binding_set_id = f"{PLANNING_QUICK_MACRO}:input:autopilot:v1"
     output_binding_set_id = f"{PLANNING_QUICK_MACRO}:output:autopilot:v1"
     input_bindings = [
@@ -152,11 +162,24 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
             variable_key=variable_keys.get(alias, ""),
             required=alias in variable_keys,
             default=None if alias in variable_keys else "",
-            source="autopilot_runtime" if alias in variable_keys else "cpms_template",
-            value_type="integer" if alias in integer_aliases else "string",
-            scope="novel",
-            stage="planning",
-            display_name=alias,
+            source="variable_hub" if alias in variable_keys else "cpms_template",
+            value_type=(
+                "integer" if alias in integer_aliases else
+                "object" if alias in object_aliases else
+                "list" if alias in list_aliases else
+                "string"
+            ),
+            scope="global" if alias in setup_aliases or alias in object_aliases or alias in list_aliases else "novel",
+            stage="setup" if alias in setup_aliases else "planning",
+            display_name={
+                "premise": "设定",
+                "target_chapters": "章节数量",
+                "worldview": "世界观全文",
+                "characters": "角色列表",
+                "genre_opening_profile": "类型开篇画像",
+                "genre_reader_contract": "读者留存契约",
+                "genre_rhythm_constraints": "类型节奏约束",
+            }.get(alias, alias),
         )
         for alias in _template_aliases(PLANNING_QUICK_MACRO, set(variable_keys))
     ]

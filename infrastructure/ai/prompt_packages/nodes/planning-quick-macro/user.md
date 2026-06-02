@@ -9,6 +9,17 @@
 {characters}
 </STORY_CONTEXT>
 
+<GENRE_PROFILE>
+【类型开篇画像】
+{{ genre_opening_profile | tojson }}
+
+【读者留存契约】
+{{ genre_reader_contract | tojson }}
+
+【类型节奏约束】
+{{ genre_rhythm_constraints | tojson }}
+</GENRE_PROFILE>
+
 <TARGET_SCOPE>
 目标总篇幅：精确 {target_chapters} 章
 强制约束：所有卷或幕的 estimated_chapters 之和必须等于 {target_chapters}

@@ -1,7 +1,7 @@
 """连续规划链路的 PromptContract 定义。"""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,9 @@ class PlanningQuickMacroVariables(BaseModel):
     target_chapters: int = Field(ge=1)
     worldview: str = ""
     characters: str = ""
+    genre_opening_profile: dict[str, Any] = Field(default_factory=dict)
+    genre_reader_contract: dict[str, Any] = Field(default_factory=dict)
+    genre_rhythm_constraints: dict[str, Any] = Field(default_factory=dict)
     planning_depth: Literal["framework", "partial", "full"] = "full"
     rec_parts: int = Field(ge=1)
     rec_volumes_per_part: int = Field(ge=1)
