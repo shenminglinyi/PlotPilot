@@ -115,7 +115,11 @@ class InMemoryVariableHubRepository:
         return list(self.bindings.get((binding_set_id, node_key, "output"), []))
 
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
-        return self.values.get((variable_key, context_key)) or self.values.get((variable_key, "global"))
+        for scope_key in expand_context_keys(context_key):
+            value = self.values.get((variable_key, scope_key))
+            if value is not None:
+                return value
+        return None
 
     def get_definition(self, variable_key: str) -> VariableDefinition | None:
         return self.definitions.get(variable_key)
@@ -263,7 +267,7 @@ class VariableResolver:
     @staticmethod
     def _context_key(context: Mapping[str, Any]) -> str:
         parts = []
-        for key in ("novel_id", "chapter_id", "chapter_number", "scene_id"):
+        for key in ("novel_id", "act_id", "chapter_id", "chapter_number", "scene_id", "beat_index"):
             value = context.get(key)
             if value not in (None, ""):
                 parts.append(f"{key}:{value}")
@@ -365,3 +369,15 @@ class VariableResolver:
             "runtime": "运行时",
         }.get(stage, stage)
         return f"{scope_label} · {stage_label}"
+
+
+def expand_context_keys(context_key: str) -> list[str]:
+    """Expand a context key from most specific to least specific."""
+    normalized = str(context_key or "").strip() or "global"
+    if normalized == "global":
+        return ["global"]
+    parts = [part for part in normalized.split("|") if part]
+    keys = ["|".join(parts[:idx]) for idx in range(len(parts), 0, -1)]
+    if "global" not in keys:
+        keys.append("global")
+    return keys

@@ -91,6 +91,7 @@ class StoryPipelineRunner(DaemonHostMixin, BaseStoryPipeline):
             background_task_service=self.background_task_service,
             circuit_breaker=self.circuit_breaker,
             volume_summary_service=self.volume_summary_service,
+            autopilot_host=self.host,
         )
 
         try:

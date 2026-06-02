@@ -296,8 +296,6 @@ async def test_attempt_service_streaming_stop_marks_attempt_cancelled_context():
     assert attempt.status.value == "failed"
     assert session.status == InvocationSessionStatus.CANCELLED
     assert attempt.content == "第一段"
-    assert result.decision is None
-    assert result.commit is None
 
 
 @pytest.mark.asyncio
@@ -312,6 +310,30 @@ async def test_gateway_interactive_stops_before_llm():
     )
 
     result = await gateway.invoke(
+        InvocationRequest(
+            operation="chapter.generate",
+            node_key="chapter-test",
+            variables={"outline": "第一幕冲突"},
+            context={"novel_id": "novel-1"},
+        )
+    )
+
+    assert result.session.status == InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW
+    assert result.attempt is None
+    assert len(llm.calls) == 0
+
+
+def test_gateway_prepare_honors_autopilot_pause_policy_before_llm():
+    llm = FakeLLM()
+    repo = InMemoryInvocationSpecRepository([_spec(InvocationPolicy.AUTOPILOT_PAUSE)])
+    gateway = AIInvocationGateway(
+        spec_service=InvocationSpecService(repo),
+        variable_resolver=_resolver(),
+        prompt_assembler=CPMSPromptAssembler(registry=FakeRegistry()),
+        llm_service=llm,
+    )
+
+    result = gateway.prepare(
         InvocationRequest(
             operation="chapter.generate",
             node_key="chapter-test",

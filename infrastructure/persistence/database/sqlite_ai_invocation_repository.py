@@ -22,7 +22,12 @@ from application.ai_invocation.dtos import (
     VariableBinding,
     VariablePlan,
 )
-from application.ai_invocation.variable_hub import VariableDefinition, VariableValue, VariableWrite
+from application.ai_invocation.variable_hub import (
+    VariableDefinition,
+    VariableValue,
+    VariableWrite,
+    expand_context_keys,
+)
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 
@@ -821,7 +826,7 @@ class SqliteVariableHubRepository:
         ]
 
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
-        scope_keys = [context_key, "global"] if context_key != "global" else ["global"]
+        scope_keys = expand_context_keys(context_key)
         for scope_key in scope_keys:
             row = self._db.fetch_one(
                 """

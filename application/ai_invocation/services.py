@@ -366,25 +366,50 @@ class AdoptionCommitService:
         if not bindings:
             return {"skipped": True, "reason": "no_output_bindings"}
 
+        required_aliases = [
+            binding.alias
+            for binding in bindings
+            if binding.enabled and binding.variable_key and binding.required
+        ]
+
         payload = dict(output_payload or {})
+        payload_from_decision = False
         if not payload:
             try:
                 parsed = json.loads(decision.accepted_content)
             except Exception:
-                parsed = {}
+                parsed = None
+            if parsed is None and required_aliases:
+                return {
+                    "blocked": True,
+                    "reason": "accepted_content_not_json_object",
+                    "required_aliases": required_aliases,
+                }
             payload = dict(parsed) if isinstance(parsed, Mapping) else {}
+            payload_from_decision = True
+
+        if not payload and required_aliases:
+            return {
+                "blocked": True,
+                "reason": "missing_required_output_payload",
+                "required_aliases": required_aliases,
+                "payload_source": "decision" if payload_from_decision else "continuation",
+            }
 
         written: list[dict[str, Any]] = []
+        missing_required: list[str] = []
         for binding in bindings:
             if not binding.enabled or not binding.variable_key:
                 continue
             raw_value = payload.get(binding.alias)
             if raw_value is None:
+                if binding.required:
+                    missing_required.append(binding.alias)
                 continue
             write = VariableWrite(
                 key=binding.variable_key,
                 value=self._materialize_output_value(binding.alias, raw_value),
-                context_key=self._context_key(session.context),
+                context_key=self._context_key(session.context, binding.scope),
                 source_session_id=session.id,
                 source_attempt_id=decision.attempt_id,
                 source_trace_id=str(session.metadata.get("trace_id") or session.id),
@@ -409,6 +434,13 @@ class AdoptionCommitService:
                     "version_number": getattr(stored, "version_number", 1),
                 }
             )
+        if missing_required:
+            return {
+                "blocked": True,
+                "reason": "missing_required_output_aliases",
+                "missing_aliases": missing_required,
+                "binding_set_id": snapshot.output_binding_set_id,
+            }
         if not written:
             return {"skipped": True, "reason": "no_matching_output_values"}
         return {
@@ -418,15 +450,15 @@ class AdoptionCommitService:
         }
 
     @staticmethod
-    def _context_key(context: Mapping[str, Any]) -> str:
-        beat_index = context.get("beat_index")
+    def _context_key(context: Mapping[str, Any], scope: str = "") -> str:
+        novel_id = str(context.get("novel_id") or "").strip()
         chapter_number = context.get("chapter_number")
-        novel_id = str(context.get("novel_id") or "").strip()
-        if novel_id and chapter_number not in (None, "") and beat_index not in (None, ""):
+        beat_index = context.get("beat_index")
+        normalized_scope = str(scope or "").strip().lower()
+        if normalized_scope == "beat" and novel_id and chapter_number not in (None, "") and beat_index not in (None, ""):
             return f"novel_id:{novel_id}|chapter_number:{chapter_number}|beat_index:{beat_index}"
-        if novel_id and chapter_number not in (None, ""):
+        if normalized_scope in {"beat", "chapter", "scene"} and novel_id and chapter_number not in (None, ""):
             return f"novel_id:{novel_id}|chapter_number:{chapter_number}"
-        novel_id = str(context.get("novel_id") or "").strip()
         if novel_id:
             return f"novel_id:{novel_id}"
         return "global"
@@ -522,13 +554,28 @@ class AdoptionCommitService:
                 commit_id=commit.id,
                 output_payload=continuation_result,
             )
+            output_step_status = (
+                AdoptionCommitStatus.BLOCKED
+                if variable_output_result.get("blocked")
+                else AdoptionCommitStatus.SUCCEEDED
+            )
             commit.steps.append(
                 AdoptionCommitStep(
                     name="commit_variable_outputs",
-                    status=AdoptionCommitStatus.SUCCEEDED,
+                    status=output_step_status,
                     result=variable_output_result,
                 )
             )
+            if variable_output_result.get("blocked"):
+                commit.status = AdoptionCommitStatus.BLOCKED
+                commit.error = str(variable_output_result.get("reason") or "required_output_missing")
+                commit.result = {
+                    **commit.result,
+                    "accepted_content": decision.accepted_content,
+                    "variable_outputs": variable_output_result,
+                }
+                session.status = InvocationSessionStatus.BLOCKED
+                return commit
             if not variable_output_result.get("skipped"):
                 commit.result = {**commit.result, "variable_outputs": variable_output_result}
             commit.status = AdoptionCommitStatus.SUCCEEDED

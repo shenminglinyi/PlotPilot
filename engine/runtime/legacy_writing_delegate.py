@@ -33,12 +33,9 @@ def _get_autopilot_orchestrator(host: Any) -> AutopilotInvocationOrchestrator:
 
 
 def _read_shared_state(novel_id: str) -> Dict[str, Any]:
-    try:
-        from interfaces.main import get_shared_novel_state
+    from application.ai_invocation.autopilot.shared_state import read_autopilot_shared_state
 
-        return dict(get_shared_novel_state(novel_id) or {})
-    except Exception:
-        return {}
+    return read_autopilot_shared_state(novel_id)
 
 
 def _build_adopted_chapter_plan(

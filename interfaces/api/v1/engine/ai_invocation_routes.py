@@ -137,6 +137,56 @@ def _save_invocation_result(repos, result) -> None:
             repos["adoption"].save_commit(result.commit)
 
 
+def _publish_autopilot_session_state(session) -> None:
+    operation = str(getattr(session, "operation", "") or "")
+    if not operation.startswith("autopilot."):
+        return
+    metadata = dict(getattr(session, "metadata", {}) or {})
+    context = dict(getattr(session, "context", {}) or {})
+    novel_id = str(metadata.get("novel_id") or context.get("novel_id") or "").strip()
+    if not novel_id:
+        return
+
+    from application.ai_invocation.autopilot.publisher import AutopilotSessionPublisher
+
+    status_value = session.status.value if hasattr(session.status, "value") else str(session.status)
+    awaiting = session.status in {
+        InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW,
+        InvocationSessionStatus.AWAITING_ACCEPTANCE,
+        InvocationSessionStatus.AWAITING_COMMIT,
+        InvocationSessionStatus.BLOCKED,
+        InvocationSessionStatus.FAILED,
+        InvocationSessionStatus.CANCELLED,
+    }
+    if session.status == InvocationSessionStatus.COMPLETED:
+        payload = {
+            "active_invocation_session_id": session.id,
+            "active_invocation_operation": session.operation,
+            "active_invocation_node_key": session.node_key,
+            "active_invocation_status": status_value,
+            "active_invocation_policy": session.policy.value if hasattr(session.policy, "value") else str(session.policy),
+            "has_active_invocation": False,
+            "requires_ai_review": False,
+            "autopilot_pause_reason": "",
+        }
+    else:
+        payload = {
+            "active_invocation_session_id": session.id,
+            "active_invocation_operation": session.operation,
+            "active_invocation_node_key": session.node_key,
+            "active_invocation_status": status_value,
+            "active_invocation_policy": session.policy.value if hasattr(session.policy, "value") else str(session.policy),
+            "has_active_invocation": True,
+            "requires_ai_review": awaiting,
+            "autopilot_pause_reason": (
+                "ai_invocation_retry_required"
+                if session.status in {InvocationSessionStatus.FAILED, InvocationSessionStatus.CANCELLED}
+                else ("awaiting_ai_review" if awaiting else "")
+            ),
+        }
+    AutopilotSessionPublisher().publish(novel_id, payload)
+
+
 def _session_payload(session) -> dict[str, Any]:
     return {
         "id": session.id,
@@ -282,6 +332,7 @@ async def _run_streaming_invocation_attempt(
         with sqlite_writes_bypass_queue():
             repos["attempt"].save(attempt)
             repos["session"].save(session)
+        _publish_autopilot_session_state(session)
     except Exception as exc:
         attempt.content = "".join(parts)
         attempt.status = InvocationAttemptStatus.FAILED
@@ -290,6 +341,7 @@ async def _run_streaming_invocation_attempt(
         with sqlite_writes_bypass_queue():
             repos["attempt"].save(attempt)
             repos["session"].save(session)
+        _publish_autopilot_session_state(session)
         logger.exception(
             "streaming invocation failed: session=%s attempt=%s",
             session_id,
@@ -390,6 +442,7 @@ async def create_invocation(request: InvocationCreateRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     _save_invocation_result(repos, result)
+    _publish_autopilot_session_state(result.session)
 
     return {
         "session": _session_payload(result.session),
@@ -468,6 +521,7 @@ async def accept_invocation(session_id: str, request: AdoptionAcceptRequest) -> 
     with sqlite_writes_bypass_queue():
         repos["adoption"].save_decision(decision)
         repos["session"].save(session)
+    _publish_autopilot_session_state(session)
     return {
         "session": _session_payload(session),
         "decision": _decision_payload(decision),
@@ -497,6 +551,7 @@ async def resume_invocation(session_id: str, request: ResumeInvocationRequest) -
     with sqlite_writes_bypass_queue():
         repos["attempt"].save(attempt)
         repos["session"].save(session)
+    _publish_autopilot_session_state(session)
     asyncio.create_task(
         _run_streaming_invocation_attempt(
             session_id=session.id,
@@ -538,6 +593,7 @@ async def retry_invocation(session_id: str, request: ResumeInvocationRequest) ->
     with sqlite_writes_bypass_queue():
         repos["attempt"].save(attempt)
         repos["session"].save(session)
+    _publish_autopilot_session_state(session)
     asyncio.create_task(
         _run_streaming_invocation_attempt(
             session_id=session.id,
@@ -565,6 +621,7 @@ async def reject_invocation(session_id: str, request: AdoptionAcceptRequest) -> 
     with sqlite_writes_bypass_queue():
         repos["adoption"].save_decision(decision)
         repos["session"].save(session)
+    _publish_autopilot_session_state(session)
     return {
         "session": _session_payload(session),
         "decision": _decision_payload(decision),
@@ -585,6 +642,7 @@ async def create_commit(session_id: str, request: CommitCreateRequest) -> dict[s
     with sqlite_writes_bypass_queue():
         repos["adoption"].save_commit(commit)
         repos["session"].save(session)
+    _publish_autopilot_session_state(session)
     return {
         "session": _session_payload(session),
         "commit": _commit_payload(commit),

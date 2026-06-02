@@ -254,6 +254,29 @@ def _apply_character_enhancements(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _apply_unified_character_profile_fields(conn: sqlite3.Connection) -> None:
+    """为 unified_characters 表补齐人物基础画像字段。"""
+    cur = conn.execute("PRAGMA table_info(unified_characters)")
+    cols = {row[1] for row in cur.fetchall()}
+    migrations = {
+        "gender": "ALTER TABLE unified_characters ADD COLUMN gender TEXT NOT NULL DEFAULT ''",
+        "age": "ALTER TABLE unified_characters ADD COLUMN age TEXT NOT NULL DEFAULT ''",
+        "appearance": "ALTER TABLE unified_characters ADD COLUMN appearance TEXT NOT NULL DEFAULT ''",
+        "personality": "ALTER TABLE unified_characters ADD COLUMN personality TEXT NOT NULL DEFAULT ''",
+        "background": "ALTER TABLE unified_characters ADD COLUMN background TEXT NOT NULL DEFAULT ''",
+        "core_motivation": "ALTER TABLE unified_characters ADD COLUMN core_motivation TEXT NOT NULL DEFAULT ''",
+        "inner_lack": "ALTER TABLE unified_characters ADD COLUMN inner_lack TEXT NOT NULL DEFAULT ''",
+    }
+    for col, sql in migrations.items():
+        if col not in cols:
+            try:
+                conn.execute(sql)
+                logger.info("unified_characters migration: added column %s", col)
+            except sqlite3.OperationalError as e:
+                logger.warning("unified_characters migration skip %s: %s", col, e)
+    conn.commit()
+
+
 def _apply_chapters_generation_hint_migration(conn: sqlite3.Connection) -> None:
     """为 chapters 表补齐 generation_hint 列（用户手写本章生成约束）"""
     cur = conn.execute("PRAGMA table_info(chapters)")
@@ -530,6 +553,7 @@ class DatabaseConnection:
         _apply_last_chapter_audit_columns(conn)
         _apply_novel_generation_prefs_json(conn)
         _apply_character_enhancements(conn)
+        _apply_unified_character_profile_fields(conn)
         _apply_bible_character_four_d_sqlite(conn)
         _apply_chapter_summaries_enhancements(conn)
         _apply_chapters_word_count_migration(conn)

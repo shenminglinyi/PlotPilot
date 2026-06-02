@@ -187,6 +187,12 @@ class DaemonHostMixin:
                 return
         except Exception:
             pass
+        try:
+            import multiprocessing
+            if multiprocessing.current_process().daemon:
+                return
+        except Exception:
+            return
         # 降级：通过主进程模块
         try:
             from interfaces.main import update_shared_novel_state
@@ -1082,6 +1088,12 @@ class DaemonHostMixin:
                 return
         except Exception:
             pass
+        try:
+            import multiprocessing
+            if multiprocessing.current_process().daemon:
+                return
+        except Exception:
+            return
 
         # 降级：直接通过主进程模块的函数写入（开发环境单进程时）
         try:
@@ -1227,15 +1239,15 @@ class DaemonHostMixin:
             return {"drift_alert": False, "similarity_score": None}
 
 
-    def _build_voice_rewrite_prompt(
+    def _build_voice_rewrite_variables(
         self,
         novel: Novel,
         chapter,
         content: str,
         similarity_score: float,
         attempt: int,
-    ) -> Prompt:
-        """构建定向修正文风的改写提示。"""
+    ) -> Dict[str, Any]:
+        """构建定向修正文风的变量快照。"""
         style_summary = ""
         voice_anchors = ""
         voice_service = self._get_voice_service()
@@ -1259,10 +1271,7 @@ class DaemonHostMixin:
         anchor_block = voice_anchors.strip() or "无额外角色声线锚点。"
         outline = (getattr(chapter, "outline", "") or "").strip() or "无单独大纲，必须严格保留现有剧情事实。"
 
-        from infrastructure.ai.prompt_keys import VOICE_REWRITE
-        from infrastructure.ai.prompt_utils import render_required_prompt
-
-        variables = {
+        return {
             "style_fingerprint": style_block,
             "anchor_block": anchor_block,
             "chapter_number": str(chapter.number),
@@ -1272,7 +1281,23 @@ class DaemonHostMixin:
             "outline": outline,
             "content": content,
         }
-        return render_required_prompt(VOICE_REWRITE, variables)
+
+    def _build_voice_rewrite_prompt(
+        self,
+        novel: Novel,
+        chapter,
+        content: str,
+        similarity_score: float,
+        attempt: int,
+    ) -> Prompt:
+        """构建定向修正文风的改写提示。"""
+        from infrastructure.ai.prompt_keys import VOICE_REWRITE
+        from infrastructure.ai.prompt_utils import render_required_prompt
+
+        return render_required_prompt(
+            VOICE_REWRITE,
+            self._build_voice_rewrite_variables(novel, chapter, content, similarity_score, attempt),
+        )
 
     async def _rewrite_chapter_for_voice(
         self,
@@ -1286,7 +1311,7 @@ class DaemonHostMixin:
         if not self.llm_service:
             return None
 
-        prompt = self._build_voice_rewrite_prompt(
+        variables = self._build_voice_rewrite_variables(
             novel,
             chapter,
             content,
@@ -1298,13 +1323,40 @@ class DaemonHostMixin:
             temperature=0.35,
         )
         try:
+            from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
+            from application.ai_invocation.autopilot.helper_invoker import AutopilotHelperRequest
+            from infrastructure.ai.prompt_keys import VOICE_REWRITE
+
             ensure_trace(novel_id=str(novel.novel_id), stage="pipeline.chapter.voice", stage_label="文风修文")
-            result = await self.llm_service.generate(prompt, config)
+            rewritten_text = await get_or_create_autopilot_helper_invoker(self).invoke_text(
+                AutopilotHelperRequest(
+                    novel_id=str(getattr(novel.novel_id, "value", novel.novel_id)),
+                    stage="audit",
+                    operation="autopilot.voice.rewrite",
+                    node_key=VOICE_REWRITE,
+                    explicit_variables={
+                        "style_fingerprint": variables["style_fingerprint"],
+                        "anchor_block": variables["anchor_block"],
+                        "chapter_number": variables["chapter_number"],
+                        "attempt": variables["attempt"],
+                        "similarity_score": variables["similarity_score"],
+                        "threshold": variables["threshold"],
+                        "outline": variables["outline"],
+                        "content": variables["content"],
+                    },
+                    context={
+                        "novel_id": str(getattr(novel.novel_id, "value", novel.novel_id)),
+                        "chapter_number": getattr(chapter, "number", 0),
+                    },
+                    metadata={"source": "daemon_host.voice_rewrite"},
+                    config={"max_tokens": config.max_tokens, "temperature": config.temperature},
+                )
+            )
         except Exception as e:
             logger.warning("[%s] 文风定向修文失败（attempt=%d）：%s", novel.novel_id, attempt, e)
             return None
 
-        rewritten = strip_reasoning_artifacts((result.content or "").strip())
+        rewritten = strip_reasoning_artifacts((rewritten_text or "").strip())
         if not rewritten:
             return None
         return rewritten
@@ -1512,16 +1564,22 @@ class DaemonHostMixin:
         snippet = content[:500]  # 只取前 500 字，节省 token
 
         try:
-            prompt = Prompt(
-                user=f"""根据以下章节开头，打分当前剧情的张力值（1=日常/轻松，10=生死对决/高潮）：
+            from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
+            from application.ai_invocation.autopilot.helper_invoker import AutopilotHelperRequest
+            from infrastructure.ai.prompt_keys import TENSION_SCORING
 
-{snippet}
-
-张力分（只输出数字）："""
+            raw = await get_or_create_autopilot_helper_invoker(self).invoke_text(
+                AutopilotHelperRequest(
+                    novel_id="global",
+                    stage="audit",
+                    operation="autopilot.tension.score",
+                    node_key=TENSION_SCORING,
+                    explicit_variables={"content": snippet},
+                    context={},
+                    metadata={"source": "daemon_host.tension_score"},
+                    config={"max_tokens": 5, "temperature": 0.1},
+                )
             )
-            config = GenerationConfig(max_tokens=5, temperature=0.1)
-            result = await self.llm_service.generate(prompt, config)
-            raw = result.content.strip() if hasattr(result, "content") else str(result).strip()
             score = int(''.join(filter(str.isdigit, raw[:3])))
             return max(1, min(10, score))
         except Exception:
@@ -1560,10 +1618,12 @@ class DaemonHostMixin:
                     chapter_draft_so_far=chapter_draft_so_far,
                 )
             except RuntimeError as exc:
-                if str(exc) == "autopilot_invocation_unavailable":
-                    logger.warning("[%s] AI Invocation 不可用，降级为直连流式 LLM", getattr(novel, "novel_id", "unknown"))
-                else:
-                    raise
+                logger.error(
+                    "[%s] AI Invocation 写作通道不可用，停止自动驾驶直连回退: %s",
+                    getattr(novel, "novel_id", "unknown"),
+                    exc,
+                )
+                raise
 
         content = ""
         stop_detected = asyncio.Event()

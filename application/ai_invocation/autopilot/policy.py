@@ -27,8 +27,6 @@ class AutopilotInvocationPolicyResolver:
             return InvocationPolicy.AUTOPILOT_PAUSE
         if auto_approve_mode:
             return InvocationPolicy.DIRECT
-        if operation in {"autopilot.prose.from_script"}:
-            return InvocationPolicy.DIRECT
         if operation in {"autopilot.chapter.audit"}:
             return InvocationPolicy.REVIEW_AFTER_CALL
         if operation in {"autopilot.chapter.aftermath"}:

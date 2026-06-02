@@ -55,6 +55,7 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "active_invocation_node_key",
     "active_invocation_status",
     "active_invocation_policy",
+    "has_active_invocation",
     "requires_ai_review",
     "autopilot_pause_reason",
     "autopilot_pending_chapter_number",

@@ -581,7 +581,25 @@ class AutoBibleGenerator:
                         character_id=character_id,
                         name=char_data["name"],
                         description=f"{char_data['role']} - {char_data['description']}",
-                        relationships=char_data.get("relationships", [])
+                        relationships=char_data.get("relationships", []),
+                        gender=char_data.get("gender") or "",
+                        age=char_data.get("age") or "",
+                        appearance=char_data.get("appearance") or "",
+                        personality=char_data.get("personality") or char_data.get("flaw") or "",
+                        background=char_data.get("background") or char_data.get("ghost") or "",
+                        core_motivation=char_data.get("core_motivation") or char_data.get("want") or "",
+                        inner_lack=char_data.get("inner_lack") or char_data.get("need") or "",
+                        public_profile=char_data.get("public_profile") or "",
+                        hidden_profile=char_data.get("hidden_profile") or "",
+                        reveal_chapter=char_data.get("reveal_chapter"),
+                        mental_state=char_data.get("mental_state") or "NORMAL",
+                        mental_state_reason=char_data.get("mental_state_reason") or "",
+                        verbal_tic=char_data.get("verbal_tic") or "",
+                        idle_behavior=char_data.get("idle_behavior") or "",
+                        core_belief=char_data.get("core_belief") or "",
+                        moral_taboos=char_data.get("moral_taboos") or [],
+                        voice_profile=char_data.get("voice_profile") or {},
+                        active_wounds=char_data.get("active_wounds") or [],
                     )
                     character_ids.append((character_id, char_data))
                     logger.info(f"Character saved: {character_id}")

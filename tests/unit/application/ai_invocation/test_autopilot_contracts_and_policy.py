@@ -27,7 +27,8 @@ def test_policy_resolver_prefers_auto_approve_and_defaults():
 
     assert resolver.resolve(operation="autopilot.outline.partition", node_key="outline-beat-partition", novel=None) == InvocationPolicy.AUTOPILOT_PAUSE
     assert resolver.resolve(operation="autopilot.outline.partition", node_key="outline-beat-partition", novel=type("N", (), {"auto_approve_mode": True})()) == InvocationPolicy.DIRECT
-    assert resolver.resolve(operation="autopilot.prose.from_script", node_key="autopilot-stream-beat", novel=None) == InvocationPolicy.DIRECT
+    assert resolver.resolve(operation="autopilot.prose.from_script", node_key="autopilot-stream-beat", novel=None) == InvocationPolicy.AUTOPILOT_PAUSE
+    assert resolver.resolve(operation="autopilot.prose.from_script", node_key="autopilot-stream-beat", novel=type("N", (), {"auto_approve_mode": True})()) == InvocationPolicy.DIRECT
     assert resolver.resolve(operation="autopilot.chapter.audit", node_key="audit-node", novel=None) == InvocationPolicy.REVIEW_AFTER_CALL
 
 
@@ -91,3 +92,65 @@ def test_invocation_contract_registry_supports_autopilot_stream_beat(monkeypatch
     assert called["db"] is db
     assert spec.operation == "autopilot.prose.from_script"
     assert spec.node_key == "autopilot-stream-beat"
+
+
+def test_invocation_contract_registry_supports_autopilot_macro_plan(monkeypatch):
+    called = {}
+
+    def fake_ensure(db):
+        called["db"] = db
+
+    class FakeSpecRepository:
+        def __init__(self, db):
+            self.db = db
+
+        def get(self, operation, node_key):
+            return InvocationSpec(operation=operation, node_key=node_key)
+
+    monkeypatch.setattr(
+        "application.ai_invocation.contracts.autopilot_planning.ensure_autopilot_macro_plan_contract",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "infrastructure.persistence.database.sqlite_ai_invocation_repository.SqliteInvocationSpecRepository",
+        FakeSpecRepository,
+    )
+    db = object()
+    registry = InvocationContractRegistry(db)
+
+    spec = registry.ensure_published("autopilot.macro.plan", "planning-quick-macro")
+
+    assert called["db"] is db
+    assert spec.operation == "autopilot.macro.plan"
+    assert spec.node_key == "planning-quick-macro"
+
+
+def test_invocation_contract_registry_supports_autopilot_act_plan(monkeypatch):
+    called = {}
+
+    def fake_ensure(db):
+        called["db"] = db
+
+    class FakeSpecRepository:
+        def __init__(self, db):
+            self.db = db
+
+        def get(self, operation, node_key):
+            return InvocationSpec(operation=operation, node_key=node_key)
+
+    monkeypatch.setattr(
+        "application.ai_invocation.contracts.autopilot_planning.ensure_autopilot_act_plan_contract",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "infrastructure.persistence.database.sqlite_ai_invocation_repository.SqliteInvocationSpecRepository",
+        FakeSpecRepository,
+    )
+    db = object()
+    registry = InvocationContractRegistry(db)
+
+    spec = registry.ensure_published("autopilot.act.plan", "planning-act")
+
+    assert called["db"] is db
+    assert spec.operation == "autopilot.act.plan"
+    assert spec.node_key == "planning-act"

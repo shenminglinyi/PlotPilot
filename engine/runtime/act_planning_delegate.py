@@ -2,12 +2,141 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
 
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
 from domain.structure.story_node import StoryNode, NodeType, PlanningStatus, PlanningSource
 
 logger = logging.getLogger(__name__)
+
+
+def _read_shared_state(novel_id: str) -> dict[str, Any]:
+    from application.ai_invocation.autopilot.shared_state import read_autopilot_shared_state
+
+    return read_autopilot_shared_state(novel_id)
+
+
+def _consume_pending_act_plan(host: Any, *, novel_id: str, act_id: str) -> dict[str, Any] | None:
+    shared = _read_shared_state(novel_id)
+    pending_act_id = str(shared.get("autopilot_pending_act_plan_id") or "")
+    pending = shared.get("autopilot_pending_act_chapters")
+    if pending_act_id != str(act_id) or not isinstance(pending, list):
+        return None
+    host._update_shared_state(
+        novel_id,
+        autopilot_pending_act_plan_id=None,
+        autopilot_pending_act_chapters=None,
+        active_invocation_session_id="",
+        active_invocation_operation="",
+        active_invocation_node_key="",
+        active_invocation_status="completed",
+        active_invocation_policy="",
+        has_active_invocation=False,
+        requires_ai_review=False,
+        autopilot_pause_reason="",
+    )
+    return {"success": True, "act_id": act_id, "chapters": list(pending)}
+
+
+def _write_act_variables(*, novel_id: str, act_id: str, context: str, chapter_count: int, node_key: str) -> None:
+    from application.ai_invocation.variable_hub import VariableWrite
+    from infrastructure.persistence.database.connection import get_database
+    from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+    repo = SqliteVariableHubRepository(get_database())
+    context_key = f"novel_id:{novel_id}|act_id:{act_id}"
+    for key, value, value_type in (
+        ("novel.planning.act.context", context, "string"),
+        ("novel.planning.act.chapter_count", int(chapter_count or 0), "integer"),
+    ):
+        repo.set_value(
+            VariableWrite(
+                key=key,
+                value=value,
+                context_key=context_key,
+                source_node_key=node_key,
+                source_trace_id=node_key,
+                scope="novel",
+                stage="planning",
+                display_name=key,
+                value_type=value_type,
+            )
+        )
+
+
+def _pause_for_invocation(host: Any, novel: Novel, outcome) -> None:
+    session = outcome.payload.get("session") if isinstance(outcome.payload, Mapping) else None
+    policy_value = getattr(getattr(session, "policy", ""), "value", "") or "AUTOPILOT_PAUSE"
+    host._update_shared_state(
+        novel.novel_id.value,
+        active_invocation_session_id=outcome.session_id,
+        active_invocation_operation=outcome.operation,
+        active_invocation_node_key=outcome.node_key,
+        active_invocation_status=outcome.status,
+        active_invocation_policy=policy_value,
+        has_active_invocation=True,
+        requires_ai_review=True,
+        autopilot_pause_reason=outcome.autopilot_pause_reason or "awaiting_ai_review",
+    )
+    novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    host._flush_novel(novel)
+
+
+async def _request_act_invocation(
+    host: Any,
+    novel: Novel,
+    *,
+    target_act: StoryNode,
+    chapter_budget: int,
+) -> Any:
+    from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
+    from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
+    from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
+    from application.ai_invocation.contracts import ensure_invocation_contract
+    from infrastructure.ai.prompt_keys import PLANNING_ACT
+    from infrastructure.persistence.database.connection import get_database
+
+    bible_context = host.planning_service._get_bible_context(novel.novel_id.value)
+    previous_summary = await host.planning_service._get_previous_acts_summary(target_act)
+    prompt = host.planning_service._build_act_planning_prompt(
+        target_act,
+        bible_context,
+        previous_summary,
+        int(chapter_budget or 0),
+    )
+    variables = {
+        "context": prompt.user,
+        "chapter_count": int(chapter_budget or 0),
+    }
+    ensure_invocation_contract("autopilot.act.plan", PLANNING_ACT, get_database())
+    _write_act_variables(
+        novel_id=novel.novel_id.value,
+        act_id=target_act.id,
+        context=prompt.user,
+        chapter_count=int(chapter_budget or 0),
+        node_key=PLANNING_ACT,
+    )
+    policy = AutopilotInvocationPolicyResolver().resolve(
+        operation="autopilot.act.plan",
+        node_key=PLANNING_ACT,
+        novel=novel,
+        context={"novel_id": novel.novel_id.value, "act_id": target_act.id},
+    )
+    return await get_or_create_autopilot_orchestrator(host).request(
+        AutopilotInvocationIntent(
+            novel_id=novel.novel_id.value,
+            stage="planning",
+            operation="autopilot.act.plan",
+            node_key=PLANNING_ACT,
+            context={"novel_id": novel.novel_id.value, "act_id": target_act.id},
+            explicit_variables=variables,
+            continuation_handler_key="autopilot_act_plan",
+            policy_hint=policy,
+            metadata={"source": "act_planning_delegate"},
+            config={"max_tokens": 4000, "temperature": 0.7},
+        )
+    )
 
 
 async def run_act_planning(host: Any, novel: Novel) -> None:
@@ -132,15 +261,47 @@ async def run_act_planning(host: Any, novel: Novel) -> None:
                 target_act_number,
                 rec_chapters_per_act,
             )
-        plan_result: Dict[str, Any] = {}
-        try:
-            plan_result = await host.planning_service.plan_act_chapters(
-                act_id=target_act.id,
-                custom_chapter_count=chapter_budget,
-            )
-        except Exception as e:
-            logger.warning("[%s] plan_act_chapters 未捕获异常: %s", novel.novel_id, e, exc_info=True)
-            plan_result = {}
+        plan_result: Dict[str, Any] = _consume_pending_act_plan(
+            host,
+            novel_id=novel_id,
+            act_id=target_act.id,
+        ) or {}
+        if not plan_result:
+            shared_state = _read_shared_state(novel_id)
+            if shared_state.get("active_invocation_session_id") and shared_state.get("has_active_invocation"):
+                logger.info(
+                    "[%s] 幕级规划已有待处理 invocation session=%s，等待面板处理",
+                    novel.novel_id,
+                    shared_state.get("active_invocation_session_id"),
+                )
+                novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+                novel.autopilot_status = AutopilotStatus.RUNNING
+                host._flush_novel(novel)
+                return
+            try:
+                outcome = await _request_act_invocation(
+                    host,
+                    novel,
+                    target_act=target_act,
+                    chapter_budget=chapter_budget,
+                )
+                if outcome.status in {
+                    "awaiting_pre_call_review",
+                    "awaiting_acceptance",
+                    "awaiting_commit",
+                    "blocked",
+                    "failed",
+                    "cancelled",
+                }:
+                    _pause_for_invocation(host, novel, outcome)
+                    return
+                commit = outcome.payload.get("commit") if isinstance(outcome.payload, Mapping) else None
+                commit_result = getattr(commit, "result", None) if commit is not None else None
+                continuation = commit_result.get("continuation") if isinstance(commit_result, Mapping) else None
+                plan_result = dict((continuation or {}).get("act_plan") or {})
+            except Exception as e:
+                logger.warning("[%s] autopilot.act.plan 未捕获异常: %s", novel.novel_id, e, exc_info=True)
+                plan_result = {}
 
         if not host._is_still_running(novel):
             logger.info("[%s] 幕级规划返回后检测到停止，不再落库", novel.novel_id)

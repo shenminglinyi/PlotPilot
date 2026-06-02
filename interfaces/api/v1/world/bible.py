@@ -109,6 +109,13 @@ class CharacterData(BaseModel):
         default_factory=list,
         description="关系列表：字符串或结构化对象",
     )
+    gender: Optional[str] = Field(default=None, description="性别/呈现；省略则保留库中旧值")
+    age: Optional[str] = Field(default=None, description="年龄/年龄段；省略则保留库中旧值")
+    appearance: Optional[str] = Field(default=None, description="外貌锚点；省略则保留库中旧值")
+    personality: Optional[str] = Field(default=None, description="性格底色；省略则保留库中旧值")
+    background: Optional[str] = Field(default=None, description="背景经历；省略则保留库中旧值")
+    core_motivation: Optional[str] = Field(default=None, description="核心驱动力；省略则保留库中旧值")
+    inner_lack: Optional[str] = Field(default=None, description="内在缺口；省略则保留库中旧值")
     mental_state: Optional[str] = Field(
         default=None,
         description="心理状态；省略则保留库中旧值（新角色默认 NORMAL）",
@@ -648,6 +655,13 @@ async def _sse_bible_generator(
                             name=char_data["name"],
                             description=f"{char_data.get('role', '')} - {char_data.get('description', '')}",
                             relationships=char_data.get("relationships", []),
+                            gender=char_data.get("gender") or "",
+                            age=char_data.get("age") or "",
+                            appearance=char_data.get("appearance") or "",
+                            personality=char_data.get("personality") or char_data.get("flaw") or "",
+                            background=char_data.get("background") or char_data.get("ghost") or "",
+                            core_motivation=char_data.get("core_motivation") or char_data.get("want") or "",
+                            inner_lack=char_data.get("inner_lack") or char_data.get("need") or "",
                             public_profile=char_data.get("public_profile") or "",
                             hidden_profile=char_data.get("hidden_profile") or "",
                             reveal_chapter=char_data.get("reveal_chapter"),

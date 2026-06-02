@@ -286,6 +286,130 @@ def test_autopilot_outline_partition_writes_atoms_output_binding():
 
     step = next(item for item in commit.steps if item.name == "commit_variable_outputs")
     assert step.result["skipped"] is False
-    context_key = "novel_id:novel-1"
+    context_key = "novel_id:novel-1|chapter_number:1"
     assert repo.get_value("chapter.micro_beats", context_key).value == [{"intent": "开场压迫"}]
     assert repo.get_value("chapter.execution_plan", context_key).value["mode"] == "llm"
+
+
+def test_autopilot_outline_partition_blocks_when_required_outputs_missing():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "outline-beat-partition:output:v1",
+        "outline-beat-partition",
+        [
+            VariableBinding(
+                alias="atoms",
+                variable_key="chapter.micro_beats",
+                required=True,
+                value_type="list",
+                scope="chapter",
+                stage="planning",
+            ),
+            VariableBinding(
+                alias="chapter_plan",
+                variable_key="chapter.execution_plan",
+                required=True,
+                value_type="object",
+                scope="chapter",
+                stage="planning",
+            ),
+        ],
+        direction="output",
+    )
+    service = AdoptionCommitService(prompt_manager=FakePromptManager(), variable_hub_repository=repo)
+    register_autopilot_continuations()
+    session = InvocationSession(
+        id="session-1",
+        operation="autopilot.outline.partition",
+        node_key="outline-beat-partition",
+        policy=InvocationPolicy.DIRECT,
+        status=InvocationSessionStatus.AWAITING_COMMIT,
+        context={"novel_id": "novel-1", "chapter_number": 1},
+        continuation=ContinuationRef(handler_key="autopilot_outline_partition"),
+        prompt_snapshot=PromptSnapshot(
+            prompt=Prompt(system="系统提示词", user="用户提示词"),
+            node_key="outline-beat-partition",
+            node_version_id="version-1",
+            asset_link_set_id="",
+            input_binding_set_id="outline-beat-partition:input:v1",
+            output_binding_set_id="outline-beat-partition:output:v1",
+            variable_snapshot_hash="",
+            template_hash="template-hash",
+            composition_hash="composition-hash",
+            rendered_prompt_hash="rendered-hash",
+            template_prompt=Prompt(system="系统提示词", user="用户提示词"),
+        ),
+    )
+    decision = AdoptionDecision(
+        id="decision-1",
+        session_id="session-1",
+        attempt_id="attempt-1",
+        accepted_content='{"mode":"llm"}',
+        accepted_by="system",
+    )
+
+    commit = service.commit(session=session, decision=decision)
+
+    assert session.status == InvocationSessionStatus.BLOCKED
+    assert commit.status.value == "failed"
+    step = next(item for item in commit.steps if item.name == "continuation_handler")
+    assert step.status.value == "failed"
+    assert "requires_non_empty_atoms" in step.error
+
+
+def test_commit_blocks_when_required_output_binding_is_missing_after_continuation():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "custom-output:v1",
+        "custom-node",
+        [
+            VariableBinding(
+                alias="summary",
+                variable_key="chapter.summary",
+                required=True,
+                value_type="string",
+                scope="chapter",
+                stage="audit",
+            ),
+        ],
+        direction="output",
+    )
+    register_continuation_handler("test_missing_output", lambda _ctx: {})
+    service = AdoptionCommitService(prompt_manager=FakePromptManager(), variable_hub_repository=repo)
+    session = InvocationSession(
+        id="session-1",
+        operation="autopilot.chapter.aftermath",
+        node_key="custom-node",
+        policy=InvocationPolicy.DIRECT,
+        status=InvocationSessionStatus.AWAITING_COMMIT,
+        context={"novel_id": "novel-1", "chapter_number": 1},
+        continuation=ContinuationRef(handler_key="test_missing_output"),
+        prompt_snapshot=PromptSnapshot(
+            prompt=Prompt(system="系统提示词", user="用户提示词"),
+            node_key="custom-node",
+            node_version_id="version-1",
+            asset_link_set_id="",
+            input_binding_set_id="custom-input:v1",
+            output_binding_set_id="custom-output:v1",
+            variable_snapshot_hash="",
+            template_hash="template-hash",
+            composition_hash="composition-hash",
+            rendered_prompt_hash="rendered-hash",
+            template_prompt=Prompt(system="系统提示词", user="用户提示词"),
+        ),
+    )
+    decision = AdoptionDecision(
+        id="decision-1",
+        session_id="session-1",
+        attempt_id="attempt-1",
+        accepted_content='{"note":"ok"}',
+        accepted_by="system",
+    )
+
+    commit = service.commit(session=session, decision=decision)
+
+    assert session.status == InvocationSessionStatus.BLOCKED
+    assert commit.status.value == "blocked"
+    step = next(item for item in commit.steps if item.name == "commit_variable_outputs")
+    assert step.status.value == "blocked"
+    assert step.result["reason"] == "missing_required_output_aliases"

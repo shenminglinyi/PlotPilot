@@ -427,6 +427,9 @@ const needsReview = computed(() => statusNeedsManualReview(status.value))
 const requiresAIReview = computed(() => Boolean(
   status.value?.requires_ai_review && status.value?.active_invocation_session_id
 ))
+function statusHasActiveInvocation(s) {
+  return Boolean(s?.active_invocation_session_id && (s?.has_active_invocation || s?.requires_ai_review))
+}
 const activeInvocationLabel = computed(() => {
   const op = status.value?.active_invocation_operation || 'AI 请求'
   const node = status.value?.active_invocation_node_key || ''
@@ -692,6 +695,7 @@ const STATUS_FETCH_TIMEOUT_MS = 10_000
 // 🔥 新增：请求去重——如果上一次 fetchStatus 还没返回，不重复发起
 let statusFetchInFlight = false
 let lastOpenedInvocationSessionId = ''
+let openingInvocationSessionId = ''
 
 async function fetchStatus() {
   // 请求去重：上一次还在飞就不重复发
@@ -763,9 +767,11 @@ async function fetchStatus() {
   }
 }
 
-async function openActiveInvocation() {
-  const sessionId = String(status.value?.active_invocation_session_id || '')
+async function openActiveInvocation(sessionIdArg) {
+  const sessionId = String(sessionIdArg || status.value?.active_invocation_session_id || '')
   if (!sessionId) return
+  if (sessionId === openingInvocationSessionId) return
+  openingInvocationSessionId = sessionId
   aiPanelOpening.value = true
   try {
     await aiInvocationStore.open(sessionId)
@@ -774,16 +780,17 @@ async function openActiveInvocation() {
     console.warn('[AutopilotPanel] 打开 AI Invocation 面板失败:', err)
     message.error('打开 AI 面板失败')
   } finally {
+    openingInvocationSessionId = ''
     aiPanelOpening.value = false
   }
 }
 
 function maybeOpenActiveInvocation(s) {
   const sessionId = String(s?.active_invocation_session_id || '')
-  if (!s?.requires_ai_review || !sessionId) return
+  if (!sessionId) return
   if (sessionId === lastOpenedInvocationSessionId) return
-  lastOpenedInvocationSessionId = sessionId
-  void openActiveInvocation()
+  if (sessionId === openingInvocationSessionId) return
+  void openActiveInvocation(sessionId)
 }
 
 function clearStatusPoll() {
@@ -813,7 +820,7 @@ function maybeRestartStatusPollTimer() {
 function shouldMaintainChapterStream(body = status.value) {
   if (!body || statusPollDisabled.value) return false
   if (body.autopilot_status !== 'running') return false
-  if (body.requires_ai_review && body.active_invocation_session_id) return false
+  if (statusHasActiveInvocation(body)) return false
   if (statusNeedsManualReview(body)) return false
   return body.current_stage === 'writing'
 }
@@ -1060,6 +1067,7 @@ watch(
     statusConnectivityFailures.value = 0
     reconnectAttempts = 0
     lastOpenedInvocationSessionId = ''
+    openingInvocationSessionId = ''
     stopChapterStream()
   }
 )

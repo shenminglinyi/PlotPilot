@@ -26,6 +26,18 @@ class InvocationContractRegistry:
             )
 
             ensure_autopilot_outline_partition_contract(self._db)
+        elif operation == "autopilot.macro.plan" and node_key == "planning-quick-macro":
+            from application.ai_invocation.contracts.autopilot_planning import (
+                ensure_autopilot_macro_plan_contract,
+            )
+
+            ensure_autopilot_macro_plan_contract(self._db)
+        elif operation == "autopilot.act.plan" and node_key == "planning-act":
+            from application.ai_invocation.contracts.autopilot_planning import (
+                ensure_autopilot_act_plan_contract,
+            )
+
+            ensure_autopilot_act_plan_contract(self._db)
         elif operation == "autopilot.prose.from_script" and node_key == "autopilot-stream-beat":
             from application.ai_invocation.contracts.autopilot_writing import ensure_autopilot_stream_beat_contract
 
@@ -38,6 +50,34 @@ class InvocationContractRegistry:
             from application.ai_invocation.contracts.autopilot_writing import ensure_autopilot_aftermath_contract
 
             ensure_autopilot_aftermath_contract(self._db)
+        elif operation == "autopilot.voice.rewrite" and node_key == "voice-rewrite":
+            from application.ai_invocation.contracts.autopilot_helpers import ensure_autopilot_voice_rewrite_contract
+
+            ensure_autopilot_voice_rewrite_contract(self._db)
+        elif operation == "autopilot.bridge.extract" and node_key == "chapter-bridge-extract":
+            from application.ai_invocation.contracts.autopilot_helpers import ensure_autopilot_bridge_extract_contract
+
+            ensure_autopilot_bridge_extract_contract(self._db)
+        elif operation == "autopilot.bridge.check" and node_key == "chapter-bridge-check":
+            from application.ai_invocation.contracts.autopilot_helpers import ensure_autopilot_bridge_check_contract
+
+            ensure_autopilot_bridge_check_contract(self._db)
+        elif operation == "autopilot.bridge.fix" and node_key == "chapter-bridge-fix":
+            from application.ai_invocation.contracts.autopilot_helpers import ensure_autopilot_bridge_fix_contract
+
+            ensure_autopilot_bridge_fix_contract(self._db)
+        elif operation == "autopilot.tension.score" and node_key == "tension-scoring":
+            from application.ai_invocation.contracts.autopilot_helpers import ensure_autopilot_tension_score_contract
+
+            ensure_autopilot_tension_score_contract(self._db)
+        elif operation == "autopilot.beat.bridge" and node_key == "beat-cot-bridge":
+            from application.ai_invocation.contracts.autopilot_helpers import ensure_autopilot_beat_bridge_contract
+
+            ensure_autopilot_beat_bridge_contract(self._db)
+        elif operation == "autopilot.chapter.narrative_sync" and node_key == "chapter-narrative-sync":
+            from application.ai_invocation.contracts.autopilot_helpers import ensure_autopilot_narrative_sync_contract
+
+            ensure_autopilot_narrative_sync_contract(self._db)
         elif operation == "chapter.generate" and node_key == CHAPTER_GENERATION_MAIN:
             self._ensure_chapter_generation_contract()
         else:

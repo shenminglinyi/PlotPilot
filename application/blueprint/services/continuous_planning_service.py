@@ -2112,6 +2112,16 @@ class ContinuousPlanningService:
 
     def _build_quick_macro_prompt(self, bible_context: Dict, target_chapters: int) -> Prompt:
         """极速模式：通过 planning-quick-macro 契约渲染提示词。"""
+        return self._render_contract_prompt(
+            PLANNING_QUICK_MACRO_CONTRACT,
+            self.build_quick_macro_variables(bible_context, target_chapters),
+        )
+
+    def build_quick_macro_variables(self, bible_context: Dict, target_chapters: int) -> Dict:
+        """构建 planning-quick-macro 的运行变量。
+
+        AI Invocation 需要变量快照，旧宏观规划提示词也复用同一份变量构造，避免两套规则漂移。
+        """
         params = calculate_structure_params(target_chapters)
         rec_acts_per_volume = params["acts_per_volume"]
         rec_chapters_per_act = params["chapters_per_act"]
@@ -2138,21 +2148,18 @@ class ContinuousPlanningService:
             character_limit=5,
             empty_hint="暂无角色设定，请不要编造与题材无关的固定示例名词。",
         )
-        return self._render_contract_prompt(
-            PLANNING_QUICK_MACRO_CONTRACT,
-            {
-                "premise": self._pick_premise_from_context(bible_context),
-                "target_chapters": target_chapters,
-                "worldview": story_context,
-                "characters": character_context,
-                "planning_depth": planning_depth,
-                "rec_parts": rec_parts,
-                "rec_volumes_per_part": rec_volumes_per_part,
-                "rec_acts_per_volume": rec_acts_per_volume,
-                "rec_chapters_per_act": rec_chapters_per_act,
-                "total_recommended_acts": total_recommended_acts,
-            },
-        )
+        return {
+            "premise": self._pick_premise_from_context(bible_context),
+            "target_chapters": target_chapters,
+            "worldview": story_context,
+            "characters": character_context,
+            "planning_depth": planning_depth,
+            "rec_parts": rec_parts,
+            "rec_volumes_per_part": rec_volumes_per_part,
+            "rec_acts_per_volume": rec_acts_per_volume,
+            "rec_chapters_per_act": rec_chapters_per_act,
+            "total_recommended_acts": total_recommended_acts,
+        }
 
     def _build_precise_macro_prompt(
         self,

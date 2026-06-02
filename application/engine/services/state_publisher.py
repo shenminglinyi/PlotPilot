@@ -85,6 +85,7 @@ class StatePublisher:
                 active_invocation_node_key=fields.get("active_invocation_node_key", ""),
                 active_invocation_status=fields.get("active_invocation_status", ""),
                 active_invocation_policy=fields.get("active_invocation_policy", ""),
+                has_active_invocation=bool(fields.get("has_active_invocation", False)),
                 requires_ai_review=fields.get("requires_ai_review", False),
                 autopilot_pause_reason=fields.get("autopilot_pause_reason", ""),
             )

@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import hashlib
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
 from domain.novel.value_objects.novel_id import NovelId
@@ -12,6 +12,134 @@ from domain.novel.value_objects.chapter_id import ChapterId
 from domain.novel.value_objects.generation_preferences import GenerationPreferences
 
 logger = logging.getLogger(__name__)
+
+
+def _read_shared_state(novel_id: str) -> dict[str, Any]:
+    from application.ai_invocation.autopilot.shared_state import read_autopilot_shared_state
+
+    return read_autopilot_shared_state(novel_id)
+
+
+def _write_autopilot_invocation_input(
+    *,
+    novel_id: str,
+    chapter_number: int,
+    content: str,
+    node_key: str,
+) -> None:
+    from application.ai_invocation.variable_hub import VariableWrite
+    from infrastructure.persistence.database.connection import get_database
+    from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+    SqliteVariableHubRepository(get_database()).set_value(
+        VariableWrite(
+            key="chapter.prose.draft",
+            value=content,
+            context_key=f"novel_id:{novel_id}|chapter_number:{chapter_number}",
+            source_node_key=node_key,
+            source_trace_id=node_key,
+            scope="chapter",
+            stage="audit",
+            display_name="chapter.prose.draft",
+        )
+    )
+
+
+def _extract_commit_continuation(outcome_payload: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not outcome_payload:
+        return {}
+    commit = outcome_payload.get("commit")
+    result = getattr(commit, "result", None) if commit is not None else None
+    continuation = result.get("continuation") if isinstance(result, Mapping) else None
+    return dict(continuation or {}) if isinstance(continuation, Mapping) else {}
+
+
+def _consume_pending_payload(
+    host: Any,
+    *,
+    novel_id: str,
+    chapter_number: int,
+    number_key: str,
+    payload_key: str,
+) -> dict[str, Any] | None:
+    shared_state = _read_shared_state(novel_id)
+    pending_number = shared_state.get(number_key)
+    pending_payload = shared_state.get(payload_key)
+    if str(pending_number or "") != str(chapter_number) or not isinstance(pending_payload, dict):
+        return None
+    host._update_shared_state(
+        novel_id,
+        **{
+            number_key: None,
+            payload_key: None,
+            "requires_ai_review": False,
+            "active_invocation_session_id": "",
+            "active_invocation_operation": "",
+            "active_invocation_node_key": "",
+            "active_invocation_status": "completed",
+            "active_invocation_policy": "",
+            "has_active_invocation": False,
+            "autopilot_pause_reason": "",
+        },
+    )
+    return dict(pending_payload)
+
+
+def _pause_for_invocation(host: Any, novel: Novel, outcome) -> None:
+    session = outcome.payload.get("session") if isinstance(outcome.payload, Mapping) else None
+    policy_value = getattr(getattr(session, "policy", ""), "value", "") or "AUTOPILOT_PAUSE"
+    host._update_shared_state(
+        novel.novel_id.value,
+        active_invocation_session_id=outcome.session_id,
+        active_invocation_operation=outcome.operation,
+        active_invocation_node_key=outcome.node_key,
+        active_invocation_status=outcome.status,
+        active_invocation_policy=policy_value,
+        has_active_invocation=True,
+        requires_ai_review=True,
+        autopilot_pause_reason=outcome.autopilot_pause_reason or "awaiting_ai_review",
+    )
+    novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    host._flush_novel(novel)
+
+
+async def _request_autopilot_invocation(
+    host: Any,
+    *,
+    novel: Novel,
+    chapter_number: int,
+    operation: str,
+    node_key: str,
+    continuation_handler_key: str,
+    explicit_variables: Mapping[str, Any],
+) -> Any:
+    from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
+    from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
+    from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
+    from application.ai_invocation.contracts import ensure_invocation_contract
+    from infrastructure.persistence.database.connection import get_database
+
+    ensure_invocation_contract(operation, node_key, get_database())
+    policy = AutopilotInvocationPolicyResolver().resolve(
+        operation=operation,
+        node_key=node_key,
+        novel=novel,
+        context={"novel_id": novel.novel_id.value, "chapter_number": chapter_number},
+    )
+    return await get_or_create_autopilot_orchestrator(host).request(
+        AutopilotInvocationIntent(
+            novel_id=novel.novel_id.value,
+            stage="audit",
+            operation=operation,
+            node_key=node_key,
+            context={"novel_id": novel.novel_id.value, "chapter_number": chapter_number},
+            explicit_variables=dict(explicit_variables or {}),
+            continuation_handler_key=continuation_handler_key,
+            policy_hint=policy,
+            metadata={"source": "audit_delegate"},
+        )
+    )
 
 
 async def run_chapter_audit(host: Any, novel: Novel) -> None:
@@ -96,6 +224,60 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
         }
     )
 
+    _write_autopilot_invocation_input(
+        novel_id=novel.novel_id.value,
+        chapter_number=chapter_num,
+        content=content,
+        node_key="anti-ai-chapter-audit",
+    )
+
+    audit_review_payload = _consume_pending_payload(
+        host,
+        novel_id=novel.novel_id.value,
+        chapter_number=chapter_num,
+        number_key="autopilot_pending_audit_chapter_number",
+        payload_key="autopilot_pending_audit_report",
+    )
+    shared_state = _read_shared_state(novel.novel_id.value)
+    if audit_review_payload is None and shared_state.get("requires_ai_review") and shared_state.get("active_invocation_session_id"):
+        logger.info(
+            "[%s] 审计报告已有待处理 invocation session=%s，等待面板处理",
+            novel.novel_id.value,
+            shared_state.get("active_invocation_session_id"),
+        )
+        novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+        novel.autopilot_status = AutopilotStatus.RUNNING
+        host._flush_novel(novel)
+        return
+    if audit_review_payload is None:
+        audit_outcome = await _request_autopilot_invocation(
+            host,
+            novel=novel,
+            chapter_number=chapter_num,
+            operation="autopilot.chapter.audit",
+            node_key="anti-ai-chapter-audit",
+            continuation_handler_key="autopilot_audit",
+            explicit_variables={"content": content},
+        )
+        if audit_outcome.status in {
+            "awaiting_pre_call_review",
+            "awaiting_acceptance",
+            "awaiting_commit",
+            "blocked",
+            "failed",
+            "cancelled",
+        }:
+            _pause_for_invocation(host, novel, audit_outcome)
+            return
+        audit_review_payload = _extract_commit_continuation(audit_outcome.payload)
+    if audit_review_payload:
+        logger.info(
+            "[%s] 审计 Invocation 已提交 chapter=%s risk_flags=%s",
+            novel.novel_id.value,
+            chapter_num,
+            len(audit_review_payload.get("chapter.audit.risk_flags", []) or []),
+        )
+
     # 2. 统一章后管线：叙事/向量、文风（一次）、KG 推断；三元组与伏笔在叙事同步单次 LLM 中落库
     novel.audit_progress = "aftermath_pipeline"
     # 🔥 架构优化：写共享内存，零 DB IO
@@ -134,6 +316,51 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             "rebuilt": should_rebuild_aftermath,
         }
     )
+    _write_autopilot_invocation_input(
+        novel_id=novel.novel_id.value,
+        chapter_number=chapter_num,
+        content=content,
+        node_key="chapter-aftermath",
+    )
+    aftermath_payload = _consume_pending_payload(
+        host,
+        novel_id=novel.novel_id.value,
+        chapter_number=chapter_num,
+        number_key="autopilot_pending_aftermath_chapter_number",
+        payload_key="autopilot_pending_aftermath_payload",
+    )
+    shared_state = _read_shared_state(novel.novel_id.value)
+    if aftermath_payload is None and shared_state.get("requires_ai_review") and shared_state.get("active_invocation_session_id"):
+        logger.info(
+            "[%s] 章后抽取已有待处理 invocation session=%s，等待面板处理",
+            novel.novel_id.value,
+            shared_state.get("active_invocation_session_id"),
+        )
+        novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+        novel.autopilot_status = AutopilotStatus.RUNNING
+        host._flush_novel(novel)
+        return
+    if aftermath_payload is None:
+        aftermath_outcome = await _request_autopilot_invocation(
+            host,
+            novel=novel,
+            chapter_number=chapter_num,
+            operation="autopilot.chapter.aftermath",
+            node_key="chapter-aftermath",
+            continuation_handler_key="autopilot_after_chapter_extract",
+            explicit_variables={"content": content},
+        )
+        if aftermath_outcome.status in {
+            "awaiting_pre_call_review",
+            "awaiting_acceptance",
+            "awaiting_commit",
+            "blocked",
+            "failed",
+            "cancelled",
+        }:
+            _pause_for_invocation(host, novel, aftermath_outcome)
+            return
+        aftermath_payload = _extract_commit_continuation(aftermath_outcome.payload)
     if can_reuse_aftermath:
         audit_similarity = drift_result.get("similarity_score")
         drift_result = {
@@ -176,11 +403,18 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
             logger.warning(f"[{novel.novel_id}] 章后管线失败（降级旧逻辑）：{e}")
             drift_result = host._legacy_auditing_tasks_and_voice(
                 novel, chapter_num, content, chapter_id
-            )
+        )
     else:
         drift_result = host._legacy_auditing_tasks_and_voice(
             novel, chapter_num, content, chapter_id
         )
+
+    if aftermath_payload:
+        drift_result = {
+            **drift_result,
+            "chapter_aftermath_review": aftermath_payload,
+            "chapter_summary": aftermath_payload.get("chapter.summary", ""),
+        }
 
     # ── 停止检查：章后管线和文风预检完成后 ──
     if not host._is_still_running(novel):
@@ -443,4 +677,3 @@ async def run_chapter_audit(host: Any, novel: Novel) -> None:
 
     # 7. 🆕 摘要生成钩子（双轨融合 - 轨道一）
     await host._maybe_generate_summaries(novel, completed_count)
-

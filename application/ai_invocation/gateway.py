@@ -152,6 +152,8 @@ class AIInvocationGateway:
         self._session_service.attach_prompt(session, prompt_snapshot, variable_plan)
         if not variable_plan.ok:
             session.status = InvocationSessionStatus.BLOCKED
+        elif policy in {InvocationPolicy.REVIEW_BEFORE_CALL, InvocationPolicy.FULL_INTERACTIVE, InvocationPolicy.AUTOPILOT_PAUSE}:
+            session.status = InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW
         return InvocationResult(
             session=session,
             prompt_snapshot=prompt_snapshot,

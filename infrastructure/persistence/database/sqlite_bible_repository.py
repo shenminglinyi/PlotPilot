@@ -130,12 +130,13 @@ class SqliteBibleRepository(BibleRepository):
             """
             INSERT OR REPLACE INTO unified_characters (
                 id, novel_id, name, description, public_profile, hidden_profile,
-                reveal_chapter, verbal_tic, idle_behavior, voice_style,
+                reveal_chapter, gender, age, appearance, personality, background,
+                core_motivation, inner_lack, verbal_tic, idle_behavior, voice_style,
                 sentence_pattern, speech_tempo, core_belief, moral_taboos_json,
                 active_wounds_json, mental_state, mental_state_reason,
                 emotional_arc_json, current_state_summary, last_updated_chapter,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cid,
@@ -145,6 +146,13 @@ class SqliteBibleRepository(BibleRepository):
                 getattr(char, "public_profile", "") or "",
                 getattr(char, "hidden_profile", "") or "",
                 getattr(char, "reveal_chapter", None),
+                getattr(char, "gender", "") or "",
+                getattr(char, "age", "") or "",
+                getattr(char, "appearance", "") or "",
+                getattr(char, "personality", "") or "",
+                getattr(char, "background", "") or "",
+                getattr(char, "core_motivation", "") or "",
+                getattr(char, "inner_lack", "") or "",
                 getattr(char, "verbal_tic", "") or "",
                 getattr(char, "idle_behavior", "") or "",
                 voice_profile.get("style", "") or voice_profile.get("voice_style", "") or "",
@@ -223,6 +231,13 @@ class SqliteBibleRepository(BibleRepository):
                     "name": row["name"],
                     "description": row["description"] or "",
                     "relationships": self._rels_for_character(row["id"]),
+                    "gender": row.get("gender") or "",
+                    "age": row.get("age") or "",
+                    "appearance": row.get("appearance") or "",
+                    "personality": row.get("personality") or "",
+                    "background": row.get("background") or "",
+                    "core_motivation": row.get("core_motivation") or "",
+                    "inner_lack": row.get("inner_lack") or "",
                     "mental_state": row.get("mental_state") or "NORMAL",
                     "mental_state_reason": row.get("mental_state_reason") or "",
                     "verbal_tic": row.get("verbal_tic") or "",

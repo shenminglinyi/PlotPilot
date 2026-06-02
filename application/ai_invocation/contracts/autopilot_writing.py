@@ -44,8 +44,8 @@ def ensure_autopilot_stream_beat_contract(db=None) -> None:
         VariableBinding(alias="context_block", variable_key="materialized.beat.prompt_context", required=False, default="", source="autopilot_runtime", scope="beat", stage="writing", display_name="节拍上下文"),
     ]
     output_bindings = [
-        VariableBinding(alias="content", variable_key="chapter.prose.draft", source="autopilot_prose_generation", scope="chapter", stage="writing", display_name="章节正文草稿"),
-        VariableBinding(alias="beat_content", variable_key="beat.prose.draft", source="autopilot_prose_generation", scope="beat", stage="writing", display_name="节拍正文"),
+        VariableBinding(alias="content", variable_key="chapter.prose.draft", required=True, source="autopilot_prose_generation", scope="chapter", stage="writing", display_name="章节正文草稿"),
+        VariableBinding(alias="beat_content", variable_key="beat.prose.draft", required=True, source="autopilot_prose_generation", scope="beat", stage="writing", display_name="节拍正文"),
     ]
 
     with sqlite_writes_bypass_queue():
@@ -77,16 +77,57 @@ def ensure_autopilot_audit_contract(db=None) -> None:
 
         db = get_database()
 
-    from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteInvocationSpecRepository
+    from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
+        SqliteInvocationSpecRepository,
+        SqliteVariableHubRepository,
+    )
+
+    input_binding_set_id = f"{ANTI_AI_CHAPTER_AUDIT}:input:v1"
+    output_binding_set_id = f"{ANTI_AI_CHAPTER_AUDIT}:output:v1"
+    input_bindings = [
+        VariableBinding(
+            alias="content",
+            variable_key="chapter.prose.draft",
+            required=True,
+            source="autopilot_runtime",
+            scope="chapter",
+            stage="audit",
+            display_name="章节正文",
+        ),
+    ]
+    output_bindings = [
+        VariableBinding(
+            alias="chapter.audit.report",
+            variable_key="chapter.audit.report",
+            required=True,
+            source="autopilot_audit",
+            value_type="object",
+            scope="chapter",
+            stage="audit",
+            display_name="章节审计报告",
+        ),
+        VariableBinding(
+            alias="chapter.audit.risk_flags",
+            variable_key="chapter.audit.risk_flags",
+            source="autopilot_audit",
+            value_type="list",
+            scope="chapter",
+            stage="audit",
+            display_name="审计风险标记",
+        ),
+    ]
 
     with sqlite_writes_bypass_queue():
+        variable_repo = SqliteVariableHubRepository(db)
+        variable_repo.set_bindings(input_binding_set_id, ANTI_AI_CHAPTER_AUDIT, input_bindings, direction="input")
+        variable_repo.set_bindings(output_binding_set_id, ANTI_AI_CHAPTER_AUDIT, output_bindings, direction="output")
         SqliteInvocationSpecRepository(db).upsert(
             InvocationSpec(
                 operation="autopilot.chapter.audit",
                 node_key=ANTI_AI_CHAPTER_AUDIT,
                 prompt_node_version_id=_active_node_version(ANTI_AI_CHAPTER_AUDIT),
-                input_binding_set_id=f"{ANTI_AI_CHAPTER_AUDIT}:input:v1",
-                output_binding_set_id=f"{ANTI_AI_CHAPTER_AUDIT}:output:v1",
+                input_binding_set_id=input_binding_set_id,
+                output_binding_set_id=output_binding_set_id,
                 default_policy=InvocationPolicy.REVIEW_AFTER_CALL,
                 risk_level="medium",
                 supports_stream=False,
@@ -105,16 +146,65 @@ def ensure_autopilot_aftermath_contract(db=None) -> None:
 
         db = get_database()
 
-    from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteInvocationSpecRepository
+    from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
+        SqliteInvocationSpecRepository,
+        SqliteVariableHubRepository,
+    )
+
+    input_binding_set_id = f"{CHAPTER_AFTERMATH}:input:v1"
+    output_binding_set_id = f"{CHAPTER_AFTERMATH}:output:v1"
+    input_bindings = [
+        VariableBinding(
+            alias="content",
+            variable_key="chapter.prose.draft",
+            required=True,
+            source="autopilot_runtime",
+            scope="chapter",
+            stage="audit",
+            display_name="章节正文",
+        ),
+    ]
+    output_bindings = [
+        VariableBinding(
+            alias="chapter.summary",
+            variable_key="chapter.summary",
+            required=True,
+            source="autopilot_after_chapter_extract",
+            scope="chapter",
+            stage="audit",
+            display_name="章节摘要",
+        ),
+        VariableBinding(
+            alias="chapter.state_delta",
+            variable_key="chapter.state_delta",
+            source="autopilot_after_chapter_extract",
+            value_type="object",
+            scope="chapter",
+            stage="audit",
+            display_name="章节状态变化",
+        ),
+        VariableBinding(
+            alias="chapter.foreshadow_updates",
+            variable_key="chapter.foreshadow_updates",
+            source="autopilot_after_chapter_extract",
+            value_type="list",
+            scope="chapter",
+            stage="audit",
+            display_name="伏笔更新",
+        ),
+    ]
 
     with sqlite_writes_bypass_queue():
+        variable_repo = SqliteVariableHubRepository(db)
+        variable_repo.set_bindings(input_binding_set_id, CHAPTER_AFTERMATH, input_bindings, direction="input")
+        variable_repo.set_bindings(output_binding_set_id, CHAPTER_AFTERMATH, output_bindings, direction="output")
         SqliteInvocationSpecRepository(db).upsert(
             InvocationSpec(
                 operation="autopilot.chapter.aftermath",
                 node_key=CHAPTER_AFTERMATH,
                 prompt_node_version_id=_active_node_version(CHAPTER_AFTERMATH),
-                input_binding_set_id=f"{CHAPTER_AFTERMATH}:input:v1",
-                output_binding_set_id=f"{CHAPTER_AFTERMATH}:output:v1",
+                input_binding_set_id=input_binding_set_id,
+                output_binding_set_id=output_binding_set_id,
                 default_policy=InvocationPolicy.DIRECT,
                 risk_level="low",
                 supports_stream=False,

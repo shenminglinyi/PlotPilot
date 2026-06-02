@@ -69,6 +69,7 @@ class NovelState:
     active_invocation_node_key: str = ""
     active_invocation_status: str = ""
     active_invocation_policy: str = ""
+    has_active_invocation: bool = False
     requires_ai_review: bool = False
     autopilot_pause_reason: str = ""
     _updated_at: float = field(default_factory=time.time)
@@ -94,6 +95,7 @@ class NovelState:
             "active_invocation_node_key": self.active_invocation_node_key,
             "active_invocation_status": self.active_invocation_status,
             "active_invocation_policy": self.active_invocation_policy,
+            "has_active_invocation": self.has_active_invocation,
             "requires_ai_review": self.requires_ai_review,
             "autopilot_pause_reason": self.autopilot_pause_reason,
             "_updated_at": self._updated_at,
@@ -121,6 +123,7 @@ class NovelState:
             active_invocation_node_key=data.get("active_invocation_node_key", ""),
             active_invocation_status=data.get("active_invocation_status", ""),
             active_invocation_policy=data.get("active_invocation_policy", ""),
+            has_active_invocation=bool(data.get("has_active_invocation", False)),
             requires_ai_review=data.get("requires_ai_review", False),
             autopilot_pause_reason=data.get("autopilot_pause_reason", ""),
             _updated_at=data.get("_updated_at", time.time()),

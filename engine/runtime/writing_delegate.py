@@ -153,6 +153,12 @@ async def run_story_pipeline_writing(daemon: Any, novel: Any) -> None:
     pipeline = get_pipeline_registry().create_pipeline(genre)
     result = await pipeline.run_chapter(ctx)
 
+    if not result.success and result.error == "awaiting_ai_review":
+        novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+        daemon._flush_novel(novel)
+        logger.info("[%s] StoryPipeline 等待 AI Invocation 审阅", novel_id)
+        return
+
     if result.success:
         chapter_num = result.chapter_number or ctx.chapter_number
         if getattr(result, "audit_snapshot", None):
