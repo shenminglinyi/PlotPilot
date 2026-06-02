@@ -105,70 +105,94 @@ async function initTauriConnection(): Promise<void> {
   console.log(`[Tauri] API baseURL: ${axiosInstance.defaults.baseURL}`)
 }
 
-/** 桌面壳：后端在后台线程就绪，IPC 端口在健康检查通过前可能为 0 */
+/** 桌面壳：Rust 侧最多等待 120s，这里保持同一启动契约。 */
 const TAURI_BACKEND_POLL_MS = 200
-const TAURI_BACKEND_WAIT_MS = 30_000  // 30秒，避免长时间卡住
+const TAURI_BACKEND_WAIT_MS = 120_000
+const TAURI_BACKEND_HEALTH_TIMEOUT_MS = 2_000
 
-async function waitForTauriBackendPort(
+function delay(ms: number): Promise<void> {
+  return new Promise<void>(resolve => {
+    setTimeout(resolve, ms)
+  })
+}
+
+function formatUnknownError(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return error
+  }
+  return String(error)
+}
+
+async function checkBackendHealth(port: number): Promise<boolean> {
+  try {
+    const healthCheck = await fetch(`http://127.0.0.1:${port}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(TAURI_BACKEND_HEALTH_TIMEOUT_MS),
+    })
+    return healthCheck.ok
+  } catch {
+    return false
+  }
+}
+
+async function waitForTauriBackendReady(
   invoke: (cmd: string) => Promise<number>,
   maxWaitMs: number,
   intervalMs: number,
-): Promise<number | null> {
+): Promise<number> {
   const deadline = Date.now() + maxWaitMs
+  let lastPort = 0
+  let lastIpcError: unknown = null
+
   while (Date.now() < deadline) {
-    const p = await invoke('get_backend_port')
-    if (p > 0) {
-      return p
+    try {
+      const p = await invoke('get_backend_port')
+      if (p > 0) {
+        lastPort = p
+        if (await checkBackendHealth(p)) {
+          return p
+        }
+      }
+    } catch (error) {
+      lastIpcError = error
     }
-    await new Promise<void>(resolve => {
-      setTimeout(resolve, intervalMs)
-    })
+    await delay(intervalMs)
   }
-  return null
+
+  if (lastPort > 0) {
+    throw new Error(`后端端口 ${lastPort} 已分配，但 /health 在 ${maxWaitMs / 1000}s 内未就绪`)
+  }
+  if (lastIpcError != null) {
+    throw new Error(`无法通过 Tauri IPC 获取后端端口: ${formatUnknownError(lastIpcError)}`)
+  }
+  throw new Error(`后端在 ${maxWaitMs / 1000}s 内未发布端口`)
 }
 
 /**
  * 初始化 API（应用启动时调用一次）
  */
 export async function initApiClient(): Promise<void> {
-  let port: number | null = null
   try {
     const { invoke } = await import('@tauri-apps/api/core')
-    const first = await invoke<number>('get_backend_port')
-    if (first > 0) {
-      port = first
-    } else if (isTauri()) {
-      console.log('[API] 等待后端就绪...')
-      port = await waitForTauriBackendPort(
+    if (isTauri()) {
+      console.log('[API] 等待后端 HTTP 就绪...')
+      const port = await waitForTauriBackendReady(
         cmd => invoke<number>(cmd),
         TAURI_BACKEND_WAIT_MS,
         TAURI_BACKEND_POLL_MS,
       )
+      const newBaseURL = `http://127.0.0.1:${port}/api/v1`
+      axiosInstance.defaults.baseURL = newBaseURL
+      console.log(`[API] 桌面模式 baseURL: ${newBaseURL}`)
     }
   } catch (e) {
-    console.warn('[API] Tauri IPC 调用失败:', e)
-  }
-
-  if (port != null && port > 0) {
-    const newBaseURL = `http://127.0.0.1:${port}/api/v1`
-    axiosInstance.defaults.baseURL = newBaseURL
-    console.log(`[API] 桌面模式 baseURL: ${newBaseURL}`)
-
-    // 验证后端是否真的响应
-    try {
-      const healthCheck = await fetch(`http://127.0.0.1:${port}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
-      })
-      if (!healthCheck.ok) {
-        console.warn('[API] 后端健康检查失败，状态码:', healthCheck.status)
-      }
-    } catch (e) {
-      console.warn('[API] 后端健康检查异常:', e)
+    if (isTauri()) {
+      throw e
     }
-  } else if (isTauri()) {
-    axiosInstance.defaults.baseURL = 'http://127.0.0.1:8005/api/v1'
-    console.warn('[API] Tauri 下未能通过 IPC 取得端口，回退 8005')
+    console.warn('[API] Tauri IPC 不可用，使用浏览器/Vite API 配置:', e)
   }
 
   syncLegacyRootsFromV1()

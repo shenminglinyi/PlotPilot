@@ -6,7 +6,7 @@
 //!   3. 健康检查轮询，等待 HTTP 就绪
 //!   4. 管理子进程生命周期（退出时自动清理）
 
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -28,19 +28,43 @@ use win32job::Job;
 fn spawn_stdio_drainers(mut child: Child) -> Child {
     if let Some(out) = child.stdout.take() {
         thread::spawn(move || {
-            let mut reader = BufReader::new(out);
-            let mut sink = std::io::sink();
-            let _ = std::io::copy(&mut reader, &mut sink);
+            for line in BufReader::new(out).lines() {
+                match line {
+                    Ok(line) if !line.trim().is_empty() => log::info!("[backend stdout] {}", line),
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::warn!("读取后端 stdout 失败: {}", e);
+                        break;
+                    }
+                }
+            }
         });
     }
     if let Some(err) = child.stderr.take() {
         thread::spawn(move || {
-            let mut reader = BufReader::new(err);
-            let mut sink = std::io::sink();
-            let _ = std::io::copy(&mut reader, &mut sink);
+            for line in BufReader::new(err).lines() {
+                match line {
+                    Ok(line) if !line.trim().is_empty() => log_backend_stderr_line(&line),
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::warn!("读取后端 stderr 失败: {}", e);
+                        break;
+                    }
+                }
+            }
         });
     }
     child
+}
+
+fn log_backend_stderr_line(line: &str) {
+    if line.contains("[ERROR]") || line.contains("Traceback") || line.starts_with("ERROR:") {
+        log::error!("[backend stderr] {}", line);
+    } else if line.contains("[WARNING]") || line.starts_with("WARNING:") {
+        log::warn!("[backend stderr] {}", line);
+    } else {
+        log::info!("[backend stderr] {}", line);
+    }
 }
 
 /// 后端管理器
@@ -205,15 +229,22 @@ impl BackendManager {
                 log::info!("📂 资源根目录（冻结后端）: {}", resource_dir.display());
                 return resource_dir;
             }
-            for candidate in [
-                resource_dir.join("../../../"),
-                resource_dir.join("../../"),
-                resource_dir.clone(),
-            ] {
-                if candidate.join("interfaces/main.py").exists() {
-                    log::info!("📂 项目根目录: {}", candidate.display());
-                    return candidate.canonicalize().unwrap_or(candidate);
+            if let Some(root) = Self::find_source_project_root(resource_dir) {
+                return root;
+            }
+        }
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(parent) = exe.parent() {
+                if let Some(root) = Self::find_source_project_root(parent.to_path_buf()) {
+                    return root;
                 }
+            }
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            if let Some(root) = Self::find_source_project_root(cwd) {
+                return root;
             }
         }
 
@@ -221,6 +252,19 @@ impl BackendManager {
             .path()
             .resource_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
+    }
+
+    fn find_source_project_root(start: PathBuf) -> Option<PathBuf> {
+        let mut dir = start.canonicalize().unwrap_or(start);
+        loop {
+            if dir.join("interfaces").join("main.py").is_file() {
+                log::info!("📂 项目根目录: {}", dir.display());
+                return Some(dir);
+            }
+            if !dir.pop() {
+                return None;
+            }
+        }
     }
 
     /// 从指定端口开始，找到一个可用端口

@@ -21,8 +21,12 @@ venv/
 .eggs/
 dist/
 build/
-# PyInstaller / 冻结后端目录（仅打包机本机生成，勿提交）
+# PyInstaller / 冻结后端产物（仅打包机本机生成，勿提交；保留 Tauri 资源目录占位）
 out/
+!out/
+!out/tauri/
+!out/tauri/plotpilot-backend/
+!out/tauri/plotpilot-backend/.gitkeep
 *.egg
 # PyInstaller 单次构建在仓库根目录生成的 spec（由脚本传入 CLI，勿入库）
 /plotpilot-backend.spec

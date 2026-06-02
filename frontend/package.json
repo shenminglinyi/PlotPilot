@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "sync:taxonomy": "node scripts/sync-builtin-taxonomy.mjs",
+    "test:tauri-readiness": "node scripts/test-tauri-readiness-gate.mjs",
     "predev": "npm run sync:taxonomy",
     "prebuild": "npm run sync:taxonomy",
     "dev": "vite",
