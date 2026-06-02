@@ -1091,6 +1091,13 @@ function normalizeCharacterRoleAndDescription(role: string | undefined, descript
   }
 }
 
+function formatCharacterDescriptionForSave(role: string, description: string): string {
+  const normalized = normalizeCharacterRoleAndDescription(role, description)
+  if (!normalized.role) return normalized.description
+  if (!normalized.description) return normalized.role
+  return `${normalized.role} - ${normalized.description}`
+}
+
 function characterDraftKey(value: { id?: string; name?: string }): string {
   return String(value.id || value.name || '').trim().toLowerCase()
 }
@@ -1964,7 +1971,7 @@ async function saveCharactersEdits(): Promise<boolean> {
       characters: editableCharacters.value.map((c, idx) => ({
         id: c.id || `${props.novelId}-char-${idx + 1}`,
         name: c.name,
-        description: c.description,
+        description: formatCharacterDescriptionForSave(c.role, c.description),
         role: c.role,
         gender: c.gender,
         age: c.age,

@@ -92,7 +92,9 @@ def test_characters_handler_repairs_stringified_arrays(monkeypatch):
 
     ctx = _make_context(
         '{"characters":[{"name":"阿澄","description":"主角","relationships":"[{\\"target\\":\\"林墨\\",\\"relation\\":\\"师徒\\"}]","'
-        'moral_taboos":"[\\"杀无辜\\"]","voice_profile":"{\\"style\\":\\"克制\\"}","active_wounds":"[{\\"description\\":\\"旧伤\\"}]"}]}'
+        'gender":"女","age":"19","appearance":"白发","personality":"冷静","background":"流亡者",'
+        '"core_motivation":"找回故土","inner_lack":"学会信任同伴",'
+        '"moral_taboos":"[\\"杀无辜\\"]","voice_profile":"{\\"style\\":\\"克制\\"}","active_wounds":"[{\\"description\\":\\"旧伤\\"}]"}]}'
     )
 
     result = bible_characters_handler(ctx)
@@ -100,6 +102,13 @@ def test_characters_handler_repairs_stringified_arrays(monkeypatch):
     assert result["characters"][0]["id"] == "novel-1-char-1"
     assert result["protagonist"]["name"] == "阿澄"
     assert bible_service.characters[0]["relationships"][0]["target"] == "林墨"
+    assert bible_service.characters[0]["gender"] == "女"
+    assert bible_service.characters[0]["age"] == "19"
+    assert bible_service.characters[0]["appearance"] == "白发"
+    assert bible_service.characters[0]["personality"] == "冷静"
+    assert bible_service.characters[0]["background"] == "流亡者"
+    assert bible_service.characters[0]["core_motivation"] == "找回故土"
+    assert bible_service.characters[0]["inner_lack"] == "学会信任同伴"
     assert bible_service.characters[0]["moral_taboos"] == ["杀无辜"]
     assert bible_service.characters[0]["voice_profile"]["style"] == "克制"
     assert bible_service.characters[0]["active_wounds"][0]["description"] == "旧伤"

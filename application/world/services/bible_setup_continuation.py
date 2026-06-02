@@ -49,6 +49,12 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
+def _as_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value)
+
+
 def _extract_records(data: Any, key: str) -> list[Any]:
     if isinstance(data, Mapping):
         records = data.get(key)
@@ -148,14 +154,21 @@ def bible_characters_handler(context: ContinuationContext) -> Mapping[str, Any]:
             name=name,
             description=f"{str(char_data.get('role') or '').strip()} - {str(char_data.get('description') or '').strip()}".strip(" -"),
             relationships=_as_list(char_data.get("relationships")),
-            public_profile=str(char_data.get("public_profile") or ""),
-            hidden_profile=str(char_data.get("hidden_profile") or ""),
+            gender=_as_str(char_data.get("gender")),
+            age=_as_str(char_data.get("age")),
+            appearance=_as_str(char_data.get("appearance")),
+            personality=_as_str(char_data.get("personality") or char_data.get("flaw")),
+            background=_as_str(char_data.get("background") or char_data.get("ghost")),
+            core_motivation=_as_str(char_data.get("core_motivation") or char_data.get("want")),
+            inner_lack=_as_str(char_data.get("inner_lack") or char_data.get("need")),
+            public_profile=_as_str(char_data.get("public_profile")),
+            hidden_profile=_as_str(char_data.get("hidden_profile")),
             reveal_chapter=char_data.get("reveal_chapter"),
-            mental_state=str(char_data.get("mental_state") or "NORMAL"),
-            mental_state_reason=str(char_data.get("mental_state_reason") or ""),
-            verbal_tic=str(char_data.get("verbal_tic") or ""),
-            idle_behavior=str(char_data.get("idle_behavior") or ""),
-            core_belief=str(char_data.get("core_belief") or ""),
+            mental_state=_as_str(char_data.get("mental_state"), "NORMAL") or "NORMAL",
+            mental_state_reason=_as_str(char_data.get("mental_state_reason")),
+            verbal_tic=_as_str(char_data.get("verbal_tic")),
+            idle_behavior=_as_str(char_data.get("idle_behavior")),
+            core_belief=_as_str(char_data.get("core_belief")),
             moral_taboos=_as_list(char_data.get("moral_taboos")),
             voice_profile=_as_dict(char_data.get("voice_profile")),
             active_wounds=_as_list(char_data.get("active_wounds")),
