@@ -16,6 +16,7 @@ from application.ai_invocation.contracts.chapter_prose_generation import (
     CONTINUATION_HANDLER_KEY,
     OUTPUT_BINDING_SET_ID,
     NODE_KEY,
+    _input_bindings,
     _output_bindings,
     register_chapter_prose_generation_continuation,
     project_chapter_prose_to_chapters,
@@ -321,6 +322,111 @@ def test_cpms_prompt_assembler_renders_dotted_variable_keys():
 
     assert "雨夜压迫感" in snapshot.prompt.system
     assert "追击" in snapshot.prompt.user
+
+
+class _VariableHubContextNode:
+    active_version_id = "node-v1"
+
+    def get_active_system(self):
+        return "s"
+
+    def get_active_user_template(self):
+        return "变量中心：{{ variable_hub_context }}"
+
+
+class _VariableHubContextRegistry:
+    def get_node(self, node_key, use_cache=True):
+        return _VariableHubContextNode()
+
+
+def test_chapter_prose_prompt_receives_setup_variable_hub_context():
+    spec = InvocationSpec(
+        operation="chapter.generate.prose",
+        node_key=NODE_KEY,
+        prompt_node_version_id="node-v1",
+    )
+    variable_plan = VariablePlan(
+        aliases={},
+        snapshot_items=(
+            {
+                "key": "premise",
+                "display_name": "设定",
+                "variable_key": "novel.setup.premise",
+                "value": "少年在海底城觉醒",
+            },
+            {
+                "key": "core_rules",
+                "display_name": "核心法则",
+                "variable_key": "novel.worldbuilding.core_rules",
+                "value": {"power_system": "潮汐术"},
+            },
+            {
+                "key": "chapter_outline",
+                "display_name": "章节大纲",
+                "variable_key": "chapter.outline",
+                "value": "本章临时大纲",
+            },
+        ),
+    )
+
+    snapshot = CPMSPromptAssembler(
+        registry=_VariableHubContextRegistry(),
+        template_engine=PromptTemplateEngine(),
+    ).compile(spec=spec, variable_plan=variable_plan)
+
+    assert "少年在海底城觉醒" in snapshot.prompt.user
+    assert "潮汐术" in snapshot.prompt.user
+    assert "本章临时大纲" not in snapshot.prompt.user
+
+
+class _LegacyChapterProseNode:
+    active_version_id = "node-v1"
+
+    def get_active_system(self):
+        return "s"
+
+    def get_active_user_template(self):
+        return "章节大纲：{chapter_outline}"
+
+
+class _LegacyChapterProseRegistry:
+    def get_node(self, node_key, use_cache=True):
+        return _LegacyChapterProseNode()
+
+
+def test_chapter_prose_prompt_injects_setup_context_when_seed_template_is_old():
+    spec = InvocationSpec(
+        operation="chapter.generate.prose",
+        node_key=NODE_KEY,
+        prompt_node_version_id="node-v1",
+    )
+    variable_plan = VariablePlan(
+        aliases={"chapter_outline": "追击"},
+        snapshot_items=(
+            {
+                "key": "premise",
+                "display_name": "设定",
+                "variable_key": "novel.setup.premise",
+                "value": "变量中心设定",
+            },
+        ),
+    )
+
+    snapshot = CPMSPromptAssembler(
+        registry=_LegacyChapterProseRegistry(),
+        template_engine=PromptTemplateEngine(),
+    ).compile(spec=spec, variable_plan=variable_plan)
+
+    assert snapshot.prompt.user.startswith("变量中心（新书引导已确认内容）：")
+    assert "变量中心设定" in snapshot.prompt.user
+    assert "章节大纲：追击" in snapshot.prompt.user
+
+
+def test_chapter_prose_binds_title_and_genre_to_setup_guide_variables():
+    bindings = {binding.alias: binding for binding in _input_bindings()}
+
+    assert bindings["novel_title"].variable_key == "novel.setup.title"
+    assert bindings["genre"].variable_key == "novel.setup.genre_label"
 
 
 def test_prompt_declared_dotted_variable_becomes_binding_and_render_alias():

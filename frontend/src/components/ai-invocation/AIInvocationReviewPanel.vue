@@ -237,9 +237,10 @@ function formatStage(stage?: string): string {
   return labels[stage || 'runtime'] || stage || '运行时'
 }
 
-function snapshotGroupTitle(group: { title?: string; scope?: string; stage?: string }): string {
-  if (group.stage === 'setup') return '设定'
-  return group.title || `${formatScope(group.scope)} · ${formatStage(group.stage)}`
+function snapshotGroupTitle(group: { title?: string; scope?: string; stage?: string; items?: unknown[] }): string {
+  const base = group.title || `${formatScope(group.scope)} · ${formatStage(group.stage)}`
+  const count = group.items?.length || 0
+  return count > 0 ? `${base}（${count}项）` : base
 }
 
 function formatType(type?: string): string {

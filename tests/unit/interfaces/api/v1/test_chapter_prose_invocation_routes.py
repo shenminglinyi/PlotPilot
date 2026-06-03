@@ -81,7 +81,7 @@ def test_chapter_prose_invocation_http_lifecycle_writes_variable_hub_and_chapter
     assert created.json()["session"]["status"] == "awaiting_pre_call_review"
 
     input_repo = SqliteVariableHubRepository(db)
-    assert input_repo.get_value("novel.title", "novel_id:novel-http").value == "HTTP小说"
+    assert input_repo.get_value("novel.setup.title", "novel_id:novel-http").value == "HTTP小说"
     assert input_repo.get_value("chapter.outline", "novel_id:novel-http|chapter_number:6").value == "从审阅面板生成正文"
 
     resumed = client.post(f"/ai-invocations/{session_id}/resume", json={"resumed_by": "test"})
@@ -261,5 +261,89 @@ def test_chapter_prose_prompt_draft_custom_variable_can_be_filled_and_resumed(tm
     assert resumed.status_code == 200, resumed.text
     accepted_ready = _wait_for_status(client, session_id, "awaiting_acceptance")
     assert accepted_ready["attempt"]["content"] == "HTTP正文"
+
+    db.close_all(skip_checkpoint=True)
+
+
+def test_chapter_prose_get_refresh_keeps_setup_guide_variable_snapshot(tmp_path, monkeypatch):
+    db = DatabaseConnection(str(tmp_path / "plotpilot-test-prose-snapshot.db"))
+
+    monkeypatch.setattr(ai_invocation_routes, "get_database", lambda db_path=None: db)
+    monkeypatch.setattr("infrastructure.persistence.database.connection.get_database", lambda db_path=None: db)
+    monkeypatch.setattr(ai_invocation_routes, "get_llm_service", lambda: _StreamingLLM())
+
+    import infrastructure.ai.prompt_manager as prompt_manager_module
+    import infrastructure.ai.prompt_registry as prompt_registry_module
+
+    prompt_manager_module._manager_instance = prompt_manager_module.PromptManager(db)
+    prompt_registry_module._registry_instance = prompt_registry_module.PromptRegistry(
+        prompt_manager=prompt_manager_module._manager_instance
+    )
+    with sqlite_writes_bypass_queue():
+        with db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO novels (id, title, slug, target_chapters) VALUES (?, ?, ?, ?)",
+                ("novel-snapshot", "快照小说", "novel-snapshot", 12),
+            )
+
+    variable_repo = SqliteVariableHubRepository(db)
+    variable_repo.set_value(
+        VariableWrite(
+            key="novel.characters.list",
+            value=[{"name": "变量角色"}],
+            context_key="novel_id:novel-snapshot",
+            source_node_key="test",
+            value_type="list",
+            display_name="角色列表",
+            scope="novel",
+            stage="characters",
+        )
+    )
+    variable_repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"power_system": "变量武道"},
+            context_key="novel_id:novel-snapshot",
+            source_node_key="test",
+            value_type="object",
+            display_name="核心法则",
+            scope="novel",
+            stage="worldbuilding",
+        )
+    )
+
+    app = FastAPI()
+    app.include_router(ai_invocation_routes.router)
+    client = TestClient(app)
+
+    created = client.post(
+        "/ai-invocations",
+        json={
+            "operation": "chapter.generate.prose",
+            "node_key": "chapter-prose-generation",
+            "policy": "FULL_INTERACTIVE",
+            "context": {"novel_id": "novel-snapshot", "chapter_number": 1},
+            "variables": {
+                "novel_title": "快照小说",
+                "chapter_number": 1,
+                "chapter_outline": "生成正文",
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    session_id = created.json()["session"]["id"]
+
+    refreshed = client.get(f"/ai-invocations/{session_id}")
+    assert refreshed.status_code == 200, refreshed.text
+    plan = refreshed.json()["session"]["variable_plan"]
+    keys = {item["variable_key"] for item in plan["snapshot_items"]}
+    group_ids = {group["id"] for group in plan["snapshot_groups"]}
+
+    assert "novel.characters.list" in keys
+    assert "novel.worldbuilding.core_rules" in keys
+    assert "novel:characters" in group_ids
+    assert "novel:worldbuilding" in group_ids
+    assert "变量角色" in refreshed.json()["session"]["prompt_snapshot"]["prompt"]["user"]
+    assert "变量武道" in refreshed.json()["session"]["prompt_snapshot"]["prompt"]["user"]
 
     db.close_all(skip_checkpoint=True)

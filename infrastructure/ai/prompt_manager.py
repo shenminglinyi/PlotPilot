@@ -370,9 +370,14 @@ class PromptManager:
 
         if existing_version == seed_version:
             repaired = self._repair_corrupt_builtin_versions(conn, prompts)
-            if repaired:
+            added = self._insert_missing_builtin_nodes(conn, template_id, prompts)
+            if repaired or added:
                 conn.commit()
-                logger.warning("PromptManager: 修复 %d 个疑似乱码内置提示词节点", repaired)
+                logger.warning(
+                    "PromptManager: 同版本种子修复完成，修复 %d 个疑似乱码节点，补齐 %d 个缺失节点",
+                    repaired,
+                    added,
+                )
             self._seeded = True
             logger.info("PromptManager: 种子版本相同 (%s)，跳过更新", seed_version)
             return True
@@ -420,6 +425,32 @@ class PromptManager:
             self._overwrite_system_version(conn, row["node_id"], row["version_id"], seed_norm, now)
             repaired += 1
         return repaired
+
+    def _insert_missing_builtin_nodes(self, conn, template_id: str, prompts: List[Dict]) -> int:
+        """Insert seed nodes missing from an existing same-version builtin bundle.
+
+        Older local databases can have bundle metadata already set to the current
+        version while newer node directories were added later. In that case a
+        pure version check would skip seeding and runtime contracts would fail
+        with "CPMS node is not published".
+        """
+        existing_rows = conn.execute(
+            "SELECT node_key FROM prompt_nodes WHERE template_id = ?",
+            (template_id,),
+        ).fetchall()
+        existing_keys = {str(row["node_key"]) for row in existing_rows}
+        now = datetime.now().isoformat()
+        added = 0
+        for idx, prompt in enumerate(prompts):
+            node_key = str(prompt.get("id") or f"node-{idx}")
+            if node_key in existing_keys:
+                continue
+            self._insert_node(conn, template_id, idx, prompt, now)
+            existing_keys.add(node_key)
+            added += 1
+        if added:
+            logger.info("PromptManager: 同版本种子补齐 %d 个缺失内置节点", added)
+        return added
 
     @staticmethod
     def _looks_like_mojibake(text: str) -> bool:
