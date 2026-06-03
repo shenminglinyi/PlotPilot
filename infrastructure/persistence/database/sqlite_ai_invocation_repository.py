@@ -24,9 +24,11 @@ from application.ai_invocation.dtos import (
 )
 from application.ai_invocation.variable_hub import (
     VariableDefinition,
+    VariableResolver,
     VariableValue,
     VariableWrite,
     expand_context_keys,
+    sanitize_variable_value,
 )
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
@@ -47,6 +49,20 @@ def _json_loads(text: str | None, default: Any) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         return default
+
+
+def _infer_json_value_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "integer"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, dict):
+        return "object"
+    return "string"
 
 
 def _policy_value(policy: InvocationPolicy | str) -> str:
@@ -841,12 +857,54 @@ class SqliteVariableHubRepository:
             if row is not None:
                 return VariableValue(
                     key=row["variable_key"],
-                    value=_json_loads(row["value_json"], None),
+                    value=sanitize_variable_value(variable_key, _json_loads(row["value_json"], None)),
                     context_key=row["scope_key"] or "global",
                     source_ref=row["source_session_id"] or row["source_node_key"] or "",
                     version_number=int(row["version_number"] or 1),
                 )
         return None
+
+    def list_current_values(self, context_key: str) -> list[dict[str, Any]]:
+        scope_keys = expand_context_keys(context_key)
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for scope_key in scope_keys:
+            rows = self._db.fetch_all(
+                """
+                SELECT vv.*, vd.display_name, vd.value_type, vd.scope_level AS definition_scope_level,
+                       vd.metadata_json AS definition_metadata_json
+                FROM variable_values vv
+                LEFT JOIN variable_definitions vd ON vd.variable_key = vv.variable_key
+                WHERE vv.scope_key = ? AND vv.is_current = 1
+                ORDER BY vv.variable_key
+                """,
+                (scope_key,),
+            )
+            for row in rows:
+                variable_key = row["variable_key"]
+                if variable_key in seen:
+                    continue
+                seen.add(variable_key)
+                metadata = _json_loads(row["definition_metadata_json"], {}) if row["definition_metadata_json"] else {}
+                value_metadata = _json_loads(row["metadata_json"], {}) if row["metadata_json"] else {}
+                value = sanitize_variable_value(variable_key, _json_loads(row["value_json"], None))
+                stage = str(metadata.get("stage") or value_metadata.get("stage") or "")
+                if not stage or stage == "runtime":
+                    stage = VariableResolver._infer_stage(variable_key)
+                out.append(
+                    {
+                        "variable_key": variable_key,
+                        "display_name": row["display_name"] or variable_key,
+                        "value": value,
+                        "value_type": row["value_type"] or _infer_json_value_type(value),
+                        "scope": row["definition_scope_level"] or row["scope_level"] or "global",
+                        "stage": stage,
+                        "source": "variable_hub",
+                        "context_key": row["scope_key"] or "global",
+                        "version_number": int(row["version_number"] or 1),
+                    }
+                )
+        return out
 
     def get_definition(self, variable_key: str) -> VariableDefinition | None:
         row = self._db.fetch_one(
@@ -875,8 +933,9 @@ class SqliteVariableHubRepository:
             write = value
         scope_key = write.context_key or "global"
         scope_level = "novel" if scope_key != "global" else "global"
-        value_json = _json_dumps(write.value)
-        value_hash = _json_dumps({"value": write.value})
+        clean_value = sanitize_variable_value(write.key, write.value)
+        value_json = _json_dumps(clean_value)
+        value_hash = _json_dumps({"value": clean_value})
         existing = self._db.fetch_one(
             """
             SELECT version_number
@@ -965,7 +1024,7 @@ class SqliteVariableHubRepository:
             )
         return VariableValue(
             key=write.key,
-            value=write.value,
+            value=clean_value,
             context_key=scope_key,
             source_ref=write.source_session_id or write.source_node_key or write.source_trace_id,
             version_number=version,

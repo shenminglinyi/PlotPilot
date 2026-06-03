@@ -172,7 +172,7 @@ def _ensure_main_plot_invocation_contract() -> None:
             "value_type": "object",
             "scope": "global",
             "stage": "planning",
-            "required": True,
+            "required": False,
             "source": "derived_config",
         },
         "genre_reader_contract": {
@@ -181,7 +181,7 @@ def _ensure_main_plot_invocation_contract() -> None:
             "value_type": "object",
             "scope": "global",
             "stage": "planning",
-            "required": True,
+            "required": False,
             "source": "derived_config",
         },
         "genre_rhythm_constraints": {
@@ -190,7 +190,7 @@ def _ensure_main_plot_invocation_contract() -> None:
             "value_type": "object",
             "scope": "global",
             "stage": "planning",
-            "required": True,
+            "required": False,
             "source": "derived_config",
         },
         "protagonist": {
@@ -379,7 +379,12 @@ def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
     theme_metadata = ctx.get("theme_metadata") if isinstance(ctx.get("theme_metadata"), dict) else {}
     genre_label = str(theme_metadata.get("genre_label") or "").strip()
     genre_major, genre_theme = _split_genre_label(genre_label)
-    genre_profile = resolve_opening_profile(genre_label, strict=True).as_variables()
+    resolved_profile = resolve_opening_profile(genre_label, strict=False)
+    genre_profile = resolved_profile.as_variables() if resolved_profile is not None else {
+        "genre_opening_profile": {},
+        "genre_reader_contract": {},
+        "genre_rhythm_constraints": {},
+    }
     aliases = {
         "novel_title": str(ctx.get("novel_title") or "").strip(),
         "premise": str(ctx.get("premise") or "").strip(),

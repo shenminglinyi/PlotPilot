@@ -12,7 +12,6 @@ from application.world.services.worldbuilding_service import WorldbuildingServic
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
-from application.world.services.character_naming import build_character_surname_seed
 from application.ai.trace_context import ensure_trace
 from infrastructure.ai.prompt_keys import (
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
@@ -1056,11 +1055,6 @@ class AutoBibleGenerator:
         from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
 
         wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        surname_seed = build_character_surname_seed(
-            8,
-            rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
-        )
 
         prompt = _render_required_bible_prompt(
             BIBLE_CHARACTERS,
@@ -1070,7 +1064,6 @@ class AutoBibleGenerator:
                 "target_chapters": target_chapters,
                 "style_guide": "",
                 "existing_characters": "",
-                "surname_seed": surname_seed.to_prompt_block(),
             },
         )
 
@@ -1095,11 +1088,6 @@ class AutoBibleGenerator:
         from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
 
         wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        surname_seed = build_character_surname_seed(
-            8,
-            rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
-        )
         prompt = _render_required_bible_prompt(
             BIBLE_CHARACTERS,
             {
@@ -1108,7 +1096,6 @@ class AutoBibleGenerator:
                 "target_chapters": target_chapters,
                 "style_guide": "",
                 "existing_characters": "",
-                "surname_seed": surname_seed.to_prompt_block(),
             },
         )
         config = GenerationConfig(max_tokens=4096, temperature=0.7)

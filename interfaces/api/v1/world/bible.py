@@ -14,17 +14,18 @@ from application.world.dtos.bible_dto import BibleDTO
 from application.ai_invocation.dtos import InvocationPolicy, InvocationRequest
 from application.ai_invocation.gateway import AIInvocationGateway
 from application.ai_invocation.services import AdoptionCommitService, AdoptionService, AttemptService, InvocationSessionService
+from application.ai_invocation.spec_service import InvocationSpecService
+from application.ai_invocation.variable_hub import VariableResolver, VariableWrite
 from application.world.services.bible_setup_continuation import register_bible_setup_continuations
 from application.world.services.bible_setup_invocation import (
     BIBLE_SETUP_CHARACTERS_NODE,
     BIBLE_SETUP_LOCATIONS_NODE,
     BIBLE_SETUP_WORLD_NODE,
     BibleSetupPromptAssembler,
-    build_bible_setup_spec_service,
-    build_bible_setup_variable_resolver,
     build_bible_setup_variables,
+    ensure_bible_setup_contract,
 )
-from application.world.services.bible_setup_output_bindings import ensure_bible_setup_output_bindings
+from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
 from interfaces.api.dependencies import (
     get_bible_service,
     get_auto_bible_generator,
@@ -227,7 +228,7 @@ async def generate_bible(
                 return
 
             # 使用 premise（故事梗概）生成 Bible，如果没有则使用 title
-            premise = novel.premise if novel.premise else novel.title
+            premise = strip_v1_structure_black_box_hint(novel.premise if novel.premise else novel.title)
 
             # 生成 Bible（支持分阶段）
             bible_data = await bible_generator.generate_and_save(
@@ -283,6 +284,129 @@ _BIBLE_SETUP_NODE_BY_STAGE = {
 }
 
 
+def _write_variable_if_missing(variable_repo, *, key: str, value, context_key: str, value_type: str, display_name: str, stage: str) -> None:
+    if value in (None, "", [], {}):
+        return
+    if variable_repo.get_value(key, context_key) is not None:
+        return
+    variable_repo.set_value(
+        VariableWrite(
+            key=key,
+            value=value,
+            context_key=context_key,
+            source_trace_id="setup_guide_backfill",
+            source_node_key="novel_setup_guide",
+            lineage={"source": "novel_setup_guide_backfill"},
+            value_type=value_type,
+            display_name=display_name,
+            scope="global",
+            stage=stage,
+        )
+    )
+
+
+def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, bible_generator: AutoBibleGenerator) -> None:
+    context_key = f"novel_id:{novel_id}"
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.setup.title",
+        value=str(getattr(novel, "title", "") or "").strip(),
+        context_key=context_key,
+        value_type="string",
+        display_name="名称",
+        stage="setup",
+    )
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.setup.premise",
+        value=strip_v1_structure_black_box_hint(
+            str(getattr(novel, "premise", "") or getattr(novel, "title", "") or "").strip()
+        ),
+        context_key=context_key,
+        value_type="string",
+        display_name="设定",
+        stage="setup",
+    )
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.setup.target_chapters",
+        value=int(getattr(novel, "target_chapters", 0) or 0),
+        context_key=context_key,
+        value_type="integer",
+        display_name="章节数量",
+        stage="setup",
+    )
+    _write_variable_if_missing(
+        variable_repo,
+        key="novel.setup.target_words_per_chapter",
+        value=int(getattr(novel, "target_words_per_chapter", 0) or 0),
+        context_key=context_key,
+        value_type="integer",
+        display_name="每章字数",
+        stage="setup",
+    )
+    for key, attr, label in (
+        ("novel.setup.genre_label", "locked_genre", "类型"),
+        ("novel.setup.world_preset", "locked_world_preset", "基调"),
+    ):
+        _write_variable_if_missing(
+            variable_repo,
+            key=key,
+            value=str(getattr(novel, attr, "") or "").strip(),
+            context_key=context_key,
+            value_type="string",
+            display_name=label,
+            stage="setup",
+        )
+
+    try:
+        bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
+    except Exception:
+        bible = None
+    if bible is not None:
+        style_notes = [
+            f"{str(getattr(item, 'category', '') or '').strip()}: {str(getattr(item, 'content', '') or '').strip()}".strip(": ")
+            for item in getattr(bible, "style_notes", []) or []
+            if str(getattr(item, "content", "") or "").strip()
+        ]
+        if style_notes:
+            _write_variable_if_missing(
+                variable_repo,
+                key="novel.style.guide",
+                value="\n".join(style_notes),
+                context_key=context_key,
+                value_type="string",
+                display_name="文风公约",
+                stage="setup",
+            )
+
+    wb = None
+    try:
+        wb = bible_generator.worldbuilding_service.get_worldbuilding(novel_id) if bible_generator.worldbuilding_service else None
+    except Exception:
+        wb = None
+    dimensions = wb.normalized_dimensions() if hasattr(wb, "normalized_dimensions") else {}
+    if isinstance(dimensions, dict):
+        for dim_key, display_name in (
+            ("core_rules", "核心法则"),
+            ("geography", "地理生态"),
+            ("society", "社会结构"),
+            ("culture", "历史文化"),
+            ("daily_life", "沉浸感细节"),
+        ):
+            value = dimensions.get(dim_key)
+            if isinstance(value, dict):
+                _write_variable_if_missing(
+                    variable_repo,
+                    key=f"novel.worldbuilding.{dim_key}",
+                    value=value,
+                    context_key=context_key,
+                    value_type="object",
+                    display_name=display_name,
+                    stage="worldbuilding",
+                )
+
+
 async def _create_bible_setup_invocation(
     *,
     novel_id: str,
@@ -294,24 +418,34 @@ async def _create_bible_setup_invocation(
     if stage not in _BIBLE_SETUP_NODE_BY_STAGE:
         raise ValueError(f"unsupported bible setup invocation stage: {stage}")
     register_bible_setup_continuations()
+    operation = f"bible.setup.{stage}"
+    node_key = _BIBLE_SETUP_NODE_BY_STAGE[stage]
     try:
         from interfaces.api.v1.engine.ai_invocation_routes import _repositories
+        from infrastructure.persistence.database.connection import get_database
 
-        ensure_bible_setup_output_bindings(
-            _repositories()["variable_hub"],
-            _BIBLE_SETUP_NODE_BY_STAGE[stage],
+        ensure_bible_setup_contract(get_database(), operation=operation, node_key=node_key)
+        repos = _repositories()
+        _backfill_bible_setup_variable_hub(
+            variable_repo=repos["variable_hub"],
+            novel_id=novel_id,
+            novel=novel,
+            bible_generator=bible_generator,
         )
     except Exception:
-        logger.exception("Failed to ensure Bible setup output bindings: stage=%s", stage)
+        logger.exception("Failed to prepare Bible setup Variable Hub contract: stage=%s", stage)
+        from interfaces.api.v1.engine.ai_invocation_routes import _repositories
+
+        repos = _repositories()
     gateway = AIInvocationGateway(
-        spec_service=build_bible_setup_spec_service(),
-        variable_resolver=build_bible_setup_variable_resolver(),
+        spec_service=InvocationSpecService(repos["spec"]),
+        variable_resolver=VariableResolver(repos["variable_hub"]),
         prompt_assembler=BibleSetupPromptAssembler(),
         llm_service=bible_generator.llm_service,
         session_service=InvocationSessionService(),
         attempt_service=AttemptService(bible_generator.llm_service),
         adoption_service=AdoptionService(),
-        commit_service=AdoptionCommitService(),
+        commit_service=AdoptionCommitService(variable_hub_repository=repos["variable_hub"]),
     )
     variables = build_bible_setup_variables(
         stage=stage,
@@ -321,8 +455,8 @@ async def _create_bible_setup_invocation(
     )
     result = await gateway.invoke(
         InvocationRequest(
-            operation=f"bible.setup.{stage}",
-            node_key=_BIBLE_SETUP_NODE_BY_STAGE[stage],
+            operation=operation,
+            node_key=node_key,
             variables=variables,
             context={"novel_id": novel_id, "stage": stage},
             policy=InvocationPolicy.FULL_INTERACTIVE,
@@ -338,12 +472,10 @@ async def _create_bible_setup_invocation(
         _commit_payload,
         _decision_payload,
         _next_action,
-        _repositories,
         _save_invocation_result,
         _session_payload,
     )
 
-    repos = _repositories()
     _save_invocation_result(repos, result)
     return {
         "session": _session_payload(result.session),
@@ -406,7 +538,7 @@ async def _sse_bible_generator(
         if not novel:
             yield _sse_fmt("error", {"message": "小说不存在，无法生成 Bible"})
             return
-        premise = novel.premise if novel.premise else novel.title
+        premise = strip_v1_structure_black_box_hint(novel.premise if novel.premise else novel.title)
     except Exception as e:
         yield _sse_fmt("error", {"message": f"获取小说信息失败: {e}"})
         return

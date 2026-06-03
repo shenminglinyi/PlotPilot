@@ -182,7 +182,7 @@ class InvocationContractRegistry:
                 "value_type": "object",
                 "scope": "global",
                 "stage": "planning",
-                "required": True,
+                "required": False,
                 "source": "derived_config",
             },
             "genre_reader_contract": {
@@ -191,7 +191,7 @@ class InvocationContractRegistry:
                 "value_type": "object",
                 "scope": "global",
                 "stage": "planning",
-                "required": True,
+                "required": False,
                 "source": "derived_config",
             },
             "genre_rhythm_constraints": {
@@ -200,7 +200,7 @@ class InvocationContractRegistry:
                 "value_type": "object",
                 "scope": "global",
                 "stage": "planning",
-                "required": True,
+                "required": False,
                 "source": "derived_config",
             },
         }

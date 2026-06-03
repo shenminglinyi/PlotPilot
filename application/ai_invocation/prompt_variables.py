@@ -62,6 +62,18 @@ def aliases_with_dotted_variables(aliases: Mapping[str, Any]) -> dict[str, Any]:
     return expanded
 
 
+def aliases_with_binding_variable_keys(
+    aliases: Mapping[str, Any],
+    bindings: list[VariableBinding] | tuple[VariableBinding, ...],
+) -> dict[str, Any]:
+    expanded: dict[str, Any] = dict(aliases or {})
+    for binding in bindings or ():
+        if not binding.enabled or not binding.variable_key or binding.alias not in aliases:
+            continue
+        expanded[str(binding.variable_key)] = aliases[binding.alias]
+    return expanded
+
+
 def prompt_declared_input_bindings(
     *,
     existing_bindings: list[VariableBinding],

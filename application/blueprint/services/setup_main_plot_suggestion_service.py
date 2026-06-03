@@ -130,7 +130,9 @@ class SetupMainPlotSuggestionService:
             "genre_rhythm_constraints": self._coerce_dict(variable_context.get("genre_rhythm_constraints")),
         }
         if not all(genre_profile.values()):
-            genre_profile = resolve_opening_profile(str(theme_metadata.get("genre_label") or ""), strict=True).as_variables()
+            resolved_profile = resolve_opening_profile(str(theme_metadata.get("genre_label") or ""), strict=False)
+            if resolved_profile is not None:
+                genre_profile = resolved_profile.as_variables()
         fusion_profile = self._resolve_fusion_profile(theme_metadata, title, premise)
         fusion_contract = str(variable_context.get("fusion_contract") or "").strip()
         if not fusion_contract:

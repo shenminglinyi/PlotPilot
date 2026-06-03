@@ -140,6 +140,77 @@ def test_variable_resolver_uses_explicit_then_hub_then_default():
     assert plan.aliases["role"] == "专业小说家"
     assert plan.lineage["outline"] == "explicit"
     assert plan.snapshot_hash
+    assert [item["key"] for item in plan.snapshot_items] == ["bible"]
+    assert plan.snapshot_items[0]["source"] == "variable_hub"
+
+
+def test_variable_resolver_snapshots_prompt_input_when_hub_fact_exists():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(
+                alias="core_rules",
+                variable_key="novel.worldbuilding.core_rules",
+                source="prompt_input",
+                value_type="string",
+                scope="global",
+                stage="worldbuilding",
+            ),
+            VariableBinding(alias="transient_hint", variable_key="novel.characters.transient_hint", source="prompt_input"),
+        ],
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"power_system": "异能体系"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="bible.setup.characters", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={
+            "core_rules": "【核心法则】异能体系",
+            "transient_hint": "临时提示",
+        },
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.aliases["core_rules"] == "【核心法则】异能体系"
+    assert [item["key"] for item in plan.snapshot_items] == ["core_rules"]
+    assert plan.snapshot_items[0]["source"] == "variable_hub"
+
+
+def test_variable_resolver_snapshot_includes_all_context_values():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [VariableBinding(alias="outline", required=False, default="")],
+    )
+    repo.set_value(VariableWrite(key="novel.setup.premise", value="设定A", context_key="novel_id:novel-1"))
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"power_system": "体系A"},
+            context_key="novel_id:novel-1",
+        )
+    )
+    repo.set_value(VariableWrite(key="novel.characters.list", value=[], context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="materialized.setup.main_plot_context", value="临时拼接文本", context_key="novel_id:novel-1"))
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="bible.setup.characters", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    keys = {item["variable_key"] for item in plan.snapshot_items}
+    assert {"novel.setup.premise", "novel.worldbuilding.core_rules"} <= keys
+    assert "novel.characters.list" not in keys
+    assert "materialized.setup.main_plot_context" not in keys
 
 
 def test_variable_resolver_reports_required_missing():
@@ -234,6 +305,13 @@ def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
     assert plan.aliases["genre_opening_profile"]["opening_mechanism"] == "即时压迫"
     assert plan.lineage["premise"] == "variable:novel.setup.premise"
     assert plan.lineage["planning_depth"] == "variable:novel.planning.macro.depth"
+    assert {item["key"] for item in plan.snapshot_items} == {
+        "premise",
+        "target_chapters",
+        "characters",
+        "planning_depth",
+        "rec_parts",
+    }
 
 
 def test_prompt_assembler_freezes_snapshot_without_package_fallback():

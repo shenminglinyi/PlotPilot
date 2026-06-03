@@ -6,8 +6,12 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
 from application.ai_invocation.dtos import InvocationSpec, VariableBinding, VariablePlan, stable_hash
+from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
 
-RUNTIME_ONLY_BINDING_SOURCES = frozenset({"runtime_only", "derived_config", "system_template"})
+RUNTIME_ONLY_BINDING_SOURCES = frozenset(
+    {"runtime_only", "derived_config", "system_template", "prompt_input"}
+)
+SNAPSHOT_EXCLUDED_BINDING_SOURCES = frozenset({"runtime_only", "derived_config", "system_template"})
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,13 @@ class VariableWrite:
     stage: str = "runtime"
 
 
+def sanitize_variable_value(variable_key: str, value: Any) -> Any:
+    """Remove server-generated internal text from user-facing Variable Hub values."""
+    if variable_key == "novel.setup.premise" and isinstance(value, str):
+        return strip_v1_structure_black_box_hint(value)
+    return value
+
+
 class VariableHubRepository(Protocol):
     def get_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
         """读取节点输入变量绑定。"""
@@ -60,6 +71,9 @@ class VariableHubRepository(Protocol):
 
     def set_value(self, value: VariableValue | VariableWrite) -> VariableValue | None:
         """写入变量值。"""
+
+    def list_current_values(self, context_key: str) -> list[Mapping[str, Any]]:
+        """列出当前上下文可见的所有当前变量值。"""
 
     def set_bindings(
         self,
@@ -90,9 +104,10 @@ class InMemoryVariableHubRepository:
         existing = self.values.get((write.key, write.context_key))
         version = (existing.version_number + 1) if existing else 1
         source_ref = write.source_session_id or write.source_trace_id or write.source_node_key
+        clean_value = sanitize_variable_value(write.key, write.value)
         value = VariableValue(
             key=write.key,
-            value=write.value,
+            value=clean_value,
             context_key=write.context_key,
             source_ref=source_ref,
             version_number=version,
@@ -120,17 +135,74 @@ class InMemoryVariableHubRepository:
         for scope_key in expand_context_keys(context_key):
             value = self.values.get((variable_key, scope_key))
             if value is not None:
+                clean_value = sanitize_variable_value(variable_key, value.value)
+                if clean_value != value.value:
+                    return VariableValue(
+                        key=value.key,
+                        value=clean_value,
+                        context_key=value.context_key,
+                        source_ref=value.source_ref,
+                        version_number=value.version_number,
+                    )
                 return value
         return None
 
     def get_definition(self, variable_key: str) -> VariableDefinition | None:
         return self.definitions.get(variable_key)
 
+    def list_current_values(self, context_key: str) -> list[Mapping[str, Any]]:
+        rows: list[Mapping[str, Any]] = []
+        seen: set[str] = set()
+        for scope_key in expand_context_keys(context_key):
+            for (key, value_scope), value in self.values.items():
+                if value_scope != scope_key or key in seen:
+                    continue
+                seen.add(key)
+                definition = self.definitions.get(key)
+                clean_value = sanitize_variable_value(key, value.value)
+                rows.append(
+                    {
+                        "variable_key": key,
+                        "display_name": key,
+                        "value": clean_value,
+                        "value_type": definition.value_type if definition else self._infer_value_type(clean_value),
+                        "scope": VariableResolver._infer_scope(key),
+                        "stage": VariableResolver._infer_stage(key),
+                        "source": "variable_hub",
+                        "context_key": value.context_key,
+                        "version_number": value.version_number,
+                    }
+                )
+        return rows
+
     def set_value(self, value: VariableValue | VariableWrite) -> VariableValue | None:  # type: ignore[override]
         if isinstance(value, VariableWrite):
             return self.write_value(value)
+        clean_value = sanitize_variable_value(value.key, value.value)
+        if clean_value != value.value:
+            value = VariableValue(
+                key=value.key,
+                value=clean_value,
+                context_key=value.context_key,
+                source_ref=value.source_ref,
+                version_number=value.version_number,
+            )
         self.values[(value.key, value.context_key)] = value
         return None
+
+    @staticmethod
+    def _infer_value_type(value: Any) -> str:
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int) and not isinstance(value, bool):
+            return "integer"
+        if isinstance(value, float):
+            return "float"
+        if isinstance(value, list):
+            return "list"
+        if isinstance(value, dict):
+            return "object"
+        return "string"
 
 
 def extract_path_value(source: Any, path: str) -> Any:
@@ -203,6 +275,7 @@ class VariableResolver:
         context_key = self._context_key(context)
         aliases: dict[str, Any] = {}
         lineage: dict[str, str] = {}
+        resolved_from_hub: set[str] = set()
         diagnostics: list[str] = []
         required_missing: list[str] = []
         snapshot_items: list[dict[str, Any]] = []
@@ -217,12 +290,17 @@ class VariableResolver:
             if binding.alias in explicit_variables:
                 aliases[binding.alias] = explicit_variables[binding.alias]
                 lineage[binding.alias] = "explicit"
+                if binding.variable_key:
+                    stored = self._repository.get_value(binding.variable_key, context_key)
+                    if stored is not None:
+                        resolved_from_hub.add(binding.alias)
                 value_found = True
             elif binding.variable_key:
                 stored = self._repository.get_value(binding.variable_key, context_key)
                 if stored is not None:
                     aliases[binding.alias] = stored.value
                     lineage[binding.alias] = stored.source_ref or f"variable:{binding.variable_key}"
+                    resolved_from_hub.add(binding.alias)
                     value_found = True
 
             if not value_found:
@@ -252,7 +330,13 @@ class VariableResolver:
             binding = binding_by_alias.get(alias)
             if self._is_runtime_only_binding(binding):
                 continue
-            snapshot_items.append(self._snapshot_item(alias, value, binding, lineage.get(alias, "")))
+            if alias not in resolved_from_hub:
+                continue
+            if not self._is_snapshot_value_present(value):
+                continue
+            snapshot_items.append(self._snapshot_item(alias, value, binding, "variable_hub"))
+
+        self._append_context_snapshot_items(snapshot_items, context_key)
 
         snapshot_groups = self._snapshot_groups(snapshot_items)
         snapshot_hash = stable_hash({"aliases": aliases, "lineage": lineage, "snapshot_items": snapshot_items})
@@ -286,7 +370,7 @@ class VariableResolver:
             "type": binding.value_type if binding and binding.value_type else VariableResolver._infer_type(value),
             "scope": binding.scope if binding and binding.scope else VariableResolver._infer_scope(variable_key),
             "stage": binding.stage if binding and binding.stage else VariableResolver._infer_stage(variable_key),
-            "source": binding.source if binding and binding.source else lineage,
+            "source": "variable_hub" if lineage == "variable_hub" else (binding.source if binding and binding.source else lineage),
             "variable_key": variable_key,
             "required": bool(binding.required) if binding else False,
         }
@@ -295,9 +379,54 @@ class VariableResolver:
     def _is_runtime_only_binding(binding: VariableBinding | None) -> bool:
         if binding is None:
             return False
-        if binding.source in RUNTIME_ONLY_BINDING_SOURCES:
+        if binding.source in SNAPSHOT_EXCLUDED_BINDING_SOURCES:
             return True
         return bool(binding.variable_key and str(binding.variable_key).startswith("system."))
+
+    def _append_context_snapshot_items(self, snapshot_items: list[dict[str, Any]], context_key: str) -> None:
+        if not hasattr(self._repository, "list_current_values"):
+            return
+        seen_keys = {
+            str(item.get("variable_key") or item.get("key") or "")
+            for item in snapshot_items
+            if str(item.get("variable_key") or item.get("key") or "")
+        }
+        try:
+            current_values = self._repository.list_current_values(context_key)  # type: ignore[attr-defined]
+        except Exception:
+            return
+        for raw in current_values or []:
+            variable_key = str(raw.get("variable_key") or raw.get("key") or "")
+            value = raw.get("value")
+            if (
+                not variable_key
+                or variable_key in seen_keys
+                or not self._is_snapshot_variable_key(variable_key)
+                or not self._is_snapshot_value_present(value)
+            ):
+                continue
+            seen_keys.add(variable_key)
+            snapshot_items.append(
+                {
+                    "key": variable_key,
+                    "display_name": str(raw.get("display_name") or variable_key),
+                    "value": value,
+                    "type": str(raw.get("value_type") or VariableResolver._infer_type(value)),
+                    "scope": str(raw.get("scope") or VariableResolver._infer_scope(variable_key)),
+                    "stage": str(raw.get("stage") or VariableResolver._infer_stage(variable_key)),
+                    "source": "variable_hub",
+                    "variable_key": variable_key,
+                    "required": False,
+                }
+            )
+
+    @staticmethod
+    def _is_snapshot_variable_key(variable_key: str) -> bool:
+        return not variable_key.startswith(("system.", "runtime.", "materialized."))
+
+    @staticmethod
+    def _is_snapshot_value_present(value: Any) -> bool:
+        return value is not None and value not in ("", [], {})
 
     @staticmethod
     def _snapshot_groups(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -344,9 +473,15 @@ class VariableResolver:
 
     @staticmethod
     def _infer_stage(variable_key: str) -> str:
-        if ".setup." in variable_key or variable_key.startswith("novel."):
+        if ".setup." in variable_key:
             return "setup"
-        if ".planning." in variable_key:
+        if ".worldbuilding." in variable_key:
+            return "worldbuilding"
+        if ".characters." in variable_key:
+            return "characters"
+        if ".locations." in variable_key:
+            return "locations"
+        if ".plot." in variable_key or ".planning." in variable_key:
             return "planning"
         if ".writing." in variable_key:
             return "writing"
@@ -375,6 +510,9 @@ class VariableResolver:
         stage_label = {
             "setup": "设定",
             "planning": "规划阶段",
+            "worldbuilding": "世界观",
+            "characters": "人物",
+            "locations": "地点",
             "writing": "写作阶段",
             "review": "审阅阶段",
             "runtime": "运行时",
