@@ -12,10 +12,7 @@ from domain.novel.repositories.chapter_repository import ChapterRepository
 from domain.shared.exceptions import EntityNotFoundError
 from application.core.dtos.novel_dto import NovelDTO
 from application.core.chapter_target_limits import clamp_chapter_target_words
-from application.core.v1_length_tiers import (
-    build_v1_structure_black_box_hint,
-    resolve_v1_length_params,
-)
+from application.core.v1_length_tiers import resolve_v1_length_params
 from domain.structure.story_node import StoryNode, NodeType, PlanningStatus, PlanningSource
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 
@@ -85,18 +82,8 @@ class NovelService:
         genre: str = "",
         world_preset: str = "",
     ) -> str:
-        """将赛道/世界观预设与梗概合并，供后续 Bible/全托管链路统一消费（无需额外表字段）。"""
-        parts = []
-        g = (genre or "").strip()
-        w = (world_preset or "").strip()
-        if g:
-            parts.append(f"类型：{g}")
-        if w:
-            parts.append(f"世界观基调：{w}")
-        body = (premise or "").strip()
-        if not parts:
-            return body
-        return "【" + "；".join(parts) + "】\n\n" + body
+        """Return only the user-authored premise; presets must not be spliced into it."""
+        return (premise or "").strip()
 
     def create_novel(
         self,
@@ -118,26 +105,24 @@ class NovelService:
             author: 作者
             target_chapters: 目标章节数（未使用 V1 体量档时有效）
             premise: 故事梗概/创意
-            genre: 赛道/类型（前端下拉预设，写入 premise 前缀）
-            world_preset: 世界观基调（前端下拉预设，写入 premise 前缀）
+            genre: 赛道/类型（前端下拉预设；不写入 premise）
+            world_preset: 世界观基调（前端下拉预设；不写入 premise）
             length_tier: V1 体量档 short|standard|epic；若指定则由服务端推导章数与每章字数
             target_words_per_chapter: 每章目标字数（可选；与体量档或自定义章数搭配）
 
         Returns:
             NovelDTO
         """
-        chapters, wpc, tier_norm = resolve_v1_length_params(
+        chapters, wpc, _tier_norm = resolve_v1_length_params(
             length_tier, target_chapters, target_words_per_chapter
         )
-        structure_hint = build_v1_structure_black_box_hint(tier_norm, chapters, wpc)
         user_block = self._compose_premise_with_presets(premise, genre, world_preset)
-        full_premise = f"{structure_hint}\n\n{user_block}"
         novel = Novel(
             id=NovelId(novel_id),
             title=title,
             author=author,
             target_chapters=chapters,
-            premise=full_premise,
+            premise=user_block,
             stage=NovelStage.PLANNING,
             target_words_per_chapter=wpc,
         )

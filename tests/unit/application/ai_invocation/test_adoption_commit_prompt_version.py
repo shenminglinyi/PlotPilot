@@ -175,7 +175,6 @@ def test_bible_worldbuilding_commit_registers_and_writes_variable_outputs():
                 "core_rules": {"power_system": "体系A"},
                 "geography": {"terrain": "地形A"},
             },
-            "worldbuilding_full": "核心法则：体系A\n地理生态：地形A",
             "core_rules": {"power_system": "体系A"},
             "geography": {"terrain": "地形A"},
             "style": "克制冷峻",
@@ -196,7 +195,7 @@ def test_bible_worldbuilding_commit_registers_and_writes_variable_outputs():
     assert step.result["skipped"] is False
     assert repo.get_value("novel.worldbuilding.core_rules", "novel_id:novel-1").value["power_system"] == "体系A"
     assert repo.get_value("novel.worldbuilding.geography", "novel_id:novel-1").value["terrain"] == "地形A"
-    assert "体系A" in repo.get_value("novel.worldbuilding.full", "novel_id:novel-1").value
+    assert repo.get_value("novel.worldbuilding.full", "novel_id:novel-1") is None
     assert repo.get_value("novel.style.guide", "novel_id:novel-1").value == "克制冷峻"
 
 

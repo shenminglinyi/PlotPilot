@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from application.world.services.bible_setup_invocation import (
     BIBLE_SETUP_WORLD_NODE,
+    bible_setup_input_bindings,
     build_bible_setup_variable_resolver,
     build_bible_setup_variables,
     bible_setup_world_spec,
@@ -79,3 +80,15 @@ def test_bible_setup_variable_resolver_accepts_profile_variables():
     assert plan.aliases["genre_opening_profile"]["source_level"] == "secondary"
     assert BIBLE_SETUP_WORLD_NODE in bible_setup_world_spec().input_binding_set_id
 
+
+def test_bible_setup_worldbuilding_inputs_are_bound_to_variable_hub_keys():
+    bindings = {binding.alias: binding for binding in bible_setup_input_bindings(BIBLE_SETUP_WORLD_NODE)}
+
+    assert bindings["premise"].variable_key == "novel.setup.premise"
+    assert "novel_setup" not in bindings
+    assert "worldbuilding_full" not in bindings
+    assert "core_rules" not in bindings
+    assert bindings["fields_desc"].variable_key == ""
+    assert bindings["fields_desc"].source == "runtime_only"
+    assert bindings["genre_opening_profile"].variable_key == ""
+    assert bindings["genre_opening_profile"].source == "derived_config"

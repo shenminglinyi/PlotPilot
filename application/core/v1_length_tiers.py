@@ -76,3 +76,22 @@ def build_v1_structure_black_box_hint(
 宏观节奏：建议按约 {vols} 卷推进，每卷大致 {ch_per_vol} 章量级；每卷宜安排 2～3 个大高潮节点（幕级转折），卷末留强钩子。
 骨架：采用「目标—阻力—转折—结果」的动态节奏在章内落地；长篇层面按作者梗概、题材赛道和世界规则自然推进，不预设固定神话旅程。
 写作约束：避免用空话凑字；每章应完成可指认的情节推进或人物关系变化，环境/对白需服务于冲突与信息增量。"""
+
+
+def strip_generated_premise_prefixes(premise: str) -> str:
+    """Remove server-generated prefixes from user premise text."""
+    text = str(premise or "").strip()
+    if "【系统内部·叙事结构规划" in text:
+        idx = text.find("\n\n")
+        if idx != -1:
+            text = text[idx + 2 :].strip()
+    if text.startswith("【") and ("类型：" in text[:120] or "世界观基调：" in text[:120]):
+        idx = text.find("\n\n")
+        if idx != -1:
+            text = text[idx + 2 :].strip()
+    return text
+
+
+def strip_v1_structure_black_box_hint(premise: str) -> str:
+    """Backward-compatible alias for callers that clean generated premise text."""
+    return strip_generated_premise_prefixes(premise)

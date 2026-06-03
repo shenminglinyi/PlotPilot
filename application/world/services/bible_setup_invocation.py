@@ -21,6 +21,7 @@ from application.ai_invocation.dtos import (
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
 from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
 from application.ai_invocation.variable_hub import InMemoryVariableHubRepository, VariableResolver
+from application.core.v1_length_tiers import strip_generated_premise_prefixes
 from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_service import WorldbuildingService
@@ -120,19 +121,9 @@ NOVEL_SETUP_VARIABLE_BINDINGS = (
         stage="setup",
     ),
     VariableBinding(
-        alias="novel_setup",
-        variable_key="novel.setup.summary",
-        required=False,
-        default="",
-        display_name="小说设定摘要",
-        value_type="string",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
         alias="genre_opening_profile",
-        variable_key="novel.genre.opening_profile",
         required=True,
+        source="derived_config",
         display_name="类型开篇画像",
         value_type="object",
         scope="global",
@@ -140,8 +131,8 @@ NOVEL_SETUP_VARIABLE_BINDINGS = (
     ),
     VariableBinding(
         alias="genre_reader_contract",
-        variable_key="novel.genre.reader_contract",
         required=True,
+        source="derived_config",
         display_name="读者留存契约",
         value_type="object",
         scope="global",
@@ -149,8 +140,8 @@ NOVEL_SETUP_VARIABLE_BINDINGS = (
     ),
     VariableBinding(
         alias="genre_rhythm_constraints",
-        variable_key="novel.genre.rhythm_constraints",
         required=True,
+        source="derived_config",
         display_name="类型节奏约束",
         value_type="object",
         scope="global",
@@ -162,6 +153,167 @@ _BINDING_SET_BY_NODE = {
     BIBLE_SETUP_CHARACTERS_NODE: f"{BIBLE_SETUP_CHARACTERS_NODE}:input:v1",
     BIBLE_SETUP_LOCATIONS_NODE: f"{BIBLE_SETUP_LOCATIONS_NODE}:input:v1",
 }
+
+
+def _bible_setup_base_input_bindings() -> list[VariableBinding]:
+    runtime_derived_aliases = {
+        "genre_opening_profile",
+        "genre_reader_contract",
+        "genre_rhythm_constraints",
+    }
+    bindings: list[VariableBinding] = []
+    for binding in NOVEL_SETUP_VARIABLE_BINDINGS:
+        if binding.alias in runtime_derived_aliases:
+            bindings.append(
+                VariableBinding(
+                    alias=binding.alias,
+                    variable_key="",
+                    required=binding.required,
+                    default=binding.default,
+                    source="derived_config",
+                    enabled=binding.enabled,
+                    value_type=binding.value_type,
+                    scope=binding.scope,
+                    stage=binding.stage,
+                    display_name=binding.display_name,
+                )
+            )
+        else:
+            bindings.append(binding)
+    return bindings
+
+
+def _worldbuilding_input_bindings() -> list[VariableBinding]:
+    return [
+        VariableBinding(
+            alias="core_rules",
+            variable_key="novel.worldbuilding.core_rules.text",
+            required=False,
+            default="",
+            display_name="核心法则",
+            value_type="string",
+            scope="global",
+            stage="worldbuilding",
+        ),
+        VariableBinding(
+            alias="geography",
+            variable_key="novel.worldbuilding.geography.text",
+            required=False,
+            default="",
+            display_name="地理生态",
+            value_type="string",
+            scope="global",
+            stage="worldbuilding",
+        ),
+        VariableBinding(
+            alias="society",
+            variable_key="novel.worldbuilding.society.text",
+            required=False,
+            default="",
+            display_name="社会结构",
+            value_type="string",
+            scope="global",
+            stage="worldbuilding",
+        ),
+        VariableBinding(
+            alias="culture",
+            variable_key="novel.worldbuilding.culture.text",
+            required=False,
+            default="",
+            display_name="历史文化",
+            value_type="string",
+            scope="global",
+            stage="worldbuilding",
+        ),
+        VariableBinding(
+            alias="daily_life",
+            variable_key="novel.worldbuilding.daily_life.text",
+            required=False,
+            default="",
+            display_name="沉浸感细节",
+            value_type="string",
+            scope="global",
+            stage="worldbuilding",
+        ),
+    ]
+
+
+def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
+    if node_key == BIBLE_SETUP_WORLD_NODE:
+        return [
+            *_bible_setup_base_input_bindings(),
+            VariableBinding(
+                alias="fields_desc",
+                variable_key="",
+                required=True,
+                default=build_fields_desc_for_prompt(),
+                source="runtime_only",
+                display_name="世界观字段模板",
+                value_type="string",
+                scope="global",
+                stage="worldbuilding",
+            ),
+        ]
+    if node_key == BIBLE_SETUP_CHARACTERS_NODE:
+        return [
+            *_worldbuilding_input_bindings(),
+            VariableBinding(
+                alias="style_guide",
+                variable_key="novel.style.guide",
+                required=False,
+                default="",
+                display_name="文风公约",
+                value_type="string",
+                scope="global",
+                stage="setup",
+            ),
+            VariableBinding(
+                alias="existing_characters",
+                variable_key="novel.characters.list.text",
+                required=False,
+                default="",
+                display_name="已有角色",
+                value_type="string",
+                scope="global",
+                stage="characters",
+            ),
+            VariableBinding(
+                alias="surname_seed",
+                variable_key="novel.characters.surname_seed",
+                required=False,
+                default="",
+                display_name="姓氏种子",
+                value_type="string",
+                scope="global",
+                stage="characters",
+            ),
+        ]
+    if node_key == BIBLE_SETUP_LOCATIONS_NODE:
+        return [
+            *_worldbuilding_input_bindings(),
+            VariableBinding(
+                alias="existing_locations",
+                variable_key="novel.locations.list.text",
+                required=False,
+                default="",
+                display_name="已有地点",
+                value_type="string",
+                scope="global",
+                stage="locations",
+            ),
+            VariableBinding(
+                alias="character_context",
+                variable_key="novel.characters.context.text",
+                required=False,
+                default="",
+                display_name="角色上下文",
+                value_type="string",
+                scope="global",
+                stage="characters",
+            ),
+        ]
+    return []
+
 
 def _split_genre_label(genre_label: str) -> tuple[str, str]:
     parts = [part.strip() for part in str(genre_label or "").split("/") if part.strip()]
@@ -177,20 +329,24 @@ def _build_worldbuilding_prompt_fields(
     bible: Any = None,
     worldbuilding: Any = None,
 ) -> dict[str, str]:
-    """统一生成世界观全量块 + 5 维独立字段。"""
+    """统一生成 5 维世界观字段，避免再派生 worldbuilding_full。"""
     if isinstance(worldbuilding, Mapping):
         slices = {dim: dict((worldbuilding or {}).get(dim) or {}) for dim in WORLD_BUILDING_DIMENSION_KEYS}
     else:
         slices = load_merged_worldbuilding_slices(bible=bible, worldbuilding=worldbuilding)
-    full_text = format_worldbuilding_slices_for_prompt(slices)
-    fields: dict[str, str] = {
-        "worldbuilding_full": full_text,
-    }
+    fields: dict[str, str] = {}
     for dim_key in WORLD_BUILDING_DIMENSION_KEYS:
         fields[dim_key] = format_worldbuilding_slices_for_prompt(
             {dim_key: slices.get(dim_key) or {}}
         )
     return fields
+
+
+def _worldbuilding_dimension_prompt_fields(fields: Mapping[str, str]) -> dict[str, str]:
+    return {
+        key: str(fields.get(key) or "")
+        for key in WORLD_BUILDING_DIMENSION_KEYS
+    }
 
 
 def _active_version_id(node_key: str) -> str:
@@ -284,213 +440,54 @@ def build_bible_setup_variable_resolver() -> VariableResolver:
     repo.set_bindings(
         _BINDING_SET_BY_NODE[BIBLE_SETUP_WORLD_NODE],
         BIBLE_SETUP_WORLD_NODE,
-        [
-            *NOVEL_SETUP_VARIABLE_BINDINGS,
-            VariableBinding(
-                alias="worldbuilding_full",
-                required=False,
-                default="",
-                display_name="世界观全量摘要",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="core_rules",
-                required=False,
-                default="",
-                display_name="核心法则",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="geography",
-                required=False,
-                default="",
-                display_name="地理生态",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="society",
-                required=False,
-                default="",
-                display_name="社会结构",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="culture",
-                required=False,
-                default="",
-                display_name="历史文化",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="daily_life",
-                required=False,
-                default="",
-                display_name="沉浸感细节",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="fields_desc",
-                required=True,
-                display_name="世界观字段模板",
-                scope="global",
-                stage="worldbuilding",
-            ),
-        ],
+        bible_setup_input_bindings(BIBLE_SETUP_WORLD_NODE),
     )
     repo.set_bindings(
         _BINDING_SET_BY_NODE[BIBLE_SETUP_CHARACTERS_NODE],
         BIBLE_SETUP_CHARACTERS_NODE,
-        [
-            VariableBinding(
-                alias="worldbuilding_full",
-                required=True,
-                display_name="世界观全量摘要",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="core_rules",
-                required=False,
-                default="",
-                display_name="核心法则",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="geography",
-                required=False,
-                default="",
-                display_name="地理生态",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="society",
-                required=False,
-                default="",
-                display_name="社会结构",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="culture",
-                required=False,
-                default="",
-                display_name="历史文化",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="daily_life",
-                required=False,
-                default="",
-                display_name="沉浸感细节",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="style_guide",
-                required=False,
-                default="",
-                display_name="文风公约",
-                scope="global",
-                stage="setup",
-            ),
-            VariableBinding(
-                alias="existing_characters",
-                required=False,
-                default="",
-                display_name="已有角色",
-                scope="global",
-                stage="characters",
-            ),
-            VariableBinding(
-                alias="surname_seed",
-                required=False,
-                default="",
-                display_name="姓氏种子",
-                scope="global",
-                stage="characters",
-            ),
-        ],
+        bible_setup_input_bindings(BIBLE_SETUP_CHARACTERS_NODE),
     )
     repo.set_bindings(
         _BINDING_SET_BY_NODE[BIBLE_SETUP_LOCATIONS_NODE],
         BIBLE_SETUP_LOCATIONS_NODE,
-        [
-            VariableBinding(
-                alias="worldbuilding_full",
-                required=True,
-                display_name="世界观全量摘要",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="core_rules",
-                required=False,
-                default="",
-                display_name="核心法则",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="geography",
-                required=False,
-                default="",
-                display_name="地理生态",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="society",
-                required=False,
-                default="",
-                display_name="社会结构",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="culture",
-                required=False,
-                default="",
-                display_name="历史文化",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="daily_life",
-                required=False,
-                default="",
-                display_name="沉浸感细节",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
-                alias="existing_locations",
-                required=False,
-                default="",
-                display_name="已有地点",
-                scope="global",
-                stage="locations",
-            ),
-            VariableBinding(
-                alias="character_context",
-                required=False,
-                default="",
-                display_name="角色上下文",
-                scope="global",
-                stage="characters",
-            ),
-        ],
+        bible_setup_input_bindings(BIBLE_SETUP_LOCATIONS_NODE),
     )
     ensure_bible_setup_output_bindings(repo)
     return VariableResolver(repo)
+
+
+def ensure_bible_setup_contract(db, *, operation: str, node_key: str) -> InvocationSpec:
+    from infrastructure.ai.prompt_manager import get_prompt_manager
+    from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
+        SqliteInvocationSpecRepository,
+        SqliteVariableHubRepository,
+    )
+    from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
+
+    get_prompt_manager().ensure_seeded()
+    spec_factory_by_operation = {
+        "bible.setup.worldbuilding": bible_setup_world_spec,
+        "bible.setup.characters": bible_setup_characters_spec,
+        "bible.setup.locations": bible_setup_locations_spec,
+    }
+    factory = spec_factory_by_operation.get(operation)
+    if factory is None:
+        raise ValueError(f"unsupported bible setup operation: {operation}")
+    spec = factory()
+    if spec.node_key != node_key:
+        raise ValueError(f"unsupported bible setup node: operation={operation}, node_key={node_key}")
+
+    with sqlite_writes_bypass_queue():
+        variable_repo = SqliteVariableHubRepository(db)
+        variable_repo.set_bindings(spec.input_binding_set_id, spec.node_key, bible_setup_input_bindings(spec.node_key), direction="input")
+        ensure_bible_setup_output_bindings(variable_repo, spec.node_key)
+        SqliteInvocationSpecRepository(db).upsert(
+            spec,
+            spec_id=f"spec:{spec.node_key}:v1",
+            spec_version=1,
+            status="published",
+        )
+    return spec
 
 
 class BibleSetupPromptAssembler(CPMSPromptAssembler):
@@ -562,7 +559,9 @@ def build_bible_setup_variables(
     worldbuilding_service: WorldbuildingService | None,
 ) -> Mapping[str, Any]:
     novel_title = str(getattr(novel, "title", "") or "").strip()
-    premise = (getattr(novel, "premise", "") or getattr(novel, "title", "") or "").strip()
+    premise = strip_generated_premise_prefixes(
+        getattr(novel, "premise", "") or getattr(novel, "title", "") or ""
+    )
     target_chapters = int(getattr(novel, "target_chapters", 100) or 100)
     target_words_per_chapter = int(getattr(novel, "target_words_per_chapter", 0) or 0)
     genre_label = str(getattr(novel, "locked_genre", "") or "").strip()
@@ -574,27 +573,8 @@ def build_bible_setup_variables(
         genre_label = genre_label or parsed_genre
         world_preset = world_preset or parsed_world
     genre_major, genre_theme = _split_genre_label(genre_label)
-    setup_summary_lines = []
-    if novel_title:
-        setup_summary_lines.append(f"名称：{novel_title}")
-    if premise:
-        setup_summary_lines.append(f"设定：{premise}")
-    if genre_major:
-        setup_summary_lines.append(f"大类：{genre_major}")
-    if genre_theme:
-        setup_summary_lines.append(f"主题：{genre_theme}")
-    if genre_label:
-        setup_summary_lines.append(f"类型：{genre_label}")
-    if world_preset:
-        setup_summary_lines.append(f"基调：{world_preset}")
-    if target_chapters:
-        setup_summary_lines.append(f"章节数量：{target_chapters}")
-    if target_words_per_chapter:
-        setup_summary_lines.append(f"每章字数：{target_words_per_chapter}")
-    novel_setup = "\n".join(setup_summary_lines)
     genre_profile = resolve_opening_profile(genre_label, strict=True).as_variables()
     if stage == "worldbuilding":
-        worldbuilding_fields = _build_worldbuilding_prompt_fields()
         return {
             "premise": premise,
             "target_chapters": target_chapters,
@@ -605,9 +585,7 @@ def build_bible_setup_variables(
             "genre_theme": genre_theme,
             "genre_label": genre_label,
             "world_preset": world_preset,
-            "novel_setup": novel_setup,
             **genre_profile,
-            **worldbuilding_fields,
         }
 
     bible = bible_service.get_bible_by_novel(getattr(novel, "id", ""))
@@ -640,10 +618,10 @@ def build_bible_setup_variables(
     if stage == "characters":
         seed = build_character_surname_seed(
             8,
-            rng_seed=f"{premise}|{target_chapters}|{worldbuilding_fields.get('worldbuilding_full', '')}",
+            rng_seed=f"{premise}|{target_chapters}|{worldbuilding_fields.get('core_rules', '')}",
         )
         return {
-            **worldbuilding_fields,
+            **_worldbuilding_dimension_prompt_fields(worldbuilding_fields),
             **genre_profile,
             "style_guide": style_guide,
             "existing_characters": existing_characters,
@@ -651,7 +629,7 @@ def build_bible_setup_variables(
         }
     if stage == "locations":
         return {
-            **worldbuilding_fields,
+            **_worldbuilding_dimension_prompt_fields(worldbuilding_fields),
             **genre_profile,
             "existing_locations": existing_locations,
             "character_context": character_context,

@@ -141,7 +141,6 @@ class SetupMainPlotSuggestionService:
         locations = self._coerce_list(variable_context.get("locations"))
         worldview_summary = self._coerce_list(variable_context.get("worldview_summary"))
         world_lines: List[str] = [str(item).strip() for item in worldview_summary if str(item).strip()]
-        worldbuilding_full = str(variable_context.get("worldbuilding_full") or "").strip()
         core_rules = self._coerce_dict(variable_context.get("core_rules"))
         geography = self._coerce_dict(variable_context.get("geography"))
         society = self._coerce_dict(variable_context.get("society"))
@@ -218,7 +217,6 @@ class SetupMainPlotSuggestionService:
                 ("novel.characters.list", "other_characters"),
                 ("novel.locations.list", "locations"),
                 ("novel.plot.fusion_contract", "fusion_contract"),
-                ("novel.worldbuilding.full", "worldbuilding_full"),
                 ("novel.worldbuilding.core_rules", "core_rules"),
                 ("novel.worldbuilding.geography", "geography"),
                 ("novel.worldbuilding.society", "society"),
@@ -237,8 +235,6 @@ class SetupMainPlotSuggestionService:
                     locations = [dict(item) for item in value.value if isinstance(item, dict)]
                 elif target == "fusion_contract" and not fusion_contract:
                     fusion_contract = str(value.value or "").strip()
-                elif target == "worldbuilding_full" and not worldbuilding_full:
-                    worldbuilding_full = str(value.value or "")
                 elif target == "core_rules" and isinstance(value.value, dict) and not core_rules:
                     core_rules = dict(value.value)
                 elif target == "geography" and isinstance(value.value, dict) and not geography:
@@ -254,10 +250,6 @@ class SetupMainPlotSuggestionService:
         except Exception:
             pass
 
-        if not worldbuilding_full:
-            worldbuilding_full = "\n".join(world_lines)
-        if not world_lines and worldbuilding_full:
-            world_lines = [worldbuilding_full]
         if not style_hint and bible_dto:
             notes = bible_dto.style_notes or []
             if notes:
@@ -276,7 +268,6 @@ class SetupMainPlotSuggestionService:
             "locations": locations,
             "worldview_summary": world_lines[:24],
             "style_hint": style_hint[:1200],
-            "worldbuilding_full": worldbuilding_full,
             "core_rules": core_rules,
             "geography": geography,
             "society": society,
@@ -303,14 +294,10 @@ class SetupMainPlotSuggestionService:
             ("novel.setup.target_words_per_chapter", "target_words_per_chapter"),
             ("novel.setup.genre_label", "theme_metadata.genre_label"),
             ("novel.setup.world_preset", "theme_metadata.world_preset"),
-            ("novel.genre.opening_profile", "genre_opening_profile"),
-            ("novel.genre.reader_contract", "genre_reader_contract"),
-            ("novel.genre.rhythm_constraints", "genre_rhythm_constraints"),
             ("novel.characters.protagonist", "protagonist"),
             ("novel.characters.list", "other_characters"),
             ("novel.locations.list", "locations"),
             ("novel.plot.fusion_contract", "fusion_contract"),
-            ("novel.worldbuilding.full", "worldbuilding_full"),
             ("novel.worldbuilding.core_rules", "core_rules"),
             ("novel.worldbuilding.geography", "geography"),
             ("novel.worldbuilding.society", "society"),
@@ -331,14 +318,13 @@ class SetupMainPlotSuggestionService:
 
     @staticmethod
     def _backfill_worldbuilding_context_from_table(novel_id: str, context: Dict[str, Any]) -> None:
-        if context.get("worldbuilding_full") and all(
+        if all(
             isinstance(context.get(key), Mapping) and context.get(key)
             for key in ("core_rules", "geography", "society", "culture", "daily_life")
         ):
             return
         try:
             from application.paths import get_db_path
-            from application.world.services.bible_setup_invocation import _build_worldbuilding_prompt_fields
             from infrastructure.persistence.database.connection import get_database
             from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
             from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
@@ -349,9 +335,7 @@ class SetupMainPlotSuggestionService:
             dimensions = wb.normalized_dimensions() if hasattr(wb, "normalized_dimensions") else {}
             if not isinstance(dimensions, Mapping):
                 return
-            prompt_fields = _build_worldbuilding_prompt_fields(worldbuilding=dimensions)
             updates: dict[str, tuple[Any, str, str]] = {
-                "worldbuilding_full": (prompt_fields.get("worldbuilding_full", ""), "novel.worldbuilding.full", "string"),
                 "core_rules": (dict(dimensions.get("core_rules") or {}), "novel.worldbuilding.core_rules", "object"),
                 "geography": (dict(dimensions.get("geography") or {}), "novel.worldbuilding.geography", "object"),
                 "society": (dict(dimensions.get("society") or {}), "novel.worldbuilding.society", "object"),
@@ -359,7 +343,6 @@ class SetupMainPlotSuggestionService:
                 "daily_life": (dict(dimensions.get("daily_life") or {}), "novel.worldbuilding.daily_life", "object"),
             }
             display_names = {
-                "worldbuilding_full": "世界观全文",
                 "core_rules": "核心法则",
                 "geography": "地理生态",
                 "society": "社会结构",
@@ -371,10 +354,7 @@ class SetupMainPlotSuggestionService:
             for alias, (value, variable_key, value_type) in updates.items():
                 if value in (None, "", [], {}):
                     continue
-                if alias == "worldbuilding_full":
-                    if not context.get(alias):
-                        context[alias] = value
-                elif not isinstance(context.get(alias), Mapping) or not context.get(alias):
+                if not isinstance(context.get(alias), Mapping) or not context.get(alias):
                     context[alias] = value
                 stored = variable_repo.get_value(variable_key, context_key)
                 if stored is None or stored.value in (None, "", [], {}):
@@ -633,10 +613,15 @@ class SetupMainPlotSuggestionService:
         worldview_parts = []
         if ctx.get("fusion_contract"):
             worldview_parts.append("【融合题材主轴锁】\n" + str(ctx["fusion_contract"]))
-        if ctx.get("worldbuilding_full"):
-            worldview_parts.append("【世界观全文】\n" + str(ctx["worldbuilding_full"]))
-        elif ctx.get("worldview_summary"):
+        if ctx.get("worldview_summary"):
             worldview_parts.append("【世界观摘要】\n" + "\n".join(ctx["worldview_summary"]))
+        structured_world = {
+            key: ctx.get(key) or {}
+            for key in ("core_rules", "geography", "society", "culture", "daily_life")
+            if ctx.get(key)
+        }
+        if structured_world:
+            worldview_parts.append("【结构化世界观】\n" + json.dumps(structured_world, ensure_ascii=False, indent=2))
         if ctx.get("style_hint"):
             worldview_parts.append("【文风公约】\n" + str(ctx["style_hint"]))
 
@@ -672,7 +657,6 @@ class SetupMainPlotSuggestionService:
             "genre_opening_profile": json.dumps(ctx.get("genre_opening_profile") or {}, ensure_ascii=False, indent=2),
             "genre_reader_contract": json.dumps(ctx.get("genre_reader_contract") or {}, ensure_ascii=False, indent=2),
             "genre_rhythm_constraints": json.dumps(ctx.get("genre_rhythm_constraints") or {}, ensure_ascii=False, indent=2),
-            "worldbuilding_full": str(ctx.get("worldbuilding_full") or ""),
             "core_rules": json.dumps(ctx.get("core_rules") or {}, ensure_ascii=False, indent=2),
             "geography": json.dumps(ctx.get("geography") or {}, ensure_ascii=False, indent=2),
             "society": json.dumps(ctx.get("society") or {}, ensure_ascii=False, indent=2),

@@ -451,8 +451,8 @@ class PromptTemplateEngine:
 
         variables = set()
 
-        # 提取 Jinja2 {{ variable }} 格式
-        jinja2_pattern = re.compile(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}')
+        # 提取 Jinja2 {{ variable }} / {{ variable | filter }} 格式
+        jinja2_pattern = re.compile(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\b[^{}]*\}\}')
         variables.update(jinja2_pattern.findall(template))
 
         # 提取旧版 {variable} 格式（排除已匹配的 Jinja2）

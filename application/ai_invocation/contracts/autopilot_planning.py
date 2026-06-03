@@ -127,11 +127,7 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
     variable_keys = {
         "premise": "novel.setup.premise",
         "target_chapters": "novel.setup.target_chapters",
-        "worldview": "novel.worldbuilding.full",
         "characters": "novel.characters.list",
-        "genre_opening_profile": "novel.genre.opening_profile",
-        "genre_reader_contract": "novel.genre.reader_contract",
-        "genre_rhythm_constraints": "novel.genre.rhythm_constraints",
         "planning_depth": "novel.planning.macro.depth",
         "rec_parts": "novel.planning.macro.rec_parts",
         "rec_volumes_per_part": "novel.planning.macro.rec_volumes_per_part",
@@ -154,6 +150,12 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
     }
     list_aliases = {"characters"}
     setup_aliases = {"premise", "target_chapters"}
+    runtime_only_aliases = {"worldview"}
+    derived_config_aliases = {
+        "genre_opening_profile",
+        "genre_reader_contract",
+        "genre_rhythm_constraints",
+    }
     input_binding_set_id = f"{PLANNING_QUICK_MACRO}:input:autopilot:v1"
     output_binding_set_id = f"{PLANNING_QUICK_MACRO}:output:autopilot:v1"
     input_bindings = [
@@ -162,7 +164,12 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
             variable_key=variable_keys.get(alias, ""),
             required=alias in variable_keys,
             default=None if alias in variable_keys else "",
-            source="variable_hub" if alias in variable_keys else "cpms_template",
+            source=(
+                "variable_hub" if alias in variable_keys else
+                "runtime_only" if alias in runtime_only_aliases else
+                "derived_config" if alias in derived_config_aliases else
+                "cpms_template"
+            ),
             value_type=(
                 "integer" if alias in integer_aliases else
                 "object" if alias in object_aliases else
@@ -174,7 +181,7 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
             display_name={
                 "premise": "设定",
                 "target_chapters": "章节数量",
-                "worldview": "世界观全文",
+                "worldview": "世界观运行时摘要",
                 "characters": "角色列表",
                 "genre_opening_profile": "类型开篇画像",
                 "genre_reader_contract": "读者留存契约",

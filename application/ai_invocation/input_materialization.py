@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
 from application.ai_invocation.dtos import InvocationSession, InvocationSpec, VariableBinding, VariablePlan
-from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
+from application.ai_invocation.variable_hub import RUNTIME_ONLY_BINDING_SOURCES, VariableHubRepository, VariableWrite
 
 
 def context_key_for_scope(context: Mapping[str, Any], scope: str = "") -> str:
@@ -43,6 +44,10 @@ def materialize_input_variables(
         binding = binding_by_alias.get(alias)
         if binding is None or not binding.variable_key:
             continue
+        if binding.source in RUNTIME_ONLY_BINDING_SOURCES or str(binding.variable_key).startswith("system."):
+            continue
+        if binding.variable_key == "novel.setup.premise":
+            value = strip_v1_structure_black_box_hint(str(value or ""))
         context_key = context_key_for_scope(session.context, binding.scope)
         stored = variable_hub_repository.set_value(
             VariableWrite(

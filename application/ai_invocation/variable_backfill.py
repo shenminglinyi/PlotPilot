@@ -5,10 +5,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from application.core.premise_genre_world import parse_genre_world_from_premise
-from application.core.taxonomy.opening_profiles import resolve_opening_profile
+from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
 from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
-from application.world.services.bible_setup_invocation import _build_worldbuilding_prompt_fields
 from domain.novel.value_objects.novel_id import NovelId
 
 logger = logging.getLogger(__name__)
@@ -93,7 +91,7 @@ class VariableHubBackfillService:
         self._write_missing(
             result,
             key="novel.setup.premise",
-            value=str(getattr(novel, "premise", "") or ""),
+            value=strip_v1_structure_black_box_hint(str(getattr(novel, "premise", "") or "")),
             context_key=context_key,
             value_type="string",
             display_name="设定",
@@ -117,8 +115,6 @@ class VariableHubBackfillService:
             display_name="每章字数",
             stage="setup",
         )
-        self._backfill_genre_profile(result, context_key, novel)
-
         bible = self._load_bible(novel_id)
         if bible is not None:
             self._backfill_bible(result, novel_id, context_key, bible)
@@ -146,12 +142,6 @@ class VariableHubBackfillService:
             for item in getattr(bible, "style_notes", []) or []
             if str(getattr(item, "content", "") or "").strip()
         ]
-        world_lines = [
-            f"{str(getattr(item, 'name', '') or '').strip()}: {str(getattr(item, 'description', '') or '').strip()}".strip(": ")
-            for item in getattr(bible, "world_settings", []) or []
-            if str(getattr(item, "name", "") or getattr(item, "description", "") or "").strip()
-        ]
-
         self._write_missing(
             result,
             key="novel.characters.list",
@@ -190,31 +180,10 @@ class VariableHubBackfillService:
                 display_name="文风公约",
                 stage="setup",
             )
-        if world_lines:
-            self._write_missing(
-                result,
-                key="novel.worldbuilding.full",
-                value="\n".join(world_lines),
-                context_key=context_key,
-                value_type="string",
-                display_name="世界观全文",
-                stage="worldbuilding",
-            )
-
     def _backfill_worldbuilding(self, result: VariableHubBackfillResult, context_key: str, wb: Any) -> None:
         dimensions = wb.normalized_dimensions() if hasattr(wb, "normalized_dimensions") else {}
         if not isinstance(dimensions, Mapping):
             dimensions = {}
-        prompt_fields = _build_worldbuilding_prompt_fields(worldbuilding=dimensions)
-        self._write_missing(
-            result,
-            key="novel.worldbuilding.full",
-            value=prompt_fields.get("worldbuilding_full", ""),
-            context_key=context_key,
-            value_type="string",
-            display_name="世界观全文",
-            stage="worldbuilding",
-        )
         for key in ("core_rules", "geography", "society", "culture", "daily_life"):
             value = dimensions.get(key)
             if isinstance(value, Mapping):
@@ -233,31 +202,6 @@ class VariableHubBackfillService:
                     }[key],
                     stage="worldbuilding",
                 )
-
-    def _backfill_genre_profile(self, result: VariableHubBackfillResult, context_key: str, novel: Any) -> None:
-        genre_label = str(getattr(novel, "locked_genre", "") or getattr(novel, "genre_label", "") or "").strip()
-        if not genre_label:
-            parsed_genre, _ = parse_genre_world_from_premise(str(getattr(novel, "premise", "") or ""))
-            genre_label = parsed_genre
-        if not genre_label:
-            return
-        profile = resolve_opening_profile(genre_label, strict=False)
-        if profile is None:
-            return
-        for key, value, display_name in (
-            ("novel.genre.opening_profile", profile.opening_profile, "类型开篇画像"),
-            ("novel.genre.reader_contract", profile.reader_contract, "读者留存契约"),
-            ("novel.genre.rhythm_constraints", profile.rhythm_constraints, "类型节奏约束"),
-        ):
-            self._write_missing(
-                result,
-                key=key,
-                value=value,
-                context_key=context_key,
-                value_type="object",
-                display_name=display_name,
-                stage="planning",
-            )
 
     def _write_missing(
         self,

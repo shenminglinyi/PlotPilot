@@ -31,7 +31,7 @@ from application.ai_invocation.prompt_assembler import CPMSPromptAssembler, Prom
 from application.ai_invocation.prompt_variables import aliases_with_dotted_variables, prompt_declared_input_bindings
 from application.ai_invocation.services import AdoptionCommitService, AdoptionService, AttemptService, InvocationSessionService
 from application.ai_invocation.spec_service import InvocationSpecNotFoundError, InvocationSpecService
-from application.ai_invocation.variable_hub import VariableResolver, VariableWrite
+from application.ai_invocation.variable_hub import RUNTIME_ONLY_BINDING_SOURCES, VariableResolver, VariableWrite
 from domain.ai.services.llm_service import GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.persistence.database.connection import get_database
@@ -364,6 +364,52 @@ def _session_variable_resolver(repos, session, spec) -> VariableResolver:
     )
 
 
+def _runtime_only_explicit_variables(session, bindings: list[VariableBinding]) -> dict[str, Any]:
+    aliases = dict(getattr(getattr(session, "variable_plan", None), "aliases", {}) or {})
+    if not aliases:
+        return {}
+    runtime_aliases = {
+        binding.alias
+        for binding in bindings
+        if binding.source in RUNTIME_ONLY_BINDING_SOURCES
+        or (binding.variable_key and str(binding.variable_key).startswith("system."))
+    }
+    return {alias: aliases[alias] for alias in runtime_aliases if alias in aliases}
+
+
+def _resolve_current_variable_plan(repos, session, spec=None):
+    spec = spec or repos["spec"].get(session.operation, session.node_key)
+    if spec is None:
+        return session.variable_plan
+    input_bindings = _session_input_bindings(repos, session, spec)
+    return _session_variable_resolver(repos, session, spec).resolve(
+        spec=spec,
+        explicit_variables=_runtime_only_explicit_variables(session, input_bindings),
+        context=session.context,
+    )
+
+
+def _refresh_session_variables_from_hub(repos, session, *, render_prompt: bool = False, persist: bool = False):
+    spec = repos["spec"].get(session.operation, session.node_key)
+    if spec is None:
+        return session
+    variable_plan = _resolve_current_variable_plan(repos, session, spec)
+    session.variable_plan = variable_plan
+    if render_prompt and session.prompt_snapshot is not None:
+        draft_prompt = session.prompt_snapshot.draft_prompt
+        template_prompt = session.prompt_snapshot.template_prompt
+        if draft_prompt is not None:
+            session.prompt_snapshot = _render_prompt_draft(session, draft_prompt.system, draft_prompt.user)
+        elif template_prompt is not None:
+            session.prompt_snapshot = _render_prompt_draft(session, template_prompt.system, template_prompt.user)
+        else:
+            session.prompt_snapshot = CPMSPromptAssembler().compile(spec=spec, variable_plan=variable_plan)
+    if persist:
+        with sqlite_writes_bypass_queue():
+            repos["session"].save(session)
+    return session
+
+
 def _sync_prompt_declared_input_bindings(repos, session, spec, system_template: str, user_template: str) -> None:
     base_bindings = repos["variable_hub"].get_bindings(spec.input_binding_set_id, spec.node_key)
     bindings, added = prompt_declared_input_bindings(
@@ -617,6 +663,12 @@ async def get_invocation(session_id: str) -> dict[str, Any]:
     session = repos["session"].get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="invocation_session_not_found")
+    _refresh_session_variables_from_hub(
+        repos,
+        session,
+        render_prompt=session.status in {InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW, InvocationSessionStatus.BLOCKED},
+        persist=False,
+    )
     attempt_payload, decision_payload, commit_payload = _load_related_payloads(repos, session_id)
     return {
         "session": _session_payload(session),
@@ -832,6 +884,15 @@ async def resume_invocation(session_id: str, request: ResumeInvocationRequest) -
         raise HTTPException(status_code=400, detail="invocation_session_not_waiting_for_pre_call_review")
     if session.prompt_snapshot is None:
         raise HTTPException(status_code=400, detail="invocation_session_missing_prompt_snapshot")
+    _refresh_session_variables_from_hub(repos, session, render_prompt=True, persist=False)
+    if session.variable_plan is not None and not session.variable_plan.ok:
+        session.status = InvocationSessionStatus.BLOCKED
+        with sqlite_writes_bypass_queue():
+            repos["session"].save(session)
+        return {
+            "session": _session_payload(session),
+            "next_action": _next_action(session.status),
+        }
 
     attempt = InvocationAttempt(
         id=str(uuid.uuid4()),
@@ -874,6 +935,15 @@ async def retry_invocation(session_id: str, request: ResumeInvocationRequest) ->
         InvocationSessionStatus.FAILED,
     }:
         raise HTTPException(status_code=400, detail="invocation_session_not_retryable")
+    _refresh_session_variables_from_hub(repos, session, render_prompt=True, persist=False)
+    if session.variable_plan is not None and not session.variable_plan.ok:
+        session.status = InvocationSessionStatus.BLOCKED
+        with sqlite_writes_bypass_queue():
+            repos["session"].save(session)
+        return {
+            "session": _session_payload(session),
+            "next_action": _next_action(session.status),
+        }
 
     attempt = InvocationAttempt(
         id=str(uuid.uuid4()),

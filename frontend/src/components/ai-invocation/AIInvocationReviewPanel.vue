@@ -149,7 +149,6 @@ const outputBindings = computed<OutputBindingRow[]>(() => {
 })
 const hasStructuredContext = computed(() => Boolean(
   store.session?.variable_plan?.aliases?.context_blob
-  || store.session?.variable_plan?.aliases?.worldbuilding_full
   || store.session?.variable_plan?.aliases?.protagonist
 ))
 const currentStepOutputs = computed(() =>
@@ -655,9 +654,6 @@ const outputPreviewRows = computed(() =>
             <n-descriptions :column="1" size="small" bordered label-placement="left">
               <n-descriptions-item label="context_blob">
                 <pre class="ai-invocation-value">{{ store.session?.variable_plan?.aliases?.context_blob || '-' }}</pre>
-              </n-descriptions-item>
-              <n-descriptions-item label="worldbuilding_full">
-                <pre class="ai-invocation-value">{{ store.session?.variable_plan?.aliases?.worldbuilding_full || '-' }}</pre>
               </n-descriptions-item>
               <n-descriptions-item label="protagonist">
                 <pre class="ai-invocation-value">{{ safeJsonPreview(store.session?.variable_plan?.aliases?.protagonist) || '-' }}</pre>

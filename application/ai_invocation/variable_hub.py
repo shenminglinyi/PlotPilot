@@ -7,6 +7,8 @@ from typing import Any, Mapping, Protocol
 
 from application.ai_invocation.dtos import InvocationSpec, VariableBinding, VariablePlan, stable_hash
 
+RUNTIME_ONLY_BINDING_SOURCES = frozenset({"runtime_only", "derived_config", "system_template"})
+
 
 @dataclass(frozen=True)
 class VariableDefinition:
@@ -169,7 +171,6 @@ def materialize_setup_main_plot_context(aliases: Mapping[str, Any]) -> str:
         "other_characters": aliases.get("other_characters") or [],
         "locations": aliases.get("locations") or [],
         "worldview_summary": aliases.get("worldview_summary") or [],
-        "worldbuilding_full": aliases.get("worldbuilding_full") or "",
         "worldbuilding": {
             "core_rules": aliases.get("core_rules") or {},
             "geography": aliases.get("geography") or {},
@@ -249,6 +250,8 @@ class VariableResolver:
 
         for alias, value in aliases.items():
             binding = binding_by_alias.get(alias)
+            if self._is_runtime_only_binding(binding):
+                continue
             snapshot_items.append(self._snapshot_item(alias, value, binding, lineage.get(alias, "")))
 
         snapshot_groups = self._snapshot_groups(snapshot_items)
@@ -287,6 +290,14 @@ class VariableResolver:
             "variable_key": variable_key,
             "required": bool(binding.required) if binding else False,
         }
+
+    @staticmethod
+    def _is_runtime_only_binding(binding: VariableBinding | None) -> bool:
+        if binding is None:
+            return False
+        if binding.source in RUNTIME_ONLY_BINDING_SOURCES:
+            return True
+        return bool(binding.variable_key and str(binding.variable_key).startswith("system."))
 
     @staticmethod
     def _snapshot_groups(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

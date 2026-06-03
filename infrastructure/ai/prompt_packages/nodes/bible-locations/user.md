@@ -1,6 +1,3 @@
-【世界观全量摘要】
-{worldbuilding_full}
-
 【核心法则】
 {core_rules}
 

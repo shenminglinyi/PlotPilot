@@ -9,7 +9,6 @@ from application.ai.llm_json_extract import parse_llm_json_to_any
 from application.world.services.bible_service import BibleService
 from application.world.services.worldbuilding_field_text import normalize_dimension_fields
 from application.world.services.worldbuilding_service import WorldbuildingService
-from application.world.services.bible_setup_invocation import _build_worldbuilding_prompt_fields
 from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
 
 
@@ -117,13 +116,6 @@ def bible_worldbuilding_handler(context: ContinuationContext) -> Mapping[str, An
             result["worldbuilding"] = normalized
             for dim_key, dim_value in normalized.items():
                 result[dim_key] = dim_value
-            prompt_fields = _build_worldbuilding_prompt_fields(worldbuilding=normalized)
-            result["worldbuilding_full"] = prompt_fields.get("worldbuilding_full", "")
-            result["core_rules_text"] = prompt_fields.get("core_rules", "")
-            result["geography_text"] = prompt_fields.get("geography", "")
-            result["society_text"] = prompt_fields.get("society", "")
-            result["culture_text"] = prompt_fields.get("culture", "")
-            result["daily_life_text"] = prompt_fields.get("daily_life", "")
     return result
 
 

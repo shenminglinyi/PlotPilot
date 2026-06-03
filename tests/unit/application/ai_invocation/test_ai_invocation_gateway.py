@@ -161,12 +161,12 @@ def test_variable_resolver_materializes_main_plot_context_blob():
         "planning-main-plot-option",
         [
             VariableBinding(alias="premise", variable_key="novel.setup.premise", required=True),
-            VariableBinding(alias="worldbuilding_full", variable_key="novel.worldbuilding.full", required=False),
+            VariableBinding(alias="core_rules", variable_key="novel.worldbuilding.core_rules", required=False, value_type="object"),
             VariableBinding(alias="protagonist", variable_key="novel.characters.protagonist", required=False),
         ],
     )
     repo.set_value(VariableWrite(key="novel.setup.premise", value="旧城少年破局", context_key="novel_id:novel-1"))
-    repo.set_value(VariableWrite(key="novel.worldbuilding.full", value="旧城由债务法则统治", context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="novel.worldbuilding.core_rules", value={"law": "旧城由债务法则统治"}, context_key="novel_id:novel-1"))
     repo.set_value(VariableWrite(key="novel.characters.protagonist", value={"name": "阿澄"}, context_key="novel_id:novel-1"))
 
     plan = VariableResolver(repo).resolve(
@@ -193,11 +193,11 @@ def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
         [
             VariableBinding(alias="premise", variable_key="novel.setup.premise", required=True),
             VariableBinding(alias="target_chapters", variable_key="novel.setup.target_chapters", required=True),
-            VariableBinding(alias="worldview", variable_key="novel.worldbuilding.full", required=True),
+            VariableBinding(alias="worldview", required=False, source="runtime_only"),
             VariableBinding(alias="characters", variable_key="novel.characters.list", required=True),
-            VariableBinding(alias="genre_opening_profile", variable_key="novel.genre.opening_profile", required=True),
-            VariableBinding(alias="genre_reader_contract", variable_key="novel.genre.reader_contract", required=True),
-            VariableBinding(alias="genre_rhythm_constraints", variable_key="novel.genre.rhythm_constraints", required=True),
+            VariableBinding(alias="genre_opening_profile", required=False, default={}, source="derived_config", value_type="object"),
+            VariableBinding(alias="genre_reader_contract", required=False, default={}, source="derived_config", value_type="object"),
+            VariableBinding(alias="genre_rhythm_constraints", required=False, default={}, source="derived_config", value_type="object"),
             VariableBinding(alias="planning_depth", variable_key="novel.planning.macro.depth", required=True),
             VariableBinding(alias="rec_parts", variable_key="novel.planning.macro.rec_parts", required=True),
         ],
@@ -205,11 +205,7 @@ def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
     for key, value in (
         ("novel.setup.premise", "林澈觉醒基因记忆"),
         ("novel.setup.target_chapters", 500),
-        ("novel.worldbuilding.full", "基因塔控制觉醒者评级"),
         ("novel.characters.list", [{"name": "林澈"}]),
-        ("novel.genre.opening_profile", {"opening_mechanism": "即时压迫"}),
-        ("novel.genre.reader_contract", {"reader_promise": "升级破局"}),
-        ("novel.genre.rhythm_constraints", {"payoff_interval": "三章一回收"}),
         ("novel.planning.macro.depth", "framework"),
         ("novel.planning.macro.rec_parts", 5),
     ):
@@ -221,7 +217,12 @@ def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
             node_key="planning-quick-macro",
             input_binding_set_id="planning-quick-macro:input:autopilot:v1",
         ),
-        explicit_variables={},
+        explicit_variables={
+            "worldview": "基因塔控制觉醒者评级",
+            "genre_opening_profile": {"opening_mechanism": "即时压迫"},
+            "genre_reader_contract": {"reader_promise": "升级破局"},
+            "genre_rhythm_constraints": {"payoff_interval": "三章一回收"},
+        },
         context={"novel_id": "novel-1"},
     )
 

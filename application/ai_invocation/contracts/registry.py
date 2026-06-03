@@ -86,6 +86,10 @@ class InvocationContractRegistry:
             )
 
             ensure_chapter_prose_generation_contract(self._db)
+        elif operation.startswith("bible.setup."):
+            from application.world.services.bible_setup_invocation import ensure_bible_setup_contract
+
+            ensure_bible_setup_contract(self._db, operation=operation, node_key=node_key)
         else:
             raise ValueError(f"Unsupported invocation contract: operation={operation}, node_key={node_key}")
 
@@ -129,7 +133,7 @@ class InvocationContractRegistry:
                     variable_key=str(meta.get("variable_key") or ""),
                     required=alias in required_aliases or bool(meta.get("required")),
                     default=None if alias in required_aliases or bool(meta.get("required")) else "",
-                    source="novel_genre_profile" if meta else "cpms_template",
+                    source=str(meta.get("source") or ("novel_genre_profile" if meta else "cpms_template")),
                     value_type=str(meta.get("value_type") or "string"),
                     scope=str(meta.get("scope") or "chapter"),
                     stage=str(meta.get("stage") or "writing"),
@@ -164,36 +168,40 @@ class InvocationContractRegistry:
     def _chapter_global_bindings() -> Mapping[str, Mapping[str, Any]]:
         return {
             "genre_profile_block": {
-                "variable_key": "novel.genre.profile_block",
+                "variable_key": "",
                 "display_name": "类型画像提示块",
                 "value_type": "string",
                 "scope": "global",
                 "stage": "writing",
                 "required": True,
+                "source": "derived_config",
             },
             "genre_opening_profile": {
-                "variable_key": "novel.genre.opening_profile",
+                "variable_key": "",
                 "display_name": "类型开篇画像",
                 "value_type": "object",
                 "scope": "global",
                 "stage": "planning",
                 "required": True,
+                "source": "derived_config",
             },
             "genre_reader_contract": {
-                "variable_key": "novel.genre.reader_contract",
+                "variable_key": "",
                 "display_name": "读者留存契约",
                 "value_type": "object",
                 "scope": "global",
                 "stage": "planning",
                 "required": True,
+                "source": "derived_config",
             },
             "genre_rhythm_constraints": {
-                "variable_key": "novel.genre.rhythm_constraints",
+                "variable_key": "",
                 "display_name": "类型节奏约束",
                 "value_type": "object",
                 "scope": "global",
                 "stage": "planning",
                 "required": True,
+                "source": "derived_config",
             },
         }
 

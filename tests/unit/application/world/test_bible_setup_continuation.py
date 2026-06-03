@@ -76,9 +76,9 @@ def test_worldbuilding_handler_accepts_top_level_split_fields(monkeypatch):
     assert result["worldbuilding"]["core_rules"]["power_system"] == "体系A"
     assert result["core_rules"]["power_system"] == "体系A"
     assert result["geography"]["terrain"] == "地形A"
-    assert result["worldbuilding_full"]
-    assert "体系A" in result["core_rules_text"]
-    assert "地形A" in result["geography_text"]
+    assert "worldbuilding_full" not in result
+    assert "core_rules_text" not in result
+    assert "geography_text" not in result
     assert bible_service.styles[0]["content"] == "克制冷峻"
     assert worldbuilding_service.updated
 

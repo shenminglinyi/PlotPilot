@@ -1,5 +1,6 @@
 """API 端点测试 - 生成工作流"""
 import json
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import Mock, AsyncMock
@@ -360,13 +361,41 @@ class TestSetupMainPlotOptionsEndpoints:
         from interfaces.api.v1.engine import generation
 
         fake_novel_service = Mock()
-        fake_novel_service.get_novel.return_value = Mock()
+        fake_novel_service.get_novel.return_value = SimpleNamespace(
+            title="测试小说",
+            premise="少年在废土城破局",
+            target_chapters=100,
+            target_words_per_chapter=3000,
+            genre_label="玄幻 / 热血",
+            world_preset="废土",
+            secondary_theme_keys=[],
+        )
+        fake_setup_svc = Mock()
+        fake_setup_svc.build_context.return_value = {
+            "novel_title": "测试小说",
+            "premise": "少年在废土城破局",
+            "target_chapters": 100,
+            "target_words_per_chapter": 3000,
+            "theme_metadata": {"genre_label": "玄幻 / 热血", "world_preset": "废土"},
+            "fusion_axis": {},
+            "fusion_contract": "",
+            "protagonist": {"name": "阿澄"},
+            "other_characters": [],
+            "locations": [],
+            "worldview_summary": [],
+            "style_hint": "",
+            "core_rules": {},
+            "geography": {},
+            "society": {},
+            "culture": {},
+            "daily_life": {},
+        }
 
         async def fake_create_invocation(request):
             assert request.operation == "setup.main_plot_options"
             assert request.node_key == "planning-main-plot-option"
             assert "context_blob" in request.variables
-            assert "worldbuilding_full" in request.variables
+            assert "worldbuilding_full" not in request.variables
             assert "protagonist" in request.variables
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
@@ -378,6 +407,7 @@ class TestSetupMainPlotOptionsEndpoints:
         monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
         monkeypatch.setattr(generation, "_ensure_main_plot_invocation_contract", lambda: None)
         client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+        client.app.dependency_overrides[generation.get_setup_main_plot_suggestion_service] = lambda: fake_setup_svc
 
         response = client.post(f"/api/v1/novels/{test_novel_id}/setup/suggest-main-plot-options")
 
@@ -391,12 +421,40 @@ class TestSetupMainPlotOptionsEndpoints:
         from interfaces.api.v1.engine import generation
 
         fake_novel_service = Mock()
-        fake_novel_service.get_novel.return_value = Mock()
+        fake_novel_service.get_novel.return_value = SimpleNamespace(
+            title="测试小说",
+            premise="少年在废土城破局",
+            target_chapters=100,
+            target_words_per_chapter=3000,
+            genre_label="玄幻 / 热血",
+            world_preset="废土",
+            secondary_theme_keys=[],
+        )
+        fake_setup_svc = Mock()
+        fake_setup_svc.build_context.return_value = {
+            "novel_title": "测试小说",
+            "premise": "少年在废土城破局",
+            "target_chapters": 100,
+            "target_words_per_chapter": 3000,
+            "theme_metadata": {"genre_label": "玄幻 / 热血", "world_preset": "废土"},
+            "fusion_axis": {},
+            "fusion_contract": "",
+            "protagonist": {"name": "阿澄"},
+            "other_characters": [],
+            "locations": [],
+            "worldview_summary": [],
+            "style_hint": "",
+            "core_rules": {},
+            "geography": {},
+            "society": {},
+            "culture": {},
+            "daily_life": {},
+        }
 
         async def fake_create_invocation(request):
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
-            assert "worldbuilding_full" in request.variables
+            assert "worldbuilding_full" not in request.variables
             return {
                 "session": {"id": "session-1", "status": "awaiting_pre_call_review"},
                 "next_action": "pre_call_review_required",
@@ -405,6 +463,7 @@ class TestSetupMainPlotOptionsEndpoints:
         monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
         monkeypatch.setattr(generation, "_ensure_main_plot_invocation_contract", lambda: None)
         client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+        client.app.dependency_overrides[generation.get_setup_main_plot_suggestion_service] = lambda: fake_setup_svc
 
         response = client.post(f"/api/v1/novels/{test_novel_id}/setup/suggest-main-plot-options-stream")
 

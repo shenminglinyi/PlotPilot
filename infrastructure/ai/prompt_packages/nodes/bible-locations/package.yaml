@@ -9,9 +9,6 @@ tags:
 - Bible
 output_format: json
 variables:
-- name: worldbuilding_full
-  desc: 世界观全量摘要
-  type: string
 - name: core_rules
   desc: 核心法则
   type: string
