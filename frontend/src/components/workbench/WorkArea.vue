@@ -70,7 +70,26 @@
 
           <template #primary>
             <div class="work-main primary-desk-root">
-              <n-empty v-if="!currentChapter" description="请从左侧选择章节" class="work-empty" />
+              <div v-if="!currentChapter" class="work-empty work-empty-prose">
+                <n-empty description="暂无选中章节" class="work-empty-card">
+                  <template #extra>
+                    <n-space vertical :size="10" align="center">
+                      <n-text depth="3" class="work-empty-hint">
+                        {{ emptyStateProseHint }}
+                      </n-text>
+                      <n-button
+                        type="primary"
+                        size="small"
+                        :loading="generateInProgress"
+                        :disabled="generateInProgress"
+                        @click="handleEmptyStateGenerate"
+                      >
+                        生成正文
+                      </n-button>
+                    </n-space>
+                  </template>
+                </n-empty>
+              </div>
               <n-tabs
                 v-else
                 v-model:value="primaryDeskTab"
@@ -880,6 +899,7 @@ function ordinalUnit(n: number) {
 
 const emit = defineEmits<{
   chapterUpdated: []
+  selectChapter: [chapterNumber: number, title?: string]
 }>()
 
 const message = useMessage()
@@ -1615,6 +1635,16 @@ const deskChapterTitle = computed(() => {
   return ordinalUnit(ch.number)
 })
 
+const nextProseChapterNumber = computed(() => {
+  const maxChapterNumber = props.chapters.reduce((max, ch) => Math.max(max, Number(ch.number || 0)), 0)
+  return Math.max(1, maxChapterNumber + 1)
+})
+
+const emptyStateProseHint = computed(() => {
+  const chapterNumber = nextProseChapterNumber.value
+  return `将生成${ordinalUnit(chapterNumber)}正文，提交后自动写入章节`
+})
+
 /** 当前是否有可重写的正文：以编辑器 `chapterContent` 为准（列表项通常不带全文，不能用 currentChapter.content） */
 const hasChapterContent = computed(() => {
   const fromEditor = chapterContent.value?.trim() ?? ''
@@ -1781,46 +1811,70 @@ const handleReload = async () => {
   }
 }
 
+type ProseGenerationChapterTarget = Pick<Chapter, 'id' | 'number' | 'title'>
+
+async function openProseInvocationForChapter(target: ProseGenerationChapterTarget) {
+  if (generateInProgress.value) return
+  const chapterNumber = target.number
+  generatingChapterId.value = target.id
+  generateInProgress.value = true
+  try {
+    const payload = await aiInvocationApi.create({
+      operation: 'chapter.generate.prose',
+      node_key: 'chapter-prose-generation',
+      policy: 'FULL_INTERACTIVE',
+      context: {
+        novel_id: props.slug,
+        chapter_number: chapterNumber,
+      },
+      variables: {
+        novel_title: props.bookTitle || props.slug,
+        chapter_number: chapterNumber,
+        chapter_title: target.title || '',
+        chapter_outline: `${ordinalUnit(chapterNumber)}：${target.title || ''}\n\n承接前情，推进主线与人物节奏。`,
+      },
+      metadata: {
+        source: 'workbench',
+      },
+    })
+    if (props.chapters.some(ch => ch.number === chapterNumber)) {
+      emit('selectChapter', chapterNumber, target.title || '')
+    }
+    aiInvocationStore.openFromResponse(payload)
+    if (payload.session?.id) {
+      const stopListening = aiInvocationStore.onSessionUpdate(payload.session.id, (nextPayload) => {
+        if (nextPayload.session?.status !== 'completed') return
+        stopListening()
+        emit('selectChapter', chapterNumber, target.title || '')
+        emit('chapterUpdated')
+        if (currentChapter.value?.number === chapterNumber) {
+          void handleReload()
+        }
+      })
+    }
+  } catch (err) {
+    message.error(`创建生文审阅会话失败：${httpDetailFromError(err)}`)
+  } finally {
+    generateInProgress.value = false
+    generatingChapterId.value = null
+  }
+}
+
+async function handleEmptyStateGenerate() {
+  if (generateInProgress.value) return
+  const chapterNumber = nextProseChapterNumber.value
+  const target = {
+    id: chapterNumber,
+    number: chapterNumber,
+    title: ordinalUnit(chapterNumber),
+  }
+  await openProseInvocationForChapter(target)
+}
+
 const handleGenerateChapter = async () => {
   if (!currentChapter.value) return
   if (proseOnlyWorkbench) {
-    if (generateInProgress.value) return
-    generatingChapterId.value = currentChapter.value.id
-    generateInProgress.value = true
-    try {
-      const chapterNumber = currentChapter.value.number
-      const payload = await aiInvocationApi.create({
-        operation: 'chapter.generate.prose',
-        node_key: 'chapter-prose-generation',
-        policy: 'FULL_INTERACTIVE',
-        context: {
-          novel_id: props.slug,
-          chapter_number: chapterNumber,
-        },
-        variables: {
-          novel_title: props.bookTitle || props.slug,
-          chapter_number: chapterNumber,
-          chapter_title: currentChapter.value.title || '',
-          chapter_outline: `${ordinalUnit(chapterNumber)}：${currentChapter.value.title || ''}\n\n承接前情，推进主线与人物节奏。`,
-        },
-        metadata: {
-          source: 'workbench',
-        },
-      })
-      aiInvocationStore.openFromResponse(payload)
-      if (payload.session?.id) {
-        const stopListening = aiInvocationStore.onSessionUpdate(payload.session.id, (nextPayload) => {
-          if (nextPayload.session?.status !== 'completed') return
-          stopListening()
-          void handleReload().then(() => emit('chapterUpdated'))
-        })
-      }
-    } catch (err) {
-      message.error(`创建生文审阅会话失败：${httpDetailFromError(err)}`)
-    } finally {
-      generateInProgress.value = false
-      generatingChapterId.value = null
-    }
+    await openProseInvocationForChapter(currentChapter.value)
     return
   }
   if (isAssistedReadOnly.value) {
@@ -2443,6 +2497,24 @@ defineExpose({ ensureAssistedMode, streamingChapterNumber, writingPipelineStep }
 
 .work-empty {
   margin-top: 80px;
+}
+
+.work-empty-prose {
+  flex: 1;
+  min-height: 280px;
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.work-empty-card {
+  width: min(360px, 100%);
+}
+
+.work-empty-hint {
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .write-modal-body {

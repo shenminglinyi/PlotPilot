@@ -79,7 +79,7 @@
           <n-space vertical :size="8" align="center">
             <n-spin v-if="loading" size="small" />
             <n-alert v-if="!autopilotEmptyMode" type="info" :show-icon="false" style="font-size: 12px; max-width: 240px; text-align: center;">
-              <strong>提示</strong>：切换到「托管撰稿」模式，点击「启动全托管」即可自动生成大纲与正文
+              <strong>提示</strong>：可在正文区直接生成正文
             </n-alert>
           </n-space>
         </template>
@@ -408,7 +408,7 @@ const structureEmptyDescription = computed(() => {
   if (autopilotEmptyMode.value === 'review') {
     return '待审阅：结构将在确认流程写入后显示；若已开始撰写，正文区刷新后会同步侧栏。'
   }
-  return '暂无叙事结构，请使用「全托管」自动生成'
+  return '暂无叙事结构'
 })
 
 // 右键菜单状态
