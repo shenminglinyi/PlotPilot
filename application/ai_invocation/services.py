@@ -449,6 +449,21 @@ class AdoptionCommitService:
             "binding_set_id": snapshot.output_binding_set_id,
         }
 
+    def _commit_projection(self, *, session: InvocationSession, continuation_result: Mapping[str, Any] | None) -> dict:
+        projection = dict((continuation_result or {}).get("_projection") or {})
+        if not projection:
+            return {"skipped": True, "reason": "no_projection_plan"}
+        adapter = str(projection.get("adapter") or "").strip()
+        if adapter != "chapters_table":
+            return {"blocked": True, "reason": "unsupported_projection_adapter", "adapter": adapter}
+        try:
+            from infrastructure.persistence.database.connection import get_database
+            from application.ai_invocation.contracts.chapter_prose_generation import project_chapter_prose_to_chapters
+
+            return project_chapter_prose_to_chapters(get_database(), projection)
+        except Exception as exc:
+            return {"blocked": True, "reason": "projection_failed", "error": str(exc)}
+
     @staticmethod
     def _context_key(context: Mapping[str, Any], scope: str = "") -> str:
         novel_id = str(context.get("novel_id") or "").strip()
@@ -578,6 +593,31 @@ class AdoptionCommitService:
                 return commit
             if not variable_output_result.get("skipped"):
                 commit.result = {**commit.result, "variable_outputs": variable_output_result}
+            projection_result = self._commit_projection(session=session, continuation_result=continuation_result)
+            projection_step_status = (
+                AdoptionCommitStatus.BLOCKED
+                if projection_result.get("blocked")
+                else AdoptionCommitStatus.SUCCEEDED
+            )
+            commit.steps.append(
+                AdoptionCommitStep(
+                    name="commit_projection",
+                    status=projection_step_status,
+                    result=projection_result,
+                )
+            )
+            if projection_result.get("blocked"):
+                commit.status = AdoptionCommitStatus.BLOCKED
+                commit.error = str(projection_result.get("reason") or "projection_failed")
+                commit.result = {
+                    **commit.result,
+                    "accepted_content": decision.accepted_content,
+                    "projection": projection_result,
+                }
+                session.status = InvocationSessionStatus.BLOCKED
+                return commit
+            if not projection_result.get("skipped"):
+                commit.result = {**commit.result, "projection": projection_result}
             commit.status = AdoptionCommitStatus.SUCCEEDED
             commit.result = {**commit.result, "accepted_content": decision.accepted_content}
             session.status = InvocationSessionStatus.COMPLETED

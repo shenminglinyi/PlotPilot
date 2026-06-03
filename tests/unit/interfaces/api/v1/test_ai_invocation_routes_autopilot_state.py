@@ -1,5 +1,5 @@
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSession, InvocationSessionStatus
-from interfaces.api.v1.engine.ai_invocation_routes import _publish_autopilot_session_state
+from interfaces.api.v1.engine.ai_invocation_routes import _is_prompt_draft_editable, _publish_autopilot_session_state
 from interfaces.api.v1.engine.autopilot_routes import _build_status_pure_memory
 
 
@@ -102,3 +102,13 @@ def test_autopilot_status_pure_memory_exposes_active_invocation():
     assert status["has_active_invocation"] is True
     assert status["requires_ai_review"] is True
     assert status["autopilot_pause_reason"] == "awaiting_ai_review"
+
+
+def test_prompt_draft_is_editable_for_pre_call_blocked_session_only():
+    blocked_before_attempt = _session(InvocationSessionStatus.BLOCKED)
+    blocked_after_attempt = _session(InvocationSessionStatus.BLOCKED)
+    blocked_after_attempt.attempts = ("attempt-1",)
+
+    assert _is_prompt_draft_editable(_session(InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW)) is True
+    assert _is_prompt_draft_editable(blocked_before_attempt) is True
+    assert _is_prompt_draft_editable(blocked_after_attempt) is False

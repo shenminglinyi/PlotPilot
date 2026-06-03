@@ -5,7 +5,7 @@
         <h2 class="work-title">{{ bookTitle || slug }}</h2>
         <n-text depth="3" class="work-sub">{{ slug }}</n-text>
       </div>
-      <div class="work-mode-switch" role="group" aria-label="创作模式">
+      <div v-if="!proseOnlyWorkbench" class="work-mode-switch" role="group" aria-label="创作模式">
         <n-switch
           v-model:value="workMode"
           checked-value="managed"
@@ -41,7 +41,7 @@
           rail-drawer-title="本章任务与状态"
         >
           <template #manuscript-toolbar>
-            <div class="desk-toolbar">
+            <div v-if="!proseOnlyWorkbench" class="desk-toolbar">
               <n-space align="center" :size="8" wrap>
                 <template v-if="signalStrip">
                   <n-tag size="small" round type="info">张力 {{ signalStrip.tension }}/10</n-tag>
@@ -57,7 +57,7 @@
                   </n-tag>
                 </template>
               </n-space>
-              <n-space align="center" :size="6" wrap justify="end">
+              <n-space v-if="!proseOnlyWorkbench" align="center" :size="6" wrap justify="end">
                 <n-button size="tiny" quaternary @click="showGuardrailModal = true">护栏详情</n-button>
                 <n-button size="tiny" quaternary @click="showTraceModal = true">引擎溯源</n-button>
                 <n-text depth="3" style="font-size: 11px">元素用主栏标签切换</n-text>
@@ -92,7 +92,7 @@
                         生成中...
                       </n-tag>
                     </div>
-                    <n-space :size="8" class="editor-header-actions">
+                    <n-space v-if="!proseOnlyWorkbench" :size="8" class="editor-header-actions">
                       <n-button size="small" @click="handleReload" :disabled="loading">重新加载</n-button>
                       <n-button
                         size="small"
@@ -105,7 +105,7 @@
                       </n-button>
                     </n-space>
                   </div>
-                  <div v-if="autopilotStatus?.current_act_title" class="act-info-header">
+                  <div v-if="!proseOnlyWorkbench && autopilotStatus?.current_act_title" class="act-info-header">
                     <span class="act-info-title">第 {{ (autopilotStatus.current_act || 0) + 1 }} 幕 · {{ autopilotStatus.current_act_title }}</span>
                     <span v-if="autopilotStatus.current_act_description" class="act-info-desc">{{ autopilotStatus.current_act_description }}</span>
                   </div>
@@ -121,7 +121,7 @@
                       type="textarea"
                       placeholder="章节内容..."
                       :autosize="false"
-                      :readonly="isAssistedReadOnly || (isAutopilotRunning && streamingChapterNumber === currentChapter.number)"
+                      :readonly="true"
                       @update:value="handleContentChange"
                     />
                     <div
@@ -163,29 +163,29 @@
                         <span v-if="isAutopilotRunning && streamingChapterNumber === currentChapter?.number && streamingContent" class="streaming-indicator">生成中▋</span>
                       </template>
                     </n-text>
-                    <n-text depth="3" style="font-size: 11px; max-width: 56ch; line-height: 1.45">
+                    <n-text v-if="!proseOnlyWorkbench" depth="3" style="font-size: 11px; max-width: 56ch; line-height: 1.45">
                       实体标记（可选）：
                       <code>[[char:id|人名]] [[loc:id|地名]] [[faction:id|势力]] [[prop:id|道具]]</code>
                       · 保存后自动索引本章实体，侧栏「手稿道具」可查看。
                     </n-text>
                     </n-space>
                     <n-space :size="8">
-                      <n-tooltip trigger="hover" :disabled="!isAutopilotRunning && !isAssistedReadOnly">
+                      <n-tooltip trigger="hover" :disabled="proseOnlyWorkbench || (!isAutopilotRunning && !isAssistedReadOnly)">
                         <template #trigger>
                           <n-button
                             size="small"
-                            secondary
+                            type="primary"
                             @click="handleGenerateChapter"
-                            :loading="generating"
-                            :disabled="isAutopilotRunning || isAssistedReadOnly"
+                            :loading="generating || generateInProgress"
+                            :disabled="proseOnlyWorkbench ? generateInProgress : (isAutopilotRunning || isAssistedReadOnly)"
                           >
-                            ⚡ 快速生成
+                            {{ proseOnlyWorkbench ? '生文' : '⚡ 快速生成' }}
                           </n-button>
                         </template>
                         <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
                       </n-tooltip>
                       <n-tooltip
-                        v-if="hasChapterContent"
+                        v-if="!proseOnlyWorkbench && hasChapterContent"
                         trigger="hover"
                         :disabled="!isAutopilotRunning && !isAssistedReadOnly"
                         :content="isAssistedReadOnly ? '托管运行中不可重新生成' : 'Autopilot 运行时禁用'"
@@ -202,7 +202,7 @@
                           </n-button>
                         </template>
                       </n-tooltip>
-                      <n-button size="small" secondary :disabled="isAssistedReadOnly" @click="openTensionModal" title="诊断当前章节张力缺口">
+                      <n-button v-if="!proseOnlyWorkbench" size="small" secondary :disabled="isAssistedReadOnly" @click="openTensionModal" title="诊断当前章节张力缺口">
                         🔍 张力诊断
                       </n-button>
                     </n-space>
@@ -211,7 +211,7 @@
                   </div>
                 </n-tab-pane>
 
-                <n-tab-pane name="elements" tab="本章舞台" display-directive="if">
+                <n-tab-pane v-if="!proseOnlyWorkbench" name="elements" tab="本章舞台" display-directive="if">
                   <div class="elements-tab-wrap primary-tab-pane">
                     <ChapterElementPanel
                       :slug="slug"
@@ -228,7 +228,7 @@
           </template>
 
           <template #rail>
-            <div class="rail-column">
+            <div v-if="!proseOnlyWorkbench" class="rail-column">
               <div class="rail-head">
                 <n-text strong style="font-size: 13px">本章任务与状态</n-text>
                 <n-button v-if="!desk.stacked" quaternary circle size="small" @click="desk.toggleRail()" title="收起侧栏">
@@ -314,6 +314,7 @@
 
       <!-- 托管撰稿：驾驶舱 / 仪表盘 / 监控·DAG；组件内 v-show 保持 SSE -->
       <AutopilotWorkspace
+        v-if="!proseOnlyWorkbench"
         v-show="workMode === 'managed'"
         class="managed-stack"
         :novel-id="slug"
@@ -329,6 +330,7 @@
 
     <!-- AI 生成本章弹窗（流式 + 质检结果在「章节状态」） -->
     <n-modal
+      v-if="!proseOnlyWorkbench"
       v-model:show="showGenerateModal"
       preset="card"
       :title="isRegenerationMode ? '🔄 重新生成本章' : 'AI 生成本章（含一致性检查）'"
@@ -820,6 +822,7 @@ import type { ContextPreviewResult, GenerateChapterWorkflowResponse, StreamGener
 import type { GenerationPrefsDTO } from '@/api/novel'
 import type { GuardrailCheckResponse } from '../../api/engineCore'
 import { chapterApi, type ChapterMicroBeatPayload } from '../../api/chapter'
+import { aiInvocationApi } from '../../api/aiInvocation'
 import { llmControlApi, type LLMProfile } from '../../api/llmControl'
 import { tensionApi } from '../../api/tools'
 import type { TensionDiagnosis } from '../../api/tools'
@@ -834,6 +837,7 @@ const TraceRecordPanel = defineAsyncComponent(() => import('./TraceRecordPanel.v
 const AutopilotWorkspace = defineAsyncComponent(() => import('../autopilot/AutopilotWorkspace.vue'))
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 import {
   CHAPTER_DESK_AUX_ORDER,
   CHAPTER_DESK_AUX_SURFACES,
@@ -885,6 +889,8 @@ const desk = useChapterDeskLayout()
 
 const workbenchRefresh = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(workbenchRefresh)
+const aiInvocationStore = useAIInvocationStore()
+const proseOnlyWorkbench = true
 
 const primaryDeskTab = ref<PrimaryChapterDeskTab>('manuscript')
 const railActiveTab = ref<'plan' | 'status'>('plan')
@@ -912,7 +918,7 @@ function auxPaneIcon(id: ChapterDeskAuxPaneId): Component {
 }
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
-const workMode = ref<'assisted' | 'managed'>('managed')
+const workMode = ref<'assisted' | 'managed'>('assisted')
 
 const showGenerateModal = ref(false)
 const generateOutline = ref('')
@@ -1733,7 +1739,7 @@ watch(() => props.chapterContent, (newContent) => {
 
 // 切换回正在生成的章节时，自动打开生成弹窗（让用户看到进度）
 watch(() => props.currentChapterId, (id) => {
-  if (id !== null && id === generatingChapterId.value) {
+  if (!proseOnlyWorkbench && id !== null && id === generatingChapterId.value) {
     showGenerateModal.value = true
   }
 })
@@ -1777,6 +1783,46 @@ const handleReload = async () => {
 
 const handleGenerateChapter = async () => {
   if (!currentChapter.value) return
+  if (proseOnlyWorkbench) {
+    if (generateInProgress.value) return
+    generatingChapterId.value = currentChapter.value.id
+    generateInProgress.value = true
+    try {
+      const chapterNumber = currentChapter.value.number
+      const payload = await aiInvocationApi.create({
+        operation: 'chapter.generate.prose',
+        node_key: 'chapter-prose-generation',
+        policy: 'FULL_INTERACTIVE',
+        context: {
+          novel_id: props.slug,
+          chapter_number: chapterNumber,
+        },
+        variables: {
+          novel_title: props.bookTitle || props.slug,
+          chapter_number: chapterNumber,
+          chapter_title: currentChapter.value.title || '',
+          chapter_outline: `${ordinalUnit(chapterNumber)}：${currentChapter.value.title || ''}\n\n承接前情，推进主线与人物节奏。`,
+        },
+        metadata: {
+          source: 'workbench',
+        },
+      })
+      aiInvocationStore.openFromResponse(payload)
+      if (payload.session?.id) {
+        const stopListening = aiInvocationStore.onSessionUpdate(payload.session.id, (nextPayload) => {
+          if (nextPayload.session?.status !== 'completed') return
+          stopListening()
+          void handleReload().then(() => emit('chapterUpdated'))
+        })
+      }
+    } catch (err) {
+      message.error(`创建生文审阅会话失败：${httpDetailFromError(err)}`)
+    } finally {
+      generateInProgress.value = false
+      generatingChapterId.value = null
+    }
+    return
+  }
   if (isAssistedReadOnly.value) {
     message.warning('托管运行中不可使用快速生成')
     return

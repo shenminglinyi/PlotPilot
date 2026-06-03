@@ -452,7 +452,7 @@ class PromptTemplateEngine:
         variables = set()
 
         # 提取 Jinja2 {{ variable }} 格式
-        jinja2_pattern = re.compile(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}')
+        jinja2_pattern = re.compile(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}')
         variables.update(jinja2_pattern.findall(template))
 
         # 提取旧版 {variable} 格式（排除已匹配的 Jinja2）
@@ -512,19 +512,44 @@ class PromptTemplateEngine:
         if not template:
             return ""
 
-        class SafeDict(dict):
-            def __missing__(self, key: str) -> str:
-                return "{" + key + "}"
+        def resolve(name: str) -> Any:
+            if name in variables:
+                return variables[name]
+            current: Any = variables
+            for part in name.split("."):
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    raise KeyError(name)
+            return current
 
-        try:
-            format_template = re.sub(
-                r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}",
-                r"{\1}",
-                template,
-            )
-            return format_template.format_map(SafeDict(variables))
-        except (KeyError, ValueError, IndexError):
-            return template
+        def replace_jinja(match: re.Match[str]) -> str:
+            name = match.group(1).strip()
+            try:
+                value = resolve(name)
+            except KeyError:
+                return "{{ " + name + " }}"
+            return "" if value is None else str(value)
+
+        rendered = re.sub(
+            r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}",
+            replace_jinja,
+            template,
+        )
+
+        def replace_legacy(match: re.Match[str]) -> str:
+            name = match.group(1).strip()
+            try:
+                value = resolve(name)
+            except KeyError:
+                return "{" + name + "}"
+            return "" if value is None else str(value)
+
+        return re.sub(
+            r"(?<!\{)\{(?!\{)(?!\s*[%#])\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}(?!\})",
+            replace_legacy,
+            rendered,
+        )
 
 
 # ─── 全局单例 ───

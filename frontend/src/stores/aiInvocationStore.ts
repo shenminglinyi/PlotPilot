@@ -270,6 +270,24 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     }
   }
 
+  async function updateVariables(values: Record<string, unknown>) {
+    if (!session.value?.id) return
+    actionLoading.value = true
+    error.value = ''
+    try {
+      const payload = await aiInvocationApi.updateVariables(session.value.id, {
+        values,
+        updated_by: 'user',
+      })
+      applyResponse(payload)
+    } catch (err) {
+      error.value = errorText(err)
+      throw err
+    } finally {
+      actionLoading.value = false
+    }
+  }
+
   async function runCommit() {
     if (!session.value?.id || !decision.value?.id) return
     actionLoading.value = true
@@ -383,6 +401,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     resume,
     previewPromptDraft,
     savePromptDraft,
+    updateVariables,
     runCommit,
     close,
     stopGenerationPolling,

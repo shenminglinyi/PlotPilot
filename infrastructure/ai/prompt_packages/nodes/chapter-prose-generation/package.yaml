@@ -1,0 +1,65 @@
+id: chapter-prose-generation
+name: 工作台正文生成
+category: generation
+source: ai_invocation/chapter.generate.prose
+description: 通过 AI Invocation 审阅面板生成单章正文，prompt 正文完全由 CPMS 管理。
+builtin: true
+tags:
+  - 工作台
+  - 正文生成
+  - AI Invocation
+variables:
+  - name: novel_title
+    desc: 小说标题
+    type: string
+    required: true
+  - name: genre
+    desc: 小说类型
+    type: string
+    required: false
+    default: ''
+  - name: style_guide
+    desc: 风格指南
+    type: string
+    required: false
+    default: ''
+  - name: chapter_number
+    desc: 章节序号
+    type: integer
+    required: true
+  - name: chapter_title
+    desc: 章节标题
+    type: string
+    required: false
+    default: ''
+  - name: chapter_outline
+    desc: 章节大纲
+    type: string
+    required: true
+  - name: previous_summary
+    desc: 前章摘要
+    type: string
+    required: false
+    default: ''
+  - name: previous_ending
+    desc: 前章结尾
+    type: string
+    required: false
+    default: ''
+  - name: active_cast
+    desc: 本章登场角色
+    type: list
+    required: false
+    default: []
+  - name: world_context
+    desc: 世界观上下文
+    type: string
+    required: false
+    default: ''
+  - name: user_requirements
+    desc: 用户本次生成要求
+    type: string
+    required: false
+    default: ''
+output_format: text
+sort_order: 10

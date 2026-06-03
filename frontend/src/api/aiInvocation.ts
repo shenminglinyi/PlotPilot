@@ -184,6 +184,11 @@ export interface InvocationPromptDraftPayload {
   user_template?: string | null
 }
 
+export interface InvocationVariableUpdatePayload {
+  values: Record<string, unknown>
+  updated_by?: string
+}
+
 export interface InvocationPromptDraftPreviewDTO {
   prompt_snapshot: InvocationPromptSnapshot
   variable_plan?: InvocationVariablePlan
@@ -216,6 +221,9 @@ export const aiInvocationApi = {
   },
   savePromptDraft(sessionId: string, payload: InvocationPromptDraftPayload) {
     return apiClient.put<InvocationResponseDTO>(`/ai-invocations/${sessionId}/prompt-draft`, payload)
+  },
+  updateVariables(sessionId: string, payload: InvocationVariableUpdatePayload) {
+    return apiClient.put<InvocationResponseDTO>(`/ai-invocations/${sessionId}/variables`, payload)
   },
   commit(sessionId: string, decisionId: string) {
     return apiClient.post<InvocationResponseDTO>(`/ai-invocations/${sessionId}/commits`, {

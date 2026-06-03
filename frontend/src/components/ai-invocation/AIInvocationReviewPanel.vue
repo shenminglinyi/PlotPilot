@@ -32,14 +32,21 @@ const diagnostics = computed(() => {
   ]
   return Array.from(new Set(items.filter(Boolean)))
 })
-const missingVariables = computed(() => store.session?.variable_plan?.required_missing ?? [])
+const missingVariables = computed(() =>
+  store.promptDraftPreview?.variable_plan?.required_missing
+  ?? store.session?.variable_plan?.required_missing
+  ?? [],
+)
+const missingVariableDrafts = ref<Record<string, string>>({})
+const canEditVariables = computed(() => ['blocked', 'awaiting_pre_call_review'].includes(String(store.session?.status || '')))
 const hasPrompt = computed(() => Boolean(
   store.draftSystemTemplate
   || store.draftUserTemplate
   || store.draftRuntimeSystem
   || store.draftRuntimeUser,
 ))
-const isDraftEditable = computed(() => store.session?.status === 'awaiting_pre_call_review')
+const isPreCallBlocked = computed(() => store.session?.status === 'blocked' && !store.attempt?.id && !store.decision?.id)
+const isDraftEditable = computed(() => store.session?.status === 'awaiting_pre_call_review' || isPreCallBlocked.value)
 const originalSystemTemplate = computed(() => store.session?.prompt_snapshot?.template_prompt?.system ?? '')
 const originalUserTemplate = computed(() => store.session?.prompt_snapshot?.template_prompt?.user ?? '')
 const systemPromptDraftChanged = computed(() => promptDraftSystem.value !== originalSystemTemplate.value)
@@ -108,6 +115,14 @@ const outputContractSkeleton = computed(() => {
 })
 const outputBindings = computed<OutputBindingRow[]>(() => {
   const nodeKey = store.session?.node_key || ''
+  if (nodeKey === 'chapter-prose-generation') {
+    return [
+      { label: '生成正文', jsonPath: 'content', target: 'Variable Hub: chapter.prose.generated' },
+      { label: '采纳正文', jsonPath: 'accepted_content', target: 'Variable Hub: chapter.prose.accepted -> chapters.content' },
+      { label: '生成说明', jsonPath: 'generation_notes', target: 'Variable Hub: chapter.generation.notes' },
+      { label: '质量标记', jsonPath: 'quality_flags', target: 'Variable Hub: chapter.generation.quality_flags' },
+    ]
+  }
   if (nodeKey === 'bible-worldbuilding') {
     return [
       { label: '文风公约', jsonPath: 'style', target: 'Bible.style_notes[category=文风公约]' },
@@ -163,9 +178,18 @@ watch(
   () => {
     expandedPromptGroups.value = []
     expandedVariableGroups.value = []
+    missingVariableDrafts.value = {}
   },
   { immediate: true },
 )
+
+watch(missingVariables, (items) => {
+  const next = { ...missingVariableDrafts.value }
+  for (const alias of items) {
+    if (!(alias in next)) next[alias] = ''
+  }
+  missingVariableDrafts.value = next
+}, { immediate: true })
 
 watch([promptDraftSystem, promptDraftUser], ([systemValue, userValue]) => {
   if (!store.session?.id || !isDraftEditable.value) return
@@ -240,7 +264,23 @@ async function handleResume() {
   if (isDraftEditable.value) {
     await store.savePromptDraft(promptDraftSystem.value, promptDraftUser.value)
   }
+  if (missingVariables.value.length > 0) {
+    await handleSaveMissingVariables()
+  }
+  if (store.session?.status === 'blocked') return
   await store.resume()
+}
+
+async function handleSaveMissingVariables() {
+  const values: Record<string, unknown> = {}
+  for (const alias of missingVariables.value) {
+    const value = missingVariableDrafts.value[alias]
+    if (value != null && String(value).trim() !== '') {
+      values[alias] = value
+    }
+  }
+  if (!Object.keys(values).length) return
+  await store.updateVariables(values)
 }
 
 async function handleRetry() {
@@ -250,6 +290,12 @@ async function handleRetry() {
 function parseAttemptContent(): Record<string, unknown> | null {
   const raw = store.attempt?.content || ''
   if (!raw.trim()) return null
+  if (store.session?.node_key === 'chapter-prose-generation') {
+    return {
+      content: raw,
+      accepted_content: raw,
+    }
+  }
   const candidates = [
     raw.trim(),
     extractJsonFromMarkdown(raw),
@@ -451,6 +497,30 @@ const outputPreviewRows = computed(() =>
             必填变量缺失：{{ missingVariables.join('、') }}
           </n-alert>
 
+          <n-card v-if="missingVariables.length > 0 && canEditVariables" size="small" title="补齐变量">
+            <n-space vertical :size="10">
+              <div v-for="alias in missingVariables" :key="alias" class="missing-variable-row">
+                <n-text strong>{{ alias }}</n-text>
+                <n-input
+                  v-model:value="missingVariableDrafts[alias]"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 6 }"
+                  placeholder="输入本次变量值"
+                />
+              </div>
+              <n-space justify="end">
+                <n-button
+                  type="primary"
+                  secondary
+                  :loading="store.actionLoading"
+                  @click="handleSaveMissingVariables"
+                >
+                  保存变量
+                </n-button>
+              </n-space>
+            </n-space>
+          </n-card>
+
           <n-card v-if="diagnostics.length > 0" size="small" title="诊断信息">
             <n-list>
               <n-list-item v-for="item in diagnostics" :key="item">
@@ -651,12 +721,12 @@ const outputPreviewRows = computed(() =>
         <n-space justify="end">
           <n-button @click="store.close">关闭</n-button>
           <n-button
-            v-if="store.session?.status === 'awaiting_pre_call_review'"
+            v-if="store.session?.status === 'awaiting_pre_call_review' || isPreCallBlocked"
             type="primary"
             :loading="store.actionLoading || store.promptDraftLoading"
             @click="handleResume"
           >
-            批准生成
+            {{ isPreCallBlocked ? '保存并继续' : '批准生成' }}
           </n-button>
           <n-button v-if="store.canRetry" :loading="store.actionLoading" @click="handleRetry">
             重新生成
@@ -762,6 +832,12 @@ const outputPreviewRows = computed(() =>
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+}
+
+.missing-variable-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .ai-invocation-scroll,

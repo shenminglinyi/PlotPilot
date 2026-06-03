@@ -80,6 +80,12 @@ class InvocationContractRegistry:
             ensure_autopilot_narrative_sync_contract(self._db)
         elif operation == "chapter.generate" and node_key == CHAPTER_GENERATION_MAIN:
             self._ensure_chapter_generation_contract()
+        elif operation == "chapter.generate.prose" and node_key == "chapter-prose-generation":
+            from application.ai_invocation.contracts.chapter_prose_generation import (
+                ensure_chapter_prose_generation_contract,
+            )
+
+            ensure_chapter_prose_generation_contract(self._db)
         else:
             raise ValueError(f"Unsupported invocation contract: operation={operation}, node_key={node_key}")
 
