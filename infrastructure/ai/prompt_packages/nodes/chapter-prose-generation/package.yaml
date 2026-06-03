@@ -61,10 +61,5 @@ variables:
     type: string
     required: false
     default: ''
-  - name: variable_hub_context
-    desc: 新书引导已确认变量中心上下文
-    type: string
-    required: false
-    default: ''
 output_format: text
 sort_order: 10

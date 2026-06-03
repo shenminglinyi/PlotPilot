@@ -3,9 +3,6 @@
 风格指南：
 {style_guide}
 
-变量中心（新书引导已确认内容）：
-{{ variable_hub_context }}
-
 章节：第 {chapter_number} 章
 章节标题：{chapter_title}
 

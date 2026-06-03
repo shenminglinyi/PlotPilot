@@ -115,14 +115,6 @@ const outputContractSkeleton = computed(() => {
 })
 const outputBindings = computed<OutputBindingRow[]>(() => {
   const nodeKey = store.session?.node_key || ''
-  if (nodeKey === 'chapter-prose-generation') {
-    return [
-      { label: '生成正文', jsonPath: 'content', target: 'Variable Hub: chapter.prose.generated' },
-      { label: '采纳正文', jsonPath: 'accepted_content', target: 'Variable Hub: chapter.prose.accepted -> chapters.content' },
-      { label: '生成说明', jsonPath: 'generation_notes', target: 'Variable Hub: chapter.generation.notes' },
-      { label: '质量标记', jsonPath: 'quality_flags', target: 'Variable Hub: chapter.generation.quality_flags' },
-    ]
-  }
   if (nodeKey === 'bible-worldbuilding') {
     return [
       { label: '文风公约', jsonPath: 'style', target: 'Bible.style_notes[category=文风公约]' },
@@ -286,12 +278,6 @@ async function handleRetry() {
 function parseAttemptContent(): Record<string, unknown> | null {
   const raw = store.attempt?.content || ''
   if (!raw.trim()) return null
-  if (store.session?.node_key === 'chapter-prose-generation') {
-    return {
-      content: raw,
-      accepted_content: raw,
-    }
-  }
   const candidates = [
     raw.trim(),
     extractJsonFromMarkdown(raw),

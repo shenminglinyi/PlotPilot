@@ -273,6 +273,7 @@ class AdoptionCommitService:
             getattr(updated, "get_active_user_template", lambda: "")()
             or snapshot.draft_prompt.user
         )
+        updated_version_id = getattr(updated, "active_version_id", None) or previous_version_id
         refreshed_template = Prompt(system=updated_system, user=updated_user)
         rendered_prompt = refreshed_template
         if session.variable_plan is not None:
@@ -288,15 +289,60 @@ class AdoptionCommitService:
                 user=render_result.user or "",
             )
 
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+
+            get_prompt_registry().invalidate_cache(updated.node_key)
+        except Exception:
+            logger.warning(
+                "failed to invalidate prompt registry cache after cpms commit: node=%s",
+                updated.node_key,
+                exc_info=True,
+            )
+
+        try:
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
+                SqliteInvocationSpecRepository,
+            )
+
+            spec_repo = SqliteInvocationSpecRepository(get_database())
+            current_spec = spec_repo.get(session.operation, session.node_key)
+            if current_spec is not None:
+                spec_repo.upsert(
+                    replace(
+                        current_spec,
+                        prompt_node_version_id=updated_version_id,
+                    )
+                )
+        except Exception:
+            logger.warning(
+                "failed to refresh invocation spec after cpms commit: operation=%s node=%s",
+                session.operation,
+                session.node_key,
+                exc_info=True,
+            )
+
         session.prompt_snapshot = replace(
             snapshot,
             prompt=rendered_prompt,
+            node_version_id=updated_version_id,
             template_prompt=refreshed_template,
             draft_prompt=refreshed_template,
             template_hash=stable_hash(
                 {
                     "system_template": refreshed_template.system,
                     "user_template": refreshed_template.user,
+                }
+            ),
+            composition_hash=stable_hash(
+                {
+                    "node_key": session.node_key,
+                    "node_version_id": updated_version_id,
+                    "asset_link_set_id": snapshot.asset_link_set_id,
+                    "input_binding_set_id": snapshot.input_binding_set_id,
+                    "output_binding_set_id": snapshot.output_binding_set_id,
+                    "asset_version_ids": tuple(snapshot.asset_version_ids or ()),
                 }
             ),
             rendered_prompt_hash=prompt_hash(rendered_prompt),
@@ -313,7 +359,7 @@ class AdoptionCommitService:
             "node_key": updated.node_key,
             "node_id": updated.id,
             "previous_version_id": previous_version_id,
-            "active_version_id": updated.active_version_id,
+            "active_version_id": updated_version_id,
             "template_hash": stable_hash(
                 {
                     "system_template": snapshot.draft_prompt.system,

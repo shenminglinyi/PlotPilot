@@ -37,6 +37,7 @@
         <ChapterWorkbenchShell
           class="chapter-desk-shell"
           :stacked="desk.stacked"
+          :rail-enabled="!proseOnlyWorkbench"
           v-model:rail-expanded="desk.railExpanded"
           rail-drawer-title="本章任务与状态"
         >
@@ -198,13 +199,13 @@
                             :loading="generating || generateInProgress"
                             :disabled="proseOnlyWorkbench ? generateInProgress : (isAutopilotRunning || isAssistedReadOnly)"
                           >
-                            {{ proseOnlyWorkbench ? '生文' : '⚡ 快速生成' }}
+                            {{ prosePrimaryActionLabel }}
                           </n-button>
                         </template>
                         <span>{{ isAssistedReadOnly ? '托管运行中不可手动生成' : 'Autopilot 运行时禁用手动生成' }}</span>
                       </n-tooltip>
                       <n-tooltip
-                        v-if="!proseOnlyWorkbench && hasChapterContent"
+                        v-if="hasChapterContent"
                         trigger="hover"
                         :disabled="!isAutopilotRunning && !isAssistedReadOnly"
                         :content="isAssistedReadOnly ? '托管运行中不可重新生成' : 'Autopilot 运行时禁用'"
@@ -1640,6 +1641,22 @@ const nextProseChapterNumber = computed(() => {
   return Math.max(1, maxChapterNumber + 1)
 })
 
+const nextChapterGenerationTarget = computed<ProseGenerationChapterTarget | null>(() => {
+  const current = currentChapter.value
+  if (!current) return null
+
+  const futureChapters = props.chapters
+    .filter(ch => ch.number > current.number)
+    .sort((a, b) => a.number - b.number)
+  const firstUnwrittenFutureChapter = futureChapters.find(ch => (ch.word_count || 0) <= 0)
+
+  if (firstUnwrittenFutureChapter) {
+    return firstUnwrittenFutureChapter
+  }
+
+  return buildSyntheticChapterTarget(Math.max(current.number + 1, nextProseChapterNumber.value))
+})
+
 const emptyStateProseHint = computed(() => {
   const chapterNumber = nextProseChapterNumber.value
   return `将生成${ordinalUnit(chapterNumber)}正文，提交后自动写入章节`
@@ -1650,6 +1667,17 @@ const hasChapterContent = computed(() => {
   const fromEditor = chapterContent.value?.trim() ?? ''
   const fromList = currentChapter.value?.content?.trim() ?? ''
   return !!(fromEditor || fromList)
+})
+
+const prosePrimaryGenerationTarget = computed<ProseGenerationChapterTarget | null>(() => {
+  if (!proseOnlyWorkbench) return currentChapter.value
+  if (!currentChapter.value) return buildSyntheticChapterTarget(nextProseChapterNumber.value)
+  return hasChapterContent.value ? nextChapterGenerationTarget.value : currentChapter.value
+})
+
+const prosePrimaryActionLabel = computed(() => {
+  if (!proseOnlyWorkbench) return '⚡ 快速生成'
+  return hasChapterContent.value ? '生文（下一章）' : '生文'
 })
 
 const signalStrip = computed(() => {
@@ -1813,7 +1841,20 @@ const handleReload = async () => {
 
 type ProseGenerationChapterTarget = Pick<Chapter, 'id' | 'number' | 'title'>
 
-async function openProseInvocationForChapter(target: ProseGenerationChapterTarget) {
+function buildSyntheticChapterTarget(chapterNumber: number): ProseGenerationChapterTarget {
+  return {
+    id: chapterNumber,
+    number: chapterNumber,
+    title: '',
+  }
+}
+
+async function openProseInvocationForChapter(
+  target: ProseGenerationChapterTarget,
+  options?: {
+    userRequirements?: string
+  },
+) {
   if (generateInProgress.value) return
   const chapterNumber = target.number
   generatingChapterId.value = target.id
@@ -1822,7 +1863,6 @@ async function openProseInvocationForChapter(target: ProseGenerationChapterTarge
     const payload = await aiInvocationApi.create({
       operation: 'chapter.generate.prose',
       node_key: 'chapter-prose-generation',
-      policy: 'FULL_INTERACTIVE',
       context: {
         novel_id: props.slug,
         chapter_number: chapterNumber,
@@ -1831,10 +1871,7 @@ async function openProseInvocationForChapter(target: ProseGenerationChapterTarge
         novel_title: props.bookTitle || props.slug,
         chapter_number: chapterNumber,
         chapter_title: target.title || '',
-        chapter_outline: `${ordinalUnit(chapterNumber)}：${target.title || ''}\n\n承接前情，推进主线与人物节奏。`,
-      },
-      metadata: {
-        source: 'workbench',
+        user_requirements: options?.userRequirements || '',
       },
     })
     if (props.chapters.some(ch => ch.number === chapterNumber)) {
@@ -1863,20 +1900,18 @@ async function openProseInvocationForChapter(target: ProseGenerationChapterTarge
 async function handleEmptyStateGenerate() {
   if (generateInProgress.value) return
   const chapterNumber = nextProseChapterNumber.value
-  const target = {
-    id: chapterNumber,
-    number: chapterNumber,
-    title: ordinalUnit(chapterNumber),
-  }
+  const target = buildSyntheticChapterTarget(chapterNumber)
   await openProseInvocationForChapter(target)
 }
 
 const handleGenerateChapter = async () => {
-  if (!currentChapter.value) return
   if (proseOnlyWorkbench) {
-    await openProseInvocationForChapter(currentChapter.value)
+    const target = prosePrimaryGenerationTarget.value
+    if (!target) return
+    await openProseInvocationForChapter(target)
     return
   }
+  if (!currentChapter.value) return
   if (isAssistedReadOnly.value) {
     message.warning('托管运行中不可使用快速生成')
     return
@@ -1899,6 +1934,24 @@ const handleRegenerateChapter = async () => {
   if (!currentChapter.value) return
   if (isAssistedReadOnly.value) {
     message.warning('托管运行中不可使用重新生成')
+    return
+  }
+
+  if (proseOnlyWorkbench) {
+    try {
+      await saveChapterDraft(props.slug, currentChapter.value.number, 'pre_regen')
+    } catch (e: unknown) {
+      const status = httpStatusFromError(e)
+      const detail = httpDetailFromError(e)
+      if (status === 422 || detail.includes('内容为空')) {
+        message.warning('当前无正文可快照，将直接进入重新生成面板')
+      } else {
+        message.warning(`历史草稿快照失败，将继续打开面板：${detail}`)
+      }
+    }
+    await openProseInvocationForChapter(currentChapter.value, {
+      userRequirements: '本次为重新生成当前章节。请保留核心设定与章节定位，但整体重写为全新正文，不要沿袭现有措辞。',
+    })
     return
   }
 

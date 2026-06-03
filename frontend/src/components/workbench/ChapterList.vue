@@ -68,6 +68,7 @@
         <StoryStructureTree
           ref="storyTreeRef"
           :slug="slug"
+          :chapters="chapters"
           :current-chapter-id="currentChapterId"
           :generation-prefs="generationPrefs"
           @select-chapter="handleChapterClick"

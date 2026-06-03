@@ -6,10 +6,6 @@ from typing import Mapping, Protocol
 from domain.ai.value_objects.prompt import Prompt
 from application.ai_invocation.dtos import InvocationSpec, PromptSnapshot, VariablePlan, prompt_hash, stable_hash
 from application.ai_invocation.prompt_variables import aliases_with_binding_variable_keys, aliases_with_dotted_variables
-from application.ai_invocation.variable_hub_context import (
-    format_setup_variable_hub_context,
-    inject_setup_variable_hub_context,
-)
 
 
 class PromptAssemblyError(RuntimeError):
@@ -62,8 +58,6 @@ class CPMSPromptAssembler:
         for item in variable_plan.snapshot_items or ():
             if isinstance(item, Mapping) and item.get("variable_key"):
                 render_aliases.setdefault(str(item.get("variable_key")), item.get("value"))
-        variable_hub_context = format_setup_variable_hub_context(variable_plan.snapshot_items)
-        render_aliases["variable_hub_context"] = variable_hub_context
 
         render_result = self._template_engine.render(
             system_template=system_template,
@@ -72,7 +66,7 @@ class CPMSPromptAssembler:
         )
         prompt = Prompt(
             system=render_result.system,
-            user=inject_setup_variable_hub_context(render_result.user, variable_hub_context),
+            user=render_result.user,
         )
         asset_version_ids = tuple(str(x) for x in spec.metadata.get("asset_version_ids", []) if x)
         template_hash = stable_hash({"system_template": system_template, "user_template": user_template})

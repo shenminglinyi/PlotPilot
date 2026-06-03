@@ -10,7 +10,7 @@
     </div>
 
     <!-- 宽屏：固定侧栏 -->
-    <aside v-if="!stacked && railExpanded" class="cws-rail" aria-label="本章上下文侧栏">
+    <aside v-if="railEnabled && !stacked && railExpanded" class="cws-rail" aria-label="本章上下文侧栏">
       <div class="cws-rail-inner">
         <slot name="rail" />
       </div>
@@ -18,7 +18,7 @@
 
     <!-- 宽屏：侧栏收起的窄触轨 -->
     <div
-      v-if="!stacked && !railExpanded"
+      v-if="railEnabled && !stacked && !railExpanded"
       class="cws-rail-collapsed"
       role="toolbar"
       aria-label="展开侧栏与主栏工具"
@@ -39,7 +39,7 @@
 
     <!-- 窄屏：任务与状态进抽屉 -->
     <n-drawer
-      v-if="stacked"
+      v-if="railEnabled && stacked"
       :show="railExpanded"
       @update:show="emitRail"
       :width="drawerW"
@@ -66,10 +66,12 @@ const props = withDefaults(
   defineProps<{
     stacked: boolean
     railExpanded: boolean
+    railEnabled?: boolean
     /** 窄屏侧栏抽屉标题 */
     railDrawerTitle?: string
   }>(),
   {
+    railEnabled: true,
     railDrawerTitle: '本章任务与状态',
   }
 )

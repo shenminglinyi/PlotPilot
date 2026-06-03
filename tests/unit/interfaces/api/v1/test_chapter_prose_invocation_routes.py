@@ -265,7 +265,116 @@ def test_chapter_prose_prompt_draft_custom_variable_can_be_filled_and_resumed(tm
     db.close_all(skip_checkpoint=True)
 
 
-def test_chapter_prose_get_refresh_keeps_setup_guide_variable_snapshot(tmp_path, monkeypatch):
+def test_chapter_prose_commit_can_promote_prompt_draft_to_cpms(tmp_path, monkeypatch):
+    db = DatabaseConnection(str(tmp_path / "plotpilot-test-prose-commit-prompt.db"))
+
+    monkeypatch.setattr(ai_invocation_routes, "get_database", lambda db_path=None: db)
+    monkeypatch.setattr("infrastructure.persistence.database.connection.get_database", lambda db_path=None: db)
+    monkeypatch.setattr(ai_invocation_routes, "get_llm_service", lambda: _StreamingLLM())
+
+    import infrastructure.ai.prompt_manager as prompt_manager_module
+    import infrastructure.ai.prompt_registry as prompt_registry_module
+
+    prompt_manager_module._manager_instance = prompt_manager_module.PromptManager(db)
+    prompt_registry_module._registry_instance = prompt_registry_module.PromptRegistry(
+        prompt_manager=prompt_manager_module._manager_instance
+    )
+    with sqlite_writes_bypass_queue():
+        with db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO novels (id, title, slug, target_chapters) VALUES (?, ?, ?, ?)",
+                ("novel-commit-prompt", "提示词小说", "novel-commit-prompt", 12),
+            )
+
+    app = FastAPI()
+    app.include_router(ai_invocation_routes.router)
+    client = TestClient(app)
+
+    manager = prompt_manager_module._manager_instance
+    before_node = manager.get_node("chapter-prose-generation", by_key=True)
+    assert before_node is not None
+    before_version_id = before_node.active_version_id
+    before_user_template = before_node.get_active_user_template()
+
+    created = client.post(
+        "/ai-invocations",
+        json={
+            "operation": "chapter.generate.prose",
+            "node_key": "chapter-prose-generation",
+            "policy": "FULL_INTERACTIVE",
+            "context": {"novel_id": "novel-commit-prompt", "chapter_number": 2},
+            "variables": {
+                "novel_title": "提示词小说",
+                "chapter_number": 2,
+                "chapter_outline": "提交后应覆写 CPMS 提示词",
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    session_id = created.json()["session"]["id"]
+    template = created.json()["session"]["prompt_snapshot"]["template_prompt"]
+
+    suffix = "\n额外要求：生成时增强临场感与压迫感。"
+    saved = client.put(
+        f"/ai-invocations/{session_id}/prompt-draft",
+        json={
+            "system_template": template["system"],
+            "user_template": template["user"] + suffix,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+
+    resumed = client.post(f"/ai-invocations/{session_id}/resume", json={"resumed_by": "test"})
+    assert resumed.status_code == 200, resumed.text
+    accepted_ready = _wait_for_status(client, session_id, "awaiting_acceptance")
+    attempt_id = accepted_ready["attempt"]["id"]
+
+    accepted = client.post(
+        f"/ai-invocations/{session_id}/accept",
+        json={
+            "attempt_id": attempt_id,
+            "accepted_by": "test",
+            "commit_prompt_version": True,
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["decision"]["commit_prompt_version"] is True
+    decision_id = accepted.json()["decision"]["id"]
+
+    committed = client.post(f"/ai-invocations/{session_id}/commits", json={"decision_id": decision_id})
+    assert committed.status_code == 200, committed.text
+    steps = committed.json()["commit"]["steps"]
+    prompt_step = next(step for step in steps if step["name"] == "commit_prompt_version")
+    assert prompt_step["status"] == "succeeded"
+    assert prompt_step["result"]["skipped"] is False
+
+    after_node = manager.get_node("chapter-prose-generation", by_key=True)
+    assert after_node is not None
+    assert after_node.active_version_id != before_version_id
+    assert after_node.get_active_user_template() == before_user_template + suffix
+
+    created_again = client.post(
+        "/ai-invocations",
+        json={
+            "operation": "chapter.generate.prose",
+            "node_key": "chapter-prose-generation",
+            "policy": "FULL_INTERACTIVE",
+            "context": {"novel_id": "novel-commit-prompt", "chapter_number": 3},
+            "variables": {
+                "novel_title": "提示词小说",
+                "chapter_number": 3,
+                "chapter_outline": "下一章应读取 CPMS 新提示词",
+            },
+        },
+    )
+    assert created_again.status_code == 200, created_again.text
+    next_template = created_again.json()["session"]["prompt_snapshot"]["template_prompt"]["user"]
+    assert next_template == before_user_template + suffix
+
+    db.close_all(skip_checkpoint=True)
+
+
+def test_chapter_prose_get_refresh_keeps_setup_snapshot_without_prompt_injection(tmp_path, monkeypatch):
     db = DatabaseConnection(str(tmp_path / "plotpilot-test-prose-snapshot.db"))
 
     monkeypatch.setattr(ai_invocation_routes, "get_database", lambda db_path=None: db)
@@ -343,7 +452,8 @@ def test_chapter_prose_get_refresh_keeps_setup_guide_variable_snapshot(tmp_path,
     assert "novel.worldbuilding.core_rules" in keys
     assert "novel:characters" in group_ids
     assert "novel:worldbuilding" in group_ids
-    assert "变量角色" in refreshed.json()["session"]["prompt_snapshot"]["prompt"]["user"]
-    assert "变量武道" in refreshed.json()["session"]["prompt_snapshot"]["prompt"]["user"]
+    prompt_user = refreshed.json()["session"]["prompt_snapshot"]["prompt"]["user"]
+    assert "变量角色" not in prompt_user
+    assert "变量武道" not in prompt_user
 
     db.close_all(skip_checkpoint=True)

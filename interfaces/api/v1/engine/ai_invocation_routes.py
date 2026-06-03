@@ -36,10 +36,6 @@ from application.ai_invocation.prompt_variables import (
 from application.ai_invocation.services import AdoptionCommitService, AdoptionService, AttemptService, InvocationSessionService
 from application.ai_invocation.spec_service import InvocationSpecNotFoundError, InvocationSpecService
 from application.ai_invocation.variable_hub import RUNTIME_ONLY_BINDING_SOURCES, VariableResolver, VariableWrite
-from application.ai_invocation.variable_hub_context import (
-    format_setup_variable_hub_context,
-    inject_setup_variable_hub_context,
-)
 from domain.ai.services.llm_service import GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.persistence.database.connection import get_database
@@ -569,8 +565,6 @@ def _render_prompt_draft(session, system_template: str, user_template: str | Non
     for item in session.variable_plan.snapshot_items or ():
         if isinstance(item, Mapping) and item.get("variable_key"):
             render_aliases.setdefault(str(item.get("variable_key")), item.get("value"))
-    variable_hub_context = format_setup_variable_hub_context(session.variable_plan.snapshot_items)
-    render_aliases["variable_hub_context"] = variable_hub_context
 
     render_result = get_template_engine().render(
         system_template=system_template,
@@ -579,7 +573,7 @@ def _render_prompt_draft(session, system_template: str, user_template: str | Non
     )
     prompt = Prompt(
         system=render_result.system or "",
-        user=inject_setup_variable_hub_context(render_result.user or "", variable_hub_context),
+        user=render_result.user or "",
     )
     base_template_prompt = (
         session.prompt_snapshot.template_prompt

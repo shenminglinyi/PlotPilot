@@ -23,22 +23,12 @@ def _input_bindings() -> list[VariableBinding]:
         VariableBinding("style_guide", "novel.style.guide", False, "", scope="global", stage="setup", display_name="文风公约"),
         VariableBinding("chapter_number", "chapter.number", True, scope="chapter", stage="writing", value_type="integer", display_name="章节序号"),
         VariableBinding("chapter_title", "chapter.title", False, "", scope="chapter", stage="writing", display_name="章节标题"),
-        VariableBinding("chapter_outline", "chapter.outline", True, scope="chapter", stage="writing", display_name="章节大纲"),
+        VariableBinding("chapter_outline", "chapter.outline", False, "", scope="chapter", stage="writing", display_name="章节大纲"),
         VariableBinding("previous_summary", "chapter.previous.summary", False, "", scope="chapter", stage="writing", display_name="前章摘要"),
         VariableBinding("previous_ending", "chapter.previous.ending", False, "", scope="chapter", stage="writing", display_name="前章结尾"),
         VariableBinding("active_cast", "character.active_cast", False, "", scope="chapter", stage="writing", value_type="list", display_name="登场角色"),
         VariableBinding("world_context", "worldbuilding.context", False, "", scope="novel", stage="writing", display_name="世界观上下文"),
         VariableBinding("user_requirements", "user.generation.requirements", False, "", scope="chapter", stage="writing", display_name="本次要求"),
-        VariableBinding(
-            "variable_hub_context",
-            "",
-            False,
-            "",
-            source="runtime_only",
-            scope="global",
-            stage="setup",
-            display_name="变量中心上下文",
-        ),
     ]
 
 

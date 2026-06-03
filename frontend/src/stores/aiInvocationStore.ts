@@ -96,11 +96,24 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     return plan?.snapshot_groups ?? []
   })
 
+  function shouldCommitPromptVersion(): boolean {
+    const snapshot = session.value?.prompt_snapshot
+    const draft = snapshot?.draft_prompt
+    const template = snapshot?.template_prompt
+    if (!draft) return false
+    if (!template) return true
+    return draft.system !== template.system || draft.user !== template.user
+  }
+
   function applyResponse(payload: InvocationResponseDTO) {
+    const previousSessionId = session.value?.id ?? null
+    const nextSessionId = payload.session?.id ?? null
+    const sameSession = previousSessionId !== null && previousSessionId === nextSessionId
+
     session.value = payload.session
-    attempt.value = payload.attempt ?? attempt.value ?? null
-    decision.value = payload.decision ?? decision.value ?? null
-    commit.value = payload.commit ?? commit.value ?? null
+    attempt.value = payload.attempt ?? (sameSession ? attempt.value ?? null : null)
+    decision.value = payload.decision ?? (sameSession ? decision.value ?? null : null)
+    commit.value = payload.commit ?? (sameSession ? commit.value ?? null : null)
     nextAction.value = payload.next_action ?? ''
     promptDraftSavedSystem.value = payload.session?.prompt_snapshot?.draft_prompt?.system
       ?? payload.session?.prompt_snapshot?.template_prompt?.system
@@ -113,6 +126,8 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     promptDraftPreview.value = null
     if (payload.attempt?.content != null) {
       liveAttemptContent.value = payload.attempt.content
+    } else if (!sameSession) {
+      liveAttemptContent.value = ''
     }
     syncGenerationPolling()
     const listeners = payload.session?.id ? sessionListeners.get(payload.session.id) : undefined
@@ -124,6 +139,14 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
   }
 
   function openFromResponse(payload: InvocationResponseDTO) {
+    if (payload.session?.id && payload.session.id !== session.value?.id) {
+      attempt.value = null
+      decision.value = null
+      commit.value = null
+      nextAction.value = ''
+      liveAttemptContent.value = ''
+      promptDraftPreview.value = null
+    }
     applyResponse(payload)
     visible.value = true
   }
@@ -171,6 +194,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
       const payload = await aiInvocationApi.accept(session.value.id, {
         attempt_id: attempt.value.id,
         accepted_by: 'user',
+        commit_prompt_version: shouldCommitPromptVersion(),
       })
       applyResponse(payload)
     } catch (err) {
