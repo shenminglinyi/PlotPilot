@@ -1,5 +1,8 @@
+"""根据 LLM 控制台配置创建和缓存运行时 Provider。"""
+
 from __future__ import annotations
 
+import json
 import logging
 from typing import AsyncIterator, Optional
 
@@ -22,10 +25,14 @@ logger = logging.getLogger(__name__)
 
 
 class LLMProviderFactory:
+    """根据控制台配置创建对应协议的 LLM Provider。"""
+
     def __init__(self, control_service: Optional[LLMControlService] = None):
+        """初始化工厂，并允许测试注入控制服务。"""
         self.control_service = control_service or LLMControlService()
 
     def create_from_profile(self, profile: Optional[LLMProfile]) -> LLMService:
+        """从指定配置档案创建 Provider，缺少关键配置时回退到 MockProvider。"""
         if profile is None:
             return MockProvider()
 
@@ -41,9 +48,11 @@ class LLMProviderFactory:
         return OpenAIProvider(settings)
 
     def create_active_provider(self) -> LLMService:
+        """基于当前激活配置创建 Provider。"""
         return self.create_from_profile(self.control_service.resolve_active_profile())
 
     def _profile_to_settings(self, profile: LLMProfile) -> Settings:
+        """将控制台配置档案转换为 Provider 使用的 Settings。"""
         if profile.protocol == 'anthropic':
             normalized_base_url = normalize_anthropic_base_url(profile.base_url)
         elif profile.protocol == 'gemini':
@@ -68,9 +77,9 @@ class LLMProviderFactory:
 
 
 def _make_cache_key(profile: LLMProfile) -> str:
-    """生成 Provider 缓存键：协议 + base_url + model + api_key（前 8 位）+ temperature + max_tokens。
+    """生成覆盖连接信息、模型参数和额外请求参数的 Provider 缓存键。
 
-    当用户在前台切换模型/API Key 时，缓存键变化，自动创建新 Provider；
+    当前台切换模型、API Key、User-Agent 或其他透传参数时，缓存键变化并创建新 Provider；
     同一配置连续调用时复用旧 Provider 及其 HTTP 连接池。
     """
     key_parts = [
@@ -82,6 +91,9 @@ def _make_cache_key(profile: LLMProfile) -> str:
         str(profile.max_tokens),
         str(profile.timeout_seconds),
         str(profile.use_legacy_chat_completions),
+        json.dumps(profile.extra_headers or {}, sort_keys=True, ensure_ascii=False),
+        json.dumps(profile.extra_query or {}, sort_keys=True, ensure_ascii=False),
+        json.dumps(profile.extra_body or {}, sort_keys=True, ensure_ascii=False),
     ]
     return "|".join(key_parts)
 
@@ -94,11 +106,13 @@ class DynamicLLMService(LLMService):
     """
 
     def __init__(self, factory: Optional[LLMProviderFactory] = None):
+        """初始化动态服务并准备缓存当前 Provider。"""
         self.factory = factory or LLMProviderFactory()
         self._cached_provider: Optional[LLMService] = None
         self._cached_key: Optional[str] = None
 
     def _resolve_provider(self) -> LLMService:
+        """解析当前激活 Provider，并在配置未变时复用缓存实例。"""
         profile = self.factory.control_service.resolve_active_profile()
         key = _make_cache_key(profile) if profile else "__mock__"
 
@@ -137,6 +151,7 @@ class DynamicLLMService(LLMService):
 
     @staticmethod
     def _merge_config(config: GenerationConfig, provider: LLMService) -> GenerationConfig:
+        """用 Provider 默认配置补齐调用时未显式指定的生成参数。"""
         settings = getattr(provider, 'settings', None)
         if settings is None:
             return config
@@ -160,11 +175,13 @@ class DynamicLLMService(LLMService):
         )
 
     async def generate(self, prompt: Prompt, config: GenerationConfig) -> GenerationResult:
+        """使用当前激活 Provider 生成一次完整结果。"""
         provider = self._resolve_provider()
         effective_config = self._merge_config(config, provider)
         return await provider.generate(prompt, effective_config)
 
     async def stream_generate(self, prompt: Prompt, config: GenerationConfig) -> AsyncIterator[str]:
+        """使用当前激活 Provider 流式生成文本片段。"""
         provider = self._resolve_provider()
         effective_config = self._merge_config(config, provider)
         async for chunk in provider.stream_generate(prompt, effective_config):

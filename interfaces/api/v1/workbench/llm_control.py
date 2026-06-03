@@ -1,3 +1,5 @@
+"""LLM 控制面板 API，包含模型列表、配置测试和提示词广场接口。"""
+
 from __future__ import annotations
 
 import json
@@ -34,16 +36,21 @@ class ModelListRequest(BaseModel):
     protocol: str = 'openai'
     base_url: str = ''
     api_key: str = ''
+    extra_headers: Dict[str, str] = Field(default_factory=dict)
     timeout_ms: int = 30000
 
 
 class ModelItem(BaseModel):
+    """模型列表中的单个模型条目。"""
+
     id: str = ''
     name: str = ''
     owned_by: str = ''
 
 
 class ModelListResponse(BaseModel):
+    """模型列表接口返回体。"""
+
     success: bool = True
     items: List[ModelItem] = Field(default_factory=list)
     count: int = 0
@@ -89,6 +96,21 @@ def _normalize_model_items(data: Dict[str, Any]) -> List[ModelItem]:
     return items
 
 
+def _merge_extra_headers(headers: Dict[str, str], extra_headers: Dict[str, str]) -> Dict[str, str]:
+    """合并用户自定义请求头，同时保留后端生成的认证请求头。"""
+    merged = dict(headers)
+    protected = {key.lower() for key in headers}
+    for key, value in (extra_headers or {}).items():
+        clean_key = str(key).strip()
+        clean_value = str(value).strip()
+        if not clean_key or not clean_value:
+            continue
+        if clean_key.lower() in protected:
+            continue
+        merged[clean_key] = clean_value
+    return merged
+
+
 @router.post('/models', response_model=ModelListResponse)
 async def list_models(payload: ModelListRequest) -> ModelListResponse:
     """根据当前配置的 endpoint 拉取模型列表（OpenAI / Anthropic 兼容）。"""
@@ -119,6 +141,7 @@ async def list_models(payload: ModelListRequest) -> ModelListResponse:
         headers = {
             'Authorization': f'Bearer {api_key}',
         }
+    headers = _merge_extra_headers(headers, candidate.get('extra_headers') or {})
 
     try:
         # 不向子进程继承 HTTP(S)_PROXY：本机 Clash/V2 等监听 127.0.0.1 时，httpx 走代理易导致
@@ -194,6 +217,7 @@ async def get_llm_control_panel() -> LLMControlPanelData:
 
 @router.put('', response_model=LLMControlPanelData)
 async def save_llm_control_panel(config: LLMControlConfig) -> LLMControlPanelData:
+    """保存 LLM 控制面板配置并刷新运行时摘要。"""
     _invalidate_llm_panel_cache()
     saved = _service.save_config(config)
     return LLMControlPanelData(
@@ -205,6 +229,7 @@ async def save_llm_control_panel(config: LLMControlConfig) -> LLMControlPanelDat
 
 @router.post('/test', response_model=LLMTestResult)
 async def test_llm_profile(profile: LLMProfile) -> LLMTestResult:
+    """测试指定 LLM 配置档案是否可以完成模型调用。"""
     try:
         return await _service.test_profile_model(profile, _factory.create_from_profile)
     except Exception as exc:

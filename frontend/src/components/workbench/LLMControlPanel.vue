@@ -184,6 +184,21 @@
               </n-text>
             </div>
 
+            <div class="llm-field span-2">
+              <label class="llm-label">User-Agent</label>
+              <div class="llm-field-row">
+                <n-input
+                  :value="userAgentText"
+                  placeholder="为空则使用默认客户端 UA；部分网关可要求浏览器 UA"
+                  @update:value="handleUserAgentInput"
+                />
+                <n-button secondary @click="randomizeUserAgent">随机 UA</n-button>
+              </div>
+              <n-text depth="3" style="font-size: 12px">
+                保存后会写入 extra_headers.User-Agent，拉取模型、测试连接和正式生成请求都会携带。
+              </n-text>
+            </div>
+
             <div class="llm-field">
               <label class="llm-label">默认 temperature</label>
               <n-input-number v-model:value="selectedProfile.temperature" :min="0" :max="2" :step="0.1" style="width: 100%" />
@@ -285,11 +300,22 @@ const testing = ref(false)
 const fetchingModels = ref(false)
 const fetchedModels = ref<ModelItem[]>([])
 const selectedProfileId = ref('')
+const userAgentText = ref('')
 const extraHeadersText = ref('{}')
 const extraQueryText = ref('{}')
 const extraBodyText = ref('{}')
 const editorRef = ref<HTMLElement | null>(null)
 const sidebarListRef = ref<HTMLElement | null>(null)
+
+const USER_AGENT_HEADER = 'User-Agent'
+const USER_AGENT_POOL = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edg/131.0.0.0 Safari/537.36',
+]
 
 const protocolOptions = [
   { label: 'OpenAI 兼容', value: 'openai' },
@@ -333,6 +359,12 @@ const fetchedModelOptions = computed(() =>
 
 async function handleFetchModels() {
   if (!selectedProfile.value) return
+  try {
+    commitAdvancedEditors()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '高级参数格式错误')
+    return
+  }
   fetchingModels.value = true
   fetchedModels.value = []
   try {
@@ -340,6 +372,7 @@ async function handleFetchModels() {
       protocol: selectedProfile.value.protocol,
       base_url: selectedProfile.value.base_url,
       api_key: selectedProfile.value.api_key,
+      extra_headers: selectedProfile.value.extra_headers,
     })
     if (result.success && result.items.length > 0) {
       fetchedModels.value = result.items
@@ -406,6 +439,69 @@ function deepClone<T>(value: T): T {
 
 function prettyJson(value: Record<string, unknown>): string {
   return JSON.stringify(value || {}, null, 2)
+}
+
+function normalizeHeaderRecord(value: Record<string, unknown>): Record<string, string> {
+  const headers: Record<string, string> = {}
+  Object.entries(value || {}).forEach(([key, rawValue]) => {
+    const cleanKey = String(key).trim()
+    const cleanValue = rawValue == null ? '' : String(rawValue).trim()
+    if (cleanKey && cleanValue) headers[cleanKey] = cleanValue
+  })
+  return headers
+}
+
+function findHeaderKey(headers: Record<string, string>, target: string): string | null {
+  const lower = target.toLowerCase()
+  return Object.keys(headers || {}).find((key) => key.toLowerCase() === lower) || null
+}
+
+function getUserAgent(headers: Record<string, string> | undefined): string {
+  if (!headers) return ''
+  const key = findHeaderKey(headers, USER_AGENT_HEADER)
+  return key ? headers[key] || '' : ''
+}
+
+function withUserAgentHeader(headers: Record<string, string>, userAgent: string): Record<string, string> {
+  const next = { ...(headers || {}) }
+  const existingKey = findHeaderKey(next, USER_AGENT_HEADER)
+  const clean = userAgent.trim()
+  if (existingKey && existingKey !== USER_AGENT_HEADER) {
+    delete next[existingKey]
+  }
+  if (clean) {
+    next[USER_AGENT_HEADER] = clean
+  } else {
+    delete next[USER_AGENT_HEADER]
+  }
+  return next
+}
+
+function readEditableHeaders(): Record<string, string> {
+  if (!selectedProfile.value) return {}
+  try {
+    return normalizeHeaderRecord(parseJsonObject('extra_headers', extraHeadersText.value))
+  } catch {
+    return normalizeHeaderRecord(selectedProfile.value.extra_headers || {})
+  }
+}
+
+function setSelectedUserAgent(userAgent: string) {
+  userAgentText.value = userAgent
+  if (!selectedProfile.value) return
+  const headers = withUserAgentHeader(readEditableHeaders(), userAgent)
+  selectedProfile.value.extra_headers = headers
+  extraHeadersText.value = prettyJson(headers)
+}
+
+function handleUserAgentInput(value: string) {
+  setSelectedUserAgent(value)
+}
+
+function randomizeUserAgent() {
+  const index = Math.floor(Math.random() * USER_AGENT_POOL.length)
+  setSelectedUserAgent(USER_AGENT_POOL[index] || USER_AGENT_POOL[0])
+  message.success('已随机生成 User-Agent')
 }
 
 function newProfileId(): string {
@@ -515,7 +611,9 @@ function uniqueProfileName(baseName: string): string {
 }
 
 function syncJsonEditors() {
-  extraHeadersText.value = prettyJson((selectedProfile.value?.extra_headers || {}) as Record<string, unknown>)
+  const headers = (selectedProfile.value?.extra_headers || {}) as Record<string, string>
+  userAgentText.value = getUserAgent(headers)
+  extraHeadersText.value = prettyJson(headers as Record<string, unknown>)
   extraQueryText.value = prettyJson((selectedProfile.value?.extra_query || {}) as Record<string, unknown>)
   extraBodyText.value = prettyJson((selectedProfile.value?.extra_body || {}) as Record<string, unknown>)
 }
@@ -536,9 +634,11 @@ function parseJsonObject(label: string, text: string): Record<string, unknown> {
 
 function commitAdvancedEditors() {
   if (!selectedProfile.value) return
-  selectedProfile.value.extra_headers = parseJsonObject('extra_headers', extraHeadersText.value) as Record<string, string>
+  const headers = normalizeHeaderRecord(parseJsonObject('extra_headers', extraHeadersText.value))
+  selectedProfile.value.extra_headers = withUserAgentHeader(headers, userAgentText.value)
   selectedProfile.value.extra_query = parseJsonObject('extra_query', extraQueryText.value)
   selectedProfile.value.extra_body = parseJsonObject('extra_body', extraBodyText.value)
+  extraHeadersText.value = prettyJson(selectedProfile.value.extra_headers)
 }
 
 async function loadPanel() {
