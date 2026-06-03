@@ -20,7 +20,12 @@ class InvocationContractRegistry:
         self._db = db
 
     def ensure_published(self, operation: str, node_key: str) -> InvocationSpec:
-        if operation == "autopilot.outline.partition":
+        from application.onboarding.setup_stage_definitions import find_onboarding_stage_definition
+
+        onboarding_definition = find_onboarding_stage_definition(operation=operation, node_key=node_key)
+        if onboarding_definition is not None:
+            onboarding_definition.contract_ensurer(self._db)
+        elif operation == "autopilot.outline.partition":
             from application.ai_invocation.contracts.autopilot_planning import (
                 ensure_autopilot_outline_partition_contract,
             )
@@ -86,10 +91,6 @@ class InvocationContractRegistry:
             )
 
             ensure_chapter_prose_generation_contract(self._db)
-        elif operation.startswith("bible.setup."):
-            from application.world.services.bible_setup_invocation import ensure_bible_setup_contract
-
-            ensure_bible_setup_contract(self._db, operation=operation, node_key=node_key)
         else:
             raise ValueError(f"Unsupported invocation contract: operation={operation}, node_key={node_key}")
 

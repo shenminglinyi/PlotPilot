@@ -362,6 +362,8 @@ class LocationsNode(BaseNode):
             NodePort(name="culture", data_type=PortDataType.TEXT, required=False),
             NodePort(name="daily_life", data_type=PortDataType.TEXT, required=False),
             NodePort(name="existing_locations", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="characters", data_type=PortDataType.TEXT, required=False),
+            NodePort(name="protagonist", data_type=PortDataType.TEXT, required=False),
             NodePort(name="character_context", data_type=PortDataType.TEXT, required=False),
         ],
         output_ports=[
@@ -375,6 +377,8 @@ class LocationsNode(BaseNode):
             "culture",
             "daily_life",
             "existing_locations",
+            "characters",
+            "protagonist",
             "character_context",
         ],
         is_configurable=True,
@@ -401,6 +405,8 @@ class LocationsNode(BaseNode):
                 "culture": inputs.get("culture", ""),
                 "daily_life": inputs.get("daily_life", ""),
                 "existing_locations": inputs.get("existing_locations", ""),
+                "characters": inputs.get("characters", ""),
+                "protagonist": inputs.get("protagonist", ""),
                 "character_context": inputs.get("character_context", ""),
             })
 

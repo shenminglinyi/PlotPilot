@@ -115,6 +115,47 @@ class VariableHubBackfillService:
             display_name="每章字数",
             stage="setup",
         )
+        genre_label = str(getattr(novel, "locked_genre", "") or "").strip()
+        if genre_label:
+            parts = [part.strip() for part in genre_label.split("/") if part.strip()]
+            self._write_missing(
+                result,
+                key="novel.setup.genre_label",
+                value=genre_label,
+                context_key=context_key,
+                value_type="string",
+                display_name="类型",
+                stage="setup",
+            )
+            self._write_missing(
+                result,
+                key="novel.setup.genre_major",
+                value=parts[0] if parts else "",
+                context_key=context_key,
+                value_type="string",
+                display_name="大类",
+                stage="setup",
+            )
+            self._write_missing(
+                result,
+                key="novel.setup.genre_theme",
+                value=" / ".join(parts[1:]) if len(parts) > 1 else "",
+                context_key=context_key,
+                value_type="string",
+                display_name="主题",
+                stage="setup",
+            )
+        world_preset = str(getattr(novel, "locked_world_preset", "") or "").strip()
+        if world_preset:
+            self._write_missing(
+                result,
+                key="novel.setup.world_preset",
+                value=world_preset,
+                context_key=context_key,
+                value_type="string",
+                display_name="基调",
+                stage="setup",
+            )
         bible = self._load_bible(novel_id)
         if bible is not None:
             self._backfill_bible(result, novel_id, context_key, bible)

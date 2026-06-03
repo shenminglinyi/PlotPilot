@@ -63,6 +63,14 @@ variables:
   desc: 已有地点
   type: string
   default: ''
+- name: characters
+  desc: 上一阶段角色列表
+  type: list
+  default: []
+- name: protagonist
+  desc: 主角
+  type: object
+  default: {}
 - name: character_context
   desc: 人物活动范围
   type: string

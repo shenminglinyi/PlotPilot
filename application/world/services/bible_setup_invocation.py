@@ -339,6 +339,28 @@ def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
                 stage="locations",
             ),
             VariableBinding(
+                alias="characters",
+                variable_key="novel.characters.list",
+                required=False,
+                default=[],
+                source="prompt_input",
+                display_name="上一阶段角色列表",
+                value_type="list",
+                scope="global",
+                stage="characters",
+            ),
+            VariableBinding(
+                alias="protagonist",
+                variable_key="novel.characters.protagonist",
+                required=False,
+                default={},
+                source="prompt_input",
+                display_name="主角",
+                value_type="object",
+                scope="global",
+                stage="characters",
+            ),
+            VariableBinding(
                 alias="character_context",
                 variable_key="novel.characters.context.text",
                 required=False,
@@ -385,6 +407,40 @@ def _worldbuilding_dimension_prompt_fields(fields: Mapping[str, str]) -> dict[st
         key: str(fields.get(key) or "")
         for key in WORLD_BUILDING_DIMENSION_KEYS
     }
+
+
+def _variable_hub_value(novel_id: str, variable_key: str) -> Any:
+    try:
+        from infrastructure.persistence.database.connection import get_database
+        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+        value = SqliteVariableHubRepository(get_database()).get_value(variable_key, f"novel_id:{novel_id}")
+    except Exception:
+        return None
+    return getattr(value, "value", None) if value is not None else None
+
+
+def _character_record_to_prompt_line(character: Mapping[str, Any]) -> str:
+    name = str(character.get("name") or "").strip()
+    if not name:
+        return ""
+    role = str(character.get("role") or "").strip()
+    description = str(character.get("description") or "").strip()
+    public_profile = str(character.get("public_profile") or "").strip()
+    core_belief = str(character.get("core_belief") or "").strip()
+    parts = [part for part in (role, description, public_profile, core_belief) if part]
+    return f"- {name}: {'；'.join(parts)}" if parts else f"- {name}"
+
+
+def _characters_to_prompt_text(characters: Any) -> str:
+    if not isinstance(characters, list):
+        return str(characters or "")
+    lines = [
+        _character_record_to_prompt_line(item)
+        for item in characters
+        if isinstance(item, Mapping)
+    ]
+    return "\n".join(line for line in lines if line)
 
 
 def _active_version_id(node_key: str) -> str:
@@ -666,21 +722,46 @@ def build_bible_setup_variables(
     existing_characters = ""
     existing_locations = ""
     character_context = ""
+    characters: list[dict[str, Any]] = []
+    protagonist: dict[str, Any] = {}
     if bible:
         style_guide = "\n".join(
             str(note.content or "").strip()
             for note in bible.style_notes or []
             if str(note.content or "").strip()
         )
-        existing_characters = "\n".join(
-            f"- {c.name}: {c.description}"
+        characters = [
+            {
+                "id": str(getattr(getattr(c, "character_id", None), "value", "") or getattr(c, "id", "") or ""),
+                "name": str(getattr(c, "name", "") or ""),
+                "role": str(getattr(c, "role", "") or ""),
+                "description": str(getattr(c, "description", "") or ""),
+                "public_profile": str(getattr(c, "public_profile", "") or ""),
+                "hidden_profile": str(getattr(c, "hidden_profile", "") or ""),
+                "core_belief": str(getattr(c, "core_belief", "") or ""),
+                "relationships": list(getattr(c, "relationships", []) or []),
+            }
             for c in bible.characters or []
-        )
+            if str(getattr(c, "name", "") or "").strip()
+        ]
+        protagonist = characters[0] if characters else {}
+        existing_characters = _characters_to_prompt_text(characters)
         existing_locations = "\n".join(
             f"- {loc.name}: {loc.description}"
             for loc in bible.locations or []
         )
         character_context = existing_characters
+    novel_id = str(getattr(novel, "id", "") or "")
+    hub_characters = _variable_hub_value(novel_id, "novel.characters.list") if novel_id else None
+    if isinstance(hub_characters, list) and hub_characters:
+        characters = [dict(item) for item in hub_characters if isinstance(item, Mapping)]
+        existing_characters = _characters_to_prompt_text(characters) or existing_characters
+        character_context = existing_characters
+    hub_protagonist = _variable_hub_value(novel_id, "novel.characters.protagonist") if novel_id else None
+    if isinstance(hub_protagonist, Mapping) and hub_protagonist:
+        protagonist = dict(hub_protagonist)
+    elif characters:
+        protagonist = characters[0]
     worldbuilding_fields = _build_worldbuilding_prompt_fields(bible=bible, worldbuilding=wb)
 
     if stage == "characters":
@@ -711,6 +792,8 @@ def build_bible_setup_variables(
             **_worldbuilding_dimension_prompt_fields(worldbuilding_fields),
             **genre_profile,
             "existing_locations": existing_locations,
+            "characters": characters,
+            "protagonist": protagonist,
             "character_context": character_context,
         }
     raise ValueError(f"unsupported bible setup stage: {stage}")

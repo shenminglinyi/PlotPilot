@@ -37,6 +37,7 @@ def test_setup_main_plot_continuation_returns_normalized_options():
                 "target_chapters": 80,
                 "fusion_contract": "融合合同",
                 "protagonist": {"name": "阿澄"},
+                "characters": [{"name": "阿澄"}, {"name": "林墨"}],
                 "locations": [{"name": "天枢城"}],
             },
         ),
@@ -60,6 +61,7 @@ def test_setup_main_plot_continuation_returns_normalized_options():
     assert result["novel_id"] == "novel-1"
     assert "worldbuilding_full" not in result
     assert result["protagonist"]["name"] == "阿澄"
+    assert result["characters"][1]["name"] == "林墨"
     assert result["locations"][0]["name"] == "天枢城"
     assert result["fusion_contract"] == "融合合同"
     assert result["plot_options"]

@@ -225,7 +225,7 @@ def test_variable_resolver_reports_required_missing():
     assert "必填变量缺失: outline" in plan.diagnostics
 
 
-def test_variable_resolver_materializes_main_plot_context_blob():
+def test_variable_resolver_keeps_main_plot_inputs_structured():
     repo = InMemoryVariableHubRepository()
     repo.set_bindings(
         "plot-input",
@@ -251,9 +251,10 @@ def test_variable_resolver_materializes_main_plot_context_blob():
     )
 
     assert plan.ok
-    assert "setup_main_plot_options_v1" in plan.aliases["context_blob"]
-    assert "旧城少年破局" in plan.aliases["context_blob"]
-    assert plan.lineage["context_blob"] == "materialized:materialized.setup.main_plot_context"
+    assert plan.aliases["premise"] == "旧城少年破局"
+    assert plan.aliases["core_rules"] == {"law": "旧城由债务法则统治"}
+    assert plan.aliases["protagonist"] == {"name": "阿澄"}
+    assert "context_blob" not in plan.aliases
 
 
 def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():

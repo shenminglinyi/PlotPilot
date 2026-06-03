@@ -28,6 +28,7 @@ def _context_from_session(context: ContinuationContext) -> dict[str, Any]:
         "fusion_axis": aliases.get("fusion_axis", setup_context.get("fusion_axis", {})),
         "fusion_contract": aliases.get("fusion_contract", setup_context.get("fusion_contract", "")),
         "protagonist": aliases.get("protagonist", setup_context.get("protagonist", {})),
+        "characters": aliases.get("characters", setup_context.get("characters", setup_context.get("other_characters", []))),
         "other_characters": aliases.get("other_characters", setup_context.get("other_characters", [])),
         "locations": aliases.get("locations", setup_context.get("locations", [])),
         "worldview_summary": aliases.get("worldview_summary", setup_context.get("worldview_summary", [])),
@@ -37,7 +38,6 @@ def _context_from_session(context: ContinuationContext) -> dict[str, Any]:
         "society": aliases.get("society", setup_context.get("society", {})),
         "culture": aliases.get("culture", setup_context.get("culture", {})),
         "daily_life": aliases.get("daily_life", setup_context.get("daily_life", {})),
-        "context_blob": aliases.get("context_blob", setup_context.get("context_blob", "")),
     }
     merged["theme_metadata"] = {
         **dict(theme_metadata),
@@ -57,8 +57,8 @@ def setup_main_plot_options_handler(context: ContinuationContext) -> Mapping[str
         "plot_options": options,
         "plot_options_json": json.dumps(options, ensure_ascii=False),
         "session_id": context.session.id,
-        "context_blob": ctx.get("context_blob") or "",
         "protagonist": ctx.get("protagonist") or {},
+        "characters": ctx.get("characters") or ctx.get("other_characters") or [],
         "locations": ctx.get("locations") or [],
         "fusion_contract": ctx.get("fusion_contract") or "",
     }

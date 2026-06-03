@@ -394,8 +394,9 @@ class TestSetupMainPlotOptionsEndpoints:
         async def fake_create_invocation(request):
             assert request.operation == "setup.main_plot_options"
             assert request.node_key == "planning-main-plot-option"
-            assert "context_blob" in request.variables
+            assert "context_blob" not in request.variables
             assert "worldbuilding_full" not in request.variables
+            assert request.variables["premise"] == "少年在废土城破局"
             assert "protagonist" in request.variables
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
@@ -454,6 +455,7 @@ class TestSetupMainPlotOptionsEndpoints:
         async def fake_create_invocation(request):
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
+            assert "context_blob" not in request.variables
             assert "worldbuilding_full" not in request.variables
             return {
                 "session": {"id": "session-1", "status": "awaiting_pre_call_review"},

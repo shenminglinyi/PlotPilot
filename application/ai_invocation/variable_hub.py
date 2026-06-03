@@ -1,7 +1,6 @@
 ﻿"""Variable Hub 最小解析底座。"""
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
@@ -223,42 +222,6 @@ def extract_path_value(source: Any, path: str) -> Any:
     return current
 
 
-def materialize_setup_main_plot_context(aliases: Mapping[str, Any]) -> str:
-    """Build the legacy context_blob from structured Variable Hub aliases."""
-    payload = {
-        "novel_title": aliases.get("novel_title") or "",
-        "premise": aliases.get("premise") or "",
-        "target_chapters": aliases.get("target_chapters") or 100,
-        "target_words_per_chapter": aliases.get("target_words_per_chapter") or 0,
-        "theme_metadata": {
-            "genre_label": aliases.get("genre_label") or "",
-            "world_preset": aliases.get("world_preset") or "",
-        },
-        "fusion_axis": aliases.get("fusion_axis") or {},
-        "fusion_contract": aliases.get("fusion_contract") or "",
-        "genre_opening_profile": aliases.get("genre_opening_profile") or {},
-        "genre_reader_contract": aliases.get("genre_reader_contract") or {},
-        "genre_rhythm_constraints": aliases.get("genre_rhythm_constraints") or {},
-        "protagonist": aliases.get("protagonist") or {},
-        "other_characters": aliases.get("other_characters") or [],
-        "locations": aliases.get("locations") or [],
-        "worldview_summary": aliases.get("worldview_summary") or [],
-        "worldbuilding": {
-            "core_rules": aliases.get("core_rules") or {},
-            "geography": aliases.get("geography") or {},
-            "society": aliases.get("society") or {},
-            "culture": aliases.get("culture") or {},
-            "daily_life": aliases.get("daily_life") or {},
-        },
-        "style_hint": aliases.get("style_hint") or "",
-    }
-    return (
-        "setup_main_plot_options_v1\n\n以下为小说设定简报（JSON）：\n"
-        f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
-        "\n\n请输出仅包含 plot_options 数组的 JSON 对象。"
-    )
-
-
 class VariableResolver:
     """从显式输入和 Variable Hub 解析最终 alias map。"""
 
@@ -321,10 +284,6 @@ class VariableResolver:
             if alias not in aliases:
                 aliases[alias] = value
                 lineage[alias] = "explicit"
-
-        if spec.operation == "setup.main_plot_options" and "context_blob" not in aliases:
-            aliases["context_blob"] = materialize_setup_main_plot_context(aliases)
-            lineage["context_blob"] = "materialized:materialized.setup.main_plot_context"
 
         for alias, value in aliases.items():
             binding = binding_by_alias.get(alias)

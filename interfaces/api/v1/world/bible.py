@@ -18,13 +18,9 @@ from application.ai_invocation.spec_service import InvocationSpecService
 from application.ai_invocation.variable_hub import VariableResolver, VariableWrite
 from application.world.services.bible_setup_continuation import register_bible_setup_continuations
 from application.world.services.bible_setup_invocation import (
-    BIBLE_SETUP_CHARACTERS_NODE,
-    BIBLE_SETUP_LOCATIONS_NODE,
-    BIBLE_SETUP_WORLD_NODE,
     BibleSetupPromptAssembler,
-    build_bible_setup_variables,
-    ensure_bible_setup_contract,
 )
+from application.onboarding.setup_stage_definitions import get_onboarding_stage_definition
 from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
 from interfaces.api.dependencies import (
     get_bible_service,
@@ -278,9 +274,8 @@ def _sse_fmt(event: str, data: dict) -> str:
 
 
 _BIBLE_SETUP_NODE_BY_STAGE = {
-    "worldbuilding": BIBLE_SETUP_WORLD_NODE,
-    "characters": BIBLE_SETUP_CHARACTERS_NODE,
-    "locations": BIBLE_SETUP_LOCATIONS_NODE,
+    stage: get_onboarding_stage_definition(stage).node_key
+    for stage in ("worldbuilding", "characters", "locations")
 }
 
 
@@ -303,6 +298,38 @@ def _write_variable_if_missing(variable_repo, *, key: str, value, context_key: s
             stage=stage,
         )
     )
+
+
+def _bible_character_to_variable(item) -> dict:
+    char_id = getattr(item, "character_id", None)
+    return {
+        "id": str(getattr(char_id, "value", "") or getattr(item, "id", "") or ""),
+        "name": str(getattr(item, "name", "") or ""),
+        "role": str(getattr(item, "role", "") or ""),
+        "description": str(getattr(item, "description", "") or ""),
+        "relationships": list(getattr(item, "relationships", []) or []),
+        "public_profile": str(getattr(item, "public_profile", "") or ""),
+        "hidden_profile": str(getattr(item, "hidden_profile", "") or ""),
+        "reveal_chapter": getattr(item, "reveal_chapter", None),
+        "mental_state": str(getattr(item, "mental_state", "") or "NORMAL"),
+        "mental_state_reason": str(getattr(item, "mental_state_reason", "") or ""),
+        "verbal_tic": str(getattr(item, "verbal_tic", "") or ""),
+        "idle_behavior": str(getattr(item, "idle_behavior", "") or ""),
+        "core_belief": str(getattr(item, "core_belief", "") or ""),
+        "moral_taboos": list(getattr(item, "moral_taboos", []) or []),
+        "voice_profile": dict(getattr(item, "voice_profile", {}) or {}),
+        "active_wounds": list(getattr(item, "active_wounds", []) or []),
+    }
+
+
+def _bible_location_to_variable(item) -> dict:
+    return {
+        "id": str(getattr(item, "id", "") or ""),
+        "name": str(getattr(item, "name", "") or ""),
+        "description": str(getattr(item, "description", "") or ""),
+        "type": str(getattr(item, "location_type", "") or getattr(item, "type", "") or ""),
+        "parent_id": getattr(item, "parent_id", None),
+    }
 
 
 def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, bible_generator: AutoBibleGenerator) -> None:
@@ -358,12 +385,71 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, b
             display_name=label,
             stage="setup",
         )
+    genre_label = str(getattr(novel, "locked_genre", "") or "").strip()
+    if genre_label:
+        parts = [part.strip() for part in genre_label.split("/") if part.strip()]
+        _write_variable_if_missing(
+            variable_repo,
+            key="novel.setup.genre_major",
+            value=parts[0] if parts else "",
+            context_key=context_key,
+            value_type="string",
+            display_name="大类",
+            stage="setup",
+        )
+        _write_variable_if_missing(
+            variable_repo,
+            key="novel.setup.genre_theme",
+            value=" / ".join(parts[1:]) if len(parts) > 1 else "",
+            context_key=context_key,
+            value_type="string",
+            display_name="主题",
+            stage="setup",
+        )
 
     try:
         bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
     except Exception:
         bible = None
     if bible is not None:
+        characters = [
+            _bible_character_to_variable(item)
+            for item in getattr(bible, "characters", []) or []
+            if str(getattr(item, "name", "") or "").strip()
+        ]
+        locations = [
+            _bible_location_to_variable(item)
+            for item in getattr(bible, "locations", []) or []
+            if str(getattr(item, "name", "") or "").strip()
+        ]
+        _write_variable_if_missing(
+            variable_repo,
+            key="novel.characters.list",
+            value=characters,
+            context_key=context_key,
+            value_type="list",
+            display_name="角色列表",
+            stage="characters",
+        )
+        if characters:
+            _write_variable_if_missing(
+                variable_repo,
+                key="novel.characters.protagonist",
+                value=characters[0],
+                context_key=context_key,
+                value_type="object",
+                display_name="主角",
+                stage="characters",
+            )
+        _write_variable_if_missing(
+            variable_repo,
+            key="novel.locations.list",
+            value=locations,
+            context_key=context_key,
+            value_type="list",
+            display_name="地点列表",
+            stage="locations",
+        )
         style_notes = [
             f"{str(getattr(item, 'category', '') or '').strip()}: {str(getattr(item, 'content', '') or '').strip()}".strip(": ")
             for item in getattr(bible, "style_notes", []) or []
@@ -417,14 +503,15 @@ async def _create_bible_setup_invocation(
     """Create an AI Invocation session for a setup-guide Bible stage."""
     if stage not in _BIBLE_SETUP_NODE_BY_STAGE:
         raise ValueError(f"unsupported bible setup invocation stage: {stage}")
+    stage_definition = get_onboarding_stage_definition(stage)
     register_bible_setup_continuations()
-    operation = f"bible.setup.{stage}"
-    node_key = _BIBLE_SETUP_NODE_BY_STAGE[stage]
+    operation = stage_definition.operation
+    node_key = stage_definition.node_key
     try:
         from interfaces.api.v1.engine.ai_invocation_routes import _repositories
         from infrastructure.persistence.database.connection import get_database
 
-        ensure_bible_setup_contract(get_database(), operation=operation, node_key=node_key)
+        stage_definition.contract_ensurer(get_database())
         repos = _repositories()
         _backfill_bible_setup_variable_hub(
             variable_repo=repos["variable_hub"],
@@ -447,11 +534,10 @@ async def _create_bible_setup_invocation(
         adoption_service=AdoptionService(),
         commit_service=AdoptionCommitService(variable_hub_repository=repos["variable_hub"]),
     )
-    variables = build_bible_setup_variables(
+    variables = stage_definition.context_provider(
         stage=stage,
         novel=novel,
-        bible_service=bible_generator.bible_service,
-        worldbuilding_service=bible_generator.worldbuilding_service,
+        bible_generator=bible_generator,
     )
     result = await gateway.invoke(
         InvocationRequest(

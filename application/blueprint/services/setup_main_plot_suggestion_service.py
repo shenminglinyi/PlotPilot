@@ -12,7 +12,7 @@ from application.world.services.bible_service import BibleService
 from application.core.services.novel_service import NovelService
 from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.ai.knowledge_llm_contract import parse_json_from_response
-from application.ai_invocation.variable_hub import VariableWrite, materialize_setup_main_plot_context
+from application.ai_invocation.variable_hub import VariableWrite
 from application.engine.theme.fusion_profile import FusionProfile, get_fusion_profile
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,8 @@ class SetupMainPlotSuggestionService:
             fusion_contract = self._fusion_storyline_contract(fusion_profile)
 
         protagonist = self._coerce_dict(variable_context.get("protagonist")) or None
-        other_chars = self._coerce_list(variable_context.get("other_characters"))
+        characters = self._coerce_list(variable_context.get("characters"))
+        other_chars = self._coerce_list(variable_context.get("other_characters")) or list(characters)
         locations = self._coerce_list(variable_context.get("locations"))
         worldview_summary = self._coerce_list(variable_context.get("worldview_summary"))
         world_lines: List[str] = [str(item).strip() for item in worldview_summary if str(item).strip()]
@@ -216,7 +217,7 @@ class SetupMainPlotSuggestionService:
             novel_context_key = f"novel_id:{novel_id}"
             for key, target in (
                 ("novel.characters.protagonist", "protagonist"),
-                ("novel.characters.list", "other_characters"),
+                ("novel.characters.list", "characters"),
                 ("novel.locations.list", "locations"),
                 ("novel.plot.fusion_contract", "fusion_contract"),
                 ("novel.worldbuilding.core_rules", "core_rules"),
@@ -231,8 +232,12 @@ class SetupMainPlotSuggestionService:
                     continue
                 if target == "protagonist" and isinstance(value.value, dict) and protagonist is None:
                     protagonist = dict(value.value)
-                elif target == "other_characters" and isinstance(value.value, list) and not other_chars:
-                    other_chars = [dict(item) for item in value.value if isinstance(item, dict)]
+                elif target == "characters" and isinstance(value.value, list):
+                    hub_characters = [dict(item) for item in value.value if isinstance(item, dict)]
+                    if not characters:
+                        characters = hub_characters
+                    if not other_chars:
+                        other_chars = list(hub_characters)
                 elif target == "locations" and isinstance(value.value, list) and not locations:
                     locations = [dict(item) for item in value.value if isinstance(item, dict)]
                 elif target == "fusion_contract" and not fusion_contract:
@@ -257,6 +262,13 @@ class SetupMainPlotSuggestionService:
             if notes:
                 style_hint = "；".join((f"{n.category}: {n.content}"[:200] for n in notes[:5] if n.content))
 
+        if not characters:
+            characters = list(other_chars)
+            if protagonist:
+                protagonist_name = str(protagonist.get("name") or "").strip()
+                if protagonist_name and not any(str(item.get("name") or "").strip() == protagonist_name for item in characters):
+                    characters = [protagonist, *characters]
+
         return {
             "novel_title": title,
             "premise": premise,
@@ -266,6 +278,7 @@ class SetupMainPlotSuggestionService:
             "fusion_contract": fusion_contract,
             **genre_profile,
             "protagonist": protagonist,
+            "characters": characters[:8],
             "other_characters": other_chars[:6],
             "locations": locations,
             "worldview_summary": world_lines[:24],
@@ -297,7 +310,7 @@ class SetupMainPlotSuggestionService:
             ("novel.setup.genre_label", "theme_metadata.genre_label"),
             ("novel.setup.world_preset", "theme_metadata.world_preset"),
             ("novel.characters.protagonist", "protagonist"),
-            ("novel.characters.list", "other_characters"),
+            ("novel.characters.list", "characters"),
             ("novel.locations.list", "locations"),
             ("novel.plot.fusion_contract", "fusion_contract"),
             ("novel.worldbuilding.core_rules", "core_rules"),
@@ -630,40 +643,33 @@ class SetupMainPlotSuggestionService:
         from infrastructure.ai.prompt_keys import PLANNING_MAIN_PLOT_OPTION
         from infrastructure.ai.prompt_registry import get_prompt_registry
 
-        context_blob = materialize_setup_main_plot_context(
-            {
-                "novel_title": ctx.get("novel_title"),
-                "premise": ctx.get("premise"),
-                "target_chapters": ctx.get("target_chapters"),
-                "target_words_per_chapter": ctx.get("target_words_per_chapter"),
-                "genre_label": (ctx.get("theme_metadata") or {}).get("genre_label", ""),
-                "world_preset": (ctx.get("theme_metadata") or {}).get("world_preset", ""),
-                "fusion_axis": ctx.get("fusion_axis"),
-                "fusion_contract": ctx.get("fusion_contract"),
-                "genre_opening_profile": ctx.get("genre_opening_profile") or {},
-                "genre_reader_contract": ctx.get("genre_reader_contract") or {},
-                "genre_rhythm_constraints": ctx.get("genre_rhythm_constraints") or {},
-                "protagonist": protagonist,
-                "other_characters": ctx.get("other_characters") or [],
-                "locations": locations,
-                "worldview_summary": ctx.get("worldview_summary") or [],
-                "style_hint": ctx.get("style_hint") or "",
-            }
-        )
+        theme_metadata = ctx.get("theme_metadata") if isinstance(ctx.get("theme_metadata"), dict) else {}
+        genre_label = str(theme_metadata.get("genre_label") or "")
+        genre_parts = [part.strip() for part in genre_label.split("/") if part.strip()]
         variables = {
-            "context_blob": context_blob,
+            "novel_title": str(ctx.get("novel_title") or ""),
+            "premise": str(ctx.get("premise") or ""),
+            "genre_major": genre_parts[0] if genre_parts else "",
+            "genre_theme": " / ".join(genre_parts[1:]) if len(genre_parts) > 1 else "",
+            "genre_label": genre_label,
+            "world_preset": str(theme_metadata.get("world_preset") or ""),
+            "target_chapters": int(ctx.get("target_chapters") or 0),
+            "target_words_per_chapter": int(ctx.get("target_words_per_chapter") or 0),
+            "fusion_axis": ctx.get("fusion_axis") or {},
             "worldview": "\n\n".join(worldview_parts) or user_blob,
-            "protagonist": json.dumps(protagonist, ensure_ascii=False, indent=2),
-            "locations": json.dumps(locations, ensure_ascii=False, indent=2),
+            "protagonist": protagonist,
+            "characters": ctx.get("characters") or ctx.get("other_characters") or [],
+            "locations": locations,
+            "worldview_summary": ctx.get("worldview_summary") or [],
             "fusion_contract": str(ctx.get("fusion_contract") or ""),
-            "genre_opening_profile": json.dumps(ctx.get("genre_opening_profile") or {}, ensure_ascii=False, indent=2),
-            "genre_reader_contract": json.dumps(ctx.get("genre_reader_contract") or {}, ensure_ascii=False, indent=2),
-            "genre_rhythm_constraints": json.dumps(ctx.get("genre_rhythm_constraints") or {}, ensure_ascii=False, indent=2),
-            "core_rules": json.dumps(ctx.get("core_rules") or {}, ensure_ascii=False, indent=2),
-            "geography": json.dumps(ctx.get("geography") or {}, ensure_ascii=False, indent=2),
-            "society": json.dumps(ctx.get("society") or {}, ensure_ascii=False, indent=2),
-            "culture": json.dumps(ctx.get("culture") or {}, ensure_ascii=False, indent=2),
-            "daily_life": json.dumps(ctx.get("daily_life") or {}, ensure_ascii=False, indent=2),
+            "genre_opening_profile": ctx.get("genre_opening_profile") or {},
+            "genre_reader_contract": ctx.get("genre_reader_contract") or {},
+            "genre_rhythm_constraints": ctx.get("genre_rhythm_constraints") or {},
+            "core_rules": ctx.get("core_rules") or {},
+            "geography": ctx.get("geography") or {},
+            "society": ctx.get("society") or {},
+            "culture": ctx.get("culture") or {},
+            "daily_life": ctx.get("daily_life") or {},
         }
 
         registry = get_prompt_registry()

@@ -10,6 +10,7 @@ from application.world.services.bible_setup_invocation import (
     build_bible_setup_variables,
     bible_setup_world_spec,
 )
+from application.world.services import bible_setup_invocation as setup_invocation
 
 
 def test_bible_setup_variables_include_configured_genre_profile():
@@ -162,9 +163,53 @@ def test_bible_setup_location_prompt_inputs_include_setup_context():
         "world_preset",
         "target_chapters",
         "core_rules",
+        "characters",
+        "protagonist",
         "character_context",
     ):
         assert bindings[alias].source == "prompt_input"
+
+
+def test_bible_setup_location_variables_include_character_outputs_from_variable_hub(monkeypatch):
+    novel = SimpleNamespace(
+        id="novel-1",
+        title="新书",
+        premise="主角在现代城市获得异常能力后反击现实困境",
+        target_chapters=100,
+        target_words_per_chapter=2500,
+        locked_genre="都市 / 都市异能",
+        locked_world_preset="现代都市异能",
+    )
+    bible = SimpleNamespace(
+        characters=[
+            SimpleNamespace(name="旧角色", role="盟友", description="业务表角色", relationships=[]),
+        ],
+        locations=[],
+        style_notes=[],
+    )
+    bible_service = SimpleNamespace(get_bible_by_novel=lambda _novel_id: bible)
+    worldbuilding_service = SimpleNamespace(get_worldbuilding=lambda _novel_id: {})
+
+    def fake_variable_hub_value(_novel_id, variable_key):
+        if variable_key == "novel.characters.list":
+            return [{"name": "变量角色", "role": "主角", "description": "上一阶段采纳角色"}]
+        if variable_key == "novel.characters.protagonist":
+            return {"name": "变量角色", "role": "主角"}
+        return None
+
+    monkeypatch.setattr(setup_invocation, "_variable_hub_value", fake_variable_hub_value)
+
+    variables = build_bible_setup_variables(
+        stage="locations",
+        novel=novel,
+        bible_service=bible_service,
+        worldbuilding_service=worldbuilding_service,
+    )
+
+    assert variables["characters"][0]["name"] == "变量角色"
+    assert variables["protagonist"]["name"] == "变量角色"
+    assert "变量角色" in variables["character_context"]
+    assert "上一阶段采纳角色" in variables["character_context"]
 
 
 def test_bible_setup_prompt_assembler_prepends_setup_context_for_old_seeded_prompts():

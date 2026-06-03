@@ -147,10 +147,6 @@ const outputBindings = computed<OutputBindingRow[]>(() => {
   }
   return []
 })
-const hasStructuredContext = computed(() => Boolean(
-  store.session?.variable_plan?.aliases?.context_blob
-  || store.session?.variable_plan?.aliases?.protagonist
-))
 const currentStepOutputs = computed(() =>
   outputBindings.value.map(item => `${item.label}：${item.jsonPath} → ${item.target}`),
 )
@@ -648,17 +644,6 @@ const outputPreviewRows = computed(() =>
                 </n-space>
               </n-collapse-item>
             </n-collapse>
-          </n-card>
-
-          <n-card v-if="hasStructuredContext" size="small" title="结构化上下文">
-            <n-descriptions :column="1" size="small" bordered label-placement="left">
-              <n-descriptions-item label="context_blob">
-                <pre class="ai-invocation-value">{{ store.session?.variable_plan?.aliases?.context_blob || '-' }}</pre>
-              </n-descriptions-item>
-              <n-descriptions-item label="protagonist">
-                <pre class="ai-invocation-value">{{ safeJsonPreview(store.session?.variable_plan?.aliases?.protagonist) || '-' }}</pre>
-              </n-descriptions-item>
-            </n-descriptions>
           </n-card>
 
           <n-card v-if="showLiveAttempt" size="small" title="AI 实时输出">
