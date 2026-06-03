@@ -75,6 +75,9 @@ export interface InvocationVariableBinding {
   scope?: string
   stage?: string
   display_name?: string
+  source_path?: string
+  projection_key?: string
+  render_mode?: string
 }
 
 export interface InvocationVariableSnapshotItem {
@@ -87,6 +90,9 @@ export interface InvocationVariableSnapshotItem {
   source?: string
   variable_key?: string
   required?: boolean
+  source_path?: string
+  projection_key?: string
+  render_mode?: string
 }
 
 export interface InvocationVariableSnapshotGroup {

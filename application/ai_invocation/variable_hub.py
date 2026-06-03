@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 
 from application.ai_invocation.dtos import InvocationSpec, VariableBinding, VariablePlan, stable_hash
+from application.ai_invocation.variable_projection import render_variable_value
 from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
 
 RUNTIME_ONLY_BINDING_SOURCES = frozenset(
@@ -205,21 +206,84 @@ class InMemoryVariableHubRepository:
 
 
 def extract_path_value(source: Any, path: str) -> Any:
-    """Extract a value from dict/list data using dotted paths and [] markers."""
-    if not path:
-        return None
+    """Extract a value from dict/list data using dotted paths and list indexes.
+
+    Supported examples:
+    - ``worldbuilding.core_rules``
+    - ``characters[0].name``
+    - ``characters[].name`` / ``characters.*.name``
+    - ``[0].name``
+    """
+    normalized = str(path or "").strip()
+    if not normalized:
+        return source
+    if normalized == "$":
+        return source
+    if normalized.startswith("$."):
+        normalized = normalized[2:]
+    elif normalized.startswith("$"):
+        normalized = normalized[1:].lstrip(".")
     current = source
-    for raw_segment in path.split("."):
+    for raw_segment in normalized.split("."):
         if current is None:
             return None
-        is_array = raw_segment.endswith("[]")
-        key = raw_segment[:-2] if is_array else raw_segment
-        if not isinstance(current, Mapping):
-            return None
-        current = current.get(key)
-        if is_array and not isinstance(current, list):
-            return None
+        current = _extract_path_segment(current, raw_segment)
     return current
+
+
+def _extract_path_segment(current: Any, segment: str) -> Any:
+    raw = str(segment or "").strip()
+    if raw in {"", "$"}:
+        return current
+    if raw in {"[]", "[*]", "*"}:
+        return current if isinstance(current, list) else None
+    if isinstance(current, list):
+        if raw.startswith("[") and raw.endswith("]"):
+            return _extract_list_index(current, raw[1:-1])
+        values = [_extract_path_segment(item, raw) for item in current]
+        return [value for value in values if value is not None]
+
+    key = raw
+    selectors: list[str] = []
+    bracket_index = raw.find("[")
+    if bracket_index >= 0:
+        key = raw[:bracket_index]
+        rest = raw[bracket_index:]
+        while rest.startswith("["):
+            close = rest.find("]")
+            if close < 0:
+                return None
+            selectors.append(rest[1:close])
+            rest = rest[close + 1:]
+        if rest:
+            return None
+
+    value = current
+    if key:
+        if not isinstance(value, Mapping):
+            return None
+        value = value.get(key)
+    for selector in selectors:
+        if selector in {"", "*"}:
+            if not isinstance(value, list):
+                return None
+            continue
+        if not isinstance(value, list):
+            return None
+        value = _extract_list_index(value, selector)
+    return value
+
+
+def _extract_list_index(values: list[Any], selector: str) -> Any:
+    try:
+        index = int(selector)
+    except (TypeError, ValueError):
+        return None
+    if index < 0:
+        index = len(values) + index
+    if index < 0 or index >= len(values):
+        return None
+    return values[index]
 
 
 class VariableResolver:
@@ -251,7 +315,7 @@ class VariableResolver:
                 continue
             value_found = False
             if binding.alias in explicit_variables:
-                aliases[binding.alias] = explicit_variables[binding.alias]
+                aliases[binding.alias] = self._render_binding_value(binding, explicit_variables[binding.alias])
                 lineage[binding.alias] = "explicit"
                 if binding.variable_key:
                     stored = self._repository.get_value(binding.variable_key, context_key)
@@ -261,7 +325,7 @@ class VariableResolver:
             elif binding.variable_key:
                 stored = self._repository.get_value(binding.variable_key, context_key)
                 if stored is not None:
-                    aliases[binding.alias] = stored.value
+                    aliases[binding.alias] = self._render_binding_value(binding, stored.value)
                     lineage[binding.alias] = stored.source_ref or f"variable:{binding.variable_key}"
                     resolved_from_hub.add(binding.alias)
                     value_found = True
@@ -272,7 +336,7 @@ class VariableResolver:
                 if default is None and definition is not None:
                     default = definition.default
                 if default is not None:
-                    aliases[binding.alias] = default
+                    aliases[binding.alias] = self._render_binding_value(binding, default)
                     lineage[binding.alias] = "default"
                     value_found = True
 
@@ -332,7 +396,21 @@ class VariableResolver:
             "source": "variable_hub" if lineage == "variable_hub" else (binding.source if binding and binding.source else lineage),
             "variable_key": variable_key,
             "required": bool(binding.required) if binding else False,
+            "source_path": binding.source_path if binding else "",
+            "projection_key": binding.projection_key if binding else "",
+            "render_mode": binding.render_mode if binding else "raw",
         }
+
+    @staticmethod
+    def _render_binding_value(binding: VariableBinding, value: Any) -> Any:
+        selected = value
+        if binding.source_path and isinstance(value, (Mapping, list)):
+            selected = extract_path_value(value, binding.source_path)
+        return render_variable_value(
+            selected,
+            render_mode=binding.render_mode,
+            projection_key=binding.projection_key,
+        )
 
     @staticmethod
     def _is_runtime_only_binding(binding: VariableBinding | None) -> bool:

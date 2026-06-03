@@ -99,6 +99,9 @@ def _binding_to_dict(binding: VariableBinding) -> dict[str, Any]:
         "scope": binding.scope,
         "stage": binding.stage,
         "display_name": binding.display_name,
+        "source_path": binding.source_path,
+        "projection_key": binding.projection_key,
+        "render_mode": binding.render_mode,
     }
 
 
@@ -114,6 +117,9 @@ def _binding_from_dict(data: Mapping[str, Any]) -> VariableBinding:
         scope=str(data.get("scope") or "runtime"),
         stage=str(data.get("stage") or "runtime"),
         display_name=str(data.get("display_name") or ""),
+        source_path=str(data.get("source_path") or ""),
+        projection_key=str(data.get("projection_key") or ""),
+        render_mode=str(data.get("render_mode") or "raw"),
     )
 
 
@@ -808,6 +814,9 @@ class SqliteVariableHubRepository:
                                 "value_type": binding.value_type,
                                 "scope": binding.scope,
                                 "stage": binding.stage,
+                                "source_path": binding.source_path,
+                                "projection_key": binding.projection_key,
+                                "render_mode": binding.render_mode,
                             }
                         ),
                     ),
@@ -837,6 +846,9 @@ class SqliteVariableHubRepository:
                 scope=str(_json_loads(row["metadata_json"], {}).get("scope") or "runtime") if row["metadata_json"] else "runtime",
                 stage=str(_json_loads(row["metadata_json"], {}).get("stage") or "runtime") if row["metadata_json"] else "runtime",
                 display_name=str(_json_loads(row["metadata_json"], {}).get("display_name") or "") if row["metadata_json"] else "",
+                source_path=str(_json_loads(row["metadata_json"], {}).get("source_path") or "") if row["metadata_json"] else "",
+                projection_key=str(_json_loads(row["metadata_json"], {}).get("projection_key") or "") if row["metadata_json"] else "",
+                render_mode=str(_json_loads(row["metadata_json"], {}).get("render_mode") or "raw") if row["metadata_json"] else "raw",
             )
             for row in rows
         ]

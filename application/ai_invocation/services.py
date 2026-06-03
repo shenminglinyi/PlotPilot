@@ -24,7 +24,7 @@ from application.ai_invocation.dtos import (
     stable_hash,
 )
 from domain.ai.value_objects.prompt import Prompt
-from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
+from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite, extract_path_value
 
 logger = logging.getLogger(__name__)
 
@@ -401,7 +401,9 @@ class AdoptionCommitService:
         for binding in bindings:
             if not binding.enabled or not binding.variable_key:
                 continue
-            raw_value = payload.get(binding.alias)
+            raw_value = extract_path_value(payload, binding.source_path or binding.alias)
+            if raw_value is None and binding.source_path:
+                raw_value = extract_path_value(payload, binding.alias)
             if raw_value is None:
                 if binding.required:
                     missing_required.append(binding.alias)
@@ -419,6 +421,7 @@ class AdoptionCommitService:
                     "alias": binding.alias,
                     "binding_set_id": snapshot.output_binding_set_id,
                     "operation": session.operation,
+                    "source_path": binding.source_path or binding.alias,
                 },
                 value_type=binding.value_type,
                 display_name=binding.display_name,

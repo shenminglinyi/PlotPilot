@@ -46,6 +46,8 @@ def materialize_input_variables(
             continue
         if binding.source in RUNTIME_ONLY_BINDING_SOURCES or str(binding.variable_key).startswith("system."):
             continue
+        if binding.source_path or binding.projection_key or binding.render_mode not in ("", "raw"):
+            continue
         if binding.variable_key == "novel.setup.premise":
             value = strip_v1_structure_black_box_hint(str(value or ""))
         context_key = context_key_for_scope(session.context, binding.scope)

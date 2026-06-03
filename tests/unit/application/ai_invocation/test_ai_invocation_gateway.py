@@ -22,6 +22,7 @@ from application.ai_invocation.variable_hub import (
     VariableResolver,
     VariableWrite,
     VariableValue,
+    extract_path_value,
 )
 from domain.ai.services.llm_service import GenerationResult
 from domain.ai.value_objects.token_usage import TokenUsage
@@ -255,6 +256,79 @@ def test_variable_resolver_keeps_main_plot_inputs_structured():
     assert plan.aliases["core_rules"] == {"law": "旧城由债务法则统治"}
     assert plan.aliases["protagonist"] == {"name": "阿澄"}
     assert "context_blob" not in plan.aliases
+
+
+def test_extract_path_value_supports_nested_objects_and_array_indexes():
+    payload = {
+        "worldbuilding": {"core_rules": {"law": "债务法则"}},
+        "characters": [
+            {"name": "阿澄", "relationships": [{"target": "洛宁"}]},
+            {"name": "洛宁"},
+        ],
+    }
+
+    assert extract_path_value(payload, "worldbuilding.core_rules.law") == "债务法则"
+    assert extract_path_value(payload, "characters[0].name") == "阿澄"
+    assert extract_path_value(payload, "characters[0].relationships[0].target") == "洛宁"
+    assert extract_path_value(payload, "characters[].name") == ["阿澄", "洛宁"]
+
+
+def test_variable_resolver_projects_structured_values_for_prompt_aliases():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "plot-input",
+        "planning-main-plot-option",
+        [
+            VariableBinding(
+                alias="characters_brief",
+                variable_key="novel.characters.list",
+                value_type="string",
+                projection_key="characters.brief",
+                render_mode="projection",
+            ),
+            VariableBinding(
+                alias="protagonist_name",
+                variable_key="novel.characters.protagonist",
+                source_path="name",
+                value_type="string",
+            ),
+        ],
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.characters.list",
+            value=[
+                {
+                    "name": "阿澄",
+                    "role": "主角",
+                    "description": "债务城里的破局者",
+                    "core_belief": "债可以还，命不能卖",
+                }
+            ],
+            context_key="novel_id:novel-1",
+        )
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.characters.protagonist",
+            value={"name": "阿澄", "role": "主角"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(
+            operation="setup.main_plot_options",
+            node_key="planning-main-plot-option",
+            input_binding_set_id="plot-input",
+        ),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.ok
+    assert "阿澄: 主角；债务城里的破局者；债可以还，命不能卖" in plan.aliases["characters_brief"]
+    assert plan.aliases["protagonist_name"] == "阿澄"
 
 
 def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():

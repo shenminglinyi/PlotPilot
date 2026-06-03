@@ -51,15 +51,27 @@ variables:
 - name: protagonist
   desc: Protagonist setup
   type: object
+- name: protagonist_card
+  desc: Protagonist prompt card
+  type: string
 - name: characters
   desc: Character list
   type: list
+- name: characters_brief
+  desc: Character list prompt brief
+  type: string
 - name: locations
   desc: Location list
   type: list
+- name: locations_brief
+  desc: Location list prompt brief
+  type: string
 - name: worldview_summary
   desc: Worldview summary fragments
   type: list
+- name: worldbuilding_context
+  desc: Worldbuilding prompt context
+  type: string
 - name: style_hint
   desc: Style convention hints
   type: string

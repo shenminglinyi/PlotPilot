@@ -27,16 +27,16 @@ setup_main_plot_options_v1
 {{ genre_rhythm_constraints | tojson(indent=2) }}
 
 【主角】
-{{ protagonist | tojson(indent=2) }}
+{{ protagonist_card }}
 
 【角色列表】
-{{ characters | tojson(indent=2) }}
+{{ characters_brief }}
 
 【地点列表】
-{{ locations | tojson(indent=2) }}
+{{ locations_brief }}
 
 【世界观摘要】
-{{ worldview_summary | tojson(indent=2) }}
+{{ worldbuilding_context }}
 
 【结构化世界观】
 核心法则：

@@ -290,6 +290,9 @@ def _binding_to_metadata(binding: VariableBinding) -> dict[str, Any]:
         "scope": binding.scope,
         "stage": binding.stage,
         "display_name": binding.display_name,
+        "source_path": binding.source_path,
+        "projection_key": binding.projection_key,
+        "render_mode": binding.render_mode,
     }
 
 
@@ -305,6 +308,9 @@ def _binding_from_metadata(raw: Mapping[str, Any]) -> VariableBinding:
         scope=str(raw.get("scope") or "runtime"),
         stage=str(raw.get("stage") or "runtime"),
         display_name=str(raw.get("display_name") or raw.get("variable_key") or raw.get("alias") or ""),
+        source_path=str(raw.get("source_path") or ""),
+        projection_key=str(raw.get("projection_key") or ""),
+        render_mode=str(raw.get("render_mode") or "raw"),
     )
 
 

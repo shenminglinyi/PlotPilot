@@ -199,6 +199,31 @@ def test_bible_worldbuilding_commit_registers_and_writes_variable_outputs():
     assert repo.get_value("novel.style.guide", "novel_id:novel-1").value == "克制冷峻"
 
 
+def test_bible_worldbuilding_commit_reads_nested_output_paths_without_flattening():
+    repo = InMemoryVariableHubRepository()
+    service = AdoptionCommitService(prompt_manager=FakePromptManager(), variable_hub_repository=repo)
+    session = _worldbuilding_session()
+    decision = AdoptionDecision(
+        id="decision-1",
+        session_id="session-1",
+        attempt_id="attempt-1",
+        accepted_content=(
+            '{"style":"冷峻克制","worldbuilding":'
+            '{"core_rules":{"power_system":"债务法则"},'
+            '"geography":{"terrain":"环形旧城"}}}'
+        ),
+        accepted_by="user",
+    )
+
+    commit = service.commit(session=session, decision=decision)
+
+    step = next(item for item in commit.steps if item.name == "commit_variable_outputs")
+    assert step.result["skipped"] is False
+    assert repo.get_value("novel.style.guide", "novel_id:novel-1").value == "冷峻克制"
+    assert repo.get_value("novel.worldbuilding.core_rules", "novel_id:novel-1").value == {"power_system": "债务法则"}
+    assert repo.get_value("novel.worldbuilding.geography", "novel_id:novel-1").value == {"terrain": "环形旧城"}
+
+
 def test_commit_blocks_when_continuation_contract_fails():
     service = AdoptionCommitService(prompt_manager=FakePromptManager(), variable_hub_repository=InMemoryVariableHubRepository())
     session = _worldbuilding_session()

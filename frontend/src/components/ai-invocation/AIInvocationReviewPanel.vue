@@ -639,6 +639,15 @@ const outputPreviewRows = computed(() =>
                       <n-tag v-if="String(item.source || '').startsWith('materialized:')" size="small" type="warning">
                         派生上下文
                       </n-tag>
+                      <n-tag v-if="item.source_path" size="small" type="default">
+                        路径：{{ item.source_path }}
+                      </n-tag>
+                      <n-tag v-if="item.projection_key" size="small" type="success">
+                        投影：{{ item.projection_key }}
+                      </n-tag>
+                      <n-tag v-if="item.render_mode && item.render_mode !== 'raw'" size="small" type="default">
+                        渲染：{{ item.render_mode }}
+                      </n-tag>
                     </n-space>
                     <pre class="ai-invocation-value">{{ formatValue(item.value) }}</pre>
                   </n-card>

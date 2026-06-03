@@ -198,6 +198,35 @@ def test_sqlite_variable_hub_repository_resolves_bindings_and_current_value():
     assert definition.default == "默认设定"
 
 
+def test_sqlite_variable_hub_repository_persists_path_and_projection_binding_metadata():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(
+                alias="characters_brief",
+                variable_key="novel.characters.list",
+                source_path="characters[0]",
+                projection_key="character.card",
+                render_mode="projection",
+                value_type="string",
+                scope="global",
+                stage="characters",
+                display_name="主角卡",
+            )
+        ],
+    )
+
+    bindings = repo.get_bindings("binding-set-1", "chapter-test")
+
+    assert bindings[0].source_path == "characters[0]"
+    assert bindings[0].projection_key == "character.card"
+    assert bindings[0].render_mode == "projection"
+
+
 def test_sqlite_variable_hub_repository_writes_current_value_and_lineage():
     db = _Db()
     repo = SqliteVariableHubRepository(db)

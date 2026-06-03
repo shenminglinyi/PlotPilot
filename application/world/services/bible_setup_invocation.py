@@ -21,6 +21,7 @@ from application.ai_invocation.dtos import (
 )
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
 from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
+from application.ai_invocation.variable_projection import render_variable_value
 from application.ai_invocation.variable_hub import InMemoryVariableHubRepository, VariableResolver
 from application.core.v1_length_tiers import strip_generated_premise_prefixes
 from application.core.taxonomy.opening_profiles import resolve_opening_profile
@@ -232,6 +233,8 @@ def _worldbuilding_input_bindings() -> list[VariableBinding]:
             value_type="string",
             scope="global",
             stage="worldbuilding",
+            projection_key="worldbuilding.dimension",
+            render_mode="projection",
         ),
         VariableBinding(
             alias="geography",
@@ -243,6 +246,8 @@ def _worldbuilding_input_bindings() -> list[VariableBinding]:
             value_type="string",
             scope="global",
             stage="worldbuilding",
+            projection_key="worldbuilding.dimension",
+            render_mode="projection",
         ),
         VariableBinding(
             alias="society",
@@ -254,6 +259,8 @@ def _worldbuilding_input_bindings() -> list[VariableBinding]:
             value_type="string",
             scope="global",
             stage="worldbuilding",
+            projection_key="worldbuilding.dimension",
+            render_mode="projection",
         ),
         VariableBinding(
             alias="culture",
@@ -265,6 +272,8 @@ def _worldbuilding_input_bindings() -> list[VariableBinding]:
             value_type="string",
             scope="global",
             stage="worldbuilding",
+            projection_key="worldbuilding.dimension",
+            render_mode="projection",
         ),
         VariableBinding(
             alias="daily_life",
@@ -276,6 +285,8 @@ def _worldbuilding_input_bindings() -> list[VariableBinding]:
             value_type="string",
             scope="global",
             stage="worldbuilding",
+            projection_key="worldbuilding.dimension",
+            render_mode="projection",
         ),
     ]
 
@@ -350,6 +361,19 @@ def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
                 stage="characters",
             ),
             VariableBinding(
+                alias="characters_brief",
+                variable_key="novel.characters.list",
+                required=False,
+                default="",
+                source="prompt_input",
+                display_name="角色列表摘要",
+                value_type="string",
+                scope="global",
+                stage="characters",
+                projection_key="characters.brief",
+                render_mode="projection",
+            ),
+            VariableBinding(
                 alias="protagonist",
                 variable_key="novel.characters.protagonist",
                 required=False,
@@ -359,6 +383,19 @@ def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
                 value_type="object",
                 scope="global",
                 stage="characters",
+            ),
+            VariableBinding(
+                alias="protagonist_card",
+                variable_key="novel.characters.protagonist",
+                required=False,
+                default="",
+                source="prompt_input",
+                display_name="主角卡",
+                value_type="string",
+                scope="global",
+                stage="characters",
+                projection_key="character.card",
+                render_mode="projection",
             ),
             VariableBinding(
                 alias="character_context",
@@ -793,7 +830,9 @@ def build_bible_setup_variables(
             **genre_profile,
             "existing_locations": existing_locations,
             "characters": characters,
+            "characters_brief": render_variable_value(characters, projection_key="characters.brief", render_mode="projection"),
             "protagonist": protagonist,
+            "protagonist_card": render_variable_value(protagonist, projection_key="character.card", render_mode="projection"),
             "character_context": character_context,
         }
     raise ValueError(f"unsupported bible setup stage: {stage}")

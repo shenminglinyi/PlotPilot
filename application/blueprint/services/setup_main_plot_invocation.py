@@ -5,6 +5,7 @@ import json
 from typing import Any, Mapping
 
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec, VariableBinding
+from application.ai_invocation.variable_projection import render_variable_value
 from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
 from application.blueprint.services.setup_main_plot_suggestion_service import SETUP_TASK_MARKER
 from application.core.taxonomy.opening_profiles import resolve_opening_profile
@@ -171,6 +172,18 @@ def setup_main_plot_input_bindings() -> list[VariableBinding]:
             source="prompt_input",
             default={},
         ),
+        "protagonist_card": VariableBinding(
+            alias="protagonist_card",
+            variable_key="novel.characters.protagonist",
+            display_name="主角卡",
+            value_type="string",
+            scope="global",
+            stage="characters",
+            source="prompt_input",
+            default="",
+            projection_key="character.card",
+            render_mode="projection",
+        ),
         "characters": VariableBinding(
             alias="characters",
             variable_key="novel.characters.list",
@@ -180,6 +193,18 @@ def setup_main_plot_input_bindings() -> list[VariableBinding]:
             stage="characters",
             source="prompt_input",
             default=[],
+        ),
+        "characters_brief": VariableBinding(
+            alias="characters_brief",
+            variable_key="novel.characters.list",
+            display_name="角色列表摘要",
+            value_type="string",
+            scope="global",
+            stage="characters",
+            source="prompt_input",
+            default="",
+            projection_key="characters.brief",
+            render_mode="projection",
         ),
         "other_characters": VariableBinding(
             alias="other_characters",
@@ -201,6 +226,18 @@ def setup_main_plot_input_bindings() -> list[VariableBinding]:
             source="prompt_input",
             default=[],
         ),
+        "locations_brief": VariableBinding(
+            alias="locations_brief",
+            variable_key="novel.locations.list",
+            display_name="地点列表摘要",
+            value_type="string",
+            scope="global",
+            stage="locations",
+            source="prompt_input",
+            default="",
+            projection_key="locations.brief",
+            render_mode="projection",
+        ),
         "worldview_summary": VariableBinding(
             alias="worldview_summary",
             display_name="世界观摘要",
@@ -209,6 +246,18 @@ def setup_main_plot_input_bindings() -> list[VariableBinding]:
             stage="worldbuilding",
             source="prompt_input",
             default=[],
+        ),
+        "worldbuilding_context": VariableBinding(
+            alias="worldbuilding_context",
+            variable_key="novel.worldbuilding",
+            display_name="世界观上下文",
+            value_type="string",
+            scope="global",
+            stage="worldbuilding",
+            source="prompt_input",
+            default="",
+            projection_key="worldbuilding.context",
+            render_mode="projection",
         ),
         "style_hint": VariableBinding(
             alias="style_hint",
@@ -357,10 +406,24 @@ def build_setup_main_plot_invocation_variables(ctx: Mapping[str, Any]) -> dict[s
         "fusion_contract": str(ctx.get("fusion_contract") or ""),
         **genre_profile,
         "protagonist": ctx.get("protagonist") or {},
+        "protagonist_card": render_variable_value(ctx.get("protagonist") or {}, projection_key="character.card", render_mode="projection"),
         "characters": ctx.get("characters") or ctx.get("other_characters") or [],
+        "characters_brief": render_variable_value(ctx.get("characters") or ctx.get("other_characters") or [], projection_key="characters.brief", render_mode="projection"),
         "other_characters": ctx.get("other_characters") or [],
         "locations": ctx.get("locations") or [],
+        "locations_brief": render_variable_value(ctx.get("locations") or [], projection_key="locations.brief", render_mode="projection"),
         "worldview_summary": ctx.get("worldview_summary") or [],
+        "worldbuilding_context": render_variable_value(
+            {
+                "core_rules": ctx.get("core_rules") or {},
+                "geography": ctx.get("geography") or {},
+                "society": ctx.get("society") or {},
+                "culture": ctx.get("culture") or {},
+                "daily_life": ctx.get("daily_life") or {},
+            },
+            projection_key="worldbuilding.context",
+            render_mode="projection",
+        ),
         "style_hint": str(ctx.get("style_hint") or ""),
         "core_rules": ctx.get("core_rules") or {},
         "geography": ctx.get("geography") or {},

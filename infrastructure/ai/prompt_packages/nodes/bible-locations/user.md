@@ -38,10 +38,10 @@
 {existing_locations}
 
 【上一阶段人物设定】
-{{ characters | tojson }}
+{{ characters_brief }}
 
 【主角】
-{{ protagonist | tojson }}
+{{ protagonist_card }}
 
 【当前人物活动热区】
 {character_context}

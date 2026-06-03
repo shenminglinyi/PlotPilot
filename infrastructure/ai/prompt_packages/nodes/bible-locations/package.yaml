@@ -67,10 +67,18 @@ variables:
   desc: 上一阶段角色列表
   type: list
   default: []
+- name: characters_brief
+  desc: 上一阶段角色列表摘要
+  type: string
+  default: ''
 - name: protagonist
   desc: 主角
   type: object
   default: {}
+- name: protagonist_card
+  desc: 主角卡
+  type: string
+  default: ''
 - name: character_context
   desc: 人物活动范围
   type: string
