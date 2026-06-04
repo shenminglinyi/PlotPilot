@@ -29,12 +29,13 @@ from application.ai_invocation.gateway import AIInvocationGateway
 from application.ai_invocation.input_materialization import context_key_for_scope, materialize_input_variables
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler, PromptAssemblyError
 from application.ai_invocation.prompt_variables import (
-    aliases_with_binding_variable_keys,
     aliases_with_dotted_variables,
+    build_prompt_render_variables,
     prompt_declared_input_bindings,
 )
 from application.ai_invocation.services import AdoptionCommitService, AdoptionService, AttemptService, InvocationSessionService
 from application.ai_invocation.spec_service import InvocationSpecNotFoundError, InvocationSpecService
+from application.ai_invocation.variable_literals import parse_variable_literal
 from application.ai_invocation.variable_hub import RUNTIME_ONLY_BINDING_SOURCES, VariableResolver, VariableWrite
 from domain.ai.services.llm_service import GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
@@ -581,18 +582,20 @@ def _render_prompt_draft(session, system_template: str, user_template: str | Non
         )
     )
 
-    render_aliases = aliases_with_binding_variable_keys(
+    render_aliases = build_prompt_render_variables(
         session.variable_plan.aliases or {},
         session.variable_plan.bindings,
+        session.variable_plan.raw_aliases or {},
     )
     for item in session.variable_plan.snapshot_items or ():
         if isinstance(item, Mapping) and item.get("variable_key"):
             render_aliases.setdefault(str(item.get("variable_key")), item.get("value"))
+    render_aliases = aliases_with_dotted_variables(render_aliases)
 
     render_result = get_template_engine().render(
         system_template=system_template,
         user_template=effective_user_template,
-        variables=aliases_with_dotted_variables(render_aliases),
+        variables=render_aliases,
     )
     prompt = Prompt(
         system=render_result.system or "",
@@ -814,6 +817,7 @@ async def update_invocation_variables(session_id: str, request: VariableUpdateRe
 
     written: list[dict[str, Any]] = []
     for alias, value in request.values.items():
+        value = parse_variable_literal(value)
         binding = bindings.get(alias)
         if binding is None:
             for item in bindings.values():

@@ -20,6 +20,7 @@ from application.ai_invocation.dtos import (
     stable_hash,
 )
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
+from application.ai_invocation.prompt_variables import build_prompt_render_variables
 from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
 from application.ai_invocation.variable_projection import render_variable_value
 from application.ai_invocation.variable_hub import InMemoryVariableHubRepository, VariableResolver
@@ -632,7 +633,11 @@ class BibleSetupPromptAssembler(CPMSPromptAssembler):
         if node is None:
             return super().compile(spec=spec, variable_plan=variable_plan)
 
-        aliases = dict(variable_plan.aliases)
+        aliases = build_prompt_render_variables(
+            variable_plan.aliases or {},
+            variable_plan.bindings,
+            variable_plan.raw_aliases or {},
+        )
         rendered = registry.render(prompt_key, aliases)
         system = rendered.system if rendered else node.get_active_system()
         user = rendered.user if rendered else node.get_active_user_template()

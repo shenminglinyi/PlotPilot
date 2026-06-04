@@ -5,7 +5,7 @@ from typing import Mapping, Protocol
 
 from domain.ai.value_objects.prompt import Prompt
 from application.ai_invocation.dtos import InvocationSpec, PromptSnapshot, VariablePlan, prompt_hash, stable_hash
-from application.ai_invocation.prompt_variables import aliases_with_binding_variable_keys, aliases_with_dotted_variables
+from application.ai_invocation.prompt_variables import aliases_with_dotted_variables, build_prompt_render_variables
 
 
 class PromptAssemblyError(RuntimeError):
@@ -54,15 +54,20 @@ class CPMSPromptAssembler:
 
         system_template = node.get_active_system()
         user_template = node.get_active_user_template()
-        render_aliases = aliases_with_binding_variable_keys(variable_plan.aliases or {}, variable_plan.bindings)
+        render_aliases = build_prompt_render_variables(
+            variable_plan.aliases or {},
+            variable_plan.bindings,
+            variable_plan.raw_aliases or {},
+        )
         for item in variable_plan.snapshot_items or ():
             if isinstance(item, Mapping) and item.get("variable_key"):
                 render_aliases.setdefault(str(item.get("variable_key")), item.get("value"))
+        render_aliases = aliases_with_dotted_variables(render_aliases)
 
         render_result = self._template_engine.render(
             system_template=system_template,
             user_template=user_template,
-            variables=aliases_with_dotted_variables(render_aliases),
+            variables=render_aliases,
         )
         prompt = Prompt(
             system=render_result.system,

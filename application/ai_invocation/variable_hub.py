@@ -330,6 +330,7 @@ class VariableResolver:
     ) -> VariablePlan:
         context_key = self._context_key(context)
         aliases: dict[str, Any] = {}
+        raw_aliases: dict[str, Any] = {}
         lineage: dict[str, str] = {}
         resolved_from_hub: set[str] = set()
         diagnostics: list[str] = []
@@ -344,7 +345,9 @@ class VariableResolver:
                 continue
             value_found = False
             if binding.alias in explicit_variables:
-                aliases[binding.alias] = self._render_binding_value(binding, explicit_variables[binding.alias])
+                selected = self._select_binding_value(binding, explicit_variables[binding.alias])
+                aliases[binding.alias] = self._render_selected_value(binding, selected)
+                raw_aliases[binding.alias] = selected
                 lineage[binding.alias] = "explicit"
                 if binding.variable_key:
                     stored = self._repository.get_value(binding.variable_key, context_key)
@@ -354,7 +357,9 @@ class VariableResolver:
             elif binding.variable_key:
                 stored = self._repository.get_value(binding.variable_key, context_key)
                 if stored is not None:
-                    aliases[binding.alias] = self._render_binding_value(binding, stored.value)
+                    selected = self._select_binding_value(binding, stored.value)
+                    aliases[binding.alias] = self._render_selected_value(binding, selected)
+                    raw_aliases[binding.alias] = selected
                     lineage[binding.alias] = stored.source_ref or f"variable:{binding.variable_key}"
                     resolved_from_hub.add(binding.alias)
                     value_found = True
@@ -365,7 +370,9 @@ class VariableResolver:
                 if default is None and definition is not None:
                     default = definition.default
                 if default is not None:
-                    aliases[binding.alias] = self._render_binding_value(binding, default)
+                    selected = self._select_binding_value(binding, default)
+                    aliases[binding.alias] = self._render_selected_value(binding, selected)
+                    raw_aliases[binding.alias] = selected
                     lineage[binding.alias] = "default"
                     value_found = True
 
@@ -376,6 +383,7 @@ class VariableResolver:
         for alias, value in explicit_variables.items():
             if alias not in aliases:
                 aliases[alias] = value
+                raw_aliases[alias] = value
                 lineage[alias] = "explicit"
 
         for alias, value in aliases.items():
@@ -391,9 +399,15 @@ class VariableResolver:
         self._append_context_snapshot_items(snapshot_items, context_key)
 
         snapshot_groups = self._snapshot_groups(snapshot_items)
-        snapshot_hash = stable_hash({"aliases": aliases, "lineage": lineage, "snapshot_items": snapshot_items})
+        snapshot_hash = stable_hash({
+            "aliases": aliases,
+            "raw_aliases": raw_aliases,
+            "lineage": lineage,
+            "snapshot_items": snapshot_items,
+        })
         return VariablePlan(
             aliases=aliases,
+            raw_aliases=raw_aliases,
             bindings=tuple(bindings),
             required_missing=tuple(required_missing),
             diagnostics=tuple(diagnostics),
@@ -432,6 +446,11 @@ class VariableResolver:
 
     @staticmethod
     def _render_binding_value(binding: VariableBinding, value: Any) -> Any:
+        selected = VariableResolver._select_binding_value(binding, value)
+        return VariableResolver._render_selected_value(binding, selected)
+
+    @staticmethod
+    def _select_binding_value(binding: VariableBinding, value: Any) -> Any:
         selected = value
         if binding.source_path and isinstance(value, (Mapping, list)):
             selected = extract_path_value(value, binding.source_path)
@@ -443,6 +462,10 @@ class VariableResolver:
             nested_key = binding.variable_key.removeprefix("novel.worldbuilding.")
             if nested_key and nested_key in value:
                 selected = extract_path_value(value, nested_key)
+        return selected
+
+    @staticmethod
+    def _render_selected_value(binding: VariableBinding, selected: Any) -> Any:
         return render_variable_value(
             selected,
             render_mode=binding.render_mode,

@@ -452,7 +452,9 @@ class PromptTemplateEngine:
         variables = set()
 
         # 提取 Jinja2 {{ variable }} / {{ variable | filter }} 格式
-        jinja2_pattern = re.compile(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\b[^{}]*\}\}')
+        jinja2_pattern = re.compile(
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)|(?:\[-?\d+\]))*)\s*(?:\|[^{}]*)?\}\}'
+        )
         variables.update(jinja2_pattern.findall(template))
 
         # 提取旧版 {variable} 格式（排除已匹配的 Jinja2）
@@ -516,11 +518,26 @@ class PromptTemplateEngine:
             if name in variables:
                 return variables[name]
             current: Any = variables
-            for part in name.split("."):
+            for part in re.split(r"\.(?![^\[]*\])", name):
+                selectors: list[int] = []
+                while True:
+                    match = re.search(r"\[(-?\d+)\]$", part)
+                    if not match:
+                        break
+                    selectors.insert(0, int(match.group(1)))
+                    part = part[:match.start()]
                 if isinstance(current, dict) and part in current:
                     current = current[part]
-                else:
-                    raise KeyError(name)
+                elif part:
+                    try:
+                        current = getattr(current, part)
+                    except AttributeError:
+                        raise KeyError(name) from None
+                for index in selectors:
+                    try:
+                        current = current[index]
+                    except (IndexError, KeyError, TypeError):
+                        raise KeyError(name) from None
             return current
 
         def replace_jinja(match: re.Match[str]) -> str:
@@ -532,7 +549,7 @@ class PromptTemplateEngine:
             return "" if value is None else str(value)
 
         rendered = re.sub(
-            r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}",
+            r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)|(?:\[-?\d+\]))*)\s*\}\}",
             replace_jinja,
             template,
         )
@@ -546,7 +563,7 @@ class PromptTemplateEngine:
             return "" if value is None else str(value)
 
         return re.sub(
-            r"(?<!\{)\{(?!\{)(?!\s*[%#])\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}(?!\})",
+            r"(?<!\{)\{(?!\{)(?!\s*[%#])\s*([a-zA-Z_][a-zA-Z0-9_]*(?:(?:\.[a-zA-Z_][a-zA-Z0-9_]*)|(?:\[-?\d+\]))*)\s*\}(?!\})",
             replace_legacy,
             rendered,
         )

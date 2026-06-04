@@ -198,6 +198,7 @@ def variable_plan_to_dict(plan: VariablePlan | None) -> dict[str, Any]:
         return {}
     return {
         "aliases": dict(plan.aliases),
+        "raw_aliases": dict(plan.raw_aliases),
         "bindings": [_binding_to_dict(item) for item in plan.bindings],
         "required_missing": list(plan.required_missing),
         "diagnostics": list(plan.diagnostics),
@@ -214,6 +215,7 @@ def variable_plan_from_dict(data: Mapping[str, Any]) -> VariablePlan | None:
     bindings = data.get("bindings") or []
     return VariablePlan(
         aliases=data.get("aliases") if isinstance(data.get("aliases"), Mapping) else {},
+        raw_aliases=data.get("raw_aliases") if isinstance(data.get("raw_aliases"), Mapping) else {},
         bindings=tuple(_binding_from_dict(item) for item in bindings if isinstance(item, Mapping)),
         required_missing=tuple(data.get("required_missing") or ()),
         diagnostics=tuple(data.get("diagnostics") or ()),

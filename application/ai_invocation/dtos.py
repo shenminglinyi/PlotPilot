@@ -121,6 +121,7 @@ class VariablePlan:
     """一次调用的变量解析计划和诊断。"""
 
     aliases: Mapping[str, Any]
+    raw_aliases: Mapping[str, Any] = field(default_factory=dict)
     bindings: tuple[VariableBinding, ...] = ()
     required_missing: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
