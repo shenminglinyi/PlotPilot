@@ -394,10 +394,7 @@ class TestSetupMainPlotOptionsEndpoints:
         async def fake_create_invocation(request):
             assert request.operation == "setup.main_plot_options"
             assert request.node_key == "planning-main-plot-option"
-            assert "context_blob" not in request.variables
-            assert "worldbuilding_full" not in request.variables
-            assert request.variables["premise"] == "少年在废土城破局"
-            assert "protagonist" in request.variables
+            assert request.variables == {}
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
             return {
@@ -455,8 +452,7 @@ class TestSetupMainPlotOptionsEndpoints:
         async def fake_create_invocation(request):
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
-            assert "context_blob" not in request.variables
-            assert "worldbuilding_full" not in request.variables
+            assert request.variables == {}
             return {
                 "session": {"id": "session-1", "status": "awaiting_pre_call_review"},
                 "next_action": "pre_call_review_required",
@@ -512,9 +508,9 @@ class TestSetupPlotOutlineEndpoints:
         async def fake_create_invocation(request):
             assert request.operation == "setup.plot_outline"
             assert request.node_key == "planning-plot-outline"
-            assert request.variables["premise"] == "少年在废土城破局"
-            assert request.variables["plot_outline_phase_schema"]
+            assert request.variables == {}
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert "setup_context" in request.context
             return {
                 "session": {"id": "session-outline-1", "status": "awaiting_pre_call_review"},
                 "next_action": "pre_call_review_required",
@@ -560,6 +556,8 @@ class TestSetupPlotOutlineEndpoints:
 
         async def fake_create_invocation(request):
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert request.variables == {}
+            assert "setup_context" in request.context
             return {
                 "session": {"id": "session-outline-1", "status": "awaiting_pre_call_review"},
                 "next_action": "pre_call_review_required",

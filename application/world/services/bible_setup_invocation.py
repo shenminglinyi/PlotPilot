@@ -1,489 +1,148 @@
-"""Bible onboarding AI Invocation contracts.
-
-This module is the setup guide's bridge into AI Invocation. It owns the
-operation/node contract and derived variables, while the gateway still owns the
-common invocation state machine.
-"""
+"""Bible onboarding AI Invocation contracts."""
 from __future__ import annotations
 
-import json
 from typing import Any, Mapping
 
-from domain.ai.value_objects.prompt import Prompt
-
-from application.ai_invocation.dtos import (
-    InvocationPolicy,
-    InvocationSpec,
-    PromptSnapshot,
-    VariableBinding,
-    prompt_hash,
-    stable_hash,
-)
+from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec, VariableBinding
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
-from application.ai_invocation.prompt_variables import build_prompt_render_variables
-from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
-from application.ai_invocation.variable_projection import render_variable_value
-from application.ai_invocation.variable_hub import InMemoryVariableHubRepository, VariableResolver
-from application.core.v1_length_tiers import strip_generated_premise_prefixes
-from application.core.taxonomy.opening_profiles import resolve_opening_profile
-from application.world.services.bible_service import BibleService
-from application.world.services.worldbuilding_service import WorldbuildingService
-from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
-from application.world.services.narrative_contract_text import format_worldbuilding_slices_for_prompt
-from application.world.worldbuilding_schema import build_fields_desc_for_prompt
-from application.world.worldbuilding_merge import WORLD_BUILDING_DIMENSION_KEYS
-from infrastructure.ai.prompt_keys import (
-    BIBLE_CHARACTERS,
-    BIBLE_LOCATIONS,
-    BIBLE_WORLDBUILDING,
+from application.ai_invocation.prompt_variables import (
+    infer_variable_scope,
+    infer_variable_stage,
+    normalize_declared_variable_keys,
+    prompt_declared_variable_keys,
 )
-from infrastructure.ai.prompt_registry import get_prompt_registry
+from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
+from application.ai_invocation.variable_hub import InMemoryVariableHubRepository, VariableResolver
 from application.world.services.bible_setup_output_bindings import ensure_bible_setup_output_bindings
+from infrastructure.ai.prompt_keys import BIBLE_CHARACTERS, BIBLE_LOCATIONS, BIBLE_WORLDBUILDING
+from infrastructure.ai.prompt_registry import get_prompt_registry
 
 BIBLE_SETUP_WORLD_NODE = BIBLE_WORLDBUILDING
 BIBLE_SETUP_CHARACTERS_NODE = BIBLE_CHARACTERS
 BIBLE_SETUP_LOCATIONS_NODE = BIBLE_LOCATIONS
-NOVEL_SETUP_VARIABLE_BINDINGS = (
-    VariableBinding(
-        alias="novel_title",
-        variable_key="novel.setup.title",
-        required=False,
-        default="",
-        display_name="名称",
-        value_type="string",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="premise",
-        variable_key="novel.setup.premise",
-        required=True,
-        display_name="设定",
-        value_type="string",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="genre_major",
-        variable_key="novel.setup.genre_major",
-        required=False,
-        default="",
-        display_name="大类",
-        value_type="string",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="genre_theme",
-        variable_key="novel.setup.genre_theme",
-        required=False,
-        default="",
-        display_name="主题",
-        value_type="string",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="genre_label",
-        variable_key="novel.setup.genre_label",
-        required=False,
-        default="",
-        display_name="类型",
-        value_type="string",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="world_preset",
-        variable_key="novel.setup.world_preset",
-        required=False,
-        default="",
-        display_name="基调",
-        value_type="string",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="target_chapters",
-        variable_key="novel.setup.target_chapters",
-        required=True,
-        default="100",
-        display_name="章节数量",
-        value_type="integer",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="target_words_per_chapter",
-        variable_key="novel.setup.target_words_per_chapter",
-        required=False,
-        default="",
-        display_name="每章字数",
-        value_type="integer",
-        scope="global",
-        stage="setup",
-    ),
-    VariableBinding(
-        alias="genre_opening_profile",
-        required=False,
-        default={},
-        source="derived_config",
-        display_name="类型开篇画像",
-        value_type="object",
-        scope="global",
-        stage="planning",
-    ),
-    VariableBinding(
-        alias="genre_reader_contract",
-        required=False,
-        default={},
-        source="derived_config",
-        display_name="读者留存契约",
-        value_type="object",
-        scope="global",
-        stage="planning",
-    ),
-    VariableBinding(
-        alias="genre_rhythm_constraints",
-        required=False,
-        default={},
-        source="derived_config",
-        display_name="类型节奏约束",
-        value_type="object",
-        scope="global",
-        stage="planning",
-    ),
-)
+
 _BINDING_SET_BY_NODE = {
     BIBLE_SETUP_WORLD_NODE: f"{BIBLE_SETUP_WORLD_NODE}:input:v1",
     BIBLE_SETUP_CHARACTERS_NODE: f"{BIBLE_SETUP_CHARACTERS_NODE}:input:v1",
     BIBLE_SETUP_LOCATIONS_NODE: f"{BIBLE_SETUP_LOCATIONS_NODE}:input:v1",
 }
 
+_DISPLAY_NAMES = {
+    "novel.title": "书名",
+    "novel.premise": "故事创意",
+    "novel.genre_major": "类型大类",
+    "novel.genre_theme": "类型主题",
+    "novel.genre_label": "类型标签",
+    "novel.world_preset": "世界基调",
+    "novel.target_chapters": "目标章节数",
+    "novel.target_words_per_chapter": "每章目标字数",
+    "worldbuilding.style": "文风公约",
+    "worldbuilding.content": "世界观",
+    "characters.list": "角色列表",
+    "characters.protagonist": "主角",
+    "locations.list": "地点列表",
+}
 
-def _bible_setup_base_input_bindings() -> list[VariableBinding]:
-    runtime_derived_aliases = {
-        "genre_opening_profile",
-        "genre_reader_contract",
-        "genre_rhythm_constraints",
-    }
-    bindings: list[VariableBinding] = []
-    for binding in NOVEL_SETUP_VARIABLE_BINDINGS:
-        if binding.alias in runtime_derived_aliases:
-            bindings.append(
-                VariableBinding(
-                    alias=binding.alias,
-                    variable_key="",
-                    required=binding.required,
-                    default=binding.default,
-                    source="derived_config",
-                    enabled=binding.enabled,
-                    value_type=binding.value_type,
-                    scope=binding.scope,
-                    stage=binding.stage,
-                    display_name=binding.display_name,
-                )
-            )
-        else:
-            bindings.append(binding)
-    return bindings
+_VALUE_TYPES = {
+    "worldbuilding.content": "object",
+    "characters.list": "list",
+    "characters.protagonist": "object",
+    "locations.list": "list",
+}
 
-
-def _bible_setup_prompt_context_bindings() -> list[VariableBinding]:
-    prompt_aliases = {
-        "novel_title",
-        "premise",
-        "genre_major",
-        "genre_theme",
-        "genre_label",
-        "world_preset",
-        "target_chapters",
-        "target_words_per_chapter",
-    }
-    bindings: list[VariableBinding] = []
-    for binding in _bible_setup_base_input_bindings():
-        if binding.alias in prompt_aliases:
-            bindings.append(
-                VariableBinding(
-                    alias=binding.alias,
-                    variable_key=binding.variable_key,
-                    required=binding.required,
-                    default=binding.default,
-                    source="prompt_input",
-                    enabled=binding.enabled,
-                    value_type=binding.value_type,
-                    scope=binding.scope,
-                    stage=binding.stage,
-                    display_name=binding.display_name,
-                )
-            )
-        else:
-            bindings.append(binding)
-    return bindings
+_OPTIONAL_KEYS_BY_NODE = {
+    BIBLE_SETUP_WORLD_NODE: {
+        "novel.genre_major",
+        "novel.genre_theme",
+        "novel.genre_label",
+        "novel.world_preset",
+        "novel.target_words_per_chapter",
+    },
+    BIBLE_SETUP_CHARACTERS_NODE: {
+        "novel.genre_major",
+        "novel.genre_theme",
+        "novel.genre_label",
+        "novel.world_preset",
+        "novel.target_words_per_chapter",
+        "characters.list",
+    },
+    BIBLE_SETUP_LOCATIONS_NODE: {
+        "novel.genre_major",
+        "novel.genre_theme",
+        "novel.genre_label",
+        "novel.world_preset",
+        "novel.target_words_per_chapter",
+        "locations.list",
+    },
+}
 
 
-def _worldbuilding_input_bindings() -> list[VariableBinding]:
-    return [
-        VariableBinding(
-            alias="core_rules",
-            variable_key="novel.worldbuilding.core_rules",
-            required=False,
-            default="",
-            source="prompt_input",
-            display_name="核心法则",
-            value_type="string",
-            scope="global",
-            stage="worldbuilding",
-            projection_key="worldbuilding.dimension",
-            render_mode="projection",
-        ),
-        VariableBinding(
-            alias="geography",
-            variable_key="novel.worldbuilding.geography",
-            required=False,
-            default="",
-            source="prompt_input",
-            display_name="地理生态",
-            value_type="string",
-            scope="global",
-            stage="worldbuilding",
-            projection_key="worldbuilding.dimension",
-            render_mode="projection",
-        ),
-        VariableBinding(
-            alias="society",
-            variable_key="novel.worldbuilding.society",
-            required=False,
-            default="",
-            source="prompt_input",
-            display_name="社会结构",
-            value_type="string",
-            scope="global",
-            stage="worldbuilding",
-            projection_key="worldbuilding.dimension",
-            render_mode="projection",
-        ),
-        VariableBinding(
-            alias="culture",
-            variable_key="novel.worldbuilding.culture",
-            required=False,
-            default="",
-            source="prompt_input",
-            display_name="历史文化",
-            value_type="string",
-            scope="global",
-            stage="worldbuilding",
-            projection_key="worldbuilding.dimension",
-            render_mode="projection",
-        ),
-        VariableBinding(
-            alias="daily_life",
-            variable_key="novel.worldbuilding.daily_life",
-            required=False,
-            default="",
-            source="prompt_input",
-            display_name="沉浸感细节",
-            value_type="string",
-            scope="global",
-            stage="worldbuilding",
-            projection_key="worldbuilding.dimension",
-            render_mode="projection",
-        ),
-    ]
-
-
-def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
-    if node_key == BIBLE_SETUP_WORLD_NODE:
-        return [
-            *_bible_setup_base_input_bindings(),
-            VariableBinding(
-                alias="fields_desc",
-                variable_key="",
-                required=True,
-                default=build_fields_desc_for_prompt(),
-                source="runtime_only",
-                display_name="世界观字段模板",
-                value_type="string",
-                scope="global",
-                stage="worldbuilding",
-            ),
-        ]
-    if node_key == BIBLE_SETUP_CHARACTERS_NODE:
-        return [
-            *_bible_setup_prompt_context_bindings(),
-            *_worldbuilding_input_bindings(),
-            VariableBinding(
-                alias="style_guide",
-                variable_key="novel.style.guide",
-                required=False,
-                default="",
-                source="prompt_input",
-                display_name="文风公约",
-                value_type="string",
-                scope="global",
-                stage="setup",
-            ),
-            VariableBinding(
-                alias="existing_characters",
-                variable_key="novel.characters.list.text",
-                required=False,
-                default="",
-                source="prompt_input",
-                display_name="已有角色",
-                value_type="string",
-                scope="global",
-                stage="characters",
-            ),
-        ]
-    if node_key == BIBLE_SETUP_LOCATIONS_NODE:
-        return [
-            *_bible_setup_prompt_context_bindings(),
-            *_worldbuilding_input_bindings(),
-            VariableBinding(
-                alias="existing_locations",
-                variable_key="novel.locations.list.text",
-                required=False,
-                default="",
-                source="prompt_input",
-                display_name="已有地点",
-                value_type="string",
-                scope="global",
-                stage="locations",
-            ),
-            VariableBinding(
-                alias="characters",
-                variable_key="novel.characters.list",
-                required=False,
-                default=[],
-                source="prompt_input",
-                display_name="上一阶段角色列表",
-                value_type="list",
-                scope="global",
-                stage="characters",
-            ),
-            VariableBinding(
-                alias="characters_brief",
-                variable_key="novel.characters.list",
-                required=False,
-                default="",
-                source="prompt_input",
-                display_name="角色列表摘要",
-                value_type="string",
-                scope="global",
-                stage="characters",
-                projection_key="characters.brief",
-                render_mode="projection",
-            ),
-            VariableBinding(
-                alias="protagonist",
-                variable_key="novel.characters.protagonist",
-                required=False,
-                default={},
-                source="prompt_input",
-                display_name="主角",
-                value_type="object",
-                scope="global",
-                stage="characters",
-            ),
-            VariableBinding(
-                alias="protagonist_card",
-                variable_key="novel.characters.protagonist",
-                required=False,
-                default="",
-                source="prompt_input",
-                display_name="主角卡",
-                value_type="string",
-                scope="global",
-                stage="characters",
-                projection_key="character.card",
-                render_mode="projection",
-            ),
-            VariableBinding(
-                alias="character_context",
-                variable_key="novel.characters.context.text",
-                required=False,
-                default="",
-                source="prompt_input",
-                display_name="角色上下文",
-                value_type="string",
-                scope="global",
-                stage="characters",
-            ),
-        ]
-    return []
-
-
-def _split_genre_label(genre_label: str) -> tuple[str, str]:
-    parts = [part.strip() for part in str(genre_label or "").split("/") if part.strip()]
-    if not parts:
-        return "", ""
-    if len(parts) == 1:
-        return parts[0], ""
-    return parts[0], " / ".join(parts[1:])
-
-
-def _build_worldbuilding_prompt_fields(
-    *,
-    bible: Any = None,
-    worldbuilding: Any = None,
-) -> dict[str, str]:
-    """统一生成 5 维世界观字段，避免再派生 worldbuilding_full。"""
-    if isinstance(worldbuilding, Mapping):
-        slices = {dim: dict((worldbuilding or {}).get(dim) or {}) for dim in WORLD_BUILDING_DIMENSION_KEYS}
-    else:
-        slices = load_merged_worldbuilding_slices(bible=bible, worldbuilding=worldbuilding)
-    fields: dict[str, str] = {}
-    for dim_key in WORLD_BUILDING_DIMENSION_KEYS:
-        fields[dim_key] = format_worldbuilding_slices_for_prompt(
-            {dim_key: slices.get(dim_key) or {}}
-        )
-    return fields
-
-
-def _worldbuilding_dimension_prompt_fields(fields: Mapping[str, str]) -> dict[str, str]:
-    return {
-        key: str(fields.get(key) or "")
-        for key in WORLD_BUILDING_DIMENSION_KEYS
-    }
-
-
-def _variable_hub_value(novel_id: str, variable_key: str) -> Any:
+def _ensure_node_synced(node_key: str) -> None:
     try:
+        from infrastructure.ai.prompt_package_sync import force_sync_builtin_prompt_node
         from infrastructure.persistence.database.connection import get_database
-        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
 
-        value = SqliteVariableHubRepository(get_database()).get_value(variable_key, f"novel_id:{novel_id}")
+        force_sync_builtin_prompt_node(
+            get_database(),
+            node_key=node_key,
+            change_summary="变量中心最终重构同步",
+        )
     except Exception:
-        return None
-    return getattr(value, "value", None) if value is not None else None
-
-
-def _character_record_to_prompt_line(character: Mapping[str, Any]) -> str:
-    name = str(character.get("name") or "").strip()
-    if not name:
-        return ""
-    role = str(character.get("role") or "").strip()
-    description = str(character.get("description") or "").strip()
-    public_profile = str(character.get("public_profile") or "").strip()
-    core_belief = str(character.get("core_belief") or "").strip()
-    parts = [part for part in (role, description, public_profile, core_belief) if part]
-    return f"- {name}: {'；'.join(parts)}" if parts else f"- {name}"
-
-
-def _characters_to_prompt_text(characters: Any) -> str:
-    if not isinstance(characters, list):
-        return str(characters or "")
-    lines = [
-        _character_record_to_prompt_line(item)
-        for item in characters
-        if isinstance(item, Mapping)
-    ]
-    return "\n".join(line for line in lines if line)
+        pass
 
 
 def _active_version_id(node_key: str) -> str:
+    _ensure_node_synced(node_key)
     node = get_prompt_registry().get_node(node_key)
-    return str(getattr(node, "active_version_id", None) or "")
+    if node is None:
+        raise RuntimeError(f"CPMS 节点未发布: {node_key}")
+    node_version_id = str(getattr(node, "active_version_id", None) or "")
+    if not node_version_id:
+        raise RuntimeError(f"CPMS 节点缺少 active version: {node_key}")
+    return node_version_id
+
+
+def _declared_variable_keys(node_key: str) -> set[str]:
+    _ensure_node_synced(node_key)
+    node = get_prompt_registry().get_node(node_key)
+    if node is None:
+        raise RuntimeError(f"CPMS 节点未发布: {node_key}")
+    return prompt_declared_variable_keys(
+        node.get_active_system(),
+        node.get_active_user_template(),
+    )
+
+
+def _default_for(variable_key: str) -> Any:
+    value_type = _VALUE_TYPES.get(variable_key, "string")
+    if value_type == "list":
+        return []
+    if value_type == "object":
+        return {}
+    return ""
+
+
+def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
+    optional_keys = _OPTIONAL_KEYS_BY_NODE.get(node_key, set())
+    known_variable_keys = set(_DISPLAY_NAMES) | set(_VALUE_TYPES) | optional_keys
+    declared_keys = normalize_declared_variable_keys(
+        _declared_variable_keys(node_key),
+        known_variable_keys,
+    )
+    return [
+        VariableBinding(
+            alias=variable_key,
+            variable_key=variable_key,
+            required=variable_key not in optional_keys,
+            default=_default_for(variable_key) if variable_key in optional_keys else None,
+            source="cpms_template",
+            value_type=_VALUE_TYPES.get(variable_key, "string"),
+            scope=infer_variable_scope(variable_key),
+            stage=infer_variable_stage(variable_key),
+            display_name=_DISPLAY_NAMES.get(variable_key, variable_key),
+        )
+        for variable_key in sorted(declared_keys)
+    ]
 
 
 def bible_setup_world_spec() -> InvocationSpec:
@@ -501,13 +160,7 @@ def bible_setup_world_spec() -> InvocationSpec:
         metadata={
             "source": "novel_setup_guide",
             "bible_prompt_key": BIBLE_WORLDBUILDING,
-            "required_outputs": ["style", "core_rules", "geography", "society", "culture", "daily_life"],
-            "output_contract_notes": [
-                "输出必须是 JSON 对象，字段名和契约路径完全一致",
-                "style 必须是顶层字段；不要写进 worldbuilding 内部",
-                "世界观正文只需要放在 worldbuilding 下的五维字段里，不要重复输出顶层 core_rules/geography 等镜像字段",
-                "新增字段需要先扩展输出契约，不能只在提示词里口头约定",
-            ],
+            "required_outputs": ["style", "worldbuilding"],
         },
     )
 
@@ -570,27 +223,15 @@ def build_bible_setup_spec_service() -> InvocationSpecService:
 
 def build_bible_setup_variable_resolver() -> VariableResolver:
     repo = InMemoryVariableHubRepository()
-    repo.set_bindings(
-        _BINDING_SET_BY_NODE[BIBLE_SETUP_WORLD_NODE],
-        BIBLE_SETUP_WORLD_NODE,
-        bible_setup_input_bindings(BIBLE_SETUP_WORLD_NODE),
-    )
-    repo.set_bindings(
-        _BINDING_SET_BY_NODE[BIBLE_SETUP_CHARACTERS_NODE],
-        BIBLE_SETUP_CHARACTERS_NODE,
-        bible_setup_input_bindings(BIBLE_SETUP_CHARACTERS_NODE),
-    )
-    repo.set_bindings(
-        _BINDING_SET_BY_NODE[BIBLE_SETUP_LOCATIONS_NODE],
-        BIBLE_SETUP_LOCATIONS_NODE,
-        bible_setup_input_bindings(BIBLE_SETUP_LOCATIONS_NODE),
-    )
+    for node_key, binding_set_id in _BINDING_SET_BY_NODE.items():
+        repo.set_bindings(binding_set_id, node_key, bible_setup_input_bindings(node_key))
     ensure_bible_setup_output_bindings(repo)
     return VariableResolver(repo)
 
 
 def ensure_bible_setup_contract(db, *, operation: str, node_key: str) -> InvocationSpec:
     from infrastructure.ai.prompt_manager import get_prompt_manager
+    from infrastructure.ai.prompt_package_sync import force_sync_builtin_prompt_node
     from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
         SqliteInvocationSpecRepository,
         SqliteVariableHubRepository,
@@ -598,6 +239,11 @@ def ensure_bible_setup_contract(db, *, operation: str, node_key: str) -> Invocat
     from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
 
     get_prompt_manager().ensure_seeded()
+    force_sync_builtin_prompt_node(
+        db,
+        node_key=node_key,
+        change_summary="变量中心最终重构同步",
+    )
     spec_factory_by_operation = {
         "bible.setup.worldbuilding": bible_setup_world_spec,
         "bible.setup.characters": bible_setup_characters_spec,
@@ -612,7 +258,12 @@ def ensure_bible_setup_contract(db, *, operation: str, node_key: str) -> Invocat
 
     with sqlite_writes_bypass_queue():
         variable_repo = SqliteVariableHubRepository(db)
-        variable_repo.set_bindings(spec.input_binding_set_id, spec.node_key, bible_setup_input_bindings(spec.node_key), direction="input")
+        variable_repo.set_bindings(
+            spec.input_binding_set_id,
+            spec.node_key,
+            bible_setup_input_bindings(spec.node_key),
+            direction="input",
+        )
         ensure_bible_setup_output_bindings(variable_repo, spec.node_key)
         SqliteInvocationSpecRepository(db).upsert(
             spec,
@@ -624,221 +275,16 @@ def ensure_bible_setup_contract(db, *, operation: str, node_key: str) -> Invocat
 
 
 class BibleSetupPromptAssembler(CPMSPromptAssembler):
-    """Compile setup-guide virtual nodes from published Bible CPMS nodes."""
-
-    def compile(self, *, spec: InvocationSpec, variable_plan):  # type: ignore[override]
-        prompt_key = str(spec.metadata.get("bible_prompt_key") or spec.node_key)
-        registry = get_prompt_registry()
-        node = registry.get_node(prompt_key)
-        if node is None:
-            return super().compile(spec=spec, variable_plan=variable_plan)
-
-        aliases = build_prompt_render_variables(
-            variable_plan.aliases or {},
-            variable_plan.bindings,
-            variable_plan.raw_aliases or {},
-        )
-        rendered = registry.render(prompt_key, aliases)
-        system = rendered.system if rendered else node.get_active_system()
-        user = rendered.user if rendered else node.get_active_user_template()
-
-        if spec.node_key in {BIBLE_SETUP_CHARACTERS_NODE, BIBLE_SETUP_LOCATIONS_NODE}:
-            user = self._ensure_setup_context_block(user or "", aliases)
-
-        if spec.node_key == BIBLE_SETUP_WORLD_NODE:
-            style_contract = (
-                "同时生成文风公约，并把文风写入顶层字段 `style`。最终必须输出一个 JSON 对象，"
-                "包含 `style` 和 `worldbuilding` 两个顶层字段。"
-            )
-            user = f"{user}\n\n{style_contract}\n\n输出格式：\n{{\n  \"style\": \"文风公约文本\",\n  \"worldbuilding\": {{ ... }}\n}}"
-        prompt = Prompt(system=system or "", user=user or "")
-        template_hash = stable_hash(
-            {"system_template": node.get_active_system(), "user_template": node.get_active_user_template()}
-        )
-        node_version_id = str(getattr(node, "active_version_id", None) or prompt_key)
-        composition_hash = stable_hash(
-            {
-                "node_key": spec.node_key,
-                "node_version_id": node_version_id,
-                "input_binding_set_id": spec.input_binding_set_id,
-                "output_binding_set_id": spec.output_binding_set_id,
-                "source_node_key": prompt_key,
-            }
-        )
-        diagnostics = list(variable_plan.diagnostics)
-        if rendered and getattr(rendered, "warnings", None):
-            diagnostics.extend(str(item) for item in rendered.warnings)
-        if variable_plan.required_missing:
-            diagnostics.append("存在未解析的必填变量")
-        return PromptSnapshot(
-            prompt=prompt,
-            node_key=spec.node_key,
-            node_version_id=node_version_id,
-            asset_link_set_id=spec.asset_link_set_id,
-            input_binding_set_id=spec.input_binding_set_id,
-            output_binding_set_id=spec.output_binding_set_id,
-            variable_snapshot_hash=variable_plan.snapshot_hash,
-            template_hash=template_hash,
-            composition_hash=composition_hash,
-            rendered_prompt_hash=prompt_hash(prompt),
-            missing_variables=tuple(getattr(rendered, "missing_variables", []) or ()) if rendered else (),
-            diagnostics=tuple(diagnostics),
-            asset_version_ids=(node_version_id,),
-            template_prompt=Prompt(
-                system=node.get_active_system() or "",
-                user=node.get_active_user_template() or "",
-            ),
-        )
-
-    @staticmethod
-    def _ensure_setup_context_block(user: str, aliases: Mapping[str, Any]) -> str:
-        if "【故事创意】" in user:
-            return user
-        block = (
-            "【故事创意】\n"
-            f"{aliases.get('premise') or ''}\n\n"
-            "【小说设定】\n"
-            f"名称：{aliases.get('novel_title') or ''}\n"
-            f"大类：{aliases.get('genre_major') or ''}\n"
-            f"主题：{aliases.get('genre_theme') or ''}\n"
-            f"类型：{aliases.get('genre_label') or ''}\n"
-            f"基调：{aliases.get('world_preset') or ''}\n"
-            f"章节数量：{aliases.get('target_chapters') or ''}\n"
-            f"每章字数：{aliases.get('target_words_per_chapter') or ''}\n\n"
-            "【类型开篇画像】\n"
-            f"{json.dumps(aliases.get('genre_opening_profile') or {}, ensure_ascii=False)}\n\n"
-            "【读者留存契约】\n"
-            f"{json.dumps(aliases.get('genre_reader_contract') or {}, ensure_ascii=False)}\n\n"
-            "【类型节奏约束】\n"
-            f"{json.dumps(aliases.get('genre_rhythm_constraints') or {}, ensure_ascii=False)}\n\n"
-        )
-        return f"{block}{user}"
+    """Bible setup prompts are compiled directly from the published CPMS node."""
 
 
 def build_bible_setup_variables(
     *,
     stage: str,
     novel: Any,
-    bible_service: BibleService,
-    worldbuilding_service: WorldbuildingService | None,
+    bible_service: Any,
+    worldbuilding_service: Any,
 ) -> Mapping[str, Any]:
-    novel_title = str(getattr(novel, "title", "") or "").strip()
-    premise = strip_generated_premise_prefixes(
-        getattr(novel, "premise", "") or getattr(novel, "title", "") or ""
-    )
-    target_chapters = int(getattr(novel, "target_chapters", 100) or 100)
-    target_words_per_chapter = int(getattr(novel, "target_words_per_chapter", 0) or 0)
-    genre_label = str(getattr(novel, "locked_genre", "") or "").strip()
-    world_preset = str(getattr(novel, "locked_world_preset", "") or "").strip()
-    if not genre_label or not world_preset:
-        from application.core.premise_genre_world import parse_genre_world_from_premise
-
-        parsed_genre, parsed_world = parse_genre_world_from_premise(premise)
-        genre_label = genre_label or parsed_genre
-        world_preset = world_preset or parsed_world
-    genre_major, genre_theme = _split_genre_label(genre_label)
-    resolved_profile = resolve_opening_profile(genre_label, strict=False)
-    genre_profile = resolved_profile.as_variables() if resolved_profile is not None else {
-        "genre_opening_profile": {},
-        "genre_reader_contract": {},
-        "genre_rhythm_constraints": {},
-    }
-    if stage == "worldbuilding":
-        return {
-            "premise": premise,
-            "target_chapters": target_chapters,
-            "target_words_per_chapter": target_words_per_chapter,
-            "fields_desc": build_fields_desc_for_prompt(),
-            "novel_title": novel_title,
-            "genre_major": genre_major,
-            "genre_theme": genre_theme,
-            "genre_label": genre_label,
-            "world_preset": world_preset,
-            **genre_profile,
-        }
-
-    bible = bible_service.get_bible_by_novel(getattr(novel, "id", ""))
-    wb = worldbuilding_service.get_worldbuilding(getattr(novel, "id", "")) if worldbuilding_service else None
-    from application.world.services.narrative_contract_loader import load_merged_worldbuilding_slices
-    from application.world.services.narrative_contract_text import format_worldbuilding_slices_for_prompt
-    style_guide = ""
-    existing_characters = ""
-    existing_locations = ""
-    character_context = ""
-    characters: list[dict[str, Any]] = []
-    protagonist: dict[str, Any] = {}
-    if bible:
-        style_guide = "\n".join(
-            str(note.content or "").strip()
-            for note in bible.style_notes or []
-            if str(note.content or "").strip()
-        )
-        characters = [
-            {
-                "id": str(getattr(getattr(c, "character_id", None), "value", "") or getattr(c, "id", "") or ""),
-                "name": str(getattr(c, "name", "") or ""),
-                "role": str(getattr(c, "role", "") or ""),
-                "description": str(getattr(c, "description", "") or ""),
-                "public_profile": str(getattr(c, "public_profile", "") or ""),
-                "hidden_profile": str(getattr(c, "hidden_profile", "") or ""),
-                "core_belief": str(getattr(c, "core_belief", "") or ""),
-                "relationships": list(getattr(c, "relationships", []) or []),
-            }
-            for c in bible.characters or []
-            if str(getattr(c, "name", "") or "").strip()
-        ]
-        protagonist = characters[0] if characters else {}
-        existing_characters = _characters_to_prompt_text(characters)
-        existing_locations = "\n".join(
-            f"- {loc.name}: {loc.description}"
-            for loc in bible.locations or []
-        )
-        character_context = existing_characters
-    novel_id = str(getattr(novel, "id", "") or "")
-    hub_characters = _variable_hub_value(novel_id, "novel.characters.list") if novel_id else None
-    if isinstance(hub_characters, list) and hub_characters:
-        characters = [dict(item) for item in hub_characters if isinstance(item, Mapping)]
-        existing_characters = _characters_to_prompt_text(characters) or existing_characters
-        character_context = existing_characters
-    hub_protagonist = _variable_hub_value(novel_id, "novel.characters.protagonist") if novel_id else None
-    if isinstance(hub_protagonist, Mapping) and hub_protagonist:
-        protagonist = dict(hub_protagonist)
-    elif characters:
-        protagonist = characters[0]
-    worldbuilding_fields = _build_worldbuilding_prompt_fields(bible=bible, worldbuilding=wb)
-
-    if stage == "characters":
-        return {
-            "premise": premise,
-            "target_chapters": target_chapters,
-            "target_words_per_chapter": target_words_per_chapter,
-            "novel_title": novel_title,
-            "genre_major": genre_major,
-            "genre_theme": genre_theme,
-            "genre_label": genre_label,
-            "world_preset": world_preset,
-            **_worldbuilding_dimension_prompt_fields(worldbuilding_fields),
-            **genre_profile,
-            "style_guide": style_guide,
-            "existing_characters": existing_characters,
-        }
-    if stage == "locations":
-        return {
-            "premise": premise,
-            "target_chapters": target_chapters,
-            "target_words_per_chapter": target_words_per_chapter,
-            "novel_title": novel_title,
-            "genre_major": genre_major,
-            "genre_theme": genre_theme,
-            "genre_label": genre_label,
-            "world_preset": world_preset,
-            **_worldbuilding_dimension_prompt_fields(worldbuilding_fields),
-            **genre_profile,
-            "existing_locations": existing_locations,
-            "characters": characters,
-            "characters_brief": render_variable_value(characters, projection_key="characters.brief", render_mode="projection"),
-            "protagonist": protagonist,
-            "protagonist_card": render_variable_value(protagonist, projection_key="character.card", render_mode="projection"),
-            "character_context": character_context,
-        }
-    raise ValueError(f"unsupported bible setup stage: {stage}")
+    # Onboarding prompt facts come from Variable Hub only. The legacy context
+    # provider is kept as an empty adapter so stage definitions remain stable.
+    return {}

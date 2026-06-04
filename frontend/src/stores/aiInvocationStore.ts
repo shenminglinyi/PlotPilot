@@ -151,6 +151,10 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     visible.value = true
   }
 
+  function clearPromptDraftPreview() {
+    promptDraftPreview.value = null
+  }
+
   async function open(sessionId: string) {
     visible.value = true
     loading.value = true
@@ -419,6 +423,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     title,
     open,
     openFromResponse,
+    clearPromptDraftPreview,
     accept,
     reject,
     retry,

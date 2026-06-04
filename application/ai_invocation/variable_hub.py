@@ -13,11 +13,66 @@ RUNTIME_ONLY_BINDING_SOURCES = frozenset(
 )
 SNAPSHOT_EXCLUDED_BINDING_SOURCES = frozenset({"runtime_only", "derived_config", "system_template"})
 WORLD_BUILDING_DIMENSION_KEYS = ("core_rules", "geography", "society", "culture", "daily_life")
+VARIABLE_KEY_ALIASES: dict[str, tuple[str, ...]] = {
+    "novel.title": ("novel.setup.title",),
+    "novel.setup.title": ("novel.title",),
+    "novel.premise": ("novel.setup.premise",),
+    "novel.setup.premise": ("novel.premise",),
+    "novel.target_chapters": ("novel.setup.target_chapters",),
+    "novel.setup.target_chapters": ("novel.target_chapters",),
+    "novel.target_words_per_chapter": ("novel.setup.target_words_per_chapter",),
+    "novel.setup.target_words_per_chapter": ("novel.target_words_per_chapter",),
+    "novel.genre_label": ("novel.setup.genre_label",),
+    "novel.setup.genre_label": ("novel.genre_label",),
+    "novel.genre_major": ("novel.setup.genre_major",),
+    "novel.setup.genre_major": ("novel.genre_major",),
+    "novel.genre_theme": ("novel.setup.genre_theme",),
+    "novel.setup.genre_theme": ("novel.genre_theme",),
+    "novel.world_preset": ("novel.setup.world_preset",),
+    "novel.setup.world_preset": ("novel.world_preset",),
+    "worldbuilding.style": ("novel.style.guide",),
+    "novel.style.guide": ("worldbuilding.style",),
+    "worldbuilding.content": ("novel.worldbuilding",),
+    "novel.worldbuilding": ("worldbuilding.content",),
+    "worldbuilding.core_rules": ("novel.worldbuilding.core_rules",),
+    "novel.worldbuilding.core_rules": ("worldbuilding.core_rules",),
+    "worldbuilding.geography": ("novel.worldbuilding.geography",),
+    "novel.worldbuilding.geography": ("worldbuilding.geography",),
+    "worldbuilding.society": ("novel.worldbuilding.society",),
+    "novel.worldbuilding.society": ("worldbuilding.society",),
+    "worldbuilding.culture": ("novel.worldbuilding.culture",),
+    "novel.worldbuilding.culture": ("worldbuilding.culture",),
+    "worldbuilding.daily_life": ("novel.worldbuilding.daily_life",),
+    "novel.worldbuilding.daily_life": ("worldbuilding.daily_life",),
+    "characters.list": ("novel.characters.list",),
+    "novel.characters.list": ("characters.list",),
+    "characters.protagonist": ("novel.characters.protagonist",),
+    "novel.characters.protagonist": ("characters.protagonist",),
+    "locations.list": ("novel.locations.list",),
+    "novel.locations.list": ("locations.list",),
+    "plot.fusion_contract": ("novel.plot.fusion_contract",),
+    "novel.plot.fusion_contract": ("plot.fusion_contract",),
+    "plot.main_options": ("novel.plot.main_options",),
+    "novel.plot.main_options": ("plot.main_options",),
+    "plot.main_options_json": ("novel.plot.main_options_json",),
+    "novel.plot.main_options_json": ("plot.main_options_json",),
+    "plot.outline": ("novel.plot.outline",),
+    "novel.plot.outline": ("plot.outline",),
+    "plot.main_story_overview": ("novel.plot.main_story_overview",),
+    "novel.plot.main_story_overview": ("plot.main_story_overview",),
+    "plot.stage_plan": ("novel.plot.stage_plan",),
+    "novel.plot.stage_plan": ("plot.stage_plan",),
+    "plot.expected_ending": ("novel.plot.expected_ending",),
+    "novel.plot.expected_ending": ("plot.expected_ending",),
+    "plot.core_conflict": ("novel.plot.core_conflict",),
+    "novel.plot.core_conflict": ("plot.core_conflict",),
+}
 
 
 @dataclass(frozen=True)
 class VariableDefinition:
     key: str
+    display_name: str = ""
     value_type: str = "string"
     required: bool = False
     default: Any = None
@@ -52,7 +107,7 @@ class VariableWrite:
 
 def sanitize_variable_value(variable_key: str, value: Any) -> Any:
     """Remove server-generated internal text from user-facing Variable Hub values."""
-    if variable_key == "novel.setup.premise" and isinstance(value, str):
+    if variable_key in {"novel.setup.premise", "novel.premise"} and isinstance(value, str):
         return strip_v1_structure_black_box_hint(value)
     return value
 
@@ -66,6 +121,16 @@ def compose_worldbuilding_dimensions(source: Mapping[str, Any] | None) -> dict[s
         if isinstance(value, Mapping):
             composed[key] = dict(value)
     return composed
+
+
+def variable_key_candidates(variable_key: str) -> tuple[str, ...]:
+    normalized = str(variable_key or "").strip()
+    aliases = tuple(
+        candidate
+        for candidate in VARIABLE_KEY_ALIASES.get(normalized, ())
+        if candidate and candidate != normalized
+    )
+    return (normalized, *aliases)
 
 
 class VariableHubRepository(Protocol):
@@ -145,23 +210,28 @@ class InMemoryVariableHubRepository:
 
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
         for scope_key in expand_context_keys(context_key):
-            value = self.values.get((variable_key, scope_key))
-            if value is not None:
-                clean_value = sanitize_variable_value(variable_key, value.value)
-                if clean_value != value.value:
-                    return VariableValue(
-                        key=value.key,
-                        value=clean_value,
-                        context_key=value.context_key,
-                        source_ref=value.source_ref,
-                        version_number=value.version_number,
-                    )
-                return value
-            if variable_key == "novel.worldbuilding":
+            for candidate in variable_key_candidates(variable_key):
+                value = self.values.get((candidate, scope_key))
+                if value is not None:
+                    clean_value = sanitize_variable_value(candidate, value.value)
+                    if clean_value != value.value or value.key != variable_key:
+                        return VariableValue(
+                            key=variable_key,
+                            value=clean_value,
+                            context_key=value.context_key,
+                            source_ref=value.source_ref,
+                            version_number=value.version_number,
+                        )
+                    return value
+            if variable_key in {"novel.worldbuilding", "worldbuilding.content"}:
                 composed = {}
                 version = 1
                 for key in WORLD_BUILDING_DIMENSION_KEYS:
-                    child = self.values.get((f"novel.worldbuilding.{key}", scope_key))
+                    child = None
+                    for candidate in variable_key_candidates(f"worldbuilding.{key}"):
+                        child = self.values.get((candidate, scope_key))
+                        if child is not None:
+                            break
                     if child is None or not isinstance(child.value, Mapping):
                         continue
                     composed[key] = dict(child.value)
@@ -333,39 +403,52 @@ class VariableResolver:
         raw_aliases: dict[str, Any] = {}
         lineage: dict[str, str] = {}
         resolved_from_hub: set[str] = set()
+        snapshot_values: dict[str, Any] = {}
         diagnostics: list[str] = []
+        resolution_items: list[dict[str, Any]] = []
         required_missing: list[str] = []
         snapshot_items: list[dict[str, Any]] = []
         bindings = self._repository.get_bindings(spec.input_binding_set_id, spec.node_key)
         binding_by_alias = {binding.alias: binding for binding in bindings}
 
         for binding in bindings:
+            definition = self._repository.get_definition(binding.variable_key) if binding.variable_key else None
             if not binding.enabled:
                 diagnostics.append(f"变量 {binding.alias} 已禁用")
+                resolution_items.append(
+                    self._resolution_item(
+                        binding=binding,
+                        display_name=self._public_display_name(binding, definition),
+                        status="invalid",
+                        value=None,
+                        version_number=0,
+                        source="disabled",
+                        context_key=context_key,
+                    )
+                )
                 continue
             value_found = False
+            hub_value = self._repository.get_value(binding.variable_key, context_key) if binding.variable_key else None
+            selected_for_resolution = hub_value.value if hub_value is not None else None
             if binding.alias in explicit_variables:
                 selected = self._select_binding_value(binding, explicit_variables[binding.alias])
                 aliases[binding.alias] = self._render_selected_value(binding, selected)
                 raw_aliases[binding.alias] = selected
                 lineage[binding.alias] = "explicit"
-                if binding.variable_key:
-                    stored = self._repository.get_value(binding.variable_key, context_key)
-                    if stored is not None:
-                        resolved_from_hub.add(binding.alias)
+                if hub_value is not None:
+                    resolved_from_hub.add(binding.alias)
                 value_found = True
             elif binding.variable_key:
-                stored = self._repository.get_value(binding.variable_key, context_key)
-                if stored is not None:
-                    selected = self._select_binding_value(binding, stored.value)
+                if hub_value is not None:
+                    selected = self._select_binding_value(binding, hub_value.value)
                     aliases[binding.alias] = self._render_selected_value(binding, selected)
                     raw_aliases[binding.alias] = selected
-                    lineage[binding.alias] = stored.source_ref or f"variable:{binding.variable_key}"
+                    snapshot_values[binding.alias] = selected
+                    lineage[binding.alias] = hub_value.source_ref or f"variable:{binding.variable_key}"
                     resolved_from_hub.add(binding.alias)
                     value_found = True
 
             if not value_found:
-                definition = self._repository.get_definition(binding.variable_key) if binding.variable_key else None
                 default = binding.default
                 if default is None and definition is not None:
                     default = definition.default
@@ -380,6 +463,31 @@ class VariableResolver:
                 required_missing.append(binding.alias)
                 diagnostics.append(f"必填变量缺失: {binding.alias}")
 
+            if binding.variable_key:
+                resolution_items.append(
+                    self._resolution_item(
+                        binding=binding,
+                        display_name=self._public_display_name(binding, definition),
+                        status="resolved" if hub_value is not None else ("missing" if binding.required else "missing"),
+                        value=selected_for_resolution,
+                        version_number=hub_value.version_number if hub_value is not None else 0,
+                        source=hub_value.source_ref if hub_value is not None else "",
+                        context_key=hub_value.context_key if hub_value is not None else context_key,
+                    )
+                )
+            else:
+                resolution_items.append(
+                    self._resolution_item(
+                        binding=binding,
+                        display_name=self._public_display_name(binding, definition),
+                        status="invalid",
+                        value=None,
+                        version_number=0,
+                        source=binding.source or "",
+                        context_key=context_key,
+                    )
+                )
+
         for alias, value in explicit_variables.items():
             if alias not in aliases:
                 aliases[alias] = value
@@ -392,9 +500,19 @@ class VariableResolver:
                 continue
             if alias not in resolved_from_hub:
                 continue
-            if not self._is_snapshot_value_present(value):
+            snapshot_value = snapshot_values.get(alias, raw_aliases.get(alias, value))
+            if not self._is_snapshot_value_present(snapshot_value):
                 continue
-            snapshot_items.append(self._snapshot_item(alias, value, binding, "variable_hub"))
+            definition = self._repository.get_definition(binding.variable_key) if binding and binding.variable_key else None
+            snapshot_items.append(
+                self._snapshot_item(
+                    alias,
+                    snapshot_value,
+                    binding,
+                    "variable_hub",
+                    display_name=self._public_display_name(binding, definition),
+                )
+            )
 
         self._append_context_snapshot_items(snapshot_items, context_key)
 
@@ -409,6 +527,7 @@ class VariableResolver:
             aliases=aliases,
             raw_aliases=raw_aliases,
             bindings=tuple(bindings),
+            resolution_items=tuple(resolution_items),
             required_missing=tuple(required_missing),
             diagnostics=tuple(diagnostics),
             lineage=lineage,
@@ -427,13 +546,31 @@ class VariableResolver:
         return "|".join(parts) if parts else "global"
 
     @staticmethod
-    def _snapshot_item(alias: str, value: Any, binding: VariableBinding | None, lineage: str) -> dict[str, Any]:
+    def _public_display_name(binding: VariableBinding | None, definition: VariableDefinition | None) -> str:
+        if definition is not None and definition.display_name:
+            return definition.display_name
+        variable_key = binding.variable_key if binding and binding.variable_key else ""
+        if variable_key:
+            return variable_key
+        if binding and binding.alias:
+            return binding.alias
+        return ""
+
+    @staticmethod
+    def _snapshot_item(
+        alias: str,
+        value: Any,
+        binding: VariableBinding | None,
+        lineage: str,
+        *,
+        display_name: str,
+    ) -> dict[str, Any]:
         variable_key = binding.variable_key if binding else alias
         return {
             "key": alias,
-            "display_name": binding.display_name if binding and binding.display_name else alias,
+            "display_name": display_name,
             "value": value,
-            "type": binding.value_type if binding and binding.value_type else VariableResolver._infer_type(value),
+            "type": VariableResolver._infer_type(value),
             "scope": binding.scope if binding and binding.scope else VariableResolver._infer_scope(variable_key),
             "stage": binding.stage if binding and binding.stage else VariableResolver._infer_stage(variable_key),
             "source": "variable_hub" if lineage == "variable_hub" else (binding.source if binding and binding.source else lineage),
@@ -442,6 +579,30 @@ class VariableResolver:
             "source_path": binding.source_path if binding else "",
             "projection_key": binding.projection_key if binding else "",
             "render_mode": binding.render_mode if binding else "raw",
+        }
+
+    @staticmethod
+    def _resolution_item(
+        *,
+        binding: VariableBinding,
+        display_name: str,
+        status: str,
+        value: Any,
+        version_number: int,
+        source: str,
+        context_key: str,
+    ) -> dict[str, Any]:
+        return {
+            "alias": binding.alias,
+            "variable_key": binding.variable_key or binding.alias,
+            "display_name": display_name,
+            "status": status,
+            "current_value": value,
+            "value_type": binding.value_type or VariableResolver._infer_type(value),
+            "version_number": version_number,
+            "source": source or "",
+            "context_key": context_key,
+            "required": bool(binding.required),
         }
 
     @staticmethod
@@ -558,8 +719,10 @@ class VariableResolver:
 
     @staticmethod
     def _infer_scope(variable_key: str) -> str:
-        if variable_key.startswith(("novel.", "global.")):
+        if variable_key.startswith("global."):
             return "global"
+        if variable_key.startswith(("novel.", "worldbuilding.", "characters.", "locations.", "plot.")):
+            return "novel"
         if variable_key.startswith("chapter."):
             return "chapter"
         if variable_key.startswith("scene."):
@@ -572,13 +735,13 @@ class VariableResolver:
     def _infer_stage(variable_key: str) -> str:
         if ".setup." in variable_key:
             return "setup"
-        if ".worldbuilding." in variable_key:
+        if variable_key.startswith("worldbuilding.") or ".worldbuilding." in variable_key:
             return "worldbuilding"
-        if ".characters." in variable_key:
+        if variable_key.startswith("characters.") or ".characters." in variable_key:
             return "characters"
-        if ".locations." in variable_key:
+        if variable_key.startswith("locations.") or ".locations." in variable_key:
             return "locations"
-        if ".plot." in variable_key or ".planning." in variable_key:
+        if variable_key.startswith("plot.") or ".plot." in variable_key or ".planning." in variable_key:
             return "planning"
         if ".writing." in variable_key:
             return "writing"
@@ -592,7 +755,17 @@ class VariableResolver:
 
     @staticmethod
     def _stage_order(stage: str) -> int:
-        return {"setup": 0, "planning": 1, "writing": 2, "review": 3, "runtime": 9}.get(stage, 8)
+        return {
+            "setup": 0,
+            "worldbuilding": 1,
+            "characters": 2,
+            "locations": 3,
+            "planning": 4,
+            "writing": 5,
+            "review": 6,
+            "postprocess": 7,
+            "runtime": 9,
+        }.get(stage, 8)
 
     @staticmethod
     def _group_title(scope: str, stage: str) -> str:
@@ -612,6 +785,7 @@ class VariableResolver:
             "locations": "地点",
             "writing": "写作阶段",
             "review": "审阅阶段",
+            "postprocess": "后处理",
             "runtime": "运行时",
         }.get(stage, stage)
         return f"{scope_label} · {stage_label}"

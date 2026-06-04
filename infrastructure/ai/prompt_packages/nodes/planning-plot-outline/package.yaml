@@ -9,62 +9,44 @@ tags:
 - onboarding
 output_format: json
 variables:
-- name: novel_title
+- name: novel.title
   desc: Novel title
   type: string
-- name: premise
+- name: novel.premise
   desc: Original premise and setup
   type: string
-- name: genre_major
+- name: novel.genre_major
   desc: Major genre label
   type: string
-- name: genre_theme
+- name: novel.genre_theme
   desc: Genre theme label
   type: string
-- name: genre_label
+- name: novel.genre_label
   desc: Full genre label
   type: string
-- name: world_preset
+- name: novel.world_preset
   desc: World preset or tonal baseline
   type: string
-- name: target_chapters
+- name: novel.target_chapters
   desc: Target chapter count
   type: integer
-- name: target_words_per_chapter
+- name: novel.target_words_per_chapter
   desc: Target words per chapter
   type: integer
-- name: protagonist_card
+- name: characters.protagonist
   desc: Protagonist prompt card
-  type: string
-- name: characters_brief
-  desc: Character list prompt brief
-  type: string
-- name: locations_brief
-  desc: Location list prompt brief
-  type: string
-- name: worldbuilding_context
-  desc: Worldbuilding prompt context
-  type: string
-- name: style_hint
+  type: object
+- name: characters.list
+  desc: Character list
+  type: list
+- name: locations.list
+  desc: Location list
+  type: list
+- name: worldbuilding.style
   desc: Style convention hints
   type: string
-- name: plot_outline_phase_schema
-  desc: Plot outline phase schema
-  type: list
-- name: core_rules
-  desc: Worldbuilding core rules
-  type: object
-- name: geography
-  desc: Geography and ecology
-  type: object
-- name: society
-  desc: Social structure
-  type: object
-- name: culture
-  desc: History and culture
-  type: object
-- name: daily_life
-  desc: Immersion and daily-life details
+- name: worldbuilding.content
+  desc: Worldbuilding prompt context
   type: object
 id: planning-plot-outline
 sort_order: 24

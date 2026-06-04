@@ -4,7 +4,7 @@
  */
 import type { PlotOutlineDTO } from '@/api/workflow'
 
-export const WIZARD_UI_CACHE_SCHEMA = 3
+export const WIZARD_UI_CACHE_SCHEMA = 4
 const STORAGE_KEY_PREFIX = 'plotpilot:novel-wizard-ui:'
 export const WIZARD_PLOT_OUTLINE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -21,6 +21,8 @@ export interface WizardUiCachePayload {
   wizardCompleted?: boolean
   /** 向导最后到达的步骤（1~5），用于下次打开恢复 */
   lastStep?: number
+  /** 世界观字段的本地 UI 自定义标题；不影响底层 schema key */
+  worldbuildingFieldLabels?: Record<string, string>
 }
 
 function key(novelId: string): string {

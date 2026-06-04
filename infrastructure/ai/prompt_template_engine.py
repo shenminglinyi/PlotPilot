@@ -16,6 +16,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -285,6 +286,11 @@ class PromptTemplateEngine:
                     trim_blocks=False,
                     lstrip_blocks=False,
                 )
+                self._jinja2_env.policies["json.dumps_function"] = json.dumps
+                self._jinja2_env.policies["json.dumps_kwargs"] = {
+                    "ensure_ascii": False,
+                    "sort_keys": True,
+                }
                 # 注册自定义过滤器
                 self._jinja2_env.filters["default_if_empty"] = (
                     lambda v, d="": d if v is None or v == "" else v

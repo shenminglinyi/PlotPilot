@@ -85,6 +85,54 @@ class NovelService:
         """Return only the user-authored premise; presets must not be spliced into it."""
         return (premise or "").strip()
 
+    @staticmethod
+    def _sync_variable_hub_from_novel(novel: Novel) -> None:
+        try:
+            from application.ai_invocation.variable_hub import VariableWrite
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+        except Exception:
+            return
+
+        context_key = f"novel_id:{novel.novel_id.value}"
+        generation_prefs = getattr(novel, "generation_prefs", None)
+        genre_label = str(getattr(generation_prefs, "locked_genre", "") or "").strip()
+        world_preset = str(getattr(generation_prefs, "locked_world_preset", "") or "").strip()
+        parts = [part.strip() for part in genre_label.split("/") if part.strip()]
+        values = [
+            ("novel.title", str(novel.title or "").strip(), "string", "书名"),
+            ("novel.premise", str(novel.premise or "").strip(), "string", "故事创意"),
+            ("novel.target_chapters", int(getattr(novel, "target_chapters", 0) or 0), "integer", "目标章节数"),
+            (
+                "novel.target_words_per_chapter",
+                int(getattr(novel, "target_words_per_chapter", 0) or 0),
+                "integer",
+                "每章目标字数",
+            ),
+            ("novel.genre_label", genre_label, "string", "类型标签"),
+            ("novel.genre_major", parts[0] if parts else "", "string", "类型大类"),
+            ("novel.genre_theme", " / ".join(parts[1:]) if len(parts) > 1 else "", "string", "类型主题"),
+            ("novel.world_preset", world_preset, "string", "世界基调"),
+        ]
+        repo = SqliteVariableHubRepository(get_database())
+        for key, value, value_type, display_name in values:
+            if value in ("", None):
+                continue
+            repo.set_value(
+                VariableWrite(
+                    key=key,
+                    value=value,
+                    context_key=context_key,
+                    source_trace_id="novel_service_sync",
+                    source_node_key="novel_service",
+                    lineage={"source": "novel_service"},
+                    value_type=value_type,
+                    display_name=display_name,
+                    scope="global",
+                    stage="setup",
+                )
+            )
+
     def create_novel(
         self,
         novel_id: str,
@@ -132,6 +180,7 @@ class NovelService:
         )
 
         self.novel_repository.save(novel)
+        self._sync_variable_hub_from_novel(novel)
 
         return NovelDTO.from_domain(novel)
 
@@ -365,6 +414,7 @@ class NovelService:
             )
         if patch_fields:
             self.novel_repository.patch(NovelId(novel_id), **patch_fields)
+        self._sync_variable_hub_from_novel(novel)
 
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 

@@ -222,6 +222,63 @@ def test_variable_resolver_snapshot_includes_all_context_values():
     assert "materialized.setup.main_plot_context" not in keys
 
 
+def test_variable_scope_infers_novel_for_story_level_aliases():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(alias="worldbuilding.content", variable_key="worldbuilding.content", required=False, value_type="object"),
+            VariableBinding(alias="characters.list", variable_key="characters.list", required=False, value_type="list"),
+            VariableBinding(alias="plot.main_options", variable_key="plot.main_options", required=False, value_type="list"),
+        ],
+    )
+    repo.set_value(VariableWrite(key="worldbuilding.content", value={"core_rules": {"law": "债务法则"}}, context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="characters.list", value=[{"name": "阿澄"}], context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="plot.main_options", value=[{"title": "主线A"}], context_key="novel_id:novel-1"))
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="bible.setup.characters", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    snapshot_by_key = {item["key"]: item for item in plan.snapshot_items}
+    assert snapshot_by_key["worldbuilding.content"]["scope"] == "novel"
+    assert snapshot_by_key["characters.list"]["scope"] == "novel"
+    assert snapshot_by_key["plot.main_options"]["scope"] == "novel"
+
+
+def test_variable_stage_infers_domain_stage_for_story_level_aliases_and_novel_keys():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(alias="worldbuilding.content", variable_key="worldbuilding.content", required=False, value_type="object"),
+            VariableBinding(alias="characters.list", variable_key="characters.list", required=False, value_type="list"),
+            VariableBinding(alias="plot.main_options", variable_key="plot.main_options", required=False, value_type="list"),
+            VariableBinding(alias="novel_worldbuilding", variable_key="novel.worldbuilding.core_rules", required=False, value_type="object"),
+        ],
+    )
+    repo.set_value(VariableWrite(key="worldbuilding.content", value={"core_rules": {"law": "债务法则"}}, context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="characters.list", value=[{"name": "阿澄"}], context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="plot.main_options", value=[{"title": "主线A"}], context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="novel.worldbuilding.core_rules", value={"law": "债务法则"}, context_key="novel_id:novel-1"))
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="bible.setup.characters", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    snapshot_by_key = {item["key"]: item for item in plan.snapshot_items}
+    assert snapshot_by_key["worldbuilding.content"]["stage"] == "worldbuilding"
+    assert snapshot_by_key["characters.list"]["stage"] == "characters"
+    assert snapshot_by_key["plot.main_options"]["stage"] == "planning"
+    assert snapshot_by_key["novel_worldbuilding"]["stage"] == "worldbuilding"
+
+
 def test_inmemory_variable_hub_can_compose_worldbuilding_from_dimension_values():
     repo = InMemoryVariableHubRepository()
     repo.set_value(
@@ -365,6 +422,55 @@ def test_variable_resolver_projects_structured_values_for_prompt_aliases():
     assert plan.aliases["protagonist_name"] == "阿澄"
 
 
+def test_variable_resolver_snapshot_keeps_raw_value_for_projected_binding():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "plot-input",
+        "planning-main-plot-option",
+        [
+            VariableBinding(
+                alias="worldbuilding.content",
+                variable_key="novel.worldbuilding",
+                value_type="object",
+            ),
+            VariableBinding(
+                alias="worldbuilding_json",
+                variable_key="novel.worldbuilding",
+                value_type="string",
+                render_mode="json",
+            ),
+        ],
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"power_system": "灵脉共鸣", "physics_rules": "代价会反噬寿命"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(
+            operation="setup.main_plot_options",
+            node_key="planning-main-plot-option",
+            input_binding_set_id="plot-input",
+        ),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.ok
+    assert "灵脉共鸣" in plan.aliases["worldbuilding_json"]
+    snapshot_by_key = {item["key"]: item for item in plan.snapshot_items}
+    assert snapshot_by_key["worldbuilding_json"]["value"] == {
+        "core_rules": {
+            "power_system": "灵脉共鸣",
+            "physics_rules": "代价会反噬寿命",
+        }
+    }
+    assert snapshot_by_key["worldbuilding_json"]["type"] == "object"
+
+
 def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
     repo = InMemoryVariableHubRepository()
     repo.set_bindings(
@@ -437,6 +543,36 @@ def test_prompt_assembler_freezes_snapshot_without_package_fallback():
     assert snapshot.asset_version_ids == ("asset-v1",)
     assert snapshot.variable_snapshot_hash == plan.snapshot_hash
     assert snapshot.rendered_prompt_hash
+
+
+def test_prompt_assembler_renders_structured_values_as_readable_json_without_tojson():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(alias="role", default="专业小说家"),
+            VariableBinding(alias="outline", required=True),
+            VariableBinding(alias="bible", variable_key="novel.bible", required=True, value_type="object"),
+        ],
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.bible",
+            value={"core_rules": {"power_system": "灵脉共鸣", "cost": "寿命折损"}},
+            context_key="novel_id:novel-1",
+        )
+    )
+    plan = VariableResolver(repo).resolve(
+        spec=_spec(),
+        explicit_variables={"outline": "第一幕冲突"},
+        context={"novel_id": "novel-1"},
+    )
+    snapshot = CPMSPromptAssembler(registry=FakeRegistry()).compile(spec=_spec(), variable_plan=plan)
+
+    assert '"power_system": "灵脉共鸣"' in snapshot.prompt.user
+    assert '"cost": "寿命折损"' in snapshot.prompt.user
+    assert "'power_system': '灵脉共鸣'" not in snapshot.prompt.user
 
 
 def test_prompt_assembler_fast_fails_when_node_not_published():

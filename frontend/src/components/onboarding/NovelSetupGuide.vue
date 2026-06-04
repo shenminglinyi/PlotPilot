@@ -52,7 +52,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('core_rules').length">
                 <div v-for="field in orderedWorldbuildingFields('core_rules')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'core_rules' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -64,7 +64,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('geography').length">
                 <div v-for="field in orderedWorldbuildingFields('geography')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'geography' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -76,7 +76,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('society').length">
                 <div v-for="field in orderedWorldbuildingFields('society')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'society' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -88,7 +88,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('culture').length">
                 <div v-for="field in orderedWorldbuildingFields('culture')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'culture' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -100,7 +100,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('daily_life').length">
                 <div v-for="field in orderedWorldbuildingFields('daily_life')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'daily_life' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -144,7 +144,13 @@
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
                   <div class="dimension-fields">
                     <div v-for="field in orderedWorldbuildingFields(dim.key)" :key="field.key" class="field-card field-card--editable">
-                      <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                      <n-input
+                        v-model:value="fieldLabelDrafts[field.key]"
+                        @blur="ensureFieldLabelDraft(field.key)"
+                        size="small"
+                        class="field-label-input"
+                        :placeholder="field.key"
+                      />
                       <n-input
                         v-model:value="worldbuildingData[dim.key][field.key]"
                         type="textarea"
@@ -682,6 +688,8 @@ const dimKeyLabels: Record<string, string> = new Proxy({}, {
   get: (_target, key) => getWorldbuildingLabel(String(key)),
 })
 
+const fieldLabelDrafts = ref<Record<string, string>>({})
+
 function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
   return {
     core_rules: {},
@@ -690,6 +698,26 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
     culture: {},
     daily_life: {},
   }
+}
+
+function defaultWorldbuildingFieldLabels(): Record<string, string> {
+  const defaults: Record<string, string> = {}
+  for (const dim of WB_DIMS) {
+    for (const key of getDimensionFieldOrder(dim)) {
+      defaults[key] = key
+    }
+  }
+  return defaults
+}
+
+function fieldLabelText(key: string): string {
+  const custom = String(fieldLabelDrafts.value[key] ?? '').trim()
+  return custom || key
+}
+
+function ensureFieldLabelDraft(key: string) {
+  const normalized = String(fieldLabelDrafts.value[key] ?? '').trim()
+  fieldLabelDrafts.value[key] = normalized || key
 }
 
 function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
@@ -767,14 +795,12 @@ function styleConventionFromBible(bible: BibleDTO): string {
   const b = bible as BibleDTO & { style?: string }
   if (b.style && String(b.style).trim()) return String(b.style).trim()
   const notes: StyleNoteDTO[] = b.style_notes || []
-  const conv = notes.filter(
-    (n: StyleNoteDTO) => n.category === '文风公约' || (n.category || '').includes('文风')
-  )
-  if (conv.length) return conv.map((n: StyleNoteDTO) => (n.content || '').trim()).filter(Boolean).join('\n\n')
-  if (notes.length)
-    return notes
-      .map((n: StyleNoteDTO) => `[${n.category || '风格'}] ${n.content || ''}`.trim())
-      .join('\n\n')
+  if (notes.length) {
+    const contentOnly = notes
+      .map((n: StyleNoteDTO) => (n.content || '').trim())
+      .filter(Boolean)
+    if (contentOnly.length) return contentOnly.join('\n\n')
+  }
   return ''
 }
 
@@ -1200,20 +1226,57 @@ function persistStepFourUiToCache(opts?: { includePlotOutline?: boolean }) {
   writeWizardUiCache(props.novelId, patch)
 }
 
+function persistWorldbuildingLabelDrafts() {
+  writeWizardUiCache(props.novelId, {
+    worldbuildingFieldLabels: { ...fieldLabelDrafts.value },
+  })
+}
+
+function hydrateWorldbuildingLabelDrafts() {
+  const cached = readWizardUiCache(props.novelId)
+  fieldLabelDrafts.value = {
+    ...defaultWorldbuildingFieldLabels(),
+    ...(cached?.worldbuildingFieldLabels || {}),
+  }
+  for (const key of Object.keys(fieldLabelDrafts.value)) {
+    ensureFieldLabelDraft(key)
+  }
+}
+
 function extractPlotOutlineFromResult(result: Record<string, unknown>): PlotOutlineDTO | null {
   const direct = result.plot_outline
   if (direct && typeof direct === 'object') return direct as PlotOutlineDTO
   const continuation = result.continuation
   if (continuation && typeof continuation === 'object') {
-    const fromContinuation = (continuation as Record<string, unknown>).plot_outline
+    const continuationRecord = continuation as Record<string, unknown>
+    const fromContinuation = continuationRecord.plot_outline
     if (fromContinuation && typeof fromContinuation === 'object') return fromContinuation as PlotOutlineDTO
+    if (
+      continuationRecord.main_story_overview
+      && continuationRecord.stage_plan
+      && continuationRecord.expected_ending
+      && continuationRecord.core_conflict
+    ) {
+      return continuationRecord as unknown as PlotOutlineDTO
+    }
   }
   const acceptedContent = result.accepted_content
   if (typeof acceptedContent === 'string' && acceptedContent.trim()) {
     try {
       const parsed = JSON.parse(acceptedContent) as unknown
-      if (parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).plot_outline) {
-        return (parsed as Record<string, unknown>).plot_outline as PlotOutlineDTO
+      if (parsed && typeof parsed === 'object') {
+        const parsedRecord = parsed as Record<string, unknown>
+        if (parsedRecord.plot_outline) {
+          return parsedRecord.plot_outline as PlotOutlineDTO
+        }
+        if (
+          parsedRecord.main_story_overview
+          && parsedRecord.stage_plan
+          && parsedRecord.expected_ending
+          && parsedRecord.core_conflict
+        ) {
+          return parsedRecord as unknown as PlotOutlineDTO
+        }
       }
     } catch {
       return null
@@ -1369,6 +1432,8 @@ function startBibleGeneration() {
 
 /** 启动第1步：生成文风公约与世界观 */
 function startBibleGenerationSSE() {
+  generatingBible.value = true
+  bibleGenerated.value = false
   bibleError.value = ''
   phaseMessage.value = '正在准备生成文风公约...'
   activeDimension.value = ''
@@ -1449,6 +1514,7 @@ function startCharactersGeneration() {
 
 /** 启动第2步：生成人物 */
 function startCharactersGenerationSSE() {
+  generatingCharacters.value = true
   charactersGenerated.value = false
   charactersError.value = ''
   streamingCharacters.value = []
@@ -1507,6 +1573,7 @@ function startLocationsGeneration() {
 
 /** 启动第3步：生成地点 */
 function startLocationsGenerationSSE() {
+  generatingLocations.value = true
   locationsGenerated.value = false
   locationsError.value = ''
   streamingLocations.value = []
@@ -1605,6 +1672,7 @@ function resetWizardStateForOpen() {
   streamingLocations.value = []
   editableCharacters.value = []
   editableLocations.value = []
+  hydrateWorldbuildingLabelDrafts()
 }
 
 async function detectWizardProgress(): Promise<number> {
@@ -1758,6 +1826,10 @@ watch(currentStep, (step, prevStep) => {
 
 watch(plotOutline, () => {
   if (currentStep.value === 4 && props.show) persistStepFourUiToCache()
+}, { deep: true })
+
+watch(fieldLabelDrafts, () => {
+  if (props.show) persistWorldbuildingLabelDrafts()
 }, { deep: true })
 
 /** 保存中状态 */
@@ -2093,6 +2165,10 @@ const handleComplete = () => {
 
 .field-card--editable .field-card__title {
   margin-bottom: 4px;
+}
+
+.field-label-input {
+  margin-bottom: 6px;
 }
 
 .field-card__title {

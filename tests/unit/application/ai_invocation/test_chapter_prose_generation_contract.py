@@ -285,6 +285,18 @@ def test_chapter_prose_inputs_are_materialized_to_variable_hub():
     assert session.metadata["input_variable_materialization"]["written"]
 
 
+def test_chapter_prose_input_bindings_use_novel_scope_for_story_setup_fields():
+    bindings = {binding.alias: binding for binding in _input_bindings()}
+
+    assert bindings["novel_title"].scope == "novel"
+    assert bindings["novel_title"].stage == "setup"
+    assert bindings["genre"].scope == "novel"
+    assert bindings["genre"].stage == "setup"
+    assert bindings["style_guide"].scope == "novel"
+    assert bindings["style_guide"].stage == "setup"
+    assert bindings["world_context"].scope == "novel"
+
+
 class _FakeNode:
     active_version_id = "node-v1"
 
@@ -439,6 +451,19 @@ def test_prompt_declared_alias_child_access_does_not_define_new_variable():
 
     assert added == []
     assert {binding.alias for binding in bindings} == {"core_rules", "characters"}
+
+
+def test_prompt_declared_variable_key_child_access_does_not_define_new_variable():
+    bindings, added = prompt_declared_input_bindings(
+        existing_bindings=[
+            VariableBinding(alias="characters.list", variable_key="characters.list", value_type="list"),
+        ],
+        system_template="",
+        user_template="首位角色：{{ characters.list[0].name }}",
+    )
+
+    assert added == []
+    assert {binding.alias for binding in bindings} == {"characters.list"}
 
 
 def test_prompt_render_variables_keep_projection_text_and_structured_access():

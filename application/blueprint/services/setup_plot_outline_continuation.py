@@ -1,10 +1,10 @@
 """Continuation handler for setup.plot_outline."""
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Mapping
 
+from application.ai.llm_json_extract import parse_llm_json_to_dict
 from application.ai_invocation.continuation import ContinuationContext, register_continuation_handler
 
 _PHASE_SCHEMA = [
@@ -15,25 +15,67 @@ _PHASE_SCHEMA = [
     {"phase": "ending", "label": "收尾阶段", "range_percent": "90-100%"},
 ]
 
+_LEGACY_STAGE_KEYS = [
+    "stage_opening_1_15",
+    "stage_develop_15_40",
+    "stage_deepen_40_70",
+    "stage_climax_70_90",
+    "stage_end_90_100",
+]
+
 
 def _visible_length(text: str) -> int:
     return len(re.sub(r"\s+", "", text or ""))
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:
-    try:
-        parsed = json.loads(raw)
-    except Exception as exc:
-        raise ValueError("剧情总纲 JSON 解析失败") from exc
+    parsed, errors = parse_llm_json_to_dict(raw)
+    if parsed is None:
+        detail = errors[0] if errors else "未知错误"
+        raise ValueError(f"剧情总纲 JSON 解析失败: {detail}")
     if not isinstance(parsed, Mapping):
         raise ValueError("剧情总纲输出必须是 JSON 对象")
     return dict(parsed)
 
 
+def _coerce_legacy_outline(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    if "plot_outline" in payload:
+        raw_outline = payload.get("plot_outline")
+        return dict(raw_outline) if isinstance(raw_outline, Mapping) else None
+
+    outline_main = str(payload.get("outline_main") or "").strip()
+    expected_ending = str(payload.get("ending_expect") or "").strip()
+    core_conflict = str(payload.get("core_conflict") or "").strip()
+    raw_stage_plan = payload.get("stage_plan")
+    if not outline_main or not expected_ending or not core_conflict or not isinstance(raw_stage_plan, Mapping):
+        return None
+
+    stage_plan: list[dict[str, Any]] = []
+    for schema, legacy_key in zip(_PHASE_SCHEMA, _LEGACY_STAGE_KEYS):
+        summary = str(raw_stage_plan.get(legacy_key) or "").strip()
+        if not summary:
+            return None
+        stage_plan.append(
+            {
+                "phase": schema["phase"],
+                "label": schema["label"],
+                "range_percent": schema["range_percent"],
+                "summary": summary,
+                "key_goals": [],
+            }
+        )
+    return {
+        "main_story_overview": outline_main,
+        "stage_plan": stage_plan,
+        "expected_ending": expected_ending,
+        "core_conflict": core_conflict,
+    }
+
+
 def _target_chapters(context: ContinuationContext) -> int:
     aliases = context.session.variable_plan.aliases if context.session.variable_plan is not None else {}
     setup_context = context.session.context.get("setup_context") if isinstance(context.session.context.get("setup_context"), Mapping) else {}
-    raw = aliases.get("target_chapters") if isinstance(aliases, Mapping) else None
+    raw = aliases.get("novel.target_chapters") if isinstance(aliases, Mapping) else None
     if raw in (None, "", 0):
         raw = setup_context.get("target_chapters")
     try:
@@ -87,8 +129,22 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
         if isinstance(key_goals_raw, list):
             key_goals = [str(item).strip() for item in key_goals_raw if str(item).strip()]
         chapter_start, chapter_end = ranges[index]
+        extra_fields = {
+            key: value
+            for key, value in raw.items()
+            if key not in {
+                "phase",
+                "label",
+                "range_percent",
+                "summary",
+                "key_goals",
+                "chapter_start",
+                "chapter_end",
+            }
+        }
         normalized.append(
             {
+                **extra_fields,
                 "phase": schema["phase"],
                 "label": str(raw.get("label") or schema["label"]).strip() or schema["label"],
                 "range_percent": str(raw.get("range_percent") or schema["range_percent"]).strip() or schema["range_percent"],
@@ -103,7 +159,7 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
 
 def setup_plot_outline_handler(context: ContinuationContext) -> Mapping[str, Any]:
     payload = _parse_json_object(context.decision.accepted_content or "")
-    raw_outline = payload.get("plot_outline")
+    raw_outline = _coerce_legacy_outline(payload)
     if not isinstance(raw_outline, Mapping):
         raise ValueError("缺少 plot_outline 对象")
 
@@ -125,7 +181,13 @@ def setup_plot_outline_handler(context: ContinuationContext) -> Mapping[str, Any
 
     target_chapters = _target_chapters(context)
     stage_plan = _normalize_stage_plan(outline.get("stage_plan"), target_chapters=target_chapters)
+    extra_outline_fields = {
+        key: value
+        for key, value in outline.items()
+        if key not in {"main_story_overview", "stage_plan", "expected_ending", "core_conflict"}
+    }
     normalized_outline = {
+        **extra_outline_fields,
         "main_story_overview": main_story_overview,
         "stage_plan": stage_plan,
         "expected_ending": expected_ending,

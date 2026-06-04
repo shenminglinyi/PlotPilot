@@ -114,6 +114,73 @@ def test_chapter_prose_invocation_http_lifecycle_writes_variable_hub_and_chapter
     db.close_all(skip_checkpoint=True)
 
 
+def test_output_bindings_expose_only_user_defined_target_display_names(tmp_path, monkeypatch):
+    db = DatabaseConnection(str(tmp_path / "plotpilot-test-output-binding-names.db"))
+
+    monkeypatch.setattr(ai_invocation_routes, "get_database", lambda db_path=None: db)
+    monkeypatch.setattr("infrastructure.persistence.database.connection.get_database", lambda db_path=None: db)
+    monkeypatch.setattr(ai_invocation_routes, "get_llm_service", lambda: _StreamingLLM())
+
+    import infrastructure.ai.prompt_manager as prompt_manager_module
+    import infrastructure.ai.prompt_registry as prompt_registry_module
+
+    prompt_manager_module._manager_instance = prompt_manager_module.PromptManager(db)
+    prompt_registry_module._registry_instance = prompt_registry_module.PromptRegistry(
+        prompt_manager=prompt_manager_module._manager_instance
+    )
+    with sqlite_writes_bypass_queue():
+        with db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO novels (id, title, slug, target_chapters) VALUES (?, ?, ?, ?)",
+                ("novel-output-names", "输出命名小说", "novel-output-names", 12),
+            )
+
+    variable_repo = SqliteVariableHubRepository(db)
+    variable_repo.set_value(
+        VariableWrite(
+            key="chapter.prose.generated",
+            value="历史正文",
+            context_key="novel_id:novel-output-names|chapter_number:1",
+            source_node_key="test",
+            value_type="string",
+            display_name="正文入库名称",
+            scope="chapter",
+            stage="writing",
+        )
+    )
+
+    app = FastAPI()
+    app.include_router(ai_invocation_routes.router)
+    client = TestClient(app)
+
+    created = client.post(
+        "/ai-invocations",
+        json={
+            "operation": "chapter.generate.prose",
+            "node_key": "chapter-prose-generation",
+            "policy": "FULL_INTERACTIVE",
+            "context": {"novel_id": "novel-output-names", "chapter_number": 1},
+            "variables": {
+                "novel_title": "输出命名小说",
+                "chapter_number": 1,
+                "chapter_outline": "检查输出绑定展示名称",
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    bindings = created.json()["session"]["output_bindings"]
+    generated = next(item for item in bindings if item["variable_key"] == "chapter.prose.generated")
+    accepted = next(item for item in bindings if item["variable_key"] == "chapter.prose.accepted")
+
+    assert generated["display_name"] == "生成正文"
+    assert generated["target_display_name"] == "正文入库名称"
+    assert accepted["display_name"] == "采纳正文"
+    assert accepted["target_display_name"] == ""
+
+    db.close_all(skip_checkpoint=True)
+
+
 def test_bible_setup_invocation_materializes_inputs_and_get_refreshes_snapshot(tmp_path, monkeypatch):
     db = DatabaseConnection(str(tmp_path / "plotpilot-test-bible-vars.db"))
 
@@ -261,6 +328,65 @@ def test_chapter_prose_prompt_draft_custom_variable_can_be_filled_and_resumed(tm
     assert resumed.status_code == 200, resumed.text
     accepted_ready = _wait_for_status(client, session_id, "awaiting_acceptance")
     assert accepted_ready["attempt"]["content"] == "HTTP正文"
+
+    db.close_all(skip_checkpoint=True)
+
+
+def test_chapter_prose_prompt_draft_blank_templates_return_400(tmp_path, monkeypatch):
+    db = DatabaseConnection(str(tmp_path / "plotpilot-test-blank-prompt-draft.db"))
+
+    monkeypatch.setattr(ai_invocation_routes, "get_database", lambda db_path=None: db)
+    monkeypatch.setattr("infrastructure.persistence.database.connection.get_database", lambda db_path=None: db)
+    monkeypatch.setattr(ai_invocation_routes, "get_llm_service", lambda: _StreamingLLM())
+
+    import infrastructure.ai.prompt_manager as prompt_manager_module
+    import infrastructure.ai.prompt_registry as prompt_registry_module
+
+    prompt_manager_module._manager_instance = prompt_manager_module.PromptManager(db)
+    prompt_registry_module._registry_instance = prompt_registry_module.PromptRegistry(
+        prompt_manager=prompt_manager_module._manager_instance
+    )
+    with sqlite_writes_bypass_queue():
+        with db.transaction() as conn:
+            conn.execute(
+                "INSERT INTO novels (id, title, slug, target_chapters) VALUES (?, ?, ?, ?)",
+                ("novel-blank-draft", "空草稿小说", "novel-blank-draft", 12),
+            )
+
+    app = FastAPI()
+    app.include_router(ai_invocation_routes.router)
+    client = TestClient(app)
+
+    created = client.post(
+        "/ai-invocations",
+        json={
+            "operation": "chapter.generate.prose",
+            "node_key": "chapter-prose-generation",
+            "policy": "FULL_INTERACTIVE",
+            "context": {"novel_id": "novel-blank-draft", "chapter_number": 4},
+            "variables": {
+                "novel_title": "空草稿小说",
+                "chapter_number": 4,
+                "chapter_outline": "验证空 prompt 草稿校验",
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    session_id = created.json()["session"]["id"]
+
+    preview = client.post(
+        f"/ai-invocations/{session_id}/prompt-draft/preview",
+        json={"system_template": "", "user_template": ""},
+    )
+    assert preview.status_code == 400, preview.text
+    assert preview.json()["detail"] == "User message cannot be empty"
+
+    saved = client.put(
+        f"/ai-invocations/{session_id}/prompt-draft",
+        json={"system_template": "", "user_template": ""},
+    )
+    assert saved.status_code == 400, saved.text
+    assert saved.json()["detail"] == "User message cannot be empty"
 
     db.close_all(skip_checkpoint=True)
 

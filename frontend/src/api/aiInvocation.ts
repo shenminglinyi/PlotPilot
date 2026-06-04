@@ -55,6 +55,7 @@ export interface InvocationPromptSnapshot {
 
 export interface InvocationVariablePlan {
   aliases?: Record<string, unknown>
+  resolution_items?: InvocationVariableResolutionItem[]
   required_missing?: string[]
   diagnostics?: string[]
   lineage?: Record<string, string>
@@ -62,6 +63,19 @@ export interface InvocationVariablePlan {
   snapshot_items?: InvocationVariableSnapshotItem[]
   snapshot_groups?: InvocationVariableSnapshotGroup[]
   bindings?: InvocationVariableBinding[]
+}
+
+export interface InvocationVariableResolutionItem {
+  alias?: string
+  variable_key?: string
+  display_name?: string
+  status?: string
+  current_value?: unknown
+  value_type?: string
+  version_number?: number
+  source?: string
+  context_key?: string
+  required?: boolean
 }
 
 export interface InvocationVariableBinding {
@@ -75,9 +89,11 @@ export interface InvocationVariableBinding {
   scope?: string
   stage?: string
   display_name?: string
+  target_display_name?: string
   source_path?: string
   projection_key?: string
   render_mode?: string
+  preview_source?: string
 }
 
 export interface InvocationVariableSnapshotItem {

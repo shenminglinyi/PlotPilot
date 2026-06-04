@@ -198,6 +198,7 @@ class BibleDTO:
     locations: List[LocationDTO]
     timeline_notes: List[TimelineNoteDTO]
     style_notes: List[StyleNoteDTO]
+    style: str = ""
 
     @classmethod
     def from_domain(cls, bible: 'Bible') -> 'BibleDTO':
@@ -216,5 +217,10 @@ class BibleDTO:
             world_settings=[WorldSettingDTO.from_domain(s) for s in bible.world_settings],
             locations=[LocationDTO.from_domain(loc) for loc in bible.locations],
             timeline_notes=[TimelineNoteDTO.from_domain(n) for n in bible.timeline_notes],
-            style_notes=[StyleNoteDTO.from_domain(n) for n in bible.style_notes]
+            style_notes=[StyleNoteDTO.from_domain(n) for n in bible.style_notes],
+            style="\n\n".join(
+                str(getattr(note, "content", "") or "").strip()
+                for note in bible.style_notes
+                if str(getattr(note, "content", "") or "").strip()
+            ),
         )

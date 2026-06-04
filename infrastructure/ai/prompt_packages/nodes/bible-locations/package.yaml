@@ -9,79 +9,47 @@ tags:
 - Bible
 output_format: json
 variables:
-- name: premise
-  desc: 故事创意
-  type: string
-- name: novel_title
+- name: novel.title
   desc: 小说名称
   type: string
-- name: genre_major
+- name: novel.premise
+  desc: 故事创意
+  type: string
+- name: novel.genre_major
   desc: 小说大类
   type: string
-- name: genre_theme
+- name: novel.genre_theme
   desc: 小说主题
   type: string
-- name: genre_label
+- name: novel.genre_label
   desc: 小说类型字符串
   type: string
-- name: world_preset
+- name: novel.world_preset
   desc: 世界观基调
   type: string
-- name: target_chapters
+- name: novel.target_chapters
   desc: 章节数量
   type: integer
   default: 100
-- name: target_words_per_chapter
+- name: novel.target_words_per_chapter
   desc: 每章字数
   type: integer
   default: 0
-- name: genre_opening_profile
-  desc: 类型开篇画像
+- name: worldbuilding.content
+  desc: 结构化世界观
   type: object
-- name: genre_reader_contract
-  desc: 读者留存契约
-  type: object
-- name: genre_rhythm_constraints
-  desc: 类型节奏约束
-  type: object
-- name: core_rules
-  desc: 核心法则
-  type: string
-- name: geography
-  desc: 地理生态
-  type: string
-- name: society
-  desc: 社会结构
-  type: string
-- name: culture
-  desc: 历史文化
-  type: string
-- name: daily_life
-  desc: 沉浸感细节
-  type: string
-- name: existing_locations
-  desc: 已有地点
-  type: string
-  default: ''
-- name: characters
+  default: {}
+- name: locations.list
+  desc: 已点亮地点
+  type: list
+  default: []
+- name: characters.list
   desc: 上一阶段角色列表
   type: list
   default: []
-- name: characters_brief
-  desc: 上一阶段角色列表摘要
-  type: string
-  default: ''
-- name: protagonist
+- name: characters.protagonist
   desc: 主角
   type: object
   default: {}
-- name: protagonist_card
-  desc: 主角卡
-  type: string
-  default: ''
-- name: character_context
-  desc: 人物活动范围
-  type: string
-  default: ''
 id: bible-locations
 sort_order: 29

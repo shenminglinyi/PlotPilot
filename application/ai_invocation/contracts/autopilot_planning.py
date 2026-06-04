@@ -176,7 +176,7 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
                 "list" if alias in list_aliases else
                 "string"
             ),
-            scope="global" if alias in setup_aliases or alias in object_aliases or alias in list_aliases else "novel",
+            scope="novel",
             stage="setup" if alias in setup_aliases else "planning",
             display_name={
                 "premise": "设定",

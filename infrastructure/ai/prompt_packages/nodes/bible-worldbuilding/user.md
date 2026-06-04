@@ -1,26 +1,14 @@
 【故事创意】
-{premise}
+{{ novel.premise }}
 
 【小说设定】
-名称：{novel_title}
-大类：{genre_major}
-主题：{genre_theme}
-类型：{genre_label}
-基调：{world_preset}
-章节数量：{target_chapters}
-每章字数：{target_words_per_chapter}
-
-【目标章节数】
-{target_chapters} 章
-
-【类型开篇画像】
-{{ genre_opening_profile | tojson }}
-
-【读者留存契约】
-{{ genre_reader_contract | tojson }}
-
-【类型节奏约束】
-{{ genre_rhythm_constraints | tojson }}
+名称：{{ novel.title }}
+大类：{{ novel.genre_major }}
+主题：{{ novel.genre_theme }}
+类型：{{ novel.genre_label }}
+基调：{{ novel.world_preset }}
+章节数量：{{ novel.target_chapters }}
+每章字数：{{ novel.target_words_per_chapter }}
 
 请生成世界观。
 
@@ -28,8 +16,13 @@
 每个字段值写成 80-160 字中文单段文本，不得换行，不得嵌套对象或数组；如果题材不涉及某项，也保留键名并写空字符串。
 注意：`style` 不是 `worldbuilding` 的子字段，必须保持为顶层字段；`worldbuilding` 里只允许五维世界观字段。
 
-{{
-  "worldbuilding": {{
-{fields_desc}
-  }}
-}}
+{
+  "style": "文风公约文本",
+  "worldbuilding": {
+    "core_rules": "",
+    "geography": "",
+    "society": "",
+    "culture": "",
+    "daily_life": ""
+  }
+}

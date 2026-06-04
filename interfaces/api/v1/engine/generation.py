@@ -580,12 +580,11 @@ async def suggest_main_plot_options(
     try:
         _ensure_main_plot_invocation_contract()
         ctx = setup_svc.build_context(novel_id)
-        invocation_variables = _main_plot_invocation_variables(ctx)
         payload = await create_invocation(
             InvocationCreateRequest(
                 operation=SETUP_MAIN_PLOT_OPERATION,
                 node_key=SETUP_MAIN_PLOT_NODE,
-                variables=invocation_variables,
+                variables={},
                 context={"novel_id": novel_id, "setup_context": ctx},
                 policy=InvocationPolicy.FULL_INTERACTIVE,
                 metadata={
@@ -626,12 +625,11 @@ async def suggest_main_plot_options_stream(
         try:
             _ensure_main_plot_invocation_contract()
             ctx = setup_svc.build_context(novel_id)
-            invocation_variables = _main_plot_invocation_variables(ctx)
             payload = await create_invocation(
                 InvocationCreateRequest(
                     operation=SETUP_MAIN_PLOT_OPERATION,
                     node_key=SETUP_MAIN_PLOT_NODE,
-                    variables=invocation_variables,
+                    variables={},
                     context={"novel_id": novel_id, "setup_context": ctx},
                     policy=InvocationPolicy.FULL_INTERACTIVE,
                     metadata={
@@ -672,7 +670,7 @@ def get_plot_outline(novel_id: str, novel_service=Depends(get_novel_service)):
 
         repo = SqliteVariableHubRepository(get_database())
         context_key = f"novel_id:{novel_id}"
-        outline_value = repo.get_value("novel.plot.outline", context_key)
+        outline_value = repo.get_value("plot.outline", context_key)
         if outline_value is None or not isinstance(outline_value.value, dict):
             return GeneratePlotOutlineResponse()
         return GeneratePlotOutlineResponse(plot_outline=PlotOutlineItem(**outline_value.value))
@@ -699,12 +697,11 @@ async def generate_plot_outline(
     try:
         _ensure_plot_outline_invocation_contract()
         ctx = setup_svc.build_context(novel_id)
-        invocation_variables = _plot_outline_invocation_variables(ctx)
         payload = await create_invocation(
             InvocationCreateRequest(
                 operation=SETUP_PLOT_OUTLINE_OPERATION,
                 node_key=SETUP_PLOT_OUTLINE_NODE,
-                variables=invocation_variables,
+                variables={},
                 context={"novel_id": novel_id, "setup_context": ctx},
                 policy=InvocationPolicy.FULL_INTERACTIVE,
                 metadata={
@@ -744,12 +741,11 @@ async def generate_plot_outline_stream(
         try:
             _ensure_plot_outline_invocation_contract()
             ctx = setup_svc.build_context(novel_id)
-            invocation_variables = _plot_outline_invocation_variables(ctx)
             payload = await create_invocation(
                 InvocationCreateRequest(
                     operation=SETUP_PLOT_OUTLINE_OPERATION,
                     node_key=SETUP_PLOT_OUTLINE_NODE,
-                    variables=invocation_variables,
+                    variables={},
                     context={"novel_id": novel_id, "setup_context": ctx},
                     policy=InvocationPolicy.FULL_INTERACTIVE,
                     metadata={

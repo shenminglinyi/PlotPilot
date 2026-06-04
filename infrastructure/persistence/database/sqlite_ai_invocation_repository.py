@@ -30,6 +30,7 @@ from application.ai_invocation.variable_hub import (
     WORLD_BUILDING_DIMENSION_KEYS,
     expand_context_keys,
     sanitize_variable_value,
+    variable_key_candidates,
 )
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
@@ -200,6 +201,7 @@ def variable_plan_to_dict(plan: VariablePlan | None) -> dict[str, Any]:
         "aliases": dict(plan.aliases),
         "raw_aliases": dict(plan.raw_aliases),
         "bindings": [_binding_to_dict(item) for item in plan.bindings],
+        "resolution_items": [dict(item) for item in plan.resolution_items],
         "required_missing": list(plan.required_missing),
         "diagnostics": list(plan.diagnostics),
         "lineage": dict(plan.lineage),
@@ -217,6 +219,9 @@ def variable_plan_from_dict(data: Mapping[str, Any]) -> VariablePlan | None:
         aliases=data.get("aliases") if isinstance(data.get("aliases"), Mapping) else {},
         raw_aliases=data.get("raw_aliases") if isinstance(data.get("raw_aliases"), Mapping) else {},
         bindings=tuple(_binding_from_dict(item) for item in bindings if isinstance(item, Mapping)),
+        resolution_items=tuple(
+            item for item in data.get("resolution_items") or () if isinstance(item, Mapping)
+        ),
         required_missing=tuple(data.get("required_missing") or ()),
         diagnostics=tuple(data.get("diagnostics") or ()),
         lineage=data.get("lineage") if isinstance(data.get("lineage"), Mapping) else {},
@@ -877,38 +882,43 @@ class SqliteVariableHubRepository:
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
         scope_keys = expand_context_keys(context_key)
         for scope_key in scope_keys:
-            row = self._db.fetch_one(
-                """
-                SELECT *
-                FROM variable_values
-                WHERE variable_key = ? AND scope_key = ? AND is_current = 1
-                ORDER BY version_number DESC
-                LIMIT 1
-                """,
-                (variable_key, scope_key),
-            )
-            if row is not None:
-                return VariableValue(
-                    key=row["variable_key"],
-                    value=sanitize_variable_value(variable_key, _json_loads(row["value_json"], None)),
-                    context_key=row["scope_key"] or "global",
-                    source_ref=row["source_session_id"] or row["source_node_key"] or "",
-                    version_number=int(row["version_number"] or 1),
+            for candidate in variable_key_candidates(variable_key):
+                row = self._db.fetch_one(
+                    """
+                    SELECT *
+                    FROM variable_values
+                    WHERE variable_key = ? AND scope_key = ? AND is_current = 1
+                    ORDER BY version_number DESC
+                    LIMIT 1
+                    """,
+                    (candidate, scope_key),
                 )
-            if variable_key == "novel.worldbuilding":
+                if row is not None:
+                    return VariableValue(
+                        key=variable_key,
+                        value=sanitize_variable_value(candidate, _json_loads(row["value_json"], None)),
+                        context_key=row["scope_key"] or "global",
+                        source_ref=row["source_session_id"] or row["source_node_key"] or "",
+                        version_number=int(row["version_number"] or 1),
+                    )
+            if variable_key in {"novel.worldbuilding", "worldbuilding.content"}:
                 composed: dict[str, Any] = {}
                 version = 1
                 for key in WORLD_BUILDING_DIMENSION_KEYS:
-                    child_row = self._db.fetch_one(
-                        """
-                        SELECT *
-                        FROM variable_values
-                        WHERE variable_key = ? AND scope_key = ? AND is_current = 1
-                        ORDER BY version_number DESC
-                        LIMIT 1
-                        """,
-                        (f"novel.worldbuilding.{key}", scope_key),
-                    )
+                    child_row = None
+                    for candidate in variable_key_candidates(f"worldbuilding.{key}"):
+                        child_row = self._db.fetch_one(
+                            """
+                            SELECT *
+                            FROM variable_values
+                            WHERE variable_key = ? AND scope_key = ? AND is_current = 1
+                            ORDER BY version_number DESC
+                            LIMIT 1
+                            """,
+                            (candidate, scope_key),
+                        )
+                        if child_row is not None:
+                            break
                     if child_row is None:
                         continue
                     child_value = sanitize_variable_value(
@@ -980,6 +990,7 @@ class SqliteVariableHubRepository:
             return None
         return VariableDefinition(
             key=row["variable_key"],
+            display_name=row["display_name"] or "",
             value_type=row["value_type"] or "string",
             required=bool(row["required"]),
             default=_json_loads(row["default_value_json"], None),

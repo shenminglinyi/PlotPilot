@@ -195,6 +195,7 @@ def test_sqlite_variable_hub_repository_resolves_bindings_and_current_value():
     assert value is not None
     assert value.value == "变量中心设定"
     assert definition is not None
+    assert definition.display_name == "设定"
     assert definition.default == "默认设定"
 
 

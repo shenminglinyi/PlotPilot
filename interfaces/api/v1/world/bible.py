@@ -41,6 +41,107 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bible", tags=["bible"])
 
 
+def _sync_bible_variable_hub(novel_id: str, dto: BibleDTO) -> None:
+    try:
+        from infrastructure.persistence.database.connection import get_database
+        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+    except Exception:
+        return
+
+    context_key = f"novel_id:{novel_id}"
+    repo = SqliteVariableHubRepository(get_database())
+    characters = [
+        {
+            "id": str(getattr(item, "id", "") or ""),
+            "name": str(getattr(item, "name", "") or ""),
+            "description": str(getattr(item, "description", "") or ""),
+            "gender": str(getattr(item, "gender", "") or ""),
+            "age": str(getattr(item, "age", "") or ""),
+            "appearance": str(getattr(item, "appearance", "") or ""),
+            "personality": str(getattr(item, "personality", "") or ""),
+            "background": str(getattr(item, "background", "") or ""),
+            "core_motivation": str(getattr(item, "core_motivation", "") or ""),
+            "inner_lack": str(getattr(item, "inner_lack", "") or ""),
+            "relationships": list(getattr(item, "relationships", []) or []),
+            "public_profile": str(getattr(item, "public_profile", "") or ""),
+            "hidden_profile": str(getattr(item, "hidden_profile", "") or ""),
+            "reveal_chapter": getattr(item, "reveal_chapter", None),
+            "mental_state": str(getattr(item, "mental_state", "") or "NORMAL"),
+            "mental_state_reason": str(getattr(item, "mental_state_reason", "") or ""),
+            "verbal_tic": str(getattr(item, "verbal_tic", "") or ""),
+            "idle_behavior": str(getattr(item, "idle_behavior", "") or ""),
+            "core_belief": str(getattr(item, "core_belief", "") or ""),
+            "moral_taboos": list(getattr(item, "moral_taboos", []) or []),
+            "voice_profile": dict(getattr(item, "voice_profile", {}) or {}),
+            "active_wounds": list(getattr(item, "active_wounds", []) or []),
+        }
+        for item in (dto.characters or [])
+        if getattr(item, "name", "")
+    ]
+    protagonist = characters[0] if characters else None
+    locations = [
+        {
+            "id": str(getattr(item, "id", "") or ""),
+            "name": str(getattr(item, "name", "") or ""),
+            "description": str(getattr(item, "description", "") or ""),
+            "type": str(getattr(item, "location_type", "") or ""),
+            "location_type": str(getattr(item, "location_type", "") or ""),
+            "parent_id": getattr(item, "parent_id", None),
+        }
+        for item in (dto.locations or [])
+        if getattr(item, "name", "")
+    ]
+    style = str(getattr(dto, "style", "") or "").strip()
+
+    writes = [
+        (
+            "characters.list",
+            characters,
+            "list",
+            "角色列表",
+            "characters",
+        ),
+        (
+            "characters.protagonist",
+            protagonist,
+            "object",
+            "主角",
+            "characters",
+        ),
+        (
+            "locations.list",
+            locations,
+            "list",
+            "地点列表",
+            "locations",
+        ),
+        (
+            "worldbuilding.style",
+            style,
+            "string",
+            "文风公约",
+            "setup",
+        ),
+    ]
+    for key, value, value_type, display_name, stage in writes:
+        if value in (None, "", [], {}):
+            continue
+        repo.set_value(
+            VariableWrite(
+                key=key,
+                value=value,
+                context_key=context_key,
+                source_trace_id="bible_manual_sync",
+                source_node_key="bible_api",
+                lineage={"source": "bible_api_manual_sync"},
+                value_type=value_type,
+                display_name=display_name,
+                scope="global",
+                stage=stage,
+            )
+        )
+
+
 # Request Models
 class CreateBibleRequest(BaseModel):
     """创建 Bible 请求"""
@@ -299,44 +400,11 @@ def _write_variable_if_missing(variable_repo, *, key: str, value, context_key: s
         )
     )
 
-
-def _bible_character_to_variable(item) -> dict:
-    char_id = getattr(item, "character_id", None)
-    return {
-        "id": str(getattr(char_id, "value", "") or getattr(item, "id", "") or ""),
-        "name": str(getattr(item, "name", "") or ""),
-        "role": str(getattr(item, "role", "") or ""),
-        "description": str(getattr(item, "description", "") or ""),
-        "relationships": list(getattr(item, "relationships", []) or []),
-        "public_profile": str(getattr(item, "public_profile", "") or ""),
-        "hidden_profile": str(getattr(item, "hidden_profile", "") or ""),
-        "reveal_chapter": getattr(item, "reveal_chapter", None),
-        "mental_state": str(getattr(item, "mental_state", "") or "NORMAL"),
-        "mental_state_reason": str(getattr(item, "mental_state_reason", "") or ""),
-        "verbal_tic": str(getattr(item, "verbal_tic", "") or ""),
-        "idle_behavior": str(getattr(item, "idle_behavior", "") or ""),
-        "core_belief": str(getattr(item, "core_belief", "") or ""),
-        "moral_taboos": list(getattr(item, "moral_taboos", []) or []),
-        "voice_profile": dict(getattr(item, "voice_profile", {}) or {}),
-        "active_wounds": list(getattr(item, "active_wounds", []) or []),
-    }
-
-
-def _bible_location_to_variable(item) -> dict:
-    return {
-        "id": str(getattr(item, "id", "") or ""),
-        "name": str(getattr(item, "name", "") or ""),
-        "description": str(getattr(item, "description", "") or ""),
-        "type": str(getattr(item, "location_type", "") or getattr(item, "type", "") or ""),
-        "parent_id": getattr(item, "parent_id", None),
-    }
-
-
-def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, bible_generator: AutoBibleGenerator) -> None:
+def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel) -> None:
     context_key = f"novel_id:{novel_id}"
     _write_variable_if_missing(
         variable_repo,
-        key="novel.setup.title",
+        key="novel.title",
         value=str(getattr(novel, "title", "") or "").strip(),
         context_key=context_key,
         value_type="string",
@@ -345,7 +413,7 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, b
     )
     _write_variable_if_missing(
         variable_repo,
-        key="novel.setup.premise",
+        key="novel.premise",
         value=strip_v1_structure_black_box_hint(
             str(getattr(novel, "premise", "") or getattr(novel, "title", "") or "").strip()
         ),
@@ -356,7 +424,7 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, b
     )
     _write_variable_if_missing(
         variable_repo,
-        key="novel.setup.target_chapters",
+        key="novel.target_chapters",
         value=int(getattr(novel, "target_chapters", 0) or 0),
         context_key=context_key,
         value_type="integer",
@@ -365,7 +433,7 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, b
     )
     _write_variable_if_missing(
         variable_repo,
-        key="novel.setup.target_words_per_chapter",
+        key="novel.target_words_per_chapter",
         value=int(getattr(novel, "target_words_per_chapter", 0) or 0),
         context_key=context_key,
         value_type="integer",
@@ -373,8 +441,8 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, b
         stage="setup",
     )
     for key, attr, label in (
-        ("novel.setup.genre_label", "locked_genre", "类型"),
-        ("novel.setup.world_preset", "locked_world_preset", "基调"),
+        ("novel.genre_label", "locked_genre", "类型"),
+        ("novel.world_preset", "locked_world_preset", "基调"),
     ):
         _write_variable_if_missing(
             variable_repo,
@@ -390,7 +458,7 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, b
         parts = [part.strip() for part in genre_label.split("/") if part.strip()]
         _write_variable_if_missing(
             variable_repo,
-            key="novel.setup.genre_major",
+            key="novel.genre_major",
             value=parts[0] if parts else "",
             context_key=context_key,
             value_type="string",
@@ -399,98 +467,13 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel, b
         )
         _write_variable_if_missing(
             variable_repo,
-            key="novel.setup.genre_theme",
+            key="novel.genre_theme",
             value=" / ".join(parts[1:]) if len(parts) > 1 else "",
             context_key=context_key,
             value_type="string",
             display_name="主题",
             stage="setup",
         )
-
-    try:
-        bible = bible_generator.bible_service.get_bible_by_novel(novel_id)
-    except Exception:
-        bible = None
-    if bible is not None:
-        characters = [
-            _bible_character_to_variable(item)
-            for item in getattr(bible, "characters", []) or []
-            if str(getattr(item, "name", "") or "").strip()
-        ]
-        locations = [
-            _bible_location_to_variable(item)
-            for item in getattr(bible, "locations", []) or []
-            if str(getattr(item, "name", "") or "").strip()
-        ]
-        _write_variable_if_missing(
-            variable_repo,
-            key="novel.characters.list",
-            value=characters,
-            context_key=context_key,
-            value_type="list",
-            display_name="角色列表",
-            stage="characters",
-        )
-        if characters:
-            _write_variable_if_missing(
-                variable_repo,
-                key="novel.characters.protagonist",
-                value=characters[0],
-                context_key=context_key,
-                value_type="object",
-                display_name="主角",
-                stage="characters",
-            )
-        _write_variable_if_missing(
-            variable_repo,
-            key="novel.locations.list",
-            value=locations,
-            context_key=context_key,
-            value_type="list",
-            display_name="地点列表",
-            stage="locations",
-        )
-        style_notes = [
-            f"{str(getattr(item, 'category', '') or '').strip()}: {str(getattr(item, 'content', '') or '').strip()}".strip(": ")
-            for item in getattr(bible, "style_notes", []) or []
-            if str(getattr(item, "content", "") or "").strip()
-        ]
-        if style_notes:
-            _write_variable_if_missing(
-                variable_repo,
-                key="novel.style.guide",
-                value="\n".join(style_notes),
-                context_key=context_key,
-                value_type="string",
-                display_name="文风公约",
-                stage="setup",
-            )
-
-    wb = None
-    try:
-        wb = bible_generator.worldbuilding_service.get_worldbuilding(novel_id) if bible_generator.worldbuilding_service else None
-    except Exception:
-        wb = None
-    dimensions = wb.normalized_dimensions() if hasattr(wb, "normalized_dimensions") else {}
-    if isinstance(dimensions, dict):
-        for dim_key, display_name in (
-            ("core_rules", "核心法则"),
-            ("geography", "地理生态"),
-            ("society", "社会结构"),
-            ("culture", "历史文化"),
-            ("daily_life", "沉浸感细节"),
-        ):
-            value = dimensions.get(dim_key)
-            if isinstance(value, dict):
-                _write_variable_if_missing(
-                    variable_repo,
-                    key=f"novel.worldbuilding.{dim_key}",
-                    value=value,
-                    context_key=context_key,
-                    value_type="object",
-                    display_name=display_name,
-                    stage="worldbuilding",
-                )
 
 
 async def _create_bible_setup_invocation(
@@ -517,7 +500,6 @@ async def _create_bible_setup_invocation(
             variable_repo=repos["variable_hub"],
             novel_id=novel_id,
             novel=novel,
-            bible_generator=bible_generator,
         )
     except Exception:
         logger.exception("Failed to prepare Bible setup Variable Hub contract: stage=%s", stage)
@@ -534,16 +516,11 @@ async def _create_bible_setup_invocation(
         adoption_service=AdoptionService(),
         commit_service=AdoptionCommitService(variable_hub_repository=repos["variable_hub"]),
     )
-    variables = stage_definition.context_provider(
-        stage=stage,
-        novel=novel,
-        bible_generator=bible_generator,
-    )
     result = await gateway.invoke(
         InvocationRequest(
             operation=operation,
             node_key=node_key,
-            variables=variables,
+            variables={},
             context={"novel_id": novel_id, "stage": stage},
             policy=InvocationPolicy.FULL_INTERACTIVE,
             metadata={
@@ -1294,4 +1271,5 @@ async def bulk_update_bible(
         refresh_narrative_contract_in_shared_state(novel_id)
     except Exception:
         pass
+    _sync_bible_variable_hub(novel_id, dto)
     return dto

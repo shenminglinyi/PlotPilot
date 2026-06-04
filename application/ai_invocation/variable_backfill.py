@@ -285,7 +285,7 @@ class VariableHubBackfillService:
                 lineage={"source": "historical_backfill"},
                 value_type=value_type,
                 display_name=display_name,
-                scope="global",
+                scope="novel",
                 stage=stage,
             )
         )

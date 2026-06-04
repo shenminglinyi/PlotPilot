@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 import asyncio
 import logging
 import time
@@ -112,6 +113,9 @@ class VariableUpdateRequest(BaseModel):
     updated_by: str = "user"
 
 
+_VARIABLE_HUB_FACT_SOURCE_PREFIXES = ("setup.", "bible.setup.")
+
+
 def _config_from_dict(raw: Mapping[str, Any] | None) -> GenerationConfig | None:
     if not raw:
         return None
@@ -136,6 +140,60 @@ def _repositories():
         "attempt": SqliteInvocationAttemptRepository(db),
         "adoption": SqliteAdoptionRepository(db),
     }
+
+
+def _request_variables_must_materialize(operation: str) -> bool:
+    return str(operation or "").startswith(_VARIABLE_HUB_FACT_SOURCE_PREFIXES)
+
+
+def _materialize_request_variables_before_invoke(repos, request: InvocationCreateRequest) -> list[dict[str, Any]]:
+    spec = repos["spec"].get(request.operation, request.node_key)
+    if spec is None or not request.variables:
+        return []
+    bindings = {
+        binding.alias: binding
+        for binding in repos["variable_hub"].get_bindings(spec.input_binding_set_id, spec.node_key)
+        if binding.enabled and binding.variable_key
+    }
+    if not bindings:
+        return []
+    trace_id = str((request.metadata or {}).get("trace_id") or f"request:{request.operation}:{request.node_key}")
+    written: list[dict[str, Any]] = []
+    for alias, raw_value in dict(request.variables or {}).items():
+        binding = bindings.get(alias)
+        if binding is None:
+            continue
+        if binding.source in RUNTIME_ONLY_BINDING_SOURCES or str(binding.variable_key).startswith("system."):
+            continue
+        value = parse_variable_literal(raw_value)
+        stored = repos["variable_hub"].set_value(
+            VariableWrite(
+                key=binding.variable_key,
+                value=value,
+                context_key=context_key_for_scope(request.context, binding.scope),
+                source_trace_id=trace_id,
+                source_node_key=request.node_key,
+                lineage={
+                    "alias": alias,
+                    "binding_set_id": spec.input_binding_set_id,
+                    "operation": request.operation,
+                    "phase": "pre_invocation_materialized",
+                },
+                value_type=binding.value_type,
+                display_name=binding.display_name,
+                scope=binding.scope,
+                stage=binding.stage,
+            )
+        )
+        written.append(
+            {
+                "alias": alias,
+                "variable_key": binding.variable_key,
+                "context_key": context_key_for_scope(request.context, binding.scope),
+                "version_number": getattr(stored, "version_number", 1),
+            }
+        )
+    return written
 
 
 def _save_invocation_result(repos, result) -> None:
@@ -221,7 +279,37 @@ def _output_binding_payloads(repos, session) -> list[dict[str, Any]]:
         bindings = repos["variable_hub"].get_output_bindings(binding_set_id, node_key)
     except Exception:
         return []
-    return [_binding_to_metadata(binding) for binding in bindings if binding.enabled]
+    return [
+        _binding_to_metadata(repos, _with_preview_source_backfill(session, binding))
+        for binding in bindings
+        if binding.enabled
+    ]
+
+
+def _with_preview_source_backfill(session, binding: VariableBinding) -> VariableBinding:
+    if binding.preview_source:
+        return binding
+    continuation_aliases: dict[str, set[str]] = {
+        "setup.plot_outline": {
+            "main_story_overview",
+            "stage_plan",
+            "expected_ending",
+            "core_conflict",
+        },
+        "setup.main_plot_options": {"plot_options_json"},
+        "bible.setup.worldbuilding": {
+            "core_rules",
+            "geography",
+            "society",
+            "culture",
+            "daily_life",
+        },
+        "bible.setup.characters": {"protagonist"},
+    }
+    aliases = continuation_aliases.get(str(session.operation or ""), set())
+    if binding.alias not in aliases:
+        return binding
+    return replace(binding, preview_source="continuation")
 
 
 def _session_payload(repos, session) -> dict[str, Any]:
@@ -298,7 +386,25 @@ def _safe_json_loads(text: str | None, default: Any) -> Any:
         return default
 
 
-def _binding_to_metadata(binding: VariableBinding) -> dict[str, Any]:
+def _resolve_binding_target_display_name(repos, binding: VariableBinding) -> str:
+    if not binding.variable_key:
+        return ""
+    variable_hub = repos.get("variable_hub")
+    if variable_hub is None or not hasattr(variable_hub, "get_definition"):
+        return ""
+    try:
+        definition = variable_hub.get_definition(binding.variable_key)
+    except Exception:
+        return ""
+    display_name = str(getattr(definition, "display_name", "") or "").strip() if definition is not None else ""
+    if not display_name:
+        return ""
+    if display_name in {str(binding.display_name or "").strip(), str(binding.variable_key or "").strip()}:
+        return ""
+    return display_name
+
+
+def _binding_to_metadata(repos, binding: VariableBinding) -> dict[str, Any]:
     return {
         "alias": binding.alias,
         "variable_key": binding.variable_key,
@@ -310,9 +416,11 @@ def _binding_to_metadata(binding: VariableBinding) -> dict[str, Any]:
         "scope": binding.scope,
         "stage": binding.stage,
         "display_name": binding.display_name,
+        "target_display_name": _resolve_binding_target_display_name(repos, binding),
         "source_path": binding.source_path,
         "projection_key": binding.projection_key,
         "render_mode": binding.render_mode,
+        "preview_source": binding.preview_source,
     }
 
 
@@ -331,6 +439,7 @@ def _binding_from_metadata(raw: Mapping[str, Any]) -> VariableBinding:
         source_path=str(raw.get("source_path") or ""),
         projection_key=str(raw.get("projection_key") or ""),
         render_mode=str(raw.get("render_mode") or "raw"),
+        preview_source=str(raw.get("preview_source") or ""),
     )
 
 
@@ -461,7 +570,7 @@ def _sync_prompt_declared_input_bindings(repos, session, spec, system_template: 
         for binding in prompt_declared_bindings
     ]
     metadata["prompt_declared_input_bindings"] = [
-        _binding_to_metadata(binding)
+        _binding_to_metadata(repos, binding)
         for binding in prompt_declared_bindings
     ]
     metadata["last_prompt_declared_variables_added"] = added
@@ -647,6 +756,11 @@ async def create_invocation(request: InvocationCreateRequest) -> dict[str, Any]:
         pass
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    pre_materialized = []
+    invocation_variables = request.variables
+    if _request_variables_must_materialize(request.operation):
+        pre_materialized = _materialize_request_variables_before_invoke(repos, request)
+        invocation_variables = {}
     llm_service = get_llm_service()
     gateway = AIInvocationGateway(
         spec_service=InvocationSpecService(repos["spec"]),
@@ -663,7 +777,7 @@ async def create_invocation(request: InvocationCreateRequest) -> dict[str, Any]:
             InvocationRequest(
                 operation=request.operation,
                 node_key=request.node_key,
-                variables=request.variables,
+                variables=invocation_variables,
                 context=request.context,
                 policy=request.policy,
                 config=_config_from_dict(request.config),
@@ -686,6 +800,10 @@ async def create_invocation(request: InvocationCreateRequest) -> dict[str, Any]:
             variable_plan=result.variable_plan,
             updated_by="create_invocation",
         )
+    if pre_materialized:
+        metadata = dict(result.session.metadata or {})
+        metadata["pre_invocation_materialization"] = {"written": pre_materialized}
+        result.session.metadata = metadata
 
     _save_invocation_result(repos, result)
     _publish_autopilot_session_state(result.session)
@@ -744,7 +862,10 @@ async def preview_prompt_draft(session_id: str, request: PromptDraftRequest) -> 
         )
         variable_plan = _session_variable_resolver(repos, session, spec).resolve(spec=spec, explicit_variables={}, context=session.context)
         session.variable_plan = variable_plan
-    snapshot = _render_prompt_draft(session, request.system_template, request.user_template)
+    try:
+        snapshot = _render_prompt_draft(session, request.system_template, request.user_template)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "prompt_snapshot": prompt_snapshot_to_dict(snapshot),
         "variable_plan": variable_plan_to_dict(session.variable_plan),
@@ -776,7 +897,10 @@ async def save_prompt_draft(session_id: str, request: PromptDraftRequest) -> dic
         )
         variable_plan = _session_variable_resolver(repos, session, spec).resolve(spec=spec, explicit_variables={}, context=session.context)
         session.variable_plan = variable_plan
-    session.prompt_snapshot = _render_prompt_draft(session, request.system_template, request.user_template)
+    try:
+        session.prompt_snapshot = _render_prompt_draft(session, request.system_template, request.user_template)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     session.status = (
         InvocationSessionStatus.BLOCKED
         if session.variable_plan is not None and not session.variable_plan.ok

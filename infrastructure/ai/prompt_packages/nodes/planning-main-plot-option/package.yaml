@@ -9,86 +9,47 @@ tags:
 - suggestion
 output_format: json
 variables:
-- name: novel_title
+- name: novel.title
   desc: Novel title
   type: string
-- name: premise
+- name: novel.premise
   desc: Original premise and setup
   type: string
-- name: genre_major
+- name: novel.genre_major
   desc: Major genre label
   type: string
-- name: genre_theme
+- name: novel.genre_theme
   desc: Genre theme label
   type: string
-- name: genre_label
+- name: novel.genre_label
   desc: Full genre label
   type: string
-- name: world_preset
+- name: novel.world_preset
   desc: World preset or tonal baseline
   type: string
-- name: target_chapters
+- name: novel.target_chapters
   desc: Target chapter count
   type: integer
-- name: target_words_per_chapter
+- name: novel.target_words_per_chapter
   desc: Target words per chapter
   type: integer
-- name: fusion_axis
-  desc: Fusion axis constraints
-  type: object
-- name: fusion_contract
+- name: plot.fusion_contract
   desc: Fusion storyline contract
   type: string
-- name: genre_opening_profile
-  desc: Genre opening profile
-  type: object
-- name: genre_reader_contract
-  desc: Reader retention contract
-  type: object
-- name: genre_rhythm_constraints
-  desc: Genre rhythm constraints
-  type: object
-- name: protagonist
+- name: characters.protagonist
   desc: Protagonist setup
   type: object
-- name: protagonist_card
-  desc: Protagonist prompt card
-  type: string
-- name: characters
+- name: characters.list
   desc: Character list
   type: list
-- name: characters_brief
-  desc: Character list prompt brief
-  type: string
-- name: locations
+- name: locations.list
   desc: Location list
   type: list
-- name: locations_brief
-  desc: Location list prompt brief
-  type: string
-- name: worldview_summary
-  desc: Worldview summary fragments
-  type: list
-- name: worldbuilding_context
-  desc: Worldbuilding prompt context
-  type: string
-- name: style_hint
+- name: worldbuilding.style
   desc: Style convention hints
   type: string
-- name: core_rules
-  desc: Worldbuilding core rules
-  type: object
-- name: geography
-  desc: Geography and ecology
-  type: object
-- name: society
-  desc: Social structure
-  type: object
-- name: culture
-  desc: History and culture
-  type: object
-- name: daily_life
-  desc: Immersion and daily-life details
+- name: worldbuilding.content
+  desc: Structured worldbuilding context
   type: object
 id: planning-main-plot-option
 sort_order: 23

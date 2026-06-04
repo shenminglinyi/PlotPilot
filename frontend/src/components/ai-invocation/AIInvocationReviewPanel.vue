@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { useMessage } from 'naive-ui'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 
 const store = useAIInvocationStore()
+const message = useMessage()
 const promptDraftSystem = ref('')
 const promptDraftUser = ref('')
 let previewTimer: ReturnType<typeof setTimeout> | null = null
@@ -25,8 +27,16 @@ const visibleVariableSnapshotGroups = computed(() =>
 )
 const expandedVariableGroups = ref<string[]>([])
 const expandedPromptGroups = ref<string[]>([])
+const promptDraftValidationErrors = computed(() => {
+  if (!isDraftEditable.value) return []
+  const items: string[] = []
+  if (!promptDraftSystem.value.trim()) items.push('系统提示词不能为空')
+  if (!promptDraftUser.value.trim()) items.push('用户提示词不能为空')
+  return items
+})
 const diagnostics = computed(() => {
   const items = [
+    ...promptDraftValidationErrors.value,
     ...(store.session?.variable_plan?.diagnostics ?? []),
     ...(store.draftDiagnostics ?? []),
   ]
@@ -51,113 +61,49 @@ const originalSystemTemplate = computed(() => store.session?.prompt_snapshot?.te
 const originalUserTemplate = computed(() => store.session?.prompt_snapshot?.template_prompt?.user ?? '')
 const systemPromptDraftChanged = computed(() => promptDraftSystem.value !== originalSystemTemplate.value)
 const userPromptDraftChanged = computed(() => promptDraftUser.value !== originalUserTemplate.value)
+const runtimePromptSystem = computed(() => (
+  promptDraftSystem.value.trim() ? store.draftRuntimeSystem : ''
+))
+const runtimePromptUser = computed(() => (
+  promptDraftUser.value.trim() ? store.draftRuntimeUser : ''
+))
 const hasCommitSteps = computed(() => Boolean(store.commit?.steps?.length))
 const showLiveAttempt = computed(() => Boolean(store.attempt?.id))
 const showOutputPreview = computed(() => store.hasAttempt && !store.isGenerating && outputPreviewRows.value.length > 0)
 const drawerTitle = computed(() => `AI 调试面板：${store.session?.operation || store.session?.node_key || '未加载'}`)
 const drawerWidth = '66.666vw'
 interface OutputBindingRow {
-  label: string
+  targetDisplayName: string
   jsonPath: string
   target: string
-  valueType: string
+  alias: string
+  previewSource: string
 }
 
-const outputContractIntro = computed(() => {
+const outputRuleIntro = computed(() => {
   if (!outputBindings.value.length) return ''
-  return 'AI 的结果只会按下面这些字段路径解析并写入系统。你调整提示词时，应要求 AI 输出同名 JSON 字段；新增未登记路径只会留在文本里，不会自动入库。'
+  return '变量中心底层是 key/value；这里展示的是当前节点采纳后允许写入的输出绑定，不是变量中心的完整结构定义。'
 })
-const outputContractRules = computed(() => {
+const outputRuleTips = computed(() => {
   if (!outputBindings.value.length) return []
   return [
-    '字段名必须和契约路径完全一致，包括顶层字段和嵌套层级。',
-    '顶层字段不要塞进其他对象里；例如契约写 `style`，就必须输出顶层 `style`，不能写成 `worldbuilding.style`。',
-    '数组路径用 `[]` 表示列表项；例如 `characters[]` 代表输出 `characters: [...]`。',
-    '如果需要新增可入库字段，需要先扩展后端输出契约/continuation 写入逻辑，再在提示词里要求 AI 输出该字段。',
+    '按本步骤既定结构直接输出结果，不要额外包一层说明文字。',
+    '已经约定的字段名保持稳定，不要自行改名，也不要把顶层字段套进别的对象。',
+    '列表内容直接输出数组，对象内容保持结构完整。',
+    '只有当前节点已绑定的变量会写入变量中心；如需新增独立变量，需要先扩展节点输出绑定。',
   ]
 })
-function placeholderForType(valueType: string): unknown {
-  switch (valueType) {
-    case 'integer':
-      return 1
-    case 'float':
-      return 1
-    case 'boolean':
-      return true
-    case 'list':
-      return []
-    case 'object':
-      return {}
-    default:
-      return '...'
-  }
-}
-
-function ensureObject(target: Record<string, unknown>, key: string): Record<string, unknown> {
-  const current = target[key]
-  if (current && typeof current === 'object' && !Array.isArray(current)) return current as Record<string, unknown>
-  const next: Record<string, unknown> = {}
-  target[key] = next
-  return next
-}
-
-function ensureArrayObject(target: Record<string, unknown>, key: string): Record<string, unknown> {
-  const current = target[key]
-  if (Array.isArray(current) && current[0] && typeof current[0] === 'object') {
-    return current[0] as Record<string, unknown>
-  }
-  const next: Record<string, unknown> = {}
-  target[key] = [next]
-  return next
-}
-
-function buildOutputSkeleton(rows: OutputBindingRow[]): string {
-  if (!rows.length) return ''
-  const root: Record<string, unknown> = {}
-  const orderedRows = [...rows].sort((a, b) => {
-    const depthDiff = a.jsonPath.split('.').length - b.jsonPath.split('.').length
-    if (depthDiff !== 0) return depthDiff
-    return a.jsonPath.localeCompare(b.jsonPath)
-  })
-  for (const row of orderedRows) {
-    const segments = row.jsonPath.split('.').filter(Boolean)
-    let cursor = root
-    for (let index = 0; index < segments.length; index += 1) {
-      const raw = segments[index]
-      const isArray = raw.endsWith('[]')
-      const key = raw.replace(/\[\]$/, '')
-      const isLast = index === segments.length - 1
-      if (isLast) {
-        if (
-          cursor[key]
-          && typeof cursor[key] === 'object'
-          && !Array.isArray(cursor[key])
-          && row.valueType === 'object'
-        ) {
-          continue
-        }
-        cursor[key] = isArray ? [placeholderForType(row.valueType)] : placeholderForType(row.valueType)
-      } else {
-        cursor = isArray ? ensureArrayObject(cursor, key) : ensureObject(cursor, key)
-      }
-    }
-  }
-  return JSON.stringify(root, null, 2)
-}
 
 const outputBindings = computed<OutputBindingRow[]>(() =>
   (store.session?.output_bindings ?? [])
     .filter(item => Boolean(item.alias))
     .map(item => ({
-      label: item.display_name || item.alias,
+      targetDisplayName: item.target_display_name || '',
       jsonPath: item.source_path || item.alias,
-      target: item.variable_key || '-',
-      valueType: item.value_type || 'string',
+      target: item.variable_key || item.alias,
+      alias: item.alias,
+      previewSource: item.preview_source || '',
     })),
-)
-const outputContractSkeleton = computed(() => buildOutputSkeleton(outputBindings.value))
-const currentStepOutputs = computed(() =>
-  outputBindings.value.map(item => `${item.label}：${item.jsonPath} → ${item.target}`),
 )
 const promptSystemHint = computed(() => {
   if (isDraftEditable.value) return '当前编辑的是 session 草稿，不直接污染 CPMS 正式版本'
@@ -198,6 +144,10 @@ watch(missingVariables, (items) => {
 watch([promptDraftSystem, promptDraftUser], ([systemValue, userValue]) => {
   if (!store.session?.id || !isDraftEditable.value) return
   if (previewTimer) window.clearTimeout(previewTimer)
+  if (!systemValue.trim() || !userValue.trim()) {
+    store.clearPromptDraftPreview()
+    return
+  }
   previewTimer = window.setTimeout(() => {
     void store.previewPromptDraft(systemValue, userValue).catch(() => {
       // 预览失败时保留旧快照，由页面诊断区提示。
@@ -238,9 +188,13 @@ function formatScope(scope?: string): string {
 function formatStage(stage?: string): string {
   const labels: Record<string, string> = {
     setup: '设定',
+    worldbuilding: '世界观',
+    characters: '人物',
+    locations: '地点',
     planning: '规划',
     writing: '写作',
     review: '审阅',
+    postprocess: '后处理',
     runtime: '运行时',
   }
   return labels[stage || 'runtime'] || stage || '运行时'
@@ -266,6 +220,10 @@ function formatSource(source?: string): string {
 }
 
 async function handleResume() {
+  if (promptDraftValidationErrors.value.length > 0) {
+    message.error(promptDraftValidationErrors.value[0])
+    return
+  }
   if (isDraftEditable.value) {
     await store.savePromptDraft(promptDraftSystem.value, promptDraftUser.value)
   }
@@ -380,39 +338,116 @@ function recoverTruncatedArrayObject(raw: string, arrayKey: string): Record<stri
   return items.length ? { [arrayKey]: items } : null
 }
 
-function pathSegments(path: string): Array<{ key: string; array: boolean }> {
-  return path.split('.').filter(Boolean).map((part) => ({
-    key: part.replace(/\[\]$/, ''),
-    array: part.endsWith('[]'),
-  }))
-}
-
-function collectPathValues(source: unknown, segments: Array<{ key: string; array: boolean }>): unknown {
-  if (!segments.length) return source
-  const [head, ...tail] = segments
-  if (!source) return undefined
-  if (Array.isArray(source)) {
-    const mapped = source
-      .map(item => collectPathValues(item, segments))
-      .filter(item => item !== undefined)
-    return head.array ? mapped : mapped.flat()
-  }
-  if (typeof source !== 'object') return undefined
-  const next = (source as Record<string, unknown>)[head.key]
-  if (head.array) {
-    if (next == null) return undefined
-    const arrayValue = Array.isArray(next) ? next : [next]
-    if (!tail.length) return arrayValue
-    return arrayValue
-      .map(item => collectPathValues(item, tail))
-      .filter(item => item !== undefined)
-  }
-  return collectPathValues(next, tail)
-}
-
 function pickPath(source: unknown, path: string): unknown {
-  if (!source || !path) return undefined
-  return collectPathValues(source, pathSegments(path))
+  if (source == null || !path) return undefined
+  const normalized = path.trim()
+  if (!normalized || normalized === '$') return source
+  const input = normalized.startsWith('$.')
+    ? normalized.slice(2)
+    : normalized.startsWith('$')
+      ? normalized.slice(1).replace(/^\./, '')
+      : normalized
+
+  let current: unknown = source
+  for (const segment of input.split('.').filter(Boolean)) {
+    current = pickPathSegment(current, segment)
+    if (current == null) return undefined
+  }
+  return current
+}
+
+function pickPathSegment(source: unknown, segment: string): unknown {
+  const raw = segment.trim()
+  if (!raw || raw === '$') return source
+  if (raw === '[]' || raw === '[*]' || raw === '*') return Array.isArray(source) ? source : undefined
+
+  if (Array.isArray(source)) {
+    if (raw.startsWith('[') && raw.endsWith(']')) {
+      return pickListIndex(source, raw.slice(1, -1))
+    }
+    const values = source
+      .map(item => pickPathSegment(item, raw))
+      .filter(item => item !== undefined)
+    return values
+  }
+
+  let key = raw
+  const selectors: string[] = []
+  const bracketIndex = raw.indexOf('[')
+  if (bracketIndex >= 0) {
+    key = raw.slice(0, bracketIndex)
+    let rest = raw.slice(bracketIndex)
+    while (rest.startsWith('[')) {
+      const close = rest.indexOf(']')
+      if (close < 0) return undefined
+      selectors.push(rest.slice(1, close))
+      rest = rest.slice(close + 1)
+    }
+    if (rest) return undefined
+  }
+
+  let value: unknown = source
+  if (key) {
+    if (!value || typeof value !== 'object') return undefined
+    value = (value as Record<string, unknown>)[key]
+  }
+
+  for (const selector of selectors) {
+    if (selector === '' || selector === '*') {
+      if (!Array.isArray(value)) return undefined
+      continue
+    }
+    if (!Array.isArray(value)) return undefined
+    value = pickListIndex(value, selector)
+  }
+  return value
+}
+
+function pickListIndex(values: unknown[], selector: string): unknown {
+  const index = Number.parseInt(selector, 10)
+  if (Number.isNaN(index)) return undefined
+  const normalized = index < 0 ? values.length + index : index
+  if (normalized < 0 || normalized >= values.length) return undefined
+  return values[normalized]
+}
+
+function pickExactOrDottedChildren(source: unknown, key: string): unknown {
+  if (!source || typeof source !== 'object' || Array.isArray(source) || !key) return undefined
+  const record = source as Record<string, unknown>
+  if (key in record) return record[key]
+  const prefix = `${key}.`
+  const nestedEntries = Object.entries(record).filter(([entryKey]) => entryKey.startsWith(prefix))
+  if (!nestedEntries.length) return undefined
+  const root: Record<string, unknown> = {}
+  for (const [entryKey, entryValue] of nestedEntries) {
+    const remainder = entryKey.slice(prefix.length)
+    if (!remainder) continue
+    const parts = remainder.split('.').filter(Boolean)
+    if (!parts.length) continue
+    let cursor: Record<string, unknown> = root
+    for (const part of parts.slice(0, -1)) {
+      const next = cursor[part]
+      if (!next || typeof next !== 'object' || Array.isArray(next)) {
+        cursor[part] = {}
+      }
+      cursor = cursor[part] as Record<string, unknown>
+    }
+    cursor[parts[parts.length - 1]] = entryValue
+  }
+  return Object.keys(root).length ? root : undefined
+}
+
+function resolveOutputPreviewValue(source: unknown, row: OutputBindingRow): unknown {
+  const candidates = [row.jsonPath, row.alias, row.target]
+  for (const candidate of candidates) {
+    const normalized = candidate.trim()
+    if (!normalized) continue
+    const exact = pickExactOrDottedChildren(source, normalized)
+    if (exact !== undefined) return exact
+    const picked = pickPath(source, normalized)
+    if (picked !== undefined) return picked
+  }
+  return undefined
 }
 
 function safeJsonPreview(value: unknown): string {
@@ -429,7 +464,9 @@ const parsedAttemptContent = computed(() => parseAttemptContent())
 const outputPreviewRows = computed(() =>
   outputBindings.value.map(item => ({
     ...item,
-    value: pickPath(parsedAttemptContent.value, item.jsonPath),
+    value: item.previewSource === 'continuation'
+      ? undefined
+      : resolveOutputPreviewValue(parsedAttemptContent.value, item),
   })),
 )
 </script>
@@ -460,24 +497,15 @@ const outputPreviewRows = computed(() =>
           >
             当前会话等待生成前审阅。左侧可修改本次 CPMS 系统词草稿，右侧会实时展示运行时系统词预览；批准生成后本次 session 使用当前草稿。
           </n-alert>
-          <n-card v-if="currentStepOutputs.length" size="small" title="本步输出契约">
+          <n-card v-if="outputBindings.length" size="small" title="本步规则说明">
             <n-text depth="3" style="display:block;margin-bottom:8px;">
-              {{ outputContractIntro }}
+              {{ outputRuleIntro }}
             </n-text>
-            <n-list>
-              <n-list-item v-for="item in currentStepOutputs" :key="item">
-                {{ item }}
-              </n-list-item>
-            </n-list>
-            <n-text v-if="outputContractRules.length" depth="3" style="display:block;margin-top:8px;">
-              <div>定义规则：</div>
+            <n-text v-if="outputRuleTips.length" depth="3" style="display:block;margin-top:8px;">
+              <div>规则说明：</div>
               <ul style="margin: 6px 0 0 18px; padding: 0;">
-                <li v-for="rule in outputContractRules" :key="rule">{{ rule }}</li>
+                <li v-for="rule in outputRuleTips" :key="rule">{{ rule }}</li>
               </ul>
-            </n-text>
-            <n-text v-if="outputContractSkeleton" depth="3" style="display:block;margin-top:8px;">
-              <div>推荐输出骨架：</div>
-              <pre class="ai-invocation-value">{{ outputContractSkeleton }}</pre>
             </n-text>
           </n-card>
           <n-alert
@@ -560,7 +588,7 @@ const outputPreviewRows = computed(() =>
                     </div>
                     <n-spin :show="store.promptDraftLoading">
                       <n-scrollbar class="ai-invocation-scroll prompt-runtime-scroll">
-                        <pre class="ai-invocation-pre">{{ store.draftRuntimeSystem }}</pre>
+                        <pre class="ai-invocation-pre">{{ runtimePromptSystem }}</pre>
                       </n-scrollbar>
                     </n-spin>
                   </section>
@@ -597,7 +625,7 @@ const outputPreviewRows = computed(() =>
                     </div>
                     <n-spin :show="store.promptDraftLoading">
                       <n-scrollbar class="ai-invocation-scroll prompt-runtime-scroll">
-                        <pre class="ai-invocation-pre">{{ store.draftRuntimeUser }}</pre>
+                        <pre class="ai-invocation-pre">{{ runtimePromptUser }}</pre>
                       </n-scrollbar>
                     </n-spin>
                   </section>
@@ -676,15 +704,23 @@ const outputPreviewRows = computed(() =>
             </n-spin>
           </n-card>
 
-          <n-card v-if="showOutputPreview" size="small" title="采纳写入预览">
+          <n-card v-if="showOutputPreview" size="small" title="变量中心写入预览">
             <n-list>
               <n-list-item v-for="row in outputPreviewRows" :key="row.jsonPath">
                 <div class="output-preview-row">
                   <div class="output-preview-row__head">
-                    <strong>{{ row.label }}</strong>
-                    <n-text depth="3">{{ row.jsonPath }} → {{ row.target }}</n-text>
+                    <strong>{{ row.target }}</strong>
+                    <n-text depth="3">提取路径：{{ row.jsonPath }}</n-text>
+                    <n-text v-if="row.targetDisplayName" depth="3">变量中心名称：{{ row.targetDisplayName }}</n-text>
                   </div>
-                  <pre class="ai-invocation-value">{{ safeJsonPreview(row.value) || '未生成 / 解析失败' }}</pre>
+                  <pre
+                    v-if="row.previewSource !== 'continuation'"
+                    class="ai-invocation-value"
+                  >{{ safeJsonPreview(row.value) || '未生成 / 解析失败' }}</pre>
+                  <pre
+                    v-else
+                    class="ai-invocation-value"
+                  >采纳后由 continuation 派生，不从 AI 原文直接解析</pre>
                 </div>
               </n-list-item>
             </n-list>

@@ -9,7 +9,10 @@ from typing import Optional
 
 from application.world.services.worldbuilding_service import WorldbuildingService
 from application.world.services.bible_service import BibleService
+from application.ai_invocation.variable_hub import VariableWrite, compose_worldbuilding_dimensions
 from infrastructure.persistence.database.worldbuilding_repository import WorldbuildingRepository
+from infrastructure.persistence.database.connection import get_database
+from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
 from application.paths import get_db_path
 
 from interfaces.api.dependencies import get_bible_service
@@ -17,6 +20,40 @@ from application.world.services.narrative_contract_loader import load_merged_wor
 
 
 router = APIRouter(prefix="/novels", tags=["worldbuilding"])
+
+
+def _sync_worldbuilding_variable_hub(novel_id: str, slices: dict[str, dict[str, str]]) -> None:
+    context_key = f"novel_id:{novel_id}"
+    repo = SqliteVariableHubRepository(get_database())
+    aggregate = compose_worldbuilding_dimensions(slices)
+    writes: list[tuple[str, object, str, str]] = []
+    if aggregate:
+        writes.append(("worldbuilding.content", aggregate, "object", "世界观"))
+    for key, display_name in (
+        ("core_rules", "核心法则"),
+        ("geography", "地理生态"),
+        ("society", "社会结构"),
+        ("culture", "历史文化"),
+        ("daily_life", "沉浸感细节"),
+    ):
+        value = slices.get(key)
+        if value:
+            writes.append((f"worldbuilding.{key}", value, "object", display_name))
+    for key, value, value_type, display_name in writes:
+        repo.set_value(
+            VariableWrite(
+                key=key,
+                value=value,
+                context_key=context_key,
+                source_trace_id="worldbuilding_manual_sync",
+                source_node_key="worldbuilding_api",
+                lineage={"source": "worldbuilding_api_manual_sync"},
+                value_type=value_type,
+                display_name=display_name,
+                scope="global",
+                stage="worldbuilding",
+            )
+        )
 
 
 def get_worldbuilding_service() -> WorldbuildingService:
@@ -133,4 +170,7 @@ def update_worldbuilding(
         refresh_narrative_contract_in_shared_state(slug)
     except Exception:
         pass
+    slices = worldbuilding.normalized_dimensions() if hasattr(worldbuilding, "normalized_dimensions") else {}
+    if isinstance(slices, dict):
+        _sync_worldbuilding_variable_hub(slug, slices)
     return worldbuilding.to_dict()

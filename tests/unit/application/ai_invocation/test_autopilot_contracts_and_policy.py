@@ -1,6 +1,7 @@
 from application.ai_invocation.autopilot.materializers import ChapterContextMaterializer
 from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
 from application.ai_invocation.contracts import InvocationContractRegistry
+from application.ai_invocation.contracts.autopilot_planning import ensure_autopilot_macro_plan_contract
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec
 from application.ai_invocation.variable_hub import InMemoryVariableHubRepository
 
@@ -154,3 +155,65 @@ def test_invocation_contract_registry_supports_autopilot_act_plan(monkeypatch):
     assert called["db"] is db
     assert spec.operation == "autopilot.act.plan"
     assert spec.node_key == "planning-act"
+
+
+def test_autopilot_macro_plan_contract_uses_novel_scope_for_story_level_bindings(monkeypatch):
+    captured = {}
+
+    class FakeVariableRepo:
+        def __init__(self, db):
+            self.db = db
+
+        def set_bindings(self, binding_set_id, node_key, bindings, *, direction="input"):
+            captured[(binding_set_id, direction)] = list(bindings)
+
+    class FakeSpecRepo:
+        def __init__(self, db):
+            self.db = db
+
+        def upsert(self, spec, **kwargs):
+            captured["spec"] = spec
+
+    monkeypatch.setattr(
+        "application.ai_invocation.contracts.autopilot_planning._template_aliases",
+        lambda node_key, declared: [
+            "premise",
+            "target_chapters",
+            "worldview",
+            "characters",
+            "genre_opening_profile",
+        ],
+    )
+    monkeypatch.setattr(
+        "application.ai_invocation.contracts.autopilot_planning._active_node_version",
+        lambda node_key: "node-v1",
+    )
+    monkeypatch.setattr(
+        "application.ai_invocation.contracts.autopilot_planning.SqliteVariableHubRepository",
+        FakeVariableRepo,
+    )
+    monkeypatch.setattr(
+        "application.ai_invocation.contracts.autopilot_planning.SqliteInvocationSpecRepository",
+        FakeSpecRepo,
+    )
+
+    ensure_autopilot_macro_plan_contract(db=object())
+
+    input_bindings = {
+        binding.alias: binding
+        for binding in captured[("planning-quick-macro:input:autopilot:v1", "input")]
+    }
+    output_bindings = {
+        binding.alias: binding
+        for binding in captured[("planning-quick-macro:output:autopilot:v1", "output")]
+    }
+
+    assert input_bindings["premise"].scope == "novel"
+    assert input_bindings["premise"].stage == "setup"
+    assert input_bindings["target_chapters"].scope == "novel"
+    assert input_bindings["characters"].scope == "novel"
+    assert input_bindings["genre_opening_profile"].scope == "novel"
+    assert input_bindings["worldview"].scope == "novel"
+    assert input_bindings["worldview"].stage == "planning"
+    assert output_bindings["parts"].scope == "novel"
+    assert output_bindings["parts"].stage == "planning"

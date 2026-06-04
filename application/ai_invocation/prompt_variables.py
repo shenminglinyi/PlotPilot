@@ -1,6 +1,7 @@
 """Prompt variable declaration helpers for AI Invocation."""
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Mapping
 
@@ -23,7 +24,14 @@ class PromptValueView:
         self._rendered_value = rendered_value
 
     def __str__(self) -> str:
-        return "" if self._rendered_value is None else str(self._rendered_value)
+        if self._rendered_value is None:
+            return ""
+        if isinstance(self._raw_value, (Mapping, list, tuple)) and self._rendered_value is self._raw_value:
+            try:
+                return json.dumps(self._raw_value, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                return str(self._rendered_value)
+        return str(self._rendered_value)
 
     def __repr__(self) -> str:
         return str(self)
@@ -65,14 +73,58 @@ def prompt_reference_root(reference: str) -> str:
     return match.group(1) if match else ""
 
 
+def normalize_declared_variable_reference(reference: str, known_variable_keys: set[str] | list[str] | tuple[str, ...]) -> str:
+    """Collapse structured access back to a declared root variable when possible."""
+    normalized = str(reference or "").strip()
+    if not normalized:
+        return normalized
+    known = {str(item or "").strip() for item in known_variable_keys if str(item or "").strip()}
+    if normalized in known:
+        return normalized
+    matches = [
+        candidate
+        for candidate in known
+        if normalized.startswith(f"{candidate}.") or normalized.startswith(f"{candidate}[")
+    ]
+    if not matches:
+        return normalized
+    return max(matches, key=len)
+
+
+def normalize_declared_variable_keys(
+    declared_keys: set[str] | list[str] | tuple[str, ...],
+    known_variable_keys: set[str] | list[str] | tuple[str, ...],
+) -> set[str]:
+    return {
+        normalized
+        for normalized in (
+            normalize_declared_variable_reference(reference, known_variable_keys)
+            for reference in declared_keys
+        )
+        if normalized
+    }
+
+
 def infer_variable_scope(variable_key: str) -> str:
     prefix = variable_key.split(".", 1)[0]
-    if prefix in {"global", "novel", "chapter", "scene", "beat"}:
-        return "global" if prefix == "global" else prefix
+    if prefix == "global":
+        return "global"
+    if prefix in {"novel", "worldbuilding", "characters", "locations", "plot"}:
+        return "novel"
+    if prefix in {"chapter", "scene", "beat"}:
+        return prefix
     return "runtime"
 
 
 def infer_variable_stage(variable_key: str) -> str:
+    if variable_key.startswith("plot.") or ".plot." in variable_key:
+        return "planning"
+    if variable_key.startswith("worldbuilding.") or ".worldbuilding." in variable_key:
+        return "worldbuilding"
+    if variable_key.startswith("characters.") or ".characters." in variable_key:
+        return "characters"
+    if variable_key.startswith("locations.") or ".locations." in variable_key:
+        return "locations"
     if ".review" in variable_key:
         return "review"
     if ".planning" in variable_key or ".outline" in variable_key:
@@ -117,10 +169,10 @@ def is_reference_to_existing_binding(reference: str, bindings: list[VariableBind
 
 
 def _prompt_value_for_render(raw_value: Any, rendered_value: Any) -> Any:
+    if isinstance(raw_value, (Mapping, list, tuple)):
+        return PromptValueView(raw_value, rendered_value)
     if raw_value is rendered_value:
         return rendered_value
-    if isinstance(raw_value, (Mapping, list, tuple)) and rendered_value != raw_value:
-        return PromptValueView(raw_value, rendered_value)
     return rendered_value
 
 
@@ -188,14 +240,18 @@ def prompt_declared_input_bindings(
     bound_aliases = {binding.alias for binding in bindings}
     added = []
     for variable_key in sorted(declared_keys):
+        variable_key = normalize_declared_variable_reference(
+            variable_key,
+            bound_variable_keys | bound_aliases,
+        )
         if is_reference_to_existing_binding(variable_key, bindings):
             continue
         if variable_key in bound_variable_keys or variable_key in bound_aliases:
             continue
-        alias = alias_for_variable_key(variable_key)
+        alias = variable_key
         if alias in bound_aliases:
             suffix = 2
-            base = alias
+            base = alias_for_variable_key(variable_key)
             while f"{base}_{suffix}" in bound_aliases:
                 suffix += 1
             alias = f"{base}_{suffix}"

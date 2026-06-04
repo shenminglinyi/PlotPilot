@@ -1,50 +1,26 @@
 【故事创意】
-{premise}
+{{ novel.premise }}
 
 【小说设定】
-名称：{novel_title}
-大类：{genre_major}
-主题：{genre_theme}
-类型：{genre_label}
-基调：{world_preset}
-章节数量：{target_chapters}
-每章字数：{target_words_per_chapter}
+名称：{{ novel.title }}
+大类：{{ novel.genre_major }}
+主题：{{ novel.genre_theme }}
+类型：{{ novel.genre_label }}
+基调：{{ novel.world_preset }}
+章节数量：{{ novel.target_chapters }}
+每章字数：{{ novel.target_words_per_chapter }}
 
-【类型开篇画像】
-{{ genre_opening_profile | tojson }}
-
-【读者留存契约】
-{{ genre_reader_contract | tojson }}
-
-【类型节奏约束】
-{{ genre_rhythm_constraints | tojson }}
-
-【核心法则】
-{core_rules}
-
-【地理生态】
-{geography}
-
-【社会结构】
-{society}
-
-【历史文化】
-{culture}
-
-【沉浸感细节】
-{daily_life}
+【结构化世界观】
+{{ worldbuilding.content }}
 
 【已点亮锚点】
-{existing_locations}
+{{ locations.list }}
 
 【上一阶段人物设定】
-{{ characters_brief }}
+{{ characters.list }}
 
 【主角】
-{{ protagonist_card }}
-
-【当前人物活动热区】
-{character_context}
+{{ characters.protagonist }}
 
 ---
 
