@@ -27,6 +27,7 @@ from application.ai_invocation.variable_hub import (
     VariableResolver,
     VariableValue,
     VariableWrite,
+    WORLD_BUILDING_DIMENSION_KEYS,
     expand_context_keys,
     sanitize_variable_value,
 )
@@ -771,6 +772,24 @@ class SqliteVariableHubRepository:
         if not binding_set_id:
             return
         with self._db.transaction() as conn:
+            aliases = {binding.alias for binding in bindings}
+            if aliases:
+                placeholders = ",".join("?" for _ in aliases)
+                conn.execute(
+                    f"""
+                    DELETE FROM cpms_variable_bindings
+                    WHERE binding_set_id = ? AND node_key = ? AND direction = ? AND alias NOT IN ({placeholders})
+                    """,
+                    (binding_set_id, node_key, direction, *sorted(aliases)),
+                )
+            else:
+                conn.execute(
+                    """
+                    DELETE FROM cpms_variable_bindings
+                    WHERE binding_set_id = ? AND node_key = ? AND direction = ?
+                    """,
+                    (binding_set_id, node_key, direction),
+                )
             conn.execute(
                 """
                 INSERT INTO cpms_variable_binding_sets (
@@ -874,6 +893,38 @@ class SqliteVariableHubRepository:
                     source_ref=row["source_session_id"] or row["source_node_key"] or "",
                     version_number=int(row["version_number"] or 1),
                 )
+            if variable_key == "novel.worldbuilding":
+                composed: dict[str, Any] = {}
+                version = 1
+                for key in WORLD_BUILDING_DIMENSION_KEYS:
+                    child_row = self._db.fetch_one(
+                        """
+                        SELECT *
+                        FROM variable_values
+                        WHERE variable_key = ? AND scope_key = ? AND is_current = 1
+                        ORDER BY version_number DESC
+                        LIMIT 1
+                        """,
+                        (f"novel.worldbuilding.{key}", scope_key),
+                    )
+                    if child_row is None:
+                        continue
+                    child_value = sanitize_variable_value(
+                        child_row["variable_key"],
+                        _json_loads(child_row["value_json"], None),
+                    )
+                    if not isinstance(child_value, Mapping):
+                        continue
+                    composed[key] = dict(child_value)
+                    version = max(version, int(child_row["version_number"] or 1))
+                if composed:
+                    return VariableValue(
+                        key=variable_key,
+                        value=composed,
+                        context_key=scope_key,
+                        source_ref="derived:worldbuilding_dimensions",
+                        version_number=version,
+                    )
         return None
 
     def list_current_values(self, context_key: str) -> list[dict[str, Any]]:

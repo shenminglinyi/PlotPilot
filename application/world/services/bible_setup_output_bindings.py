@@ -30,15 +30,6 @@ def bible_setup_output_bindings(node_key: str) -> list[VariableBinding]:
                 stage="setup",
             ),
             VariableBinding(
-                alias="worldbuilding",
-                variable_key="novel.worldbuilding",
-                source_path="worldbuilding",
-                value_type="object",
-                display_name="世界观",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
                 alias="core_rules",
                 variable_key="novel.worldbuilding.core_rules",
                 source_path="worldbuilding.core_rules",

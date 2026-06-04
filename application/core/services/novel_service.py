@@ -125,6 +125,10 @@ class NovelService:
             premise=user_block,
             stage=NovelStage.PLANNING,
             target_words_per_chapter=wpc,
+            generation_prefs=GenerationPreferences(
+                locked_genre=str(genre or "").strip(),
+                locked_world_preset=str(world_preset or "").strip(),
+            ),
         )
 
         self.novel_repository.save(novel)

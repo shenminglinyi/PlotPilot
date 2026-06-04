@@ -500,10 +500,11 @@ def bible_setup_world_spec() -> InvocationSpec:
         metadata={
             "source": "novel_setup_guide",
             "bible_prompt_key": BIBLE_WORLDBUILDING,
-            "required_outputs": ["style", "worldbuilding"],
+            "required_outputs": ["style", "core_rules", "geography", "society", "culture", "daily_life"],
             "output_contract_notes": [
                 "输出必须是 JSON 对象，字段名和契约路径完全一致",
                 "style 必须是顶层字段；不要写进 worldbuilding 内部",
+                "世界观正文只需要放在 worldbuilding 下的五维字段里，不要重复输出顶层 core_rules/geography 等镜像字段",
                 "新增字段需要先扩展输出契约，不能只在提示词里口头约定",
             ],
         },

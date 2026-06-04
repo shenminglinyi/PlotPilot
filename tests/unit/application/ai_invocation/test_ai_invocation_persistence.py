@@ -326,6 +326,62 @@ def test_sqlite_variable_hub_repository_infers_stage_for_legacy_runtime_values()
     assert rows[0]["stage"] == "worldbuilding"
 
 
+def test_sqlite_variable_hub_repository_replaces_stale_deleted_output_bindings():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_bindings(
+        "bible-worldbuilding:output:v1",
+        "bible-worldbuilding",
+        [
+            VariableBinding(alias="worldbuilding_full", variable_key="novel.worldbuilding.full"),
+            VariableBinding(alias="style", variable_key="novel.style.guide"),
+        ],
+        direction="output",
+    )
+    repo.set_bindings(
+        "bible-worldbuilding:output:v1",
+        "bible-worldbuilding",
+        [
+            VariableBinding(alias="style", variable_key="novel.style.guide"),
+            VariableBinding(alias="core_rules", variable_key="novel.worldbuilding.core_rules"),
+        ],
+        direction="output",
+    )
+
+    bindings = repo.get_output_bindings("bible-worldbuilding:output:v1", "bible-worldbuilding")
+
+    assert [binding.alias for binding in bindings] == ["core_rules", "style"]
+
+
+def test_sqlite_variable_hub_repository_can_compose_worldbuilding_from_dimension_values():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"law": "债务法则"},
+            context_key="novel_id:novel-1",
+        )
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.geography",
+            value={"terrain": "环形旧城"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    value = repo.get_value("novel.worldbuilding", "novel_id:novel-1")
+
+    assert value is not None
+    assert value.value == {
+        "core_rules": {"law": "债务法则"},
+        "geography": {"terrain": "环形旧城"},
+    }
+
+
 def test_sqlite_variable_hub_repository_sanitizes_premise_internal_hint():
     db = _Db()
     repo = SqliteVariableHubRepository(db)

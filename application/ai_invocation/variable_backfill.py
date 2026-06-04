@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
-from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
+from application.ai_invocation.variable_hub import (
+    VariableHubRepository,
+    VariableWrite,
+    compose_worldbuilding_dimensions,
+)
 from domain.novel.value_objects.novel_id import NovelId
 
 logger = logging.getLogger(__name__)
@@ -225,6 +229,17 @@ class VariableHubBackfillService:
         dimensions = wb.normalized_dimensions() if hasattr(wb, "normalized_dimensions") else {}
         if not isinstance(dimensions, Mapping):
             dimensions = {}
+        aggregate = compose_worldbuilding_dimensions(dimensions)
+        if aggregate:
+            self._write_missing(
+                result,
+                key="novel.worldbuilding",
+                value=aggregate,
+                context_key=context_key,
+                value_type="object",
+                display_name="世界观",
+                stage="worldbuilding",
+            )
         for key in ("core_rules", "geography", "society", "culture", "daily_life"):
             value = dimensions.get(key)
             if isinstance(value, Mapping):

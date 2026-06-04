@@ -145,6 +145,14 @@ def test_variable_resolver_uses_explicit_then_hub_then_default():
     assert plan.snapshot_items[0]["source"] == "variable_hub"
 
 
+def test_extract_path_value_can_read_worldbuilding_dimension_from_aggregate_value():
+    repo = InMemoryVariableHubRepository()
+    assert repo is not None
+    payload = {"worldbuilding": {"core_rules": {"law": "债务法则"}}}
+
+    assert extract_path_value(payload, "worldbuilding.core_rules") == {"law": "债务法则"}
+
+
 def test_variable_resolver_snapshots_prompt_input_when_hub_fact_exists():
     repo = InMemoryVariableHubRepository()
     repo.set_bindings(
@@ -212,6 +220,32 @@ def test_variable_resolver_snapshot_includes_all_context_values():
     assert {"novel.setup.premise", "novel.worldbuilding.core_rules"} <= keys
     assert "novel.characters.list" not in keys
     assert "materialized.setup.main_plot_context" not in keys
+
+
+def test_inmemory_variable_hub_can_compose_worldbuilding_from_dimension_values():
+    repo = InMemoryVariableHubRepository()
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"law": "债务法则"},
+            context_key="novel_id:novel-1",
+        )
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.geography",
+            value={"terrain": "环形旧城"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    value = repo.get_value("novel.worldbuilding", "novel_id:novel-1")
+
+    assert value is not None
+    assert value.value == {
+        "core_rules": {"law": "债务法则"},
+        "geography": {"terrain": "环形旧城"},
+    }
 
 
 def test_variable_resolver_reports_required_missing():

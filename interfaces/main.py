@@ -131,16 +131,18 @@ app = FastAPI(
 
 # ── 前端静态文件托管 ──
 _FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend" / "dist"
-if _FRONTEND_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_DIR / "assets")), name="frontend-assets")
-    # favicon 等根级静态资源
-    _favicon = _FRONTEND_DIR / "favicon.svg"
-    if _favicon.exists():
-        app.get("/favicon.svg", include_in_schema=False, response_class=FileResponse)(
-            lambda: FileResponse(str(_favicon), media_type="image/svg+xml")
-        )
-    # SPA fallback: 所有非 API 路径都返回 index.html
-    _INDEX_HTML = _FRONTEND_DIR / "index.html"
+_FRONTEND_ASSETS_DIR = _FRONTEND_DIR / "assets"
+_INDEX_HTML = _FRONTEND_DIR / "index.html"
+_FAVICON = _FRONTEND_DIR / "favicon.svg"
+
+if _FRONTEND_ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND_ASSETS_DIR)), name="frontend-assets")
+
+# favicon 等根级静态资源
+if _FAVICON.exists():
+    app.get("/favicon.svg", include_in_schema=False, response_class=FileResponse)(
+        lambda: FileResponse(str(_FAVICON), media_type="image/svg+xml")
+    )
 
 # 修复反向代理场景下 trailing slash 重定向使用后端本地地址的 bug
 # 当 FastAPI 的 trailing slash 重定向指向 127.0.0.1 时，

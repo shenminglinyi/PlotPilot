@@ -53,3 +53,19 @@ def test_audit_gate_prefs_from_dict_merge_patch():
     patched = GenerationPreferences.merge_patch(gp, {"pause_after_each_chapter_audit": False})
     assert patched.pause_after_each_chapter_audit is False
     assert patched.audit_pause_on_hard_fail is True
+
+
+def test_locked_genre_and_world_preset_roundtrip():
+    gp = GenerationPreferences.from_dict(
+        {
+            "locked_genre": "玄幻 / 东方玄幻",
+            "locked_world_preset": "高武末世",
+        }
+    )
+
+    assert gp.locked_genre == "玄幻 / 东方玄幻"
+    assert gp.locked_world_preset == "高武末世"
+
+    patched = GenerationPreferences.merge_patch(gp, {"locked_world_preset": "废土修仙"})
+    assert patched.locked_genre == "玄幻 / 东方玄幻"
+    assert patched.locked_world_preset == "废土修仙"

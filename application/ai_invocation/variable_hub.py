@@ -12,6 +12,7 @@ RUNTIME_ONLY_BINDING_SOURCES = frozenset(
     {"runtime_only", "derived_config", "system_template", "prompt_input"}
 )
 SNAPSHOT_EXCLUDED_BINDING_SOURCES = frozenset({"runtime_only", "derived_config", "system_template"})
+WORLD_BUILDING_DIMENSION_KEYS = ("core_rules", "geography", "society", "culture", "daily_life")
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,17 @@ def sanitize_variable_value(variable_key: str, value: Any) -> Any:
     if variable_key == "novel.setup.premise" and isinstance(value, str):
         return strip_v1_structure_black_box_hint(value)
     return value
+
+
+def compose_worldbuilding_dimensions(source: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(source, Mapping):
+        return {}
+    composed: dict[str, Any] = {}
+    for key in WORLD_BUILDING_DIMENSION_KEYS:
+        value = source.get(key)
+        if isinstance(value, Mapping):
+            composed[key] = dict(value)
+    return composed
 
 
 class VariableHubRepository(Protocol):
@@ -145,6 +157,23 @@ class InMemoryVariableHubRepository:
                         version_number=value.version_number,
                     )
                 return value
+            if variable_key == "novel.worldbuilding":
+                composed = {}
+                version = 1
+                for key in WORLD_BUILDING_DIMENSION_KEYS:
+                    child = self.values.get((f"novel.worldbuilding.{key}", scope_key))
+                    if child is None or not isinstance(child.value, Mapping):
+                        continue
+                    composed[key] = dict(child.value)
+                    version = max(version, child.version_number)
+                if composed:
+                    return VariableValue(
+                        key=variable_key,
+                        value=composed,
+                        context_key=scope_key,
+                        source_ref="derived:worldbuilding_dimensions",
+                        version_number=version,
+                    )
         return None
 
     def get_definition(self, variable_key: str) -> VariableDefinition | None:
@@ -406,6 +435,14 @@ class VariableResolver:
         selected = value
         if binding.source_path and isinstance(value, (Mapping, list)):
             selected = extract_path_value(value, binding.source_path)
+        elif (
+            binding.variable_key.startswith("novel.worldbuilding.")
+            and isinstance(value, Mapping)
+            and not binding.source_path
+        ):
+            nested_key = binding.variable_key.removeprefix("novel.worldbuilding.")
+            if nested_key and nested_key in value:
+                selected = extract_path_value(value, nested_key)
         return render_variable_value(
             selected,
             render_mode=binding.render_mode,

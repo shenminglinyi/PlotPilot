@@ -103,10 +103,13 @@ class NovelDTO:
         premise_text = getattr(novel, 'premise', '') or ''
         from application.core.premise_genre_world import parse_genre_world_from_premise
 
-        lg, lw = parse_genre_world_from_premise(premise_text)
-
         _gp = getattr(novel, "generation_prefs", None)
         gp_dict = _gp.to_dict() if _gp is not None and hasattr(_gp, "to_dict") else {}
+        gp_locked_genre = str(gp_dict.get("locked_genre") or "").strip()
+        gp_locked_world_preset = str(gp_dict.get("locked_world_preset") or "").strip()
+        parsed_genre, parsed_world_preset = parse_genre_world_from_premise(premise_text)
+        lg = gp_locked_genre or parsed_genre
+        lw = gp_locked_world_preset or parsed_world_preset
 
         return cls(
             id=novel.novel_id.value,

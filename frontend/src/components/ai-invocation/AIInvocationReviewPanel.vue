@@ -114,7 +114,12 @@ function ensureArrayObject(target: Record<string, unknown>, key: string): Record
 function buildOutputSkeleton(rows: OutputBindingRow[]): string {
   if (!rows.length) return ''
   const root: Record<string, unknown> = {}
-  for (const row of rows) {
+  const orderedRows = [...rows].sort((a, b) => {
+    const depthDiff = a.jsonPath.split('.').length - b.jsonPath.split('.').length
+    if (depthDiff !== 0) return depthDiff
+    return a.jsonPath.localeCompare(b.jsonPath)
+  })
+  for (const row of orderedRows) {
     const segments = row.jsonPath.split('.').filter(Boolean)
     let cursor = root
     for (let index = 0; index < segments.length; index += 1) {
@@ -123,6 +128,14 @@ function buildOutputSkeleton(rows: OutputBindingRow[]): string {
       const key = raw.replace(/\[\]$/, '')
       const isLast = index === segments.length - 1
       if (isLast) {
+        if (
+          cursor[key]
+          && typeof cursor[key] === 'object'
+          && !Array.isArray(cursor[key])
+          && row.valueType === 'object'
+        ) {
+          continue
+        }
         cursor[key] = isArray ? [placeholderForType(row.valueType)] : placeholderForType(row.valueType)
       } else {
         cursor = isArray ? ensureArrayObject(cursor, key) : ensureObject(cursor, key)
