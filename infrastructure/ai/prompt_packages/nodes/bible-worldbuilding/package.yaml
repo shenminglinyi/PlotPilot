@@ -34,36 +34,8 @@ variables:
   desc: 每章字数
   type: integer
   default: 0
-- name: worldbuilding_full
-  desc: 世界观全量摘要
-  type: string
-  default: ''
-- name: core_rules
-  desc: 核心法则
-  type: string
-  default: ''
-- name: geography
-  desc: 地理生态
-  type: string
-  default: ''
-- name: society
-  desc: 社会结构
-  type: string
-  default: ''
-- name: culture
-  desc: 历史文化
-  type: string
-  default: ''
-- name: daily_life
-  desc: 沉浸感细节
-  type: string
-  default: ''
 - name: fields_desc
   desc: 五维字段模板（由代码注入）
-  type: string
-  default: ''
-- name: novel_setup
-  desc: 小说设定摘要
   type: string
   default: ''
 - name: genre_opening_profile

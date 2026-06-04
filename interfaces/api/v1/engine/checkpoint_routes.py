@@ -550,10 +550,20 @@ def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any,
 
     applied: List[str] = []
 
+    def _text_field(key: str, current: str, limit: int) -> str:
+        value = (data.get(key) or "").strip()
+        if not value:
+            return current
+        applied.append(key)
+        return value[:limit]
+
     d_core = (data.get("core_belief") or "").strip()
     core_belief = d_core[:2000] if d_core else base.core_belief
     if d_core:
         applied.append("core_belief")
+
+    core_motivation = _text_field("core_motivation", base.core_motivation, 1200)
+    inner_lack = _text_field("inner_lack", base.inner_lack, 1200)
 
     moral_taboos = list(base.moral_taboos)
     d_taboo = data.get("moral_taboos")
@@ -630,6 +640,8 @@ def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any,
     merged = replace(
         base,
         core_belief=core_belief,
+        core_motivation=core_motivation,
+        inner_lack=inner_lack,
         moral_taboos=moral_taboos,
         voice_profile=voice_profile,
         active_wounds=active_wounds,
@@ -647,6 +659,10 @@ def _merge_character_from_extract(base: Any, data: Dict[str, Any]) -> tuple[Any,
 def _character_needs_gaps_fill(char: Any) -> bool:
     """gaps 模式：缺核心信念、或缺声线风格、或缺口癖/小动作、或缺禁忌/创伤之一即补。"""
     cb = (getattr(char, "core_belief", None) or "").strip()
+    cm = (getattr(char, "core_motivation", None) or "").strip()
+    il = (getattr(char, "inner_lack", None) or "").strip()
+    if not cm or not il:
+        return True
     vp = getattr(char, "voice_profile", None) or {}
     style = ""
     if isinstance(vp, dict):
@@ -674,6 +690,16 @@ def _build_heuristic_seed_dict(target: Any) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     if not desc:
         return out
+
+    if not (getattr(target, "core_motivation", None) or "").strip():
+        motivation = _extract_core_motivation(desc)
+        if motivation:
+            out["core_motivation"] = motivation[:1200]
+
+    if not (getattr(target, "inner_lack", None) or "").strip():
+        lack = _extract_inner_lack(desc)
+        if lack:
+            out["inner_lack"] = lack[:1200]
 
     if not (getattr(target, "core_belief", None) or "").strip():
         cb = _extract_core_belief(desc, [])
@@ -782,6 +808,43 @@ def _extract_core_belief(description: str, relationships: list) -> str:
         m = re.search(pat, description)
         if m:
             return m.group(0).strip()
+    return ""
+
+
+def _extract_core_motivation(description: str) -> str:
+    """从简介推断表层目标/核心驱动力。"""
+    if not description:
+        return ""
+    import re
+
+    patterns = [
+        r'(?:为了|为的是|试图|想要|渴望|必须|立志|誓要)([^，。！？；\n]{2,40})',
+        r'(?:以[^，。！？；\n]{1,20}为[^，。！？；\n]{1,20})([^，。！？；\n]{2,40})',
+        r'(?:专杀|追查|守护|寻找|夺回|阻止|打破|复仇|证明)([^，。！？；\n]{2,40})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, description)
+        if m:
+            return m.group(0).strip()
+    return ""
+
+
+def _extract_inner_lack(description: str) -> str:
+    """从反噬/创伤/执念句推断深层缺口。"""
+    if not description:
+        return ""
+    import re
+
+    patterns = [
+        r'(?:却被|反被)([^，。！？；\n]{2,40})(?:反噬|困住|吞噬|束缚|拖入)',
+        r'(?:身负|背负|困于|受制于)([^，。！？；\n]{2,40})',
+        r'(?:害怕|恐惧|无法|不敢|拒绝)([^，。！？；\n]{2,40})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, description)
+        text = m.group(0).strip() if m else ""
+        if text:
+            return f"需要面对并修正：{text}"
     return ""
 
 

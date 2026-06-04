@@ -32,14 +32,21 @@ const diagnostics = computed(() => {
   ]
   return Array.from(new Set(items.filter(Boolean)))
 })
-const missingVariables = computed(() => store.session?.variable_plan?.required_missing ?? [])
+const missingVariables = computed(() =>
+  store.promptDraftPreview?.variable_plan?.required_missing
+  ?? store.session?.variable_plan?.required_missing
+  ?? [],
+)
+const missingVariableDrafts = ref<Record<string, string>>({})
+const canEditVariables = computed(() => ['blocked', 'awaiting_pre_call_review'].includes(String(store.session?.status || '')))
 const hasPrompt = computed(() => Boolean(
   store.draftSystemTemplate
   || store.draftUserTemplate
   || store.draftRuntimeSystem
   || store.draftRuntimeUser,
 ))
-const isDraftEditable = computed(() => store.session?.status === 'awaiting_pre_call_review')
+const isPreCallBlocked = computed(() => store.session?.status === 'blocked' && !store.attempt?.id && !store.decision?.id)
+const isDraftEditable = computed(() => store.session?.status === 'awaiting_pre_call_review' || isPreCallBlocked.value)
 const originalSystemTemplate = computed(() => store.session?.prompt_snapshot?.template_prompt?.system ?? '')
 const originalUserTemplate = computed(() => store.session?.prompt_snapshot?.template_prompt?.user ?? '')
 const systemPromptDraftChanged = computed(() => promptDraftSystem.value !== originalSystemTemplate.value)
@@ -132,11 +139,6 @@ const outputBindings = computed<OutputBindingRow[]>(() => {
   }
   return []
 })
-const hasStructuredContext = computed(() => Boolean(
-  store.session?.variable_plan?.aliases?.context_blob
-  || store.session?.variable_plan?.aliases?.worldbuilding_full
-  || store.session?.variable_plan?.aliases?.protagonist
-))
 const currentStepOutputs = computed(() =>
   outputBindings.value.map(item => `${item.label}：${item.jsonPath} → ${item.target}`),
 )
@@ -163,9 +165,18 @@ watch(
   () => {
     expandedPromptGroups.value = []
     expandedVariableGroups.value = []
+    missingVariableDrafts.value = {}
   },
   { immediate: true },
 )
+
+watch(missingVariables, (items) => {
+  const next = { ...missingVariableDrafts.value }
+  for (const alias of items) {
+    if (!(alias in next)) next[alias] = ''
+  }
+  missingVariableDrafts.value = next
+}, { immediate: true })
 
 watch([promptDraftSystem, promptDraftUser], ([systemValue, userValue]) => {
   if (!store.session?.id || !isDraftEditable.value) return
@@ -218,9 +229,10 @@ function formatStage(stage?: string): string {
   return labels[stage || 'runtime'] || stage || '运行时'
 }
 
-function snapshotGroupTitle(group: { title?: string; scope?: string; stage?: string }): string {
-  if (group.stage === 'setup') return '设定'
-  return group.title || `${formatScope(group.scope)} · ${formatStage(group.stage)}`
+function snapshotGroupTitle(group: { title?: string; scope?: string; stage?: string; items?: unknown[] }): string {
+  const base = group.title || `${formatScope(group.scope)} · ${formatStage(group.stage)}`
+  const count = group.items?.length || 0
+  return count > 0 ? `${base}（${count}项）` : base
 }
 
 function formatType(type?: string): string {
@@ -230,6 +242,7 @@ function formatType(type?: string): string {
 function formatSource(source?: string): string {
   if (!source) return '-'
   if (source.startsWith('materialized:')) return `派生上下文 · ${source.replace('materialized:', '')}`
+  if (source === 'variable_hub') return '变量中心'
   if (source === 'explicit') return '显式输入'
   if (source === 'default') return '默认值'
   return source
@@ -239,7 +252,23 @@ async function handleResume() {
   if (isDraftEditable.value) {
     await store.savePromptDraft(promptDraftSystem.value, promptDraftUser.value)
   }
+  if (missingVariables.value.length > 0) {
+    await handleSaveMissingVariables()
+  }
+  if (store.session?.status === 'blocked') return
   await store.resume()
+}
+
+async function handleSaveMissingVariables() {
+  const values: Record<string, unknown> = {}
+  for (const alias of missingVariables.value) {
+    const value = missingVariableDrafts.value[alias]
+    if (value != null && String(value).trim() !== '') {
+      values[alias] = value
+    }
+  }
+  if (!Object.keys(values).length) return
+  await store.updateVariables(values)
 }
 
 async function handleRetry() {
@@ -450,6 +479,30 @@ const outputPreviewRows = computed(() =>
             必填变量缺失：{{ missingVariables.join('、') }}
           </n-alert>
 
+          <n-card v-if="missingVariables.length > 0 && canEditVariables" size="small" title="补齐变量">
+            <n-space vertical :size="10">
+              <div v-for="alias in missingVariables" :key="alias" class="missing-variable-row">
+                <n-text strong>{{ alias }}</n-text>
+                <n-input
+                  v-model:value="missingVariableDrafts[alias]"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 6 }"
+                  placeholder="输入本次变量值"
+                />
+              </div>
+              <n-space justify="end">
+                <n-button
+                  type="primary"
+                  secondary
+                  :loading="store.actionLoading"
+                  @click="handleSaveMissingVariables"
+                >
+                  保存变量
+                </n-button>
+              </n-space>
+            </n-space>
+          </n-card>
+
           <n-card v-if="diagnostics.length > 0" size="small" title="诊断信息">
             <n-list>
               <n-list-item v-for="item in diagnostics" :key="item">
@@ -572,26 +625,21 @@ const outputPreviewRows = computed(() =>
                       <n-tag v-if="String(item.source || '').startsWith('materialized:')" size="small" type="warning">
                         派生上下文
                       </n-tag>
+                      <n-tag v-if="item.source_path" size="small" type="default">
+                        路径：{{ item.source_path }}
+                      </n-tag>
+                      <n-tag v-if="item.projection_key" size="small" type="success">
+                        投影：{{ item.projection_key }}
+                      </n-tag>
+                      <n-tag v-if="item.render_mode && item.render_mode !== 'raw'" size="small" type="default">
+                        渲染：{{ item.render_mode }}
+                      </n-tag>
                     </n-space>
                     <pre class="ai-invocation-value">{{ formatValue(item.value) }}</pre>
                   </n-card>
                 </n-space>
               </n-collapse-item>
             </n-collapse>
-          </n-card>
-
-          <n-card v-if="hasStructuredContext" size="small" title="结构化上下文">
-            <n-descriptions :column="1" size="small" bordered label-placement="left">
-              <n-descriptions-item label="context_blob">
-                <pre class="ai-invocation-value">{{ store.session?.variable_plan?.aliases?.context_blob || '-' }}</pre>
-              </n-descriptions-item>
-              <n-descriptions-item label="worldbuilding_full">
-                <pre class="ai-invocation-value">{{ store.session?.variable_plan?.aliases?.worldbuilding_full || '-' }}</pre>
-              </n-descriptions-item>
-              <n-descriptions-item label="protagonist">
-                <pre class="ai-invocation-value">{{ safeJsonPreview(store.session?.variable_plan?.aliases?.protagonist) || '-' }}</pre>
-              </n-descriptions-item>
-            </n-descriptions>
           </n-card>
 
           <n-card v-if="showLiveAttempt" size="small" title="AI 实时输出">
@@ -650,12 +698,12 @@ const outputPreviewRows = computed(() =>
         <n-space justify="end">
           <n-button @click="store.close">关闭</n-button>
           <n-button
-            v-if="store.session?.status === 'awaiting_pre_call_review'"
+            v-if="store.session?.status === 'awaiting_pre_call_review' || isPreCallBlocked"
             type="primary"
             :loading="store.actionLoading || store.promptDraftLoading"
             @click="handleResume"
           >
-            批准生成
+            {{ isPreCallBlocked ? '保存并继续' : '批准生成' }}
           </n-button>
           <n-button v-if="store.canRetry" :loading="store.actionLoading" @click="handleRetry">
             重新生成
@@ -761,6 +809,12 @@ const outputPreviewRows = computed(() =>
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
+}
+
+.missing-variable-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .ai-invocation-scroll,

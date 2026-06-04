@@ -5,7 +5,7 @@ import logging
 import json
 import uuid
 from dataclasses import replace
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from domain.ai.services.llm_service import GenerationConfig, LLMService
 from application.ai_invocation.continuation import ContinuationContext, execute_continuation
@@ -24,7 +24,7 @@ from application.ai_invocation.dtos import (
     stable_hash,
 )
 from domain.ai.value_objects.prompt import Prompt
-from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
+from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite, extract_path_value
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,51 @@ class AttemptService:
             attempt.content = result.content
             attempt.token_usage = result.token_usage
             attempt.status = InvocationAttemptStatus.SUCCEEDED
+            return attempt
+        except Exception as exc:
+            attempt.status = InvocationAttemptStatus.FAILED
+            attempt.error = str(exc)
+            session.status = InvocationSessionStatus.FAILED
+            raise
+
+    async def generate_streaming(
+        self,
+        *,
+        session: InvocationSession,
+        prompt_snapshot: PromptSnapshot,
+        config: GenerationConfig | None = None,
+        on_chunk: Callable[[str, str], None] | None = None,
+    ) -> InvocationAttempt:
+        attempt = InvocationAttempt(
+            id=str(uuid.uuid4()),
+            session_id=session.id,
+            status=InvocationAttemptStatus.RUNNING,
+            prompt_snapshot=prompt_snapshot,
+        )
+        self._attempts[attempt.id] = attempt
+        session.attempts.append(attempt.id)
+        session.status = InvocationSessionStatus.GENERATING
+        content_parts: list[str] = []
+        stopped = False
+        try:
+            async for chunk in self._llm_service.stream_generate(prompt_snapshot.prompt, config or GenerationConfig()):
+                if not chunk:
+                    continue
+                content_parts.append(chunk)
+                attempt.content = "".join(content_parts)
+                if on_chunk is not None:
+                    keep_going = on_chunk(chunk, attempt.content)
+                    if keep_going is False:
+                        stopped = True
+                        break
+            attempt.content = "".join(content_parts)
+            attempt.token_usage = None
+            if stopped:
+                attempt.status = InvocationAttemptStatus.FAILED
+                attempt.error = "streaming stopped"
+                session.status = InvocationSessionStatus.CANCELLED
+            else:
+                attempt.status = InvocationAttemptStatus.SUCCEEDED
             return attempt
         except Exception as exc:
             attempt.status = InvocationAttemptStatus.FAILED
@@ -228,6 +273,7 @@ class AdoptionCommitService:
             getattr(updated, "get_active_user_template", lambda: "")()
             or snapshot.draft_prompt.user
         )
+        updated_version_id = getattr(updated, "active_version_id", None) or previous_version_id
         refreshed_template = Prompt(system=updated_system, user=updated_user)
         rendered_prompt = refreshed_template
         if session.variable_plan is not None:
@@ -243,15 +289,60 @@ class AdoptionCommitService:
                 user=render_result.user or "",
             )
 
+        try:
+            from infrastructure.ai.prompt_registry import get_prompt_registry
+
+            get_prompt_registry().invalidate_cache(updated.node_key)
+        except Exception:
+            logger.warning(
+                "failed to invalidate prompt registry cache after cpms commit: node=%s",
+                updated.node_key,
+                exc_info=True,
+            )
+
+        try:
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
+                SqliteInvocationSpecRepository,
+            )
+
+            spec_repo = SqliteInvocationSpecRepository(get_database())
+            current_spec = spec_repo.get(session.operation, session.node_key)
+            if current_spec is not None:
+                spec_repo.upsert(
+                    replace(
+                        current_spec,
+                        prompt_node_version_id=updated_version_id,
+                    )
+                )
+        except Exception:
+            logger.warning(
+                "failed to refresh invocation spec after cpms commit: operation=%s node=%s",
+                session.operation,
+                session.node_key,
+                exc_info=True,
+            )
+
         session.prompt_snapshot = replace(
             snapshot,
             prompt=rendered_prompt,
+            node_version_id=updated_version_id,
             template_prompt=refreshed_template,
             draft_prompt=refreshed_template,
             template_hash=stable_hash(
                 {
                     "system_template": refreshed_template.system,
                     "user_template": refreshed_template.user,
+                }
+            ),
+            composition_hash=stable_hash(
+                {
+                    "node_key": session.node_key,
+                    "node_version_id": updated_version_id,
+                    "asset_link_set_id": snapshot.asset_link_set_id,
+                    "input_binding_set_id": snapshot.input_binding_set_id,
+                    "output_binding_set_id": snapshot.output_binding_set_id,
+                    "asset_version_ids": tuple(snapshot.asset_version_ids or ()),
                 }
             ),
             rendered_prompt_hash=prompt_hash(rendered_prompt),
@@ -268,7 +359,7 @@ class AdoptionCommitService:
             "node_key": updated.node_key,
             "node_id": updated.id,
             "previous_version_id": previous_version_id,
-            "active_version_id": updated.active_version_id,
+            "active_version_id": updated_version_id,
             "template_hash": stable_hash(
                 {
                     "system_template": snapshot.draft_prompt.system,
@@ -298,6 +389,19 @@ class AdoptionCommitService:
         if repo is None:
             return {"skipped": True, "reason": "missing_variable_hub_repository"}
 
+        if session.operation.startswith("bible.setup."):
+            try:
+                from application.world.services.bible_setup_output_bindings import ensure_bible_setup_output_bindings
+
+                ensure_bible_setup_output_bindings(repo, session.node_key)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to ensure Bible setup output bindings: session=%s node=%s error=%s",
+                    session.id,
+                    session.node_key,
+                    exc,
+                )
+
         bindings = []
         if snapshot.output_binding_set_id:
             try:
@@ -308,25 +412,52 @@ class AdoptionCommitService:
         if not bindings:
             return {"skipped": True, "reason": "no_output_bindings"}
 
+        required_aliases = [
+            binding.alias
+            for binding in bindings
+            if binding.enabled and binding.variable_key and binding.required
+        ]
+
         payload = dict(output_payload or {})
+        payload_from_decision = False
         if not payload:
             try:
                 parsed = json.loads(decision.accepted_content)
             except Exception:
-                parsed = {}
+                parsed = None
+            if parsed is None and required_aliases:
+                return {
+                    "blocked": True,
+                    "reason": "accepted_content_not_json_object",
+                    "required_aliases": required_aliases,
+                }
             payload = dict(parsed) if isinstance(parsed, Mapping) else {}
+            payload_from_decision = True
+
+        if not payload and required_aliases:
+            return {
+                "blocked": True,
+                "reason": "missing_required_output_payload",
+                "required_aliases": required_aliases,
+                "payload_source": "decision" if payload_from_decision else "continuation",
+            }
 
         written: list[dict[str, Any]] = []
+        missing_required: list[str] = []
         for binding in bindings:
             if not binding.enabled or not binding.variable_key:
                 continue
-            raw_value = payload.get(binding.alias)
+            raw_value = extract_path_value(payload, binding.source_path or binding.alias)
+            if raw_value is None and binding.source_path:
+                raw_value = extract_path_value(payload, binding.alias)
             if raw_value is None:
+                if binding.required:
+                    missing_required.append(binding.alias)
                 continue
             write = VariableWrite(
                 key=binding.variable_key,
                 value=self._materialize_output_value(binding.alias, raw_value),
-                context_key=self._context_key(session.context),
+                context_key=self._context_key(session.context, binding.scope),
                 source_session_id=session.id,
                 source_attempt_id=decision.attempt_id,
                 source_trace_id=str(session.metadata.get("trace_id") or session.id),
@@ -336,6 +467,7 @@ class AdoptionCommitService:
                     "alias": binding.alias,
                     "binding_set_id": snapshot.output_binding_set_id,
                     "operation": session.operation,
+                    "source_path": binding.source_path or binding.alias,
                 },
                 value_type=binding.value_type,
                 display_name=binding.display_name,
@@ -351,6 +483,13 @@ class AdoptionCommitService:
                     "version_number": getattr(stored, "version_number", 1),
                 }
             )
+        if missing_required:
+            return {
+                "blocked": True,
+                "reason": "missing_required_output_aliases",
+                "missing_aliases": missing_required,
+                "binding_set_id": snapshot.output_binding_set_id,
+            }
         if not written:
             return {"skipped": True, "reason": "no_matching_output_values"}
         return {
@@ -359,9 +498,31 @@ class AdoptionCommitService:
             "binding_set_id": snapshot.output_binding_set_id,
         }
 
+    def _commit_projection(self, *, session: InvocationSession, continuation_result: Mapping[str, Any] | None) -> dict:
+        projection = dict((continuation_result or {}).get("_projection") or {})
+        if not projection:
+            return {"skipped": True, "reason": "no_projection_plan"}
+        adapter = str(projection.get("adapter") or "").strip()
+        if adapter != "chapters_table":
+            return {"blocked": True, "reason": "unsupported_projection_adapter", "adapter": adapter}
+        try:
+            from infrastructure.persistence.database.connection import get_database
+            from application.ai_invocation.contracts.chapter_prose_generation import project_chapter_prose_to_chapters
+
+            return project_chapter_prose_to_chapters(get_database(), projection)
+        except Exception as exc:
+            return {"blocked": True, "reason": "projection_failed", "error": str(exc)}
+
     @staticmethod
-    def _context_key(context: Mapping[str, Any]) -> str:
+    def _context_key(context: Mapping[str, Any], scope: str = "") -> str:
         novel_id = str(context.get("novel_id") or "").strip()
+        chapter_number = context.get("chapter_number")
+        beat_index = context.get("beat_index")
+        normalized_scope = str(scope or "").strip().lower()
+        if normalized_scope == "beat" and novel_id and chapter_number not in (None, "") and beat_index not in (None, ""):
+            return f"novel_id:{novel_id}|chapter_number:{chapter_number}|beat_index:{beat_index}"
+        if normalized_scope in {"beat", "chapter", "scene"} and novel_id and chapter_number not in (None, ""):
+            return f"novel_id:{novel_id}|chapter_number:{chapter_number}"
         if novel_id:
             return f"novel_id:{novel_id}"
         return "global"
@@ -419,7 +580,29 @@ class AdoptionCommitService:
             )
             if not prompt_version_result.get("skipped"):
                 commit.result = {**commit.result, "prompt_version": prompt_version_result}
-            continuation_result = execute_continuation(ContinuationContext(session=session, decision=decision))
+            try:
+                continuation_result = execute_continuation(ContinuationContext(session=session, decision=decision))
+            except Exception as exc:
+                commit.steps.append(
+                    AdoptionCommitStep(
+                        name="continuation_handler",
+                        status=AdoptionCommitStatus.FAILED,
+                        result={
+                            "error": str(exc),
+                            "accepted_content_preview": (decision.accepted_content or "")[:1200],
+                        },
+                        error=str(exc),
+                    )
+                )
+                commit.status = AdoptionCommitStatus.FAILED
+                commit.error = str(exc)
+                commit.result = {
+                    **commit.result,
+                    "accepted_content": decision.accepted_content,
+                    "continuation_error": str(exc),
+                }
+                session.status = InvocationSessionStatus.BLOCKED
+                return commit
             if continuation_result:
                 commit.steps.append(
                     AdoptionCommitStep(
@@ -435,15 +618,55 @@ class AdoptionCommitService:
                 commit_id=commit.id,
                 output_payload=continuation_result,
             )
+            output_step_status = (
+                AdoptionCommitStatus.BLOCKED
+                if variable_output_result.get("blocked")
+                else AdoptionCommitStatus.SUCCEEDED
+            )
             commit.steps.append(
                 AdoptionCommitStep(
                     name="commit_variable_outputs",
-                    status=AdoptionCommitStatus.SUCCEEDED,
+                    status=output_step_status,
                     result=variable_output_result,
                 )
             )
+            if variable_output_result.get("blocked"):
+                commit.status = AdoptionCommitStatus.BLOCKED
+                commit.error = str(variable_output_result.get("reason") or "required_output_missing")
+                commit.result = {
+                    **commit.result,
+                    "accepted_content": decision.accepted_content,
+                    "variable_outputs": variable_output_result,
+                }
+                session.status = InvocationSessionStatus.BLOCKED
+                return commit
             if not variable_output_result.get("skipped"):
                 commit.result = {**commit.result, "variable_outputs": variable_output_result}
+            projection_result = self._commit_projection(session=session, continuation_result=continuation_result)
+            projection_step_status = (
+                AdoptionCommitStatus.BLOCKED
+                if projection_result.get("blocked")
+                else AdoptionCommitStatus.SUCCEEDED
+            )
+            commit.steps.append(
+                AdoptionCommitStep(
+                    name="commit_projection",
+                    status=projection_step_status,
+                    result=projection_result,
+                )
+            )
+            if projection_result.get("blocked"):
+                commit.status = AdoptionCommitStatus.BLOCKED
+                commit.error = str(projection_result.get("reason") or "projection_failed")
+                commit.result = {
+                    **commit.result,
+                    "accepted_content": decision.accepted_content,
+                    "projection": projection_result,
+                }
+                session.status = InvocationSessionStatus.BLOCKED
+                return commit
+            if not projection_result.get("skipped"):
+                commit.result = {**commit.result, "projection": projection_result}
             commit.status = AdoptionCommitStatus.SUCCEEDED
             commit.result = {**commit.result, "accepted_content": decision.accepted_content}
             session.status = InvocationSessionStatus.COMPLETED

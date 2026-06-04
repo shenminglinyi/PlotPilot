@@ -959,6 +959,7 @@ const charactersGenerated = ref(false)
 const charactersError = ref('')
 const streamingCharacters = ref<Array<Partial<EditableCharacter> & { name: string; role: string; description: string }>>([])
 const charactersSseAbort = ref<AbortController | null>(null)
+const generatedCharacterDrafts = ref<Record<string, Partial<EditableCharacter>>>({})
 /** 可编辑的人物列表（从 bibleData 拷贝，用户可修改后确认落库） */
 interface EditableVoiceProfile {
   style: string
@@ -1006,6 +1007,21 @@ interface EditableCharacter {
   moral_taboos: string[]
   voice_profile: EditableVoiceProfile
   active_wounds: EditableWound[]
+}
+
+interface GeneratedCharacterPayload extends Partial<CharacterDTO> {
+  role?: string
+  gender?: string
+  age?: string
+  appearance?: string
+  personality?: string
+  background?: string
+  core_motivation?: string
+  inner_lack?: string
+  ghost?: string
+  want?: string
+  need?: string
+  flaw?: string
 }
 
 function normalizeVoiceProfile(raw: Record<string, unknown> | undefined): EditableVoiceProfile {
@@ -1058,33 +1074,48 @@ function formatRelationship(rel: BibleRelationshipEntry | string): string {
   return rel.relation || rel.description || rel.target || ''
 }
 
-/** 从 CharacterDTO 映射到 EditableCharacter，解析 description 中的 role */
-function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
-  let role = c.role || ''
-  let desc = c.description || ''
-  // 后端存储时把 role 拼到 description 开头："主角 - 描述内容"
-  // 如果 role 为空但 description 包含 " - "，尝试从中解析
-  if (!role && desc.includes(' - ')) {
-    const sepIdx = desc.indexOf(' - ')
-    role = desc.slice(0, sepIdx).trim()
-    desc = desc.slice(sepIdx + 3).trim()
-  } else if (role && desc.startsWith(role) && desc.includes(' - ')) {
-    // description 仍包含 role 前缀，去掉重复
-    const sepIdx = desc.indexOf(' - ')
-    desc = desc.slice(sepIdx + 3).trim()
+function normalizeCharacterRoleAndDescription(role: string | undefined, description: string | undefined): { role: string; description: string } {
+  let nextRole = role || ''
+  let nextDescription = description || ''
+  if (!nextRole && nextDescription.includes(' - ')) {
+    const sepIdx = nextDescription.indexOf(' - ')
+    nextRole = nextDescription.slice(0, sepIdx).trim()
+    nextDescription = nextDescription.slice(sepIdx + 3).trim()
+  } else if (nextRole && nextDescription.startsWith(nextRole) && nextDescription.includes(' - ')) {
+    const sepIdx = nextDescription.indexOf(' - ')
+    nextDescription = nextDescription.slice(sepIdx + 3).trim()
   }
+  return {
+    role: nextRole,
+    description: nextDescription,
+  }
+}
+
+function formatCharacterDescriptionForSave(role: string, description: string): string {
+  const normalized = normalizeCharacterRoleAndDescription(role, description)
+  if (!normalized.role) return normalized.description
+  if (!normalized.description) return normalized.role
+  return `${normalized.role} - ${normalized.description}`
+}
+
+function characterDraftKey(value: { id?: string; name?: string }): string {
+  return String(value.id || value.name || '').trim().toLowerCase()
+}
+
+function mapGeneratedCharacterToEditable(c: GeneratedCharacterPayload): EditableCharacter {
+  const normalized = normalizeCharacterRoleAndDescription(c.role, c.description)
   return {
     id: c.id || '',
     name: c.name || '',
-    role,
-    description: desc,
+    role: normalized.role,
+    description: normalized.description,
     gender: c.gender || '',
     age: c.age || '',
     appearance: c.appearance || '',
-    personality: c.personality || '',
-    background: c.background || '',
-    core_motivation: c.core_motivation || '',
-    inner_lack: c.inner_lack || '',
+    personality: c.personality || c.flaw || '',
+    background: c.background || c.ghost || '',
+    core_motivation: c.core_motivation || c.want || '',
+    inner_lack: c.inner_lack || c.need || '',
     mental_state: c.mental_state || '',
     mental_state_reason: c.mental_state_reason || '',
     verbal_tic: c.verbal_tic || '',
@@ -1097,6 +1128,36 @@ function mapCharacterToEditable(c: CharacterDTO): EditableCharacter {
     moral_taboos: [...(c.moral_taboos || [])],
     voice_profile: normalizeVoiceProfile(c.voice_profile || {}),
     active_wounds: normalizeWounds(c.active_wounds as Array<Record<string, string>> | undefined),
+  }
+}
+
+/** 从 CharacterDTO 映射到 EditableCharacter，解析 description 中的 role */
+function mapCharacterToEditable(c: CharacterDTO, fallback?: Partial<EditableCharacter>): EditableCharacter {
+  const normalized = normalizeCharacterRoleAndDescription(c.role, c.description)
+  return {
+    id: c.id || '',
+    name: c.name || '',
+    role: normalized.role,
+    description: normalized.description,
+    gender: c.gender || fallback?.gender || '',
+    age: c.age || fallback?.age || '',
+    appearance: c.appearance || fallback?.appearance || '',
+    personality: c.personality || fallback?.personality || '',
+    background: c.background || fallback?.background || '',
+    core_motivation: c.core_motivation || fallback?.core_motivation || '',
+    inner_lack: c.inner_lack || fallback?.inner_lack || '',
+    mental_state: c.mental_state || '',
+    mental_state_reason: c.mental_state_reason || '',
+    verbal_tic: c.verbal_tic || '',
+    idle_behavior: c.idle_behavior || '',
+    relationships: normalizeRelationships((c.relationships && c.relationships.length ? c.relationships : fallback?.relationships) as BibleRelationshipEntry[] | undefined),
+    public_profile: c.public_profile || fallback?.public_profile || '',
+    hidden_profile: c.hidden_profile || fallback?.hidden_profile || '',
+    reveal_chapter: c.reveal_chapter ?? null,
+    core_belief: c.core_belief || fallback?.core_belief || '',
+    moral_taboos: [...((c.moral_taboos && c.moral_taboos.length ? c.moral_taboos : fallback?.moral_taboos) || [])],
+    voice_profile: normalizeVoiceProfile((c.voice_profile && Object.keys(c.voice_profile).length ? c.voice_profile : fallback?.voice_profile) as Record<string, unknown> | undefined),
+    active_wounds: normalizeWounds((c.active_wounds && c.active_wounds.length ? c.active_wounds : fallback?.active_wounds) as Array<Record<string, string>> | undefined),
   }
 }
 
@@ -1547,6 +1608,7 @@ function startCharactersGenerationSSE() {
   charactersGenerated.value = false
   charactersError.value = ''
   streamingCharacters.value = []
+  generatedCharacterDrafts.value = {}
   phaseMessage.value = '正在打开审阅面板...'
 
   const ctrl = new AbortController()
@@ -1558,56 +1620,17 @@ function startCharactersGenerationSSE() {
       phaseMessage.value = msg
     },
     onCharacter: (char) => {
-      const c = char as Partial<CharacterDTO> & {
-        role?: string
-        gender?: string
-        age?: string
-        appearance?: string
-        personality?: string
-        background?: string
-        core_motivation?: string
-        inner_lack?: string
-        ghost?: string
-        want?: string
-        need?: string
-        flaw?: string
-      }
+      const c = char as GeneratedCharacterPayload
       if (c.name) {
-        // 从 description 中解析 role（后端可能把 role 拼到 description 开头）
-        let role = c.role || ''
-        let desc = c.description || ''
-        if (!role && desc.includes(' - ')) {
-          const sepIdx = desc.indexOf(' - ')
-          role = desc.slice(0, sepIdx).trim()
-          desc = desc.slice(sepIdx + 3).trim()
-        } else if (role && desc.startsWith(role) && desc.includes(' - ')) {
-          const sepIdx = desc.indexOf(' - ')
-          desc = desc.slice(sepIdx + 3).trim()
+        const editable = mapGeneratedCharacterToEditable(c)
+        const draftKey = characterDraftKey({ id: editable.id, name: editable.name })
+        if (draftKey) {
+          generatedCharacterDrafts.value = {
+            ...generatedCharacterDrafts.value,
+            [draftKey]: editable,
+          }
         }
-        streamingCharacters.value = [...streamingCharacters.value, {
-          name: c.name,
-          role,
-          description: desc,
-          gender: c.gender || '',
-          age: c.age || '',
-          appearance: c.appearance || '',
-          personality: c.personality || '',
-          background: c.background || '',
-          core_motivation: c.core_motivation || c.want || '',
-          inner_lack: c.inner_lack || c.need || '',
-          relationships: normalizeRelationships(c.relationships || []),
-          public_profile: c.public_profile || '',
-          hidden_profile: c.hidden_profile || '',
-          reveal_chapter: c.reveal_chapter ?? null,
-          mental_state: c.mental_state || '',
-          mental_state_reason: c.mental_state_reason || '',
-          verbal_tic: c.verbal_tic || '',
-          idle_behavior: c.idle_behavior || '',
-          core_belief: c.core_belief || '',
-          moral_taboos: [...(c.moral_taboos || [])],
-          voice_profile: normalizeVoiceProfile(c.voice_profile || {}),
-          active_wounds: normalizeWounds(c.active_wounds as Array<Record<string, string>> | undefined),
-        }]
+        streamingCharacters.value = [...streamingCharacters.value, editable]
       }
     },
     onCharacterChunk: (_chunk) => {
@@ -1706,7 +1729,9 @@ async function loadBibleData() {
     styleText.value = styleConventionFromBible(bible)
 
     // 将人物/地点拷贝到可编辑列表
-    editableCharacters.value = (bible.characters || []).map(mapCharacterToEditable)
+    editableCharacters.value = (bible.characters || []).map((char) =>
+      mapCharacterToEditable(char, generatedCharacterDrafts.value[characterDraftKey(char)])
+    )
     editableLocations.value = (bible.locations || []).map(l => ({
       name: l.name || '',
       id: l.id || undefined,
@@ -1765,7 +1790,9 @@ async function detectWizardProgress(): Promise<number> {
     }
     if (hasCharacters) {
       charactersGenerated.value = true
-      editableCharacters.value = (bible.characters || []).map(mapCharacterToEditable)
+      editableCharacters.value = (bible.characters || []).map((char) =>
+        mapCharacterToEditable(char, generatedCharacterDrafts.value[characterDraftKey(char)])
+      )
     }
     if (hasLocations) {
       locationsGenerated.value = true
@@ -1944,7 +1971,7 @@ async function saveCharactersEdits(): Promise<boolean> {
       characters: editableCharacters.value.map((c, idx) => ({
         id: c.id || `${props.novelId}-char-${idx + 1}`,
         name: c.name,
-        description: c.description,
+        description: formatCharacterDescriptionForSave(c.role, c.description),
         role: c.role,
         gender: c.gender,
         age: c.age,

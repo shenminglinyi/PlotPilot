@@ -1,5 +1,23 @@
-【世界观全量摘要】
-{worldbuilding_full}
+【故事创意】
+{premise}
+
+【小说设定】
+名称：{novel_title}
+大类：{genre_major}
+主题：{genre_theme}
+类型：{genre_label}
+基调：{world_preset}
+章节数量：{target_chapters}
+每章字数：{target_words_per_chapter}
+
+【类型开篇画像】
+{{ genre_opening_profile | tojson }}
+
+【读者留存契约】
+{{ genre_reader_contract | tojson }}
+
+【类型节奏约束】
+{{ genre_rhythm_constraints | tojson }}
 
 【核心法则】
 {core_rules}
@@ -22,9 +40,6 @@
 【剧组已有卡司】
 {existing_characters}
 
-【命名种子】
-{surname_seed}
-
 ---
 
 请基于以上世界观生成主要角色阵容。人物不是标签卡，而是写文引擎的角色锁：必须包含核心信念、禁忌、声线、创伤触发和 POV 防火墙信息。
@@ -39,6 +54,9 @@
       "age": "年龄",
       "role": "主角/对立角色/盟友/次要角色",
       "description": "一句话功能定位与人物矛盾，单行",
+      "appearance": "最容易辨认的外貌锚点，单行；没有则空字符串",
+      "personality": "性格底色/处事风格，单行；没有则空字符串",
+      "background": "最关键的背景经历或出身来历，单行；没有则空字符串",
       "public_profile": "其他角色可见的身份、阶层、外显行为，单行",
       "hidden_profile": "暂不可见的秘密/真实动机/身份雷区，单行；没有则空字符串",
       "reveal_chapter": null,
@@ -46,6 +64,8 @@
       "mental_state_reason": "该心理状态的成因，单行",
       "core_belief": "一句可驱动选择的核心信念",
       "moral_taboos": ["绝不做的事1", "绝不做的事2"],
+      "core_motivation": "核心驱动力/表层目标，单行；最好与 want 一致",
+      "inner_lack": "内在缺口/深层需要，单行；最好与 need 一致",
       "ghost": "内心创伤或恐惧",
       "want": "表层目标",
       "need": "深层需要（角色自己可能不自知）",

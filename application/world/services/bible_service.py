@@ -123,6 +123,13 @@ class BibleService:
         description: str,
         relationships: list = None,
         *,
+        gender: str = "",
+        age: str = "",
+        appearance: str = "",
+        personality: str = "",
+        background: str = "",
+        core_motivation: str = "",
+        inner_lack: str = "",
         public_profile: str = "",
         hidden_profile: str = "",
         reveal_chapter: int = None,
@@ -159,6 +166,13 @@ class BibleService:
             name=name,
             description=description,
             relationships=relationships or [],
+            gender=gender or "",
+            age=age or "",
+            appearance=appearance or "",
+            personality=personality or "",
+            background=background or "",
+            core_motivation=core_motivation or "",
+            inner_lack=inner_lack or "",
             public_profile=public_profile or "",
             hidden_profile=hidden_profile or "",
             reveal_chapter=reveal_chapter,
@@ -185,6 +199,13 @@ class BibleService:
         description: str,
         relationships: list = None,
         *,
+        gender: str = "",
+        age: str = "",
+        appearance: str = "",
+        personality: str = "",
+        background: str = "",
+        core_motivation: str = "",
+        inner_lack: str = "",
         public_profile: str = "",
         hidden_profile: str = "",
         reveal_chapter: int = None,
@@ -210,6 +231,13 @@ class BibleService:
                 name=name,
                 description=description,
                 relationships=relationships,
+                gender=gender,
+                age=age,
+                appearance=appearance,
+                personality=personality,
+                background=background,
+                core_motivation=core_motivation,
+                inner_lack=inner_lack,
                 public_profile=public_profile,
                 hidden_profile=hidden_profile,
                 reveal_chapter=reveal_chapter,
@@ -226,6 +254,13 @@ class BibleService:
         character.name = name
         character.description = description
         character.relationships = list(relationships or [])
+        character.gender = gender or ""
+        character.age = age or ""
+        character.appearance = appearance or ""
+        character.personality = personality or ""
+        character.background = background or ""
+        character.core_motivation = core_motivation or ""
+        character.inner_lack = inner_lack or ""
         character.public_profile = public_profile or ""
         character.hidden_profile = hidden_profile or ""
         character.reveal_chapter = reveal_chapter
@@ -554,6 +589,48 @@ class BibleService:
         # 添加新的人物（锚点字段：请求未传则沿用库内旧值，避免整本保存冲掉沙盒写入）
         for char_data in characters:
             prev = prev_chars.get(char_data.id)
+            if getattr(char_data, "gender", None) is not None:
+                gender = char_data.gender or ""
+            elif prev is not None:
+                gender = getattr(prev, "gender", None) or ""
+            else:
+                gender = ""
+            if getattr(char_data, "age", None) is not None:
+                age = char_data.age or ""
+            elif prev is not None:
+                age = getattr(prev, "age", None) or ""
+            else:
+                age = ""
+            if getattr(char_data, "appearance", None) is not None:
+                appearance = char_data.appearance or ""
+            elif prev is not None:
+                appearance = getattr(prev, "appearance", None) or ""
+            else:
+                appearance = ""
+            if getattr(char_data, "personality", None) is not None:
+                personality = char_data.personality or ""
+            elif prev is not None:
+                personality = getattr(prev, "personality", None) or ""
+            else:
+                personality = ""
+            if getattr(char_data, "background", None) is not None:
+                background = char_data.background or ""
+            elif prev is not None:
+                background = getattr(prev, "background", None) or ""
+            else:
+                background = ""
+            if getattr(char_data, "core_motivation", None) is not None:
+                core_motivation = char_data.core_motivation or ""
+            elif prev is not None:
+                core_motivation = getattr(prev, "core_motivation", None) or ""
+            else:
+                core_motivation = ""
+            if getattr(char_data, "inner_lack", None) is not None:
+                inner_lack = char_data.inner_lack or ""
+            elif prev is not None:
+                inner_lack = getattr(prev, "inner_lack", None) or ""
+            else:
+                inner_lack = ""
             if char_data.mental_state is not None:
                 ms = char_data.mental_state or "NORMAL"
             elif prev is not None:
@@ -625,6 +702,13 @@ class BibleService:
                 name=char_data.name,
                 description=char_data.description,
                 relationships=char_data.relationships,
+                gender=gender,
+                age=age,
+                appearance=appearance,
+                personality=personality,
+                background=background,
+                core_motivation=core_motivation,
+                inner_lack=inner_lack,
                 public_profile=pub,
                 hidden_profile=hid,
                 reveal_chapter=rev,
@@ -713,6 +797,13 @@ class BibleService:
                         novel_id=novel_id,
                         name=char.name,
                         description=getattr(char, "description", "") or "",
+                        gender=getattr(char, "gender", "") or "",
+                        age=getattr(char, "age", "") or "",
+                        appearance=getattr(char, "appearance", "") or "",
+                        personality=getattr(char, "personality", "") or "",
+                        background=getattr(char, "background", "") or "",
+                        core_motivation=getattr(char, "core_motivation", "") or "",
+                        inner_lack=getattr(char, "inner_lack", "") or "",
                         public_profile=getattr(char, "public_profile", "") or "",
                         hidden_profile=getattr(char, "hidden_profile", "") or "",
                         reveal_chapter=getattr(char, "reveal_chapter", None),

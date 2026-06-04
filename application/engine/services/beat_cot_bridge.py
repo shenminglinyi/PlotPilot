@@ -160,46 +160,32 @@ async def compute_beat_bridge(
     tail = prev_beat_content.strip()[-_TAIL_CHARS:]
 
     try:
-        from infrastructure.ai.prompt_keys import BEAT_COT_BRIDGE
-        from infrastructure.ai.prompt_utils import PromptTemplateUnavailable, render_required_prompt
-
-        prompt = render_required_prompt(
-            BEAT_COT_BRIDGE,
-            {
-                "prev_beat_tail": tail,
-                "next_beat_intent": next_beat_intent,
-                "chapter_outline": chapter_outline or "",
-            },
-        )
-        system_text = prompt.system
-        user_text = prompt.user
-
-    except PromptTemplateUnavailable as exc:
-        logger.warning("[BeatCoTBridge] CPMS node unavailable; optional beat bridge skipped: %s", exc)
-        return None
-
-    except Exception as e:
-        logger.debug("[BeatCoTBridge] CPMS render failed; optional beat bridge skipped: %s", e)
-        return None
-
-    if not user_text:
-        return None
-
-    try:
         if llm_service is None:
             from interfaces.api.dependencies import get_llm_service
             llm_service = get_llm_service()
 
-        from domain.ai.services.llm_service import GenerationConfig
+        from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
+        from application.ai_invocation.autopilot.helper_invoker import AutopilotHelperRequest
+        from infrastructure.ai.prompt_keys import BEAT_COT_BRIDGE
 
-        config = GenerationConfig(max_tokens=400, temperature=0.25)
-
-        pieces: List[str] = []
-        async for chunk in llm_service.stream_generate(prompt, config):
-            if chunk:
-                pieces.append(chunk)
-
-        raw_text = "".join(pieces).strip()
+        owner = type("BeatBridgeInvocationOwner", (), {"llm_service": llm_service})()
+        raw_text = await get_or_create_autopilot_helper_invoker(owner).invoke_text(
+            AutopilotHelperRequest(
+                novel_id="global",
+                stage="writing",
+                operation="autopilot.beat.bridge",
+                node_key=BEAT_COT_BRIDGE,
+                explicit_variables={
+                    "prev_beat_tail": tail,
+                    "next_beat_intent": next_beat_intent,
+                    "chapter_outline": chapter_outline or "",
+                },
+                context={},
+                metadata={"source": "beat_cot_bridge"},
+                config={"max_tokens": 400, "temperature": 0.25},
+            )
+        )
+        raw_text = raw_text.strip()
         if not raw_text:
             return None
 

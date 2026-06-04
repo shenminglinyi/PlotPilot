@@ -307,6 +307,13 @@ CREATE TABLE IF NOT EXISTS unified_characters (
     public_profile        TEXT NOT NULL DEFAULT '',
     hidden_profile        TEXT NOT NULL DEFAULT '',
     reveal_chapter        INTEGER,
+    gender                TEXT NOT NULL DEFAULT '',
+    age                   TEXT NOT NULL DEFAULT '',
+    appearance            TEXT NOT NULL DEFAULT '',
+    personality           TEXT NOT NULL DEFAULT '',
+    background            TEXT NOT NULL DEFAULT '',
+    core_motivation       TEXT NOT NULL DEFAULT '',
+    inner_lack            TEXT NOT NULL DEFAULT '',
     role                  TEXT NOT NULL DEFAULT '',
     faction_id            TEXT,
     verbal_tic            TEXT NOT NULL DEFAULT '',
@@ -901,6 +908,5 @@ CREATE INDEX IF NOT EXISTS idx_dag_versions_novel ON dag_versions(novel_id);
 CREATE INDEX IF NOT EXISTS idx_dag_versions_novel_version ON dag_versions(novel_id, version);
 -- 索引：按更新时间排序（用于清理旧版本）
 CREATE INDEX IF NOT EXISTS idx_dag_versions_updated_at ON dag_versions(novel_id, updated_at DESC);
-
 
 

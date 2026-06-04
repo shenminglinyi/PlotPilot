@@ -14,6 +14,7 @@ from application.ai_invocation.dtos import (
     VariablePlan,
 )
 from application.ai_invocation.variable_hub import VariableWrite
+from application.core.v1_length_tiers import build_v1_structure_black_box_hint
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
@@ -197,6 +198,35 @@ def test_sqlite_variable_hub_repository_resolves_bindings_and_current_value():
     assert definition.default == "默认设定"
 
 
+def test_sqlite_variable_hub_repository_persists_path_and_projection_binding_metadata():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(
+                alias="characters_brief",
+                variable_key="novel.characters.list",
+                source_path="characters[0]",
+                projection_key="character.card",
+                render_mode="projection",
+                value_type="string",
+                scope="global",
+                stage="characters",
+                display_name="主角卡",
+            )
+        ],
+    )
+
+    bindings = repo.get_bindings("binding-set-1", "chapter-test")
+
+    assert bindings[0].source_path == "characters[0]"
+    assert bindings[0].projection_key == "character.card"
+    assert bindings[0].render_mode == "projection"
+
+
 def test_sqlite_variable_hub_repository_writes_current_value_and_lineage():
     db = _Db()
     repo = SqliteVariableHubRepository(db)
@@ -251,3 +281,70 @@ def test_sqlite_variable_hub_repository_writes_current_value_and_lineage():
         "source_attempt_id": "attempt-2",
         "source_node_key": "bible-characters",
     }
+
+
+def test_sqlite_variable_hub_repository_infers_stage_for_legacy_runtime_values():
+    db = _Db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO variable_definitions (
+                id, variable_key, display_name, value_type, scope_level, status, metadata_json
+            ) VALUES (
+                'var-def-worldbuilding',
+                'novel.worldbuilding.core_rules',
+                '核心法则',
+                'object',
+                'novel',
+                'active',
+                '{"stage":"runtime"}'
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO variable_values (
+                id, variable_key, scope_level, scope_key, value_json, value_hash,
+                version_number, is_current, metadata_json
+            ) VALUES (
+                'var-value-worldbuilding',
+                'novel.worldbuilding.core_rules',
+                'novel',
+                'novel_id:novel-1',
+                '{"law":"旧城由债务法则统治"}',
+                'hash',
+                1,
+                1,
+                '{"stage":"runtime"}'
+            )
+            """
+        )
+
+    rows = SqliteVariableHubRepository(db).list_current_values("novel_id:novel-1")
+
+    assert rows[0]["variable_key"] == "novel.worldbuilding.core_rules"
+    assert rows[0]["stage"] == "worldbuilding"
+
+
+def test_sqlite_variable_hub_repository_sanitizes_premise_internal_hint():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+    internal_hint = build_v1_structure_black_box_hint("standard", 500, 2000)
+
+    repo.set_value(
+        VariableWrite(
+            key="novel.setup.premise",
+            value=f"{internal_hint}\n\n作者正文设定",
+            context_key="novel_id:novel-1",
+            value_type="string",
+            display_name="设定",
+            stage="setup",
+        )
+    )
+
+    value = repo.get_value("novel.setup.premise", "novel_id:novel-1")
+    rows = repo.list_current_values("novel_id:novel-1")
+
+    assert value is not None
+    assert value.value == "作者正文设定"
+    assert rows[0]["value"] == "作者正文设定"

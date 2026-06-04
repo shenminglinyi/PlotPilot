@@ -104,6 +104,7 @@ class PipelineContext:
 
     # ═══ 断点续写 ═══
     existing_content: str = ""                   # 已有内容（断点续写）
+    start_beat_index: int = 0                    # 从哪个节拍继续
 
     # ═══ 依赖注入（通过 inject() 设置） ═══
     novel_repository: Any = None

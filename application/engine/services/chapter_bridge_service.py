@@ -166,6 +166,37 @@ class ChapterBridgeService:
         except Exception as e:
             logger.warning("chapter_bridges 建表失败: %s", e)
 
+    async def _invoke_helper_text(
+        self,
+        *,
+        novel_id: str,
+        chapter_number: int,
+        operation: str,
+        node_key: str,
+        variables: Dict[str, Any],
+        max_tokens: int,
+        temperature: float,
+    ) -> str:
+        from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
+        from application.ai_invocation.autopilot.helper_invoker import AutopilotHelperRequest
+
+        owner = type("ChapterBridgeInvocationOwner", (), {"llm_service": self._llm})()
+        return await get_or_create_autopilot_helper_invoker(owner).invoke_text(
+            AutopilotHelperRequest(
+                novel_id=novel_id,
+                stage="writing",
+                operation=operation,
+                node_key=node_key,
+                explicit_variables=variables,
+                context={
+                    "novel_id": novel_id,
+                    "chapter_number": chapter_number,
+                },
+                metadata={"source": "chapter_bridge_service"},
+                config={"max_tokens": max_tokens, "temperature": temperature},
+            )
+        )
+
     # ------------------------------------------------------------------
     # 1. 章末桥段提取
     # ------------------------------------------------------------------
@@ -195,7 +226,7 @@ class ChapterBridgeService:
 
         if self._llm:
             try:
-                bridge = await self._llm_extract_bridge(chapter_number, tail, bridge)
+                bridge = await self._llm_extract_bridge(novel_id, chapter_number, tail, bridge)
             except PromptTemplateUnavailable:
                 raise
             except Exception as e:
@@ -217,6 +248,7 @@ class ChapterBridgeService:
 
     async def _llm_extract_bridge(
         self,
+        novel_id: str,
         chapter_number: int,
         tail_text: str,
         bridge: ChapterBridge,
@@ -227,11 +259,15 @@ class ChapterBridgeService:
         if len(body) > 1500:
             body = body[-1500:]
 
-        prompt = render_required_prompt(_BRIDGE_EXTRACT_NODE_KEY, {"chapter_text": body})
-        config = GenerationConfig(max_tokens=512, temperature=0.3)
-
-        result = await self._llm.generate(prompt, config)
-        raw = result.content if hasattr(result, "content") else str(result)
+        raw = await self._invoke_helper_text(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            operation="autopilot.bridge.extract",
+            node_key=_BRIDGE_EXTRACT_NODE_KEY,
+            variables={"chapter_text": body},
+            max_tokens=512,
+            temperature=0.3,
+        )
 
         # 解析 JSON
         data = self._parse_json(raw)
@@ -421,15 +457,16 @@ class ChapterBridgeService:
 
         bridge_summary = "\n".join(bridge_parts)
 
-        prompt = render_required_prompt(
-            _BRIDGE_CHECK_NODE_KEY,
-            {"bridge_data": bridge_summary, "chapter_opening": head},
-        )
-        config = GenerationConfig(max_tokens=256, temperature=0.3)
-
         try:
-            result = await self._llm.generate(prompt, config)
-            raw = result.content if hasattr(result, "content") else str(result)
+            raw = await self._invoke_helper_text(
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                operation="autopilot.bridge.check",
+                node_key=_BRIDGE_CHECK_NODE_KEY,
+                variables={"bridge_data": bridge_summary, "chapter_opening": head},
+                max_tokens=256,
+                temperature=0.3,
+            )
             data = self._parse_json(raw)
 
             if data:
@@ -503,19 +540,20 @@ class ChapterBridgeService:
             bridge_parts.append(f"未完成动作：{prev_bridge.unfinished_actions}")
         bridge_summary = "\n".join(bridge_parts)
 
-        prompt = render_required_prompt(
-            _BRIDGE_FIX_NODE_KEY,
-            {
-                "bridge_data": bridge_summary,
-                "issues": issues_text,
-                "original_opening": head,
-            },
-        )
-        config = GenerationConfig(max_tokens=512, temperature=0.4)
-
         try:
-            result = await self._llm.generate(prompt, config)
-            new_head = result.content if hasattr(result, "content") else str(result)
+            new_head = await self._invoke_helper_text(
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                operation="autopilot.bridge.fix",
+                node_key=_BRIDGE_FIX_NODE_KEY,
+                variables={
+                    "bridge_data": bridge_summary,
+                    "issues": issues_text,
+                    "original_opening": head,
+                },
+                max_tokens=512,
+                temperature=0.4,
+            )
             new_head = new_head.strip()
 
             if new_head and len(new_head) >= 50:

@@ -45,6 +45,7 @@
                     :chapter-loading="chapterLoading"
                     :generation-prefs="generationPrefs"
                     @chapter-updated="handleChapterUpdated"
+                    @select-chapter="handleChapterSelect"
                   />
                 </template>
 

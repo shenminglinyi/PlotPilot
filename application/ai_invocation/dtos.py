@@ -111,6 +111,9 @@ class VariableBinding:
     scope: str = "runtime"
     stage: str = "runtime"
     display_name: str = ""
+    source_path: str = ""
+    projection_key: str = ""
+    render_mode: str = "raw"
 
 
 @dataclass(frozen=True)

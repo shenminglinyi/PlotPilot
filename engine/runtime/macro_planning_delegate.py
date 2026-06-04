@@ -2,11 +2,149 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Mapping
 
-from domain.novel.entities.novel import Novel, NovelStage
+from domain.novel.entities.novel import AutopilotStatus, Novel, NovelStage
 
 logger = logging.getLogger(__name__)
+
+
+def _read_shared_state(novel_id: str) -> dict[str, Any]:
+    from application.ai_invocation.autopilot.shared_state import read_autopilot_shared_state
+
+    return read_autopilot_shared_state(novel_id)
+
+
+def _consume_pending_macro_plan(host: Any, *, novel_id: str, target_chapters: int) -> dict[str, Any] | None:
+    shared = _read_shared_state(novel_id)
+    pending_target = int(shared.get("autopilot_pending_macro_target_chapters") or 0)
+    pending = shared.get("autopilot_pending_macro_plan")
+    if pending_target != int(target_chapters or 0) or not isinstance(pending, dict):
+        return None
+    host._update_shared_state(
+        novel_id,
+        autopilot_pending_macro_plan=None,
+        autopilot_pending_macro_target_chapters=None,
+        active_invocation_session_id="",
+        active_invocation_operation="",
+        active_invocation_node_key="",
+        active_invocation_status="completed",
+        active_invocation_policy="",
+        has_active_invocation=False,
+        requires_ai_review=False,
+        autopilot_pause_reason="",
+    )
+    return dict(pending)
+
+
+def _write_macro_variables(*, novel_id: str, variables: Mapping[str, Any], node_key: str) -> None:
+    from application.ai_invocation.variable_hub import VariableWrite
+    from infrastructure.persistence.database.connection import get_database
+    from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+    repo = SqliteVariableHubRepository(get_database())
+    context_key = f"novel_id:{novel_id}"
+    integer_aliases = {
+        "target_chapters",
+        "rec_parts",
+        "rec_volumes_per_part",
+        "rec_acts_per_volume",
+        "rec_chapters_per_act",
+        "total_recommended_acts",
+    }
+    variable_keys = {
+        "planning_depth": "novel.planning.macro.depth",
+        "rec_parts": "novel.planning.macro.rec_parts",
+        "rec_volumes_per_part": "novel.planning.macro.rec_volumes_per_part",
+        "rec_acts_per_volume": "novel.planning.macro.rec_acts_per_volume",
+        "rec_chapters_per_act": "novel.planning.macro.rec_chapters_per_act",
+        "total_recommended_acts": "novel.planning.macro.total_recommended_acts",
+    }
+    for alias, value in dict(variables or {}).items():
+        if alias not in variable_keys:
+            continue
+        repo.set_value(
+            VariableWrite(
+                key=variable_keys[alias],
+                value=value,
+                context_key=context_key,
+                source_node_key=node_key,
+                source_trace_id=node_key,
+                scope="novel",
+                stage="planning",
+                display_name=alias,
+                value_type="integer" if alias in integer_aliases else "string",
+            )
+        )
+
+
+def _pause_for_invocation(host: Any, novel: Novel, outcome) -> None:
+    session = outcome.payload.get("session") if isinstance(outcome.payload, Mapping) else None
+    policy_value = getattr(getattr(session, "policy", ""), "value", "") or "AUTOPILOT_PAUSE"
+    host._update_shared_state(
+        novel.novel_id.value,
+        active_invocation_session_id=outcome.session_id,
+        active_invocation_operation=outcome.operation,
+        active_invocation_node_key=outcome.node_key,
+        active_invocation_status=outcome.status,
+        active_invocation_policy=policy_value,
+        has_active_invocation=True,
+        requires_ai_review=True,
+        autopilot_pause_reason=outcome.autopilot_pause_reason or "awaiting_ai_review",
+    )
+    novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+    novel.autopilot_status = AutopilotStatus.RUNNING
+    host._flush_novel(novel)
+
+
+async def _request_macro_invocation(host: Any, novel: Novel, *, target_chapters: int) -> Any:
+    from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
+    from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
+    from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
+    from application.ai_invocation.contracts import ensure_invocation_contract
+    from infrastructure.ai.prompt_keys import PLANNING_QUICK_MACRO
+    from infrastructure.persistence.database.connection import get_database
+
+    bible_context = host.planning_service._get_bible_context(novel.novel_id.value)
+    variables = host.planning_service.build_quick_macro_variables(bible_context, target_chapters)
+    runtime_variables = {
+        alias: variables[alias]
+        for alias in (
+            "planning_depth",
+            "rec_parts",
+            "rec_volumes_per_part",
+            "rec_acts_per_volume",
+            "rec_chapters_per_act",
+            "total_recommended_acts",
+        )
+        if alias in variables
+    }
+    ensure_invocation_contract("autopilot.macro.plan", PLANNING_QUICK_MACRO, get_database())
+    _write_macro_variables(
+        novel_id=novel.novel_id.value,
+        variables=runtime_variables,
+        node_key=PLANNING_QUICK_MACRO,
+    )
+    policy = AutopilotInvocationPolicyResolver().resolve(
+        operation="autopilot.macro.plan",
+        node_key=PLANNING_QUICK_MACRO,
+        novel=novel,
+        context={"novel_id": novel.novel_id.value, "target_chapters": target_chapters},
+    )
+    return await get_or_create_autopilot_orchestrator(host).request(
+        AutopilotInvocationIntent(
+            novel_id=novel.novel_id.value,
+            stage="planning",
+            operation="autopilot.macro.plan",
+            node_key=PLANNING_QUICK_MACRO,
+            context={"novel_id": novel.novel_id.value, "target_chapters": target_chapters},
+            explicit_variables={},
+            continuation_handler_key="autopilot_macro_plan",
+            policy_hint=policy,
+            metadata={"source": "macro_planning_delegate"},
+            config={"max_tokens": 6000, "temperature": 0.7},
+        )
+    )
 
 
 async def run_macro_planning(host: Any, novel: Novel) -> None:
@@ -28,11 +166,38 @@ async def run_macro_planning(host: Any, novel: Novel) -> None:
         target_chapters,
     )
 
-    result = await host.planning_service.generate_macro_plan(
+    result = _consume_pending_macro_plan(
+        host,
         novel_id=novel.novel_id.value,
         target_chapters=target_chapters,
-        structure_preference=None,
     )
+    if result is None:
+        shared_state = _read_shared_state(novel.novel_id.value)
+        if shared_state.get("active_invocation_session_id") and shared_state.get("has_active_invocation"):
+            logger.info(
+                "[%s] 宏观规划已有待处理 invocation session=%s，等待面板处理",
+                novel.novel_id.value,
+                shared_state.get("active_invocation_session_id"),
+            )
+            novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
+            novel.autopilot_status = AutopilotStatus.RUNNING
+            host._flush_novel(novel)
+            return
+        outcome = await _request_macro_invocation(host, novel, target_chapters=target_chapters)
+        if outcome.status in {
+            "awaiting_pre_call_review",
+            "awaiting_acceptance",
+            "awaiting_commit",
+            "blocked",
+            "failed",
+            "cancelled",
+        }:
+            _pause_for_invocation(host, novel, outcome)
+            return
+        commit = outcome.payload.get("commit") if isinstance(outcome.payload, Mapping) else None
+        commit_result = getattr(commit, "result", None) if commit is not None else None
+        continuation = commit_result.get("continuation") if isinstance(commit_result, Mapping) else None
+        result = dict((continuation or {}).get("macro_plan") or {})
 
     ok = bool(result.get("success"))
     n_parts = len(result.get("structure") or []) if isinstance(result.get("structure"), list) else -1

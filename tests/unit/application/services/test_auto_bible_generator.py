@@ -100,6 +100,75 @@ async def test_generate_bible_data_blocks_when_cpms_node_missing(monkeypatch):
     llm.generate.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_generate_and_save_characters_persists_supported_lock_fields():
+    bible_service = Mock()
+    bible_service.get_bible_by_novel.return_value = object()
+    bible_service.add_character = Mock()
+
+    svc = AutoBibleGenerator(llm_service=Mock(), bible_service=bible_service)
+    svc._load_worldbuilding = Mock(return_value={})
+    svc._generate_characters = AsyncMock(
+        return_value={
+            "characters": [
+                {
+                    "name": "覃九歌",
+                    "gender": "男",
+                    "age": "27",
+                    "role": "主角",
+                    "description": "身负禁术反噬的边疆侯府弃子。",
+                    "appearance": "左腕佩一枚碎裂骨戒。",
+                    "personality": "克制锋利。",
+                    "background": "边疆侯府弃子。",
+                    "core_motivation": "找到解咒之法。",
+                    "inner_lack": "学会接受他人的靠近。",
+                    "relationships": [{"target": "颜霜柯", "relation": "追逃", "description": "相互拉扯"}],
+                    "public_profile": "北境覃家庶子。",
+                    "hidden_profile": "体内封印异核。",
+                    "reveal_chapter": 12,
+                    "mental_state": "隐忍濒爆",
+                    "mental_state_reason": "封印濒临失控。",
+                    "verbal_tic": "源火不熄。",
+                    "idle_behavior": "反复摩挲骨戒。",
+                    "core_belief": "命是自己的骨。",
+                    "moral_taboos": ["不杀无辜"],
+                    "voice_profile": {"style": "克制", "sentence_pattern": "短句", "speech_tempo": "slow"},
+                    "active_wounds": [{"description": "胞妹之死", "trigger": "听到女孩叫哥", "effect": "短暂失语"}],
+                }
+            ]
+        }
+    )
+    svc._generate_character_triples = AsyncMock()
+
+    await svc.generate_and_save("novel-1", "premise", 100, stage="characters")
+
+    bible_service.add_character.assert_called_once_with(
+        novel_id="novel-1",
+        character_id="novel-1-char-1",
+        name="覃九歌",
+        description="主角 - 身负禁术反噬的边疆侯府弃子。",
+        relationships=[{"target": "颜霜柯", "relation": "追逃", "description": "相互拉扯"}],
+        gender="男",
+        age="27",
+        appearance="左腕佩一枚碎裂骨戒。",
+        personality="克制锋利。",
+        background="边疆侯府弃子。",
+        core_motivation="找到解咒之法。",
+        inner_lack="学会接受他人的靠近。",
+        public_profile="北境覃家庶子。",
+        hidden_profile="体内封印异核。",
+        reveal_chapter=12,
+        mental_state="隐忍濒爆",
+        mental_state_reason="封印濒临失控。",
+        verbal_tic="源火不熄。",
+        idle_behavior="反复摩挲骨戒。",
+        core_belief="命是自己的骨。",
+        moral_taboos=["不杀无辜"],
+        voice_profile={"style": "克制", "sentence_pattern": "短句", "speech_tempo": "slow"},
+        active_wounds=[{"description": "胞妹之死", "trigger": "听到女孩叫哥", "effect": "短暂失语"}],
+    )
+
+
 def test_prepare_locations_for_save_orders_parents_first_and_downgrades_missing_parent():
     svc = AutoBibleGenerator(llm_service=Mock(), bible_service=Mock())
 

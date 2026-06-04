@@ -1,0 +1,2 @@
+"""Onboarding stage registry."""
+

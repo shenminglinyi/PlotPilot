@@ -83,8 +83,10 @@ def test_bible_worldbuilding_package_exposes_split_fields():
     declared = {var.get("name") for var in record.get("variables") or [] if isinstance(var, dict)}
     used = engine.extract_variables(f"{record.get('system') or ''}\n{record.get('user_template') or ''}")
 
-    assert {"worldbuilding_full", "core_rules", "geography", "society", "culture", "daily_life"} <= declared
-    assert {"worldbuilding_full", "core_rules", "geography", "society", "culture", "daily_life"} <= used
+    assert {"premise", "novel_title", "fields_desc", "genre_opening_profile"} <= declared
+    assert {"premise", "novel_title", "fields_desc", "genre_opening_profile"} <= used
+    assert {"worldbuilding_full", "novel_setup", "core_rules", "geography", "society", "culture", "daily_life"}.isdisjoint(declared)
+    assert {"worldbuilding_full", "novel_setup", "core_rules", "geography", "society", "culture", "daily_life"}.isdisjoint(used)
 
 
 def test_prompt_gateway_fast_fails_when_registry_misses(monkeypatch):

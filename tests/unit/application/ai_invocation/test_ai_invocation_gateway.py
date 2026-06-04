@@ -13,6 +13,8 @@ from application.ai_invocation.continuation import register_continuation_handler
 from application.ai_invocation.gateway import AIInvocationGateway
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler, PromptAssemblyError
 from application.ai_invocation.services import InvocationSessionService
+from application.ai_invocation.services import AttemptService
+from application.ai_invocation.dtos import InvocationSession
 from application.ai_invocation.spec_service import InMemoryInvocationSpecRepository, InvocationSpecService
 from application.ai_invocation.variable_hub import (
     InMemoryVariableHubRepository,
@@ -20,6 +22,7 @@ from application.ai_invocation.variable_hub import (
     VariableResolver,
     VariableWrite,
     VariableValue,
+    extract_path_value,
 )
 from domain.ai.services.llm_service import GenerationResult
 from domain.ai.value_objects.token_usage import TokenUsage
@@ -66,6 +69,18 @@ class FakeLLM:
         yield "生成正文"
 
 
+class FakeStreamingLLM:
+    async def generate(self, prompt, config):
+        return GenerationResult(
+            content="生成正文",
+            token_usage=TokenUsage(input_tokens=3, output_tokens=4),
+        )
+
+    async def stream_generate(self, prompt, config):
+        yield "第一段"
+        yield "第二段"
+
+
 def _spec(policy=InvocationPolicy.DIRECT):
     return InvocationSpec(
         operation="chapter.generate",
@@ -95,6 +110,24 @@ def _resolver():
     return VariableResolver(repo)
 
 
+def test_variable_resolver_context_key_includes_beat_index():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(alias="outline", required=True),
+        ],
+    )
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="autopilot.prose.from_script", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={"outline": "第一拍"},
+        context={"novel_id": "novel-1", "chapter_number": 2, "beat_index": 3},
+    )
+    assert plan.ok
+    assert plan.snapshot_hash
+
+
 def test_variable_resolver_uses_explicit_then_hub_then_default():
     plan = _resolver().resolve(
         spec=_spec(),
@@ -108,6 +141,77 @@ def test_variable_resolver_uses_explicit_then_hub_then_default():
     assert plan.aliases["role"] == "专业小说家"
     assert plan.lineage["outline"] == "explicit"
     assert plan.snapshot_hash
+    assert [item["key"] for item in plan.snapshot_items] == ["bible"]
+    assert plan.snapshot_items[0]["source"] == "variable_hub"
+
+
+def test_variable_resolver_snapshots_prompt_input_when_hub_fact_exists():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [
+            VariableBinding(
+                alias="core_rules",
+                variable_key="novel.worldbuilding.core_rules",
+                source="prompt_input",
+                value_type="string",
+                scope="global",
+                stage="worldbuilding",
+            ),
+            VariableBinding(alias="transient_hint", variable_key="novel.characters.transient_hint", source="prompt_input"),
+        ],
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"power_system": "异能体系"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="bible.setup.characters", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={
+            "core_rules": "【核心法则】异能体系",
+            "transient_hint": "临时提示",
+        },
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.aliases["core_rules"] == "【核心法则】异能体系"
+    assert [item["key"] for item in plan.snapshot_items] == ["core_rules"]
+    assert plan.snapshot_items[0]["source"] == "variable_hub"
+
+
+def test_variable_resolver_snapshot_includes_all_context_values():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "binding-set-1",
+        "chapter-test",
+        [VariableBinding(alias="outline", required=False, default="")],
+    )
+    repo.set_value(VariableWrite(key="novel.setup.premise", value="设定A", context_key="novel_id:novel-1"))
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"power_system": "体系A"},
+            context_key="novel_id:novel-1",
+        )
+    )
+    repo.set_value(VariableWrite(key="novel.characters.list", value=[], context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="materialized.setup.main_plot_context", value="临时拼接文本", context_key="novel_id:novel-1"))
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(operation="bible.setup.characters", node_key="chapter-test", input_binding_set_id="binding-set-1"),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    keys = {item["variable_key"] for item in plan.snapshot_items}
+    assert {"novel.setup.premise", "novel.worldbuilding.core_rules"} <= keys
+    assert "novel.characters.list" not in keys
+    assert "materialized.setup.main_plot_context" not in keys
 
 
 def test_variable_resolver_reports_required_missing():
@@ -122,19 +226,19 @@ def test_variable_resolver_reports_required_missing():
     assert "必填变量缺失: outline" in plan.diagnostics
 
 
-def test_variable_resolver_materializes_main_plot_context_blob():
+def test_variable_resolver_keeps_main_plot_inputs_structured():
     repo = InMemoryVariableHubRepository()
     repo.set_bindings(
         "plot-input",
         "planning-main-plot-option",
         [
             VariableBinding(alias="premise", variable_key="novel.setup.premise", required=True),
-            VariableBinding(alias="worldbuilding_full", variable_key="novel.worldbuilding.full", required=False),
+            VariableBinding(alias="core_rules", variable_key="novel.worldbuilding.core_rules", required=False, value_type="object"),
             VariableBinding(alias="protagonist", variable_key="novel.characters.protagonist", required=False),
         ],
     )
     repo.set_value(VariableWrite(key="novel.setup.premise", value="旧城少年破局", context_key="novel_id:novel-1"))
-    repo.set_value(VariableWrite(key="novel.worldbuilding.full", value="旧城由债务法则统治", context_key="novel_id:novel-1"))
+    repo.set_value(VariableWrite(key="novel.worldbuilding.core_rules", value={"law": "旧城由债务法则统治"}, context_key="novel_id:novel-1"))
     repo.set_value(VariableWrite(key="novel.characters.protagonist", value={"name": "阿澄"}, context_key="novel_id:novel-1"))
 
     plan = VariableResolver(repo).resolve(
@@ -148,9 +252,141 @@ def test_variable_resolver_materializes_main_plot_context_blob():
     )
 
     assert plan.ok
-    assert "setup_main_plot_options_v1" in plan.aliases["context_blob"]
-    assert "旧城少年破局" in plan.aliases["context_blob"]
-    assert plan.lineage["context_blob"] == "materialized:materialized.setup.main_plot_context"
+    assert plan.aliases["premise"] == "旧城少年破局"
+    assert plan.aliases["core_rules"] == {"law": "旧城由债务法则统治"}
+    assert plan.aliases["protagonist"] == {"name": "阿澄"}
+    assert "context_blob" not in plan.aliases
+
+
+def test_extract_path_value_supports_nested_objects_and_array_indexes():
+    payload = {
+        "worldbuilding": {"core_rules": {"law": "债务法则"}},
+        "characters": [
+            {"name": "阿澄", "relationships": [{"target": "洛宁"}]},
+            {"name": "洛宁"},
+        ],
+    }
+
+    assert extract_path_value(payload, "worldbuilding.core_rules.law") == "债务法则"
+    assert extract_path_value(payload, "characters[0].name") == "阿澄"
+    assert extract_path_value(payload, "characters[0].relationships[0].target") == "洛宁"
+    assert extract_path_value(payload, "characters[].name") == ["阿澄", "洛宁"]
+
+
+def test_variable_resolver_projects_structured_values_for_prompt_aliases():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "plot-input",
+        "planning-main-plot-option",
+        [
+            VariableBinding(
+                alias="characters_brief",
+                variable_key="novel.characters.list",
+                value_type="string",
+                projection_key="characters.brief",
+                render_mode="projection",
+            ),
+            VariableBinding(
+                alias="protagonist_name",
+                variable_key="novel.characters.protagonist",
+                source_path="name",
+                value_type="string",
+            ),
+        ],
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.characters.list",
+            value=[
+                {
+                    "name": "阿澄",
+                    "role": "主角",
+                    "description": "债务城里的破局者",
+                    "core_belief": "债可以还，命不能卖",
+                }
+            ],
+            context_key="novel_id:novel-1",
+        )
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.characters.protagonist",
+            value={"name": "阿澄", "role": "主角"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(
+            operation="setup.main_plot_options",
+            node_key="planning-main-plot-option",
+            input_binding_set_id="plot-input",
+        ),
+        explicit_variables={},
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.ok
+    assert "阿澄: 主角；债务城里的破局者；债可以还，命不能卖" in plan.aliases["characters_brief"]
+    assert plan.aliases["protagonist_name"] == "阿澄"
+
+
+def test_variable_resolver_autopilot_macro_reads_setup_variable_hub():
+    repo = InMemoryVariableHubRepository()
+    repo.set_bindings(
+        "planning-quick-macro:input:autopilot:v1",
+        "planning-quick-macro",
+        [
+            VariableBinding(alias="premise", variable_key="novel.setup.premise", required=True),
+            VariableBinding(alias="target_chapters", variable_key="novel.setup.target_chapters", required=True),
+            VariableBinding(alias="worldview", required=False, source="runtime_only"),
+            VariableBinding(alias="characters", variable_key="novel.characters.list", required=True),
+            VariableBinding(alias="genre_opening_profile", required=False, default={}, source="derived_config", value_type="object"),
+            VariableBinding(alias="genre_reader_contract", required=False, default={}, source="derived_config", value_type="object"),
+            VariableBinding(alias="genre_rhythm_constraints", required=False, default={}, source="derived_config", value_type="object"),
+            VariableBinding(alias="planning_depth", variable_key="novel.planning.macro.depth", required=True),
+            VariableBinding(alias="rec_parts", variable_key="novel.planning.macro.rec_parts", required=True),
+        ],
+    )
+    for key, value in (
+        ("novel.setup.premise", "林澈觉醒基因记忆"),
+        ("novel.setup.target_chapters", 500),
+        ("novel.characters.list", [{"name": "林澈"}]),
+        ("novel.planning.macro.depth", "framework"),
+        ("novel.planning.macro.rec_parts", 5),
+    ):
+        repo.set_value(VariableWrite(key=key, value=value, context_key="novel_id:novel-1"))
+
+    plan = VariableResolver(repo).resolve(
+        spec=InvocationSpec(
+            operation="autopilot.macro.plan",
+            node_key="planning-quick-macro",
+            input_binding_set_id="planning-quick-macro:input:autopilot:v1",
+        ),
+        explicit_variables={
+            "worldview": "基因塔控制觉醒者评级",
+            "genre_opening_profile": {"opening_mechanism": "即时压迫"},
+            "genre_reader_contract": {"reader_promise": "升级破局"},
+            "genre_rhythm_constraints": {"payoff_interval": "三章一回收"},
+        },
+        context={"novel_id": "novel-1"},
+    )
+
+    assert plan.ok
+    assert plan.aliases["premise"] == "林澈觉醒基因记忆"
+    assert plan.aliases["target_chapters"] == 500
+    assert plan.aliases["worldview"] == "基因塔控制觉醒者评级"
+    assert plan.aliases["characters"][0]["name"] == "林澈"
+    assert plan.aliases["genre_opening_profile"]["opening_mechanism"] == "即时压迫"
+    assert plan.lineage["premise"] == "variable:novel.setup.premise"
+    assert plan.lineage["planning_depth"] == "variable:novel.planning.macro.depth"
+    assert {item["key"] for item in plan.snapshot_items} == {
+        "premise",
+        "target_chapters",
+        "characters",
+        "planning_depth",
+        "rec_parts",
+    }
 
 
 def test_prompt_assembler_freezes_snapshot_without_package_fallback():
@@ -238,8 +474,32 @@ async def test_gateway_review_after_call_waits_for_acceptance():
 
     assert result.session.status == InvocationSessionStatus.AWAITING_ACCEPTANCE
     assert result.attempt is not None
-    assert result.decision is None
-    assert result.commit is None
+
+
+@pytest.mark.asyncio
+async def test_attempt_service_streaming_stop_marks_attempt_cancelled_context():
+    service = AttemptService(FakeStreamingLLM())
+    session = InvocationSession(
+        id="session-1",
+        operation="autopilot.prose.from_script",
+        node_key="autopilot-stream-beat",
+        policy=InvocationPolicy.DIRECT,
+    )
+    snapshot = CPMSPromptAssembler(registry=FakeRegistry()).compile(spec=_spec(), variable_plan=_resolver().resolve(
+        spec=_spec(),
+        explicit_variables={"outline": "第一幕冲突"},
+        context={"novel_id": "novel-1"},
+    ))
+
+    attempt = await service.generate_streaming(
+        session=session,
+        prompt_snapshot=snapshot,
+        on_chunk=lambda chunk, content: False,
+    )
+
+    assert attempt.status.value == "failed"
+    assert session.status == InvocationSessionStatus.CANCELLED
+    assert attempt.content == "第一段"
 
 
 @pytest.mark.asyncio
@@ -254,6 +514,30 @@ async def test_gateway_interactive_stops_before_llm():
     )
 
     result = await gateway.invoke(
+        InvocationRequest(
+            operation="chapter.generate",
+            node_key="chapter-test",
+            variables={"outline": "第一幕冲突"},
+            context={"novel_id": "novel-1"},
+        )
+    )
+
+    assert result.session.status == InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW
+    assert result.attempt is None
+    assert len(llm.calls) == 0
+
+
+def test_gateway_prepare_honors_autopilot_pause_policy_before_llm():
+    llm = FakeLLM()
+    repo = InMemoryInvocationSpecRepository([_spec(InvocationPolicy.AUTOPILOT_PAUSE)])
+    gateway = AIInvocationGateway(
+        spec_service=InvocationSpecService(repo),
+        variable_resolver=_resolver(),
+        prompt_assembler=CPMSPromptAssembler(registry=FakeRegistry()),
+        llm_service=llm,
+    )
+
+    result = gateway.prepare(
         InvocationRequest(
             operation="chapter.generate",
             node_key="chapter-test",

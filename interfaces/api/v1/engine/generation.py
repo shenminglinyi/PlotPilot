@@ -9,15 +9,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec
-from application.ai_invocation.variable_hub import materialize_setup_main_plot_context
+from application.ai_invocation.contracts import ensure_invocation_contract
+from application.ai_invocation.dtos import InvocationPolicy
 from application.audit.services.chapter_ai_review_service import (
     ChapterAIReviewContractError,
     ChapterAIReviewService,
 )
-from application.core.taxonomy.opening_profiles import resolve_opening_profile
-from application.blueprint.services.setup_main_plot_suggestion_service import SETUP_TASK_MARKER
-from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
+from application.blueprint.services.setup_main_plot_invocation import (
+    SETUP_MAIN_PLOT_NODE,
+    SETUP_MAIN_PLOT_OPERATION,
+    build_setup_main_plot_invocation_variables,
+    ensure_setup_main_plot_contract,
+)
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.hosted_write_service import HostedWriteService
@@ -32,13 +35,9 @@ from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.plot_point import PlotPoint, PlotPointType
 from domain.novel.value_objects.storyline_type import StorylineType
 from domain.novel.value_objects.tension_level import TensionLevel
-from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN, PLANNING_MAIN_PLOT_OPTION
-from infrastructure.ai.prompt_registry import get_prompt_registry
-from infrastructure.ai.prompt_template_engine import get_template_engine
+from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN
 from infrastructure.persistence.database.connection import get_database
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
-from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
-from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteInvocationSpecRepository
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from interfaces.api.v1.engine.ai_invocation_routes import InvocationCreateRequest, create_invocation
 from interfaces.api.dependencies import (
@@ -73,344 +72,12 @@ def _refresh_narrative_contract_shared(novel_id: str) -> None:
 
 
 def _ensure_main_plot_invocation_contract() -> None:
-    """确保向导主线候选推演具备最小 AI Invocation 契约。"""
-    registry = get_prompt_registry()
-    node = registry.get_node(PLANNING_MAIN_PLOT_OPTION)
-    if node is None:
-        raise RuntimeError(f"CPMS 节点未发布: {PLANNING_MAIN_PLOT_OPTION}")
-    node_version_id = getattr(node, "active_version_id", None) or ""
-    if not node_version_id:
-        raise RuntimeError(f"CPMS 节点缺少 active version: {PLANNING_MAIN_PLOT_OPTION}")
-
-    engine = get_template_engine()
-    aliases = sorted(
-        engine.extract_variables(node.get_active_system())
-        | engine.extract_variables(node.get_active_user_template())
-    )
-    binding_set_id = f"{PLANNING_MAIN_PLOT_OPTION}:input:v1"
-    output_binding_set_id = f"{PLANNING_MAIN_PLOT_OPTION}:output:v1"
-    required_aliases = {"context_blob"}
-    planning_global_bindings = {
-        "novel_title": {
-            "variable_key": "novel.setup.title",
-            "display_name": "名称",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "premise": {
-            "variable_key": "novel.setup.premise",
-            "display_name": "设定",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "genre_major": {
-            "variable_key": "novel.setup.genre_major",
-            "display_name": "大类",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "genre_theme": {
-            "variable_key": "novel.setup.genre_theme",
-            "display_name": "主题",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "genre_label": {
-            "variable_key": "novel.setup.genre_label",
-            "display_name": "类型",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "world_preset": {
-            "variable_key": "novel.setup.world_preset",
-            "display_name": "基调",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "target_chapters": {
-            "variable_key": "novel.setup.target_chapters",
-            "display_name": "章节数量",
-            "value_type": "integer",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "target_words_per_chapter": {
-            "variable_key": "novel.setup.target_words_per_chapter",
-            "display_name": "每章字数",
-            "value_type": "integer",
-            "scope": "global",
-            "stage": "setup",
-            "required": False,
-        },
-        "fusion_contract": {
-            "variable_key": "novel.plot.fusion_contract",
-            "display_name": "融合故事合同",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "planning",
-            "required": False,
-        },
-        "genre_opening_profile": {
-            "variable_key": "novel.genre.opening_profile",
-            "display_name": "类型开篇画像",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-        "genre_reader_contract": {
-            "variable_key": "novel.genre.reader_contract",
-            "display_name": "读者留存契约",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-        "genre_rhythm_constraints": {
-            "variable_key": "novel.genre.rhythm_constraints",
-            "display_name": "类型节奏约束",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-        "protagonist": {
-            "variable_key": "novel.characters.protagonist",
-            "display_name": "主角",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "characters",
-            "required": False,
-        },
-        "locations": {
-            "variable_key": "novel.locations.list",
-            "display_name": "地点列表",
-            "value_type": "list",
-            "scope": "global",
-            "stage": "locations",
-            "required": False,
-        },
-        "worldbuilding_full": {
-            "variable_key": "novel.worldbuilding.full",
-            "display_name": "世界观全文",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "worldbuilding",
-            "required": False,
-        },
-        "core_rules": {
-            "variable_key": "novel.worldbuilding.core_rules",
-            "display_name": "核心法则",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "worldbuilding",
-            "required": False,
-        },
-        "geography": {
-            "variable_key": "novel.worldbuilding.geography",
-            "display_name": "地理生态",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "worldbuilding",
-            "required": False,
-        },
-        "society": {
-            "variable_key": "novel.worldbuilding.society",
-            "display_name": "社会结构",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "worldbuilding",
-            "required": False,
-        },
-        "culture": {
-            "variable_key": "novel.worldbuilding.culture",
-            "display_name": "历史文化",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "worldbuilding",
-            "required": False,
-        },
-        "daily_life": {
-            "variable_key": "novel.worldbuilding.daily_life",
-            "display_name": "沉浸感细节",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "worldbuilding",
-            "required": False,
-        },
-    }
-
-    db = get_database()
-    with sqlite_writes_bypass_queue():
-        with db.transaction() as conn:
-            conn.execute(
-                """
-                INSERT INTO cpms_variable_binding_sets (
-                    id, node_key, direction, version_number, status, is_active, created_by
-                ) VALUES (?, ?, 'input', 1, 'published', 1, 'system')
-                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
-                    status='published',
-                    is_active=1
-                """,
-                (binding_set_id, PLANNING_MAIN_PLOT_OPTION),
-            )
-            binding_aliases = sorted(set(aliases) | set(planning_global_bindings))
-            for alias in binding_aliases:
-                binding_meta = planning_global_bindings.get(alias, {})
-                is_required = alias in required_aliases or bool(binding_meta.get("required"))
-                default_value = None if is_required else '""'
-                conn.execute(
-                    """
-                    INSERT INTO cpms_variable_bindings (
-                        id, binding_set_id, node_key, direction, alias, variable_key, required,
-                        default_value_json, source, enabled, metadata_json
-                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, ?, ?, 1, ?)
-                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
-                        variable_key=excluded.variable_key,
-                        required=excluded.required,
-                        default_value_json=excluded.default_value_json,
-                        source=excluded.source,
-                        metadata_json=excluded.metadata_json,
-                        enabled=1
-                    """,
-                    (
-                        f"{binding_set_id}:{alias}",
-                        binding_set_id,
-                        PLANNING_MAIN_PLOT_OPTION,
-                        alias,
-                        str(binding_meta.get("variable_key") or ""),
-                        1 if is_required else 0,
-                        default_value,
-                        "novel_setup_global" if binding_meta else "cpms_template",
-                        json.dumps(binding_meta, ensure_ascii=False) if binding_meta else "{}",
-                    ),
-                )
-            conn.execute(
-                """
-                INSERT INTO cpms_variable_binding_sets (
-                    id, node_key, direction, version_number, status, is_active, created_by
-                ) VALUES (?, ?, 'output', 1, 'published', 1, 'system')
-                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
-                    status='published',
-                    is_active=1
-                """,
-                (output_binding_set_id, PLANNING_MAIN_PLOT_OPTION),
-            )
-            for alias, variable_key, display_name, value_type in (
-                ("plot_options", "novel.plot.main_options", "主线候选", "list"),
-                ("plot_options_json", "novel.plot.main_options_json", "主线候选 JSON", "string"),
-            ):
-                conn.execute(
-                    """
-                    INSERT INTO cpms_variable_bindings (
-                        id, binding_set_id, node_key, direction, alias, variable_key, required,
-                        default_value_json, source, enabled, metadata_json
-                    ) VALUES (?, ?, ?, 'output', ?, ?, 0, NULL, 'ai_invocation_output', 1, ?)
-                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
-                        variable_key=excluded.variable_key,
-                        required=excluded.required,
-                        default_value_json=excluded.default_value_json,
-                        source=excluded.source,
-                        metadata_json=excluded.metadata_json,
-                        enabled=1
-                    """,
-                    (
-                        f"{output_binding_set_id}:{alias}",
-                        output_binding_set_id,
-                        PLANNING_MAIN_PLOT_OPTION,
-                        alias,
-                        variable_key,
-                        json.dumps(
-                            {
-                                "display_name": display_name,
-                                "value_type": value_type,
-                                "scope": "global",
-                                "stage": "planning",
-                            },
-                            ensure_ascii=False,
-                        ),
-                    ),
-                )
-
-        SqliteInvocationSpecRepository(db).upsert(
-            InvocationSpec(
-                operation="setup.main_plot_options",
-                node_key=PLANNING_MAIN_PLOT_OPTION,
-                prompt_node_version_id=node_version_id,
-                input_binding_set_id=binding_set_id,
-                output_binding_set_id=output_binding_set_id,
-                default_policy=InvocationPolicy.FULL_INTERACTIVE,
-                risk_level="low",
-                supports_stream=True,
-                continuation_handler_key="setup_main_plot_options",
-                metadata={
-                    "source": "setup_main_plot_suggestion",
-                    "cpms_node_key": PLANNING_MAIN_PLOT_OPTION,
-                    "setup_task_marker": SETUP_TASK_MARKER,
-                },
-            ),
-            spec_id=f"spec:{PLANNING_MAIN_PLOT_OPTION}:v1",
-            spec_version=1,
-            status="published",
-        )
-        register_setup_main_plot_continuation()
+    """确保向导主线候选推演具备 AI Invocation 契约。"""
+    ensure_setup_main_plot_contract(get_database())
 
 
 def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
-    theme_metadata = ctx.get("theme_metadata") if isinstance(ctx.get("theme_metadata"), dict) else {}
-    genre_label = str(theme_metadata.get("genre_label") or "").strip()
-    genre_major, genre_theme = _split_genre_label(genre_label)
-    genre_profile = resolve_opening_profile(genre_label, strict=True).as_variables()
-    aliases = {
-        "novel_title": str(ctx.get("novel_title") or "").strip(),
-        "premise": str(ctx.get("premise") or "").strip(),
-        "genre_major": genre_major,
-        "genre_theme": genre_theme,
-        "genre_label": genre_label,
-        "world_preset": str(theme_metadata.get("world_preset") or "").strip(),
-        "target_chapters": int(ctx.get("target_chapters") or 0),
-        "target_words_per_chapter": int(ctx.get("target_words_per_chapter") or 0),
-        "fusion_axis": ctx.get("fusion_axis") or {},
-        "fusion_contract": str(ctx.get("fusion_contract") or ""),
-        **genre_profile,
-        "protagonist": ctx.get("protagonist") or {},
-        "other_characters": ctx.get("other_characters") or [],
-        "locations": ctx.get("locations") or [],
-        "worldview_summary": ctx.get("worldview_summary") or [],
-        "style_hint": str(ctx.get("style_hint") or ""),
-        "worldbuilding_full": str(ctx.get("worldbuilding_full") or ""),
-        "core_rules": ctx.get("core_rules") or {},
-        "geography": ctx.get("geography") or {},
-        "society": ctx.get("society") or {},
-        "culture": ctx.get("culture") or {},
-        "daily_life": ctx.get("daily_life") or {},
-    }
-    return {
-        **aliases,
-        "context_blob": materialize_setup_main_plot_context(aliases),
-    }
-
-
-def _split_genre_label(genre_label: str) -> tuple[str, str]:
-    parts = [part.strip() for part in genre_label.split("/") if part.strip()]
-    if len(parts) >= 2:
-        return parts[0], parts[1]
-    if len(parts) == 1:
-        return parts[0], ""
-    return "", ""
+    return build_setup_main_plot_invocation_variables(ctx)
 
 
 router = APIRouter(prefix="/novels", tags=["generation"])
@@ -481,120 +148,7 @@ def _ensure_chapter_generation_invocation_contract() -> None:
     这里只登记已发布 CPMS 节点的 active version、模板变量名与调用能力，
     不写入任何提示词正文；CPMS 节点缺失时阻塞流程。
     """
-    registry = get_prompt_registry()
-    node = registry.get_node(CHAPTER_GENERATION_MAIN)
-    if node is None:
-        raise RuntimeError(f"CPMS 节点未发布: {CHAPTER_GENERATION_MAIN}")
-    node_version_id = getattr(node, "active_version_id", None) or ""
-    if not node_version_id:
-        raise RuntimeError(f"CPMS 节点缺少 active version: {CHAPTER_GENERATION_MAIN}")
-
-    engine = get_template_engine()
-    aliases = sorted(
-        engine.extract_variables(node.get_active_system())
-        | engine.extract_variables(node.get_active_user_template())
-    )
-    binding_set_id = f"{CHAPTER_GENERATION_MAIN}:input:v1"
-    required_aliases = {"outline", "context", "genre_profile_block"}
-    chapter_global_bindings = {
-        "genre_profile_block": {
-            "variable_key": "novel.genre.profile_block",
-            "display_name": "类型画像提示块",
-            "value_type": "string",
-            "scope": "global",
-            "stage": "writing",
-            "required": True,
-        },
-        "genre_opening_profile": {
-            "variable_key": "novel.genre.opening_profile",
-            "display_name": "类型开篇画像",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-        "genre_reader_contract": {
-            "variable_key": "novel.genre.reader_contract",
-            "display_name": "读者留存契约",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-        "genre_rhythm_constraints": {
-            "variable_key": "novel.genre.rhythm_constraints",
-            "display_name": "类型节奏约束",
-            "value_type": "object",
-            "scope": "global",
-            "stage": "planning",
-            "required": True,
-        },
-    }
-
-    db = get_database()
-    with sqlite_writes_bypass_queue():
-        with db.transaction() as conn:
-            conn.execute(
-                """
-                INSERT INTO cpms_variable_binding_sets (
-                    id, node_key, direction, version_number, status, is_active, created_by
-                ) VALUES (?, ?, 'input', 1, 'published', 1, 'system')
-                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
-                    status='published',
-                    is_active=1
-                """,
-                (binding_set_id, CHAPTER_GENERATION_MAIN),
-            )
-            binding_aliases = sorted(set(aliases) | set(chapter_global_bindings))
-            for alias in binding_aliases:
-                binding_meta = chapter_global_bindings.get(alias, {})
-                is_required = alias in required_aliases or bool(binding_meta.get("required"))
-                conn.execute(
-                    """
-                    INSERT INTO cpms_variable_bindings (
-                        id, binding_set_id, node_key, direction, alias, variable_key, required,
-                        default_value_json, source, enabled, metadata_json
-                    ) VALUES (?, ?, ?, 'input', ?, ?, ?, ?, ?, 1, ?)
-                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
-                        variable_key=excluded.variable_key,
-                        required=excluded.required,
-                        default_value_json=excluded.default_value_json,
-                        source=excluded.source,
-                        metadata_json=excluded.metadata_json,
-                        enabled=1
-                    """,
-                    (
-                        f"{binding_set_id}:{alias}",
-                        binding_set_id,
-                        CHAPTER_GENERATION_MAIN,
-                        alias,
-                        str(binding_meta.get("variable_key") or ""),
-                        1 if is_required else 0,
-                        None if is_required else '""',
-                        "novel_genre_profile" if binding_meta else "cpms_template",
-                        json.dumps(binding_meta, ensure_ascii=False) if binding_meta else "{}",
-                    ),
-                )
-
-        SqliteInvocationSpecRepository(db).upsert(
-            InvocationSpec(
-                operation="chapter.generate",
-                node_key=CHAPTER_GENERATION_MAIN,
-                prompt_node_version_id=node_version_id,
-                input_binding_set_id=binding_set_id,
-                default_policy=InvocationPolicy.FULL_INTERACTIVE,
-                risk_level="medium",
-                supports_stream=False,
-                continuation_handler_key="manual_chapter_generation_stream",
-                metadata={
-                    "source": "manual_chapter_generation",
-                    "cpms_node_key": CHAPTER_GENERATION_MAIN,
-                },
-            ),
-            spec_id=f"spec:{CHAPTER_GENERATION_MAIN}:v1",
-            spec_version=1,
-            status="published",
-        )
+    ensure_invocation_contract("chapter.generate", CHAPTER_GENERATION_MAIN, get_database())
 
 
 def _chapter_invocation_variables(
@@ -991,8 +545,8 @@ async def suggest_main_plot_options(
         invocation_variables = _main_plot_invocation_variables(ctx)
         payload = await create_invocation(
             InvocationCreateRequest(
-                operation="setup.main_plot_options",
-                node_key=PLANNING_MAIN_PLOT_OPTION,
+                operation=SETUP_MAIN_PLOT_OPERATION,
+                node_key=SETUP_MAIN_PLOT_NODE,
                 variables=invocation_variables,
                 context={"novel_id": novel_id, "setup_context": ctx},
                 policy=InvocationPolicy.FULL_INTERACTIVE,
@@ -1037,8 +591,8 @@ async def suggest_main_plot_options_stream(
             invocation_variables = _main_plot_invocation_variables(ctx)
             payload = await create_invocation(
                 InvocationCreateRequest(
-                    operation="setup.main_plot_options",
-                    node_key=PLANNING_MAIN_PLOT_OPTION,
+                    operation=SETUP_MAIN_PLOT_OPERATION,
+                    node_key=SETUP_MAIN_PLOT_NODE,
                     variables=invocation_variables,
                     context={"novel_id": novel_id, "setup_context": ctx},
                     policy=InvocationPolicy.FULL_INTERACTIVE,

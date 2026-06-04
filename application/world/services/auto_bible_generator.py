@@ -12,7 +12,6 @@ from application.world.services.worldbuilding_service import WorldbuildingServic
 from domain.bible.triple import Triple, SourceType
 from infrastructure.persistence.database.triple_repository import TripleRepository
 from domain.shared.exceptions import EntityNotFoundError
-from application.world.services.character_naming import build_character_surname_seed
 from application.ai.trace_context import ensure_trace
 from infrastructure.ai.prompt_keys import (
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
@@ -581,7 +580,25 @@ class AutoBibleGenerator:
                         character_id=character_id,
                         name=char_data["name"],
                         description=f"{char_data['role']} - {char_data['description']}",
-                        relationships=char_data.get("relationships", [])
+                        relationships=char_data.get("relationships", []),
+                        gender=char_data.get("gender") or "",
+                        age=char_data.get("age") or "",
+                        appearance=char_data.get("appearance") or "",
+                        personality=char_data.get("personality") or char_data.get("flaw") or "",
+                        background=char_data.get("background") or char_data.get("ghost") or "",
+                        core_motivation=char_data.get("core_motivation") or char_data.get("want") or "",
+                        inner_lack=char_data.get("inner_lack") or char_data.get("need") or "",
+                        public_profile=char_data.get("public_profile") or "",
+                        hidden_profile=char_data.get("hidden_profile") or "",
+                        reveal_chapter=char_data.get("reveal_chapter"),
+                        mental_state=char_data.get("mental_state") or "NORMAL",
+                        mental_state_reason=char_data.get("mental_state_reason") or "",
+                        verbal_tic=char_data.get("verbal_tic") or "",
+                        idle_behavior=char_data.get("idle_behavior") or "",
+                        core_belief=char_data.get("core_belief") or "",
+                        moral_taboos=char_data.get("moral_taboos") or [],
+                        voice_profile=char_data.get("voice_profile") or {},
+                        active_wounds=char_data.get("active_wounds") or [],
                     )
                     character_ids.append((character_id, char_data))
                     logger.info(f"Character saved: {character_id}")
@@ -1038,11 +1055,6 @@ class AutoBibleGenerator:
         from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
 
         wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        surname_seed = build_character_surname_seed(
-            8,
-            rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
-        )
 
         prompt = _render_required_bible_prompt(
             BIBLE_CHARACTERS,
@@ -1052,7 +1064,6 @@ class AutoBibleGenerator:
                 "target_chapters": target_chapters,
                 "style_guide": "",
                 "existing_characters": "",
-                "surname_seed": surname_seed.to_prompt_block(),
             },
         )
 
@@ -1077,11 +1088,6 @@ class AutoBibleGenerator:
         from application.world.services.narrative_contract_text import build_worldbuilding_prompt_fields
 
         wb_fields = build_worldbuilding_prompt_fields(worldbuilding_slices=worldbuilding)
-        wb_summary = wb_fields.get("worldbuilding_full", "")
-        surname_seed = build_character_surname_seed(
-            8,
-            rng_seed=f"{premise}|{target_chapters}|{wb_summary}",
-        )
         prompt = _render_required_bible_prompt(
             BIBLE_CHARACTERS,
             {
@@ -1090,7 +1096,6 @@ class AutoBibleGenerator:
                 "target_chapters": target_chapters,
                 "style_guide": "",
                 "existing_characters": "",
-                "surname_seed": surname_seed.to_prompt_block(),
             },
         )
         config = GenerationConfig(max_tokens=4096, temperature=0.7)

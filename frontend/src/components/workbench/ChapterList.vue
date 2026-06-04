@@ -24,7 +24,7 @@
       <div v-if="viewMode === 'flat'">
         <div v-if="!chapters.length" class="sidebar-empty">
           <p>暂无章节</p>
-          <p class="hint">请切换到「托管撰稿」模式，启动全托管自动生成大纲与正文</p>
+          <p class="hint">可在正文区直接生成下一章正文</p>
         </div>
         <template v-else>
           <n-list hoverable clickable>
@@ -68,6 +68,7 @@
         <StoryStructureTree
           ref="storyTreeRef"
           :slug="slug"
+          :chapters="chapters"
           :current-chapter-id="currentChapterId"
           :generation-prefs="generationPrefs"
           @select-chapter="handleChapterClick"
@@ -78,10 +79,10 @@
       </div>
     </n-scrollbar>
 
-    <!-- 引导用户使用全托管 -->
+    <!-- MVP 生文空态提示 -->
     <div v-if="!chapters.length && viewMode === 'flat'" class="sidebar-foot-hint">
       <n-alert type="info" :show-icon="false" style="font-size: 12px">
-        <strong>提示</strong>：切换到「托管撰稿」模式，点击「启动全托管」即可自动生成大纲与正文
+        <strong>提示</strong>：正文区可直接进入 AI 审阅面板生成正文
       </n-alert>
     </div>
   </aside>

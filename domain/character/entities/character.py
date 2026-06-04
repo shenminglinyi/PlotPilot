@@ -12,6 +12,13 @@ class Character:
     novel_id: str
     name: str
     description: str = ""
+    gender: str = ""
+    age: str = ""
+    appearance: str = ""
+    personality: str = ""
+    background: str = ""
+    core_motivation: str = ""
+    inner_lack: str = ""
     public_profile: str = ""
     hidden_profile: str = ""
     reveal_chapter: Optional[int] = None

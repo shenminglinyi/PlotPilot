@@ -239,6 +239,19 @@ class BaseStoryPipeline(ABC):
                     ctx.chapter_node = node
                     ctx.chapter_number = node.number
                     ctx.outline = node.outline or node.description or node.title or ""
+                    if existing is not None:
+                        ctx.existing_content = str(getattr(existing, "content", "") or "").strip()
+                    try:
+                        from domain.novel.value_objects.novel_id import NovelId
+
+                        novel = (
+                            ctx.novel_repository.get_by_id(NovelId(ctx.novel_id))
+                            if ctx.novel_repository is not None
+                            else None
+                        )
+                        ctx.start_beat_index = int(getattr(novel, "current_beat_index", 0) or 0) if novel else 0
+                    except Exception:
+                        ctx.start_beat_index = 0
                     return StepResult.ok(f"定位到第 {node.number} 章")
 
             return StepResult.fail("所有章节已写完，无需继续")
@@ -539,6 +552,7 @@ class BaseStoryPipeline(ABC):
 
         accumulated_content = ctx.existing_content
         ctx.raw_beat_contents = []
+        ctx.metadata.pop("awaiting_ai_review", None)
 
         # ─── 智能节拍合并（按总目标字数控制 LLM 调用次数） ────────────
         # 仅首次生成时合并（断点续写时保留原始 beat 索引）
@@ -623,6 +637,9 @@ class BaseStoryPipeline(ABC):
                     n_beats=n_beats,
                 )
 
+                if ctx.metadata.get("awaiting_ai_review"):
+                    return StepResult.fail("awaiting_ai_review")
+
                 # 停止信号检测：若本节拍被中途打断，丢弃不完整内容并退出循环
                 if self._novel_stream_should_stop(ctx.novel_id):
                     logger.info(
@@ -666,6 +683,8 @@ class BaseStoryPipeline(ABC):
 
             except Exception as e:
                 logger.warning(f"[{ctx.novel_id}] 节拍 {i+1} 生成失败: {e}")
+                if str(e).startswith("story_pipeline_ai_invocation_failed:"):
+                    return StepResult.fail(str(e))
                 # 继续下一个节拍
 
         if _stopped_by_signal:
@@ -673,6 +692,9 @@ class BaseStoryPipeline(ABC):
             if accumulated_content:
                 self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
             return StepResult.fail("生成被停止信号中断，不保存（下次重新生成）")
+
+        if ctx.metadata.get("awaiting_ai_review"):
+            return StepResult.fail("awaiting_ai_review")
 
         if not accumulated_content.strip():
             return StepResult.fail("章节正文生成失败：所有节拍均未产出有效正文")
@@ -1121,19 +1143,96 @@ class BaseStoryPipeline(ABC):
             last_push = now
 
         try:
-            async for piece in ctx.llm_service.stream_generate(prompt, config):
-                if self._novel_stream_should_stop(novel_id):
-                    logger.info("[%s] 流式生成收到停止信号，终止节拍 %s", novel_id, beat_index + 1)
-                    break
-                if not piece:
-                    continue
-                chunk_buffer.append(piece)
-                content += piece
-                _maybe_push()
-        finally:
-            _maybe_push(force=True)
+            from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
+            from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
+            from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
+            from application.ai_invocation.contracts import ensure_invocation_contract
+            from application.ai_invocation.dtos import InvocationSessionStatus
+            from application.ai_invocation.variable_hub import VariableWrite
+            from infrastructure.ai.prompt_keys import AUTOPILOT_STREAM_BEAT
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
 
-        return content
+            db = get_database()
+            ensure_invocation_contract("autopilot.prose.from_script", AUTOPILOT_STREAM_BEAT, db)
+            context_key = f"novel_id:{novel_id}|chapter_number:{ctx.chapter_number}|beat_index:{beat_index}"
+            variable_repo = SqliteVariableHubRepository(db)
+            target_words = max(1, int((getattr(config, "max_tokens", 1000) or 1000) / 1.3))
+            variables = {
+                "outline": ctx.outline or "",
+                "last_paragraph": chapter_draft_so_far[-800:],
+                "beat_goal": getattr(prompt, "user", "") or str(prompt),
+                "target_words": target_words,
+                "context_block": getattr(prompt, "user", "") or str(prompt),
+            }
+            for key, value in (
+                ("chapter.outline", variables["outline"]),
+                ("chapter.draft_so_far", variables["last_paragraph"]),
+                ("beat.current", variables["beat_goal"]),
+                ("beat.target_words", variables["target_words"]),
+                ("materialized.beat.prompt_context", variables["context_block"]),
+            ):
+                variable_repo.set_value(
+                    VariableWrite(
+                        key=key,
+                        value=value,
+                        context_key=context_key,
+                        source_node_key=AUTOPILOT_STREAM_BEAT,
+                        source_trace_id=AUTOPILOT_STREAM_BEAT,
+                        scope="beat" if key.startswith("beat.") or key.startswith("materialized.beat.") else "chapter",
+                        stage="writing",
+                        display_name=key,
+                        value_type="integer" if key == "beat.target_words" else "string",
+                    )
+                )
+
+            novel_stub = type("PipelineNovelPolicy", (), {"auto_approve_mode": ctx.auto_approve_mode})()
+            policy = AutopilotInvocationPolicyResolver().resolve(
+                operation="autopilot.prose.from_script",
+                node_key=AUTOPILOT_STREAM_BEAT,
+                novel=novel_stub,
+                context={"novel_id": novel_id, "chapter_number": ctx.chapter_number, "beat_index": beat_index},
+            )
+            intent = AutopilotInvocationIntent(
+                novel_id=novel_id,
+                stage="writing",
+                operation="autopilot.prose.from_script",
+                node_key=AUTOPILOT_STREAM_BEAT,
+                context={"novel_id": novel_id, "chapter_number": ctx.chapter_number, "beat_index": beat_index},
+                explicit_variables=variables,
+                continuation_handler_key="autopilot_prose_generation",
+                policy_hint=policy,
+                metadata={"source": "story_pipeline", "context_key": context_key},
+            )
+            host = ctx.get_dep("autopilot_host") or ctx
+            orchestrator = get_or_create_autopilot_orchestrator(host)
+            prepared = await orchestrator.prepare(intent)
+            if prepared.session.status in {
+                InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW,
+                InvocationSessionStatus.BLOCKED,
+            }:
+                ctx.metadata["awaiting_ai_review"] = True
+                ctx.metadata["active_invocation_session_id"] = prepared.session.id
+                return ""
+
+            def _on_chunk(chunk: str, _full: str):
+                if self._novel_stream_should_stop(novel_id):
+                    return False
+                chunk_buffer.append(chunk)
+                _maybe_push()
+                return True
+
+            outcome = await orchestrator.generate_prepared_streaming(
+                intent=intent,
+                prepared_result=prepared,
+                config=config,
+                on_chunk=_on_chunk,
+            )
+            _maybe_push(force=True)
+            return outcome.accepted_content or content or "".join(chunk_buffer)
+        except Exception as exc:
+            logger.error("[%s] StoryPipeline AI Invocation 生成失败，停止本次自动驾驶生成: %s", novel_id, exc)
+            raise RuntimeError(f"story_pipeline_ai_invocation_failed:{exc}") from exc
 
     def _get_character_masks(self, ctx: PipelineContext) -> Dict[str, Any]:
         """获取当前章节的角色面具（供策略验证使用）"""
@@ -1170,16 +1269,29 @@ class BaseStoryPipeline(ABC):
         # 具体改写逻辑委托给 voice_drift_service
 
     async def _score_tension_via_llm(self, ctx: PipelineContext) -> int:
-        """通过 LLM 评分（降级方案）"""
+        """通过 AI Invocation 评分（降级方案）"""
         try:
-            prompt = self._make_prompt(
-                f"请为以下章节内容打张力分（1-10，10为最高）：\n\n{ctx.chapter_content[:2000]}\n\n张力分："
-            )
-            from domain.ai.services.llm_service import GenerationConfig
-            cfg = GenerationConfig(max_tokens=10, temperature=0.3)
-            result = await ctx.llm_service.generate(prompt=prompt, config=cfg)
-            content = result.content if hasattr(result, 'content') else str(result)
             import re
+            from application.ai_invocation.autopilot.factory import get_or_create_autopilot_helper_invoker
+            from application.ai_invocation.autopilot.helper_invoker import AutopilotHelperRequest
+            from infrastructure.ai.prompt_keys import TENSION_SCORING
+
+            owner = type("PipelineTensionInvocationOwner", (), {"llm_service": ctx.llm_service})()
+            content = await get_or_create_autopilot_helper_invoker(owner).invoke_text(
+                AutopilotHelperRequest(
+                    novel_id=str(ctx.novel_id or "global"),
+                    stage="audit",
+                    operation="autopilot.tension.score",
+                    node_key=TENSION_SCORING,
+                    explicit_variables={"content": ctx.chapter_content[:2000]},
+                    context={
+                        "novel_id": ctx.novel_id,
+                        "chapter_number": ctx.chapter_number,
+                    },
+                    metadata={"source": "story_pipeline.tension_score"},
+                    config={"max_tokens": 10, "temperature": 0.3},
+                )
+            )
             match = re.search(r'(\d+)', content)
             if match:
                 score = int(match.group(1))

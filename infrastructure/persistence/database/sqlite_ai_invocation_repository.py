@@ -22,7 +22,14 @@ from application.ai_invocation.dtos import (
     VariableBinding,
     VariablePlan,
 )
-from application.ai_invocation.variable_hub import VariableDefinition, VariableValue, VariableWrite
+from application.ai_invocation.variable_hub import (
+    VariableDefinition,
+    VariableResolver,
+    VariableValue,
+    VariableWrite,
+    expand_context_keys,
+    sanitize_variable_value,
+)
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 
@@ -42,6 +49,20 @@ def _json_loads(text: str | None, default: Any) -> Any:
         return json.loads(text)
     except json.JSONDecodeError:
         return default
+
+
+def _infer_json_value_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return "integer"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, dict):
+        return "object"
+    return "string"
 
 
 def _policy_value(policy: InvocationPolicy | str) -> str:
@@ -78,6 +99,9 @@ def _binding_to_dict(binding: VariableBinding) -> dict[str, Any]:
         "scope": binding.scope,
         "stage": binding.stage,
         "display_name": binding.display_name,
+        "source_path": binding.source_path,
+        "projection_key": binding.projection_key,
+        "render_mode": binding.render_mode,
     }
 
 
@@ -93,6 +117,9 @@ def _binding_from_dict(data: Mapping[str, Any]) -> VariableBinding:
         scope=str(data.get("scope") or "runtime"),
         stage=str(data.get("stage") or "runtime"),
         display_name=str(data.get("display_name") or ""),
+        source_path=str(data.get("source_path") or ""),
+        projection_key=str(data.get("projection_key") or ""),
+        render_mode=str(data.get("render_mode") or "raw"),
     )
 
 
@@ -733,6 +760,68 @@ class SqliteVariableHubRepository:
     def get_output_bindings(self, binding_set_id: str, node_key: str) -> list[VariableBinding]:
         return self._get_bindings(binding_set_id, node_key, direction="output")
 
+    def set_bindings(
+        self,
+        binding_set_id: str,
+        node_key: str,
+        bindings: list[VariableBinding],
+        *,
+        direction: str = "input",
+    ) -> None:
+        if not binding_set_id:
+            return
+        with self._db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO cpms_variable_binding_sets (
+                    id, node_key, direction, version_number, status, is_active, created_by
+                ) VALUES (?, ?, ?, 1, 'published', 1, 'system')
+                ON CONFLICT(node_key, direction, version_number) DO UPDATE SET
+                    status='published',
+                    is_active=1
+                """,
+                (binding_set_id, node_key, direction),
+            )
+            for binding in bindings:
+                conn.execute(
+                    """
+                    INSERT INTO cpms_variable_bindings (
+                        id, binding_set_id, node_key, direction, alias, variable_key, required,
+                        default_value_json, source, enabled, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(binding_set_id, direction, alias) DO UPDATE SET
+                        variable_key=excluded.variable_key,
+                        required=excluded.required,
+                        default_value_json=excluded.default_value_json,
+                        source=excluded.source,
+                        enabled=excluded.enabled,
+                        metadata_json=excluded.metadata_json
+                    """,
+                    (
+                        f"{binding_set_id}:{binding.alias}",
+                        binding_set_id,
+                        node_key,
+                        direction,
+                        binding.alias,
+                        binding.variable_key,
+                        1 if binding.required else 0,
+                        _json_dumps(binding.default) if binding.default is not None else None,
+                        binding.source or ("ai_invocation_output" if direction == "output" else "cpms_template"),
+                        1 if binding.enabled else 0,
+                        _json_dumps(
+                            {
+                                "display_name": binding.display_name,
+                                "value_type": binding.value_type,
+                                "scope": binding.scope,
+                                "stage": binding.stage,
+                                "source_path": binding.source_path,
+                                "projection_key": binding.projection_key,
+                                "render_mode": binding.render_mode,
+                            }
+                        ),
+                    ),
+                )
+
     def _get_bindings(self, binding_set_id: str, node_key: str, *, direction: str) -> list[VariableBinding]:
         if not binding_set_id:
             return []
@@ -757,12 +846,15 @@ class SqliteVariableHubRepository:
                 scope=str(_json_loads(row["metadata_json"], {}).get("scope") or "runtime") if row["metadata_json"] else "runtime",
                 stage=str(_json_loads(row["metadata_json"], {}).get("stage") or "runtime") if row["metadata_json"] else "runtime",
                 display_name=str(_json_loads(row["metadata_json"], {}).get("display_name") or "") if row["metadata_json"] else "",
+                source_path=str(_json_loads(row["metadata_json"], {}).get("source_path") or "") if row["metadata_json"] else "",
+                projection_key=str(_json_loads(row["metadata_json"], {}).get("projection_key") or "") if row["metadata_json"] else "",
+                render_mode=str(_json_loads(row["metadata_json"], {}).get("render_mode") or "raw") if row["metadata_json"] else "raw",
             )
             for row in rows
         ]
 
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
-        scope_keys = [context_key, "global"] if context_key != "global" else ["global"]
+        scope_keys = expand_context_keys(context_key)
         for scope_key in scope_keys:
             row = self._db.fetch_one(
                 """
@@ -777,12 +869,54 @@ class SqliteVariableHubRepository:
             if row is not None:
                 return VariableValue(
                     key=row["variable_key"],
-                    value=_json_loads(row["value_json"], None),
+                    value=sanitize_variable_value(variable_key, _json_loads(row["value_json"], None)),
                     context_key=row["scope_key"] or "global",
                     source_ref=row["source_session_id"] or row["source_node_key"] or "",
                     version_number=int(row["version_number"] or 1),
                 )
         return None
+
+    def list_current_values(self, context_key: str) -> list[dict[str, Any]]:
+        scope_keys = expand_context_keys(context_key)
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for scope_key in scope_keys:
+            rows = self._db.fetch_all(
+                """
+                SELECT vv.*, vd.display_name, vd.value_type, vd.scope_level AS definition_scope_level,
+                       vd.metadata_json AS definition_metadata_json
+                FROM variable_values vv
+                LEFT JOIN variable_definitions vd ON vd.variable_key = vv.variable_key
+                WHERE vv.scope_key = ? AND vv.is_current = 1
+                ORDER BY vv.variable_key
+                """,
+                (scope_key,),
+            )
+            for row in rows:
+                variable_key = row["variable_key"]
+                if variable_key in seen:
+                    continue
+                seen.add(variable_key)
+                metadata = _json_loads(row["definition_metadata_json"], {}) if row["definition_metadata_json"] else {}
+                value_metadata = _json_loads(row["metadata_json"], {}) if row["metadata_json"] else {}
+                value = sanitize_variable_value(variable_key, _json_loads(row["value_json"], None))
+                stage = str(metadata.get("stage") or value_metadata.get("stage") or "")
+                if not stage or stage == "runtime":
+                    stage = VariableResolver._infer_stage(variable_key)
+                out.append(
+                    {
+                        "variable_key": variable_key,
+                        "display_name": row["display_name"] or variable_key,
+                        "value": value,
+                        "value_type": row["value_type"] or _infer_json_value_type(value),
+                        "scope": row["definition_scope_level"] or row["scope_level"] or "global",
+                        "stage": stage,
+                        "source": "variable_hub",
+                        "context_key": row["scope_key"] or "global",
+                        "version_number": int(row["version_number"] or 1),
+                    }
+                )
+        return out
 
     def get_definition(self, variable_key: str) -> VariableDefinition | None:
         row = self._db.fetch_one(
@@ -811,8 +945,9 @@ class SqliteVariableHubRepository:
             write = value
         scope_key = write.context_key or "global"
         scope_level = "novel" if scope_key != "global" else "global"
-        value_json = _json_dumps(write.value)
-        value_hash = _json_dumps({"value": write.value})
+        clean_value = sanitize_variable_value(write.key, write.value)
+        value_json = _json_dumps(clean_value)
+        value_hash = _json_dumps({"value": clean_value})
         existing = self._db.fetch_one(
             """
             SELECT version_number
@@ -901,7 +1036,7 @@ class SqliteVariableHubRepository:
             )
         return VariableValue(
             key=write.key,
-            value=write.value,
+            value=clean_value,
             context_key=scope_key,
             source_ref=write.source_session_id or write.source_node_key or write.source_trace_id,
             version_number=version,
