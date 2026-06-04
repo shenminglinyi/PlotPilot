@@ -10,6 +10,7 @@ from domain.ai.services.llm_service import GenerationConfig, LLMService
 from domain.ai.value_objects.prompt import Prompt
 from application.world.services.bible_service import BibleService
 from application.core.services.novel_service import NovelService
+from application.blueprint.services.setup_context_builder import SetupContextBuilder
 from application.core.taxonomy.opening_profiles import resolve_opening_profile
 from application.ai.knowledge_llm_contract import parse_json_from_response
 from application.ai_invocation.variable_hub import VariableWrite
@@ -99,10 +100,14 @@ class SetupMainPlotSuggestionService:
         self._llm = llm_service
         self._bible_service = bible_service
         self._novel_service = novel_service
+        self._context_builder = SetupContextBuilder(
+            bible_service=bible_service,
+            novel_service=novel_service,
+        )
 
     def build_context(self, novel_id: str) -> Dict[str, Any]:
         """公开的向导上下文构建入口，供 AI Invocation 路由复用。"""
-        return self._build_context(novel_id)
+        return self._context_builder.build_context(novel_id)
 
     def _build_context(self, novel_id: str) -> Dict[str, Any]:
         novel = self._novel_service.get_novel(novel_id)

@@ -57,11 +57,13 @@ try:
     from application.ai_invocation.autopilot.continuations import register_autopilot_continuations
     from application.ai_invocation.contracts.chapter_prose_generation import register_chapter_prose_generation_continuation
     from application.blueprint.services.setup_main_plot_continuation import register_setup_main_plot_continuation
+    from application.blueprint.services.setup_plot_outline_continuation import register_setup_plot_outline_continuation
     from application.world.services.bible_setup_continuation import register_bible_setup_continuations
 
     register_autopilot_continuations()
     register_chapter_prose_generation_continuation()
     register_setup_main_plot_continuation()
+    register_setup_plot_outline_continuation()
     register_bible_setup_continuations()
 except Exception:
     pass
@@ -114,7 +116,7 @@ def _config_from_dict(raw: Mapping[str, Any] | None) -> GenerationConfig | None:
         return None
     max_tokens = int(raw.get("max_tokens") or 4096)
     operation = str(raw.get("operation") or raw.get("invocation_operation") or "")
-    if operation == "setup.main_plot_options":
+    if operation in {"setup.main_plot_options", "setup.plot_outline"}:
         max_tokens = max(max_tokens, 8192)
     return GenerationConfig(
         model=str(raw.get("model") or ""),
@@ -201,7 +203,27 @@ def _publish_autopilot_session_state(session) -> None:
     AutopilotSessionPublisher().publish(novel_id, payload)
 
 
-def _session_payload(session) -> dict[str, Any]:
+def _output_binding_payloads(repos, session) -> list[dict[str, Any]]:
+    binding_set_id = ""
+    node_key = session.node_key
+    if session.prompt_snapshot is not None:
+        binding_set_id = session.prompt_snapshot.output_binding_set_id
+        node_key = session.prompt_snapshot.node_key or node_key
+    if not binding_set_id:
+        spec = repos["spec"].get(session.operation, session.node_key)
+        if spec is not None:
+            binding_set_id = spec.output_binding_set_id
+            node_key = spec.node_key
+    if not binding_set_id:
+        return []
+    try:
+        bindings = repos["variable_hub"].get_output_bindings(binding_set_id, node_key)
+    except Exception:
+        return []
+    return [_binding_to_metadata(binding) for binding in bindings if binding.enabled]
+
+
+def _session_payload(repos, session) -> dict[str, Any]:
     return {
         "id": session.id,
         "operation": session.operation,
@@ -213,6 +235,7 @@ def _session_payload(session) -> dict[str, Any]:
         "attempts": list(session.attempts or []),
         "prompt_snapshot": prompt_snapshot_to_dict(session.prompt_snapshot),
         "variable_plan": variable_plan_to_dict(session.variable_plan),
+        "output_bindings": _output_binding_payloads(repos, session),
     }
 
 
@@ -665,7 +688,7 @@ async def create_invocation(request: InvocationCreateRequest) -> dict[str, Any]:
     _publish_autopilot_session_state(result.session)
 
     return {
-        "session": _session_payload(result.session),
+        "session": _session_payload(repos, result.session),
         "attempt": _attempt_payload(result.attempt),
         "decision": _decision_payload(result.decision),
         "commit": _commit_payload(result.commit),
@@ -687,7 +710,7 @@ async def get_invocation(session_id: str) -> dict[str, Any]:
     )
     attempt_payload, decision_payload, commit_payload = _load_related_payloads(repos, session_id)
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "attempt": attempt_payload,
         "decision": decision_payload,
         "commit": commit_payload,
@@ -759,7 +782,7 @@ async def save_prompt_draft(session_id: str, request: PromptDraftRequest) -> dic
     with sqlite_writes_bypass_queue():
         repos["session"].save(session)
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "next_action": _next_action(session.status),
     }
 
@@ -856,7 +879,7 @@ async def update_invocation_variables(session_id: str, request: VariableUpdateRe
         repos["session"].save(session)
     _publish_autopilot_session_state(session)
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "next_action": _next_action(session.status),
         "variable_writes": written,
     }
@@ -886,7 +909,7 @@ async def accept_invocation(session_id: str, request: AdoptionAcceptRequest) -> 
         repos["session"].save(session)
     _publish_autopilot_session_state(session)
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "decision": _decision_payload(decision),
         "next_action": "commit_required",
     }
@@ -908,7 +931,7 @@ async def resume_invocation(session_id: str, request: ResumeInvocationRequest) -
         with sqlite_writes_bypass_queue():
             repos["session"].save(session)
         return {
-            "session": _session_payload(session),
+            "session": _session_payload(repos, session),
             "next_action": _next_action(session.status),
         }
 
@@ -932,7 +955,7 @@ async def resume_invocation(session_id: str, request: ResumeInvocationRequest) -
         )
     )
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "attempt": _attempt_payload(attempt),
         "next_action": "generating",
     }
@@ -959,7 +982,7 @@ async def retry_invocation(session_id: str, request: ResumeInvocationRequest) ->
         with sqlite_writes_bypass_queue():
             repos["session"].save(session)
         return {
-            "session": _session_payload(session),
+            "session": _session_payload(repos, session),
             "next_action": _next_action(session.status),
         }
 
@@ -983,7 +1006,7 @@ async def retry_invocation(session_id: str, request: ResumeInvocationRequest) ->
         )
     )
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "attempt": _attempt_payload(attempt),
         "next_action": "generating",
     }
@@ -1004,7 +1027,7 @@ async def reject_invocation(session_id: str, request: AdoptionAcceptRequest) -> 
         repos["session"].save(session)
     _publish_autopilot_session_state(session)
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "decision": _decision_payload(decision),
         "next_action": "cancelled",
     }
@@ -1028,7 +1051,7 @@ async def create_commit(session_id: str, request: CommitCreateRequest) -> dict[s
         repos["session"].save(session)
     _publish_autopilot_session_state(session)
     return {
-        "session": _session_payload(session),
+        "session": _session_payload(repos, session),
         "commit": _commit_payload(commit),
         "next_action": _next_action(session.status),
     }

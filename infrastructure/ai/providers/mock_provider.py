@@ -34,6 +34,7 @@ class MockResponseFactory:
             "characters": self._characters,
             "locations": self._locations,
             "main_plot_options": self._main_plot_options,
+            "plot_outline": self._plot_outline,
             "chapter_review": self._chapter_review,
             "style": self._style,
         }
@@ -44,6 +45,8 @@ class MockResponseFactory:
 
         if "setup_main_plot_options_v1" in text or "plot_options" in text or "主线候选" in text:
             return "main_plot_options"
+        if '"plot_outline"' in text or "剧情总纲" in text or "setup.plot_outline" in text:
+            return "plot_outline"
         if "宏观结构" in text or "结构框架" in text or "部-卷-幕" in text or '"parts"' in text:
             return "macro_plan"
         if "worldbuilding" in text or "世界观" in text or "核心法则" in text:
@@ -341,6 +344,65 @@ class MockResponseFactory:
             }
         )
 
+    def _plot_outline(self) -> str:
+        overview = (
+            "故事从主角在既有秩序中被迫面对一个无法回避的现实缺口开始："
+            "原本可被拖延的问题在一次外部事件后突然前置，主角必须立刻行动。"
+            "他试图先用最小代价保住当下的重要关系与资源，却发现真正的冲突并不只是局部困境，"
+            "而是世界规则、权力结构与个人选择之间的持续拉扯。随着调查、试探与对抗推进，"
+            "主角会一步步意识到自己面对的是一条会不断升级的主线压力链：每做出一次选择，"
+            "都要在短期得失、关系信任和更长期的目标之间承担新的代价。故事中段，"
+            "关键角色与核心地点会不断把表层问题导向更深层真相，迫使主角从被动应对转为主动突破。"
+            "后段则把前文积累的矛盾集中兑现，让主角在最不利条件下完成立场确认、代价支付与最终决断，"
+            "并为结局阶段留下清晰的收束方向。"
+        )
+        return self._json(
+            {
+                "plot_outline": {
+                    "main_story_overview": overview,
+                    "stage_plan": [
+                        {
+                            "phase": "opening",
+                            "label": "开篇阶段",
+                            "range_percent": "1-15%",
+                            "summary": "建立主角的初始处境、核心缺口与第一轮外部压力，让主线问题快速显性化。",
+                            "key_goals": ["建立主角目标", "引入核心冲突", "给出第一章钩子"],
+                        },
+                        {
+                            "phase": "development",
+                            "label": "发展阶段",
+                            "range_percent": "15-40%",
+                            "summary": "通过连续受阻与局势扩张，把局部问题推向更大范围的对抗结构。",
+                            "key_goals": ["升级外部压力", "拉开关系张力", "明确阶段代价"],
+                        },
+                        {
+                            "phase": "deepening",
+                            "label": "深化阶段",
+                            "range_percent": "40-70%",
+                            "summary": "推进关键真相、人物成长与立场变化，让主线矛盾进入不可回避的深水区。",
+                            "key_goals": ["揭示关键真相", "迫使人物转变", "压缩退路"],
+                        },
+                        {
+                            "phase": "climax",
+                            "label": "高潮阶段",
+                            "range_percent": "70-90%",
+                            "summary": "集中兑现前文矛盾与筹码，把主角推入必须决断的最高潮对抗。",
+                            "key_goals": ["集中冲突", "支付代价", "完成决断"],
+                        },
+                        {
+                            "phase": "ending",
+                            "label": "收尾阶段",
+                            "range_percent": "90-100%",
+                            "summary": "收束主线后果与人物去向，为故事结局提供明确且连贯的闭环。",
+                            "key_goals": ["回收线索", "稳定新秩序", "落地结局"],
+                        },
+                    ],
+                    "expected_ending": "主角在付出明确代价后完成主线目标的一次阶段性兑现，并让世界秩序或人物关系进入新的稳定状态。",
+                    "core_conflict": "主角想守住自身目标与重要关系，但外部秩序和更大的结构性压力不断要求他付出超出预期的代价。",
+                }
+            }
+        )
+
     def _chapter_review(self) -> str:
         return self._json(
             {
@@ -374,6 +436,7 @@ class MockResponseFactory:
                 "worldbuilding": {},
                 "parts": [],
                 "plot_options": [],
+                "plot_outline": {},
             }
         )
 

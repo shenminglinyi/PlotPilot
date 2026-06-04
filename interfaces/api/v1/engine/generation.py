@@ -21,6 +21,12 @@ from application.blueprint.services.setup_main_plot_invocation import (
     build_setup_main_plot_invocation_variables,
     ensure_setup_main_plot_contract,
 )
+from application.blueprint.services.setup_plot_outline_invocation import (
+    SETUP_PLOT_OUTLINE_NODE,
+    SETUP_PLOT_OUTLINE_OPERATION,
+    build_setup_plot_outline_invocation_variables,
+    ensure_setup_plot_outline_contract,
+)
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
 from application.engine.services.hosted_write_service import HostedWriteService
@@ -51,6 +57,7 @@ from interfaces.api.dependencies import (
     get_novel_service,
     get_plot_arc_repository,
     get_setup_main_plot_suggestion_service,
+    get_setup_plot_outline_service,
     get_storyline_manager,
 )
 
@@ -78,6 +85,14 @@ def _ensure_main_plot_invocation_contract() -> None:
 
 def _main_plot_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
     return build_setup_main_plot_invocation_variables(ctx)
+
+
+def _ensure_plot_outline_invocation_contract() -> None:
+    ensure_setup_plot_outline_contract(get_database())
+
+
+def _plot_outline_invocation_variables(ctx: Dict[str, Any]) -> Dict[str, Any]:
+    return build_setup_plot_outline_invocation_variables(ctx)
 
 
 router = APIRouter(prefix="/novels", tags=["generation"])
@@ -335,6 +350,29 @@ class MainPlotOptionItem(BaseModel):
 
 class SuggestMainPlotOptionsResponse(BaseModel):
     plot_options: List[MainPlotOptionItem]
+    invocation_session_id: str = ""
+    invocation_next_action: str = ""
+
+
+class PlotOutlineStageItem(BaseModel):
+    phase: str
+    label: str
+    range_percent: str
+    chapter_start: Optional[int] = None
+    chapter_end: Optional[int] = None
+    summary: str
+    key_goals: List[str] = Field(default_factory=list)
+
+
+class PlotOutlineItem(BaseModel):
+    main_story_overview: str = ""
+    stage_plan: List[PlotOutlineStageItem] = Field(default_factory=list)
+    expected_ending: str = ""
+    core_conflict: str = ""
+
+
+class GeneratePlotOutlineResponse(BaseModel):
+    plot_outline: Optional[PlotOutlineItem] = None
     invocation_session_id: str = ""
     invocation_next_action: str = ""
 
@@ -608,6 +646,124 @@ async def suggest_main_plot_options_stream(
             yield f"data: {json.dumps({'type': 'done', 'plot_options': [], 'invocation_session_id': session.get('id', '')}, ensure_ascii=False)}\n\n"
         except Exception as exc:
             logger.exception("suggest_main_plot_options_stream failed")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/{novel_id}/setup/plot-outline",
+    response_model=GeneratePlotOutlineResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_plot_outline(novel_id: str, novel_service=Depends(get_novel_service)):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+        repo = SqliteVariableHubRepository(get_database())
+        context_key = f"novel_id:{novel_id}"
+        outline_value = repo.get_value("novel.plot.outline", context_key)
+        if outline_value is None or not isinstance(outline_value.value, dict):
+            return GeneratePlotOutlineResponse()
+        return GeneratePlotOutlineResponse(plot_outline=PlotOutlineItem(**outline_value.value))
+    except Exception as exc:
+        logger.exception("get_plot_outline failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load plot outline: {str(exc)}",
+        )
+
+
+@router.post(
+    "/{novel_id}/setup/generate-plot-outline",
+    response_model=GeneratePlotOutlineResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_plot_outline(
+    novel_id: str,
+    novel_service=Depends(get_novel_service),
+    setup_svc=Depends(get_setup_plot_outline_service),
+):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        _ensure_plot_outline_invocation_contract()
+        ctx = setup_svc.build_context(novel_id)
+        invocation_variables = _plot_outline_invocation_variables(ctx)
+        payload = await create_invocation(
+            InvocationCreateRequest(
+                operation=SETUP_PLOT_OUTLINE_OPERATION,
+                node_key=SETUP_PLOT_OUTLINE_NODE,
+                variables=invocation_variables,
+                context={"novel_id": novel_id, "setup_context": ctx},
+                policy=InvocationPolicy.FULL_INTERACTIVE,
+                metadata={
+                    "source": "setup_plot_outline",
+                    "novel_id": novel_id,
+                },
+            )
+        )
+        session = payload.get("session") or {}
+        return GeneratePlotOutlineResponse(
+            plot_outline=None,
+            invocation_session_id=str(session.get("id") or ""),
+            invocation_next_action=str(payload.get("next_action") or ""),
+        )
+    except Exception as exc:
+        logger.exception("generate_plot_outline failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate plot outline: {str(exc)}",
+        )
+
+
+@router.post(
+    "/{novel_id}/setup/generate-plot-outline-stream",
+    status_code=status.HTTP_200_OK,
+)
+async def generate_plot_outline_stream(
+    novel_id: str,
+    novel_service=Depends(get_novel_service),
+    setup_svc=Depends(get_setup_plot_outline_service),
+):
+    if novel_service.get_novel(novel_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+
+    async def event_gen():
+        yield f"data: {json.dumps({'type': 'phase', 'phase': 'plot_outline', 'message': '正在生成剧情总纲'}, ensure_ascii=False)}\n\n"
+        try:
+            _ensure_plot_outline_invocation_contract()
+            ctx = setup_svc.build_context(novel_id)
+            invocation_variables = _plot_outline_invocation_variables(ctx)
+            payload = await create_invocation(
+                InvocationCreateRequest(
+                    operation=SETUP_PLOT_OUTLINE_OPERATION,
+                    node_key=SETUP_PLOT_OUTLINE_NODE,
+                    variables=invocation_variables,
+                    context={"novel_id": novel_id, "setup_context": ctx},
+                    policy=InvocationPolicy.FULL_INTERACTIVE,
+                    metadata={
+                        "source": "setup_plot_outline_stream",
+                        "novel_id": novel_id,
+                    },
+                )
+            )
+            session = payload.get("session") or {}
+            if session.get("id"):
+                yield f"data: {json.dumps({'type': 'approval_required', 'session_id': session.get('id', ''), 'status': session.get('status', ''), 'next_action': payload.get('next_action', '')}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'plot_outline': None, 'invocation_session_id': session.get('id', '')}, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.exception("generate_plot_outline_stream failed")
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(

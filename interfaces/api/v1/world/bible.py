@@ -564,7 +564,7 @@ async def _create_bible_setup_invocation(
 
     _save_invocation_result(repos, result)
     return {
-        "session": _session_payload(result.session),
+        "session": _session_payload(repos, result.session),
         "attempt": _attempt_payload(result.attempt),
         "decision": _decision_payload(result.decision),
         "commit": _commit_payload(result.commit),

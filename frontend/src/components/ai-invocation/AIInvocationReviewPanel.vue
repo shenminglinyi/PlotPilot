@@ -60,6 +60,7 @@ interface OutputBindingRow {
   label: string
   jsonPath: string
   target: string
+  valueType: string
 }
 
 const outputContractIntro = computed(() => {
@@ -75,70 +76,73 @@ const outputContractRules = computed(() => {
     '如果需要新增可入库字段，需要先扩展后端输出契约/continuation 写入逻辑，再在提示词里要求 AI 输出该字段。',
   ]
 })
-const outputContractSkeleton = computed(() => {
-  const nodeKey = store.session?.node_key || ''
-  if (nodeKey === 'bible-worldbuilding') {
-    return `{
-  "style": "小说整体文风公约",
-  "worldbuilding": {
-    "core_rules": "核心法则",
-    "geography": "地理生态",
-    "society": "社会结构",
-    "culture": "历史文化",
-    "daily_life": "沉浸感细节"
+function placeholderForType(valueType: string): unknown {
+  switch (valueType) {
+    case 'integer':
+      return 1
+    case 'float':
+      return 1
+    case 'boolean':
+      return true
+    case 'list':
+      return []
+    case 'object':
+      return {}
+    default:
+      return '...'
   }
-}`
+}
+
+function ensureObject(target: Record<string, unknown>, key: string): Record<string, unknown> {
+  const current = target[key]
+  if (current && typeof current === 'object' && !Array.isArray(current)) return current as Record<string, unknown>
+  const next: Record<string, unknown> = {}
+  target[key] = next
+  return next
+}
+
+function ensureArrayObject(target: Record<string, unknown>, key: string): Record<string, unknown> {
+  const current = target[key]
+  if (Array.isArray(current) && current[0] && typeof current[0] === 'object') {
+    return current[0] as Record<string, unknown>
   }
-  if (nodeKey === 'bible-characters') {
-    return `{
-  "characters": [
-    {
-      "name": "角色名",
-      "description": "角色设定",
-      "relationships": []
+  const next: Record<string, unknown> = {}
+  target[key] = [next]
+  return next
+}
+
+function buildOutputSkeleton(rows: OutputBindingRow[]): string {
+  if (!rows.length) return ''
+  const root: Record<string, unknown> = {}
+  for (const row of rows) {
+    const segments = row.jsonPath.split('.').filter(Boolean)
+    let cursor = root
+    for (let index = 0; index < segments.length; index += 1) {
+      const raw = segments[index]
+      const isArray = raw.endsWith('[]')
+      const key = raw.replace(/\[\]$/, '')
+      const isLast = index === segments.length - 1
+      if (isLast) {
+        cursor[key] = isArray ? [placeholderForType(row.valueType)] : placeholderForType(row.valueType)
+      } else {
+        cursor = isArray ? ensureArrayObject(cursor, key) : ensureObject(cursor, key)
+      }
     }
-  ]
-}`
   }
-  if (nodeKey === 'bible-locations') {
-    return `{
-  "locations": [
-    {
-      "name": "地点名",
-      "description": "地点设定",
-      "connections": []
-    }
-  ]
-}`
-  }
-  return ''
-})
-const outputBindings = computed<OutputBindingRow[]>(() => {
-  const nodeKey = store.session?.node_key || ''
-  if (nodeKey === 'bible-worldbuilding') {
-    return [
-      { label: '文风公约', jsonPath: 'style', target: 'Bible.style_notes[category=文风公约]' },
-      { label: '核心法则', jsonPath: 'worldbuilding.core_rules', target: 'Worldbuilding.core_rules' },
-      { label: '地理生态', jsonPath: 'worldbuilding.geography', target: 'Worldbuilding.geography' },
-      { label: '社会结构', jsonPath: 'worldbuilding.society', target: 'Worldbuilding.society' },
-      { label: '历史文化', jsonPath: 'worldbuilding.culture', target: 'Worldbuilding.culture' },
-      { label: '沉浸感细节', jsonPath: 'worldbuilding.daily_life', target: 'Worldbuilding.daily_life' },
-    ]
-  }
-  if (nodeKey === 'bible-characters') {
-    return [
-      { label: '主要角色', jsonPath: 'characters[]', target: 'Bible.characters' },
-      { label: '人物关系', jsonPath: 'characters[].relationships', target: 'Bible.characters[].relationships / triples' },
-    ]
-  }
-  if (nodeKey === 'bible-locations') {
-    return [
-      { label: '地图地点', jsonPath: 'locations[]', target: 'Bible.locations' },
-      { label: '地点关系', jsonPath: 'locations[].connections', target: 'Bible.locations[].connections / triples' },
-    ]
-  }
-  return []
-})
+  return JSON.stringify(root, null, 2)
+}
+
+const outputBindings = computed<OutputBindingRow[]>(() =>
+  (store.session?.output_bindings ?? [])
+    .filter(item => Boolean(item.alias))
+    .map(item => ({
+      label: item.display_name || item.alias,
+      jsonPath: item.source_path || item.alias,
+      target: item.variable_key || '-',
+      valueType: item.value_type || 'string',
+    })),
+)
+const outputContractSkeleton = computed(() => buildOutputSkeleton(outputBindings.value))
 const currentStepOutputs = computed(() =>
   outputBindings.value.map(item => `${item.label}：${item.jsonPath} → ${item.target}`),
 )

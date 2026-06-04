@@ -28,16 +28,16 @@ def _ensure_bible_stage_contract(stage: str):
 
 
 def _definitions() -> list[OnboardingStageDefinition]:
-    from application.blueprint.services.setup_main_plot_invocation import (
-        SETUP_MAIN_PLOT_NODE,
-        SETUP_MAIN_PLOT_OPERATION,
-        SETUP_MAIN_PLOT_STAGE,
-        build_setup_main_plot_invocation_variables,
-        ensure_setup_main_plot_contract,
-        main_plot_ui_events,
-        setup_main_plot_input_bindings,
-        setup_main_plot_output_bindings,
-        setup_main_plot_spec,
+    from application.blueprint.services.setup_plot_outline_invocation import (
+        SETUP_PLOT_OUTLINE_NODE,
+        SETUP_PLOT_OUTLINE_OPERATION,
+        SETUP_PLOT_OUTLINE_STAGE,
+        build_setup_plot_outline_invocation_variables,
+        ensure_setup_plot_outline_contract,
+        plot_outline_ui_events,
+        setup_plot_outline_input_bindings,
+        setup_plot_outline_output_bindings,
+        setup_plot_outline_spec,
     )
     from application.world.services.bible_setup_invocation import (
         BIBLE_SETUP_CHARACTERS_NODE,
@@ -100,16 +100,16 @@ def _definitions() -> list[OnboardingStageDefinition]:
             },
         ),
         OnboardingStageDefinition(
-            stage=SETUP_MAIN_PLOT_STAGE,
-            operation=SETUP_MAIN_PLOT_OPERATION,
-            node_key=SETUP_MAIN_PLOT_NODE,
-            input_contract=setup_main_plot_input_bindings,
-            output_contract=setup_main_plot_output_bindings,
-            context_provider=lambda *, setup_context: build_setup_main_plot_invocation_variables(setup_context),
-            continuation_handler="setup_main_plot_options",
-            spec_provider=setup_main_plot_spec,
-            contract_ensurer=ensure_setup_main_plot_contract,
-            ui_events=main_plot_ui_events(),
+            stage=SETUP_PLOT_OUTLINE_STAGE,
+            operation=SETUP_PLOT_OUTLINE_OPERATION,
+            node_key=SETUP_PLOT_OUTLINE_NODE,
+            input_contract=setup_plot_outline_input_bindings,
+            output_contract=setup_plot_outline_output_bindings,
+            context_provider=lambda *, setup_context: build_setup_plot_outline_invocation_variables(setup_context),
+            continuation_handler="setup_plot_outline",
+            spec_provider=setup_plot_outline_spec,
+            contract_ensurer=ensure_setup_plot_outline_contract,
+            ui_events=plot_outline_ui_events(),
         ),
     ]
 
@@ -134,4 +134,3 @@ def find_onboarding_stage_definition(*, operation: str, node_key: str) -> Onboar
 
 def ensure_onboarding_stage_contract(*, operation: str, node_key: str, db: Any):
     return get_onboarding_stage_registry().ensure_contract(operation=operation, node_key=node_key, db=db)
-

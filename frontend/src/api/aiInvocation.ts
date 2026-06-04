@@ -114,6 +114,7 @@ export interface InvocationSessionDTO {
   attempts?: string[]
   prompt_snapshot?: InvocationPromptSnapshot
   variable_plan?: InvocationVariablePlan
+  output_bindings?: InvocationVariableBinding[]
 }
 
 export interface InvocationAttemptDTO {

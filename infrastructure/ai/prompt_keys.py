@@ -124,6 +124,7 @@ BEAT_FOCUS_INSTRUCTIONS = "beat-focus-instructions"
 LIFECYCLE_PHASE_DIRECTIVES = "lifecycle-phase-directives"
 REFACTOR_PROPOSAL_MACRO = "refactor-proposal-macro"
 PLANNING_MAIN_PLOT_OPTION = "planning-main-plot-option"
+PLANNING_PLOT_OUTLINE = "planning-plot-outline"
 
 # ── Theme ────────────────────────────────────────────────────────────────
 # Theme keys follow pattern: theme-{genre}-{method}
@@ -183,6 +184,7 @@ ALL_KEYS: frozenset[str] = frozenset({
     WORKFLOW_CHAPTER_GENERATION, AUTOPILOT_STREAM_BEAT,
     BEAT_FOCUS_INSTRUCTIONS, LIFECYCLE_PHASE_DIRECTIVES,
     REFACTOR_PROPOSAL_MACRO, PLANNING_MAIN_PLOT_OPTION,
+    PLANNING_PLOT_OUTLINE,
 })
 
 

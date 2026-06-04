@@ -484,6 +484,17 @@ def get_setup_main_plot_suggestion_service():
     )
 
 
+def get_setup_plot_outline_service():
+    """向导 Step 4：剧情总纲生成上下文服务。"""
+    from application.blueprint.services.setup_plot_outline_service import SetupPlotOutlineService
+
+    return SetupPlotOutlineService(
+        llm_service=get_llm_service(),
+        bible_service=get_bible_service(),
+        novel_service=get_novel_service(),
+    )
+
+
 def get_bible_service() -> BibleService:
     """获取 Bible 服务
 
@@ -1328,4 +1339,3 @@ def get_unified_prop_context_builder():
         get_unified_prop_repository(),
         get_prop_event_repository(),
     )
-

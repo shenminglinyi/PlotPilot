@@ -13,7 +13,7 @@
       <n-step title="文风 / 世界观" description="先定调，再搭 5 维框架" class="wizard-step-clickable" @click="goToStep(1)" />
       <n-step title="人物" description="主要角色" class="wizard-step-clickable" @click="goToStep(2)" />
       <n-step title="地图" description="地图系统" class="wizard-step-clickable" @click="goToStep(3)" />
-      <n-step title="故事线" description="主线支线" class="wizard-step-clickable" @click="goToStep(4)" />
+      <n-step title="剧情总纲" description="故事主轴" class="wizard-step-clickable" @click="goToStep(4)" />
       <n-step title="开始" description="进入工作台" />
     </n-steps>
 
@@ -519,7 +519,7 @@
         </div>
       </div>
 
-      <!-- Step 4: 主线候选（LLM 推演） -->
+      <!-- Step 4: 剧情总纲（LLM 推演） -->
       <div v-else-if="currentStep === 4" class="step-panel step-panel--storyline">
         <n-alert
           v-if="step4RestoredFromCache"
@@ -529,118 +529,78 @@
           style="margin-bottom: 12px; width: 100%"
           @close="step4RestoredFromCache = false"
         >
-          已恢复上次浏览时的<strong>主线候选</strong>与未提交的自定义文案（本地缓存，减少重复推演）。
+          已恢复上次生成的<strong>剧情总纲</strong>预览（本地缓存，减少重复生成）。
         </n-alert>
         <div class="step-info step-info--wide">
           <n-icon size="48" color="#2080f0">
             <IconTimeline />
           </n-icon>
-          <h3>确立故事主轴</h3>
-          <p>基于你已确认的世界观、人物与地图，系统推演三条可选<strong>主线方向</strong>。选定一条即可落库为「主线」；支线留到工作台再养。</p>
+          <h3>生成剧情总纲</h3>
+          <p>基于你已确认的世界观、人物与地图，系统会生成一份完整的<strong>剧情总纲</strong>，包含主线概述、阶段规划、核心冲突与预期结局。</p>
         </div>
 
-        <n-alert v-if="plotSuggestError" type="error" style="margin-bottom: 12px; width: 100%">
-          {{ plotSuggestError }}
+        <n-alert v-if="plotOutlineError" type="error" style="margin-bottom: 12px; width: 100%">
+          {{ plotOutlineError }}
         </n-alert>
-        <n-alert v-if="mainPlotCommitted" type="success" title="已保存主线" style="margin-bottom: 12px; width: 100%">
-          已进入本书的主故事线记录，可随时在工作台「设置 → 故事线」中修改。
+        <n-alert v-if="plotOutlineCommitted" type="success" title="已保存剧情总纲" style="margin-bottom: 12px; width: 100%">
+          剧情总纲已写入变量中心，可供后续宏观规划与章节规划直接读取。
         </n-alert>
 
-        <n-spin :show="plotSuggesting" style="width: 100%">
+        <n-spin :show="plotOutlineGenerating" style="width: 100%">
           <template #description>
-            <span style="color: #999; font-size: 13px">AI 正在推演故事主线方向...</span>
+            <span style="color: #999; font-size: 13px">AI 正在生成剧情总纲...</span>
           </template>
 
-          <div v-if="plotSuggesting && !plotOptions.length" style="width: 100%">
+          <div v-if="plotOutlineGenerating && !plotOutline" style="width: 100%">
             <WizardSkeleton type="storyline" />
           </div>
 
-          <div v-if="!customMode" class="plot-options-block">
+          <div class="plot-options-block">
             <n-space vertical :size="12" style="width: 100%">
-              <transition-group name="fade-slide">
-                <n-card
-                  v-for="opt in plotOptions"
-                  :key="opt.id"
-                  size="small"
-                  :bordered="true"
-                  class="plot-option-card"
-                  :class="{ 'plot-option-card--disabled': mainPlotCommitted }"
-                >
-                  <template #header>
-                    <n-space align="center" :size="8">
-                      <n-tag size="small" type="info" round>{{ opt.type || '主线方案' }}</n-tag>
-                      <span class="plot-option-title">{{ opt.title }}</span>
-                    </n-space>
-                  </template>
-                  <n-space vertical :size="8">
-                    <div class="plot-line"><strong>梗概：</strong>{{ opt.logline }}</div>
-                    <div v-if="opt.core_conflict" class="plot-line"><strong>核心冲突：</strong>{{ opt.core_conflict }}</div>
-                    <div v-if="opt.starting_hook" class="plot-line"><strong>开篇钩子：</strong>{{ opt.starting_hook }}</div>
-                    <div v-if="opt.main_axis || opt.opening_pressure || opt.forbidden_drift" class="plot-guard-grid">
-                      <div v-if="opt.main_axis" class="plot-guard-cell">
-                        <span class="plot-guard-k">主轴</span>
-                        <span class="plot-guard-v">{{ opt.main_axis }}</span>
-                      </div>
-                      <div v-if="opt.opening_pressure" class="plot-guard-cell">
-                        <span class="plot-guard-k">开局压力</span>
-                        <span class="plot-guard-v">{{ opt.opening_pressure }}</span>
-                      </div>
-                      <div v-if="opt.forbidden_drift" class="plot-guard-cell">
-                        <span class="plot-guard-k">防跑偏</span>
-                        <span class="plot-guard-v">{{ opt.forbidden_drift }}</span>
-                      </div>
-                    </div>
-                    <div v-if="opt.sublines?.length" class="plot-subline-list">
-                      <div class="plot-subline-title">支线结构</div>
-                      <div v-for="sub in opt.sublines" :key="sub.id || sub.name" class="plot-subline-item">
-                        <n-tag size="tiny" :type="sub.role === 'dark' ? 'warning' : 'default'" round>
-                          {{ sub.role === 'dark' ? '暗线' : '支线' }}
-                        </n-tag>
-                        <span class="plot-subline-name">{{ sub.name }}</span>
-                        <span v-if="sub.purpose" class="plot-subline-purpose">{{ sub.purpose }}</span>
-                      </div>
-                    </div>
-                    <n-button
-                      type="primary"
-                      size="small"
-                      :loading="adoptingPlotId === opt.id"
-                      :disabled="mainPlotCommitted"
-                      @click="adoptPlotOption(opt)"
-                    >
-                      选这条作为主线
-                    </n-button>
+              <n-card v-if="plotOutline" size="small" :bordered="true" class="plot-option-card">
+                <template #header>
+                  <n-space align="center" :size="8">
+                    <n-tag size="small" type="info" round>剧情总纲</n-tag>
+                    <span class="plot-option-title">完整主线规划</span>
                   </n-space>
-                </n-card>
-              </transition-group>
+                </template>
+                <n-space vertical :size="12">
+                  <div class="plot-line"><strong>故事主线概述：</strong>{{ plotOutline.main_story_overview }}</div>
+                  <div v-if="plotOutline.core_conflict" class="plot-line"><strong>核心冲突：</strong>{{ plotOutline.core_conflict }}</div>
+                  <div v-if="plotOutline.expected_ending" class="plot-line"><strong>预期结局：</strong>{{ plotOutline.expected_ending }}</div>
+                  <div v-if="plotOutline.stage_plan?.length" class="plot-subline-list">
+                    <div class="plot-subline-title">阶段规划</div>
+                    <div v-for="stage in plotOutline.stage_plan" :key="stage.phase" class="plot-subline-item">
+                      <div style="display:flex;flex-direction:column;gap:4px;width:100%;">
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                          <n-tag size="tiny" type="default" round>{{ stage.label }}</n-tag>
+                          <span class="plot-subline-name">{{ stage.range_percent }}</span>
+                          <span v-if="stage.chapter_start && stage.chapter_end" class="plot-subline-purpose">
+                            第 {{ stage.chapter_start }} - {{ stage.chapter_end }} 章
+                          </span>
+                        </div>
+                        <div class="plot-line">{{ stage.summary }}</div>
+                        <div v-if="stage.key_goals?.length" class="plot-subline-purpose">
+                          目标：{{ stage.key_goals.join(' / ') }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </n-space>
+              </n-card>
             </n-space>
 
             <n-space style="margin-top: 16px; width: 100%" justify="center" :size="12">
-              <n-button secondary :disabled="mainPlotCommitted || plotSuggesting" @click="refreshPlotSuggestions">
-                换一组方向
+              <n-button secondary :disabled="plotOutlineGenerating" @click="refreshPlotOutline">
+                重新生成
               </n-button>
-              <n-button secondary :disabled="mainPlotCommitted" @click="customMode = true">
-                我有自己的想法
-              </n-button>
-            </n-space>
-          </div>
-
-          <div v-else class="plot-custom-block">
-            <n-input
-              v-model:value="customLogline"
-              type="textarea"
-              placeholder="用一句话写下你想写的主线（例如：主角为守住重要的人，被迫卷入更大的秩序裂缝……）"
-              :autosize="{ minRows: 2, maxRows: 5 }"
-              :disabled="mainPlotCommitted"
-            />
-            <n-space style="margin-top: 12px" :size="8">
-              <n-button :disabled="mainPlotCommitted" @click="cancelCustomMainPlot">返回候选</n-button>
               <n-button
-                type="primary"
-                :loading="adoptingCustom"
-                :disabled="mainPlotCommitted"
-                @click="adoptCustomMainPlot"
+                v-if="plotOutlineSessionId"
+                secondary
+                :disabled="plotOutlineGenerating"
+                @click="openPlotOutlineReviewPanel(plotOutlineSessionId)"
               >
-                用这句话作为主线
+                打开 AI 审阅
               </n-button>
             </n-space>
           </div>
@@ -680,8 +640,7 @@
           >
             确认修改并继续
           </n-button>
-          <!-- 步骤4：选了主线后可下一步 -->
-          <n-button v-if="currentStep === 4" :disabled="!mainPlotCommitted" @click="handleNext"> 下一步 </n-button>
+          <n-button v-if="currentStep === 4" :disabled="!plotOutlineCommitted" @click="handleNext"> 下一步 </n-button>
           <!-- 步骤5：进入工作台 -->
           <n-button v-if="currentStep === 5" type="primary" @click="handleComplete">
             进入工作台
@@ -698,7 +657,7 @@ import { useMessage, useDialog } from 'naive-ui'
 import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, type WorldSettingDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
-import { consumeMainPlotOptionsStream, workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
+import { consumePlotOutlineStream, workflowApi, type PlotOutlineDTO } from '@/api/workflow'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
 import { getDimensionFieldOrder, getWorldbuildingLabel } from '@/domain/worldbuilding/contract'
@@ -707,7 +666,7 @@ import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
 import {
   clearWizardUiCache,
-  isPlotOptionsCacheFresh,
+  isPlotOutlineCacheFresh,
   markWizardCompleted,
   readWizardUiCache,
   setWizardLastStep,
@@ -1222,83 +1181,59 @@ async function openBibleReviewPanel(stage: 'worldbuilding' | 'characters' | 'loc
   }
 }
 
-// ── Step 4：主线推演 ──
-const plotOptions = ref<MainPlotOptionDTO[]>([])
-const plotSuggesting = ref(false)
-const plotSuggestError = ref('')
-const mainPlotCommitted = ref(false)
-const customMode = ref(false)
-const customLogline = ref('')
-const adoptingPlotId = ref<string | null>(null)
-const adoptingCustom = ref(false)
+// ── Step 4：剧情总纲 ──
+const plotOutline = ref<PlotOutlineDTO | null>(null)
+const plotOutlineGenerating = ref(false)
+const plotOutlineError = ref('')
+const plotOutlineCommitted = ref(false)
+const plotOutlineSessionId = ref('')
 const step4RestoredFromCache = ref(false)
 
-const chapterEndForStoryline = computed(() => Math.max(1, props.targetChapters ?? 100))
-
-function persistStepFourUiToCache(opts?: { includePlotOptions?: boolean }) {
+function persistStepFourUiToCache(opts?: { includePlotOutline?: boolean }) {
   if (currentStep.value !== 4) return
   const patch: Partial<Omit<WizardUiCachePayload, 'v' | 'novelId'>> = {
-    customMode: customMode.value,
-    customLogline: customLogline.value,
+    invocationSessionId: plotOutlineSessionId.value || undefined,
   }
-  if (opts?.includePlotOptions) {
-    patch.plotOptions = plotOptions.value.length ? plotOptions.value : undefined
+  if (opts?.includePlotOutline) {
+    patch.plotOutline = plotOutline.value || undefined
   }
   writeWizardUiCache(props.novelId, patch)
 }
 
-function hasStorylineArchitecture(options: MainPlotOptionDTO[]) {
-  return options.some(
-    (opt) => Boolean(opt.main_axis || opt.opening_pressure || opt.forbidden_drift || opt.sublines?.length),
-  )
-}
-
-function extractMainPlotOptionsFromResult(result: Record<string, unknown>): MainPlotOptionDTO[] {
-  const direct = result.plot_options
-  if (Array.isArray(direct)) return direct as MainPlotOptionDTO[]
-
+function extractPlotOutlineFromResult(result: Record<string, unknown>): PlotOutlineDTO | null {
+  const direct = result.plot_outline
+  if (direct && typeof direct === 'object') return direct as PlotOutlineDTO
   const continuation = result.continuation
   if (continuation && typeof continuation === 'object') {
-    const fromContinuation = (continuation as Record<string, unknown>).plot_options
-    if (Array.isArray(fromContinuation)) return fromContinuation as MainPlotOptionDTO[]
-    const fromJson = (continuation as Record<string, unknown>).plot_options_json
-    if (typeof fromJson === 'string' && fromJson.trim()) {
-      try {
-        const parsed = JSON.parse(fromJson) as unknown
-        if (Array.isArray(parsed)) return parsed as MainPlotOptionDTO[]
-        if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
-          return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
-        }
-      } catch {
-        // Ignore malformed continuation payload; accepted_content is checked below.
-      }
-    }
+    const fromContinuation = (continuation as Record<string, unknown>).plot_outline
+    if (fromContinuation && typeof fromContinuation === 'object') return fromContinuation as PlotOutlineDTO
   }
-
   const acceptedContent = result.accepted_content
   if (typeof acceptedContent === 'string' && acceptedContent.trim()) {
     try {
       const parsed = JSON.parse(acceptedContent) as unknown
-      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
-        return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
+      if (parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).plot_outline) {
+        return (parsed as Record<string, unknown>).plot_outline as PlotOutlineDTO
       }
     } catch {
-      return []
+      return null
     }
   }
-  return []
+  return null
 }
 
-function applyMainPlotOptionsFromResult(result: Record<string, unknown>) {
-  const options = extractMainPlotOptionsFromResult(result)
-  if (!options.length) return
-  plotOptions.value = options
-  writeWizardUiCache(props.novelId, { plotOptions: options })
-  message.success('AI 审阅已完成，主线候选已回填')
+function applyPlotOutlineFromResult(result: Record<string, unknown>) {
+  const outline = extractPlotOutlineFromResult(result)
+  if (!outline) return
+  plotOutline.value = outline
+  plotOutlineCommitted.value = true
+  writeWizardUiCache(props.novelId, { plotOutline: outline })
+  message.success('AI 审阅已完成，剧情总纲已回填')
 }
 
-async function openMainPlotReviewPanel(sessionId: string) {
+async function openPlotOutlineReviewPanel(sessionId: string) {
   if (!sessionId) return
+  plotOutlineSessionId.value = sessionId
   message.info('已进入 AI 审阅')
   try {
     writeWizardUiCache(props.novelId, { invocationSessionId: sessionId })
@@ -1306,7 +1241,7 @@ async function openMainPlotReviewPanel(sessionId: string) {
     mainPlotSessionUnsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
       const result = payload.commit?.result
       if (!result) return
-      applyMainPlotOptionsFromResult(result)
+      applyPlotOutlineFromResult(result)
       mainPlotSessionUnsub?.()
       mainPlotSessionUnsub = null
     })
@@ -1316,187 +1251,96 @@ async function openMainPlotReviewPanel(sessionId: string) {
   }
 }
 
-async function loadPlotSuggestions(opts?: { forceNew?: boolean }) {
+async function loadPlotOutline(opts?: { forceNew?: boolean }) {
   step4RestoredFromCache.value = false
-  plotSuggesting.value = true
-  plotSuggestError.value = ''
-  plotOptions.value = []
+  plotOutlineGenerating.value = true
+  plotOutlineError.value = ''
+  plotOutline.value = null
   if (opts?.forceNew) {
-    writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOptions: undefined })
+    plotOutlineSessionId.value = ''
+    writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOutline: undefined })
   }
   const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
   try {
     if (cached?.invocationSessionId) {
-      await openMainPlotReviewPanel(cached.invocationSessionId)
-      if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
-        plotOptions.value = cached.plotOptions
+      plotOutlineSessionId.value = cached.invocationSessionId
+      await openPlotOutlineReviewPanel(cached.invocationSessionId)
+      if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
+        plotOutline.value = cached.plotOutline
         step4RestoredFromCache.value = true
       }
       return
     }
 
     let streamError = ''
-    await consumeMainPlotOptionsStream(props.novelId, {
+    await consumePlotOutlineStream(props.novelId, {
       onApprovalRequired: (sessionId) => {
-        void openMainPlotReviewPanel(sessionId)
+        plotOutlineSessionId.value = sessionId
+        void openPlotOutlineReviewPanel(sessionId)
       },
       onPhase: (message) => {
         if (message) phaseMessage.value = message
       },
-      onOption: (option) => {
-        if (!option?.id) return
-        const idx = plotOptions.value.findIndex(o => o.id === option.id)
-        if (idx >= 0) {
-          plotOptions.value.splice(idx, 1, option)
-        } else {
-          plotOptions.value = [...plotOptions.value, option]
-        }
-      },
-      onDone: (options) => {
-        if (options.length) plotOptions.value = options
+      onDone: (outline) => {
+        if (outline) plotOutline.value = outline
       },
       onError: (message) => {
-        streamError = message || '流式推演失败'
+        streamError = message || '流式生成失败'
       },
     })
-    if (streamError && !plotOptions.value.length) {
+    if (streamError && !plotOutline.value) {
       throw new Error(streamError)
     }
-    if (plotOptions.value.length) {
-      writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
+    if (plotOutline.value) {
+      writeWizardUiCache(props.novelId, { plotOutline: plotOutline.value })
     }
   } catch (e: unknown) {
     try {
-      const res = await workflowApi.suggestMainPlotOptions(props.novelId)
-      plotOptions.value = res.plot_options || []
+      const res = await workflowApi.generatePlotOutline(props.novelId)
+      plotOutline.value = res.plot_outline || null
       if (res.invocation_session_id) {
-        void openMainPlotReviewPanel(res.invocation_session_id)
+        plotOutlineSessionId.value = res.invocation_session_id
+        void openPlotOutlineReviewPanel(res.invocation_session_id)
       }
       if (!res.invocation_session_id && cached?.invocationSessionId) {
-        void openMainPlotReviewPanel(cached.invocationSessionId)
+        plotOutlineSessionId.value = cached.invocationSessionId
+        void openPlotOutlineReviewPanel(cached.invocationSessionId)
       }
-      if (plotOptions.value.length) {
-        writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
+      if (plotOutline.value) {
+        writeWizardUiCache(props.novelId, { plotOutline: plotOutline.value })
       }
     } catch (directError: unknown) {
-      let msg = formatApiError(directError) || formatApiError(e) || '推演失败，请重试'
+      let msg = formatApiError(directError) || formatApiError(e) || '生成失败，请重试'
       if (isLikelyTimeoutError(directError) || isLikelyTimeoutError(e)) {
         msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
       }
-      plotSuggestError.value = msg
+      plotOutlineError.value = msg
     }
   } finally {
-    plotSuggesting.value = false
+    plotOutlineGenerating.value = false
     phaseMessage.value = ''
   }
 }
 
-async function refreshPlotSuggestions() {
-  await loadPlotSuggestions({ forceNew: true })
-}
-
-async function adoptPlotOption(opt: MainPlotOptionDTO) {
-  adoptingPlotId.value = opt.id
-  try {
-    const parts = [
-      opt.logline,
-      opt.core_conflict ? `核心冲突：${opt.core_conflict}` : '',
-      opt.starting_hook ? `开篇钩子：${opt.starting_hook}` : '',
-      opt.main_axis ? `主轴锁：${opt.main_axis}` : '',
-      opt.opening_pressure ? `开篇压力：${opt.opening_pressure}` : '',
-      opt.forbidden_drift ? `禁止漂移：${opt.forbidden_drift}` : '',
-      opt.sublines?.length
-        ? `支线结构：\n${opt.sublines.map((sub, idx) => `${idx + 1}. ${sub.name}${sub.purpose ? `：${sub.purpose}` : ''}${sub.guard ? `；护栏：${sub.guard}` : ''}`).join('\n')}`
-        : '',
-    ].filter(Boolean)
-    const main = await workflowApi.createStoryline(props.novelId, {
-      storyline_type: 'main_plot',
-      role: 'main',
-      estimated_chapter_start: 1,
-      estimated_chapter_end: chapterEndForStoryline.value,
-      name: opt.title.slice(0, 200),
-      description: parts.join('\n\n').slice(0, 8000),
-    })
-    for (const sub of opt.sublines || []) {
-      const end = Math.max(
-        1,
-        Math.min(chapterEndForStoryline.value, Number(sub.merge_chapter || chapterEndForStoryline.value)),
-      )
-      await workflowApi.createStoryline(props.novelId, {
-        storyline_type: sub.role === 'dark' ? 'mystery' : 'growth',
-        role: sub.role === 'dark' ? 'dark' : 'sub',
-        parent_id: main.id,
-        estimated_chapter_start: 1,
-        estimated_chapter_end: end,
-        name: String(sub.name || '未命名支线').slice(0, 200),
-        description: [
-          sub.description || sub.purpose || '',
-          sub.purpose ? `功能：${sub.purpose}` : '',
-          sub.guard ? `护栏：${sub.guard}` : '',
-          sub.merge_chapter ? `汇流章节：第 ${sub.merge_chapter} 章附近` : '',
-        ].filter(Boolean).join('\n\n').slice(0, 8000),
-      })
-    }
-    mainPlotCommitted.value = true
-    clearWizardUiCache(props.novelId)
-    message.success('主线已保存')
-  } catch (e: unknown) {
-    message.error(formatApiError(e) || '保存失败')
-  } finally {
-    adoptingPlotId.value = null
-  }
-}
-
-async function adoptCustomMainPlot() {
-  const t = customLogline.value.trim()
-  if (!t) {
-    message.warning('请先写下一句话主线')
-    return
-  }
-  adoptingCustom.value = true
-  try {
-    await workflowApi.createStoryline(props.novelId, {
-      storyline_type: 'main_plot',
-      estimated_chapter_start: 1,
-      estimated_chapter_end: chapterEndForStoryline.value,
-      name: t.length > 80 ? `${t.slice(0, 80)}…` : t,
-      description: t.slice(0, 8000),
-    })
-    mainPlotCommitted.value = true
-    customMode.value = false
-    clearWizardUiCache(props.novelId)
-    message.success('主线已保存')
-  } catch (e: unknown) {
-    message.error(formatApiError(e) || '保存失败')
-  } finally {
-    adoptingCustom.value = false
-  }
-}
-
-function cancelCustomMainPlot() {
-  customMode.value = false
-  persistStepFourUiToCache()
+async function refreshPlotOutline() {
+  await loadPlotOutline({ forceNew: true })
 }
 
 function hydrateStepFourFromCache() {
   step4RestoredFromCache.value = false
   const cached = readWizardUiCache(props.novelId)
   if (!cached) return
-  if (cached.customMode != null) customMode.value = cached.customMode
-  if (cached.customLogline != null) customLogline.value = cached.customLogline
-  if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
-    if (hasStorylineArchitecture(cached.plotOptions)) {
-      plotOptions.value = cached.plotOptions
-      step4RestoredFromCache.value = true
-      if (cached.invocationSessionId && !mainPlotCommitted.value) {
-        void openMainPlotReviewPanel(cached.invocationSessionId)
-      }
-      return
+  if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
+    plotOutline.value = cached.plotOutline
+    plotOutlineSessionId.value = cached.invocationSessionId || ''
+    step4RestoredFromCache.value = true
+    if (cached.invocationSessionId && !plotOutlineCommitted.value) {
+      void openPlotOutlineReviewPanel(cached.invocationSessionId)
     }
-    writeWizardUiCache(props.novelId, { plotOptions: undefined })
+    return
   }
-  if (cached.plotOptions?.length && !isPlotOptionsCacheFresh(cached)) {
-    writeWizardUiCache(props.novelId, { plotOptions: undefined })
+  if (cached.plotOutline && !isPlotOutlineCacheFresh(cached)) {
+    writeWizardUiCache(props.novelId, { plotOutline: undefined })
   }
 }
 
@@ -1750,11 +1594,10 @@ async function loadBibleData() {
 function resetWizardStateForOpen() {
   currentStep.value = 1
   stepStatus.value = 'process'
-  plotOptions.value = []
-  mainPlotCommitted.value = false
-  customMode.value = false
-  customLogline.value = ''
-  plotSuggestError.value = ''
+  plotOutline.value = null
+  plotOutlineCommitted.value = false
+  plotOutlineSessionId.value = ''
+  plotOutlineError.value = ''
   charactersError.value = ''
   locationsError.value = ''
   resumedFromStep.value = 0
@@ -1804,14 +1647,14 @@ async function detectWizardProgress(): Promise<number> {
       }))
     }
 
-    // ── 判断主线是否已提交 ──
-    let hasMainPlot = false
+    // ── 判断剧情总纲是否已提交 ──
+    let hasPlotOutline = false
     try {
-      const storylines = await workflowApi.getStorylines(props.novelId)
-      hasMainPlot = storylines.some(s => s.storyline_type === 'main_plot')
-      if (hasMainPlot) {
-        mainPlotCommitted.value = true
-        clearWizardUiCache(props.novelId)
+      const response = await workflowApi.getPlotOutline(props.novelId)
+      if (response.plot_outline) {
+        plotOutline.value = response.plot_outline
+        plotOutlineCommitted.value = true
+        hasPlotOutline = true
       }
     } catch { /* 忽略 */ }
 
@@ -1839,7 +1682,7 @@ async function detectWizardProgress(): Promise<number> {
       resumedFromStep.value = 2
       return 2
     }
-    if (!hasMainPlot) {
+    if (!hasPlotOutline) {
       resumedFromStep.value = 3
       return 3
     }
@@ -1857,7 +1700,7 @@ async function runWizardOpenSequence() {
   const step = await detectWizardProgress()
   currentStep.value = step
   maxVisitedStep.value = step
-  if (step === 4 && !mainPlotCommitted.value) {
+  if (step === 4 && !plotOutlineCommitted.value) {
     hydrateStepFourFromCache()
   }
 }
@@ -1884,7 +1727,7 @@ watch(
       await runWizardOpenSequence()
     } else {
       stopGenerationOnClose()
-      persistStepFourUiToCache({ includePlotOptions: true })
+      persistStepFourUiToCache({ includePlotOutline: true })
     }
   }
 )
@@ -1908,16 +1751,14 @@ watch(currentStep, (step, prevStep) => {
   if (prevStep !== undefined && props.show) {
     void loadBibleData()
   }
-  if (step === 4 && props.show && !mainPlotCommitted.value && plotOptions.value.length === 0 && !plotSuggesting.value) {
-    void loadPlotSuggestions()
+  if (step === 4 && props.show && !plotOutlineCommitted.value && !plotOutline.value && !plotOutlineGenerating.value) {
+    void loadPlotOutline()
   }
 })
 
-watch([customMode, customLogline], () => {
-  if (currentStep.value === 4 && props.show) {
-    persistStepFourUiToCache()
-  }
-})
+watch(plotOutline, () => {
+  if (currentStep.value === 4 && props.show) persistStepFourUiToCache()
+}, { deep: true })
 
 /** 保存中状态 */
 const savingStep = ref(false)
@@ -2119,7 +1960,7 @@ const dialog = useDialog()
 const handleSkip = () => {
   dialog.warning({
     title: '确认跳过向导',
-    content: '已写入作品的数据会保留；第 4 步未提交的主线候选与自定义文案仍会缓存在本机，便于以后从向导继续。',
+    content: '已写入作品的数据会保留；第 4 步未提交的剧情总纲预览仍会缓存在本机，便于以后从向导继续。',
     positiveText: '跳过',
     negativeText: '取消',
     onPositiveClick: () => {
@@ -2133,7 +1974,7 @@ const handleSkip = () => {
 const requestClose = () => {
   dialog.warning({
     title: '关闭向导',
-    content: '进度已按步骤写入作品；第 4 步未提交的主线候选与自定义文案会缓存在本机以便下次继续。',
+    content: '进度已按步骤写入作品；第 4 步未提交的剧情总纲预览会缓存在本机以便下次继续。',
     positiveText: '关闭',
     negativeText: '取消',
     onPositiveClick: () => {
