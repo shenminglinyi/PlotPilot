@@ -24,8 +24,29 @@ const targets = [
   },
 ]
 
+const bannedTaxonomyPhrases = [
+  '独有卖点',
+  '第一次利用',
+  '规则解决眼前问题',
+  '压力出现 → 主角试探',
+  '专属场景完成',
+  '服务{{topic}}受众',
+  '只写成背景皮肤',
+  '标志性元素',
+]
+
+function validateTaxonomy(doc, target) {
+  if (target.label !== 'taxonomy') return
+  const serialized = JSON.stringify(doc)
+  const hits = bannedTaxonomyPhrases.filter((phrase) => serialized.includes(phrase))
+  if (hits.length > 0) {
+    throw new Error(`[sync:${target.label}] banned template phrases found: ${hits.join(', ')}`)
+  }
+}
+
 for (const target of targets) {
   const doc = parse(readFileSync(target.src, 'utf8'))
+  validateTaxonomy(doc, target)
   const next = `${JSON.stringify(doc, null, 2)}\n`
   if (checkOnly) {
     const current = readFileSync(target.out, 'utf8')
