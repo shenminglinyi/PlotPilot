@@ -443,6 +443,10 @@ def _backfill_bible_setup_variable_hub(*, variable_repo, novel_id: str, novel) -
     for key, attr, label in (
         ("novel.genre_label", "locked_genre", "类型"),
         ("novel.world_preset", "locked_world_preset", "基调"),
+        ("novel.story_structure", "locked_story_structure", "剧情结构"),
+        ("novel.pacing_control", "locked_pacing_control", "节奏把控"),
+        ("novel.writing_style", "locked_writing_style", "写作风格"),
+        ("novel.special_requirements", "locked_special_requirements", "特殊要求"),
     ):
         _write_variable_if_missing(
             variable_repo,

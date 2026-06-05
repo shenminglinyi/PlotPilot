@@ -64,6 +64,10 @@ def setup_plot_outline_input_bindings() -> list[VariableBinding]:
         "novel.genre_theme": "类型主题",
         "novel.genre_label": "类型标签",
         "novel.world_preset": "世界基调",
+        "novel.story_structure": "剧情结构",
+        "novel.pacing_control": "节奏把控",
+        "novel.writing_style": "写作风格",
+        "novel.special_requirements": "特殊要求",
         "novel.target_chapters": "目标章节数",
         "novel.target_words_per_chapter": "每章目标字数",
         "characters.protagonist": "主角",
@@ -83,6 +87,10 @@ def setup_plot_outline_input_bindings() -> list[VariableBinding]:
         "novel.genre_theme",
         "novel.genre_label",
         "novel.world_preset",
+        "novel.story_structure",
+        "novel.pacing_control",
+        "novel.writing_style",
+        "novel.special_requirements",
         "novel.target_words_per_chapter",
     }
     known_variable_keys = set(display_names) | set(value_types) | optional_keys

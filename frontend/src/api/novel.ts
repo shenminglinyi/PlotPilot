@@ -107,6 +107,10 @@ export interface NovelDTO {
   /** 服务端从 premise 解析，优先用于「本书锁定」展示 */
   locked_genre?: string
   locked_world_preset?: string
+  locked_story_structure?: string
+  locked_pacing_control?: string
+  locked_writing_style?: string
+  locked_special_requirements?: string
   chapters: ChapterDTO[]
   total_word_count: number
   has_bible?: boolean
@@ -144,6 +148,10 @@ export const novelApi = {
     premise?: string
     genre?: string
     world_preset?: string
+    story_structure?: string
+    pacing_control?: string
+    writing_style?: string
+    special_requirements?: string
     /** V1 体量档：与 target_chapters 二选一由后端解析 */
     length_tier?: 'short' | 'standard' | 'epic' | null
     target_words_per_chapter?: number | null

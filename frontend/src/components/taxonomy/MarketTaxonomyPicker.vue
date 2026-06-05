@@ -79,7 +79,46 @@
       />
 
       <div class="mtp-section-head mtp-mt">
-        <span class="mtp-k">④ 类型字符串（建档字段）</span>
+        <span class="mtp-k">④ 写作原则</span>
+        <span class="mtp-hint">按题材注入 CPMS，可修改</span>
+      </div>
+      <div class="mtp-writing-grid">
+        <n-input
+          type="textarea"
+          :autosize="{ minRows: 3, maxRows: 10 }"
+          v-model:value="storyStructure"
+          :disabled="disabled"
+          placeholder="剧情结构"
+          class="mtp-world-input"
+        />
+        <n-input
+          type="textarea"
+          :autosize="{ minRows: 3, maxRows: 10 }"
+          v-model:value="pacingControl"
+          :disabled="disabled"
+          placeholder="节奏把控"
+          class="mtp-world-input"
+        />
+        <n-input
+          type="textarea"
+          :autosize="{ minRows: 3, maxRows: 10 }"
+          v-model:value="writingStyle"
+          :disabled="disabled"
+          placeholder="写作风格"
+          class="mtp-world-input"
+        />
+        <n-input
+          type="textarea"
+          :autosize="{ minRows: 3, maxRows: 10 }"
+          v-model:value="specialRequirements"
+          :disabled="disabled"
+          placeholder="特殊要求"
+          class="mtp-world-input"
+        />
+      </div>
+
+      <div class="mtp-section-head mtp-mt">
+        <span class="mtp-k">⑤ 类型字符串（建档字段）</span>
       </div>
       <n-input :value="genre" readonly :disabled="disabled" placeholder="例：玄幻 / 东方玄幻">
         <template #suffix>
@@ -106,6 +145,7 @@ import {
   marketMajorThemeGenre,
   worldToneForSelection,
   themeAgentKeyForSelection,
+  writingProfileForSelection,
   BUILTIN_CN_MARKET_V1,
 } from '@/domain/taxonomy/cnMarket'
 import { pickLocaleLabel } from '@/domain/taxonomy/types'
@@ -133,6 +173,10 @@ const props = withDefaults(
 
 const genre = defineModel<string>('genre', { default: '' })
 const worldPreset = defineModel<string>('worldPreset', { default: '' })
+const storyStructure = defineModel<string>('storyStructure', { default: '' })
+const pacingControl = defineModel<string>('pacingControl', { default: '' })
+const writingStyle = defineModel<string>('writingStyle', { default: '' })
+const specialRequirements = defineModel<string>('specialRequirements', { default: '' })
 
 const roots = BUILTIN_CN_MARKET_V1.roots
 const rootsCount = computed(() => roots.length)
@@ -205,13 +249,23 @@ function pickMajor(root: TaxonomyNode) {
   pickedThemeId.value = first?.id ?? null
 
   genre.value = first ? marketMajorThemeGenre(root, first, props.locale) : ''
-  worldPreset.value = worldToneForSelection(root)
+  worldPreset.value = worldToneForSelection(root, first)
+  applyWritingProfile(root, first)
 }
 
 function pickTheme(root: TaxonomyNode, leaf: TaxonomyNode) {
   pickedThemeId.value = leaf.id
   genre.value = marketMajorThemeGenre(root, leaf, props.locale)
-  worldPreset.value = worldToneForSelection(root)
+  worldPreset.value = worldToneForSelection(root, leaf)
+  applyWritingProfile(root, leaf)
+}
+
+function applyWritingProfile(root: TaxonomyNode, leaf: TaxonomyNode | undefined) {
+  const profile = writingProfileForSelection(root, leaf)
+  storyStructure.value = profile.story_structure?.trim() || ''
+  pacingControl.value = profile.pacing_control?.trim() || ''
+  writingStyle.value = profile.writing_style?.trim() || ''
+  specialRequirements.value = profile.special_requirements?.trim() || ''
 }
 
 const themeAgentKeyDisplay = computed(() => {
@@ -314,10 +368,21 @@ const themeAgentTooltip = computed(() => {
 .mtp-world-input :deep(textarea) {
   font-size: 13px;
 }
+.mtp-writing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
 .mtp-engine-hint {
   font-size: 11px;
   color: var(--app-text-muted);
   font-family: ui-monospace, monospace;
+}
+
+@media (max-width: 900px) {
+  .mtp-writing-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .mtp-empty-search {
   text-align: center;

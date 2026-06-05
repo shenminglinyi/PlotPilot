@@ -27,6 +27,18 @@ variables:
 - name: novel.world_preset
   desc: World preset or tonal baseline
   type: string
+- name: novel.story_structure
+  desc: Story structure profile
+  type: string
+- name: novel.pacing_control
+  desc: Pacing control profile
+  type: string
+- name: novel.writing_style
+  desc: Writing style profile
+  type: string
+- name: novel.special_requirements
+  desc: Special requirements profile
+  type: string
 - name: novel.target_chapters
   desc: Target chapter count
   type: integer

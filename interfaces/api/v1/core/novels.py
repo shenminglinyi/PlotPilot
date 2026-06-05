@@ -35,6 +35,10 @@ class CreateNovelRequest(BaseModel):
     premise: str = Field(default="", max_length=2000, description="故事梗概/创意（建议 2000 字内）")
     genre: str = Field(default="", description="赛道/类型（下拉预设）")
     world_preset: str = Field(default="", description="世界观基调（下拉预设）")
+    story_structure: str = Field(default="", description="剧情结构（题材预设，可由用户修改）")
+    pacing_control: str = Field(default="", description="节奏把控（题材预设，可由用户修改）")
+    writing_style: str = Field(default="", description="写作风格（题材预设，可由用户修改）")
+    special_requirements: str = Field(default="", description="特殊要求（题材预设，可由用户修改）")
     length_tier: Optional[Literal["short", "standard", "epic"]] = Field(
         None,
         description="V1 目标篇幅档：short≈30万字 / standard≈100万字 / epic≈300万字（推导章数与每章字数）",
@@ -138,6 +142,10 @@ async def create_novel(
         premise=request.premise,
         genre=request.genre,
         world_preset=request.world_preset,
+        story_structure=request.story_structure,
+        pacing_control=request.pacing_control,
+        writing_style=request.writing_style,
+        special_requirements=request.special_requirements,
         length_tier=request.length_tier,
         target_words_per_chapter=request.target_words_per_chapter,
     )

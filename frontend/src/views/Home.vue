@@ -68,6 +68,10 @@
               <MarketTaxonomyPicker
                 v-model:genre="newBook.genre"
                 v-model:worldPreset="newBook.worldPreset"
+                v-model:storyStructure="newBook.storyStructure"
+                v-model:pacingControl="newBook.pacingControl"
+                v-model:writingStyle="newBook.writingStyle"
+                v-model:specialRequirements="newBook.specialRequirements"
                 :disabled="creating"
               />
             </div>
@@ -121,7 +125,7 @@
                 size="large"
                 round
                 :loading="creating"
-                :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim()"
+                :disabled="!newBook.premise.trim() || !newBook.genre.trim() || !newBook.worldPreset.trim() || !newBook.storyStructure.trim() || !newBook.pacingControl.trim() || !newBook.writingStyle.trim() || !newBook.specialRequirements.trim()"
                 @click="handleCreate"
               >
                 <template #icon>
@@ -496,6 +500,10 @@ const newBook = ref({
   premise: '',
   genre: '',
   worldPreset: '',
+  storyStructure: '',
+  pacingControl: '',
+  writingStyle: '',
+  specialRequirements: '',
   chapters: 100,  // 默认 100 章
   words: 2500,
 })
@@ -620,6 +628,10 @@ const handleCreate = async () => {
     message.warning('请填写或确认世界观基调')
     return
   }
+  if (!newBook.value.storyStructure.trim() || !newBook.value.pacingControl.trim() || !newBook.value.writingStyle.trim() || !newBook.value.specialRequirements.trim()) {
+    message.warning('请补全四项写作规则')
+    return
+  }
 
   creating.value = true
   try {
@@ -633,6 +645,10 @@ const handleCreate = async () => {
       premise: newBook.value.premise.trim(),
       genre: newBook.value.genre,
       world_preset: newBook.value.worldPreset,
+      story_structure: newBook.value.storyStructure,
+      pacing_control: newBook.value.pacingControl,
+      writing_style: newBook.value.writingStyle,
+      special_requirements: newBook.value.specialRequirements,
     }
     const result = await novelApi.createNovel(
       showAdvanced.value

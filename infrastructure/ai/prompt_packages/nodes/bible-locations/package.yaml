@@ -27,6 +27,18 @@ variables:
 - name: novel.world_preset
   desc: 世界观基调
   type: string
+- name: novel.story_structure
+  desc: 剧情结构
+  type: string
+- name: novel.pacing_control
+  desc: 节奏把控
+  type: string
+- name: novel.writing_style
+  desc: 写作风格
+  type: string
+- name: novel.special_requirements
+  desc: 特殊要求
+  type: string
 - name: novel.target_chapters
   desc: 章节数量
   type: integer

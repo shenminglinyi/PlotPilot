@@ -10,9 +10,13 @@ from typing import Any, Dict, Optional
 class GenerationPreferences:
     """全托管与节拍指挥相关偏好。"""
 
-    # 创建书时选定的类型/世界基调；作为变量中心和引导流的稳定来源
+    # 创建书时选定的类型/世界基调/四类写作规则；作为变量中心和引导流的稳定来源
     locked_genre: str = ""
     locked_world_preset: str = ""
+    locked_story_structure: str = ""
+    locked_pacing_control: str = ""
+    locked_writing_style: str = ""
+    locked_special_requirements: str = ""
 
     # 工作台/全托管 UI：True 时叙事单元展示为「第 N 阶段」，否则为「章」（默认阶段）
     phase_display_mode: bool = True
@@ -87,6 +91,10 @@ class GenerationPreferences:
         return cls(
             locked_genre=str(raw.get("locked_genre", "") or ""),
             locked_world_preset=str(raw.get("locked_world_preset", "") or ""),
+            locked_story_structure=str(raw.get("locked_story_structure", "") or ""),
+            locked_pacing_control=str(raw.get("locked_pacing_control", "") or ""),
+            locked_writing_style=str(raw.get("locked_writing_style", "") or ""),
+            locked_special_requirements=str(raw.get("locked_special_requirements", "") or ""),
             phase_display_mode=phase_display_mode,
             smart_truncate_enabled=smart_truncate_enabled,
             beat_hard_cap_enabled=beat_hard_cap_enabled,

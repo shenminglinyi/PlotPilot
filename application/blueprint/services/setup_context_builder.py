@@ -112,6 +112,10 @@ class SetupContextBuilder:
             ("novel.target_words_per_chapter", "target_words_per_chapter"),
             ("novel.genre_label", "theme_metadata.genre_label"),
             ("novel.world_preset", "theme_metadata.world_preset"),
+            ("novel.story_structure", "theme_metadata.story_structure"),
+            ("novel.pacing_control", "theme_metadata.pacing_control"),
+            ("novel.writing_style", "theme_metadata.writing_style"),
+            ("novel.special_requirements", "theme_metadata.special_requirements"),
             ("characters.protagonist", "protagonist"),
             ("characters.list", "characters"),
             ("locations.list", "locations"),
@@ -131,6 +135,14 @@ class SetupContextBuilder:
                 context.setdefault("theme_metadata", {})["genre_label"] = str(value.value or "")
             elif target == "theme_metadata.world_preset":
                 context.setdefault("theme_metadata", {})["world_preset"] = str(value.value or "")
+            elif target == "theme_metadata.story_structure":
+                context.setdefault("theme_metadata", {})["story_structure"] = str(value.value or "")
+            elif target == "theme_metadata.pacing_control":
+                context.setdefault("theme_metadata", {})["pacing_control"] = str(value.value or "")
+            elif target == "theme_metadata.writing_style":
+                context.setdefault("theme_metadata", {})["writing_style"] = str(value.value or "")
+            elif target == "theme_metadata.special_requirements":
+                context.setdefault("theme_metadata", {})["special_requirements"] = str(value.value or "")
             else:
                 context[target] = value.value
         return context
@@ -176,6 +188,18 @@ class SetupContextBuilder:
         return {
             "genre_label": (getattr(novel, "genre_label", "") or getattr(novel, "locked_genre", "") or "").strip(),
             "world_preset": (getattr(novel, "world_preset", "") or getattr(novel, "locked_world_preset", "") or "").strip(),
+            "story_structure": (
+                getattr(novel, "story_structure", "") or getattr(novel, "locked_story_structure", "") or ""
+            ).strip(),
+            "pacing_control": (
+                getattr(novel, "pacing_control", "") or getattr(novel, "locked_pacing_control", "") or ""
+            ).strip(),
+            "writing_style": (
+                getattr(novel, "writing_style", "") or getattr(novel, "locked_writing_style", "") or ""
+            ).strip(),
+            "special_requirements": (
+                getattr(novel, "special_requirements", "") or getattr(novel, "locked_special_requirements", "") or ""
+            ).strip(),
             "primary_theme_key": (getattr(novel, "primary_theme_key", "") or "").strip(),
             "secondary_theme_keys": [str(x).strip() for x in secondary if str(x).strip()],
             "fusion_profile_key": (getattr(novel, "fusion_profile_key", "") or "").strip(),
