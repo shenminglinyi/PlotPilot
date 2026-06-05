@@ -106,12 +106,41 @@ export interface SuggestMainPlotOptionsResponse {
   invocation_next_action?: string
 }
 
+export interface PlotOutlineStageDTO {
+  phase: 'opening' | 'development' | 'deepening' | 'climax' | 'ending'
+  label: string
+  range_percent: string
+  chapter_start?: number
+  chapter_end?: number
+  summary: string
+  key_goals?: string[]
+}
+
+export interface PlotOutlineDTO {
+  main_story_overview: string
+  stage_plan: PlotOutlineStageDTO[]
+  expected_ending: string
+  core_conflict: string
+}
+
+export interface GeneratePlotOutlineResponse {
+  plot_outline: PlotOutlineDTO | null
+  invocation_session_id?: string
+  invocation_next_action?: string
+}
+
 export type MainPlotOptionsStreamEvent =
   | { type: 'phase'; phase: string; message: string }
   | { type: 'chunk'; text: string }
   | { type: 'option'; option: MainPlotOptionDTO; index: number }
   | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
   | { type: 'done'; plot_options: MainPlotOptionDTO[] }
+  | { type: 'error'; message: string }
+
+export type PlotOutlineStreamEvent =
+  | { type: 'phase'; phase: string; message: string }
+  | { type: 'approval_required'; session_id: string; status?: string; next_action?: string }
+  | { type: 'done'; plot_outline: PlotOutlineDTO | null }
   | { type: 'error'; message: string }
 
 export interface PlotPointDTO {
@@ -650,6 +679,97 @@ export async function consumeMainPlotOptionsStream(
   }
 }
 
+export async function consumePlotOutlineStream(
+  novelId: string,
+  handlers: {
+    onEvent?: (event: PlotOutlineStreamEvent) => void
+    onPhase?: (message: string) => void
+    onApprovalRequired?: (sessionId: string, status?: string, nextAction?: string) => void
+    onDone?: (outline: PlotOutlineDTO | null) => void
+    onError?: (message: string) => void
+    signal?: AbortSignal
+  }
+): Promise<void> {
+  const res = await fetch(resolveHttpUrl(`/api/v1/novels/${novelId}/setup/generate-plot-outline-stream`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: handlers.signal,
+  })
+  if (!res.ok || !res.body) {
+    const t = await res.text().catch(() => '')
+    handlers.onError?.(t || `HTTP ${res.status}`)
+    return
+  }
+  const reader = res.body.getReader()
+  const dec = new TextDecoder()
+  let buf = ''
+  const drainFrames = (): boolean => {
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      for (const line of block.split('\n')) {
+        const raw = parseSseDataLine(line)
+        if (!raw || typeof raw !== 'object' || raw === null) continue
+        const o = raw as Record<string, unknown>
+        const typ = String(o.type ?? '')
+        if (typ === 'phase') {
+          const ev: PlotOutlineStreamEvent = {
+            type: 'phase',
+            phase: String(o.phase ?? ''),
+            message: String(o.message ?? ''),
+          }
+          handlers.onEvent?.(ev)
+          handlers.onPhase?.(ev.message)
+        } else if (typ === 'approval_required') {
+          const sessionId = String(o.session_id ?? '')
+          const status = String(o.status ?? '')
+          const nextAction = String(o.next_action ?? '')
+          const ev: PlotOutlineStreamEvent = {
+            type: 'approval_required',
+            session_id: sessionId,
+            status,
+            next_action: nextAction,
+          }
+          handlers.onEvent?.(ev)
+          handlers.onApprovalRequired?.(sessionId, status, nextAction)
+        } else if (typ === 'done') {
+          const outline = o.plot_outline && typeof o.plot_outline === 'object'
+            ? (o.plot_outline as PlotOutlineDTO)
+            : null
+          const ev: PlotOutlineStreamEvent = { type: 'done', plot_outline: outline }
+          handlers.onEvent?.(ev)
+          handlers.onDone?.(outline)
+          return true
+        } else if (typ === 'error') {
+          const msg = String(o.message ?? '生成失败')
+          const ev: PlotOutlineStreamEvent = { type: 'error', message: msg }
+          handlers.onEvent?.(ev)
+          handlers.onError?.(msg)
+          return true
+        }
+      }
+    }
+    return false
+  }
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) buf += dec.decode(value, { stream: true })
+      if (drainFrames()) return
+      if (done) {
+        buf += dec.decode()
+        drainFrames()
+        break
+      }
+    }
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === 'AbortError') return
+    handlers.onError?.(e instanceof Error ? e.message : '流式连接失败')
+  }
+}
+
 export const workflowApi = {
   /** GET /api/v1/novels/{novel_id}/storylines */
   getStorylines: (novelId: string) =>
@@ -666,6 +786,24 @@ export const workflowApi = {
       {},
       { timeout: WIZARD_STEP_TIMEOUT_MS }
     ) as unknown as Promise<SuggestMainPlotOptionsResponse>,
+
+  getPlotOutline: (novelId: string) =>
+    apiClient.get<GeneratePlotOutlineResponse>(
+      `/novels/${novelId}/setup/plot-outline`,
+    ) as unknown as Promise<GeneratePlotOutlineResponse>,
+
+  savePlotOutline: (novelId: string, plotOutline: PlotOutlineDTO) =>
+    apiClient.put<GeneratePlotOutlineResponse>(
+      `/novels/${novelId}/setup/plot-outline`,
+      { plot_outline: plotOutline },
+    ) as unknown as Promise<GeneratePlotOutlineResponse>,
+
+  generatePlotOutline: (novelId: string) =>
+    apiClient.post<GeneratePlotOutlineResponse>(
+      `/novels/${novelId}/setup/generate-plot-outline`,
+      {},
+      { timeout: WIZARD_STEP_TIMEOUT_MS },
+    ) as unknown as Promise<GeneratePlotOutlineResponse>,
 
   /** POST /api/v1/novels/{novel_id}/storylines */
   createStoryline: (

@@ -22,65 +22,70 @@ def bible_setup_output_bindings(node_key: str) -> list[VariableBinding]:
         return [
             VariableBinding(
                 alias="style",
-                variable_key="novel.style.guide",
+                variable_key="worldbuilding.style",
                 source_path="style",
                 value_type="string",
                 display_name="文风公约",
-                scope="global",
+                scope="novel",
                 stage="setup",
             ),
             VariableBinding(
-                alias="worldbuilding",
-                variable_key="novel.worldbuilding",
-                source_path="worldbuilding",
-                value_type="object",
-                display_name="世界观",
-                scope="global",
-                stage="worldbuilding",
-            ),
-            VariableBinding(
                 alias="core_rules",
-                variable_key="novel.worldbuilding.core_rules",
+                variable_key="worldbuilding.core_rules",
                 source_path="worldbuilding.core_rules",
                 value_type="object",
+                preview_source="continuation",
                 display_name="核心法则",
-                scope="global",
+                scope="novel",
                 stage="worldbuilding",
             ),
             VariableBinding(
                 alias="geography",
-                variable_key="novel.worldbuilding.geography",
+                variable_key="worldbuilding.geography",
                 source_path="worldbuilding.geography",
                 value_type="object",
+                preview_source="continuation",
                 display_name="地理生态",
-                scope="global",
+                scope="novel",
                 stage="worldbuilding",
             ),
             VariableBinding(
                 alias="society",
-                variable_key="novel.worldbuilding.society",
+                variable_key="worldbuilding.society",
                 source_path="worldbuilding.society",
                 value_type="object",
+                preview_source="continuation",
                 display_name="社会结构",
-                scope="global",
+                scope="novel",
                 stage="worldbuilding",
             ),
             VariableBinding(
                 alias="culture",
-                variable_key="novel.worldbuilding.culture",
+                variable_key="worldbuilding.culture",
                 source_path="worldbuilding.culture",
                 value_type="object",
+                preview_source="continuation",
                 display_name="历史文化",
-                scope="global",
+                scope="novel",
                 stage="worldbuilding",
             ),
             VariableBinding(
                 alias="daily_life",
-                variable_key="novel.worldbuilding.daily_life",
+                variable_key="worldbuilding.daily_life",
                 source_path="worldbuilding.daily_life",
                 value_type="object",
+                preview_source="continuation",
                 display_name="沉浸感细节",
-                scope="global",
+                scope="novel",
+                stage="worldbuilding",
+            ),
+            VariableBinding(
+                alias="worldbuilding",
+                variable_key="worldbuilding.content",
+                source_path="worldbuilding",
+                value_type="object",
+                display_name="世界观正文",
+                scope="novel",
                 stage="worldbuilding",
             ),
         ]
@@ -88,20 +93,21 @@ def bible_setup_output_bindings(node_key: str) -> list[VariableBinding]:
         return [
             VariableBinding(
                 alias="characters",
-                variable_key="novel.characters.list",
+                variable_key="characters.list",
                 source_path="characters",
                 value_type="list",
                 display_name="角色列表",
-                scope="global",
+                scope="novel",
                 stage="characters",
             ),
             VariableBinding(
                 alias="protagonist",
-                variable_key="novel.characters.protagonist",
+                variable_key="characters.protagonist",
                 source_path="characters[0]",
                 value_type="object",
+                preview_source="continuation",
                 display_name="主角",
-                scope="global",
+                scope="novel",
                 stage="characters",
             ),
         ]
@@ -109,11 +115,11 @@ def bible_setup_output_bindings(node_key: str) -> list[VariableBinding]:
         return [
             VariableBinding(
                 alias="locations",
-                variable_key="novel.locations.list",
+                variable_key="locations.list",
                 source_path="locations",
                 value_type="list",
                 display_name="地点列表",
-                scope="global",
+                scope="novel",
                 stage="locations",
             ),
         ]
@@ -127,5 +133,16 @@ def ensure_bible_setup_output_bindings(repo: Any, node_key: str | None = None) -
     for key in node_keys:
         binding_set_id = OUTPUT_BINDING_SET_BY_NODE.get(str(key))
         bindings = bible_setup_output_bindings(str(key))
+        existing = []
+        if binding_set_id and hasattr(repo, "get_output_bindings"):
+            try:
+                existing = repo.get_output_bindings(binding_set_id, str(key)) or []
+            except Exception:
+                existing = []
         if binding_set_id and bindings:
-            repo.set_bindings(binding_set_id, str(key), bindings, direction="output")
+            repo.set_bindings(
+                binding_set_id,
+                str(key),
+                existing or bindings,
+                direction="output",
+            )

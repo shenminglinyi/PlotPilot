@@ -394,10 +394,7 @@ class TestSetupMainPlotOptionsEndpoints:
         async def fake_create_invocation(request):
             assert request.operation == "setup.main_plot_options"
             assert request.node_key == "planning-main-plot-option"
-            assert "context_blob" not in request.variables
-            assert "worldbuilding_full" not in request.variables
-            assert request.variables["premise"] == "少年在废土城破局"
-            assert "protagonist" in request.variables
+            assert request.variables == {}
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
             return {
@@ -455,8 +452,7 @@ class TestSetupMainPlotOptionsEndpoints:
         async def fake_create_invocation(request):
             assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
             assert "setup_context" in request.context
-            assert "context_blob" not in request.variables
-            assert "worldbuilding_full" not in request.variables
+            assert request.variables == {}
             return {
                 "session": {"id": "session-1", "status": "awaiting_pre_call_review"},
                 "next_action": "pre_call_review_required",
@@ -473,3 +469,108 @@ class TestSetupMainPlotOptionsEndpoints:
         body = response.text
         assert '"type": "approval_required"' in body
         assert '"session_id": "session-1"' in body
+
+
+class TestSetupPlotOutlineEndpoints:
+    def test_generate_plot_outline_triggers_ai_invocation(self, client, test_novel_id, monkeypatch):
+        from interfaces.api.v1.engine import generation
+
+        fake_novel_service = Mock()
+        fake_novel_service.get_novel.return_value = SimpleNamespace(
+            title="测试小说",
+            premise="少年在废土城破局",
+            target_chapters=100,
+            target_words_per_chapter=3000,
+            genre_label="玄幻 / 热血",
+            world_preset="废土",
+            secondary_theme_keys=[],
+        )
+        fake_setup_svc = Mock()
+        fake_setup_svc.build_context.return_value = {
+            "novel_title": "测试小说",
+            "premise": "少年在废土城破局",
+            "target_chapters": 100,
+            "target_words_per_chapter": 3000,
+            "theme_metadata": {"genre_label": "玄幻 / 热血", "world_preset": "废土"},
+            "protagonist": {"name": "阿澄"},
+            "characters": [{"name": "阿澄"}],
+            "other_characters": [],
+            "locations": [],
+            "worldview_summary": [],
+            "style_hint": "",
+            "core_rules": {},
+            "geography": {},
+            "society": {},
+            "culture": {},
+            "daily_life": {},
+        }
+
+        async def fake_create_invocation(request):
+            assert request.operation == "setup.plot_outline"
+            assert request.node_key == "planning-plot-outline"
+            assert request.variables == {}
+            assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert "setup_context" in request.context
+            return {
+                "session": {"id": "session-outline-1", "status": "awaiting_pre_call_review"},
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+        monkeypatch.setattr(generation, "_ensure_plot_outline_invocation_contract", lambda: None)
+        client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+        client.app.dependency_overrides[generation.get_setup_plot_outline_service] = lambda: fake_setup_svc
+
+        response = client.post(f"/api/v1/novels/{test_novel_id}/setup/generate-plot-outline")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["plot_outline"] is None
+        assert data["invocation_session_id"] == "session-outline-1"
+        assert data["invocation_next_action"] == "pre_call_review_required"
+
+    def test_generate_plot_outline_stream_emits_approval_required(self, client, test_novel_id, monkeypatch):
+        from interfaces.api.v1.engine import generation
+
+        fake_novel_service = Mock()
+        fake_novel_service.get_novel.return_value = SimpleNamespace(title="测试小说")
+        fake_setup_svc = Mock()
+        fake_setup_svc.build_context.return_value = {
+            "novel_title": "测试小说",
+            "premise": "少年在废土城破局",
+            "target_chapters": 100,
+            "target_words_per_chapter": 3000,
+            "theme_metadata": {"genre_label": "玄幻 / 热血", "world_preset": "废土"},
+            "protagonist": {"name": "阿澄"},
+            "characters": [{"name": "阿澄"}],
+            "other_characters": [],
+            "locations": [],
+            "worldview_summary": [],
+            "style_hint": "",
+            "core_rules": {},
+            "geography": {},
+            "society": {},
+            "culture": {},
+            "daily_life": {},
+        }
+
+        async def fake_create_invocation(request):
+            assert request.policy == generation.InvocationPolicy.FULL_INTERACTIVE
+            assert request.variables == {}
+            assert "setup_context" in request.context
+            return {
+                "session": {"id": "session-outline-1", "status": "awaiting_pre_call_review"},
+                "next_action": "pre_call_review_required",
+            }
+
+        monkeypatch.setattr(generation, "create_invocation", fake_create_invocation)
+        monkeypatch.setattr(generation, "_ensure_plot_outline_invocation_contract", lambda: None)
+        client.app.dependency_overrides[generation.get_novel_service] = lambda: fake_novel_service
+        client.app.dependency_overrides[generation.get_setup_plot_outline_service] = lambda: fake_setup_svc
+
+        response = client.post(f"/api/v1/novels/{test_novel_id}/setup/generate-plot-outline-stream")
+
+        assert response.status_code == 200
+        body = response.text
+        assert '"type": "approval_required"' in body
+        assert '"session_id": "session-outline-1"' in body

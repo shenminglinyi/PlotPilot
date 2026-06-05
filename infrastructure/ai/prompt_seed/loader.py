@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -20,10 +21,158 @@ def _try_yaml_load(path: Path) -> Dict[str, Any]:
     try:
         import yaml  # type: ignore
     except ImportError as e:
-        raise RuntimeError("需要安装 PyYAML：pip install PyYAML") from e
+        logger.warning("prompt_seed: PyYAML 不可用，使用受限 YAML 解析器 path=%s", path)
+        return _minimal_yaml_load(path.read_text(encoding="utf-8"))
     text = path.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
     return data if isinstance(data, dict) else {}
+
+
+def _minimal_yaml_load(text: str) -> Dict[str, Any]:
+    """Parse the limited YAML subset used by prompt package metadata.
+
+    Supported subset:
+    - top-level / nested mappings via indentation
+    - lists introduced by ``- ``
+    - list items that are scalars or inline mappings
+    - scalar strings / booleans / integers / floats / null
+    """
+
+    raw_lines = text.splitlines()
+    lines: list[tuple[int, str]] = []
+    for raw in raw_lines:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        lines.append((indent, raw[indent:]))
+    if not lines:
+        return {}
+
+    value, index = _parse_yaml_block(lines, 0, lines[0][0])
+    if index != len(lines):
+        raise RuntimeError("受限 YAML 解析器未消费全部内容")
+    return value if isinstance(value, dict) else {}
+
+
+def _parse_yaml_block(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[Any, int]:
+    if index >= len(lines):
+        return {}, index
+    current_indent, content = lines[index]
+    if current_indent != indent:
+        raise RuntimeError(f"YAML 缩进不符合预期: expected={indent} actual={current_indent}")
+    if content.startswith("- "):
+        return _parse_yaml_list(lines, index, indent)
+    return _parse_yaml_dict(lines, index, indent)
+
+
+def _parse_yaml_dict(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[Dict[str, Any], int]:
+    result: Dict[str, Any] = {}
+    last_key = ""
+    while index < len(lines):
+        current_indent, content = lines[index]
+        if current_indent < indent:
+            break
+        if current_indent > indent:
+            if last_key and isinstance(result.get(last_key), str):
+                result[last_key] = f"{result[last_key]} {content.strip()}".strip()
+                index += 1
+                continue
+            raise RuntimeError(f"YAML 字典出现非法缩进: indent={current_indent} expected={indent}")
+        if content.startswith("- "):
+            break
+        if ":" not in content:
+            raise RuntimeError(f"YAML 字典项缺少冒号: {content}")
+        key, raw_value = content.split(":", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        index += 1
+        if not raw_value:
+            if index < len(lines) and lines[index][0] > current_indent:
+                value, index = _parse_yaml_block(lines, index, lines[index][0])
+            elif index < len(lines) and lines[index][0] == current_indent and lines[index][1].startswith("- "):
+                value, index = _parse_yaml_list(lines, index, current_indent)
+            else:
+                value = ""
+        else:
+            value = _parse_yaml_scalar(raw_value)
+        result[key] = value
+        last_key = key
+    return result, index
+
+
+def _parse_yaml_list(lines: list[tuple[int, str]], index: int, indent: int) -> tuple[list[Any], int]:
+    result: list[Any] = []
+    while index < len(lines):
+        current_indent, content = lines[index]
+        if current_indent < indent:
+            break
+        if current_indent > indent:
+            raise RuntimeError(f"YAML 列表出现非法缩进: indent={current_indent} expected={indent}")
+        if not content.startswith("- "):
+            break
+        item_content = content[2:].strip()
+        index += 1
+        inline_match = re.match(r"^([A-Za-z0-9_.-]+)\s*:\s*(.*)$", item_content)
+        if not item_content:
+            if index < len(lines) and lines[index][0] > current_indent:
+                item, index = _parse_yaml_block(lines, index, lines[index][0])
+            else:
+                item = ""
+        elif inline_match:
+            key = inline_match.group(1)
+            raw_value = inline_match.group(2).strip()
+            item: Any
+            if raw_value:
+                item = {key: _parse_yaml_scalar(raw_value)}
+            elif index < len(lines) and lines[index][0] > current_indent:
+                nested, index = _parse_yaml_block(lines, index, lines[index][0])
+                item = {key: nested}
+            else:
+                item = {key: ""}
+            if (
+                index < len(lines)
+                and lines[index][0] > current_indent
+                and isinstance(item, dict)
+                and not (len(item) == 1 and isinstance(next(iter(item.values())), (dict, list)))
+            ):
+                nested, index = _parse_yaml_block(lines, index, lines[index][0])
+                if isinstance(nested, dict):
+                    item.update(nested)
+                else:
+                    raise RuntimeError("YAML 列表内联对象后续块必须是字典")
+            result.append(item)
+        else:
+            result.append(_parse_yaml_scalar(item_content))
+    return result, index
+
+
+def _parse_yaml_scalar(raw_value: str) -> Any:
+    value = raw_value.strip()
+    if not value:
+        return ""
+    if value in {"true", "True"}:
+        return True
+    if value in {"false", "False"}:
+        return False
+    if value in {"null", "Null", "NULL", "~"}:
+        return None
+    if (value.startswith("'") and value.endswith("'")) or (value.startswith('"') and value.endswith('"')):
+        inner = value[1:-1]
+        if value.startswith("'"):
+            return inner.replace("''", "'")
+        return inner.replace('\\"', '"')
+    if re.fullmatch(r"-?\d+", value):
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    if re.fullmatch(r"-?\d+\.\d+", value):
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    return value
 
 
 def load_bundle_meta() -> Dict[str, Any]:

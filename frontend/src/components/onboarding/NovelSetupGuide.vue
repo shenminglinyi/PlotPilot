@@ -13,7 +13,7 @@
       <n-step title="文风 / 世界观" description="先定调，再搭 5 维框架" class="wizard-step-clickable" @click="goToStep(1)" />
       <n-step title="人物" description="主要角色" class="wizard-step-clickable" @click="goToStep(2)" />
       <n-step title="地图" description="地图系统" class="wizard-step-clickable" @click="goToStep(3)" />
-      <n-step title="故事线" description="主线支线" class="wizard-step-clickable" @click="goToStep(4)" />
+      <n-step title="剧情总纲" description="故事主轴" class="wizard-step-clickable" @click="goToStep(4)" />
       <n-step title="开始" description="进入工作台" />
     </n-steps>
 
@@ -52,7 +52,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('core_rules').length">
                 <div v-for="field in orderedWorldbuildingFields('core_rules')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'core_rules' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -64,7 +64,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('geography').length">
                 <div v-for="field in orderedWorldbuildingFields('geography')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'geography' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -76,7 +76,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('society').length">
                 <div v-for="field in orderedWorldbuildingFields('society')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'society' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -88,7 +88,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('culture').length">
                 <div v-for="field in orderedWorldbuildingFields('culture')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'culture' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -100,7 +100,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('daily_life').length">
                 <div v-for="field in orderedWorldbuildingFields('daily_life')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === field.key }">
-                  <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'daily_life' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -144,7 +144,13 @@
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
                   <div class="dimension-fields">
                     <div v-for="field in orderedWorldbuildingFields(dim.key)" :key="field.key" class="field-card field-card--editable">
-                      <div class="field-card__title">{{ dimKeyLabels[field.key] || field.key }}</div>
+                      <n-input
+                        v-model:value="fieldLabelDrafts[field.key]"
+                        @blur="ensureFieldLabelDraft(field.key)"
+                        size="small"
+                        class="field-label-input"
+                        :placeholder="field.key"
+                      />
                       <n-input
                         v-model:value="worldbuildingData[dim.key][field.key]"
                         type="textarea"
@@ -519,7 +525,7 @@
         </div>
       </div>
 
-      <!-- Step 4: 主线候选（LLM 推演） -->
+      <!-- Step 4: 剧情总纲（LLM 推演） -->
       <div v-else-if="currentStep === 4" class="step-panel step-panel--storyline">
         <n-alert
           v-if="step4RestoredFromCache"
@@ -529,118 +535,114 @@
           style="margin-bottom: 12px; width: 100%"
           @close="step4RestoredFromCache = false"
         >
-          已恢复上次浏览时的<strong>主线候选</strong>与未提交的自定义文案（本地缓存，减少重复推演）。
+          已恢复上次生成的<strong>剧情总纲</strong>预览（本地缓存，减少重复生成）。
         </n-alert>
         <div class="step-info step-info--wide">
           <n-icon size="48" color="#2080f0">
             <IconTimeline />
           </n-icon>
-          <h3>确立故事主轴</h3>
-          <p>基于你已确认的世界观、人物与地图，系统推演三条可选<strong>主线方向</strong>。选定一条即可落库为「主线」；支线留到工作台再养。</p>
+          <h3>生成剧情总纲</h3>
+          <p>基于你已确认的世界观、人物与地图，系统会生成一份完整的<strong>剧情总纲</strong>，包含主线概述、阶段规划、核心冲突与预期结局。</p>
         </div>
 
-        <n-alert v-if="plotSuggestError" type="error" style="margin-bottom: 12px; width: 100%">
-          {{ plotSuggestError }}
+        <n-alert v-if="plotOutlineError" type="error" style="margin-bottom: 12px; width: 100%">
+          {{ plotOutlineError }}
         </n-alert>
-        <n-alert v-if="mainPlotCommitted" type="success" title="已保存主线" style="margin-bottom: 12px; width: 100%">
-          已进入本书的主故事线记录，可随时在工作台「设置 → 故事线」中修改。
+        <n-alert v-if="plotOutlineCommitted" type="success" title="已保存剧情总纲" style="margin-bottom: 12px; width: 100%">
+          剧情总纲已写入变量中心，可供后续宏观规划与章节规划直接读取。
         </n-alert>
 
-        <n-spin :show="plotSuggesting" style="width: 100%">
+        <n-spin :show="plotOutlineGenerating" style="width: 100%">
           <template #description>
-            <span style="color: #999; font-size: 13px">AI 正在推演故事主线方向...</span>
+            <span style="color: #999; font-size: 13px">AI 正在生成剧情总纲...</span>
           </template>
 
-          <div v-if="plotSuggesting && !plotOptions.length" style="width: 100%">
+          <div v-if="plotOutlineGenerating && !plotOutline" style="width: 100%">
             <WizardSkeleton type="storyline" />
           </div>
 
-          <div v-if="!customMode" class="plot-options-block">
+          <div class="plot-options-block">
             <n-space vertical :size="12" style="width: 100%">
-              <transition-group name="fade-slide">
-                <n-card
-                  v-for="opt in plotOptions"
-                  :key="opt.id"
-                  size="small"
-                  :bordered="true"
-                  class="plot-option-card"
-                  :class="{ 'plot-option-card--disabled': mainPlotCommitted }"
-                >
-                  <template #header>
-                    <n-space align="center" :size="8">
-                      <n-tag size="small" type="info" round>{{ opt.type || '主线方案' }}</n-tag>
-                      <span class="plot-option-title">{{ opt.title }}</span>
-                    </n-space>
-                  </template>
-                  <n-space vertical :size="8">
-                    <div class="plot-line"><strong>梗概：</strong>{{ opt.logline }}</div>
-                    <div v-if="opt.core_conflict" class="plot-line"><strong>核心冲突：</strong>{{ opt.core_conflict }}</div>
-                    <div v-if="opt.starting_hook" class="plot-line"><strong>开篇钩子：</strong>{{ opt.starting_hook }}</div>
-                    <div v-if="opt.main_axis || opt.opening_pressure || opt.forbidden_drift" class="plot-guard-grid">
-                      <div v-if="opt.main_axis" class="plot-guard-cell">
-                        <span class="plot-guard-k">主轴</span>
-                        <span class="plot-guard-v">{{ opt.main_axis }}</span>
-                      </div>
-                      <div v-if="opt.opening_pressure" class="plot-guard-cell">
-                        <span class="plot-guard-k">开局压力</span>
-                        <span class="plot-guard-v">{{ opt.opening_pressure }}</span>
-                      </div>
-                      <div v-if="opt.forbidden_drift" class="plot-guard-cell">
-                        <span class="plot-guard-k">防跑偏</span>
-                        <span class="plot-guard-v">{{ opt.forbidden_drift }}</span>
-                      </div>
-                    </div>
-                    <div v-if="opt.sublines?.length" class="plot-subline-list">
-                      <div class="plot-subline-title">支线结构</div>
-                      <div v-for="sub in opt.sublines" :key="sub.id || sub.name" class="plot-subline-item">
-                        <n-tag size="tiny" :type="sub.role === 'dark' ? 'warning' : 'default'" round>
-                          {{ sub.role === 'dark' ? '暗线' : '支线' }}
-                        </n-tag>
-                        <span class="plot-subline-name">{{ sub.name }}</span>
-                        <span v-if="sub.purpose" class="plot-subline-purpose">{{ sub.purpose }}</span>
-                      </div>
-                    </div>
-                    <n-button
-                      type="primary"
-                      size="small"
-                      :loading="adoptingPlotId === opt.id"
-                      :disabled="mainPlotCommitted"
-                      @click="adoptPlotOption(opt)"
-                    >
-                      选这条作为主线
-                    </n-button>
+              <n-card v-if="plotOutline" size="small" :bordered="true" class="plot-option-card">
+                <template #header>
+                  <n-space align="center" :size="8">
+                    <n-tag size="small" type="info" round>剧情总纲</n-tag>
+                    <span class="plot-option-title">完整主线规划</span>
                   </n-space>
-                </n-card>
-              </transition-group>
+                </template>
+                <n-space vertical :size="12">
+                  <div class="plot-outline-editor">
+                    <div
+                      v-for="key in plotOutlineTopFieldKeys"
+                      :key="key"
+                      class="plot-kv-field"
+                    >
+                      <div class="plot-kv-label">{{ plotFieldLabel(key) }}</div>
+                      <n-input
+                        :value="plotFieldText(editablePlotOutline, key)"
+                        type="textarea"
+                        :autosize="{ minRows: key === 'main_story_overview' ? 4 : 3, maxRows: 8 }"
+                        :placeholder="`填写${plotFieldLabel(key)}`"
+                        @update:value="updatePlotField(editablePlotOutline, key, $event)"
+                      />
+                    </div>
+                  </div>
+                  <div v-if="editablePlotOutline.stage_plan?.length" class="plot-subline-list plot-outline-stage-editor">
+                    <div class="plot-subline-title">阶段规划</div>
+                    <div v-for="(stage, index) in editablePlotOutline.stage_plan" :key="stage.phase || index" class="plot-subline-item plot-stage-edit-item">
+                      <div class="plot-stage-edit-header">
+                        <n-tag size="tiny" type="default" round>{{ stage.label }}</n-tag>
+                        <span class="plot-subline-name">{{ stageRangePercentLabel(stage) }}</span>
+                      </div>
+                      <div class="plot-stage-chapter-row">
+                        <n-input-number
+                          :value="stage.chapter_start ?? null"
+                          :min="1"
+                          :precision="0"
+                          placeholder="起始章"
+                          @update:value="updateStageChapterNumber(index, 'chapter_start', $event)"
+                        />
+                        <span class="plot-stage-chapter-separator">至</span>
+                        <n-input-number
+                          :value="stage.chapter_end ?? null"
+                          :min="1"
+                          :precision="0"
+                          placeholder="结束章"
+                          @update:value="updateStageChapterNumber(index, 'chapter_end', $event)"
+                        />
+                        <span class="plot-subline-purpose">章</span>
+                      </div>
+                      <div
+                        v-for="key in stageContentFieldKeys(stage)"
+                        :key="key"
+                        class="plot-kv-field"
+                      >
+                        <div class="plot-kv-label">{{ plotFieldLabel(key) }}</div>
+                        <n-input
+                          :value="plotFieldText(stage, key)"
+                          type="textarea"
+                          :autosize="{ minRows: 3, maxRows: 7 }"
+                          :placeholder="`填写${plotFieldLabel(key)}`"
+                          @update:value="updatePlotField(stage, key, $event)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </n-space>
+              </n-card>
             </n-space>
 
             <n-space style="margin-top: 16px; width: 100%" justify="center" :size="12">
-              <n-button secondary :disabled="mainPlotCommitted || plotSuggesting" @click="refreshPlotSuggestions">
-                换一组方向
+              <n-button secondary :disabled="plotOutlineGenerating" @click="refreshPlotOutline">
+                重新生成
               </n-button>
-              <n-button secondary :disabled="mainPlotCommitted" @click="customMode = true">
-                我有自己的想法
-              </n-button>
-            </n-space>
-          </div>
-
-          <div v-else class="plot-custom-block">
-            <n-input
-              v-model:value="customLogline"
-              type="textarea"
-              placeholder="用一句话写下你想写的主线（例如：主角为守住重要的人，被迫卷入更大的秩序裂缝……）"
-              :autosize="{ minRows: 2, maxRows: 5 }"
-              :disabled="mainPlotCommitted"
-            />
-            <n-space style="margin-top: 12px" :size="8">
-              <n-button :disabled="mainPlotCommitted" @click="cancelCustomMainPlot">返回候选</n-button>
               <n-button
-                type="primary"
-                :loading="adoptingCustom"
-                :disabled="mainPlotCommitted"
-                @click="adoptCustomMainPlot"
+                v-if="plotOutlineSessionId"
+                secondary
+                :disabled="plotOutlineGenerating"
+                @click="openPlotOutlineReviewPanel(plotOutlineSessionId)"
               >
-                用这句话作为主线
+                打开 AI 审阅
               </n-button>
             </n-space>
           </div>
@@ -680,8 +682,15 @@
           >
             确认修改并继续
           </n-button>
-          <!-- 步骤4：选了主线后可下一步 -->
-          <n-button v-if="currentStep === 4" :disabled="!mainPlotCommitted" @click="handleNext"> 下一步 </n-button>
+          <n-button
+            v-if="currentStep === 4"
+            type="primary"
+            :loading="savingStep"
+            :disabled="!plotOutline || plotOutlineGenerating"
+            @click="handleNext"
+          >
+            确认修改并继续
+          </n-button>
           <!-- 步骤5：进入工作台 -->
           <n-button v-if="currentStep === 5" type="primary" @click="handleComplete">
             进入工作台
@@ -698,16 +707,18 @@ import { useMessage, useDialog } from 'naive-ui'
 import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, type WorldSettingDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
-import { consumeMainPlotOptionsStream, workflowApi, type MainPlotOptionDTO } from '@/api/workflow'
+import { consumePlotOutlineStream, workflowApi, type PlotOutlineDTO } from '@/api/workflow'
+import type { InvocationVariableBinding } from '@/api/aiInvocation'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
 import { getDimensionFieldOrder, getWorldbuildingLabel } from '@/domain/worldbuilding/contract'
 import { useAIInvocationStore } from '@/stores/aiInvocationStore'
+import { extractBoundOutputMaps, parseJsonLikeRecord } from '@/utils/invocationOutput'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
 import {
   clearWizardUiCache,
-  isPlotOptionsCacheFresh,
+  isPlotOutlineCacheFresh,
   markWizardCompleted,
   readWizardUiCache,
   setWizardLastStep,
@@ -723,6 +734,8 @@ const dimKeyLabels: Record<string, string> = new Proxy({}, {
   get: (_target, key) => getWorldbuildingLabel(String(key)),
 })
 
+const fieldLabelDrafts = ref<Record<string, string>>({})
+
 function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
   return {
     core_rules: {},
@@ -731,6 +744,26 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
     culture: {},
     daily_life: {},
   }
+}
+
+function defaultWorldbuildingFieldLabels(): Record<string, string> {
+  const defaults: Record<string, string> = {}
+  for (const dim of WB_DIMS) {
+    for (const key of getDimensionFieldOrder(dim)) {
+      defaults[key] = key
+    }
+  }
+  return defaults
+}
+
+function fieldLabelText(key: string): string {
+  const custom = String(fieldLabelDrafts.value[key] ?? '').trim()
+  return custom || key
+}
+
+function ensureFieldLabelDraft(key: string) {
+  const normalized = String(fieldLabelDrafts.value[key] ?? '').trim()
+  fieldLabelDrafts.value[key] = normalized || key
 }
 
 function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
@@ -808,14 +841,12 @@ function styleConventionFromBible(bible: BibleDTO): string {
   const b = bible as BibleDTO & { style?: string }
   if (b.style && String(b.style).trim()) return String(b.style).trim()
   const notes: StyleNoteDTO[] = b.style_notes || []
-  const conv = notes.filter(
-    (n: StyleNoteDTO) => n.category === '文风公约' || (n.category || '').includes('文风')
-  )
-  if (conv.length) return conv.map((n: StyleNoteDTO) => (n.content || '').trim()).filter(Boolean).join('\n\n')
-  if (notes.length)
-    return notes
-      .map((n: StyleNoteDTO) => `[${n.category || '风格'}] ${n.content || ''}`.trim())
-      .join('\n\n')
+  if (notes.length) {
+    const contentOnly = notes
+      .map((n: StyleNoteDTO) => (n.content || '').trim())
+      .filter(Boolean)
+    if (contentOnly.length) return contentOnly.join('\n\n')
+  }
   return ''
 }
 
@@ -1222,83 +1253,363 @@ async function openBibleReviewPanel(stage: 'worldbuilding' | 'characters' | 'loc
   }
 }
 
-// ── Step 4：主线推演 ──
-const plotOptions = ref<MainPlotOptionDTO[]>([])
-const plotSuggesting = ref(false)
-const plotSuggestError = ref('')
-const mainPlotCommitted = ref(false)
-const customMode = ref(false)
-const customLogline = ref('')
-const adoptingPlotId = ref<string | null>(null)
-const adoptingCustom = ref(false)
+// ── Step 4：剧情总纲 ──
+const plotOutline = ref<PlotOutlineDTO | null>(null)
+const plotOutlineGenerating = ref(false)
+const plotOutlineError = ref('')
+const plotOutlineCommitted = ref(false)
+const plotOutlineSessionId = ref('')
 const step4RestoredFromCache = ref(false)
+const editablePlotOutline = ref<PlotOutlineDTO>(createEmptyPlotOutline())
+const syncingPlotOutlineDraft = ref(false)
+const PLOT_OUTLINE_META_KEYS = new Set(['stage_plan'])
+const PLOT_STAGE_META_KEYS = new Set(['phase', 'label', 'range_percent', 'chapter_start', 'chapter_end', 'key_goals'])
+const PLOT_FIELD_LABELS: Record<string, string> = {
+  main_story_overview: '故事主线概述',
+  core_conflict: '核心冲突',
+  expected_ending: '预期结局',
+  summary: '阶段任务',
+}
+const plotOutlineTopFieldKeys = computed(() => {
+  const record = editablePlotOutline.value as unknown as Record<string, unknown>
+  const keys = Object.keys(record).filter(key => !PLOT_OUTLINE_META_KEYS.has(key))
+  const preferred = ['main_story_overview', 'core_conflict', 'expected_ending']
+  return [
+    ...preferred.filter(key => keys.includes(key)),
+    ...keys.filter(key => !preferred.includes(key)),
+  ]
+})
+const plotOutlineTotalChapters = computed(() => {
+  const maxStageEnd = Math.max(
+    0,
+    ...editablePlotOutline.value.stage_plan.map(stage =>
+      typeof stage.chapter_end === 'number' ? stage.chapter_end : 0
+    ),
+  )
+  return Math.max(1, props.targetChapters || 0, maxStageEnd)
+})
 
-const chapterEndForStoryline = computed(() => Math.max(1, props.targetChapters ?? 100))
+function createEmptyPlotOutline(): PlotOutlineDTO {
+  return {
+    main_story_overview: '',
+    core_conflict: '',
+    expected_ending: '',
+    stage_plan: [],
+  }
+}
 
-function persistStepFourUiToCache(opts?: { includePlotOptions?: boolean }) {
+function clonePlotOutline(outline: PlotOutlineDTO | null | undefined): PlotOutlineDTO {
+  if (!outline) return createEmptyPlotOutline()
+  return {
+    ...outline,
+    main_story_overview: outline.main_story_overview || '',
+    core_conflict: outline.core_conflict || '',
+    expected_ending: outline.expected_ending || '',
+    stage_plan: (outline.stage_plan || []).map(stage => ({
+      ...stage,
+      ...parsePlotLabeledSections(stage.summary || ''),
+      label: stage.label || '',
+      range_percent: stage.range_percent || '',
+      summary: parsePlotLabeledSections(stage.summary || '').summary || stage.summary || '',
+      key_goals: Array.isArray(stage.key_goals) ? [...stage.key_goals] : [],
+    })),
+  }
+}
+
+function parsePlotLabeledSections(text: string): Record<string, string> {
+  const source = String(text || '').trim()
+  if (!source) return {}
+  const labels = ['阶段任务', '冲突变化', '角色成长', '关键剧情节点', '关键剧情', '核心冲突', '预期结局']
+  const pattern = new RegExp(`(${labels.join('|')})\\s*[：:]`, 'g')
+  const matches = [...source.matchAll(pattern)]
+  if (matches.length < 2) return {}
+  const fields: Record<string, string> = {}
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i]
+    const key = match[1]
+    const start = (match.index || 0) + match[0].length
+    const end = i + 1 < matches.length ? matches[i + 1].index || source.length : source.length
+    const value = source.slice(start, end).trim()
+    if (!value) continue
+    fields[key === '阶段任务' ? 'summary' : key] = value
+  }
+  return fields
+}
+
+function plotFieldLabel(key: string): string {
+  return PLOT_FIELD_LABELS[key] || key
+}
+
+function plotFieldText(target: Record<string, unknown> | PlotOutlineDTO | PlotOutlineDTO['stage_plan'][number], key: string): string {
+  const value = (target as Record<string, unknown>)[key]
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value, null, 2)
+}
+
+function updatePlotField(target: Record<string, unknown> | PlotOutlineDTO | PlotOutlineDTO['stage_plan'][number], key: string, value: string) {
+  ;(target as Record<string, unknown>)[key] = value
+}
+
+function stageContentFieldKeys(stage: PlotOutlineDTO['stage_plan'][number]): string[] {
+  const record = stage as unknown as Record<string, unknown>
+  const keys = Object.keys(record).filter(key => !PLOT_STAGE_META_KEYS.has(key))
+  return [
+    ...(['summary', '冲突变化', '角色成长', '关键剧情节点'] as string[]).filter(key => keys.includes(key)),
+    ...keys.filter(key => !['summary', '冲突变化', '角色成长', '关键剧情节点'].includes(key)),
+  ]
+}
+
+function syncEditablePlotOutline(outline: PlotOutlineDTO | null | undefined) {
+  syncingPlotOutlineDraft.value = true
+  editablePlotOutline.value = clonePlotOutline(outline)
+  queueMicrotask(() => {
+    syncingPlotOutlineDraft.value = false
+  })
+}
+
+function updateStageChapterNumber(
+  index: number,
+  key: 'chapter_start' | 'chapter_end',
+  value: number | null,
+) {
+  const stage = editablePlotOutline.value.stage_plan[index]
+  if (!stage) return
+  stage[key] = typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function stageRangePercentLabel(stage: { chapter_start?: number; chapter_end?: number; range_percent?: string }): string {
+  const total = plotOutlineTotalChapters.value
+  const start = typeof stage.chapter_start === 'number' ? stage.chapter_start : 0
+  const end = typeof stage.chapter_end === 'number' ? stage.chapter_end : 0
+  if (start <= 0 || end <= 0) return stage.range_percent || ''
+  const startPercent = Math.max(1, Math.min(100, Math.floor(((start - 1) / total) * 100)))
+  const endPercent = Math.max(startPercent, Math.min(100, Math.floor((end / total) * 100)))
+  return `${startPercent}-${endPercent}%`
+}
+
+function buildEditablePlotOutlinePayload(): PlotOutlineDTO {
+  return {
+    ...editablePlotOutline.value,
+    main_story_overview: editablePlotOutline.value.main_story_overview.trim(),
+    core_conflict: editablePlotOutline.value.core_conflict.trim(),
+    expected_ending: editablePlotOutline.value.expected_ending.trim(),
+    stage_plan: editablePlotOutline.value.stage_plan.map(stage => ({
+      ...stage,
+      chapter_start: typeof stage.chapter_start === 'number' ? stage.chapter_start : undefined,
+      chapter_end: typeof stage.chapter_end === 'number' ? stage.chapter_end : undefined,
+      range_percent: stageRangePercentLabel(stage) || stage.range_percent,
+      summary: String(stage.summary || '').trim(),
+      key_goals: (stage.key_goals || []).map(item => String(item || '').trim()).filter(Boolean),
+    })),
+  }
+}
+
+function validateEditablePlotOutline(outline: PlotOutlineDTO): string {
+  const topRecord = outline as unknown as Record<string, unknown>
+  const hasTopContent = Object.entries(topRecord).some(([key, value]) =>
+    !PLOT_OUTLINE_META_KEYS.has(key) && String(value ?? '').trim().length > 0
+  )
+  if (!hasTopContent) return '请至少保留一项总纲内容'
+  if (!outline.stage_plan.length) return '请保留并填写阶段规划'
+  const invalidStageRange = outline.stage_plan.find((stage) => {
+    const start = stage.chapter_start
+    const end = stage.chapter_end
+    return typeof start !== 'number' || typeof end !== 'number' || start < 1 || end < 1 || start > end
+  })
+  if (invalidStageRange) return `请检查${invalidStageRange.label || '阶段'}的起止章节`
+  const emptyStage = outline.stage_plan.find(stage => stageContentFieldKeys(stage).every(key => !plotFieldText(stage, key).trim()))
+  if (emptyStage) return `请填写${emptyStage.label || '阶段'}的规划内容`
+  return ''
+}
+
+function touchPlotOutlineDraft() {
+  if (syncingPlotOutlineDraft.value) return
+  if (!plotOutline.value) return
+  plotOutline.value = buildEditablePlotOutlinePayload()
+  plotOutlineCommitted.value = false
+}
+
+function persistStepFourUiToCache(opts?: { includePlotOutline?: boolean }) {
   if (currentStep.value !== 4) return
   const patch: Partial<Omit<WizardUiCachePayload, 'v' | 'novelId'>> = {
-    customMode: customMode.value,
-    customLogline: customLogline.value,
+    invocationSessionId: plotOutlineSessionId.value || undefined,
   }
-  if (opts?.includePlotOptions) {
-    patch.plotOptions = plotOptions.value.length ? plotOptions.value : undefined
+  if (opts?.includePlotOutline) {
+    patch.plotOutline = plotOutline.value || undefined
   }
   writeWizardUiCache(props.novelId, patch)
 }
 
-function hasStorylineArchitecture(options: MainPlotOptionDTO[]) {
-  return options.some(
-    (opt) => Boolean(opt.main_axis || opt.opening_pressure || opt.forbidden_drift || opt.sublines?.length),
-  )
+function persistWorldbuildingLabelDrafts() {
+  writeWizardUiCache(props.novelId, {
+    worldbuildingFieldLabels: { ...fieldLabelDrafts.value },
+  })
 }
 
-function extractMainPlotOptionsFromResult(result: Record<string, unknown>): MainPlotOptionDTO[] {
-  const direct = result.plot_options
-  if (Array.isArray(direct)) return direct as MainPlotOptionDTO[]
+function hydrateWorldbuildingLabelDrafts() {
+  const cached = readWizardUiCache(props.novelId)
+  fieldLabelDrafts.value = {
+    ...defaultWorldbuildingFieldLabels(),
+    ...(cached?.worldbuildingFieldLabels || {}),
+  }
+  for (const key of Object.keys(fieldLabelDrafts.value)) {
+    ensureFieldLabelDraft(key)
+  }
+}
 
+const PLOT_OVERVIEW_KEYS = ['main_story_overview', 'outline_main', 'main_axis', 'overview', 'story_overview', '故事主线概述', '主线概述', '故事概述']
+const PLOT_ENDING_KEYS = ['expected_ending', 'ending_expect', 'ending_expectation', 'expectedEnding', 'ending', 'finale', '预期结局', '预期结尾', '结局预期', '故事最终走向']
+const PLOT_CONFLICT_KEYS = ['core_conflict', 'coreConflict', 'conflict', 'main_conflict', '核心冲突', '核心矛盾', '核心对抗']
+const PLOT_STAGE_KEYS = ['stage_plan', 'stages', '阶段规划']
+const LEGACY_STAGE_KEY_ALIASES = [
+  ['stage_opening_1_15', 'stage_opening', 'opening'],
+  ['stage_develop_15_40', 'stage_develop', 'development'],
+  ['stage_deepen_40_70', 'stage_deepen', 'deepening'],
+  ['stage_climax_70_90', 'stage_climax', 'climax'],
+  ['stage_end_90_100', 'stage_end', 'stage_ending', 'ending'],
+] as const
+const STAGE_PHASE_META = [
+  { phase: 'opening', label: '开篇阶段', range_percent: '1-15%' },
+  { phase: 'development', label: '发展阶段', range_percent: '15-40%' },
+  { phase: 'deepening', label: '深化阶段', range_percent: '40-70%' },
+  { phase: 'climax', label: '高潮阶段', range_percent: '70-90%' },
+  { phase: 'ending', label: '收尾阶段', range_percent: '90-100%' },
+] as const
+
+function pickPlotString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim()
+    }
+  }
+  return ''
+}
+
+function pickPlotValue(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = record[key]
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+
+function normalizeLegacyStagePlan(stagePlan: unknown): PlotOutlineDTO['stage_plan'] {
+  if (!stagePlan || typeof stagePlan !== 'object' || Array.isArray(stagePlan)) return []
+  const record = stagePlan as Record<string, unknown>
+  return LEGACY_STAGE_KEY_ALIASES.map((aliases, index) => {
+    const meta = STAGE_PHASE_META[index]
+    const value = aliases.map(key => record[key]).find(item => item !== undefined && item !== null && item !== '')
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        ...(value as PlotOutlineDTO['stage_plan'][number]),
+        phase: meta.phase,
+        label: String((value as Record<string, unknown>).label || meta.label),
+        range_percent: String((value as Record<string, unknown>).range_percent || meta.range_percent),
+      }
+    }
+    return {
+      phase: meta.phase,
+      label: meta.label,
+      range_percent: meta.range_percent,
+      summary: value ? String(value).trim() : '',
+      key_goals: [],
+    }
+  }).filter(stage => String(stage.summary || '').trim())
+}
+
+function normalizePlotOutlineShape(value: unknown): PlotOutlineDTO | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const stagePlan = pickPlotValue(record, PLOT_STAGE_KEYS)
+  return {
+    ...(record as Partial<PlotOutlineDTO>),
+    main_story_overview: pickPlotString(record, PLOT_OVERVIEW_KEYS),
+    expected_ending: pickPlotString(record, PLOT_ENDING_KEYS),
+    core_conflict: pickPlotString(record, PLOT_CONFLICT_KEYS),
+    stage_plan: Array.isArray(stagePlan)
+      ? stagePlan as PlotOutlineDTO['stage_plan']
+      : normalizeLegacyStagePlan(stagePlan),
+  }
+}
+
+function normalizePlotOutlineFromBindings(
+  source: Record<string, unknown>,
+  bindings: InvocationVariableBinding[],
+): PlotOutlineDTO | null {
+  const { byVariableKey } = extractBoundOutputMaps(source, bindings)
+  const direct = byVariableKey['plot.outline']
+  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
+  const stagePlan = byVariableKey['plot.stage_plan']
+  const overview = byVariableKey['plot.main_story_overview']
+  const ending = byVariableKey['plot.expected_ending']
+  const conflict = byVariableKey['plot.core_conflict']
+  if (!stagePlan && !overview && !ending && !conflict) return null
+  return normalizePlotOutlineShape({
+    main_story_overview: overview,
+    expected_ending: ending,
+    core_conflict: conflict,
+    stage_plan: stagePlan,
+  })
+}
+
+function extractPlotOutlineFromResult(
+  result: Record<string, unknown>,
+  outputBindings: InvocationVariableBinding[] = [],
+): PlotOutlineDTO | null {
+  const direct = result.plot_outline
+  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
+  if (outputBindings.length) {
+    const boundDirect = normalizePlotOutlineFromBindings(result, outputBindings)
+    if (boundDirect?.stage_plan?.length) return boundDirect
+  }
   const continuation = result.continuation
   if (continuation && typeof continuation === 'object') {
-    const fromContinuation = (continuation as Record<string, unknown>).plot_options
-    if (Array.isArray(fromContinuation)) return fromContinuation as MainPlotOptionDTO[]
-    const fromJson = (continuation as Record<string, unknown>).plot_options_json
-    if (typeof fromJson === 'string' && fromJson.trim()) {
-      try {
-        const parsed = JSON.parse(fromJson) as unknown
-        if (Array.isArray(parsed)) return parsed as MainPlotOptionDTO[]
-        if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
-          return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
-        }
-      } catch {
-        // Ignore malformed continuation payload; accepted_content is checked below.
-      }
+    const continuationRecord = continuation as Record<string, unknown>
+    const fromContinuation = continuationRecord.plot_outline
+    if (fromContinuation && typeof fromContinuation === 'object') return normalizePlotOutlineShape(fromContinuation)
+    if (outputBindings.length) {
+      const boundContinuation = normalizePlotOutlineFromBindings(continuationRecord, outputBindings)
+      if (boundContinuation?.stage_plan?.length) return boundContinuation
     }
+    const normalizedContinuation = normalizePlotOutlineShape(continuationRecord)
+    if (normalizedContinuation?.main_story_overview && normalizedContinuation.stage_plan?.length) return normalizedContinuation
   }
-
   const acceptedContent = result.accepted_content
   if (typeof acceptedContent === 'string' && acceptedContent.trim()) {
-    try {
-      const parsed = JSON.parse(acceptedContent) as unknown
-      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).plot_options)) {
-        return (parsed as Record<string, unknown>).plot_options as MainPlotOptionDTO[]
+    const parsedRecord = parseJsonLikeRecord(acceptedContent)
+    if (parsedRecord) {
+      if (outputBindings.length) {
+        const boundAccepted = normalizePlotOutlineFromBindings(parsedRecord, outputBindings)
+        if (boundAccepted?.stage_plan?.length) return boundAccepted
       }
-    } catch {
-      return []
+      if (parsedRecord.plot_outline) {
+        return normalizePlotOutlineShape(parsedRecord.plot_outline)
+      }
+      const normalizedAccepted = normalizePlotOutlineShape(parsedRecord)
+      if (normalizedAccepted?.main_story_overview && normalizedAccepted.stage_plan?.length) return normalizedAccepted
     }
   }
-  return []
+  return null
 }
 
-function applyMainPlotOptionsFromResult(result: Record<string, unknown>) {
-  const options = extractMainPlotOptionsFromResult(result)
-  if (!options.length) return
-  plotOptions.value = options
-  writeWizardUiCache(props.novelId, { plotOptions: options })
-  message.success('AI 审阅已完成，主线候选已回填')
+function applyPlotOutlineFromResult(
+  result: Record<string, unknown>,
+  outputBindings: InvocationVariableBinding[] = [],
+) {
+  const outline = extractPlotOutlineFromResult(result, outputBindings)
+  if (!outline) return
+  plotOutline.value = outline
+  syncEditablePlotOutline(outline)
+  plotOutlineCommitted.value = true
+  writeWizardUiCache(props.novelId, { plotOutline: outline })
+  message.success('AI 审阅已完成，剧情总纲已回填')
 }
 
-async function openMainPlotReviewPanel(sessionId: string) {
+async function openPlotOutlineReviewPanel(sessionId: string) {
   if (!sessionId) return
+  plotOutlineSessionId.value = sessionId
   message.info('已进入 AI 审阅')
   try {
     writeWizardUiCache(props.novelId, { invocationSessionId: sessionId })
@@ -1306,7 +1617,7 @@ async function openMainPlotReviewPanel(sessionId: string) {
     mainPlotSessionUnsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
       const result = payload.commit?.result
       if (!result) return
-      applyMainPlotOptionsFromResult(result)
+      applyPlotOutlineFromResult(result, payload.session?.output_bindings || [])
       mainPlotSessionUnsub?.()
       mainPlotSessionUnsub = null
     })
@@ -1316,187 +1627,104 @@ async function openMainPlotReviewPanel(sessionId: string) {
   }
 }
 
-async function loadPlotSuggestions(opts?: { forceNew?: boolean }) {
+async function loadPlotOutline(opts?: { forceNew?: boolean }) {
   step4RestoredFromCache.value = false
-  plotSuggesting.value = true
-  plotSuggestError.value = ''
-  plotOptions.value = []
+  plotOutlineGenerating.value = true
+  plotOutlineError.value = ''
+  plotOutline.value = null
+  syncEditablePlotOutline(null)
   if (opts?.forceNew) {
-    writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOptions: undefined })
+    plotOutlineCommitted.value = false
+    plotOutlineSessionId.value = ''
+    writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOutline: undefined })
   }
   const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
   try {
     if (cached?.invocationSessionId) {
-      await openMainPlotReviewPanel(cached.invocationSessionId)
-      if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
-        plotOptions.value = cached.plotOptions
+      plotOutlineSessionId.value = cached.invocationSessionId
+      await openPlotOutlineReviewPanel(cached.invocationSessionId)
+      if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
+        plotOutline.value = cached.plotOutline
+        syncEditablePlotOutline(cached.plotOutline)
         step4RestoredFromCache.value = true
       }
       return
     }
 
     let streamError = ''
-    await consumeMainPlotOptionsStream(props.novelId, {
+    await consumePlotOutlineStream(props.novelId, {
       onApprovalRequired: (sessionId) => {
-        void openMainPlotReviewPanel(sessionId)
+        plotOutlineSessionId.value = sessionId
+        void openPlotOutlineReviewPanel(sessionId)
       },
       onPhase: (message) => {
         if (message) phaseMessage.value = message
       },
-      onOption: (option) => {
-        if (!option?.id) return
-        const idx = plotOptions.value.findIndex(o => o.id === option.id)
-        if (idx >= 0) {
-          plotOptions.value.splice(idx, 1, option)
-        } else {
-          plotOptions.value = [...plotOptions.value, option]
+      onDone: (outline) => {
+        if (outline) {
+          plotOutline.value = outline
+          syncEditablePlotOutline(outline)
         }
       },
-      onDone: (options) => {
-        if (options.length) plotOptions.value = options
-      },
       onError: (message) => {
-        streamError = message || '流式推演失败'
+        streamError = message || '流式生成失败'
       },
     })
-    if (streamError && !plotOptions.value.length) {
+    if (streamError && !plotOutline.value) {
       throw new Error(streamError)
     }
-    if (plotOptions.value.length) {
-      writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
+    if (plotOutline.value) {
+      writeWizardUiCache(props.novelId, { plotOutline: plotOutline.value })
     }
   } catch (e: unknown) {
     try {
-      const res = await workflowApi.suggestMainPlotOptions(props.novelId)
-      plotOptions.value = res.plot_options || []
+      const res = await workflowApi.generatePlotOutline(props.novelId)
+      plotOutline.value = res.plot_outline || null
+      syncEditablePlotOutline(plotOutline.value)
       if (res.invocation_session_id) {
-        void openMainPlotReviewPanel(res.invocation_session_id)
+        plotOutlineSessionId.value = res.invocation_session_id
+        void openPlotOutlineReviewPanel(res.invocation_session_id)
       }
       if (!res.invocation_session_id && cached?.invocationSessionId) {
-        void openMainPlotReviewPanel(cached.invocationSessionId)
+        plotOutlineSessionId.value = cached.invocationSessionId
+        void openPlotOutlineReviewPanel(cached.invocationSessionId)
       }
-      if (plotOptions.value.length) {
-        writeWizardUiCache(props.novelId, { plotOptions: plotOptions.value })
+      if (plotOutline.value) {
+        writeWizardUiCache(props.novelId, { plotOutline: plotOutline.value })
       }
     } catch (directError: unknown) {
-      let msg = formatApiError(directError) || formatApiError(e) || '推演失败，请重试'
+      let msg = formatApiError(directError) || formatApiError(e) || '生成失败，请重试'
       if (isLikelyTimeoutError(directError) || isLikelyTimeoutError(e)) {
         msg = `请求超时：LLM 响应时间过长。请换更快模型后重试。`
       }
-      plotSuggestError.value = msg
+      plotOutlineError.value = msg
     }
   } finally {
-    plotSuggesting.value = false
+    plotOutlineGenerating.value = false
     phaseMessage.value = ''
   }
 }
 
-async function refreshPlotSuggestions() {
-  await loadPlotSuggestions({ forceNew: true })
-}
-
-async function adoptPlotOption(opt: MainPlotOptionDTO) {
-  adoptingPlotId.value = opt.id
-  try {
-    const parts = [
-      opt.logline,
-      opt.core_conflict ? `核心冲突：${opt.core_conflict}` : '',
-      opt.starting_hook ? `开篇钩子：${opt.starting_hook}` : '',
-      opt.main_axis ? `主轴锁：${opt.main_axis}` : '',
-      opt.opening_pressure ? `开篇压力：${opt.opening_pressure}` : '',
-      opt.forbidden_drift ? `禁止漂移：${opt.forbidden_drift}` : '',
-      opt.sublines?.length
-        ? `支线结构：\n${opt.sublines.map((sub, idx) => `${idx + 1}. ${sub.name}${sub.purpose ? `：${sub.purpose}` : ''}${sub.guard ? `；护栏：${sub.guard}` : ''}`).join('\n')}`
-        : '',
-    ].filter(Boolean)
-    const main = await workflowApi.createStoryline(props.novelId, {
-      storyline_type: 'main_plot',
-      role: 'main',
-      estimated_chapter_start: 1,
-      estimated_chapter_end: chapterEndForStoryline.value,
-      name: opt.title.slice(0, 200),
-      description: parts.join('\n\n').slice(0, 8000),
-    })
-    for (const sub of opt.sublines || []) {
-      const end = Math.max(
-        1,
-        Math.min(chapterEndForStoryline.value, Number(sub.merge_chapter || chapterEndForStoryline.value)),
-      )
-      await workflowApi.createStoryline(props.novelId, {
-        storyline_type: sub.role === 'dark' ? 'mystery' : 'growth',
-        role: sub.role === 'dark' ? 'dark' : 'sub',
-        parent_id: main.id,
-        estimated_chapter_start: 1,
-        estimated_chapter_end: end,
-        name: String(sub.name || '未命名支线').slice(0, 200),
-        description: [
-          sub.description || sub.purpose || '',
-          sub.purpose ? `功能：${sub.purpose}` : '',
-          sub.guard ? `护栏：${sub.guard}` : '',
-          sub.merge_chapter ? `汇流章节：第 ${sub.merge_chapter} 章附近` : '',
-        ].filter(Boolean).join('\n\n').slice(0, 8000),
-      })
-    }
-    mainPlotCommitted.value = true
-    clearWizardUiCache(props.novelId)
-    message.success('主线已保存')
-  } catch (e: unknown) {
-    message.error(formatApiError(e) || '保存失败')
-  } finally {
-    adoptingPlotId.value = null
-  }
-}
-
-async function adoptCustomMainPlot() {
-  const t = customLogline.value.trim()
-  if (!t) {
-    message.warning('请先写下一句话主线')
-    return
-  }
-  adoptingCustom.value = true
-  try {
-    await workflowApi.createStoryline(props.novelId, {
-      storyline_type: 'main_plot',
-      estimated_chapter_start: 1,
-      estimated_chapter_end: chapterEndForStoryline.value,
-      name: t.length > 80 ? `${t.slice(0, 80)}…` : t,
-      description: t.slice(0, 8000),
-    })
-    mainPlotCommitted.value = true
-    customMode.value = false
-    clearWizardUiCache(props.novelId)
-    message.success('主线已保存')
-  } catch (e: unknown) {
-    message.error(formatApiError(e) || '保存失败')
-  } finally {
-    adoptingCustom.value = false
-  }
-}
-
-function cancelCustomMainPlot() {
-  customMode.value = false
-  persistStepFourUiToCache()
+async function refreshPlotOutline() {
+  await loadPlotOutline({ forceNew: true })
 }
 
 function hydrateStepFourFromCache() {
   step4RestoredFromCache.value = false
   const cached = readWizardUiCache(props.novelId)
   if (!cached) return
-  if (cached.customMode != null) customMode.value = cached.customMode
-  if (cached.customLogline != null) customLogline.value = cached.customLogline
-  if (isPlotOptionsCacheFresh(cached) && cached.plotOptions?.length) {
-    if (hasStorylineArchitecture(cached.plotOptions)) {
-      plotOptions.value = cached.plotOptions
-      step4RestoredFromCache.value = true
-      if (cached.invocationSessionId && !mainPlotCommitted.value) {
-        void openMainPlotReviewPanel(cached.invocationSessionId)
-      }
-      return
+  if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
+    plotOutline.value = cached.plotOutline
+    syncEditablePlotOutline(cached.plotOutline)
+    plotOutlineSessionId.value = cached.invocationSessionId || ''
+    step4RestoredFromCache.value = true
+    if (cached.invocationSessionId && !plotOutlineCommitted.value) {
+      void openPlotOutlineReviewPanel(cached.invocationSessionId)
     }
-    writeWizardUiCache(props.novelId, { plotOptions: undefined })
+    return
   }
-  if (cached.plotOptions?.length && !isPlotOptionsCacheFresh(cached)) {
-    writeWizardUiCache(props.novelId, { plotOptions: undefined })
+  if (cached.plotOutline && !isPlotOutlineCacheFresh(cached)) {
+    writeWizardUiCache(props.novelId, { plotOutline: undefined })
   }
 }
 
@@ -1525,6 +1753,8 @@ function startBibleGeneration() {
 
 /** 启动第1步：生成文风公约与世界观 */
 function startBibleGenerationSSE() {
+  generatingBible.value = true
+  bibleGenerated.value = false
   bibleError.value = ''
   phaseMessage.value = '正在准备生成文风公约...'
   activeDimension.value = ''
@@ -1605,6 +1835,7 @@ function startCharactersGeneration() {
 
 /** 启动第2步：生成人物 */
 function startCharactersGenerationSSE() {
+  generatingCharacters.value = true
   charactersGenerated.value = false
   charactersError.value = ''
   streamingCharacters.value = []
@@ -1663,6 +1894,7 @@ function startLocationsGeneration() {
 
 /** 启动第3步：生成地点 */
 function startLocationsGenerationSSE() {
+  generatingLocations.value = true
   locationsGenerated.value = false
   locationsError.value = ''
   streamingLocations.value = []
@@ -1750,11 +1982,11 @@ async function loadBibleData() {
 function resetWizardStateForOpen() {
   currentStep.value = 1
   stepStatus.value = 'process'
-  plotOptions.value = []
-  mainPlotCommitted.value = false
-  customMode.value = false
-  customLogline.value = ''
-  plotSuggestError.value = ''
+  plotOutline.value = null
+  syncEditablePlotOutline(null)
+  plotOutlineCommitted.value = false
+  plotOutlineSessionId.value = ''
+  plotOutlineError.value = ''
   charactersError.value = ''
   locationsError.value = ''
   resumedFromStep.value = 0
@@ -1762,6 +1994,7 @@ function resetWizardStateForOpen() {
   streamingLocations.value = []
   editableCharacters.value = []
   editableLocations.value = []
+  hydrateWorldbuildingLabelDrafts()
 }
 
 async function detectWizardProgress(): Promise<number> {
@@ -1804,14 +2037,15 @@ async function detectWizardProgress(): Promise<number> {
       }))
     }
 
-    // ── 判断主线是否已提交 ──
-    let hasMainPlot = false
+    // ── 判断剧情总纲是否已提交 ──
+    let hasPlotOutline = false
     try {
-      const storylines = await workflowApi.getStorylines(props.novelId)
-      hasMainPlot = storylines.some(s => s.storyline_type === 'main_plot')
-      if (hasMainPlot) {
-        mainPlotCommitted.value = true
-        clearWizardUiCache(props.novelId)
+      const response = await workflowApi.getPlotOutline(props.novelId)
+      if (response.plot_outline) {
+        plotOutline.value = response.plot_outline
+        syncEditablePlotOutline(response.plot_outline)
+        plotOutlineCommitted.value = true
+        hasPlotOutline = true
       }
     } catch { /* 忽略 */ }
 
@@ -1839,7 +2073,7 @@ async function detectWizardProgress(): Promise<number> {
       resumedFromStep.value = 2
       return 2
     }
-    if (!hasMainPlot) {
+    if (!hasPlotOutline) {
       resumedFromStep.value = 3
       return 3
     }
@@ -1857,7 +2091,7 @@ async function runWizardOpenSequence() {
   const step = await detectWizardProgress()
   currentStep.value = step
   maxVisitedStep.value = step
-  if (step === 4 && !mainPlotCommitted.value) {
+  if (step === 4 && !plotOutlineCommitted.value) {
     hydrateStepFourFromCache()
   }
 }
@@ -1884,7 +2118,7 @@ watch(
       await runWizardOpenSequence()
     } else {
       stopGenerationOnClose()
-      persistStepFourUiToCache({ includePlotOptions: true })
+      persistStepFourUiToCache({ includePlotOutline: true })
     }
   }
 )
@@ -1908,16 +2142,22 @@ watch(currentStep, (step, prevStep) => {
   if (prevStep !== undefined && props.show) {
     void loadBibleData()
   }
-  if (step === 4 && props.show && !mainPlotCommitted.value && plotOptions.value.length === 0 && !plotSuggesting.value) {
-    void loadPlotSuggestions()
+  if (step === 4 && props.show && !plotOutlineCommitted.value && !plotOutline.value && !plotOutlineGenerating.value) {
+    void loadPlotOutline()
   }
 })
 
-watch([customMode, customLogline], () => {
-  if (currentStep.value === 4 && props.show) {
-    persistStepFourUiToCache()
-  }
-})
+watch(plotOutline, () => {
+  if (currentStep.value === 4 && props.show) persistStepFourUiToCache()
+}, { deep: true })
+
+watch(editablePlotOutline, () => {
+  if (currentStep.value === 4 && props.show) touchPlotOutlineDraft()
+}, { deep: true })
+
+watch(fieldLabelDrafts, () => {
+  if (props.show) persistWorldbuildingLabelDrafts()
+}, { deep: true })
 
 /** 保存中状态 */
 const savingStep = ref(false)
@@ -2057,6 +2297,27 @@ async function saveLocationsEdits(): Promise<boolean> {
   }
 }
 
+async function savePlotOutlineEdits(): Promise<boolean> {
+  try {
+    const payload = buildEditablePlotOutlinePayload()
+    const validationError = validateEditablePlotOutline(payload)
+    if (validationError) {
+      message.error(validationError)
+      return false
+    }
+    const response = await workflowApi.savePlotOutline(props.novelId, payload)
+    const saved = response.plot_outline || payload
+    plotOutline.value = saved
+    syncEditablePlotOutline(saved)
+    plotOutlineCommitted.value = true
+    writeWizardUiCache(props.novelId, { plotOutline: saved })
+    return true
+  } catch (e) {
+    message.error(formatApiError(e) || '保存剧情总纲失败')
+    return false
+  }
+}
+
 /** 步骤最大可达步骤（用户走过的最远步骤） */
 const maxVisitedStep = ref(1)
 
@@ -2105,6 +2366,11 @@ const handleNext = async () => {
       if (!ok) return
       currentStep.value = 4
       maxVisitedStep.value = Math.max(maxVisitedStep.value, 4)
+    } else if (currentStep.value === 4) {
+      const ok = await savePlotOutlineEdits()
+      if (!ok) return
+      currentStep.value = 5
+      maxVisitedStep.value = Math.max(maxVisitedStep.value, 5)
     } else if (currentStep.value < 5) {
       currentStep.value++
       maxVisitedStep.value = Math.max(maxVisitedStep.value, currentStep.value)
@@ -2119,7 +2385,7 @@ const dialog = useDialog()
 const handleSkip = () => {
   dialog.warning({
     title: '确认跳过向导',
-    content: '已写入作品的数据会保留；第 4 步未提交的主线候选与自定义文案仍会缓存在本机，便于以后从向导继续。',
+    content: '已写入作品的数据会保留；第 4 步未提交的剧情总纲预览仍会缓存在本机，便于以后从向导继续。',
     positiveText: '跳过',
     negativeText: '取消',
     onPositiveClick: () => {
@@ -2133,7 +2399,7 @@ const handleSkip = () => {
 const requestClose = () => {
   dialog.warning({
     title: '关闭向导',
-    content: '进度已按步骤写入作品；第 4 步未提交的主线候选与自定义文案会缓存在本机以便下次继续。',
+    content: '进度已按步骤写入作品；第 4 步未提交的剧情总纲预览会缓存在本机以便下次继续。',
     positiveText: '关闭',
     negativeText: '取消',
     onPositiveClick: () => {
@@ -2252,6 +2518,10 @@ const handleComplete = () => {
 
 .field-card--editable .field-card__title {
   margin-bottom: 4px;
+}
+
+.field-label-input {
+  margin-bottom: 6px;
 }
 
 .field-card__title {
@@ -2643,6 +2913,33 @@ const handleComplete = () => {
   text-align: left;
 }
 
+.plot-outline-editor {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plot-outline-editor :deep(.n-form-item-label) {
+  font-weight: 600;
+}
+
+.plot-kv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plot-kv-label {
+  width: fit-content;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-brand, #2563eb) 8%, transparent);
+  color: var(--app-text-secondary, var(--n-text-color-2));
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .plot-guard-grid,
 .plot-subline-list {
   padding: 8px 10px;
@@ -2701,6 +2998,50 @@ const handleComplete = () => {
 
 .plot-subline-purpose {
   color: #777;
+}
+
+.plot-outline-stage-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plot-stage-edit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--app-surface, var(--n-color-modal));
+  border: 1px solid var(--app-border, var(--n-border-color));
+}
+
+.plot-stage-edit-item + .plot-stage-edit-item {
+  margin-top: 0;
+}
+
+.plot-stage-edit-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plot-stage-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plot-stage-chapter-row :deep(.n-input-number) {
+  width: 112px;
+}
+
+.plot-stage-chapter-separator {
+  color: var(--app-text-muted, var(--n-text-color-3));
+  font-size: 13px;
 }
 
 .plot-option-card--disabled {

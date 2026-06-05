@@ -195,6 +195,7 @@ def test_sqlite_variable_hub_repository_resolves_bindings_and_current_value():
     assert value is not None
     assert value.value == "变量中心设定"
     assert definition is not None
+    assert definition.display_name == "设定"
     assert definition.default == "默认设定"
 
 
@@ -212,6 +213,7 @@ def test_sqlite_variable_hub_repository_persists_path_and_projection_binding_met
                 source_path="characters[0]",
                 projection_key="character.card",
                 render_mode="projection",
+                preview_source="continuation",
                 value_type="string",
                 scope="global",
                 stage="characters",
@@ -225,6 +227,7 @@ def test_sqlite_variable_hub_repository_persists_path_and_projection_binding_met
     assert bindings[0].source_path == "characters[0]"
     assert bindings[0].projection_key == "character.card"
     assert bindings[0].render_mode == "projection"
+    assert bindings[0].preview_source == "continuation"
 
 
 def test_sqlite_variable_hub_repository_writes_current_value_and_lineage():
@@ -324,6 +327,93 @@ def test_sqlite_variable_hub_repository_infers_stage_for_legacy_runtime_values()
 
     assert rows[0]["variable_key"] == "novel.worldbuilding.core_rules"
     assert rows[0]["stage"] == "worldbuilding"
+
+
+def test_sqlite_variable_hub_repository_replaces_stale_deleted_output_bindings():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_bindings(
+        "bible-worldbuilding:output:v1",
+        "bible-worldbuilding",
+        [
+            VariableBinding(alias="worldbuilding_full", variable_key="novel.worldbuilding.full"),
+            VariableBinding(alias="style", variable_key="novel.style.guide"),
+        ],
+        direction="output",
+    )
+    repo.set_bindings(
+        "bible-worldbuilding:output:v1",
+        "bible-worldbuilding",
+        [
+            VariableBinding(alias="style", variable_key="novel.style.guide"),
+            VariableBinding(alias="core_rules", variable_key="novel.worldbuilding.core_rules"),
+        ],
+        direction="output",
+    )
+
+    bindings = repo.get_output_bindings("bible-worldbuilding:output:v1", "bible-worldbuilding")
+
+    assert [binding.alias for binding in bindings] == ["core_rules", "style"]
+
+
+def test_sqlite_variable_hub_repository_keeps_existing_custom_output_bindings_when_reseeded():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_bindings(
+        "plot-outline:output:v1",
+        "planning-plot-outline",
+        [
+            VariableBinding(
+                alias="用户剧情总纲",
+                variable_key="plot.outline",
+                source_path="用户剧情总纲",
+                value_type="object",
+            ),
+        ],
+        direction="output",
+    )
+    repo.set_bindings(
+        "plot-outline:output:v1",
+        "planning-plot-outline",
+        repo.get_output_bindings("plot-outline:output:v1", "planning-plot-outline"),
+        direction="output",
+    )
+
+    bindings = repo.get_output_bindings("plot-outline:output:v1", "planning-plot-outline")
+
+    assert len(bindings) == 1
+    assert bindings[0].alias == "用户剧情总纲"
+    assert bindings[0].source_path == "用户剧情总纲"
+
+
+def test_sqlite_variable_hub_repository_can_compose_worldbuilding_from_dimension_values():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.core_rules",
+            value={"law": "债务法则"},
+            context_key="novel_id:novel-1",
+        )
+    )
+    repo.set_value(
+        VariableWrite(
+            key="novel.worldbuilding.geography",
+            value={"terrain": "环形旧城"},
+            context_key="novel_id:novel-1",
+        )
+    )
+
+    value = repo.get_value("novel.worldbuilding", "novel_id:novel-1")
+
+    assert value is not None
+    assert value.value == {
+        "core_rules": {"law": "债务法则"},
+        "geography": {"terrain": "环形旧城"},
+    }
 
 
 def test_sqlite_variable_hub_repository_sanitizes_premise_internal_hint():

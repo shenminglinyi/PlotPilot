@@ -1,30 +1,28 @@
 /**
- * 新书向导 UI 缓存：主线候选、自定义模式与文案、向导完成状态。
- * 服务端已落库的数据仍以 API 为准；缓存仅避免关闭向导后重复触发 LLM 推演。
+ * 新书向导 UI 缓存：剧情总纲预览与向导完成状态。
+ * 服务端已落库的数据仍以 API 为准；缓存仅避免关闭向导后重复触发 LLM 生成。
  */
-import type { MainPlotOptionDTO } from '@/api/workflow'
+import type { PlotOutlineDTO } from '@/api/workflow'
 
-export const WIZARD_UI_CACHE_SCHEMA = 2
+export const WIZARD_UI_CACHE_SCHEMA = 4
 const STORAGE_KEY_PREFIX = 'plotpilot:novel-wizard-ui:'
-/** 超过此时间不再复用候选（仍保留自定义文案，用户可能还想继续写） */
-export const WIZARD_PLOT_OPTIONS_TTL_MS = 7 * 24 * 60 * 60 * 1000
+export const WIZARD_PLOT_OUTLINE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface WizardUiCachePayload {
   v: number
   novelId: string
   /** 任意字段写入时间（用于调试或兜底） */
   savedAt: number
-  /** 仅在有 plotOptions 时更新，用于候选 TTL */
-  plotOptionsSavedAt?: number
-  plotOptions?: MainPlotOptionDTO[]
+  /** 仅在有 plotOutline 时更新，用于总纲 TTL */
+  plotOutlineSavedAt?: number
+  plotOutline?: PlotOutlineDTO
   invocationSessionId?: string
-  /** 候选过期后仍可用的 UI */
-  customMode?: boolean
-  customLogline?: string
   /** 向导是否已完成（用户点"进入工作台"后标记） */
   wizardCompleted?: boolean
   /** 向导最后到达的步骤（1~5），用于下次打开恢复 */
   lastStep?: number
+  /** 世界观字段的本地 UI 自定义标题；不影响底层 schema key */
+  worldbuildingFieldLabels?: Record<string, string>
 }
 
 function key(novelId: string): string {
@@ -60,12 +58,12 @@ export function writeWizardUiCache(novelId: string, patch: Partial<Omit<WizardUi
       novelId,
       savedAt: Date.now(),
     }
-    if (Object.prototype.hasOwnProperty.call(patch, 'plotOptions')) {
-      if (patch.plotOptions?.length) {
-        next.plotOptionsSavedAt = Date.now()
+    if (Object.prototype.hasOwnProperty.call(patch, 'plotOutline')) {
+      if (patch.plotOutline) {
+        next.plotOutlineSavedAt = Date.now()
       } else {
-        next.plotOptionsSavedAt = undefined
-        next.plotOptions = undefined
+        next.plotOutlineSavedAt = undefined
+        next.plotOutline = undefined
       }
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'invocationSessionId')) {
@@ -88,11 +86,10 @@ export function clearWizardUiCache(novelId: string): void {
   }
 }
 
-/** plotOptions 是否仍在 TTL 内（过期则不应展示旧候选，避免与书籍现状偏差过大） */
-export function isPlotOptionsCacheFresh(payload: WizardUiCachePayload | null): boolean {
-  if (!payload?.plotOptions?.length) return false
-  const base = payload.plotOptionsSavedAt ?? payload.savedAt
-  return Date.now() - base <= WIZARD_PLOT_OPTIONS_TTL_MS
+export function isPlotOutlineCacheFresh(payload: WizardUiCachePayload | null): boolean {
+  if (!payload?.plotOutline) return false
+  const base = payload.plotOutlineSavedAt ?? payload.savedAt
+  return Date.now() - base <= WIZARD_PLOT_OUTLINE_TTL_MS
 }
 
 /** 向导是否已完成（完成 = 用户点过"进入工作台"） */

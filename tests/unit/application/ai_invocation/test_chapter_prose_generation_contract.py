@@ -26,8 +26,10 @@ from application.ai_invocation.variable_hub import InMemoryVariableHubRepository
 from domain.ai.value_objects.prompt import Prompt
 from application.ai_invocation.prompt_variables import (
     aliases_with_dotted_variables,
+    build_prompt_render_variables,
     prompt_declared_input_bindings,
 )
+from application.ai_invocation.variable_literals import parse_variable_literal
 from application.ai_invocation.input_materialization import materialize_input_variables
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
 from infrastructure.ai.prompt_template_engine import PromptTemplateEngine
@@ -283,6 +285,18 @@ def test_chapter_prose_inputs_are_materialized_to_variable_hub():
     assert session.metadata["input_variable_materialization"]["written"]
 
 
+def test_chapter_prose_input_bindings_use_novel_scope_for_story_setup_fields():
+    bindings = {binding.alias: binding for binding in _input_bindings()}
+
+    assert bindings["novel_title"].scope == "novel"
+    assert bindings["novel_title"].stage == "setup"
+    assert bindings["genre"].scope == "novel"
+    assert bindings["genre"].stage == "setup"
+    assert bindings["style_guide"].scope == "novel"
+    assert bindings["style_guide"].stage == "setup"
+    assert bindings["world_context"].scope == "novel"
+
+
 class _FakeNode:
     active_version_id = "node-v1"
 
@@ -417,3 +431,74 @@ def test_prompt_declared_dotted_variable_becomes_binding_and_render_alias():
     assert binding.alias == "chapter_special_requirement"
     assert binding.required is True
     assert render_vars["chapter"]["special_requirement"] == "雨夜压迫感"
+
+
+def test_prompt_declared_alias_child_access_does_not_define_new_variable():
+    bindings, added = prompt_declared_input_bindings(
+        existing_bindings=[
+            VariableBinding(
+                alias="core_rules",
+                variable_key="novel.worldbuilding.core_rules",
+                value_type="string",
+                projection_key="worldbuilding.dimension",
+                render_mode="projection",
+            ),
+            VariableBinding(alias="characters", variable_key="novel.characters.list", value_type="list"),
+        ],
+        system_template="",
+        user_template="玄机：{{ core_rules.magic_tech }}\n首位角色：{{ characters[0].name }}",
+    )
+
+    assert added == []
+    assert {binding.alias for binding in bindings} == {"core_rules", "characters"}
+
+
+def test_prompt_declared_variable_key_child_access_does_not_define_new_variable():
+    bindings, added = prompt_declared_input_bindings(
+        existing_bindings=[
+            VariableBinding(alias="characters.list", variable_key="characters.list", value_type="list"),
+        ],
+        system_template="",
+        user_template="首位角色：{{ characters.list[0].name }}",
+    )
+
+    assert added == []
+    assert {binding.alias for binding in bindings} == {"characters.list"}
+
+
+def test_prompt_render_variables_keep_projection_text_and_structured_access():
+    variables = build_prompt_render_variables(
+        aliases={
+            "core_rules": "magic_tech: 源枢塔；physics_rules: 命印",
+            "characters": "林澈: 主角",
+        },
+        raw_aliases={
+            "core_rules": {"magic_tech": "源枢塔", "physics_rules": "命印"},
+            "characters": [{"name": "林澈"}],
+        },
+        bindings=[
+            VariableBinding(
+                alias="core_rules",
+                variable_key="novel.worldbuilding.core_rules",
+                value_type="string",
+                projection_key="worldbuilding.dimension",
+                render_mode="projection",
+            ),
+            VariableBinding(alias="characters", variable_key="novel.characters.list", value_type="string"),
+        ],
+    )
+    result = PromptTemplateEngine().render(
+        system_template="",
+        user_template="整体：{{ core_rules }}\n子项：{{ core_rules.magic_tech }}\n首位：{{ characters[0].name }}",
+        variables=variables,
+    )
+
+    assert "整体：magic_tech: 源枢塔" in result.user
+    assert "子项：源枢塔" in result.user
+    assert "首位：林澈" in result.user
+
+
+def test_variable_definition_literals_parse_objects_and_arrays():
+    assert parse_variable_literal("{ a: b }") == {"a": "b"}
+    assert parse_variable_literal("{ a : [ b, c] }") == {"a": ["b", "c"]}
+    assert parse_variable_literal("普通文本") == "普通文本"

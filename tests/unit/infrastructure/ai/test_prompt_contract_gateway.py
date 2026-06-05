@@ -46,6 +46,27 @@ def test_prompt_template_engine_renders_variables_inside_output_json_shape():
     assert rendered.missing_variables == []
 
 
+def test_prompt_template_engine_tojson_keeps_cjk_characters_readable():
+    engine = get_template_engine()
+
+    rendered = engine.render(
+        system_template="系统",
+        user_template="{{ worldbuilding | tojson(indent=2) }}",
+        variables={
+            "worldbuilding": {
+                "core_rules": {
+                    "power_system": "灵脉共鸣",
+                    "physics_rules": "代价会反噬寿命",
+                }
+            }
+        },
+    )
+
+    assert "灵脉共鸣" in rendered.user
+    assert "代价会反噬寿命" in rendered.user
+    assert "\\u7075\\u8109" not in rendered.user
+
+
 def test_all_registered_prompt_keys_have_builtin_package():
     """prompt_keys 注册的静态 key 必须存在对应内置包。"""
     _, prompts = load_seed_bundle()

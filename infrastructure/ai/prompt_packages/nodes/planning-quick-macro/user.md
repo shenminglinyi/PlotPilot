@@ -11,13 +11,13 @@
 
 <GENRE_PROFILE>
 【类型开篇画像】
-{{ genre_opening_profile | tojson }}
+{{ genre_opening_profile }}
 
 【读者留存契约】
-{{ genre_reader_contract | tojson }}
+{{ genre_reader_contract }}
 
 【类型节奏约束】
-{{ genre_rhythm_constraints | tojson }}
+{{ genre_rhythm_constraints }}
 </GENRE_PROFILE>
 
 <TARGET_SCOPE>

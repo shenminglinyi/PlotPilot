@@ -73,6 +73,7 @@ export interface BibleDTO {
   locations: LocationDTO[]
   timeline_notes: TimelineNoteDTO[]
   style_notes: StyleNoteDTO[]
+  style?: string
 }
 
 export interface AddCharacterRequest {

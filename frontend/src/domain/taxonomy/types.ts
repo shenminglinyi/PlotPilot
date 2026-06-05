@@ -7,7 +7,16 @@ export interface LocalizedLabels {
   [locale: string]: string
 }
 
-export type TaxonomyFacets = Record<string, string>
+export interface TaxonomyWritingProfile {
+  story_structure?: string
+  pacing_control?: string
+  writing_style?: string
+  special_requirements?: string
+}
+
+export type TaxonomyFacetValue = string | TaxonomyWritingProfile | Record<string, unknown> | undefined
+
+export type TaxonomyFacets = Record<string, TaxonomyFacetValue>
 
 export interface TaxonomyNode {
   id: string

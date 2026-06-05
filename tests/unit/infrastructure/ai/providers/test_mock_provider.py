@@ -57,6 +57,16 @@ async def test_mock_provider_main_plot_options_return_three_options():
 
 
 @pytest.mark.asyncio
+async def test_mock_provider_plot_outline_returns_contract_shape():
+    data = _loads(await _generate('请输出 "plot_outline" 剧情总纲 JSON。'))
+
+    outline = data["plot_outline"]
+    assert {"main_story_overview", "stage_plan", "expected_ending", "core_conflict"} <= set(outline)
+    assert len(outline["stage_plan"]) == 5
+    assert {"phase", "label", "range_percent", "summary"} <= set(outline["stage_plan"][0])
+
+
+@pytest.mark.asyncio
 async def test_mock_provider_chapter_review_returns_review_contract():
     data = _loads(await _generate('章节 AI 审阅，请输出 "score" 和 "issues"。'))
 
@@ -74,6 +84,7 @@ async def test_mock_provider_does_not_emit_fixed_story_bias_terms():
         "请生成 characters 人物角色。",
         "请生成 locations 地点地图。",
         "setup_main_plot_options_v1，请输出 plot_options。",
+        '请输出 "plot_outline" 剧情总纲 JSON。',
     ]
     forbidden_terms = [
         "修仙",

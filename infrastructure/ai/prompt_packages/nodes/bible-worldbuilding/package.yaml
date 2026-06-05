@@ -8,44 +8,43 @@ tags:
 - 文风
 output_format: json
 variables:
-- name: premise
-  desc: 故事创意
-  type: string
-- name: novel_title
+- name: novel.title
   desc: 小说名称
   type: string
-- name: genre_major
+- name: novel.premise
+  desc: 故事创意
+  type: string
+- name: novel.genre_major
   desc: 小说大类
   type: string
-- name: genre_theme
+- name: novel.genre_theme
   desc: 小说主题
   type: string
-- name: genre_label
+- name: novel.genre_label
   desc: 小说类型字符串
   type: string
-- name: world_preset
+- name: novel.world_preset
   desc: 世界观基调
   type: string
-- name: target_chapters
+- name: novel.story_structure
+  desc: 剧情结构
+  type: string
+- name: novel.pacing_control
+  desc: 节奏把控
+  type: string
+- name: novel.writing_style
+  desc: 写作风格
+  type: string
+- name: novel.special_requirements
+  desc: 特殊要求
+  type: string
+- name: novel.target_chapters
   desc: 章节数量
   type: integer
   default: 100
-- name: target_words_per_chapter
+- name: novel.target_words_per_chapter
   desc: 每章字数
   type: integer
   default: 0
-- name: fields_desc
-  desc: 五维字段模板（由代码注入）
-  type: string
-  default: ''
-- name: genre_opening_profile
-  desc: 类型开篇画像，由 Variable Hub 从分类画像配置解析
-  type: object
-- name: genre_reader_contract
-  desc: 读者留存契约，由分类画像配置生成
-  type: object
-- name: genre_rhythm_constraints
-  desc: 类型节奏约束，由分类画像配置生成
-  type: object
 id: bible-worldbuilding
 sort_order: 27

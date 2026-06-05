@@ -1,0 +1,31 @@
+以下为小说设定输入。请基于这些结构化变量直接生成剧情总纲，不要输出多个候选。
+
+【基础设定】
+- 小说名称：{{ novel.title }}
+- 原始设定：{{ novel.premise }}
+- 类型大类：{{ novel.genre_major }}
+- 类型主题：{{ novel.genre_theme }}
+- 类型标签：{{ novel.genre_label }}
+- 世界基调：{{ novel.world_preset }}
+- 剧情结构：{{ novel.story_structure }}
+- 节奏把控：{{ novel.pacing_control }}
+- 写作风格：{{ novel.writing_style }}
+- 特殊要求：{{ novel.special_requirements }}
+- 目标篇幅：{{ novel.target_chapters }} 章，每章约 {{ novel.target_words_per_chapter }} 字
+
+【主角】
+{{ characters.protagonist }}
+
+【角色列表】
+{{ characters.list }}
+
+【地点列表】
+{{ locations.list }}
+
+【文风公约】
+{{ worldbuilding.style }}
+
+【结构化世界观】
+{{ worldbuilding.content }}
+
+请输出仅包含 `plot_outline` 的 JSON 对象。

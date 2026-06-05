@@ -18,9 +18,9 @@ CONTINUATION_HANDLER_KEY = "chapter_generate_prose_commit"
 
 def _input_bindings() -> list[VariableBinding]:
     return [
-        VariableBinding("novel_title", "novel.setup.title", False, "", scope="global", stage="setup", display_name="名称"),
-        VariableBinding("genre", "novel.setup.genre_label", False, "", scope="global", stage="setup", display_name="类型"),
-        VariableBinding("style_guide", "novel.style.guide", False, "", scope="global", stage="setup", display_name="文风公约"),
+        VariableBinding("novel_title", "novel.setup.title", False, "", scope="novel", stage="setup", display_name="名称"),
+        VariableBinding("genre", "novel.setup.genre_label", False, "", scope="novel", stage="setup", display_name="类型"),
+        VariableBinding("style_guide", "novel.style.guide", False, "", scope="novel", stage="setup", display_name="文风公约"),
         VariableBinding("chapter_number", "chapter.number", True, scope="chapter", stage="writing", value_type="integer", display_name="章节序号"),
         VariableBinding("chapter_title", "chapter.title", False, "", scope="chapter", stage="writing", display_name="章节标题"),
         VariableBinding("chapter_outline", "chapter.outline", False, "", scope="chapter", stage="writing", display_name="章节大纲"),

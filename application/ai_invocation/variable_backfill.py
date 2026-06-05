@@ -6,7 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from application.core.v1_length_tiers import strip_v1_structure_black_box_hint
-from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
+from application.ai_invocation.variable_hub import (
+    VariableHubRepository,
+    VariableWrite,
+    compose_worldbuilding_dimensions,
+)
 from domain.novel.value_objects.novel_id import NovelId
 
 logger = logging.getLogger(__name__)
@@ -156,6 +160,50 @@ class VariableHubBackfillService:
                 display_name="基调",
                 stage="setup",
             )
+        story_structure = str(getattr(novel, "locked_story_structure", "") or "").strip()
+        if story_structure:
+            self._write_missing(
+                result,
+                key="novel.setup.story_structure",
+                value=story_structure,
+                context_key=context_key,
+                value_type="string",
+                display_name="剧情结构",
+                stage="setup",
+            )
+        pacing_control = str(getattr(novel, "locked_pacing_control", "") or "").strip()
+        if pacing_control:
+            self._write_missing(
+                result,
+                key="novel.setup.pacing_control",
+                value=pacing_control,
+                context_key=context_key,
+                value_type="string",
+                display_name="节奏把控",
+                stage="setup",
+            )
+        writing_style = str(getattr(novel, "locked_writing_style", "") or "").strip()
+        if writing_style:
+            self._write_missing(
+                result,
+                key="novel.setup.writing_style",
+                value=writing_style,
+                context_key=context_key,
+                value_type="string",
+                display_name="写作风格",
+                stage="setup",
+            )
+        special_requirements = str(getattr(novel, "locked_special_requirements", "") or "").strip()
+        if special_requirements:
+            self._write_missing(
+                result,
+                key="novel.setup.special_requirements",
+                value=special_requirements,
+                context_key=context_key,
+                value_type="string",
+                display_name="特殊要求",
+                stage="setup",
+            )
         bible = self._load_bible(novel_id)
         if bible is not None:
             self._backfill_bible(result, novel_id, context_key, bible)
@@ -225,6 +273,17 @@ class VariableHubBackfillService:
         dimensions = wb.normalized_dimensions() if hasattr(wb, "normalized_dimensions") else {}
         if not isinstance(dimensions, Mapping):
             dimensions = {}
+        aggregate = compose_worldbuilding_dimensions(dimensions)
+        if aggregate:
+            self._write_missing(
+                result,
+                key="novel.worldbuilding",
+                value=aggregate,
+                context_key=context_key,
+                value_type="object",
+                display_name="世界观",
+                stage="worldbuilding",
+            )
         for key in ("core_rules", "geography", "society", "culture", "daily_life"):
             value = dimensions.get(key)
             if isinstance(value, Mapping):
@@ -270,7 +329,7 @@ class VariableHubBackfillService:
                 lineage={"source": "historical_backfill"},
                 value_type=value_type,
                 display_name=display_name,
-                scope="global",
+                scope="novel",
                 stage=stage,
             )
         )

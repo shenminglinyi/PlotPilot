@@ -81,9 +81,69 @@ class NovelService:
         premise: str,
         genre: str = "",
         world_preset: str = "",
+        story_structure: str = "",
+        pacing_control: str = "",
+        writing_style: str = "",
+        special_requirements: str = "",
     ) -> str:
         """Return only the user-authored premise; presets must not be spliced into it."""
         return (premise or "").strip()
+
+    @staticmethod
+    def _sync_variable_hub_from_novel(novel: Novel) -> None:
+        try:
+            from application.ai_invocation.variable_hub import VariableWrite
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+        except Exception:
+            return
+
+        context_key = f"novel_id:{novel.novel_id.value}"
+        generation_prefs = getattr(novel, "generation_prefs", None)
+        genre_label = str(getattr(generation_prefs, "locked_genre", "") or "").strip()
+        world_preset = str(getattr(generation_prefs, "locked_world_preset", "") or "").strip()
+        story_structure = str(getattr(generation_prefs, "locked_story_structure", "") or "").strip()
+        pacing_control = str(getattr(generation_prefs, "locked_pacing_control", "") or "").strip()
+        writing_style = str(getattr(generation_prefs, "locked_writing_style", "") or "").strip()
+        special_requirements = str(getattr(generation_prefs, "locked_special_requirements", "") or "").strip()
+        parts = [part.strip() for part in genre_label.split("/") if part.strip()]
+        values = [
+            ("novel.title", str(novel.title or "").strip(), "string", "书名"),
+            ("novel.premise", str(novel.premise or "").strip(), "string", "故事创意"),
+            ("novel.target_chapters", int(getattr(novel, "target_chapters", 0) or 0), "integer", "目标章节数"),
+            (
+                "novel.target_words_per_chapter",
+                int(getattr(novel, "target_words_per_chapter", 0) or 0),
+                "integer",
+                "每章目标字数",
+            ),
+            ("novel.genre_label", genre_label, "string", "类型标签"),
+            ("novel.genre_major", parts[0] if parts else "", "string", "类型大类"),
+            ("novel.genre_theme", " / ".join(parts[1:]) if len(parts) > 1 else "", "string", "类型主题"),
+            ("novel.world_preset", world_preset, "string", "世界基调"),
+            ("novel.story_structure", story_structure, "string", "剧情结构"),
+            ("novel.pacing_control", pacing_control, "string", "节奏把控"),
+            ("novel.writing_style", writing_style, "string", "写作风格"),
+            ("novel.special_requirements", special_requirements, "string", "特殊要求"),
+        ]
+        repo = SqliteVariableHubRepository(get_database())
+        for key, value, value_type, display_name in values:
+            if value in ("", None):
+                continue
+            repo.set_value(
+                VariableWrite(
+                    key=key,
+                    value=value,
+                    context_key=context_key,
+                    source_trace_id="novel_service_sync",
+                    source_node_key="novel_service",
+                    lineage={"source": "novel_service"},
+                    value_type=value_type,
+                    display_name=display_name,
+                    scope="global",
+                    stage="setup",
+                )
+            )
 
     def create_novel(
         self,
@@ -94,6 +154,10 @@ class NovelService:
         premise: str = "",
         genre: str = "",
         world_preset: str = "",
+        story_structure: str = "",
+        pacing_control: str = "",
+        writing_style: str = "",
+        special_requirements: str = "",
         length_tier: Optional[str] = None,
         target_words_per_chapter: Optional[int] = None,
     ) -> NovelDTO:
@@ -107,6 +171,10 @@ class NovelService:
             premise: 故事梗概/创意
             genre: 赛道/类型（前端下拉预设；不写入 premise）
             world_preset: 世界观基调（前端下拉预设；不写入 premise）
+            story_structure: 剧情结构（前端按题材预设；不写入 premise）
+            pacing_control: 节奏把控（前端按题材预设；不写入 premise）
+            writing_style: 写作风格（前端按题材预设；不写入 premise）
+            special_requirements: 特殊要求（前端按题材预设；不写入 premise）
             length_tier: V1 体量档 short|standard|epic；若指定则由服务端推导章数与每章字数
             target_words_per_chapter: 每章目标字数（可选；与体量档或自定义章数搭配）
 
@@ -116,7 +184,15 @@ class NovelService:
         chapters, wpc, _tier_norm = resolve_v1_length_params(
             length_tier, target_chapters, target_words_per_chapter
         )
-        user_block = self._compose_premise_with_presets(premise, genre, world_preset)
+        user_block = self._compose_premise_with_presets(
+            premise,
+            genre,
+            world_preset,
+            story_structure,
+            pacing_control,
+            writing_style,
+            special_requirements,
+        )
         novel = Novel(
             id=NovelId(novel_id),
             title=title,
@@ -125,9 +201,18 @@ class NovelService:
             premise=user_block,
             stage=NovelStage.PLANNING,
             target_words_per_chapter=wpc,
+            generation_prefs=GenerationPreferences(
+                locked_genre=str(genre or "").strip(),
+                locked_world_preset=str(world_preset or "").strip(),
+                locked_story_structure=str(story_structure or "").strip(),
+                locked_pacing_control=str(pacing_control or "").strip(),
+                locked_writing_style=str(writing_style or "").strip(),
+                locked_special_requirements=str(special_requirements or "").strip(),
+            ),
         )
 
         self.novel_repository.save(novel)
+        self._sync_variable_hub_from_novel(novel)
 
         return NovelDTO.from_domain(novel)
 
@@ -361,6 +446,7 @@ class NovelService:
             )
         if patch_fields:
             self.novel_repository.patch(NovelId(novel_id), **patch_fields)
+        self._sync_variable_hub_from_novel(novel)
 
         return NovelDTO.from_domain(self._hydrate_chapters(novel))
 

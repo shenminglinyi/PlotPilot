@@ -27,8 +27,10 @@ from application.ai_invocation.variable_hub import (
     VariableResolver,
     VariableValue,
     VariableWrite,
+    WORLD_BUILDING_DIMENSION_KEYS,
     expand_context_keys,
     sanitize_variable_value,
+    variable_key_candidates,
 )
 from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
@@ -102,6 +104,7 @@ def _binding_to_dict(binding: VariableBinding) -> dict[str, Any]:
         "source_path": binding.source_path,
         "projection_key": binding.projection_key,
         "render_mode": binding.render_mode,
+        "preview_source": binding.preview_source,
     }
 
 
@@ -120,6 +123,7 @@ def _binding_from_dict(data: Mapping[str, Any]) -> VariableBinding:
         source_path=str(data.get("source_path") or ""),
         projection_key=str(data.get("projection_key") or ""),
         render_mode=str(data.get("render_mode") or "raw"),
+        preview_source=str(data.get("preview_source") or ""),
     )
 
 
@@ -197,7 +201,9 @@ def variable_plan_to_dict(plan: VariablePlan | None) -> dict[str, Any]:
         return {}
     return {
         "aliases": dict(plan.aliases),
+        "raw_aliases": dict(plan.raw_aliases),
         "bindings": [_binding_to_dict(item) for item in plan.bindings],
+        "resolution_items": [dict(item) for item in plan.resolution_items],
         "required_missing": list(plan.required_missing),
         "diagnostics": list(plan.diagnostics),
         "lineage": dict(plan.lineage),
@@ -213,7 +219,11 @@ def variable_plan_from_dict(data: Mapping[str, Any]) -> VariablePlan | None:
     bindings = data.get("bindings") or []
     return VariablePlan(
         aliases=data.get("aliases") if isinstance(data.get("aliases"), Mapping) else {},
+        raw_aliases=data.get("raw_aliases") if isinstance(data.get("raw_aliases"), Mapping) else {},
         bindings=tuple(_binding_from_dict(item) for item in bindings if isinstance(item, Mapping)),
+        resolution_items=tuple(
+            item for item in data.get("resolution_items") or () if isinstance(item, Mapping)
+        ),
         required_missing=tuple(data.get("required_missing") or ()),
         diagnostics=tuple(data.get("diagnostics") or ()),
         lineage=data.get("lineage") if isinstance(data.get("lineage"), Mapping) else {},
@@ -771,6 +781,24 @@ class SqliteVariableHubRepository:
         if not binding_set_id:
             return
         with self._db.transaction() as conn:
+            aliases = {binding.alias for binding in bindings}
+            if aliases:
+                placeholders = ",".join("?" for _ in aliases)
+                conn.execute(
+                    f"""
+                    DELETE FROM cpms_variable_bindings
+                    WHERE binding_set_id = ? AND node_key = ? AND direction = ? AND alias NOT IN ({placeholders})
+                    """,
+                    (binding_set_id, node_key, direction, *sorted(aliases)),
+                )
+            else:
+                conn.execute(
+                    """
+                    DELETE FROM cpms_variable_bindings
+                    WHERE binding_set_id = ? AND node_key = ? AND direction = ?
+                    """,
+                    (binding_set_id, node_key, direction),
+                )
             conn.execute(
                 """
                 INSERT INTO cpms_variable_binding_sets (
@@ -817,6 +845,7 @@ class SqliteVariableHubRepository:
                                 "source_path": binding.source_path,
                                 "projection_key": binding.projection_key,
                                 "render_mode": binding.render_mode,
+                                "preview_source": binding.preview_source,
                             }
                         ),
                     ),
@@ -849,6 +878,7 @@ class SqliteVariableHubRepository:
                 source_path=str(_json_loads(row["metadata_json"], {}).get("source_path") or "") if row["metadata_json"] else "",
                 projection_key=str(_json_loads(row["metadata_json"], {}).get("projection_key") or "") if row["metadata_json"] else "",
                 render_mode=str(_json_loads(row["metadata_json"], {}).get("render_mode") or "raw") if row["metadata_json"] else "raw",
+                preview_source=str(_json_loads(row["metadata_json"], {}).get("preview_source") or "") if row["metadata_json"] else "",
             )
             for row in rows
         ]
@@ -856,24 +886,61 @@ class SqliteVariableHubRepository:
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
         scope_keys = expand_context_keys(context_key)
         for scope_key in scope_keys:
-            row = self._db.fetch_one(
-                """
-                SELECT *
-                FROM variable_values
-                WHERE variable_key = ? AND scope_key = ? AND is_current = 1
-                ORDER BY version_number DESC
-                LIMIT 1
-                """,
-                (variable_key, scope_key),
-            )
-            if row is not None:
-                return VariableValue(
-                    key=row["variable_key"],
-                    value=sanitize_variable_value(variable_key, _json_loads(row["value_json"], None)),
-                    context_key=row["scope_key"] or "global",
-                    source_ref=row["source_session_id"] or row["source_node_key"] or "",
-                    version_number=int(row["version_number"] or 1),
+            for candidate in variable_key_candidates(variable_key):
+                row = self._db.fetch_one(
+                    """
+                    SELECT *
+                    FROM variable_values
+                    WHERE variable_key = ? AND scope_key = ? AND is_current = 1
+                    ORDER BY version_number DESC
+                    LIMIT 1
+                    """,
+                    (candidate, scope_key),
                 )
+                if row is not None:
+                    return VariableValue(
+                        key=variable_key,
+                        value=sanitize_variable_value(candidate, _json_loads(row["value_json"], None)),
+                        context_key=row["scope_key"] or "global",
+                        source_ref=row["source_session_id"] or row["source_node_key"] or "",
+                        version_number=int(row["version_number"] or 1),
+                    )
+            if variable_key in {"novel.worldbuilding", "worldbuilding.content"}:
+                composed: dict[str, Any] = {}
+                version = 1
+                for key in WORLD_BUILDING_DIMENSION_KEYS:
+                    child_row = None
+                    for candidate in variable_key_candidates(f"worldbuilding.{key}"):
+                        child_row = self._db.fetch_one(
+                            """
+                            SELECT *
+                            FROM variable_values
+                            WHERE variable_key = ? AND scope_key = ? AND is_current = 1
+                            ORDER BY version_number DESC
+                            LIMIT 1
+                            """,
+                            (candidate, scope_key),
+                        )
+                        if child_row is not None:
+                            break
+                    if child_row is None:
+                        continue
+                    child_value = sanitize_variable_value(
+                        child_row["variable_key"],
+                        _json_loads(child_row["value_json"], None),
+                    )
+                    if not isinstance(child_value, Mapping):
+                        continue
+                    composed[key] = dict(child_value)
+                    version = max(version, int(child_row["version_number"] or 1))
+                if composed:
+                    return VariableValue(
+                        key=variable_key,
+                        value=composed,
+                        context_key=scope_key,
+                        source_ref="derived:worldbuilding_dimensions",
+                        version_number=version,
+                    )
         return None
 
     def list_current_values(self, context_key: str) -> list[dict[str, Any]]:
@@ -927,6 +994,7 @@ class SqliteVariableHubRepository:
             return None
         return VariableDefinition(
             key=row["variable_key"],
+            display_name=row["display_name"] or "",
             value_type=row["value_type"] or "string",
             required=bool(row["required"]),
             default=_json_loads(row["default_value_json"], None),
