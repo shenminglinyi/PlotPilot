@@ -571,24 +571,60 @@
                   </n-space>
                 </template>
                 <n-space vertical :size="12">
-                  <div class="plot-line"><strong>故事主线概述：</strong>{{ plotOutline.main_story_overview }}</div>
-                  <div v-if="plotOutline.core_conflict" class="plot-line"><strong>核心冲突：</strong>{{ plotOutline.core_conflict }}</div>
-                  <div v-if="plotOutline.expected_ending" class="plot-line"><strong>预期结局：</strong>{{ plotOutline.expected_ending }}</div>
-                  <div v-if="plotOutline.stage_plan?.length" class="plot-subline-list">
+                  <div class="plot-outline-editor">
+                    <div
+                      v-for="key in plotOutlineTopFieldKeys"
+                      :key="key"
+                      class="plot-kv-field"
+                    >
+                      <div class="plot-kv-label">{{ plotFieldLabel(key) }}</div>
+                      <n-input
+                        :value="plotFieldText(editablePlotOutline, key)"
+                        type="textarea"
+                        :autosize="{ minRows: key === 'main_story_overview' ? 4 : 3, maxRows: 8 }"
+                        :placeholder="`填写${plotFieldLabel(key)}`"
+                        @update:value="updatePlotField(editablePlotOutline, key, $event)"
+                      />
+                    </div>
+                  </div>
+                  <div v-if="editablePlotOutline.stage_plan?.length" class="plot-subline-list plot-outline-stage-editor">
                     <div class="plot-subline-title">阶段规划</div>
-                    <div v-for="stage in plotOutline.stage_plan" :key="stage.phase" class="plot-subline-item">
-                      <div style="display:flex;flex-direction:column;gap:4px;width:100%;">
-                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                          <n-tag size="tiny" type="default" round>{{ stage.label }}</n-tag>
-                          <span class="plot-subline-name">{{ stage.range_percent }}</span>
-                          <span v-if="stage.chapter_start && stage.chapter_end" class="plot-subline-purpose">
-                            第 {{ stage.chapter_start }} - {{ stage.chapter_end }} 章
-                          </span>
-                        </div>
-                        <div class="plot-line">{{ stage.summary }}</div>
-                        <div v-if="stage.key_goals?.length" class="plot-subline-purpose">
-                          目标：{{ stage.key_goals.join(' / ') }}
-                        </div>
+                    <div v-for="(stage, index) in editablePlotOutline.stage_plan" :key="stage.phase || index" class="plot-subline-item plot-stage-edit-item">
+                      <div class="plot-stage-edit-header">
+                        <n-tag size="tiny" type="default" round>{{ stage.label }}</n-tag>
+                        <span class="plot-subline-name">{{ stageRangePercentLabel(stage) }}</span>
+                      </div>
+                      <div class="plot-stage-chapter-row">
+                        <n-input-number
+                          :value="stage.chapter_start ?? null"
+                          :min="1"
+                          :precision="0"
+                          placeholder="起始章"
+                          @update:value="updateStageChapterNumber(index, 'chapter_start', $event)"
+                        />
+                        <span class="plot-stage-chapter-separator">至</span>
+                        <n-input-number
+                          :value="stage.chapter_end ?? null"
+                          :min="1"
+                          :precision="0"
+                          placeholder="结束章"
+                          @update:value="updateStageChapterNumber(index, 'chapter_end', $event)"
+                        />
+                        <span class="plot-subline-purpose">章</span>
+                      </div>
+                      <div
+                        v-for="key in stageContentFieldKeys(stage)"
+                        :key="key"
+                        class="plot-kv-field"
+                      >
+                        <div class="plot-kv-label">{{ plotFieldLabel(key) }}</div>
+                        <n-input
+                          :value="plotFieldText(stage, key)"
+                          type="textarea"
+                          :autosize="{ minRows: 3, maxRows: 7 }"
+                          :placeholder="`填写${plotFieldLabel(key)}`"
+                          @update:value="updatePlotField(stage, key, $event)"
+                        />
                       </div>
                     </div>
                   </div>
@@ -646,7 +682,15 @@
           >
             确认修改并继续
           </n-button>
-          <n-button v-if="currentStep === 4" :disabled="!plotOutlineCommitted" @click="handleNext"> 下一步 </n-button>
+          <n-button
+            v-if="currentStep === 4"
+            type="primary"
+            :loading="savingStep"
+            :disabled="!plotOutline || plotOutlineGenerating"
+            @click="handleNext"
+          >
+            确认修改并继续
+          </n-button>
           <!-- 步骤5：进入工作台 -->
           <n-button v-if="currentStep === 5" type="primary" @click="handleComplete">
             进入工作台
@@ -664,10 +708,12 @@ import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { consumePlotOutlineStream, workflowApi, type PlotOutlineDTO } from '@/api/workflow'
+import type { InvocationVariableBinding } from '@/api/aiInvocation'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
 import { getDimensionFieldOrder, getWorldbuildingLabel } from '@/domain/worldbuilding/contract'
 import { useAIInvocationStore } from '@/stores/aiInvocationStore'
+import { extractBoundOutputMaps, parseJsonLikeRecord } from '@/utils/invocationOutput'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
 import WizardSkeleton from './WizardSkeleton.vue'
 import {
@@ -1214,6 +1260,175 @@ const plotOutlineError = ref('')
 const plotOutlineCommitted = ref(false)
 const plotOutlineSessionId = ref('')
 const step4RestoredFromCache = ref(false)
+const editablePlotOutline = ref<PlotOutlineDTO>(createEmptyPlotOutline())
+const syncingPlotOutlineDraft = ref(false)
+const PLOT_OUTLINE_META_KEYS = new Set(['stage_plan'])
+const PLOT_STAGE_META_KEYS = new Set(['phase', 'label', 'range_percent', 'chapter_start', 'chapter_end', 'key_goals'])
+const PLOT_FIELD_LABELS: Record<string, string> = {
+  main_story_overview: '故事主线概述',
+  core_conflict: '核心冲突',
+  expected_ending: '预期结局',
+  summary: '阶段任务',
+}
+const plotOutlineTopFieldKeys = computed(() => {
+  const record = editablePlotOutline.value as unknown as Record<string, unknown>
+  const keys = Object.keys(record).filter(key => !PLOT_OUTLINE_META_KEYS.has(key))
+  const preferred = ['main_story_overview', 'core_conflict', 'expected_ending']
+  return [
+    ...preferred.filter(key => keys.includes(key)),
+    ...keys.filter(key => !preferred.includes(key)),
+  ]
+})
+const plotOutlineTotalChapters = computed(() => {
+  const maxStageEnd = Math.max(
+    0,
+    ...editablePlotOutline.value.stage_plan.map(stage =>
+      typeof stage.chapter_end === 'number' ? stage.chapter_end : 0
+    ),
+  )
+  return Math.max(1, props.targetChapters || 0, maxStageEnd)
+})
+
+function createEmptyPlotOutline(): PlotOutlineDTO {
+  return {
+    main_story_overview: '',
+    core_conflict: '',
+    expected_ending: '',
+    stage_plan: [],
+  }
+}
+
+function clonePlotOutline(outline: PlotOutlineDTO | null | undefined): PlotOutlineDTO {
+  if (!outline) return createEmptyPlotOutline()
+  return {
+    ...outline,
+    main_story_overview: outline.main_story_overview || '',
+    core_conflict: outline.core_conflict || '',
+    expected_ending: outline.expected_ending || '',
+    stage_plan: (outline.stage_plan || []).map(stage => ({
+      ...stage,
+      ...parsePlotLabeledSections(stage.summary || ''),
+      label: stage.label || '',
+      range_percent: stage.range_percent || '',
+      summary: parsePlotLabeledSections(stage.summary || '').summary || stage.summary || '',
+      key_goals: Array.isArray(stage.key_goals) ? [...stage.key_goals] : [],
+    })),
+  }
+}
+
+function parsePlotLabeledSections(text: string): Record<string, string> {
+  const source = String(text || '').trim()
+  if (!source) return {}
+  const labels = ['阶段任务', '冲突变化', '角色成长', '关键剧情节点', '关键剧情', '核心冲突', '预期结局']
+  const pattern = new RegExp(`(${labels.join('|')})\\s*[：:]`, 'g')
+  const matches = [...source.matchAll(pattern)]
+  if (matches.length < 2) return {}
+  const fields: Record<string, string> = {}
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i]
+    const key = match[1]
+    const start = (match.index || 0) + match[0].length
+    const end = i + 1 < matches.length ? matches[i + 1].index || source.length : source.length
+    const value = source.slice(start, end).trim()
+    if (!value) continue
+    fields[key === '阶段任务' ? 'summary' : key] = value
+  }
+  return fields
+}
+
+function plotFieldLabel(key: string): string {
+  return PLOT_FIELD_LABELS[key] || key
+}
+
+function plotFieldText(target: Record<string, unknown> | PlotOutlineDTO | PlotOutlineDTO['stage_plan'][number], key: string): string {
+  const value = (target as Record<string, unknown>)[key]
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  return JSON.stringify(value, null, 2)
+}
+
+function updatePlotField(target: Record<string, unknown> | PlotOutlineDTO | PlotOutlineDTO['stage_plan'][number], key: string, value: string) {
+  ;(target as Record<string, unknown>)[key] = value
+}
+
+function stageContentFieldKeys(stage: PlotOutlineDTO['stage_plan'][number]): string[] {
+  const record = stage as unknown as Record<string, unknown>
+  const keys = Object.keys(record).filter(key => !PLOT_STAGE_META_KEYS.has(key))
+  return [
+    ...(['summary', '冲突变化', '角色成长', '关键剧情节点'] as string[]).filter(key => keys.includes(key)),
+    ...keys.filter(key => !['summary', '冲突变化', '角色成长', '关键剧情节点'].includes(key)),
+  ]
+}
+
+function syncEditablePlotOutline(outline: PlotOutlineDTO | null | undefined) {
+  syncingPlotOutlineDraft.value = true
+  editablePlotOutline.value = clonePlotOutline(outline)
+  queueMicrotask(() => {
+    syncingPlotOutlineDraft.value = false
+  })
+}
+
+function updateStageChapterNumber(
+  index: number,
+  key: 'chapter_start' | 'chapter_end',
+  value: number | null,
+) {
+  const stage = editablePlotOutline.value.stage_plan[index]
+  if (!stage) return
+  stage[key] = typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function stageRangePercentLabel(stage: { chapter_start?: number; chapter_end?: number; range_percent?: string }): string {
+  const total = plotOutlineTotalChapters.value
+  const start = typeof stage.chapter_start === 'number' ? stage.chapter_start : 0
+  const end = typeof stage.chapter_end === 'number' ? stage.chapter_end : 0
+  if (start <= 0 || end <= 0) return stage.range_percent || ''
+  const startPercent = Math.max(1, Math.min(100, Math.floor(((start - 1) / total) * 100)))
+  const endPercent = Math.max(startPercent, Math.min(100, Math.floor((end / total) * 100)))
+  return `${startPercent}-${endPercent}%`
+}
+
+function buildEditablePlotOutlinePayload(): PlotOutlineDTO {
+  return {
+    ...editablePlotOutline.value,
+    main_story_overview: editablePlotOutline.value.main_story_overview.trim(),
+    core_conflict: editablePlotOutline.value.core_conflict.trim(),
+    expected_ending: editablePlotOutline.value.expected_ending.trim(),
+    stage_plan: editablePlotOutline.value.stage_plan.map(stage => ({
+      ...stage,
+      chapter_start: typeof stage.chapter_start === 'number' ? stage.chapter_start : undefined,
+      chapter_end: typeof stage.chapter_end === 'number' ? stage.chapter_end : undefined,
+      range_percent: stageRangePercentLabel(stage) || stage.range_percent,
+      summary: String(stage.summary || '').trim(),
+      key_goals: (stage.key_goals || []).map(item => String(item || '').trim()).filter(Boolean),
+    })),
+  }
+}
+
+function validateEditablePlotOutline(outline: PlotOutlineDTO): string {
+  const topRecord = outline as unknown as Record<string, unknown>
+  const hasTopContent = Object.entries(topRecord).some(([key, value]) =>
+    !PLOT_OUTLINE_META_KEYS.has(key) && String(value ?? '').trim().length > 0
+  )
+  if (!hasTopContent) return '请至少保留一项总纲内容'
+  if (!outline.stage_plan.length) return '请保留并填写阶段规划'
+  const invalidStageRange = outline.stage_plan.find((stage) => {
+    const start = stage.chapter_start
+    const end = stage.chapter_end
+    return typeof start !== 'number' || typeof end !== 'number' || start < 1 || end < 1 || start > end
+  })
+  if (invalidStageRange) return `请检查${invalidStageRange.label || '阶段'}的起止章节`
+  const emptyStage = outline.stage_plan.find(stage => stageContentFieldKeys(stage).every(key => !plotFieldText(stage, key).trim()))
+  if (emptyStage) return `请填写${emptyStage.label || '阶段'}的规划内容`
+  return ''
+}
+
+function touchPlotOutlineDraft() {
+  if (syncingPlotOutlineDraft.value) return
+  if (!plotOutline.value) return
+  plotOutline.value = buildEditablePlotOutlinePayload()
+  plotOutlineCommitted.value = false
+}
 
 function persistStepFourUiToCache(opts?: { includePlotOutline?: boolean }) {
   if (currentStep.value !== 4) return
@@ -1243,52 +1458,150 @@ function hydrateWorldbuildingLabelDrafts() {
   }
 }
 
-function extractPlotOutlineFromResult(result: Record<string, unknown>): PlotOutlineDTO | null {
+const PLOT_OVERVIEW_KEYS = ['main_story_overview', 'outline_main', 'main_axis', 'overview', 'story_overview', '故事主线概述', '主线概述', '故事概述']
+const PLOT_ENDING_KEYS = ['expected_ending', 'ending_expect', 'ending_expectation', 'expectedEnding', 'ending', 'finale', '预期结局', '预期结尾', '结局预期', '故事最终走向']
+const PLOT_CONFLICT_KEYS = ['core_conflict', 'coreConflict', 'conflict', 'main_conflict', '核心冲突', '核心矛盾', '核心对抗']
+const PLOT_STAGE_KEYS = ['stage_plan', 'stages', '阶段规划']
+const LEGACY_STAGE_KEY_ALIASES = [
+  ['stage_opening_1_15', 'stage_opening', 'opening'],
+  ['stage_develop_15_40', 'stage_develop', 'development'],
+  ['stage_deepen_40_70', 'stage_deepen', 'deepening'],
+  ['stage_climax_70_90', 'stage_climax', 'climax'],
+  ['stage_end_90_100', 'stage_end', 'stage_ending', 'ending'],
+] as const
+const STAGE_PHASE_META = [
+  { phase: 'opening', label: '开篇阶段', range_percent: '1-15%' },
+  { phase: 'development', label: '发展阶段', range_percent: '15-40%' },
+  { phase: 'deepening', label: '深化阶段', range_percent: '40-70%' },
+  { phase: 'climax', label: '高潮阶段', range_percent: '70-90%' },
+  { phase: 'ending', label: '收尾阶段', range_percent: '90-100%' },
+] as const
+
+function pickPlotString(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim()
+    }
+  }
+  return ''
+}
+
+function pickPlotValue(record: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = record[key]
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return undefined
+}
+
+function normalizeLegacyStagePlan(stagePlan: unknown): PlotOutlineDTO['stage_plan'] {
+  if (!stagePlan || typeof stagePlan !== 'object' || Array.isArray(stagePlan)) return []
+  const record = stagePlan as Record<string, unknown>
+  return LEGACY_STAGE_KEY_ALIASES.map((aliases, index) => {
+    const meta = STAGE_PHASE_META[index]
+    const value = aliases.map(key => record[key]).find(item => item !== undefined && item !== null && item !== '')
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return {
+        ...(value as PlotOutlineDTO['stage_plan'][number]),
+        phase: meta.phase,
+        label: String((value as Record<string, unknown>).label || meta.label),
+        range_percent: String((value as Record<string, unknown>).range_percent || meta.range_percent),
+      }
+    }
+    return {
+      phase: meta.phase,
+      label: meta.label,
+      range_percent: meta.range_percent,
+      summary: value ? String(value).trim() : '',
+      key_goals: [],
+    }
+  }).filter(stage => String(stage.summary || '').trim())
+}
+
+function normalizePlotOutlineShape(value: unknown): PlotOutlineDTO | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const stagePlan = pickPlotValue(record, PLOT_STAGE_KEYS)
+  return {
+    ...(record as Partial<PlotOutlineDTO>),
+    main_story_overview: pickPlotString(record, PLOT_OVERVIEW_KEYS),
+    expected_ending: pickPlotString(record, PLOT_ENDING_KEYS),
+    core_conflict: pickPlotString(record, PLOT_CONFLICT_KEYS),
+    stage_plan: Array.isArray(stagePlan)
+      ? stagePlan as PlotOutlineDTO['stage_plan']
+      : normalizeLegacyStagePlan(stagePlan),
+  }
+}
+
+function normalizePlotOutlineFromBindings(
+  source: Record<string, unknown>,
+  bindings: InvocationVariableBinding[],
+): PlotOutlineDTO | null {
+  const { byVariableKey } = extractBoundOutputMaps(source, bindings)
+  const direct = byVariableKey['plot.outline']
+  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
+  const stagePlan = byVariableKey['plot.stage_plan']
+  const overview = byVariableKey['plot.main_story_overview']
+  const ending = byVariableKey['plot.expected_ending']
+  const conflict = byVariableKey['plot.core_conflict']
+  if (!stagePlan && !overview && !ending && !conflict) return null
+  return normalizePlotOutlineShape({
+    main_story_overview: overview,
+    expected_ending: ending,
+    core_conflict: conflict,
+    stage_plan: stagePlan,
+  })
+}
+
+function extractPlotOutlineFromResult(
+  result: Record<string, unknown>,
+  outputBindings: InvocationVariableBinding[] = [],
+): PlotOutlineDTO | null {
   const direct = result.plot_outline
-  if (direct && typeof direct === 'object') return direct as PlotOutlineDTO
+  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
+  if (outputBindings.length) {
+    const boundDirect = normalizePlotOutlineFromBindings(result, outputBindings)
+    if (boundDirect?.stage_plan?.length) return boundDirect
+  }
   const continuation = result.continuation
   if (continuation && typeof continuation === 'object') {
     const continuationRecord = continuation as Record<string, unknown>
     const fromContinuation = continuationRecord.plot_outline
-    if (fromContinuation && typeof fromContinuation === 'object') return fromContinuation as PlotOutlineDTO
-    if (
-      continuationRecord.main_story_overview
-      && continuationRecord.stage_plan
-      && continuationRecord.expected_ending
-      && continuationRecord.core_conflict
-    ) {
-      return continuationRecord as unknown as PlotOutlineDTO
+    if (fromContinuation && typeof fromContinuation === 'object') return normalizePlotOutlineShape(fromContinuation)
+    if (outputBindings.length) {
+      const boundContinuation = normalizePlotOutlineFromBindings(continuationRecord, outputBindings)
+      if (boundContinuation?.stage_plan?.length) return boundContinuation
     }
+    const normalizedContinuation = normalizePlotOutlineShape(continuationRecord)
+    if (normalizedContinuation?.main_story_overview && normalizedContinuation.stage_plan?.length) return normalizedContinuation
   }
   const acceptedContent = result.accepted_content
   if (typeof acceptedContent === 'string' && acceptedContent.trim()) {
-    try {
-      const parsed = JSON.parse(acceptedContent) as unknown
-      if (parsed && typeof parsed === 'object') {
-        const parsedRecord = parsed as Record<string, unknown>
-        if (parsedRecord.plot_outline) {
-          return parsedRecord.plot_outline as PlotOutlineDTO
-        }
-        if (
-          parsedRecord.main_story_overview
-          && parsedRecord.stage_plan
-          && parsedRecord.expected_ending
-          && parsedRecord.core_conflict
-        ) {
-          return parsedRecord as unknown as PlotOutlineDTO
-        }
+    const parsedRecord = parseJsonLikeRecord(acceptedContent)
+    if (parsedRecord) {
+      if (outputBindings.length) {
+        const boundAccepted = normalizePlotOutlineFromBindings(parsedRecord, outputBindings)
+        if (boundAccepted?.stage_plan?.length) return boundAccepted
       }
-    } catch {
-      return null
+      if (parsedRecord.plot_outline) {
+        return normalizePlotOutlineShape(parsedRecord.plot_outline)
+      }
+      const normalizedAccepted = normalizePlotOutlineShape(parsedRecord)
+      if (normalizedAccepted?.main_story_overview && normalizedAccepted.stage_plan?.length) return normalizedAccepted
     }
   }
   return null
 }
 
-function applyPlotOutlineFromResult(result: Record<string, unknown>) {
-  const outline = extractPlotOutlineFromResult(result)
+function applyPlotOutlineFromResult(
+  result: Record<string, unknown>,
+  outputBindings: InvocationVariableBinding[] = [],
+) {
+  const outline = extractPlotOutlineFromResult(result, outputBindings)
   if (!outline) return
   plotOutline.value = outline
+  syncEditablePlotOutline(outline)
   plotOutlineCommitted.value = true
   writeWizardUiCache(props.novelId, { plotOutline: outline })
   message.success('AI 审阅已完成，剧情总纲已回填')
@@ -1304,7 +1617,7 @@ async function openPlotOutlineReviewPanel(sessionId: string) {
     mainPlotSessionUnsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
       const result = payload.commit?.result
       if (!result) return
-      applyPlotOutlineFromResult(result)
+      applyPlotOutlineFromResult(result, payload.session?.output_bindings || [])
       mainPlotSessionUnsub?.()
       mainPlotSessionUnsub = null
     })
@@ -1319,7 +1632,9 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
   plotOutlineGenerating.value = true
   plotOutlineError.value = ''
   plotOutline.value = null
+  syncEditablePlotOutline(null)
   if (opts?.forceNew) {
+    plotOutlineCommitted.value = false
     plotOutlineSessionId.value = ''
     writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOutline: undefined })
   }
@@ -1330,6 +1645,7 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
       await openPlotOutlineReviewPanel(cached.invocationSessionId)
       if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
         plotOutline.value = cached.plotOutline
+        syncEditablePlotOutline(cached.plotOutline)
         step4RestoredFromCache.value = true
       }
       return
@@ -1345,7 +1661,10 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
         if (message) phaseMessage.value = message
       },
       onDone: (outline) => {
-        if (outline) plotOutline.value = outline
+        if (outline) {
+          plotOutline.value = outline
+          syncEditablePlotOutline(outline)
+        }
       },
       onError: (message) => {
         streamError = message || '流式生成失败'
@@ -1361,6 +1680,7 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
     try {
       const res = await workflowApi.generatePlotOutline(props.novelId)
       plotOutline.value = res.plot_outline || null
+      syncEditablePlotOutline(plotOutline.value)
       if (res.invocation_session_id) {
         plotOutlineSessionId.value = res.invocation_session_id
         void openPlotOutlineReviewPanel(res.invocation_session_id)
@@ -1395,6 +1715,7 @@ function hydrateStepFourFromCache() {
   if (!cached) return
   if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
     plotOutline.value = cached.plotOutline
+    syncEditablePlotOutline(cached.plotOutline)
     plotOutlineSessionId.value = cached.invocationSessionId || ''
     step4RestoredFromCache.value = true
     if (cached.invocationSessionId && !plotOutlineCommitted.value) {
@@ -1662,6 +1983,7 @@ function resetWizardStateForOpen() {
   currentStep.value = 1
   stepStatus.value = 'process'
   plotOutline.value = null
+  syncEditablePlotOutline(null)
   plotOutlineCommitted.value = false
   plotOutlineSessionId.value = ''
   plotOutlineError.value = ''
@@ -1721,6 +2043,7 @@ async function detectWizardProgress(): Promise<number> {
       const response = await workflowApi.getPlotOutline(props.novelId)
       if (response.plot_outline) {
         plotOutline.value = response.plot_outline
+        syncEditablePlotOutline(response.plot_outline)
         plotOutlineCommitted.value = true
         hasPlotOutline = true
       }
@@ -1826,6 +2149,10 @@ watch(currentStep, (step, prevStep) => {
 
 watch(plotOutline, () => {
   if (currentStep.value === 4 && props.show) persistStepFourUiToCache()
+}, { deep: true })
+
+watch(editablePlotOutline, () => {
+  if (currentStep.value === 4 && props.show) touchPlotOutlineDraft()
 }, { deep: true })
 
 watch(fieldLabelDrafts, () => {
@@ -1970,6 +2297,27 @@ async function saveLocationsEdits(): Promise<boolean> {
   }
 }
 
+async function savePlotOutlineEdits(): Promise<boolean> {
+  try {
+    const payload = buildEditablePlotOutlinePayload()
+    const validationError = validateEditablePlotOutline(payload)
+    if (validationError) {
+      message.error(validationError)
+      return false
+    }
+    const response = await workflowApi.savePlotOutline(props.novelId, payload)
+    const saved = response.plot_outline || payload
+    plotOutline.value = saved
+    syncEditablePlotOutline(saved)
+    plotOutlineCommitted.value = true
+    writeWizardUiCache(props.novelId, { plotOutline: saved })
+    return true
+  } catch (e) {
+    message.error(formatApiError(e) || '保存剧情总纲失败')
+    return false
+  }
+}
+
 /** 步骤最大可达步骤（用户走过的最远步骤） */
 const maxVisitedStep = ref(1)
 
@@ -2018,6 +2366,11 @@ const handleNext = async () => {
       if (!ok) return
       currentStep.value = 4
       maxVisitedStep.value = Math.max(maxVisitedStep.value, 4)
+    } else if (currentStep.value === 4) {
+      const ok = await savePlotOutlineEdits()
+      if (!ok) return
+      currentStep.value = 5
+      maxVisitedStep.value = Math.max(maxVisitedStep.value, 5)
     } else if (currentStep.value < 5) {
       currentStep.value++
       maxVisitedStep.value = Math.max(maxVisitedStep.value, currentStep.value)
@@ -2560,6 +2913,33 @@ const handleComplete = () => {
   text-align: left;
 }
 
+.plot-outline-editor {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plot-outline-editor :deep(.n-form-item-label) {
+  font-weight: 600;
+}
+
+.plot-kv-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plot-kv-label {
+  width: fit-content;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-brand, #2563eb) 8%, transparent);
+  color: var(--app-text-secondary, var(--n-text-color-2));
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .plot-guard-grid,
 .plot-subline-list {
   padding: 8px 10px;
@@ -2618,6 +2998,50 @@ const handleComplete = () => {
 
 .plot-subline-purpose {
   color: #777;
+}
+
+.plot-outline-stage-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plot-stage-edit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--app-surface, var(--n-color-modal));
+  border: 1px solid var(--app-border, var(--n-border-color));
+}
+
+.plot-stage-edit-item + .plot-stage-edit-item {
+  margin-top: 0;
+}
+
+.plot-stage-edit-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plot-stage-chapter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plot-stage-chapter-row :deep(.n-input-number) {
+  width: 112px;
+}
+
+.plot-stage-chapter-separator {
+  color: var(--app-text-muted, var(--n-text-color-3));
+  font-size: 13px;
 }
 
 .plot-option-card--disabled {

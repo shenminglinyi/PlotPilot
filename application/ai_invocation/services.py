@@ -23,8 +23,9 @@ from application.ai_invocation.dtos import (
     prompt_hash,
     stable_hash,
 )
+from application.ai_invocation.output_binding_resolution import resolve_output_payload_value
 from domain.ai.value_objects.prompt import Prompt
-from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite, extract_path_value
+from application.ai_invocation.variable_hub import VariableHubRepository, VariableWrite
 
 logger = logging.getLogger(__name__)
 
@@ -374,48 +375,6 @@ class AdoptionCommitService:
             return value[alias]
         return value
 
-    @staticmethod
-    def _collect_dotted_children(payload: Mapping[str, Any], prefix: str) -> Any:
-        normalized = str(prefix or "").strip()
-        if not normalized:
-            return None
-        dotted_prefix = f"{normalized}."
-        collected: dict[str, Any] = {}
-        for key, value in payload.items():
-            raw_key = str(key or "").strip()
-            if not raw_key.startswith(dotted_prefix):
-                continue
-            remainder = raw_key[len(dotted_prefix):]
-            if not remainder:
-                continue
-            cursor = collected
-            parts = [part for part in remainder.split(".") if part]
-            if not parts:
-                continue
-            for part in parts[:-1]:
-                next_value = cursor.get(part)
-                if not isinstance(next_value, dict):
-                    next_value = {}
-                    cursor[part] = next_value
-                cursor = next_value
-            cursor[parts[-1]] = value
-        return collected or None
-
-    def _resolve_output_payload_value(self, payload: Mapping[str, Any], *candidates: str) -> Any:
-        for candidate in candidates:
-            normalized = str(candidate or "").strip()
-            if not normalized:
-                continue
-            if normalized in payload:
-                return payload.get(normalized)
-            dotted = self._collect_dotted_children(payload, normalized)
-            if dotted is not None:
-                return dotted
-            value = extract_path_value(payload, normalized)
-            if value is not None:
-                return value
-        return None
-
     def _commit_variable_outputs(
         self,
         *,
@@ -489,7 +448,7 @@ class AdoptionCommitService:
         for binding in bindings:
             if not binding.enabled or not binding.variable_key:
                 continue
-            raw_value = self._resolve_output_payload_value(
+            raw_value = resolve_output_payload_value(
                 payload,
                 binding.source_path or binding.alias,
                 binding.alias if binding.source_path else "",

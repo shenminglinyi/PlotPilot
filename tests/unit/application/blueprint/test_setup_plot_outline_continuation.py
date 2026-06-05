@@ -4,9 +4,13 @@ from application.ai_invocation.dtos import (
     ContinuationRef,
     InvocationPolicy,
     InvocationSession,
+    VariableBinding,
     VariablePlan,
 )
-from application.blueprint.services.setup_plot_outline_continuation import setup_plot_outline_handler
+from application.blueprint.services.setup_plot_outline_continuation import (
+    normalize_setup_plot_outline_payload,
+    setup_plot_outline_handler,
+)
 
 
 def test_setup_plot_outline_continuation_returns_normalized_outline():
@@ -110,6 +114,89 @@ def test_setup_plot_outline_continuation_accepts_legacy_outline_shape():
     assert result["expected_ending"] == "主角以明确代价终结旧秩序并开启新阶段。"
 
 
+def test_setup_plot_outline_continuation_accepts_short_legacy_stage_keys():
+    session = InvocationSession(
+        id="session-short-legacy",
+        operation="setup.plot_outline",
+        node_key="planning-plot-outline",
+        policy=InvocationPolicy.FULL_INTERACTIVE,
+        context={"novel_id": "novel-short-legacy", "setup_context": {"target_chapters": 100}},
+        continuation=ContinuationRef(handler_key="setup_plot_outline"),
+        variable_plan=VariablePlan(aliases={"novel.target_chapters": 100}),
+    )
+    decision = AdoptionDecision(
+        id="decision-short-legacy",
+        session_id="session-short-legacy",
+        attempt_id="attempt-short-legacy",
+        accepted_content=(
+            '{'
+            '"outline_main":"主角带着前世记忆重返弱小时刻，在底层秩序与禁忌力量之间寻找破局路径。",'
+            '"stage_plan":{'
+            '"stage_opening":"建立重生后的处境与第一轮生存危机。",'
+            '"stage_develop":"让局部危机扩大成多方势力争夺。",'
+            '"stage_deepen":"揭露深层真相并逼主角付出代价。",'
+            '"stage_climax":"集中兑现宿敌对抗与秩序撕裂。",'
+            '"stage_end":"收束后果并建立新的秩序平衡。"},'
+            '"ending_expect":"主角完成复仇并重塑规则，但仍需承担守望世界的责任。",'
+            '"core_conflict":"主角的禁忌成长路线与旧秩序的高压统治正面碰撞。"}'
+        ),
+    )
+
+    result = setup_plot_outline_handler(ContinuationContext(session=session, decision=decision))
+
+    assert result["plot_outline"]["stage_plan"][0]["phase"] == "opening"
+    assert result["plot_outline"]["stage_plan"][0]["summary"] == "建立重生后的处境与第一轮生存危机。"
+    assert result["plot_outline"]["stage_plan"][-1]["phase"] == "ending"
+    assert result["plot_outline"]["stage_plan"][-1]["summary"] == "收束后果并建立新的秩序平衡。"
+
+
+def test_setup_plot_outline_continuation_uses_output_bindings_for_custom_paths(monkeypatch):
+    session = InvocationSession(
+        id="session-custom-binding",
+        operation="setup.plot_outline",
+        node_key="planning-plot-outline",
+        policy=InvocationPolicy.FULL_INTERACTIVE,
+        context={"novel_id": "novel-custom-binding", "setup_context": {"target_chapters": 100}},
+        continuation=ContinuationRef(handler_key="setup_plot_outline"),
+        variable_plan=VariablePlan(aliases={"novel.target_chapters": 100}),
+    )
+    decision = AdoptionDecision(
+        id="decision-custom-binding",
+        session_id="session-custom-binding",
+        attempt_id="attempt-custom-binding",
+        accepted_content=(
+            '{'
+            '"用户剧情总纲":{"主线":"主角在禁忌力量与旧秩序之间持续升级对抗。"},'
+            '"用户阶段规划":['
+            '{"phase":"opening","label":"开篇阶段","summary":"建立初始处境。"},'
+            '{"phase":"development","label":"发展阶段","summary":"扩大局部危机。"},'
+            '{"phase":"deepening","label":"深化阶段","summary":"揭示深层真相。"},'
+            '{"phase":"climax","label":"高潮阶段","summary":"集中兑现冲突。"},'
+            '{"phase":"ending","label":"收尾阶段","summary":"完成结局闭环。"}],'
+            '"用户结局":"主角以代价换取新秩序。",'
+            '"用户冲突":"主角的禁忌成长路线与旧秩序统治正面碰撞。"}'
+        ),
+    )
+
+    monkeypatch.setattr(
+        "application.blueprint.services.setup_plot_outline_continuation.load_session_output_bindings",
+        lambda _session: [
+            VariableBinding(alias="plot_outline", variable_key="plot.outline", source_path="用户剧情总纲"),
+            VariableBinding(alias="stage_plan", variable_key="plot.stage_plan", source_path="用户阶段规划"),
+            VariableBinding(alias="main_story_overview", variable_key="plot.main_story_overview", source_path="用户剧情总纲.主线"),
+            VariableBinding(alias="expected_ending", variable_key="plot.expected_ending", source_path="用户结局"),
+            VariableBinding(alias="core_conflict", variable_key="plot.core_conflict", source_path="用户冲突"),
+        ],
+    )
+
+    result = setup_plot_outline_handler(ContinuationContext(session=session, decision=decision))
+
+    assert result["plot_outline"]["main_story_overview"] == "主角在禁忌力量与旧秩序之间持续升级对抗。"
+    assert result["plot_outline"]["stage_plan"][0]["summary"] == "建立初始处境。"
+    assert result["expected_ending"] == "主角以代价换取新秩序。"
+    assert result["core_conflict"] == "主角的禁忌成长路线与旧秩序统治正面碰撞。"
+
+
 def test_setup_plot_outline_continuation_preserves_extra_outline_fields():
     overview = (
         "主角在一场失败的行动后被迫重回起点，为了追回失去的一切，他必须先穿过旧同盟的怀疑、"
@@ -154,3 +241,87 @@ def test_setup_plot_outline_continuation_preserves_extra_outline_fields():
     assert result["plot_outline"]["stage_plan"][0]["milestone"] == "失去关键筹码"
     assert result["plot_outline"]["stage_plan"][0]["chapter_start"] == 1
     assert result["plot_outline"]["stage_plan"][-1]["chapter_end"] == 40
+
+
+def test_normalize_plot_outline_preserves_manual_chapter_ranges():
+    overview = (
+        "主角在旧局势中被迫提前面对核心矛盾，一次突发事件把原本可以缓慢处理的问题推到台前。"
+        "他先在有限资源中守住最重要的人和目标，再通过追查逐步发现外部压力背后的秩序漏洞。"
+        "随着局势升级，短期安全、长期目标和关系信任不断发生冲突，每一次选择都会留下新的代价。"
+        "中段开始，关键地点、人物关系与隐藏真相共同推动主角从被动应对转向主动突破。"
+        "后段则集中兑现前文积累的冲突、筹码和牺牲，把主角推向必须承担后果的最终决断。"
+    )
+    outline = {
+        "main_story_overview": overview,
+        "stage_plan": [
+            {"phase": "opening", "label": "开篇阶段", "range_percent": "1-15%", "chapter_start": 1, "chapter_end": 20, "summary": "建立初始处境。"},
+            {"phase": "development", "label": "发展阶段", "range_percent": "15-40%", "chapter_start": 21, "chapter_end": 120, "summary": "扩大局部危机。"},
+            {"phase": "deepening", "label": "深化阶段", "range_percent": "40-70%", "chapter_start": 121, "chapter_end": 300, "summary": "揭示深层真相。"},
+            {"phase": "climax", "label": "高潮阶段", "range_percent": "70-90%", "chapter_start": 301, "chapter_end": 420, "summary": "集中兑现冲突。"},
+            {"phase": "ending", "label": "收尾阶段", "range_percent": "90-100%", "chapter_start": 421, "chapter_end": 500, "summary": "完成结局闭环。"},
+        ],
+        "expected_ending": "主角付出明确代价后完成阶段性目标，并让世界秩序进入新的稳定状态。",
+        "core_conflict": "主角试图守住重要关系与核心目标，但结构性压力不断逼他支付超出预期的代价。",
+    }
+
+    normalized = normalize_setup_plot_outline_payload(outline, target_chapters=100)
+
+    assert normalized["stage_plan"][0]["chapter_end"] == 20
+    assert normalized["stage_plan"][0]["range_percent"] == "1-4%"
+    assert normalized["stage_plan"][1]["range_percent"] == "4-24%"
+    assert normalized["stage_plan"][-1]["chapter_start"] == 421
+    assert normalized["stage_plan"][-1]["chapter_end"] == 500
+    assert normalized["stage_plan"][-1]["range_percent"] == "84-100%"
+
+
+def test_normalize_plot_outline_accepts_chinese_alias_keys():
+    overview = (
+        "主角在旧秩序的夹缝中被迫提前面对失控局面，原本只想稳住身边人的安全，"
+        "却在一次次追查中发现危机背后牵连着更大的规则漏洞。随着局势推进，"
+        "他必须在短期安全、长期目标、同伴信任和自身底线之间不断做选择，"
+        "每一次选择都会带来新的代价，也让隐藏敌人与旧有矛盾逐步浮出水面。"
+        "中段以后，关键地点与人物关系共同推动主角从被动防守转向主动破局，"
+        "最终在集中爆发的冲突里承担明确损失，完成主线兑现与新秩序落地。"
+    )
+    outline = {
+        "故事主线概述": overview,
+        "阶段规划": [
+            {"phase": "opening", "label": "开篇阶段", "summary": "建立初始处境。"},
+            {"phase": "development", "label": "发展阶段", "summary": "扩大局部危机。"},
+            {"phase": "deepening", "label": "深化阶段", "summary": "揭示深层真相。"},
+            {"phase": "climax", "label": "高潮阶段", "summary": "集中兑现冲突。"},
+            {"phase": "ending", "label": "收尾阶段", "summary": "完成结局闭环。"},
+        ],
+        "预期结局": "主角付出明确代价后完成阶段目标，并让世界秩序进入新的稳定状态。",
+        "核心冲突": "主角想守住重要关系与核心目标，但结构性压力不断逼他支付超出预期的代价。",
+    }
+
+    normalized = normalize_setup_plot_outline_payload(outline, target_chapters=100)
+
+    assert normalized["main_story_overview"] == overview
+    assert normalized["expected_ending"].startswith("主角付出明确代价")
+    assert normalized["core_conflict"].startswith("主角想守住")
+    assert normalized["stage_plan"][0]["chapter_start"] == 1
+
+
+def test_normalize_plot_outline_preserves_renamed_user_keys_without_standard_fields():
+    outline = {
+        "我自己的主线键": "主角从边缘处境进入核心矛盾，围绕资源、信任和秩序压力持续推进。",
+        "作者备注": "这里保留用户自定义 key。",
+        "stage_plan": [
+            {"phase": "opening", "label": "开篇阶段", "冲突变化": "建立初始压力。"},
+            {"phase": "development", "label": "发展阶段", "角色成长": "扩大局部危机。"},
+            {"phase": "deepening", "label": "深化阶段", "关键剧情节点": "揭示深层真相。"},
+            {"phase": "climax", "label": "高潮阶段", "自定义阶段键": "集中兑现冲突。"},
+            {"phase": "ending", "label": "收尾阶段", "收束方式": "完成结局闭环。"},
+        ],
+    }
+
+    normalized = normalize_setup_plot_outline_payload(outline, target_chapters=100)
+
+    assert normalized["我自己的主线键"].startswith("主角从边缘处境")
+    assert normalized["作者备注"] == "这里保留用户自定义 key。"
+    assert normalized["stage_plan"][0]["冲突变化"] == "建立初始压力。"
+    assert normalized["stage_plan"][0]["summary"] == "建立初始压力。"
+    assert normalized.get("main_story_overview") is None
+    assert normalized.get("core_conflict") is None

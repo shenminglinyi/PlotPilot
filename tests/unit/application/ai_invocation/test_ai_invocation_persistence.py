@@ -213,6 +213,7 @@ def test_sqlite_variable_hub_repository_persists_path_and_projection_binding_met
                 source_path="characters[0]",
                 projection_key="character.card",
                 render_mode="projection",
+                preview_source="continuation",
                 value_type="string",
                 scope="global",
                 stage="characters",
@@ -226,6 +227,7 @@ def test_sqlite_variable_hub_repository_persists_path_and_projection_binding_met
     assert bindings[0].source_path == "characters[0]"
     assert bindings[0].projection_key == "character.card"
     assert bindings[0].render_mode == "projection"
+    assert bindings[0].preview_source == "continuation"
 
 
 def test_sqlite_variable_hub_repository_writes_current_value_and_lineage():
@@ -353,6 +355,37 @@ def test_sqlite_variable_hub_repository_replaces_stale_deleted_output_bindings()
     bindings = repo.get_output_bindings("bible-worldbuilding:output:v1", "bible-worldbuilding")
 
     assert [binding.alias for binding in bindings] == ["core_rules", "style"]
+
+
+def test_sqlite_variable_hub_repository_keeps_existing_custom_output_bindings_when_reseeded():
+    db = _Db()
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_bindings(
+        "plot-outline:output:v1",
+        "planning-plot-outline",
+        [
+            VariableBinding(
+                alias="用户剧情总纲",
+                variable_key="plot.outline",
+                source_path="用户剧情总纲",
+                value_type="object",
+            ),
+        ],
+        direction="output",
+    )
+    repo.set_bindings(
+        "plot-outline:output:v1",
+        "planning-plot-outline",
+        repo.get_output_bindings("plot-outline:output:v1", "planning-plot-outline"),
+        direction="output",
+    )
+
+    bindings = repo.get_output_bindings("plot-outline:output:v1", "planning-plot-outline")
+
+    assert len(bindings) == 1
+    assert bindings[0].alias == "用户剧情总纲"
+    assert bindings[0].source_path == "用户剧情总纲"
 
 
 def test_sqlite_variable_hub_repository_can_compose_worldbuilding_from_dimension_values():

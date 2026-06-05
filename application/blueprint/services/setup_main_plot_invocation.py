@@ -185,6 +185,10 @@ def ensure_setup_main_plot_contract(db) -> InvocationSpec:
     spec = setup_main_plot_spec()
     with sqlite_writes_bypass_queue():
         variable_repo = SqliteVariableHubRepository(db)
+        existing_output_bindings = variable_repo.get_output_bindings(
+            spec.output_binding_set_id,
+            spec.node_key,
+        )
         variable_repo.set_bindings(
             spec.input_binding_set_id,
             spec.node_key,
@@ -194,7 +198,7 @@ def ensure_setup_main_plot_contract(db) -> InvocationSpec:
         variable_repo.set_bindings(
             spec.output_binding_set_id,
             spec.node_key,
-            setup_main_plot_output_bindings(),
+            existing_output_bindings or setup_main_plot_output_bindings(),
             direction="output",
         )
         SqliteInvocationSpecRepository(db).upsert(

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from application.ai_invocation.contracts import ensure_invocation_contract
 from application.ai_invocation.dtos import InvocationPolicy
@@ -26,6 +26,9 @@ from application.blueprint.services.setup_plot_outline_invocation import (
     SETUP_PLOT_OUTLINE_OPERATION,
     build_setup_plot_outline_invocation_variables,
     ensure_setup_plot_outline_contract,
+)
+from application.blueprint.services.setup_plot_outline_continuation import (
+    normalize_setup_plot_outline_payload,
 )
 from application.blueprint.services.continuous_planning_service import ContinuousPlanningService
 from application.engine.dtos.scene_director_dto import SceneDirectorAnalysis
@@ -355,6 +358,8 @@ class SuggestMainPlotOptionsResponse(BaseModel):
 
 
 class PlotOutlineStageItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     phase: str
     label: str
     range_percent: str
@@ -365,6 +370,8 @@ class PlotOutlineStageItem(BaseModel):
 
 
 class PlotOutlineItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     main_story_overview: str = ""
     stage_plan: List[PlotOutlineStageItem] = Field(default_factory=list)
     expected_ending: str = ""
@@ -375,6 +382,10 @@ class GeneratePlotOutlineResponse(BaseModel):
     plot_outline: Optional[PlotOutlineItem] = None
     invocation_session_id: str = ""
     invocation_next_action: str = ""
+
+
+class SavePlotOutlineRequest(BaseModel):
+    plot_outline: PlotOutlineItem
 
 
 def _storyline_to_response(storyline) -> StorylineResponse:
@@ -679,6 +690,68 @@ def get_plot_outline(novel_id: str, novel_service=Depends(get_novel_service)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to load plot outline: {str(exc)}",
+        )
+
+
+@router.put(
+    "/{novel_id}/setup/plot-outline",
+    response_model=GeneratePlotOutlineResponse,
+    status_code=status.HTTP_200_OK,
+)
+def save_plot_outline(
+    novel_id: str,
+    request: SavePlotOutlineRequest,
+    novel_service=Depends(get_novel_service),
+):
+    novel = novel_service.get_novel(novel_id)
+    if novel is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Novel not found")
+    try:
+        from application.ai_invocation.variable_hub import VariableWrite
+        from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+        _ensure_plot_outline_invocation_contract()
+        target_chapters = int(getattr(novel, "target_chapters", 0) or 100)
+        outline = normalize_setup_plot_outline_payload(
+            request.plot_outline.model_dump(),
+            target_chapters=target_chapters,
+        )
+        repo = SqliteVariableHubRepository(get_database())
+        context_key = f"novel_id:{novel_id}"
+        writes = [
+            ("plot.outline", outline, "object", "剧情总纲"),
+            ("plot.stage_plan", outline["stage_plan"], "list", "阶段规划"),
+        ]
+        if outline.get("main_story_overview"):
+            writes.append(("plot.main_story_overview", outline["main_story_overview"], "string", "故事主线概述"))
+        if outline.get("expected_ending"):
+            writes.append(("plot.expected_ending", outline["expected_ending"], "string", "预期结局"))
+        if outline.get("core_conflict"):
+            writes.append(("plot.core_conflict", outline["core_conflict"], "string", "核心冲突"))
+        for key, value, value_type, display_name in writes:
+            repo.set_value(
+                VariableWrite(
+                    key=key,
+                    value=value,
+                    context_key=context_key,
+                    source_trace_id="setup_plot_outline_manual_save",
+                    source_node_key=SETUP_PLOT_OUTLINE_NODE,
+                    lineage={"source": "setup_plot_outline_manual_save"},
+                    value_type=value_type,
+                    display_name=display_name,
+                    scope="novel",
+                    stage="planning",
+                )
+            )
+        _refresh_narrative_contract_shared(novel_id)
+        return GeneratePlotOutlineResponse(plot_outline=PlotOutlineItem(**outline))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.exception("save_plot_outline failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save plot outline: {str(exc)}",
         )
 
 

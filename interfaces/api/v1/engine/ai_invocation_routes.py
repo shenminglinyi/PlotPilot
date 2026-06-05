@@ -289,25 +289,25 @@ def _output_binding_payloads(repos, session) -> list[dict[str, Any]]:
 def _with_preview_source_backfill(session, binding: VariableBinding) -> VariableBinding:
     if binding.preview_source:
         return binding
-    continuation_aliases: dict[str, set[str]] = {
+    continuation_variable_keys: dict[str, set[str]] = {
         "setup.plot_outline": {
-            "main_story_overview",
-            "stage_plan",
-            "expected_ending",
-            "core_conflict",
+            "plot.main_story_overview",
+            "plot.stage_plan",
+            "plot.expected_ending",
+            "plot.core_conflict",
         },
-        "setup.main_plot_options": {"plot_options_json"},
+        "setup.main_plot_options": {"plot.main_options_json"},
         "bible.setup.worldbuilding": {
-            "core_rules",
-            "geography",
-            "society",
-            "culture",
-            "daily_life",
+            "worldbuilding.core_rules",
+            "worldbuilding.geography",
+            "worldbuilding.society",
+            "worldbuilding.culture",
+            "worldbuilding.daily_life",
         },
-        "bible.setup.characters": {"protagonist"},
+        "bible.setup.characters": {"characters.protagonist"},
     }
-    aliases = continuation_aliases.get(str(session.operation or ""), set())
-    if binding.alias not in aliases:
+    variable_keys = continuation_variable_keys.get(str(session.operation or ""), set())
+    if binding.variable_key not in variable_keys:
         return binding
     return replace(binding, preview_source="continuation")
 

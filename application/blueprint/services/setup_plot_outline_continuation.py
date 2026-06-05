@@ -6,6 +6,10 @@ from typing import Any, Mapping
 
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from application.ai_invocation.continuation import ContinuationContext, register_continuation_handler
+from application.ai_invocation.output_binding_resolution import (
+    extract_bound_output_values,
+    load_session_output_bindings,
+)
 
 _PHASE_SCHEMA = [
     {"phase": "opening", "label": "开篇阶段", "range_percent": "1-15%"},
@@ -15,17 +19,78 @@ _PHASE_SCHEMA = [
     {"phase": "ending", "label": "收尾阶段", "range_percent": "90-100%"},
 ]
 
-_LEGACY_STAGE_KEYS = [
-    "stage_opening_1_15",
-    "stage_develop_15_40",
-    "stage_deepen_40_70",
-    "stage_climax_70_90",
-    "stage_end_90_100",
+_LEGACY_STAGE_KEY_ALIASES = [
+    ("stage_opening_1_15", "stage_opening", "opening"),
+    ("stage_develop_15_40", "stage_develop", "development"),
+    ("stage_deepen_40_70", "stage_deepen", "deepening"),
+    ("stage_climax_70_90", "stage_climax", "climax"),
+    ("stage_end_90_100", "stage_end", "stage_ending", "ending"),
 ]
+
+_MAIN_OVERVIEW_KEYS = (
+    "main_story_overview",
+    "outline_main",
+    "main_axis",
+    "overview",
+    "story_overview",
+    "故事主线概述",
+    "主线概述",
+    "故事概述",
+)
+_EXPECTED_ENDING_KEYS = (
+    "expected_ending",
+    "ending_expect",
+    "ending_expectation",
+    "expectedEnding",
+    "ending",
+    "finale",
+    "预期结局",
+    "预期结尾",
+    "结局预期",
+    "故事最终走向",
+)
+_CORE_CONFLICT_KEYS = (
+    "core_conflict",
+    "coreConflict",
+    "conflict",
+    "main_conflict",
+    "核心冲突",
+    "核心矛盾",
+    "核心对抗",
+)
+_STAGE_PLAN_KEYS = ("stage_plan", "stages", "阶段规划")
 
 
 def _visible_length(text: str) -> int:
     return len(re.sub(r"\s+", "", text or ""))
+
+
+def _first_text(payload: Mapping[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if value not in (None, ""):
+            text = str(value).strip()
+            if text:
+                return text
+    return ""
+
+
+def _first_value(payload: Mapping[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in payload and payload.get(key) not in (None, ""):
+            return payload.get(key)
+    return None
+
+
+def _normalize_outline_aliases(payload: Mapping[str, Any]) -> dict[str, Any]:
+    outline = dict(payload)
+    outline["main_story_overview"] = _first_text(outline, _MAIN_OVERVIEW_KEYS)
+    outline["expected_ending"] = _first_text(outline, _EXPECTED_ENDING_KEYS)
+    outline["core_conflict"] = _first_text(outline, _CORE_CONFLICT_KEYS)
+    stage_plan = _first_value(outline, _STAGE_PLAN_KEYS)
+    if stage_plan is not None:
+        outline["stage_plan"] = stage_plan
+    return outline
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:
@@ -41,18 +106,87 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
 def _coerce_legacy_outline(payload: Mapping[str, Any]) -> dict[str, Any] | None:
     if "plot_outline" in payload:
         raw_outline = payload.get("plot_outline")
-        return dict(raw_outline) if isinstance(raw_outline, Mapping) else None
+        return _normalize_outline_aliases(raw_outline) if isinstance(raw_outline, Mapping) else None
 
-    outline_main = str(payload.get("outline_main") or "").strip()
-    expected_ending = str(payload.get("ending_expect") or "").strip()
-    core_conflict = str(payload.get("core_conflict") or "").strip()
-    raw_stage_plan = payload.get("stage_plan")
+    normalized_payload = _normalize_outline_aliases(payload)
+    outline_main = normalized_payload["main_story_overview"]
+    expected_ending = normalized_payload["expected_ending"]
+    core_conflict = normalized_payload["core_conflict"]
+    raw_stage_plan = normalized_payload.get("stage_plan")
     if not outline_main or not expected_ending or not core_conflict or not isinstance(raw_stage_plan, Mapping):
         return None
 
+    stage_plan = _coerce_legacy_stage_plan(raw_stage_plan)
+    if stage_plan is None:
+        return None
+    return {
+        "main_story_overview": outline_main,
+        "stage_plan": stage_plan,
+        "expected_ending": expected_ending,
+        "core_conflict": core_conflict,
+    }
+
+
+def _coerce_bound_outline(
+    payload: Mapping[str, Any],
+    *,
+    context: ContinuationContext,
+) -> dict[str, Any] | None:
+    bindings = load_session_output_bindings(context.session)
+    if not bindings:
+        return None
+    _, by_variable_key = extract_bound_output_values(payload, bindings)
+    raw_outline = by_variable_key.get("plot.outline")
+    stage_plan = by_variable_key.get("plot.stage_plan")
+    overview = by_variable_key.get("plot.main_story_overview")
+    expected_ending = by_variable_key.get("plot.expected_ending")
+    core_conflict = by_variable_key.get("plot.core_conflict")
+    if isinstance(raw_outline, Mapping):
+        outline = dict(raw_outline)
+        if stage_plan is not None:
+            outline["stage_plan"] = stage_plan
+        if overview not in (None, ""):
+            outline["main_story_overview"] = str(overview).strip()
+        if expected_ending not in (None, ""):
+            outline["expected_ending"] = str(expected_ending).strip()
+        if core_conflict not in (None, ""):
+            outline["core_conflict"] = str(core_conflict).strip()
+        return _normalize_outline_aliases(outline)
+    if stage_plan is None and not any(value not in (None, "") for value in (overview, expected_ending, core_conflict)):
+        return None
+    outline: dict[str, Any] = {}
+    if overview not in (None, ""):
+        outline["main_story_overview"] = str(overview).strip()
+    if expected_ending not in (None, ""):
+        outline["expected_ending"] = str(expected_ending).strip()
+    if core_conflict not in (None, ""):
+        outline["core_conflict"] = str(core_conflict).strip()
+    if stage_plan is not None:
+        outline["stage_plan"] = stage_plan
+    return _normalize_outline_aliases(outline)
+
+
+def _coerce_legacy_stage_plan(raw_stage_plan: Mapping[str, Any]) -> list[dict[str, Any]] | None:
     stage_plan: list[dict[str, Any]] = []
-    for schema, legacy_key in zip(_PHASE_SCHEMA, _LEGACY_STAGE_KEYS):
-        summary = str(raw_stage_plan.get(legacy_key) or "").strip()
+    for schema, legacy_keys in zip(_PHASE_SCHEMA, _LEGACY_STAGE_KEY_ALIASES):
+        raw_value = None
+        for key in legacy_keys:
+            if raw_stage_plan.get(key) not in (None, ""):
+                raw_value = raw_stage_plan.get(key)
+                break
+        if raw_value is None:
+            return None
+        if isinstance(raw_value, Mapping):
+            stage_item = {
+                **dict(raw_value),
+                "phase": schema["phase"],
+                "label": str(raw_value.get("label") or schema["label"]).strip() or schema["label"],
+            }
+            if not str(stage_item.get("summary") or stage_item.get("阶段任务") or stage_item.get("内容") or "").strip():
+                return None
+            stage_plan.append(stage_item)
+            continue
+        summary = str(raw_value).strip()
         if not summary:
             return None
         stage_plan.append(
@@ -64,12 +198,7 @@ def _coerce_legacy_outline(payload: Mapping[str, Any]) -> dict[str, Any] | None:
                 "key_goals": [],
             }
         )
-    return {
-        "main_story_overview": outline_main,
-        "stage_plan": stage_plan,
-        "expected_ending": expected_ending,
-        "core_conflict": core_conflict,
-    }
+    return stage_plan
 
 
 def _target_chapters(context: ContinuationContext) -> int:
@@ -102,6 +231,23 @@ def _chapter_ranges(target_chapters: int) -> list[tuple[int, int]]:
     return list(zip(starts, ends))
 
 
+def _coerce_chapter_number(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _range_percent_label(chapter_start: int, chapter_end: int, *, total_chapters: int) -> str:
+    total = max(1, total_chapters)
+    start_percent = max(1, min(100, int((chapter_start - 1) / total * 100)))
+    end_percent = max(start_percent, min(100, int(chapter_end / total * 100)))
+    return f"{start_percent}-{end_percent}%"
+
+
 def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[str, Any]]:
     if not isinstance(raw_items, list):
         raise ValueError("plot_outline.stage_plan 必须是数组")
@@ -109,6 +255,14 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
         raise ValueError("plot_outline.stage_plan 必须包含 5 个阶段")
 
     ranges = _chapter_ranges(target_chapters)
+    total_chapters = max(
+        target_chapters,
+        *(
+            _coerce_chapter_number(item.get("chapter_end")) or 0
+            for item in raw_items
+            if isinstance(item, Mapping)
+        ),
+    )
     normalized: list[dict[str, Any]] = []
     seen_phases: set[str] = set()
     for index, schema in enumerate(_PHASE_SCHEMA):
@@ -121,14 +275,26 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
         if phase in seen_phases:
             raise ValueError("plot_outline.stage_plan.phase 不能重复")
         seen_phases.add(phase)
-        summary = str(raw.get("summary") or "").strip()
+        summary = str(raw.get("summary") or raw.get("阶段任务") or raw.get("内容") or "").strip()
         if not summary:
-            raise ValueError(f"plot_outline.stage_plan[{index}].summary 不能为空")
+            content_parts = [
+                str(value).strip()
+                for key, value in raw.items()
+                if key not in {"phase", "label", "range_percent", "key_goals", "chapter_start", "chapter_end"}
+                and str(value).strip()
+            ]
+            summary = "\n".join(content_parts)
+        if not summary:
+            raise ValueError(f"plot_outline.stage_plan[{index}] 至少需要一个内容字段")
         key_goals_raw = raw.get("key_goals")
         key_goals = []
         if isinstance(key_goals_raw, list):
             key_goals = [str(item).strip() for item in key_goals_raw if str(item).strip()]
-        chapter_start, chapter_end = ranges[index]
+        default_start, default_end = ranges[index]
+        chapter_start = _coerce_chapter_number(raw.get("chapter_start")) or default_start
+        chapter_end = _coerce_chapter_number(raw.get("chapter_end")) or default_end
+        if chapter_start > chapter_end:
+            raise ValueError(f"plot_outline.stage_plan[{index}] 章节范围不合法")
         extra_fields = {
             key: value
             for key, value in raw.items()
@@ -147,7 +313,11 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
                 **extra_fields,
                 "phase": schema["phase"],
                 "label": str(raw.get("label") or schema["label"]).strip() or schema["label"],
-                "range_percent": str(raw.get("range_percent") or schema["range_percent"]).strip() or schema["range_percent"],
+                "range_percent": _range_percent_label(
+                    chapter_start,
+                    chapter_end,
+                    total_chapters=total_chapters,
+                ),
                 "chapter_start": chapter_start,
                 "chapter_end": chapter_end,
                 "summary": summary,
@@ -157,51 +327,55 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
     return normalized
 
 
-def setup_plot_outline_handler(context: ContinuationContext) -> Mapping[str, Any]:
-    payload = _parse_json_object(context.decision.accepted_content or "")
-    raw_outline = _coerce_legacy_outline(payload)
-    if not isinstance(raw_outline, Mapping):
-        raise ValueError("缺少 plot_outline 对象")
-
-    outline = dict(raw_outline)
-    main_story_overview = str(outline.get("main_story_overview") or "").strip()
-    if not main_story_overview:
-        raise ValueError("plot_outline.main_story_overview 不能为空")
-    overview_length = _visible_length(main_story_overview)
-    if overview_length < 120 or overview_length > 900:
-        raise ValueError("plot_outline.main_story_overview 字数不符合要求，建议控制在 200-500 字")
-
-    expected_ending = str(outline.get("expected_ending") or "").strip()
-    if not expected_ending:
-        raise ValueError("plot_outline.expected_ending 不能为空")
-
-    core_conflict = str(outline.get("core_conflict") or "").strip()
-    if not core_conflict:
-        raise ValueError("plot_outline.core_conflict 不能为空")
-
-    target_chapters = _target_chapters(context)
+def normalize_setup_plot_outline_payload(
+    raw_outline: Mapping[str, Any],
+    *,
+    target_chapters: int,
+) -> dict[str, Any]:
+    outline = _normalize_outline_aliases(raw_outline)
+    raw_stage_plan = outline.get("stage_plan")
+    if isinstance(raw_stage_plan, Mapping):
+        coerced_stage_plan = _coerce_legacy_stage_plan(raw_stage_plan)
+        if coerced_stage_plan is not None:
+            outline["stage_plan"] = coerced_stage_plan
     stage_plan = _normalize_stage_plan(outline.get("stage_plan"), target_chapters=target_chapters)
     extra_outline_fields = {
         key: value
         for key, value in outline.items()
-        if key not in {"main_story_overview", "stage_plan", "expected_ending", "core_conflict"}
-    }
-    normalized_outline = {
-        **extra_outline_fields,
-        "main_story_overview": main_story_overview,
-        "stage_plan": stage_plan,
-        "expected_ending": expected_ending,
-        "core_conflict": core_conflict,
+        if key != "stage_plan" and value not in (None, "")
     }
     return {
+        **extra_outline_fields,
+        "stage_plan": stage_plan,
+    }
+
+
+def setup_plot_outline_handler(context: ContinuationContext) -> Mapping[str, Any]:
+    payload = _parse_json_object(context.decision.accepted_content or "")
+    bound_outline = _coerce_bound_outline(payload, context=context)
+    legacy_outline = _coerce_legacy_outline(payload)
+    if isinstance(bound_outline, Mapping) and isinstance(legacy_outline, Mapping):
+        raw_outline = {
+            **dict(legacy_outline),
+            **{key: value for key, value in dict(bound_outline).items() if value not in (None, "")},
+        }
+    else:
+        raw_outline = bound_outline or legacy_outline
+    if not isinstance(raw_outline, Mapping):
+        raise ValueError("缺少 plot_outline 对象")
+
+    target_chapters = _target_chapters(context)
+    normalized_outline = normalize_setup_plot_outline_payload(raw_outline, target_chapters=target_chapters)
+    result: dict[str, Any] = {
         "novel_id": str(context.session.context.get("novel_id") or ""),
         "plot_outline": normalized_outline,
-        "main_story_overview": main_story_overview,
-        "stage_plan": stage_plan,
-        "expected_ending": expected_ending,
-        "core_conflict": core_conflict,
+        "stage_plan": normalized_outline["stage_plan"],
         "session_id": context.session.id,
     }
+    for key in ("main_story_overview", "expected_ending", "core_conflict"):
+        if normalized_outline.get(key):
+            result[key] = normalized_outline[key]
+    return result
 
 
 def register_setup_plot_outline_continuation() -> None:

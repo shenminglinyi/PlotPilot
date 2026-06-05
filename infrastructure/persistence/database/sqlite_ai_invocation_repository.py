@@ -104,6 +104,7 @@ def _binding_to_dict(binding: VariableBinding) -> dict[str, Any]:
         "source_path": binding.source_path,
         "projection_key": binding.projection_key,
         "render_mode": binding.render_mode,
+        "preview_source": binding.preview_source,
     }
 
 
@@ -122,6 +123,7 @@ def _binding_from_dict(data: Mapping[str, Any]) -> VariableBinding:
         source_path=str(data.get("source_path") or ""),
         projection_key=str(data.get("projection_key") or ""),
         render_mode=str(data.get("render_mode") or "raw"),
+        preview_source=str(data.get("preview_source") or ""),
     )
 
 
@@ -843,6 +845,7 @@ class SqliteVariableHubRepository:
                                 "source_path": binding.source_path,
                                 "projection_key": binding.projection_key,
                                 "render_mode": binding.render_mode,
+                                "preview_source": binding.preview_source,
                             }
                         ),
                     ),
@@ -875,6 +878,7 @@ class SqliteVariableHubRepository:
                 source_path=str(_json_loads(row["metadata_json"], {}).get("source_path") or "") if row["metadata_json"] else "",
                 projection_key=str(_json_loads(row["metadata_json"], {}).get("projection_key") or "") if row["metadata_json"] else "",
                 render_mode=str(_json_loads(row["metadata_json"], {}).get("render_mode") or "raw") if row["metadata_json"] else "raw",
+                preview_source=str(_json_loads(row["metadata_json"], {}).get("preview_source") or "") if row["metadata_json"] else "",
             )
             for row in rows
         ]

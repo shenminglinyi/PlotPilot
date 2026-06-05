@@ -792,6 +792,12 @@ export const workflowApi = {
       `/novels/${novelId}/setup/plot-outline`,
     ) as unknown as Promise<GeneratePlotOutlineResponse>,
 
+  savePlotOutline: (novelId: string, plotOutline: PlotOutlineDTO) =>
+    apiClient.put<GeneratePlotOutlineResponse>(
+      `/novels/${novelId}/setup/plot-outline`,
+      { plot_outline: plotOutline },
+    ) as unknown as Promise<GeneratePlotOutlineResponse>,
+
   generatePlotOutline: (novelId: string) =>
     apiClient.post<GeneratePlotOutlineResponse>(
       `/novels/${novelId}/setup/generate-plot-outline`,

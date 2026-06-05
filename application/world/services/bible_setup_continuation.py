@@ -5,6 +5,10 @@ from typing import Any, Mapping
 
 from application.ai_invocation.continuation import ContinuationContext, register_continuation_handler
 from application.ai.llm_json_extract import parse_llm_json_to_any
+from application.ai_invocation.output_binding_resolution import (
+    extract_bound_output_values,
+    load_session_output_bindings,
+)
 from application.world.dtos.bible_dto import CharacterDTO, LocationDTO, StyleNoteDTO
 
 
@@ -56,6 +60,12 @@ def _extract_records(data: Any, key: str) -> list[Any]:
     else:
         records = data
     return _as_list(records)
+
+
+def _bound_value_map(context: ContinuationContext, payload: Any) -> dict[str, Any]:
+    bindings = load_session_output_bindings(context.session)
+    _, by_variable_key = extract_bound_output_values(payload, bindings)
+    return by_variable_key
 
 
 def _get_services(_context: ContinuationContext):
@@ -111,13 +121,32 @@ def bible_worldbuilding_handler(context: ContinuationContext) -> Mapping[str, An
     if not novel_id:
         return {}
     data = _parse_content(context.decision.accepted_content)
-    style = str(data.get("style") or "").strip()
-    worldbuilding = data.get("worldbuilding") if isinstance(data.get("worldbuilding"), Mapping) else {}
+    by_variable_key = _bound_value_map(context, data)
+    style = str(by_variable_key.get("worldbuilding.style") or data.get("style") or "").strip()
+    worldbuilding = (
+        by_variable_key.get("worldbuilding.content")
+        if isinstance(by_variable_key.get("worldbuilding.content"), Mapping)
+        else data.get("worldbuilding")
+    )
+    worldbuilding = dict(worldbuilding) if isinstance(worldbuilding, Mapping) else {}
+    for dim_key in ("core_rules", "geography", "society", "culture", "daily_life"):
+        dim_value = by_variable_key.get(f"worldbuilding.{dim_key}")
+        if isinstance(dim_value, Mapping):
+            worldbuilding[dim_key] = dict(dim_value)
     if not worldbuilding:
         worldbuilding = {
-            dim_key: data.get(dim_key)
+            dim_key: (
+                by_variable_key.get(f"worldbuilding.{dim_key}")
+                if isinstance(by_variable_key.get(f"worldbuilding.{dim_key}"), Mapping)
+                else data.get(dim_key)
+            )
             for dim_key in ("core_rules", "geography", "society", "culture", "daily_life")
-            if isinstance(data.get(dim_key), Mapping)
+            if isinstance(
+                by_variable_key.get(f"worldbuilding.{dim_key}")
+                if isinstance(by_variable_key.get(f"worldbuilding.{dim_key}"), Mapping)
+                else data.get(dim_key),
+                Mapping,
+            )
         }
     normalized = {
         dim_key: dict(block)
@@ -168,7 +197,8 @@ def bible_characters_handler(context: ContinuationContext) -> Mapping[str, Any]:
     if not novel_id:
         return {}
     data, _ = parse_llm_json_to_any(context.decision.accepted_content)
-    characters = _extract_records(data, "characters")
+    by_variable_key = _bound_value_map(context, data)
+    characters = _as_list(by_variable_key.get("characters.list")) or _extract_records(data, "characters")
     saved: list[dict[str, Any]] = []
     used_ids: set[str] = set()
 
@@ -241,7 +271,8 @@ def bible_locations_handler(context: ContinuationContext) -> Mapping[str, Any]:
     if not novel_id:
         return {}
     data, _ = parse_llm_json_to_any(context.decision.accepted_content)
-    locations = _extract_records(data, "locations")
+    by_variable_key = _bound_value_map(context, data)
+    locations = _as_list(by_variable_key.get("locations.list")) or _extract_records(data, "locations")
     saved: list[dict[str, Any]] = []
     used_ids: set[str] = set()
 

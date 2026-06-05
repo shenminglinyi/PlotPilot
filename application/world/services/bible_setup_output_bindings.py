@@ -133,5 +133,16 @@ def ensure_bible_setup_output_bindings(repo: Any, node_key: str | None = None) -
     for key in node_keys:
         binding_set_id = OUTPUT_BINDING_SET_BY_NODE.get(str(key))
         bindings = bible_setup_output_bindings(str(key))
+        existing = []
+        if binding_set_id and hasattr(repo, "get_output_bindings"):
+            try:
+                existing = repo.get_output_bindings(binding_set_id, str(key)) or []
+            except Exception:
+                existing = []
         if binding_set_id and bindings:
-            repo.set_bindings(binding_set_id, str(key), bindings, direction="output")
+            repo.set_bindings(
+                binding_set_id,
+                str(key),
+                existing or bindings,
+                direction="output",
+            )

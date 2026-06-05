@@ -26,15 +26,25 @@ class MainPlotSuggestionContractError(RuntimeError):
 def normalize_main_plot_options(raw: str, ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     """将模型输出规范化为可落库的主线候选。"""
     try:
-        raw_list = SetupMainPlotSuggestionService._parse_plot_json(raw)
-        normalized = SetupMainPlotSuggestionService._normalize_options(raw_list)
-        normalized = SetupMainPlotSuggestionService._complete_option_architecture(ctx, normalized)
-        if len(normalized) >= 3:
-            return normalized[:3]
+        return normalize_main_plot_options_data(SetupMainPlotSuggestionService._parse_plot_json(raw), ctx)
     except Exception as e:
         logger.warning("Main plot suggestion parse failed: %s", e)
         raise MainPlotSuggestionContractError("主线候选 JSON 解析失败或结构不符合合同") from e
 
+    raise MainPlotSuggestionContractError("主线候选数量不足：需要至少 3 条有效方案")
+
+
+def normalize_main_plot_options_data(raw_data: Any, ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if isinstance(raw_data, Mapping):
+        raw_list = raw_data.get("plot_options")
+    else:
+        raw_list = raw_data
+    if not isinstance(raw_list, list):
+        raise MainPlotSuggestionContractError("主线候选输出必须是数组")
+    normalized = SetupMainPlotSuggestionService._normalize_options(raw_list)
+    normalized = SetupMainPlotSuggestionService._complete_option_architecture(ctx, normalized)
+    if len(normalized) >= 3:
+        return normalized[:3]
     raise MainPlotSuggestionContractError("主线候选数量不足：需要至少 3 条有效方案")
 
 
