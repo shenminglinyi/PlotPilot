@@ -7,7 +7,7 @@
 {% if planning_depth == "framework" %}
 目标章节数大于 500，采用渐进式规划：只输出「部」和「卷」的标题、主题与 estimated_chapters；幕节点留给写作过程中动态生成。所有卷的 estimated_chapters 之和必须等于 {target_chapters} 章。每卷建议 {rec_chapters_per_act}×{rec_acts_per_volume} 章左右，可按剧情容量微调。
 {% elif planning_depth == "partial" %}
-目标章节数大于 100，采用部分详细规划：输出「部」和「卷」的完整结构，只为前 1-2 部的卷规划幕节点。所有卷或幕的 estimated_chapters 之和必须等于 {target_chapters} 章。每卷建议约 {rec_acts_per_volume} 幕，每幕约 {rec_chapters_per_act} 章。
+目标章节数大于 100，采用渐进式部分规划：输出全书「部」和「卷」的完整结构，只为开篇前导卷规划幕节点；后续卷的幕节点留给写作过程中动态生成。所有卷的 estimated_chapters 之和必须等于 {target_chapters} 章；已展开幕的 estimated_chapters 之和必须等于其所属卷的 estimated_chapters。每卷建议约 {rec_acts_per_volume} 幕，每幕约 {rec_chapters_per_act} 章。
 {% else %}
 目标章节数不超过 100，采用完整规划：输出全部部、卷、幕。每幕必须包含 estimated_chapters，所有幕的 estimated_chapters 之和必须等于 {target_chapters} 章。建议共 {rec_parts} 部，每部 {rec_volumes_per_part} 卷，每卷 {rec_acts_per_volume} 幕，每幕约 {rec_chapters_per_act} 章。
 {% endif %}

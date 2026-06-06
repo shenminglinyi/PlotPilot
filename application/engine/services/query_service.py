@@ -60,8 +60,192 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "autopilot_pause_reason",
     "autopilot_pending_chapter_number",
     "autopilot_pending_chapter_plan",
+    "autopilot_pending_macro_plan",
+    "autopilot_pending_macro_target_chapters",
+    "macro_structure_ready",
     "last_autopilot_invocation_payload",
 )
+
+
+_INVOCATION_WAITING_STATUSES = {
+    "awaiting_pre_call_review",
+    "awaiting_acceptance",
+    "awaiting_commit",
+    "generating",
+}
+_INVOCATION_FAILED_STATUSES = {"blocked", "failed", "cancelled"}
+
+
+def _stage_needs_review(stage: Any) -> bool:
+    return str(stage or "").strip().lower() in ("paused_for_review", "reviewing")
+
+
+def _review_type_for_operation(operation: str, substep: str = "") -> str:
+    op = (operation or "").strip()
+    sub = (substep or "").strip()
+    if op == "autopilot.macro.plan" or sub == "macro_planning":
+        return "macro_plan"
+    if op == "autopilot.act.plan" or sub == "act_planning":
+        return "act_plan"
+    if "audit" in op or sub.startswith("audit_"):
+        return "chapter_review"
+    if op:
+        return "ai_invocation"
+    return "manual_review"
+
+
+def _is_initial_macro_review_context(payload: Dict[str, Any]) -> bool:
+    """Infer the first macro review gate from durable workflow coordinates.
+
+    Runtime fields such as writing_substep can be lost after a restart. The
+    first human gate has no generated chapters yet and is positioned at act 0;
+    if macro_structure_ready is present it is the authoritative discriminator.
+    """
+    if _review_type_for_operation(
+        str(payload.get("active_invocation_operation") or ""),
+        str(payload.get("writing_substep") or ""),
+    ) != "manual_review":
+        return False
+    if payload.get("macro_structure_ready") is not None:
+        return True
+    if int(payload.get("current_auto_chapters") or 0) != 0:
+        return False
+    if payload.get("current_chapter_number") is not None:
+        return False
+    try:
+        return int(payload.get("current_act") or 0) == 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _review_gate_from_status(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    stage = str(payload.get("current_stage") or "")
+    needs_review = bool(payload.get("needs_review")) or _stage_needs_review(stage)
+    active_session = str(payload.get("active_invocation_session_id") or "").strip()
+    active_status = str(payload.get("active_invocation_status") or "").strip()
+    operation = str(payload.get("active_invocation_operation") or "")
+    substep = str(payload.get("writing_substep") or "")
+
+    if active_session and (
+        payload.get("has_active_invocation")
+        or payload.get("requires_ai_review")
+        or active_status in _INVOCATION_WAITING_STATUSES
+        or active_status in _INVOCATION_FAILED_STATUSES
+    ):
+        gate_type = _review_type_for_operation(operation, substep)
+        if active_status in _INVOCATION_FAILED_STATUSES:
+            if gate_type == "macro_plan":
+                message = "宏观结构生成或提交失败，尚无可确认的大纲结构。请处理 AI 结果或停止后重新生成。"
+                artifact_status = "missing"
+            elif gate_type == "act_plan":
+                message = "章节规划生成或提交失败，尚无可确认的章节规划。请处理 AI 结果或停止后重新生成。"
+                artifact_status = "missing"
+            else:
+                message = "AI 请求处理失败，当前没有可继续确认的产物。"
+                artifact_status = "failed"
+            return {
+                "type": gate_type,
+                "status": "failed",
+                "artifact_status": artifact_status,
+                "can_resume": False,
+                "primary_action": "open_ai_panel",
+                "session_id": active_session,
+                "operation": operation,
+                "node_key": payload.get("active_invocation_node_key", ""),
+                "error": payload.get("autopilot_pause_reason", "") or active_status,
+                "message": message,
+            }
+
+        if active_status in _INVOCATION_WAITING_STATUSES or payload.get("requires_ai_review"):
+            return {
+                "type": gate_type,
+                "status": "awaiting_ai_review",
+                "artifact_status": "pending",
+                "can_resume": False,
+                "primary_action": "open_ai_panel",
+                "session_id": active_session,
+                "operation": operation,
+                "node_key": payload.get("active_invocation_node_key", ""),
+                "message": "AI 请求正在生成、等待审阅、采纳或提交，完成后自动驾驶才能继续。",
+            }
+
+    pending_macro_plan = isinstance(payload.get("autopilot_pending_macro_plan"), dict)
+    if pending_macro_plan:
+        return {
+            "type": "macro_plan",
+            "status": "persisting",
+            "artifact_status": "pending",
+            "can_resume": False,
+            "primary_action": "wait",
+            "message": "宏观结构已提交，正在写入结构树；结构出现后才能确认继续。",
+        }
+
+    if not needs_review:
+        return None
+
+    if _is_initial_macro_review_context(payload):
+        if payload.get("macro_structure_ready") is False:
+            return {
+                "type": "macro_plan",
+                "status": "persisting",
+                "artifact_status": "pending",
+                "can_resume": False,
+                "primary_action": "wait",
+                "message": "宏观结构正在生成或写入结构树，当前还没有可确认的大纲结构。",
+            }
+        if payload.get("macro_structure_ready") is True:
+            return {
+                "type": "macro_plan",
+                "status": "ready",
+                "artifact_status": "ready",
+                "can_resume": True,
+                "primary_action": "resume",
+                "action_label": "确认结构，继续",
+                "message": "宏观结构已生成，请在结构树核对后继续。",
+            }
+
+    if payload.get("macro_structure_ready") is False and int(payload.get("current_auto_chapters") or 0) == 0:
+        return {
+            "type": "macro_plan",
+            "status": "failed",
+            "artifact_status": "missing",
+            "can_resume": False,
+            "primary_action": "retry_generation",
+            "message": "宏观结构尚未生成，当前没有可确认的大纲结构。请重新生成结构树。",
+        }
+
+    gate_type = _review_type_for_operation(operation, substep)
+    if gate_type == "macro_plan":
+        message = "宏观结构已生成，请在结构树核对后继续。"
+        action_label = "确认结构，继续"
+    elif gate_type == "act_plan":
+        message = "章节规划已生成，请在结构树核对后继续。"
+        action_label = "确认章节规划，继续"
+    elif gate_type == "chapter_review":
+        message = "章节审阅已完成，请核对审阅结果后继续。"
+        action_label = "确认审阅，继续"
+    else:
+        message = "当前流程等待人工确认，请核对侧栏产物后继续。"
+        action_label = "确认后继续"
+    return {
+        "type": gate_type,
+        "status": "ready",
+        "artifact_status": "ready",
+        "can_resume": True,
+        "primary_action": "resume",
+        "action_label": action_label,
+        "message": message,
+    }
+
+
+def _augment_review_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload["needs_review"] = _stage_needs_review(payload.get("current_stage"))
+    gate = _review_gate_from_status(payload)
+    if gate:
+        payload["review_gate"] = gate
+    else:
+        payload.pop("review_gate", None)
+    return payload
 
 
 def _merge_runtime_fields_from_raw(
@@ -84,7 +268,7 @@ def _merge_runtime_fields_from_raw(
             pass
     if raw.get("last_chapter_audit") is not None:
         payload["last_chapter_audit"] = raw.get("last_chapter_audit")
-    return payload
+    return _augment_review_fields(payload)
 
 
 @dataclass
@@ -119,7 +303,7 @@ class NovelStatusResponse:
     _from_shared_memory: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        return _augment_review_fields({
             "novel_id": self.novel_id,
             "title": self.title,
             "autopilot_status": self.autopilot_status,
@@ -147,7 +331,7 @@ class NovelStatusResponse:
             "daemon_alive": self.daemon_alive,
             "daemon_heartbeat_at": self.daemon_heartbeat_at,
             "_from_shared_memory": self._from_shared_memory,
-        }
+        })
 
 
 @dataclass
@@ -248,7 +432,7 @@ class QueryService:
             manuscript_chapters=completed_chapters,
             progress_pct_manuscript=round(progress_pct, 1),
             current_chapter_number=current_chapter_number,
-            needs_review=state.needs_review,
+            needs_review=_stage_needs_review(state.current_stage),
             auto_approve_mode=state.auto_approve_mode,
             last_chapter_audit=None,  # 需要单独存储
             audit_progress=None,
@@ -294,7 +478,7 @@ class QueryService:
             manuscript_chapters=completed_chapters,
             progress_pct_manuscript=round(progress_pct, 1),
             current_chapter_number=current_chapter_number,
-            needs_review=raw_data.get("needs_review", False),
+            needs_review=_stage_needs_review(raw_data.get("current_stage", "writing")),
             auto_approve_mode=raw_data.get("auto_approve_mode", False),
             last_chapter_audit=None,
             audit_progress=raw_data.get("audit_progress"),

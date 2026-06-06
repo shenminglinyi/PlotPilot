@@ -19,6 +19,17 @@ def _make_service() -> ContinuousPlanningService:
     )
 
 
+def test_quick_macro_prompt_for_long_book_uses_leading_volume_detail():
+    svc = _make_service()
+
+    prompt = svc._build_quick_macro_prompt({"premise": "主角在高武世界成长。"}, 500)
+
+    assert "只为开篇前导卷规划幕节点" in prompt.system
+    assert "后续卷的幕节点留给写作过程中动态生成" in prompt.system
+    assert "开篇前导卷标题" in prompt.user
+    assert "前 1-2 部" not in prompt.system
+
+
 def test_parse_llm_response_repairs_truncated_macro_plan_json():
     svc = _make_service()
 

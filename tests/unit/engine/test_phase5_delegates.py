@@ -109,6 +109,9 @@ async def test_run_macro_planning_pauses_for_ai_invocation(monkeypatch):
         has_active_invocation=True,
         requires_ai_review=True,
         autopilot_pause_reason="awaiting_ai_review",
+        macro_structure_ready=False,
+        writing_substep="macro_planning",
+        writing_substep_label="宏观规划 · AI 请求面板",
     )
 
 

@@ -421,6 +421,20 @@ class SharedStateRepository:
         key = f"{self.PREFIX_NOVEL}{novel_id}"
         return self._state.get(key)
 
+    def merge_raw_state(self, novel_id: str, **fields: Any) -> bool:
+        """合并 NovelState 模型外的轻量运行时字段。"""
+        if not self._ensure_state():
+            return False
+
+        key = f"{self.PREFIX_NOVEL}{novel_id}"
+        data = self._state.get(key)
+        if not isinstance(data, dict):
+            return False
+        data.update(fields)
+        self._state[key] = data
+        self._update_novel_list(novel_id)
+        return True
+
     # ==================== Bible（世界观） ====================
 
     def get_bible(self, novel_id: str) -> Optional[Dict[str, Any]]:

@@ -202,6 +202,9 @@ def register_autopilot_continuations() -> None:
                 current_stage="macro_planning",
                 autopilot_pending_macro_plan=result,
                 autopilot_pending_macro_target_chapters=target_chapters,
+                macro_structure_ready=False,
+                writing_substep="macro_planning",
+                writing_substep_label="宏观规划 · 等待结构落库",
             )
             _resume_autopilot_stage(novel_id, "macro_planning")
         return {

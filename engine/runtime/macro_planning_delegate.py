@@ -33,6 +33,9 @@ def _consume_pending_macro_plan(host: Any, *, novel_id: str, target_chapters: in
         has_active_invocation=False,
         requires_ai_review=False,
         autopilot_pause_reason="",
+        macro_structure_ready=False,
+        writing_substep="macro_planning",
+        writing_substep_label="宏观规划 · 写入结构树",
     )
     return dict(pending)
 
@@ -91,6 +94,9 @@ def _pause_for_invocation(host: Any, novel: Novel, outcome) -> None:
         has_active_invocation=True,
         requires_ai_review=True,
         autopilot_pause_reason=outcome.autopilot_pause_reason or "awaiting_ai_review",
+        macro_structure_ready=False,
+        writing_substep="macro_planning",
+        writing_substep_label="宏观规划 · AI 请求面板",
     )
     novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
     novel.autopilot_status = AutopilotStatus.RUNNING
@@ -156,6 +162,7 @@ async def run_macro_planning(host: Any, novel: Novel) -> None:
         novel.novel_id.value,
         writing_substep="macro_planning",
         writing_substep_label="宏观规划",
+        macro_structure_ready=False,
     )
 
     target_chapters = novel.target_chapters or 30
@@ -181,6 +188,12 @@ async def run_macro_planning(host: Any, novel: Novel) -> None:
             )
             novel.current_stage = NovelStage.PAUSED_FOR_REVIEW
             novel.autopilot_status = AutopilotStatus.RUNNING
+            host._update_shared_state(
+                novel.novel_id.value,
+                macro_structure_ready=False,
+                writing_substep="macro_planning",
+                writing_substep_label="宏观规划 · AI 请求面板",
+            )
             host._flush_novel(novel)
             return
         outcome = await _request_macro_invocation(host, novel, target_chapters=target_chapters)
@@ -217,6 +230,12 @@ async def run_macro_planning(host: Any, novel: Novel) -> None:
         novel_id=novel.novel_id.value,
         target_chapters=target_chapters,
         allow_minimal_placeholder_on_empty=False,
+    )
+    host._update_shared_state(
+        novel.novel_id.value,
+        macro_structure_ready=True,
+        writing_substep="macro_planning",
+        writing_substep_label="宏观规划 · 结构已生成",
     )
 
     if getattr(novel, "auto_approve_mode", False):

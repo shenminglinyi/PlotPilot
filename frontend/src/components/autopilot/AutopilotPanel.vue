@@ -190,26 +190,29 @@
       </div>
     </n-alert>
 
-    <!-- AI Invocation 审阅等待 -->
-    <n-alert v-if="requiresAIReview && featureFlags.aiInvocationDebug" type="warning" :show-icon="true" class="ap-inline-alert">
+    <!-- 审阅等待 -->
+    <n-alert v-if="showReviewGate" :type="reviewGateAlertType" :show-icon="true" class="ap-inline-alert">
       <div class="ap-review-alert">
         <span>
-          <strong>等待 AI 请求处理</strong>：{{ activeInvocationLabel }} 已发送到统一 AI 面板，请完成生成、采纳和提交。
+          <strong>{{ reviewGateTitle }}</strong>：{{ reviewGateMessage }}
         </span>
-        <n-button type="warning" size="small" :loading="aiPanelOpening" @click="() => openActiveInvocation()">
+        <n-button
+          v-if="reviewGateNeedsAIPanel && featureFlags.aiInvocationDebug"
+          type="warning"
+          size="small"
+          :loading="aiPanelOpening"
+          @click="() => openActiveInvocation()"
+        >
           打开 AI 面板
         </n-button>
-      </div>
-    </n-alert>
-
-    <!-- 审阅等待 -->
-    <n-alert v-else-if="needsReview" type="warning" :show-icon="true" class="ap-inline-alert">
-      <div class="ap-review-alert">
-        <span>
-          <strong>待审阅确认</strong>：请在侧栏查看刚生成的大纲或结构树，核对无误后点击按钮继续。
-        </span>
-        <n-button type="warning" size="small" :loading="toggling" @click="resume">
-          确认大纲，继续写作
+        <n-button
+          v-else-if="canResumeReview"
+          type="warning"
+          size="small"
+          :loading="toggling"
+          @click="resume"
+        >
+          {{ reviewGateActionLabel }}
         </n-button>
       </div>
     </n-alert>
@@ -231,7 +234,7 @@
 
     <!-- 操作按钮 -->
     <n-space justify="end" size="small">
-      <n-button v-if="needsReview" type="warning" ghost size="small" :loading="toggling" @click="resume">
+      <n-button v-if="canResumeReview" type="warning" ghost size="small" :loading="toggling" @click="resume">
         再次确认 · 继续
       </n-button>
       <n-button v-if="!isRunning && !needsReview && !needsRecovery" type="primary" size="small" :loading="toggling" @click="openStartModal">
@@ -427,6 +430,48 @@ function statusNeedsManualReview(s) {
 const needsReview = computed(() => statusNeedsManualReview(status.value))
 const requiresAIReview = computed(() => Boolean(
   status.value?.requires_ai_review && status.value?.active_invocation_session_id
+))
+const reviewGate = computed(() => {
+  const gate = status.value?.review_gate
+  return gate && typeof gate === 'object' ? gate : null
+})
+const reviewGateType = computed(() => String(reviewGate.value?.type || 'manual_review'))
+const reviewGateStatus = computed(() => String(reviewGate.value?.status || 'ready'))
+const reviewGateNeedsAIPanel = computed(() =>
+  reviewGate.value?.primary_action === 'open_ai_panel' || requiresAIReview.value
+)
+const showReviewGate = computed(() => needsReview.value || reviewGateNeedsAIPanel.value)
+const canResumeReview = computed(() => (
+  needsReview.value &&
+  !requiresAIReview.value &&
+  (!reviewGate.value || reviewGateStatus.value === 'ready') &&
+  reviewGate.value?.can_resume !== false
+))
+const reviewGateAlertType = computed(() => (
+  reviewGateStatus.value === 'failed' ? 'error' : 'warning'
+))
+const reviewGateTitle = computed(() => {
+  if (reviewGateStatus.value === 'failed') {
+    if (reviewGateType.value === 'macro_plan') return '宏观结构生成失败'
+    if (reviewGateType.value === 'act_plan') return '章节规划生成失败'
+    return 'AI 请求处理失败'
+  }
+  if (reviewGateStatus.value === 'awaiting_ai_review') return '等待 AI 请求处理'
+  if (reviewGateStatus.value === 'persisting') return '正在生成大纲结构'
+  if (reviewGateType.value === 'macro_plan') return '待确认宏观结构'
+  if (reviewGateType.value === 'act_plan') return '待确认章节规划'
+  if (reviewGateType.value === 'chapter_review') return '待确认章节审阅'
+  return '待审阅确认'
+})
+const reviewGateMessage = computed(() => {
+  if (reviewGate.value?.message) return reviewGate.value.message
+  if (requiresAIReview.value) {
+    return `${activeInvocationLabel.value} 已发送到统一 AI 面板，请完成生成、采纳和提交。`
+  }
+  return '请在侧栏核对刚生成的结构或审阅结果，核对无误后继续。'
+})
+const reviewGateActionLabel = computed(() => (
+  reviewGate.value?.action_label || '确认后继续'
 ))
 function statusHasActiveInvocation(s) {
   return Boolean(s?.active_invocation_session_id && (s?.has_active_invocation || s?.requires_ai_review))
@@ -1221,31 +1266,33 @@ async function stop() {
 
 async function resume() {
   if (isToggleThrottled()) return
-  // 🔥 乐观更新：立即更新本地状态
-  const prevStatus = status.value
-  status.value = {
-    ...status.value,
-    autopilot_status: 'running',
-    current_stage: 'writing',
-    needs_review: false,
+  if (!canResumeReview.value) {
+    message.warning(reviewGateMessage.value || '当前还没有可确认的产物')
+    return
   }
-  emit('status-change', status.value)
+  const prevStatus = status.value
   reconnectAttempts = 0
-  message.success('已确认大纲，开始写作')
   toggling.value = true
 
   try {
     const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), { method: 'POST' })
     if (!res.ok) {
-      // 🔥 恢复失败时回滚乐观更新
-      status.value = prevStatus
-      emit('status-change', prevStatus)
       const e = await res.json()
       message.error(e.detail || '恢复失败')
+      void fetchStatus()
+      return
     }
+    const body = await res.json().catch(() => ({}))
+    status.value = {
+      ...status.value,
+      autopilot_status: 'running',
+      current_stage: body.current_stage || 'writing',
+      needs_review: false,
+    }
+    emit('status-change', status.value)
+    message.success(body.message || reviewGateActionLabel.value || '已确认，继续自动驾驶')
     void fetchStatus()
   } catch (err) {
-    // 网络错误时回滚
     status.value = prevStatus
     emit('status-change', prevStatus)
     message.error('恢复请求失败，请重试')

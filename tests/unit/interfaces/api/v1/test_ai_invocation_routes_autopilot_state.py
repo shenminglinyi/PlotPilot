@@ -1,6 +1,9 @@
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSession, InvocationSessionStatus
 from interfaces.api.v1.engine.ai_invocation_routes import _is_prompt_draft_editable, _publish_autopilot_session_state
-from interfaces.api.v1.engine.autopilot_routes import _build_status_pure_memory
+from interfaces.api.v1.engine.autopilot_routes import (
+    _build_status_pure_memory,
+    _resume_block_reason_from_status,
+)
 
 
 def _session(status: InvocationSessionStatus) -> InvocationSession:
@@ -102,6 +105,75 @@ def test_autopilot_status_pure_memory_exposes_active_invocation():
     assert status["has_active_invocation"] is True
     assert status["requires_ai_review"] is True
     assert status["autopilot_pause_reason"] == "awaiting_ai_review"
+    assert status["review_gate"]["status"] == "awaiting_ai_review"
+    assert status["review_gate"]["can_resume"] is False
+
+
+def test_autopilot_status_blocks_resume_when_macro_invocation_failed():
+    status = _build_status_pure_memory(
+        "novel-1",
+        {
+            "_updated_at": 1,
+            "autopilot_status": "running",
+            "current_stage": "paused_for_review",
+            "target_chapters": 500,
+            "active_invocation_session_id": "session-1",
+            "active_invocation_operation": "autopilot.macro.plan",
+            "active_invocation_node_key": "planning-quick-macro",
+            "active_invocation_status": "blocked",
+            "active_invocation_policy": "AUTOPILOT_PAUSE",
+            "has_active_invocation": True,
+            "requires_ai_review": True,
+            "autopilot_pause_reason": "autopilot_macro_plan_requires_json_object",
+        },
+    )
+
+    gate = status["review_gate"]
+    assert gate["type"] == "macro_plan"
+    assert gate["status"] == "failed"
+    assert gate["artifact_status"] == "missing"
+    assert gate["can_resume"] is False
+    assert "尚无可确认" in gate["message"]
+    assert _resume_block_reason_from_status(status) == gate["message"]
+
+
+def test_autopilot_status_allows_ready_macro_review_gate():
+    status = _build_status_pure_memory(
+        "novel-1",
+        {
+            "_updated_at": 1,
+            "autopilot_status": "running",
+            "current_stage": "paused_for_review",
+            "target_chapters": 120,
+            "writing_substep": "macro_planning",
+        },
+    )
+
+    gate = status["review_gate"]
+    assert gate["type"] == "macro_plan"
+    assert gate["status"] == "ready"
+    assert gate["can_resume"] is True
+    assert _resume_block_reason_from_status(status) is None
+
+
+def test_autopilot_status_blocks_resume_while_macro_structure_is_not_ready():
+    status = _build_status_pure_memory(
+        "novel-1",
+        {
+            "_updated_at": 1,
+            "autopilot_status": "running",
+            "current_stage": "paused_for_review",
+            "target_chapters": 500,
+            "current_auto_chapters": 0,
+            "macro_structure_ready": False,
+        },
+    )
+
+    gate = status["review_gate"]
+    assert gate["type"] == "macro_plan"
+    assert gate["status"] == "persisting"
+    assert gate["can_resume"] is False
+    assert "没有可确认的大纲结构" in gate["message"]
 
 
 def test_prompt_draft_is_editable_for_pre_call_blocked_session_only():

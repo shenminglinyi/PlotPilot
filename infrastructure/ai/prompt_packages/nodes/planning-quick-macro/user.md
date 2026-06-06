@@ -26,6 +26,58 @@
 </TARGET_SCOPE>
 
 请生成叙事骨架，严格按以下 JSON 结构输出：
+{% if planning_depth == "framework" %}
+{
+  "parts": [
+    {
+      "title": "部标题",
+      "theme": "部主题",
+      "estimated_chapters": 0,
+      "volumes": [
+        {
+          "title": "卷标题",
+          "theme": "卷主题",
+          "estimated_chapters": 0
+        }
+      ]
+    }
+  ]
+}
+{% elif planning_depth == "partial" %}
+{
+  "parts": [
+    {
+      "title": "部标题",
+      "theme": "部主题",
+      "estimated_chapters": 0,
+      "volumes": [
+        {
+          "title": "开篇前导卷标题",
+          "theme": "卷主题",
+          "estimated_chapters": 0,
+          "acts": [
+            {
+              "title": "幕标题",
+              "estimated_chapters": 0,
+              "core_conflict": "谁与谁对抗，赌注是什么",
+              "emotional_turn": "情绪从什么变化到什么",
+              "description": "情节摘要",
+              "key_characters": ["角色ID或角色名"],
+              "key_locations": ["地点ID或地点名"]
+            }
+          ]
+        },
+        {
+          "title": "后续卷标题",
+          "theme": "卷主题",
+          "estimated_chapters": 0,
+          "acts": []
+        }
+      ]
+    }
+  ]
+}
+{% else %}
 {
   "parts": [
     {
@@ -53,3 +105,4 @@
     }
   ]
 }
+{% endif %}

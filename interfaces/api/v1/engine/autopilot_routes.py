@@ -176,6 +176,210 @@ def _stage_needs_human_review(stage: Optional[str]) -> bool:
     return s in ("paused_for_review", "reviewing")
 
 
+_INVOCATION_WAITING_STATUSES = {
+    "awaiting_pre_call_review",
+    "awaiting_acceptance",
+    "awaiting_commit",
+    "generating",
+}
+_INVOCATION_FAILED_STATUSES = {"blocked", "failed", "cancelled"}
+
+
+def _review_type_for_operation(operation: str, substep: str = "") -> str:
+    op = (operation or "").strip()
+    sub = (substep or "").strip()
+    if op == "autopilot.macro.plan" or sub == "macro_planning":
+        return "macro_plan"
+    if op == "autopilot.act.plan" or sub == "act_planning":
+        return "act_plan"
+    if "audit" in op or sub.startswith("audit_"):
+        return "chapter_review"
+    if op:
+        return "ai_invocation"
+    return "manual_review"
+
+
+def _is_initial_macro_review_context(status: Dict[str, Any]) -> bool:
+    if _review_type_for_operation(
+        str(status.get("active_invocation_operation") or ""),
+        str(status.get("writing_substep") or ""),
+    ) != "manual_review":
+        return False
+    if status.get("macro_structure_ready") is not None:
+        return True
+    if int(status.get("current_auto_chapters") or 0) != 0:
+        return False
+    if status.get("current_chapter_number") is not None:
+        return False
+    try:
+        return int(status.get("current_act") or 0) == 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _review_gate_from_status(status: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Build the explicit review gate consumed by the cockpit UI.
+
+    The high-frequency status path must stay cheap: this only derives from the
+    status payload/shared state. Durable artifact checks happen in /resume.
+    """
+    stage = str(status.get("current_stage") or "")
+    needs_review = bool(status.get("needs_review")) or _stage_needs_human_review(stage)
+    active_session = str(status.get("active_invocation_session_id") or "").strip()
+    active_status = str(status.get("active_invocation_status") or "").strip()
+    operation = str(status.get("active_invocation_operation") or "")
+    substep = str(status.get("writing_substep") or "")
+
+    if active_session and (
+        status.get("has_active_invocation")
+        or status.get("requires_ai_review")
+        or active_status in _INVOCATION_WAITING_STATUSES
+        or active_status in _INVOCATION_FAILED_STATUSES
+    ):
+        gate_type = _review_type_for_operation(operation, substep)
+        failed = active_status in _INVOCATION_FAILED_STATUSES
+        awaiting = active_status in _INVOCATION_WAITING_STATUSES or bool(status.get("requires_ai_review"))
+        if failed:
+            if gate_type == "macro_plan":
+                message = "宏观结构生成或提交失败，尚无可确认的大纲结构。请处理 AI 结果或停止后重新生成。"
+                artifact_status = "missing"
+            elif gate_type == "act_plan":
+                message = "章节规划生成或提交失败，尚无可确认的章节规划。请处理 AI 结果或停止后重新生成。"
+                artifact_status = "missing"
+            else:
+                message = "AI 请求处理失败，当前没有可继续确认的产物。"
+                artifact_status = "failed"
+            return {
+                "type": gate_type,
+                "status": "failed",
+                "artifact_status": artifact_status,
+                "can_resume": False,
+                "primary_action": "open_ai_panel",
+                "session_id": active_session,
+                "operation": operation,
+                "node_key": status.get("active_invocation_node_key", ""),
+                "error": status.get("autopilot_pause_reason", "") or active_status,
+                "message": message,
+            }
+
+        if awaiting:
+            return {
+                "type": gate_type,
+                "status": "awaiting_ai_review",
+                "artifact_status": "pending",
+                "can_resume": False,
+                "primary_action": "open_ai_panel",
+                "session_id": active_session,
+                "operation": operation,
+                "node_key": status.get("active_invocation_node_key", ""),
+                "message": "AI 请求等待审阅、采纳或提交，完成后自动驾驶才能继续。",
+            }
+
+    if isinstance(status.get("autopilot_pending_macro_plan"), dict):
+        return {
+            "type": "macro_plan",
+            "status": "persisting",
+            "artifact_status": "pending",
+            "can_resume": False,
+            "primary_action": "wait",
+            "message": "宏观结构已提交，正在写入结构树；结构出现后才能确认继续。",
+        }
+
+    if not needs_review:
+        return None
+
+    if _is_initial_macro_review_context(status):
+        if status.get("macro_structure_ready") is False:
+            return {
+                "type": "macro_plan",
+                "status": "persisting",
+                "artifact_status": "pending",
+                "can_resume": False,
+                "primary_action": "wait",
+                "message": "宏观结构正在生成或写入结构树，当前还没有可确认的大纲结构。",
+            }
+        if status.get("macro_structure_ready") is True:
+            return {
+                "type": "macro_plan",
+                "status": "ready",
+                "artifact_status": "ready",
+                "can_resume": True,
+                "primary_action": "resume",
+                "action_label": "确认结构，继续",
+                "message": "宏观结构已生成，请在结构树核对后继续。",
+            }
+
+    if status.get("macro_structure_ready") is False and int(status.get("current_auto_chapters") or 0) == 0:
+        return {
+            "type": "macro_plan",
+            "status": "failed",
+            "artifact_status": "missing",
+            "can_resume": False,
+            "primary_action": "retry_generation",
+            "message": "宏观结构尚未生成，当前没有可确认的大纲结构。请重新生成结构树。",
+        }
+
+    gate_type = _review_type_for_operation(operation, substep)
+    if gate_type == "macro_plan":
+        message = "宏观结构已生成，请在结构树核对后继续。"
+        action_label = "确认结构，继续"
+    elif gate_type == "act_plan":
+        message = "章节规划已生成，请在结构树核对后继续。"
+        action_label = "确认章节规划，继续"
+    elif gate_type == "chapter_review":
+        message = "章节审阅已完成，请核对审阅结果后继续。"
+        action_label = "确认审阅，继续"
+    else:
+        message = "当前流程等待人工确认，请核对侧栏产物后继续。"
+        action_label = "确认后继续"
+    return {
+        "type": gate_type,
+        "status": "ready",
+        "artifact_status": "ready",
+        "can_resume": True,
+        "primary_action": "resume",
+        "action_label": action_label,
+        "message": message,
+    }
+
+
+def _with_review_gate(status: Dict[str, Any]) -> Dict[str, Any]:
+    gate = _review_gate_from_status(status)
+    if gate:
+        status["review_gate"] = gate
+    else:
+        status.pop("review_gate", None)
+    return status
+
+
+def _macro_structure_exists(novel_id: str) -> bool:
+    """Macro planning is usable when it has at least a volume root for act planning."""
+    try:
+        repo = StoryNodeRepository(get_db_path())
+        nodes = repo.get_by_novel_sync(novel_id)
+    except Exception as exc:
+        logger.warning("检查宏观结构失败 novel=%s: %s", novel_id, exc)
+        return False
+    return any(
+        (n.node_type.value if hasattr(n.node_type, "value") else str(n.node_type)) == "volume"
+        for n in nodes
+    )
+
+
+def _resume_block_reason_from_status(status: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not status:
+        return None
+    gate = status.get("review_gate") if isinstance(status.get("review_gate"), dict) else None
+    if gate and gate.get("can_resume") is False:
+        return str(gate.get("message") or "当前审阅闸门没有可继续的产物")
+    active_status = str(status.get("active_invocation_status") or "").strip()
+    if status.get("active_invocation_session_id") and active_status in (
+        _INVOCATION_WAITING_STATUSES | _INVOCATION_FAILED_STATUSES
+    ):
+        return "AI 请求尚未成功提交，不能继续自动驾驶"
+    return None
+
+
 router = APIRouter(prefix="/autopilot", tags=["autopilot"])
 
 # ── 使用统一资源管理器管理线程池和缓存 ──
@@ -305,7 +509,7 @@ def _build_fallback_status(novel) -> Dict[str, Any]:
             "quality_scores": getattr(novel, "last_audit_quality_scores", {}) or {},
             "issues": getattr(novel, "last_audit_issues", []) or [],
         }
-    return {
+    return _with_review_gate({
         "autopilot_status": novel.autopilot_status.value if hasattr(novel.autopilot_status, "value") else novel.autopilot_status,
         "current_stage": novel.current_stage.value if hasattr(novel.current_stage, "value") else novel.current_stage,
         "current_act": getattr(novel, "current_act", 0),
@@ -331,7 +535,7 @@ def _build_fallback_status(novel) -> Dict[str, Any]:
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": getattr(novel, "audit_progress", None),
         "_degraded": True,  # 前端可据此显示「数据同步中」提示
-    }
+    })
 
 
 # ── SSE / 高频接口：同步仓储与文件 IO 放入线程池，避免阻塞 asyncio 事件循环（否则会拖死全站 API）──
@@ -373,6 +577,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
     from infrastructure.persistence.database.connection import get_database
 
     novel: Any = None
+    macro_structure_ready: Optional[bool] = None
 
     try:
         db = get_database(get_db_path())
@@ -419,6 +624,12 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
                 else None
             )
 
+        macro_row = db.fetch_one(
+            "SELECT 1 AS ok FROM story_nodes WHERE novel_id = ? AND node_type = 'volume' LIMIT 1",
+            (novel_id,),
+        )
+        macro_structure_ready = bool(macro_row)
+
     except sqlite3.OperationalError as e:
         if "database is locked" in str(e).lower() or "busy" in str(e).lower():
             logger.debug("status DB 被锁，降级到共享内存 novel=%s", novel_id)
@@ -443,6 +654,20 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
         novel["last_chapter_tension"] = shared.get("last_chapter_tension", novel.get("last_chapter_tension"))
         novel["last_audit_similarity"] = shared.get("last_audit_similarity", novel.get("last_audit_similarity"))
         novel["last_audit_drift_alert"] = shared.get("last_audit_drift_alert", novel.get("last_audit_drift_alert"))
+        for key in (
+            "active_invocation_session_id",
+            "active_invocation_operation",
+            "active_invocation_node_key",
+            "active_invocation_status",
+            "active_invocation_policy",
+            "has_active_invocation",
+            "requires_ai_review",
+            "autopilot_pause_reason",
+            "writing_substep",
+            "writing_substep_label",
+        ):
+            if key in shared:
+                novel[key] = shared.get(key)
 
     target = (novel.get("target_chapters") if isinstance(novel, dict) else novel.target_chapters) or 1
     twpc = (novel.get("target_words_per_chapter") if isinstance(novel, dict) else getattr(novel, "target_words_per_chapter", None)) or 2500
@@ -482,7 +707,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
 
-    return {
+    return _with_review_gate({
         "autopilot_status": _ap_status_str,
         "current_stage": _stage_str,
         "current_act": novel.get("current_act") if isinstance(novel, dict) else novel.current_act,
@@ -502,12 +727,23 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
         "progress_pct_manuscript": round(in_manuscript_count / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
         "needs_review": _stage_needs_human_review(_stage_str),
+        "macro_structure_ready": macro_structure_ready,
         "auto_approve_mode": novel.get("auto_approve_mode") if isinstance(novel, dict) else getattr(novel, "auto_approve_mode", False),
+        "active_invocation_session_id": novel.get("active_invocation_session_id", "") if isinstance(novel, dict) else "",
+        "active_invocation_operation": novel.get("active_invocation_operation", "") if isinstance(novel, dict) else "",
+        "active_invocation_node_key": novel.get("active_invocation_node_key", "") if isinstance(novel, dict) else "",
+        "active_invocation_status": novel.get("active_invocation_status", "") if isinstance(novel, dict) else "",
+        "active_invocation_policy": novel.get("active_invocation_policy", "") if isinstance(novel, dict) else "",
+        "has_active_invocation": bool(novel.get("has_active_invocation", False)) if isinstance(novel, dict) else False,
+        "requires_ai_review": bool(novel.get("requires_ai_review", False)) if isinstance(novel, dict) else False,
+        "autopilot_pause_reason": novel.get("autopilot_pause_reason", "") if isinstance(novel, dict) else "",
         "last_chapter_audit": last_chapter_audit,
         "audit_progress": novel.get("audit_progress") if isinstance(novel, dict) else getattr(novel, "audit_progress", None),
         "daemon_alive": daemon_alive,
         "daemon_heartbeat_at": daemon_heartbeat,
-    }
+        "writing_substep": novel.get("writing_substep", "") if isinstance(novel, dict) else "",
+        "writing_substep_label": novel.get("writing_substep_label", "") if isinstance(novel, dict) else "",
+    })
 
 
 def _build_fallback_from_shared(novel_id: str, shared: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -518,7 +754,7 @@ def _build_fallback_from_shared(novel_id: str, shared: Optional[Dict[str, Any]])
     """
     if not shared:
         # 完全没有共享内存数据：返回最小状态
-        return {
+        return _with_review_gate({
             "autopilot_status": "running",
             "current_stage": "syncing",
             "current_act": None,
@@ -543,7 +779,7 @@ def _build_fallback_from_shared(novel_id: str, shared: Optional[Dict[str, Any]])
             "audit_progress": None,
             "_degraded": True,
             "_message": "数据同步中，请稍候...",
-        }
+        })
 
     # 有共享内存但可能不完整
     return _build_status_pure_memory(novel_id, shared)
@@ -600,7 +836,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     twpc = shared.get("target_words_per_chapter", 2500) or 2500
     stage = shared.get("current_stage", "writing")
 
-    return {
+    return _with_review_gate({
         "autopilot_status": shared.get("autopilot_status", "running"),
         "current_stage": stage,
         "current_act": shared.get("current_act"),
@@ -622,6 +858,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "progress_pct_manuscript": round(max(manuscript_count, current_auto_count) / target * 100, 1) if target else 0,
         "current_chapter_number": shared.get("_cached_current_chapter_number"),
         "needs_review": _stage_needs_human_review(stage),
+        "macro_structure_ready": shared.get("macro_structure_ready"),
         "auto_approve_mode": shared.get("auto_approve_mode", False),
         "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
         "active_invocation_operation": shared.get("active_invocation_operation", ""),
@@ -671,7 +908,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "story_pipeline_wave_label": shared.get("story_pipeline_wave_label", ""),
         "story_pipeline_wave_entered_at": shared.get("story_pipeline_wave_entered_at"),
         "story_pipeline_events": shared.get("story_pipeline_events") or [],
-    }
+    })
 
 
 def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str, Any]:
@@ -690,6 +927,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     current_chapter_number = None
     target = 1
     twpc = 2500
+    macro_structure_ready: Optional[bool] = None
 
     try:
         db = get_database(db_path)
@@ -724,6 +962,12 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
                 if (completed_max and completed_max["max_num"])
                 else None
             )
+
+        macro_row = db.fetch_one(
+            "SELECT 1 AS ok FROM story_nodes WHERE novel_id = ? AND node_type = 'volume' LIMIT 1",
+            (novel_id,),
+        )
+        macro_structure_ready = bool(macro_row)
 
         row = db.fetch_one(
             "SELECT target_chapters, target_words_per_chapter, autopilot_status, auto_approve_mode, consecutive_error_count FROM novels WHERE id = ?",
@@ -792,7 +1036,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     except Exception:
         pass
 
-    return {
+    return _with_review_gate({
         "autopilot_status": autopilot_status,
         "current_stage": stage,
         "current_act": shared.get("current_act"),
@@ -814,6 +1058,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "progress_pct_manuscript": round(max(in_manuscript_count, current_auto_count) / target * 100, 1) if target else 0,
         "current_chapter_number": current_chapter_number,
         "needs_review": _stage_needs_human_review(stage),
+        "macro_structure_ready": macro_structure_ready,
         "auto_approve_mode": auto_approve_mode,
         "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
         "active_invocation_operation": shared.get("active_invocation_operation", ""),
@@ -864,7 +1109,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
         "story_pipeline_wave_label": shared.get("story_pipeline_wave_label", ""),
         "story_pipeline_wave_entered_at": shared.get("story_pipeline_wave_entered_at"),
         "story_pipeline_events": shared.get("story_pipeline_events") or [],
-    }
+    })
 
 
 def _chapter_stream_poll_sync(novel_repo, chapter_repo, novel_id: str):
@@ -1483,6 +1728,30 @@ async def resume_from_review(novel_id: str):
 
         if not _stage_needs_human_review(current_stage_str):
             raise HTTPException(400, f"当前不在审阅等待状态（当前：{current_stage_str}）")
+
+        shared_status = _with_review_gate(
+            {
+                "current_stage": current_stage_str,
+                "needs_review": _stage_needs_human_review(current_stage_str),
+                "current_act": current_act,
+                "current_auto_chapters": shared.get("current_auto_chapters", 0),
+                "current_chapter_number": shared.get("current_chapter_number") or shared.get("_cached_current_chapter_number"),
+                "autopilot_pending_macro_plan": shared.get("autopilot_pending_macro_plan"),
+                "macro_structure_ready": shared.get("macro_structure_ready"),
+                "active_invocation_session_id": shared.get("active_invocation_session_id", ""),
+                "active_invocation_operation": shared.get("active_invocation_operation", ""),
+                "active_invocation_node_key": shared.get("active_invocation_node_key", ""),
+                "active_invocation_status": shared.get("active_invocation_status", ""),
+                "active_invocation_policy": shared.get("active_invocation_policy", ""),
+                "has_active_invocation": bool(shared.get("has_active_invocation", False)),
+                "requires_ai_review": bool(shared.get("requires_ai_review", False)),
+                "autopilot_pause_reason": shared.get("autopilot_pause_reason", ""),
+                "writing_substep": shared.get("writing_substep", ""),
+            }
+        )
+        block_reason = _resume_block_reason_from_status(shared_status)
+        if block_reason:
+            raise HTTPException(409, block_reason)
     else:
         # 降级路径：共享内存无数据，读 DB（在线程池中）
         def _resume_read_sync():
@@ -1517,6 +1786,8 @@ async def resume_from_review(novel_id: str):
         next_stage = NovelStage.WRITING.value
         msg = "已恢复：当前幕已有章节规划，进入正文撰写"
     else:
+        if not _macro_structure_exists(novel_id):
+            raise HTTPException(409, "宏观结构尚未生成，不能继续自动驾驶。请先重新生成并确认结构树。")
         next_stage = NovelStage.ACT_PLANNING.value
         msg = "已恢复：继续幕级规划"
 
