@@ -1,13 +1,12 @@
 """WuxiaPipeline — 武侠引擎（正式版）
 
 继承 ThemedStoryPipeline，自动注入 WuxiaThemeAgent 的上下文/审计规则，
-并追加武侠专属的节拍与内容验证逻辑。
+并追加武侠专属的整章写作约束与内容验证逻辑。
 """
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 from engine.pipelines.themed_pipeline import ThemedStoryPipeline
 from engine.pipeline.context import PipelineContext
@@ -47,24 +46,6 @@ class WuxiaPipeline(ThemedStoryPipeline):
                     ctx.context_text += f"\n\n【修炼体系】\n{knowledge.cultivation_system}"
             except Exception:
                 pass
-
-        return result
-
-    async def _step_magnify_beats(self, ctx: PipelineContext) -> StepResult:
-        result = await super()._step_magnify_beats(ctx)
-        self._apply_theme_beat_templates(ctx)
-
-        for beat in ctx.beats:
-            if not hasattr(beat, "focus"):
-                continue
-            description = getattr(beat, "description", "")
-            if beat.focus == "action" and "打" in description:
-                beat.target_words = min(
-                    getattr(beat, "target_words", self.COMBAT_SCENE_MAX_WORDS),
-                    self.COMBAT_SCENE_MAX_WORDS,
-                )
-            if beat.focus == "emotion" and "修炼" in description:
-                beat.target_words = int(getattr(beat, "target_words", 800) * 1.5)
 
         return result
 

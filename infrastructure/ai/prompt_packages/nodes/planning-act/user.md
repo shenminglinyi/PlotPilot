@@ -1,6 +1,6 @@
 {context}
 
-请为这一幕规划 {chapter_count} 个章节。每章必须包含回报类型标注和伏笔操作。
+请为这一幕规划 {chapter_count} 个章节。每章必须包含回报类型标注、伏笔操作，以及可直接交给正文模型执行的“章节执行剧本”。
 
 回报类型 thrill_type 必选其一：
 - power_reveal：实力或能力验证，只在大纲和设定需要时使用。
@@ -21,13 +21,51 @@
 
 伏笔节奏：本幕内种下的伏笔，至少 1 条需要在本幕或下一幕回收；不能连续 2 章都是 none；最后一章必须 resolve 或 plant_and_resolve。
 
+章节执行剧本要求：
+1. 不要再输出 100-200 字短大纲作为主要写作依据。
+2. 每章必须输出 chapter_plan 对象，并覆盖以下七段：
+   - opening_entry：开篇切入点，一句话说明从哪个动作/冲突/信息差切入。
+   - scene_transitions：场景转换列表，每项包含 scene、location、cast、purpose。
+   - key_dialogues：关键对话 4-8 组，每项包含 speaker、line、reply、purpose；必须说明这组对白推进了什么线索、关系或冲突。
+   - event_chain：剧情事件链 6-10 个事件，每项包含 phase 和 content；phase 只能用 触发、升级、爆发、收束。
+   - character_decisions：角色关键决策，至少包含主角的主动选择、目的和后果。
+   - payoff_reversals：爽点/反转设计，说明预期、反转、读者获得的正反馈。
+   - protagonist_state_change：主角状态变化，包含位置、实力、新获得、身体状况、重大变化。
+3. outline 字段必须是 chapter_plan 的中文七段渲染文本，格式使用“一、开篇切入点：”“二、场景转换列表：”直到“七、主角状态变化：”。
+4. chapter_plan 与 outline 必须内容一致；正文生成会优先使用 outline 作为章节执行剧本。
+
 请输出 JSON：
 {
   "chapters": [
     {
       "number": 1,
       "title": "章节标题",
-      "outline": "章节大纲，100-200 字，描述回报的具体内容",
+      "outline": "按七段格式渲染的章节执行剧本，不是短大纲",
+      "chapter_plan": {
+        "opening_entry": "开篇切入点",
+        "scene_transitions": [
+          {"scene": "场景1", "location": "地点", "cast": ["人物ID或姓名"], "purpose": "本场景推进的剧情"}
+        ],
+        "key_dialogues": [
+          {"speaker": "人物A", "line": "A要说/试探/告知的重点", "reply": "人物B的回应重点", "purpose": "对白作用"}
+        ],
+        "event_chain": [
+          {"phase": "触发", "content": "事件1具体内容"}
+        ],
+        "character_decisions": [
+          {"actor": "主角", "decision": "主动决策", "purpose": "目的与后果"}
+        ],
+        "payoff_reversals": [
+          "爽点1：预期→反转→正反馈"
+        ],
+        "protagonist_state_change": {
+          "位置": "起点→终点",
+          "实力": "变化或无变化",
+          "新获得": "信息、资源、资格或关系",
+          "身体状况": "状态",
+          "重大变化": "本章对后续行动的实质改变"
+        }
+      },
       "characters": ["人物ID"],
       "locations": ["地点ID"],
       "thrill_type": "power_reveal",

@@ -10,8 +10,7 @@ from application.ai_invocation.output_binding_resolution import (
     load_session_output_bindings,
 )
 from application.world.dtos.bible_dto import CharacterDTO, LocationDTO, StyleNoteDTO
-from application.world.services.worldbuilding_field_text import worldbuilding_value_to_prose
-from application.world.worldbuilding_schema import schema_field_order
+from application.world.worldbuilding_schema import validate_complete_dimension_fields
 
 
 WORLDBUILDING_DIMENSION_KEYS = ("core_rules", "geography", "society", "culture", "daily_life")
@@ -62,16 +61,8 @@ def _as_str(value: Any, default: str = "") -> str:
 def _coerce_worldbuilding_dimension(dim_key: str, value: Any) -> dict[str, Any]:
     value = _parse_jsonish_value(value)
     if isinstance(value, Mapping):
-        return dict(value)
-
-    prose = worldbuilding_value_to_prose(value)
-    if not prose:
-        return {}
-
-    field_order = schema_field_order(dim_key)
-    if not field_order:
-        return {}
-    return {field_order[0]: prose}
+        return validate_complete_dimension_fields(dim_key, value)
+    return {}
 
 
 def _extract_records(data: Any, key: str) -> list[Any]:

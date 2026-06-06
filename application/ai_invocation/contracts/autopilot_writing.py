@@ -46,7 +46,7 @@ def ensure_autopilot_stream_beat_contract(db=None) -> None:
     input_binding_set_id = f"{AUTOPILOT_STREAM_BEAT}:input:v1"
     output_binding_set_id = f"{AUTOPILOT_STREAM_BEAT}:output:v1"
     input_bindings = [
-        VariableBinding(alias="outline", variable_key="chapter.outline", required=True, source="autopilot_runtime", scope="chapter", stage="writing", display_name="章节大纲"),
+        VariableBinding(alias="outline", variable_key="chapter.outline", required=True, source="autopilot_runtime", scope="chapter", stage="writing", display_name="章节执行剧本"),
         VariableBinding(alias="last_paragraph", variable_key="chapter.draft_so_far", required=False, default="", source="autopilot_runtime", scope="chapter", stage="writing", display_name="上一段结尾"),
         VariableBinding(alias="beat_goal", variable_key="beat.current", required=True, source="autopilot_runtime", scope="beat", stage="writing", display_name="当前节拍目标"),
         VariableBinding(alias="target_words", variable_key="beat.target_words", required=True, default=800, source="autopilot_runtime", value_type="integer", scope="beat", stage="writing", display_name="节拍目标字数"),

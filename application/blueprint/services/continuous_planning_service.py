@@ -1630,9 +1630,18 @@ class ContinuousPlanningService:
                     number=global_number,
                     title=row["title"],
                     content="",
+                    outline=row.get("outline") or "",
                     status=ChapterStatus.DRAFT,
                 )
                 self.chapter_repository.save(book_ch)
+
+            self._write_chapter_plan_variables(
+                novel_id=novel_id_str,
+                chapter_number=global_number,
+                title=row["title"],
+                outline=row.get("outline") or "",
+                characters=row.get("characters") or [],
+            )
 
         await self.story_node_repo.save_batch(created_chapters)
         await self.chapter_element_repo.save_batch(created_elements)
@@ -1858,17 +1867,173 @@ class ContinuousPlanningService:
             num_int = int(num) if num is not None else act_local_index
         except (TypeError, ValueError):
             num_int = act_local_index
-        outline = raw.get("outline") or raw.get("description") or ""
-        if isinstance(outline, str):
-            outline = outline.strip() or None
-        else:
-            outline = None
+        chapter_plan = raw.get("chapter_plan")
+        outline = self._render_chapter_execution_plan(chapter_plan)
+        if not outline:
+            outline_raw = raw.get("outline") or raw.get("description") or ""
+            outline = outline_raw.strip() if isinstance(outline_raw, str) else ""
+        outline = outline or None
         return {
             **raw,
             "number": num_int,
             "title": title,
             "outline": outline,
+            "chapter_plan": chapter_plan,
         }
+
+    @staticmethod
+    def _stringify_plan_value(value) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        if isinstance(value, list):
+            return "、".join(
+                ContinuousPlanningService._stringify_plan_value(v)
+                for v in value
+                if ContinuousPlanningService._stringify_plan_value(v)
+            )
+        if isinstance(value, dict):
+            for key in ("content", "summary", "description", "text", "purpose", "decision", "change"):
+                text = ContinuousPlanningService._stringify_plan_value(value.get(key))
+                if text:
+                    return text
+            return "；".join(
+                f"{k}：{ContinuousPlanningService._stringify_plan_value(v)}"
+                for k, v in value.items()
+                if ContinuousPlanningService._stringify_plan_value(v)
+            )
+        return str(value).strip()
+
+    @classmethod
+    def _format_scene_transition(cls, item, index: int) -> str:
+        if not isinstance(item, dict):
+            text = cls._stringify_plan_value(item)
+            return text
+        scene = cls._stringify_plan_value(item.get("scene") or item.get("name")) or f"场景{index}"
+        location = cls._stringify_plan_value(item.get("location") or item.get("place")) or "未定地点"
+        cast = cls._stringify_plan_value(item.get("cast") or item.get("characters") or item.get("roles")) or "未定人物"
+        purpose = cls._stringify_plan_value(
+            item.get("purpose") or item.get("event") or item.get("summary") or item.get("description")
+        )
+        return f"{scene} → {location} | {cast} | {purpose}".strip()
+
+    @classmethod
+    def _format_dialogue(cls, item, index: int) -> str:
+        if not isinstance(item, dict):
+            text = cls._stringify_plan_value(item)
+            return f"对话{index}：{text}" if text and not text.startswith("对话") else text
+        speaker = cls._stringify_plan_value(item.get("speaker") or item.get("from") or item.get("role"))
+        line = cls._stringify_plan_value(item.get("line") or item.get("says") or item.get("content"))
+        reply = cls._stringify_plan_value(item.get("reply") or item.get("response") or item.get("to"))
+        purpose = cls._stringify_plan_value(item.get("purpose") or item.get("effect") or item.get("result"))
+        parts = []
+        if speaker or line:
+            parts.append(f"{speaker}→{line}".strip("→"))
+        if reply:
+            parts.append(reply)
+        if purpose:
+            parts.append(purpose)
+        return f"对话{index}：" + " | ".join(parts)
+
+    @classmethod
+    def _format_event(cls, item, index: int) -> str:
+        if not isinstance(item, dict):
+            text = cls._stringify_plan_value(item)
+            return f"事件{index}：{text}" if text and not text.startswith("事件") else text
+        phase = cls._stringify_plan_value(item.get("phase") or item.get("type") or item.get("stage"))
+        content = cls._stringify_plan_value(
+            item.get("content") or item.get("event") or item.get("summary") or item.get("description")
+        )
+        label = f"事件{index}"
+        if phase:
+            label += f"（{phase}）"
+        return f"{label}：{content}"
+
+    @classmethod
+    def _format_decision(cls, item) -> str:
+        if not isinstance(item, dict):
+            return cls._stringify_plan_value(item)
+        actor = cls._stringify_plan_value(item.get("actor") or item.get("character") or item.get("role"))
+        decision = cls._stringify_plan_value(item.get("decision") or item.get("action") or item.get("content"))
+        purpose = cls._stringify_plan_value(item.get("purpose") or item.get("result") or item.get("effect"))
+        text = f"{actor}→{decision}".strip("→")
+        if purpose:
+            text += f"→{purpose}"
+        return text
+
+    @classmethod
+    def _render_list_section(cls, items, formatter) -> List[str]:
+        if not isinstance(items, list):
+            text = cls._stringify_plan_value(items)
+            return [text] if text else []
+        out: List[str] = []
+        for i, item in enumerate(items, start=1):
+            text = formatter(item, i)
+            if text:
+                out.append(text)
+        return out
+
+    @classmethod
+    def _render_chapter_execution_plan(cls, chapter_plan) -> str:
+        if isinstance(chapter_plan, str):
+            return chapter_plan.strip()
+        if not isinstance(chapter_plan, dict):
+            return ""
+
+        opening = cls._stringify_plan_value(
+            chapter_plan.get("opening_entry")
+            or chapter_plan.get("opening")
+            or chapter_plan.get("entry_point")
+            or chapter_plan.get("cut_in")
+        )
+        scenes = cls._render_list_section(
+            chapter_plan.get("scene_transitions") or chapter_plan.get("scenes"),
+            cls._format_scene_transition,
+        )
+        dialogues = cls._render_list_section(
+            chapter_plan.get("key_dialogues") or chapter_plan.get("dialogues"),
+            cls._format_dialogue,
+        )
+        events = cls._render_list_section(
+            chapter_plan.get("event_chain") or chapter_plan.get("events"),
+            cls._format_event,
+        )
+        decisions = cls._render_list_section(
+            chapter_plan.get("character_decisions") or chapter_plan.get("decisions"),
+            lambda item, _i: cls._format_decision(item),
+        )
+        payoffs = cls._render_list_section(
+            chapter_plan.get("payoff_reversals") or chapter_plan.get("payoffs") or chapter_plan.get("reversals"),
+            lambda item, i: cls._stringify_plan_value(item),
+        )
+        state = chapter_plan.get("protagonist_state_change") or chapter_plan.get("state_change")
+        if isinstance(state, dict):
+            state_lines = [
+                f"{key}：{cls._stringify_plan_value(value)}"
+                for key, value in state.items()
+                if cls._stringify_plan_value(value)
+            ]
+        else:
+            state_text = cls._stringify_plan_value(state)
+            state_lines = [state_text] if state_text else []
+
+        sections = [
+            ("一、开篇切入点：", [opening] if opening else []),
+            ("二、场景转换列表：", scenes),
+            (f"三、关键对话（{len(dialogues)}组）：", dialogues),
+            (f"四、剧情事件链（{len(events)}个事件）：", events),
+            ("五、角色关键决策：", decisions),
+            ("六、爽点/反转设计：", payoffs),
+            ("七、主角状态变化：", state_lines),
+        ]
+        rendered = []
+        for title, lines in sections:
+            rendered.append(title)
+            rendered.extend(lines or ["（待补充）"])
+        return "\n".join(rendered).strip()
 
     def _merged_elements_dict(self, chapter_row: Dict) -> Dict:
         """提示词里人物/地点在 chapters[].characters；落库时期望 elements.characters 为带 id 的对象列表。"""
@@ -1881,6 +2046,80 @@ class ContinuousPlanningService:
             if top and not merged.get(key):
                 merged[key] = top
         return merged
+
+    def _write_chapter_plan_variables(
+        self,
+        *,
+        novel_id: str,
+        chapter_number: int,
+        title: str,
+        outline: str,
+        characters: List,
+    ) -> None:
+        """把幕规划产出的执行剧本写入 Variable Hub，供单章/托管生成默认取值。"""
+        if not outline:
+            return
+        try:
+            from application.ai_invocation.variable_hub import VariableWrite
+            from infrastructure.ai.prompt_keys import PLANNING_ACT
+            from infrastructure.persistence.database.connection import get_database
+            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
+
+            repo = SqliteVariableHubRepository(get_database())
+            context_key = f"novel_id:{novel_id}|chapter_number:{chapter_number}"
+            writes = [
+                VariableWrite(
+                    key="chapter.number",
+                    value=chapter_number,
+                    context_key=context_key,
+                    source_node_key=PLANNING_ACT,
+                    source_trace_id=PLANNING_ACT,
+                    value_type="integer",
+                    display_name="章节序号",
+                    scope="chapter",
+                    stage="planning",
+                ),
+                VariableWrite(
+                    key="chapter.title",
+                    value=title,
+                    context_key=context_key,
+                    source_node_key=PLANNING_ACT,
+                    source_trace_id=PLANNING_ACT,
+                    display_name="章节标题",
+                    scope="chapter",
+                    stage="planning",
+                ),
+                VariableWrite(
+                    key="chapter.outline",
+                    value=outline,
+                    context_key=context_key,
+                    source_node_key=PLANNING_ACT,
+                    source_trace_id=PLANNING_ACT,
+                    display_name="章节执行剧本",
+                    scope="chapter",
+                    stage="planning",
+                ),
+                VariableWrite(
+                    key="character.active_cast",
+                    value=characters,
+                    context_key=context_key,
+                    source_node_key=PLANNING_ACT,
+                    source_trace_id=PLANNING_ACT,
+                    value_type="list",
+                    display_name="本章登场角色",
+                    scope="chapter",
+                    stage="planning",
+                ),
+            ]
+            for write in writes:
+                repo.set_value(write)
+        except Exception as e:
+            logger.debug(
+                "[ActPlanning] 写入章节执行剧本变量失败 novel=%s chapter=%s: %s",
+                novel_id,
+                chapter_number,
+                e,
+            )
 
     def _create_elements_from_data(self, chapter_id: str, elements_data: Dict) -> List[ChapterElement]:
         """从数据创建章节元素"""

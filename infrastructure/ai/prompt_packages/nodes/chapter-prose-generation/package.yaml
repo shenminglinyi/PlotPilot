@@ -2,7 +2,7 @@ id: chapter-prose-generation
 name: 工作台正文生成
 category: generation
 source: ai_invocation/chapter.generate.prose
-description: 通过 AI Invocation 审阅面板生成单章正文，prompt 正文完全由 CPMS 管理。
+description: 通过 AI Invocation 审阅面板按章节执行剧本一次性生成完整单章正文，prompt 正文完全由 CPMS 管理。
 builtin: true
 tags:
   - 工作台
@@ -33,7 +33,7 @@ variables:
     required: false
     default: ''
   - name: chapter_outline
-    desc: 章节大纲
+    desc: 章节执行剧本
     type: string
     required: true
   - name: previous_summary

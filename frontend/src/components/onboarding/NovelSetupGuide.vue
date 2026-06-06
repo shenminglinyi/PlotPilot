@@ -57,7 +57,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'core_rules'" class="raw-stream-preview">
-                正在生成核心法则，完成后将整段展示<span class="streaming-cursor">▎</span>
+                正在生成核心法则，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #geography>
@@ -69,7 +69,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'geography'" class="raw-stream-preview">
-                正在生成地理生态，完成后将整段展示<span class="streaming-cursor">▎</span>
+                正在生成地理生态，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #society>
@@ -81,7 +81,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'society'" class="raw-stream-preview">
-                正在生成社会结构，完成后将整段展示<span class="streaming-cursor">▎</span>
+                正在生成社会结构，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #culture>
@@ -93,7 +93,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'culture'" class="raw-stream-preview">
-                正在生成历史文化，完成后将整段展示<span class="streaming-cursor">▎</span>
+                正在生成历史文化，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
             <template #daily_life>
@@ -105,7 +105,7 @@
                 </div>
               </div>
               <div v-else-if="activeDimension === 'daily_life'" class="raw-stream-preview">
-                正在生成沉浸感细节，完成后将整段展示<span class="streaming-cursor">▎</span>
+                正在生成沉浸感细节，解析到字段后将逐项展示<span class="streaming-cursor">▎</span>
               </div>
             </template>
           </WizardSkeleton>
@@ -143,7 +143,7 @@
               <n-space vertical size="small">
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
                   <div class="dimension-fields">
-                    <div v-for="field in orderedWorldbuildingFields(dim.key)" :key="field.key" class="field-card field-card--editable">
+                    <div v-for="field in orderedWorldbuildingFields(dim.key, { includeEmpty: true })" :key="field.key" class="field-card field-card--editable">
                       <div class="field-card__title">{{ worldbuildingFieldTitle(dim.key, field.key) }}</div>
                       <n-input
                         v-model:value="worldbuildingData[dim.key][field.key]"
@@ -744,33 +744,27 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
   }
 }
 
-function firstWorldbuildingField(dim: WorldbuildingDimKey): string {
-  return getDimensionFieldOrder(dim)[0] || 'summary'
-}
-
-function isDimensionSummaryField(dim: WorldbuildingDimKey, field: string): boolean {
-  const block = worldbuildingData.value[dim] || {}
-  const keys = Object.keys(block).filter(key => String(block[key] ?? '').trim())
-  return keys.length === 1 && field === firstWorldbuildingField(dim)
+function canonicalWorldbuildingField(dim: WorldbuildingDimKey, field: string): string {
+  const key = String(field || '').trim()
+  return getDimensionFieldOrder(dim).includes(key) ? key : ''
 }
 
 function worldbuildingFieldTitle(dim: WorldbuildingDimKey, field: string): string {
-  if (isDimensionSummaryField(dim, field)) {
-    return `${getWorldbuildingDimensionLabel(dim)}概览`
-  }
   return getWorldbuildingFieldLabel(field)
 }
 
-function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
+function orderedWorldbuildingFields(
+  dim: WorldbuildingDimKey,
+  opts: { includeEmpty?: boolean } = {},
+): Array<{ key: string; value: string }> {
   const block = worldbuildingData.value[dim] || {}
   const ordered = getDimensionFieldOrder(dim)
   const keys = [
     ...ordered,
-    ...Object.keys(block).filter(key => !ordered.includes(key)),
+    ...Object.keys(block).filter(key => canonicalWorldbuildingField(dim, key) && !ordered.includes(key)),
   ]
-  return keys
-    .map(key => ({ key, value: String(block[key] ?? '') }))
-    .filter(field => field.value.trim().length > 0)
+  const fields = keys.map(key => ({ key, value: String(block[key] ?? '') }))
+  return opts.includeEmpty ? fields : fields.filter(field => field.value.trim().length > 0)
 }
 
 function createEmptyBible(): BibleDTO {
@@ -822,17 +816,15 @@ function mergeWorldbuildingRawBlocks(
 ) {
   for (const d of WB_DIMS) {
     const block = raw[d]
-    if (typeof block === 'string') {
-      const text = block.trim()
-      if (text) out[d] = { ...out[d], [firstWorldbuildingField(d)]: text }
-      continue
-    }
+    if (typeof block === 'string') continue
     if (block && typeof block === 'object') {
       const normalized: Record<string, string> = {}
       for (const [key, value] of Object.entries(block as Record<string, unknown>)) {
         const text = String(value ?? '').trim()
         if (!text) continue
-        normalized[key === 'summary' ? firstWorldbuildingField(d) : key] = text
+        const field = canonicalWorldbuildingField(d, key)
+        if (!field) continue
+        normalized[field] = text
       }
       out[d] = { ...out[d], ...normalized }
     }
@@ -904,36 +896,9 @@ function applyBibleInvocationPreview(stage: 'worldbuilding' | 'characters' | 'lo
   )
 }
 
-function decodeJsonStringFragment(fragment: string): string {
-  try {
-    return JSON.parse(`"${fragment}"`) as string
-  } catch {
-    return fragment
-      .replace(/\\"/g, '"')
-      .replace(/\\n/g, '\n')
-      .replace(/\\t/g, '\t')
-      .replace(/\\\\/g, '\\')
-  }
-}
-
-function extractDimensionStringDraft(source: string, dim: WorldbuildingDimKey): string {
-  const match = source.match(new RegExp(`"${dim}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)`))
-  return match?.[1] ? decodeJsonStringFragment(match[1]).trim() : ''
-}
-
 function applyWorldbuildingChunk(chunk: string) {
   if (!chunk) return
   worldbuildingRawStream.value += chunk
-  const draft = emptyWorldbuildingShape()
-  for (const dim of WB_DIMS) {
-    const text = extractDimensionStringDraft(worldbuildingRawStream.value, dim)
-    if (text) {
-      draft[dim][firstWorldbuildingField(dim)] = text
-      activeDimension.value = dim
-      activeField.value = firstWorldbuildingField(dim)
-    }
-  }
-  mergeWorldbuildingIntoCurrent(draft, { markCompleted: false })
 }
 
 function styleConventionFromBible(bible: BibleDTO): string {

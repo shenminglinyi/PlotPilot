@@ -27,94 +27,15 @@
           </n-descriptions>
         </n-card>
 
-        <!-- 导演节拍 -->
+        <!-- 章节执行剧本 -->
         <n-card v-if="showBeatsCard" size="small" :bordered="true">
           <template #header>
-            <span class="card-title">🎬 导演节拍</span>
+            <span class="card-title">章节执行剧本</span>
           </template>
-          <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-            <template v-if="microHintIsOutlinePreview">
-              章前规划未产出可用拆拍时的章纲拆条预览（按段落/句读），仅供参考，非指挥器节拍。
-            </template>
-            <template v-else-if="microHintFromKnowledgeDb">
-              以下为已落库的<strong>写作指挥器 Beat</strong>。
-            </template>
-            <template v-else>
-              仅展示写作指挥器真实 Beat（流式/全托管拆拍）。
-            </template>
-          </n-text>
-          <n-alert
-            v-if="showSingleOutlineAtomWarning"
-            type="warning"
-            :show-icon="true"
-            size="small"
-            style="margin-bottom: 8px"
-          >
-            章前 LLM 拆拍失败或返回无效 JSON，当前仅保留<strong>整章单拍</strong>（约 {{ microBeats[0]?.target_words || '—' }} 字）。
-            建议检查模型/提示词后重试生成。
-          </n-alert>
-          <n-space v-if="microBeats.length" vertical :size="8" style="margin-top: 12px">
-            <div v-for="(beat, i) in microBeats" :key="i" class="micro-beat-item">
-              <div class="micro-beat-header">
-                <span
-                  class="beat-focus-pill"
-                  :class="`beat-focus-pill--${beatFocusTone(beat.focus)}`"
-                >
-                  {{ beatFocusLabel(beat.focus) }}
-                </span>
-                <n-text strong style="margin-left: 8px">节拍 {{ i + 1 }}</n-text>
-                <n-text
-                  v-if="beat.target_words > 0"
-                  depth="3"
-                  style="margin-left: 8px; font-size: 12px"
-                >
-                  （约 {{ beat.target_words }} 字）
-                </n-text>
-              </div>
-              <div class="micro-beat-desc">{{ formatBeatDescription(beat.description) }}</div>
-              <div v-if="hasBeatContractDetails(beat)" class="mbc">
-                <div v-if="beat.function" class="mbc-row">
-                  <span class="mbc-tag">功能</span><span class="mbc-val">{{ beatFunctionLabel(beat.function) }}</span>
-                </div>
-                <div v-if="beat.pov" class="mbc-row">
-                  <span class="mbc-tag">POV</span><span class="mbc-val">{{ beat.pov }}</span>
-                </div>
-                <div v-if="beat.cast_refs?.length" class="mbc-row">
-                  <span class="mbc-tag">角色</span><span class="mbc-val">{{ beat.cast_refs.join('、') }}</span>
-                </div>
-                <div v-if="beat.location_refs?.length" class="mbc-row">
-                  <span class="mbc-tag">地点</span><span class="mbc-val">{{ beat.location_refs.join('、') }}</span>
-                </div>
-                <div v-if="beat.prop_refs?.length" class="mbc-row">
-                  <span class="mbc-tag">道具</span><span class="mbc-val">{{ beat.prop_refs.join('、') }}</span>
-                </div>
-                <div v-if="beat.visible_action" class="mbc-row">
-                  <span class="mbc-tag">可见行为</span><span class="mbc-val">{{ beat.visible_action }}</span>
-                </div>
-                <div v-if="beat.conflict" class="mbc-row">
-                  <span class="mbc-tag">冲突</span><span class="mbc-val">{{ beat.conflict }}</span>
-                </div>
-                <div v-if="beat.delta" class="mbc-row">
-                  <span class="mbc-tag mbc-tag--gap">变化</span><span class="mbc-val">{{ beat.delta }}</span>
-                </div>
-                <div v-if="beat.handoff_to_next" class="mbc-row">
-                  <span class="mbc-tag">承接</span><span class="mbc-val">{{ beat.handoff_to_next }}</span>
-                </div>
-                <div v-if="!beat.visible_action && beat.active_action" class="mbc-row">
-                  <span class="mbc-tag">行为</span><span class="mbc-val">{{ beat.active_action }}</span>
-                </div>
-                <div v-if="beat.emotion_gap" class="mbc-row">
-                  <span class="mbc-tag mbc-tag--gap">缺口</span><span class="mbc-val">{{ beat.emotion_gap }}</span>
-                </div>
-                <div v-if="beat.forbidden_drift" class="mbc-row">
-                  <span class="mbc-tag mbc-tag--warn">禁止</span><span class="mbc-val mbc-val--muted">{{ beat.forbidden_drift }}</span>
-                </div>
-              </div>
-            </div>
-          </n-space>
+          <pre v-if="chapterPlan?.outline?.trim()" class="chapter-script-text">{{ chapterPlan.outline }}</pre>
           <n-empty
             v-else
-            :description="microEmptyDescription"
+            description="暂无章节执行剧本：请先完成幕规划，或为本章补充七段式执行剧本。"
             size="small"
           />
         </n-card>
@@ -150,17 +71,17 @@ const props = withDefaults(
     currentChapterNumber?: number | null
     readOnly?: boolean
     autopilotChapterReview?: AutopilotChapterAudit | null
-    /** 辅助撰稿 · 最近一次流式生成下发的指挥器节拍（与 SSE beats_generated 一致） */
+    /** 辅助撰稿旧链路 · 最近一次流式生成下发的指挥器节拍 */
     assistStreamBeatSession?: { chapterNumber: number; beats: StreamGeneratedBeat[] } | null
     /** 对应章节流式生成失败时，规划卡片才用章纲拆条预览 */
     assistStreamFailedChapter?: number | null
     /** 流式完成但章前拆拍失败（≤1 拍） */
     assistStreamPlanFailedChapter?: number | null
-    /** 全托管正在写的本章且 total_beats≤1（规划已结束但拆拍不足） */
+    /** 全托管正在写的本章且执行剧本已准备 */
     autopilotOutlinePlanFailed?: boolean
     /** 全托管是否仍在运行（用于空态文案，避免停止后仍显示「规划进行中」） */
     autopilotRunning?: boolean
-    /** 最近一次流式生成完成的章号（无导演节拍时用于提示） */
+    /** 最近一次流式生成完成的章号 */
     assistStreamCompletedChapter?: number | null
     /** 全托管 /status 的 outline_plan_mode（如 raw_outline_single） */
     outlinePlanMode?: string
@@ -246,16 +167,7 @@ const beatLines = computed(() => {
 
 const showBeatsCard = computed(() => {
   if (!props.currentChapterNumber) return false
-  if (chapterPlan.value?.outline?.trim()) return true
-  if (knowledgeChapter.value) return true
-  if (
-    props.assistStreamBeatSession?.chapterNumber === props.currentChapterNumber &&
-    props.assistStreamBeatSession.beats.length > 0
-  ) {
-    return true
-  }
-  if (props.assistStreamFailedChapter === props.currentChapterNumber) return true
-  return false
+  return true
 })
 
 interface MicroBeat {
@@ -516,7 +428,7 @@ const microEmptyDescription = computed(() => {
   if (beatLines.value.length > 0) {
     return '暂无指挥器节拍（托管已停止或未执行章前拆拍）；可重新启动托管或使用流式生成'
   }
-  return '暂无导演节拍：流式生成或全托管写作时将进行章前规划（outline_planning）'
+  return '暂无章节执行剧本：请先完成幕规划'
 })
 
 function findChapterNode(nodes: StoryNode[], num: number): StoryNode | null {
@@ -648,7 +560,23 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-/* 节拍列表 */
+.chapter-script-text {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 520px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 6px;
+  border: 1px solid var(--app-border);
+  background: var(--cc-surface-subtle);
+  color: var(--cc-text);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+/* 旧链路列表样式 */
 .cc-beat-list {
   margin: 8px 0 0;
   padding-left: 1.2em;
@@ -656,7 +584,7 @@ onUnmounted(() => {
   line-height: 1.8;
 }
 
-/* 导演节拍 */
+/* 旧链路规划项样式 */
 .micro-beat-item {
   padding: 12px 14px;
   border-radius: var(--app-radius-md, 10px);

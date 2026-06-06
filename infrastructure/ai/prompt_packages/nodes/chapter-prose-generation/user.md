@@ -6,7 +6,7 @@
 章节：第 {chapter_number} 章
 章节标题：{chapter_title}
 
-章节大纲：
+章节执行剧本：
 {chapter_outline}
 
 前章摘要：
@@ -24,4 +24,4 @@
 用户本次要求：
 {user_requirements}
 
-请直接输出本章正文。
+请一次性写完整章正文，只输出正文。

@@ -171,7 +171,7 @@
                           <template #trigger>
                             <span class="wordcount-help">?</span>
                           </template>
-                          流式阶段模型常会写出超过单章目标的缓冲，系统在每节拍末会收束；落稿字数会贴近你在书目里设的「每章目标字数」。
+                          流式阶段模型常会写出超过单章目标的缓冲；落稿字数会贴近你在书目里设的「每章目标字数」。
                         </n-tooltip>
                         <span class="streaming-indicator">生成中</span>
                       </template>
@@ -646,7 +646,7 @@
               </n-space>
             </n-space>
 
-            <!-- SSE 实时日志 + 章前规划骨架 -->
+            <!-- SSE 实时日志 + 执行剧本准备骨架 -->
             <n-card v-if="generateInProgress" size="small" bordered class="gen-stream-meta-card">
               <template #header>
                 <n-space justify="space-between" align="center" style="width: 100%">
@@ -659,7 +659,7 @@
               <n-space vertical :size="10">
                 <div v-if="planningSkeletonRows > 0">
                   <n-text depth="3" style="font-size: 11px; display: block; margin-bottom: 8px">
-                    章前规划 · 流式 Loading（逐条骨架）
+                    章节执行剧本准备中
                   </n-text>
                   <div
                     v-for="i in planningSkeletonRows"
@@ -957,9 +957,9 @@ const streamPhaseLabel = ref('')
 const streamProgressPct = ref(0)
 const streamStats = ref({ chars: 0, estimated_tokens: 0, chunks: 0 })
 
-/** 辅助撰稿 · 流式生成下发的指挥器节拍（SSE beats_generated） */
+/** 辅助撰稿旧链路 · 流式生成下发的指挥器节拍 */
 const assistStreamBeatSession = ref<{ chapterNumber: number; beats: StreamGeneratedBeat[] } | null>(null)
-/** 对应章节流式调用失败时，侧栏微观节拍才降级为章纲分条预览 */
+/** 旧链路：对应章节流式调用失败 */
 const assistStreamFailedChapter = ref<number | null>(null)
 /** 流式完成但章前拆拍失败或仅 1 拍（降级） */
 const assistStreamPlanFailedChapter = ref<number | null>(null)
@@ -977,9 +977,9 @@ const useCustomProsePrompt = ref(false)
 const customProseTemplate = ref('')
 const prosePromptVarPairs = ref<Array<{ key: string; value: string }>>([])
 
-/** 全托管：当前章规划已结束且 total_beats≤1 → 微观区才用章纲拆条 */
+/** 全托管：章节执行剧本已准备，整章写作不再拆拍 */
 const AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS = new Set([
-  'beat_magnification',
+  'chapter_plan_ready',
   'llm_calling',
   'persisting',
   'continuity_check',
@@ -998,9 +998,7 @@ const autopilotOutlinePlanFailedForRail = computed(() => {
   if (Number(st.current_chapter_number) !== ch) return false
   const sub = String(st.writing_substep ?? '')
   if (!AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS.has(sub)) return false
-  const planned = Array.isArray(st.planned_micro_beats) ? st.planned_micro_beats.length : 0
-  if (planned > 1) return false
-  return Number(st.total_beats ?? 0) <= 1
+  return true
 })
 
 const autopilotOutlinePlanModeForRail = computed(() => {
@@ -1011,7 +1009,7 @@ const autopilotOutlinePlanModeForRail = computed(() => {
   return String(st.outline_plan_mode ?? '').trim()
 })
 
-/** 全托管章前规划节拍：session 缓存优先，再读 /status planned_micro_beats */
+/** 旧流式节拍缓存只服务历史手动链路；全托管主链不再写 planned_micro_beats */
 const autopilotPlannedBeatSession = computed(() => {
   const ch = currentChapter.value?.number
   if (!ch) return null
@@ -1153,7 +1151,8 @@ function briefPhaseLogLabel(phase: string): string {
     planning: '宏观 planning',
     context: '上下文 context',
     script: '剧本生成 script',
-    outline_planning: '章前规划 outline_planning',
+    outline_planning: '执行剧本准备',
+    chapter_plan_ready: '执行剧本已就绪',
     prose: '正文撰写 prose',
     llm: '正文撰写 llm（兼容）',
     post: '质检 post',
@@ -1987,6 +1986,7 @@ function streamPhaseToProgress(phase: string): number {
     script: 52,
     prose: 78,
     outline_planning: 48,
+    chapter_plan_ready: 50,
     llm: 72,
     post: 92,
   }
@@ -1998,7 +1998,8 @@ function streamPhaseToLabel(phase: string): string {
     planning: '宏观 planning…',
     context: '组装上下文…',
     script: '生成六模块剧本…',
-    outline_planning: '章前规划 · LLM 流式划分节拍…',
+    outline_planning: '章节执行剧本准备…',
+    chapter_plan_ready: '章节执行剧本已就绪…',
     prose: '正文撰写…',
     llm: '撰写正文…',
     post: '质检与收尾…',
@@ -2152,8 +2153,8 @@ const handleStartGenerate = async () => {
           streamPhaseLabel.value = streamPhaseToLabel('prose')
           streamProgressPct.value = streamPhaseToProgress('prose')
           pushGenerateSseLog(
-            '节拍',
-            beats.length > 0 ? `beats_generated ×${beats.length}` : 'beats_generated（0）',
+            '规划',
+            beats.length > 0 ? `历史拆拍结果 ×${beats.length}` : '规划未返回拆拍',
           )
           if (beats.length >= 2) {
             if (assistStreamPlanFailedChapter.value === targetChapterNumber) {
@@ -2168,14 +2169,14 @@ const handleStartGenerate = async () => {
           if (stage === 'outline_partition') {
             outlinePartitionChunkCount.value += 1
             generateStreamPhase.value = 'outline_planning'
-            streamPhaseLabel.value = '章前规划 · 流式划分节拍…'
+            streamPhaseLabel.value = '章节执行剧本准备…'
             streamProgressPct.value = Math.max(
               streamProgressPct.value,
               streamPhaseToProgress('outline_planning'),
             )
             const n = outlinePartitionChunkCount.value
             if (n === 1 || n % 4 === 0) {
-              pushGenerateSseLog('规划', `outline_partition Δ ×${n}（+${text.length}）`)
+              pushGenerateSseLog('规划', `执行剧本增量 ×${n}（+${text.length}）`)
             }
           }
         },

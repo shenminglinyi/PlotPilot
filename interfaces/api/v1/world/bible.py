@@ -803,6 +803,10 @@ async def _sse_bible_generator(
 
             except Exception as e:
                 logger.error("Failed to stream full worldbuilding: %s", e)
+                yield _sse_fmt("error", {
+                    "message": f"世界观生成未完成，已停止后续流程：{e}",
+                })
+                return
 
             # Field-level streaming can succeed even when the final dimension object
             # cannot be parsed as strict JSON (common when models emit raw newlines in

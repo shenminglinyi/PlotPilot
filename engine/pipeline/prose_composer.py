@@ -71,11 +71,15 @@ class ChapterProseInvocationComposer:
         }
 
     @staticmethod
+    def _max_output_tokens(request: ProseCompositionRequest) -> int:
+        target_words = max(1, int(request.target_words or 2500))
+        return max(12000, int(target_words * 3.2))
+
+    @staticmethod
     def _build_config(request: ProseCompositionRequest):
         from domain.ai.services.llm_service import GenerationConfig
 
-        target_words = max(1, int(request.target_words or 2500))
-        return GenerationConfig(max_tokens=int(target_words * 1.8), temperature=0.85)
+        return GenerationConfig(max_tokens=ChapterProseInvocationComposer._max_output_tokens(request), temperature=0.85)
 
     async def compose(self, request: ProseCompositionRequest) -> ProseCompositionResult:
         from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
@@ -109,8 +113,9 @@ class ChapterProseInvocationComposer:
             metadata={
                 "source": "story_pipeline.chapter_prose_composer",
                 "target_words": request.target_words,
+                "generation_mode": "full_chapter_once",
             },
-            config={"max_tokens": int(max(1, request.target_words) * 1.8), "temperature": 0.85},
+            config={"max_tokens": self._max_output_tokens(request), "temperature": 0.85},
         )
         host = request.host or type("StoryPipelineComposerHost", (), {"llm_service": request.llm_service})()
         orchestrator = get_or_create_autopilot_orchestrator(host)

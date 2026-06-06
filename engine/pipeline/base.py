@@ -5,8 +5,8 @@
 完整管线流程（单章生成）：
  1. _step_find_next_chapter(ctx)     定位下一个待写章节
  2. _step_build_context(ctx)         组装上下文（四层洋葱挤压）
- 3. _step_magnify_beats(ctx)         节拍放大（大纲→微观节拍）
- 4. _step_generate(ctx)              LLM 生成（节拍级+断点续写）
+ 3. _step_prepare_chapter_plan(ctx)  章节执行剧本准备
+ 4. _step_generate(ctx)              LLM 整章一次生成
  5. _step_validate_content(ctx)      策略验证（反AI/俗套/一致性）
  6. _step_save_chapter(ctx)          保存章节（独立短连接写库）
  7. _step_validate_voice(ctx)        文风审计（声线漂移检测+改写）
@@ -23,11 +23,6 @@ from typing import Any, Dict, List, Optional
 
 from engine.pipeline.context import PipelineContext, PipelineResult
 from engine.pipeline.steps import StepResult
-from engine.pipeline.beat_contracts import (
-    merge_beats_by_target,
-    serialize_beats_for_shared_state,
-)
-from engine.pipeline.generation_prompt_builder import build_generation_prompt, make_prompt
 from engine.pipeline.telemetry import story_pipeline_wave_meta
 
 logger = logging.getLogger(__name__)
@@ -63,7 +58,7 @@ class BaseStoryPipeline(ABC):
     - VOICE_REWRITE_THRESHOLD: 声线漂移阈值
     - VOICE_REWRITE_MAX_ATTEMPTS: 定向改写最大轮数
     - MIN_PASS_SCORE: 策略验证最低通过分数
-    - BATCH_WRITE_INTERVAL: 节拍批量写库间隔
+    - BATCH_WRITE_INTERVAL: 保留给兼容运行时的批量写库间隔
     """
 
     # ─── 可覆写的类属性（调参） ───
@@ -132,25 +127,24 @@ class BaseStoryPipeline(ABC):
                 chapter_target_words=ctx.target_word_count,
             )
 
-            # 3. 节拍放大（大纲→微观节拍）
-            r = await self._step_magnify_beats(ctx)
-            step_status["magnify_beats"] = "ok" if r.passed else "failed"
+            # 3. 章节执行剧本准备（不再拆 beat，不再循环生成）
+            r = await self._step_prepare_chapter_plan(ctx)
+            step_status["prepare_chapter_plan"] = "ok" if r.passed else "failed"
             if not r.passed:
                 return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
             _writing_progress(
                 ctx,
-                "beat_magnification",
-                f"节拍拆分（{len(ctx.beats)} 个）",
+                "chapter_plan_ready",
+                "章节执行剧本准备完成",
                 pipeline_wave_index=3,
                 current_chapter_number=ctx.chapter_number,
-                total_beats=len(ctx.beats),
+                total_beats=0,
                 current_beat_index=0,
                 chapter_target_words=ctx.target_word_count,
-                planned_micro_beats=serialize_beats_for_shared_state(ctx.beats),
-                outline_plan_mode=ctx.metadata.get("outline_plan_mode") or "",
+                chapter_plan_mode=ctx.metadata.get("chapter_plan_mode") or "",
             )
 
-            # 4. LLM 生成（节拍级+断点续写）
+            # 4. LLM 生成（整章一次写完）
             r = await self._step_generate(ctx)
             step_status["generate"] = "ok" if r.passed else "failed"
             if not r.passed:
@@ -423,139 +417,37 @@ class BaseStoryPipeline(ABC):
 
         return StepResult.ok()
 
-    async def _step_magnify_beats(self, ctx: PipelineContext) -> StepResult:
-        """步骤3：节拍放大（大纲→微观节拍）
+    async def _step_prepare_chapter_plan(self, ctx: PipelineContext) -> StepResult:
+        """步骤3：准备章节执行剧本。
 
-        默认实现：委托给 ContextBuilder.magnify_outline_to_beats()
-        将章节大纲拆分为多个微观节拍，每个节拍有独立的焦点和目标字数。
-
-        子类覆写场景：
-        - 短剧引擎：减少节拍数、降低每拍字数
-        - 史诗引擎：增加节拍数、每拍更多感官描写
+        幕规划阶段应已把章节 outline 写成完整执行剧本。本步骤只校验并
+        标记模式，不再把 outline 拆成 beat，也不再触发章前 LLM 拆拍。
         """
-        self._log_step("magnify_beats", "节拍放大")
+        self._log_step("prepare_chapter_plan", "章节执行剧本准备")
+        ctx.beats = []
+        ctx.metadata["chapter_plan_mode"] = "full_chapter_script"
+        ctx.metadata["outline_plan_mode"] = "full_chapter_script"
 
-        def _sync_project_beats(label: str) -> list:
-            from application.engine.dag.plan.outline_beat_planner import build_chapter_execution_plan_sync
-            from application.engine.services.beat_planner import (
-                generate_expansion_hints,
-                infer_focus_from_outline,
-            )
-            from application.engine.services.beat_projection import (
-                beat_sheet_to_plan_json,
-                beats_from_execution_plan,
-            )
+        outline = (ctx.outline or "").strip()
+        if not outline:
+            return StepResult.fail("章节执行剧本为空，无法整章生成")
 
-            plan = build_chapter_execution_plan_sync(
-                ctx.outline or "",
-                target_chapter_words=ctx.target_word_count,
-                novel_id=ctx.novel_id,
-                chapter_number=ctx.chapter_number,
-                beat_sheet_json=beat_sheet_to_plan_json(ctx.beat_sheet),
-                decomposition_label=label,
-            )
-            return beats_from_execution_plan(
-                plan,
-                outline=ctx.outline or "",
-                target_chapter_words=ctx.target_word_count,
-                infer_focus=infer_focus_from_outline,
-                build_expansion_hints=lambda focus, words: generate_expansion_hints(focus, words, {}),
-            )
-
-        if ctx.context_builder is not None:
-            try:
-                from application.engine.services.beat_projection import beat_sheet_to_plan_json
-                beat_sheet_json = beat_sheet_to_plan_json(ctx.beat_sheet)
-                from application.engine.dag.plan.outline_beat_planner import (
-                    build_chapter_execution_plan_async,
-                    build_chapter_execution_plan_sync,
-                )
-
-                chapter_plan = None
-                try:
-                    chapter_plan = await build_chapter_execution_plan_async(
-                        ctx.outline or "",
-                        target_chapter_words=ctx.target_word_count,
-                        novel_id=ctx.novel_id,
-                        chapter_number=ctx.chapter_number,
-                        beat_sheet_json=beat_sheet_json,
-                        use_llm=True,
-                        llm_service=ctx.llm_service,
-                    )
-                except Exception as e:
-                    logger.warning("章前执行计划（拆节拍）异步构建失败，转同步 ChapterExecutionPlan：%s", e)
-                    chapter_plan = build_chapter_execution_plan_sync(
-                        ctx.outline or "",
-                        target_chapter_words=ctx.target_word_count,
-                        novel_id=ctx.novel_id,
-                        chapter_number=ctx.chapter_number,
-                        beat_sheet_json=beat_sheet_json,
-                        decomposition_label="pipeline_sync_fallback",
-                    )
-
-                ctx.beats = ctx.context_builder.magnify_outline_to_beats(
-                    ctx.chapter_number,
-                    ctx.outline,
-                    target_chapter_words=ctx.target_word_count,
-                    chapter_execution_plan=chapter_plan,
-                    beat_sheet=None,
-                    scene_director=getattr(ctx, "scene_director", None),
-                )
-                if chapter_plan is not None and isinstance(getattr(chapter_plan, "provenance", None), dict):
-                    ctx.metadata["outline_plan_mode"] = str(chapter_plan.provenance.get("mode") or "")
-                logger.info(f"[{ctx.novel_id}] 节拍拆分: {len(ctx.beats)} 个节拍")
-            except Exception as e:
-                logger.warning(f"节拍放大失败，转同步 ChapterExecutionPlan 投影: {e}")
-                try:
-                    ctx.beats = _sync_project_beats("pipeline_projection_sync_fallback")
-                except Exception as sync_err:
-                    logger.error("同步 ChapterExecutionPlan 投影失败: %s", sync_err)
-                    ctx.beats = []
-        else:
-            try:
-                ctx.beats = _sync_project_beats("pipeline_no_context_builder_sync_projection")
-            except Exception as sync_err:
-                logger.error("ContextBuilder 不可用，且同步 ChapterExecutionPlan 投影失败: %s", sync_err)
-                ctx.beats = []
-
+        logger.info(
+            "[%s] 第 %s 章使用整章执行剧本生成，plan_chars=%d target_words=%d",
+            ctx.novel_id,
+            ctx.chapter_number,
+            len(outline),
+            ctx.target_word_count,
+        )
         return StepResult.ok()
 
-    @staticmethod
-    def _merge_beats_by_target(beats: list, total_target: int) -> list:
-        """根据总目标字数智能合并节拍。
-
-        合并策略：
-        - total ≤ 1800 字 → 1 次调用（整章一气呵成）
-        - total 1800-3200 字 → 最多 2 次调用（前半 / 后半）
-        - total > 3200 字 → 保留原始节拍，但将 < 350 字的微小节拍合入相邻拍
-
-        目的：减少 LLM 调用次数，使每次调用的 max_tokens 更贴近实际目标，
-        避免多次小调用的字数偏差叠加。
-        """
-        return merge_beats_by_target(beats, total_target)
-
     async def _step_generate(self, ctx: PipelineContext) -> StepResult:
-        composer = self._select_prose_composer(ctx)
-        if composer is not None:
-            return await self._step_generate_with_composer(ctx, composer)
-        return await self._step_generate_by_beats(ctx)
-
-    def _select_prose_composer(self, ctx: PipelineContext):
-        """Select the chapter-level prose composer for the managed main path.
-
-        The current pipeline can pause/review inside beat generation, but it
-        cannot yet resume from "whole chapter composed, continue at validation".
-        Keep manual review on the existing beat path; use the migrated composer
-        for the default auto-approved hosted flow.
-        """
-        if not ctx.auto_approve_mode:
-            return None
         composer = ctx.get_dep("prose_composer")
         if composer is not None:
-            return composer
+            return await self._step_generate_with_composer(ctx, composer)
         from engine.pipeline.prose_composer import ChapterProseInvocationComposer
 
-        return ChapterProseInvocationComposer()
+        return await self._step_generate_with_composer(ctx, ChapterProseInvocationComposer())
 
     async def _step_generate_with_composer(self, ctx: PipelineContext, composer: Any) -> StepResult:
         self._log_step("generate", "LLM 生成（整章正文 Composer）")
@@ -571,7 +463,7 @@ class BaseStoryPipeline(ABC):
             "整章正文撰写",
             pipeline_wave_index=4,
             current_chapter_number=ctx.chapter_number,
-            total_beats=len(ctx.beats) if ctx.beats else 0,
+            total_beats=0,
             current_beat_index=0,
             chapter_target_words=ctx.target_word_count,
             accumulated_words=len((ctx.existing_content or "").strip()),
@@ -585,7 +477,7 @@ class BaseStoryPipeline(ABC):
                 "整章正文撰写",
                 pipeline_wave_index=4,
                 current_chapter_number=ctx.chapter_number,
-                total_beats=len(ctx.beats) if ctx.beats else 0,
+                total_beats=0,
                 current_beat_index=0,
                 chapter_target_words=ctx.target_word_count,
                 accumulated_words=len((content or "").strip()),
@@ -611,8 +503,8 @@ class BaseStoryPipeline(ABC):
         try:
             result = await composer.compose(request)
         except Exception as exc:
-            logger.warning("[%s] 整章 Composer 失败，回退节拍写作: %s", ctx.novel_id, exc)
-            return await self._step_generate_by_beats(ctx)
+            logger.error("[%s] 整章 Composer 失败，停止本章生成: %s", ctx.novel_id, exc)
+            return StepResult.fail(f"整章正文生成失败: {exc}")
 
         if result.awaiting_review:
             ctx.metadata["awaiting_ai_review"] = True
@@ -626,176 +518,6 @@ class BaseStoryPipeline(ABC):
         ctx.chapter_content = content
         ctx.word_count = len(content)
         self._push_streaming_snapshot(ctx.novel_id, content)
-        return StepResult.ok()
-
-    async def _step_generate_by_beats(self, ctx: PipelineContext) -> StepResult:
-        """步骤4：LLM 生成（节拍级+断点续写）
-
-        默认实现：逐节拍调用 LLM，支持断点续写。
-        子类可覆写 _build_generation_prompt() 修改 prompt 模板，
-        或覆写 _post_process_generation() 后处理。
-
-        子类覆写场景：
-        - 覆写 _build_generation_prompt() 修改 prompt 模板
-        - 覆写 _post_process_generation() 后处理
-        """
-        self._log_step("generate", f"LLM 生成，节拍数={len(ctx.beats)}")
-
-        if ctx.llm_service is None:
-            return StepResult.fail("llm_service 未设置，无法生成")
-
-        accumulated_content = ctx.existing_content
-        ctx.raw_beat_contents = []
-        ctx.metadata.pop("awaiting_ai_review", None)
-
-        # ─── 智能节拍合并（按总目标字数控制 LLM 调用次数） ────────────
-        # 仅首次生成时合并（断点续写时保留原始 beat 索引）
-        if ctx.start_beat_index == 0 and len(ctx.beats) > 1:
-            _orig_beat_count = len(ctx.beats)
-            ctx.beats = self._merge_beats_by_target(ctx.beats, ctx.target_word_count)
-            if len(ctx.beats) != _orig_beat_count:
-                logger.info(
-                    "[%s] 节拍合并: %d → %d 拍（总目标 %d 字）",
-                    ctx.novel_id, _orig_beat_count, len(ctx.beats), ctx.target_word_count,
-                )
-
-        # ─── 节拍中间件初始化（StepTension / Coherence / Transition） ────
-        _beat_middlewares = []
-        _mw_ctx = None
-        try:
-            from application.engine.services.beat_middleware import (
-                init_beat_middlewares, BeatMiddlewareContext,
-            )
-            _beat_middlewares = init_beat_middlewares()
-            _mw_ctx = BeatMiddlewareContext(
-                novel_id=ctx.novel_id or "",
-                chapter_number=ctx.chapter_number,
-                total_beats=len(ctx.beats),
-            )
-        except Exception as _mw_init_err:
-            logger.debug("Beat middlewares unavailable, skipping: %s", _mw_init_err)
-
-        _stopped_by_signal = False
-
-        for i, beat in enumerate(ctx.beats):
-            if i < ctx.start_beat_index:
-                continue
-
-            n_beats = max(len(ctx.beats), 1)
-            acc0 = len((accumulated_content or "").strip())
-            _card = getattr(beat, "emotion_beat_card", None)
-            _writing_progress(
-                ctx,
-                "llm_calling",
-                f"节拍 {i + 1}/{n_beats} 撰写",
-                pipeline_wave_index=4,
-                current_chapter_number=ctx.chapter_number,
-                total_beats=n_beats,
-                current_beat_index=i,
-                chapter_target_words=ctx.target_word_count,
-                accumulated_words=acc0,
-                beat_focus=(str(getattr(beat, "focus", "") or "").strip() or None),
-                beat_active_action=(getattr(_card, "active_action", None) if _card else None),
-                beat_emotion_gap=(getattr(_card, "emotion_gap", None) if _card else None),
-                beat_forbidden_drift=(getattr(_card, "forbidden_drift", None) if _card else None),
-            )
-
-            # 构建 prompt
-            prompt_text = self._build_generation_prompt(ctx, beat, i)
-            target = getattr(beat, 'target_words', ctx.target_word_count // max(len(ctx.beats), 1))
-
-            # 节拍中间件 pre_beat（注入 STEP 张力 / 连贯性 / 过渡方式）
-            if _beat_middlewares and _mw_ctx is not None:
-                _mw_ctx.beat_index = i
-                _mw_ctx.beat = beat
-                _mw_ctx.accumulated_content = accumulated_content or ""
-                for _mw in _beat_middlewares:
-                    try:
-                        prompt_text, target = _mw.pre_beat(prompt_text, target, _mw_ctx)
-                    except Exception as _mw_err:
-                        logger.debug("Middleware pre_beat skipped: %s", _mw_err)
-
-            # 流式调用 LLM（推送 streaming_bus，供 Autopilot chapter-stream SSE）
-            try:
-                from domain.ai.services.llm_service import GenerationConfig
-                max_tokens = int(target * 1.3)
-                cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
-
-                chapter_draft_so_far = (accumulated_content or "").strip()
-                beat_content = await self._stream_beat_llm(
-                    ctx,
-                    self._make_prompt(prompt_text),
-                    cfg,
-                    chapter_draft_so_far=chapter_draft_so_far,
-                    beat_index=i,
-                    n_beats=n_beats,
-                )
-
-                if ctx.metadata.get("awaiting_ai_review"):
-                    return StepResult.fail("awaiting_ai_review")
-
-                # 停止信号检测：若本节拍被中途打断，丢弃不完整内容并退出循环
-                if self._novel_stream_should_stop(ctx.novel_id):
-                    logger.info(
-                        "[%s] 节拍 %d/%d 被停止信号中断，丢弃不完整内容，回滚到上一快照",
-                        ctx.novel_id, i + 1, n_beats,
-                    )
-                    _stopped_by_signal = True
-                    break
-
-                # 后处理
-                beat_content = self._post_process_generation(beat_content, ctx)
-
-                # 节拍中间件 post_beat（更新连贯性上下文，供下一节拍使用）
-                if _beat_middlewares and _mw_ctx is not None:
-                    for _mw in _beat_middlewares:
-                        try:
-                            _mw_ctx = _mw.post_beat(beat_content, _mw_ctx)
-                        except Exception as _mw_err:
-                            logger.debug("Middleware post_beat skipped: %s", _mw_err)
-
-                if beat_content.strip():
-                    if accumulated_content:
-                        accumulated_content += "\n\n" + beat_content.strip()
-                    else:
-                        accumulated_content = beat_content.strip()
-                    ctx.raw_beat_contents.append(beat_content.strip())
-                    # 后处理后的整章快照（与落库正文一致，避免流式区仍显示原始 LLM 输出）
-                    self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
-                    _writing_progress(
-                        ctx,
-                        "llm_calling",
-                        f"节拍 {i + 1}/{n_beats} 撰写",
-                        pipeline_wave_index=4,
-                        current_chapter_number=ctx.chapter_number,
-                        total_beats=n_beats,
-                        current_beat_index=i,
-                        chapter_target_words=ctx.target_word_count,
-                        accumulated_words=len(accumulated_content.strip()),
-                        beat_focus=(str(getattr(beat, "focus", "") or "").strip() or None),
-                    )
-
-            except Exception as e:
-                logger.warning(f"[{ctx.novel_id}] 节拍 {i+1} 生成失败: {e}")
-                if str(e).startswith("story_pipeline_ai_invocation_failed:"):
-                    return StepResult.fail(str(e))
-                # 继续下一个节拍
-
-        if _stopped_by_signal:
-            # 恢复 streaming_bus 到上一完整快照（清空显示中的不完整内容）
-            if accumulated_content:
-                self._push_streaming_snapshot(ctx.novel_id, accumulated_content.strip())
-            return StepResult.fail("生成被停止信号中断，不保存（下次重新生成）")
-
-        if ctx.metadata.get("awaiting_ai_review"):
-            return StepResult.fail("awaiting_ai_review")
-
-        if not accumulated_content.strip():
-            return StepResult.fail("章节正文生成失败：所有节拍均未产出有效正文")
-
-        ctx.chapter_content = accumulated_content or ""
-        raw = accumulated_content or ""
-        ctx.word_count = len(raw)
         return StepResult.ok()
 
     async def _step_validate_content(self, ctx: PipelineContext) -> StepResult:
@@ -820,7 +542,7 @@ class BaseStoryPipeline(ABC):
             "策略校验（反AI·一致性）",
             pipeline_wave_index=5,
             current_chapter_number=ctx.chapter_number,
-            total_beats=len(ctx.beats) if ctx.beats else 0,
+            total_beats=0,
             chapter_target_words=ctx.target_word_count,
             accumulated_words=ctx.word_count,
         )
@@ -880,7 +602,7 @@ class BaseStoryPipeline(ABC):
             "章节落盘",
             pipeline_wave_index=6,
             current_chapter_number=ctx.chapter_number,
-            total_beats=len(ctx.beats) if ctx.beats else 0,
+            total_beats=0,
             current_beat_index=getattr(ctx, "start_beat_index", 0),
             chapter_target_words=ctx.target_word_count,
             accumulated_words=ctx.word_count,
@@ -1128,10 +850,6 @@ class BaseStoryPipeline(ABC):
     # 辅助方法（protected，子类可覆写）
     # ═══════════════════════════════════════════════════════════════
 
-    def _build_generation_prompt(self, ctx: PipelineContext, beat: Any, beat_index: int) -> str:
-        """构建生成 prompt — 子类可覆写以定制 prompt 模板"""
-        return build_generation_prompt(ctx, beat, beat_index)
-
     def _post_process_generation(self, content: str, ctx: PipelineContext) -> str:
         """生成后处理 — 子类可覆写以添加后处理逻辑"""
         try:
@@ -1153,10 +871,6 @@ class BaseStoryPipeline(ABC):
             return s
         except ImportError:
             return content
-
-    def _make_prompt(self, text: str) -> Any:
-        """将文本转为 Prompt 对象"""
-        return make_prompt(text)
 
     def _push_streaming_snapshot(self, novel_id: str, content: str) -> None:
         """推送整章累积快照到 StreamingBus，供 /autopilot/.../chapter-stream 消费。"""
@@ -1187,16 +901,6 @@ class BaseStoryPipeline(ABC):
             return is_novel_stopped(novel_id)
         except Exception:
             return False
-
-    @staticmethod
-    def _live_chapter_snapshot(chapter_draft_so_far: str, chunk_buffer: List[str]) -> str:
-        beat_part = "".join(chunk_buffer)
-        prior = (chapter_draft_so_far or "").strip()
-        if not prior:
-            return beat_part
-        if not beat_part:
-            return prior
-        return f"{prior}\n\n{beat_part}"
 
     async def _stream_prose_llm(self, ctx: PipelineContext, prompt: Any, config: Any) -> str:
         """Stream a single prose call and publish cumulative snapshots.
@@ -1229,136 +933,6 @@ class BaseStoryPipeline(ABC):
             _maybe_push()
         _maybe_push(force=True)
         return "".join(content_parts)
-
-    async def _stream_beat_llm(
-        self,
-        ctx: PipelineContext,
-        prompt: Any,
-        config: Any,
-        *,
-        chapter_draft_so_far: str,
-        beat_index: int,
-        n_beats: int,
-    ) -> str:
-        """单节拍流式生成，周期性推送整章快照。"""
-        novel_id = ctx.novel_id
-        chunk_buffer: List[str] = []
-        last_push = time.monotonic()
-        content = ""
-
-        def _maybe_push(*, force: bool = False) -> None:
-            nonlocal last_push
-            now = time.monotonic()
-            if not force and (now - last_push) < self.STREAM_PUSH_INTERVAL:
-                return
-            snap = self._live_chapter_snapshot(chapter_draft_so_far, chunk_buffer)
-            if not snap:
-                return
-            self._push_streaming_snapshot(novel_id, snap)
-            _writing_progress(
-                ctx,
-                "llm_calling",
-                f"节拍 {beat_index + 1}/{n_beats} 撰写",
-                pipeline_wave_index=4,
-                current_chapter_number=ctx.chapter_number,
-                total_beats=n_beats,
-                current_beat_index=beat_index,
-                chapter_target_words=ctx.target_word_count,
-                accumulated_words=len(snap.strip()),
-            )
-            last_push = now
-
-        try:
-            from application.ai_invocation.autopilot.factory import get_or_create_autopilot_orchestrator
-            from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
-            from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
-            from application.ai_invocation.contracts import ensure_invocation_contract
-            from application.ai_invocation.dtos import InvocationSessionStatus
-            from application.ai_invocation.variable_hub import VariableWrite
-            from infrastructure.ai.prompt_keys import AUTOPILOT_STREAM_BEAT
-            from infrastructure.persistence.database.connection import get_database
-            from infrastructure.persistence.database.sqlite_ai_invocation_repository import SqliteVariableHubRepository
-
-            db = get_database()
-            ensure_invocation_contract("autopilot.prose.from_script", AUTOPILOT_STREAM_BEAT, db)
-            context_key = f"novel_id:{novel_id}|chapter_number:{ctx.chapter_number}|beat_index:{beat_index}"
-            variable_repo = SqliteVariableHubRepository(db)
-            target_words = max(1, int((getattr(config, "max_tokens", 1000) or 1000) / 1.3))
-            variables = {
-                "outline": ctx.outline or "",
-                "last_paragraph": chapter_draft_so_far[-800:],
-                "beat_goal": getattr(prompt, "user", "") or str(prompt),
-                "target_words": target_words,
-                "context_block": getattr(prompt, "user", "") or str(prompt),
-            }
-            for key, value in (
-                ("chapter.outline", variables["outline"]),
-                ("chapter.draft_so_far", variables["last_paragraph"]),
-                ("beat.current", variables["beat_goal"]),
-                ("beat.target_words", variables["target_words"]),
-                ("materialized.beat.prompt_context", variables["context_block"]),
-            ):
-                variable_repo.set_value(
-                    VariableWrite(
-                        key=key,
-                        value=value,
-                        context_key=context_key,
-                        source_node_key=AUTOPILOT_STREAM_BEAT,
-                        source_trace_id=AUTOPILOT_STREAM_BEAT,
-                        scope="beat" if key.startswith("beat.") or key.startswith("materialized.beat.") else "chapter",
-                        stage="writing",
-                        display_name=key,
-                        value_type="integer" if key == "beat.target_words" else "string",
-                    )
-                )
-
-            novel_stub = type("PipelineNovelPolicy", (), {"auto_approve_mode": ctx.auto_approve_mode})()
-            policy = AutopilotInvocationPolicyResolver().resolve(
-                operation="autopilot.prose.from_script",
-                node_key=AUTOPILOT_STREAM_BEAT,
-                novel=novel_stub,
-                context={"novel_id": novel_id, "chapter_number": ctx.chapter_number, "beat_index": beat_index},
-            )
-            intent = AutopilotInvocationIntent(
-                novel_id=novel_id,
-                stage="writing",
-                operation="autopilot.prose.from_script",
-                node_key=AUTOPILOT_STREAM_BEAT,
-                context={"novel_id": novel_id, "chapter_number": ctx.chapter_number, "beat_index": beat_index},
-                explicit_variables=variables,
-                continuation_handler_key="autopilot_prose_generation",
-                policy_hint=policy,
-                metadata={"source": "story_pipeline", "context_key": context_key},
-            )
-            host = ctx.get_dep("autopilot_host") or ctx
-            orchestrator = get_or_create_autopilot_orchestrator(host)
-            prepared = await orchestrator.prepare(intent)
-            if prepared.session.status in {
-                InvocationSessionStatus.AWAITING_PRE_CALL_REVIEW,
-                InvocationSessionStatus.BLOCKED,
-            }:
-                ctx.metadata["awaiting_ai_review"] = True
-                ctx.metadata["active_invocation_session_id"] = prepared.session.id
-                return ""
-
-            def _on_chunk(chunk: str, _full: str):
-                if self._novel_stream_should_stop(novel_id):
-                    return False
-                chunk_buffer.append(chunk)
-                _maybe_push()
-                return True
-
-            outcome = await orchestrator.generate_prepared_streaming(
-                intent=intent,
-                prepared_result=prepared,
-                config=config,
-                on_chunk=_on_chunk,
-            )
-            _maybe_push(force=True)
-            return outcome.accepted_content or content or "".join(chunk_buffer)
-        except Exception as exc:
-            logger.error("[%s] StoryPipeline AI Invocation 生成失败，停止本次自动驾驶生成: %s", novel_id, exc)
-            raise RuntimeError(f"story_pipeline_ai_invocation_failed:{exc}") from exc
 
     def _get_character_masks(self, ctx: PipelineContext) -> Dict[str, Any]:
         """获取当前章节的角色面具（供策略验证使用）"""

@@ -784,16 +784,16 @@ class AutoBibleGenerator:
 
     async def _save_worldbuilding(self, novel_id: str, worldbuilding_data: Dict[str, Any]) -> None:
         """保存世界观到 Worldbuilding V2 主文档。"""
-        from application.world.services.worldbuilding_field_text import normalize_dimension_fields
+        from application.world.worldbuilding_schema import validate_complete_dimension_fields
 
         logger.debug("_save_worldbuilding called")
 
         normalized_wb: Dict[str, Dict[str, str]] = {}
         for dim_key, dim_data in (worldbuilding_data or {}).items():
             if isinstance(dim_data, dict):
-                normalized_wb[dim_key] = normalize_dimension_fields(
-                    dim_data, dim_key=dim_key,
-                )
+                normalized = validate_complete_dimension_fields(dim_key, dim_data)
+                if normalized:
+                    normalized_wb[dim_key] = normalized
 
         # 1. 保存到Worldbuilding表（用于后续生成人物和地点时读取）
         if self.worldbuilding_service:
@@ -859,6 +859,7 @@ class AutoBibleGenerator:
                 "world_preset": "",
                 "target_chapters": target_chapters,
                 "target_words_per_chapter": 0,
+                "special_requirements": "",
                 "worldbuilding_full": "",
                 "core_rules": "",
                 "geography": "",
@@ -895,6 +896,59 @@ class AutoBibleGenerator:
 
         return build_fields_desc_for_prompt(dimension_keys)
 
+    def _worldbuilding_dimension_prompt(
+        self,
+        *,
+        dim_key: str,
+        premise: str,
+        target_chapters: int,
+        accumulated: Dict[str, Dict[str, str]],
+        attempt: int,
+        missing_fields: set[str] | None = None,
+    ) -> Prompt:
+        """Render the CPMS worldbuilding prompt for one schema dimension."""
+        fields_desc = self._build_worldbuilding_json_schema_desc_for([dim_key])
+        prior_worldbuilding = json.dumps(accumulated, ensure_ascii=False, indent=2)[:8000]
+        missing_text = "、".join(sorted(missing_fields or [])) or "无"
+        profile = {
+            "current_dimension": dim_key,
+            "attempt": attempt,
+            "missing_fields": sorted(missing_fields or []),
+            "completed_worldbuilding": accumulated,
+        }
+        return _render_required_bible_prompt(
+            BIBLE_WORLDBUILDING,
+            {
+                "premise": premise,
+                "novel_title": "",
+                "genre_major": "",
+                "genre_theme": "",
+                "genre_label": "",
+                "world_preset": "",
+                "target_chapters": target_chapters,
+                "target_words_per_chapter": 0,
+                "fields_desc": fields_desc,
+                "genre_opening_profile": profile,
+                "genre_reader_contract": {},
+                "genre_rhythm_constraints": {},
+                "special_requirements": (
+                    f"本次只生成 `{dim_key}` 这一个世界观维度；"
+                    "该维度必须是 JSON object，不得写成字符串；"
+                    f"必须包含 fields_desc 列出的所有子字段。缺失字段：{missing_text}。"
+                    f"已完成维度上下文：{prior_worldbuilding or '无'}"
+                ),
+            },
+        )
+
+    def _complete_worldbuilding_dimension(
+        self,
+        dim_key: str,
+        content: Dict[str, Any],
+    ) -> Dict[str, str]:
+        from application.world.worldbuilding_schema import validate_complete_dimension_fields
+
+        return validate_complete_dimension_fields(dim_key, content or {})
+
     async def _stream_worldbuilding_full(
         self,
         premise: str,
@@ -914,95 +968,100 @@ class AutoBibleGenerator:
         from application.world.services.worldbuilding_stream_parser import (
             WorldbuildingStreamIncrementalParser,
         )
+        from application.world.worldbuilding_merge import WORLD_BUILDING_DIMENSION_KEYS
         from application.world.worldbuilding_schema import schema_field_keys
 
-        dimension_keys = ("core_rules", "geography", "society", "culture", "daily_life")
+        dimension_keys = tuple(WORLD_BUILDING_DIMENSION_KEYS)
         config = GenerationConfig(max_tokens=4096, temperature=0.55)
         accumulated: Dict[str, Dict[str, str]] = {}
+        max_attempts = 2
 
         for dim_key in dimension_keys:
-            dim_emitted = False
-            fields_desc = self._build_worldbuilding_json_schema_desc_for([dim_key])
-            prompt = _render_required_bible_prompt(
-                BIBLE_WORLDBUILDING,
-                {
-                    "premise": premise,
-                    "novel_title": "",
-                    "genre_major": "",
-                    "genre_theme": "",
-                    "genre_label": "",
-                    "world_preset": "",
-                    "target_chapters": target_chapters,
-                    "target_words_per_chapter": 0,
-                    "worldbuilding_full": json.dumps(accumulated, ensure_ascii=False, indent=2)[:8000],
-                    "core_rules": json.dumps(accumulated.get("core_rules") or {}, ensure_ascii=False),
-                    "geography": json.dumps(accumulated.get("geography") or {}, ensure_ascii=False),
-                    "society": json.dumps(accumulated.get("society") or {}, ensure_ascii=False),
-                    "culture": json.dumps(accumulated.get("culture") or {}, ensure_ascii=False),
-                    "daily_life": json.dumps(accumulated.get("daily_life") or {}, ensure_ascii=False),
-                    "fields_desc": fields_desc,
-                    "novel_setup": (
-                        f"故事创意：{premise}\n"
-                        f"目标章节数：{target_chapters}\n"
-                        f"已完成维度：{json.dumps(accumulated, ensure_ascii=False, indent=2)[:8000] or '无'}\n"
-                        f"本次只生成 `{dim_key}` 这一个世界观维度；"
-                        "输出必须符合 fields_desc 中给出的字段模板。"
-                    ),
-                    "genre_opening_profile": {},
-                    "genre_reader_contract": {},
-                    "genre_rhythm_constraints": {},
-                },
-            )
-            parser = WorldbuildingStreamIncrementalParser()
+            completed: Dict[str, str] = {}
+            missing = set(schema_field_keys(dim_key))
 
-            try:
-                async for chunk in self.llm_service.stream_generate(prompt, config):
-                    yield {"type": "chunk", "text": chunk}
-                    for ev in parser.feed(chunk):
-                        ev_type = ev.get("type")
-                        event_dim = ev.get("key")
-                        if ev_type:
-                            logger.info(
-                                "Worldbuilding parser event: type=%s dim=%s field=%s value_len=%s",
-                                ev_type,
-                                event_dim,
-                                ev.get("field"),
-                                len(str(ev.get("value") or "")),
-                            )
-                        if event_dim != dim_key:
-                            continue
-                        if ev_type == "dimension_start":
-                            yield ev
-                        elif ev_type == "field":
-                            fk, fv = ev.get("field"), ev.get("value")
-                            if fk and fv:
-                                accumulated.setdefault(dim_key, {})[fk] = fv
-                            yield ev
-                        elif ev_type == "dimension":
-                            dim_data = ev.get("content") or {}
-                            if dim_data:
-                                accumulated.setdefault(dim_key, {}).update(dim_data)
-                                dim_emitted = True
-                            yield ev
-
-                full_wb = parser.parse_full_worldbuilding(
-                    sanitize=_sanitize_llm_json_output,
-                    repair=_repair_json_string,
+            for attempt in range(1, max_attempts + 1):
+                dim_emitted = False
+                parser = WorldbuildingStreamIncrementalParser()
+                prompt = self._worldbuilding_dimension_prompt(
+                    dim_key=dim_key,
+                    premise=premise,
+                    target_chapters=target_chapters,
+                    accumulated=accumulated,
+                    attempt=attempt,
+                    missing_fields=missing,
                 )
-                dim_data = full_wb.get(dim_key) or {}
-                if dim_data and not dim_emitted:
-                    accumulated.setdefault(dim_key, {}).update(dim_data)
-                    yield {"type": "dimension", "key": dim_key, "content": dim_data}
 
-                missing = schema_field_keys(dim_key) - set(accumulated.get(dim_key, {}))
-                if missing:
-                    logger.warning(
-                        "Worldbuilding dimension incomplete after split generation: dim=%s missing=%s",
+                try:
+                    async for chunk in self.llm_service.stream_generate(prompt, config):
+                        yield {"type": "chunk", "text": chunk}
+                        for ev in parser.feed(chunk):
+                            ev_type = ev.get("type")
+                            event_dim = ev.get("key")
+                            if ev_type:
+                                logger.info(
+                                    "Worldbuilding parser event: type=%s dim=%s field=%s value_len=%s",
+                                    ev_type,
+                                    event_dim,
+                                    ev.get("field"),
+                                    len(str(ev.get("value") or "")),
+                                )
+                            if event_dim != dim_key:
+                                continue
+                            if ev_type == "dimension_start":
+                                yield ev
+                            elif ev_type == "field":
+                                fk, fv = ev.get("field"), ev.get("value")
+                                if fk and fv:
+                                    accumulated.setdefault(dim_key, {})[fk] = fv
+                                yield ev
+                            elif ev_type == "dimension":
+                                dim_data = self._complete_worldbuilding_dimension(
+                                    dim_key,
+                                    ev.get("content") or {},
+                                )
+                                if dim_data:
+                                    accumulated[dim_key] = dim_data
+                                    completed = dim_data
+                                    dim_emitted = True
+                                    missing = set()
+                                yield {"type": "dimension", "key": dim_key, "content": dim_data}
+
+                    full_wb = parser.parse_full_worldbuilding(
+                        sanitize=_sanitize_llm_json_output,
+                        repair=_repair_json_string,
+                    )
+                    dim_data = self._complete_worldbuilding_dimension(
                         dim_key,
+                        full_wb.get(dim_key) or accumulated.get(dim_key, {}),
+                    )
+                    if dim_data:
+                        accumulated[dim_key] = dim_data
+                        completed = dim_data
+                        missing = set()
+                        if not dim_emitted:
+                            yield {"type": "dimension", "key": dim_key, "content": dim_data}
+                        break
+
+                    missing = schema_field_keys(dim_key) - set(accumulated.get(dim_key, {}))
+                    logger.warning(
+                        "Worldbuilding dimension incomplete after split generation: dim=%s attempt=%s missing=%s",
+                        dim_key,
+                        attempt,
                         sorted(missing),
                     )
-            except Exception as e:
-                logger.error("Stream worldbuilding dimension failed: dim=%s error=%s", dim_key, e)
+                except Exception as e:
+                    logger.error(
+                        "Stream worldbuilding dimension failed: dim=%s attempt=%s error=%s",
+                        dim_key,
+                        attempt,
+                        e,
+                    )
+
+            if not completed:
+                raise RuntimeError(
+                    f"世界观维度 {dim_key} 未按契约生成完整字段，缺失：{', '.join(sorted(missing)) or '字段长度不足'}"
+                )
 
         yield {"type": "done", "worldbuilding": accumulated}
 

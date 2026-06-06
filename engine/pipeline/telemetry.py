@@ -13,7 +13,7 @@ STORY_PIPELINE_WAVE_TOTAL = 10
 _STORY_PIPELINE_WAVES: Tuple[Tuple[int, str, str], ...] = (
     (1, "find_chapter", "章节定位"),
     (2, "build_context", "组装上下文"),
-    (3, "magnify_beats", "节拍拆分"),
+    (3, "prepare_chapter_plan", "执行剧本"),
     (4, "generate", "正文生成"),
     (5, "validate_policy", "策略校验"),
     (6, "persist_chapter", "章节落盘"),

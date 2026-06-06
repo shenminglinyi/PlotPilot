@@ -73,17 +73,24 @@ def _stub_bible_services(monkeypatch):
 def test_worldbuilding_handler_accepts_top_level_split_fields():
     ctx = _make_context(
         "bible_worldbuilding",
-        '{"style":"克制冷峻","core_rules":{"power_system":"体系A","physics_rules":"规则B","magic_tech":"机制C"},'
-        '"geography":{"terrain":"地形A","climate":"气候B","resources":"资源C","ecology":"生态D"}}',
+        '{"style":"克制冷峻","core_rules":{'
+        '"power_system":"武道九品到一品层层递进，先天境需要名望、功德和战绩共同支撑。",'
+        '"physics_rules":"经脉反噬会随掠夺次数加重，未调和时轻则失控，重则走火入魔。",'
+        '"magic_tech":"血脉战体通过厮杀或机缘吸收武学精髓，但必须以药物和功德压住副作用。"},'
+        '"geography":{'
+        '"terrain":"中原九州被天堑山脉分割，宗门、府城和绿林寨各守险要节点。",'
+        '"climate":"北地风沙影响马匪路线，江南雨季抬高漕运风险，山中雾障利于埋伏。",'
+        '"resources":"名药、矿脉和秘籍残页分散在府库、黑市与宗门禁地，取用都需付代价。",'
+        '"ecology":"山林毒虫、猛兽和隐秘药谷共同塑造行路风险，夜宿破庙也不算安全。"}}',
     )
 
     result = bible_worldbuilding_handler(ctx)
 
     assert result["novel_id"] == "novel-1"
     assert result["style"] == "克制冷峻"
-    assert result["worldbuilding"]["core_rules"]["power_system"] == "体系A"
-    assert result["core_rules"]["power_system"] == "体系A"
-    assert result["geography"]["terrain"] == "地形A"
+    assert result["worldbuilding"]["core_rules"]["power_system"].startswith("武道九品")
+    assert result["core_rules"]["power_system"].startswith("武道九品")
+    assert result["geography"]["terrain"].startswith("中原九州")
     assert "worldbuilding_full" not in result
     assert "core_rules_text" not in result
     assert "geography_text" not in result
@@ -92,7 +99,10 @@ def test_worldbuilding_handler_accepts_top_level_split_fields():
 def test_worldbuilding_handler_uses_output_bindings_for_custom_paths(monkeypatch):
     ctx = _make_context(
         "bible_worldbuilding",
-        '{"用户文风":"冷硬克制","用户世界":{"用户法则":{"power_system":"体系A"}}}',
+        '{"用户文风":"冷硬克制","用户世界":{"用户法则":{'
+        '"power_system":"武道九品到一品层层递进，先天境需要名望、功德和战绩共同支撑。",'
+        '"physics_rules":"经脉反噬会随掠夺次数加重，未调和时轻则失控，重则走火入魔。",'
+        '"magic_tech":"血脉战体通过厮杀或机缘吸收武学精髓，但必须以药物和功德压住副作用。"}}}',
     )
 
     monkeypatch.setattr(
@@ -107,10 +117,10 @@ def test_worldbuilding_handler_uses_output_bindings_for_custom_paths(monkeypatch
     result = bible_worldbuilding_handler(ctx)
 
     assert result["style"] == "冷硬克制"
-    assert result["worldbuilding"]["core_rules"]["power_system"] == "体系A"
+    assert result["worldbuilding"]["core_rules"]["power_system"].startswith("武道九品")
 
 
-def test_worldbuilding_handler_accepts_string_dimension_blocks(_stub_bible_services):
+def test_worldbuilding_handler_rejects_string_dimension_blocks(_stub_bible_services):
     ctx = _make_context(
         "bible_worldbuilding",
         '{"style":"锋利但留白","worldbuilding":{'
@@ -123,14 +133,8 @@ def test_worldbuilding_handler_accepts_string_dimension_blocks(_stub_bible_servi
 
     result = bible_worldbuilding_handler(ctx)
 
-    assert result["worldbuilding"]["core_rules"]["power_system"].startswith("核心法则")
-    assert result["worldbuilding"]["geography"]["terrain"].startswith("地理生态")
-    assert result["worldbuilding"]["society"]["politics"].startswith("社会结构")
-    assert result["worldbuilding"]["culture"]["history"].startswith("历史文化")
-    assert result["worldbuilding"]["daily_life"]["food_clothing"].startswith("沉浸感")
-    update = _stub_bible_services["worldbuilding_updates"][0]
-    assert update["core_rules"]["power_system"].startswith("核心法则")
-    assert update["daily_life"]["food_clothing"].startswith("沉浸感")
+    assert "worldbuilding" not in result
+    assert _stub_bible_services["worldbuilding_updates"] == []
 
 
 def test_characters_handler_repairs_stringified_arrays():

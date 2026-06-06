@@ -1861,7 +1861,6 @@ async def autopilot_log_stream(
 
                 current_stage = novel.current_stage.value
                 current_beat = getattr(novel, "current_beat_index", 0) or 0
-                # current_beat 为守护进程 0-based「下一节拍索引」；面向用户统一用 1-based 展示
 
                 # 检测阶段变更（去抖后推送）
                 if first_stage_poll:
@@ -1895,14 +1894,16 @@ async def autopilot_log_stream(
                         stage_pending = None
                         stage_pending_ticks = 0
 
-                # 检测 beat 变更（表示上一个 beat 完成）
+                # 兼容旧运行时：只有共享状态仍明确上报 total_beats 时才广播 beat 事件。
                 act_display = (novel.current_act or 0) + 1
-                if last_beat is not None and current_beat > last_beat:
+                _beat_shared = _get_shared_state_for_novel_cached(novel_id) or {}
+                _total_beats_live = int(_beat_shared.get("total_beats") or 0)
+                if _total_beats_live > 0 and last_beat is not None and current_beat > last_beat:
                     done_1based = int(last_beat) + 1
                     next_1based = int(current_beat) + 1
                     event = {
                         "type": "beat_complete",
-                        "message": f"{chapter_label}第 {act_display} 幕 · 节拍 {done_1based} 已生成完毕",
+                        "message": f"{chapter_label}第 {act_display} 幕 · 片段 {done_1based} 已生成完毕",
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
                             "beat_index": last_beat,
@@ -1915,10 +1916,9 @@ async def autopilot_log_stream(
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
                     # 新 beat 开始
-                    _bs_shared = _get_shared_state_for_novel_cached(novel_id) or {}
                     event = {
                         "type": "beat_start",
-                        "message": f"{chapter_label}第 {act_display} 幕 · 正在生成节拍 {next_1based}",
+                        "message": f"{chapter_label}第 {act_display} 幕 · 正在生成片段 {next_1based}",
                         "timestamp": datetime.now().isoformat(),
                         "metadata": {
                             "beat_index": current_beat,
@@ -1926,9 +1926,9 @@ async def autopilot_log_stream(
                             "act": novel.current_act,
                             "act_display": act_display,
                             "chapter_number": current_chapter_number,
-                            "beat_active_action": _bs_shared.get("beat_active_action", ""),
-                            "beat_emotion_gap": _bs_shared.get("beat_emotion_gap", ""),
-                            "beat_forbidden_drift": _bs_shared.get("beat_forbidden_drift", ""),
+                            "beat_active_action": _beat_shared.get("beat_active_action", ""),
+                            "beat_emotion_gap": _beat_shared.get("beat_emotion_gap", ""),
+                            "beat_forbidden_drift": _beat_shared.get("beat_forbidden_drift", ""),
                         },
                     }
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -2009,7 +2009,7 @@ async def autopilot_log_stream(
 
                     # 构建细化的进度消息
                     substep_hint = f" · {writing_substep_label}" if writing_substep_label else ""
-                    beat_progress = f"节拍 {beat_1based}/{total_beats}" if total_beats else f"节拍 {beat_1based}"
+                    beat_progress = f"整章写作（{beat_1based}/{total_beats}）" if total_beats else "整章写作"
                     word_progress = ""
                     if accumulated_words and chapter_target_words:
                         word_pct = min(100, int(accumulated_words / chapter_target_words * 100))
@@ -2083,10 +2083,9 @@ async def autopilot_chapter_stream(novel_id: str):
     """SSE 实时推送正在写作的章节内容（优化版 v2）
 
     推送事件类型：
-    - outline_planning: 章前规划（CPMS 拆节拍）进行中
-    - beats_planned: 章前规划完成，指挥器节拍已就绪
+    - chapter_plan_ready: 章节执行剧本已就绪
     - chapter_chunk: 增量文字片段
-    - chapter_start: 开始撰写正文（首个节拍流式输出前）
+    - chapter_start: 开始整章撰写正文
     - autopilot_stopped: 自动驾驶停止
 
     优化点：
@@ -2110,8 +2109,7 @@ async def autopilot_chapter_stream(novel_id: str):
         yield f"data: {json.dumps(init_event, ensure_ascii=False)}\n\n"
 
         last_chapter_number = None
-        last_outline_planning_key: Optional[str] = None
-        last_beats_planned_key: Optional[str] = None
+        last_chapter_plan_key: Optional[str] = None
         heartbeat_counter = 0
         empty_poll_count = 0
         MAX_EMPTY_POLLS = 24  # 连续空轮询约 12 秒后检查状态
@@ -2210,40 +2208,20 @@ async def autopilot_chapter_stream(novel_id: str):
 
                 if ch_live is not None:
                     ch_n = int(ch_live)
-                    if sub_live == "outline_planning":
-                        op_key = f"op:{ch_n}"
-                        if op_key != last_outline_planning_key:
+                    if sub_live in {"chapter_plan_ready", "outline_planning"}:
+                        op_key = f"plan:{ch_n}:{sub_live}"
+                        if op_key != last_chapter_plan_key:
                             event = {
-                                "type": "outline_planning",
+                                "type": "chapter_plan_ready",
                                 "message": shared_live.get(
-                                    "writing_substep_label", "章前规划 · 划分节拍"
+                                    "writing_substep_label", "章节执行剧本已就绪"
                                 ),
                                 "timestamp": datetime.now().isoformat(),
                                 "metadata": {"chapter_number": ch_n},
                             }
                             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                            logger.debug("[SSE] outline_planning: 第 %s 章", ch_n)
-                            last_outline_planning_key = op_key
-
-                    planned = shared_live.get("planned_micro_beats") or []
-                    tb = int(shared_live.get("total_beats") or 0)
-                    if planned and tb > 0:
-                        bp_key = f"bp:{ch_n}:{tb}"
-                        if bp_key != last_beats_planned_key:
-                            event = {
-                                "type": "beats_planned",
-                                "message": f"章前规划完成，{tb} 个节拍",
-                                "timestamp": datetime.now().isoformat(),
-                                "metadata": {
-                                    "chapter_number": ch_n,
-                                    "beats": planned,
-                                    "outline_plan_mode": shared_live.get("outline_plan_mode", ""),
-                                    "total_beats": tb,
-                                },
-                            }
-                            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                            logger.debug("[SSE] beats_planned: 第 %s 章 ×%s", ch_n, tb)
-                            last_beats_planned_key = bp_key
+                            logger.debug("[SSE] chapter_plan_ready: 第 %s 章", ch_n)
+                            last_chapter_plan_key = op_key
 
                 # 正文撰写开始：进入 llm_calling 或已有流式 chunk（不再在 draft 创建时误报「开写」）
                 prose_started = bool(
