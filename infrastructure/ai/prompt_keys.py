@@ -30,6 +30,7 @@ BIBLE_STYLE_CONVENTION = "bible-style-convention"
 # ── Chapter generation ───────────────────────────────────────────────────
 CHAPTER_GENERATION_MAIN = "chapter-generation-main"
 CHAPTER_GENERATION_BASIC = "chapter-generation-basic"
+CHAPTER_PROSE_GENERATION = "chapter-prose-generation"
 CHAPTER_NARRATIVE_SYNC = "chapter-narrative-sync"
 CHAPTER_STATE_EXTRACTION = "chapter-state-extraction"
 CHAPTER_SUMMARIZER = "chapter-summarizer"
@@ -142,7 +143,7 @@ ALL_KEYS: frozenset[str] = frozenset({
     BIBLE_ALL, BIBLE_WORLDBUILDING, BIBLE_CHARACTERS, BIBLE_LOCATIONS,
     BIBLE_STYLE_CONVENTION,
     # Chapter
-    CHAPTER_GENERATION_MAIN, CHAPTER_GENERATION_BASIC,
+    CHAPTER_GENERATION_MAIN, CHAPTER_GENERATION_BASIC, CHAPTER_PROSE_GENERATION,
     CHAPTER_NARRATIVE_SYNC, CHAPTER_STATE_EXTRACTION, CHAPTER_SUMMARIZER,
     CHAPTER_BRIDGE_EXTRACT, CHAPTER_BRIDGE_CHECK, CHAPTER_BRIDGE_FIX,
     # Scene

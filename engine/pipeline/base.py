@@ -535,6 +535,100 @@ class BaseStoryPipeline(ABC):
         return merge_beats_by_target(beats, total_target)
 
     async def _step_generate(self, ctx: PipelineContext) -> StepResult:
+        composer = self._select_prose_composer(ctx)
+        if composer is not None:
+            return await self._step_generate_with_composer(ctx, composer)
+        return await self._step_generate_by_beats(ctx)
+
+    def _select_prose_composer(self, ctx: PipelineContext):
+        """Select the chapter-level prose composer for the managed main path.
+
+        The current pipeline can pause/review inside beat generation, but it
+        cannot yet resume from "whole chapter composed, continue at validation".
+        Keep manual review on the existing beat path; use the migrated composer
+        for the default auto-approved hosted flow.
+        """
+        if not ctx.auto_approve_mode:
+            return None
+        composer = ctx.get_dep("prose_composer")
+        if composer is not None:
+            return composer
+        from engine.pipeline.prose_composer import ChapterProseInvocationComposer
+
+        return ChapterProseInvocationComposer()
+
+    async def _step_generate_with_composer(self, ctx: PipelineContext, composer: Any) -> StepResult:
+        self._log_step("generate", "LLM 生成（整章正文 Composer）")
+
+        if ctx.llm_service is None:
+            return StepResult.fail("llm_service 未设置，无法生成")
+
+        from engine.pipeline.prose_composer import ProseCompositionRequest
+
+        _writing_progress(
+            ctx,
+            "llm_calling",
+            "整章正文撰写",
+            pipeline_wave_index=4,
+            current_chapter_number=ctx.chapter_number,
+            total_beats=len(ctx.beats) if ctx.beats else 0,
+            current_beat_index=0,
+            chapter_target_words=ctx.target_word_count,
+            accumulated_words=len((ctx.existing_content or "").strip()),
+        )
+
+        def _stream_sink(content: str) -> None:
+            self._push_streaming_snapshot(ctx.novel_id, content)
+            _writing_progress(
+                ctx,
+                "llm_calling",
+                "整章正文撰写",
+                pipeline_wave_index=4,
+                current_chapter_number=ctx.chapter_number,
+                total_beats=len(ctx.beats) if ctx.beats else 0,
+                current_beat_index=0,
+                chapter_target_words=ctx.target_word_count,
+                accumulated_words=len((content or "").strip()),
+            )
+
+        request = ProseCompositionRequest(
+            novel_id=ctx.novel_id,
+            chapter_number=ctx.chapter_number,
+            chapter_title=str(getattr(ctx.chapter_node, "title", "") or ""),
+            novel_title=str(ctx.metadata.get("novel_title") or ctx.novel_id),
+            genre=ctx.genre,
+            outline=ctx.outline,
+            context_text=ctx.context_text,
+            style_guide=ctx.voice_anchors,
+            target_words=ctx.target_word_count,
+            auto_approve_mode=ctx.auto_approve_mode,
+            metadata=ctx.metadata,
+            stream_sink=_stream_sink,
+            stop_checker=lambda: self._novel_stream_should_stop(ctx.novel_id),
+            host=ctx.get_dep("autopilot_host") or ctx,
+            llm_service=ctx.llm_service,
+        )
+        try:
+            result = await composer.compose(request)
+        except Exception as exc:
+            logger.warning("[%s] 整章 Composer 失败，回退节拍写作: %s", ctx.novel_id, exc)
+            return await self._step_generate_by_beats(ctx)
+
+        if result.awaiting_review:
+            ctx.metadata["awaiting_ai_review"] = True
+            ctx.metadata["active_invocation_session_id"] = result.session_id
+            return StepResult.fail("awaiting_ai_review")
+
+        content = self._post_process_generation(result.content, ctx)
+        if not content.strip():
+            return StepResult.fail("章节正文生成失败：Composer 未产出有效正文")
+
+        ctx.chapter_content = content
+        ctx.word_count = len(content)
+        self._push_streaming_snapshot(ctx.novel_id, content)
+        return StepResult.ok()
+
+    async def _step_generate_by_beats(self, ctx: PipelineContext) -> StepResult:
         """步骤4：LLM 生成（节拍级+断点续写）
 
         默认实现：逐节拍调用 LLM，支持断点续写。
@@ -1103,6 +1197,38 @@ class BaseStoryPipeline(ABC):
         if not beat_part:
             return prior
         return f"{prior}\n\n{beat_part}"
+
+    async def _stream_prose_llm(self, ctx: PipelineContext, prompt: Any, config: Any) -> str:
+        """Stream a single prose call and publish cumulative snapshots.
+
+        Kept as the small primitive behind whole-chapter composition tests and
+        emergency subclasses; production StoryPipeline normally enters through
+        a ProseComposer.
+        """
+        if ctx.llm_service is None:
+            return ""
+        content_parts: List[str] = []
+        last_push = time.monotonic()
+
+        def _maybe_push(*, force: bool = False) -> None:
+            nonlocal last_push
+            now = time.monotonic()
+            if not force and (now - last_push) < self.STREAM_PUSH_INTERVAL:
+                return
+            content = "".join(content_parts)
+            if content:
+                self._push_streaming_snapshot(ctx.novel_id, content)
+            last_push = now
+
+        async for piece in ctx.llm_service.stream_generate(prompt, config):
+            if self._novel_stream_should_stop(ctx.novel_id):
+                return ""
+            if not piece:
+                continue
+            content_parts.append(piece)
+            _maybe_push()
+        _maybe_push(force=True)
+        return "".join(content_parts)
 
     async def _stream_beat_llm(
         self,

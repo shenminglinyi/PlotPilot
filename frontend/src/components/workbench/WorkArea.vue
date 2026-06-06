@@ -912,7 +912,8 @@ const desk = useChapterDeskLayout()
 const workbenchRefresh = useWorkbenchRefreshStore()
 const { deskTick } = storeToRefs(workbenchRefresh)
 const aiInvocationStore = useAIInvocationStore()
-const proseOnlyWorkbench = true
+const managedWorkbenchEnabled = true
+const proseOnlyWorkbench = !managedWorkbenchEnabled
 
 const primaryDeskTab = ref<PrimaryChapterDeskTab>('manuscript')
 const railActiveTab = ref<'plan' | 'status'>('plan')
@@ -940,7 +941,7 @@ function auxPaneIcon(id: ChapterDeskAuxPaneId): Component {
 }
 
 /** 辅助撰稿：编辑与章级工具；托管撰稿：驾驶舱 + 监控大盘 */
-const workMode = ref<'assisted' | 'managed'>('assisted')
+const workMode = ref<'assisted' | 'managed'>(managedWorkbenchEnabled ? 'managed' : 'assisted')
 
 const showGenerateModal = ref(false)
 const generateOutline = ref('')

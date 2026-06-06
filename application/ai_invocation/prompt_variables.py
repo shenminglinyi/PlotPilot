@@ -248,7 +248,7 @@ def prompt_declared_input_bindings(
             continue
         if variable_key in bound_variable_keys or variable_key in bound_aliases:
             continue
-        alias = variable_key
+        alias = alias_for_variable_key(variable_key)
         if alias in bound_aliases:
             suffix = 2
             base = alias_for_variable_key(variable_key)

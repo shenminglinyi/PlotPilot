@@ -6,17 +6,18 @@ from typing import Any
 
 from application.ai_invocation.continuation import ContinuationContext, register_continuation_handler
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec, VariableBinding
+from infrastructure.ai.prompt_keys import CHAPTER_PROSE_GENERATION
 from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
 
 
 OPERATION = "chapter.generate.prose"
-NODE_KEY = "chapter-prose-generation"
+NODE_KEY = CHAPTER_PROSE_GENERATION
 INPUT_BINDING_SET_ID = "chapter-prose-generation:input:v1"
 OUTPUT_BINDING_SET_ID = "chapter-prose-generation:output:v1"
 CONTINUATION_HANDLER_KEY = "chapter_generate_prose_commit"
 
 
-def _input_bindings() -> list[VariableBinding]:
+def chapter_prose_input_bindings() -> list[VariableBinding]:
     return [
         VariableBinding("novel_title", "novel.setup.title", False, "", scope="novel", stage="setup", display_name="名称"),
         VariableBinding("genre", "novel.setup.genre_label", False, "", scope="novel", stage="setup", display_name="类型"),
@@ -32,13 +33,21 @@ def _input_bindings() -> list[VariableBinding]:
     ]
 
 
-def _output_bindings() -> list[VariableBinding]:
+def chapter_prose_output_bindings() -> list[VariableBinding]:
     return [
         VariableBinding("content", "chapter.prose.generated", True, scope="chapter", stage="writing", display_name="生成正文"),
         VariableBinding("accepted_content", "chapter.prose.accepted", True, scope="chapter", stage="writing", display_name="采纳正文"),
         VariableBinding("generation_notes", "chapter.generation.notes", False, scope="chapter", stage="review", display_name="生成说明"),
         VariableBinding("quality_flags", "chapter.generation.quality_flags", False, scope="chapter", stage="review", value_type="list", display_name="质量标记"),
     ]
+
+
+def _input_bindings() -> list[VariableBinding]:
+    return chapter_prose_input_bindings()
+
+
+def _output_bindings() -> list[VariableBinding]:
+    return chapter_prose_output_bindings()
 
 
 def ensure_chapter_prose_generation_contract(db) -> InvocationSpec:

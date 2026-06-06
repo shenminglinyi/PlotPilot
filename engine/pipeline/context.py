@@ -59,10 +59,12 @@ class PipelineContext:
     # ═══ 步骤3产出：导演剧本 ═══
     script: str = ""                               # 六模块导演剧本文本
     beat_sheet: Optional[Any] = None             # 规划阶段的 BeatSheet（输入，保留兼容）
+    beats: List[Any] = field(default_factory=list)  # 微观节拍 / 写作包
 
     # ═══ 步骤4产出：生成内容 ═══
     chapter_content: str = ""                    # 章节正文（最终版）
     word_count: int = 0                          # 实际字数
+    raw_beat_contents: List[str] = field(default_factory=list)
 
     # ═══ 步骤5产出：策略验证 ═══
     validation_passed: bool = True
@@ -123,6 +125,7 @@ class PipelineContext:
     volume_summary_service: Any = None
     policy_validator: Any = None                 # PolicyValidator（新增）
     memory_orchestrator: Any = None              # MemoryOrchestratorImpl
+    prose_composer: Any = None                   # StoryPipeline prose composition strategy
 
     # ═══ 全托管 UI：可选进度回调（substep, label, extra_dict）→ 写入共享内存 ═══
     writing_progress_sink: Any = None

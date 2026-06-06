@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 from typing import Any, Mapping
 
+from application.ai_invocation.contracts.autopilot_writing import AUTOPILOT_CHAPTER_PROSE_OPERATION
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec, VariableBinding
-from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN
+from infrastructure.ai.prompt_keys import CHAPTER_GENERATION_MAIN, CHAPTER_PROSE_GENERATION
 from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
 
 
@@ -47,6 +48,10 @@ class InvocationContractRegistry:
             from application.ai_invocation.contracts.autopilot_writing import ensure_autopilot_stream_beat_contract
 
             ensure_autopilot_stream_beat_contract(self._db)
+        elif operation == AUTOPILOT_CHAPTER_PROSE_OPERATION and node_key == CHAPTER_PROSE_GENERATION:
+            from application.ai_invocation.contracts.autopilot_writing import ensure_autopilot_chapter_prose_contract
+
+            ensure_autopilot_chapter_prose_contract(self._db)
         elif operation == "autopilot.chapter.audit":
             from application.ai_invocation.contracts.autopilot_writing import ensure_autopilot_audit_contract
 
@@ -85,7 +90,7 @@ class InvocationContractRegistry:
             ensure_autopilot_narrative_sync_contract(self._db)
         elif operation == "chapter.generate" and node_key == CHAPTER_GENERATION_MAIN:
             self._ensure_chapter_generation_contract()
-        elif operation == "chapter.generate.prose" and node_key == "chapter-prose-generation":
+        elif operation == "chapter.generate.prose" and node_key == CHAPTER_PROSE_GENERATION:
             from application.ai_invocation.contracts.chapter_prose_generation import (
                 ensure_chapter_prose_generation_contract,
             )
