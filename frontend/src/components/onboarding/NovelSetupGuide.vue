@@ -546,16 +546,48 @@
           剧情总纲已保存，可供后续宏观规划与章节规划直接读取。
         </n-alert>
 
-        <n-spin :show="plotOutlineGenerating" style="width: 100%">
-          <template #description>
-            <span style="color: #999; font-size: 13px">AI 正在生成剧情总纲...</span>
-          </template>
-
-          <div v-if="plotOutlineGenerating && !plotOutline" style="width: 100%">
-            <WizardSkeleton type="storyline" />
+        <div v-if="plotOutlineBusy && !plotOutline" class="step-generating plot-outline-generating">
+          <div class="generating-header">
+            <div class="generating-icon">
+              <n-icon size="36" color="#2080f0">
+                <IconTimeline />
+              </n-icon>
+            </div>
+            <div class="generating-text">
+              <h3>{{ plotOutlineStatusMessage }}</h3>
+              <p class="generating-sub">正在汇总已确认设定并生成可编辑的故事主轴</p>
+            </div>
           </div>
 
-          <div class="plot-options-block">
+          <div class="plot-outline-progress">
+            <div
+              v-for="item in plotOutlineProgressItems"
+              :key="item.key"
+              class="plot-outline-progress__item"
+              :class="`plot-outline-progress__item--${item.state}`"
+            >
+              <div class="plot-outline-progress__dot"></div>
+              <div class="plot-outline-progress__body">
+                <div class="plot-outline-progress__label">{{ item.label }}</div>
+                <div class="plot-outline-progress__desc">{{ item.desc }}</div>
+              </div>
+            </div>
+          </div>
+
+          <WizardSkeleton type="storyline" />
+
+          <div v-if="plotOutlineLivePreview" class="raw-stream-preview plot-outline-live-preview">
+            {{ plotOutlineLivePreview }}<span class="streaming-cursor">▎</span>
+          </div>
+
+          <n-space v-if="featureFlags.aiInvocationDebug && plotOutlineSessionId" justify="center">
+            <n-button secondary @click="openPlotOutlineReviewPanel(plotOutlineSessionId)">
+              打开 AI 审阅
+            </n-button>
+          </n-space>
+        </div>
+
+        <div v-else class="plot-options-block">
             <n-space vertical :size="12" style="width: 100%">
               <n-card v-if="plotOutline" size="small" :bordered="true" class="plot-option-card">
                 <template #header>
@@ -627,20 +659,19 @@
             </n-space>
 
             <n-space style="margin-top: 16px; width: 100%" justify="center" :size="12">
-              <n-button secondary :disabled="plotOutlineGenerating" @click="refreshPlotOutline">
+              <n-button secondary :disabled="plotOutlineBusy" @click="refreshPlotOutline">
                 重新生成
               </n-button>
               <n-button
                 v-if="featureFlags.aiInvocationDebug && plotOutlineSessionId"
                 secondary
-                :disabled="plotOutlineGenerating"
+                :disabled="plotOutlineBusy"
                 @click="openPlotOutlineReviewPanel(plotOutlineSessionId)"
               >
                 打开 AI 审阅
               </n-button>
             </n-space>
           </div>
-        </n-spin>
       </div>
 
       <!-- Step 5: Complete -->
@@ -659,10 +690,10 @@
     <template #footer>
       <n-space justify="space-between">
         <n-space>
-          <n-button v-if="currentStep > 1 && currentStep < 5" @click="handlePrev">
+          <n-button v-if="currentStep > 1 && currentStep < 5" :disabled="isWizardGenerating" @click="handlePrev">
             上一步
           </n-button>
-          <n-button v-if="currentStep > 1 && currentStep < 5" @click="handleSkip">
+          <n-button v-if="currentStep > 1 && currentStep < 5" :disabled="isWizardGenerating" @click="handleSkip">
             跳过向导
           </n-button>
         </n-space>
@@ -680,7 +711,7 @@
             v-if="currentStep === 4"
             type="primary"
             :loading="savingStep"
-            :disabled="!plotOutline || plotOutlineGenerating"
+            :disabled="!plotOutline || plotOutlineBusy"
             @click="handleNext"
           >
             确认修改并继续
@@ -1354,6 +1385,9 @@ const plotOutlineSessionId = ref('')
 const step4RestoredFromCache = ref(false)
 const editablePlotOutline = ref<PlotOutlineDTO>(createEmptyPlotOutline())
 const syncingPlotOutlineDraft = ref(false)
+type PlotOutlineStatus = 'idle' | 'creating' | 'reviewing' | 'generating' | 'committing' | 'done' | 'error'
+type PlotOutlineProgressState = 'pending' | 'active' | 'done'
+const plotOutlineStatus = ref<PlotOutlineStatus>('idle')
 const PLOT_OUTLINE_META_KEYS = new Set(['stage_plan'])
 const PLOT_STAGE_META_KEYS = new Set(['phase', 'label', 'range_percent', 'chapter_start', 'chapter_end', 'key_goals'])
 const PLOT_FIELD_LABELS: Record<string, string> = {
@@ -1379,6 +1413,50 @@ const plotOutlineTotalChapters = computed(() => {
     ),
   )
   return Math.max(1, props.targetChapters || 0, maxStageEnd)
+})
+const plotOutlineBusy = computed(() =>
+  plotOutlineGenerating.value ||
+  (plotOutlineStatus.value !== 'idle' && plotOutlineStatus.value !== 'done' && plotOutlineStatus.value !== 'error')
+)
+const isWizardGenerating = computed(() =>
+  generatingBible.value || generatingCharacters.value || generatingLocations.value || plotOutlineBusy.value
+)
+const plotOutlineStatusMessage = computed(() => {
+  if (phaseMessage.value) return phaseMessage.value
+  if (plotOutlineStatus.value === 'creating') return '正在创建剧情总纲任务...'
+  if (plotOutlineStatus.value === 'reviewing') {
+    return featureFlags.aiInvocationDebug ? '等待 AI 审阅确认...' : '正在确认剧情总纲生成...'
+  }
+  if (plotOutlineStatus.value === 'generating') return 'AI 正在生成剧情总纲...'
+  if (plotOutlineStatus.value === 'committing') return '正在写入剧情总纲...'
+  return '正在生成剧情总纲...'
+})
+const plotOutlineLivePreview = computed(() => {
+  if (!plotOutlineSessionId.value) return ''
+  if (aiInvocationStore.session?.id !== plotOutlineSessionId.value) return ''
+  const text = aiInvocationStore.liveAttemptDisplay.trim()
+  if (!text) return ''
+  return text.length > 1000 ? text.slice(-1000) : text
+})
+const plotOutlineProgressIndex = computed(() => {
+  if (plotOutlineStatus.value === 'done') return 4
+  if (plotOutlineStatus.value === 'committing') return 3
+  if (plotOutlineStatus.value === 'generating' || plotOutlineStatus.value === 'reviewing') return 2
+  if (plotOutlineStatus.value === 'creating') return 1
+  return plotOutlineBusy.value ? 1 : 0
+})
+const plotOutlineProgressItems = computed<Array<{ key: string; label: string; desc: string; state: PlotOutlineProgressState }>>(() => {
+  const current = plotOutlineProgressIndex.value
+  const items = [
+    { key: 'context', label: '汇总设定', desc: '读取世界观、人物与地图' },
+    { key: 'outline', label: '推演主线', desc: '生成核心冲突与故事走向' },
+    { key: 'stage', label: '拆分阶段', desc: '规划阶段任务与章节范围' },
+    { key: 'commit', label: '写入结果', desc: '回填可编辑的剧情总纲' },
+  ]
+  return items.map((item, index) => ({
+    ...item,
+    state: current > index + 1 ? 'done' : current === index + 1 ? 'active' : 'pending',
+  }))
 })
 
 function createEmptyPlotOutline(): PlotOutlineDTO {
@@ -1669,22 +1747,126 @@ function extractPlotOutlineFromResult(
   return null
 }
 
+function finishPlotOutlineInvocation() {
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'done'
+  phaseMessage.value = ''
+  mainPlotSessionUnsub?.()
+  mainPlotSessionUnsub = null
+}
+
+function failPlotOutlineInvocation(messageText: string) {
+  plotOutlineError.value = messageText
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'error'
+  phaseMessage.value = ''
+  mainPlotSessionUnsub?.()
+  mainPlotSessionUnsub = null
+}
+
+function resetPlotOutlineInvocationState() {
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'idle'
+  phaseMessage.value = ''
+}
+
+function updatePlotOutlineStatusFromInvocation(payload: InvocationResponseDTO) {
+  const commitStatus = String(payload.commit?.status || '')
+  const sessionStatus = String(payload.session?.status || '')
+  if (commitStatus === 'succeeded' || sessionStatus === 'completed') {
+    plotOutlineStatus.value = 'committing'
+    phaseMessage.value = '正在写入剧情总纲...'
+    return
+  }
+  if (commitStatus === 'failed' || sessionStatus === 'failed' || sessionStatus === 'cancelled' || sessionStatus === 'blocked') {
+    return
+  }
+  if (sessionStatus === 'awaiting_commit' || sessionStatus === 'committing' || commitStatus === 'running') {
+    plotOutlineStatus.value = 'committing'
+    phaseMessage.value = '正在写入剧情总纲...'
+    return
+  }
+  if (sessionStatus === 'generating') {
+    plotOutlineStatus.value = 'generating'
+    phaseMessage.value = 'AI 正在生成剧情总纲...'
+    return
+  }
+  if (sessionStatus === 'awaiting_acceptance') {
+    plotOutlineStatus.value = featureFlags.aiInvocationDebug ? 'reviewing' : 'generating'
+    phaseMessage.value = featureFlags.aiInvocationDebug ? '等待 AI 审阅确认...' : '正在确认剧情总纲生成...'
+    return
+  }
+  if (sessionStatus === 'awaiting_pre_call_review') {
+    plotOutlineStatus.value = featureFlags.aiInvocationDebug ? 'reviewing' : 'creating'
+    phaseMessage.value = featureFlags.aiInvocationDebug ? '等待 AI 审阅确认...' : '正在准备剧情总纲生成...'
+    return
+  }
+  plotOutlineStatus.value = 'creating'
+  phaseMessage.value = '正在创建剧情总纲任务...'
+}
+
+async function refreshPlotOutlineFromApi(): Promise<boolean> {
+  try {
+    const response = await workflowApi.getPlotOutline(props.novelId)
+    if (!response.plot_outline) return false
+    plotOutline.value = response.plot_outline
+    syncEditablePlotOutline(response.plot_outline)
+    plotOutlineCommitted.value = true
+    writeWizardUiCache(props.novelId, { plotOutline: response.plot_outline })
+    return true
+  } catch {
+    return false
+  }
+}
+
 function applyPlotOutlineFromResult(
   result: Record<string, unknown>,
   outputBindings: InvocationVariableBinding[] = [],
-) {
+): boolean {
   const outline = extractPlotOutlineFromResult(result, outputBindings)
-  if (!outline) return
+  if (!outline) return false
   plotOutline.value = outline
   syncEditablePlotOutline(outline)
   plotOutlineCommitted.value = true
   writeWizardUiCache(props.novelId, { plotOutline: outline })
   message.success('AI 审阅已完成，剧情总纲已回填')
+  finishPlotOutlineInvocation()
+  return true
+}
+
+async function handlePlotOutlineInvocationUpdate(payload: InvocationResponseDTO) {
+  updatePlotOutlineStatusFromInvocation(payload)
+  const result = payload.commit?.result
+  if (result && applyPlotOutlineFromResult(result, payload.session?.output_bindings || [])) {
+    return
+  }
+
+  const commitStatus = String(payload.commit?.status || '')
+  const sessionStatus = String(payload.session?.status || '')
+  if (commitStatus === 'failed' || sessionStatus === 'failed' || sessionStatus === 'cancelled' || sessionStatus === 'blocked') {
+    failPlotOutlineInvocation(payload.commit?.error || '剧情总纲生成失败，请重试')
+    return
+  }
+
+  if (commitStatus === 'succeeded' || sessionStatus === 'completed') {
+    const refreshed = await refreshPlotOutlineFromApi()
+    if (refreshed) {
+      message.success('AI 审阅已完成，剧情总纲已回填')
+      finishPlotOutlineInvocation()
+    } else {
+      failPlotOutlineInvocation('剧情总纲生成完成，但未能读取结果，请重试')
+    }
+  }
 }
 
 async function openPlotOutlineReviewPanel(sessionId: string) {
   if (!sessionId) return
   plotOutlineSessionId.value = sessionId
+  plotOutlineGenerating.value = true
+  if (plotOutlineStatus.value === 'idle' || plotOutlineStatus.value === 'done' || plotOutlineStatus.value === 'error') {
+    plotOutlineStatus.value = 'creating'
+    phaseMessage.value = '正在创建剧情总纲任务...'
+  }
   if (featureFlags.aiInvocationDebug) {
     message.info('已进入 AI 审阅')
   }
@@ -1692,21 +1874,28 @@ async function openPlotOutlineReviewPanel(sessionId: string) {
     writeWizardUiCache(props.novelId, { invocationSessionId: sessionId })
     mainPlotSessionUnsub?.()
     mainPlotSessionUnsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
-      const result = payload.commit?.result
-      if (!result) return
-      applyPlotOutlineFromResult(result, payload.session?.output_bindings || [])
-      mainPlotSessionUnsub?.()
-      mainPlotSessionUnsub = null
+      void handlePlotOutlineInvocationUpdate(payload)
     })
     await aiInvocationStore.open(sessionId)
+    if (aiInvocationStore.session?.id === sessionId) {
+      await handlePlotOutlineInvocationUpdate({
+        session: aiInvocationStore.session,
+        attempt: aiInvocationStore.attempt,
+        decision: aiInvocationStore.decision,
+        commit: aiInvocationStore.commit,
+        next_action: aiInvocationStore.nextAction,
+      })
+    }
   } catch (e: unknown) {
-    message.error(formatApiError(e) || 'AI 调用处理失败')
+    failPlotOutlineInvocation(formatApiError(e) || 'AI 调用处理失败')
   }
 }
 
 async function loadPlotOutline(opts?: { forceNew?: boolean }) {
   step4RestoredFromCache.value = false
   plotOutlineError.value = ''
+  plotOutlineStatus.value = 'creating'
+  phaseMessage.value = '正在创建剧情总纲任务...'
   const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
   const cachedPlotOutline =
     !opts?.forceNew && cached && isPlotOutlineCacheFresh(cached) ? cached.plotOutline : null
@@ -1717,6 +1906,7 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
     syncEditablePlotOutline(cachedPlotOutline)
     plotOutlineSessionId.value = cachedSessionId
     step4RestoredFromCache.value = true
+    resetPlotOutlineInvocationState()
     if (cachedSessionId && !plotOutlineCommitted.value) {
       void openPlotOutlineReviewPanel(cachedSessionId)
     }
@@ -1724,7 +1914,8 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
   }
 
   plotOutlineGenerating.value = true
-  if (!plotOutline.value) {
+  if (!plotOutline.value || opts?.forceNew) {
+    plotOutline.value = null
     syncEditablePlotOutline(null)
   }
   if (opts?.forceNew) {
@@ -1788,8 +1979,9 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
       plotOutlineError.value = msg
     }
   } finally {
-    plotOutlineGenerating.value = false
-    phaseMessage.value = ''
+    if (plotOutline.value || plotOutlineError.value || !plotOutlineSessionId.value) {
+      resetPlotOutlineInvocationState()
+    }
   }
 }
 
@@ -1809,6 +2001,14 @@ function hydrateStepFourFromCache() {
     if (cached.invocationSessionId && !plotOutlineCommitted.value) {
       void openPlotOutlineReviewPanel(cached.invocationSessionId)
     }
+    return
+  }
+  if (cached.invocationSessionId) {
+    plotOutlineSessionId.value = cached.invocationSessionId
+    plotOutlineGenerating.value = true
+    plotOutlineStatus.value = 'creating'
+    phaseMessage.value = '正在恢复剧情总纲生成任务...'
+    void openPlotOutlineReviewPanel(cached.invocationSessionId)
     return
   }
   if (cached.plotOutline && !isPlotOutlineCacheFresh(cached)) {
@@ -2194,6 +2394,9 @@ function stopGenerationOnClose() {
   generatingBible.value = false
   generatingCharacters.value = false
   generatingLocations.value = false
+  plotOutlineGenerating.value = false
+  plotOutlineStatus.value = 'idle'
+  phaseMessage.value = ''
   mainPlotSessionUnsub?.()
   mainPlotSessionUnsub = null
   for (const unsub of bibleInvocationUnsubs.values()) {
@@ -2414,7 +2617,7 @@ function goToStep(step: number) {
   if (step > maxVisitedStep.value) return // 不允许跳到还没到过的步骤
   if (step === currentStep.value) return
   // 正在生成中不允许切换
-  if (generatingBible.value || generatingCharacters.value || generatingLocations.value) return
+  if (isWizardGenerating.value) return
   currentStep.value = step
 }
 
@@ -2422,7 +2625,7 @@ function goToStep(step: number) {
 function handlePrev() {
   if (currentStep.value > 1) {
     // 正在生成中不允许返回
-    if (generatingBible.value || generatingCharacters.value || generatingLocations.value) return
+    if (isWizardGenerating.value) return
     currentStep.value--
   }
 }
@@ -2973,6 +3176,81 @@ const handleComplete = () => {
   width: 100%;
 }
 
+.plot-outline-generating {
+  width: 100%;
+}
+
+.plot-outline-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.plot-outline-progress__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border, var(--n-border-color));
+  border-radius: 8px;
+  background: var(--app-surface, var(--n-color-modal));
+}
+
+.plot-outline-progress__dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--app-border, var(--n-border-color));
+  flex: 0 0 auto;
+}
+
+.plot-outline-progress__item--active {
+  border-color: color-mix(in srgb, var(--color-brand, #2563eb) 42%, var(--app-border, transparent));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-brand, #2563eb) 7%, transparent), transparent 50%),
+    var(--app-surface, var(--n-color-modal));
+}
+
+.plot-outline-progress__item--active .plot-outline-progress__dot {
+  background: var(--color-brand, var(--n-primary-color));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-brand, #2563eb) 12%, transparent);
+  animation: plot-progress-pulse 1.2s ease-in-out infinite;
+}
+
+.plot-outline-progress__item--done .plot-outline-progress__dot {
+  background: var(--color-success, var(--n-success-color));
+}
+
+.plot-outline-progress__body {
+  min-width: 0;
+}
+
+.plot-outline-progress__label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--app-text-primary, var(--n-text-color-1));
+  line-height: 1.4;
+}
+
+.plot-outline-progress__desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--app-text-muted, var(--n-text-color-3));
+  line-height: 1.45;
+}
+
+.plot-outline-live-preview {
+  max-height: 180px;
+  overflow: auto;
+}
+
+@keyframes plot-progress-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.68; transform: scale(0.92); }
+}
+
 .wizard-error-text {
   white-space: pre-line;
   line-height: 1.65;
@@ -3235,6 +3513,10 @@ const handleComplete = () => {
 
 @media (max-width: 720px) {
   .character-editor-head {
+    grid-template-columns: 1fr;
+  }
+
+  .plot-outline-progress {
     grid-template-columns: 1fr;
   }
 
