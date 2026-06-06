@@ -705,6 +705,12 @@ async def _sse_bible_generator(
                     premise, novel.target_chapters,
                 ):
                     if item["type"] == "chunk":
+                        chunk_text = item.get("text") or ""
+                        if chunk_text:
+                            yield _sse_fmt("data", {
+                                "type": "worldbuilding_chunk",
+                                "chunk": chunk_text,
+                            })
                         await asyncio.sleep(0)
 
                     elif item["type"] == "dimension_start":

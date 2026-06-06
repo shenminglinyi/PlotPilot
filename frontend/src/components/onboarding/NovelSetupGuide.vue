@@ -52,7 +52,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('core_rules').length">
                 <div v-for="field in orderedWorldbuildingFields('core_rules')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'core_rules' && activeField === field.key }">
-                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('core_rules', field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'core_rules' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -64,7 +64,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('geography').length">
                 <div v-for="field in orderedWorldbuildingFields('geography')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'geography' && activeField === field.key }">
-                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('geography', field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'geography' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -76,7 +76,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('society').length">
                 <div v-for="field in orderedWorldbuildingFields('society')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'society' && activeField === field.key }">
-                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('society', field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'society' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -88,7 +88,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('culture').length">
                 <div v-for="field in orderedWorldbuildingFields('culture')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'culture' && activeField === field.key }">
-                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('culture', field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'culture' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -100,7 +100,7 @@
               <div class="dimension-fields" v-if="orderedWorldbuildingFields('daily_life').length">
                 <div v-for="field in orderedWorldbuildingFields('daily_life')" :key="field.key"
                   class="field-card" :class="{ 'field-card--streaming': activeDimension === 'daily_life' && activeField === field.key }">
-                  <div class="field-card__title">{{ fieldLabelText(field.key) }}</div>
+                  <div class="field-card__title">{{ worldbuildingFieldTitle('daily_life', field.key) }}</div>
                   <div class="field-card__content">{{ field.value }}<span v-if="activeDimension === 'daily_life' && activeField === field.key" class="streaming-cursor">▎</span></div>
                 </div>
               </div>
@@ -144,13 +144,7 @@
                 <n-card v-for="dim in wbDimensionCards" :key="dim.key" size="small" :title="dim.label">
                   <div class="dimension-fields">
                     <div v-for="field in orderedWorldbuildingFields(dim.key)" :key="field.key" class="field-card field-card--editable">
-                      <n-input
-                        v-model:value="fieldLabelDrafts[field.key]"
-                        @blur="ensureFieldLabelDraft(field.key)"
-                        size="small"
-                        class="field-label-input"
-                        :placeholder="field.key"
-                      />
+                      <div class="field-card__title">{{ worldbuildingFieldTitle(dim.key, field.key) }}</div>
                       <n-input
                         v-model:value="worldbuildingData[dim.key][field.key]"
                         type="textarea"
@@ -549,7 +543,7 @@
           {{ plotOutlineError }}
         </n-alert>
         <n-alert v-if="plotOutlineCommitted" type="success" title="已保存剧情总纲" style="margin-bottom: 12px; width: 100%">
-          剧情总纲已写入变量中心，可供后续宏观规划与章节规划直接读取。
+          剧情总纲已保存，可供后续宏观规划与章节规划直接读取。
         </n-alert>
 
         <n-spin :show="plotOutlineGenerating" style="width: 100%">
@@ -637,7 +631,7 @@
                 重新生成
               </n-button>
               <n-button
-                v-if="plotOutlineSessionId"
+                v-if="featureFlags.aiInvocationDebug && plotOutlineSessionId"
                 secondary
                 :disabled="plotOutlineGenerating"
                 @click="openPlotOutlineReviewPanel(plotOutlineSessionId)"
@@ -708,10 +702,16 @@ import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { consumePlotOutlineStream, workflowApi, type PlotOutlineDTO } from '@/api/workflow'
-import type { InvocationVariableBinding } from '@/api/aiInvocation'
+import type { InvocationResponseDTO, InvocationVariableBinding } from '@/api/aiInvocation'
 import { characterPsycheApi } from '@/api/engineCore'
 import { resolveHttpUrl } from '@/api/config'
-import { getDimensionFieldOrder, getWorldbuildingLabel } from '@/domain/worldbuilding/contract'
+import { featureFlags } from '@/config/features'
+import {
+  getDimensionFieldOrder,
+  getWorldbuildingDimensionLabel,
+  getWorldbuildingFieldLabel,
+  getWorldbuildingLabel,
+} from '@/domain/worldbuilding/contract'
 import { useAIInvocationStore } from '@/stores/aiInvocationStore'
 import { extractBoundOutputMaps, parseJsonLikeRecord } from '@/utils/invocationOutput'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
@@ -734,8 +734,6 @@ const dimKeyLabels: Record<string, string> = new Proxy({}, {
   get: (_target, key) => getWorldbuildingLabel(String(key)),
 })
 
-const fieldLabelDrafts = ref<Record<string, string>>({})
-
 function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
   return {
     core_rules: {},
@@ -746,30 +744,31 @@ function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<stri
   }
 }
 
-function defaultWorldbuildingFieldLabels(): Record<string, string> {
-  const defaults: Record<string, string> = {}
-  for (const dim of WB_DIMS) {
-    for (const key of getDimensionFieldOrder(dim)) {
-      defaults[key] = key
-    }
+function firstWorldbuildingField(dim: WorldbuildingDimKey): string {
+  return getDimensionFieldOrder(dim)[0] || 'summary'
+}
+
+function isDimensionSummaryField(dim: WorldbuildingDimKey, field: string): boolean {
+  const block = worldbuildingData.value[dim] || {}
+  const keys = Object.keys(block).filter(key => String(block[key] ?? '').trim())
+  return keys.length === 1 && field === firstWorldbuildingField(dim)
+}
+
+function worldbuildingFieldTitle(dim: WorldbuildingDimKey, field: string): string {
+  if (isDimensionSummaryField(dim, field)) {
+    return `${getWorldbuildingDimensionLabel(dim)}概览`
   }
-  return defaults
-}
-
-function fieldLabelText(key: string): string {
-  const custom = String(fieldLabelDrafts.value[key] ?? '').trim()
-  return custom || key
-}
-
-function ensureFieldLabelDraft(key: string) {
-  const normalized = String(fieldLabelDrafts.value[key] ?? '').trim()
-  fieldLabelDrafts.value[key] = normalized || key
+  return getWorldbuildingFieldLabel(field)
 }
 
 function orderedWorldbuildingFields(dim: WorldbuildingDimKey): Array<{ key: string; value: string }> {
   const block = worldbuildingData.value[dim] || {}
   const ordered = getDimensionFieldOrder(dim)
-  return ordered
+  const keys = [
+    ...ordered,
+    ...Object.keys(block).filter(key => !ordered.includes(key)),
+  ]
+  return keys
     .map(key => ({ key, value: String(block[key] ?? '') }))
     .filter(field => field.value.trim().length > 0)
 }
@@ -805,18 +804,39 @@ function worldbuildingFromWorldSettings(
 function normalizeWorldbuildingFromApi(raw: Record<string, unknown> | null | undefined) {
   const out = emptyWorldbuildingShape()
   if (!raw || typeof raw !== 'object') return out
+  const dimensions = raw.dimensions
+  if (dimensions && typeof dimensions === 'object') {
+    mergeWorldbuildingRawBlocks(out, dimensions as Record<string, unknown>)
+  }
+  const content = raw.worldbuilding
+  if (content && typeof content === 'object') {
+    mergeWorldbuildingRawBlocks(out, content as Record<string, unknown>)
+  }
+  mergeWorldbuildingRawBlocks(out, raw)
+  return out
+}
+
+function mergeWorldbuildingRawBlocks(
+  out: ReturnType<typeof emptyWorldbuildingShape>,
+  raw: Record<string, unknown>,
+) {
   for (const d of WB_DIMS) {
     const block = raw[d]
+    if (typeof block === 'string') {
+      const text = block.trim()
+      if (text) out[d] = { ...out[d], [firstWorldbuildingField(d)]: text }
+      continue
+    }
     if (block && typeof block === 'object') {
       const normalized: Record<string, string> = {}
       for (const [key, value] of Object.entries(block as Record<string, unknown>)) {
         const text = String(value ?? '').trim()
-        if (text) normalized[key] = text
+        if (!text) continue
+        normalized[key === 'summary' ? firstWorldbuildingField(d) : key] = text
       }
-      out[d] = normalized
+      out[d] = { ...out[d], ...normalized }
     }
   }
-  return out
 }
 
 function hasWorldbuildingContent(slices: ReturnType<typeof emptyWorldbuildingShape>) {
@@ -835,6 +855,85 @@ function mergeWorldbuildingDisplay(
     out[d] = merged
   }
   return out
+}
+
+function mergeWorldbuildingIntoCurrent(
+  next: ReturnType<typeof emptyWorldbuildingShape>,
+  opts: { markCompleted?: boolean } = {},
+) {
+  if (!hasWorldbuildingContent(next)) return
+  worldbuildingData.value = mergeWorldbuildingDisplay(next, worldbuildingData.value)
+  if (opts.markCompleted === false) return
+  completedDimensions.value = new Set([
+    ...completedDimensions.value,
+    ...WB_DIMS.filter(dim => Object.values(next[dim]).some(value => String(value || '').trim())),
+  ])
+}
+
+function applyWorldbuildingRecord(record: Record<string, unknown>) {
+  const normalized = normalizeWorldbuildingFromApi(record)
+  mergeWorldbuildingIntoCurrent(normalized)
+  const style = String(record.style ?? '').trim()
+  if (style) styleText.value = style
+}
+
+function applyWorldbuildingBoundOutputs(record: Record<string, unknown>, bindings: InvocationVariableBinding[]) {
+  if (!bindings.length) return
+  const { byVariableKey } = extractBoundOutputMaps(record, bindings)
+  const boundRecord: Record<string, unknown> = {}
+  const style = byVariableKey['worldbuilding.style']
+  if (style) boundRecord.style = style
+  const content = byVariableKey['worldbuilding.content']
+  if (content !== undefined) boundRecord.worldbuilding = content
+  for (const dim of WB_DIMS) {
+    const value = byVariableKey[`worldbuilding.${dim}`]
+    if (value !== undefined) boundRecord[dim] = value
+  }
+  if (Object.keys(boundRecord).length) applyWorldbuildingRecord(boundRecord)
+}
+
+function applyBibleInvocationPreview(stage: 'worldbuilding' | 'characters' | 'locations', payload: InvocationResponseDTO) {
+  if (stage !== 'worldbuilding') return
+  const content = payload.attempt?.content || ''
+  const record = parseJsonLikeRecord(content)
+  if (!record) return
+  applyWorldbuildingRecord(record)
+  applyWorldbuildingBoundOutputs(
+    record,
+    payload.session?.output_bindings || payload.session?.variable_plan?.bindings || [],
+  )
+}
+
+function decodeJsonStringFragment(fragment: string): string {
+  try {
+    return JSON.parse(`"${fragment}"`) as string
+  } catch {
+    return fragment
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\\\/g, '\\')
+  }
+}
+
+function extractDimensionStringDraft(source: string, dim: WorldbuildingDimKey): string {
+  const match = source.match(new RegExp(`"${dim}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)`))
+  return match?.[1] ? decodeJsonStringFragment(match[1]).trim() : ''
+}
+
+function applyWorldbuildingChunk(chunk: string) {
+  if (!chunk) return
+  worldbuildingRawStream.value += chunk
+  const draft = emptyWorldbuildingShape()
+  for (const dim of WB_DIMS) {
+    const text = extractDimensionStringDraft(worldbuildingRawStream.value, dim)
+    if (text) {
+      draft[dim][firstWorldbuildingField(dim)] = text
+      activeDimension.value = dim
+      activeField.value = firstWorldbuildingField(dim)
+    }
+  }
+  mergeWorldbuildingIntoCurrent(draft, { markCompleted: false })
 }
 
 function styleConventionFromBible(bible: BibleDTO): string {
@@ -966,6 +1065,7 @@ const completedDimensions = ref<Set<string>>(new Set())
 const activeField = ref('')
 const arrivedFields = ref<Set<string>>(new Set())
 const sseAbortController = ref<AbortController | null>(null)
+const worldbuildingRawStream = ref('')
 
 const styleConventionDisplay = computed(() => {
   if (styleText.value) return styleText.value
@@ -974,14 +1074,11 @@ const styleConventionDisplay = computed(() => {
 
 /** 世界观维度卡片（用于生成完后的折叠面板） */
 const wbDimensionCards = computed(() => {
-  const labels: Record<string, string> = {
-    core_rules: '核心法则',
-    geography: '地理生态',
-    society: '社会结构',
-    culture: '历史文化',
-    daily_life: '沉浸感细节',
-  }
-  return WB_DIMS.map(key => ({ key, label: labels[key], data: worldbuildingData.value[key] }))
+  return WB_DIMS.map(key => ({
+    key,
+    label: getWorldbuildingDimensionLabel(key),
+    data: worldbuildingData.value[key],
+  }))
 })
 
 // ── 第2步：SSE 流式生成人物 ──
@@ -1217,6 +1314,22 @@ function setBibleStageReviewWaiting(stage: string, waiting: boolean) {
   phaseMessage.value = waiting ? '等待 AI 审阅批准...' : ''
 }
 
+function setBibleStageHeadlessGenerating(stage: string) {
+  if (stage === 'worldbuilding') {
+    generatingBible.value = true
+    bibleGenerated.value = false
+    phaseMessage.value = '正在生成文风公约与世界观...'
+  } else if (stage === 'characters') {
+    generatingCharacters.value = true
+    charactersGenerated.value = false
+    phaseMessage.value = '正在生成人物...'
+  } else if (stage === 'locations') {
+    generatingLocations.value = true
+    locationsGenerated.value = false
+    phaseMessage.value = '正在生成地点...'
+  }
+}
+
 function markBibleStageCommitted(stage: string) {
   if (stage === 'worldbuilding') {
     completedDimensions.value = new Set(WB_DIMS)
@@ -1235,10 +1348,15 @@ function markBibleStageCommitted(stage: string) {
 
 async function openBibleReviewPanel(stage: 'worldbuilding' | 'characters' | 'locations', sessionId: string) {
   if (!sessionId) return
-  setBibleStageReviewWaiting(stage, true)
+  if (featureFlags.aiInvocationDebug) {
+    setBibleStageReviewWaiting(stage, true)
+  } else {
+    setBibleStageHeadlessGenerating(stage)
+  }
   try {
     bibleInvocationUnsubs.get(sessionId)?.()
     const unsub = aiInvocationStore.onSessionUpdate(sessionId, (payload) => {
+      applyBibleInvocationPreview(stage, payload)
       if (payload.session?.status === 'completed' || payload.commit?.status === 'succeeded') {
         markBibleStageCommitted(stage)
         bibleInvocationUnsubs.get(sessionId)?.()
@@ -1247,9 +1365,18 @@ async function openBibleReviewPanel(stage: 'worldbuilding' | 'characters' | 'loc
     })
     bibleInvocationUnsubs.set(sessionId, unsub)
     await aiInvocationStore.open(sessionId)
+    if (aiInvocationStore.session?.id === sessionId) {
+      applyBibleInvocationPreview(stage, {
+        session: aiInvocationStore.session,
+        attempt: aiInvocationStore.attempt,
+        decision: aiInvocationStore.decision,
+        commit: aiInvocationStore.commit,
+        next_action: aiInvocationStore.nextAction,
+      })
+    }
   } catch (e: unknown) {
     setBibleStageReviewWaiting(stage, false)
-    message.error(formatApiError(e) || '打开 AI 审阅失败')
+    message.error(formatApiError(e) || 'AI 调用处理失败')
   }
 }
 
@@ -1441,23 +1568,6 @@ function persistStepFourUiToCache(opts?: { includePlotOutline?: boolean }) {
   writeWizardUiCache(props.novelId, patch)
 }
 
-function persistWorldbuildingLabelDrafts() {
-  writeWizardUiCache(props.novelId, {
-    worldbuildingFieldLabels: { ...fieldLabelDrafts.value },
-  })
-}
-
-function hydrateWorldbuildingLabelDrafts() {
-  const cached = readWizardUiCache(props.novelId)
-  fieldLabelDrafts.value = {
-    ...defaultWorldbuildingFieldLabels(),
-    ...(cached?.worldbuildingFieldLabels || {}),
-  }
-  for (const key of Object.keys(fieldLabelDrafts.value)) {
-    ensureFieldLabelDraft(key)
-  }
-}
-
 const PLOT_OVERVIEW_KEYS = ['main_story_overview', 'outline_main', 'main_axis', 'overview', 'story_overview', '故事主线概述', '主线概述', '故事概述']
 const PLOT_ENDING_KEYS = ['expected_ending', 'ending_expect', 'ending_expectation', 'expectedEnding', 'ending', 'finale', '预期结局', '预期结尾', '结局预期', '故事最终走向']
 const PLOT_CONFLICT_KEYS = ['core_conflict', 'coreConflict', 'conflict', 'main_conflict', '核心冲突', '核心矛盾', '核心对抗']
@@ -1610,7 +1720,9 @@ function applyPlotOutlineFromResult(
 async function openPlotOutlineReviewPanel(sessionId: string) {
   if (!sessionId) return
   plotOutlineSessionId.value = sessionId
-  message.info('已进入 AI 审阅')
+  if (featureFlags.aiInvocationDebug) {
+    message.info('已进入 AI 审阅')
+  }
   try {
     writeWizardUiCache(props.novelId, { invocationSessionId: sessionId })
     mainPlotSessionUnsub?.()
@@ -1623,31 +1735,42 @@ async function openPlotOutlineReviewPanel(sessionId: string) {
     })
     await aiInvocationStore.open(sessionId)
   } catch (e: unknown) {
-    message.error(formatApiError(e) || '打开 AI 审阅失败')
+    message.error(formatApiError(e) || 'AI 调用处理失败')
   }
 }
 
 async function loadPlotOutline(opts?: { forceNew?: boolean }) {
   step4RestoredFromCache.value = false
-  plotOutlineGenerating.value = true
   plotOutlineError.value = ''
-  plotOutline.value = null
-  syncEditablePlotOutline(null)
+  const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
+  const cachedPlotOutline =
+    !opts?.forceNew && cached && isPlotOutlineCacheFresh(cached) ? cached.plotOutline : null
+
+  if (cachedPlotOutline) {
+    const cachedSessionId = cached?.invocationSessionId || ''
+    plotOutline.value = cachedPlotOutline
+    syncEditablePlotOutline(cachedPlotOutline)
+    plotOutlineSessionId.value = cachedSessionId
+    step4RestoredFromCache.value = true
+    if (cachedSessionId && !plotOutlineCommitted.value) {
+      void openPlotOutlineReviewPanel(cachedSessionId)
+    }
+    return
+  }
+
+  plotOutlineGenerating.value = true
+  if (!plotOutline.value) {
+    syncEditablePlotOutline(null)
+  }
   if (opts?.forceNew) {
     plotOutlineCommitted.value = false
     plotOutlineSessionId.value = ''
     writeWizardUiCache(props.novelId, { invocationSessionId: undefined, plotOutline: undefined })
   }
-  const cached = opts?.forceNew ? null : readWizardUiCache(props.novelId)
   try {
     if (cached?.invocationSessionId) {
       plotOutlineSessionId.value = cached.invocationSessionId
       await openPlotOutlineReviewPanel(cached.invocationSessionId)
-      if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
-        plotOutline.value = cached.plotOutline
-        syncEditablePlotOutline(cached.plotOutline)
-        step4RestoredFromCache.value = true
-      }
       return
     }
 
@@ -1746,7 +1869,7 @@ function finishWorldbuildingGeneration() {
 
 // ── AI Invocation 模式入口 ──
 
-/** 启动第1步：创建 AI Invocation 并打开审阅面板。 */
+/** 启动第1步：创建可调试的 AI Invocation；调试面板由 feature flag 控制。 */
 function startBibleGeneration() {
   startBibleGenerationSSE()
 }
@@ -1761,6 +1884,7 @@ function startBibleGenerationSSE() {
   activeField.value = ''
   arrivedFields.value = new Set()
   worldbuildingData.value = emptyWorldbuildingShape()
+  worldbuildingRawStream.value = ''
   styleText.value = ''
 
   const ctrl = new AbortController()
@@ -1802,12 +1926,15 @@ function startBibleGenerationSSE() {
     onStyleChunk: (chunk) => {
       styleText.value += chunk
     },
+    onWorldbuildingChunk: (chunk) => {
+      applyWorldbuildingChunk(chunk)
+    },
     onWorldbuildingField: (dimension, field, value) => {
       const dim = dimension as keyof typeof worldbuildingData.value
       worldbuildingData.value[dim][field] = value
       activeDimension.value = dimension
       arrivedFields.value = new Set([...arrivedFields.value, field])
-      activeField.value = ''
+      activeField.value = field
     },
     onWorldbuildingDimension: (data: WorldbuildingDimensionData) => {
       const dim = data.dimension as keyof typeof worldbuildingData.value
@@ -1828,7 +1955,7 @@ function startBibleGenerationSSE() {
   })
 }
 
-/** 启动第2步：创建 AI Invocation 并打开审阅面板。 */
+/** 启动第2步：创建可调试的 AI Invocation；调试面板由 feature flag 控制。 */
 function startCharactersGeneration() {
   startCharactersGenerationSSE()
 }
@@ -1840,7 +1967,7 @@ function startCharactersGenerationSSE() {
   charactersError.value = ''
   streamingCharacters.value = []
   generatedCharacterDrafts.value = {}
-  phaseMessage.value = '正在打开审阅面板...'
+  phaseMessage.value = featureFlags.aiInvocationDebug ? '正在打开审阅面板...' : '正在生成人物...'
 
   const ctrl = new AbortController()
   charactersSseAbort.value = ctrl
@@ -1887,7 +2014,7 @@ function startCharactersGenerationSSE() {
   })
 }
 
-/** 启动第3步：创建 AI Invocation 并打开审阅面板。 */
+/** 启动第3步：创建可调试的 AI Invocation；调试面板由 feature flag 控制。 */
 function startLocationsGeneration() {
   startLocationsGenerationSSE()
 }
@@ -1898,7 +2025,7 @@ function startLocationsGenerationSSE() {
   locationsGenerated.value = false
   locationsError.value = ''
   streamingLocations.value = []
-  phaseMessage.value = '正在打开审阅面板...'
+  phaseMessage.value = featureFlags.aiInvocationDebug ? '正在打开审阅面板...' : '正在生成地点...'
 
   const ctrl = new AbortController()
   locationsSseAbort.value = ctrl
@@ -1994,7 +2121,6 @@ function resetWizardStateForOpen() {
   streamingLocations.value = []
   editableCharacters.value = []
   editableLocations.value = []
-  hydrateWorldbuildingLabelDrafts()
 }
 
 async function detectWizardProgress(): Promise<number> {
@@ -2153,10 +2279,6 @@ watch(plotOutline, () => {
 
 watch(editablePlotOutline, () => {
   if (currentStep.value === 4 && props.show) touchPlotOutlineDraft()
-}, { deep: true })
-
-watch(fieldLabelDrafts, () => {
-  if (props.show) persistWorldbuildingLabelDrafts()
 }, { deep: true })
 
 /** 保存中状态 */
@@ -2518,10 +2640,6 @@ const handleComplete = () => {
 
 .field-card--editable .field-card__title {
   margin-bottom: 4px;
-}
-
-.field-label-input {
-  margin-bottom: 6px;
 }
 
 .field-card__title {

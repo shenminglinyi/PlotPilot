@@ -82,7 +82,7 @@
     <!-- MVP 生文空态提示 -->
     <div v-if="!chapters.length && viewMode === 'flat'" class="sidebar-foot-hint">
       <n-alert type="info" :show-icon="false" style="font-size: 12px">
-        <strong>提示</strong>：正文区可直接进入 AI 审阅面板生成正文
+        <strong>提示</strong>：正文区可直接生成正文
       </n-alert>
     </div>
   </aside>

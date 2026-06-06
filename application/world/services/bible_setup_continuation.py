@@ -10,6 +10,11 @@ from application.ai_invocation.output_binding_resolution import (
     load_session_output_bindings,
 )
 from application.world.dtos.bible_dto import CharacterDTO, LocationDTO, StyleNoteDTO
+from application.world.services.worldbuilding_field_text import worldbuilding_value_to_prose
+from application.world.worldbuilding_schema import schema_field_order
+
+
+WORLDBUILDING_DIMENSION_KEYS = ("core_rules", "geography", "society", "culture", "daily_life")
 
 
 def _context_value(context: Mapping[str, Any], key: str, default: Any = None) -> Any:
@@ -52,6 +57,21 @@ def _as_str(value: Any, default: str = "") -> str:
     if value is None:
         return default
     return str(value)
+
+
+def _coerce_worldbuilding_dimension(dim_key: str, value: Any) -> dict[str, Any]:
+    value = _parse_jsonish_value(value)
+    if isinstance(value, Mapping):
+        return dict(value)
+
+    prose = worldbuilding_value_to_prose(value)
+    if not prose:
+        return {}
+
+    field_order = schema_field_order(dim_key)
+    if not field_order:
+        return {}
+    return {field_order[0]: prose}
 
 
 def _extract_records(data: Any, key: str) -> list[Any]:
@@ -123,35 +143,26 @@ def bible_worldbuilding_handler(context: ContinuationContext) -> Mapping[str, An
     data = _parse_content(context.decision.accepted_content)
     by_variable_key = _bound_value_map(context, data)
     style = str(by_variable_key.get("worldbuilding.style") or data.get("style") or "").strip()
-    worldbuilding = (
-        by_variable_key.get("worldbuilding.content")
-        if isinstance(by_variable_key.get("worldbuilding.content"), Mapping)
-        else data.get("worldbuilding")
-    )
-    worldbuilding = dict(worldbuilding) if isinstance(worldbuilding, Mapping) else {}
-    for dim_key in ("core_rules", "geography", "society", "culture", "daily_life"):
+    bound_worldbuilding = by_variable_key.get("worldbuilding.content")
+    worldbuilding_value = bound_worldbuilding if bound_worldbuilding is not None else data.get("worldbuilding")
+    worldbuilding_value = _parse_jsonish_value(worldbuilding_value)
+    worldbuilding = dict(worldbuilding_value) if isinstance(worldbuilding_value, Mapping) else {}
+    for dim_key in WORLDBUILDING_DIMENSION_KEYS:
         dim_value = by_variable_key.get(f"worldbuilding.{dim_key}")
-        if isinstance(dim_value, Mapping):
-            worldbuilding[dim_key] = dict(dim_value)
+        if dim_value is not None:
+            worldbuilding[dim_key] = dim_value
     if not worldbuilding:
         worldbuilding = {
-            dim_key: (
-                by_variable_key.get(f"worldbuilding.{dim_key}")
-                if isinstance(by_variable_key.get(f"worldbuilding.{dim_key}"), Mapping)
-                else data.get(dim_key)
-            )
-            for dim_key in ("core_rules", "geography", "society", "culture", "daily_life")
-            if isinstance(
-                by_variable_key.get(f"worldbuilding.{dim_key}")
-                if isinstance(by_variable_key.get(f"worldbuilding.{dim_key}"), Mapping)
-                else data.get(dim_key),
-                Mapping,
-            )
+            dim_key: by_variable_key.get(f"worldbuilding.{dim_key}", data.get(dim_key))
+            for dim_key in WORLDBUILDING_DIMENSION_KEYS
+            if by_variable_key.get(f"worldbuilding.{dim_key}", data.get(dim_key)) is not None
         }
     normalized = {
-        dim_key: dict(block)
+        dim_key: coerced
         for dim_key, block in worldbuilding.items()
-        if dim_key in {"core_rules", "geography", "society", "culture", "daily_life"} and isinstance(block, Mapping)
+        if dim_key in WORLDBUILDING_DIMENSION_KEYS
+        for coerced in [_coerce_worldbuilding_dimension(dim_key, block)]
+        if coerced
     }
     result: dict[str, Any] = {"novel_id": novel_id}
     if style:

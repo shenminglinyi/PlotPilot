@@ -1,6 +1,7 @@
 ﻿import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
+import { featureFlags } from '../config/features'
 import {
   aiInvocationApi,
   type InvocationPromptDraftPreviewDTO,
@@ -21,6 +22,7 @@ function errorText(err: unknown): string {
 export const useAIInvocationStore = defineStore('aiInvocation', () => {
   const sessionListeners = new Map<string, Array<(payload: InvocationResponseDTO) => void>>()
   const sessionPollTimer = new Map<string, ReturnType<typeof setInterval>>()
+  const headlessAdvancingSessions = new Set<string>()
   const visible = ref(false)
   const loading = ref(false)
   const actionLoading = ref(false)
@@ -95,6 +97,20 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     const plan = promptDraftPreview.value?.variable_plan || session.value?.variable_plan
     return plan?.snapshot_groups ?? []
   })
+  const debugPanelEnabled = computed(() => featureFlags.aiInvocationDebug)
+
+  function showDebugPanel() {
+    if (debugPanelEnabled.value) {
+      visible.value = true
+    }
+  }
+
+  function scheduleHeadlessAdvance() {
+    if (debugPanelEnabled.value) return
+    const sessionId = session.value?.id
+    if (!sessionId || headlessAdvancingSessions.has(sessionId)) return
+    void advanceHeadlessSession(sessionId)
+  }
 
   function shouldCommitPromptVersion(): boolean {
     const snapshot = session.value?.prompt_snapshot
@@ -136,6 +152,27 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
         listener(payload)
       }
     }
+    scheduleHeadlessAdvance()
+  }
+
+  async function advanceHeadlessSession(sessionId: string) {
+    headlessAdvancingSessions.add(sessionId)
+    try {
+      for (let step = 0; step < 4; step += 1) {
+        if (debugPanelEnabled.value || session.value?.id !== sessionId) return
+        if (session.value.status === 'awaiting_pre_call_review') {
+          await resume()
+        } else if (session.value.status === 'awaiting_acceptance' && attempt.value?.id) {
+          await accept()
+        } else if (session.value.status === 'awaiting_commit' && decision.value?.id) {
+          await runCommit()
+        } else {
+          return
+        }
+      }
+    } finally {
+      headlessAdvancingSessions.delete(sessionId)
+    }
   }
 
   function openFromResponse(payload: InvocationResponseDTO) {
@@ -148,7 +185,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
       promptDraftPreview.value = null
     }
     applyResponse(payload)
-    visible.value = true
+    showDebugPanel()
   }
 
   function clearPromptDraftPreview() {
@@ -156,7 +193,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
   }
 
   async function open(sessionId: string) {
-    visible.value = true
+    showDebugPanel()
     loading.value = true
     error.value = ''
     session.value = null
@@ -415,6 +452,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     draftDiagnostics,
     draftMissingVariables,
     variableSnapshotGroups,
+    debugPanelEnabled,
     hasAttempt,
     canAccept,
     canCommit,

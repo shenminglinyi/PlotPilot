@@ -191,7 +191,7 @@
     </n-alert>
 
     <!-- AI Invocation 审阅等待 -->
-    <n-alert v-if="requiresAIReview" type="warning" :show-icon="true" class="ap-inline-alert">
+    <n-alert v-if="requiresAIReview && featureFlags.aiInvocationDebug" type="warning" :show-icon="true" class="ap-inline-alert">
       <div class="ap-review-alert">
         <span>
           <strong>等待 AI 请求处理</strong>：{{ activeInvocationLabel }} 已发送到统一 AI 面板，请完成生成、采纳和提交。
@@ -320,6 +320,7 @@ import AuditPipelineObservability from './AuditPipelineObservability.vue'
 import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 import { useAIInvocationStore } from '../../stores/aiInvocationStore'
+import { featureFlags } from '../../config/features'
 
 const props = defineProps({
   novelId: String,
@@ -345,7 +346,7 @@ const startConfig = ref({
   target_chapters: 100,
   target_words_per_chapter: 2500,
   max_auto_chapters: 120,
-  auto_approve_mode: false
+  auto_approve_mode: true
 })
 
 // 🔧 新增：SSE 连接状态
@@ -785,7 +786,7 @@ async function openActiveInvocation(sessionIdArg) {
     lastOpenedInvocationSessionId = sessionId
   } catch (err) {
     console.warn('[AutopilotPanel] 打开 AI Invocation 面板失败:', err)
-    message.error('打开 AI 面板失败')
+    message.error('AI 调用处理失败')
   } finally {
     openingInvocationSessionId = ''
     aiPanelOpening.value = false

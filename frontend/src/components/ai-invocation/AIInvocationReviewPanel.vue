@@ -2,6 +2,7 @@
 import { useMessage } from 'naive-ui'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
+import { featureFlags } from '../../config/features'
 import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 
 const store = useAIInvocationStore()
@@ -70,6 +71,7 @@ const runtimePromptUser = computed(() => (
 const hasCommitSteps = computed(() => Boolean(store.commit?.steps?.length))
 const showLiveAttempt = computed(() => Boolean(store.attempt?.id))
 const showOutputPreview = computed(() => store.hasAttempt && !store.isGenerating && outputPreviewRows.value.length > 0)
+const showVariableCenterDebug = computed(() => featureFlags.variableCenterDebugPanels)
 const drawerTitle = computed(() => `AI 调试面板：${store.session?.operation || store.session?.node_key || '未加载'}`)
 const drawerWidth = '66.666vw'
 interface OutputBindingRow {
@@ -497,7 +499,7 @@ const outputPreviewRows = computed(() =>
           >
             当前会话等待生成前审阅。左侧可修改本次 CPMS 系统词草稿，右侧会实时展示运行时系统词预览；批准生成后本次 session 使用当前草稿。
           </n-alert>
-          <n-card v-if="outputBindings.length" size="small" title="本步规则说明">
+          <n-card v-if="showVariableCenterDebug && outputBindings.length" size="small" title="本步规则说明">
             <n-text depth="3" style="display:block;margin-bottom:8px;">
               {{ outputRuleIntro }}
             </n-text>
@@ -524,7 +526,7 @@ const outputPreviewRows = computed(() =>
             必填变量缺失：{{ missingVariables.join('、') }}
           </n-alert>
 
-          <n-card v-if="missingVariables.length > 0 && canEditVariables" size="small" title="补齐变量">
+          <n-card v-if="showVariableCenterDebug && missingVariables.length > 0 && canEditVariables" size="small" title="补齐变量">
             <n-space vertical :size="10">
               <div v-for="alias in missingVariables" :key="alias" class="missing-variable-row">
                 <n-text strong>{{ alias }}</n-text>
@@ -634,7 +636,7 @@ const outputPreviewRows = computed(() =>
             </n-collapse>
           </n-card>
 
-          <n-card size="small" title="变量快照">
+          <n-card v-if="showVariableCenterDebug" size="small" title="变量快照">
             <n-empty v-if="!hasVariableSnapshot" description="暂无变量" />
             <n-collapse v-else v-model:expanded-names="expandedVariableGroups">
               <n-collapse-item
@@ -704,7 +706,7 @@ const outputPreviewRows = computed(() =>
             </n-spin>
           </n-card>
 
-          <n-card v-if="showOutputPreview" size="small" title="变量中心写入预览">
+          <n-card v-if="showVariableCenterDebug && showOutputPreview" size="small" title="变量中心写入预览">
             <n-list>
               <n-list-item v-for="row in outputPreviewRows" :key="row.jsonPath">
                 <div class="output-preview-row">

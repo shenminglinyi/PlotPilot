@@ -858,6 +858,7 @@ const AutopilotWorkspace = defineAsyncComponent(() => import('../autopilot/Autop
 import { useChapterDeskLayout } from '../../composables/useChapterDeskLayout'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { useAIInvocationStore } from '../../stores/aiInvocationStore'
+import { featureFlags } from '../../config/features'
 import {
   CHAPTER_DESK_AUX_ORDER,
   CHAPTER_DESK_AUX_SURFACES,
@@ -962,7 +963,7 @@ const assistStreamFailedChapter = ref<number | null>(null)
 /** 流式完成但章前拆拍失败或仅 1 拍（降级） */
 const assistStreamPlanFailedChapter = ref<number | null>(null)
 
-// ── AI Panel & Variable Center Integration ──
+// ── Chapter prose invocation ──
 const generateProfileId = ref<string | null>(null)
 const llmProfiles = ref<LLMProfile[]>([])
 const llmProfilesLoading = ref(false)
@@ -1863,6 +1864,7 @@ async function openProseInvocationForChapter(
     const payload = await aiInvocationApi.create({
       operation: 'chapter.generate.prose',
       node_key: 'chapter-prose-generation',
+      policy: featureFlags.aiInvocationDebug ? 'FULL_INTERACTIVE' : 'DIRECT',
       context: {
         novel_id: props.slug,
         chapter_number: chapterNumber,
@@ -1878,6 +1880,14 @@ async function openProseInvocationForChapter(
       emit('selectChapter', chapterNumber, target.title || '')
     }
     aiInvocationStore.openFromResponse(payload)
+    if (payload.session?.status === 'completed') {
+      emit('selectChapter', chapterNumber, target.title || '')
+      emit('chapterUpdated')
+      if (currentChapter.value?.number === chapterNumber) {
+        void handleReload()
+      }
+      return
+    }
     if (payload.session?.id) {
       const stopListening = aiInvocationStore.onSessionUpdate(payload.session.id, (nextPayload) => {
         if (nextPayload.session?.status !== 'completed') return
@@ -1890,7 +1900,7 @@ async function openProseInvocationForChapter(
       })
     }
   } catch (err) {
-    message.error(`创建生文审阅会话失败：${httpDetailFromError(err)}`)
+    message.error(`创建正文生成任务失败：${httpDetailFromError(err)}`)
   } finally {
     generateInProgress.value = false
     generatingChapterId.value = null

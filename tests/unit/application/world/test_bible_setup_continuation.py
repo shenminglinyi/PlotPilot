@@ -39,6 +39,8 @@ def _make_context(handler_key: str, content: str) -> ContinuationContext:
 
 @pytest.fixture(autouse=True)
 def _stub_bible_services(monkeypatch):
+    captured = {"worldbuilding_updates": []}
+
     class _FakeBibleService:
         def ensure_bible_for_novel(self, _novel_id):
             return SimpleNamespace(
@@ -53,7 +55,8 @@ def _stub_bible_services(monkeypatch):
             return None
 
     class _FakeWorldbuildingService:
-        def update_worldbuilding(self, **_kwargs):
+        def update_worldbuilding(self, **kwargs):
+            captured["worldbuilding_updates"].append(kwargs)
             return None
 
     monkeypatch.setattr(
@@ -64,6 +67,7 @@ def _stub_bible_services(monkeypatch):
         "application.world.services.bible_setup_continuation._refresh_shared_state",
         lambda _novel_id: None,
     )
+    return captured
 
 
 def test_worldbuilding_handler_accepts_top_level_split_fields():
@@ -104,6 +108,29 @@ def test_worldbuilding_handler_uses_output_bindings_for_custom_paths(monkeypatch
 
     assert result["style"] == "冷硬克制"
     assert result["worldbuilding"]["core_rules"]["power_system"] == "体系A"
+
+
+def test_worldbuilding_handler_accepts_string_dimension_blocks(_stub_bible_services):
+    ctx = _make_context(
+        "bible_worldbuilding",
+        '{"style":"锋利但留白","worldbuilding":{'
+        '"core_rules":"核心法则围绕代价交换展开，所有能力都会留下可追踪痕迹。",'
+        '"geography":"地理生态由断裂群岛和潮汐废墟构成，资源随季风迁移。",'
+        '"society":"社会结构由港盟、旧贵族和流亡工会共同制衡。",'
+        '"culture":"历史文化重视誓言、航海纪年和禁忌姓名。",'
+        '"daily_life":"沉浸感细节集中在盐雾、灯塔班表和夜市暗语。"}}',
+    )
+
+    result = bible_worldbuilding_handler(ctx)
+
+    assert result["worldbuilding"]["core_rules"]["power_system"].startswith("核心法则")
+    assert result["worldbuilding"]["geography"]["terrain"].startswith("地理生态")
+    assert result["worldbuilding"]["society"]["politics"].startswith("社会结构")
+    assert result["worldbuilding"]["culture"]["history"].startswith("历史文化")
+    assert result["worldbuilding"]["daily_life"]["food_clothing"].startswith("沉浸感")
+    update = _stub_bible_services["worldbuilding_updates"][0]
+    assert update["core_rules"]["power_system"].startswith("核心法则")
+    assert update["daily_life"]["food_clothing"].startswith("沉浸感")
 
 
 def test_characters_handler_repairs_stringified_arrays():
