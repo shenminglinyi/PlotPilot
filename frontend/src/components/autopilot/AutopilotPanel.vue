@@ -839,6 +839,7 @@ async function openActiveInvocation(sessionIdArg) {
 }
 
 function maybeOpenActiveInvocation(s) {
+  if (!featureFlags.aiInvocationDebug) return
   const sessionId = String(s?.active_invocation_session_id || '')
   if (!sessionId) return
   if (sessionId === lastOpenedInvocationSessionId) return
@@ -1501,8 +1502,12 @@ onUnmounted(() => {
 }
 
 .ap-inline-alert :deep(.n-alert-body) {
-  padding-top: 2px;
-  padding-bottom: 2px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.ap-inline-alert :deep(.n-alert-body__content) {
+  width: 100%;
 }
 
 .ap-dot {
@@ -1959,15 +1964,28 @@ onUnmounted(() => {
 
 .ap-review-alert {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
 }
 
 .ap-review-alert span {
   line-height: 1.55;
+  min-width: 0;
+}
+
+.ap-review-alert .n-button {
+  flex: 0 0 auto;
 }
 
 .recovery-hint p { margin: 0 0 6px; line-height: 1.5; }
 .recovery-sub { font-size: 11px; opacity: 0.95; margin-bottom: 8px !important; }
+
+@media (max-width: 640px) {
+  .ap-review-alert {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
 </style>

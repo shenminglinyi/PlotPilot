@@ -5,11 +5,35 @@ import json
 import logging
 from typing import Any, Mapping
 
+from application.ai.llm_json_extract import extract_outer_json_value, repair_json, strip_json_fences
 from application.ai_invocation.continuation import ContinuationContext, register_continuation_handler
 from application.ai_invocation.dtos import InvocationPolicy
 from application.ai_invocation.autopilot.shared_state import write_autopilot_shared_state
 
 logger = logging.getLogger(__name__)
+
+
+def _load_json_value(content: str, error_code: str) -> Any:
+    """Parse an accepted LLM JSON payload after normal LLM cleanup/repair."""
+    raw = str(content or "")
+    if not raw.strip():
+        return {}
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        try:
+            cleaned = extract_outer_json_value(strip_json_fences(raw))
+            payload = json.loads(repair_json(cleaned))
+        except Exception as exc:
+            raise ValueError(error_code) from exc
+    return payload
+
+
+def _load_json_object(content: str, error_code: str) -> dict[str, Any]:
+    payload = _load_json_value(content, error_code)
+    if not isinstance(payload, dict):
+        raise ValueError(error_code)
+    return payload
 
 
 def _publish_shared_state(novel_id: str, **fields: Any) -> None:
@@ -130,15 +154,10 @@ def _append_chapter_draft(novel_id: str, chapter_number: int, content: str) -> i
 
 def register_autopilot_continuations() -> None:
     def _outline_partition(ctx: ContinuationContext) -> Mapping[str, Any]:
-        content = ctx.decision.accepted_content or ""
-        try:
-            payload = json.loads(content) if content.strip() else {}
-        except Exception as exc:
-            raise ValueError("autopilot_outline_partition_requires_json_object") from exc
-
-        if not isinstance(payload, dict):
-            raise ValueError("autopilot_outline_partition_requires_json_object")
-
+        payload = _load_json_object(
+            ctx.decision.accepted_content,
+            "autopilot_outline_partition_requires_json_object",
+        )
         novel_id = str(ctx.session.context.get("novel_id") or "")
         chapter_number = ctx.session.context.get("chapter_number")
         micro_beats = payload.get("atoms") or payload.get("micro_beats") or []
@@ -174,11 +193,10 @@ def register_autopilot_continuations() -> None:
     register_continuation_handler("autopilot_outline_partition", _outline_partition)
 
     def _macro_plan(ctx: ContinuationContext) -> Mapping[str, Any]:
-        content = ctx.decision.accepted_content or ""
-        try:
-            payload = json.loads(content) if content.strip() else {}
-        except Exception as exc:
-            raise ValueError("autopilot_macro_plan_requires_json_object") from exc
+        payload = _load_json_value(
+            ctx.decision.accepted_content,
+            "autopilot_macro_plan_requires_json_object",
+        )
         if isinstance(payload, list):
             payload = {"parts": payload}
         if not isinstance(payload, dict):
@@ -214,13 +232,10 @@ def register_autopilot_continuations() -> None:
         }
 
     def _act_plan(ctx: ContinuationContext) -> Mapping[str, Any]:
-        content = ctx.decision.accepted_content or ""
-        try:
-            payload = json.loads(content) if content.strip() else {}
-        except Exception as exc:
-            raise ValueError("autopilot_act_plan_requires_json_object") from exc
-        if not isinstance(payload, dict):
-            raise ValueError("autopilot_act_plan_requires_json_object")
+        payload = _load_json_object(
+            ctx.decision.accepted_content,
+            "autopilot_act_plan_requires_json_object",
+        )
         chapters = payload.get("chapters") or []
         if not isinstance(chapters, list) or not chapters:
             raise ValueError("autopilot_act_plan_requires_non_empty_chapters")
@@ -275,13 +290,10 @@ def register_autopilot_continuations() -> None:
         }
 
     def _audit(ctx: ContinuationContext) -> Mapping[str, Any]:
-        content = ctx.decision.accepted_content or ""
-        try:
-            payload = json.loads(content) if content.strip() else {}
-        except Exception as exc:
-            raise ValueError("autopilot_audit_requires_json_object") from exc
-        if not isinstance(payload, dict):
-            raise ValueError("autopilot_audit_requires_json_object")
+        payload = _load_json_object(
+            ctx.decision.accepted_content,
+            "autopilot_audit_requires_json_object",
+        )
         novel_id = str(ctx.session.context.get("novel_id") or "")
         chapter_number = int(ctx.session.context.get("chapter_number") or 0)
         if novel_id and ctx.session.policy != InvocationPolicy.DIRECT and chapter_number > 0:
@@ -300,13 +312,10 @@ def register_autopilot_continuations() -> None:
         }
 
     def _aftermath(ctx: ContinuationContext) -> Mapping[str, Any]:
-        content = ctx.decision.accepted_content or ""
-        try:
-            payload = json.loads(content) if content.strip() else {}
-        except Exception as exc:
-            raise ValueError("autopilot_aftermath_requires_json_object") from exc
-        if not isinstance(payload, dict):
-            raise ValueError("autopilot_aftermath_requires_json_object")
+        payload = _load_json_object(
+            ctx.decision.accepted_content,
+            "autopilot_aftermath_requires_json_object",
+        )
         novel_id = str(ctx.session.context.get("novel_id") or "")
         chapter_number = int(ctx.session.context.get("chapter_number") or 0)
         if novel_id and ctx.session.policy != InvocationPolicy.DIRECT and chapter_number > 0:

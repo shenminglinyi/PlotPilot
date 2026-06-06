@@ -129,12 +129,16 @@ async def _request_act_invocation(
             stage="planning",
             operation="autopilot.act.plan",
             node_key=PLANNING_ACT,
-            context={"novel_id": novel.novel_id.value, "act_id": target_act.id},
+            context={
+                "novel_id": novel.novel_id.value,
+                "act_id": target_act.id,
+                "chapter_count": int(chapter_budget or 0),
+            },
             explicit_variables=variables,
             continuation_handler_key="autopilot_act_plan",
             policy_hint=policy,
             metadata={"source": "act_planning_delegate"},
-            config={"max_tokens": 4000, "temperature": 0.7},
+            config={"max_tokens": 12000, "temperature": 0.7},
         )
     )
 

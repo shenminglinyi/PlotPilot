@@ -72,7 +72,10 @@ const hasCommitSteps = computed(() => Boolean(store.commit?.steps?.length))
 const showLiveAttempt = computed(() => Boolean(store.attempt?.id))
 const showOutputPreview = computed(() => store.hasAttempt && !store.isGenerating && outputPreviewRows.value.length > 0)
 const showVariableCenterDebug = computed(() => featureFlags.variableCenterDebugPanels)
-const drawerTitle = computed(() => `AI 调试面板：${store.session?.operation || store.session?.node_key || '未加载'}`)
+const drawerTitle = computed(() => {
+  const label = store.session?.operation || store.session?.node_key || '未加载'
+  return featureFlags.aiInvocationDebug ? `AI 调试面板：${label}` : `AI 生成审阅：${label}`
+})
 const drawerWidth = '66.666vw'
 interface OutputBindingRow {
   targetDisplayName: string

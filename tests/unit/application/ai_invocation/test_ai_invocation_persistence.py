@@ -230,6 +230,66 @@ def test_sqlite_variable_hub_repository_persists_path_and_projection_binding_met
     assert bindings[0].preview_source == "continuation"
 
 
+def test_sqlite_variable_hub_repository_allows_operation_specific_binding_sets_for_same_node():
+    db = _Db()
+    db.conn.execute("PRAGMA foreign_keys = ON")
+    repo = SqliteVariableHubRepository(db)
+
+    repo.set_bindings(
+        "chapter-prose-generation:input:v1",
+        "chapter-prose-generation",
+        [
+            VariableBinding(
+                alias="chapter_outline",
+                variable_key="chapter.outline",
+                required=True,
+            )
+        ],
+        direction="input",
+    )
+    repo.set_bindings(
+        "chapter-prose-generation:autopilot:input:v1",
+        "chapter-prose-generation",
+        [
+            VariableBinding(
+                alias="chapter_outline",
+                variable_key="chapter.outline",
+                required=True,
+            ),
+            VariableBinding(
+                alias="world_context",
+                variable_key="worldbuilding.context",
+            ),
+        ],
+        direction="input",
+    )
+
+    manual_bindings = repo.get_bindings(
+        "chapter-prose-generation:input:v1",
+        "chapter-prose-generation",
+    )
+    autopilot_bindings = repo.get_bindings(
+        "chapter-prose-generation:autopilot:input:v1",
+        "chapter-prose-generation",
+    )
+    binding_sets = db.fetch_all(
+        """
+        SELECT id, version_number, is_active
+        FROM cpms_variable_binding_sets
+        WHERE node_key = ? AND direction = ?
+        ORDER BY version_number
+        """,
+        ("chapter-prose-generation", "input"),
+    )
+
+    assert [binding.alias for binding in manual_bindings] == ["chapter_outline"]
+    assert [binding.alias for binding in autopilot_bindings] == ["chapter_outline", "world_context"]
+    assert binding_sets == [
+        {"id": "chapter-prose-generation:input:v1", "version_number": 1, "is_active": 1},
+        {"id": "chapter-prose-generation:autopilot:input:v1", "version_number": 2, "is_active": 0},
+    ]
+
+
 def test_sqlite_variable_hub_repository_writes_current_value_and_lineage():
     db = _Db()
     repo = SqliteVariableHubRepository(db)

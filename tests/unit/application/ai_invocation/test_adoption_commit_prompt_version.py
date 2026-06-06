@@ -10,7 +10,11 @@ from application.ai_invocation.dtos import (
     VariableBinding,
 )
 from application.ai_invocation.autopilot.continuations import register_autopilot_continuations
-from application.ai_invocation.continuation import register_continuation_handler
+from application.ai_invocation.continuation import (
+    ContinuationContext,
+    execute_continuation,
+    register_continuation_handler,
+)
 from application.ai_invocation.services import AdoptionCommitService
 from application.ai_invocation.variable_hub import InMemoryVariableHubRepository
 from domain.ai.value_objects.prompt import Prompt
@@ -404,6 +408,41 @@ def test_autopilot_outline_partition_blocks_when_required_outputs_missing():
     step = next(item for item in commit.steps if item.name == "continuation_handler")
     assert step.status.value == "failed"
     assert "requires_non_empty_atoms" in step.error
+
+
+def test_autopilot_act_plan_continuation_repairs_llm_json_text():
+    register_autopilot_continuations()
+    session = InvocationSession(
+        id="session-1",
+        operation="autopilot.act.plan",
+        node_key="planning-act",
+        policy=InvocationPolicy.DIRECT,
+        status=InvocationSessionStatus.AWAITING_COMMIT,
+        context={"novel_id": "novel-1", "act_id": "act-1"},
+        continuation=ContinuationRef(handler_key="autopilot_act_plan"),
+    )
+    decision = AdoptionDecision(
+        id="decision-1",
+        session_id="session-1",
+        attempt_id="attempt-1",
+        accepted_content='''```json
+{
+  "chapters": [
+    {
+      "number": 1,
+      "title": "废铁区深处的冷焰",
+      "outline": "林渊完成第一次猎杀。",
+    },
+  ],
+}
+```''',
+        accepted_by="system",
+    )
+
+    result = execute_continuation(ContinuationContext(session=session, decision=decision))
+
+    assert result["act_id"] == "act-1"
+    assert result["chapters"][0]["title"] == "废铁区深处的冷焰"
 
 
 def test_commit_blocks_when_required_output_binding_is_missing_after_continuation():

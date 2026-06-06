@@ -275,7 +275,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
       applyResponse(payload)
       decision.value = null
       commit.value = null
-      visible.value = true
+      showDebugPanel()
       syncGenerationPolling()
     } catch (err) {
       error.value = errorText(err)
@@ -294,7 +294,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
         resumed_by: 'user',
       })
       applyResponse(payload)
-      visible.value = true
+      showDebugPanel()
       syncGenerationPolling()
     } catch (err) {
       error.value = errorText(err)

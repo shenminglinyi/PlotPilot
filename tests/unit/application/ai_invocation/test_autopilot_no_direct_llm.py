@@ -44,13 +44,27 @@ def test_daemon_stream_watch_routes_novel_calls_to_invocation_before_provider_st
     assert direct_failure in novel_branch
 
 
-def test_autopilot_panel_opens_ai_panel_for_any_active_invocation():
+def test_autopilot_panel_respects_ai_invocation_debug_flag():
     text = Path("frontend/src/components/autopilot/AutopilotPanel.vue").read_text(encoding="utf-8")
 
     assert "function statusHasActiveInvocation" in text
+    assert 'v-if="reviewGateNeedsAIPanel && featureFlags.aiInvocationDebug"' in text
+    assert "if (!featureFlags.aiInvocationDebug) return" in text
     assert "if (!sessionId) return" in text
     assert "if (!statusHasActiveInvocation(s) || !sessionId) return" not in text
     assert "if (!s?.requires_ai_review || !sessionId) return" not in text
+
+
+def test_ai_invocation_review_panel_is_debug_only():
+    app_text = Path("frontend/src/App.vue").read_text(encoding="utf-8")
+    store_text = Path("frontend/src/stores/aiInvocationStore.ts").read_text(encoding="utf-8-sig")
+
+    assert '<AIInvocationReviewPanel v-if="featureFlags.aiInvocationDebug" />' in app_text
+    assert "<AIInvocationReviewPanel />" not in app_text
+    assert "function showDebugPanel()" in store_text
+    assert "if (debugPanelEnabled.value) {" in store_text
+    assert "visible.value = true" in store_text
+    assert "if (debugPanelEnabled.value) return" in store_text
 
 
 def test_daemon_shared_state_fallback_does_not_import_interfaces_main_when_daemon():
