@@ -1579,6 +1579,15 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
             consecutive_error_count=0,
             target_chapters=resolved_tc,
             target_words_per_chapter=resolved_twpc,
+            needs_review=False,
+            requires_ai_review=False,
+            has_active_invocation=False,
+            active_invocation_session_id="",
+            active_invocation_operation="",
+            active_invocation_node_key="",
+            active_invocation_status="",
+            active_invocation_policy="",
+            autopilot_pause_reason="",
         )
         logger.debug("autopilot start: 已刷新共享内存状态 novel=%s", novel_id)
     except Exception as e:
@@ -1662,6 +1671,15 @@ async def stop_autopilot(novel_id: str):
         from interfaces.main import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="stopped",
+            needs_review=False,
+            requires_ai_review=False,
+            has_active_invocation=False,
+            active_invocation_session_id="",
+            active_invocation_operation="",
+            active_invocation_node_key="",
+            active_invocation_status="",
+            active_invocation_policy="",
+            autopilot_pause_reason="",
         )
         logger.debug("autopilot stop: 已更新共享内存状态 novel=%s", novel_id)
     except Exception as e:

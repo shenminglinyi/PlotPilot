@@ -72,24 +72,7 @@
           <template #primary>
             <div class="work-main primary-desk-root">
               <div v-if="!currentChapter" class="work-empty work-empty-prose">
-                <n-empty description="暂无选中章节" class="work-empty-card">
-                  <template #extra>
-                    <n-space vertical :size="10" align="center">
-                      <n-text depth="3" class="work-empty-hint">
-                        {{ emptyStateProseHint }}
-                      </n-text>
-                      <n-button
-                        type="primary"
-                        size="small"
-                        :loading="generateInProgress"
-                        :disabled="generateInProgress"
-                        @click="handleEmptyStateGenerate"
-                      >
-                        生成正文
-                      </n-button>
-                    </n-space>
-                  </template>
-                </n-empty>
+                <n-empty description="暂无选中章节" class="work-empty-card" />
               </div>
               <n-tabs
                 v-else
@@ -1658,11 +1641,6 @@ const nextChapterGenerationTarget = computed<ProseGenerationChapterTarget | null
   return buildSyntheticChapterTarget(Math.max(current.number + 1, nextProseChapterNumber.value))
 })
 
-const emptyStateProseHint = computed(() => {
-  const chapterNumber = nextProseChapterNumber.value
-  return `将生成${ordinalUnit(chapterNumber)}正文，提交后自动写入章节`
-})
-
 /** 当前是否有可重写的正文：以编辑器 `chapterContent` 为准（列表项通常不带全文，不能用 currentChapter.content） */
 const hasChapterContent = computed(() => {
   const fromEditor = chapterContent.value?.trim() ?? ''
@@ -1905,13 +1883,6 @@ async function openProseInvocationForChapter(
     generateInProgress.value = false
     generatingChapterId.value = null
   }
-}
-
-async function handleEmptyStateGenerate() {
-  if (generateInProgress.value) return
-  const chapterNumber = nextProseChapterNumber.value
-  const target = buildSyntheticChapterTarget(chapterNumber)
-  await openProseInvocationForChapter(target)
 }
 
 const handleGenerateChapter = async () => {

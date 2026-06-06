@@ -74,6 +74,7 @@ _INVOCATION_WAITING_STATUSES = {
     "generating",
 }
 _INVOCATION_FAILED_STATUSES = {"blocked", "failed", "cancelled"}
+_PENDING_INVOCATION_STATUSES = _INVOCATION_WAITING_STATUSES | _INVOCATION_FAILED_STATUSES
 
 
 def _stage_needs_review(stage: Any) -> bool:
@@ -119,6 +120,9 @@ def _is_initial_macro_review_context(payload: Dict[str, Any]) -> bool:
 
 
 def _review_gate_from_status(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if str(payload.get("autopilot_status") or "").strip().lower() in {"stopped", "completed"}:
+        return None
+
     stage = str(payload.get("current_stage") or "")
     needs_review = bool(payload.get("needs_review")) or _stage_needs_review(stage)
     active_session = str(payload.get("active_invocation_session_id") or "").strip()
@@ -238,7 +242,81 @@ def _review_gate_from_status(payload: Dict[str, Any]) -> Optional[Dict[str, Any]
     }
 
 
+def _hydrate_pending_invocation_from_db(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Recover an active autopilot invocation when shared runtime fields were lost.
+
+    The daemon publishes active_invocation_* through shared memory, but those
+    fields can be cleared by restarts or start/stop races while the durable
+    ai_invocation_sessions row is still awaiting user/system action. Without
+    this recovery, /status can only say "waiting" and the frontend has no
+    session id to open or auto-advance.
+    """
+    if str(payload.get("active_invocation_session_id") or "").strip():
+        return payload
+    if str(payload.get("autopilot_status") or "").strip().lower() in {"stopped", "completed"}:
+        return payload
+
+    novel_id = str(payload.get("novel_id") or "").strip()
+    if not novel_id:
+        return payload
+
+    stage = str(payload.get("current_stage") or "").strip().lower()
+    substep = str(payload.get("writing_substep") or "").strip().lower()
+    if stage not in {"planning", "macro_planning", "act_planning", "paused_for_review", "reviewing"} and not substep:
+        return payload
+
+    try:
+        from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
+
+        statuses = tuple(sorted(_PENDING_INVOCATION_STATUSES))
+        placeholders = ",".join("?" for _ in statuses)
+        like_token = f"%{novel_id}%"
+        row = get_database(get_db_path()).fetch_one(
+            f"""
+            SELECT id, operation, node_key, policy, status
+              FROM ai_invocation_sessions
+             WHERE operation LIKE 'autopilot.%'
+               AND status IN ({placeholders})
+               AND (context_json LIKE ? OR metadata_json LIKE ?)
+             ORDER BY updated_at DESC, created_at DESC
+             LIMIT 1
+            """,
+            (*statuses, like_token, like_token),
+        )
+    except Exception as exc:
+        logger.debug("恢复待处理 AI invocation 失败 novel=%s: %s", novel_id, exc)
+        return payload
+
+    if not row:
+        return payload
+
+    status_value = str(row["status"] or "")
+    operation = str(row["operation"] or "")
+    payload["active_invocation_session_id"] = row["id"]
+    payload["active_invocation_operation"] = operation
+    payload["active_invocation_node_key"] = row["node_key"] or ""
+    payload["active_invocation_status"] = status_value
+    payload["active_invocation_policy"] = row["policy"] or ""
+    payload["has_active_invocation"] = True
+    payload["requires_ai_review"] = True
+    payload["autopilot_pause_reason"] = (
+        "ai_invocation_retry_required"
+        if status_value in _INVOCATION_FAILED_STATUSES
+        else "awaiting_ai_review"
+    )
+    if operation == "autopilot.macro.plan":
+        payload.setdefault("writing_substep", "macro_planning")
+        payload.setdefault("writing_substep_label", "宏观规划 · AI 请求面板")
+        payload["macro_structure_ready"] = False
+    elif operation == "autopilot.act.plan":
+        payload.setdefault("writing_substep", "act_planning")
+        payload.setdefault("writing_substep_label", "幕级规划 · AI 请求面板")
+    return payload
+
+
 def _augment_review_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = _hydrate_pending_invocation_from_db(payload)
     payload["needs_review"] = _stage_needs_review(payload.get("current_stage"))
     gate = _review_gate_from_status(payload)
     if gate:

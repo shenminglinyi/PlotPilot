@@ -1298,13 +1298,16 @@ const editableLocations = ref<Array<{ name: string; id?: string; location_type?:
 
 function setBibleStageReviewWaiting(stage: string, waiting: boolean) {
   if (stage === 'worldbuilding') {
-    generatingBible.value = false
+    generatingBible.value = waiting
     bibleGenerated.value = false
+    activeDimension.value = ''
+    activeField.value = ''
+    completedDimensions.value = new Set()
   } else if (stage === 'characters') {
-    generatingCharacters.value = false
+    generatingCharacters.value = waiting
     charactersGenerated.value = false
   } else if (stage === 'locations') {
-    generatingLocations.value = false
+    generatingLocations.value = waiting
     locationsGenerated.value = false
   }
   phaseMessage.value = waiting ? '等待 AI 审阅批准...' : ''
@@ -1314,6 +1317,9 @@ function setBibleStageHeadlessGenerating(stage: string) {
   if (stage === 'worldbuilding') {
     generatingBible.value = true
     bibleGenerated.value = false
+    activeDimension.value = ''
+    activeField.value = ''
+    completedDimensions.value = new Set()
     phaseMessage.value = '正在生成文风公约与世界观...'
   } else if (stage === 'characters') {
     generatingCharacters.value = true
@@ -2047,6 +2053,7 @@ function startBibleGenerationSSE() {
   phaseMessage.value = '正在准备生成文风公约...'
   activeDimension.value = ''
   activeField.value = ''
+  completedDimensions.value = new Set()
   arrivedFields.value = new Set()
   worldbuildingData.value = emptyWorldbuildingShape()
   worldbuildingRawStream.value = ''
@@ -2131,6 +2138,7 @@ function startCharactersGenerationSSE() {
   charactersGenerated.value = false
   charactersError.value = ''
   streamingCharacters.value = []
+  editableCharacters.value = []
   generatedCharacterDrafts.value = {}
   phaseMessage.value = featureFlags.aiInvocationDebug ? '正在打开审阅面板...' : '正在生成人物...'
 
@@ -2190,6 +2198,7 @@ function startLocationsGenerationSSE() {
   locationsGenerated.value = false
   locationsError.value = ''
   streamingLocations.value = []
+  editableLocations.value = []
   phaseMessage.value = featureFlags.aiInvocationDebug ? '正在打开审阅面板...' : '正在生成地点...'
 
   const ctrl = new AbortController()

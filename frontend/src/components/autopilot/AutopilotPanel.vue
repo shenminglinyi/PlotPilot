@@ -418,10 +418,14 @@ let lastStatusPollIntervalMs = -1
 
 // 计算属性
 const isRunning = computed(() => status.value?.autopilot_status === 'running')
+const isTerminalStopped = computed(() =>
+  ['stopped', 'completed'].includes(String(status.value?.autopilot_status || ''))
+)
 // 是否与人工审阅闸门对齐（须点 resume）。
 // 「reviewing」为兼容舞台值；主路径 paused_for_review。避免仅展示「待审阅」却无按钮。
 function statusNeedsManualReview(s) {
   if (!s) return false
+  if (['stopped', 'completed'].includes(String(s.autopilot_status || ''))) return false
   if (s.needs_review === true) return true
   const stage = String(s.current_stage ?? '').trim().toLowerCase()
   return stage === 'paused_for_review' || stage === 'reviewing'
@@ -429,7 +433,7 @@ function statusNeedsManualReview(s) {
 
 const needsReview = computed(() => statusNeedsManualReview(status.value))
 const requiresAIReview = computed(() => Boolean(
-  status.value?.requires_ai_review && status.value?.active_invocation_session_id
+  !isTerminalStopped.value && status.value?.requires_ai_review && status.value?.active_invocation_session_id
 ))
 const reviewGate = computed(() => {
   const gate = status.value?.review_gate
@@ -438,7 +442,7 @@ const reviewGate = computed(() => {
 const reviewGateType = computed(() => String(reviewGate.value?.type || 'manual_review'))
 const reviewGateStatus = computed(() => String(reviewGate.value?.status || 'ready'))
 const reviewGateNeedsAIPanel = computed(() =>
-  reviewGate.value?.primary_action === 'open_ai_panel' || requiresAIReview.value
+  !isTerminalStopped.value && (reviewGate.value?.primary_action === 'open_ai_panel' || requiresAIReview.value)
 )
 const showReviewGate = computed(() => needsReview.value || reviewGateNeedsAIPanel.value)
 const canResumeReview = computed(() => (
@@ -820,31 +824,35 @@ function resolveActiveInvocationSessionId(sessionIdArg) {
   return String(status.value?.active_invocation_session_id || '').trim()
 }
 
-async function openActiveInvocation(sessionIdArg) {
+async function openActiveInvocation(sessionIdArg, options = {}) {
   const sessionId = resolveActiveInvocationSessionId(sessionIdArg)
   if (!sessionId) return
   if (sessionId === openingInvocationSessionId) return
+  const showPanel = options.showPanel !== false
   openingInvocationSessionId = sessionId
-  aiPanelOpening.value = true
+  if (showPanel) {
+    aiPanelOpening.value = true
+  }
   try {
-    await aiInvocationStore.open(sessionId)
+    await aiInvocationStore.open(sessionId, { showPanel })
     lastOpenedInvocationSessionId = sessionId
   } catch (err) {
     console.warn('[AutopilotPanel] 打开 AI Invocation 面板失败:', err)
     message.error('AI 调用处理失败')
   } finally {
     openingInvocationSessionId = ''
-    aiPanelOpening.value = false
+    if (showPanel) {
+      aiPanelOpening.value = false
+    }
   }
 }
 
 function maybeOpenActiveInvocation(s) {
-  if (!featureFlags.aiInvocationDebug) return
   const sessionId = String(s?.active_invocation_session_id || '')
   if (!sessionId) return
   if (sessionId === lastOpenedInvocationSessionId) return
   if (sessionId === openingInvocationSessionId) return
-  void openActiveInvocation(sessionId)
+  void openActiveInvocation(sessionId, { showPanel: featureFlags.aiInvocationDebug })
 }
 
 function clearStatusPoll() {
@@ -1167,6 +1175,12 @@ async function start() {
       target_words_per_chapter: newWpc,
       auto_approve_mode: newAutoApprove,
       consecutive_error_count: 0,
+      needs_review: false,
+      requires_ai_review: false,
+      review_gate: null,
+      has_active_invocation: false,
+      active_invocation_session_id: '',
+      active_invocation_status: '',
     }
     emit('status-change', status.value)
     reconnectAttempts = 0
@@ -1231,6 +1245,9 @@ async function stop() {
   status.value = {
     ...status.value,
     autopilot_status: 'stopped',
+    needs_review: false,
+    requires_ai_review: false,
+    review_gate: null,
   }
   emit('status-change', status.value)
   message.info('已停止')
@@ -1506,7 +1523,16 @@ onUnmounted(() => {
   padding-bottom: 8px;
 }
 
+.ap-inline-alert :deep(.n-alert__icon) {
+  top: 50%;
+  margin-top: 0;
+  margin-bottom: 0;
+  transform: translateY(-50%);
+}
+
 .ap-inline-alert :deep(.n-alert-body__content) {
+  display: flex;
+  align-items: center;
   width: 100%;
 }
 

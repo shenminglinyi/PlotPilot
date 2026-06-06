@@ -99,10 +99,12 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
   })
   const debugPanelEnabled = computed(() => featureFlags.aiInvocationDebug)
 
-  function showDebugPanel() {
-    if (debugPanelEnabled.value) {
-      visible.value = true
-    }
+  function showReviewPanel() {
+    visible.value = true
+  }
+
+  function shouldKeepPanelVisible(): boolean {
+    return visible.value || debugPanelEnabled.value
   }
 
   function scheduleHeadlessAdvance() {
@@ -175,7 +177,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     }
   }
 
-  function openFromResponse(payload: InvocationResponseDTO) {
+  function openFromResponse(payload: InvocationResponseDTO, options: { showPanel?: boolean } = {}) {
     if (payload.session?.id && payload.session.id !== session.value?.id) {
       attempt.value = null
       decision.value = null
@@ -185,15 +187,20 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
       promptDraftPreview.value = null
     }
     applyResponse(payload)
-    showDebugPanel()
+    if (options.showPanel !== false) {
+      showReviewPanel()
+    }
   }
 
   function clearPromptDraftPreview() {
     promptDraftPreview.value = null
   }
 
-  async function open(sessionId: string) {
-    showDebugPanel()
+  async function open(sessionId: string, options: { showPanel?: boolean } = {}) {
+    const showPanel = options.showPanel !== false
+    if (showPanel) {
+      showReviewPanel()
+    }
     loading.value = true
     error.value = ''
     session.value = null
@@ -218,7 +225,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
         ?? ''
       promptDraftSystem.value = promptDraftSavedSystem.value
       promptDraftUser.value = promptDraftSavedUser.value
-      openFromResponse(payload)
+      openFromResponse(payload, { showPanel })
     } catch (err) {
       error.value = errorText(err)
       throw err
@@ -275,7 +282,9 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
       applyResponse(payload)
       decision.value = null
       commit.value = null
-      showDebugPanel()
+      if (shouldKeepPanelVisible()) {
+        showReviewPanel()
+      }
       syncGenerationPolling()
     } catch (err) {
       error.value = errorText(err)
@@ -294,7 +303,9 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
         resumed_by: 'user',
       })
       applyResponse(payload)
-      showDebugPanel()
+      if (shouldKeepPanelVisible()) {
+        showReviewPanel()
+      }
       syncGenerationPolling()
     } catch (err) {
       error.value = errorText(err)
