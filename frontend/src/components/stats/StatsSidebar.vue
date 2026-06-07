@@ -173,19 +173,19 @@ import StatCard from './StatCard.vue'
 import { useStatsStore } from '@/stores/statsStore'
 import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
+import { storageKeys } from '@/config/storageKeys'
+import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
 const emit = defineEmits<{
   (e: 'create-book'): void
   (e: 'refresh-list'): void
   (e: 'collapsed-change', collapsed: boolean): void
 }>()
 
-const SIDEBAR_COLLAPSED_KEY = 'plotpilot_sidebar_collapsed'
-
-const collapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+const collapsed = ref(readStorageBoolean(storageKeys.statsSidebarCollapsed))
 
 function toggleCollapse() {
   collapsed.value = !collapsed.value
-  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed.value))
+  writeStorageBoolean(storageKeys.statsSidebarCollapsed, collapsed.value)
   emit('collapsed-change', collapsed.value)
 }
 

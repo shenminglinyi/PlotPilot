@@ -93,6 +93,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { knowledgeApi, type ChapterSummary, type KnowledgeTriple } from '../../api/knowledge'
+import { formatApiError } from '@/utils/apiError'
 
 const props = withDefaults(
   defineProps<{
@@ -225,8 +226,7 @@ const reload = async () => {
     chaptersSnapshot.value = Array.isArray(data.chapters) ? [...data.chapters] : []
     facts.value = (data.facts || []) as Fact[]
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } } }
-    message.error(err?.response?.data?.detail || '加载失败')
+    message.error(formatApiError(e, '加载失败'))
   } finally {
     loading.value = false
   }
@@ -268,8 +268,7 @@ const save = async () => {
     await reload()
     emit('saved')
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } } }
-    message.error(err?.response?.data?.detail || '保存失败')
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     saving.value = false
   }

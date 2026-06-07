@@ -100,6 +100,8 @@ import {
   isWorkbenchSettingsPanelName,
 } from '../workbench/deskEvents'
 import { WORKBENCH_SPLIT } from '../design/layoutDensity'
+import { storageKeys } from '@/config/storageKeys'
+import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
 
 const route = useRoute()
 const message = useMessage()
@@ -166,11 +168,11 @@ const handlePlanAct = (actId: string, actTitle: string) => {
   showActPlanning.value = true
 }
 
-const rightCollapsed = ref(localStorage.getItem('plotpilot.rightPanel.collapsed') === 'true')
+const rightCollapsed = ref(readStorageBoolean(storageKeys.workbenchRightPanelCollapsed))
 
 function toggleRight() {
   rightCollapsed.value = !rightCollapsed.value
-  localStorage.setItem('plotpilot.rightPanel.collapsed', String(rightCollapsed.value))
+  writeStorageBoolean(storageKeys.workbenchRightPanelCollapsed, rightCollapsed.value)
 }
 
 const {

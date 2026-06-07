@@ -424,6 +424,9 @@ import { useAppSettingsShellStore } from '@/stores/appSettingsShellStore'
 import MarketTaxonomyPicker from '@/components/taxonomy/MarketTaxonomyPicker.vue'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { useStatsStore } from '@/stores/statsStore'
+import { storageKeys } from '@/config/storageKeys'
+import { readStorageBoolean } from '@/utils/storage'
+import { formatApiError } from '@/utils/apiError'
 
 // Icons
 const IconSpark = () =>
@@ -474,8 +477,7 @@ const showAdvanced = ref(false)
 const creating = ref(false)
 const loading = ref(false)
 
-const SIDEBAR_COLLAPSED_KEY = 'plotpilot_sidebar_collapsed'
-const sidebarCollapsed = ref(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true')
+const sidebarCollapsed = ref(readStorageBoolean(storageKeys.statsSidebarCollapsed))
 
 function handleSidebarCollapsedChange(isCollapsed: boolean) {
   sidebarCollapsed.value = isCollapsed
@@ -669,8 +671,8 @@ const handleCreate = async () => {
       novelId: result.id,
       targetChapters: result.target_chapters,
     }
-  } catch (error: any) {
-    message.error(error.response?.data?.detail || '创建失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '创建失败'))
   } finally {
     creating.value = false
   }
@@ -710,9 +712,8 @@ const handleDeleteBook = async (slug: string) => {
     books.value = books.value.filter(b => b.slug !== slug)
     selectedBooks.value = selectedBooks.value.filter(s => s !== slug)
     await statsStore.loadGlobalStats(true)
-  } catch (error: any) {
-    const detail = error?.response?.data?.detail
-    message.error(typeof detail === 'string' ? detail : '删除失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '删除失败'))
   } finally {
     deletingSlug.value = null
   }

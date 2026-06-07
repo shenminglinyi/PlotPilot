@@ -547,7 +547,7 @@ def _get_shared_state_for_novel(novel_id: str) -> Optional[Dict[str, Any]]:
     架构原则：状态走内存，数据走磁盘。守护进程写入共享字典，API 进程直接读取。
     """
     try:
-        from interfaces.main import get_shared_novel_state
+        from interfaces.runtime_state import get_shared_novel_state
         return get_shared_novel_state(novel_id)
     except Exception:
         return None
@@ -699,7 +699,7 @@ def _build_autopilot_status_sync(novel_id: str) -> Optional[Dict[str, Any]]:
     daemon_heartbeat = None
     daemon_alive = False
     try:
-        from interfaces.main import _get_shared_state
+        from interfaces.runtime_state import _get_shared_state
         g_state = _get_shared_state()
         daemon_heartbeat = g_state.get("_daemon_heartbeat")
         if daemon_heartbeat:
@@ -797,7 +797,7 @@ def _build_status_pure_memory(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     daemon_heartbeat = None
     daemon_alive = False
     try:
-        from interfaces.main import _get_shared_state
+        from interfaces.runtime_state import _get_shared_state
         g_state = _get_shared_state()
         daemon_heartbeat = g_state.get("_daemon_heartbeat")
         if daemon_heartbeat:
@@ -1028,7 +1028,7 @@ def _build_status_with_shared(novel_id: str, shared: Dict[str, Any]) -> Dict[str
     daemon_heartbeat = None
     daemon_alive = False
     try:
-        from interfaces.main import _get_shared_state
+        from interfaces.runtime_state import _get_shared_state
         g_state = _get_shared_state()
         daemon_heartbeat = g_state.get("_daemon_heartbeat")
         if daemon_heartbeat:
@@ -1569,7 +1569,7 @@ async def start_autopilot(novel_id: str, body: StartRequest = StartRequest()):
 
     # ── 第二步：立即写入共享内存（前端立即可见）──
     try:
-        from interfaces.main import update_shared_novel_state
+        from interfaces.runtime_state import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="running",
             current_stage=next_stage,
@@ -1649,7 +1649,7 @@ async def stop_autopilot(novel_id: str):
     # 🔥 幂等保护：检查共享内存状态，已是 stopped 则直接返回
     # 防止前端因响应延迟重复调 /stop 导致日志刷屏和 DB 竞争
     try:
-        from interfaces.main import get_shared_novel_state
+        from interfaces.runtime_state import get_shared_novel_state
         shared = get_shared_novel_state(novel_id)
         if shared and shared.get("autopilot_status") == "stopped":
             logger.debug("autopilot stop: novel_id=%s 已是 stopped，跳过重复停止", novel_id)
@@ -1668,7 +1668,7 @@ async def stop_autopilot(novel_id: str):
     # 🔥 关键修复：立即更新共享内存状态，让 SSE 流能检测到状态变化
     # 否则 SSE 流从共享内存读取时仍看到 running，不会推送 autopilot_complete 事件
     try:
-        from interfaces.main import update_shared_novel_state
+        from interfaces.runtime_state import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="stopped",
             needs_review=False,
@@ -1811,7 +1811,7 @@ async def resume_from_review(novel_id: str):
 
     # ── 第二步：立即写入共享内存（前端立即可见）──
     try:
-        from interfaces.main import update_shared_novel_state
+        from interfaces.runtime_state import update_shared_novel_state
         update_shared_novel_state(novel_id,
             autopilot_status="running",
             current_stage=next_stage,
@@ -2732,7 +2732,7 @@ async def debug_thread_pool():
 @router.get("/debug/shared-state")
 async def debug_shared_state(novel_id: str = None):
     """调试：共享内存状态"""
-    from interfaces.main import _get_shared_state
+    from interfaces.runtime_state import _get_shared_state
     import multiprocessing as mp
 
     try:
@@ -2806,7 +2806,7 @@ async def debug_all(novel_id: str = None):
     """调试：综合诊断"""
     import threading
     import sqlite3
-    from interfaces.main import _get_shared_state
+    from interfaces.runtime_state import _get_shared_state
     from application.paths import get_db_path
     from pathlib import Path
 

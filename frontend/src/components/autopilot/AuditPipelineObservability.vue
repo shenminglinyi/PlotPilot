@@ -32,7 +32,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { usePolling } from '@/composables/usePolling'
 
 interface StatusLike {
   current_stage?: string | null
@@ -75,17 +76,9 @@ const displayedAuditSteps = computed(() =>
 
 const tick = ref(0)
 const stepEnteredAt = ref(Math.floor(Date.now() / 1000))
-let timer: ReturnType<typeof setInterval> | null = null
-
-onMounted(() => {
-  timer = setInterval(() => {
-    tick.value += 1
-  }, 1000)
-})
-
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
-})
+usePolling(() => {
+  tick.value += 1
+}, 1000, { autoStart: true })
 
 const currentIx = computed(() => {
   const sub = String(props.status?.writing_substep || '')

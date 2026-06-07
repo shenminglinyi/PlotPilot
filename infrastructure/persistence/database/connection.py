@@ -11,6 +11,9 @@ from infrastructure.persistence.database.sqlite_pragmas import (
     BUSY_TIMEOUT_MS,
     apply_standard_pragmas,
 )
+from infrastructure.persistence.database.migration_runner import (
+    apply_migration_files as run_migration_files,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -327,101 +330,8 @@ def _apply_chapter_summaries_enhancements(conn: sqlite3.Connection) -> None:
 
 
 def _apply_migration_files(conn: sqlite3.Connection) -> None:
-    """应用 migrations 目录下全部 .sql（幂等执行，顺序按文件名稳定排序）。
-
-    优化：使用 migrations_applied 表跟踪已应用的迁移，避免重复执行。
-    """
-    # 尝试创建迁移跟踪表（如果不存在），带重试和错误处理
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS migrations_applied (
-                    migration_file TEXT PRIMARY KEY,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-            break
-        except sqlite3.OperationalError as e:
-            if "database is locked" in str(e) and attempt < max_retries - 1:
-                logger.warning(f"Database locked, retrying... (attempt {attempt + 1}/{max_retries})")
-                import time
-                time.sleep(0.5 * (attempt + 1))  # 递增等待时间
-                continue
-            elif "already exists" in str(e):
-                break  # 表已存在，继续
-            else:
-                # 如果无法创建跟踪表，回退到旧逻辑
-                logger.warning(f"Cannot create migrations_applied table: {e}, using legacy mode")
-                _apply_migration_files_legacy(conn)
-                return
-
-    # 获取已应用的迁移列表
-    applied = set()
-    try:
-        cursor = conn.execute("SELECT migration_file FROM migrations_applied")
-        applied = {row[0] for row in cursor.fetchall()}
-    except Exception:
-        pass  # 表不存在，继续执行
-
-    migrations_dir = _database_asset_dir() / "migrations"
-    if not migrations_dir.is_dir():
-        logger.warning("未找到迁移目录（将仅依赖 schema.sql 与代码内补丁）: %s", migrations_dir)
-        return
-
-    new_migrations = 0
-    for migration_path in sorted(migrations_dir.glob("*.sql")):
-        migration_file = migration_path.name
-
-        # 跳过已应用的迁移
-        if migration_file in applied:
-            continue
-
-        try:
-            migration_sql = migration_path.read_text(encoding="utf-8")
-            conn.executescript(migration_sql)
-            conn.execute(
-                "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
-                (migration_file,)
-            )
-            conn.commit()
-            logger.info("Applied migration: %s", migration_file)
-            new_migrations += 1
-        except sqlite3.OperationalError as e:
-            err_str = str(e)
-            if "already exists" in err_str or "duplicate column" in err_str:
-                # 即使失败也记录为已应用，避免下次重试
-                try:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
-                        (migration_file,)
-                    )
-                    conn.commit()
-                except:
-                    pass
-                logger.debug("Migration %s already applied: %s", migration_file, e)
-            elif "no such function" in err_str:
-                # SQLite 不支持的函数（如 content()），标记为已应用避免反复报错
-                try:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO migrations_applied (migration_file) VALUES (?)",
-                        (migration_file,)
-                    )
-                    conn.commit()
-                except:
-                    pass
-                logger.warning(
-                    "Migration %s uses unsupported SQLite function, marking as applied: %s",
-                    migration_file, e
-                )
-            else:
-                logger.warning("Migration %s failed: %s", migration_file, e)
-        except Exception as e:
-            logger.warning("Failed to apply migration %s: %s", migration_file, e)
-
-    if new_migrations == 0 and applied:
-        logger.debug("All %d migrations already applied, skipped", len(applied))
+    """兼容入口：SQL migration 执行已迁到 migration_runner。"""
+    run_migration_files(conn, _database_asset_dir() / "migrations")
 
 
 def _apply_migration_files_legacy(conn: sqlite3.Connection) -> None:

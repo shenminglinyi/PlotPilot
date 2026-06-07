@@ -1,4 +1,5 @@
 import { apiClient } from './config'
+import { apiRoutes } from './endpoints'
 import type { GuardrailCheckResponse } from './engineCore'
 
 export interface ChapterDTO {
@@ -64,6 +65,10 @@ export interface ChapterReviewAiResponse {
   saved: boolean
 }
 
+export interface ChapterListResponse {
+  chapters?: ChapterDTO[]
+}
+
 export const chapterApi = {
   /**
    * List all chapters for a novel
@@ -71,6 +76,18 @@ export const chapterApi = {
    */
   listChapters: (novelId: string) =>
     apiClient.get<ChapterDTO[]>(`/novels/${novelId}/chapters`) as Promise<ChapterDTO[]>,
+
+  /**
+   * Get the latest draft chapter for live preview fallback
+   * GET /api/v1/novels/{novelId}/chapters?status=draft&limit=1
+   */
+  getLatestDraftChapter: async (novelId: string): Promise<ChapterDTO | null> => {
+    const data = await apiClient.get<ChapterListResponse>(
+      apiRoutes.novels.chaptersClient(novelId),
+      { params: { status: 'draft', limit: 1 } },
+    ) as ChapterListResponse
+    return data.chapters?.[0] ?? null
+  },
 
   /**
    * Get a specific chapter by number

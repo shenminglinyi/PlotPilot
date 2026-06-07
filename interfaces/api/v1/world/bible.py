@@ -27,6 +27,7 @@ from interfaces.api.dependencies import (
     get_auto_bible_generator,
     get_auto_knowledge_generator
 )
+from interfaces.api.urls import bible_generation_status_url
 from domain.shared.exceptions import EntityNotFoundError
 from application.world.bible_generation_state import (
     clear_bible_generation_state,
@@ -361,7 +362,7 @@ async def generate_bible(
     return {
         "message": "Bible generation started",
         "novel_id": novel_id,
-        "status_url": f"/api/v1/bible/novels/{novel_id}/bible/status"
+        "status_url": bible_generation_status_url(novel_id),
     }
 
 

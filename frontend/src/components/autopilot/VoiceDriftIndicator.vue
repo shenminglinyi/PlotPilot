@@ -87,8 +87,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { resolveHttpUrl } from '@/api/config'
+import { ref, computed, watch, onMounted } from 'vue'
+import { monitorApi } from '@/api/monitor'
+import { usePolling } from '@/composables/usePolling'
 
 interface VoiceDriftData {
   drift_score: number
@@ -116,8 +117,6 @@ const emit = defineEmits<{
 const driftData = ref<VoiceDriftData | null>(null)
 const showDetailModal = ref(false)
 const loading = ref(false)
-
-let pollTimer: number | null = null
 
 // 阈值
 const safeThreshold = computed(() => props.safeThreshold ?? 3.0)
@@ -190,27 +189,24 @@ const driftDetails = computed(() => driftData.value?.details ?? [])
 async function loadDriftData() {
   loading.value = true
   try {
-    const res = await fetch(
-      resolveHttpUrl(`/api/v1/novels/${props.novelId}/monitor/voice-drift`),
-    )
-    if (res.ok) {
-      const dataArray = await res.json()
-      // 取第一个角色的数据（或者可以聚合多个角色）
-      if (dataArray && dataArray.length > 0) {
-        const firstChar = dataArray[0]
-        // 转换新 API 格式到组件格式
-        driftData.value = {
-          drift_score: firstChar.drift_score * 10, // 转换 0-1 到 0-10
-          status: firstChar.status === 'critical' ? 'danger' : firstChar.status === 'warning' ? 'warning' : 'safe',
-          last_check_chapter: 0, // API 暂不提供
-          last_check_time: new Date().toISOString(),
-          details: []
-        }
+    const dataArray = await monitorApi.getVoiceDrift(props.novelId)
+    // 取第一个角色的数据（或者可以聚合多个角色）
+    if (dataArray && dataArray.length > 0) {
+      const firstChar = dataArray[0]
+      const rawScore = typeof firstChar.drift_score === 'number' ? firstChar.drift_score : 0
+      const rawStatus = String(firstChar.status || '')
+      // 转换新 API 格式到组件格式
+      driftData.value = {
+        drift_score: rawScore * 10, // 转换 0-1 到 0-10
+        status: rawStatus === 'critical' ? 'danger' : rawStatus === 'warning' ? 'warning' : 'safe',
+        last_check_chapter: 0, // API 暂不提供
+        last_check_time: new Date().toISOString(),
+        details: []
+      }
 
-        // 触发警报
-        if (isDanger.value || isWarning.value) {
-          emit('drift-alert', driftScore.value, driftStatus.value)
-        }
+      // 触发警报
+      if (isDanger.value || isWarning.value) {
+        emit('drift-alert', driftScore.value, driftStatus.value)
       }
     }
   } catch (err) {
@@ -240,25 +236,11 @@ function formatTime(timestamp: string): string {
   }
 }
 
-// 定时轮询（每 30 秒）
-function startPolling() {
-  loadDriftData()
-  pollTimer = window.setInterval(() => {
-    loadDriftData()
-  }, 30000)
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
-}
+const polling = usePolling(loadDriftData, 30000)
 
 // 监听
 watch(() => props.novelId, () => {
-  stopPolling()
-  startPolling()
+  polling.restart({ immediate: true })
 })
 
 // 🔥 刷新信号变化时重新加载（由 Dashboard 的 SSE 事件驱动）
@@ -268,11 +250,7 @@ watch(() => props.refreshKey, (newKey) => {
 
 // 生命周期
 onMounted(() => {
-  startPolling()
-})
-
-onUnmounted(() => {
-  stopPolling()
+  polling.start({ immediate: true })
 })
 </script>
 

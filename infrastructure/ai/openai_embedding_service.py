@@ -1,10 +1,10 @@
 """OpenAI 嵌入服务实现"""
-import os
 from typing import List, Optional
 
 import httpx
 from openai import AsyncOpenAI
 from domain.ai.services.embedding_service import EmbeddingService
+from infrastructure.ai.embedding_environment import EmbeddingEnvironmentSettings
 
 
 class OpenAIEmbeddingService(EmbeddingService):
@@ -26,18 +26,19 @@ class OpenAIEmbeddingService(EmbeddingService):
         Raises:
             ValueError: 如果 API Key 或模型 ID 未设置
         """
-        _api_key = api_key or os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY")
+        env = EmbeddingEnvironmentSettings.from_env()
+        _api_key = api_key or env.api_key_with_openai_fallback
         if not _api_key:
             raise ValueError("EMBEDDING_API_KEY or OPENAI_API_KEY environment variable is required")
 
-        _base_url = base_url or os.getenv("EMBEDDING_BASE_URL") or None
+        _base_url = base_url or env.base_url or None
         self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0), trust_env=False)
         self.client = AsyncOpenAI(
             api_key=_api_key,
             base_url=_base_url,
             http_client=self._http_client,
         )
-        resolved = (model or os.getenv("EMBEDDING_MODEL") or "").strip()
+        resolved = (model or env.model or "").strip()
         if not resolved:
             raise ValueError(
                 "未配置嵌入模型 ID：请在数据库 embedding 设置中填写 model，或设置环境变量 EMBEDDING_MODEL。"

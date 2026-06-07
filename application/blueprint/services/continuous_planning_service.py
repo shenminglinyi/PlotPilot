@@ -57,7 +57,7 @@ def _get_cross_process_shared_dict():
     if shared is not None:
         return shared
     try:
-        from interfaces.main import _get_shared_state
+        from interfaces.runtime_state import _get_shared_state
 
         return _get_shared_state()
     except Exception:

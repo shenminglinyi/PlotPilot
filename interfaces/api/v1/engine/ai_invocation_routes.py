@@ -146,20 +146,36 @@ def _request_variables_must_materialize(operation: str) -> bool:
     return str(operation or "").startswith(_VARIABLE_HUB_FACT_SOURCE_PREFIXES)
 
 
+def _request_binding_aliases(binding: VariableBinding) -> tuple[str, ...]:
+    """Accepted request aliases for a persisted Variable Hub binding."""
+    aliases = {str(binding.alias or "").strip(), str(binding.variable_key or "").strip()}
+    for key in list(aliases):
+        if key.startswith("novel.setup."):
+            aliases.add(key.removeprefix("novel.setup."))
+        if key.startswith("novel."):
+            short = key.removeprefix("novel.")
+            aliases.add(short)
+            aliases.add(f"novel_{short}")
+    return tuple(alias for alias in aliases if alias)
+
+
 def _materialize_request_variables_before_invoke(repos, request: InvocationCreateRequest) -> list[dict[str, Any]]:
     spec = repos["spec"].get(request.operation, request.node_key)
     if spec is None or not request.variables:
         return []
-    bindings = {
-        binding.alias: binding
-        for binding in repos["variable_hub"].get_bindings(spec.input_binding_set_id, spec.node_key)
-        if binding.enabled and binding.variable_key
-    }
+    bindings = {}
+    for binding in repos["variable_hub"].get_bindings(spec.input_binding_set_id, spec.node_key):
+        if not binding.enabled or not binding.variable_key:
+            continue
+        for alias in _request_binding_aliases(binding):
+            bindings.setdefault(alias, binding)
     if not bindings:
         return []
     trace_id = str((request.metadata or {}).get("trace_id") or f"request:{request.operation}:{request.node_key}")
     written: list[dict[str, Any]] = []
     for alias, raw_value in dict(request.variables or {}).items():
+        if str(alias).startswith("genre_"):
+            continue
         binding = bindings.get(alias)
         if binding is None:
             continue
@@ -520,6 +536,7 @@ def _runtime_only_explicit_variables(session, bindings: list[VariableBinding]) -
         if binding.source in RUNTIME_ONLY_BINDING_SOURCES
         or (binding.variable_key and str(binding.variable_key).startswith("system."))
     }
+    runtime_aliases.update(alias for alias in aliases if str(alias).startswith("genre_"))
     return {alias: aliases[alias] for alias in runtime_aliases if alias in aliases}
 
 
@@ -760,7 +777,12 @@ async def create_invocation(request: InvocationCreateRequest) -> dict[str, Any]:
     invocation_variables = request.variables
     if _request_variables_must_materialize(request.operation):
         pre_materialized = _materialize_request_variables_before_invoke(repos, request)
-        invocation_variables = {}
+        written_aliases = {item["alias"] for item in pre_materialized}
+        invocation_variables = {
+            alias: value
+            for alias, value in dict(request.variables or {}).items()
+            if alias not in written_aliases
+        }
     llm_service = get_llm_service()
     gateway = AIInvocationGateway(
         spec_service=InvocationSpecService(repos["spec"]),

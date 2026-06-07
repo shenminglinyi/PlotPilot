@@ -119,22 +119,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { resolveHttpUrl } from '@/api/config'
-
-interface ErrorRecord {
-  message: string
-  timestamp: string
-  context?: string
-}
-
-interface CircuitBreakerData {
-  status: 'closed' | 'open' | 'half_open'
-  error_count: number
-  max_errors: number
-  last_error?: ErrorRecord
-  error_history?: ErrorRecord[]
-}
+import { ref, computed, watch, onMounted } from 'vue'
+import {
+  autopilotApi,
+  isAutopilotNotFoundError,
+  type AutopilotCircuitBreakerData,
+} from '@/api/autopilot'
+import { usePolling } from '@/composables/usePolling'
 
 const props = defineProps<{
   novelId: string
@@ -146,7 +137,7 @@ const emit = defineEmits<{
   'breaker-reset': []
 }>()
 
-const breakerData = ref<CircuitBreakerData>({
+const breakerData = ref<AutopilotCircuitBreakerData>({
   status: 'closed',
   error_count: 0,
   max_errors: 3
@@ -154,7 +145,6 @@ const breakerData = ref<CircuitBreakerData>({
 const showHistoryModal = ref(false)
 const loading = ref(false)
 
-let pollTimer: number | null = null
 /** 该书在库中不存在(404)时不再轮询，避免旧标签页刷屏 */
 let pollStopped404 = false
 
@@ -229,25 +219,20 @@ const statusSubtext = computed(() => {
 async function loadBreakerData() {
   loading.value = true
   try {
-    const res = await fetch(
-      resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/circuit-breaker`),
-    )
-    if (res.status === 404) {
-      stopPolling()
-      pollStopped404 = true
-      return
-    }
-    if (res.ok) {
-      const data = await res.json()
-      const prevStatus = breakerData.value.status
-      breakerData.value = data
+    const data = await autopilotApi.getCircuitBreaker(props.novelId)
+    const prevStatus = breakerData.value.status
+    breakerData.value = data
 
-      // 触发熔断事件
-      if (prevStatus !== 'open' && data.status === 'open') {
-        emit('breaker-open')
-      }
+    // 触发熔断事件
+    if (prevStatus !== 'open' && data.status === 'open') {
+      emit('breaker-open')
     }
   } catch (err) {
+    if (isAutopilotNotFoundError(err)) {
+      pollStopped404 = true
+      polling.stop()
+      return
+    }
     console.error('Failed to load circuit breaker data:', err)
   } finally {
     loading.value = false
@@ -257,17 +242,10 @@ async function loadBreakerData() {
 // 重置熔断器
 async function handleReset() {
   try {
-    const res = await fetch(
-      resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/circuit-breaker/reset`),
-      { method: 'POST' },
-    )
-    if (res.ok) {
-      await loadBreakerData()
-      emit('breaker-reset')
-      window.$message?.success('熔断器已重置')
-    } else {
-      window.$message?.error('重置失败')
-    }
+    await autopilotApi.resetCircuitBreaker(props.novelId)
+    await loadBreakerData()
+    emit('breaker-reset')
+    window.$message?.success('熔断器已重置')
   } catch (err) {
     console.error('Failed to reset circuit breaker:', err)
     window.$message?.error('重置失败')
@@ -295,22 +273,15 @@ function formatTime(timestamp: string): string {
   }
 }
 
+const polling = usePolling(loadBreakerData, 10000)
+
 // 定时轮询（每 10 秒）；先等首包再挂 interval，避免 404 后仍启动定时器
 async function startPolling() {
-  stopPolling()
+  polling.stop()
   pollStopped404 = false
   await loadBreakerData()
   if (pollStopped404) return
-  pollTimer = window.setInterval(() => {
-    void loadBreakerData()
-  }, 10000)
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer)
-    pollTimer = null
-  }
+  polling.start()
 }
 
 // 监听
@@ -326,10 +297,6 @@ watch(() => props.refreshKey, (newKey) => {
 // 生命周期
 onMounted(() => {
   void startPolling()
-})
-
-onUnmounted(() => {
-  stopPolling()
 })
 </script>
 

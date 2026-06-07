@@ -5,7 +5,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { DAGRunResult, DAGStatusResponse, NodeEvent, NodeStatus } from '@/types/dag'
 import { dagApi } from '@/api/dag'
-import { resolveHttpUrl } from '@/api/config'
+import { autopilotApi } from '@/api/autopilot'
 
 export type DAGRunStatus = 'idle' | 'running' | 'stopping' | 'completed' | 'error'
 
@@ -88,8 +88,8 @@ export const useDAGRunStore = defineStore('dagRun', () => {
   function connectSSE(novelId: string) {
     disconnectSSE()
 
-    // 构建 SSE URL（使用 resolveHttpUrl 兼容 Tauri 桌面模式）
-    const url = resolveHttpUrl(`/api/v1/dag/events?novel_id=${encodeURIComponent(novelId)}`)
+    // 构建 SSE URL（由 dagApi 兼容 Tauri 桌面模式）
+    const url = dagApi.eventsUrl(novelId)
 
     try {
       _eventSource = new EventSource(url)
@@ -271,7 +271,7 @@ export const useDAGRunStore = defineStore('dagRun', () => {
     disconnectAutopilotLog()
     _autopilotLogCallback = callback
 
-    const url = resolveHttpUrl(`/api/v1/autopilot/${novelId}/log-stream`)
+    const url = autopilotApi.logStreamUrl(novelId)
     try {
       _autopilotLogSource = new EventSource(url)
 

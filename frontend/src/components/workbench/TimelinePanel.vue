@@ -94,6 +94,7 @@ import { useMessage } from 'naive-ui'
 import { bibleApi } from '../../api/bible'
 import type { TimelineNoteDTO } from '../../api/bible'
 import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
+import { formatApiError, getHttpStatus } from '@/utils/apiError'
 
 interface Props {
   slug: string
@@ -126,9 +127,9 @@ const loadTimeline = async () => {
   try {
     const bible = await bibleApi.getBible(props.slug)
     timelineEvents.value = bible.timeline_notes || []
-  } catch (error: any) {
-    if (error?.response?.status !== 404) {
-      message.error(error.response?.data?.detail || '加载时间线失败')
+  } catch (error: unknown) {
+    if (getHttpStatus(error) !== 404) {
+      message.error(formatApiError(error, '加载时间线失败'))
     }
   } finally {
     loading.value = false
@@ -185,8 +186,8 @@ const saveTimeline = async () => {
       timeline_notes: timelineEvents.value
     })
     message.success('时间线已保存')
-  } catch (error: any) {
-    message.error(error.response?.data?.detail || '保存时间线失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '保存时间线失败'))
   }
 }
 

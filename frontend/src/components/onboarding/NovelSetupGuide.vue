@@ -729,20 +729,56 @@
 <script setup lang="ts">
 import { h, ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { bibleApi, type BibleDTO, type BibleRelationshipEntry, type CharacterDTO, type StyleNoteDTO, type WorldSettingDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
+import { bibleApi, type BibleDTO, consumeBibleGenerateStream, type WorldbuildingDimensionData } from '@/api/bible'
 // timeout constants removed - SSE runs until complete or error
 import { worldbuildingApi } from '@/api/worldbuilding'
 import { consumePlotOutlineStream, workflowApi, type PlotOutlineDTO } from '@/api/workflow'
 import type { InvocationResponseDTO, InvocationVariableBinding } from '@/api/aiInvocation'
 import { characterPsycheApi } from '@/api/engineCore'
-import { resolveHttpUrl } from '@/api/config'
 import { featureFlags } from '@/config/features'
+import { getWorldbuildingDimensionLabel } from '@/domain/worldbuilding/contract'
+import { formatApiError, isLikelyTimeoutError } from '@/utils/apiError'
 import {
-  getDimensionFieldOrder,
-  getWorldbuildingDimensionLabel,
-  getWorldbuildingFieldLabel,
-  getWorldbuildingLabel,
-} from '@/domain/worldbuilding/contract'
+  WB_DIMS,
+  createEmptyBible,
+  emptyWorldbuildingShape,
+  hasWorldbuildingContent,
+  mergeWorldbuildingDisplay,
+  normalizeWorldbuildingFromApi,
+  orderedWorldbuildingFields as buildOrderedWorldbuildingFields,
+  styleConventionFromBible,
+  worldbuildingFieldTitle,
+  worldbuildingFromWorldSettings,
+  type WorldbuildingDimKey,
+  type WorldbuildingDraftShape,
+} from '@/onboarding/bibleSetupModel'
+import {
+  characterDraftKey,
+  createEmptyRelationship,
+  formatCharacterDescriptionForSave,
+  formatRelationship,
+  mapCharacterToEditable,
+  mapGeneratedCharacterToEditable,
+  serializeRelationships,
+  type EditableCharacter,
+  type GeneratedCharacterPayload,
+} from '@/onboarding/characterSetupModel'
+import {
+  buildEditablePlotOutlinePayload as buildPlotOutlinePayload,
+  buildStageRangePercentLabel,
+  clonePlotOutline,
+  createEmptyPlotOutline,
+  extractPlotOutlineFromResult,
+  getPlotOutlineTopFieldKeys,
+  plotFieldLabel,
+  plotFieldText,
+  stageContentFieldKeys,
+  updatePlotField,
+  validateEditablePlotOutline,
+  type PlotOutlineProgressItem,
+  type PlotOutlineProgressState,
+  type PlotOutlineStatus,
+} from '@/onboarding/plotOutlineModel'
 import { useAIInvocationStore } from '@/stores/aiInvocationStore'
 import { extractBoundOutputMaps, parseJsonLikeRecord } from '@/utils/invocationOutput'
 import BibleLocationsGraphPreview from './BibleLocationsGraphPreview.vue'
@@ -757,131 +793,15 @@ import {
   type WizardUiCachePayload,
 } from '@/utils/wizardStageCache'
 
-const WB_DIMS = ['core_rules', 'geography', 'society', 'culture', 'daily_life'] as const
-type WorldbuildingDimKey = (typeof WB_DIMS)[number]
-
-/** 世界观维度与字段标签来自 shared/taxonomy/worldbuilding_contract_cn_v1.yaml。 */
-const dimKeyLabels: Record<string, string> = new Proxy({}, {
-  get: (_target, key) => getWorldbuildingLabel(String(key)),
-})
-
-function emptyWorldbuildingShape(): Record<(typeof WB_DIMS)[number], Record<string, string>> {
-  return {
-    core_rules: {},
-    geography: {},
-    society: {},
-    culture: {},
-    daily_life: {},
-  }
-}
-
-function canonicalWorldbuildingField(dim: WorldbuildingDimKey, field: string): string {
-  const key = String(field || '').trim()
-  return getDimensionFieldOrder(dim).includes(key) ? key : ''
-}
-
-function worldbuildingFieldTitle(dim: WorldbuildingDimKey, field: string): string {
-  return getWorldbuildingFieldLabel(field)
-}
-
 function orderedWorldbuildingFields(
   dim: WorldbuildingDimKey,
   opts: { includeEmpty?: boolean } = {},
 ): Array<{ key: string; value: string }> {
-  const block = worldbuildingData.value[dim] || {}
-  const ordered = getDimensionFieldOrder(dim)
-  const keys = [
-    ...ordered,
-    ...Object.keys(block).filter(key => canonicalWorldbuildingField(dim, key) && !ordered.includes(key)),
-  ]
-  const fields = keys.map(key => ({ key, value: String(block[key] ?? '') }))
-  return opts.includeEmpty ? fields : fields.filter(field => field.value.trim().length > 0)
-}
-
-function createEmptyBible(): BibleDTO {
-  return {
-    id: '',
-    novel_id: '',
-    characters: [],
-    world_settings: [],
-    locations: [],
-    timeline_notes: [],
-    style_notes: [],
-  }
-}
-
-function worldbuildingFromWorldSettings(
-  settings: { name: string; description?: string }[] | undefined
-): Record<(typeof WB_DIMS)[number], Record<string, string>> {
-  const out = emptyWorldbuildingShape()
-  const dimSet = new Set<string>(WB_DIMS)
-  for (const s of settings || []) {
-    const dot = s.name.indexOf('.')
-    if (dot < 0) continue
-    const dim = s.name.slice(0, dot)
-    const key = s.name.slice(dot + 1)
-    if (!dimSet.has(dim) || !key) continue
-    out[dim as (typeof WB_DIMS)[number]][key] = (s.description || '').trim()
-  }
-  return out
-}
-
-function normalizeWorldbuildingFromApi(raw: Record<string, unknown> | null | undefined) {
-  const out = emptyWorldbuildingShape()
-  if (!raw || typeof raw !== 'object') return out
-  const dimensions = raw.dimensions
-  if (dimensions && typeof dimensions === 'object') {
-    mergeWorldbuildingRawBlocks(out, dimensions as Record<string, unknown>)
-  }
-  const content = raw.worldbuilding
-  if (content && typeof content === 'object') {
-    mergeWorldbuildingRawBlocks(out, content as Record<string, unknown>)
-  }
-  mergeWorldbuildingRawBlocks(out, raw)
-  return out
-}
-
-function mergeWorldbuildingRawBlocks(
-  out: ReturnType<typeof emptyWorldbuildingShape>,
-  raw: Record<string, unknown>,
-) {
-  for (const d of WB_DIMS) {
-    const block = raw[d]
-    if (typeof block === 'string') continue
-    if (block && typeof block === 'object') {
-      const normalized: Record<string, string> = {}
-      for (const [key, value] of Object.entries(block as Record<string, unknown>)) {
-        const text = String(value ?? '').trim()
-        if (!text) continue
-        const field = canonicalWorldbuildingField(d, key)
-        if (!field) continue
-        normalized[field] = text
-      }
-      out[d] = { ...out[d], ...normalized }
-    }
-  }
-}
-
-function hasWorldbuildingContent(slices: ReturnType<typeof emptyWorldbuildingShape>) {
-  return Object.values(slices).some(dim =>
-    Object.values(dim).some(value => String(value ?? '').trim().length > 0)
-  )
-}
-
-function mergeWorldbuildingDisplay(
-  fromApi: ReturnType<typeof normalizeWorldbuildingFromApi>,
-  fromBibleSettings: ReturnType<typeof worldbuildingFromWorldSettings>
-) {
-  const out = emptyWorldbuildingShape()
-  for (const d of WB_DIMS) {
-    const merged = { ...fromBibleSettings[d], ...fromApi[d] }
-    out[d] = merged
-  }
-  return out
+  return buildOrderedWorldbuildingFields(worldbuildingData.value, dim, opts)
 }
 
 function mergeWorldbuildingIntoCurrent(
-  next: ReturnType<typeof emptyWorldbuildingShape>,
+  next: WorldbuildingDraftShape,
   opts: { markCompleted?: boolean } = {},
 ) {
   if (!hasWorldbuildingContent(next)) return
@@ -930,50 +850,6 @@ function applyBibleInvocationPreview(stage: 'worldbuilding' | 'characters' | 'lo
 function applyWorldbuildingChunk(chunk: string) {
   if (!chunk) return
   worldbuildingRawStream.value += chunk
-}
-
-function styleConventionFromBible(bible: BibleDTO): string {
-  const b = bible as BibleDTO & { style?: string }
-  if (b.style && String(b.style).trim()) return String(b.style).trim()
-  const notes: StyleNoteDTO[] = b.style_notes || []
-  if (notes.length) {
-    const contentOnly = notes
-      .map((n: StyleNoteDTO) => (n.content || '').trim())
-      .filter(Boolean)
-    if (contentOnly.length) return contentOnly.join('\n\n')
-  }
-  return ''
-}
-
-function formatApiError(error: unknown): string {
-  const readable = (value: unknown): string => {
-    if (typeof value === 'string') return value
-    if (Array.isArray(value)) return value.map(readable).filter(Boolean).join('；')
-    if (value && typeof value === 'object') {
-      const record = value as Record<string, unknown>
-      for (const key of ['message', 'detail', 'msg', 'error', 'reason']) {
-        const text = readable(record[key])
-        if (text) return text
-      }
-      return ''
-    }
-    return ''
-  }
-  const e = error as {
-    response?: { data?: { detail?: unknown } }
-    message?: string
-    code?: string
-  }
-  const d = e?.response?.data?.detail
-  const detail = readable(d)
-  if (detail) return detail
-  if (e?.message) return e.message
-  return ''
-}
-
-function isLikelyTimeoutError(error: unknown): boolean {
-  const text = `${formatApiError(error)} ${error instanceof Error ? error.message : ''} ${(error as { code?: string })?.code || ''}`
-  return /timeout|ECONNABORTED|ETIMEDOUT|aborted|超时/i.test(text)
 }
 
 const IconBook = () =>
@@ -1051,7 +927,7 @@ const generatingBible = ref(false)
 const bibleGenerated = ref(false)
 const bibleError = ref('')
 const bibleData = ref<BibleDTO>(createEmptyBible())
-const worldbuildingData = ref<ReturnType<typeof emptyWorldbuildingShape>>(emptyWorldbuildingShape())
+const worldbuildingData = ref<WorldbuildingDraftShape>(emptyWorldbuildingShape())
 const styleText = ref('')
 
 /** SSE 流式状态 */
@@ -1084,205 +960,10 @@ const charactersError = ref('')
 const streamingCharacters = ref<Array<Partial<EditableCharacter> & { name: string; role: string; description: string }>>([])
 const charactersSseAbort = ref<AbortController | null>(null)
 const generatedCharacterDrafts = ref<Record<string, Partial<EditableCharacter>>>({})
+
 /** 可编辑的人物列表（从 bibleData 拷贝，用户可修改后确认落库） */
-interface EditableVoiceProfile {
-  style: string
-  sentence_pattern: string
-  speech_tempo: string
-  metaphors?: string[]
-  catchphrases?: string[]
-  [key: string]: unknown
-}
-
-interface EditableWound {
-  description: string
-  trigger: string
-  effect: string
-  [key: string]: string
-}
-
-interface EditableRelationship {
-  target: string
-  relation: string
-  description: string
-}
-
-interface EditableCharacter {
-  id: string
-  name: string
-  role: string
-  description: string
-  gender: string
-  age: string
-  appearance: string
-  personality: string
-  background: string
-  core_motivation: string
-  inner_lack: string
-  mental_state: string
-  mental_state_reason: string
-  verbal_tic: string
-  idle_behavior: string
-  relationships: EditableRelationship[]
-  public_profile: string
-  hidden_profile: string
-  reveal_chapter: number | null
-  core_belief: string
-  moral_taboos: string[]
-  voice_profile: EditableVoiceProfile
-  active_wounds: EditableWound[]
-}
-
-interface GeneratedCharacterPayload extends Partial<CharacterDTO> {
-  role?: string
-  gender?: string
-  age?: string
-  appearance?: string
-  personality?: string
-  background?: string
-  core_motivation?: string
-  inner_lack?: string
-  ghost?: string
-  want?: string
-  need?: string
-  flaw?: string
-}
-
-function normalizeVoiceProfile(raw: Record<string, unknown> | undefined): EditableVoiceProfile {
-  return {
-    ...(raw || {}),
-    style: String(raw?.style ?? ''),
-    sentence_pattern: String(raw?.sentence_pattern ?? ''),
-    speech_tempo: String(raw?.speech_tempo ?? ''),
-  }
-}
-
-function normalizeWounds(raw: Array<Record<string, string>> | undefined): EditableWound[] {
-  return (raw || []).map((w) => ({
-    ...w,
-    description: String(w.description ?? ''),
-    trigger: String(w.trigger ?? ''),
-    effect: String(w.effect ?? ''),
-  }))
-}
-
-function normalizeRelationships(raw: BibleRelationshipEntry[] | undefined): EditableRelationship[] {
-  return (raw || []).map((rel) => {
-    if (typeof rel === 'string') {
-      return { target: rel, relation: '', description: '' }
-    }
-    return {
-      target: String(rel.target ?? ''),
-      relation: String(rel.relation ?? ''),
-      description: String(rel.description ?? ''),
-    }
-  })
-}
-
-function serializeRelationships(raw: EditableRelationship[]): BibleRelationshipEntry[] {
-  return raw
-    .map((rel) => ({
-      target: rel.target.trim(),
-      relation: rel.relation.trim(),
-      description: rel.description.trim(),
-    }))
-    .filter(rel => rel.target || rel.relation || rel.description)
-}
-
 function addRelationship(char: EditableCharacter): void {
-  char.relationships.push({ target: '', relation: '', description: '' })
-}
-
-function formatRelationship(rel: BibleRelationshipEntry | string): string {
-  if (typeof rel === 'string') return rel
-  return rel.relation || rel.description || rel.target || ''
-}
-
-function normalizeCharacterRoleAndDescription(role: string | undefined, description: string | undefined): { role: string; description: string } {
-  let nextRole = role || ''
-  let nextDescription = description || ''
-  if (!nextRole && nextDescription.includes(' - ')) {
-    const sepIdx = nextDescription.indexOf(' - ')
-    nextRole = nextDescription.slice(0, sepIdx).trim()
-    nextDescription = nextDescription.slice(sepIdx + 3).trim()
-  } else if (nextRole && nextDescription.startsWith(nextRole) && nextDescription.includes(' - ')) {
-    const sepIdx = nextDescription.indexOf(' - ')
-    nextDescription = nextDescription.slice(sepIdx + 3).trim()
-  }
-  return {
-    role: nextRole,
-    description: nextDescription,
-  }
-}
-
-function formatCharacterDescriptionForSave(role: string, description: string): string {
-  const normalized = normalizeCharacterRoleAndDescription(role, description)
-  if (!normalized.role) return normalized.description
-  if (!normalized.description) return normalized.role
-  return `${normalized.role} - ${normalized.description}`
-}
-
-function characterDraftKey(value: { id?: string; name?: string }): string {
-  return String(value.id || value.name || '').trim().toLowerCase()
-}
-
-function mapGeneratedCharacterToEditable(c: GeneratedCharacterPayload): EditableCharacter {
-  const normalized = normalizeCharacterRoleAndDescription(c.role, c.description)
-  return {
-    id: c.id || '',
-    name: c.name || '',
-    role: normalized.role,
-    description: normalized.description,
-    gender: c.gender || '',
-    age: c.age || '',
-    appearance: c.appearance || '',
-    personality: c.personality || c.flaw || '',
-    background: c.background || c.ghost || '',
-    core_motivation: c.core_motivation || c.want || '',
-    inner_lack: c.inner_lack || c.need || '',
-    mental_state: c.mental_state || '',
-    mental_state_reason: c.mental_state_reason || '',
-    verbal_tic: c.verbal_tic || '',
-    idle_behavior: c.idle_behavior || '',
-    relationships: normalizeRelationships(c.relationships || []),
-    public_profile: c.public_profile || '',
-    hidden_profile: c.hidden_profile || '',
-    reveal_chapter: c.reveal_chapter ?? null,
-    core_belief: c.core_belief || '',
-    moral_taboos: [...(c.moral_taboos || [])],
-    voice_profile: normalizeVoiceProfile(c.voice_profile || {}),
-    active_wounds: normalizeWounds(c.active_wounds as Array<Record<string, string>> | undefined),
-  }
-}
-
-/** 从 CharacterDTO 映射到 EditableCharacter，解析 description 中的 role */
-function mapCharacterToEditable(c: CharacterDTO, fallback?: Partial<EditableCharacter>): EditableCharacter {
-  const normalized = normalizeCharacterRoleAndDescription(c.role, c.description)
-  return {
-    id: c.id || '',
-    name: c.name || '',
-    role: normalized.role,
-    description: normalized.description,
-    gender: c.gender || fallback?.gender || '',
-    age: c.age || fallback?.age || '',
-    appearance: c.appearance || fallback?.appearance || '',
-    personality: c.personality || fallback?.personality || '',
-    background: c.background || fallback?.background || '',
-    core_motivation: c.core_motivation || fallback?.core_motivation || '',
-    inner_lack: c.inner_lack || fallback?.inner_lack || '',
-    mental_state: c.mental_state || '',
-    mental_state_reason: c.mental_state_reason || '',
-    verbal_tic: c.verbal_tic || '',
-    idle_behavior: c.idle_behavior || '',
-    relationships: normalizeRelationships((c.relationships && c.relationships.length ? c.relationships : fallback?.relationships) as BibleRelationshipEntry[] | undefined),
-    public_profile: c.public_profile || fallback?.public_profile || '',
-    hidden_profile: c.hidden_profile || fallback?.hidden_profile || '',
-    reveal_chapter: c.reveal_chapter ?? null,
-    core_belief: c.core_belief || fallback?.core_belief || '',
-    moral_taboos: [...((c.moral_taboos && c.moral_taboos.length ? c.moral_taboos : fallback?.moral_taboos) || [])],
-    voice_profile: normalizeVoiceProfile((c.voice_profile && Object.keys(c.voice_profile).length ? c.voice_profile : fallback?.voice_profile) as Record<string, unknown> | undefined),
-    active_wounds: normalizeWounds((c.active_wounds && c.active_wounds.length ? c.active_wounds : fallback?.active_wounds) as Array<Record<string, string>> | undefined),
-  }
+  char.relationships.push(createEmptyRelationship())
 }
 
 const editableCharacters = ref<EditableCharacter[]>([])
@@ -1391,25 +1072,9 @@ const plotOutlineSessionId = ref('')
 const step4RestoredFromCache = ref(false)
 const editablePlotOutline = ref<PlotOutlineDTO>(createEmptyPlotOutline())
 const syncingPlotOutlineDraft = ref(false)
-type PlotOutlineStatus = 'idle' | 'creating' | 'reviewing' | 'generating' | 'committing' | 'done' | 'error'
-type PlotOutlineProgressState = 'pending' | 'active' | 'done'
 const plotOutlineStatus = ref<PlotOutlineStatus>('idle')
-const PLOT_OUTLINE_META_KEYS = new Set(['stage_plan'])
-const PLOT_STAGE_META_KEYS = new Set(['phase', 'label', 'range_percent', 'chapter_start', 'chapter_end', 'key_goals'])
-const PLOT_FIELD_LABELS: Record<string, string> = {
-  main_story_overview: '故事主线概述',
-  core_conflict: '核心冲突',
-  expected_ending: '预期结局',
-  summary: '阶段任务',
-}
 const plotOutlineTopFieldKeys = computed(() => {
-  const record = editablePlotOutline.value as unknown as Record<string, unknown>
-  const keys = Object.keys(record).filter(key => !PLOT_OUTLINE_META_KEYS.has(key))
-  const preferred = ['main_story_overview', 'core_conflict', 'expected_ending']
-  return [
-    ...preferred.filter(key => keys.includes(key)),
-    ...keys.filter(key => !preferred.includes(key)),
-  ]
+  return getPlotOutlineTopFieldKeys(editablePlotOutline.value)
 })
 const plotOutlineTotalChapters = computed(() => {
   const maxStageEnd = Math.max(
@@ -1451,7 +1116,7 @@ const plotOutlineProgressIndex = computed(() => {
   if (plotOutlineStatus.value === 'creating') return 1
   return plotOutlineBusy.value ? 1 : 0
 })
-const plotOutlineProgressItems = computed<Array<{ key: string; label: string; desc: string; state: PlotOutlineProgressState }>>(() => {
+const plotOutlineProgressItems = computed<PlotOutlineProgressItem[]>(() => {
   const current = plotOutlineProgressIndex.value
   const items = [
     { key: 'context', label: '汇总设定', desc: '读取世界观、人物与地图' },
@@ -1464,77 +1129,6 @@ const plotOutlineProgressItems = computed<Array<{ key: string; label: string; de
     state: current > index + 1 ? 'done' : current === index + 1 ? 'active' : 'pending',
   }))
 })
-
-function createEmptyPlotOutline(): PlotOutlineDTO {
-  return {
-    main_story_overview: '',
-    core_conflict: '',
-    expected_ending: '',
-    stage_plan: [],
-  }
-}
-
-function clonePlotOutline(outline: PlotOutlineDTO | null | undefined): PlotOutlineDTO {
-  if (!outline) return createEmptyPlotOutline()
-  return {
-    ...outline,
-    main_story_overview: outline.main_story_overview || '',
-    core_conflict: outline.core_conflict || '',
-    expected_ending: outline.expected_ending || '',
-    stage_plan: (outline.stage_plan || []).map(stage => ({
-      ...stage,
-      ...parsePlotLabeledSections(stage.summary || ''),
-      label: stage.label || '',
-      range_percent: stage.range_percent || '',
-      summary: parsePlotLabeledSections(stage.summary || '').summary || stage.summary || '',
-      key_goals: Array.isArray(stage.key_goals) ? [...stage.key_goals] : [],
-    })),
-  }
-}
-
-function parsePlotLabeledSections(text: string): Record<string, string> {
-  const source = String(text || '').trim()
-  if (!source) return {}
-  const labels = ['阶段任务', '冲突变化', '角色成长', '关键剧情节点', '关键剧情', '核心冲突', '预期结局']
-  const pattern = new RegExp(`(${labels.join('|')})\\s*[：:]`, 'g')
-  const matches = [...source.matchAll(pattern)]
-  if (matches.length < 2) return {}
-  const fields: Record<string, string> = {}
-  for (let i = 0; i < matches.length; i++) {
-    const match = matches[i]
-    const key = match[1]
-    const start = (match.index || 0) + match[0].length
-    const end = i + 1 < matches.length ? matches[i + 1].index || source.length : source.length
-    const value = source.slice(start, end).trim()
-    if (!value) continue
-    fields[key === '阶段任务' ? 'summary' : key] = value
-  }
-  return fields
-}
-
-function plotFieldLabel(key: string): string {
-  return PLOT_FIELD_LABELS[key] || key
-}
-
-function plotFieldText(target: Record<string, unknown> | PlotOutlineDTO | PlotOutlineDTO['stage_plan'][number], key: string): string {
-  const value = (target as Record<string, unknown>)[key]
-  if (value === undefined || value === null) return ''
-  if (typeof value === 'string') return value
-  return JSON.stringify(value, null, 2)
-}
-
-function updatePlotField(target: Record<string, unknown> | PlotOutlineDTO | PlotOutlineDTO['stage_plan'][number], key: string, value: string) {
-  ;(target as Record<string, unknown>)[key] = value
-}
-
-function stageContentFieldKeys(stage: PlotOutlineDTO['stage_plan'][number]): string[] {
-  const record = stage as unknown as Record<string, unknown>
-  const keys = Object.keys(record).filter(key => !PLOT_STAGE_META_KEYS.has(key))
-  return [
-    ...(['summary', '冲突变化', '角色成长', '关键剧情节点'] as string[]).filter(key => keys.includes(key)),
-    ...keys.filter(key => !['summary', '冲突变化', '角色成长', '关键剧情节点'].includes(key)),
-  ]
-}
 
 function syncEditablePlotOutline(outline: PlotOutlineDTO | null | undefined) {
   syncingPlotOutlineDraft.value = true
@@ -1555,48 +1149,11 @@ function updateStageChapterNumber(
 }
 
 function stageRangePercentLabel(stage: { chapter_start?: number; chapter_end?: number; range_percent?: string }): string {
-  const total = plotOutlineTotalChapters.value
-  const start = typeof stage.chapter_start === 'number' ? stage.chapter_start : 0
-  const end = typeof stage.chapter_end === 'number' ? stage.chapter_end : 0
-  if (start <= 0 || end <= 0) return stage.range_percent || ''
-  const startPercent = Math.max(1, Math.min(100, Math.floor(((start - 1) / total) * 100)))
-  const endPercent = Math.max(startPercent, Math.min(100, Math.floor((end / total) * 100)))
-  return `${startPercent}-${endPercent}%`
+  return buildStageRangePercentLabel(stage, plotOutlineTotalChapters.value)
 }
 
 function buildEditablePlotOutlinePayload(): PlotOutlineDTO {
-  return {
-    ...editablePlotOutline.value,
-    main_story_overview: editablePlotOutline.value.main_story_overview.trim(),
-    core_conflict: editablePlotOutline.value.core_conflict.trim(),
-    expected_ending: editablePlotOutline.value.expected_ending.trim(),
-    stage_plan: editablePlotOutline.value.stage_plan.map(stage => ({
-      ...stage,
-      chapter_start: typeof stage.chapter_start === 'number' ? stage.chapter_start : undefined,
-      chapter_end: typeof stage.chapter_end === 'number' ? stage.chapter_end : undefined,
-      range_percent: stageRangePercentLabel(stage) || stage.range_percent,
-      summary: String(stage.summary || '').trim(),
-      key_goals: (stage.key_goals || []).map(item => String(item || '').trim()).filter(Boolean),
-    })),
-  }
-}
-
-function validateEditablePlotOutline(outline: PlotOutlineDTO): string {
-  const topRecord = outline as unknown as Record<string, unknown>
-  const hasTopContent = Object.entries(topRecord).some(([key, value]) =>
-    !PLOT_OUTLINE_META_KEYS.has(key) && String(value ?? '').trim().length > 0
-  )
-  if (!hasTopContent) return '请至少保留一项总纲内容'
-  if (!outline.stage_plan.length) return '请保留并填写阶段规划'
-  const invalidStageRange = outline.stage_plan.find((stage) => {
-    const start = stage.chapter_start
-    const end = stage.chapter_end
-    return typeof start !== 'number' || typeof end !== 'number' || start < 1 || end < 1 || start > end
-  })
-  if (invalidStageRange) return `请检查${invalidStageRange.label || '阶段'}的起止章节`
-  const emptyStage = outline.stage_plan.find(stage => stageContentFieldKeys(stage).every(key => !plotFieldText(stage, key).trim()))
-  if (emptyStage) return `请填写${emptyStage.label || '阶段'}的规划内容`
-  return ''
+  return buildPlotOutlinePayload(editablePlotOutline.value, plotOutlineTotalChapters.value)
 }
 
 function touchPlotOutlineDraft() {
@@ -1615,142 +1172,6 @@ function persistStepFourUiToCache(opts?: { includePlotOutline?: boolean }) {
     patch.plotOutline = plotOutline.value || undefined
   }
   writeWizardUiCache(props.novelId, patch)
-}
-
-const PLOT_OVERVIEW_KEYS = ['main_story_overview', 'outline_main', 'main_axis', 'overview', 'story_overview', '故事主线概述', '主线概述', '故事概述']
-const PLOT_ENDING_KEYS = ['expected_ending', 'ending_expect', 'ending_expectation', 'expectedEnding', 'ending', 'finale', '预期结局', '预期结尾', '结局预期', '故事最终走向']
-const PLOT_CONFLICT_KEYS = ['core_conflict', 'coreConflict', 'conflict', 'main_conflict', '核心冲突', '核心矛盾', '核心对抗']
-const PLOT_STAGE_KEYS = ['stage_plan', 'stages', '阶段规划']
-const LEGACY_STAGE_KEY_ALIASES = [
-  ['stage_opening_1_15', 'stage_opening', 'opening'],
-  ['stage_develop_15_40', 'stage_develop', 'development'],
-  ['stage_deepen_40_70', 'stage_deepen', 'deepening'],
-  ['stage_climax_70_90', 'stage_climax', 'climax'],
-  ['stage_end_90_100', 'stage_end', 'stage_ending', 'ending'],
-] as const
-const STAGE_PHASE_META = [
-  { phase: 'opening', label: '开篇阶段', range_percent: '1-15%' },
-  { phase: 'development', label: '发展阶段', range_percent: '15-40%' },
-  { phase: 'deepening', label: '深化阶段', range_percent: '40-70%' },
-  { phase: 'climax', label: '高潮阶段', range_percent: '70-90%' },
-  { phase: 'ending', label: '收尾阶段', range_percent: '90-100%' },
-] as const
-
-function pickPlotString(record: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = record[key]
-    if (value !== undefined && value !== null && String(value).trim()) {
-      return String(value).trim()
-    }
-  }
-  return ''
-}
-
-function pickPlotValue(record: Record<string, unknown>, keys: string[]): unknown {
-  for (const key of keys) {
-    const value = record[key]
-    if (value !== undefined && value !== null && value !== '') return value
-  }
-  return undefined
-}
-
-function normalizeLegacyStagePlan(stagePlan: unknown): PlotOutlineDTO['stage_plan'] {
-  if (!stagePlan || typeof stagePlan !== 'object' || Array.isArray(stagePlan)) return []
-  const record = stagePlan as Record<string, unknown>
-  return LEGACY_STAGE_KEY_ALIASES.map((aliases, index) => {
-    const meta = STAGE_PHASE_META[index]
-    const value = aliases.map(key => record[key]).find(item => item !== undefined && item !== null && item !== '')
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return {
-        ...(value as PlotOutlineDTO['stage_plan'][number]),
-        phase: meta.phase,
-        label: String((value as Record<string, unknown>).label || meta.label),
-        range_percent: String((value as Record<string, unknown>).range_percent || meta.range_percent),
-      }
-    }
-    return {
-      phase: meta.phase,
-      label: meta.label,
-      range_percent: meta.range_percent,
-      summary: value ? String(value).trim() : '',
-      key_goals: [],
-    }
-  }).filter(stage => String(stage.summary || '').trim())
-}
-
-function normalizePlotOutlineShape(value: unknown): PlotOutlineDTO | null {
-  if (!value || typeof value !== 'object') return null
-  const record = value as Record<string, unknown>
-  const stagePlan = pickPlotValue(record, PLOT_STAGE_KEYS)
-  return {
-    ...(record as Partial<PlotOutlineDTO>),
-    main_story_overview: pickPlotString(record, PLOT_OVERVIEW_KEYS),
-    expected_ending: pickPlotString(record, PLOT_ENDING_KEYS),
-    core_conflict: pickPlotString(record, PLOT_CONFLICT_KEYS),
-    stage_plan: Array.isArray(stagePlan)
-      ? stagePlan as PlotOutlineDTO['stage_plan']
-      : normalizeLegacyStagePlan(stagePlan),
-  }
-}
-
-function normalizePlotOutlineFromBindings(
-  source: Record<string, unknown>,
-  bindings: InvocationVariableBinding[],
-): PlotOutlineDTO | null {
-  const { byVariableKey } = extractBoundOutputMaps(source, bindings)
-  const direct = byVariableKey['plot.outline']
-  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
-  const stagePlan = byVariableKey['plot.stage_plan']
-  const overview = byVariableKey['plot.main_story_overview']
-  const ending = byVariableKey['plot.expected_ending']
-  const conflict = byVariableKey['plot.core_conflict']
-  if (!stagePlan && !overview && !ending && !conflict) return null
-  return normalizePlotOutlineShape({
-    main_story_overview: overview,
-    expected_ending: ending,
-    core_conflict: conflict,
-    stage_plan: stagePlan,
-  })
-}
-
-function extractPlotOutlineFromResult(
-  result: Record<string, unknown>,
-  outputBindings: InvocationVariableBinding[] = [],
-): PlotOutlineDTO | null {
-  const direct = result.plot_outline
-  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
-  if (outputBindings.length) {
-    const boundDirect = normalizePlotOutlineFromBindings(result, outputBindings)
-    if (boundDirect?.stage_plan?.length) return boundDirect
-  }
-  const continuation = result.continuation
-  if (continuation && typeof continuation === 'object') {
-    const continuationRecord = continuation as Record<string, unknown>
-    const fromContinuation = continuationRecord.plot_outline
-    if (fromContinuation && typeof fromContinuation === 'object') return normalizePlotOutlineShape(fromContinuation)
-    if (outputBindings.length) {
-      const boundContinuation = normalizePlotOutlineFromBindings(continuationRecord, outputBindings)
-      if (boundContinuation?.stage_plan?.length) return boundContinuation
-    }
-    const normalizedContinuation = normalizePlotOutlineShape(continuationRecord)
-    if (normalizedContinuation?.main_story_overview && normalizedContinuation.stage_plan?.length) return normalizedContinuation
-  }
-  const acceptedContent = result.accepted_content
-  if (typeof acceptedContent === 'string' && acceptedContent.trim()) {
-    const parsedRecord = parseJsonLikeRecord(acceptedContent)
-    if (parsedRecord) {
-      if (outputBindings.length) {
-        const boundAccepted = normalizePlotOutlineFromBindings(parsedRecord, outputBindings)
-        if (boundAccepted?.stage_plan?.length) return boundAccepted
-      }
-      if (parsedRecord.plot_outline) {
-        return normalizePlotOutlineShape(parsedRecord.plot_outline)
-      }
-      const normalizedAccepted = normalizePlotOutlineShape(parsedRecord)
-      if (normalizedAccepted?.main_story_overview && normalizedAccepted.stage_plan?.length) return normalizedAccepted
-    }
-  }
-  return null
 }
 
 function finishPlotOutlineInvocation() {

@@ -154,7 +154,7 @@ class SharedStateRepository:
         """确保共享字典可用（延迟初始化）"""
         if self._state is None:
             try:
-                from interfaces.main import _get_shared_state
+                from interfaces.runtime_state import _get_shared_state
                 self._state = _get_shared_state()
                 logger.debug("共享字典已从主进程获取")
             except Exception as e:

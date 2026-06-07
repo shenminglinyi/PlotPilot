@@ -923,25 +923,27 @@ class SqliteVariableHubRepository:
     def get_value(self, variable_key: str, context_key: str) -> VariableValue | None:
         scope_keys = expand_context_keys(context_key)
         for scope_key in scope_keys:
-            for candidate in variable_key_candidates(variable_key):
-                row = self._db.fetch_one(
-                    """
-                    SELECT *
-                    FROM variable_values
-                    WHERE variable_key = ? AND scope_key = ? AND is_current = 1
-                    ORDER BY version_number DESC
-                    LIMIT 1
-                    """,
-                    (candidate, scope_key),
+            candidates = variable_key_candidates(variable_key)
+            placeholders = ",".join("?" for _ in candidates)
+            row = self._db.fetch_one(
+                f"""
+                SELECT *
+                FROM variable_values
+                WHERE variable_key IN ({placeholders}) AND scope_key = ? AND is_current = 1
+                ORDER BY datetime(created_at) DESC, rowid DESC, version_number DESC
+                LIMIT 1
+                """,
+                (*candidates, scope_key),
+            )
+            if row is not None:
+                stored_key = row["variable_key"]
+                return VariableValue(
+                    key=variable_key,
+                    value=sanitize_variable_value(stored_key, _json_loads(row["value_json"], None)),
+                    context_key=row["scope_key"] or "global",
+                    source_ref=row["source_session_id"] or row["source_node_key"] or "",
+                    version_number=int(row["version_number"] or 1),
                 )
-                if row is not None:
-                    return VariableValue(
-                        key=variable_key,
-                        value=sanitize_variable_value(candidate, _json_loads(row["value_json"], None)),
-                        context_key=row["scope_key"] or "global",
-                        source_ref=row["source_session_id"] or row["source_node_key"] or "",
-                        version_number=int(row["version_number"] or 1),
-                    )
             if variable_key in {"novel.worldbuilding", "worldbuilding.content"}:
                 composed: dict[str, Any] = {}
                 version = 1
@@ -1039,6 +1041,8 @@ class SqliteVariableHubRepository:
         )
 
     def set_value(self, value: VariableValue | VariableWrite) -> VariableValue | None:
+        from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
+
         if isinstance(value, VariableValue):
             write = VariableWrite(
                 key=value.key,
@@ -1065,7 +1069,7 @@ class SqliteVariableHubRepository:
         )
         version = int(existing["version_number"] or 0) + 1 if existing else 1
         value_id = _new_id("var_value")
-        with self._db.transaction() as conn:
+        with sqlite_writes_bypass_queue(), self._db.transaction() as conn:
             conn.execute(
                 """
                 INSERT INTO variable_definitions (

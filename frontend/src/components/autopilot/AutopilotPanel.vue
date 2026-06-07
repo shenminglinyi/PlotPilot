@@ -320,7 +320,14 @@ import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
 import StoryPipelineObservability from './StoryPipelineObservability.vue'
 import AuditPipelineObservability from './AuditPipelineObservability.vue'
-import { resolveHttpUrl, subscribeChapterStream } from '../../api/config'
+import { subscribeChapterStream } from '../../api/config'
+import {
+  autopilotApi,
+  getAutopilotErrorDetail,
+  isAutopilotHttpError,
+  isAutopilotNotFoundError,
+} from '../../api/autopilot'
+import { novelApi } from '../../api/novel'
 import { buildAutopilotStagePresentation } from '../../constants/autopilotStagePresentation'
 import { useAIInvocationStore } from '../../stores/aiInvocationStore'
 import { featureFlags } from '../../config/features'
@@ -734,9 +741,6 @@ function formatWords(n) {
   return n >= 10000 ? `${(n / 10000).toFixed(1)}万` : String(n)
 }
 
-// API 调用
-const autopilotApiRoot = () => `/api/v1/autopilot/${props.novelId}`
-
 // 🔥 优化：缩短超时从 25s → 10s，减少前端等待时间
 // 后端 /status 已改为纯共享内存读取（纳秒级响应），10s 已非常宽裕
 // 如果 10s 还没返回，说明后端事件循环被阻塞，继续等也没意义
@@ -758,50 +762,47 @@ async function fetchStatus() {
   }
   const ac = new AbortController()
   statusLastAbort = ac
-  const t = window.setTimeout(() => ac.abort(), STATUS_FETCH_TIMEOUT_MS)
   statusFetchInFlight = true
   try {
-    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/status`), {
+    const body = await autopilotApi.getStatus(props.novelId, {
       signal: ac.signal,
+      timeoutMs: STATUS_FETCH_TIMEOUT_MS,
     })
-    if (res.status === 404) {
+    statusConnectivityFailures.value = 0
+    status.value = body
+    emit('status-change', body)
+    maybeOpenActiveInvocation(body)
+
+    // 🔍 调试：审计阶段进度日志
+    if (body.current_stage === 'auditing') {
+      console.log(
+        '[AutopilotPanel] 审计进度:',
+        body.audit_progress || '(未知)',
+        '| 相似度:', body.last_chapter_audit?.similarity_score ?? 'N/A',
+        '| 张力:', body.last_chapter_tension ?? 'N/A'
+      )
+    }
+
+    // 写作阶段流掉线且已放弃重连：由轮询在冷却后再试（勿在此处清零 reconnectAttempts，否则会死循环）
+    if (
+      shouldMaintainChapterStream(body) &&
+      !chapterStreamCtrl &&
+      !sseReconnecting.value &&
+      reconnectAttempts >= MAX_RECONNECT_ATTEMPTS &&
+      Date.now() - lastChapterStreamStartMs >= MIN_CHAPTER_STREAM_RESTART_MS * 4
+    ) {
+      reconnectAttempts = MAX_RECONNECT_ATTEMPTS - 1
+      scheduleChapterStreamReconnect(0)
+    }
+  } catch (err) {
+    if (seq !== statusFetchSeq) {
+      return
+    }
+    if (isAutopilotNotFoundError(err)) {
       clearStatusPoll()
       status.value = null
       statusPollDisabled.value = true
       statusConnectivityFailures.value = 0
-      return
-    }
-    if (res.ok) {
-      statusConnectivityFailures.value = 0
-      const body = await res.json()
-      status.value = body
-      emit('status-change', body)
-      maybeOpenActiveInvocation(body)
-
-      // 🔍 调试：审计阶段进度日志
-      if (body.current_stage === 'auditing') {
-        console.log(
-          '[AutopilotPanel] 审计进度:',
-          body.audit_progress || '(未知)',
-          '| 相似度:', body.last_chapter_audit?.similarity_score ?? 'N/A',
-          '| 张力:', body.last_chapter_tension ?? 'N/A'
-        )
-      }
-
-      // 写作阶段流掉线且已放弃重连：由轮询在冷却后再试（勿在此处清零 reconnectAttempts，否则会死循环）
-      if (
-        shouldMaintainChapterStream(body) &&
-        !chapterStreamCtrl &&
-        !sseReconnecting.value &&
-        reconnectAttempts >= MAX_RECONNECT_ATTEMPTS &&
-        Date.now() - lastChapterStreamStartMs >= MIN_CHAPTER_STREAM_RESTART_MS * 4
-      ) {
-        reconnectAttempts = MAX_RECONNECT_ATTEMPTS - 1
-        scheduleChapterStreamReconnect(0)
-      }
-    }
-  } catch (err) {
-    if (seq !== statusFetchSeq) {
       return
     }
     statusConnectivityFailures.value += 1
@@ -811,7 +812,6 @@ async function fetchStatus() {
       console.error('[AutopilotPanel] fetchStatus error:', err)
     }
   } finally {
-    window.clearTimeout(t)
     statusFetchInFlight = false
     maybeRestartStatusPollTimer()
   }
@@ -1193,35 +1193,20 @@ async function start() {
 
     if (currentAutoApprove !== newAutoApprove) {
       requests.push(
-        fetch(resolveHttpUrl(`/api/v1/novels/${props.novelId}/auto-approve-mode`), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ auto_approve_mode: newAutoApprove }),
-        }).catch(err => {
+        novelApi.updateAutoApproveMode(props.novelId, newAutoApprove).catch(err => {
           console.warn('[AutopilotPanel] 更新自动审阅模式失败:', err)
         })
       )
     }
 
     requests.push(
-      fetch(resolveHttpUrl(`${autopilotApiRoot()}/start`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          max_auto_chapters: startConfig.value.max_auto_chapters,
-          target_chapters: newTarget,
-          target_words_per_chapter: newWpc,
-        }),
-      }).then(res => {
-        if (!res.ok) {
-          // 🔥 启动失败时回滚乐观更新
-          status.value = prevStatus
-          emit('status-change', prevStatus)
-          message.error('启动失败')
-        }
+      autopilotApi.start(props.novelId, {
+        max_auto_chapters: startConfig.value.max_auto_chapters,
+        target_chapters: newTarget,
+        target_words_per_chapter: newWpc,
       }).catch(err => {
         console.warn('[AutopilotPanel] 启动请求失败:', err)
-        // 网络错误时回滚
+        // 网络错误或接口错误时回滚
         status.value = prevStatus
         emit('status-change', prevStatus)
         message.error('启动请求失败，请重试')
@@ -1257,17 +1242,10 @@ async function stop() {
     // 先关闭 SSE 连接，避免阻塞
     stopChapterStream()
     // 发送停止请求（带超时）
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
     try {
-      await fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
-        method: 'POST',
-        signal: controller.signal
-      })
-      clearTimeout(timeoutId)
+      await autopilotApi.stop(props.novelId, 5000)
     } catch (e) {
-      clearTimeout(timeoutId)
-      if (e.name === 'AbortError') {
+      if (e instanceof Error && e.name === 'AbortError') {
         message.warning('停止请求超时，但后台可能已处理')
       } else {
         // 🔥 网络错误时回滚乐观更新
@@ -1293,14 +1271,7 @@ async function resume() {
   toggling.value = true
 
   try {
-    const res = await fetch(resolveHttpUrl(`${autopilotApiRoot()}/resume`), { method: 'POST' })
-    if (!res.ok) {
-      const e = await res.json()
-      message.error(e.detail || '恢复失败')
-      void fetchStatus()
-      return
-    }
-    const body = await res.json().catch(() => ({}))
+    const body = await autopilotApi.resume(props.novelId)
     status.value = {
       ...status.value,
       autopilot_status: 'running',
@@ -1311,6 +1282,11 @@ async function resume() {
     message.success(body.message || reviewGateActionLabel.value || '已确认，继续自动驾驶')
     void fetchStatus()
   } catch (err) {
+    if (isAutopilotHttpError(err)) {
+      message.error(getAutopilotErrorDetail(err) || '恢复失败')
+      void fetchStatus()
+      return
+    }
     status.value = prevStatus
     emit('status-change', prevStatus)
     message.error('恢复请求失败，请重试')
@@ -1332,15 +1308,7 @@ async function clearCircuitBreaker() {
   toggling.value = true
 
   try {
-    const res = await fetch(
-      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
-      { method: 'POST' },
-    )
-    if (!res.ok) {
-      status.value = prevStatus
-      emit('status-change', prevStatus)
-      message.error('操作失败')
-    }
+    await autopilotApi.resetCircuitBreaker(props.novelId)
     void fetchStatus()
   } catch (err) {
     status.value = prevStatus
@@ -1368,15 +1336,10 @@ async function forceStopFromError() {
     // 先关闭 SSE 连接
     stopChapterStream()
     // 并行发送：stop 请求 + circuit-breaker/reset 请求
-    const stopPromise = fetch(resolveHttpUrl(`${autopilotApiRoot()}/stop`), {
-      method: 'POST',
-    }).catch(err => {
+    const stopPromise = autopilotApi.stop(props.novelId).catch(err => {
       console.warn('[AutopilotPanel] 强制停止请求失败:', err)
     })
-    const resetPromise = fetch(
-      resolveHttpUrl(`${autopilotApiRoot()}/circuit-breaker/reset`),
-      { method: 'POST' },
-    ).catch(err => {
+    const resetPromise = autopilotApi.resetCircuitBreaker(props.novelId).catch(err => {
       console.warn('[AutopilotPanel] 重置熔断器失败:', err)
     })
     await Promise.allSettled([stopPromise, resetPromise])

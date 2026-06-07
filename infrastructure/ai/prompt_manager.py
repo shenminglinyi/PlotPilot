@@ -795,6 +795,7 @@ class PromptManager:
     def get_node(self, node_key_or_id: str,
                  by_key: bool = True) -> Optional[NodeInfo]:
         """获取单个节点详情（含激活版本内容）。"""
+        self.ensure_seeded()
         db = self._get_db()
         if by_key:
             col = "node_key"

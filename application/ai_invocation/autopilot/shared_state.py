@@ -20,7 +20,7 @@ def read_autopilot_shared_state(novel_id: str) -> dict[str, Any]:
     except Exception:
         return {}
     try:
-        from interfaces.main import get_shared_novel_state
+        from interfaces.runtime_state import get_shared_novel_state
 
         return dict(get_shared_novel_state(novel_id) or {})
     except Exception:
@@ -47,7 +47,7 @@ def write_autopilot_shared_state(novel_id: str, **fields: Any) -> bool:
     except Exception:
         return False
     try:
-        from interfaces.main import update_shared_novel_state
+        from interfaces.runtime_state import update_shared_novel_state
 
         update_shared_novel_state(novel_id, **fields)
         return True

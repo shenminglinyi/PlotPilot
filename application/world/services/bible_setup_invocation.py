@@ -144,6 +144,14 @@ _FALLBACK_KEYS_BY_NODE = {
     },
 }
 
+_REQUEST_ALIAS_TO_VARIABLE_KEY = {
+    "novel_title": "novel.title",
+    "title": "novel.title",
+    "premise": "novel.premise",
+    "target_chapters": "novel.target_chapters",
+    "target_words_per_chapter": "novel.target_words_per_chapter",
+}
+
 
 def _ensure_node_synced(node_key: str) -> None:
     try:
@@ -198,6 +206,10 @@ def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
         known_variable_keys,
     )
     declared_keys.update(_FALLBACK_KEYS_BY_NODE.get(node_key, set()))
+    declared_keys = {
+        _REQUEST_ALIAS_TO_VARIABLE_KEY.get(variable_key, variable_key)
+        for variable_key in declared_keys
+    }
     return [
         VariableBinding(
             alias=variable_key,

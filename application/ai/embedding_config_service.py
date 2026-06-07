@@ -6,11 +6,11 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from infrastructure.ai.embedding_environment import EmbeddingEnvironmentSettings
 
 logger = logging.getLogger(__name__)
 
@@ -62,18 +62,21 @@ class EmbeddingConfigService:
     - 所有写操作更新 updated_at
     """
 
-    _DEFAULTS = {
-        "id": "default",
-        "mode": "openai",
-        "api_key": "",
-        "base_url": "",
-        "model": (os.getenv("EMBEDDING_MODEL") or "").strip(),
-        "use_gpu": 1,
-        "model_path": (os.getenv("LOCAL_EMBEDDING_MODEL_PATH") or "").strip(),
-    }
-
     def __init__(self, db_connection=None):
         self._db = db_connection
+
+    @staticmethod
+    def _default_row_values() -> dict[str, Any]:
+        env = EmbeddingEnvironmentSettings.from_env()
+        return {
+            "id": "default",
+            "mode": "openai",
+            "api_key": "",
+            "base_url": "",
+            "model": env.model,
+            "use_gpu": 1,
+            "model_path": env.db_default_model_path,
+        }
 
     def _get_db(self):
         """获取数据库连接（延迟导入避免循环依赖）。"""
@@ -93,18 +96,19 @@ class EmbeddingConfigService:
         if row:
             return
         now = datetime.now().isoformat()
+        defaults = self._default_row_values()
         db.execute("""
             INSERT OR IGNORE INTO embedding_config
             (id, mode, api_key, base_url, model, use_gpu, model_path, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            "default",
-            "openai",
-            "",
-            "",
-            (os.getenv("EMBEDDING_MODEL") or "").strip(),
-            1,
-            (os.getenv("LOCAL_EMBEDDING_MODEL_PATH") or "").strip(),
+            defaults["id"],
+            defaults["mode"],
+            defaults["api_key"],
+            defaults["base_url"],
+            defaults["model"],
+            defaults["use_gpu"],
+            defaults["model_path"],
             now,
             now,
         ))

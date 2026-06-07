@@ -78,8 +78,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { STORY_PIPELINE_WAVES } from '@/constants/storyPipelineWaves'
+import { usePolling } from '@/composables/usePolling'
 
 /** /status 中 StoryPipeline 相关字段（松散类型以兼容运行时） */
 interface StatusLike {
@@ -129,16 +130,9 @@ const props = defineProps<{
 const aftermathOnly = computed(() => props.aftermathOnly === true)
 
 const tick = ref(0)
-let timer: ReturnType<typeof setInterval> | null = null
-
-onMounted(() => {
-  timer = setInterval(() => {
-    tick.value += 1
-  }, 1000)
-})
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
-})
+usePolling(() => {
+  tick.value += 1
+}, 1000, { autoStart: true })
 
 const currentIx = computed(() => {
   const n = Number(props.status?.story_pipeline_wave_index)

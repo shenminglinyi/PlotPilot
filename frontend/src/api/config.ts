@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type AxiosRequestConfig } from 'axios'
 
 import { emitAxiosFeedbackIncident } from '../support/feedbackNotifier'
+import { apiRoutes } from './endpoints'
 
 // ---------------------------------------------------------------------------
 // 单一数据源：axiosInstance.defaults.baseURL
@@ -274,7 +275,7 @@ export function subscribeChapterStream(
   void (async () => {
     let streamTerminal: 'stopped' | 'review' | 'idle' | null = null
     try {
-      const streamUrl = resolveHttpUrl(`/api/v1/autopilot/${novelId}/chapter-stream`)
+      const streamUrl = resolveHttpUrl(apiRoutes.novels.chapterStream(novelId))
       const res = await fetch(streamUrl, {
         signal: ctrl.signal,
         headers: {

@@ -3,6 +3,7 @@
  * 服务端已落库的数据仍以 API 为准；缓存仅避免关闭向导后重复触发 LLM 生成。
  */
 import type { PlotOutlineDTO } from '@/api/workflow'
+import { readStorageJson, removeStorageItem, writeStorageJson } from '@/utils/storage'
 
 export const WIZARD_UI_CACHE_SCHEMA = 4
 const STORAGE_KEY_PREFIX = 'plotpilot:novel-wizard-ui:'
@@ -30,60 +31,46 @@ function key(novelId: string): string {
 }
 
 export function readWizardUiCache(novelId: string): WizardUiCachePayload | null {
-  if (!novelId || typeof localStorage === 'undefined') return null
-  try {
-    const raw = localStorage.getItem(key(novelId))
-    if (!raw) return null
-    const data = JSON.parse(raw) as WizardUiCachePayload
-    if (!data || data.novelId !== novelId) return null
-    // 兼容 v1 缓存：schema 升级但数据仍可用
-    return data
-  } catch {
-    return null
-  }
+  if (!novelId) return null
+  const data = readStorageJson<WizardUiCachePayload | null>(key(novelId), null)
+  if (!data || data.novelId !== novelId) return null
+  // 兼容 v1 缓存：schema 升级但数据仍可用
+  return data
 }
 
 export function writeWizardUiCache(novelId: string, patch: Partial<Omit<WizardUiCachePayload, 'v' | 'novelId'>>): void {
-  if (!novelId || typeof localStorage === 'undefined') return
-  try {
-    const prev = readWizardUiCache(novelId) || {
-      v: WIZARD_UI_CACHE_SCHEMA,
-      novelId,
-      savedAt: Date.now(),
-    }
-    const next: WizardUiCachePayload = {
-      ...prev,
-      ...patch,
-      v: WIZARD_UI_CACHE_SCHEMA,
-      novelId,
-      savedAt: Date.now(),
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, 'plotOutline')) {
-      if (patch.plotOutline) {
-        next.plotOutlineSavedAt = Date.now()
-      } else {
-        next.plotOutlineSavedAt = undefined
-        next.plotOutline = undefined
-      }
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, 'invocationSessionId')) {
-      if (!patch.invocationSessionId) {
-        next.invocationSessionId = undefined
-      }
-    }
-    localStorage.setItem(key(novelId), JSON.stringify(next))
-  } catch {
-    /* 私密模式或配额满时忽略 */
+  if (!novelId) return
+  const prev = readWizardUiCache(novelId) || {
+    v: WIZARD_UI_CACHE_SCHEMA,
+    novelId,
+    savedAt: Date.now(),
   }
+  const next: WizardUiCachePayload = {
+    ...prev,
+    ...patch,
+    v: WIZARD_UI_CACHE_SCHEMA,
+    novelId,
+    savedAt: Date.now(),
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'plotOutline')) {
+    if (patch.plotOutline) {
+      next.plotOutlineSavedAt = Date.now()
+    } else {
+      next.plotOutlineSavedAt = undefined
+      next.plotOutline = undefined
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'invocationSessionId')) {
+    if (!patch.invocationSessionId) {
+      next.invocationSessionId = undefined
+    }
+  }
+  writeStorageJson(key(novelId), next)
 }
 
 export function clearWizardUiCache(novelId: string): void {
-  if (!novelId || typeof localStorage === 'undefined') return
-  try {
-    localStorage.removeItem(key(novelId))
-  } catch {
-    /* ignore */
-  }
+  if (!novelId) return
+  removeStorageItem(key(novelId))
 }
 
 export function isPlotOutlineCacheFresh(payload: WizardUiCachePayload | null): boolean {

@@ -179,6 +179,7 @@ import { knowledgeApi } from '../../api/knowledge'
 import { MARKET_STYLE_PRESETS, matchPresetValue } from '@/constants/marketStylePresets'
 import { novelApi } from '@/api/novel'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
+import { formatApiError, getHttpStatus } from '@/utils/apiError'
 import StylePresetSelector from './StylePresetSelector.vue'
 
 const props = withDefaults(
@@ -357,8 +358,8 @@ async function fetchBibleStateForPanel(slug: string): Promise<ReturnType<typeof 
       ui = { ...ui, style_notes: styleNotesWithCreationDefault('') }
     }
     return ui
-  } catch (err: any) {
-    if (err?.response?.status !== 404) throw err
+  } catch (err: unknown) {
+    if (getHttpStatus(err) !== 404) throw err
     try {
       await bibleApi.createBible(slug, `bible-${slug}`)
     } catch {
@@ -405,9 +406,9 @@ const load = async (opts?: { preserveSurface?: boolean }) => {
     state.value = bibleUi
     premiseLock.value = pl
     syncJsonFromState()
-  } catch (err: any) {
+  } catch (err: unknown) {
     if (seq !== biblePanelLoadSeq || props.slug !== slug) return
-    message.error(err?.response?.data?.detail || '加载设定失败')
+    message.error(formatApiError(err, '加载设定失败'))
   } finally {
     // 避免竞态 return 或异常路径未解除「表面待定」导致正文区 opacity:0 长期空白
     if (seq === biblePanelLoadSeq && props.slug === slug) {
@@ -436,8 +437,8 @@ const save = async () => {
 
     message.success('设定与梗概锁定已保存')
     syncJsonFromState()
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '保存失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -450,8 +451,8 @@ const generatePremiseKnowledge = async () => {
     message.success(res.message || '梗概已生成')
     await load({ preserveSurface: true })
     window.dispatchEvent(new CustomEvent('plotpilot:knowledge:reload'))
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || 'AI 生成失败，请确认 API Key 已配置')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, 'AI 生成失败，请确认 API Key 已配置'))
   } finally {
     generatingKnowledge.value = false
   }
@@ -466,11 +467,11 @@ const saveFromJson = async () => {
     message.success('设定已保存')
     await load({ preserveSurface: true })
     showJsonModal.value = false
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e instanceof SyntaxError) {
       message.error('JSON 格式错误')
     } else {
-      message.error(e?.response?.data?.detail || '保存失败')
+      message.error(formatApiError(e, '保存失败'))
     }
   } finally {
     saving.value = false
@@ -497,8 +498,8 @@ const generateBible = async () => {
     const res = await bibleApi.generateBible(props.slug)
     message.success(res.message || 'Bible 生成成功')
     await load({ preserveSurface: true })
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || 'AI 生成失败，请确认 API Key 已配置')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, 'AI 生成失败，请确认 API Key 已配置'))
   } finally {
     generating.value = false
   }

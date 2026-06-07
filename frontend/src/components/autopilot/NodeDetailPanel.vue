@@ -136,12 +136,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, onUnmounted } from 'vue'
+import { computed, watch, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import type { NodeMeta, NodePromptLive, NodeStatus } from '@/types/dag'
 import { CATEGORY_LABELS } from '@/types/dag'
 import { useDAGStore } from '@/stores/dagStore'
-import { resolveHttpUrl } from '@/api/config'
+import { autopilotApi, getAutopilotHttpStatus, isAutopilotNotFoundError } from '@/api/autopilot'
+import { usePolling } from '@/composables/usePolling'
 
 const props = defineProps<{
   show: boolean
@@ -162,7 +163,6 @@ const promptLoading = ref(false)
 /** GET /autopilot/{id}/status 拉取的实时块（写作/指挥） */
 const writingStatus = ref<Record<string, unknown> | null>(null)
 const writingPollError = ref('')
-let writingPollTimer: ReturnType<typeof setInterval> | null = null
 
 const WRITING_TELEMETRY_TYPES = new Set(['exec_writer', 'exec_beat'])
 
@@ -191,44 +191,36 @@ async function fetchWritingTelemetry() {
   if (!props.novelId || !showWritingTelemetry.value) return
   writingPollError.value = ''
   try {
-    const res = await fetch(resolveHttpUrl(`/api/v1/autopilot/${props.novelId}/status`))
-    if (res.status === 404) {
+    writingStatus.value = await autopilotApi.getStatus(props.novelId)
+  } catch (e) {
+    if (isAutopilotNotFoundError(e)) {
       writingStatus.value = null
       writingPollError.value = '该书暂无托管状态'
       return
     }
-    if (!res.ok) {
-      writingPollError.value = `状态 ${res.status}`
+    const status = getAutopilotHttpStatus(e)
+    if (status != null) {
+      writingPollError.value = `状态 ${status}`
       return
     }
-    writingStatus.value = (await res.json()) as Record<string, unknown>
-  } catch (e) {
     writingPollError.value = e instanceof Error ? e.message : '网络错误'
   }
 }
 
-function clearWritingPoll() {
-  if (writingPollTimer != null) {
-    clearInterval(writingPollTimer)
-    writingPollTimer = null
-  }
-}
+const writingTelemetryPolling = usePolling(fetchWritingTelemetry, 2500)
 
 watch(
   () => [props.show, props.novelId, meta.value?.node_type ?? ''] as const,
   ([open, nid, nodeType]) => {
-    clearWritingPoll()
+    writingTelemetryPolling.stop()
     writingStatus.value = null
     writingPollError.value = ''
     const telemetry = Boolean(nodeType && WRITING_TELEMETRY_TYPES.has(nodeType))
     if (!open || !nid || !telemetry) return
-    void fetchWritingTelemetry()
-    writingPollTimer = setInterval(() => void fetchWritingTelemetry(), 2500)
+    writingTelemetryPolling.start({ immediate: true })
   },
   { immediate: true }
 )
-
-onUnmounted(() => clearWritingPoll())
 
 const runState = computed(() => {
   if (!props.nodeId) return null

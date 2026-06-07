@@ -3,7 +3,6 @@
 提供 FastAPI 依赖注入函数，用于创建服务和仓储实例。
 """
 import logging
-import os
 from pathlib import Path
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
@@ -52,6 +51,8 @@ from domain.novel.services.consistency_checker import ConsistencyChecker
 from domain.novel.services.storyline_manager import StorylineManager
 from domain.bible.services.relationship_engine import RelationshipEngine
 from domain.ai.services.vector_store import VectorStore
+from interfaces.api.container import get_container
+from interfaces.api.settings import get_backend_settings
 
 if TYPE_CHECKING:
     from application.analyst.services.narrative_entity_state_service import NarrativeEntityStateService
@@ -65,16 +66,12 @@ _storage = None
 
 def _anthropic_api_key() -> Optional[str]:
     """优先 ANTHROPIC_API_KEY，否则 ANTHROPIC_AUTH_TOKEN（与部分代理/IDE 配置命名一致）。"""
-    raw = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if raw is None:
-        return None
-    key = raw.strip()
-    return key or None
+    llm_settings = get_backend_settings().llm
+    return llm_settings.anthropic_api_key or llm_settings.anthropic_auth_token or None
 
 
 def _anthropic_base_url() -> Optional[str]:
-    u = os.getenv("ANTHROPIC_BASE_URL")
-    return u.strip() if u and u.strip() else None
+    return get_backend_settings().llm.anthropic_base_url or None
 
 
 def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
@@ -89,21 +86,16 @@ def _anthropic_settings(require_key: bool = True) -> Optional[Settings]:
     return Settings(
         api_key=key,
         base_url=_anthropic_base_url(),
-        default_model=os.getenv("WRITING_MODEL", ""),
+        default_model=get_backend_settings().llm.writing_model,
     )
 
 
 def _openai_api_key() -> Optional[str]:
-    raw = os.getenv("OPENAI_API_KEY")
-    if raw is None:
-        return None
-    key = raw.strip()
-    return key or None
+    return get_backend_settings().llm.openai_api_key or None
 
 
 def _openai_base_url() -> Optional[str]:
-    u = os.getenv("OPENAI_BASE_URL")
-    return u.strip() if u and u.strip() else None
+    return get_backend_settings().llm.openai_base_url or None
 
 
 def _openai_settings(require_key: bool = True) -> Optional[Settings]:
@@ -118,18 +110,21 @@ def _openai_settings(require_key: bool = True) -> Optional[Settings]:
     return Settings(
         api_key=key,
         base_url=_openai_base_url(),
-        default_model=os.getenv("WRITING_MODEL") or os.getenv("ARK_MODEL", ""),
+        default_model=(
+            get_backend_settings().llm.writing_model
+            or get_backend_settings().llm.ark_model
+        ),
     )
 
 
 @lru_cache
 def get_llm_control_service() -> LLMControlService:
-    return LLMControlService()
+    return get_container().get_llm_control_service()
 
 
 @lru_cache
 def get_llm_provider_factory() -> LLMProviderFactory:
-    return LLMProviderFactory(get_llm_control_service())
+    return get_container().get_llm_provider_factory()
 
 
 def llm_runtime_is_mock(llm_service: Optional[LLMService] = None) -> bool:
@@ -144,8 +139,7 @@ def get_storage() -> FileStorage:
         FileStorage 实例
     """
     global _storage
-    if _storage is None:
-        _storage = FileStorage(DATA_DIR)
+    _storage = get_container().get_storage()
     return _storage
 
 
@@ -468,7 +462,7 @@ def get_llm_service():
     返回长生命周期包装器：每次 generate/stream_generate 时重新读取当前激活配置，
     因此前台控制面板修改后无需重启 API / 守护进程即可生效。
     """
-    return DynamicLLMService(get_llm_provider_factory())
+    return get_container().get_llm_service()
 
 
 def get_setup_main_plot_suggestion_service():
@@ -559,7 +553,8 @@ def get_embedding_service():
 
     如果 VECTOR_STORE_ENABLED=false，返回 None。
     """
-    if os.getenv("VECTOR_STORE_ENABLED", "true").lower() != "true":
+    fallback_settings = get_backend_settings()
+    if not fallback_settings.vector_store.enabled:
         return None
 
     # 尝试从数据库读取配置
@@ -586,17 +581,19 @@ def get_embedding_service():
         )
     except Exception as exc:
         # 数据库不可用时回退到环境变量
-        _mode = os.getenv("EMBEDDING_SERVICE", "local").lower()
-        _api_key = os.getenv("EMBEDDING_API_KEY") or ""
-        _base_url = os.getenv("EMBEDDING_BASE_URL") or ""
-        _model = (os.getenv("EMBEDDING_MODEL") or "").strip()
-        _model_path = (os.getenv("EMBEDDING_MODEL_PATH") or "").strip()
-        _use_gpu = os.getenv("EMBEDDING_USE_GPU", "true").lower() == "true"
+        embedding_settings = get_backend_settings().embedding
+        _mode = embedding_settings.service
+        _api_key = embedding_settings.api_key
+        _base_url = embedding_settings.base_url
+        _model = embedding_settings.model
+        _model_path = embedding_settings.model_path
+        _use_gpu = embedding_settings.use_gpu
         logger.warning("读取嵌入配置失败，回退到环境变量: %s", exc)
 
     try:
         if _mode == "openai":
-            key = _api_key or os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
+            live_settings = get_backend_settings()
+            key = _api_key or live_settings.embedding.api_key or live_settings.llm.openai_api_key or ""
             if not key:
                 logger.warning("embedding mode=openai 但未配置 API Key，向量检索已禁用")
                 return None
@@ -665,48 +662,20 @@ def get_vector_store() -> Optional[VectorStore]:
     """
     global _vector_store_singleton, _vector_store_init_failed
 
-    # 如果已经初始化过（成功或失败），直接返回结果
-    if _vector_store_singleton is not None:
-        return _vector_store_singleton
-    if _vector_store_init_failed:
-        return None
+    container = get_container()
+    if _vector_store_singleton is None and not _vector_store_init_failed:
+        container.reload_settings()
+    if (
+        _vector_store_singleton is None
+        and not _vector_store_init_failed
+        and (container._vector_store is not None or container._vector_store_init_failed)
+    ):
+        # Keep legacy tests and callers that reset module globals compatible.
+        container.reset_vector_store()
 
-    enabled = os.getenv("VECTOR_STORE_ENABLED", "true").lower() == "true"
-    if not enabled:
-        return None
-
-    try:
-        store_type = (os.getenv("VECTOR_STORE_TYPE") or "").strip().lower()
-        legacy_qdrant_enabled = os.getenv("QDRANT_ENABLED", "").strip().lower() == "true"
-        if store_type == "qdrant" or legacy_qdrant_enabled:
-            from infrastructure.ai.qdrant_vector_store import QdrantVectorStore
-
-            host = os.getenv("QDRANT_HOST", "localhost").strip() or "localhost"
-            port = int(os.getenv("QDRANT_PORT", "6333"))
-            api_key = (os.getenv("QDRANT_API_KEY") or "").strip() or None
-            _vector_store_singleton = QdrantVectorStore(
-                host=host,
-                port=port,
-                api_key=api_key,
-            )
-            logger.info("Qdrant 向量存储初始化成功: %s:%s", host, port)
-            return _vector_store_singleton
-
-        from infrastructure.ai.chromadb_vector_store import ChromaDBVectorStore
-
-        persist_dir = os.getenv("VECTOR_STORE_PATH", "./data/chromadb")
-        _vector_store_singleton = ChromaDBVectorStore(persist_directory=persist_dir)
-        logger.info("本地向量存储初始化成功: %s", persist_dir)
-        return _vector_store_singleton
-    except Exception as e:
-        _vector_store_init_failed = True
-        logger.warning(
-            "向量存储初始化失败，已降级禁用。"
-            "如需使用向量功能，请安装依赖: pip install -r requirements-local.txt"
-            " 或设置 VECTOR_STORE_TYPE=qdrant。错误: %s",
-            e,
-        )
-        return None
+    _vector_store_singleton = container.get_vector_store()
+    _vector_store_init_failed = container._vector_store_init_failed
+    return _vector_store_singleton
 
 
 def get_relationship_engine() -> RelationshipEngine:

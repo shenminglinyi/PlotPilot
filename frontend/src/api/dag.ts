@@ -7,6 +7,8 @@
  * - 执行权在全托管模式，DAG 只展示状态流转
  */
 import { apiClient } from './config'
+import { apiRoutes } from './endpoints'
+import { fetchUrl } from './http'
 import type {
   DAGDefinition,
   DAGStatusResponse,
@@ -79,4 +81,7 @@ export const dagApi = {
   /** PUT /api/v1/dag/{novel_id}/nodes/{node_id} — 更新节点配置 */
   updateNodeConfig: (novelId: string, nodeId: string, config: Record<string, unknown>) =>
     apiClient.put<DAGDefinition>(`/dag/${novelId}/nodes/${nodeId}`, config) as unknown as Promise<DAGDefinition>,
+
+  /** GET /api/v1/dag/events?novel_id=... — DAG SSE 事件流 URL */
+  eventsUrl: (novelId: string) => fetchUrl(apiRoutes.dag.events(novelId)),
 }

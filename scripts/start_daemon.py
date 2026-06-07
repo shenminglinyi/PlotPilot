@@ -3,22 +3,20 @@
 日志：默认与 API 共用 ``logs/plotpilot.log``（环境变量 LOG_FILE），便于在「主日志」里查看
 规划/写作/节拍；另可设 LOG_FILE 仅写文件。
 """
-import os
-os.environ['HF_HUB_OFFLINE'] = '1'
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
-os.environ['HF_DATASETS_OFFLINE'] = '1'
-if os.getenv('DISABLE_SSL_VERIFY', 'false').lower() == 'true':
-    os.environ['CURL_CA_BUNDLE'] = ''
-    os.environ['REQUESTS_CA_BUNDLE'] = ''
-
 import sys
 import logging
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from infrastructure.ai.process_environment import configure_huggingface_process_environment
+
+configure_huggingface_process_environment()
+
 from dotenv import load_dotenv
 
 load_dotenv()
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from application.paths import PLOTPILOT_ROOT, get_db_path, DATA_DIR
 from infrastructure.persistence.database.connection import get_database

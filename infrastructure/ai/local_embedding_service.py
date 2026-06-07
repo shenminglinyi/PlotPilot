@@ -11,24 +11,16 @@
 支持 GPU 加速。优先使用本地目录，避免联网下载。
 """
 
-import os
 from typing import List
-
-# 设置离线模式（不触发网络请求）
-os.environ['HF_HUB_OFFLINE'] = '1'
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
-os.environ['HF_DATASETS_OFFLINE'] = '1'
-if os.getenv('DISABLE_SSL_VERIFY', 'false').lower() == 'true':
-    os.environ['CURL_CA_BUNDLE'] = ''
-    os.environ['REQUESTS_CA_BUNDLE'] = ''
-    import logging as _l
-    _l.getLogger(__name__).warning("SSL certificate verification is DISABLED via DISABLE_SSL_VERIFY=true")
 
 import logging
 from pathlib import Path
 from domain.ai.services.embedding_service import EmbeddingService
+from infrastructure.ai.embedding_environment import EmbeddingEnvironmentSettings
+from infrastructure.ai.process_environment import configure_huggingface_process_environment
 
 logger = logging.getLogger(__name__)
+configure_huggingface_process_environment(logger)
 
 
 class LocalEmbeddingService(EmbeddingService):
@@ -71,7 +63,7 @@ class LocalEmbeddingService(EmbeddingService):
 
         # 解析模型路径：参数优先，否则读环境变量；不在代码中写死具体模型 ID
         if model_name is None or not str(model_name).strip():
-            model_path = (os.getenv("EMBEDDING_MODEL_PATH") or "").strip()
+            model_path = EmbeddingEnvironmentSettings.from_env().model_path
         else:
             model_path = str(model_name).strip()
 

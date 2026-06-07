@@ -5,6 +5,8 @@
 import type { AxiosRequestConfig } from 'axios'
 
 import { apiClient } from './config'
+import { apiRoutes } from './endpoints'
+import { fetchJson } from './http'
 
 export interface TensionPoint {
   chapter: number
@@ -30,11 +32,21 @@ export interface TensionCurveResponse {
   stats: TensionCurveStats | null
 }
 
+export interface VoiceDriftApiItem {
+  drift_score?: number
+  status?: string
+  [key: string]: unknown
+}
+
 export const monitorApi = {
   getTensionCurve(novelId: string, config?: AxiosRequestConfig): Promise<TensionCurveResponse> {
     return apiClient.get(
-      `/novels/${novelId}/monitor/tension-curve`,
+      apiRoutes.monitor.tensionCurve(novelId),
       config,
     ) as unknown as Promise<TensionCurveResponse>
+  },
+
+  getVoiceDrift(novelId: string): Promise<VoiceDriftApiItem[]> {
+    return fetchJson<VoiceDriftApiItem[]>(apiRoutes.monitor.voiceDrift(novelId))
   },
 }

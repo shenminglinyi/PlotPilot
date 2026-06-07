@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { storageKeys } from '@/config/storageKeys'
+import { readStorageString, writeStorageString } from '@/utils/storage'
 
 export type FontSizePreset = 'small' | 'medium' | 'large' | 'xlarge'
-
-const STORAGE_KEY = 'plotpilot-font-size-preset'
 
 const PRESET_TO_SCALE: Record<FontSizePreset, number> = {
   small: 0.875,
@@ -13,13 +13,9 @@ const PRESET_TO_SCALE: Record<FontSizePreset, number> = {
 }
 
 function getStoredPreset(): FontSizePreset {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'small' || stored === 'medium' || stored === 'large' || stored === 'xlarge') {
-      return stored
-    }
-  } catch {
-    /* ignore */
+  const stored = readStorageString(storageKeys.fontSizePreset)
+  if (stored === 'small' || stored === 'medium' || stored === 'large' || stored === 'xlarge') {
+    return stored
   }
   return 'medium'
 }
@@ -38,11 +34,7 @@ export const useFontSizeStore = defineStore('fontSize', () => {
 
   function setPreset(next: FontSizePreset) {
     preset.value = next
-    try {
-      localStorage.setItem(STORAGE_KEY, next)
-    } catch {
-      /* ignore */
-    }
+    writeStorageString(storageKeys.fontSizePreset, next)
   }
 
   function applyFontScaleToDOM() {

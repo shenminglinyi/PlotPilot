@@ -129,9 +129,10 @@ import { ref, computed, h, onMounted, onUnmounted, watch } from 'vue'
 import { NTree, NEmpty, NSpin, NTag, NSpace, NDropdown, NModal, NInput, useMessage, useDialog } from 'naive-ui'
 import { structureApi, type StoryNode } from '@/api/structure'
 import { chapterApi } from '@/api/chapter'
-import { resolveHttpUrl } from '@/api/config'
+import { autopilotApi, isAutopilotHttpError } from '@/api/autopilot'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeTreeChapterLine } from '@/utils/narrativeUnitLabel'
+import { formatApiError } from '@/utils/apiError'
 import { watchMacroPlanProgress, planningApi, type MacroProgressWatchTerminalEvent, type MacroStreamNodeEvent, type StoryNode as PlanningStoryNode } from '@/api/planning'
 
 const props = defineProps<{
@@ -606,12 +607,7 @@ async function syncAutopilotEmptyHint(hasTreeData: boolean) {
     return
   }
   try {
-    const r = await fetch(resolveHttpUrl(`/api/v1/autopilot/${props.slug}/status`))
-    if (!r.ok) {
-      autopilotEmptyMode.value = null
-      return
-    }
-    const s = (await r.json()) as Record<string, unknown>
+    const s = await autopilotApi.getStatus(props.slug)
     if (s.autopilot_status !== 'running') {
       autopilotEmptyMode.value = null
       return
@@ -623,7 +619,11 @@ async function syncAutopilotEmptyHint(hasTreeData: boolean) {
     } else {
       autopilotEmptyMode.value = null
     }
-  } catch {
+  } catch (err) {
+    if (isAutopilotHttpError(err)) {
+      autopilotEmptyMode.value = null
+      return
+    }
     /* 网络抖动时不清空已有提示，避免按钮/文案来回闪 */
   }
 }
@@ -647,7 +647,7 @@ const loadTree = async () => {
     if (reqId !== loadTreeRequestId) {
       return
     }
-    message.error(e?.response?.data?.detail || '加载结构失败')
+    message.error(formatApiError(e, '加载结构失败'))
     emit('treeLoaded', false)
     autopilotEmptyMode.value = null
   } finally {
@@ -767,7 +767,7 @@ const handleMenuSelect = (key: string) => {
           message.success('已删除')
           await loadTree()
         } catch (e: any) {
-          message.error(e?.response?.data?.detail || '删除失败')
+          message.error(formatApiError(e, '删除失败'))
         }
       },
     })
@@ -783,7 +783,7 @@ const doRename = async () => {
     message.success('已重命名')
     await loadTree()
   } catch (e: any) {
-    message.error(e?.response?.data?.detail || '重命名失败')
+    message.error(formatApiError(e, '重命名失败'))
   }
 }
 
@@ -818,7 +818,7 @@ const doAddChild = async () => {
     message.success('已添加')
     await loadTree()
   } catch (e: any) {
-    message.error(e?.response?.data?.detail || '添加失败')
+    message.error(formatApiError(e, '添加失败'))
   }
 }
 

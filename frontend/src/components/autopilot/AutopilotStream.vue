@@ -14,7 +14,7 @@
 
 <script setup>
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
-import { resolveHttpUrl } from '../../api/config'
+import { chapterApi } from '../../api/chapter'
 
 const props = defineProps({
   novelId: String,
@@ -36,13 +36,8 @@ let pollTimer = null
 
 async function fetchLatestDraft() {
   // 取最新 draft 章节的内容
-  const res = await fetch(
-    resolveHttpUrl(`/api/v1/novels/${props.novelId}/chapters?status=draft&limit=1`),
-  )
-  if (!res.ok) return
-  const data = await res.json()
-  if (data.chapters?.length) {
-    const ch = data.chapters[0]
+  const ch = await chapterApi.getLatestDraftChapter(props.novelId)
+  if (ch) {
     displayContent.value = ch.content || ''
     chapterNumber.value = ch.number
     // 自动滚到底

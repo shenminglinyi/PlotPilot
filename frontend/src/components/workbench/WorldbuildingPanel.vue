@@ -296,6 +296,7 @@ import {
   FlashOutline, EarthOutline, PeopleOutline, LibraryOutline, LayersOutline, BulbOutline,
 } from '@vicons/ionicons5'
 import { worldbuildingApi } from '@/api/worldbuilding'
+import { formatApiError } from '@/utils/apiError'
 
 interface Props { slug: string }
 const props = defineProps<Props>()
@@ -400,8 +401,8 @@ const loadWorldbuilding = async () => {
         daily_life:  data.daily_life  || formData.value.daily_life,
       }
     }
-  } catch (error: any) {
-    message.error((error as any).response?.data?.detail || '加载世界观失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '加载世界观失败'))
   } finally {
     loading.value = false
     dataLoaded.value = true
@@ -421,8 +422,8 @@ const save = async () => {
     message.success('世界观已保存')
     if (savedTimer) clearTimeout(savedTimer)
     savedTimer = setTimeout(() => { lastSavedAt.value = '' }, 8000)
-  } catch (error: any) {
-    message.error(error.response?.data?.detail || '保存失败')
+  } catch (error: unknown) {
+    message.error(formatApiError(error, '保存失败'))
   } finally {
     saving.value = false
   }

@@ -393,6 +393,22 @@ def _extract_list_index(values: list[Any], selector: str) -> Any:
     return values[index]
 
 
+def _public_alias_candidates(binding: VariableBinding | None) -> tuple[str, ...]:
+    if binding is None:
+        return ()
+    aliases = {str(binding.alias or "").strip(), str(binding.variable_key or "").strip()}
+    for key in list(aliases):
+        if key.startswith("novel.setup."):
+            aliases.add(key.removeprefix("novel.setup."))
+        if key.startswith("novel."):
+            short = key.removeprefix("novel.")
+            aliases.add(short)
+            aliases.add(f"novel_{short}")
+    aliases.discard("")
+    aliases.discard(str(binding.alias or "").strip())
+    return tuple(sorted(aliases))
+
+
 class VariableResolver:
     """从显式输入和 Variable Hub 解析最终 alias map。"""
 
@@ -501,6 +517,20 @@ class VariableResolver:
                 aliases[alias] = value
                 raw_aliases[alias] = value
                 lineage[alias] = "explicit"
+
+        for alias, binding in list(binding_by_alias.items()):
+            if alias not in aliases:
+                continue
+            for public_alias in _public_alias_candidates(binding):
+                aliases.setdefault(public_alias, aliases[alias])
+                raw_aliases.setdefault(public_alias, raw_aliases.get(alias, aliases[alias]))
+                lineage.setdefault(public_alias, lineage.get(alias, "alias"))
+                if alias in resolved_from_hub:
+                    resolved_from_hub.add(public_alias)
+                    snapshot_values.setdefault(
+                        public_alias,
+                        snapshot_values.get(alias, raw_aliases.get(alias, aliases[alias])),
+                    )
 
         for alias, value in aliases.items():
             binding = binding_by_alias.get(alias)

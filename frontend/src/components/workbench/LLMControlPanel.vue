@@ -257,6 +257,7 @@ import {
   type LLMRuntimeSummary,
   type ModelItem,
 } from '../../api/llmControl'
+import { readStorageJson, writeStorageJson } from '@/utils/storage'
 
 interface Props {
   scrollStateKey?: string
@@ -371,12 +372,7 @@ function getUiStateStorageKey(): string {
 function readUiState(): PanelUiState {
   const key = getUiStateStorageKey()
   if (!key) return {}
-  try {
-    const raw = sessionStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as PanelUiState) : {}
-  } catch {
-    return {}
-  }
+  return readStorageJson<PanelUiState>(key, {}, 'session')
 }
 
 function saveUiState() {
@@ -387,7 +383,7 @@ function saveUiState() {
     editorTop: editorRef.value?.scrollTop || 0,
     sidebarTop: sidebarListRef.value?.scrollTop || 0,
   }
-  sessionStorage.setItem(key, JSON.stringify(payload))
+  writeStorageJson(key, payload, 'session')
 }
 
 function restoreUiState() {

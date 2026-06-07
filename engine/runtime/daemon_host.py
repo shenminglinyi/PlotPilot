@@ -195,9 +195,9 @@ class DaemonHostMixin:
             return
         # 降级：通过主进程模块
         try:
-            from interfaces.main import update_shared_novel_state
+            from interfaces.runtime_state import update_shared_novel_state
             # 用特殊 key 写入心跳（非小说级别，而是全局级别）
-            from interfaces.main import _get_shared_state
+            from interfaces.runtime_state import _get_shared_state
             state = _get_shared_state()
             state["_daemon_heartbeat"] = now
         except Exception:
@@ -1097,7 +1097,7 @@ class DaemonHostMixin:
 
         # 降级：直接通过主进程模块的函数写入（开发环境单进程时）
         try:
-            from interfaces.main import update_shared_novel_state
+            from interfaces.runtime_state import update_shared_novel_state
             update_shared_novel_state(novel_id, **fields)
         except Exception:
             pass

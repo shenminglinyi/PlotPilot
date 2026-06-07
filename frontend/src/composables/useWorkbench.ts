@@ -4,21 +4,10 @@ import { useMessage } from 'naive-ui'
 import { novelApi, type GenerationPrefsDTO } from '../api/novel'
 import { chapterApi } from '../api/chapter'
 import { useStatsStore } from '../stores/statsStore'
+import { formatApiError, getHttpStatus } from '../utils/apiError'
 
 // Constants
 const STATS_DAYS = 30
-
-function formatApiErrorDetail(error: unknown): string {
-  const e = error as { response?: { data?: { detail?: unknown } }; message?: string }
-  const d = e?.response?.data?.detail
-  if (typeof d === 'string' && d.trim()) return d
-  if (Array.isArray(d)) {
-    const parts = d.map((x: { msg?: string }) => (typeof x?.msg === 'string' ? x.msg : JSON.stringify(x)))
-    return parts.join('; ') || ''
-  }
-  if (e?.message && typeof e.message === 'string') return e.message
-  return ''
-}
 
 // Type definitions
 export interface BookMeta {
@@ -128,9 +117,8 @@ export function useWorkbench(options: UseWorkbenchOptions) {
    * 判断错误是否为 404（后端 EntityNotFoundError / HTTP 404）
    */
   function is404(error: unknown): boolean {
-    const e = error as { response?: { status?: number }; message?: string }
-    if (e?.response?.status === 404) return true
-    const detail = formatApiErrorDetail(error)
+    if (getHttpStatus(error) === 404) return true
+    const detail = formatApiError(error)
     return /not\s*found|不存在/i.test(detail)
   }
 
@@ -157,7 +145,7 @@ export function useWorkbench(options: UseWorkbenchOptions) {
         await loadDesk()
       }
     } catch (error) {
-      const detail = formatApiErrorDetail(error)
+      const detail = formatApiError(error)
       currentChapterId.value = null
       chapterContent.value = ''
       message.error(
