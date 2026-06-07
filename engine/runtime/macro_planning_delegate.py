@@ -108,6 +108,7 @@ async def _request_macro_invocation(host: Any, novel: Novel, *, target_chapters:
     from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
     from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
     from application.ai_invocation.contracts import ensure_invocation_contract
+    from infrastructure.ai.generation_profiles import generation_config_from_profile
     from infrastructure.ai.prompt_keys import PLANNING_QUICK_MACRO
     from infrastructure.persistence.database.connection import get_database
 
@@ -137,6 +138,7 @@ async def _request_macro_invocation(host: Any, novel: Novel, *, target_chapters:
         novel=novel,
         context={"novel_id": novel.novel_id.value, "target_chapters": target_chapters},
     )
+    config = generation_config_from_profile("planning_macro")
     return await get_or_create_autopilot_orchestrator(host).request(
         AutopilotInvocationIntent(
             novel_id=novel.novel_id.value,
@@ -148,7 +150,7 @@ async def _request_macro_invocation(host: Any, novel: Novel, *, target_chapters:
             continuation_handler_key="autopilot_macro_plan",
             policy_hint=policy,
             metadata={"source": "macro_planning_delegate"},
-            config={"max_tokens": 6000, "temperature": 0.7},
+            config=config,
         )
     )
 

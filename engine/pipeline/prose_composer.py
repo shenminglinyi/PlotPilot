@@ -10,6 +10,7 @@ from application.ai_invocation.contracts.autopilot_writing import (
 )
 from application.ai_invocation.dtos import InvocationSessionStatus
 from infrastructure.ai.prompt_keys import CHAPTER_PROSE_GENERATION
+from engine.runtime.generation_token_policy import CHAPTER_PROSE_MAX_TOKENS
 
 
 StreamSink = Callable[[str], None]
@@ -72,8 +73,7 @@ class ChapterProseInvocationComposer:
 
     @staticmethod
     def _max_output_tokens(request: ProseCompositionRequest) -> int:
-        target_words = max(1, int(request.target_words or 2500))
-        return max(12000, int(target_words * 3.2))
+        return CHAPTER_PROSE_MAX_TOKENS
 
     @staticmethod
     def _build_config(request: ProseCompositionRequest):

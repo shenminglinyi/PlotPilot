@@ -826,7 +826,9 @@ async def run_legacy_writing(host: Any, novel: Novel) -> None:
                     voice_anchors=voice_anchors,
                     chapter_draft_so_far=accumulated_content,
                 )
-                max_tokens = int(adjusted_target * 1.3)  # 使用调整后的目标
+                from engine.runtime.generation_token_policy import CHAPTER_PROSE_MAX_TOKENS
+
+                max_tokens = CHAPTER_PROSE_MAX_TOKENS
                 cfg = GenerationConfig(max_tokens=max_tokens, temperature=0.85)
                 beat_content = await host._stream_llm_with_stop_watch(
                     prompt, cfg, novel=novel, chapter_draft_so_far=accumulated_content
