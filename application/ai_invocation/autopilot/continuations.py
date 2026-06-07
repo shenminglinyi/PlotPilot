@@ -36,6 +36,83 @@ def _load_json_object(content: str, error_code: str) -> dict[str, Any]:
     return payload
 
 
+def _sectioned_markdown(text: str) -> dict[str, str]:
+    sections: dict[str, list[str]] = {}
+    current = ""
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if line.startswith("##"):
+            current = line.lstrip("#").strip()
+            sections.setdefault(current, [])
+            continue
+        if current:
+            sections.setdefault(current, []).append(raw_line)
+    return {key: "\n".join(value).strip() for key, value in sections.items()}
+
+
+def _list_lines(text: str) -> list[str]:
+    items: list[str] = []
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        line = line.lstrip("-* ").strip()
+        line = line.split(".", 1)[1].strip() if line[:1].isdigit() and "." in line[:4] else line
+        if line:
+            items.append(line)
+    return items
+
+
+def _parse_tuple_line(text: str) -> list[str]:
+    line = str(text or "").strip().strip("()")
+    if not line:
+        return []
+    return [part.strip() for part in line.split(",") if part.strip()]
+
+
+def _parse_aftermath_markdown(content: str) -> dict[str, Any]:
+    sections = _sectioned_markdown(content)
+    if not sections:
+        return {}
+    summary = sections.get("摘要") or sections.get("章节摘要") or ""
+    event_text = sections.get("事件") or sections.get("关键事件") or ""
+    triples_text = sections.get("实体关系三元组") or sections.get("三元组") or ""
+    causal_text = sections.get("因果边") or ""
+    triples = []
+    for item in _list_lines(triples_text):
+        parts = _parse_tuple_line(item)
+        if len(parts) >= 3:
+            triples.append({"subject": parts[0], "predicate": parts[1], "object": ",".join(parts[2:]).strip()})
+    causal_edges = []
+    for item in _list_lines(causal_text):
+        edge = item.strip().strip("()")
+        if "→" in edge:
+            cause, effect = edge.split("→", 1)
+            causal_edges.append({"cause": cause.strip(), "effect": effect.strip()})
+        elif "->" in edge:
+            cause, effect = edge.split("->", 1)
+            causal_edges.append({"cause": cause.strip(), "effect": effect.strip()})
+    return {
+        "summary": summary.strip(),
+        "events": _list_lines(event_text),
+        "state_delta": {
+            "relation_triples": triples,
+            "causal_edges": causal_edges,
+        },
+        "foreshadow_updates": [],
+    }
+
+
+def _load_aftermath_payload(content: str) -> dict[str, Any]:
+    try:
+        return _load_json_object(content, "autopilot_aftermath_requires_json_object")
+    except ValueError as exc:
+        payload = _parse_aftermath_markdown(content)
+        if payload.get("summary"):
+            return payload
+        raise exc
+
+
 def _publish_shared_state(novel_id: str, **fields: Any) -> None:
     if not write_autopilot_shared_state(novel_id, **fields):
         logger.debug("autopilot continuation shared state publish skipped: novel=%s", novel_id)
@@ -468,10 +545,7 @@ def register_autopilot_continuations() -> None:
         }
 
     def _aftermath(ctx: ContinuationContext) -> Mapping[str, Any]:
-        payload = _load_json_object(
-            ctx.decision.accepted_content,
-            "autopilot_aftermath_requires_json_object",
-        )
+        payload = _load_aftermath_payload(ctx.decision.accepted_content)
         novel_id = str(ctx.session.context.get("novel_id") or "")
         chapter_number = int(ctx.session.context.get("chapter_number") or 0)
         if novel_id and ctx.session.policy != InvocationPolicy.DIRECT and chapter_number > 0:

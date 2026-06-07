@@ -134,3 +134,42 @@ def test_autopilot_full_chapter_accept_completes_once_and_moves_to_audit(monkeyp
         "current_chapter_in_act": 1,
         "current_beat_index": 0,
     }
+
+
+def test_autopilot_aftermath_accepts_legacy_markdown_payload():
+    register_autopilot_continuations()
+    session = InvocationSession(
+        id="session-3",
+        operation="autopilot.chapter.aftermath",
+        node_key="chapter-aftermath",
+        policy=InvocationPolicy.DIRECT,
+        status=InvocationSessionStatus.AWAITING_COMMIT,
+        context={"novel_id": "novel-1", "chapter_number": 3},
+        continuation=ContinuationRef(handler_key="autopilot_after_chapter_extract"),
+    )
+    decision = AdoptionDecision(
+        id="decision-3",
+        session_id="session-3",
+        attempt_id="attempt-3",
+        accepted_content=(
+            "## 摘要\n"
+            "林渊服下天凤之血，突破至灵窍巅峰。\n\n"
+            "## 事件\n"
+            "1. 苏清漪割腕放血。\n"
+            "2. 林渊突破。\n\n"
+            "## 实体关系三元组\n"
+            "- (林渊, 突破至, 灵窍巅峰)\n\n"
+            "## 因果边\n"
+            "- (苏清漪割腕放血 → 林渊服下天凤之血)"
+        ),
+    )
+
+    result = execute_continuation(ContinuationContext(session=session, decision=decision))
+
+    assert result["chapter.summary"] == "林渊服下天凤之血，突破至灵窍巅峰。"
+    assert result["chapter.state_delta"]["relation_triples"] == [
+        {"subject": "林渊", "predicate": "突破至", "object": "灵窍巅峰"}
+    ]
+    assert result["chapter.state_delta"]["causal_edges"] == [
+        {"cause": "苏清漪割腕放血", "effect": "林渊服下天凤之血"}
+    ]
