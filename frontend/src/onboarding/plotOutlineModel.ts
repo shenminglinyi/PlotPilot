@@ -43,6 +43,48 @@ const STAGE_PHASE_META = [
   { phase: 'ending', label: '收尾阶段', range_percent: '90-100%' },
 ] as const
 
+const STAGE_RANGE_RATIOS = [0.15, 0.40, 0.70, 0.90, 1.0] as const
+
+const PHASE_ALIASES: Record<string, string> = {
+  opening: 'opening',
+  open: 'opening',
+  start: 'opening',
+  beginning: 'opening',
+  setup: 'opening',
+  开篇: 'opening',
+  开篇阶段: 'opening',
+  开局: 'opening',
+  起始: 'opening',
+  development: 'development',
+  develop: 'development',
+  rising: 'development',
+  rising_action: 'development',
+  发展: 'development',
+  发展阶段: 'development',
+  展开: 'development',
+  deepening: 'deepening',
+  deepen: 'deepening',
+  middle: 'deepening',
+  mid: 'deepening',
+  深化: 'deepening',
+  深化阶段: 'deepening',
+  深入: 'deepening',
+  climax: 'climax',
+  peak: 'climax',
+  high: 'climax',
+  高潮: 'climax',
+  高潮阶段: 'climax',
+  爆发: 'climax',
+  ending: 'ending',
+  end: 'ending',
+  finale: 'ending',
+  resolution: 'ending',
+  收尾: 'ending',
+  收尾阶段: 'ending',
+  结尾: 'ending',
+  结局: 'ending',
+}
+
 export function createEmptyPlotOutline(): PlotOutlineDTO {
   return {
     main_story_overview: '',
@@ -50,6 +92,70 @@ export function createEmptyPlotOutline(): PlotOutlineDTO {
     expected_ending: '',
     stage_plan: [],
   }
+}
+
+function coerceChapterNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  const number = Number(value)
+  if (!Number.isFinite(number) || number <= 0) return undefined
+  return Math.floor(number)
+}
+
+function canonicalPhase(value: unknown): string {
+  const text = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_')
+  return PHASE_ALIASES[text] || ''
+}
+
+export function buildStageChapterRanges(totalChapters: number): Array<{ chapter_start: number; chapter_end: number }> {
+  const total = Math.max(STAGE_RANGE_RATIOS.length, Math.floor(Number(totalChapters) || 0) || 100)
+  const ends: number[] = []
+  let previous = 0
+  STAGE_RANGE_RATIOS.forEach((ratio, index) => {
+    let end: number
+    if (index === STAGE_RANGE_RATIOS.length - 1) {
+      end = total
+    } else {
+      end = Math.max(previous + 1, Math.round(total * ratio))
+      const remainingMin = STAGE_RANGE_RATIOS.length - index - 1
+      end = Math.min(end, total - remainingMin)
+    }
+    ends.push(end)
+    previous = end
+  })
+  return ends.map((end, index) => ({
+    chapter_start: index === 0 ? 1 : ends[index - 1] + 1,
+    chapter_end: end,
+  }))
+}
+
+function normalizeStagePlanRanges(
+  stagePlan: PlotOutlineDTO['stage_plan'],
+  totalChapters: number,
+): PlotOutlineDTO['stage_plan'] {
+  const ranges = buildStageChapterRanges(totalChapters)
+  return stagePlan.map((stage, index) => {
+    const meta = STAGE_PHASE_META[index]
+    const fallback = ranges[index] || {
+      chapter_start: index + 1,
+      chapter_end: Math.max(index + 1, Math.floor(Number(totalChapters) || 100)),
+    }
+    const rawStart = coerceChapterNumber(stage.chapter_start)
+    const rawEnd = coerceChapterNumber(stage.chapter_end)
+    const keepManualRange = rawStart !== undefined && rawEnd !== undefined && rawStart <= rawEnd
+    const next = {
+      ...stage,
+      phase: meta?.phase || stage.phase,
+      label: stage.label || meta?.label || '',
+      chapter_start: keepManualRange ? rawStart : fallback.chapter_start,
+      chapter_end: keepManualRange ? rawEnd : fallback.chapter_end,
+    }
+    const sourcePhase = canonicalPhase(stage.phase) || canonicalPhase(stage.label)
+    return {
+      ...next,
+      ...(sourcePhase && meta && sourcePhase !== meta.phase ? { source_phase: stage.phase || stage.label } : {}),
+      range_percent: buildStageRangePercentLabel(next, Math.max(totalChapters, next.chapter_end || 0)) || stage.range_percent,
+    }
+  })
 }
 
 export function parsePlotLabeledSections(text: string): Record<string, string> {
@@ -72,21 +178,21 @@ export function parsePlotLabeledSections(text: string): Record<string, string> {
   return fields
 }
 
-export function clonePlotOutline(outline: PlotOutlineDTO | null | undefined): PlotOutlineDTO {
+export function clonePlotOutline(outline: PlotOutlineDTO | null | undefined, totalChapters = 100): PlotOutlineDTO {
   if (!outline) return createEmptyPlotOutline()
   return {
     ...outline,
     main_story_overview: outline.main_story_overview || '',
     core_conflict: outline.core_conflict || '',
     expected_ending: outline.expected_ending || '',
-    stage_plan: (outline.stage_plan || []).map(stage => ({
+    stage_plan: normalizeStagePlanRanges((outline.stage_plan || []).map(stage => ({
       ...stage,
       ...parsePlotLabeledSections(stage.summary || ''),
       label: stage.label || '',
       range_percent: stage.range_percent || '',
       summary: parsePlotLabeledSections(stage.summary || '').summary || stage.summary || '',
       key_goals: Array.isArray(stage.key_goals) ? [...stage.key_goals] : [],
-    })),
+    })), totalChapters),
   }
 }
 
@@ -224,28 +330,30 @@ function normalizeLegacyStagePlan(stagePlan: unknown): PlotOutlineDTO['stage_pla
   }).filter(stage => String(stage.summary || '').trim())
 }
 
-export function normalizePlotOutlineShape(value: unknown): PlotOutlineDTO | null {
+export function normalizePlotOutlineShape(value: unknown, totalChapters = 100): PlotOutlineDTO | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
   const stagePlan = pickPlotValue(record, PLOT_STAGE_KEYS)
+  const normalizedStagePlan = Array.isArray(stagePlan)
+    ? stagePlan as PlotOutlineDTO['stage_plan']
+    : normalizeLegacyStagePlan(stagePlan)
   return {
     ...(record as Partial<PlotOutlineDTO>),
     main_story_overview: pickPlotString(record, PLOT_OVERVIEW_KEYS),
     expected_ending: pickPlotString(record, PLOT_ENDING_KEYS),
     core_conflict: pickPlotString(record, PLOT_CONFLICT_KEYS),
-    stage_plan: Array.isArray(stagePlan)
-      ? stagePlan as PlotOutlineDTO['stage_plan']
-      : normalizeLegacyStagePlan(stagePlan),
+    stage_plan: normalizeStagePlanRanges(normalizedStagePlan, totalChapters),
   }
 }
 
 export function normalizePlotOutlineFromBindings(
   source: Record<string, unknown>,
   bindings: InvocationVariableBinding[],
+  totalChapters = 100,
 ): PlotOutlineDTO | null {
   const { byVariableKey } = extractBoundOutputMaps(source, bindings)
   const direct = byVariableKey['plot.outline']
-  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
+  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct, totalChapters)
   const stagePlan = byVariableKey['plot.stage_plan']
   const overview = byVariableKey['plot.main_story_overview']
   const ending = byVariableKey['plot.expected_ending']
@@ -256,29 +364,30 @@ export function normalizePlotOutlineFromBindings(
     expected_ending: ending,
     core_conflict: conflict,
     stage_plan: stagePlan,
-  })
+  }, totalChapters)
 }
 
 export function extractPlotOutlineFromResult(
   result: Record<string, unknown>,
   outputBindings: InvocationVariableBinding[] = [],
+  totalChapters = 100,
 ): PlotOutlineDTO | null {
   const direct = result.plot_outline
-  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct)
+  if (direct && typeof direct === 'object') return normalizePlotOutlineShape(direct, totalChapters)
   if (outputBindings.length) {
-    const boundDirect = normalizePlotOutlineFromBindings(result, outputBindings)
+    const boundDirect = normalizePlotOutlineFromBindings(result, outputBindings, totalChapters)
     if (boundDirect?.stage_plan?.length) return boundDirect
   }
   const continuation = result.continuation
   if (continuation && typeof continuation === 'object') {
     const continuationRecord = continuation as Record<string, unknown>
     const fromContinuation = continuationRecord.plot_outline
-    if (fromContinuation && typeof fromContinuation === 'object') return normalizePlotOutlineShape(fromContinuation)
+    if (fromContinuation && typeof fromContinuation === 'object') return normalizePlotOutlineShape(fromContinuation, totalChapters)
     if (outputBindings.length) {
-      const boundContinuation = normalizePlotOutlineFromBindings(continuationRecord, outputBindings)
+      const boundContinuation = normalizePlotOutlineFromBindings(continuationRecord, outputBindings, totalChapters)
       if (boundContinuation?.stage_plan?.length) return boundContinuation
     }
-    const normalizedContinuation = normalizePlotOutlineShape(continuationRecord)
+    const normalizedContinuation = normalizePlotOutlineShape(continuationRecord, totalChapters)
     if (normalizedContinuation?.main_story_overview && normalizedContinuation.stage_plan?.length) return normalizedContinuation
   }
   const acceptedContent = result.accepted_content
@@ -286,13 +395,13 @@ export function extractPlotOutlineFromResult(
     const parsedRecord = parseJsonLikeRecord(acceptedContent)
     if (parsedRecord) {
       if (outputBindings.length) {
-        const boundAccepted = normalizePlotOutlineFromBindings(parsedRecord, outputBindings)
+        const boundAccepted = normalizePlotOutlineFromBindings(parsedRecord, outputBindings, totalChapters)
         if (boundAccepted?.stage_plan?.length) return boundAccepted
       }
       if (parsedRecord.plot_outline) {
-        return normalizePlotOutlineShape(parsedRecord.plot_outline)
+        return normalizePlotOutlineShape(parsedRecord.plot_outline, totalChapters)
       }
-      const normalizedAccepted = normalizePlotOutlineShape(parsedRecord)
+      const normalizedAccepted = normalizePlotOutlineShape(parsedRecord, totalChapters)
       if (normalizedAccepted?.main_story_overview && normalizedAccepted.stage_plan?.length) return normalizedAccepted
     }
   }

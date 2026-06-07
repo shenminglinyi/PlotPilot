@@ -770,6 +770,7 @@ import {
   createEmptyPlotOutline,
   extractPlotOutlineFromResult,
   getPlotOutlineTopFieldKeys,
+  normalizePlotOutlineShape,
   plotFieldLabel,
   plotFieldText,
   stageContentFieldKeys,
@@ -1132,10 +1133,14 @@ const plotOutlineProgressItems = computed<PlotOutlineProgressItem[]>(() => {
 
 function syncEditablePlotOutline(outline: PlotOutlineDTO | null | undefined) {
   syncingPlotOutlineDraft.value = true
-  editablePlotOutline.value = clonePlotOutline(outline)
+  editablePlotOutline.value = clonePlotOutline(outline, plotOutlineTotalChapters.value)
   queueMicrotask(() => {
     syncingPlotOutlineDraft.value = false
   })
+}
+
+function normalizeIncomingPlotOutline(outline: PlotOutlineDTO | null | undefined): PlotOutlineDTO | null {
+  return normalizePlotOutlineShape(outline, plotOutlineTotalChapters.value)
 }
 
 function updateStageChapterNumber(
@@ -1236,10 +1241,12 @@ async function refreshPlotOutlineFromApi(): Promise<boolean> {
   try {
     const response = await workflowApi.getPlotOutline(props.novelId)
     if (!response.plot_outline) return false
-    plotOutline.value = response.plot_outline
-    syncEditablePlotOutline(response.plot_outline)
+    const normalized = normalizeIncomingPlotOutline(response.plot_outline)
+    if (!normalized) return false
+    plotOutline.value = normalized
+    syncEditablePlotOutline(normalized)
     plotOutlineCommitted.value = true
-    writeWizardUiCache(props.novelId, { plotOutline: response.plot_outline })
+    writeWizardUiCache(props.novelId, { plotOutline: normalized })
     return true
   } catch {
     return false
@@ -1250,7 +1257,7 @@ function applyPlotOutlineFromResult(
   result: Record<string, unknown>,
   outputBindings: InvocationVariableBinding[] = [],
 ): boolean {
-  const outline = extractPlotOutlineFromResult(result, outputBindings)
+  const outline = extractPlotOutlineFromResult(result, outputBindings, plotOutlineTotalChapters.value)
   if (!outline) return false
   plotOutline.value = outline
   syncEditablePlotOutline(outline)
@@ -1329,8 +1336,9 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
 
   if (cachedPlotOutline) {
     const cachedSessionId = cached?.invocationSessionId || ''
-    plotOutline.value = cachedPlotOutline
-    syncEditablePlotOutline(cachedPlotOutline)
+    const normalizedCachedPlotOutline = normalizeIncomingPlotOutline(cachedPlotOutline)
+    plotOutline.value = normalizedCachedPlotOutline
+    syncEditablePlotOutline(normalizedCachedPlotOutline)
     plotOutlineSessionId.value = cachedSessionId
     step4RestoredFromCache.value = true
     resetPlotOutlineInvocationState()
@@ -1368,8 +1376,9 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
       },
       onDone: (outline) => {
         if (outline) {
-          plotOutline.value = outline
-          syncEditablePlotOutline(outline)
+          const normalized = normalizeIncomingPlotOutline(outline)
+          plotOutline.value = normalized
+          syncEditablePlotOutline(normalized)
         }
       },
       onError: (message) => {
@@ -1385,7 +1394,7 @@ async function loadPlotOutline(opts?: { forceNew?: boolean }) {
   } catch (e: unknown) {
     try {
       const res = await workflowApi.generatePlotOutline(props.novelId)
-      plotOutline.value = res.plot_outline || null
+      plotOutline.value = normalizeIncomingPlotOutline(res.plot_outline)
       syncEditablePlotOutline(plotOutline.value)
       if (res.invocation_session_id) {
         plotOutlineSessionId.value = res.invocation_session_id
@@ -1421,8 +1430,9 @@ function hydrateStepFourFromCache() {
   const cached = readWizardUiCache(props.novelId)
   if (!cached) return
   if (isPlotOutlineCacheFresh(cached) && cached.plotOutline) {
-    plotOutline.value = cached.plotOutline
-    syncEditablePlotOutline(cached.plotOutline)
+    const normalizedCachedPlotOutline = normalizeIncomingPlotOutline(cached.plotOutline)
+    plotOutline.value = normalizedCachedPlotOutline
+    syncEditablePlotOutline(normalizedCachedPlotOutline)
     plotOutlineSessionId.value = cached.invocationSessionId || ''
     step4RestoredFromCache.value = true
     if (cached.invocationSessionId && !plotOutlineCommitted.value) {
@@ -1763,10 +1773,13 @@ async function detectWizardProgress(): Promise<number> {
     try {
       const response = await workflowApi.getPlotOutline(props.novelId)
       if (response.plot_outline) {
-        plotOutline.value = response.plot_outline
-        syncEditablePlotOutline(response.plot_outline)
-        plotOutlineCommitted.value = true
-        hasPlotOutline = true
+        const normalized = normalizeIncomingPlotOutline(response.plot_outline)
+        if (normalized) {
+          plotOutline.value = normalized
+          syncEditablePlotOutline(normalized)
+          plotOutlineCommitted.value = true
+          hasPlotOutline = true
+        }
       }
     } catch { /* 忽略 */ }
 

@@ -28,4 +28,4 @@
 【结构化世界观】
 {{ worldbuilding.content }}
 
-请输出仅包含 `plot_outline` 的 JSON 对象。
+请输出仅包含 `plot_outline` 的 JSON 对象。`stage_plan` 的每个阶段必须包含按 {{ novel.target_chapters }} 章换算后的 `chapter_start` 与 `chapter_end`。

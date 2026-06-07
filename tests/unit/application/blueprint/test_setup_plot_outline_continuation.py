@@ -304,6 +304,33 @@ def test_normalize_plot_outline_accepts_chinese_alias_keys():
     assert normalized["stage_plan"][0]["chapter_start"] == 1
 
 
+def test_normalize_plot_outline_canonicalizes_stage_phase_by_position():
+    outline = {
+        "main_story_overview": "主角在旧秩序里被迫面对危机，并在持续升级的对抗中逐步承担代价。",
+        "stage_plan": [
+            {"phase": "开篇阶段", "label": "开篇阶段", "summary": "建立初始处境。"},
+            {"phase": "develop", "label": "发展阶段", "summary": "扩大局部危机。"},
+            {"phase": "deepen", "label": "深化阶段", "summary": "揭示深层真相。"},
+            {"phase": "高潮阶段", "label": "高潮阶段", "summary": "集中兑现冲突。"},
+            {"phase": "finale", "label": "收尾阶段", "summary": "完成结局闭环。"},
+        ],
+        "expected_ending": "主角付出明确代价后完成阶段目标。",
+        "core_conflict": "主角目标与旧秩序压力正面碰撞。",
+    }
+
+    normalized = normalize_setup_plot_outline_payload(outline, target_chapters=100)
+
+    assert [stage["phase"] for stage in normalized["stage_plan"]] == [
+        "opening",
+        "development",
+        "deepening",
+        "climax",
+        "ending",
+    ]
+    assert normalized["stage_plan"][2]["phase"] == "deepening"
+    assert normalized["stage_plan"][2]["summary"] == "揭示深层真相。"
+
+
 def test_normalize_plot_outline_preserves_renamed_user_keys_without_standard_fields():
     outline = {
         "我自己的主线键": "主角从边缘处境进入核心矛盾，围绕资源、信任和秩序压力持续推进。",

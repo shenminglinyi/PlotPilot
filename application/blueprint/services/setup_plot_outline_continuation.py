@@ -19,6 +19,46 @@ _PHASE_SCHEMA = [
     {"phase": "ending", "label": "收尾阶段", "range_percent": "90-100%"},
 ]
 
+_PHASE_ALIASES = {
+    "opening": "opening",
+    "open": "opening",
+    "start": "opening",
+    "beginning": "opening",
+    "setup": "opening",
+    "开篇": "opening",
+    "开篇阶段": "opening",
+    "开局": "opening",
+    "起始": "opening",
+    "development": "development",
+    "develop": "development",
+    "rising": "development",
+    "rising_action": "development",
+    "发展": "development",
+    "发展阶段": "development",
+    "展开": "development",
+    "deepening": "deepening",
+    "deepen": "deepening",
+    "middle": "deepening",
+    "mid": "deepening",
+    "深化": "deepening",
+    "深化阶段": "deepening",
+    "深入": "deepening",
+    "climax": "climax",
+    "peak": "climax",
+    "high": "climax",
+    "高潮": "climax",
+    "高潮阶段": "climax",
+    "爆发": "climax",
+    "ending": "ending",
+    "end": "ending",
+    "finale": "ending",
+    "resolution": "ending",
+    "收尾": "ending",
+    "收尾阶段": "ending",
+    "结尾": "ending",
+    "结局": "ending",
+}
+
 _LEGACY_STAGE_KEY_ALIASES = [
     ("stage_opening_1_15", "stage_opening", "opening"),
     ("stage_develop_15_40", "stage_develop", "development"),
@@ -241,6 +281,11 @@ def _coerce_chapter_number(value: Any) -> int | None:
     return number if number > 0 else None
 
 
+def _canonical_phase(value: Any) -> str:
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return _PHASE_ALIASES.get(text, "")
+
+
 def _range_percent_label(chapter_start: int, chapter_end: int, *, total_chapters: int) -> str:
     total = max(1, total_chapters)
     start_percent = max(1, min(100, int((chapter_start - 1) / total * 100)))
@@ -264,17 +309,10 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
         ),
     )
     normalized: list[dict[str, Any]] = []
-    seen_phases: set[str] = set()
     for index, schema in enumerate(_PHASE_SCHEMA):
         raw = raw_items[index] if index < len(raw_items) else None
         if not isinstance(raw, Mapping):
             raise ValueError(f"plot_outline.stage_plan[{index}] 必须是对象")
-        phase = str(raw.get("phase") or schema["phase"]).strip().lower()
-        if phase != schema["phase"]:
-            raise ValueError(f"plot_outline.stage_plan[{index}].phase 必须为 {schema['phase']}")
-        if phase in seen_phases:
-            raise ValueError("plot_outline.stage_plan.phase 不能重复")
-        seen_phases.add(phase)
         summary = str(raw.get("summary") or raw.get("阶段任务") or raw.get("内容") or "").strip()
         if not summary:
             content_parts = [
@@ -308,6 +346,11 @@ def _normalize_stage_plan(raw_items: Any, *, target_chapters: int) -> list[dict[
                 "chapter_end",
             }
         }
+        raw_phase = str(raw.get("phase") or "").strip()
+        raw_label = str(raw.get("label") or "").strip()
+        source_phase = _canonical_phase(raw_phase) or _canonical_phase(raw_label)
+        if source_phase and source_phase != schema["phase"]:
+            extra_fields.setdefault("source_phase", raw_phase or raw_label)
         normalized.append(
             {
                 **extra_fields,
