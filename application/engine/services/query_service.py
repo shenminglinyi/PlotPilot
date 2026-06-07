@@ -10,16 +10,23 @@
 - 降级友好：共享内存无数据时返回空/默认值
 - 零阻塞：永不进行同步 DB 操作
 """
+import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from application.engine.services.shared_state_repository import (
     SharedStateRepository,
     NovelState,
     ChapterSummary,
     get_shared_state_repository,
+)
+from application.ai_invocation.autopilot.review_gate import (
+    INVOCATION_FAILED_STATUSES,
+    PENDING_INVOCATION_STATUSES,
+    review_gate_from_status,
+    stage_needs_human_review,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,179 +74,22 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
 )
 
 
-_INVOCATION_WAITING_STATUSES = {
-    "awaiting_pre_call_review",
-    "awaiting_acceptance",
-    "awaiting_commit",
-    "generating",
-}
-_INVOCATION_FAILED_STATUSES = {"blocked", "failed", "cancelled"}
-_PENDING_INVOCATION_STATUSES = _INVOCATION_WAITING_STATUSES | _INVOCATION_FAILED_STATUSES
-
-
-def _stage_needs_review(stage: Any) -> bool:
-    return str(stage or "").strip().lower() in ("paused_for_review", "reviewing")
-
-
-def _review_type_for_operation(operation: str, substep: str = "") -> str:
-    op = (operation or "").strip()
-    sub = (substep or "").strip()
-    if op == "autopilot.macro.plan" or sub == "macro_planning":
-        return "macro_plan"
-    if op == "autopilot.act.plan" or sub == "act_planning":
-        return "act_plan"
-    if "audit" in op or sub.startswith("audit_"):
-        return "chapter_review"
-    if op:
-        return "ai_invocation"
-    return "manual_review"
-
-
-def _is_initial_macro_review_context(payload: Dict[str, Any]) -> bool:
-    """Infer the first macro review gate from durable workflow coordinates.
-
-    Runtime fields such as writing_substep can be lost after a restart. The
-    first human gate has no generated chapters yet and is positioned at act 0;
-    if macro_structure_ready is present it is the authoritative discriminator.
-    """
-    if _review_type_for_operation(
-        str(payload.get("active_invocation_operation") or ""),
-        str(payload.get("writing_substep") or ""),
-    ) != "manual_review":
-        return False
-    if payload.get("macro_structure_ready") is not None:
-        return True
-    if int(payload.get("current_auto_chapters") or 0) != 0:
-        return False
-    if payload.get("current_chapter_number") is not None:
-        return False
+def _json_contains_novel_id(raw: Any, novel_id: str) -> bool:
     try:
-        return int(payload.get("current_act") or 0) == 0
-    except (TypeError, ValueError):
+        payload = json.loads(str(raw or "{}"))
+    except Exception:
         return False
 
+    def walk(value: Any) -> bool:
+        if isinstance(value, Mapping):
+            if str(value.get("novel_id") or "") == novel_id:
+                return True
+            return any(walk(child) for child in value.values())
+        if isinstance(value, list):
+            return any(walk(child) for child in value)
+        return False
 
-def _review_gate_from_status(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    if str(payload.get("autopilot_status") or "").strip().lower() in {"stopped", "completed"}:
-        return None
-
-    stage = str(payload.get("current_stage") or "")
-    needs_review = bool(payload.get("needs_review")) or _stage_needs_review(stage)
-    active_session = str(payload.get("active_invocation_session_id") or "").strip()
-    active_status = str(payload.get("active_invocation_status") or "").strip()
-    operation = str(payload.get("active_invocation_operation") or "")
-    substep = str(payload.get("writing_substep") or "")
-
-    if active_session and (
-        payload.get("has_active_invocation")
-        or payload.get("requires_ai_review")
-        or active_status in _INVOCATION_WAITING_STATUSES
-        or active_status in _INVOCATION_FAILED_STATUSES
-    ):
-        gate_type = _review_type_for_operation(operation, substep)
-        if active_status in _INVOCATION_FAILED_STATUSES:
-            if gate_type == "macro_plan":
-                message = "宏观结构生成或提交失败，尚无可确认的大纲结构。请处理 AI 结果或停止后重新生成。"
-                artifact_status = "missing"
-            elif gate_type == "act_plan":
-                message = "章节规划生成或提交失败，尚无可确认的章节规划。请处理 AI 结果或停止后重新生成。"
-                artifact_status = "missing"
-            else:
-                message = "AI 请求处理失败，当前没有可继续确认的产物。"
-                artifact_status = "failed"
-            return {
-                "type": gate_type,
-                "status": "failed",
-                "artifact_status": artifact_status,
-                "can_resume": False,
-                "primary_action": "open_ai_panel",
-                "session_id": active_session,
-                "operation": operation,
-                "node_key": payload.get("active_invocation_node_key", ""),
-                "error": payload.get("autopilot_pause_reason", "") or active_status,
-                "message": message,
-            }
-
-        if active_status in _INVOCATION_WAITING_STATUSES or payload.get("requires_ai_review"):
-            return {
-                "type": gate_type,
-                "status": "awaiting_ai_review",
-                "artifact_status": "pending",
-                "can_resume": False,
-                "primary_action": "open_ai_panel",
-                "session_id": active_session,
-                "operation": operation,
-                "node_key": payload.get("active_invocation_node_key", ""),
-                "message": "AI 请求正在生成、等待审阅、采纳或提交，完成后自动驾驶才能继续。",
-            }
-
-    pending_macro_plan = isinstance(payload.get("autopilot_pending_macro_plan"), dict)
-    if pending_macro_plan:
-        return {
-            "type": "macro_plan",
-            "status": "persisting",
-            "artifact_status": "pending",
-            "can_resume": False,
-            "primary_action": "wait",
-            "message": "宏观结构已提交，正在写入结构树；结构出现后才能确认继续。",
-        }
-
-    if not needs_review:
-        return None
-
-    if _is_initial_macro_review_context(payload):
-        if payload.get("macro_structure_ready") is False:
-            return {
-                "type": "macro_plan",
-                "status": "persisting",
-                "artifact_status": "pending",
-                "can_resume": False,
-                "primary_action": "wait",
-                "message": "宏观结构正在生成或写入结构树，当前还没有可确认的大纲结构。",
-            }
-        if payload.get("macro_structure_ready") is True:
-            return {
-                "type": "macro_plan",
-                "status": "ready",
-                "artifact_status": "ready",
-                "can_resume": True,
-                "primary_action": "resume",
-                "action_label": "确认结构，继续",
-                "message": "宏观结构已生成，请在结构树核对后继续。",
-            }
-
-    if payload.get("macro_structure_ready") is False and int(payload.get("current_auto_chapters") or 0) == 0:
-        return {
-            "type": "macro_plan",
-            "status": "failed",
-            "artifact_status": "missing",
-            "can_resume": False,
-            "primary_action": "retry_generation",
-            "message": "宏观结构尚未生成，当前没有可确认的大纲结构。请重新生成结构树。",
-        }
-
-    gate_type = _review_type_for_operation(operation, substep)
-    if gate_type == "macro_plan":
-        message = "宏观结构已生成，请在结构树核对后继续。"
-        action_label = "确认结构，继续"
-    elif gate_type == "act_plan":
-        message = "章节规划已生成，请在结构树核对后继续。"
-        action_label = "确认章节规划，继续"
-    elif gate_type == "chapter_review":
-        message = "章节审阅已完成，请核对审阅结果后继续。"
-        action_label = "确认审阅，继续"
-    else:
-        message = "当前流程等待人工确认，请核对侧栏产物后继续。"
-        action_label = "确认后继续"
-    return {
-        "type": gate_type,
-        "status": "ready",
-        "artifact_status": "ready",
-        "can_resume": True,
-        "primary_action": "resume",
-        "action_label": action_label,
-        "message": message,
-    }
+    return walk(payload)
 
 
 def _hydrate_pending_invocation_from_db(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -252,6 +102,8 @@ def _hydrate_pending_invocation_from_db(payload: Dict[str, Any]) -> Dict[str, An
     session id to open or auto-advance.
     """
     if str(payload.get("active_invocation_session_id") or "").strip():
+        return payload
+    if isinstance(payload.get("autopilot_pending_macro_plan"), dict) or payload.get("macro_structure_ready") is True:
         return payload
     if str(payload.get("autopilot_status") or "").strip().lower() in {"stopped", "completed"}:
         return payload
@@ -269,20 +121,27 @@ def _hydrate_pending_invocation_from_db(payload: Dict[str, Any]) -> Dict[str, An
         from application.paths import get_db_path
         from infrastructure.persistence.database.connection import get_database
 
-        statuses = tuple(sorted(_PENDING_INVOCATION_STATUSES))
+        statuses = tuple(sorted(PENDING_INVOCATION_STATUSES))
         placeholders = ",".join("?" for _ in statuses)
-        like_token = f"%{novel_id}%"
-        row = get_database(get_db_path()).fetch_one(
+        rows = get_database(get_db_path()).fetch_all(
             f"""
-            SELECT id, operation, node_key, policy, status
+            SELECT id, operation, node_key, policy, status, context_json, metadata_json
               FROM ai_invocation_sessions
              WHERE operation LIKE 'autopilot.%'
                AND status IN ({placeholders})
-               AND (context_json LIKE ? OR metadata_json LIKE ?)
              ORDER BY updated_at DESC, created_at DESC
-             LIMIT 1
+             LIMIT 25
             """,
-            (*statuses, like_token, like_token),
+            statuses,
+        )
+        row = next(
+            (
+                candidate
+                for candidate in rows
+                if _json_contains_novel_id(candidate.get("context_json"), novel_id)
+                or _json_contains_novel_id(candidate.get("metadata_json"), novel_id)
+            ),
+            None,
         )
     except Exception as exc:
         logger.debug("恢复待处理 AI invocation 失败 novel=%s: %s", novel_id, exc)
@@ -302,7 +161,7 @@ def _hydrate_pending_invocation_from_db(payload: Dict[str, Any]) -> Dict[str, An
     payload["requires_ai_review"] = True
     payload["autopilot_pause_reason"] = (
         "ai_invocation_retry_required"
-        if status_value in _INVOCATION_FAILED_STATUSES
+        if status_value in INVOCATION_FAILED_STATUSES
         else "awaiting_ai_review"
     )
     if operation == "autopilot.macro.plan":
@@ -317,8 +176,8 @@ def _hydrate_pending_invocation_from_db(payload: Dict[str, Any]) -> Dict[str, An
 
 def _augment_review_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     payload = _hydrate_pending_invocation_from_db(payload)
-    payload["needs_review"] = _stage_needs_review(payload.get("current_stage"))
-    gate = _review_gate_from_status(payload)
+    payload["needs_review"] = stage_needs_human_review(payload.get("current_stage"))
+    gate = review_gate_from_status(payload)
     if gate:
         payload["review_gate"] = gate
     else:
@@ -381,7 +240,7 @@ class NovelStatusResponse:
     _from_shared_memory: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
-        return _augment_review_fields({
+        return {
             "novel_id": self.novel_id,
             "title": self.title,
             "autopilot_status": self.autopilot_status,
@@ -409,7 +268,7 @@ class NovelStatusResponse:
             "daemon_alive": self.daemon_alive,
             "daemon_heartbeat_at": self.daemon_heartbeat_at,
             "_from_shared_memory": self._from_shared_memory,
-        })
+        }
 
 
 @dataclass
@@ -510,7 +369,7 @@ class QueryService:
             manuscript_chapters=completed_chapters,
             progress_pct_manuscript=round(progress_pct, 1),
             current_chapter_number=current_chapter_number,
-            needs_review=_stage_needs_review(state.current_stage),
+            needs_review=stage_needs_human_review(state.current_stage),
             auto_approve_mode=state.auto_approve_mode,
             last_chapter_audit=None,  # 需要单独存储
             audit_progress=None,
@@ -556,7 +415,7 @@ class QueryService:
             manuscript_chapters=completed_chapters,
             progress_pct_manuscript=round(progress_pct, 1),
             current_chapter_number=current_chapter_number,
-            needs_review=_stage_needs_review(raw_data.get("current_stage", "writing")),
+            needs_review=stage_needs_human_review(raw_data.get("current_stage", "writing")),
             auto_approve_mode=raw_data.get("auto_approve_mode", False),
             last_chapter_audit=None,
             audit_progress=raw_data.get("audit_progress"),

@@ -1,3 +1,5 @@
+import json
+
 from application.engine.services.query_service import QueryService
 from application.engine.services.shared_state_repository import NovelState, SharedStateRepository
 
@@ -183,3 +185,52 @@ def test_query_service_marks_initial_macro_review_ready_after_structure_persiste
     assert status["review_gate"]["type"] == "macro_plan"
     assert status["review_gate"]["status"] == "ready"
     assert status["review_gate"]["can_resume"] is True
+
+
+def test_query_service_does_not_hydrate_pending_invocation_by_partial_novel_id(monkeypatch):
+    class _FakeDatabase:
+        def fetch_all(self, *_args, **_kwargs):
+            return [
+                {
+                    "id": "session-wrong",
+                    "operation": "autopilot.macro.plan",
+                    "node_key": "planning-quick-macro",
+                    "policy": "AUTOPILOT_PAUSE",
+                    "status": "awaiting_pre_call_review",
+                    "context_json": json.dumps({"novel_id": "novel-10"}),
+                    "metadata_json": "{}",
+                }
+            ]
+
+    monkeypatch.setattr("application.paths.get_db_path", lambda: "test.db")
+    monkeypatch.setattr(
+        "infrastructure.persistence.database.connection.get_database",
+        lambda _path=None: _FakeDatabase(),
+    )
+
+    repo = SharedStateRepository(shared_dict={})
+    repo.set_novel_state(
+        "novel-1",
+        NovelState(
+            novel_id="novel-1",
+            title="Demo",
+            autopilot_status="running",
+            current_stage="macro_planning",
+            current_act=0,
+            current_chapter_in_act=0,
+            current_beat_index=0,
+            current_auto_chapters=0,
+            target_chapters=500,
+            target_words_per_chapter=2000,
+            consecutive_error_count=0,
+            last_chapter_tension=0,
+            auto_approve_mode=False,
+            needs_review=False,
+        ),
+    )
+
+    status = QueryService(repo).get_novel_status_dict("novel-1")
+
+    assert status is not None
+    assert status["active_invocation_session_id"] == ""
+    assert "review_gate" not in status

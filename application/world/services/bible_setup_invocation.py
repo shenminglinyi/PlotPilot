@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec, VariableBinding
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler
+from application.ai_invocation.prompt_runtime import runtime_prompt_value_names_for_spec
 from application.ai_invocation.prompt_variables import (
     infer_variable_scope,
     infer_variable_stage,
@@ -148,10 +149,14 @@ _REQUEST_ALIAS_TO_VARIABLE_KEY = {
     "novel_title": "novel.title",
     "title": "novel.title",
     "premise": "novel.premise",
+    "genre_major": "novel.genre_major",
+    "genre_theme": "novel.genre_theme",
+    "genre_label": "novel.genre_label",
+    "world_preset": "novel.world_preset",
+    "special_requirements": "novel.special_requirements",
     "target_chapters": "novel.target_chapters",
     "target_words_per_chapter": "novel.target_words_per_chapter",
 }
-
 
 def _ensure_node_synced(node_key: str) -> None:
     try:
@@ -200,6 +205,9 @@ def _default_for(variable_key: str) -> Any:
 
 def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
     optional_keys = _OPTIONAL_KEYS_BY_NODE.get(node_key, set())
+    runtime_template_keys = runtime_prompt_value_names_for_spec(
+        InvocationSpec(operation=f"bible.setup.{node_key.removeprefix('bible-')}", node_key=node_key)
+    )
     known_variable_keys = set(_DISPLAY_NAMES) | set(_VALUE_TYPES) | optional_keys
     declared_keys = normalize_declared_variable_keys(
         _declared_variable_keys(node_key),
@@ -209,6 +217,7 @@ def bible_setup_input_bindings(node_key: str) -> list[VariableBinding]:
     declared_keys = {
         _REQUEST_ALIAS_TO_VARIABLE_KEY.get(variable_key, variable_key)
         for variable_key in declared_keys
+        if variable_key not in runtime_template_keys
     }
     return [
         VariableBinding(

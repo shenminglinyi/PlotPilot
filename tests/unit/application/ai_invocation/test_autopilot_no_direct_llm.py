@@ -49,7 +49,7 @@ def test_autopilot_panel_respects_ai_invocation_debug_flag():
 
     assert "function statusHasActiveInvocation" in text
     assert 'v-if="reviewGateNeedsAIPanel && featureFlags.aiInvocationDebug"' in text
-    assert "if (!featureFlags.aiInvocationDebug) return" in text
+    assert "void openActiveInvocation(sessionId, { showPanel: featureFlags.aiInvocationDebug })" in text
     assert "if (!sessionId) return" in text
     assert "if (!statusHasActiveInvocation(s) || !sessionId) return" not in text
     assert "if (!s?.requires_ai_review || !sessionId) return" not in text
@@ -67,11 +67,11 @@ def test_ai_invocation_review_panel_is_debug_only():
     assert "if (debugPanelEnabled.value) return" in store_text
 
 
-def test_daemon_shared_state_fallback_does_not_import_interfaces_main_when_daemon():
+def test_daemon_shared_state_fallback_uses_runtime_state_after_daemon_guard():
     text = Path("engine/runtime/daemon_host.py").read_text(encoding="utf-8")
 
     heartbeat_guard = "if multiprocessing.current_process().daemon:"
-    fallback_import = "from interfaces.main import update_shared_novel_state"
+    fallback_import = "from interfaces.runtime_state import update_shared_novel_state"
 
     assert heartbeat_guard in text
     assert fallback_import in text

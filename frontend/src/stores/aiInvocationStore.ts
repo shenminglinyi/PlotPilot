@@ -99,8 +99,10 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
   })
   const debugPanelEnabled = computed(() => featureFlags.aiInvocationDebug)
 
-  function showReviewPanel() {
-    visible.value = true
+  function showDebugPanel() {
+    if (debugPanelEnabled.value) {
+      visible.value = true
+    }
   }
 
   function shouldKeepPanelVisible(): boolean {
@@ -188,7 +190,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
     }
     applyResponse(payload)
     if (options.showPanel !== false) {
-      showReviewPanel()
+      showDebugPanel()
     }
   }
 
@@ -199,7 +201,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
   async function open(sessionId: string, options: { showPanel?: boolean } = {}) {
     const showPanel = options.showPanel !== false
     if (showPanel) {
-      showReviewPanel()
+      showDebugPanel()
     }
     loading.value = true
     error.value = ''
@@ -283,7 +285,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
       decision.value = null
       commit.value = null
       if (shouldKeepPanelVisible()) {
-        showReviewPanel()
+        showDebugPanel()
       }
       syncGenerationPolling()
     } catch (err) {
@@ -304,7 +306,7 @@ export const useAIInvocationStore = defineStore('aiInvocation', () => {
       })
       applyResponse(payload)
       if (shouldKeepPanelVisible()) {
-        showReviewPanel()
+        showDebugPanel()
       }
       syncGenerationPolling()
     } catch (err) {

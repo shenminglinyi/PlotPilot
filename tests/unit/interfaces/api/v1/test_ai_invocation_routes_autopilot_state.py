@@ -1,8 +1,8 @@
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSession, InvocationSessionStatus
+from application.ai_invocation.autopilot.review_gate import resume_block_reason_from_status
 from interfaces.api.v1.engine.ai_invocation_routes import _is_prompt_draft_editable, _publish_autopilot_session_state
 from interfaces.api.v1.engine.autopilot_routes import (
     _build_status_pure_memory,
-    _resume_block_reason_from_status,
 )
 
 
@@ -134,7 +134,7 @@ def test_autopilot_status_blocks_resume_when_macro_invocation_failed():
     assert gate["artifact_status"] == "missing"
     assert gate["can_resume"] is False
     assert "尚无可确认" in gate["message"]
-    assert _resume_block_reason_from_status(status) == gate["message"]
+    assert resume_block_reason_from_status(status) == gate["message"]
 
 
 def test_autopilot_status_allows_ready_macro_review_gate():
@@ -153,7 +153,7 @@ def test_autopilot_status_allows_ready_macro_review_gate():
     assert gate["type"] == "macro_plan"
     assert gate["status"] == "ready"
     assert gate["can_resume"] is True
-    assert _resume_block_reason_from_status(status) is None
+    assert resume_block_reason_from_status(status) is None
 
 
 def test_autopilot_status_blocks_resume_while_macro_structure_is_not_ready():
