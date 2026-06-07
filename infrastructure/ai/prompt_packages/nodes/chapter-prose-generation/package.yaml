@@ -9,8 +9,13 @@ tags:
   - 正文生成
   - AI Invocation
 variables:
+  - name: target_words
+    desc: 文章目标字数
+    type: integer
+    required: false
+    default: 2500
   - name: chapter_outline
-    desc: 章节执行剧本
+    desc: 正文细纲
     type: string
     required: true
   - name: previous_summary
@@ -20,11 +25,6 @@ variables:
     default: ''
   - name: previous_ending
     desc: 前章结尾
-    type: string
-    required: false
-    default: ''
-  - name: user_requirements
-    desc: 用户本次生成要求
     type: string
     required: false
     default: ''

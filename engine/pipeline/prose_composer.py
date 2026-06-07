@@ -58,10 +58,10 @@ class ChapterProseInvocationComposer:
 
     def _build_variables(self, request: ProseCompositionRequest) -> dict[str, Any]:
         return {
+            "target_words": int(request.target_words or 2500),
             "chapter_outline": request.outline,
             "previous_summary": str(request.metadata.get("previous_summary") or ""),
             "previous_ending": str(request.metadata.get("previous_ending") or ""),
-            "user_requirements": str(request.metadata.get("user_requirements") or ""),
         }
 
     @staticmethod
