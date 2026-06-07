@@ -94,7 +94,22 @@ def _resume_autopilot_stage(novel_id: str, stage: str, **fields: Any) -> None:
         logger.debug("autopilot continuation start signal skipped: %s", exc)
 
 
-def _append_chapter_draft(novel_id: str, chapter_number: int, content: str) -> int:
+def _chapter_content_already_contains(prior: str, addition: str) -> bool:
+    prior = str(prior or "").strip()
+    addition = str(addition or "").strip()
+    if not prior or not addition:
+        return False
+    return prior == addition or prior.endswith(f"\n\n{addition}") or prior.endswith(addition)
+
+
+def _write_chapter_draft(
+    novel_id: str,
+    chapter_number: int,
+    content: str,
+    *,
+    append: bool,
+    status: str,
+) -> dict[str, Any]:
     try:
         from application.paths import get_db_path
         from infrastructure.persistence.database.connection import get_database
@@ -103,15 +118,48 @@ def _append_chapter_draft(novel_id: str, chapter_number: int, content: str) -> i
         db = get_database(get_db_path())
         with sqlite_writes_bypass_queue():
             row = db.fetch_one(
-                "SELECT id, title, outline, content FROM chapters WHERE novel_id = ? AND number = ?",
+                "SELECT id, title, outline, content, status FROM chapters WHERE novel_id = ? AND number = ?",
                 (novel_id, chapter_number),
             )
             prior = str((row or {}).get("content") or "").strip()
             addition = str(content or "").strip()
-            merged = prior
-            if addition:
-                merged = f"{prior}\n\n{addition}".strip() if prior else addition
+            prior_status = str((row or {}).get("status") or "") if row else ""
+            duplicate_content = False
+            if append:
+                duplicate_content = _chapter_content_already_contains(prior, addition)
+                merged = prior
+                if addition and not duplicate_content:
+                    merged = f"{prior}\n\n{addition}".strip() if prior else addition
+            else:
+                merged = addition
+                duplicate_content = bool(addition) and prior == addition
+
+            if not append and not addition:
+                return {
+                    "word_count": len(prior),
+                    "skipped": True,
+                    "reason": "empty_content_refuses_overwrite",
+                    "duplicate_content": False,
+                    "completed_transition": False,
+                }
+            if append and not addition:
+                return {
+                    "word_count": len(prior),
+                    "skipped": True,
+                    "reason": "empty_content_refuses_append",
+                    "duplicate_content": False,
+                    "completed_transition": False,
+                }
             word_count = len(merged)
+            if duplicate_content and row is not None and (append or prior_status == status):
+                return {
+                    "word_count": word_count,
+                    "skipped": True,
+                    "reason": "duplicate_content",
+                    "duplicate_content": True,
+                    "completed_transition": False,
+                    "status": prior_status,
+                }
             if row is None:
                 db.execute(
                     """
@@ -119,7 +167,7 @@ def _append_chapter_draft(novel_id: str, chapter_number: int, content: str) -> i
                         id, novel_id, number, title, content, outline, status, word_count,
                         tension_score, plot_tension, emotional_tension, pacing_tension,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, 0, 0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
                     (
                         f"autopilot:{novel_id}:{chapter_number}",
@@ -128,28 +176,96 @@ def _append_chapter_draft(novel_id: str, chapter_number: int, content: str) -> i
                         f"第{chapter_number}章",
                         merged,
                         "",
+                        status,
                         word_count,
                     ),
                 )
+                action = "inserted"
             else:
                 db.execute(
                     """
                     UPDATE chapters
-                    SET content = ?, status = 'draft', word_count = ?, updated_at = CURRENT_TIMESTAMP
+                    SET content = ?, status = ?, word_count = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE novel_id = ? AND number = ?
                     """,
-                    (merged, word_count, novel_id, chapter_number),
+                    (merged, status, word_count, novel_id, chapter_number),
                 )
+                action = "updated"
             db.commit()
-            return word_count
+            return {
+                "word_count": word_count,
+                "skipped": False,
+                "action": action,
+                "duplicate_content": duplicate_content,
+                "completed_transition": status == "completed" and prior_status != "completed",
+                "status": status,
+            }
     except Exception as exc:
         logger.warning(
-            "autopilot continuation failed to append chapter draft: novel=%s chapter=%s error=%s",
+            "autopilot continuation failed to write chapter draft: novel=%s chapter=%s error=%s",
             novel_id,
             chapter_number,
             exc,
         )
-        return 0
+        return {"word_count": 0, "skipped": True, "reason": str(exc), "completed_transition": False}
+
+
+def _append_chapter_draft(novel_id: str, chapter_number: int, content: str) -> int:
+    result = _write_chapter_draft(
+        novel_id,
+        chapter_number,
+        content,
+        append=True,
+        status="draft",
+    )
+    return int(result.get("word_count") or 0)
+
+
+def _resume_after_full_chapter_accept(
+    novel_id: str,
+    chapter_number: int,
+    *,
+    completed_transition: bool,
+) -> None:
+    try:
+        from application.paths import get_db_path
+        from infrastructure.persistence.database.connection import get_database
+        from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
+
+        db = get_database(get_db_path())
+        set_parts = [
+            "autopilot_status = 'running'",
+            "current_stage = 'auditing'",
+            "current_beat_index = 0",
+            "beats_completed = 0",
+            "updated_at = CURRENT_TIMESTAMP",
+        ]
+        if completed_transition:
+            set_parts.extend(
+                [
+                    "current_auto_chapters = COALESCE(current_auto_chapters, 0) + 1",
+                    "current_chapter_in_act = COALESCE(current_chapter_in_act, 0) + 1",
+                ]
+            )
+        with sqlite_writes_bypass_queue():
+            db.execute(
+                f"UPDATE novels SET {', '.join(set_parts)} WHERE id = ?",
+                (novel_id,),
+            )
+            db.commit()
+    except Exception as exc:
+        logger.warning(
+            "autopilot continuation failed to advance full chapter: novel=%s chapter=%s error=%s",
+            novel_id,
+            chapter_number,
+            exc,
+        )
+    try:
+        from application.engine.services.novel_stop_signal import publish_start_signal
+
+        publish_start_signal(novel_id)
+    except Exception as exc:
+        logger.debug("autopilot continuation start signal skipped: %s", exc)
 
 
 def register_autopilot_continuations() -> None:
@@ -267,21 +383,55 @@ def register_autopilot_continuations() -> None:
         chapter_number = int(ctx.session.context.get("chapter_number") or 0)
         beat_index = int(ctx.session.context.get("beat_index") or 0)
         if novel_id and ctx.session.policy != InvocationPolicy.DIRECT and chapter_number > 0:
-            total_words = _append_chapter_draft(novel_id, chapter_number, content)
-            next_beat_index = beat_index + 1
-            _clear_invocation_state(
+            is_full_chapter = ctx.session.operation == "autopilot.chapter.prose"
+            write_result = _write_chapter_draft(
                 novel_id,
-                autopilot_status="running",
-                current_stage="writing",
-                current_beat_index=next_beat_index,
-                current_chapter_number=chapter_number,
-                accumulated_words=total_words,
+                chapter_number,
+                content,
+                append=not is_full_chapter,
+                status="completed" if is_full_chapter else "draft",
             )
-            _resume_autopilot_stage(
-                novel_id,
-                "writing",
-                current_beat_index=next_beat_index,
-            )
+            total_words = int(write_result.get("word_count") or 0)
+            if is_full_chapter:
+                _clear_invocation_state(
+                    novel_id,
+                    autopilot_status="running",
+                    current_stage="auditing",
+                    current_beat_index=0,
+                    current_chapter_number=chapter_number,
+                    accumulated_words=total_words,
+                    writing_substep="audit_pending",
+                    writing_substep_label="等待章节审计",
+                )
+                _resume_after_full_chapter_accept(
+                    novel_id,
+                    chapter_number,
+                    completed_transition=bool(write_result.get("completed_transition")),
+                )
+            elif write_result.get("duplicate_content"):
+                _clear_invocation_state(
+                    novel_id,
+                    autopilot_status="running",
+                    current_stage="writing",
+                    current_chapter_number=chapter_number,
+                    accumulated_words=total_words,
+                )
+                _resume_autopilot_stage(novel_id, "writing")
+            else:
+                next_beat_index = beat_index + 1
+                _clear_invocation_state(
+                    novel_id,
+                    autopilot_status="running",
+                    current_stage="writing",
+                    current_beat_index=next_beat_index,
+                    current_chapter_number=chapter_number,
+                    accumulated_words=total_words,
+                )
+                _resume_autopilot_stage(
+                    novel_id,
+                    "writing",
+                    current_beat_index=next_beat_index,
+                )
         return {
             "content": content,
             "beat_content": content,
