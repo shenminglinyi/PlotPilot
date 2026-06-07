@@ -39,13 +39,14 @@
     <!-- ── Scrollable body ──────────────────────── -->
     <div class="pp-panel-content bible-body">
 
-      <!-- 本书锁定 -->
+      <!-- 创作契约 -->
       <div v-if="hasBookLock" class="pp-section">
         <div class="pp-section-header">
           <div class="wb-icon-badge" style="background:#6366f1">
             <n-icon size="14"><LockClosedOutline /></n-icon>
           </div>
-          <span class="pp-section-label">本书锁定</span>
+          <span class="pp-section-label">创作契约</span>
+          <n-tag size="tiny" :bordered="false" type="info">引导锁定</n-tag>
           <n-button
             v-if="hasStyleNotesDetail"
             size="tiny"
@@ -55,35 +56,41 @@
           >更换文风</n-button>
         </div>
         <div class="pp-section-body">
-          <div class="bible-lock-rows">
-            <div class="bible-lock-row">
-              <span class="bible-lock-k">赛道 / 类型</span>
-              <span class="bible-lock-v">{{ lockedGenre || '—' }}</span>
-            </div>
-            <div class="bible-lock-row">
-              <span class="bible-lock-k">世界观基调</span>
-              <span class="bible-lock-v">{{ lockedWorld || '—' }}</span>
+          <div class="bible-contract-grid">
+            <div v-for="card in lockSummaryCards" :key="card.key" class="bible-contract-card">
+              <span class="bible-contract-card__k">{{ card.label }}</span>
+              <span class="bible-contract-card__v">{{ card.value }}</span>
             </div>
           </div>
 
-          <!-- 文风预设卡片 -->
+          <div v-if="lockDirectiveItems.length" class="bible-directives">
+            <div v-for="item in lockDirectiveItems" :key="item.key" class="bible-directive">
+              <span class="bible-directive__k">{{ item.label }}</span>
+              <span class="bible-directive__v">{{ item.value }}</span>
+            </div>
+          </div>
+
+          <!-- 文风公约卡片 -->
           <div v-if="hasStyleNotesDetail" class="bible-style-card">
             <div class="bible-style-card-header">
               <div class="bible-style-icon">{{ stylePresetIcon }}</div>
               <div class="bible-style-info">
-                <div class="bible-style-label">{{ stylePresetTag.label }}</div>
+                <div class="bible-style-label">
+                  <span>{{ stylePresetTag.label }}</span>
+                  <span class="bible-style-summary">{{ styleSummary }}</span>
+                </div>
                 <n-tag
                   :type="stylePresetTag.tagType"
                   size="small"
                   :bordered="false"
                   style="font-size:10px"
                 >
-                  {{ stylePresetTag.matched ? '内置模板' : '自定义' }}
+                  {{ stylePresetTag.matched ? '内置模板' : '自定义公约' }}
                 </n-tag>
               </div>
             </div>
             <n-collapse style="margin-top:8px">
-              <n-collapse-item title="查看完整文风公约" name="style">
+              <n-collapse-item title="文风公约全文" name="style">
                 <div class="bible-style-content">
                   {{ state.style_notes }}
                 </div>
@@ -128,7 +135,7 @@
     <footer class="pp-panel-footer">
       <span class="pp-panel-footer-note">
         <template v-if="biblePanelDataReady">
-          {{ stats.premiseOk && stats.styleOk ? '全部设定已填写' : '梗概或文风公约待完善' }}
+          {{ stats.premiseOk && stats.styleOk ? '创作契约已就绪' : '梗概或文风公约待完善' }}
         </template>
       </span>
       <n-button size="small" quaternary @click="openJsonModal">JSON 编辑器</n-button>
@@ -220,19 +227,66 @@ const biblePanelDataReady = ref(false)
 /** 并发 load 取消：只应用最后一次 slug 对应的请求结果，避免多块 UI v-if/v-show 交替闪烁 */
 let biblePanelLoadSeq = 0
 
-/** 创建书目时写入 premise 的赛道 / 世界观；文风来自 Bible（只读标签展示） */
+/** 创建书目向导写入的创作契约；文风来自 Bible（只读标签展示） */
 const lockedGenre = ref('')
 const lockedWorld = ref('')
+const lockedStoryStructure = ref('')
+const lockedPacingControl = ref('')
+const lockedWritingStyle = ref('')
+const lockedSpecialRequirements = ref('')
+const lockedTargetChapters = ref(0)
+const lockedTargetWordsPerChapter = ref(0)
 const hasBookLock = computed(() => {
   const g = lockedGenre.value.trim()
   const w = lockedWorld.value.trim()
+  const directives = [
+    lockedStoryStructure.value,
+    lockedPacingControl.value,
+    lockedWritingStyle.value,
+    lockedSpecialRequirements.value,
+  ].some((item) => item.trim() !== '')
   const sty = (state.value.style_notes || '').trim()
-  return g !== '' || w !== '' || sty !== ''
+  return g !== '' || w !== '' || directives || sty !== '' || lockedTargetChapters.value > 0
 })
 
 const hasStyleNotesDetail = computed(() => (state.value.style_notes || '').trim().length > 0)
 
-/** 文风市场预设：匹配内置模板则显示预设名，否则警告文案（单组件避免 v-if 整节点销毁重建） */
+function compactLine(text: string, max = 96): string {
+  const normalized = (text || '').replace(/\s+/g, ' ').trim()
+  if (!normalized) return ''
+  return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized
+}
+
+const lockSummaryCards = computed(() => {
+  const cards = [
+    { key: 'genre', label: '赛道', value: compactLine(lockedGenre.value, 42) || '未锁定' },
+    { key: 'world', label: '世界基调', value: compactLine(lockedWorld.value, 72) || '未锁定' },
+  ]
+  const chapters = lockedTargetChapters.value
+  const words = lockedTargetWordsPerChapter.value
+  if (chapters > 0 || words > 0) {
+    cards.push({
+      key: 'scale',
+      label: '体量',
+      value: [
+        chapters > 0 ? `${chapters} 章` : '',
+        words > 0 ? `${words} 字/章` : '',
+      ].filter(Boolean).join(' · ') || '未锁定',
+    })
+  }
+  return cards
+})
+
+const lockDirectiveItems = computed(() => [
+  { key: 'structure', label: '叙事结构', value: compactLine(lockedStoryStructure.value, 110) },
+  { key: 'pacing', label: '节奏控制', value: compactLine(lockedPacingControl.value, 110) },
+  { key: 'writing', label: '写作规则', value: compactLine(lockedWritingStyle.value, 110) },
+  { key: 'requirements', label: '硬性要求', value: compactLine(lockedSpecialRequirements.value, 130) },
+].filter((item) => item.value))
+
+const styleSummary = computed(() => compactLine(state.value.style_notes, 88))
+
+/** 文风市场预设：匹配内置模板则显示预设名；未匹配时作为作者自定义公约展示，不暴露内部诊断。 */
 const stylePresetTag = computed(() => {
   const t = (state.value.style_notes || '').trim()
   if (!t) {
@@ -246,24 +300,24 @@ const stylePresetTag = computed(() => {
   return {
     matched: false,
     hasText: true,
-    label: '与内置模板不一致（可能来自旧数据或导入）',
-    tagType: 'warning' as const,
+    label: '文风公约已锁定',
+    tagType: 'default' as const,
   }
 })
 
 const stylePresetIcon = computed(() => {
   const t = (state.value.style_notes || '').trim()
-  if (!t) return '📖'
+  if (!t) return '文'
   const m = matchPresetValue(t)
   const iconMap: Record<string, string> = {
-    xianxia_hot: '⚔️',
-    cyberpunk: '🤖',
-    mystery: '🔍',
-    urban_power: '🏙️',
-    xuanhuan_epic: '🐉',
-    romance_sweet: '💕',
+    xianxia_hot: '仙',
+    cyberpunk: '械',
+    mystery: '疑',
+    urban_power: '都',
+    xuanhuan_epic: '玄',
+    romance_sweet: '情',
   }
-  return m ? (iconMap[m] || '📖') : '📝'
+  return m ? (iconMap[m] || '文') : '文'
 })
 
 const stats = computed(() => {
@@ -397,6 +451,19 @@ const load = async (opts?: { preserveSurface?: boolean }) => {
       const parsed = parseGenreWorldFromPremise(novelRow.premise || '')
       g = ((novelRow as any).locked_genre || '').trim() || parsed.genre
       w = ((novelRow as any).locked_world_preset || '').trim() || parsed.worldPreset
+      lockedStoryStructure.value = ((novelRow as any).locked_story_structure || '').trim()
+      lockedPacingControl.value = ((novelRow as any).locked_pacing_control || '').trim()
+      lockedWritingStyle.value = ((novelRow as any).locked_writing_style || '').trim()
+      lockedSpecialRequirements.value = ((novelRow as any).locked_special_requirements || '').trim()
+      lockedTargetChapters.value = Number((novelRow as any).target_chapters || 0)
+      lockedTargetWordsPerChapter.value = Number((novelRow as any).target_words_per_chapter || 0)
+    } else {
+      lockedStoryStructure.value = ''
+      lockedPacingControl.value = ''
+      lockedWritingStyle.value = ''
+      lockedSpecialRequirements.value = ''
+      lockedTargetChapters.value = 0
+      lockedTargetWordsPerChapter.value = 0
     }
 
     const pl = typeof (knowledgeRow as any)?.premise_lock === 'string' ? (knowledgeRow as any).premise_lock : ''
@@ -588,34 +655,66 @@ function onBiblePanelSoftReload() {
   gap: 10px;
 }
 
-/* ── 本书锁定 KV rows ────────────────────────────── */
-.bible-lock-rows {
+/* ── 创作契约 ────────────────────────────── */
+.bible-contract-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.bible-contract-card {
+  min-height: 66px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
-.bible-lock-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.bible-lock-k {
-  flex-shrink: 0;
-  width: 68px;
+.bible-contract-card__k {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--app-text-muted);
 }
 
-.bible-lock-v {
-  flex: 1;
-  min-width: 0;
+.bible-contract-card__v {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--app-text-primary);
+  word-break: break-word;
+}
+
+.bible-directives {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bible-directive {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--plotpilot-panel-muted);
+}
+
+.bible-directive__k {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--app-text-muted);
+  line-height: 1.45;
+}
+
+.bible-directive__v {
+  font-size: 12px;
+  line-height: 1.55;
   color: var(--app-text-secondary);
-  word-break: break-all;
+  word-break: break-word;
 }
 
 /* ── Textareas ───────────────────────────────────── */
@@ -669,6 +768,16 @@ function onBiblePanelSoftReload() {
   font-weight: 700;
   color: var(--app-text-primary);
   line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bible-style-summary {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--app-text-secondary);
 }
 
 .bible-style-content {

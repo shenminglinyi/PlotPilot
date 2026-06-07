@@ -28,14 +28,37 @@
         </n-card>
 
         <!-- 章节执行剧本 -->
-        <n-card v-if="showBeatsCard" size="small" :bordered="true">
+        <n-card v-if="showBeatsCard" size="small" :bordered="true" class="cc-card-script">
           <template #header>
-            <span class="card-title">章节执行剧本</span>
+            <div class="script-card-header">
+              <span class="card-title">章节执行剧本</span>
+              <span class="script-source">{{ scriptSource.label }}</span>
+            </div>
           </template>
-          <pre v-if="chapterPlan?.outline?.trim()" class="chapter-script-text">{{ chapterPlan.outline }}</pre>
+
+          <n-alert v-if="showSingleOutlineAtomWarning" type="warning" :show-icon="true" size="small" class="script-alert">
+            本章只拿到单段章纲，尚未形成可执行拆拍。
+          </n-alert>
+          <n-alert
+            v-else-if="microHintIsOutlinePreview"
+            type="info"
+            :show-icon="true"
+            size="small"
+            class="script-alert"
+          >
+            当前为章纲拆条预览。
+          </n-alert>
+
+          <div v-if="scriptBlocks.length" class="script-blocks">
+            <section v-for="block in scriptBlocks" :key="block.title" class="script-block">
+              <h4>{{ block.title }}</h4>
+              <p v-for="(line, index) in block.lines" :key="`${block.title}-${index}`">{{ line }}</p>
+            </section>
+          </div>
+
           <n-empty
             v-else
-            description="暂无章节执行剧本：请先完成幕规划，或为本章补充七段式执行剧本。"
+            :description="microEmptyDescription"
             size="small"
           />
         </n-card>
@@ -374,6 +397,173 @@ const showSingleOutlineAtomWarning = computed(() => {
   return false
 })
 
+const rawOutlineDisplayLines = computed(() => {
+  const raw = chapterPlan.value?.outline?.trim()
+  if (!raw) return []
+  return raw
+    .split(/\n+/)
+    .map(s => s.trim())
+    .filter(isMeaningfulBeatLine)
+    .slice(0, 24)
+})
+
+interface ScriptBlock {
+  title: string
+  lines: string[]
+}
+
+function compactScriptLine(raw: string): string {
+  return String(raw || '')
+    .replace(/\[\[[a-z_]+:[^|\]]+\|([^\]]+)\]\]/gi, '$1')
+    .replace(/\b(?:novel|char|loc|prop|faction|clue|skill|system)-[A-Za-z0-9_-]+\b/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[-*•\d.、\s]+/, '')
+    .replace(/\s*\|\s*/g, ' | ')
+    .trim()
+}
+
+function presentScriptLine(raw: string): string {
+  const compact = compactScriptLine(raw)
+  if (!compact) return ''
+
+  const parts = compact
+    .split('|')
+    .map(part => part.trim())
+    .filter(part => part && part !== '（无）' && part !== '(无)')
+
+  if (parts.length <= 1) return compact
+
+  const [lead, ...rest] = parts
+  const useful = rest.filter(part => /[\u4e00-\u9fffA-Za-z0-9]/.test(part))
+  if (!useful.length) return lead
+
+  if (/^对话\d+[:：]/.test(lead)) {
+    return `${lead}；${useful.join('；')}`
+  }
+  if (lead.includes('→')) {
+    return `${lead}：${useful.join('；')}`
+  }
+  return `${lead}；${useful.join('；')}`
+}
+
+function chunkLines(title: string, lines: string[]): ScriptBlock | null {
+  const cleaned = lines.map(presentScriptLine).filter(Boolean)
+  if (!cleaned.length) return null
+  return { title, lines: cleaned.slice(0, 6) }
+}
+
+function outlineBlocks(lines: string[]): ScriptBlock[] {
+  const blocks: ScriptBlock[] = []
+  let currentTitle = '执行概要'
+  let currentLines: string[] = []
+  const flush = () => {
+    const block = chunkLines(currentTitle, currentLines)
+    if (block) blocks.push(block)
+  }
+
+  for (const line of lines) {
+    const t = compactScriptLine(line)
+    if (!t) continue
+    const heading = t.match(/^([一二三四五六七八九十]+|[0-9]+)[、.．]\s*(.+)$/)
+    if (heading) {
+      flush()
+      currentTitle = heading[2].replace(/[:：]\s*$/, '') || '执行段落'
+      currentLines = []
+      continue
+    }
+    currentLines.push(t)
+  }
+  flush()
+
+  if (blocks.length > 0) return blocks.slice(0, 4)
+
+  const size = Math.max(1, Math.ceil(lines.length / 3))
+  return [
+    chunkLines('开场', lines.slice(0, size)),
+    chunkLines('推进', lines.slice(size, size * 2)),
+    chunkLines('收束', lines.slice(size * 2)),
+  ].filter((block): block is ScriptBlock => Boolean(block))
+}
+
+const scriptBlocks = computed<ScriptBlock[]>(() => {
+  if (microBeats.value.length) {
+    const lines = microBeats.value.map((beat, index) => {
+      const meta = [
+        beat.function ? beatFunctionLabel(beat.function) : '',
+        beat.target_words > 0 ? `${beat.target_words}字` : '',
+      ].filter(Boolean)
+      const prefix = meta.length ? `${meta.join(' / ')}：` : ''
+      return `${index + 1}. ${prefix}${formatBeatDescription(beat.description)}`
+    })
+    return outlineBlocks(lines)
+  }
+  return outlineBlocks(rawOutlineDisplayLines.value)
+})
+
+const scriptSource = computed(() => {
+  if (microHintFromKnowledgeDb.value) {
+    return { label: '已落库节拍', className: 'script-source--db' }
+  }
+  if (microHintIsOutlinePreview.value) {
+    return { label: '章纲预览', className: 'script-source--outline' }
+  }
+  const ch = props.currentChapterNumber
+  const sess = props.assistStreamBeatSession
+  if (ch && sess?.chapterNumber === ch && sess.beats.length > 0) {
+    return { label: '流式规划', className: 'script-source--stream' }
+  }
+  if (microBeats.value.length) {
+    return { label: '本地缓存', className: 'script-source--cache' }
+  }
+  if (chapterPlan.value?.outline?.trim()) {
+    return { label: '结构章纲', className: 'script-source--outline' }
+  }
+  return { label: '待规划', className: 'script-source--empty' }
+})
+
+const totalTargetWords = computed(() =>
+  microBeats.value.reduce((sum, beat) => sum + Math.max(0, Number(beat.target_words || 0)), 0)
+)
+
+function countBeatConstraints(beat: MicroBeat): number {
+  return (beat.must_include?.length || 0) + (beat.must_not_include?.length || 0)
+}
+
+const constraintTotal = computed(() =>
+  microBeats.value.reduce((sum, beat) => sum + countBeatConstraints(beat), 0)
+)
+
+const detailTotal = computed(() =>
+  microBeats.value.reduce((sum, beat) => sum + (hasBeatContractDetails(beat) ? 1 : 0), 0)
+)
+
+const scriptOverview = computed(() => {
+  const beatCount = microBeats.value.length
+  const outlineCount = rawOutlineDisplayLines.value.length
+  return [
+    {
+      label: '节拍',
+      value: beatCount ? `${beatCount} 段` : outlineCount ? `${outlineCount} 条` : '待生成',
+      hint: beatCount ? '可执行拆拍' : outlineCount ? '章纲拆条' : '',
+    },
+    {
+      label: '目标字数',
+      value: totalTargetWords.value > 0 ? `${totalTargetWords.value} 字` : '未标注',
+      hint: totalTargetWords.value > 0 ? '按节拍累计' : '',
+    },
+    {
+      label: '约束',
+      value: constraintTotal.value > 0 ? `${constraintTotal.value} 条` : '未标注',
+      hint: detailTotal.value > 0 ? `${detailTotal.value} 段含合同` : '',
+    },
+    {
+      label: '来源',
+      value: scriptSource.value.label,
+      hint: showSingleOutlineAtomWarning.value ? '需重新拆拍' : '',
+    },
+  ]
+})
+
 const microEmptyDescription = computed(() => {
   const ch = props.currentChapterNumber
   if (ch && isOutlinePlanFailedForChapter(ch) && beatLines.value.length > 0) {
@@ -394,6 +584,15 @@ const microEmptyDescription = computed(() => {
   }
   return '暂无章节执行剧本：请先完成幕规划'
 })
+
+function formatRefs(items?: string[], mapCharacters = false): string {
+  const clean = (items || []).map(v => String(v || '').trim()).filter(Boolean)
+  if (!clean.length) return '—'
+  const mapped = mapCharacters ? clean.map(getCharacterName) : clean
+  const visible = mapped.slice(0, 6)
+  const more = mapped.length > visible.length ? ` +${mapped.length - visible.length}` : ''
+  return `${visible.join('、')}${more}`
+}
 
 function findChapterNode(nodes: StoryNode[], num: number): StoryNode | null {
   for (const node of nodes) {
@@ -524,6 +723,37 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+.cc-card-script :deep(.n-card-header) {
+  padding-bottom: 8px;
+}
+
+.script-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.script-source {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid var(--app-border);
+  background: var(--cc-surface-subtle);
+  color: var(--cc-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.script-alert {
+  margin-bottom: 10px;
+}
+
 .chapter-script-text {
   margin: 0;
   padding: 10px 12px;
@@ -540,136 +770,37 @@ onUnmounted(() => {
   line-height: 1.65;
 }
 
-/* 旧链路列表样式 */
-.cc-beat-list {
-  margin: 8px 0 0;
-  padding-left: 1.2em;
-  font-size: 12px;
-  line-height: 1.8;
-}
-
-/* 旧链路规划项样式 */
-.micro-beat-item {
-  padding: 12px 14px;
-  border-radius: var(--app-radius-md, 10px);
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--cc-accent) 5%, var(--cc-surface)) 0%,
-    color-mix(in srgb, var(--color-purple) 3%, var(--cc-surface-subtle)) 100%
-  );
-  border: 1px solid var(--cc-accent-border);
-  transition:
-    background 0.3s ease,
-    border-color 0.3s ease;
-}
-
-.micro-beat-item:hover {
-  border-color: color-mix(in srgb, var(--cc-accent) 35%, var(--app-border));
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--cc-accent) 8%, var(--cc-surface)) 0%,
-    color-mix(in srgb, var(--color-purple) 5%, var(--cc-surface-subtle)) 100%
-  );
-}
-
-.micro-beat-header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.beat-focus-pill {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 8px;
-  border-radius: 999px;
-  letter-spacing: 0.02em;
-  line-height: 1.5;
-  border: 1px solid transparent;
-}
-
-.beat-focus-pill--neutral {
-  background: var(--cc-accent-dim);
-  color: var(--cc-accent);
-  border-color: var(--cc-accent-border);
-}
-
-.beat-focus-pill--info {
-  background: var(--color-info-dim);
-  color: var(--color-info);
-  border-color: color-mix(in srgb, var(--color-info) 25%, transparent);
-}
-
-.beat-focus-pill--success {
-  background: var(--color-success-dim);
-  color: var(--color-success);
-  border-color: color-mix(in srgb, var(--color-success) 25%, transparent);
-}
-
-.beat-focus-pill--warning {
-  background: var(--color-warning-dim);
-  color: var(--color-warning);
-  border-color: color-mix(in srgb, var(--color-warning) 25%, transparent);
-}
-
-.beat-focus-pill--danger {
-  background: var(--color-danger-dim);
-  color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 25%, transparent);
-}
-
-.mbc {
-  margin-top: 6px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--cc-accent) 5%, var(--cc-surface));
-  border: 1px solid var(--cc-accent-border);
+.script-blocks {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
 }
-.mbc-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 1.45;
-}
-.mbc-tag {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--cc-accent) 14%, transparent);
-  color: var(--cc-accent);
-  border: 1px solid var(--cc-accent-border);
-}
-.mbc-tag--gap {
-  background: var(--color-warning-dim);
-  color: var(--color-warning);
-  border-color: color-mix(in srgb, var(--color-warning) 25%, transparent);
-}
-.mbc-tag--warn {
-  background: var(--color-danger-dim);
-  color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 25%, transparent);
-}
-.mbc-val { color: var(--cc-text); }
-.mbc-val--muted { color: var(--cc-text-secondary); }
 
-.micro-beat-desc {
-  margin-top: 6px;
-  padding-left: 12px;
+.script-block {
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--cc-surface) 82%, var(--cc-surface-subtle) 18%);
+}
+
+.script-block h4 {
+  margin: 0 0 8px;
+  color: var(--cc-text);
   font-size: 13px;
-  line-height: 1.6;
-  color: var(--cc-text-secondary);
-  border-left: 2px solid var(--app-border);
+  font-weight: 700;
+  line-height: 1.4;
 }
 
-.micro-beat-item:hover .micro-beat-desc {
-  border-left-color: var(--cc-accent);
+.script-block p {
+  margin: 0;
+  color: var(--cc-text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.script-block p + p {
+  margin-top: 6px;
 }
 
 /* 审阅行 */

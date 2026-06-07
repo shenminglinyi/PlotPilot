@@ -54,6 +54,11 @@
               :key="item.character_id"
               class="ccm-item"
               :class="`ccm-item--${item.importance}`"
+              role="button"
+              tabindex="0"
+              @click="selectCharacter(item.character_id)"
+              @keydown.enter.prevent="selectCharacter(item.character_id)"
+              @keydown.space.prevent="selectCharacter(item.character_id)"
             >
               <div class="ccm-avatar">{{ item.name.slice(0, 1) }}</div>
               <div class="ccm-info">
@@ -145,6 +150,7 @@ const props = withDefaults(defineProps<Props>(), {
   chapterNumber: null,
   outline: '',
 })
+const emit = defineEmits<{ 'select-character': [characterId: string] }>()
 const message = useMessage()
 
 const scheduling = ref(false)
@@ -176,6 +182,10 @@ function recommendationLabel(value: unknown): string {
 
 function candidateClass(candidate: NewCharacterCandidate): string {
   return `ccm-candidate--${getCastRecommendationCssKey(candidate.recommendation)}`
+}
+
+function selectCharacter(characterId: string) {
+  emit('select-character', characterId)
 }
 
 async function runSchedule() {
@@ -394,6 +404,16 @@ watch(
   border: 1px solid var(--app-border);
   background: var(--app-surface);
   border-left-width: 3px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.ccm-item:hover,
+.ccm-item:focus-visible {
+  border-color: var(--color-brand-border, rgba(37, 99, 235, 0.32));
+  background: var(--color-brand-light, rgba(37, 99, 235, 0.04));
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  outline: none;
 }
 
 .ccm-item--major { border-left-color: var(--color-brand, #2563eb); }

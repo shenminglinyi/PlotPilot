@@ -1,16 +1,21 @@
 <!-- frontend/src/components/workbench/StoryEvolutionPanel.vue -->
 <template>
   <div class="story-evolution-panel">
-    <header class="story-evolution-banner" role="region" aria-label="故事演进说明">
+    <header class="story-evolution-banner" role="region" aria-label="故事演进控制台">
       <div class="story-evolution-banner__head">
-        <div class="story-evolution-banner__title">
-          <n-icon size="15" class="story-evolution-banner__icon"><PulseOutline /></n-icon>
-          <n-text strong>故事演进</n-text>
-          <n-tag v-if="currentChapter" size="small" round :bordered="false" type="info" style="margin-left:2px">
-            第 {{ currentChapter }} 章
-          </n-tag>
+        <div class="story-evolution-banner__title-block">
+          <div class="story-evolution-banner__title">
+            <n-icon size="16" class="story-evolution-banner__icon"><PulseOutline /></n-icon>
+            <n-text strong>故事演进</n-text>
+            <n-tag v-if="currentChapter" size="small" round :bordered="false" type="info">
+              第 {{ currentChapter }} 章
+            </n-tag>
+          </div>
+          <span class="story-evolution-banner__subtitle">
+            汇总叙事治理、状态快照、时间轴与世界线分支
+          </span>
         </div>
-        <n-space size="small" align="center" wrap>
+        <n-space class="story-evolution-banner__actions" size="small" align="center" wrap>
           <n-button-group size="small">
             <n-button
               :type="activeTab === 'command' ? 'primary' : 'default'"
@@ -27,6 +32,13 @@
               状态机
             </n-button>
             <n-button
+              :type="activeTab === 'timeline' ? 'primary' : 'default'"
+              @click="activeTab = 'timeline'"
+            >
+              <template #icon><n-icon><TimeOutline /></n-icon></template>
+              时间轴
+            </n-button>
+            <n-button
               :type="activeTab === 'worldline' ? 'primary' : 'default'"
               @click="activeTab = 'worldline'"
             >
@@ -34,7 +46,7 @@
               世界线
             </n-button>
           </n-button-group>
-          <n-button size="tiny" secondary @click="openCharacterAnchor">角色档案</n-button>
+          <n-button size="small" secondary @click="openCharacterAnchor">角色档案</n-button>
         </n-space>
       </div>
     </header>
@@ -49,27 +61,63 @@
     <div v-else-if="activeTab === 'command'" class="evolution-command">
       <section class="command-hero">
         <div class="command-hero__main">
-          <n-text strong class="command-title">演进司令塔</n-text>
-          <p>把叙事治理、状态机和世界线存档放在同一个决策面：先看结构风险，再决定写、回滚或分叉。</p>
+          <span class="command-kicker">Narrative Ops</span>
+          <div class="command-title-row">
+            <n-text strong class="command-title">演进司令塔</n-text>
+            <n-tag size="small" :type="riskSummaryType" :bordered="false">{{ riskSummaryLabel }}</n-tag>
+          </div>
+          <p>以写前约束、连续性证据和分支存档为核心，快速判断下一章是否可以推进。</p>
         </div>
-        <div class="command-score">
+        <div class="command-score command-score--governance">
           <span>承诺命中</span>
           <strong>{{ governanceHitRate }}</strong>
+          <div class="score-bar" aria-hidden="true">
+            <span :style="{ width: governanceHitPercent + '%' }"></span>
+          </div>
         </div>
-        <div class="command-score">
+        <div class="command-score command-score--snapshot">
           <span>状态快照</span>
           <strong>{{ latestSnapshot ? `第 ${latestSnapshot.chapter_number} 章` : '未生成' }}</strong>
+          <small>{{ snapshotStatusLabel }}</small>
         </div>
-        <div class="command-score">
+        <div class="command-score command-score--worldline">
           <span>世界线</span>
           <strong>{{ worldlineSummary }}</strong>
+          <small>{{ worldlineHeadName }}</small>
+        </div>
+      </section>
+
+      <section class="command-panel setup-anchor-panel">
+        <div class="command-panel__head">
+          <div>
+            <n-text strong>引导落点</n-text>
+            <span>建档与引导阶段写入的关键约束，后续演进不得漂移。</span>
+          </div>
+          <n-tag size="small" :type="setupAnchorRows.length ? 'success' : 'default'" :bordered="false">
+            {{ setupAnchorsLoading ? '读取中' : `${setupAnchorRows.length} 项` }}
+          </n-tag>
+        </div>
+        <div v-if="setupAnchorRows.length" class="setup-anchor-grid">
+          <article v-for="anchor in setupAnchorRows" :key="anchor.key" class="setup-anchor-card">
+            <div class="setup-anchor-card__top">
+              <strong>{{ anchor.title }}</strong>
+              <n-tag size="tiny" :type="anchor.type" :bordered="false">{{ anchor.meta }}</n-tag>
+            </div>
+            <p>{{ anchor.detail }}</p>
+          </article>
+        </div>
+        <div v-else class="compact-empty">
+          暂无可展示的引导落点；完成作品设定、人物、地图或剧情总纲后会在这里汇总。
         </div>
       </section>
 
       <section class="command-grid">
-        <article class="command-panel">
+        <article class="command-panel command-panel--budget">
           <div class="command-panel__head">
-            <n-text strong>自动写前约束</n-text>
+            <div>
+              <n-text strong>自动写前约束</n-text>
+              <span>下一章可用叙事预算</span>
+            </div>
             <n-tag size="small" :bordered="false">内置</n-tag>
           </div>
           <div class="compact-list">
@@ -88,9 +136,12 @@
           </div>
         </article>
 
-        <article class="command-panel">
+        <article class="command-panel command-panel--governance">
           <div class="command-panel__head">
-            <n-text strong>叙事治理</n-text>
+            <div>
+              <n-text strong>叙事治理</n-text>
+              <span>承诺兑现与结构债务</span>
+            </div>
             <n-tag size="small" :type="governanceSeverityType" :bordered="false">
               {{ governanceState?.latest_report?.severity || 'ready' }}
             </n-tag>
@@ -104,10 +155,13 @@
           </div>
         </article>
 
-        <article class="command-panel">
+        <article class="command-panel command-panel--state">
           <div class="command-panel__head">
-            <n-text strong>状态连续性</n-text>
-            <n-tag size="small" :type="latestSnapshot?.status === 'blocked' ? 'error' : 'success'" :bordered="false">
+            <div>
+              <n-text strong>状态连续性</n-text>
+              <span>角色、场景与动作证据</span>
+            </div>
+            <n-tag size="small" :type="snapshotStatusType" :bordered="false">
               {{ latestSnapshot?.status || 'empty' }}
             </n-tag>
           </div>
@@ -119,9 +173,12 @@
           </div>
         </article>
 
-        <article class="command-panel">
+        <article class="command-panel command-panel--worldline">
           <div class="command-panel__head">
-            <n-text strong>世界线</n-text>
+            <div>
+              <n-text strong>世界线</n-text>
+              <span>检查点、分叉与 HEAD</span>
+            </div>
             <n-button size="tiny" secondary @click="activeTab = 'worldline'">打开</n-button>
           </div>
           <div class="compact-list">
@@ -143,11 +200,19 @@
 
       <section class="command-panel command-panel--wide">
         <div class="command-panel__head">
-          <n-text strong>风险与修复队列</n-text>
-          <n-tag size="small" :bordered="false">{{ combinedRisks.length }}</n-tag>
+          <div>
+            <n-text strong>风险与修复队列</n-text>
+            <span>优先处理会阻断生成或污染连续性的项目</span>
+          </div>
+          <n-tag size="small" :type="riskSummaryType" :bordered="false">{{ combinedRisks.length }}</n-tag>
         </div>
         <div class="risk-lane">
-          <div v-for="risk in combinedRisks" :key="risk.kind + risk.title" class="risk-card">
+          <div
+            v-for="risk in combinedRisks"
+            :key="risk.kind + risk.title"
+            class="risk-card"
+            :class="`risk-card--${risk.type}`"
+          >
             <n-tag size="small" :type="risk.type" :bordered="false">{{ risk.kind }}</n-tag>
             <strong>{{ risk.title }}</strong>
             <span>{{ risk.detail }}</span>
@@ -160,22 +225,34 @@
     <div v-else-if="activeTab === 'state'" class="evolution-console">
       <section class="evolution-col">
         <div class="evolution-col__head">
-          <n-text strong>状态树</n-text>
-          <n-tag size="small" :type="latestSnapshot?.status === 'blocked' ? 'error' : 'success'" :bordered="false">
+          <div>
+            <n-text strong>状态树</n-text>
+            <span>本章结束时的叙事世界状态</span>
+          </div>
+          <n-tag size="small" :type="snapshotStatusType" :bordered="false">
             {{ latestSnapshot ? `第 ${latestSnapshot.chapter_number} 章` : '未生成' }}
           </n-tag>
         </div>
         <n-empty v-if="!latestSnapshot" description="保存章节后生成演进快照" />
         <template v-else>
-          <n-descriptions size="small" :column="1" bordered>
-            <n-descriptions-item label="Schema">{{ latestSnapshot.schema_version }}</n-descriptions-item>
-            <n-descriptions-item label="状态">{{ latestSnapshot.status }}</n-descriptions-item>
-            <n-descriptions-item label="时空">
-              {{ sceneState.time_anchor || '未标定' }} / {{ sceneState.location || '未标定' }}
-            </n-descriptions-item>
-            <n-descriptions-item label="情绪余波">{{ sceneState.emotional_residue || '无' }}</n-descriptions-item>
-          </n-descriptions>
-          <n-divider />
+          <div class="state-summary-grid">
+            <div class="state-metric">
+              <span>Schema</span>
+              <strong>{{ latestSnapshot.schema_version }}</strong>
+            </div>
+            <div class="state-metric">
+              <span>状态</span>
+              <strong>{{ latestSnapshot.status }}</strong>
+            </div>
+            <div class="state-metric state-metric--wide">
+              <span>时空锚点</span>
+              <strong>{{ sceneState.time_anchor || '未标定' }} / {{ sceneState.location || '未标定' }}</strong>
+            </div>
+            <div class="state-metric state-metric--wide">
+              <span>情绪余波</span>
+              <strong>{{ sceneState.emotional_residue || '无' }}</strong>
+            </div>
+          </div>
           <n-scrollbar class="state-list">
             <div v-for="[id, char] in characterRows" :key="id" class="state-row">
               <div class="state-row__main">
@@ -196,7 +273,10 @@
 
       <section class="evolution-col">
         <div class="evolution-col__head">
-          <n-text strong>状态流</n-text>
+          <div>
+            <n-text strong>状态流</n-text>
+            <span>{{ actionCount }} 个动作 · {{ conflictCount }} 个冲突</span>
+          </div>
           <n-button size="tiny" secondary :loading="snapshotsLoading" @click="loadEvolutionSnapshots">刷新</n-button>
         </div>
         <n-scrollbar class="action-list">
@@ -210,12 +290,16 @@
             </n-tag>
             <span>{{ conflict.message }}</span>
           </div>
+          <div v-if="latestActions.length === 0 && conflictCount === 0" class="compact-empty">暂无动作或冲突记录。</div>
         </n-scrollbar>
       </section>
 
       <section class="evolution-col">
         <div class="evolution-col__head">
-          <n-text strong>证据</n-text>
+          <div>
+            <n-text strong>证据</n-text>
+            <span>用于回放、审计与冲突解释</span>
+          </div>
           <n-tag size="small" :bordered="false">Graph-backed</n-tag>
         </div>
         <n-scrollbar class="evidence-list">
@@ -278,7 +362,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { PulseOutline, ReorderFourOutline, GitNetworkOutline } from '@vicons/ionicons5'
+import { PulseOutline, ReorderFourOutline, GitNetworkOutline, TimeOutline } from '@vicons/ionicons5'
 import {
   WORKBENCH_CHAPTER_DESK_CHANGE_EVENT,
   WORKBENCH_OPEN_SETTINGS_PANEL_EVENT,
@@ -287,6 +371,9 @@ import { narrativeEngineApi, type StoryEvolutionReadModel } from '@/api/narrativ
 import { evolutionApi, type EvolutionSnapshot } from '@/api/evolution'
 import { getGovernanceState, type GovernanceStateDTO } from '@/api/governance'
 import { worldlineApi, type WorldlineGraph } from '@/api/worldline'
+import { novelApi, type NovelDTO } from '@/api/novel'
+import { bibleApi, type BibleDTO } from '@/api/bible'
+import { workflowApi, type PlotOutlineDTO } from '@/api/workflow'
 import type { ChronicleRow } from '@/api/chronicles'
 import { useWorkbenchPlotTimelineReload } from '@/composables/useWorkbenchNarrativeSync'
 import StoryNavigator from './StoryNavigator.vue'
@@ -305,7 +392,7 @@ const bundle = ref<StoryEvolutionReadModel | null>(null)
 const bundleLoading = ref(false)
 
 // 活跃 tab
-const activeTab = ref<'command' | 'state' | 'worldline'>('command')
+const activeTab = ref<'command' | 'state' | 'timeline' | 'worldline'>('command')
 
 // 高亮范围（选中故事线时高亮对应章节）
 const highlightRange = ref<{ start: number; end: number } | null>(null)
@@ -316,6 +403,10 @@ const snapshots = ref<EvolutionSnapshot[]>([])
 const snapshotsLoading = ref(false)
 const governanceState = ref<GovernanceStateDTO | null>(null)
 const worldlineGraph = ref<WorldlineGraph>({ nodes: [], edges: [], branches: [], head_id: null })
+const setupNovel = ref<NovelDTO | null>(null)
+const setupBible = ref<BibleDTO | null>(null)
+const setupPlotOutline = ref<PlotOutlineDTO | null>(null)
+const setupAnchorsLoading = ref(false)
 const overrideLoading = ref(false)
 const characterStatusOptions = [
   { label: 'alive', key: 'alive' },
@@ -365,6 +456,22 @@ async function loadWorldlineGraph() {
   }
 }
 
+async function loadSetupAnchors() {
+  setupAnchorsLoading.value = true
+  try {
+    const [novelResult, bibleResult, outlineResult] = await Promise.allSettled([
+      novelApi.getNovel(props.slug),
+      bibleApi.getBible(props.slug),
+      workflowApi.getPlotOutline(props.slug),
+    ])
+    setupNovel.value = novelResult.status === 'fulfilled' ? novelResult.value : null
+    setupBible.value = bibleResult.status === 'fulfilled' ? bibleResult.value : null
+    setupPlotOutline.value = outlineResult.status === 'fulfilled' ? outlineResult.value.plot_outline : null
+  } finally {
+    setupAnchorsLoading.value = false
+  }
+}
+
 function escapeJsonPointer(value: string) {
   return value.replace(/~/g, '~0').replace(/\//g, '~1')
 }
@@ -397,6 +504,166 @@ const latestSnapshot = computed(() => snapshots.value[0] || null)
 const sceneState = computed(() => (latestSnapshot.value?.ending_state?.scene || {}) as Record<string, any>)
 const characterRows = computed(() => Object.entries((latestSnapshot.value?.ending_state?.characters || {}) as Record<string, any>).slice(0, 16))
 const latestActions = computed(() => latestSnapshot.value?.delta_actions || [])
+const actionCount = computed(() => latestActions.value.length)
+const conflictCount = computed(() => latestSnapshot.value?.conflicts.length || 0)
+function cleanText(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function clipText(value: unknown, max = 120): string {
+  const text = cleanText(value)
+  if (text.length <= max) return text
+  return `${text.slice(0, max)}...`
+}
+
+function joinTexts(values: unknown[], max = 140): string {
+  return clipText(values.map(cleanText).filter(Boolean).join('；'), max)
+}
+
+const setupAnchorRows = computed(() => {
+  const rows: Array<{
+    key: string
+    title: string
+    meta: string
+    detail: string
+    type: 'default' | 'info' | 'success' | 'warning' | 'error'
+  }> = []
+  const novel = setupNovel.value
+  const bible = setupBible.value
+  const outline = setupPlotOutline.value
+
+  if (novel?.locked_genre || novel?.locked_world_preset) {
+    rows.push({
+      key: 'genre-world',
+      title: '类型与世界基调',
+      meta: novel.locked_genre || '赛道',
+      detail: clipText(novel.locked_world_preset || novel.premise, 150) || '已在建档阶段锁定类型方向。',
+      type: 'info',
+    })
+  }
+
+  if (novel?.premise) {
+    rows.push({
+      key: 'premise',
+      title: '初始粗纲',
+      meta: 'Premise',
+      detail: clipText(novel.premise, 170),
+      type: 'default',
+    })
+  }
+
+  if (novel?.locked_story_structure || novel?.locked_pacing_control) {
+    rows.push({
+      key: 'structure',
+      title: '故事骨架与节奏',
+      meta: '结构',
+      detail: joinTexts([novel.locked_story_structure, novel.locked_pacing_control], 150),
+      type: 'success',
+    })
+  }
+
+  if (outline?.main_story_overview || outline?.core_conflict) {
+    rows.push({
+      key: 'plot-outline',
+      title: '主线总纲',
+      meta: `${outline.stage_plan?.length || 0} 阶段`,
+      detail: clipText(outline.main_story_overview || outline.core_conflict, 170),
+      type: 'info',
+    })
+  }
+
+  if (outline?.core_conflict) {
+    rows.push({
+      key: 'core-conflict',
+      title: '核心冲突',
+      meta: '冲突',
+      detail: clipText(outline.core_conflict, 150),
+      type: 'warning',
+    })
+  }
+
+  if (outline?.expected_ending) {
+    rows.push({
+      key: 'ending',
+      title: '结局走向',
+      meta: '收束',
+      detail: clipText(outline.expected_ending, 150),
+      type: 'success',
+    })
+  }
+
+  const characterSummary = joinTexts(
+    (bible?.characters || []).slice(0, 5).map(char =>
+      `${char.name}${char.core_motivation ? `：${char.core_motivation}` : char.description ? `：${char.description}` : ''}`,
+    ),
+    170,
+  )
+  if (characterSummary) {
+    rows.push({
+      key: 'characters',
+      title: '核心人物',
+      meta: `${bible?.characters.length || 0} 人`,
+      detail: characterSummary,
+      type: 'default',
+    })
+  }
+
+  const worldSummary = joinTexts(
+    (bible?.world_settings || []).slice(0, 4).map(setting =>
+      `${setting.name}${setting.description ? `：${setting.description}` : ''}`,
+    ),
+    170,
+  )
+  if (worldSummary) {
+    rows.push({
+      key: 'world-settings',
+      title: '世界观落点',
+      meta: `${bible?.world_settings.length || 0} 条`,
+      detail: worldSummary,
+      type: 'info',
+    })
+  }
+
+  const locationSummary = joinTexts(
+    (bible?.locations || []).slice(0, 4).map(location =>
+      `${location.name}${location.description ? `：${location.description}` : ''}`,
+    ),
+    150,
+  )
+  if (locationSummary) {
+    rows.push({
+      key: 'locations',
+      title: '关键地点',
+      meta: `${bible?.locations.length || 0} 处`,
+      detail: locationSummary,
+      type: 'default',
+    })
+  }
+
+  const styleSummary = cleanText(bible?.style) || joinTexts((bible?.style_notes || []).map(note => note.content), 170)
+  if (styleSummary || novel?.locked_writing_style) {
+    rows.push({
+      key: 'style',
+      title: '文风公约',
+      meta: 'Style',
+      detail: clipText(styleSummary || novel?.locked_writing_style, 170),
+      type: 'success',
+    })
+  }
+
+  if (novel?.locked_special_requirements) {
+    rows.push({
+      key: 'special-requirements',
+      title: '特殊要求',
+      meta: '约束',
+      detail: clipText(novel.locked_special_requirements, 150),
+      type: 'warning',
+    })
+  }
+
+  return rows.slice(0, 10)
+})
 const evidenceRows = computed(() => {
   const snapshot = latestSnapshot.value
   if (!snapshot) return [{ label: '状态', value: '暂无证据' }]
@@ -422,6 +689,11 @@ const governanceHitRate = computed(() => {
   const rate = governanceState.value?.latest_report?.promise_hit_rate
   return typeof rate === 'number' ? `${Math.round(rate * 100)}%` : '未评估'
 })
+const governanceHitPercent = computed(() => {
+  const rate = governanceState.value?.latest_report?.promise_hit_rate
+  if (typeof rate !== 'number') return 0
+  return Math.max(0, Math.min(100, Math.round(rate * 100)))
+})
 const governanceSeverityType = computed<'default' | 'info' | 'success' | 'warning' | 'error'>(() => {
   const severity = governanceState.value?.latest_report?.severity || 'info'
   if (severity === 'critical' || severity === 'high') return 'error'
@@ -438,6 +710,18 @@ const worldlineSummary = computed(() => {
   const checkpoints = worldlineGraph.value.nodes.length
   return `${branches} 分支 / ${checkpoints} 存档`
 })
+const snapshotStatusType = computed<'default' | 'info' | 'success' | 'warning' | 'error'>(() => {
+  const status = latestSnapshot.value?.status
+  if (!status) return 'default'
+  if (status === 'blocked' || conflictCount.value > 0) return 'error'
+  if (status === 'stale') return 'warning'
+  return 'success'
+})
+const snapshotStatusLabel = computed(() => {
+  if (!latestSnapshot.value) return '等待章节保存'
+  if (conflictCount.value > 0) return `${conflictCount.value} 个冲突待处理`
+  return '连续性可回放'
+})
 const combinedRisks = computed(() => {
   const risks: Array<{ kind: string; title: string; detail: string; type: 'default' | 'info' | 'success' | 'warning' | 'error' }> = []
   for (const issue of governanceIssues.value) {
@@ -447,6 +731,16 @@ const combinedRisks = computed(() => {
     risks.push({ kind: '状态', title: String(conflict.conflict_type || conflict.type || 'Conflict'), detail: String(conflict.message || ''), type: conflict.level === 'blocking' ? 'error' : 'warning' })
   }
   return risks.slice(0, 12)
+})
+const riskSummaryType = computed<'default' | 'info' | 'success' | 'warning' | 'error'>(() => {
+  if (combinedRisks.value.some(r => r.type === 'error')) return 'error'
+  if (combinedRisks.value.length > 0) return 'warning'
+  return 'success'
+})
+const riskSummaryLabel = computed(() => {
+  if (combinedRisks.value.some(r => r.type === 'error')) return '需处理'
+  if (combinedRisks.value.length > 0) return '有提醒'
+  return '可推进'
 })
 
 watch(
@@ -458,6 +752,7 @@ watch(
     void loadEvolutionSnapshots()
     void loadGovernanceState()
     void loadWorldlineGraph()
+    void loadSetupAnchors()
   },
   { immediate: true },
 )
@@ -467,6 +762,7 @@ useWorkbenchPlotTimelineReload(() => {
   void loadEvolutionSnapshots()
   void loadGovernanceState()
   void loadWorldlineGraph()
+  void loadSetupAnchors()
 })
 
 // 选中故事线时高亮章节范围
@@ -510,14 +806,14 @@ function openCharacterAnchor() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--app-surface);
+  background: var(--app-page-bg, var(--app-surface));
 }
 
 .story-evolution-banner {
   flex-shrink: 0;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
-  background: var(--app-surface-elevated, var(--app-surface));
+  background: var(--app-surface);
 }
 
 .story-evolution-banner__head {
@@ -528,18 +824,40 @@ function openCharacterAnchor() {
   flex-wrap: wrap;
 }
 
+.story-evolution-banner__title-block {
+  min-width: 180px;
+  display: grid;
+  gap: 2px;
+}
+
 .story-evolution-banner__title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 14px;
   min-width: 0;
 }
 
+.story-evolution-banner__subtitle {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .story-evolution-banner__icon {
   color: var(--color-brand);
-  opacity: 0.8;
   flex-shrink: 0;
+}
+
+.story-evolution-banner__actions {
+  min-width: 0;
+}
+
+.story-evolution-banner :deep(.n-button-group .n-button) {
+  min-width: 76px;
 }
 
 .story-evolution-panel :deep(.n-split) {
@@ -558,14 +876,14 @@ function openCharacterAnchor() {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 14px;
+  padding: 12px;
   background: var(--app-page-bg, var(--app-surface));
   overflow-x: hidden;
 }
 
 .command-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(120px, 170px));
+  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(128px, 168px));
   gap: 10px;
   align-items: stretch;
   margin-bottom: 12px;
@@ -578,16 +896,36 @@ function openCharacterAnchor() {
   border: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
   border-radius: 8px;
   background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm, 0 1px 3px rgba(15, 23, 42, 0.06));
 }
 
 .command-hero__main {
   padding: 14px;
+  border-left: 3px solid var(--color-brand);
+}
+
+.command-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--color-brand);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.command-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 
 .command-title {
-  display: block;
-  margin-bottom: 5px;
   font-size: 16px;
+  line-height: 1.25;
 }
 
 .command-hero__main p {
@@ -598,11 +936,30 @@ function openCharacterAnchor() {
 }
 
 .command-score {
+  position: relative;
   padding: 12px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.command-score::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--color-brand);
+  opacity: 0.65;
+}
+
+.command-score--snapshot::before {
+  background: var(--color-success);
+}
+
+.command-score--worldline::before {
+  background: var(--color-gold);
 }
 
 .command-score span {
@@ -612,11 +969,38 @@ function openCharacterAnchor() {
 
 .command-score strong {
   font-size: 18px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.command-score small {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-bar {
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: var(--app-surface-subtle, rgba(0, 0, 0, 0.05));
+  overflow: hidden;
+}
+
+.score-bar span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--color-brand);
 }
 
 .command-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(185px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
   min-width: 0;
@@ -625,10 +1009,75 @@ function openCharacterAnchor() {
 .command-panel {
   min-width: 0;
   padding: 12px;
+  border-top: 2px solid transparent;
+}
+
+.command-panel--budget {
+  border-top-color: var(--color-brand);
+}
+
+.command-panel--governance {
+  border-top-color: var(--color-warning);
+}
+
+.command-panel--state {
+  border-top-color: var(--color-success);
+}
+
+.command-panel--worldline {
+  border-top-color: var(--color-gold);
 }
 
 .command-panel--wide {
   margin-bottom: 14px;
+}
+
+.setup-anchor-panel {
+  margin-bottom: 12px;
+  border-top-color: var(--color-purple, var(--color-brand));
+}
+
+.setup-anchor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.setup-anchor-card {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--app-divider, rgba(15, 23, 42, 0.06));
+  border-radius: 7px;
+  background: var(--app-surface-subtle, rgba(0, 0, 0, 0.03));
+}
+
+.setup-anchor-card__top {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.setup-anchor-card__top strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.setup-anchor-card p {
+  margin: 0;
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .command-panel__head {
@@ -637,6 +1086,21 @@ function openCharacterAnchor() {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.command-panel__head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.command-panel__head > div > span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .compact-list {
@@ -650,7 +1114,8 @@ function openCharacterAnchor() {
   display: grid;
   gap: 3px;
   padding: 8px;
-  border-radius: 7px;
+  border-radius: 6px;
+  border: 1px solid var(--app-divider, rgba(15, 23, 42, 0.06));
   background: var(--app-surface-subtle, rgba(0, 0, 0, 0.03));
   font-size: 12px;
 }
@@ -668,7 +1133,7 @@ function openCharacterAnchor() {
 
 .risk-lane {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 8px;
 }
 
@@ -677,9 +1142,27 @@ function openCharacterAnchor() {
   gap: 6px;
   padding: 10px;
   border: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--app-surface-subtle, rgba(0, 0, 0, 0.03));
   font-size: 12px;
+  border-left-width: 3px;
+}
+
+.risk-card--error {
+  border-left-color: var(--color-danger);
+}
+
+.risk-card--warning {
+  border-left-color: var(--color-warning);
+}
+
+.risk-card--success {
+  border-left-color: var(--color-success);
+}
+
+.risk-card--info,
+.risk-card--default {
+  border-left-color: var(--color-brand);
 }
 
 .risk-card span:last-child {
@@ -699,24 +1182,25 @@ function openCharacterAnchor() {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(240px, 0.9fr) minmax(280px, 1.1fr) minmax(240px, 0.9fr);
-  gap: 0;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(300px, 1.1fr) minmax(240px, 0.9fr);
+  gap: 10px;
+  padding: 12px;
   overflow: hidden;
+  background: var(--app-page-bg, var(--app-surface));
 }
 
 .evolution-col {
   min-width: 0;
   min-height: 0;
   padding: 12px;
-  border-right: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
+  border: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm, 0 1px 3px rgba(15, 23, 42, 0.06));
   display: flex;
   flex-direction: column;
   gap: 10px;
   overflow: hidden;
-}
-
-.evolution-col:last-child {
-  border-right: 0;
 }
 
 .evolution-col__head {
@@ -725,6 +1209,55 @@ function openCharacterAnchor() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.evolution-col__head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.evolution-col__head > div > span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.state-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.state-metric {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--app-divider, rgba(15, 23, 42, 0.06));
+  border-radius: 6px;
+  background: var(--app-surface-subtle, rgba(0, 0, 0, 0.03));
+}
+
+.state-metric--wide {
+  grid-column: 1 / -1;
+}
+
+.state-metric span {
+  color: var(--app-text-muted, rgba(0, 0, 0, 0.58));
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.state-metric strong {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .state-list,
@@ -799,8 +1332,30 @@ function openCharacterAnchor() {
 
   .evolution-col {
     min-height: 260px;
-    border-right: 0;
-    border-bottom: 1px solid var(--app-border, rgba(0, 0, 0, 0.08));
+  }
+}
+
+@media (max-width: 640px) {
+  .story-evolution-banner__subtitle {
+    white-space: normal;
+  }
+
+  .story-evolution-banner :deep(.n-button-group) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .story-evolution-banner :deep(.n-button-group .n-button) {
+    min-width: 0;
+  }
+
+  .story-evolution-banner__actions {
+    width: 100%;
+  }
+
+  .state-summary-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

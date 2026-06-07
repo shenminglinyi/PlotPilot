@@ -27,18 +27,36 @@
         />
       </template>
 
-      <!-- 右栏：角色档案（4 tab，含对白和记忆） -->
+      <!-- 右栏：本章角色锁 / 角色档案 -->
       <template #2>
-        <n-split class="cast-profile-split" direction="vertical" :default-size="0.44" :min="0.30" :max="0.64">
-          <template #1>
+        <n-tabs
+          v-model:value="activeDetailTab"
+          type="line"
+          size="small"
+          class="character-detail-tabs"
+          :tabs-padding="8"
+        >
+          <n-tab-pane name="chapter-cast" display-directive="show">
+            <template #tab>
+              <span class="tab-label">
+                <n-icon size="13" class="tab-icon"><LockClosedOutline /></n-icon>本章角色锁
+              </span>
+            </template>
             <div class="cast-manager-slot">
               <ChapterCastManager
                 :slug="slug"
                 :chapter-number="currentChapterNumber"
+                @select-character="onSelectCharacter"
               />
             </div>
-          </template>
-          <template #2>
+          </n-tab-pane>
+
+          <n-tab-pane name="profile" display-directive="show">
+            <template #tab>
+              <span class="tab-label">
+                <n-icon size="13" class="tab-icon"><PeopleOutline /></n-icon>角色档案
+              </span>
+            </template>
             <div class="character-profile-slot">
               <CharacterProfile
                 :slug="slug"
@@ -47,8 +65,8 @@
                 :desk-chapter-number="currentChapterNumber"
               />
             </div>
-          </template>
-        </n-split>
+          </n-tab-pane>
+        </n-tabs>
       </template>
     </n-split>
   </div>
@@ -56,7 +74,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { PeopleOutline } from '@vicons/ionicons5'
+import { LockClosedOutline, PeopleOutline } from '@vicons/ionicons5'
 import CharacterNavigator from './CharacterNavigator.vue'
 import CharacterProfile from './CharacterProfile.vue'
 import ChapterCastManager from './ChapterCastManager.vue'
@@ -78,9 +96,13 @@ function openStoryEvolution() {
 }
 
 const selectedCharacterId = ref<string | null>(null)
+const activeDetailTab = ref<'chapter-cast' | 'profile'>('chapter-cast')
 
 function onSelectCharacter(characterId: string | null) {
   selectedCharacterId.value = characterId
+  if (characterId) {
+    activeDetailTab.value = 'profile'
+  }
 }
 </script>
 
@@ -145,21 +167,40 @@ function onSelectCharacter(characterId: string | null) {
   height: 100%;
 }
 
-.cast-manager-slot,
-.character-profile-slot {
+.character-detail-tabs {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.character-detail-tabs :deep(.n-tabs-nav) {
+  flex-shrink: 0;
+}
+
+.character-detail-tabs :deep(.n-tab-pane),
+.character-detail-tabs :deep(.n-tabs-pane-wrapper),
+.character-detail-tabs :deep(.n-tabs-pane-wrapper .n-tab-pane) {
   height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-.character-dialogue-panel :deep(.cast-profile-split > .n-split-pane-1) {
-  position: relative;
-  z-index: 1;
-  min-height: 220px;
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
-.character-dialogue-panel :deep(.cast-profile-split > .n-split-pane-2) {
-  position: relative;
-  z-index: 0;
+.tab-icon {
+  flex-shrink: 0;
+}
+
+.cast-manager-slot,
+.character-profile-slot {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 </style>
