@@ -1,21 +1,21 @@
 # PlotPilot（墨枢）
 
->大家PR和ISSUE都看到，休息一段时间后审阅哈~
+> 剧情引擎内核仍在高速演进中。欢迎提交 Issue / PR；涉及商业化封装、私有素材、未公开设定稿的内容请先脱敏。
 
 <p align="center">
   <img src="docs/plotpilot-readme.256.png" alt="PlotPilot 墨枢" width="120" />
 </p>
 
 <p align="center">
-  <strong>开源叙事引擎内核</strong>
+  <strong>开源剧情引擎内核</strong>
 </p>
 
 <p align="center">
-  长篇 AI 创作的基础设施基石 — 持久记忆 · 知识图谱 · 自动推进流水线 · 可扩展生态
+  面向长篇 AI 创作的基础设施：持久记忆 · 知识图谱 · 自动推进流水线 · 质量治理闭环
 </p>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat&logo=python&logoColor=white" alt="Python"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.14.x-3776AB?style=flat&logo=python&logoColor=white" alt="Python"></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.5-4FC08D?style=flat&logo=vuedotjs&logoColor=white" alt="Vue"></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.109%2B-009688?style=flat&logo=fastapi&logoColor=white" alt="FastAPI"></a>
   <a href="https://github.com/shenminglinyi/PlotPilot/releases"><img src="https://img.shields.io/github/v/release/shenminglinyi/PlotPilot?style=flat&logo=github&color=6e40c9" alt="Release"></a>
@@ -34,15 +34,21 @@
 
 ## 这是什么
 
-PlotPilot 是一个**叙事引擎内核（Narrative Engine Kernel）**，不是聊天式写作助手。
+PlotPilot 是一个**剧情引擎内核（Narrative Engine Kernel）**，不是聊天式写作助手，也不是一组提示词模板。
 
 大多数 AI 写作工具解决的是"生成一段文字"的问题。PlotPilot 解决的是一个更难的工程问题：
 
 > **如何让 AI 系统在数十万字的叙事跨度里，维持人物一致性、因果链完整性、伏笔闭合率，并在无人值守的条件下持续推进？**
 
-这不是提示词优化问题，而是**系统工程问题**。PlotPilot 的答案是：构建一套完整的叙事状态管理基础设施，让 LLM 只做它最擅长的事——在结构化上下文中生成高质量叙事片段。
+这不是提示词优化问题，而是**系统工程问题**。PlotPilot 的答案是：构建一套完整的剧情状态管理基础设施，让 LLM 只做它最擅长的事——在结构化上下文中生成高质量叙事片段。
 
 本仓库是这套基础设施的**开源内核**。上层生态（垂直应用、编辑器插件、云服务）均以此为基石构建。
+
+项目边界很明确：
+
+- **不是** 单轮续写器：核心目标是长篇连续生产，而不是回答一次写作请求。
+- **不是** 大上下文堆料：世界观、人物、伏笔、故事线会被结构化为可追踪状态。
+- **不是** 单一前端产品：官方工作台只是内核的一个使用界面，核心能力通过 REST API 暴露。
 
 ---
 
@@ -71,23 +77,29 @@ PlotPilot 内核由五个相互协作的子系统构成：
 
 生成时，引擎通过当前场景语义自动召回相关历史内容，注入上下文，消除"模型失忆"问题。嵌入服务支持 OpenAI 兼容 API（轻量）和本地 `sentence-transformers` 模型（离线高性能）。
 
-### 3. 自动驾驶守护进程（Autopilot Daemon）
+### 3. 剧情引擎运行时（Engine Runtime）
 
-这是引擎最核心的系统组件。守护进程以阶段状态机的方式推进整部小说的生成：
+这是引擎最核心的系统组件。当前生产入口收敛在 `engine/runtime/engine_daemon.py`：由 `EngineDaemon` 承接守护进程生命周期，委托 `StoryPipelineRunner` 运行章节规划、写作、审计与状态推进；章节写作默认走 `BaseStoryPipeline` 十步管线。
 
 ```
 宏观规划（部 / 卷 / 幕结构）
     └─▶ 幕级节拍规划（Beat Sheet 生成）
             └─▶ 章节生成循环
-                    ├─▶ 上下文装配
-                    ├─▶ LLM 调用（流式）
+                    ├─▶ 叙事治理预算
+                    ├─▶ 章节执行剧本准备
+                    ├─▶ 上下文装配（人物 / 世界观 / 记忆 / 伏笔）
+                    ├─▶ LLM 调用
+                    ├─▶ 内容策略验证
+                    ├─▶ 文风漂移检测
                     ├─▶ 章末管线（摘要 / 事件 / 三元组 / 伏笔）
                     ├─▶ 向量索引更新
-                    ├─▶ 张力评分 & 文风检测
-                    └─▶ [人工审阅节点] → 继续 / 重写 / 中止
+                    ├─▶ 张力评分
+                    └─▶ 状态落库 → 继续 / 重写 / 暂停
 ```
 
 关键工程特性：
+- **单一生产入口**：`scripts/start_daemon.py` 构造依赖并启动 `EngineDaemon`
+- **可回退写作路径**：默认 `StoryPipeline` 写作，`PLOTPILOT_USE_STORY_PIPELINE=off/legacy` 可临时回退
 - **熔断保护**：连续失败超过阈值自动暂停，附带诊断信息
 - **单写者路由（Write Dispatch）**：所有 SQLite 写操作经由统一调度器串行执行，消除并发写冲突
 - **SSE 实时推流**：生成进度、Token 消耗、当前阶段、错误信息全部通过 Server-Sent Events 实时推送到前端
@@ -124,7 +136,7 @@ PlotPilot 内核（本仓库）
         │
         ├── 叙事状态机
         ├── 向量语义检索层
-        ├── 自动驾驶守护进程
+        ├── 剧情引擎运行时
         ├── 提示词策略层（20+ 接点）
         └── 质量监控子系统
                 │
@@ -150,7 +162,7 @@ PlotPilot 内核（本仓库）
 | 层 | 技术 | 选型理由 |
 |----|------|----------|
 | 后端框架 | FastAPI + uvicorn | 原生异步 + 自动 OpenAPI 文档，SSE 支持开箱即用 |
-| 架构范式 | DDD 四层（domain / application / infrastructure / interfaces） | 领域逻辑与技术实现严格隔离，生态扩展不污染内核 |
+| 架构范式 | DDD 分层 + 独立 `engine/` 运行内核 | 领域逻辑、用例编排、生产写作管线与技术实现分离，生态扩展不污染内核 |
 | AI 接入 | OpenAI 兼容协议 / Anthropic Claude / 火山方舟 Doubao | 统一接口抽象，模型切换不改业务代码 |
 | 向量存储 | ChromaDB（默认）/ FAISS | 本地部署，零外部依赖，冷启动快 |
 | 嵌入模型 | OpenAI 兼容 API / 本地 `bge-small-zh-v1.5` | 在线轻量与离线高性能双模式 |
@@ -169,7 +181,7 @@ PlotPilot 内核（本仓库）
 
 启动器自动完成：环境自检 → 创建虚拟环境 → 安装依赖（自动切换国内镜像源）→ 启动服务 → 打开浏览器。后续启动直接双击。
 
-> 支持 `tools\plotpilot.bat pack` 打包整个项目分享给他人，对方双击即用。
+> 支持 `tools\plotpilot.bat pack` 打包整个项目分享给他人，对方双击即用。当前启动器固定使用 Python 3.14 系列；如需使用系统 Python，可设置 `PLOTPILOT_PYTHON_EXE` 指向 Python 3.14 的 `python.exe`。
 
 ### 方式二：桌面安装版（Windows · Tauri）
 
@@ -181,11 +193,11 @@ PlotPilot 内核（本仓库）
 
 ## 开发者文档
 
-**环境要求**：Python 3.9+、Node.js 18+
+**环境要求**：Python 3.14.x、Node.js 18+
 
 ```bash
 # 后端 — Windows
-python -m venv .venv && .venv\Scripts\activate
+py -3.14 -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env    # 填写 LLM 凭证
 uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
@@ -193,7 +205,7 @@ uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
 
 ```bash
 # 后端 — Linux / macOS
-python3 -m venv .venv && source .venv/bin/activate
+python3.14 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 uvicorn interfaces.main:app --host 127.0.0.1 --port 8005 --reload
@@ -218,8 +230,13 @@ cd frontend && npm install && npm run dev
 
 | 变量 | 说明 |
 |------|------|
-| `ANTHROPIC_API_KEY` / `ARK_API_KEY` | 至少配置一个 LLM 凭证 |
-| `EMBEDDING_SERVICE` | `openai`（默认）或 `local`（需额外安装模型，见 `requirements-local.txt`） |
+| `LLM_PROVIDER` | 可选；指定默认 LLM 提供方 |
+| `ANTHROPIC_API_KEY` / `ARK_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | 至少配置一个 LLM 凭证 |
+| `ARK_BASE_URL` / `ARK_MODEL`、`ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`、`OPENAI_BASE_URL` / `OPENAI_MODEL`、`GEMINI_BASE_URL` / `GEMINI_MODEL` | 对应提供方的接口地址与模型名 |
+| `EMBEDDING_SERVICE` | `openai`（`.env.example` 默认）或 `local`（需额外安装模型，见 `requirements-local.txt`） |
+| `EMBEDDING_API_KEY` / `EMBEDDING_BASE_URL` / `EMBEDDING_MODEL` | 云端嵌入服务配置；`EMBEDDING_API_KEY` 为空时可回退读取 `OPENAI_API_KEY` |
+| `EMBEDDING_MODEL_PATH` / `EMBEDDING_USE_GPU` | 本地嵌入模型路径与 GPU 开关 |
+| `VECTOR_STORE_ENABLED` / `VECTOR_STORE_TYPE` / `VECTOR_STORE_PATH` | 向量索引开关、类型与持久化目录 |
 | `CORS_ORIGINS` | 生产环境前端域名，逗号分隔 |
 | `DISABLE_AUTO_DAEMON` | 设为 `1` 禁止启动时自动拉起守护进程 |
 | `LOG_LEVEL` / `LOG_FILE` | 日志级别与路径 |
@@ -232,33 +249,69 @@ cd frontend && npm install && npm run dev
 
 ```
 （项目根目录）/
-├── domain/                 # 领域层 — 核心业务逻辑，零外部依赖
-│   ├── novel/             # 小说聚合根、章节实体、故事线、伏笔注册表
-│   ├── bible/             # 设定库聚合根、人物（POV 防火墙）、地点、时间线
+├── domain/                 # 领域层 — 纯业务模型和值对象
+│   ├── novel/             # 小说、章节、故事线、伏笔、因果、张力
+│   ├── bible/             # 设定库、人物档案、地点、时间线
+│   ├── character/         # 人物实体、人物状态、关系能力
+│   ├── cast/              # 卡司与人物关系图
 │   ├── knowledge/         # 知识三元组、故事知识图
-│   ├── ai/                # LLM 服务接口定义、提示词值对象、Token 统计
-│   └── shared/            # 共享内核（基类、异常、领域事件）
+│   ├── memory/            # 长期记忆与上下文状态
+│   ├── prop/              # 道具生命周期与道具事件
+│   ├── worldbuilding/     # 世界观领域模型
+│   ├── structure/         # 故事结构节点
+│   ├── evolution/         # 世界线 / 演化相关模型
+│   ├── ai/                # AI 领域契约与值对象
+│   └── shared/            # 共享基类、异常、事件、ID
 │
-├── application/           # 应用层 — 用例编排，协调 domain 与 infrastructure
-│   ├── engine/            # AI 生成服务、自动驾驶守护进程、上下文装配器
-│   ├── blueprint/         # 宏观规划（部-卷-幕）、幕级规划（Beat Sheet）
-│   ├── world/             # Bible 管理、知识图谱构建、人物关系图
-│   ├── audit/             # 章节审阅、宏观重构、陈词滥调扫描
-│   ├── analyst/           # 文风分析、张力分析、漂移检测
-│   └── workflows/         # 工作流编排（章后管线、检查点快照）
+├── application/           # 应用层 — 用例编排，协调领域、引擎与基础设施
+│   ├── core/              # 小说 / 章节 / 导出等基础用例
+│   ├── onboarding/        # 新书向导、前置设定生成
+│   ├── blueprint/         # 宏观规划、连续规划、Beat Sheet、故事结构
+│   ├── engine/            # 上下文构建、章后管线、治理预算、AI 调用编排
+│   ├── governance/        # 叙事治理、质量约束、章节预算
+│   ├── audit/             # 章节审阅、宏观重构、章节元素分析
+│   ├── analyst/           # 文风、张力、伏笔账本、叙事状态分析
+│   ├── world/             # Bible、知识图谱、世界观与人物关系服务
+│   ├── ai/                # LLM / embedding 应用服务
+│   ├── ai_invocation/     # AI 调用记录与审阅
+│   ├── checkpoint/        # 检查点与快照用例
+│   ├── memory/            # 记忆编排用例
+│   ├── narrative/         # 叙事投影与状态同步
+│   ├── narrative_engine/  # 叙事引擎应用服务
+│   ├── manuscript/        # 正文实体索引与手稿服务
+│   ├── prop/              # 道具应用服务
+│   ├── reader/            # 读者模拟 / 阅读侧能力
+│   ├── snapshot/          # 快照应用服务
+│   ├── workbench/         # 工作台编排
+│   └── workflows/         # 自动生成工作流、兼容编排与后台任务
+│
+├── engine/                # 剧情引擎内核 — 生产运行时、章节写作管线与题材扩展
+│   ├── runtime/           # EngineDaemon、StoryPipelineRunner、守护进程委托、质量守门
+│   ├── pipeline/          # BaseStoryPipeline 十步章节生成管线
+│   ├── pipelines/         # 题材 Pipeline 注册与扩展（如武侠、通用题材桥接）
+│   ├── core/              # 引擎侧实体、端口、服务契约
+│   └── infrastructure/    # 引擎事件、记忆编排、checkpoint 适配
 │
 ├── infrastructure/        # 基础设施层 — 技术实现，可替换
-│   ├── ai/                # LLM 客户端、ChromaDB/FAISS 向量存储、嵌入服务
-│   └── persistence/       # SQLite 仓储实现、Write Dispatch 单写者调度器
+│   ├── ai/                # LLM Provider、Prompt Packages、向量存储、嵌入服务
+│   ├── persistence/       # SQLite 仓储、迁移、Write Dispatch 单写者调度器
+│   ├── export/            # DOCX / EPUB / PDF 导出
+│   └── runtime/           # 数据目录、日志环境与进程级运行配置
 │
-└── interfaces/            # 接口层 — 外部边界
-    └── api/v1/            # REST API（FastAPI），按子域分路由
-        ├── core/          # 小说 / 章节 CRUD
-        ├── engine/        # 生成 / 自动驾驶 / SSE 推流
-        ├── world/         # Bible / 知识图谱
-        ├── blueprint/     # 规划
-        ├── audit/         # 审阅
-        └── analyst/       # 分析
+├── interfaces/            # 接口层 — FastAPI、依赖注入、运行状态与外部边界
+│   ├── main.py            # FastAPI 应用入口
+│   ├── daemon_manager.py  # 后端内自动驾驶进程管理
+│   └── api/v1/            # REST API（core / world / blueprint / engine / audit / analyst 等）
+│
+├── frontend/              # 官方工作台 — Vue 3 + TypeScript + Tauri 桌面壳
+│   ├── src/               # 工作台、自动驾驶、知识图谱、设置、API client
+│   └── src-tauri/         # Tauri 桌面客户端与后端 sidecar
+│
+├── shared/                # 跨端共享配置与分类体系资源
+├── config/                # 本地配置与默认配置
+├── scripts/               # 启动、安装、迁移、评估与维护脚本
+├── tests/                 # 单元、集成、E2E 与 DAG 测试
+└── tools/                 # Windows 启动器与内嵌 Python 包
 ```
 
 完整设计与分层说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -283,6 +336,19 @@ pytest tests/ --cov=. --cov-report=term-missing
 4. 推送并发起 Pull Request
 
 架构与分层说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；其余文档索引见 [docs/README.md](docs/README.md)。
+
+---
+
+## 提交安全边界
+
+请不要提交以下内容：
+
+- `.env`、API Key、模型网关地址中的私有凭证
+- `data/`、`logs/`、SQLite 数据库、向量库、运行时缓存
+- Word / PPT / Excel 等办公文档（如 `.docx`、`.pptx`、`.xlsx`），尤其是未公开设定、商业计划、合同、客户资料
+- 打包产物、安装包、Tauri / PyInstaller 输出目录
+
+如果必须提交示例资料，请放入脱敏后的 Markdown / JSON / YAML，并确认不包含真实密钥、真实用户数据或未公开作品内容。
 
 ---
 

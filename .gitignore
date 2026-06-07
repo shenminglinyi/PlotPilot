@@ -55,6 +55,15 @@ coverage.xml
 *.sqlite
 *.sqlite3
 
+# ── 办公文档 / 草稿资料（可能包含未公开内容，勿提交） ──
+*.doc
+*.docx
+*.docm
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+
 # ── 应用运行时数据（保留目录结构，忽略内容） ──
 data/novels/
 data/foreshadowings/
