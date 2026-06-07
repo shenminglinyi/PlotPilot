@@ -1571,7 +1571,7 @@ function startCharactersGenerationSSE() {
   streamingCharacters.value = []
   editableCharacters.value = []
   generatedCharacterDrafts.value = {}
-  phaseMessage.value = featureFlags.aiInvocationDebug ? '正在打开审阅面板...' : '正在生成人物...'
+  phaseMessage.value = '正在生成人物...'
 
   const ctrl = new AbortController()
   charactersSseAbort.value = ctrl
@@ -1630,7 +1630,7 @@ function startLocationsGenerationSSE() {
   locationsError.value = ''
   streamingLocations.value = []
   editableLocations.value = []
-  phaseMessage.value = featureFlags.aiInvocationDebug ? '正在打开审阅面板...' : '正在生成地点...'
+  phaseMessage.value = '正在生成地点...'
 
   const ctrl = new AbortController()
   locationsSseAbort.value = ctrl

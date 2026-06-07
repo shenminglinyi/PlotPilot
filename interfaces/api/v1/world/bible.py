@@ -624,23 +624,6 @@ async def _sse_bible_generator(
             return
 
     try:
-        if stage in _BIBLE_SETUP_NODE_BY_STAGE:
-            payload = await _create_bible_setup_invocation(
-                novel_id=novel_id,
-                stage=stage,
-                novel=novel,
-                bible_generator=bible_generator,
-            )
-            session = payload.get("session") or {}
-            yield _sse_fmt("data", {
-                "type": "approval_required",
-                "session_id": session.get("id", ""),
-                "status": session.get("status", ""),
-                "next_action": payload.get("next_action", ""),
-                "stage": stage,
-            })
-            return
-
         if stage in ("all", "worldbuilding"):
             # ── 世界观生成（单次 LLM 流式，五维联动） ──
             yield _sse_fmt("phase", {"phase": "worldbuilding", "message": "AI 正在构建世界观（5维度框架）..."})
