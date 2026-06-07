@@ -422,6 +422,7 @@ import { narrativeStateApi } from '../../api/tools'
 import type { EntityState } from '../../api/tools'
 import { knowledgeGraphApi } from '../../api/knowledgeGraph'
 import type { TripleDTO, KGStatistics } from '../../api/knowledgeGraph'
+import { formatApiError, getHttpStatus } from '../../utils/apiError'
 import CastGraphCompact from '../graphs/CastGraphCompact.vue'
 import LocationGraphCompact from '../graphs/LocationGraphCompact.vue'
 import KnowledgeGraphView from './KnowledgeGraphView.vue'
@@ -591,8 +592,7 @@ const fetchEntityState = async () => {
       entityStateChapter.value
     )
   } catch (e: unknown) {
-    const err = e as { response?: { status?: number } }
-    entityStateError.value = err.response?.status === 404
+    entityStateError.value = getHttpStatus(e) === 404
       ? `未找到实体「${entityStateId.value}」`
       : '查询失败，请确认实体 ID 是否正确'
   } finally {
@@ -613,8 +613,8 @@ const doSearch = async () => {
   try {
     const r = await knowledgeApi.searchKnowledge(props.slug, q, 8)
     searchHits.value = r.hits || []
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '检索失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '检索失败'))
   } finally {
     searching.value = false
   }
@@ -685,10 +685,10 @@ const load = async () => {
       })),
     }
     await loadOutlineTitles()
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (seq !== knowledgeLoadSeq || props.slug !== slug) return
     console.error('加载叙事知识失败:', e)
-    message.error(e?.response?.data?.detail || '加载叙事知识失败')
+    message.error(formatApiError(e, '加载叙事知识失败'))
   }
 }
 
@@ -709,8 +709,8 @@ const save = async () => {
     })
     data.value.premise_lock = server.premise_lock
     message.success('已保存并进入全书上下文')
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '保存失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -723,8 +723,8 @@ const generateKnowledge = async () => {
     message.success(res.message || 'Knowledge 生成成功')
     await load()
     subTab.value = 'chapters'
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || 'AI 生成失败，请确认 API Key 已配置')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, 'AI 生成失败，请确认 API Key 已配置'))
   } finally {
     generating.value = false
   }

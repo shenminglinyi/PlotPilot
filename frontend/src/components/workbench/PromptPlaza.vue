@@ -272,6 +272,7 @@ import {
   NModal, NForm, NFormItem, NSelect, NUpload, useMessage,
 } from 'naive-ui'
 import { promptPlazaApi, type PromptNode, type PromptCategoryInfo, type PromptStats, type PlazaInitResult } from '../../api/llmControl'
+import { formatApiError } from '../../utils/apiError'
 import NodeCard from './promptPlaza/NodeCard.vue'
 
 /** 详情 / Anti-AI 惰性分包，缩短首屏解析与请求前排队的链路 */
@@ -480,8 +481,7 @@ async function handleImportJson() {
     await loadData()
     return true
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } }; message?: string }
-    message.error(err?.response?.data?.detail || err?.message || '导入失败')
+    message.error(formatApiError(e, '导入失败'))
     return false
   }
 }
@@ -510,8 +510,8 @@ async function handleCreate() {
     Object.assign(createForm, { name: '', node_key: '', category: 'generation', system: '', user_template: '', description: '' })
     loadData()
     return true
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '创建失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '创建失败'))
     return false
   }
 }

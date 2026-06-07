@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from infrastructure.ai.embedding_environment import EmbeddingEnvironmentSettings
+from infrastructure.ai.llm_environment import LLMEnvironmentSettings
 from infrastructure.ai.process_environment import (
     configure_huggingface_process_environment,
 )
@@ -27,53 +28,6 @@ def configure_process_environment() -> None:
 def _split_csv_env(value: str) -> list[str]:
     values = [item.strip() for item in value.split(",") if item.strip()]
     return values or ["*"]
-
-
-def _env_text(name: str, default: str = "") -> str:
-    return (os.getenv(name, default) or "").strip()
-
-
-@dataclass(frozen=True)
-class LLMEnvironmentSettings:
-    """Typed view of legacy LLM-related environment variables."""
-
-    provider: str = ""
-    writing_model: str = ""
-    system_model: str = ""
-    anthropic_api_key: str = ""
-    anthropic_auth_token: str = ""
-    anthropic_base_url: str = ""
-    anthropic_model: str = ""
-    openai_api_key: str = ""
-    openai_base_url: str = ""
-    openai_model: str = ""
-    gemini_api_key: str = ""
-    gemini_base_url: str = ""
-    gemini_model: str = ""
-    ark_api_key: str = ""
-    ark_base_url: str = ""
-    ark_model: str = ""
-
-    @classmethod
-    def from_env(cls) -> "LLMEnvironmentSettings":
-        return cls(
-            provider=_env_text("LLM_PROVIDER").lower(),
-            writing_model=_env_text("WRITING_MODEL"),
-            system_model=_env_text("SYSTEM_MODEL"),
-            anthropic_api_key=_env_text("ANTHROPIC_API_KEY"),
-            anthropic_auth_token=_env_text("ANTHROPIC_AUTH_TOKEN"),
-            anthropic_base_url=_env_text("ANTHROPIC_BASE_URL"),
-            anthropic_model=_env_text("ANTHROPIC_MODEL"),
-            openai_api_key=_env_text("OPENAI_API_KEY"),
-            openai_base_url=_env_text("OPENAI_BASE_URL"),
-            openai_model=_env_text("OPENAI_MODEL"),
-            gemini_api_key=_env_text("GEMINI_API_KEY"),
-            gemini_base_url=_env_text("GEMINI_BASE_URL"),
-            gemini_model=_env_text("GEMINI_MODEL"),
-            ark_api_key=_env_text("ARK_API_KEY"),
-            ark_base_url=_env_text("ARK_BASE_URL"),
-            ark_model=_env_text("ARK_MODEL"),
-        )
 
 
 @dataclass(frozen=True)

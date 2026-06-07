@@ -1,5 +1,4 @@
 import logging
-import os
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from domain.novel.value_objects.chapter_state import ChapterState
@@ -7,6 +6,7 @@ from application.ai.chapter_state_llm_contract import (
     chapter_state_payload_to_domain,
     parse_chapter_state_llm_response,
 )
+from infrastructure.ai.llm_environment import LLMEnvironmentSettings
 from infrastructure.ai.prompt_keys import CHAPTER_STATE_EXTRACTION
 from infrastructure.ai.prompt_utils import render_required_prompt
 
@@ -23,8 +23,9 @@ class StateExtractor:
     使用 LLM 从章节内容中提取结构化信息
     """
 
-    def __init__(self, llm_service: LLMService):
+    def __init__(self, llm_service: LLMService, model: str = ""):
         self.llm_service = llm_service
+        self.model = model or LLMEnvironmentSettings.from_env().writing_model
 
     async def extract_chapter_state(self, content: str) -> ChapterState:
         """从章节内容中提取状态
@@ -41,7 +42,7 @@ class StateExtractor:
 
         # 配置 LLM
         config = GenerationConfig(
-            model=os.getenv("WRITING_MODEL", ""),
+            model=self.model,
             max_tokens=4096,
             temperature=0.3
         )

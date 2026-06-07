@@ -14,6 +14,7 @@ import { knowledgeApi } from '../../api/knowledge'
 import GraphChart from '../charts/GraphChart.vue'
 import { convertGraph, type VisNode, type VisEdge, type EChartsGraphData } from '../../utils/visToEcharts'
 import { useThemeStore } from '../../stores/themeStore'
+import { formatApiError } from '../../utils/apiError'
 
 const props = defineProps<{ slug: string }>()
 const emit = defineEmits<{ reload: [] }>()
@@ -145,8 +146,8 @@ const reload = async () => {
     const data = await knowledgeApi.getKnowledge(props.slug)
     facts.value = data.facts || []
     await redraw()
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '加载失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '加载失败'))
   } finally {
     loading.value = false
   }

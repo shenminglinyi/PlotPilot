@@ -144,6 +144,21 @@ class TestStateExtractor:
         assert isinstance(call_args[1]['config'], GenerationConfig)
 
     @pytest.mark.asyncio
+    async def test_extract_chapter_state_uses_injected_model(self):
+        """显式注入模型时不依赖环境变量默认值。"""
+        extractor = StateExtractor(llm_service=self.llm_service, model="writing-test-model")
+        self.llm_service.generate = AsyncMock(return_value=GenerationResult(
+            content='{"new_characters": [], "character_actions": [], "relationship_changes": [], "foreshadowing_planted": [], "foreshadowing_resolved": [], "events": []}',
+            token_usage=TokenUsage(input_tokens=100, output_tokens=50)
+        ))
+
+        await extractor.extract_chapter_state(content="测试内容")
+
+        config = self.llm_service.generate.call_args[1]["config"]
+        assert isinstance(config, GenerationConfig)
+        assert config.model == "writing-test-model"
+
+    @pytest.mark.asyncio
     async def test_extract_chapter_state_invalid_contract_blocks(self):
         """顶层多字段时契约拒绝，流程阻塞，不再伪造空状态。"""
         self.llm_service.generate = AsyncMock(

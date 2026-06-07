@@ -300,6 +300,7 @@ import { useMessage, useDialog } from 'naive-ui'
 import { worldlineApi, type CheckpointNode, type WorldlineGraph, type BranchInfo } from '@/api/worldline'
 import { confluenceApi, type ConfluencePointDTO } from '@/api/confluence'
 import { workflowApi, type StorylineDTO } from '@/api/workflow'
+import { getConfluenceLabel } from '@/domain/storyline'
 
 interface Props {
   slug: string
@@ -609,14 +610,7 @@ function triggerLabel(t: string) {
   return map[t] ?? t
 }
 
-function confluenceLabel(t: string) {
-  const map: Record<string, string> = {
-    intersect: '交叉',
-    absorb: '并入',
-    reveal: '显影',
-  }
-  return map[t] ?? t
-}
+const confluenceLabel = getConfluenceLabel
 
 function storylineName(id: string) {
   const s = storylines.value.find(item => item.id === id)

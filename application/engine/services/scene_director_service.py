@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from application.ai.trace_context import ensure_trace
 from application.engine.dtos.scene_director_dto import ActionTransitionGraphPayload, SceneDirectorAnalysis
 from domain.ai.services.llm_service import GenerationConfig, LLMService
+from infrastructure.ai.llm_environment import LLMEnvironmentSettings
 from infrastructure.ai.prompt_keys import SCENE_DIRECTOR as _SCENE_DIRECTOR_NODE_KEY
 from infrastructure.ai.prompt_utils import render_required_prompt
 
@@ -23,7 +23,7 @@ class SceneDirectorService:
 
     def __init__(self, llm_service: LLMService, *, model: str = ""):
         self._llm = llm_service
-        self._model = model or os.getenv("SYSTEM_MODEL", "")
+        self._model = model or LLMEnvironmentSettings.from_env().system_model
 
     async def analyze(self, chapter_number: int, outline: str) -> SceneDirectorAnalysis:
         """Analyze a chapter outline and extract scene-director metadata."""

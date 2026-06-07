@@ -31,6 +31,24 @@ async def test_analyze_outline_parses_json():
 
 
 @pytest.mark.asyncio
+async def test_analyze_uses_injected_model():
+    llm = Mock()
+    llm.generate = AsyncMock(
+        return_value=GenerationResult(
+            content='{"characters":[]}',
+            token_usage=TokenUsage(input_tokens=1, output_tokens=1),
+        )
+    )
+    svc = SceneDirectorService(llm_service=llm, model="system-test-model")
+
+    await svc.analyze(chapter_number=1, outline="A walks")
+
+    config = llm.generate.call_args[0][1]
+    assert isinstance(config, GenerationConfig)
+    assert config.model == "system-test-model"
+
+
+@pytest.mark.asyncio
 async def test_analyze_returns_empty_on_invalid_json():
     """Test that invalid JSON returns empty SceneDirectorAnalysis."""
     llm = Mock()

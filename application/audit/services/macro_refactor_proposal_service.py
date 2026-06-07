@@ -1,12 +1,12 @@
 """Macro Refactor Proposal Service - 使用 LLM 生成重构建议"""
 import logging
-import os
 from typing import Dict, Any
 from application.audit.dtos.macro_refactor_dto import RefactorProposalRequest, RefactorProposal
 from application.ai.llm_json_extract import parse_llm_json_to_dict
 from application.ai.trace_context import ensure_trace
 from domain.ai.services.llm_service import LLMService, GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
+from infrastructure.ai.llm_environment import LLMEnvironmentSettings
 from infrastructure.ai.prompt_utils import PromptTemplateUnavailable
 
 logger = logging.getLogger(__name__)
@@ -19,13 +19,14 @@ class MacroRefactorProposalError(RuntimeError):
 class MacroRefactorProposalService:
     """宏观重构提案服务 - 使用 LLM 生成修复建议"""
 
-    def __init__(self, llm_service: LLMService):
+    def __init__(self, llm_service: LLMService, model: str = ""):
         """初始化服务
 
         Args:
             llm_service: LLM 服务实例
         """
         self.llm_service = llm_service
+        self.model = model or LLMEnvironmentSettings.from_env().system_model
 
     async def generate_proposal(self, request: RefactorProposalRequest) -> RefactorProposal:
         """生成重构提案
@@ -41,7 +42,7 @@ class MacroRefactorProposalService:
             prompt = self._build_prompt(request)
 
             config = GenerationConfig(
-                model=os.getenv("SYSTEM_MODEL", ""),
+                model=self.model,
                 max_tokens=2048,
                 temperature=0.7
             )

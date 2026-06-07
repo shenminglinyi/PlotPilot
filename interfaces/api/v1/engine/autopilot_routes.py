@@ -1979,7 +1979,9 @@ async def autopilot_log_stream(
         for line in replay_lines:
             yield line
 
-        log_file_path = os.getenv("LOG_FILE", "logs/plotpilot.log")
+        from interfaces.api.settings import get_backend_settings
+
+        log_file_path = get_backend_settings().log_file
         file_cursor = await loop.run_in_executor(
             _SSE_THREAD_POOL, _log_stream_file_cursor_init_sync, log_file_path, after_seq
         )

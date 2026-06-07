@@ -12,7 +12,6 @@
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
 import logging
-import os
 
 from domain.novel.entities.chapter import Chapter
 from domain.novel.repositories.chapter_repository import ChapterRepository
@@ -24,6 +23,7 @@ from application.ai.llm_json_extract import parse_llm_json_to_dict
 from domain.ai.services.llm_service import LLMService
 from application.ai.trace_context import ensure_trace
 from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.llm_environment import LLMEnvironmentSettings
 from infrastructure.ai.prompt_contract import PromptContract
 from infrastructure.ai.prompt_gateway import get_prompt_gateway
 
@@ -125,7 +125,7 @@ class ChapterReviewService:
         self.foreshadowing_repo = foreshadowing_repo
         self.vector_store = vector_store
         self.llm_service = llm_service
-        self.model = model or os.getenv("SYSTEM_MODEL", "")
+        self.model = model or LLMEnvironmentSettings.from_env().system_model
 
     @staticmethod
     def _render_review_prompt(review_type: str, variables: Dict[str, Any]):

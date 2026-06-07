@@ -125,6 +125,7 @@ import {
   NUpload, useMessage, NSpin,
 } from 'naive-ui'
 import { promptPlazaApi, type PromptStats } from '../../api/llmControl'
+import { formatApiError } from '../../utils/apiError'
 
 const PromptPlaza = defineAsyncComponent({
   loader: () => import('../workbench/PromptPlaza.vue'),
@@ -233,8 +234,7 @@ async function handleImport() {
     await plazaRef.value?.loadData?.()
     return true
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } }; message?: string }
-    message.error(err?.response?.data?.detail || err?.message || '导入失败，请检查 JSON 格式')
+    message.error(formatApiError(e, '导入失败，请检查 JSON 格式'))
     return false
   }
 }

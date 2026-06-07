@@ -73,6 +73,28 @@ async def test_generate_proposal_returns_structured_data(proposal_service, mock_
 
 
 @pytest.mark.asyncio
+async def test_generate_proposal_uses_injected_model(mock_llm_service):
+    """显式注入模型时不依赖环境变量默认值。"""
+    service = MacroRefactorProposalService(mock_llm_service, model="system-test-model")
+    request = RefactorProposalRequest(
+        event_id="evt_001",
+        author_intent="修复",
+        current_event_summary="摘要",
+        current_tags=["tag1"],
+    )
+    mock_llm_service.generate.return_value = GenerationResult(
+        content='{"natural_language_suggestion":"建议","suggested_mutations":[],"suggested_tags":[],"reasoning":"理由"}',
+        token_usage=TokenUsage(input_tokens=10, output_tokens=10),
+    )
+
+    await service.generate_proposal(request)
+
+    config = mock_llm_service.generate.call_args[0][1]
+    assert isinstance(config, GenerationConfig)
+    assert config.model == "system-test-model"
+
+
+@pytest.mark.asyncio
 async def test_generate_proposal_blocks_on_llm_error(proposal_service, mock_llm_service):
     """测试 LLM 错误时阻塞流程，不返回伪造提案"""
     # Arrange

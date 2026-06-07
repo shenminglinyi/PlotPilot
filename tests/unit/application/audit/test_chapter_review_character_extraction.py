@@ -24,3 +24,18 @@ def test_extract_characters_from_content_uses_cast_names_and_aliases():
     )
 
     assert found == ["沈岚", "顾明"]
+
+
+def test_chapter_review_service_uses_injected_model():
+    service = ChapterReviewService(
+        chapter_repo=None,
+        cast_repo=None,
+        timeline_repo=None,
+        storyline_repo=None,
+        foreshadowing_repo=None,
+        vector_store=None,
+        llm_service=None,
+        model="system-test-model",
+    )
+
+    assert service.model == "system-test-model"

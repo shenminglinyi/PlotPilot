@@ -3,6 +3,7 @@
 日志：默认与 API 共用 ``logs/plotpilot.log``（环境变量 LOG_FILE），便于在「主日志」里查看
 规划/写作/节拍；另可设 LOG_FILE 仅写文件。
 """
+import os
 import sys
 import logging
 import time
@@ -48,11 +49,15 @@ from interfaces.api.dependencies import (
     get_chapter_indexing_service,
 )
 from interfaces.api.middleware.logging_config import parse_log_level, setup_logging
+from interfaces.api.settings import get_backend_settings
 
 (DATA_DIR / "logs").mkdir(parents=True, exist_ok=True)
-_log_level = parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
+_settings = get_backend_settings()
+_log_level = parse_log_level(_settings.log_level)
 _default_log = str(PLOTPILOT_ROOT / "logs" / "plotpilot.log")
-_log_file = os.getenv("LOG_FILE", _default_log)
+_log_file = _settings.log_file
+if _log_file == "logs/plotpilot.log":
+    _log_file = _default_log
 setup_logging(level=_log_level, log_file=_log_file)
 
 logger = logging.getLogger(__name__)

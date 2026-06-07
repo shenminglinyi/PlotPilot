@@ -63,12 +63,56 @@ def test_embedding_services_use_environment_settings_object():
     assert offenders == []
 
 
+def test_llm_control_service_uses_environment_settings_object():
+    source = Path("application/ai/llm_control_service.py").read_text(encoding="utf-8")
+
+    assert "os.getenv(" not in source
+    assert "LLMEnvironmentSettings" in source
+
+
+def test_application_model_services_use_environment_settings_object():
+    paths = [
+        Path("application/audit/services/macro_refactor_proposal_service.py"),
+        Path("application/audit/services/chapter_review_service.py"),
+        Path("application/analyst/services/state_extractor.py"),
+        Path("application/engine/services/scene_director_service.py"),
+    ]
+    offenders = []
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        if "os.getenv(" in source:
+            offenders.append(str(path))
+        assert "LLMEnvironmentSettings" in source
+
+    assert offenders == []
+
+
 def test_backend_settings_delegates_vector_store_environment_parsing():
     source = Path("interfaces/api/settings.py").read_text(encoding="utf-8")
 
     assert "VECTOR_STORE_" not in source
     assert "QDRANT_" not in source
     assert "VectorStoreEnvironmentSettings" in source
+
+
+def test_backend_settings_delegates_llm_environment_parsing():
+    source = Path("interfaces/api/settings.py").read_text(encoding="utf-8")
+
+    assert "ANTHROPIC_" not in source
+    assert "OPENAI_" not in source
+    assert "GEMINI_" not in source
+    assert "ARK_" not in source
+    assert "LLMEnvironmentSettings" in source
+
+
+def test_api_routes_do_not_read_log_file_env_directly():
+    offenders = []
+    for path in Path("interfaces/api/v1").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if 'os.getenv("LOG_FILE"' in source or "os.getenv('LOG_FILE'" in source:
+            offenders.append(str(path))
+
+    assert offenders == []
 
 
 def test_app_factory_registers_legacy_and_api_routes(tmp_path):

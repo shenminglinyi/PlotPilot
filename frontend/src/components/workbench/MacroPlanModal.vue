@@ -134,6 +134,7 @@ import {
   type MacroVolumeNode,
   type MacroActNode,
 } from '../../api/planning'
+import { formatApiError, getApiErrorDetail } from '../../utils/apiError'
 
 const props = defineProps<{ show: boolean; novelId: string }>()
 const emit = defineEmits<{
@@ -311,12 +312,11 @@ async function confirmSave() {
     emit('confirmed')
     show.value = false
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: unknown } } }
-    const detail = err?.response?.data?.detail
-    if (detail && typeof detail === 'object' && (detail as Record<string, unknown>).error === 'MERGE_CONFLICT') {
+    const detail = getApiErrorDetail(e)
+    if (detail === 'MERGE_CONFLICT') {
       message.error('结构存在冲突，请先清空现有结构后重试')
     } else {
-      message.error(typeof detail === 'string' ? detail : '写入失败，请重试')
+      message.error(formatApiError(e, '写入失败，请重试'))
     }
   } finally {
     isConfirming.value = false

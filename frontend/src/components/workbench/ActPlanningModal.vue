@@ -158,6 +158,7 @@
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
 import { useMessage } from 'naive-ui'
 import { streamActChapterPlan, planningApi } from '../../api/planning'
+import { formatApiError } from '../../utils/apiError'
 
 interface ChapterDraft {
   title: string
@@ -341,8 +342,7 @@ async function confirm() {
     emit('confirmed')
     emit('update:show', false)
   } catch (e: unknown) {
-    const err = e as { response?: { data?: { detail?: string } } }
-    message.error(err?.response?.data?.detail || '保存失败')
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     confirming.value = false
   }

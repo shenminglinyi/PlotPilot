@@ -120,7 +120,9 @@ def _tail_log_file_lines(
 
 def _snapshot_feedback_bundle_sync(max_lines: int, ring_limit: int) -> Dict[str, Any]:
     """运行于线程池，避免磁盘 IO 卡住事件循环。"""
-    log_env = os.getenv("LOG_FILE", "logs/plotpilot.log")
+    from interfaces.api.settings import get_backend_settings
+
+    log_env = get_backend_settings().log_file
     lines, resolved, missing, log_truncated = _tail_log_file_lines(log_env, max_lines)
 
     backend_release = "unknown"

@@ -212,6 +212,7 @@ import {
   type PromptVersionDetail,
 } from '../../../api/llmControl'
 import { usePromptPlazaBridge } from '@/stores/promptPlazaBridge'
+import { formatApiError } from '../../../utils/apiError'
 
 const props = defineProps<{
   nodeKey: string
@@ -294,8 +295,8 @@ async function handleSave() {
     message.success((res as any).message || '保存成功')
     emit('updated')
     await loadDetail()
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '保存失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '保存失败'))
   } finally {
     saving.value = false
   }
@@ -308,8 +309,8 @@ async function handleRollback(ver: PromptVersion) {
     message.success((res as any).message || `已回滚到 v${ver.version_number}`)
     emit('updated')
     await loadDetail()
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '回滚失败')
+  } catch (e: unknown) {
+    message.error(formatApiError(e, '回滚失败'))
   }
 }
 
