@@ -94,6 +94,7 @@ async def _request_act_invocation(
     from application.ai_invocation.autopilot.intents import AutopilotInvocationIntent
     from application.ai_invocation.autopilot.policy import AutopilotInvocationPolicyResolver
     from application.ai_invocation.contracts import ensure_invocation_contract
+    from infrastructure.ai.generation_profiles import generation_config_from_profile
     from infrastructure.ai.prompt_keys import PLANNING_ACT
     from infrastructure.persistence.database.connection import get_database
 
@@ -123,6 +124,7 @@ async def _request_act_invocation(
         novel=novel,
         context={"novel_id": novel.novel_id.value, "act_id": target_act.id},
     )
+    config = generation_config_from_profile("planning_act")
     return await get_or_create_autopilot_orchestrator(host).request(
         AutopilotInvocationIntent(
             novel_id=novel.novel_id.value,
@@ -138,7 +140,7 @@ async def _request_act_invocation(
             continuation_handler_key="autopilot_act_plan",
             policy_hint=policy,
             metadata={"source": "act_planning_delegate"},
-            config={"max_tokens": 12000, "temperature": 0.7},
+            config=config,
         )
     )
 

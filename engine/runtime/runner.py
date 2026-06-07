@@ -87,6 +87,7 @@ class StoryPipelineRunner(DaemonHostMixin, BaseStoryPipeline):
             foreshadowing_repository=self.foreshadowing_repository,
             story_node_repo=self.story_node_repo,
             planning_service=self.planning_service,
+            chapter_preplanning_service=getattr(self, "chapter_preplanning_service", None),
             chapter_workflow=self.chapter_workflow,
             background_task_service=self.background_task_service,
             circuit_breaker=self.circuit_breaker,

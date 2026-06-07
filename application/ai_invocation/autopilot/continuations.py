@@ -348,6 +348,8 @@ def register_autopilot_continuations() -> None:
         }
 
     def _act_plan(ctx: ContinuationContext) -> Mapping[str, Any]:
+        from application.blueprint.services.chapter_planning_policy import validate_lightweight_act_plan
+
         payload = _load_json_object(
             ctx.decision.accepted_content,
             "autopilot_act_plan_requires_json_object",
@@ -355,6 +357,10 @@ def register_autopilot_continuations() -> None:
         chapters = payload.get("chapters") or []
         if not isinstance(chapters, list) or not chapters:
             raise ValueError("autopilot_act_plan_requires_non_empty_chapters")
+        expected_count = int(ctx.session.context.get("chapter_count") or 0)
+        errors = validate_lightweight_act_plan(chapters, expected_count=expected_count)
+        if errors:
+            raise ValueError("autopilot_act_plan_incomplete_or_truncated: " + "; ".join(errors))
 
         novel_id = str(ctx.session.context.get("novel_id") or "")
         act_id = str(ctx.session.context.get("act_id") or "")

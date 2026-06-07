@@ -112,22 +112,7 @@ class BaseStoryPipeline(ABC):
             # 1b. 叙事治理准备：生成章节预算与上下文请求，作为后续上下文组装的硬约束输入。
             await self._step_prepare_governance(ctx)
 
-            # 2. 组装上下文（四层洋葱挤压）
-            r = await self._step_build_context(ctx)
-            step_status["build_context"] = "ok" if r.passed else "failed"
-            if not r.passed:
-                return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
-            _writing_progress(
-                ctx,
-                "context_assembly",
-                "组装上下文",
-                pipeline_wave_index=2,
-                current_chapter_number=ctx.chapter_number,
-                context_tokens=int(ctx.context_tokens or 0),
-                chapter_target_words=ctx.target_word_count,
-            )
-
-            # 3. 章节执行剧本准备（不再拆 beat，不再循环生成）
+            # 2. 章节执行剧本准备：旧数据直接复用七段，新幕级轻量链条在这里补成七段。
             r = await self._step_prepare_chapter_plan(ctx)
             step_status["prepare_chapter_plan"] = "ok" if r.passed else "failed"
             if not r.passed:
@@ -136,12 +121,27 @@ class BaseStoryPipeline(ABC):
                 ctx,
                 "chapter_plan_ready",
                 "章节执行剧本准备完成",
-                pipeline_wave_index=3,
+                pipeline_wave_index=2,
                 current_chapter_number=ctx.chapter_number,
                 total_beats=0,
                 current_beat_index=0,
                 chapter_target_words=ctx.target_word_count,
                 chapter_plan_mode=ctx.metadata.get("chapter_plan_mode") or "",
+            )
+
+            # 3. 组装上下文（四层洋葱挤压）
+            r = await self._step_build_context(ctx)
+            step_status["build_context"] = "ok" if r.passed else "failed"
+            if not r.passed:
+                return self._make_result(ctx, success=False, error=r.message, step_status=step_status)
+            _writing_progress(
+                ctx,
+                "context_assembly",
+                "组装上下文",
+                pipeline_wave_index=3,
+                current_chapter_number=ctx.chapter_number,
+                context_tokens=int(ctx.context_tokens or 0),
+                chapter_target_words=ctx.target_word_count,
             )
 
             # 4. LLM 生成（整章一次写完）
@@ -420,17 +420,46 @@ class BaseStoryPipeline(ABC):
     async def _step_prepare_chapter_plan(self, ctx: PipelineContext) -> StepResult:
         """步骤3：准备章节执行剧本。
 
-        幕规划阶段应已把章节 outline 写成完整执行剧本。本步骤只校验并
-        标记模式，不再把 outline 拆成 beat，也不再触发章前 LLM 拆拍。
+        旧数据若已有七段剧本则直接复用；新幕级规划只提供轻量主事件链，
+        本步骤在正文生成前补齐单章七段执行剧本。
         """
         self._log_step("prepare_chapter_plan", "章节执行剧本准备")
         ctx.beats = []
-        ctx.metadata["chapter_plan_mode"] = "full_chapter_script"
-        ctx.metadata["outline_plan_mode"] = "full_chapter_script"
 
         outline = (ctx.outline or "").strip()
         if not outline:
             return StepResult.fail("章节执行剧本为空，无法整章生成")
+
+        from application.blueprint.services.chapter_planning_policy import has_rendered_chapter_execution_plan
+
+        if has_rendered_chapter_execution_plan(outline):
+            ctx.metadata["chapter_plan_mode"] = "full_chapter_script"
+            ctx.metadata["outline_plan_mode"] = "full_chapter_script"
+        else:
+            if ctx.llm_service is None:
+                return StepResult.fail("llm_service 未设置，无法生成章前执行剧本")
+            preplanning_service = ctx.get_dep("chapter_preplanning_service")
+            if preplanning_service is None:
+                from application.blueprint.services.chapter_preplanning_service import ChapterPreplanningService
+
+                preplanning_service = ChapterPreplanningService(
+                    llm_service=ctx.llm_service,
+                    chapter_repository=ctx.chapter_repository,
+                    story_node_repo=ctx.story_node_repo,
+                )
+            try:
+                outline = await preplanning_service.ensure_execution_plan(
+                    novel_id=ctx.novel_id,
+                    chapter_number=ctx.chapter_number,
+                    chapter_node=ctx.chapter_node,
+                    current_outline=outline,
+                    target_words=ctx.target_word_count,
+                )
+            except Exception as exc:
+                return StepResult.fail(f"章前执行剧本生成失败: {exc}")
+            ctx.outline = outline
+            ctx.metadata["chapter_plan_mode"] = "chapter_preplan"
+            ctx.metadata["outline_plan_mode"] = "chapter_preplan"
 
         logger.info(
             "[%s] 第 %s 章使用整章执行剧本生成，plan_chars=%d target_words=%d",

@@ -69,6 +69,8 @@ _RUNTIME_STATUS_KEYS: tuple[str, ...] = (
     "autopilot_pending_chapter_plan",
     "autopilot_pending_macro_plan",
     "autopilot_pending_macro_target_chapters",
+    "autopilot_pending_act_plan_id",
+    "autopilot_pending_act_chapters",
     "macro_structure_ready",
     "last_autopilot_invocation_payload",
 )

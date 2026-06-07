@@ -3,6 +3,10 @@ from __future__ import annotations
 
 from application.ai_invocation.dtos import InvocationPolicy, InvocationSpec, VariableBinding
 from infrastructure.ai.prompt_keys import OUTLINE_BEAT_PARTITION, PLANNING_ACT, PLANNING_QUICK_MACRO
+from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
+    SqliteInvocationSpecRepository,
+    SqliteVariableHubRepository,
+)
 from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
 
 
@@ -43,11 +47,6 @@ def ensure_autopilot_outline_partition_contract(db=None) -> None:
         from infrastructure.persistence.database.connection import get_database
 
         db = get_database()
-
-    from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
-        SqliteInvocationSpecRepository,
-        SqliteVariableHubRepository,
-    )
 
     input_binding_set_id = f"{OUTLINE_BEAT_PARTITION}:input:v1"
     output_binding_set_id = f"{OUTLINE_BEAT_PARTITION}:output:v1"
@@ -118,11 +117,6 @@ def ensure_autopilot_macro_plan_contract(db=None) -> None:
         from infrastructure.persistence.database.connection import get_database
 
         db = get_database()
-
-    from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
-        SqliteInvocationSpecRepository,
-        SqliteVariableHubRepository,
-    )
 
     variable_keys = {
         "premise": "novel.setup.premise",
@@ -231,11 +225,6 @@ def ensure_autopilot_act_plan_contract(db=None) -> None:
         from infrastructure.persistence.database.connection import get_database
 
         db = get_database()
-
-    from infrastructure.persistence.database.sqlite_ai_invocation_repository import (
-        SqliteInvocationSpecRepository,
-        SqliteVariableHubRepository,
-    )
 
     variable_keys = {
         "context": "novel.planning.act.context",

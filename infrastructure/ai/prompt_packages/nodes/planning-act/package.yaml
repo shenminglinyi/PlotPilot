@@ -1,7 +1,7 @@
 name: 幕级章节规划
 category: planning
 source: application/blueprint/services/continuous_planning_service.py::_build_act_planning_prompt
-description: 将抽象幕大纲落地为带七段章节执行剧本、爽点回报、伏笔收种和递进因果的章节序列。
+description: 将抽象幕大纲落地为 8-10 章左右的轻量主事件链、相邻章交接、爽点回报和伏笔收种节奏。
 builtin: true
 tags:
 - 规划

@@ -9,6 +9,7 @@ from infrastructure.ai.prompt_contract import PromptContract
 from infrastructure.ai.prompt_keys import (
     CONTINUOUS_PLANNING_NEXT_ACT,
     PLANNING_ACT,
+    PLANNING_CHAPTER_PREPLAN,
     PLANNING_PRECISE_MACRO,
     PLANNING_PRECISE_REPAIR,
     PLANNING_PRECISE_VOLUME,
@@ -70,6 +71,18 @@ class PlanningActVariables(BaseModel):
     chapter_count: int = Field(ge=1)
 
 
+class PlanningChapterPreplanVariables(BaseModel):
+    chapter_number: int = Field(ge=1)
+    chapter_title: str = Field(min_length=1)
+    act_chapter_plan: str = Field(min_length=1)
+    continuity_ledger: str = "暂无近章台账。"
+    previous_ending: str = ""
+    recent_chapters: str = ""
+    character_state: str = ""
+    unresolved_threads: str = ""
+    legacy_chapter_plan: str = ""
+
+
 class ContinuousPlanningNextActVariables(BaseModel):
     context_block: str = "暂无前文上下文"
     current_act_title: str = "未命名幕"
@@ -111,6 +124,13 @@ PLANNING_ACT_CONTRACT = PromptContract(
     version="1.0.0",
     variables_schema=PlanningActVariables,
     generation_profile="planning_act",
+)
+
+PLANNING_CHAPTER_PREPLAN_CONTRACT = PromptContract(
+    node_key=PLANNING_CHAPTER_PREPLAN,
+    version="1.0.0",
+    variables_schema=PlanningChapterPreplanVariables,
+    generation_profile="planning_chapter_preplan",
 )
 
 CONTINUOUS_PLANNING_NEXT_ACT_CONTRACT = PromptContract(

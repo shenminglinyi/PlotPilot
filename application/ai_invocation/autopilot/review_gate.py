@@ -138,7 +138,25 @@ def review_gate_from_status(status: Mapping[str, Any]) -> dict[str, Any] | None:
                 "message": "宏观结构已生成，请在结构树核对后继续。",
             }
 
-    if status.get("macro_structure_ready") is False and int(status.get("current_auto_chapters") or 0) == 0:
+    gate_type = review_type_for_operation(operation, substep)
+    if gate_type == "act_plan":
+        pending_chapters = status.get("autopilot_pending_act_chapters")
+        if isinstance(pending_chapters, list) and pending_chapters:
+            return {
+                "type": "act_plan",
+                "status": "ready",
+                "artifact_status": "ready",
+                "can_resume": True,
+                "primary_action": "resume",
+                "action_label": "确认章节规划，继续",
+                "message": "章节规划已生成，请在结构树核对后继续。",
+            }
+
+    if (
+        gate_type == "macro_plan"
+        and status.get("macro_structure_ready") is False
+        and int(status.get("current_auto_chapters") or 0) == 0
+    ):
         return {
             "type": "macro_plan",
             "status": "failed",
@@ -148,7 +166,6 @@ def review_gate_from_status(status: Mapping[str, Any]) -> dict[str, Any] | None:
             "message": "宏观结构尚未生成，当前没有可确认的大纲结构。请重新生成结构树。",
         }
 
-    gate_type = review_type_for_operation(operation, substep)
     if gate_type == "macro_plan":
         message = "宏观结构已生成，请在结构树核对后继续。"
         action_label = "确认结构，继续"

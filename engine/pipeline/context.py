@@ -119,6 +119,7 @@ class PipelineContext:
     foreshadowing_repository: Any = None
     story_node_repo: Any = None
     planning_service: Any = None
+    chapter_preplanning_service: Any = None
     chapter_workflow: Any = None                 # AutoNovelGenerationWorkflow
     background_task_service: Any = None
     circuit_breaker: Any = None
