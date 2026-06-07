@@ -80,10 +80,15 @@ export const CONFLUENCE_MERGE_TYPE_OPTIONS: SelectOption<ConfluenceMergeType>[] 
   { label: '揭露（暗线首次显现）', value: 'reveal' },
 ]
 
-const ROLE_META: Record<StorylineRole, { label: string; tagType: NaiveTagType }> = {
-  main: { label: '主线', tagType: 'success' },
-  sub: { label: '支线', tagType: 'warning' },
-  dark: { label: '暗线', tagType: 'info' },
+const ROLE_META: Record<StorylineRole, {
+  label: string
+  compactLabel: string
+  tagType: NaiveTagType
+  cssKey: string
+}> = {
+  main: { label: '主线', compactLabel: '主', tagType: 'success', cssKey: 'main' },
+  sub: { label: '支线', compactLabel: '支', tagType: 'warning', cssKey: 'sub' },
+  dark: { label: '暗线', compactLabel: '暗', tagType: 'default', cssKey: 'dark' },
 }
 
 const STATUS_META: Record<StorylineStatus, { label: string; tagType: NaiveTagType }> = {
@@ -111,6 +116,20 @@ const STORY_PHASE_LABELS: Record<string, string> = {
   crisis: '危机阶段',
   climax: '高潮阶段',
   resolution: '收束阶段',
+}
+
+const STORY_PHASE_HINTS: Record<StoryPhase, string> = {
+  opening: '铺陈悬念，埋设伏笔，建立世界观',
+  development: '激化矛盾，引入支线，角色成长',
+  convergence: '禁止开新坑，强制填坑，收敛线索',
+  finale: '终极对决，切断日常，揭晓谜底',
+}
+
+const STORY_PHASE_COLORS: Record<StoryPhase, string> = {
+  opening: 'var(--color-info)',
+  development: 'var(--color-brand)',
+  convergence: 'var(--color-warning)',
+  finale: 'var(--color-gold)',
 }
 
 const LEGACY_PHASE_MAP: Record<string, StoryPhase> = {
@@ -168,9 +187,19 @@ export function getStorylineRoleLabel(role?: string | null): string {
   return ROLE_META[key]?.label ?? role ?? '未知'
 }
 
+export function getStorylineRoleCompactLabel(role?: string | null): string {
+  const key = normalizeStorylineRole(role) as StorylineRole
+  return ROLE_META[key]?.compactLabel ?? role ?? ''
+}
+
 export function getStorylineRoleTagType(role?: string | null): NaiveTagType {
   const key = normalizeStorylineRole(role) as StorylineRole
   return ROLE_META[key]?.tagType ?? 'default'
+}
+
+export function getStorylineRoleCssKey(role?: string | null): string {
+  const key = normalizeStorylineRole(role) as StorylineRole
+  return ROLE_META[key]?.cssKey ?? 'default'
 }
 
 export function getStorylineStatusLabel(status?: string | null): string {
@@ -191,6 +220,16 @@ export function normalizeStoryPhase(phase?: string | null): StoryPhase | string 
 export function getStoryPhaseLabel(phase?: string | null): string {
   const key = String(phase || '').trim().toLowerCase()
   return STORY_PHASE_LABELS[key] ?? key
+}
+
+export function getStoryPhaseHint(phase?: string | null): string {
+  const normalized = normalizeStoryPhase(phase) as StoryPhase
+  return STORY_PHASE_HINTS[normalized] ?? ''
+}
+
+export function getStoryPhaseColor(phase?: string | null): string {
+  const normalized = normalizeStoryPhase(phase) as StoryPhase
+  return STORY_PHASE_COLORS[normalized] ?? 'var(--color-brand)'
 }
 
 export function getStoryPhaseTagType(phase?: string | null): NaiveTagType {

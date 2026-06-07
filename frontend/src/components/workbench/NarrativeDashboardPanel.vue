@@ -37,7 +37,7 @@
         <div class="pp-section ndp-section-moment">
           <div class="pp-section-header">
             <span class="pp-section-label">叙事时刻</span>
-            <span class="ndp-phase-badge" :class="`ndp-phase-badge--${phase || 'opening'}`">
+            <span class="ndp-phase-badge" :class="`ndp-phase-badge--${currentPhase || 'opening'}`">
               {{ phaseMeta.label }}
             </span>
           </div>
@@ -67,29 +67,29 @@
             <!-- Phase axis: dots row -->
             <div class="ndp-phase-track">
               <div class="ndp-phase-dots-row">
-                <template v-for="(step, i) in PHASE_STEPS" :key="step.key">
+                <template v-for="(step, i) in PHASE_STEPS" :key="step.value">
                   <div
                     class="ndp-phase-dot"
                     :class="{
-                      'ndp-phase-dot--done': isLineDone(step.key),
-                      'ndp-phase-dot--active': phase === step.key,
+                      'ndp-phase-dot--done': isLineDone(step.value),
+                      'ndp-phase-dot--active': currentPhase === step.value,
                     }"
                   />
                   <div
                     v-if="i < PHASE_STEPS.length - 1"
                     class="ndp-phase-line"
-                    :class="{ 'ndp-phase-line--done': isLineDone(step.key) }"
+                    :class="{ 'ndp-phase-line--done': isLineDone(step.value) }"
                   />
                 </template>
               </div>
               <div class="ndp-phase-labels-row">
                 <span
                   v-for="step in PHASE_STEPS"
-                  :key="step.key"
+                  :key="step.value"
                   class="ndp-phase-label"
                   :class="{
-                    'ndp-phase-label--done': isLineDone(step.key),
-                    'ndp-phase-label--active': phase === step.key,
+                    'ndp-phase-label--done': isLineDone(step.value),
+                    'ndp-phase-label--active': currentPhase === step.value,
                   }"
                 >{{ step.label }}</span>
               </div>
@@ -111,18 +111,18 @@
           <div v-if="activeStorylines.length > 0" class="pp-section-body ndp-threads-body">
             <div v-for="sl in activeStorylines" :key="sl.id" class="ndp-thread-row">
               <n-tag
-                :type="storylineTypeNaiveColor(sl)"
+                :type="storylineRoleTagType(sl)"
                 size="tiny"
                 round
                 class="ndp-thread-type-tag"
-              >{{ storylineTypeLabel(sl) }}</n-tag>
+              >{{ storylineRoleLabel(sl) }}</n-tag>
               <span class="ndp-thread-name" :title="sl.name || undefined">
                 {{ sl.name || '未命名故事线' }}
               </span>
               <div class="ndp-thread-progress-wrap">
                 <div
                   class="ndp-thread-bar"
-                  :class="`ndp-thread-bar--${storylineTypeKey(sl)}`"
+                  :class="`ndp-thread-bar--${storylineRoleCssKey(sl)}`"
                   :style="{ width: `${storylineMilestoneProgress(sl)}%` }"
                 />
               </div>
@@ -259,6 +259,22 @@ import { characterPsycheApi, type CharacterPsycheDTO } from '@/api/engineCore'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
 import type { StorylineDTO } from '@/api/workflow'
 import { WORKBENCH_OPEN_SETTINGS_PANEL_EVENT } from '@/workbench/deskEvents'
+import {
+  getCharacterRoleIcon,
+  getCharacterRoleSortOrder,
+} from '@/domain/character'
+import {
+  STORY_PHASE_STAGES,
+  getStoryPhaseColor,
+  getStoryPhaseHint,
+  getStoryPhaseLabel,
+  getStorylineRoleCompactLabel,
+  getStorylineRoleCssKey,
+  getStorylineRoleTagType,
+  isMainStoryline,
+  isStoryPhasePast,
+  normalizeStoryPhase,
+} from '@/domain/storyline'
 
 interface Chapter {
   id: number
@@ -284,31 +300,11 @@ const psyches = ref<CharacterPsycheDTO[]>([])
 const bibleChars = ref<CharacterDTO[]>([])
 
 // ── Phase Metadata ────────────────────────────────────────────────
-const PHASE_STEPS = [
-  { key: 'opening',     label: '开局', hint: '铺陈悬念，埋设伏笔，建立世界观' },
-  { key: 'development', label: '发展', hint: '激化矛盾，引入支线，角色成长' },
-  { key: 'convergence', label: '收敛', hint: '禁止开新坑，强制填坑，收敛线索' },
-  { key: 'finale',      label: '终局', hint: '终极对决，切断日常，揭晓谜底' },
-] as const
-
-const PHASE_ORDER = ['opening', 'development', 'convergence', 'finale']
-
-const PHASE_LABELS: Record<string, string> = {
-  opening:     '开局期',
-  development: '发展期',
-  convergence: '收敛期',
-  finale:      '终局期',
-}
-
-const PHASE_COLORS: Record<string, string> = {
-  opening:     'var(--color-info)',
-  development: 'var(--color-brand)',
-  convergence: 'var(--color-warning)',
-  finale:      'var(--color-gold)',
-}
+const PHASE_STEPS = STORY_PHASE_STAGES
 
 // ── Computed ──────────────────────────────────────────────────────
 const phase = computed(() => storyEvolution.value?.life_cycle?.phase ?? '')
+const currentPhase = computed(() => normalizeStoryPhase(phase.value))
 
 const progressPct = computed(() => {
   const p = storyEvolution.value?.life_cycle?.progress ?? 0
@@ -318,17 +314,14 @@ const progressPct = computed(() => {
 const maxChapter = computed(() => storyEvolution.value?.chronotope?.max_chapter_in_book ?? 0)
 
 const phaseMeta = computed(() => ({
-  label: PHASE_LABELS[phase.value] ?? '加载中…',
-  color: PHASE_COLORS[phase.value] ?? 'var(--color-brand)',
+  label: phase.value ? getStoryPhaseLabel(phase.value) : '加载中…',
+  color: getStoryPhaseColor(phase.value),
 }))
 
-const currentPhaseHint = computed(() => {
-  const step = PHASE_STEPS.find(s => s.key === phase.value)
-  return step?.hint ?? ''
-})
+const currentPhaseHint = computed(() => getStoryPhaseHint(phase.value))
 
 function isLineDone(key: string): boolean {
-  return PHASE_ORDER.indexOf(key) < PHASE_ORDER.indexOf(phase.value)
+  return isStoryPhasePast(key, phase.value)
 }
 
 const activeStorylines = computed((): StorylineDTO[] => {
@@ -366,21 +359,12 @@ const urgentCount = computed(() =>
 )
 
 const hasMainStoryline = computed(() =>
-  (storyEvolution.value?.plot_spine?.storylines ?? []).some(
-    sl => sl.role === 'main' || sl.storyline_type === 'main',
-  ),
+  (storyEvolution.value?.plot_spine?.storylines ?? []).some(isMainStoryline),
 )
 
 const mainCharacters = computed(() =>
   [...psyches.value]
-    .sort((a, b) => {
-      const order: Record<string, number> = {
-        PROTAGONIST: 0, protagonist: 0, main: 0,
-        SUPPORTING: 1, supporting: 1,
-        MINOR: 2, minor: 2,
-      }
-      return (order[a.role] ?? 1) - (order[b.role] ?? 1)
-    })
+    .sort((a, b) => getCharacterRoleSortOrder(a.role) - getCharacterRoleSortOrder(b.role))
     .slice(0, 5),
 )
 
@@ -399,23 +383,15 @@ function characterMentalState(name: string): string {
   return ms
 }
 
-function storylineTypeKey(sl: StorylineDTO): string {
-  return sl.role ?? sl.storyline_type ?? 'sub'
+function storylineRoleCssKey(sl: StorylineDTO): string {
+  return getStorylineRoleCssKey(sl.role ?? sl.storyline_type ?? 'sub')
 }
 
-function storylineTypeNaiveColor(sl: StorylineDTO): 'success' | 'warning' | 'default' {
-  const t = storylineTypeKey(sl)
-  if (t === 'main') return 'success'
-  if (t === 'dark') return 'default'
-  return 'warning'
-}
+const storylineRoleTagType = (sl: StorylineDTO) =>
+  getStorylineRoleTagType(sl.role ?? sl.storyline_type ?? 'sub')
 
-function storylineTypeLabel(sl: StorylineDTO): string {
-  const t = storylineTypeKey(sl)
-  if (t === 'main') return '主'
-  if (t === 'dark') return '暗'
-  return '支'
-}
+const storylineRoleLabel = (sl: StorylineDTO) =>
+  getStorylineRoleCompactLabel(sl.role ?? sl.storyline_type ?? 'sub')
 
 function storylineMilestoneProgress(sl: StorylineDTO): number {
   const total = sl.milestones?.length ?? 0
@@ -445,10 +421,7 @@ function foreshadowUrgencyClass(entry: ForeshadowEntry): 'danger' | 'warning' | 
 }
 
 function roleEmoji(role: string): string {
-  const r = (role ?? '').toUpperCase()
-  if (r.includes('PROTAGONIST') || r === 'MAIN') return '🧑'
-  if (r.includes('SUPPORTING')) return '👤'
-  return '👥'
+  return getCharacterRoleIcon(role)
 }
 
 function goToCharacterPanel(): void {

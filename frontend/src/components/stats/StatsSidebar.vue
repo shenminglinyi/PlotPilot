@@ -175,6 +175,7 @@ import GlobalLLMEntryButton from '@/components/global/GlobalLLMEntryButton.vue'
 import PromptPlazaEntryButton from '@/components/global/PromptPlazaEntryButton.vue'
 import { storageKeys } from '@/config/storageKeys'
 import { readStorageBoolean, writeStorageBoolean } from '@/utils/storage'
+import { getNovelStageLabel } from '@/domain/novel'
 const emit = defineEmits<{
   (e: 'create-book'): void
   (e: 'refresh-list'): void
@@ -233,13 +234,7 @@ function formatNumber(num: number): string {
 }
 
 function getStageLabel(stage: string): string {
-  const labels: Record<string, string> = {
-    planning: '规划中',
-    writing: '写作中',
-    reviewing: '审稿中',
-    completed: '已完成',
-  }
-  return labels[stage] || stage
+  return getNovelStageLabel(stage)
 }
 
 function formatTime(date: Date | null): string {

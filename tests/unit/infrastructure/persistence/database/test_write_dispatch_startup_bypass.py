@@ -26,3 +26,10 @@ def test_nested_startup_bypass_restores_depth(clear_direct_write_env):
             assert wd.allow_direct_sqlite_writes() is True
         assert wd.allow_direct_sqlite_writes() is True
     assert wd.allow_direct_sqlite_writes() is False
+
+
+def test_allow_direct_sqlite_writes_uses_environment_settings(monkeypatch):
+    monkeypatch.setenv("PLOTPILOT_ALLOW_DIRECT_SQLITE_WRITES", "yes")
+    monkeypatch.delenv("AITEXT_ALLOW_DIRECT_SQLITE_WRITES", raising=False)
+
+    assert wd.allow_direct_sqlite_writes() is True

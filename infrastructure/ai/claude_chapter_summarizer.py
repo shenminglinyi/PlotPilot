@@ -1,10 +1,10 @@
 """Claude 章节摘要生成器实现"""
-import os
 from domain.ai.services.chapter_summarizer import ChapterSummarizer
 from domain.ai.services.llm_service import LLMService
 from infrastructure.ai.generation_profiles import generation_config_from_profile
+from infrastructure.ai.llm_environment import LLMEnvironmentSettings
 from infrastructure.ai.prompt_contracts.chapter_summarizer import CHAPTER_SUMMARIZER_CONTRACT
-from infrastructure.ai.prompt_gateway import PromptGatewayError, get_prompt_gateway
+from infrastructure.ai.prompt_gateway import PromptGateway, PromptGatewayError, get_prompt_gateway
 
 
 class ClaudeChapterSummarizer(ChapterSummarizer):
@@ -13,20 +13,34 @@ class ClaudeChapterSummarizer(ChapterSummarizer):
     使用现有的 LLMService 生成章节摘要。
     """
 
-    def __init__(self, llm_service: LLMService):
+    def __init__(
+        self,
+        llm_service: LLMService,
+        *,
+        api_key: str | None = None,
+        model: str = "",
+        prompt_gateway: PromptGateway | None = None,
+    ):
         """初始化 Claude 章节摘要生成器
 
         Args:
             llm_service: LLM 服务实例
+            api_key: 显式传入的 Anthropic API key；未传时使用环境配置
+            model: 显式传入的写作模型；未传时使用环境配置
+            prompt_gateway: 提示词渲染网关；未传时使用默认 CPMS 网关
 
         Raises:
             ValueError: 如果 ANTHROPIC_API_KEY 未设置
         """
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        env = LLMEnvironmentSettings.from_env()
+        if api_key is None:
+            api_key = env.anthropic_api_key_with_token_fallback
         if not api_key:
-            raise ValueError("缺少 ANTHROPIC_API_KEY 环境变量")
+            raise ValueError("缺少 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN 环境变量")
 
         self.llm_service = llm_service
+        self.model = model or env.writing_model
+        self._prompt_gateway = prompt_gateway or get_prompt_gateway()
 
     async def summarize(self, content: str, max_length: int = 300) -> str:
         """生成章节摘要
@@ -48,7 +62,7 @@ class ClaudeChapterSummarizer(ChapterSummarizer):
 
         try:
             # 通过 CPMS 契约渲染提示词，避免摘要链路继续使用英文硬编码。
-            prompt = get_prompt_gateway().render(
+            prompt = self._prompt_gateway.render(
                 CHAPTER_SUMMARIZER_CONTRACT,
                 {"content": content, "max_length": max_length},
             ).prompt
@@ -56,7 +70,7 @@ class ClaudeChapterSummarizer(ChapterSummarizer):
             # 配置生成参数
             config = generation_config_from_profile(
                 "chapter_summarizer",
-                model=os.getenv("WRITING_MODEL", ""),
+                model=self.model,
             )
 
             # 调用 LLM 服务生成摘要

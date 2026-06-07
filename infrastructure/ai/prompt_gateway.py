@@ -259,7 +259,15 @@ class PromptGateway:
         )
 
     def _build_variable_sources(self, node_key: str, variables: Mapping[str, Any]) -> list[dict[str, Any]]:
-        schemas = get_variable_registry().get_schemas_for_node(node_key)
+        try:
+            schemas = get_variable_registry().get_schemas_for_node(node_key)
+        except Exception as exc:
+            logger.debug(
+                "PromptGateway trace variable source lookup failed for %s: %s",
+                node_key,
+                exc,
+            )
+            schemas = {}
         items: list[dict[str, Any]] = []
         for name in sorted(variables.keys()):
             schema = schemas.get(str(name))

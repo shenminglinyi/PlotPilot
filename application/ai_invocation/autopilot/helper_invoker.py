@@ -29,8 +29,14 @@ class AutopilotHelperInvoker:
 
     async def invoke_text(self, request: AutopilotHelperRequest) -> str:
         from application.ai_invocation.contracts import ensure_invocation_contract
+        from infrastructure.ai.prompt_utils import PromptTemplateUnavailable
 
-        ensure_invocation_contract(request.operation, request.node_key, self._db)
+        try:
+            ensure_invocation_contract(request.operation, request.node_key, self._db)
+        except Exception as exc:
+            raise PromptTemplateUnavailable(
+                f"AI invocation contract unavailable: {request.operation}/{request.node_key}: {exc}"
+            ) from exc
         intent = AutopilotInvocationIntent(
             novel_id=request.novel_id,
             stage=request.stage,

@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 from application.ai.trace_context import TraceContext, ensure_trace, get_current_trace
+from infrastructure.ai.trace_environment import TraceEnvironmentSettings
 
 logger = logging.getLogger(__name__)
 
@@ -95,12 +95,7 @@ class TraceRecorder:
 
     def __init__(self, *, enabled: bool | None = None):
         if enabled is None:
-            enabled = os.getenv("AI_TRACE_ENABLED", "true").strip().lower() not in {
-                "0",
-                "false",
-                "off",
-                "no",
-            }
+            enabled = TraceEnvironmentSettings.from_env().enabled
         self.enabled = enabled
 
     def record_span(

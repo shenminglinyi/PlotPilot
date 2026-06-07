@@ -2,6 +2,7 @@ import type { ChapterMicroBeatPayload } from '@/api/chapter'
 import type { StreamGeneratedBeat } from '@/api/workflow'
 
 export type AutopilotStatusLike = Record<string, unknown>
+export type AutopilotDisplayStatus = 'idle' | 'running' | 'paused' | 'completed' | 'error'
 
 export const AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS = new Set([
   'chapter_plan_ready',
@@ -17,6 +18,28 @@ export const AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS = new Set([
 
 export function isAutopilotAfterOutlinePlanSubstep(substep: unknown): boolean {
   return AUTOPILOT_AFTER_OUTLINE_PLAN_SUBSTEPS.has(String(substep ?? ''))
+}
+
+export function toAutopilotDAGDisplayStatus(
+  status: AutopilotStatusLike | null | undefined,
+): AutopilotDisplayStatus {
+  if (!status) return 'idle'
+
+  const autopilotStatus = String(status.autopilot_status ?? status.status ?? 'stopped')
+    .trim()
+    .toLowerCase()
+  const currentStage = String(status.current_stage ?? '')
+    .trim()
+    .toLowerCase()
+  const humanGate = Boolean(status.needs_review || status.requires_ai_review)
+    || currentStage === 'paused_for_review'
+    || currentStage === 'reviewing'
+
+  if (autopilotStatus === 'completed') return 'completed'
+  if (autopilotStatus === 'error') return 'error'
+  if (autopilotStatus === 'running' && humanGate) return 'paused'
+  if (autopilotStatus === 'running') return 'running'
+  return 'idle'
 }
 
 /** Fields that can change chapter list / story tree shape; excludes high-frequency writing telemetry. */

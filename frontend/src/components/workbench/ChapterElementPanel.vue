@@ -182,6 +182,16 @@ import type { GenerateChapterWorkflowResponse } from '../../api/workflow'
 import type { AutopilotChapterAudit } from './ChapterStatusPanel.vue'
 import ForeshadowChapterSuggestionsPanel from './ForeshadowChapterSuggestionsPanel.vue'
 import ConsistencyReportPanel from './ConsistencyReportPanel.vue'
+import {
+  CHAPTER_ELEMENT_IMPORTANCE_OPTIONS,
+  CHAPTER_ELEMENT_RELATION_TYPE_OPTIONS,
+  CHAPTER_ELEMENT_TYPE_OPTIONS,
+  getChapterElementImportanceLabel,
+  getChapterElementImportanceTagType,
+  getChapterElementRelationLabel,
+  getChapterElementTypeLabel,
+  getChapterElementTypeTagType,
+} from '../../domain/chapterElement'
 
 const props = withDefaults(
   defineProps<{
@@ -213,48 +223,14 @@ const filterType = ref<ElementType | undefined>(undefined)
 const bibleCharacters = ref<CharacterDTO[]>([])
 const bibleLocations = ref<LocationDTO[]>([])
 
-const elementTypeOptions = [
-  { label: '人物', value: 'character' },
-  { label: '地点', value: 'location' },
-  { label: '道具', value: 'item' },
-  { label: '组织', value: 'organization' },
-  { label: '事件', value: 'event' },
-]
-
-const relationTypeOptions = [
-  { label: '出场', value: 'appears' },
-  { label: '提及', value: 'mentioned' },
-  { label: '场景', value: 'scene' },
-  { label: '使用', value: 'uses' },
-  { label: '参与', value: 'involved' },
-  { label: '发生', value: 'occurs' },
-]
-
-const importanceOptions = [
-  { label: '主要', value: 'major' },
-  { label: '一般', value: 'normal' },
-  { label: '次要', value: 'minor' },
-]
-
-const elemTypeLabel = (t: string) => elementTypeOptions.find(o => o.value === t)?.label ?? t
-const elemTypeColor = (t: string): 'error' | 'warning' | 'info' | 'success' | 'default' => {
-  const map: Record<string, 'error' | 'warning' | 'info' | 'success' | 'default'> = {
-    character: 'error', location: 'success', item: 'warning', organization: 'info', event: 'default'
-  }
-  return map[t] ?? 'default'
-}
-
-const importanceLabel = (i: string) => importanceOptions.find(o => o.value === i)?.label ?? i
-const relationLabel = (r: string) => relationTypeOptions.find(o => o.value === r)?.label ?? r
-
-const getImportanceType = (importance: string): 'error' | 'warning' | 'info' | 'success' | 'default' => {
-  const map: Record<string, 'error' | 'warning' | 'info' | 'success' | 'default'> = {
-    major: 'error',
-    normal: 'info',
-    minor: 'default'
-  }
-  return map[importance] || 'default'
-}
+const elementTypeOptions = CHAPTER_ELEMENT_TYPE_OPTIONS
+const relationTypeOptions = CHAPTER_ELEMENT_RELATION_TYPE_OPTIONS
+const importanceOptions = CHAPTER_ELEMENT_IMPORTANCE_OPTIONS
+const elemTypeLabel = getChapterElementTypeLabel
+const elemTypeColor = getChapterElementTypeTagType
+const importanceLabel = getChapterElementImportanceLabel
+const relationLabel = getChapterElementRelationLabel
+const getImportanceType = getChapterElementImportanceTagType
 
 // 获取元素显示名称（从 Bible 映射）
 const getElementDisplayName = (elementId: string, type: string): string => {

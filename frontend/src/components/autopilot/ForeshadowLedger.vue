@@ -155,6 +155,10 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { foreshadowApi } from '../../api/foreshadow'
 import { isRequestCanceled } from '../../utils/requestCancel'
+import {
+  getForeshadowImportanceLabel,
+  getForeshadowImportanceTagType,
+} from '../../domain/foreshadow'
 
 interface Foreshadow {
   id: string
@@ -212,25 +216,8 @@ const pendingForeshadows = computed(() => foreshadows.value.filter(f => !f.is_co
 const collectedForeshadows = computed(() => foreshadows.value.filter(f => f.is_collected))
 
 // 重要性标签
-function importanceLabel(importance: string): string {
-  const map: Record<string, string> = {
-    low: '次要',
-    medium: '一般',
-    high: '重要',
-    critical: '关键'
-  }
-  return map[importance] || importance
-}
-
-function importanceTagType(importance: string): 'default' | 'info' | 'warning' | 'error' {
-  const map: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
-    low: 'default',
-    medium: 'info',
-    high: 'warning',
-    critical: 'error'
-  }
-  return map[importance] || 'default'
-}
+const importanceLabel = getForeshadowImportanceLabel
+const importanceTagType = getForeshadowImportanceTagType
 
 // 🔥 伏笔列表独立超时：10 秒（远小于全局 120s，避免长时间挂起）
 const FORESHADOW_TIMEOUT_MS = 10_000

@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import os
 import re
 import threading
 from typing import Any, List, Optional, Tuple, Union
+
+from infrastructure.persistence.database.write_environment import (
+    SQLiteWriteEnvironmentSettings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +64,7 @@ def allow_direct_sqlite_writes() -> bool:
     """脚本 / 迁移 / 启动早期 bypass / 个别单测可走直连写库；正式运行时默认走队列。"""
     if _startup_sqlite_bootstrap_depth > 0:
         return True
-    v = os.environ.get("PLOTPILOT_ALLOW_DIRECT_SQLITE_WRITES", "").strip().lower()
-    if not v:
-        v = os.environ.get("AITEXT_ALLOW_DIRECT_SQLITE_WRITES", "").strip().lower()
-    return v in ("1", "true", "yes")
+    return SQLiteWriteEnvironmentSettings.from_env().direct_writes
 
 
 def strip_sql_comments(sql: str) -> str:

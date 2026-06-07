@@ -427,6 +427,12 @@ import { useStatsStore } from '@/stores/statsStore'
 import { storageKeys } from '@/config/storageKeys'
 import { readStorageBoolean } from '@/utils/storage'
 import { formatApiError } from '@/utils/apiError'
+import {
+  NOVEL_LENGTH_TIER_OPTIONS,
+  getNovelStageLabel,
+  getNovelStageTagType,
+  type NovelLengthTier,
+} from '@/domain/novel'
 
 // Icons
 const IconSpark = () =>
@@ -511,24 +517,8 @@ const newBook = ref({
 })
 
 /** V1 目标篇幅档（与高级自定义二选一） */
-const lengthTier = ref<'short' | 'standard' | 'epic'>('standard')
-const lengthTierOptions = [
-  {
-    value: 'short' as const,
-    title: 'A · 短篇快穿 / 脑洞文',
-    hint: '约 30 万字（按约 2000 字/章推导章数）',
-  },
-  {
-    value: 'standard' as const,
-    title: 'B · 标准商业连载',
-    hint: '约 100 万字',
-  },
-  {
-    value: 'epic' as const,
-    title: 'C · 宏大史诗巨著',
-    hint: '约 300 万字',
-  },
-]
+const lengthTier = ref<NovelLengthTier>('standard')
+const lengthTierOptions = NOVEL_LENGTH_TIER_OPTIONS
 
 const filteredBooks = computed(() => {
   if (!searchQuery.value.trim()) {
@@ -587,7 +577,7 @@ const fetchBooks = async () => {
         slug: novel.id,
         title: novel.title,
         stage: novel.stage,
-        stage_label: getStageLabel(novel.stage),
+        stage_label: getNovelStageLabel(novel.stage),
         genre: g,
         chapter_count: novel.chapters?.length || 0,
         word_count: novel.total_word_count,
@@ -598,16 +588,6 @@ const fetchBooks = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const getStageLabel = (stage: string): string => {
-  const labels: Record<string, string> = {
-    planning: '规划中',
-    writing: '写作中',
-    reviewing: '审稿中',
-    completed: '已完成',
-  }
-  return labels[stage] || stage
 }
 
 const formatWordCount = (count: number): string => {
@@ -781,13 +761,7 @@ const handleRefreshList = async () => {
 }
 
 const getStageType = (stage: string) => {
-  const map: Record<string, string> = {
-    planning: 'info',
-    writing: 'warning',
-    reviewing: 'default',
-    completed: 'success',
-  }
-  return map[stage] || 'default'
+  return getNovelStageTagType(stage)
 }
 
 onMounted(() => {

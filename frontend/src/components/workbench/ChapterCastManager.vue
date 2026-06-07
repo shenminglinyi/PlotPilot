@@ -121,6 +121,12 @@
 import { computed, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { castApi, type ScheduledCharacterItem } from '@/api/cast'
+import {
+  getCastImportanceTierLabel,
+  getCastRecommendationCssKey,
+  getCastRecommendationLabel,
+  getSceneFunctionLabel,
+} from '@/domain/chapterWriting'
 
 interface Props {
   slug: string
@@ -157,38 +163,19 @@ const tierCounts = computed(() => ({
 const reviewCount = computed(() => suggestions.value.filter(s => s.needs_review).length)
 
 function slotTierLabel(importance: ScheduledCharacterItem['importance']): string {
-  if (importance === 'major') return 'T0'
-  if (importance === 'normal') return 'T1'
-  return 'T2'
+  return getCastImportanceTierLabel(importance)
 }
 
 function sceneFunctionLabel(value?: string): string {
-  const map: Record<string, string> = {
-    pov: '视角位',
-    conflict: '冲突位',
-    informant: '信息位',
-    mirror: '镜像位',
-    foreshadow_carrier: '伏笔位',
-    support: '支撑位',
-    explicit_scene_cast: '明确出场',
-    walk_on: '过场人物',
-  }
-  return map[String(value || '')] ?? '支撑位'
+  return getSceneFunctionLabel(value)
 }
 
 function recommendationLabel(value: unknown): string {
-  const raw = String(value || '')
-  if (raw === 'create_bible_character') return '建档'
-  if (raw === 'ephemeral') return '本章路人'
-  if (raw === 'ignore') return '忽略'
-  return '无动作'
+  return getCastRecommendationLabel(value)
 }
 
 function candidateClass(candidate: NewCharacterCandidate): string {
-  const raw = String(candidate.recommendation || '')
-  if (raw === 'create_bible_character') return 'ccm-candidate--create'
-  if (raw === 'ephemeral') return 'ccm-candidate--ephemeral'
-  return 'ccm-candidate--ignore'
+  return `ccm-candidate--${getCastRecommendationCssKey(candidate.recommendation)}`
 }
 
 async function runSchedule() {

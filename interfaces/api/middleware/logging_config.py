@@ -9,6 +9,8 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
+from infrastructure.runtime.logging_environment import LoggingEnvironmentSettings
+
 
 VALID_LOGGING_LEVELS = {
     logging.DEBUG,
@@ -200,6 +202,7 @@ def setup_logging(
     level: int | str = logging.INFO,
     log_file: Optional[str] = None,
     format_string: str | None = None,
+    environment: LoggingEnvironmentSettings | None = None,
 ) -> None:
     """Configure root logging with polished console output and rotating files.
 
@@ -208,7 +211,8 @@ def setup_logging(
     """
 
     parsed_level = parse_log_level(level)
-    use_color = _should_use_color()
+    environment = environment or LoggingEnvironmentSettings.from_env()
+    use_color = _should_use_color(environment)
 
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
@@ -222,10 +226,10 @@ def setup_logging(
     root_logger.addHandler(console_handler)
 
     if log_file:
-        _add_file_handler(root_logger, log_file, parsed_level)
+        _add_file_handler(root_logger, log_file, parsed_level, environment)
 
     _configure_framework_loggers(parsed_level, use_color)
-    _quiet_noisy_loggers()
+    _quiet_noisy_loggers(environment)
 
 
 def log_lifecycle_banner(
@@ -304,15 +308,19 @@ def _validate_log_file(log_file: str) -> None:
         pass
 
 
-def _add_file_handler(root_logger: logging.Logger, log_file: str, level: int) -> None:
+def _add_file_handler(
+    root_logger: logging.Logger,
+    log_file: str,
+    level: int,
+    environment: LoggingEnvironmentSettings | None = None,
+) -> None:
     _validate_log_file(log_file)
-    max_bytes = _env_int("LOG_MAX_BYTES", 10 * 1024 * 1024)
-    backups = _env_int("LOG_BACKUP_COUNT", 5)
+    environment = environment or LoggingEnvironmentSettings.from_env()
     try:
         file_handler = RotatingFileHandler(
             log_file,
-            maxBytes=max_bytes,
-            backupCount=backups,
+            maxBytes=environment.max_bytes,
+            backupCount=environment.backup_count,
             encoding="utf-8",
         )
         file_handler.setLevel(level)
@@ -342,8 +350,9 @@ def _configure_framework_loggers(level: int, use_color: bool) -> None:
             access_logger.addHandler(handler)
 
 
-def _quiet_noisy_loggers() -> None:
-    if os.environ.get("DEBUG_HTTP", "").strip().lower() in {"1", "true", "yes"}:
+def _quiet_noisy_loggers(environment: LoggingEnvironmentSettings | None = None) -> None:
+    environment = environment or LoggingEnvironmentSettings.from_env()
+    if environment.debug_http:
         return
     for name in NOISY_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
@@ -367,22 +376,5 @@ def _short_logger_name(name: str, *, max_parts: int = 3) -> str:
     return short[:30]
 
 
-def _should_use_color() -> bool:
-    raw = os.environ.get("LOG_COLOR", "auto").strip().lower()
-    if raw in {"1", "true", "yes", "always"}:
-        return True
-    if raw in {"0", "false", "no", "never"}:
-        return False
-    if os.environ.get("NO_COLOR"):
-        return False
-    return hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return default
+def _should_use_color(environment: LoggingEnvironmentSettings | None = None) -> bool:
+    return (environment or LoggingEnvironmentSettings.from_env()).should_use_color(sys.stderr)

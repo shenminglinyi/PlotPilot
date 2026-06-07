@@ -162,7 +162,14 @@ import {
   type AiStageDTO,
 } from '@/api/engineCore'
 import { useWorkbenchRefreshStore } from '@/stores/workbenchRefreshStore'
-import { stageLabel, STAGE_BY_KEY, type StageDef } from '@/constants/aiCallStages'
+import { stageLabel, STAGE_BY_KEY } from '@/constants/aiCallStages'
+import {
+  TRACE_NODE_TYPE_OPTIONS,
+  getAiStageTagType,
+  getScoreColor,
+  getTraceNodeTypeLabel,
+  getTraceNodeTypeTagType,
+} from '@/domain/trace'
 
 const props = defineProps<{ slug: string }>()
 
@@ -182,19 +189,7 @@ const aiSpans = ref<AiTraceSpanDTO[]>([])
 const aiStages = ref<AiStageDTO[]>([])
 const filterStage = ref<string | null>(null)
 
-const nodeTypeOptions = [
-  { label: 'DAG 节点', value: 'dag_node' },
-  { label: '质量护栏', value: 'guardrail' },
-  { label: 'Checkpoint', value: 'checkpoint' },
-  { label: '角色心理', value: 'character_psyche' },
-]
-
-const NODE_TYPE_LABELS: Record<string, string> = {
-  dag_node: 'DAG',
-  guardrail: '护栏',
-  checkpoint: '快照',
-  character_psyche: '心理画像',
-}
+const nodeTypeOptions = TRACE_NODE_TYPE_OPTIONS
 
 const stageFilterOptions = computed(() => {
   const items: { label: string; value: string }[] = aiStages.value.map(s => ({
@@ -209,40 +204,10 @@ const stageFilterOptions = computed(() => {
   return items
 })
 
-function nodeTypeLabel(type: string): string {
-  return NODE_TYPE_LABELS[type] || type
-}
-
-function nodeTypeTagType(type: string): 'default' | 'info' | 'success' | 'warning' | 'error' {
-  const map: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
-    dag_node: 'info',
-    guardrail: 'warning',
-    checkpoint: 'success',
-    character_psyche: 'error',
-  }
-  return map[type] || 'default'
-}
-
-function stageTagType(stage: string): 'default' | 'info' | 'success' | 'warning' | 'error' {
-  const sd = STAGE_BY_KEY[stage]
-  if (!sd) return 'default'
-  const map: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
-    plan: 'info',
-    write: 'success',
-    audit: 'warning',
-    sync: 'default',
-    review: 'error',
-    generate: 'info',
-  }
-  return map[sd.semantic] || 'default'
-}
-
-function scoreColor(score: number | null): string {
-  if (score === null) return 'inherit'
-  if (score >= 0.75) return '#10b981'
-  if (score >= 0.5) return '#f59e0b'
-  return '#ef4444'
-}
+const nodeTypeLabel = getTraceNodeTypeLabel
+const nodeTypeTagType = getTraceNodeTypeTagType
+const stageTagType = getAiStageTagType
+const scoreColor = getScoreColor
 
 function formatTime(ts: string): string {
   if (!ts) return ''

@@ -87,6 +87,85 @@ def test_application_model_services_use_environment_settings_object():
     assert offenders == []
 
 
+def test_engine_selector_uses_environment_settings_object():
+    source = Path("application/engine/dag/daemon_runner.py").read_text(encoding="utf-8")
+
+    assert "os.getenv(" not in source
+    assert "DAGEnvironmentSettings" in source
+
+
+def test_streaming_bus_uses_environment_settings_object():
+    source = Path("application/engine/services/streaming_bus.py").read_text(encoding="utf-8")
+
+    assert "os.environ" not in source
+    assert "os.getenv(" not in source
+    assert "StreamingEnvironmentSettings" in source
+
+
+def test_export_service_uses_font_environment_settings_object():
+    source = Path("application/core/services/export_service.py").read_text(encoding="utf-8")
+
+    assert "PLOTPILOT_EXPORT_CJK_FONT" not in source
+    assert "WINDIR" not in source
+    assert "os.environ" not in source
+    assert "os.getenv(" not in source
+    assert "ExportFontEnvironmentSettings" in source
+
+
+def test_application_paths_uses_data_directory_environment_settings():
+    source = Path("application/paths.py").read_text(encoding="utf-8")
+
+    assert "os.environ" not in source
+    assert "os.getenv(" not in source
+    assert "DataDirectoryEnvironmentSettings" in source
+
+
+def test_write_dispatch_uses_write_environment_settings():
+    source = Path("infrastructure/persistence/database/write_dispatch.py").read_text(encoding="utf-8")
+
+    assert "os.environ" not in source
+    assert "os.getenv(" not in source
+    assert "SQLiteWriteEnvironmentSettings" in source
+
+
+def test_process_environment_uses_process_environment_settings():
+    source = Path("infrastructure/ai/process_environment.py").read_text(encoding="utf-8")
+
+    assert "os.getenv(" not in source
+    assert "ProcessEnvironmentSettings" in source
+
+
+def test_writing_delegate_uses_story_pipeline_environment_settings():
+    source = Path("engine/runtime/writing_delegate.py").read_text(encoding="utf-8")
+
+    assert "os.getenv(" not in source
+    assert "StoryPipelineEnvironmentSettings" in source
+
+
+def test_logging_config_uses_logging_environment_settings():
+    source = Path("interfaces/api/middleware/logging_config.py").read_text(encoding="utf-8")
+
+    assert "os.environ.get" not in source
+    assert "os.getenv(" not in source
+    assert "LoggingEnvironmentSettings" in source
+
+
+def test_ai_runtime_services_use_environment_settings_objects():
+    paths = [
+        Path("infrastructure/ai/claude_chapter_summarizer.py"),
+        Path("infrastructure/ai/trace_recorder.py"),
+    ]
+    offenders = []
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        if "os.getenv(" in source:
+            offenders.append(str(path))
+
+    assert offenders == []
+    assert "LLMEnvironmentSettings" in paths[0].read_text(encoding="utf-8")
+    assert "TraceEnvironmentSettings" in paths[1].read_text(encoding="utf-8")
+
+
 def test_backend_settings_delegates_vector_store_environment_parsing():
     source = Path("interfaces/api/settings.py").read_text(encoding="utf-8")
 

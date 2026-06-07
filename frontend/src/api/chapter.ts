@@ -1,4 +1,4 @@
-import { apiClient } from './config'
+import { apiClient, subscribeChapterStream as subscribeChapterStreamRequest } from './config'
 import { apiRoutes } from './endpoints'
 import type { GuardrailCheckResponse } from './engineCore'
 
@@ -172,4 +172,6 @@ export const chapterApi = {
    */
   ensureChapter: (novelId: string, chapterNumber: number, title = '') =>
     apiClient.post<ChapterDTO>(`/novels/${novelId}/chapters/${chapterNumber}/ensure`, { title }) as Promise<ChapterDTO>,
+
+  subscribeStream: subscribeChapterStreamRequest,
 }

@@ -184,7 +184,10 @@ def build_daemon():
     )
 
     from engine.runtime.engine_daemon import EngineDaemon
-    from engine.runtime.writing_delegate import get_story_pipeline_mode
+    from engine.runtime.writing_delegate import (
+        get_story_pipeline_mode,
+        story_pipeline_mode_was_unset,
+    )
 
     pipeline_mode = get_story_pipeline_mode()
     daemon_kwargs = dict(
@@ -209,7 +212,7 @@ def build_daemon():
             "PLOTPILOT_USE_STORY_PIPELINE=full — EngineDaemon（StoryPipeline 写作）"
         )
     elif pipeline_mode == "writing":
-        if not os.getenv("PLOTPILOT_USE_STORY_PIPELINE", "").strip():
+        if story_pipeline_mode_was_unset():
             logger.info(
                 "PLOTPILOT_USE_STORY_PIPELINE 未设置 — 默认 StoryPipeline 写作（Phase 4）"
             )

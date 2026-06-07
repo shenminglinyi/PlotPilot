@@ -226,6 +226,13 @@ import { useWorkbenchRefreshStore } from '../../stores/workbenchRefreshStore'
 import { useMessage } from 'naive-ui'
 import { foreshadowApi } from '../../api/foreshadow'
 import type { ForeshadowEntry } from '../../api/foreshadow'
+import {
+  FORESHADOW_IMPORTANCE_OPTIONS,
+  compareForeshadowImportanceDesc,
+  getForeshadowImportanceAccentColor,
+  getForeshadowImportanceChipClass,
+  getForeshadowImportanceLabel,
+} from '../../domain/foreshadow'
 
 interface Props {
   slug: string
@@ -270,28 +277,15 @@ const filteredPending = computed(() => {
   return list.slice().sort((a, b) => {
     if (a.is_priority_for_chapter !== b.is_priority_for_chapter)
       return a.is_priority_for_chapter ? -1 : 1
-    const order: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 }
-    return (order[b.importance] ?? 2) - (order[a.importance] ?? 2)
+    return compareForeshadowImportanceDesc(a.importance, b.importance)
   })
 })
 
 // ── helpers ─────────────────────────────────────────────────────
-function importanceLabel(imp: string): string {
-  return ({ critical: '危急', high: '重要', medium: '一般', low: '次要' } as Record<string, string>)[imp] ?? imp
-}
-function importanceChipClass(imp: string): string {
-  return ({ critical: 'pp-chip--danger', high: 'pp-chip--warning', medium: 'pp-chip--brand', low: 'pp-chip--muted' } as Record<string, string>)[imp] ?? 'pp-chip--muted'
-}
-function importanceAccentColor(imp: string): string {
-  return ({ critical: 'var(--color-danger)', high: 'var(--color-warning)', medium: 'var(--color-brand)', low: 'var(--app-border)' } as Record<string, string>)[imp] ?? 'var(--app-border)'
-}
-
-const importanceOptions = [
-  { label: '危急', value: 'critical' },
-  { label: '重要', value: 'high' },
-  { label: '一般', value: 'medium' },
-  { label: '次要', value: 'low' },
-]
+const importanceLabel = getForeshadowImportanceLabel
+const importanceChipClass = getForeshadowImportanceChipClass
+const importanceAccentColor = getForeshadowImportanceAccentColor
+const importanceOptions = FORESHADOW_IMPORTANCE_OPTIONS
 
 // ── load ─────────────────────────────────────────────────────────
 const load = async () => {

@@ -203,6 +203,12 @@ import { foreshadowApi, type ForeshadowEntry } from '@/api/foreshadow'
 import { chapterApi } from '@/api/chapter'
 import type { GenerationPrefsDTO } from '@/api/novel'
 import { narrativeOrdinalLabel } from '@/utils/narrativeUnitLabel'
+import {
+  compareForeshadowImportanceDesc,
+  getForeshadowImportanceAccentColor,
+  getForeshadowImportanceChipClass,
+  getForeshadowImportanceLabel,
+} from '@/domain/foreshadow'
 
 interface Chapter {
   id: number
@@ -304,41 +310,19 @@ const dueForeshadows = computed(() => {
   const ch = props.currentChapter?.number ?? null
   if (ch == null) return allPendingFs.value.filter(f => f.suggested_resolve_chapter != null).slice(0, 5)
   const window = ch + 2
-  const importanceOrder: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 }
   return allPendingFs.value
     .filter(f => f.suggested_resolve_chapter != null && f.suggested_resolve_chapter <= window)
     .sort((a, b) => {
       if (a.is_priority_for_chapter && !b.is_priority_for_chapter) return -1
       if (!a.is_priority_for_chapter && b.is_priority_for_chapter) return 1
-      return (importanceOrder[b.importance] ?? 2) - (importanceOrder[a.importance] ?? 2)
+      return compareForeshadowImportanceDesc(a.importance, b.importance)
     })
     .slice(0, 6)
 })
 
-function importanceLabel(imp: string): string {
-  const map: Record<string, string> = { critical: '危急', high: '重要', medium: '一般', low: '次要' }
-  return map[imp] ?? imp
-}
-
-function importanceChipClass(imp: string): string {
-  const map: Record<string, string> = {
-    critical: 'pp-chip--danger',
-    high: 'pp-chip--warning',
-    medium: 'pp-chip--brand',
-    low: 'pp-chip--muted',
-  }
-  return map[imp] ?? 'pp-chip--muted'
-}
-
-function importanceAccentColor(imp: string): string {
-  const map: Record<string, string> = {
-    critical: 'var(--color-danger)',
-    high: 'var(--color-warning)',
-    medium: 'var(--color-brand)',
-    low: 'var(--app-border)',
-  }
-  return map[imp] ?? 'var(--app-border)'
-}
+const importanceLabel = getForeshadowImportanceLabel
+const importanceChipClass = getForeshadowImportanceChipClass
+const importanceAccentColor = getForeshadowImportanceAccentColor
 
 async function fetchForeshadows() {
   loadingFs.value = true

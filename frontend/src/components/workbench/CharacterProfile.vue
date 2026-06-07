@@ -305,6 +305,16 @@ import {
 import { bibleApi, type CharacterDTO } from '@/api/bible'
 import { memoryApi, type CharacterProjection, type MemoryAtom } from '@/api/memory'
 import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
+import {
+  classifyCharacterMentalState,
+  getCharacterFieldNarrativeLabel,
+  getCharacterRoleColor,
+  getCharacterRoleCssKey,
+  getCharacterRoleLabel,
+  getMemoryTypeLabel,
+  getSpeechTempoLabel,
+  normalizeCharacterRole,
+} from '@/domain/character'
 import DialogueCorpus from './DialogueCorpus.vue'
 
 interface Props {
@@ -334,25 +344,13 @@ const activeTab  = ref<'write' | 'memory' | 'calibration' | 'file' | 'dialogue'>
 const debugOpen  = ref(false)
 const calibratingId = ref<string | null>(null)
 
-// ── Avatar & Role ─────────────────────────────────────────────────
-const ROLE_COLORS: Record<string, string> = {
-  PROTAGONIST: 'var(--color-brand, #2563eb)',
-  SUPPORTING:  'var(--color-warning, #f59e0b)',
-  MINOR:       'var(--app-text-muted)',
-}
-const ROLE_LABELS: Record<string, string> = {
-  PROTAGONIST: '主角',
-  SUPPORTING:  '配角',
-  MINOR:       '龙套',
-}
-
 const roleKey = computed(() =>
-  (bibleChar.value?.role ?? psycheDetail.value?.role ?? '').toUpperCase() || 'MINOR',
+  normalizeCharacterRole(bibleChar.value?.role ?? psycheDetail.value?.role),
 )
-const avatarColor   = computed(() => ROLE_COLORS[roleKey.value] ?? ROLE_COLORS.MINOR)
+const avatarColor   = computed(() => getCharacterRoleColor(roleKey.value))
 const avatarInitial = computed(() => characterName.value.slice(0, 1) || '?')
-const roleLabelText = computed(() => ROLE_LABELS[roleKey.value] ?? roleKey.value)
-const roleCssKey    = computed(() => roleKey.value.toLowerCase())
+const roleLabelText = computed(() => getCharacterRoleLabel(roleKey.value))
+const roleCssKey    = computed(() => getCharacterRoleCssKey(roleKey.value))
 
 // ── Mental State ──────────────────────────────────────────────────
 const mentalStateLabel = computed(() => {
@@ -363,10 +361,10 @@ const mentalStateLabel = computed(() => {
 })
 
 const mentalStateCssKey = computed((): string => {
-  const v = mentalStateLabel.value
-  if (!v) return ''
-  if (/焦虑|恐惧|崩溃|危机|绝望/.test(v)) return 'cp-state-pip--danger'
-  if (/愤怒|悲伤|痛苦|压抑/.test(v))      return 'cp-state-pip--warning'
+  const severity = classifyCharacterMentalState(mentalStateLabel.value)
+  if (severity === 'normal') return ''
+  if (severity === 'danger') return 'cp-state-pip--danger'
+  if (severity === 'warning') return 'cp-state-pip--warning'
   return 'cp-state-pip--active'
 })
 
@@ -421,14 +419,13 @@ const voiceObj = computed((): VoiceShape | null => {
   const vp = bibleChar.value?.voice_profile ?? projection.value?.voice_fingerprint
   return (vp && typeof vp === 'object') ? (vp as VoiceShape) : null
 })
-const TEMPO_MAP: Record<string, string> = { fast: '急促', normal: '平稳', slow: '舒缓' }
 const voiceAttrs = computed((): Array<{ k: string; v: string }> => {
   const v = voiceObj.value
   if (!v) return []
   const out: Array<{ k: string; v: string }> = []
   if (v.style)            out.push({ k: '风格', v: String(v.style) })
   if (v.sentence_pattern) out.push({ k: '句式', v: String(v.sentence_pattern) })
-  if (v.speech_tempo)     out.push({ k: '节奏', v: TEMPO_MAP[String(v.speech_tempo)] ?? String(v.speech_tempo) })
+  if (v.speech_tempo)     out.push({ k: '节奏', v: getSpeechTempoLabel(String(v.speech_tempo)) })
   return out
 })
 const voiceCatchphrases = computed((): string[] => {
@@ -469,12 +466,6 @@ const activeWounds = computed((): WoundShape[] => {
 })
 
 // ── Evolution Timeline ─────────────────────────────────────────────
-const FIELD_NARRATIVE: Record<string, string> = {
-  core_belief:   '信念转变',
-  moral_taboos:  '底线调整',
-  voice_profile: '声线改变',
-  active_wounds: '新增创伤',
-}
 interface TLEntry { trigger_chapter: number; trigger_event: string; narrativeDesc: string }
 const narrativeTimeline = computed((): TLEntry[] =>
   projection.value?.emotional_arc?.length
@@ -486,25 +477,13 @@ const narrativeTimeline = computed((): TLEntry[] =>
     : (psycheDetail.value?.evolution_timeline ?? []).map(e => ({
     trigger_chapter: e.trigger_chapter,
     trigger_event:   e.trigger_event ?? '',
-    narrativeDesc:   (e.changed_fields ?? []).map((f: string) => FIELD_NARRATIVE[f] ?? f).join('，'),
+    narrativeDesc:   (e.changed_fields ?? []).map((f: string) => getCharacterFieldNarrativeLabel(f)).join('，'),
   })),
 )
 
 const candidateMemories = computed(() => projection.value?.candidate_memories ?? [])
 
-function memoryTypeLabel(type: string): string {
-  const map: Record<string, string> = {
-    state: '状态',
-    scar: '创伤',
-    motivation: '执念',
-    emotion: '情绪',
-    voice: '对白',
-    relationship: '关系',
-    debt: '债务',
-    fact: '事实',
-  }
-  return map[type] ?? type
-}
+const memoryTypeLabel = getMemoryTypeLabel
 
 function memoryAtomText(atom: MemoryAtom): string {
   const p = atom.payload ?? {}

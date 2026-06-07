@@ -55,6 +55,12 @@ import { useMessage } from 'naive-ui'
 import { bibleApi, type CharacterDTO } from '@/api/bible'
 import { useWorkbenchDeskTickReload } from '@/composables/useWorkbenchNarrativeSync'
 import { WORKBENCH_OPEN_SETTINGS_PANEL_EVENT } from '@/workbench/deskEvents'
+import {
+  classifyCharacterMentalState,
+  getCharacterRoleColor,
+  getCharacterRoleCssKey,
+  getCharacterRoleLabel,
+} from '@/domain/character'
 
 interface Props {
   slug: string
@@ -68,38 +74,19 @@ const message    = useMessage()
 const loading    = ref(false)
 const characters = ref<CharacterDTO[]>([])
 
-// ── Role helpers ──────────────────────────────────────────────────
-const ROLE_COLORS: Record<string, string> = {
-  PROTAGONIST: 'var(--color-brand, #2563eb)',
-  SUPPORTING:  'var(--color-warning, #f59e0b)',
-  MINOR:       'var(--app-border)',
-}
-
-const ROLE_LABELS: Record<string, string> = {
-  PROTAGONIST: '主角',
-  SUPPORTING:  '配角',
-  MINOR:       '龙套',
-}
-
 function getRoleColor(role: string): string {
-  return ROLE_COLORS[role.toUpperCase()] ?? ROLE_COLORS.MINOR
+  return getCharacterRoleColor(role, 'var(--app-border)')
 }
 
-function getRoleCssKey(role: string): string {
-  const r = role.toUpperCase()
-  if (r === 'PROTAGONIST') return 'protagonist'
-  if (r === 'SUPPORTING')  return 'supporting'
-  return 'minor'
-}
+const getRoleCssKey = getCharacterRoleCssKey
 
-function getRoleLabel(role: string): string {
-  return ROLE_LABELS[role.toUpperCase()] ?? role
-}
+const getRoleLabel = getCharacterRoleLabel
 
 // ── Mental state dot ──────────────────────────────────────────────
 function getStateDotClass(mental: string): string {
-  if (!mental || mental.toUpperCase() === 'NORMAL') return ''
-  if (/焦虑|恐惧|崩溃|危机|绝望/.test(mental)) return 'cn-dot--danger'
+  const severity = classifyCharacterMentalState(mental)
+  if (severity === 'normal') return ''
+  if (severity === 'danger') return 'cn-dot--danger'
   return 'cn-dot--warning'
 }
 

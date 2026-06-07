@@ -62,6 +62,7 @@ import { bibleApi, type CharacterDTO } from '../../api/bible'
 import type { StreamGeneratedBeat } from '../../api/workflow'
 import type { AutopilotChapterAudit } from './ChapterStatusPanel.vue'
 import { loadAssistBeatSession } from '@/utils/assistBeatSession'
+import { getBeatFocusLabel, getBeatFocusTone, getBeatFunctionLabel } from '@/domain/chapterWriting'
 
 const message = useMessage()
 
@@ -191,18 +192,6 @@ interface MicroBeat {
   forbidden_drift?: string
 }
 
-const BEAT_FOCUS_LABELS: Record<string, string> = {
-  sensory: '感官',
-  dialogue: '对话',
-  action: '动作',
-  emotion: '情绪',
-  pacing: '节奏',
-  mixed: '混合',
-  outline_ref: '大纲参考',
-  narrative_ref: '叙事节拍',
-  transition: '过渡',
-}
-
 function formatBeatDescription(raw: string): string {
   let s = String(raw || '').trim()
   const prefix = '【章纲节选·须落实】'
@@ -220,27 +209,11 @@ function formatBeatDescription(raw: string): string {
 }
 
 function beatFocusLabel(focus: string): string {
-  const key = (focus || '').trim()
-  if (BEAT_FOCUS_LABELS[key]) return BEAT_FOCUS_LABELS[key]
-  if (!key) return '节拍'
-  return key
+  return getBeatFocusLabel(focus)
 }
 
-type BeatFocusTone = 'info' | 'success' | 'warning' | 'danger' | 'neutral'
-
-function beatFocusTone(focus: string): BeatFocusTone {
-  const toneMap: Record<string, BeatFocusTone> = {
-    sensory: 'info',
-    dialogue: 'success',
-    action: 'warning',
-    emotion: 'danger',
-    pacing: 'neutral',
-    mixed: 'neutral',
-    outline_ref: 'neutral',
-    narrative_ref: 'info',
-    transition: 'info',
-  }
-  return toneMap[(focus || '').trim()] || 'neutral'
+function beatFocusTone(focus: string) {
+  return getBeatFocusTone(focus)
 }
 
 function normalizeMicroBeatItems(raw: unknown[]): MicroBeat[] {
@@ -315,16 +288,7 @@ function hasBeatContractDetails(beat: MicroBeat): boolean {
 }
 
 function beatFunctionLabel(value: string): string {
-  const map: Record<string, string> = {
-    setup: '铺设',
-    pressure: '加压',
-    payoff: '兑现',
-    reveal: '揭示',
-    transition: '转场',
-    aftermath: '余波',
-    hook: '钩子',
-  }
-  return map[value] ?? value
+  return getBeatFunctionLabel(value)
 }
 
 function outlinePreviewMicroBeats(): MicroBeat[] {

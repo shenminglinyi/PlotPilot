@@ -10,34 +10,34 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 import hashlib
 from typing import Any, Dict, Literal
 
+from infrastructure.engine.story_pipeline_environment import (
+    STORY_PIPELINE_MODE_ENV,
+    StoryPipelineEnvironmentSettings,
+)
+
 logger = logging.getLogger(__name__)
 
-_ENV_FLAG = "PLOTPILOT_USE_STORY_PIPELINE"
 PipelineMode = Literal["off", "writing", "full"]
 
 
 def get_story_pipeline_mode() -> PipelineMode:
     """解析引擎内核模式（未设置时默认 writing，Phase 4）"""
-    val = os.getenv(_ENV_FLAG, "").strip().lower()
-    if val in ("off", "legacy", "false", "0", "no"):
-        return "off"
-    if val in ("full", "all", "engine"):
-        return "full"
-    if val in ("1", "true", "yes", "on", "writing"):
-        return "writing"
-    if not val:
-        return "writing"
-    logger.warning(
-        "未知 %s=%r，使用默认 writing；回退 legacy 请设 off",
-        _ENV_FLAG,
-        os.getenv(_ENV_FLAG),
-    )
-    return "writing"
+    settings = StoryPipelineEnvironmentSettings.from_env()
+    if settings.is_unknown:
+        logger.warning(
+            "未知 %s=%r，使用默认 writing；回退 legacy 请设 off",
+            STORY_PIPELINE_MODE_ENV,
+            settings.raw_mode,
+        )
+    return settings.mode
+
+
+def story_pipeline_mode_was_unset() -> bool:
+    return StoryPipelineEnvironmentSettings.from_env().is_unset
 
 
 def is_story_pipeline_writing_enabled() -> bool:

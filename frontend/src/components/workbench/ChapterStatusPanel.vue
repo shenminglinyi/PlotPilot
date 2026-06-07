@@ -247,6 +247,7 @@ import { useMessage } from 'naive-ui'
 import type { GenerateChapterWorkflowResponse } from '../../api/workflow'
 import ConsistencyReportPanel from './ConsistencyReportPanel.vue'
 import { chapterApi, type ChapterStructureDTO } from '../../api/chapter'
+import { getChapterPacingLabel, getChapterQualityLabel } from '@/domain/chapterWriting'
 
 interface Chapter {
   id: number | string
@@ -368,24 +369,11 @@ const aftermathSummary = computed(() => {
 })
 
 function pacingLabel(p: string) {
-  const m: Record<string, string> = {
-    slow: '慢',
-    medium: '中',
-    fast: '快',
-  }
-  return m[p] || p || '—'
+  return getChapterPacingLabel(p)
 }
 
 function qualityLabel(key: string): string {
-  const labels: Record<string, string> = {
-    coherence: '连贯性',
-    pacing: '节奏感',
-    dialogue: '对话质量',
-    description: '描写质量',
-    emotion: '情感表达',
-    consistency: '一致性',
-  }
-  return labels[key] || key
+  return getChapterQualityLabel(key)
 }
 
 function formatTime(t: string) {

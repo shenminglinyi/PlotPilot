@@ -1,14 +1,15 @@
 """StoryPipeline 写作委托测试"""
-import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from domain.novel.entities.novel import NovelStage
 from engine.runtime.writing_delegate import (
+    get_story_pipeline_mode,
     is_story_pipeline_writing_enabled,
     run_writing,
     run_story_pipeline_writing,
+    story_pipeline_mode_was_unset,
 )
 from engine.pipeline.context import PipelineResult
 
@@ -24,10 +25,9 @@ def test_is_story_pipeline_writing_enabled_explicit_off(monkeypatch):
 
 
 def test_get_story_pipeline_mode_default_writing(monkeypatch):
-    from engine.runtime.writing_delegate import get_story_pipeline_mode
-
     monkeypatch.delenv("PLOTPILOT_USE_STORY_PIPELINE", raising=False)
     assert get_story_pipeline_mode() == "writing"
+    assert story_pipeline_mode_was_unset() is True
 
 
 def test_is_story_pipeline_writing_enabled_on(monkeypatch):
@@ -36,11 +36,17 @@ def test_is_story_pipeline_writing_enabled_on(monkeypatch):
 
 
 def test_get_story_pipeline_mode_full(monkeypatch):
-    from engine.runtime.writing_delegate import get_story_pipeline_mode
-
     monkeypatch.setenv("PLOTPILOT_USE_STORY_PIPELINE", "full")
     assert get_story_pipeline_mode() == "full"
+    assert story_pipeline_mode_was_unset() is False
     assert is_story_pipeline_writing_enabled() is True
+
+
+def test_get_story_pipeline_mode_unknown_warns_and_defaults(monkeypatch, caplog):
+    monkeypatch.setenv("PLOTPILOT_USE_STORY_PIPELINE", "surprise")
+
+    assert get_story_pipeline_mode() == "writing"
+    assert "未知 PLOTPILOT_USE_STORY_PIPELINE" in caplog.text
 
 
 @pytest.mark.asyncio

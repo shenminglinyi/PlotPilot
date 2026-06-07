@@ -320,7 +320,7 @@ import { useMessage } from 'naive-ui'
 import AutopilotWritingStream from './AutopilotWritingStream.vue'
 import StoryPipelineObservability from './StoryPipelineObservability.vue'
 import AuditPipelineObservability from './AuditPipelineObservability.vue'
-import { subscribeChapterStream } from '../../api/config'
+import { chapterApi } from '../../api/chapter'
 import {
   autopilotApi,
   getAutopilotErrorDetail,
@@ -943,7 +943,7 @@ function startChapterStream() {
 
   console.log('[AutopilotPanel] 启动 SSE 连接...')
 
-  chapterStreamCtrl = subscribeChapterStream(props.novelId, {
+  chapterStreamCtrl = chapterApi.subscribeStream(props.novelId, {
     onOutlinePlanning: () => {
       void fetchStatus()
     },

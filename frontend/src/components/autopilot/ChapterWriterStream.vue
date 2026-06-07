@@ -17,7 +17,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue'
-import { subscribeChapterStream } from '../../api/config'
+import { chapterApi } from '../../api/chapter'
 
 const props = defineProps<{
   novelId: string
@@ -51,7 +51,7 @@ function startStream() {
   chapterNumber.value = 0
   beatIndex.value = 0
 
-  abortCtrl = subscribeChapterStream(props.novelId, {
+  abortCtrl = chapterApi.subscribeStream(props.novelId, {
     onChapterStart: (num) => {
       chapterNumber.value = num
       displayContent.value = ''

@@ -7,8 +7,7 @@ import logging
 import os
 import re
 import tempfile
-from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from domain.novel.repositories.novel_repository import NovelRepository
 from domain.novel.repositories.chapter_repository import ChapterRepository
@@ -16,6 +15,7 @@ from domain.novel.entities.novel import Novel
 from domain.novel.entities.chapter import Chapter
 from domain.novel.value_objects.novel_id import NovelId
 from domain.novel.value_objects.chapter_id import ChapterId
+from infrastructure.export.font_environment import ExportFontEnvironmentSettings
 
 logger = logging.getLogger(__name__)
 
@@ -52,36 +52,19 @@ def _content_to_html_paragraphs(text: str) -> str:
     return "\n".join(parts)
 
 
-def _cjk_font_paths() -> Iterator[Path]:
-    env = os.environ.get("PLOTPILOT_EXPORT_CJK_FONT", "").strip()
-    if env:
-        yield Path(env)
-    if os.name == "nt":
-        windir = os.environ.get("WINDIR", r"C:\Windows")
-        fonts = Path(windir) / "Fonts"
-        for name in (
-            "msyh.ttf",
-            "simhei.ttf",
-            "simsun.ttc",
-            "msyh.ttc",
-            "simkai.ttf",
-        ):
-            yield fonts / name
-    else:
-        for p in (
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttf",
-            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        ):
-            yield Path(p)
-
-
 class ExportService:
     """导出服务"""
 
-    def __init__(self, novel_repository: NovelRepository, chapter_repository: ChapterRepository):
+    def __init__(
+        self,
+        novel_repository: NovelRepository,
+        chapter_repository: ChapterRepository,
+        *,
+        font_settings: ExportFontEnvironmentSettings | None = None,
+    ):
         self.novel_repository = novel_repository
         self.chapter_repository = chapter_repository
+        self.font_settings = font_settings or ExportFontEnvironmentSettings.from_env()
 
     def export_novel(self, novel_id: str, format: str) -> Tuple[bytes, str, str]:
         try:
@@ -213,7 +196,7 @@ class ExportService:
         return data, "application/epub+zip", f"{stem}.epub"
 
     def _try_register_cjk_font(self, pdf) -> bool:
-        for path in _cjk_font_paths():
+        for path in self.font_settings.cjk_font_paths():
             if not path.is_file():
                 continue
             try:

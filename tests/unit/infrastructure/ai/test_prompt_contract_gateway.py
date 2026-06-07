@@ -267,3 +267,45 @@ def test_prompt_gateway_records_variable_sources(monkeypatch):
     assert any(item["name"] == "outline" and item["source"] == "prompt:memory-extraction" for item in sources)
     assert any(item["name"] == "chapter_content" and item["source"] == "runtime" for item in sources)
     assert variable_spans[0]["variables_full"]["chapter_content"] == "正文全文"
+
+
+def test_prompt_gateway_variable_source_lookup_failure_does_not_block_render(monkeypatch):
+    gateway = PromptGateway(packages_root=NODES_DIR)
+
+    captured: list[dict] = []
+
+    class _Recorder:
+        def record_span(self, **kwargs):
+            captured.append(kwargs)
+            return None
+
+    class _BrokenRegistry:
+        def get_schemas_for_node(self, _node_key):
+            raise RuntimeError("registry unavailable")
+
+    monkeypatch.setattr("infrastructure.ai.prompt_gateway.get_trace_recorder", lambda: _Recorder())
+    monkeypatch.setattr("infrastructure.ai.prompt_gateway.get_variable_registry", lambda: _BrokenRegistry())
+    monkeypatch.setattr(
+        gateway,
+        "_render_from_registry",
+        lambda contract, variables: PromptGatewayRenderResult(
+            prompt=Prompt(system="系统提示词", user="用户提示词"),
+            node_key=contract.node_key,
+            contract_version=contract.version,
+            source="registry",
+            variables=variables,
+        ),
+    )
+
+    gateway.render(
+        MEMORY_EXTRACTION_CONTRACT,
+        {
+            "chapter_content": "正文全文",
+            "chapter_number": 1,
+            "outline": "主角发现密室",
+        },
+    )
+
+    variable_spans = [item for item in captured if item.get("phase") == "variables_validated"]
+    assert variable_spans
+    assert all(item["source"] == "runtime" for item in variable_spans[0]["variable_sources"])
