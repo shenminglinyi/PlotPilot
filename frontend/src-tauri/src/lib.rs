@@ -49,12 +49,13 @@ pub fn run() {
                 // 已经在关闭中，直接忽略后续点击
                 if GRACEFUL_SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
                     api.prevent_close();
+                    let _ = window.hide();
                     return;
                 }
                 api.prevent_close();
 
-                // 最小化窗口给用户反馈（关闭正在进行）
-                let _ = window.minimize();
+                // 立即隐藏窗口，避免关闭时出现最小化/弹回的怪异反馈。
+                let _ = window.hide();
 
                 let app_handle = window.app_handle().clone();
                 std::thread::spawn(move || {

@@ -698,9 +698,13 @@ impl BackendManager {
                 log::info!("🛑 使用 taskkill 强制终止进程树 (PID={})...", pid);
 
                 // /F 强制终止 /T 包含子进程
-                let kill_result = Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", &pid.to_string()])
-                    .output();
+                let mut kill_cmd = Command::new("taskkill");
+                kill_cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
+                #[cfg(target_os = "windows")]
+                {
+                    kill_cmd.creation_flags(windows_subsystem_flag());
+                }
+                let kill_result = kill_cmd.output();
 
                 match kill_result {
                     Ok(output) => {
