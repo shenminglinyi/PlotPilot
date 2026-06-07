@@ -27,6 +27,7 @@ from application.ai_invocation.dtos import (
     prompt_hash,
     stable_hash,
 )
+from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS, GenerationConfig
 from application.ai_invocation.gateway import AIInvocationGateway
 from application.ai_invocation.input_materialization import context_key_for_scope, materialize_input_variables
 from application.ai_invocation.prompt_assembler import CPMSPromptAssembler, PromptAssemblyError
@@ -40,7 +41,6 @@ from application.ai_invocation.services import AdoptionCommitService, AdoptionSe
 from application.ai_invocation.spec_service import InvocationSpecNotFoundError, InvocationSpecService
 from application.ai_invocation.variable_literals import parse_variable_literal
 from application.ai_invocation.variable_hub import RUNTIME_ONLY_BINDING_SOURCES, VariableResolver, VariableWrite
-from domain.ai.services.llm_service import GenerationConfig
 from domain.ai.value_objects.prompt import Prompt
 from infrastructure.persistence.database.connection import get_database
 from infrastructure.persistence.database.write_dispatch import sqlite_writes_bypass_queue
@@ -121,7 +121,7 @@ _VARIABLE_HUB_FACT_SOURCE_PREFIXES = ("setup.", "bible.setup.")
 def _config_from_dict(raw: Mapping[str, Any] | None) -> GenerationConfig | None:
     if not raw:
         return None
-    max_tokens = int(raw.get("max_tokens") or 4096)
+    max_tokens = int(raw.get("max_tokens") or DEFAULT_MAX_OUTPUT_TOKENS)
     operation = str(raw.get("operation") or raw.get("invocation_operation") or "")
     if operation in {"setup.main_plot_options", "setup.plot_outline"}:
         max_tokens = max(max_tokens, 8192)

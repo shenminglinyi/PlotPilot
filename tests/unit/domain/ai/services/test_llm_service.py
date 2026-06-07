@@ -1,6 +1,6 @@
 # tests/unit/domain/ai/services/test_llm_service.py
 import pytest
-from domain.ai.services.llm_service import GenerationConfig, GenerationResult
+from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS, GenerationConfig, GenerationResult
 from domain.ai.value_objects.token_usage import TokenUsage
 
 
@@ -15,14 +15,14 @@ class TestGenerationConfig:
             temperature=1.0
         )
         assert config.model == "claude-3-5-sonnet-20241022"
-        assert config.max_tokens == 4096
+        assert config.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert config.temperature == 1.0
 
     def test_generation_config_default_values(self):
         """测试默认值"""
         config = GenerationConfig()
         assert config.model == ""
-        assert config.max_tokens == 4096
+        assert config.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert config.temperature == 1.0
 
     def test_generation_config_temperature_below_zero_raises_error(self):

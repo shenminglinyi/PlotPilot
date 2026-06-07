@@ -409,7 +409,7 @@ function buildProfileFromPreset(preset?: LLMPreset): LLMProfile {
     api_key: '',
     model: preset?.default_model || '',
     temperature: 0.7,
-    max_tokens: 4096,
+    max_tokens: 16000,
     timeout_seconds: 300,
     extra_headers: {},
     extra_query: {},

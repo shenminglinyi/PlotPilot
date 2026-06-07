@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
+from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
 from infrastructure.ai.llm_environment import LLMEnvironmentSettings
 from infrastructure.persistence.database.connection import get_database
 from infrastructure.ai.url_utils import (
@@ -42,7 +43,7 @@ class LLMProfile(BaseModel):
     api_key: str = ''
     model: str = ''
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     timeout_seconds: int = 300
     extra_headers: Dict[str, str] = Field(default_factory=dict)
     extra_query: Dict[str, Any] = Field(default_factory=dict)
@@ -149,7 +150,7 @@ class LLMControlService:
             api_key=row['api_key'] or '',
             model=row['model'] or '',
             temperature=row['temperature'],
-            max_tokens=row['max_tokens'],
+            max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             timeout_seconds=row['timeout_seconds'],
             extra_headers=json.loads(row.get('extra_headers') or '{}'),
             extra_query=json.loads(row.get('extra_query') or '{}'),
@@ -451,7 +452,7 @@ class LLMControlService:
             )
             config = GenerationConfig(
                 model=resolved.model,
-                max_tokens=min(resolved.max_tokens, 64),
+                max_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
                 temperature=0,
             )
             result = await llm_service.generate(prompt, config)
@@ -506,6 +507,7 @@ class LLMControlService:
                         'base_url': profile.base_url.strip(),
                         'api_key': profile.api_key.strip(),
                         'model': profile.model.strip(),
+                        'max_tokens': DEFAULT_MAX_OUTPUT_TOKENS,
                     }
                 )
             )

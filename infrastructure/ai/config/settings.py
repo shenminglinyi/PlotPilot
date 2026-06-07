@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
+
 
 @dataclass
 class Settings:
@@ -12,7 +14,7 @@ class Settings:
 
     default_model: str = ""
     default_temperature: float = 0.7
-    default_max_tokens: int = 4096
+    default_max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     api_key: Optional[str] = None
     #: 兼容自建/转发网关，与官方 provider base_url 一致；未设则走官方默认
     base_url: Optional[str] = None
@@ -35,6 +37,7 @@ class Settings:
 
         if self.default_max_tokens <= 0:
             raise ValueError("Max tokens must be positive")
+        self.default_max_tokens = DEFAULT_MAX_OUTPUT_TOKENS
 
         if self.timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")

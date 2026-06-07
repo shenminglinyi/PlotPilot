@@ -1,5 +1,6 @@
 """Settings 配置测试"""
 import pytest
+from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS
 from infrastructure.ai.config.settings import Settings
 
 
@@ -12,7 +13,7 @@ class TestSettings:
 
         assert settings.default_model == ""
         assert settings.default_temperature == 0.7
-        assert settings.default_max_tokens == 4096
+        assert settings.default_max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert settings.api_key is None
 
     def test_custom_values(self):
@@ -26,7 +27,7 @@ class TestSettings:
 
         assert settings.default_model == "claude-3-opus-20240229"
         assert settings.default_temperature == 0.5
-        assert settings.default_max_tokens == 2048
+        assert settings.default_max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert settings.api_key == "test-key"
 
     def test_temperature_validation(self):

@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import yaml  # type: ignore
 
-from domain.ai.services.llm_service import GenerationConfig
+from domain.ai.services.llm_service import DEFAULT_MAX_OUTPUT_TOKENS, GenerationConfig
 
 _CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "generation_profiles.yaml"
 
@@ -61,7 +61,7 @@ def generation_config_from_profile(
     profile.update({k: v for k, v in overrides.items() if v is not None})
     return GenerationConfig(
         model=model or str(profile.get("model", "")),
-        max_tokens=int(profile.get("max_tokens", 4096)),
+        max_tokens=int(profile.get("max_tokens", DEFAULT_MAX_OUTPUT_TOKENS)),
         temperature=float(profile.get("temperature", 1.0)),
         response_format=dict(response_format) if response_format is not None else profile.get("response_format"),
     )

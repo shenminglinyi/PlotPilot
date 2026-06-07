@@ -5,12 +5,15 @@ from domain.ai.value_objects.prompt import Prompt
 from domain.ai.value_objects.token_usage import TokenUsage
 
 
+DEFAULT_MAX_OUTPUT_TOKENS = 16000
+
+
 class GenerationConfig:
     """生成配置"""
     def __init__(
         self,
         model: str = "",
-        max_tokens: int = 4096,
+        max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
         temperature: float = 1.0,
         response_format: Optional[Dict] = None,
     ):
@@ -19,6 +22,7 @@ class GenerationConfig:
         self.temperature = temperature
         self.response_format = response_format
         self.__post_init__()
+        self.max_tokens = DEFAULT_MAX_OUTPUT_TOKENS
 
     def __post_init__(self):
         """验证配置参数"""
