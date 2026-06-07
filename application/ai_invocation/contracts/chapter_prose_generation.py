@@ -19,16 +19,9 @@ CONTINUATION_HANDLER_KEY = "chapter_generate_prose_commit"
 
 def chapter_prose_input_bindings() -> list[VariableBinding]:
     return [
-        VariableBinding("novel_title", "novel.setup.title", False, "", scope="novel", stage="setup", display_name="名称"),
-        VariableBinding("genre", "novel.setup.genre_label", False, "", scope="novel", stage="setup", display_name="类型"),
-        VariableBinding("style_guide", "novel.style.guide", False, "", scope="novel", stage="setup", display_name="文风公约"),
-        VariableBinding("chapter_number", "chapter.number", True, scope="chapter", stage="writing", value_type="integer", display_name="章节序号"),
-        VariableBinding("chapter_title", "chapter.title", False, "", scope="chapter", stage="writing", display_name="章节标题"),
         VariableBinding("chapter_outline", "chapter.outline", False, "", scope="chapter", stage="writing", display_name="章节执行剧本"),
         VariableBinding("previous_summary", "chapter.previous.summary", False, "", scope="chapter", stage="writing", display_name="前章摘要"),
         VariableBinding("previous_ending", "chapter.previous.ending", False, "", scope="chapter", stage="writing", display_name="前章结尾"),
-        VariableBinding("active_cast", "character.active_cast", False, "", scope="chapter", stage="writing", value_type="list", display_name="登场角色"),
-        VariableBinding("world_context", "worldbuilding.context", False, "", scope="novel", stage="writing", display_name="世界观上下文"),
         VariableBinding("user_requirements", "user.generation.requirements", False, "", scope="chapter", stage="writing", display_name="本次要求"),
     ]
 
