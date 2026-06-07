@@ -5,6 +5,8 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import PositiveInt
 
+from interfaces.api.urls import stats_api_url
+
 from ..services.stats_service import StatsService
 from ..models.responses import SuccessResponse
 from ..models.stats_models import GlobalStats, BookStats, ChapterStats, WritingProgress
@@ -34,7 +36,7 @@ def create_stats_router(stats_service: StatsService) -> APIRouter:
         Returns:
             SuccessResponse containing GlobalStats object
         """
-        logger.info("GET /api/stats/global")
+        logger.info("GET %s", stats_api_url("/global"))
 
         stats = stats_service.get_global_stats()
         return SuccessResponse(data=stats)
@@ -52,7 +54,7 @@ def create_stats_router(stats_service: StatsService) -> APIRouter:
         Raises:
             HTTPException: 404 if book not found
         """
-        logger.info(f"GET /api/stats/book/{slug}")
+        logger.info("GET %s", stats_api_url(f"/book/{slug}"))
 
         stats = stats_service.get_book_stats(slug)
         if stats is None:
@@ -80,7 +82,7 @@ def create_stats_router(stats_service: StatsService) -> APIRouter:
         Raises:
             HTTPException: 404 if chapter not found
         """
-        logger.info(f"GET /api/stats/book/{slug}/chapter/{chapter_id}")
+        logger.info("GET %s", stats_api_url(f"/book/{slug}/chapter/{chapter_id}"))
 
         stats = stats_service.get_chapter_stats(slug, chapter_id)
         if stats is None:
@@ -111,7 +113,7 @@ def create_stats_router(stats_service: StatsService) -> APIRouter:
         Raises:
             HTTPException: 404 if book not found
         """
-        logger.info(f"GET /api/stats/book/{slug}/progress?days={days}")
+        logger.info("GET %s", stats_api_url(f"/book/{slug}/progress?days={days}"))
 
         # Check if book exists before returning progress
         book_stats = stats_service.get_book_stats(slug)

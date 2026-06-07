@@ -1,7 +1,10 @@
 """FastAPI route registration for PlotPilot."""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from dataclasses import dataclass
+from typing import Sequence
+
+from fastapi import APIRouter, FastAPI
 
 from infrastructure.persistence.database.connection import get_database
 from interfaces.api.settings import (
@@ -14,6 +17,30 @@ from interfaces.api.stats.repositories.sqlite_stats_repository_adapter import (
 )
 from interfaces.api.stats.routers.stats import create_stats_router
 from interfaces.api.stats.services.stats_service import StatsService
+
+
+@dataclass(frozen=True)
+class RouterRegistration:
+    """Declarative API router registration metadata."""
+
+    router: APIRouter
+    prefix: str
+    tags: tuple[str, ...] = ()
+
+
+def _include_registered_routes(
+    app: FastAPI,
+    registrations: Sequence[RouterRegistration],
+) -> None:
+    for registration in registrations:
+        kwargs = {}
+        if registration.tags:
+            kwargs["tags"] = list(registration.tags)
+        app.include_router(
+            registration.router,
+            prefix=registration.prefix,
+            **kwargs,
+        )
 
 
 def register_api_routes(app: FastAPI) -> None:
@@ -69,61 +96,63 @@ def register_api_routes(app: FastAPI) -> None:
         worldbuilding_routes,
     )
 
-    app.include_router(novels.router, prefix=API_V1_PREFIX)
-    app.include_router(taxonomy_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(chapters.router, prefix=NOVELS_API_PREFIX)
-    app.include_router(manuscript_entity_routes.router, prefix=NOVELS_API_PREFIX)
-    app.include_router(export.router, prefix=API_V1_PREFIX)
-    app.include_router(llm_settings.router, prefix=API_V1_PREFIX)
-    app.include_router(llm_settings.embedding_router, prefix=API_V1_PREFIX)
-    app.include_router(scene_generation_routes.router, prefix=API_V1_PREFIX)
-
-    app.include_router(bible.router, prefix=API_V1_PREFIX)
-    app.include_router(cast.router, prefix=API_V1_PREFIX)
-    app.include_router(knowledge.router, prefix=API_V1_PREFIX)
-    app.include_router(knowledge_graph_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(worldbuilding_routes.router, prefix=API_V1_PREFIX)
-
-    app.include_router(continuous_planning_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(beat_sheet_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(story_structure.router, prefix=API_V1_PREFIX)
-    app.include_router(confluence_router, prefix=API_V1_PREFIX)
-
-    app.include_router(generation.router, prefix=API_V1_PREFIX)
-    app.include_router(context_intelligence.router, prefix=API_V1_PREFIX)
-    app.include_router(chronicles.router, prefix=API_V1_PREFIX)
-    app.include_router(snapshot_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(autopilot_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(workbench_context_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(character_scheduler_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(checkpoint_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(narrative_engine_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(narrative_engine_routes.surface_router, prefix=API_V1_PREFIX)
-    app.include_router(governance_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(worldline_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(evolution_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(ai_invocation_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(prop_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(trace_router, prefix=API_V1_PREFIX)
-    app.include_router(dag_router, prefix=API_V1_PREFIX)
-
-    app.include_router(chapter_review_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(macro_refactor.router, prefix=API_V1_PREFIX)
-    app.include_router(chapter_element_routes.router, prefix=API_V1_PREFIX)
-
-    app.include_router(voice.router, prefix=API_V1_PREFIX)
-    app.include_router(narrative_state.router, prefix=API_V1_PREFIX)
-    app.include_router(foreshadow_ledger.router, prefix=API_V1_PREFIX)
-    app.include_router(system_routes.router, prefix=API_V1_PREFIX)
-    app.include_router(reader_module.router, prefix=API_V1_PREFIX)
-
-    app.include_router(writer_block.router, prefix=API_V1_PREFIX)
-    app.include_router(sandbox.router, prefix=API_V1_PREFIX)
-    app.include_router(monitor.router, prefix=API_V1_PREFIX)
-    app.include_router(llm_control.router, prefix=API_V1_PREFIX)
-    app.include_router(anti_ai_routes.router, prefix=API_V1_PREFIX)
+    _include_registered_routes(
+        app,
+        (
+            RouterRegistration(novels.router, API_V1_PREFIX),
+            RouterRegistration(taxonomy_routes.router, API_V1_PREFIX),
+            RouterRegistration(chapters.router, NOVELS_API_PREFIX),
+            RouterRegistration(manuscript_entity_routes.router, NOVELS_API_PREFIX),
+            RouterRegistration(export.router, API_V1_PREFIX),
+            RouterRegistration(llm_settings.router, API_V1_PREFIX),
+            RouterRegistration(llm_settings.embedding_router, API_V1_PREFIX),
+            RouterRegistration(scene_generation_routes.router, API_V1_PREFIX),
+            RouterRegistration(bible.router, API_V1_PREFIX),
+            RouterRegistration(cast.router, API_V1_PREFIX),
+            RouterRegistration(knowledge.router, API_V1_PREFIX),
+            RouterRegistration(knowledge_graph_routes.router, API_V1_PREFIX),
+            RouterRegistration(worldbuilding_routes.router, API_V1_PREFIX),
+            RouterRegistration(continuous_planning_routes.router, API_V1_PREFIX),
+            RouterRegistration(beat_sheet_routes.router, API_V1_PREFIX),
+            RouterRegistration(story_structure.router, API_V1_PREFIX),
+            RouterRegistration(confluence_router, API_V1_PREFIX),
+            RouterRegistration(generation.router, API_V1_PREFIX),
+            RouterRegistration(context_intelligence.router, API_V1_PREFIX),
+            RouterRegistration(chronicles.router, API_V1_PREFIX),
+            RouterRegistration(snapshot_routes.router, API_V1_PREFIX),
+            RouterRegistration(autopilot_routes.router, API_V1_PREFIX),
+            RouterRegistration(workbench_context_routes.router, API_V1_PREFIX),
+            RouterRegistration(character_scheduler_routes.router, API_V1_PREFIX),
+            RouterRegistration(checkpoint_routes.router, API_V1_PREFIX),
+            RouterRegistration(narrative_engine_routes.router, API_V1_PREFIX),
+            RouterRegistration(narrative_engine_routes.surface_router, API_V1_PREFIX),
+            RouterRegistration(governance_routes.router, API_V1_PREFIX),
+            RouterRegistration(worldline_routes.router, API_V1_PREFIX),
+            RouterRegistration(evolution_routes.router, API_V1_PREFIX),
+            RouterRegistration(ai_invocation_routes.router, API_V1_PREFIX),
+            RouterRegistration(prop_routes.router, API_V1_PREFIX),
+            RouterRegistration(trace_router, API_V1_PREFIX),
+            RouterRegistration(dag_router, API_V1_PREFIX),
+            RouterRegistration(chapter_review_routes.router, API_V1_PREFIX),
+            RouterRegistration(macro_refactor.router, API_V1_PREFIX),
+            RouterRegistration(chapter_element_routes.router, API_V1_PREFIX),
+            RouterRegistration(voice.router, API_V1_PREFIX),
+            RouterRegistration(narrative_state.router, API_V1_PREFIX),
+            RouterRegistration(foreshadow_ledger.router, API_V1_PREFIX),
+            RouterRegistration(system_routes.router, API_V1_PREFIX),
+            RouterRegistration(reader_module.router, API_V1_PREFIX),
+            RouterRegistration(writer_block.router, API_V1_PREFIX),
+            RouterRegistration(sandbox.router, API_V1_PREFIX),
+            RouterRegistration(monitor.router, API_V1_PREFIX),
+            RouterRegistration(llm_control.router, API_V1_PREFIX),
+            RouterRegistration(anti_ai_routes.router, API_V1_PREFIX),
+        ),
+    )
 
     stats_repository = SqliteStatsRepositoryAdapter(get_database())
     stats_service = StatsService(stats_repository)
     stats_router = create_stats_router(stats_service)
-    app.include_router(stats_router, prefix=STATS_API_PREFIX, tags=["statistics"])
+    _include_registered_routes(
+        app,
+        (RouterRegistration(stats_router, STATS_API_PREFIX, ("statistics",)),),
+    )

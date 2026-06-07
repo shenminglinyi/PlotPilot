@@ -48,6 +48,13 @@ def test_api_response_urls_do_not_inline_v1_prefix():
     assert offenders == []
 
 
+def test_stats_router_logs_do_not_inline_stats_api_prefix():
+    source = Path("interfaces/api/stats/routers/stats.py").read_text(encoding="utf-8")
+
+    assert "/api/stats" not in source
+    assert "stats_api_url" in source
+
+
 def test_embedding_services_use_environment_settings_object():
     paths = [
         Path("infrastructure/ai/openai_embedding_service.py"),
