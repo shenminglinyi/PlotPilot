@@ -9,7 +9,7 @@
         @click="selectPreset(preset.value)"
       >
         <div class="preset-card-header">
-          <div class="preset-icon">{{ getPresetIcon(preset.value) }}</div>
+          <div class="preset-icon">{{ preset.icon }}</div>
           <div class="preset-check" v-if="selectedValue === preset.value">
             <n-icon size="16"><CheckmarkCircle /></n-icon>
           </div>
@@ -56,18 +56,6 @@ const selectedPreset = computed(() => {
 
 const selectPreset = (value: string) => {
   emit('update:modelValue', value)
-}
-
-const getPresetIcon = (value: string): string => {
-  const iconMap: Record<string, string> = {
-    xianxia_hot: '⚔️',
-    cyberpunk: '🤖',
-    mystery: '🔍',
-    urban_power: '🏙️',
-    xuanhuan_epic: '🐉',
-    romance_sweet: '💕',
-  }
-  return iconMap[value] || '📖'
 }
 
 const getPresetPreview = (body: string): string => {

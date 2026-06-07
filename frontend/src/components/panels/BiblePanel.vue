@@ -89,13 +89,6 @@
                 </n-tag>
               </div>
             </div>
-            <n-collapse style="margin-top:8px">
-              <n-collapse-item title="文风公约全文" name="style">
-                <div class="bible-style-content">
-                  {{ state.style_notes }}
-                </div>
-              </n-collapse-item>
-            </n-collapse>
           </div>
         </div>
       </div>
@@ -183,7 +176,7 @@ import { DocumentTextOutline, LockClosedOutline, BookmarkOutline } from '@vicons
 import { bibleApi } from '../../api/bible'
 import type { CharacterDTO, LocationDTO, TimelineNoteDTO, StyleNoteDTO } from '../../api/bible'
 import { knowledgeApi } from '../../api/knowledge'
-import { MARKET_STYLE_PRESETS, matchPresetValue } from '@/constants/marketStylePresets'
+import { MARKET_STYLE_PRESETS, getMarketStylePresetIcon, matchPresetValue } from '@/constants/marketStylePresets'
 import { novelApi } from '@/api/novel'
 import { parseGenreWorldFromPremise } from '@/utils/premisePresets'
 import { formatApiError, getHttpStatus } from '@/utils/apiError'
@@ -309,15 +302,7 @@ const stylePresetIcon = computed(() => {
   const t = (state.value.style_notes || '').trim()
   if (!t) return '文'
   const m = matchPresetValue(t)
-  const iconMap: Record<string, string> = {
-    xianxia_hot: '仙',
-    cyberpunk: '械',
-    mystery: '疑',
-    urban_power: '都',
-    xuanhuan_epic: '玄',
-    romance_sweet: '情',
-  }
-  return m ? (iconMap[m] || '文') : '文'
+  return getMarketStylePresetIcon(m)
 })
 
 const stats = computed(() => {
